@@ -147,7 +147,8 @@ export function panelSpecFromSlot(
     placement,
     toolbar: isToolbar ? { order: PLUGIN_TOOLBAR_ORDER, subOrder: slot.order ?? 0 } : undefined,
     modes: slot.modes,
-    capabilities: slot.popout ? { popout: true } : undefined,
+    capabilities:
+      slot.popout || slot.mirrored ? { ...(slot.popout ? { popout: true } : {}), ...(slot.mirrored ? { mirrored: true } : {}) } : undefined,
     frame: "own",
   };
 }

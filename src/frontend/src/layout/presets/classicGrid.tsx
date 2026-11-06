@@ -124,6 +124,8 @@ export interface GridOps {
   chrome(): GroupChrome;
   /** The zone a grid panel's `PanelProps.host` names. */
   zone: string;
+  /** Wraps a panel's mounted content (a pop-out window's "main window closed" state). */
+  wrapBody?(panel: RegisteredPanel, body: React.ReactNode): React.ReactNode;
 }
 
 export const CLASSIC_GRID_OPS: GridOps = {
@@ -957,11 +959,12 @@ function GroupPanel({
 }) {
   const ops = useGridOps();
   const props: PanelProps = {panelId: panel.id, host: {kind: "dock", zone: ops.zone}, close: () => ops.close(panel.id), isActive: active};
-  return (
+  const body = (
     <ErrorBoundary label={panel.title}>
       <Suspense fallback={<div className="p-2 text-sm text-gray-400">Loading…</div>}>
         <PanelMount panel={panel} provided={contents?.[panel.id]} props={props} which="content" outerSuspense />
       </Suspense>
     </ErrorBoundary>
   );
+  return ops.wrapBody ? <>{ops.wrapBody(panel, body)}</> : body;
 }

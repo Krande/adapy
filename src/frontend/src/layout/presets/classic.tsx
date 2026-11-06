@@ -72,6 +72,8 @@ import {ClassicZoneKeys, ColumnDropTarget, MinimisedTray, UndockedLayer, columnA
 import {GridView, ViewportDropTarget} from "./classicGrid";
 import {setPlacedElsewhere} from "../placedElsewhere";
 import {installMainWindow, windowBus} from "../windows";
+import {hostMirror} from "../windowMirror";
+import {registerCoreMirror} from "../windowMirrorCore";
 import {ShortcutKeys} from "../ShortcutKeys";
 import {ViewportOverlays} from "../ViewportOverlayLayer";
 import {offeredInMode} from "../shellModes";
@@ -445,7 +447,17 @@ function ClassicFrame() {
   React.useEffect(() => setPlacedElsewhere(placedElsewhere(doc, customisable, narrow)), [doc, customisable, narrow]);
   React.useEffect(() => () => setPlacedElsewhere([]), []);
   // The main window of a multi-window dashboard: panels other windows send or give back, and those they show hidden here.
-  React.useEffect(() => installMainWindow(windowBus(), {reveal, hide, isOpen: isPanelOpen}), []);
+  React.useEffect(() => {
+    const bus = windowBus();
+    const uninstall = installMainWindow(bus, {reveal, hide, isOpen: isPanelOpen});
+    // What mirrored panels in those windows read, and what they ask this one to do.
+    registerCoreMirror();
+    const unhost = hostMirror(bus);
+    return () => {
+      unhost();
+      uninstall();
+    };
+  }, []);
 
   // The split grid: the docked panels that are open, around the viewport.
   const frameRef = React.useRef<HTMLDivElement>(null);

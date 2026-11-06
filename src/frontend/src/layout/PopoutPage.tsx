@@ -16,7 +16,7 @@
 import React, {useEffect, useLayoutEffect, useMemo, useRef, useState} from "react";
 import {useStore} from "zustand";
 
-import {WINDOW_HEADER, WINDOW_HEADER_BUTTON} from "@/components/ui/panelChrome";
+import {WINDOW_HEADER} from "@/components/ui/panelChrome";
 import {MoveGlyph} from "@/components/ui/PanelFrame";
 import {activeUiShellId, getUiShell} from "@/plugins/uiShells";
 
@@ -36,6 +36,8 @@ import {GRID_GROUP_ATTR, groupLabel, gridNodeOfZone} from "./presets/classicPlac
 import {gridGroups, groupOf, shownGrid, type DockEdge, type Rect} from "./splitTree";
 import {MAIN_WINDOW_ID, acceptPanels, type WindowId} from "./windowBus";
 import {dockAtWindowEdge, dockInWindow, removeFromWindow, windowContext, windowPanels} from "./windowLayout";
+import {followMirror} from "./windowMirror";
+import {registerCoreMirror} from "./windowMirrorCore";
 import {
   moveToWindowItem,
   onFocusPanel,
@@ -130,6 +132,12 @@ export default function PopoutPage({windowId, panelId}: {windowId: WindowId; pan
     }
   }, [hydrated]);
 
+  // The main window's state that mirrored panels read.
+  useEffect(() => {
+    registerCoreMirror();
+    return followMirror(bus);
+  }, [bus]);
+
   // Every change of the arrangement is this window's presence.
   useEffect(() => {
     if (hydrated) bus.setPanels(windowPanels(doc));
@@ -215,6 +223,7 @@ export default function PopoutPage({windowId, panelId}: {windowId: WindowId; pan
       usePinned: () => NONE,
       chrome: () => ({actions: ["collapse"], tabIcons: !!shell?.chrome?.groups?.tabIcons}),
       zone: POPOUT_ZONE,
+      wrapBody: (p, body) => (p.capabilities.mirrored ? <MirroredBody>{body}</MirroredBody> : body),
     };
   }, [apply]);
 
@@ -251,6 +260,23 @@ export default function PopoutPage({windowId, panelId}: {windowId: WindowId; pan
 
 const noRect = (_: Rect) => {};
 
+/** A mirrored panel's content: dimmed under a notice while there is no main window to mirror. */
+function MirroredBody({children}: {children: React.ReactNode}) {
+  const mainLive = useMainWindowLive();
+  return (
+    <div className="relative h-full w-full" data-mirrored="">
+      <div className={mainLive ? "h-full w-full" : "pointer-events-none h-full w-full opacity-40"} aria-hidden={mainLive ? undefined : true}>
+        {children}
+      </div>
+      {!mainLive && (
+        <div className="absolute inset-0 flex items-center justify-center p-4 text-center text-sm text-gray-200" role="status" data-main-window-closed-body="">
+          Main window closed. This panel shows the main window's model; it updates again when the main window is open.
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** The window's title bar: its label (renamable), and a note when the main window is gone. */
 function WindowTitleBar({label, onRename}: {label: string; onRename(label: string): void}) {
   const mainLive = useMainWindowLive();
@@ -284,8 +310,13 @@ function WindowTitleBar({label, onRename}: {label: string; onRename(label: strin
           Main window closed
         </span>
       )}
-      <button type="button" className={`ml-auto ${WINDOW_HEADER_BUTTON}`} title="Rename this window" aria-label="Rename this window" onClick={() => setEditing(label)}>
-        <span className="px-1 text-xs">Rename</span>
+      <button
+        type="button"
+        className="ml-auto rounded-sm px-2 py-0.5 text-xs text-[var(--ada-window-header-text,#e5e7eb)] hover:bg-white/10"
+        title="Rename this window"
+        onClick={() => setEditing(label)}
+      >
+        Rename
       </button>
     </div>
   );

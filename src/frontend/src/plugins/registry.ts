@@ -541,6 +541,12 @@ export interface PanelSlot {
    * Applies to a panel that stands on its own (`top-panel`, or one naming a `dock`).
    */
   popout?: boolean;
+  /**
+   * May go to a pop-out window although it reads the scene (1.13.0): the plugin
+   * mirrors what it reads from the main window and acts through it
+   * (`registerMirrorTopic`, `registerMirrorCommand`).
+   */
+  mirrored?: boolean;
   // When set on a `fem-sidebar` panel, core promotes the panel to a tab in the
   // Simulation panel (alongside the built-in "animation" tab) rather than
   // stacking it inline. Buttonless / non-`asTab` fem-sidebar panels keep

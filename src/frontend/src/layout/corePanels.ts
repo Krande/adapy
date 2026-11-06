@@ -253,6 +253,8 @@ export function corePanelSpecs(): PanelSpec[] {
         },
       ),
       available: () => !nodeEditorOnly(),
+      // In a pop-out window it shows the main window's selection (`windowMirrorCore`).
+      capabilities: { mirrored: true },
       placement: column(30),
       toolbar: { order: 60 },
     },
