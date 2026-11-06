@@ -11,7 +11,7 @@ import {useTreeViewStore} from "@/state/treeViewStore";
 import type {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
 import {recordViewerAction} from "@/utils/scene/viewerHistory";
 
-import {noteTreeSelection, rowsById, treeIndices, treeSelectionIds} from "./treeSelection";
+import {noteTreeSelection, rowsById, showTreeSelection, treeIndices, treeSelectionIds} from "./treeSelection";
 import {selectTreeNode} from "./treeNavigation";
 
 /** `rows` and every row below them, pre-order, each once. */
@@ -53,22 +53,6 @@ function combine(rows: readonly TreeNodeData[], mode: "replace" | "add" | "toggl
     return [...current.filter((r) => !ids.has(r.id)), ...rows.filter((r) => !have.has(r.id))];
 }
 
-/** The scene tree widget shows `ids` as selected, without selecting in 3D again. */
-function showInTreeWidget(ids: readonly string[]): void {
-    const tv = useTreeViewStore.getState();
-    const t: any = tv.tree;
-    if (!t || !tv.treeData) return;
-    t.isProgrammaticChange = true;
-    try {
-        const last = ids.length ? ids[ids.length - 1] : null;
-        const api = last && typeof t.get === "function" ? t.get(last) : null;
-        t.setSelection({ids: [...ids], mostRecent: api, anchor: api});
-        if (api && !tv.isTreeCollapsed) t.scrollTo({id: last});
-    } finally {
-        t.isProgrammaticChange = false;
-    }
-}
-
 /**
  * Select `rows` (each one's subtree) in 3D, as a scene-tree click does: one undo
  * entry, the object info naming the first row, the tree search scoped to it.
@@ -103,7 +87,7 @@ export async function selectRows(
     }
     const ids = target.map((r) => r.id);
     noteTreeSelection(ids);
-    if (opts.syncTree) showInTreeWidget(ids);
+    if (opts.syncTree) showTreeSelection(ids);
     requestRender();
 }
 

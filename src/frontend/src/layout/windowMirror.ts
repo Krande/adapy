@@ -26,8 +26,19 @@ export interface MirrorTopic<T = unknown> {
   snapshot(): T;
   /** In the main window: notifies when `snapshot()` may have changed. Returns the unsubscribe. */
   subscribe(cb: () => void): () => void;
-  /** In a pop-out window: put a snapshot into this window's copy of the state. */
-  apply(data: T): void;
+  /**
+   * In a pop-out window: put a snapshot (or a `delta`) into this window's copy
+   * of the state. Returning `false` says it could not (a delta for a state it
+   * does not have): the window then asks for the full snapshot.
+   */
+  apply(data: T): void | boolean;
+  /**
+   * In the main window, optional: what to send on a CHANGE instead of the full
+   * snapshot (a request always gets `snapshot()`), e.g. what changed since the
+   * last message; null sends nothing. A topic with a large state publishes
+   * deltas this way and lets `apply` ask for the full state when it misses one.
+   */
+  delta?(): T | null;
 }
 
 /** An action a pop-out window asks the main window to run. */
@@ -78,16 +89,17 @@ export function hostMirror(bus: WindowBus, schedule: (fn: () => void) => void = 
   const seq = new Map<string, number>();
   const dirty = new Set<string>();
   let queued = false;
-  const publish = (id: string) => {
+  const publish = (id: string, change = false) => {
     const t = topics.get(id);
     if (!t) return;
     let data: unknown;
     try {
-      data = t.snapshot();
+      data = change && t.delta ? t.delta() : t.snapshot();
     } catch (err) {
       console.warn(`[windows] the mirror topic "${id}" failed`, err);
       return;
     }
+    if (data === null && change && t.delta) return;
     const n = (seq.get(id) ?? 0) + 1;
     seq.set(id, n);
     bus.post({ type: "mirror", topic: id, data, seq: n });
@@ -96,7 +108,7 @@ export function hostMirror(bus: WindowBus, schedule: (fn: () => void) => void = 
     queued = false;
     const ids = [...dirty];
     dirty.clear();
-    for (const id of ids) publish(id);
+    for (const id of ids) publish(id, true);
   };
   const mark = (id: string) => {
     // Nobody to tell: no message at all.
@@ -151,11 +163,15 @@ export function followMirror(bus: WindowBus): () => void {
     const had = applied.get(msg.topic);
     if (had && had.from === msg.from && had.seq >= msg.seq) return;
     applied.set(msg.topic, { from: msg.from, seq: msg.seq });
+    let ok: void | boolean;
     try {
-      t.apply(msg.data);
+      ok = t.apply(msg.data);
     } catch (err) {
       console.warn(`[windows] applying the mirror topic "${msg.topic}" failed`, err);
+      return;
     }
+    // A delta for a state this window does not have: the whole of it, please.
+    if (ok === false) bus.post({ type: "mirror-request", topics: [msg.topic] });
   });
   let mainSeen = false;
   const request = () => bus.post({ type: "mirror-request" });

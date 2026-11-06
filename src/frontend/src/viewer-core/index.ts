@@ -483,6 +483,25 @@ export {
   sendMirrorCommand,
 } from "@/layout/windowMirror";
 export type { MirrorCommand, MirrorTopic } from "@/layout/windowMirror";
+// A tree mirrored in chunks, with visibility and selection deltas (dependency-free).
+export {
+  ROW_VISIBILITY_CODES,
+  ROW_VISIBILITY_NAMES,
+  SCENE_TREE_CHUNK,
+  buildTree,
+  flattenTree,
+  sceneTreeTopic,
+} from "@/layout/sceneTreeMirror";
+export type {
+  FlatTreeChunk,
+  FlatTreeRoot,
+  MirrorTreeNode,
+  RowVisibilityName,
+  SceneTreeMessage,
+  SceneTreeSink,
+  SceneTreeSource,
+  SceneTreeTopicOptions,
+} from "@/layout/sceneTreeMirror";
 // Multi-window dashboards: the bus between the browser windows of one session (dependency-free).
 export {
   CLAIM_WAIT_MS,

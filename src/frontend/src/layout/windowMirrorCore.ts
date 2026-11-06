@@ -26,6 +26,7 @@ import {useTreeViewStore} from "@/state/treeViewStore";
 import {parentLevelName, rowsById, selectedRangeCount} from "@/utils/tree_view/treeSelection";
 
 import {registerSceneActionCommands, SCENE_ACTION_COMMANDS} from "./sceneActions";
+import {registerCoreSceneTreeTopic, resetCoreSceneTreeTopic} from "./sceneTreeMirrorCore";
 import {registerMirrorTopic} from "./windowMirror";
 
 export const SELECTION_TOPIC = "core:selection";
@@ -110,10 +111,12 @@ export function registerCoreMirror(): void {
     subscribe: (cb) => useFeaAnimationStore.subscribe((s, prev) => void (s.sessionActive !== prev.sessionActive && cb())),
     apply: (data) => useFeaAnimationStore.setState({sessionActive: data.sessionActive}),
   });
+  registerCoreSceneTreeTopic();
   registerSceneActionCommands(rowsById);
 }
 
 /** Forget the registration -- tests only (with `resetMirror`). */
 export function resetCoreMirror(): void {
   registered = false;
+  resetCoreSceneTreeTopic();
 }

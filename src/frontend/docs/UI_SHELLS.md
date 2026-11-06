@@ -332,12 +332,56 @@ own tree rows and drops unknown ones. The object info panel's Hide, Hide others,
 Unhide all, Fit all, Go to object and up-a-level buttons work from a pop-out
 this way.
 
+**The scene tree in a pop-out (`core:scene-tree`).** The selection tree panel is
+`mirrored`. In a pop-out its content is the Scene tree alone (the Sources and
+Systems tabs load into a scene the pop-out does not have), the same component
+and rows as in the main window (`rowExtras`, `rowClassName`, search, the root
+label toggle). The main window publishes one topic, built for large trees
+(`sceneTreeTopic`, root facade, dependency-free):
+
+* **full** -- the tree, every row's visibility and the selected rows, sent when
+  a window asks and when the *tree* changes (a model loaded or unloaded, roots
+  relabelled), throttled (250 ms, trailing) so a bulk load sends a few trees, not
+  one per model. The tree travels flat (pre-order columns: ids, names, parent
+  indices, the rows' other fields) in chunks of 5000 rows
+  (`SCENE_TREE_CHUNK`), the first in the full message and the rest as **part**
+  messages in tasks of their own, so the main window is not held up by one huge
+  clone. The pop-out builds the tree once every part is in and puts it into its
+  own tree store, so the stock tree renders it.
+* **delta** -- otherwise only what changed: the rows whose visibility changed (a
+  code each: shown, hidden, partial, no geometry) and the selected rows when they
+  changed. Hiding one element of a 20 000-row tree sends a few codes.
+
+Every tree has a revision; a part or delta for a revision a pop-out does not
+hold is refused and the pop-out asks for the full state again (a topic's
+`apply` returning `false`, `MirrorTopic.delta`); a full for the revision it
+already holds is not rebuilt.
+
+The rows act through `useSceneActions`: a click (with Shift / Ctrl ranges and
+toggles resolved in the pop-out, whose expand state is its own) is
+`core:select-rows` `{ids, mode}` (`replace`, `add`, `toggle`); the eye is
+`core:hide-rows` / `core:show-rows` `{ids}`; the pop-out's row menu offers Go to
+(`core:fit-rows`: select and frame), Hide, Unhide, Hide all others
+(`core:isolate-rows`), Unhide all, Copy names (its own clipboard) and
+expand / collapse below; "Remove all" is `core:clear-scene`. A selection made in
+a pop-out is shown in the main window's tree too, and a pick in the main window
+selects and scrolls to the row in the pop-out's tree. Expand state, search,
+scope and scroll stay in each window.
+
+Limits: a full tree costs O(rows) to flatten, clone and rebuild, once per
+model-set change and per window that opens (every open pop-out receives it, not
+only those showing the tree). A visibility change costs the main window one
+O(rows) walk to find what changed; on the wire it is O(changed rows), so
+isolating a small part of a large tree sends close to a code per row (still no
+tree). Rows the main window has no mesh for yet show as "no geometry" until the
+next visibility change, as in the main window.
+
 What stays in the main window, and why:
 
 | Panel | Why not mirrored (yet) |
 |---|---|
 | Object info (parts) | Mirrored, buttons included. Still local to the pop-out: the mobile-only "Copy all (n)" (it copies the 3D selection's names, which the pop-out does not hold) and "+ Add mode" (the main window's additive picking); the procedural-cell context (cell names, cell hide, cell add mode: the builder store is not mirrored); "Show in data" (it resolves the picked element on the main window's FEA mesh, so it does not show); the selection download (it reads the 3D selection). |
-| Selection tree | The stock tree reads visibility from the 3D batches and its rows act on the scene through `NodeApi`s; mirroring needs a tree of its own fed by a tree snapshot, a visibility map and select / hide / isolate commands. |
+| Selection tree (parts) | Mirrored (Scene tab). Not in a pop-out: the Sources and Systems tabs; from the row menu, saved groups, related elements, loading from another provider, unloading one model, the selection box. |
 | Scene info | Its ~15 sections run scene tools (section planes, face search, clash runs) against the scene directly. |
 | Simulation, result data | Step and field changes run closures held in the main window's FEA store (`applyStep`, streaming reloads); they need commands per control and a snapshot of about 30 store fields plus the manifest. |
 
@@ -349,7 +393,8 @@ without the panels changing.
 |---|---|
 | The bus (root) | `createWindowBus`, `WindowBus`, `WindowBusMessage`, `broadcastTransport`, `memoryTransportHub`, `nullTransport`, `windowBusChannelName`, `MAIN_WINDOW_ID`, `sendPanel`, `acceptPanels`, `panelsToReturn`, the dashboard record helpers, `nextWindowId` |
 | URLs (root) | `WINDOW_PARAM`, `POPOUT_PARAM`, `popoutWindowId`, `popoutPanelId`, `isPopoutPage`, `windowUrl`, `popoutUrl`, `openWindow`, `canPopOut` |
-| Mirroring (root) | `registerMirrorTopic`, `registerMirrorCommand`, `hostMirror`, `followMirror`, `sendMirrorCommand`, `capabilities.mirrored` |
+| Mirroring (root) | `registerMirrorTopic` (`MirrorTopic.delta`, `apply` returning `false`), `registerMirrorCommand`, `hostMirror`, `followMirror`, `sendMirrorCommand`, `capabilities.mirrored`; for trees: `sceneTreeTopic`, `flattenTree`, `buildTree`, `SceneTreeSource` / `SceneTreeSink`, `ROW_VISIBILITY_CODES`, `SCENE_TREE_CHUNK` |
+| Scene tree mirror (`/layout`) | `SCENE_TREE_TOPIC`, `coreSceneTreeSource`, `coreSceneTreeSink`, `useSceneMirrorStore` |
 | This page (`/layout`) | `windowBus`, `useOpenWindows`, `useThisWindow`, `useMainWindowLive`, `moveToWindowItem`, `openNewWindow`, `reopenWindows`, `installMainWindow`, `GridOps` / `GridOpsProvider`, `PopoutPage` |
 | Acting (`/layout`) | `useSceneActions`, `sceneActions`, `remoteSceneActions`, `isMirroredWindow`, `SceneActions`, `RowSelectMode`, `SCENE_ACTION_COMMANDS`, `MIRRORED_CORE_COMMANDS` |
 

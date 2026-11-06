@@ -133,6 +133,47 @@ export function rowVisibility(node: TreeNodeData, version: number, tree: unknown
     return hidden === total ? "hidden" : "partial";
 }
 
+const VISIBILITY_CODE: Record<RowVisibility, number> = {shown: 0, hidden: 1, partial: 2, none: 3};
+
+/**
+ * Every row's visibility under `container` (the store's treeData; the container
+ * itself is not a row), as codes, the rows that are shown left out: what the
+ * window mirror sends a pop-out's tree (`@/layout/sceneTreeMirror`). One
+ * post-order walk with counts and meshes of its own, so it neither reads nor
+ * resets the cache the tree's rows use.
+ */
+export function rowVisibilityMap(container: TreeNodeData): Map<string, number> {
+    const out = new Map<string, number>();
+    const meshes = new Map<string, CustomBatchedMesh>();
+    const own = new Map<TreeNodeData, {hidden: number; total: number}>();
+    const stack: [TreeNodeData, boolean][] = (container.children ?? []).map((c) => [c, false]);
+    while (stack.length) {
+        const [n, expanded] = stack.pop()!;
+        if (!expanded) {
+            stack.push([n, true]);
+            for (const c of n.children ?? []) stack.push([c, false]);
+            continue;
+        }
+        let hidden = 0;
+        let total = 0;
+        const mesh = meshOf(n, meshes);
+        if (mesh) {
+            total = 1;
+            if (mesh.getHiddenRanges().has(String(n.rangeId))) hidden = 1;
+        }
+        for (const c of n.children ?? []) {
+            const cc = own.get(c);
+            if (!cc) continue;
+            hidden += cc.hidden;
+            total += cc.total;
+        }
+        own.set(n, {hidden, total});
+        const v: RowVisibility = total === 0 ? "none" : hidden === 0 ? "shown" : hidden === total ? "hidden" : "partial";
+        if (v !== "shown") out.set(n.id, VISIBILITY_CODE[v]);
+    }
+    return out;
+}
+
 // Each of these is one undo / redo entry (Ctrl+Z / Ctrl+Y), however many ranges the rows hold.
 
 export function hideRows(rows: readonly TreeNodeData[]): void {

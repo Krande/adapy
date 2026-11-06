@@ -198,6 +198,10 @@ export {
   useSceneActions,
 } from "@/layout/sceneActions";
 export type { RowSelectMode, SceneActions } from "@/layout/sceneActions";
+// The scene tree's mirror topic (`core:scene-tree`): the main window's source, a pop-out's sink.
+export { SCENE_TREE_TOPIC, coreSceneTreeSink, coreSceneTreeSource } from "@/layout/sceneTreeMirrorCore";
+export { useSceneMirrorStore } from "@/state/sceneMirrorStore";
+export type { SceneMirrorState } from "@/state/sceneMirrorStore";
 export { CLASSIC_GRID_OPS, GridOpsProvider, GridView } from "@/layout/presets/classicGrid";
 export type { GridOps, GridViewProps } from "@/layout/presets/classicGrid";
 export { default as PopoutPage, POPOUT_ZONE } from "@/layout/PopoutPage";

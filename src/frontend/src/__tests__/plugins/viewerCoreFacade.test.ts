@@ -128,6 +128,7 @@ test("the root entry point re-exports only the dependency-free leaves", () => {
     "@/layout/popout",
     "@/layout/windowBus",
     "@/layout/windowMirror",
+    "@/layout/sceneTreeMirror",
     "@/layout/commands",
     "@/layout/coreCommandIds",
     "@/layout/desktop/desktopShell",

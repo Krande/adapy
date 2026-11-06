@@ -109,6 +109,29 @@ export function rowsById(ids: readonly string[]): TreeNodeData[] {
     return out;
 }
 
+/**
+ * This window's tree widget shows `ids` selected (scrolled to the last), without
+ * reporting a selection of its own; nothing when it shows them already. By
+ * default it scrolls only while the tree drawer is open.
+ */
+export function showTreeSelection(ids: readonly string[], scroll?: boolean): void {
+    const tv = useTreeViewStore.getState();
+    scroll ??= !tv.isTreeCollapsed;
+    const t: any = tv.tree;
+    if (!t || !tv.treeData) return;
+    const now = new Set<string>((t.selectedNodes ?? []).map((n: {id: string}) => n.id));
+    if (now.size === ids.length && ids.every((id) => now.has(id))) return;
+    t.isProgrammaticChange = true;
+    try {
+        const last = ids.length ? ids[ids.length - 1] : null;
+        const api = last && typeof t.get === "function" ? t.get(last) : null;
+        t.setSelection({ids: [...ids], mostRecent: api, anchor: api});
+        if (api && scroll) t.scrollTo({id: last});
+    } finally {
+        t.isProgrammaticChange = false;
+    }
+}
+
 /** How many draw ranges are selected. */
 export function selectedRangeCount(): number {
     let n = 0;

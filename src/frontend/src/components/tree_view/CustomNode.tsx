@@ -1,9 +1,23 @@
 import React from 'react';
 import {NodeRendererProps} from 'react-arborist';
 
+import {isMirroredWindow, useSceneActions} from '@/layout/sceneActions';
+import {ROW_VISIBILITY_NAMES} from '@/layout/sceneTreeMirror';
+import {useSceneMirrorStore} from '@/state/sceneMirrorStore';
 import {useVisibilityStore} from '@/state/visibilityStore';
-import {hideRows, RowVisibility, rowVisibility, showRows} from '@/utils/tree_view/sceneTreeActions';
+import {RowVisibility, rowVisibility} from '@/utils/tree_view/sceneTreeActions';
 import {Chevron, EyeGlyph, ModelGlyph, NodeGlyph} from './treeGlyphs';
+
+/**
+ * A row's visibility: read from the 3D batches in the main window; in a pop-out
+ * window, the main window's (`core:scene-tree`, a code per row; none = shown).
+ */
+function useRowVisibility(data: TreeNodeData, tree: unknown): RowVisibility {
+    const version = useVisibilityStore((s) => s.version);
+    const mirrored = isMirroredWindow();
+    const code = useSceneMirrorStore((s) => (mirrored ? s.visibility.get(data.id) ?? 0 : 0));
+    return mirrored ? ROW_VISIBILITY_NAMES[code] ?? "shown" : rowVisibility(data, version, tree);
+}
 
 export interface TreeNodeData {
     id: string;
@@ -48,8 +62,8 @@ export const CustomNode: React.FC<NodeRendererProps<TreeNodeData>> = ({style, no
     // A row with its own draw range is a piece of geometry; one without is a level. The top row of
     // each loaded model is the model.
     const geometry = data.rangeId != null && !!data.node_name;
-    const version = useVisibilityStore((s) => s.version);
-    const visibility = rowVisibility(data, version, node.tree.props.data);
+    const visibility = useRowVisibility(data, node.tree.props.data);
+    const actions = useSceneActions();
     const hidden = visibility === "hidden";
     const {rowExtras, rowClassName} = React.useContext(SceneTreeRowContext);
     const extraClass = rowClassName?.(data);
@@ -96,8 +110,8 @@ export const CustomNode: React.FC<NodeRendererProps<TreeNodeData>> = ({style, no
                     }`}
                     onClick={(e) => {
                         e.stopPropagation();
-                        if (visibility === "shown") hideRows([data]);
-                        else showRows([data]);
+                        if (visibility === "shown") actions.hideRows([data]);
+                        else actions.showRows([data]);
                     }}
                 >
                     <EyeGlyph shut={visibility !== "shown"}/>

@@ -162,7 +162,8 @@ export function corePanelSpecs(): PanelSpec[] {
       ),
       available: () => !nodeEditorOnly(),
       // Kept mounted once opened, as the classic drawer is: reopening must not rebuild the tree.
-      capabilities: { stackable: false, keepAlive: true },
+      // In a pop-out window it shows the main window's tree (`core:scene-tree`) and acts there.
+      capabilities: { stackable: false, keepAlive: true, mirrored: true },
       constraints: { requiresViewerProvider: true },
       placement: classic({ zone: CLASSIC_ZONES.tree, order: 10 }),
       toolbar: { order: 20 },

@@ -4,11 +4,21 @@ import {NodeApi, Tree} from "react-arborist";
 import {CustomNode, SceneTreeRowContext, TreeNodeData, type SceneTreeRowOptions} from './CustomNode';
 import {sceneTreeRow} from './SceneTreeRow';
 import {useSceneMenuStore} from '@/state/sceneMenuStore';
-import {handleTreeSelectionChange} from "@/utils/tree_view/handleClickedNode";
 import {syncSceneTreeToSelection} from "@/utils/tree_view/revealPick";
 import {closeTreeFromKeyboard, isTreeCloseKey} from "@/utils/tree_view/treeKeyboard";
-import {clearScene} from "@/utils/scene/handlers/clear_scene";
+import {showTreeSelection} from "@/utils/tree_view/treeSelection";
 import {claimSceneTreeSelection, sceneTreeContributedRoots, subscribeSceneTreeRoots} from "@/plugins/sceneTreeRoots";
+import {isMirroredWindow, useSceneActions} from "@/layout/sceneActions";
+import {useSceneMirrorStore} from "@/state/sceneMirrorStore";
+import {MirroredSceneMenuHost} from "./MirroredSceneMenu";
+
+/** Give the tree the selection as it is now. In a pop-out window, the main window's (mirrored); its count of rows. */
+function syncTreeToSelection(): number {
+    if (!isMirroredWindow()) return syncSceneTreeToSelection();
+    const ids = useSceneMirrorStore.getState().treeSelection;
+    showTreeSelection(ids, true);
+    return ids.length;
+}
 
 /** What a `rootFilter` lists of the model roots, and how many it left out. */
 export interface SceneTreeRootFilter {
@@ -48,6 +58,10 @@ export interface SceneTreeProps {
 
 const TreeViewComponent: React.FC<SceneTreeProps> = ({rootFilter, rootFilterLabels = ROOT_FILTER_LABELS, extraRoots, onSelectOverride, header, rowExtras, rowClassName}) => {
     const rowOptions = React.useMemo(() => ({rowExtras, rowClassName}), [rowExtras, rowClassName]);
+    // What the tree does: on this window's scene, or -- in a pop-out window, which shows the main
+    // window's tree (`core:scene-tree`) -- sent to the main window (`@/layout/sceneActions`).
+    const actions = useSceneActions();
+    const mirrored = isMirroredWindow();
     const {useTreeViewStore} = useViewerStores();
     const {treeData, setTree, searchTerm, scopeNodeId, scopeNodeName, setScope, rootLabelMode, setRootLabelMode} = useTreeViewStore();
     const {useModelState} = useViewerStores();
@@ -123,7 +137,7 @@ const TreeViewComponent: React.FC<SceneTreeProps> = ({rootFilter, rootFilterLabe
             setTree(tree);
             // Opened for the first time: show what is already selected in 3D, rather than an empty
             // tree whose first selection event would clear it.
-            syncSceneTreeToSelection();
+            syncTreeToSelection();
         }
     }, []);
 
@@ -138,7 +152,7 @@ const TreeViewComponent: React.FC<SceneTreeProps> = ({rootFilter, rootFilterLabe
         }
         if (!wasHidden.current) return;
         wasHidden.current = false;
-        if (syncSceneTreeToSelection()) return;
+        if (syncTreeToSelection()) return;
         const tree = treeRef.current;
         const node = tree?.mostRecentNode ?? tree?.selectedNodes?.[0];
         if (node) tree.scrollTo(node.id);
@@ -152,9 +166,12 @@ const TreeViewComponent: React.FC<SceneTreeProps> = ({rootFilter, rootFilterLabe
         if (!treeRef.current?.isProgrammaticChange) {
             const rowIds = ids.map((n) => String(n.id));
             if (onSelectOverride?.(rowIds) || claimSceneTreeSelection(rowIds)) return;
-            (async () => {
-                await handleTreeSelectionChange(ids);
-            })();
+            // The rows as the widget resolved them (a Shift range, a Ctrl toggle): its expand
+            // state is this window's, so the range is too.
+            const rows = ids.map((n) => n.data as TreeNodeData);
+            // The search scope is this window's own (in the main window `selectRows` sets it).
+            if (mirrored) setScope(rows.length ? rows[0].id : null, rows.length ? rows[0].name ?? null : null);
+            actions.selectRows(rows);
         }
     };
 
@@ -211,7 +228,7 @@ const TreeViewComponent: React.FC<SceneTreeProps> = ({rootFilter, rootFilterLabe
                             disabled={clearing}
                             onClick={() => {
                                 setClearing(true);
-                                void clearScene()
+                                void actions.clearScene()
                                     .catch((err) => console.error("remove all failed", err))
                                     .finally(() => setClearing(false));
                             }}
@@ -319,6 +336,8 @@ const TreeViewComponent: React.FC<SceneTreeProps> = ({rootFilter, rootFilterLabe
                 </Tree>
                 </SceneTreeRowContext.Provider>
             </div>
+            {/* The row menu: the main window draws its own beside the viewer; a pop-out has no viewer. */}
+            {mirrored && <MirroredSceneMenuHost/>}
 
         </div>
     );

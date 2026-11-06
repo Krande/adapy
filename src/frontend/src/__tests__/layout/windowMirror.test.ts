@@ -115,6 +115,40 @@ test("an older snapshot than the one applied is skipped; a new main window start
   assert.equal(s.copy.value, 2);
 });
 
+test("a topic with a delta sends it on a change and the snapshot on a request; a refused apply asks again", () => {
+  const s = setup();
+  let n = 1;
+  const store = counterStore(0);
+  const applied: unknown[] = [];
+  registerMirrorTopic<{ full?: number; d?: number }>({
+    id: "t:delta",
+    snapshot: () => ({ full: store.value }),
+    delta: () => (store.value === 99 ? null : { d: n++ }),
+    subscribe: (cb) => store.subscribe(cb),
+    apply: (x) => {
+      applied.push(x);
+      return x.d !== 2;
+    },
+  });
+  s.main.start();
+  hostMirror(s.main, s.schedule);
+  s.w2.start();
+  followMirror(s.w2);
+  assert.deepEqual(applied, [{ full: 0 }]);
+  store.set(1);
+  s.flush();
+  assert.deepEqual(applied.at(-1), { d: 1 });
+  // Refused: the window asks for the topic, and gets the snapshot.
+  store.set(2);
+  s.flush();
+  assert.deepEqual(applied.slice(-2), [{ d: 2 }, { full: 2 }]);
+  // A null delta: nothing sent.
+  const len = applied.length;
+  store.set(99);
+  s.flush();
+  assert.equal(applied.length, len);
+});
+
 test("core's selection topic carries the object info store's data, not its panel flag", async () => {
   resetMirror();
   const { registerCoreMirror, resetCoreMirror, selectionSnapshot, findTreeNode, SELECTION_TOPIC } = await import("@/layout/windowMirrorCore");
