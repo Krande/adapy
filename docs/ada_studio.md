@@ -118,6 +118,26 @@ any axis, keep only the strongest axis, lock rotation or panning, and remap the 
 On Windows, the vendor's 3DxWare driver may hold the device. If the status reads **Could not
 connect**, quit the driver (the 3DxService process) and connect again.
 
+## Marking menu and tool rail
+
+The **marking menu** is a wheel of commands at the pointer. Hold the right mouse button still
+over the 3D view for a moment and it opens: move towards a command and let go to run it. Fit
+all is up, hiding is to the left with Show all above it, selection is to the right, and the
+camera views are below, in a second wheel that opens as you move past **Views**. A list under
+the wheel holds Undo and Redo, and, while an FE result is loaded, the set isolation. Let go
+without moving and the menu stays open, so you can click a command, or choose one with the
+arrow keys and Enter. **Shift+E** opens it from the keyboard, and Escape closes it. A command
+that cannot run now stays in its place, greyed, and its tooltip says why. A quick right-click
+still opens the object's menu, and a right-drag still pans. The menu is on in the Desktop UI.
+In the classic UI, turn it on in **Options → Theme → Marking menu**. Either UI can turn it off
+there or in the Desktop UI's **View → Display** menu.
+
+The Desktop UI also has a **tool rail** down its left edge: one button per command, with its
+shortcut in the tooltip. A toggle, such as Geometry edges, shows as pressed while it is on.
+Right-click a tool to remove it. The button at the foot of the rail (also **Window → Customise
+tool rail…**) adds any command, reorders the tools, adds separators and resets the rail to
+the default. Your rail is saved with your layout.
+
 ## What else is in it
 
 - **Assets and sources:** project trees that providers publish into a scope, with a

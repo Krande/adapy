@@ -269,7 +269,8 @@ the chrome it draws in the slots.
 | | `layout.customisablePanels` | `"required"` (default): floating, docking and the split grid are always on in the shell, whatever the user set in another UI, and Options → Theme → Customisable panels shows the toggle on and disabled ("Always on in the … UI"); a docked layout is built on them. `"optional"`: the user's own setting for this shell. The setting is kept per shell (`LayoutPrefs.customisablePanelsByShell`; core's own UI's under `core`, where the single setting of older versions moves), so turning it off in Classic leaves the Desktop UI as designed and comes back on the way back. Read it through `customisablePanels()` / `useCustomisablePanels()`. |
 | Groups (in `grid`) | `fixed: {px, min, max}` | A dock held at a px size, kept on window resize; its divider resizes it in px. On groups and splits. |
 | | `collapsed`, `arrangement` | A strip of panel icons that restores the group; tabs, stacked, or `"auto"` (stacked while there is room). |
-| Chrome | `chrome.header`, `footer`, `rail` | Lazy slots above, below and left of the layout (menu bar, status bar, tool rail). |
+| Chrome | `chrome.header`, `footer`, `rail` | Lazy slots above, below and left of the layout (menu bar, status bar, tool rail). `rail` may instead be core's tool rail as data, `{tools}` (see [The tool rail](#the-tool-rail)). |
+| | `chrome.markingMenu: {items, more, gesture} \| false` | Core's marking menu over the 3D view (see [The marking menu](#the-marking-menu)): given, on in the shell; absent or `false`, none. |
 | | `chrome.toolbar` | Core's top bar of panel toggles over the view (default on). |
 | | `chrome.groups` | Group header actions `"add"` / `"collapse"` / `"pin"`, and `tabIcons`. Pinned panels stay placed across modes. |
 | | `chrome.commandPalette: {keys} \| false` | The palette over every command (`registerCommand`; core adds its own, panels and modes) is core's, in every UI (core's own UI, composed shells, shells with `load` under `AppRoot`), mounted once under core's root and opened by core's Ctrl+K (`core:command-palette`, reserved, not while typing in a field; the browser's own Ctrl+K is taken over) or `openCommandPalette()`. `keys` adds a chord of the shell's own beside Ctrl+K; `false` turns the palette off while the shell is active. Absent: on. `MenuBar` draws menus of command ids. |
@@ -298,7 +299,7 @@ chords of the entries plugins may not take. One keydown listener (`installShortc
 the layout and a mounted viewer, so a key never fires twice) runs the dispatched entries; it ignores keys
 typed into an input, textarea, select or editable element and keys a widget already handled.
 
-Two kinds of core entry. *Dispatched* ones (Shift+H / I / G / U / F / A / Q / W / P / R / T / C and
+Two kinds of core entry. *Dispatched* ones (Shift+H / I / G / U / F / A / Q / W / P / R / T / C / E and
 Shift+Arrows, Ctrl+Z / Y / Shift+Z / C, Shift+Enter in the procedural builder) run in the registry's
 listener, bound by the mounted viewer. *Local* ones (`local: true`) are keys a widget keeps because it needs
 its own state: the gallery strip's arrows and PageUp / PageDown, the procedural builder's tool keys and
@@ -308,6 +309,105 @@ listed in the dialog and (F6, Esc) reserved, but never dispatched. Rebinding a c
 
 Layout state helpers on `@/viewer-core/layout`: `resetArrangement`, `saveWorkspace`,
 `loadWorkspace`, `deleteWorkspace`, `listWorkspaces`.
+
+### The marking menu
+
+A wheel of up to eight commands at the pointer over the 3D view, with a short list under it
+for what does not fit. Core's, in the main window of every UI that has it on; a pop-out window
+has no 3D view and no marking menu.
+
+**The gesture, and why that one.** Over the view the right button already does two things: a
+quick click opens the Scene menu for what is under the cursor, and a drag pans the camera
+(Shift + left drag is the selection box, left drag orbits, a left click picks). The marking
+menu takes the one thing left, a **hold**: press the right button and keep it still for
+`holdMs` (300 ms) and the menu opens at the pointer. Then:
+
+- *flick and release* -- move past `deadZonePx` (24 px) towards an item and let go: it runs.
+  Past a submenu's label the submenu's wheel opens there and the flick goes on from it.
+- *release without moving* -- the menu stays open: hover highlights, a click on an item or
+  anywhere in its sector runs it, a click in the centre or far off closes it.
+- *keys* -- core's `core:marking-menu` (**Shift+E**, reserved) opens it at the pointer when
+  that is over the view, else at the view's centre, with the first item that can run
+  highlighted; arrows (and Tab) move round the wheel and through the list, Enter runs,
+  Backspace leaves a submenu, Escape closes. The highlighted item has the focus, and the focus
+  goes back where it was when the menu closes.
+
+A press that moves more than `moveTolerancePx` (5 px) before the hold is a pan, as before; a
+quick click is the Scene menu, as before. Browsers on macOS and Linux fire `contextmenu` on the
+*press*: core holds that event back until it knows which of the three the press is, and hands
+it on to the Scene menu for a click (and drops it for a pan or a hold). Once the menu opened,
+the camera's drag is cancelled and the moves of the flick are kept from it, and the
+`contextmenu` Windows fires on the release is swallowed. Shift / Ctrl / Alt + right press, touch
+and pen input, a press on a HUD or a panel over the view, and the procedural builder (it has
+right-click menus of its own) are left alone. The rules are a state machine with no DOM
+(`MarkingGesture`), tested on its own.
+
+**Items.** Command ids (`registerCommand`; core's, `panel:<id>`, `mode:<id>` too), clockwise
+from north; `null` keeps a slot empty and a `{label, items}` is a submenu. An item keeps its
+place: a command that cannot run is greyed where it is, its reason in the tooltip, and a command
+nothing offers is an empty slot. Core's wheel (`defaultMarkingMenuItems`): Fit all (N), Fit
+selection (NE), Select all (E), Clear selection (SE), Views ▸ (S: top, isometric, right, front,
+left, back), Hide others (SW), Hide selected (W), Show all (NW); its list
+(`defaultMarkingMenuMore`): the picked element's FEA sets and Clear FEA isolation while a
+result is loaded, Undo, Redo.
+
+```ts
+chrome: {
+  markingMenu: {
+    // A list, or a function asked each time the menu opens.
+    items: (ctx) => [CORE_COMMAND_IDS.fitAll, ..., ctx.mode === "results" ? "my-shell:probe" : null],
+    more: [CORE_COMMAND_IDS.undo, CORE_COMMAND_IDS.redo],
+    gesture: { holdMs: 250 },
+  },
+},
+```
+
+| Where | On by default | Why |
+|---|---|---|
+| Core's own UI | No; Options -> Theme -> Marking menu turns it on | Its right button has meant "Scene menu or pan" for a long time; a hold opening something new should be a choice. |
+| A composed shell with `chrome.markingMenu` | Yes; the user may turn it off | The shell asked for it. |
+| A composed shell without it, or `false` | Not offered | It may have right-button gestures of its own. |
+| A shell with `load` | Not offered | It mounts no core layout. |
+
+The user's choice is per UI shell (`LayoutPrefs.markingMenuByShell`), like "Customisable
+panels". Core's commands: `markingMenu` (open it; offered where it is on) and
+`toggleMarkingMenu` (on or off, checked while on). On `@/viewer-core/layout`:
+`MarkingMenuView` (the wheel as drawn, for a shell that opens it its own way), `markingSlots`,
+`MarkingMenuHost`, `openMarkingMenu`, `setMarkingMenuOn`, `servedMarkingMenu`; the rules on the
+root: `MarkingGesture`, `sectorAt`, `sectorOffset`, `resolveMarkingMenu`,
+`markingMenuAvailability`.
+
+### The tool rail
+
+`chrome.rail` takes core's rail as data, in place of a component of the shell's own (which it
+still takes):
+
+```ts
+chrome: { rail: { tools: [CORE_COMMAND_IDS.fitAll, CORE_COMMAND_IDS.fitSelection, RAIL_SEPARATOR, "panel:core:tree"] } },
+```
+
+A column of icon buttons down the left edge of the layout, outside the docks, between header and
+footer. Each tool is a command: its `icon` (`CommandSpec.icon`; core's commands have icons,
+`CORE_COMMAND_ICONS`, panels and modes use theirs, and a command without one is drawn with its
+initials), its label and chord as the tooltip, `aria-pressed` while a toggle is `checked`,
+greyed with the reason while it cannot run. A tool nothing offers now is left out, and so are
+the separators that leaves stranded. What greys or ticks a command lives in stores of every
+kind, so the rail asks its tools again after a click or a key anywhere, when the selection, the
+history or the layout changes, and once a second.
+
+The user arranges it (`customisable: false` takes that away): right-click a tool to remove it;
+the button at the foot of the rail, its right-click menu and `core:customise-rail` (Window ->
+Customise tool rail… in the Desktop UI) open the customise dialog, which reorders, removes and
+adds tools from every command (with a filter), adds separators and resets to the shell's list.
+Changes are saved as they are made, per shell, in the layout prefs (`LayoutPrefs.rail[shell]`:
+`RailPrefs`), so they go to the server with the arrangements. The saved value is the user's
+whole list and the shell's list when they saved it (`base`): a tool the shell adds in a later
+release is in neither and is put in next to the tool before it in the shell's list
+(`railTools`); one the user removed is in `base` and stays out. A list equal to the shell's is
+not stored. On `@/viewer-core/layout`: `ToolRail`, `ToolRailCustomiseDialog`,
+`openRailCustomise`, `saveRail`, `resetRail`, `railList`; the rules on the root:
+`railTools`, `tidyRail`, `moveRailTool`, `addRailTool`, `removeRailTool`, `migrateRailPrefs`.
+Main window only: a pop-out window draws no shell chrome.
 
 ### Multi-window dashboards
 
@@ -487,6 +587,8 @@ worked example of a full docked UI (`desktopUiShellSpec()` from `@/viewer-core`)
 | Layout | Tree and storage tabbed in a fixed-px left dock; object info over scene info in a fixed-px right column; Simulation and Result data in a fixed-px dock under the view, collapsed to a strip in the Model mode. Group actions add, collapse, pin; tab icons. Plugin panels naming `left` / `right` / `bottom` join those docks. |
 | Modes | Model (default) and Results (the results dock open); plugins' modes follow. |
 | Footer | A status bar: connection, models loaded, selection count, mode, what Undo undoes. |
+| Rail | Core's tool rail (`DESKTOP_RAIL_TOOLS`) on the left edge: Open; Fit all, Fit selection, Reset camera, Isometric view; Hide selected, Hide others, Show all; Select all, Clear selection; Geometry edges, Clear FEA isolation; Undo, Redo. The user's own is kept per shell. |
+| Marking menu | Core's (`chrome.markingMenu: {}`), on: hold the right button over the view, or Shift+E. |
 | Chrome | Command palette on Ctrl+K, the colour legend at `right-center`, overlay plugin panels at `top-left`, the toast bottom-right, a title bar on `/convert` and `/admin`. |
 | Look | Core's tokens only (`--ada-window-*`, `--ada-tab-*`, the user's panel theme); no colours of its own. |
 
@@ -498,9 +600,9 @@ leaves stranded):
 |---|---|
 | File | Open… (Ctrl+O), Upload file… (REST); Export selection…, Export model… (REST); Storage, Convert files; Options |
 | Edit | Undo, Redo; Select all (Ctrl+A), Invert selection, Clear selection, Copy names, Save selection as group…; Visibility ▸ Hide selected, Hide others, Show all |
-| View | Panels ▸ (each panel's toggle); Camera ▸ Fit all, Fit selection, Reset camera, Top / Bottom / Front / Back / Left / Right / Isometric view; Display ▸ Geometry edges, Performance stats, Gallery mode; FEA sets ▸ Isolate FEA sets…, Isolate the picked element's FEA sets, Clear FEA isolation, Show the rest as wireframe; Theme ▸ (the presets); User interface ▸ (the shells); Command palette, Full screen |
+| View | Panels ▸ (each panel's toggle); Camera ▸ Fit all, Fit selection, Reset camera, Top / Bottom / Front / Back / Left / Right / Isometric view; Display ▸ Geometry edges, Performance stats, Gallery mode, Marking menu on the right button; FEA sets ▸ Isolate FEA sets…, Isolate the picked element's FEA sets, Clear FEA isolation, Show the rest as wireframe; Theme ▸ (the presets); User interface ▸ (the shells); Command palette, Marking menu (Shift+E), Full screen |
 | Modes | One per mode |
-| Window | New window, Reopen windows; Reset layout, Reset every mode's layout; Workspaces ▸ Save workspace…, (each saved one), Delete workspace… |
+| Window | New window, Reopen windows; Reset layout, Reset every mode's layout, Customise tool rail…; Workspaces ▸ Save workspace…, (each saved one), Delete workspace… |
 | Help | Keyboard shortcuts; Server info, Connection; About |
 
 **Core's commands.** The items that are not `panel:` or `mode:` commands are
