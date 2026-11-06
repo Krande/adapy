@@ -61,6 +61,30 @@ def test_a_result_read_case_by_case_is_baked_for_the_viewer_from_its_file(fem_fi
     assert manifest.get("fields"), "the bake holds the file's fields"
 
 
+def test_derived_von_mises_is_worked_out_and_baked_beside_the_files_fields(fem_files, tmp_path, monkeypatch):
+    """``fea.derived_field("von_mises")`` per case and node; ``fea.show(derived=["von_mises"])`` bakes it."""
+    import json
+
+    from ada.fem.results import show_streaming
+
+    monkeypatch.setenv(show_streaming.ENV_FEA_BAKE_DIR, str(tmp_path / "bakes"))
+    lazy = ada.from_fem_res(fem_files / "cantilever/sesam/static/shell/STATIC_SHELL_CANTILEVER_SESAMR1.SIN", lazy=True)
+    vm = lazy.derived_field("von_mises")
+    assert set(vm) == set(lazy.cases.stored)
+    assert any(nodes for nodes in vm.values()) and all(v >= 0 for nodes in vm.values() for v in nodes.values())
+
+    bake_dir, bake_id = show_streaming.bake_for_show(lazy, derived=["von_mises"])
+    manifest = json.loads((bake_dir / show_streaming.MANIFEST_NAME).read_text())
+    assert "von_mises" in json.dumps(manifest["fields"])
+    assert bake_id != show_streaming.bake_id_for(lazy), "a bake with derived fields is not the plain one"
+
+    with pytest.raises(KeyError, match="no derived quantity"):
+        lazy.derived_field("nonsense")
+    whole = ada.from_fem_res(fem_files / "cantilever/sesam/static/shell/STATIC_SHELL_CANTILEVER_SESAMR1.SIN")
+    with pytest.raises(ValueError, match="lazy=True"):
+        show_streaming.bake_for_show(whole, derived=["von_mises"])
+
+
 def test_an_unexecuted_result_is_not_shown(tmp_path):
     from ada.fem.results.show_streaming import show_streaming
 

@@ -683,6 +683,14 @@ class FEAResult:
             for case, step in self.cases.iter_steps(steps, roles=wanted, elements=elements)
         }
 
+    def derived_field(self, name: str, cases: "Iterable[int] | None" = None) -> "dict[int, dict[int, float]]":
+        """``{case: {node: value}}`` of a quantity worked out from the role fields, the same for every solver:
+        ``"von_mises"``, the shells' von Mises stress (``ada.fem.results.derived``). For a result read case by
+        case (``to_fem(..., lazy=True)``, ``ada.from_fem_res(path, lazy=True)``)."""
+        from .derived import derived_nodal
+
+        return derived_nodal(self, name, cases)
+
     def _take(self, other: "FEAResult") -> None:
         """Become ``other`` (a result of the same job), keeping this object's identity."""
         import dataclasses
@@ -974,8 +982,13 @@ class FEAResult:
         apply_transform=False,
         stream: bool | None = None,
         render_backend: RenderBackend | None = None,
+        derived: "Iterable[str] | None" = None,
     ):
         """Show the result in the viewer.
+
+        ``derived``: quantities worked out from the role fields to show beside the file's own fields, one step
+        per load case, e.g. ``["von_mises"]`` (``ada.fem.results.derived.DERIVED``). For a result read case by
+        case (``to_fem(..., lazy=True)``, ``ada.from_fem_res(path, lazy=True)``), streamed.
 
         ``stream`` (default: on for the react viewer outside a notebook): bake the result
         and let the viewer read it the way the REST viewer does -- the mesh first, then
@@ -1006,7 +1019,10 @@ class FEAResult:
                 server_args=server_args,
                 run_ws_in_thread=run_ws_in_thread,
                 render_backend=render_backend,
+                derived=derived,
             )
+        if derived:
+            raise ValueError("derived fields are shown by the streaming viewer (stream=True)")
 
         # Use RendererManager to handle renderer setup and WebSocket connection
         renderer_manager = RendererManager(

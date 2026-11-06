@@ -42,7 +42,7 @@ def bake_root() -> pathlib.Path:
     return pathlib.Path(override).expanduser() if override else pathlib.Path(tempfile.gettempdir()) / "ada-fea-show"
 
 
-def bake_id_for(result: FEAResult) -> str:
+def bake_id_for(result: FEAResult, derived: tuple[str, ...] = ()) -> str:
     """A key for ``result``'s bake: stable for a result read from an unchanged file, unique otherwise.
 
     A result with no file behind it (built or derived in memory, e.g. a comparison's
@@ -65,16 +65,27 @@ def bake_id_for(result: FEAResult) -> str:
             _CACHE_REVISION,
             n_nodes,
             fields,
+            derived,
         )
     )
     return hashlib.sha1(key.encode()).hexdigest()[:16]
 
 
-def bake_for_show(result: FEAResult) -> tuple[pathlib.Path, str]:
-    """``(bake directory, bake id)`` of ``result``, baking it unless the cache already holds it."""
+def bake_for_show(result: FEAResult, derived=None) -> tuple[pathlib.Path, str]:
+    """``(bake directory, bake id)`` of ``result``, baking it unless the cache already holds it.
+
+    ``derived``: quantities worked out from the role fields (``ada.fem.results.derived``) baked beside the
+    file's fields, for a result read case by case."""
     from ada.fem.results.artefacts import FEAResultStreamAdapter, bake_artefacts
 
-    bake_id = bake_id_for(result)
+    derived = tuple(str(d) for d in (derived or ()))
+    lazy = getattr(result, "cases", None) is not None and not result.results
+    if derived and not lazy:
+        raise ValueError(
+            f"{result.name}: derived fields ({', '.join(derived)}) are worked out from a result read case by case; "
+            "read it with to_fem(..., lazy=True) or ada.from_fem_res(path, lazy=True)"
+        )
+    bake_id = bake_id_for(result, derived)
     out_dir = bake_root() / bake_id
     if (out_dir / MANIFEST_NAME).is_file():
         logger.info(f"Reusing the FEA bake of {result.name!r} in {out_dir}")
@@ -89,13 +100,16 @@ def bake_for_show(result: FEAResult) -> tuple[pathlib.Path, str]:
     try:
         # The same bake the REST viewer gets. Its compact beam solids are expanded through
         # the viewer's compute capability -- over the websocket, by this Python process.
-        if getattr(result, "cases", None) is not None and not result.results:
+        if lazy:
             # A result read case by case (to_fem(..., lazy=True), from_fem_res(path, lazy=True)) holds no
-            # fields: the bake reads its file, a case at a time, as the REST viewer's does.
+            # fields: the bake reads its file, a case at a time, as the REST viewer's does, and the derived
+            # quantities asked for beside them.
             from ada.fem.results.artefacts import make_stream_reader
+            from ada.fem.results.derived import WithDerivedFields
 
             with make_stream_reader(pathlib.Path(result.results_file_path)) as reader:
-                bake_artefacts(reader, work_dir, src=result.name or "fea")
+                source = WithDerivedFields(reader, result, derived) if derived else reader
+                bake_artefacts(source, work_dir, src=result.name or "fea")
         else:
             bake_artefacts(FEAResultStreamAdapter(result), work_dir, src=result.name or "fea")
         if out_dir.exists():
@@ -114,6 +128,7 @@ def show_streaming(
     server_args: list[str] = None,
     run_ws_in_thread: bool = False,
     render_backend: RenderBackend | None = None,
+    derived=None,
 ) -> None:
     """Bake ``result``, start the websocket server and a viewer if needed, and open the result in it.
 
@@ -124,7 +139,7 @@ def show_streaming(
 
     if not getattr(result, "executed", True):
         raise ValueError(f"{result.name}: the analysis has not run; result.execute() runs it")
-    bake_dir, bake_id = bake_for_show(result)
+    bake_dir, bake_id = bake_for_show(result, derived)
     manager = RendererManager(
         renderer="react",
         host=host,
