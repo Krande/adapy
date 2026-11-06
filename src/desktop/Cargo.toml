@@ -13,7 +13,7 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 # No default features: no tray, no updater, no bundled assets server beyond what a remote-URL
 # window needs. `compression` keeps the (tiny) embedded config/ACL compressed.
-tauri = { version = "2", default-features = false, features = ["wry", "common-controls-v6", "compression"] }
+tauri = { version = "2", default-features = false, features = ["wry", "common-controls-v6", "compression", "dynamic-acl"] }
 tauri-plugin-window-state = "2"
 serde_json = "1"
 hidapi = { version = "2", default-features = false, features = ["windows-native"] }

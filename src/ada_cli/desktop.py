@@ -13,6 +13,10 @@
    ended), stop the viewer: ``POST /api/local/shutdown`` with the token, then terminate, then kill.
    On Windows a job object also ends the viewer and the shell if this process is killed outright.
 
+``--server URL|NAME`` (or ``$ADA_DESKTOP_SERVER``) is remote mode instead: no local viewer is started; the shell
+opens the window on a hosted deployment and trusts exactly that origin (plus its identity provider's sign-in
+pages). ``ada desktop servers list|add|remove`` keeps named profiles in a small per-user file.
+
 Stdlib only, and nothing from ``ada`` is imported: ``ada --help`` builds this parser, and the viewer
 runs in its own process anyway.
 """
@@ -25,6 +29,7 @@ import hashlib
 import json
 import os
 import pathlib
+import re
 import secrets
 import shutil
 import socket
@@ -46,6 +51,8 @@ DEFAULT_PORT_BASE = 38500
 DEFAULT_PORT_SPAN = 500
 ENV_PORT = "ADA_DESKTOP_PORT"
 ENV_BINARY = "ADA_DESKTOP_BINARY"
+ENV_SERVER = "ADA_DESKTOP_SERVER"
+SERVERS_FILE = "servers.json"
 BINARY_NAME = "ada-desktop"
 INSTALL_HINT = (
     "the ada-desktop window shell was not found. Install it next to ada-py with "
@@ -99,6 +106,18 @@ def _platform_dirs(environ: Mapping[str, str], platform: str) -> tuple[pathlib.P
 def cache_root(environ: Mapping[str, str] | None = None, platform: str | None = None) -> pathlib.Path:
     """Unpacked viewer builds and the attached-window registry. Safe to delete while nothing runs."""
     return _platform_dirs(os.environ if environ is None else environ, platform or sys.platform)[0]
+
+
+def config_root(environ: Mapping[str, str] | None = None, platform: str | None = None) -> pathlib.Path:
+    """Per-user settings (the server profiles): ``%APPDATA%/ada/desktop`` on Windows."""
+    environ = os.environ if environ is None else environ
+    platform = platform or sys.platform
+    home = pathlib.Path(environ.get("USERPROFILE") or environ.get("HOME") or os.path.expanduser("~"))
+    if platform == "win32":
+        return pathlib.Path(environ.get("APPDATA") or home / "AppData" / "Roaming") / "ada" / "desktop"
+    if platform == "darwin":
+        return home / "Library" / "Application Support" / "ada" / "desktop"
+    return pathlib.Path(environ.get("XDG_CONFIG_HOME") or home / ".config") / "ada" / "desktop"
 
 
 def data_root(environ: Mapping[str, str] | None = None, platform: str | None = None) -> pathlib.Path:
@@ -675,16 +694,297 @@ def run_dev(args: argparse.Namespace) -> int:
     return rc
 
 
+# ── remote mode: a hosted deployment ───────────────────────────────────────
+
+
+@dataclasses.dataclass(frozen=True)
+class Server:
+    """A hosted deployment to open: its origin, whether plain http was explicitly allowed, and extra
+    identity-provider origins (beyond what the server advertises)."""
+
+    url: str
+    insecure: bool = False
+    auth_origins: tuple[str, ...] = ()
+    name: str | None = None
+
+
+_PROFILE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+
+
+def _is_loopback_host(host: str | None) -> bool:
+    return host in ("127.0.0.1", "localhost", "::1")
+
+
+def normalize_origin(url: str, insecure: bool = False, what: str = "server URL") -> str:
+    """``scheme://host[:port]/`` of ``url``. https is required, except for loopback hosts and when
+    ``insecure`` says plain http is meant (a lab setup)."""
+    from ada_cli import CliUsageError
+
+    u = urllib.parse.urlsplit(url.strip())
+    try:
+        port = u.port
+    except ValueError:
+        raise CliUsageError(f"{what} {url!r}: bad port") from None
+    if u.scheme not in ("http", "https") or not u.hostname:
+        raise CliUsageError(f"{what} {url!r}: must be an http(s) URL with a host, e.g. https://studio.example.com")
+    if u.username or u.password:
+        raise CliUsageError(f"{what} {url!r}: must not contain credentials")
+    if u.scheme == "http" and not insecure and not _is_loopback_host(u.hostname):
+        raise CliUsageError(
+            f"{what} {url!r}: plain http is only accepted for loopback hosts. Use https, or pass --insecure "
+            "if this really is an http-only lab server (sign-in tokens then cross the network unencrypted)."
+        )
+    host = f"[{u.hostname}]" if ":" in u.hostname else u.hostname
+    return f"{u.scheme}://{host}{':' + str(port) if port else ''}/"
+
+
+def servers_path(environ: Mapping[str, str] | None = None, platform: str | None = None) -> pathlib.Path:
+    return config_root(environ, platform) / SERVERS_FILE
+
+
+def load_servers(path: pathlib.Path | None = None) -> dict[str, Server]:
+    """The saved profiles (``{"servers": {NAME: {"url", "insecure"?, "auth_origins"?}}}``); none if the
+    file is missing. A damaged file is an error rather than silently ignored: ``add`` would overwrite it."""
+    path = servers_path() if path is None else path
+    if not path.is_file():
+        return {}
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8-sig"))
+        entries = raw["servers"]
+        out = {}
+        for name, e in entries.items():
+            out[name] = Server(
+                url=str(e["url"]),
+                insecure=bool(e.get("insecure", False)),
+                auth_origins=tuple(str(a) for a in e.get("auth_origins", ())),
+                name=name,
+            )
+        return out
+    except (OSError, ValueError, KeyError, TypeError, AttributeError) as e:
+        raise DesktopError(f"{path}: not a valid server profile file ({e}); fix or delete it") from None
+
+
+def save_servers(servers: Mapping[str, Server], path: pathlib.Path | None = None) -> pathlib.Path:
+    path = servers_path() if path is None else path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    body = {}
+    for name in sorted(servers):
+        s = servers[name]
+        entry: dict = {"url": s.url}
+        if s.insecure:
+            entry["insecure"] = True
+        if s.auth_origins:
+            entry["auth_origins"] = list(s.auth_origins)
+        body[name] = entry
+    tmp = path.with_name(path.name + f".tmp-{os.getpid()}")
+    tmp.write_text(json.dumps({"servers": body}, indent=2) + "\n", encoding="utf-8")
+    os.replace(tmp, path)
+    return path
+
+
+def make_profile(name: str, url: str, insecure: bool = False, auth_origins: list[str] | tuple[str, ...] = ()) -> Server:
+    from ada_cli import CliUsageError
+
+    if not _PROFILE_NAME.match(name):
+        raise CliUsageError(f"server name {name!r}: use letters, digits, '.', '_' or '-' (no URL here)")
+    return Server(
+        url=normalize_origin(url, insecure),
+        insecure=insecure,
+        auth_origins=tuple(normalize_origin(a, insecure, "--auth-origin") for a in auth_origins),
+        name=name,
+    )
+
+
+def resolve_server(
+    args: argparse.Namespace,
+    environ: Mapping[str, str] | None = None,
+    profiles: Mapping[str, Server] | None = None,
+) -> Server | None:
+    """The deployment to open, or ``None`` for the local viewer: ``--local`` wins, then ``--server``, then
+    ``$ADA_DESKTOP_SERVER``. The value is a URL (anything with ``://``) or the name of a saved profile."""
+    from ada_cli import CliUsageError
+
+    environ = os.environ if environ is None else environ
+    if getattr(args, "local", False):
+        if getattr(args, "server", None):
+            raise CliUsageError("--local and --server exclude each other")
+        return None
+    value, source = getattr(args, "server", None), "--server"
+    if not value and environ.get(ENV_SERVER, "").strip():
+        value, source = environ[ENV_SERVER].strip(), f"${ENV_SERVER}"
+    if not value:
+        return None
+    insecure = bool(getattr(args, "insecure", False))
+    extra = tuple(normalize_origin(a, insecure, "--auth-origin") for a in getattr(args, "auth_origin", None) or ())
+    if "://" in value:
+        return Server(url=normalize_origin(value, insecure, source), insecure=insecure, auth_origins=extra)
+    known = load_servers() if profiles is None else dict(profiles)
+    if value not in known:
+        have = ", ".join(sorted(known)) or "none saved"
+        raise CliUsageError(
+            f"{source} {value!r}: not a URL and no saved server of that name ({have}). "
+            "Add one with `ada desktop servers add NAME URL`."
+        )
+    p = known[value]
+    return dataclasses.replace(
+        p,
+        insecure=p.insecure or insecure,
+        auth_origins=tuple(dict.fromkeys(p.auth_origins + extra)),
+    )
+
+
+def _get_json(url: str, timeout: float = 6.0) -> object:
+    with urllib.request.urlopen(url, timeout=timeout) as r:
+        return json.loads(r.read().decode("utf-8"))
+
+
+def _origin_of(url: str) -> str | None:
+    u = urllib.parse.urlsplit(url)
+    if u.scheme not in ("http", "https") or not u.netloc:
+        return None
+    return f"{u.scheme}://{u.netloc}/"
+
+
+def auth_origins_from(config: object, discovery: object = None) -> list[str]:
+    """The identity provider's origins a sign-in redirect visits: the issuer from ``/api/config``
+    (``auth.issuer``, only when ``auth.enabled``) and the hosts of the endpoints its discovery document
+    names (a provider may sign in on one host and issue tokens on another)."""
+    if not isinstance(config, dict):
+        return []
+    auth = config.get("auth")
+    if not isinstance(auth, dict) or not auth.get("enabled") or not isinstance(auth.get("issuer"), str):
+        return []
+    found: list[str] = []
+    candidates = [auth["issuer"]]
+    if isinstance(discovery, dict):
+        candidates += [discovery.get(k) for k in ("authorization_endpoint", "end_session_endpoint")]
+    for c in candidates:
+        o = _origin_of(c) if isinstance(c, str) else None
+        if o and o not in found:
+            found.append(o)
+    return found
+
+
+def discover_auth_origins(
+    origin: str, get: Callable[[str], object] = _get_json, warn: Callable[[str], None] | None = None
+) -> list[str]:
+    """Ask the server who signs its users in (``GET /api/config``, public by design). Best effort: a
+    server that cannot be asked yields nothing (``--auth-origin`` can name the provider by hand)."""
+    warn = warn or (lambda m: print(f"ada desktop: warning: {m}", file=sys.stderr, flush=True))
+    try:
+        config = get(origin + "api/config")
+    except (urllib.error.URLError, OSError, ValueError) as e:
+        warn(
+            f"could not read {origin}api/config ({e}); "
+            "if the server uses sign-in, pass the identity provider with --auth-origin"
+        )
+        return []
+    discovery = None
+    auth = config.get("auth") if isinstance(config, dict) else None
+    if isinstance(auth, dict) and auth.get("enabled") and isinstance(auth.get("issuer"), str) and auth["issuer"]:
+        try:
+            discovery = get(auth["issuer"].rstrip("/") + "/.well-known/openid-configuration")
+        except (urllib.error.URLError, OSError, ValueError):
+            discovery = None  # the issuer's own origin is still allowed
+    return auth_origins_from(config, discovery)
+
+
+def shell_command_remote(
+    binary: pathlib.Path, server: Server, auth_origins: list[str], title: str, shell_args: list[str]
+) -> list[str]:
+    cmd = [str(binary), "--url", server.url, "--trust-origin", server.url, "--title", title]
+    for a in auth_origins:
+        cmd += ["--auth-origin", a]
+    if server.insecure:
+        cmd.append("--insecure")
+    return cmd + list(shell_args)
+
+
+#: Flags that only mean something for the local viewer; with a remote server they would be ignored silently.
+LOCAL_ONLY_FLAGS = ("port", "data", "static", "zip", "viewer", "dev", "frontend_url", "dev_port")
+
+
+def run_remote(args: argparse.Namespace, server: Server) -> int:
+    """Open the window on a hosted deployment. No viewer is started and nothing is uploaded: the page
+    runs on the server's own origin, so its sign-in redirect URI and API need no change."""
+    from ada_cli import CliUsageError
+
+    clash = [f"--{f.replace('_', '-')}" for f in LOCAL_ONLY_FLAGS if getattr(args, f, None)]
+    if clash:
+        raise CliUsageError(f"{', '.join(clash)} only apply to the local viewer, not with a server (use --local)")
+    if _files(args):
+        raise CliUsageError("FILE is not uploaded to a server from the command line; open it in the app (File > Open)")
+    binary = None if args.no_window else find_binary(args.binary)
+    label = f"{server.name} " if server.name else ""
+    _print(f"ada desktop: server {label}{server.url}")
+    _print(f"ada desktop: trusting only the origin {server.url[:-1]} (native events and the app itself)")
+    found = discover_auth_origins(server.url)
+    auth: list[str] = []
+    for o in [*found, *server.auth_origins]:
+        if o in auth or o == server.url:
+            continue
+        u = urllib.parse.urlsplit(o)
+        if u.scheme == "http" and not server.insecure and not _is_loopback_host(u.hostname):
+            print(f"ada desktop: warning: not allowing sign-in at {o} (plain http); pass --insecure", file=sys.stderr)
+            continue
+        auth.append(o)
+    if auth:
+        _print("ada desktop: sign-in pages allowed (navigation only): " + ", ".join(a[:-1] for a in auth))
+    if binary is None:
+        _print(f"viewer: {server.url}")
+        return 0
+    job = _Job()
+    t0 = time.monotonic()
+    shell = subprocess.Popen(shell_command_remote(binary, server, auth, args.title, args.shell_arg))
+    job.assign(shell)
+    rc = shell.wait()
+    if args.timing:
+        _print(f"[timing] window open {time.monotonic() - t0:.1f}s, shell exit {rc}")
+    return rc
+
+
+def run_servers(words: list[str], args: argparse.Namespace) -> int:
+    """``ada desktop servers list|add NAME URL|remove NAME``."""
+    from ada_cli import CliUsageError
+
+    action = words[0] if words else "list"
+    path = servers_path()
+    if action == "list" and len(words) <= 1:
+        servers = load_servers(path)
+        if not servers:
+            _print(f"no saved servers ({path}); add one with `ada desktop servers add NAME URL`")
+        for name, s in sorted(servers.items()):
+            extra = (" insecure" if s.insecure else "") + "".join(f" auth={a[:-1]}" for a in s.auth_origins)
+            _print(f"{name}\t{s.url}{extra}")
+        return 0
+    if action == "add" and len(words) == 3:
+        profile = make_profile(words[1], words[2], bool(args.insecure), args.auth_origin or ())
+        servers = load_servers(path)
+        replaced = words[1] in servers
+        servers[words[1]] = profile
+        save_servers(servers, path)
+        _print(f"{'updated' if replaced else 'added'} server {words[1]}: {profile.url} ({path})")
+        return 0
+    if action in ("remove", "rm") and len(words) == 2:
+        servers = load_servers(path)
+        if words[1] not in servers:
+            raise CliUsageError(f"no saved server {words[1]!r}")
+        del servers[words[1]]
+        save_servers(servers, path)
+        _print(f"removed server {words[1]}")
+        return 0
+    raise CliUsageError("usage: ada desktop servers list | add NAME URL [--insecure] [--auth-origin O] | remove NAME")
+
 # ── the command ───────────────────────────────────────────────────────────
 
 
 def add_arguments(p: argparse.ArgumentParser) -> None:
     p.add_argument(
-        "file",
-        nargs="?",
-        default=None,
+        "words",
+        nargs="*",
         metavar="FILE",
-        help="A model to open: uploaded into the local viewer's personal scope and loaded (?file=).",
+        help="A model to open: uploaded into the local viewer's personal scope and loaded (?file=). "
+        "Or `servers list|add NAME URL|remove NAME` to manage saved servers (see --server).",
     )
     p.add_argument(
         "--port",
@@ -728,6 +1028,27 @@ def add_arguments(p: argparse.ArgumentParser) -> None:
         metavar="ARG",
         help="Pass ARG to the shell, e.g. --shell-arg=--no-spacemouse; repeatable.",
     )
+    p.add_argument(
+        "--server",
+        default=None,
+        metavar="URL|NAME",
+        help=f"Open a hosted deployment instead of starting the local viewer: its https URL, or the name of a server "
+        f"saved with `servers add`. Default: ${ENV_SERVER}. Sign-in, storage and jobs are then the server's.",
+    )
+    p.add_argument("--local", action="store_true", help=f"Start the local viewer even if ${ENV_SERVER} is set.")
+    p.add_argument(
+        "--insecure",
+        action="store_true",
+        help="With --server: accept plain http for a non-loopback host (lab servers only; tokens are not encrypted).",
+    )
+    p.add_argument(
+        "--auth-origin",
+        action="append",
+        default=[],
+        metavar="ORIGIN",
+        help="With --server: an identity provider origin the window may sign in at, in addition to the one the "
+        "server advertises (/api/config). Repeatable.",
+    )
     p.add_argument("--timing", action="store_true", help="Print how long startup and shutdown took.")
     p.add_argument(
         "--dev",
@@ -755,14 +1076,21 @@ def _print(msg: str) -> None:
     print(msg, flush=True)
 
 
+def _files(args: argparse.Namespace) -> list[str]:
+    return list(getattr(args, "words", None) or [])
+
+
 def _open_file_arg(args: argparse.Namespace) -> pathlib.Path | None:
     from ada_cli import CliUsageError
 
-    if not args.file:
+    words = _files(args)
+    if not words:
         return None
-    path = pathlib.Path(args.file)
+    if len(words) > 1:
+        raise CliUsageError(f"only one FILE can be opened, got {len(words)}")
+    path = pathlib.Path(words[0])
     if not path.is_file():
-        raise CliUsageError(f"{args.file}: no such file")
+        raise CliUsageError(f"{words[0]}: no such file")
     return path
 
 
@@ -814,6 +1142,12 @@ def _attach(choice: PortChoice, args: argparse.Namespace, binary: pathlib.Path |
 
 
 def run(args: argparse.Namespace) -> int:
+    words = _files(args)
+    if words[:1] == ["servers"] and not pathlib.Path("servers").exists():
+        return run_servers(words[1:], args)
+    server = resolve_server(args)
+    if server is not None:
+        return run_remote(args, server)
     if args.dev or args.frontend_url:
         return run_dev(args)
     t_start = time.monotonic()

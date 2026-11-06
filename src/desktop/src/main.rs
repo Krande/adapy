@@ -1,32 +1,41 @@
 //! ada-desktop: a native window shell for the adapy local viewer.
 //!
 //! It embeds no frontend. `ada-desktop --url http://127.0.0.1:PORT/` opens a window on a viewer that
-//! `ada desktop` (or anything else) already started; `ada desktop` is the normal way to run it. Pop-outs
+//! `ada desktop` (or anything else) already started; `ada desktop` is the normal way to run it. With
+//! `--trust-origin ORIGIN` the viewer may instead be a hosted deployment (`ada desktop --server`). Pop-outs
 //! (`window.open`) become native windows of the same webview environment, so BroadcastChannel and the
 //! shared storage (localStorage, IndexedDB, OPFS) keep working between them.
 //!
 //! Security model, in short (src/desktop/README.md has the long form):
-//! * every window may only show the viewer's own origin (the one `--url` names, which must be loopback
-//!   http); any other navigation is cancelled and http(s)/mailto links open in the system browser;
-//! * IPC is granted to loopback pages only (capabilities/viewer.json), and only for the 3D mouse events
-//!   and `spacemouse_status`: no file system, shell or window commands are exposed to the page.
+//! * every window may only show the viewer's own origin (the one `--url` names: loopback http, or the
+//!   origin named by `--trust-origin`) and the identity provider's `--auth-origin`s (navigation only);
+//!   any other navigation is cancelled and http(s)/mailto links open in the system browser;
+//! * IPC is granted to the viewer's origin only, added at startup as a runtime capability, and only for
+//!   the 3D mouse events and `spacemouse_status`: no file system, shell or window commands are exposed.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod origin;
 mod spacemouse;
 
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::OnceLock;
+use tauri::ipc::CapabilityBuilder;
 use tauri::webview::{NewWindowFeatures, NewWindowResponse, WebviewWindowBuilder};
 use tauri::{AppHandle, Emitter, Manager, Url, WebviewUrl};
 use tauri_plugin_window_state::{AppHandleExt, StateFlags, WindowExt};
 
 const USAGE: &str = "\
-usage: ada-desktop --url http://127.0.0.1:PORT/ [options]
+usage: ada-desktop --url URL [options]
 
-Opens the adapy local viewer at URL in a native window. Normally started by `ada desktop`.
+Opens the adapy viewer at URL in a native window. Normally started by `ada desktop`.
 
 options:
-  --url URL          the viewer to open; must be http on 127.0.0.1, localhost or [::1]
+  --url URL          the viewer to open; http on 127.0.0.1, localhost or [::1], unless --trust-origin
+  --trust-origin O   open a remote server: O is its origin (https://host[:port]) and the only one the
+                     windows show and the only one granted native events; URL must be on it
+  --auth-origin O    an identity provider's sign-in origin windows may navigate to (not trusted, no
+                     native events); repeatable
+  --insecure         accept plain http for --trust-origin / --auth-origin (lab setups)
   --title TITLE      main window title (default: Ada Studio)
   --native-drop      let the shell take dropped files (native paths) instead of the page (File objects)
   --no-spacemouse    do not read the 3D mouse natively; the page then sees WebView2's own WebHID
@@ -39,8 +48,8 @@ const EXIT_NO_WEBVIEW: i32 = 3;
 
 static SM_OPEN: AtomicBool = AtomicBool::new(false);
 static POPUPS: AtomicUsize = AtomicUsize::new(0);
-/// The viewer's origin: the only one any window may show.
-static ORIGIN: OnceLock<Url> = OnceLock::new();
+/// Which origins windows may show / open on / be granted IPC.
+static POLICY: OnceLock<origin::Policy> = OnceLock::new();
 
 #[derive(Clone)]
 struct Opts {
@@ -91,18 +100,6 @@ fn fatal(msg: &str) -> ! {
         }
     }
     std::process::exit(EXIT_NO_WEBVIEW);
-}
-
-fn is_loopback(url: &Url) -> bool {
-    url.scheme() == "http" && matches!(url.host_str(), Some("127.0.0.1" | "localhost" | "[::1]"))
-}
-
-/// What a window may show: the viewer's own origin (blob: URLs it made included) or a blank page.
-fn allowed(url: &Url) -> bool {
-    if url.scheme() == "about" {
-        return true;
-    }
-    ORIGIN.get().map(|o| url.origin() == o.origin()).unwrap_or(false)
 }
 
 /// Hand a link the windows may not show to the system browser. Only http(s) and mailto: anything else
@@ -170,7 +167,7 @@ fn base<'a>(
         .title(title)
         .inner_size(1400.0, 900.0)
         .on_navigation(|u| {
-            if allowed(u) {
+            if POLICY.get().is_some_and(|p| p.allows_navigation(u)) {
                 return true;
             }
             open_external(u);
@@ -188,7 +185,7 @@ fn base<'a>(
 }
 
 fn open_popup(app: &AppHandle, url: Url, features: NewWindowFeatures, o: &Opts) -> NewWindowResponse<tauri::Wry> {
-    if !allowed(&url) {
+    if !POLICY.get().is_some_and(|p| p.allows_popup(&url)) {
         // A link with target=_blank, or window.open on another site: the system browser shows it.
         open_external(&url);
         return NewWindowResponse::Deny;
@@ -241,6 +238,9 @@ fn main() {
     attach_parent_console();
 
     let mut url: Option<String> = None;
+    let mut trust: Option<String> = None;
+    let mut auth: Vec<String> = Vec::new();
+    let mut insecure = false;
     let mut title = "Ada Studio".to_string();
     let mut o = Opts { native_drop: false, spacemouse: true };
     let mut sm_log = false;
@@ -248,6 +248,9 @@ fn main() {
     while let Some(a) = args.next() {
         match a.as_str() {
             "--url" => url = args.next(),
+            "--trust-origin" => trust = args.next(),
+            "--auth-origin" => auth.extend(args.next()),
+            "--insecure" => insecure = true,
             "--title" => title = args.next().unwrap_or(title),
             "--native-drop" => o.native_drop = true,
             "--no-spacemouse" => o.spacemouse = false,
@@ -272,15 +275,27 @@ fn main() {
         return;
     }
     let Some(url) = url.and_then(|u| u.parse::<Url>().ok()) else {
-        eprintln!("ada-desktop: --url http://127.0.0.1:PORT/ is required\n\n{USAGE}");
+        eprintln!("ada-desktop: --url is required\n\n{USAGE}");
         std::process::exit(2);
     };
-    if !is_loopback(&url) {
-        // The IPC grant and the navigation guard both assume the local viewer; a remote site is a browser's job.
-        eprintln!("ada-desktop: --url must be http on 127.0.0.1, localhost or [::1], not {url}");
-        std::process::exit(2);
-    }
-    let _ = ORIGIN.set(url.clone());
+    let policy = match origin::Policy::new(&url, trust.as_deref(), &auth, insecure) {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("ada-desktop: {e}");
+            std::process::exit(2);
+        }
+    };
+    let ipc_pattern = policy.ipc_pattern();
+    eprintln!(
+        "[ada-desktop] trusted origin {} (native events granted); sign-in origins: {}",
+        policy.trusted().origin().ascii_serialization(),
+        if policy.auth_origins().is_empty() {
+            "none".to_string()
+        } else {
+            policy.auth_origins().iter().map(|a| a.origin().ascii_serialization()).collect::<Vec<_>>().join(", ")
+        }
+    );
+    let _ = POLICY.set(policy);
 
     if let Err(e) = tauri::webview_version() {
         fatal(&format!(
@@ -306,6 +321,17 @@ fn main() {
         .invoke_handler(tauri::generate_handler![spacemouse_status])
         .setup(move |app| {
             let o = o_setup;
+            // IPC for the viewer's origin only, and only the 3D mouse events + spacemouse_status. Built at
+            // startup because the origin is not known when the app is compiled.
+            app.add_capability(
+                CapabilityBuilder::new("viewer")
+                    .local(false)
+                    .remote(ipc_pattern.clone())
+                    .window("*")
+                    .permission("core:event:allow-listen")
+                    .permission("core:event:allow-unlisten")
+                    .permission("allow-spacemouse-status"),
+            )?;
             if o.spacemouse {
                 let h = app.handle().clone();
                 std::thread::spawn(move || {

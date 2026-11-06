@@ -566,6 +566,48 @@ ada desktop --no-window          # the viewer only; open the printed URL in a br
     `ADA_DESKTOP_BACKEND=http://127.0.0.1:PORT/` and
     `--config vite.config.desktop.ts`.
 
+### Connecting to a hosted server
+
+`ada desktop` can open a hosted (for example on-premise) deployment instead of
+the local viewer, to use its storage, conversions, jobs and sign-in. No local
+viewer is started; the window loads the server's own URL, so the page runs on
+the server's origin and its normal sign-in works unchanged.
+
+```bash
+ada desktop --server https://studio.example.com
+ada desktop servers add work https://studio.example.com
+ada desktop --server work
+ada desktop servers list
+ada desktop servers remove work
+```
+
+`--server URL|NAME`
+:   The deployment to open: an `https` URL, or the name of a saved server.
+    Default: `$ADA_DESKTOP_SERVER`. The origin the window will trust is printed
+    first. `FILE` and the local-viewer flags (`--port`, `--data`, `--static`,
+    `--zip`, `--viewer`, `--dev`) cannot be combined with it.
+
+`--local`
+:   Start the local viewer even though `$ADA_DESKTOP_SERVER` is set.
+
+`--insecure`
+:   Accept plain `http` for a server on a non-loopback host (lab setups only;
+    sign-in tokens then cross the network unencrypted). https is required
+    otherwise.
+
+`--auth-origin ORIGIN`
+:   An extra identity-provider origin the window may sign in at. The provider
+    the server advertises (`/api/config`) is allowed automatically; add the
+    others a federated sign-in passes through. Repeatable; `servers add` saves
+    them with the profile.
+
+`servers list | add NAME URL | remove NAME`
+:   Manage saved servers, kept in `%APPDATA%\ada\desktop\servers.json` on
+    Windows (`$XDG_CONFIG_HOME/ada/desktop/servers.json` on Linux).
+
+See `src/desktop/README.md` for the security model (which origins may be shown
+and which one is granted native events) and the sign-in details.
+
 ## `ada viewers`
 
 List the installed viewer bundles. adapy's own viewer carries no plugins; they

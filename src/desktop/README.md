@@ -1,8 +1,9 @@
 # ada-desktop
 
-A native window for the adapy local viewer (Ada Studio). It is a small [Tauri 2](https://v2.tauri.app/)
-app that embeds **no** frontend: it opens a window on a viewer that is already running on loopback,
-normally the one `ada desktop` starts. Everything the viewer does still happens in the page and the
+A native window for the adapy local viewer (Ada Studio), or for a hosted deployment. It is a small
+[Tauri 2](https://v2.tauri.app/) app that embeds **no** frontend: it opens a window on a viewer that is
+already running, normally the one on loopback that `ada desktop` starts, or a server named with
+`--server` (see [Connecting to a server](#connecting-to-a-server)). Everything the viewer does still happens in the page and the
 local REST server; the shell adds native windows, remembered window geometry and a native 3D mouse
 reader.
 
@@ -39,7 +40,10 @@ ada-desktop --version
 
 | flag | |
 | --- | --- |
-| `--url URL` | The viewer to open. Must be `http` on `127.0.0.1`, `localhost` or `[::1]`. |
+| `--url URL` | The viewer to open. `http` on `127.0.0.1`, `localhost` or `[::1]`, unless `--trust-origin` names a server. |
+| `--trust-origin O` | Open a hosted server: `O` is its origin (`https://host[:port]`), the only one windows show and the only one granted native events. `--url` must be on it. |
+| `--auth-origin O` | An identity provider's sign-in origin windows may navigate to (no native events). Repeatable. |
+| `--insecure` | Accept plain `http` for `--trust-origin` / `--auth-origin` on a non-loopback host (lab setups). |
 | `--title T` | Main window title (default `Ada Studio`). Pop-outs take their page's title. |
 | `--native-drop` | The shell takes dropped files (native paths, logged only for now) instead of the page. By default the page gets `File` objects, as in a browser. |
 | `--no-spacemouse` | Do not read the 3D mouse natively; the shim is not injected and the page sees WebView2's own WebHID. |
@@ -47,6 +51,58 @@ ada-desktop --version
 | `--version` | Print the version and the WebView2 version (or `not installed`) and exit 0. Needs no display and no WebView2. |
 
 `ada desktop --shell-arg=--no-spacemouse` passes a flag through.
+
+## Connecting to a server
+
+The window can also open a hosted (for example on-premise) Ada Studio deployment, so its storage,
+conversions, jobs and sign-in are used instead of the local viewer's:
+
+```bash
+ada desktop --server https://studio.example.com     # a URL ...
+ada desktop servers add work https://studio.example.com
+ada desktop --server work                             # ... or a saved name
+ada desktop servers list                              # name, URL
+ada desktop servers remove work
+ADA_DESKTOP_SERVER=work ada desktop                   # default server; `--local` overrides it
+```
+
+Remote mode starts **no** local viewer. The shell loads the server's own URL, so the page runs on the
+server's origin exactly as in a browser tab: the API is same-origin (no CORS, no API base to
+configure) and sign-in works unchanged, because the OIDC redirect URI the page uses
+(`origin + /auth/callback`) is the one already registered for the hosted app. Local files are opened
+by the page itself (File menu), and uploads go to the server. Layouts and settings live in the page's
+origin storage, so each server has its own. FILE and the local-viewer flags (`--port`, `--data`,
+`--static`, `--zip`, `--viewer`, `--dev`) are refused with `--server`.
+
+Profiles are a small JSON file, `%APPDATA%\ada\desktop\servers.json` on Windows
+(`~/Library/Application Support/ada/desktop` on macOS, `$XDG_CONFIG_HOME/ada/desktop` elsewhere):
+`{"servers": {"work": {"url": "https://studio.example.com/"}}}`, optionally with `"insecure": true` and
+`"auth_origins": [...]`. `ada desktop` prints the origin it is going to trust before the window opens.
+
+* **https is required** for any host but loopback. Plain `http` to another host needs `--insecure`
+  (`servers add NAME URL --insecure` saves it): tokens then cross the network unencrypted.
+* **Sign-in.** An OIDC redirect leaves the server's origin for the identity provider and comes back, in
+  the same window. `ada desktop` reads `GET /api/config` (public) and allows the `auth.issuer` origin
+  plus the origins of `authorization_endpoint` / `end_session_endpoint` in the issuer's
+  `/.well-known/openid-configuration`, and passes them as `--auth-origin`. A provider that federates to
+  yet another host (for example an on-premise federation service) needs that host added by hand:
+  `--auth-origin https://sts.example.com` (repeatable, or saved with `servers add ... --auth-origin`).
+  A sign-in page that is not allowed is not shown in the window but opens in the system browser, where
+  the flow cannot return to the app, so a missing origin shows up as a sign-in that never completes.
+* **Pop-outs** open as native windows on the server and carry the opener's `sessionStorage` (verified on
+  WebView2: `window.open` from the page copies it), so the tokens the page keeps there are present in
+  the new window. The copy is taken when the window opens; the pages do not share later changes. A
+  provider that rotates refresh tokens on every use could therefore invalidate one window's copy after
+  another window refreshes. If that shows up, the fix is on the page side (renew silently in each
+  window, or hand tokens through `BroadcastChannel`), not in the shell.
+* **Single sign-on with the Windows account.** WebView2 can sign in silently with the OS work account
+  (`AllowSingleSignOnUsingOSPrimaryAccount`), but that is an environment option which the webview
+  library the shell uses (wry 0.57) does not expose, so it is **not enabled**. Integrated
+  Windows authentication for intranet servers (Kerberos/NTLM) is WebView2's default behaviour; extra
+  hosts can be allowed with `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--auth-server-allowlist=host`.
+
+By hand: `ada-desktop --url https://studio.example.com/ --trust-origin https://studio.example.com
+--auth-origin https://login.example.org`.
 
 ## Port policy
 
@@ -88,15 +144,24 @@ quit the driver or run with `--no-spacemouse`.
 ## Security model
 
 * **Navigation allow-list.** Every window (main and pop-outs) may only show the viewer's own origin
-  (exactly the scheme, host and port of `--url`), its `blob:` URLs, or `about:blank`. Any other
-  navigation is cancelled; `http`, `https` and `mailto` links are handed to the system browser
-  instead, anything else (e.g. `file:`, custom protocol handlers) is dropped. `window.open` to another
-  site likewise opens in the system browser rather than in a native window.
-* **IPC for loopback only, minimal.** `capabilities/viewer.json` grants remote IPC to
-  `http://127.0.0.1:*` and `http://localhost:*` pages only, and only `core:event:allow-listen`,
-  `core:event:allow-unlisten` and the app's `spacemouse_status` command. No file system, shell,
-  dialog, window or webview commands are exposed to the page.
-* **The server** binds `127.0.0.1` only, runs without auth (single local user) and without a queue.
+  (exactly the scheme, host and port of `--url`; for a remote server the `--trust-origin`), its `blob:`
+  URLs, `about:blank`, and, for navigation only, the `--auth-origin`s (the identity provider's sign-in
+  pages). Any other navigation is cancelled; `http`, `https` and `mailto` links are handed to the system
+  browser instead, anything else (e.g. `file:`, custom protocol handlers) is dropped. `window.open` to
+  another site, and to a sign-in origin, likewise opens in the system browser rather than in a native
+  window.
+* **IPC for one origin, minimal.** There is no static capability file: at startup the shell adds a
+  runtime capability (`dynamic-acl`) whose remote URL is the trusted origin alone (the loopback viewer's
+  `http://127.0.0.1:PORT/*`, or the server's), and which allows only `core:event:allow-listen`,
+  `core:event:allow-unlisten` and the app's `spacemouse_status` command. No file system, shell, dialog,
+  window or webview commands are exposed to the page, and the identity provider's pages get nothing.
+  Verified against a live page: `spacemouse_status` and event listening work, `plugin:window|set_title`
+  answers "not allowed by ACL".
+* **Remote servers.** The shell refuses a non-loopback `--url` without `--trust-origin`, requires https
+  for it unless `--insecure`, and requires the URL to be on the trusted origin. Trusting a server means
+  trusting what its pages do with the 3D mouse events and nothing more; but a hostile server can still
+  run any script in its own page, so only point the app at deployments you would open in a browser.
+* **The local server** binds `127.0.0.1` only, runs without auth (single local user) and without a queue.
   Its shutdown route is token-protected and loopback/host-checked (see
   `src/ada/comms/rest/local_shutdown.py`). Like any local web server it is reachable by other programs
   of the same user; it is not reachable from other machines.
@@ -165,6 +230,9 @@ licenses with `cargo-bundle-licenses`, installs `ada-desktop.exe` to `%LIBRARY_B
 * FILE is uploaded (a copy in the local storage), not opened in place; uploads are subject to the
   server's direct-upload size limit.
 * `--native-drop` only logs the dropped paths; nothing consumes them yet.
-* Pop-out windows each have their own `sessionStorage` (as separate browser windows would after the
-  first navigation).
+* Pop-out windows each have their own `sessionStorage`, seeded with a copy of the opener's when they
+  open (see [Connecting to a server](#connecting-to-a-server) for what that means for sign-in).
+* Remote mode: no silent sign-in with the Windows account (not exposed by the webview library), and
+  sign-in was verified only up to the allow-list logic and an auth-less server; a provider that
+  federates through other hosts needs `--auth-origin` for each.
 * No installer, auto-update or code signing; the conda package is the distribution.

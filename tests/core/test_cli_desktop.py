@@ -176,7 +176,7 @@ def test_parser_surface():
     args = _build_parser().parse_args(
         ["desktop", "m.ifc", "--port", "40000", "--no-window", "--shell-arg=--no-spacemouse"]
     )
-    assert (args.file, args.port, args.no_window, args.shell_arg) == ("m.ifc", 40000, True, ["--no-spacemouse"])
+    assert (args.words, args.port, args.no_window, args.shell_arg) == (["m.ifc"], 40000, True, ["--no-spacemouse"])
     with pytest.raises(SystemExit):
         _build_parser().parse_args(["desktop", "--static", "a", "--zip", "b"])
 
@@ -225,3 +225,164 @@ def test_dev_shell_binary_is_the_checkout_build(tmp_path):
     exe = rel / (d.BINARY_NAME + (".exe" if d.os.name == "nt" else ""))
     exe.write_bytes(b"")
     assert d.dev_shell_binary(tmp_path) == exe
+
+# -- remote mode: --server, saved profiles ------------------------------------------------------
+
+
+def _ns(**kw):
+    base = dict(server=None, local=False, insecure=False, auth_origin=[], words=[], no_window=True,
+                binary=None, title="T", shell_arg=[], timing=False)
+    base.update(kw)
+    return argparse.Namespace(**base)
+
+
+def test_normalize_origin_keeps_only_the_origin():
+    assert d.normalize_origin("https://studio.example.com/app/x?y=1#z") == "https://studio.example.com/"
+    assert d.normalize_origin("HTTPS://Studio.Example.com:8443") == "https://studio.example.com:8443/"
+    assert d.normalize_origin("http://localhost:5173/") == "http://localhost:5173/"
+    assert d.normalize_origin("http://[::1]:5173/") == "http://[::1]:5173/"
+
+
+@pytest.mark.parametrize(
+    "bad",
+    ["http://studio.example.com/", "studio.example.com", "ftp://studio.example.com", "https://u:p@studio.example.com",
+     "https://studio.example.com:99999", "https://"],
+)
+def test_normalize_origin_rejects(bad):
+    with pytest.raises(CliUsageError):
+        d.normalize_origin(bad)
+
+
+def test_plain_http_to_a_remote_host_needs_insecure():
+    with pytest.raises(CliUsageError, match="--insecure"):
+        d.normalize_origin("http://lab.example.com:8080")
+    assert d.normalize_origin("http://lab.example.com:8080", insecure=True) == "http://lab.example.com:8080/"
+
+
+def test_config_root_per_platform(tmp_path):
+    assert d.config_root({"APPDATA": "C:/R", "USERPROFILE": "C:/U"}, "win32").as_posix() == "C:/R/ada/desktop"
+    assert d.config_root({"HOME": "/h"}, "linux").as_posix() == "/h/.config/ada/desktop"
+    assert d.config_root({"HOME": "/h", "XDG_CONFIG_HOME": "/x"}, "linux").as_posix() == "/x/ada/desktop"
+
+
+def test_profiles_round_trip(tmp_path):
+    f = tmp_path / "sub" / "servers.json"
+    assert d.load_servers(f) == {}
+    a = d.make_profile("prod", "https://studio.example.com/anything")
+    b = d.make_profile("lab", "http://lab.example.com:8080", insecure=True, auth_origins=["https://idp.example.org/x"])
+    d.save_servers({"prod": a, "lab": b}, f)
+    back = d.load_servers(f)
+    assert back == {"prod": a, "lab": b}
+    assert back["lab"].auth_origins == ("https://idp.example.org/",) and back["lab"].insecure
+    assert not (tmp_path / "sub" / "servers.json.tmp").exists()
+
+
+def test_damaged_profile_file_is_an_error_not_silently_replaced(tmp_path):
+    f = tmp_path / "servers.json"
+    f.write_text("{not json", encoding="utf-8")
+    with pytest.raises(d.DesktopError, match="not a valid"):
+        d.load_servers(f)
+    f.write_text('{"servers": {"a": {"nourl": 1}}}', encoding="utf-8")
+    with pytest.raises(d.DesktopError):
+        d.load_servers(f)
+
+
+@pytest.mark.parametrize("name", ["", "a b", "https://x.example.com", "-x", "a/b"])
+def test_profile_names_are_plain_words(name):
+    with pytest.raises(CliUsageError):
+        d.make_profile(name, "https://studio.example.com")
+
+
+def test_resolve_server_precedence():
+    prof = {"prod": d.make_profile("prod", "https://studio.example.com")}
+    # nothing asked for: the local viewer
+    assert d.resolve_server(_ns(), {}, prof) is None
+    # a URL, a profile name, the environment
+    assert d.resolve_server(_ns(server="https://a.example.com/x"), {}, prof).url == "https://a.example.com/"
+    s = d.resolve_server(_ns(server="prod"), {}, prof)
+    assert s.url == "https://studio.example.com/" and s.name == "prod"
+    assert d.resolve_server(_ns(), {d.ENV_SERVER: "prod"}, prof).name == "prod"
+    # --server beats the environment, --local beats both
+    assert d.resolve_server(_ns(server="https://a.example.com"), {d.ENV_SERVER: "prod"}, prof).name is None
+    assert d.resolve_server(_ns(local=True), {d.ENV_SERVER: "prod"}, prof) is None
+    with pytest.raises(CliUsageError):
+        d.resolve_server(_ns(local=True, server="prod"), {}, prof)
+
+
+def test_resolve_server_unknown_name_lists_the_known_ones():
+    prof = {"prod": d.make_profile("prod", "https://studio.example.com")}
+    with pytest.raises(CliUsageError, match="prod"):
+        d.resolve_server(_ns(server="staging"), {}, prof)
+    with pytest.raises(CliUsageError, match="https"):
+        d.resolve_server(_ns(server="http://lab.example.com"), {}, prof)
+
+
+def test_resolve_server_merges_flags_into_the_profile():
+    prof = {"lab": d.make_profile("lab", "http://lab.example.com", insecure=True, auth_origins=["https://a.example.org"])}
+    s = d.resolve_server(_ns(server="lab", auth_origin=["https://b.example.org/p"]), {}, prof)
+    assert s.insecure and s.auth_origins == ("https://a.example.org/", "https://b.example.org/")
+
+
+def test_auth_origins_come_from_config_and_discovery():
+    cfg = {"auth": {"enabled": True, "issuer": "https://login.example.org/realm/x"}}
+    disco = {"authorization_endpoint": "https://sso.example.org/authorize", "end_session_endpoint": 5}
+    assert d.auth_origins_from(cfg, disco) == ["https://login.example.org/", "https://sso.example.org/"]
+    assert d.auth_origins_from(cfg) == ["https://login.example.org/"]
+    assert d.auth_origins_from({"auth": {"enabled": False, "issuer": "https://x.example.org"}}) == []
+    assert d.auth_origins_from({"transport": "rest"}) == [] and d.auth_origins_from(None) == []
+
+
+def test_discover_auth_origins_is_best_effort():
+    docs = {
+        "https://s.example.com/api/config": {"auth": {"enabled": True, "issuer": "https://idp.example.org/r/"}},
+        "https://idp.example.org/r/.well-known/openid-configuration": {"authorization_endpoint": "https://idp.example.org/r/auth"},
+    }
+    assert d.discover_auth_origins("https://s.example.com/", lambda u: docs[u]) == [
+        "https://idp.example.org/"
+    ]
+
+    def down(url):
+        raise OSError("unreachable")
+
+    warned = []
+    assert d.discover_auth_origins("https://s.example.com/", down, warned.append) == [] and "--auth-origin" in warned[0]
+
+
+def test_shell_command_remote_trusts_exactly_the_server():
+    s = d.Server(url="http://lab.example.com:8080/", insecure=True)
+    cmd = d.shell_command_remote(pathlib.Path("ada-desktop.exe"), s, ["https://idp.example.org/"], "T", ["--no-spacemouse"])
+    assert cmd[cmd.index("--url") + 1] == cmd[cmd.index("--trust-origin") + 1] == "http://lab.example.com:8080/"
+    assert cmd[cmd.index("--auth-origin") + 1] == "https://idp.example.org/"
+    assert "--insecure" in cmd and cmd[-1] == "--no-spacemouse"
+    https = d.shell_command_remote(pathlib.Path("x"), d.Server(url="https://s.example.com/"), [], "T", [])
+    assert "--insecure" not in https and "--auth-origin" not in https
+
+
+def test_remote_mode_refuses_local_only_flags_and_files():
+    s = d.Server(url="https://s.example.com/")
+    with pytest.raises(CliUsageError, match="--port"):
+        d.run_remote(_ns(port=40000), s)
+    with pytest.raises(CliUsageError, match="FILE"):
+        d.run_remote(_ns(words=["m.ifc"]), s)
+
+
+def test_servers_command_add_list_remove(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(d, "servers_path", lambda *a, **k: tmp_path / "servers.json")
+    ns = _ns()
+    assert d.run_servers(["add", "prod", "https://studio.example.com/x"], ns) == 0
+    assert d.run_servers(["list"], ns) == 0
+    assert "prod\thttps://studio.example.com/" in capsys.readouterr().out
+    assert d.run_servers(["remove", "prod"], ns) == 0
+    with pytest.raises(CliUsageError):
+        d.run_servers(["remove", "prod"], ns)
+    with pytest.raises(CliUsageError):
+        d.run_servers(["add", "x"], ns)
+
+
+def test_parser_server_flags_and_servers_words():
+    from ada_cli.main import _build_parser
+
+    a = _build_parser().parse_args(["desktop", "--server", "prod", "--insecure", "--auth-origin", "https://a.example.org"])
+    assert (a.server, a.insecure, a.auth_origin, a.words) == ("prod", True, ["https://a.example.org"], [])
+    a = _build_parser().parse_args(["desktop", "servers", "add", "prod", "https://studio.example.com"])
+    assert a.words == ["servers", "add", "prod", "https://studio.example.com"]
