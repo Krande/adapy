@@ -20,14 +20,23 @@ if TYPE_CHECKING:
 #: shell's ``n1 n2 c n4 n3``, a 3-node one's ``n1 n2 c n3``.
 SURFACE_CORNERS = {4: (0, 1, -1, 3, 2), 3: (0, 1, -1, 2)}
 
+#: The elements at a node are averaged together only if each agrees with the node's first element on thickness
+#: (within this fraction) and normal (within this angle): the reference postprocessor's rule for nodal averages.
+SAME_THICKNESS = 0.1
+SAME_NORMAL_DEG = 5.0
 
-def shell_von_mises(result: FEAResult, cases: Iterable[int] | None = None) -> dict[int, dict[int, float]]:
-    """``{case: {node: von Mises stress}}`` of the shells, in the result's stress unit (Pa).
 
-    From ``SHELL_STRESS``: the plane-stress von Mises ``sqrt(sx^2 + sy^2 - sx sy + 3 txy^2)`` at each corner on
-    both surfaces, the larger of the two, and at a node the mean over its elements. Von Mises needs no common
-    axes, so each element's own are used as they are.
-    """
+def _von_mises(s: np.ndarray) -> np.ndarray:
+    """Plane-stress von Mises of ``[..., (SIGXX, SIGYY, TAUXY)]``."""
+    return np.sqrt(s[..., 0] ** 2 + s[..., 1] ** 2 - s[..., 0] * s[..., 1] + 3 * s[..., 2] ** 2)
+
+
+def _shell_corners(result: FEAResult, cases: Iterable[int] | None):
+    """Every shell corner's stresses per case: ``{case: (element, node, bottom (n, 3), top (n, 3))}``.
+
+    From ``SHELL_STRESS`` (rows ``[elem, point, SIGXX, SIGYY, TAUXY]``, the bottom surface then the top, points
+    in :data:`SURFACE_CORNERS` order), in each element's own axes: elements ascending, corners in connectivity
+    order."""
     from ada.fem.shapes.definitions import ShellShapes
 
     from .field_data import FieldRole
@@ -38,31 +47,118 @@ def shell_von_mises(result: FEAResult, cases: Iterable[int] | None = None) -> di
         if isinstance(block.elem_info.type, ShellShapes)
         for e, nodes in zip(block.identifiers, block.node_refs)
     }
-    out: dict[int, dict[int, float]] = {}
+    out = {}
     for case, fields in result.case_fields(FieldRole.SHELL_STRESS, cases=cases).items():
-        if not fields:
+        element, node, bottom, top = [], [], [], []
+        if fields:
+            rows = np.vstack([np.asarray(f.values, dtype=float) for f in fields])
+            rows = rows[np.lexsort((rows[:, 1], rows[:, 0]))]
+            starts = np.flatnonzero(np.r_[True, rows[1:, 0] != rows[:-1, 0]])
+            for lo, hi in zip(starts, np.r_[starts[1:], len(rows)]):
+                e = int(rows[lo, 0])
+                nodes = corners.get(e)
+                if nodes is None or len(nodes) not in SURFACE_CORNERS:
+                    continue
+                surface = SURFACE_CORNERS[len(nodes)]
+                n = len(surface)
+                if hi - lo < 2 * n:
+                    continue
+                s = rows[lo:hi, 2:5]
+                for j, k in enumerate(surface):
+                    if k >= 0:
+                        element.append(e)
+                        node.append(nodes[k])
+                        bottom.append(s[j])
+                        top.append(s[n + j])
+        out[int(case)] = (
+            np.asarray(element, dtype=int),
+            np.asarray(node, dtype=int),
+            np.asarray(bottom, dtype=float).reshape(-1, 3),
+            np.asarray(top, dtype=float).reshape(-1, 3),
+        )
+    return out
+
+
+def _into(s: np.ndarray, ex: np.ndarray, ey: np.ndarray) -> np.ndarray:
+    """In-plane stresses ``(n, 3)`` in other axes: ``ex`` / ``ey`` ``(n, 2)`` are each row's own x and y axes
+    in the other axes."""
+    sxx, syy, txy = s[:, 0], s[:, 1], s[:, 2]
+    return np.stack(
+        (
+            ex[:, 0] ** 2 * sxx + 2 * ex[:, 0] * ey[:, 0] * txy + ey[:, 0] ** 2 * syy,
+            ex[:, 1] ** 2 * sxx + 2 * ex[:, 1] * ey[:, 1] * txy + ey[:, 1] ** 2 * syy,
+            ex[:, 0] * ex[:, 1] * sxx + (ex[:, 0] * ey[:, 1] + ey[:, 0] * ex[:, 1]) * txy + ey[:, 0] * ey[:, 1] * syy,
+        ),
+        axis=1,
+    )
+
+
+def shell_von_mises(result: FEAResult, cases: Iterable[int] | None = None) -> dict[int, dict[int, float]]:
+    """``{case: {node: von Mises stress}}`` of the plating at its nodes, in the result's stress unit (Pa).
+
+    The reference postprocessor's nodal average, from ``SHELL_STRESS`` whichever solver wrote it: at a node the
+    stresses of the elements meeting there are averaged, surface by surface, von Mises is taken of each
+    average, and the larger surface counts. A node is averaged only where at least two elements meet and every
+    one agrees with the first on thickness (:data:`SAME_THICKNESS`) and normal (:data:`SAME_NORMAL_DEG`): a
+    plate's free edge and a junction of plates (a girder's web on its flange) have no value. The stresses are
+    turned into the first element's axes before they are averaged, so the value does not depend on how a
+    solver orients its elements' axes in their plane. On a Sesam SIN it is the reader's own nodal VONMISES.
+    """
+    mesh = result.mesh
+    frames = {int(k): np.asarray(v, dtype=float) for k, v in (mesh.element_frames or {}).items()}
+    thickness = {int(k): float(v) for k, v in (mesh.thickness or {}).items()}
+    missing = np.full((3, 3), np.nan)
+    cos_limit = np.cos(np.deg2rad(SAME_NORMAL_DEG))
+    out: dict[int, dict[int, float]] = {}
+    for case, (element, node, bottom, top) in _shell_corners(result, cases).items():
+        if not len(node):
             out[case] = {}
             continue
-        rows = np.vstack([np.asarray(f.values, dtype=float) for f in fields])
-        sums: dict[int, list[float]] = {}
-        order = np.argsort(rows[:, 0], kind="stable")
-        rows = rows[order]
-        starts = np.flatnonzero(np.r_[True, rows[1:, 0] != rows[:-1, 0]])
-        for lo, hi in zip(starts, np.r_[starts[1:], len(rows)]):
-            element = int(rows[lo, 0])
-            nodes = corners.get(element)
-            if nodes is None or len(nodes) not in SURFACE_CORNERS:
-                continue
-            surface = SURFACE_CORNERS[len(nodes)]
-            s = rows[lo:hi][np.argsort(rows[lo:hi, 1], kind="stable"), 2:5]
-            vm = np.sqrt(s[:, 0] ** 2 + s[:, 1] ** 2 - s[:, 0] * s[:, 1] + 3 * s[:, 2] ** 2)
-            n = len(surface)
-            if len(vm) < 2 * n:
-                continue
-            for j, k in enumerate(surface):
-                if k >= 0:
-                    sums.setdefault(nodes[k], []).append(float(max(vm[j], vm[n + j])))
-        out[int(case)] = {node: float(np.mean(v)) for node, v in sums.items()}
+        order = np.argsort(node, kind="stable")
+        element, node, bottom, top = element[order], node[order], bottom[order], top[order]
+        frame = np.stack([frames.get(int(e), missing) for e in element])
+        thick = np.array([thickness.get(int(e), np.nan) for e in element])
+        groups, starts, counts = np.unique(node, return_index=True, return_counts=True)
+        first = np.repeat(starts, counts)
+        ref = frame[first]
+        with np.errstate(invalid="ignore"):
+            same_thickness = np.isfinite(thick) & (
+                np.abs(thick - thick[first]) <= SAME_THICKNESS * np.maximum(np.abs(thick[first]), 1e-30)
+            )
+            same_normal = np.einsum("ij,ij->i", frame[:, 2], ref[:, 2]) >= cos_limit
+        averaged = np.logical_and.reduceat(same_thickness & same_normal, starts) & (counts >= 2)
+
+        # Each element's x and y axes in the first element's: the two are coplanar within the normal limit.
+        ex = np.stack(
+            (np.einsum("ij,ij->i", frame[:, 0], ref[:, 0]), np.einsum("ij,ij->i", frame[:, 0], ref[:, 1])), axis=1
+        )
+        with np.errstate(invalid="ignore", divide="ignore"):
+            ex /= np.linalg.norm(ex, axis=1)[:, None]
+            ey = np.stack((-ex[:, 1], ex[:, 0]), axis=1)
+            mean_bottom = np.add.reduceat(_into(bottom, ex, ey), starts) / counts[:, None]
+            mean_top = np.add.reduceat(_into(top, ex, ey), starts) / counts[:, None]
+            vm = np.maximum(_von_mises(mean_bottom), _von_mises(mean_top))
+        out[case] = {int(n): float(v) for n, v, ok in zip(groups, vm, averaged) if ok}
+    return out
+
+
+def shell_von_mises_corners(result: FEAResult, cases: Iterable[int] | None = None) -> dict[int, dict[int, float]]:
+    """``{case: {node: von Mises stress}}`` with von Mises taken first: at every element corner, the larger
+    surface, then the mean over the node's elements, at every node, free edges and junctions included.
+
+    Higher than :func:`shell_von_mises` where the stress changes fast (a point load, a junction): it shows the
+    hot spots, not the postprocessor's figure. Von Mises needs no common axes, so each element's own are used.
+    """
+    out: dict[int, dict[int, float]] = {}
+    for case, (_, node, bottom, top) in _shell_corners(result, cases).items():
+        if not len(node):
+            out[case] = {}
+            continue
+        vm = np.maximum(_von_mises(bottom), _von_mises(top))
+        order = np.argsort(node, kind="stable")
+        groups, starts, counts = np.unique(node[order], return_index=True, return_counts=True)
+        mean = np.add.reduceat(vm[order], starts) / counts
+        out[case] = {int(n): float(v) for n, v in zip(groups, mean)}
     return out
 
 
@@ -70,6 +166,7 @@ def shell_von_mises(result: FEAResult, cases: Iterable[int] | None = None) -> di
 #: compute)}``, compute giving ``{case: {node: values}}``.
 DERIVED: dict[str, tuple[list[str], str, Callable]] = {
     "von_mises": (["VON_MISES"], "stress", shell_von_mises),
+    "von_mises_corners": (["VON_MISES"], "stress", shell_von_mises_corners),
 }
 
 
@@ -157,4 +254,13 @@ class WithDerivedFields:
             yield StepValues(step_index=i, step_value=spec.step_values[i], values=values)
 
 
-__all__ = ["DERIVED", "SURFACE_CORNERS", "WithDerivedFields", "derived_nodal", "shell_von_mises"]
+__all__ = [
+    "DERIVED",
+    "SAME_NORMAL_DEG",
+    "SAME_THICKNESS",
+    "SURFACE_CORNERS",
+    "WithDerivedFields",
+    "derived_nodal",
+    "shell_von_mises",
+    "shell_von_mises_corners",
+]
