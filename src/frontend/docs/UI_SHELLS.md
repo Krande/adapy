@@ -71,7 +71,7 @@ src/frontend/
   src/viewer-core/       the contract: index.ts (dep-free) + app.ts + scene.ts + plugins.ts
   src/plugins/
     uiShells.ts          registry + resolution (id -> shell, precedence, fallback)
-    coreUiShell.ts       registers the built-in `core` shell (lazy-loads @/app)
+    coreUiShell.ts       registers the built-in `core` shell (lazy-loads @/app: the classic preset, through the layout engine)
     UiShellHost.tsx      mounts the active shell; falls back to core on load/render failure
     UiShellSwitcher.tsx  the switcher (Options -> Theme); renders NOTHING when only one shell is registered
   src/layout/desktop/    the built-in Desktop UI (a composed shell, registered next to `core`)
@@ -108,6 +108,11 @@ An id that is not registered in this build never blanks the viewer: it is logged
 and resolution continues down the list. That matters most for the runtime value,
 which is the one place a typo now reaches a live deployment rather than failing a
 build — the worst case is the next source down, ultimately the built-in UI.
+
+Inside the built-in UI there is no second switch: it is always the classic
+preset of the layout engine. `?layout=classic` (and the
+`ada:layout-engine` key), which once fell back to a hand-written tree, are
+ignored.
 
 Switching from the switcher persists the choice and reloads — a shell owns the
 whole tree (canvas, websocket, stores), so hot-swapping would mean tearing all of

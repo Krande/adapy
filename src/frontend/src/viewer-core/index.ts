@@ -383,6 +383,20 @@
 //          `coreSceneTreeSource`, `coreSceneTreeSink`, `useSceneMirrorStore`).
 //          Behaviour change: the selection tree panel is `mirrored`;
 //          `core:selection` also carries `rangeCount` and `parentName`.
+//          The layout engine is the only path: the built-in UI is the classic
+//          preset, and the hand-written tree it replaced is gone. Behaviour
+//          change: `?layout=classic` and `localStorage["ada:layout-engine"]` no
+//          longer switch anything. DEPRECATED, kept (released in 1.12.0, on
+//          `@/viewer-core/layout`): `layoutEngineEnabled` (always true),
+//          `LAYOUT_ENGINE_PARAM`, `LAYOUT_ENGINE_STORAGE_KEY`. DEPRECATED, kept:
+//          the store flags a panel's binding wraps (`isOptionsVisible`,
+//          `show_info_box`, `show_scene_info_box`, `isControlsVisible`,
+//          `showServerInfoBox`, `isTreeCollapsed`, ... and their setters and
+//          toggles): open, close and ask through `reveal` / `hide` / `toggle` /
+//          `isPanelOpen` with the panel's id, which the layout controls.
+//          The in-viewer admin / convert window, the attribute search's and the
+//          node editor's windows are `TransformedHost`s, so the fixed overlays
+//          inside them (`OverlayPortal`) open over the page.
 export const VIEWER_CORE_API_VERSION = "1.13.0";
 
 // ---------------------------------------------------------------------------
