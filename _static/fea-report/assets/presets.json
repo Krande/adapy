@@ -1,0 +1,92 @@
+{
+  "back": {
+    "azimuth_deg": 180.0,
+    "distance": "fit",
+    "elevation_deg": 0.0,
+    "fov_deg": 45.0,
+    "margin": 1.15,
+    "roll_deg": 0.0,
+    "target": "bbox_center"
+  },
+  "bottom": {
+    "azimuth_deg": 0.0,
+    "distance": "fit",
+    "elevation_deg": -89.9,
+    "fov_deg": 45.0,
+    "margin": 1.15,
+    "roll_deg": 0.0,
+    "target": "bbox_center"
+  },
+  "front": {
+    "azimuth_deg": 0.0,
+    "distance": "fit",
+    "elevation_deg": 0.0,
+    "fov_deg": 45.0,
+    "margin": 1.15,
+    "roll_deg": 0.0,
+    "target": "bbox_center"
+  },
+  "iso_1": {
+    "azimuth_deg": 45.0,
+    "distance": "fit",
+    "elevation_deg": 30.0,
+    "fov_deg": 45.0,
+    "margin": 1.15,
+    "roll_deg": 0.0,
+    "target": "bbox_center"
+  },
+  "iso_2": {
+    "azimuth_deg": 135.0,
+    "distance": "fit",
+    "elevation_deg": 30.0,
+    "fov_deg": 45.0,
+    "margin": 1.15,
+    "roll_deg": 0.0,
+    "target": "bbox_center"
+  },
+  "iso_3": {
+    "azimuth_deg": -135.0,
+    "distance": "fit",
+    "elevation_deg": 30.0,
+    "fov_deg": 45.0,
+    "margin": 1.15,
+    "roll_deg": 0.0,
+    "target": "bbox_center"
+  },
+  "iso_4": {
+    "azimuth_deg": -45.0,
+    "distance": "fit",
+    "elevation_deg": 30.0,
+    "fov_deg": 45.0,
+    "margin": 1.15,
+    "roll_deg": 0.0,
+    "target": "bbox_center"
+  },
+  "left": {
+    "azimuth_deg": 90.0,
+    "distance": "fit",
+    "elevation_deg": 0.0,
+    "fov_deg": 45.0,
+    "margin": 1.15,
+    "roll_deg": 0.0,
+    "target": "bbox_center"
+  },
+  "right": {
+    "azimuth_deg": -90.0,
+    "distance": "fit",
+    "elevation_deg": 0.0,
+    "fov_deg": 45.0,
+    "margin": 1.15,
+    "roll_deg": 0.0,
+    "target": "bbox_center"
+  },
+  "top": {
+    "azimuth_deg": 0.0,
+    "distance": "fit",
+    "elevation_deg": 89.9,
+    "fov_deg": 45.0,
+    "margin": 1.15,
+    "roll_deg": 0.0,
+    "target": "bbox_center"
+  }
+}

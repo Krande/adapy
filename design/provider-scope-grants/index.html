@@ -1,0 +1,2157 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="A python library for structural analysis and design, focused on interoperability between IFC and Finite Element formats.">
+      
+      
+        <meta name="author" content="Kristoffer H. Andersen">
+      
+      
+        <link rel="canonical" href="https://krande.github.io/adapy/design/provider-scope-grants/">
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="zensical-0.0.68">
+    
+    
+      
+        <title>Provider data is global; scopes get grants - ADA - Advanced Design & Analysis</title>
+      
+    
+    
+      
+        
+      
+      <link rel="stylesheet" href="../../assets/stylesheets/modern/main.595f2bf5.min.css">
+      
+        
+          
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/modern/palette.b27955a4.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,500,500i,700,700i%7CJetBrains+Mono:400,400i,700,700i&amp;display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../_static/extra.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_scope.pathname.endsWith("/")||(__md_scope=new URL(__md_scope.pathname+"/",location)),__md_hash=e=>[...e].reduce(((e,t)=>(e<<5)-e+t.charCodeAt(0)),0),__md_get=(e,t=localStorage,_=__md_scope)=>JSON.parse(t.getItem(_.pathname+"."+e)),__md_set=(e,t,_=localStorage,a=__md_scope)=>{try{_.setItem(a.pathname+"."+e,JSON.stringify(t))}catch(e){}},document.documentElement.setAttribute("data-platform",navigator.platform)</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer" aria-hidden="true"></label>
+    <div data-md-component="skip">
+      <a href="#__skip" class="md-skip">
+        Skip to content
+      </a>
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="ADA - Advanced Design &amp; Analysis" class="md-header__button md-logo" aria-label="ADA - Advanced Design & Analysis" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-book-open" viewBox="0 0 24 24"><path d="M12 5v16M20.001 19A2 2 0 0 0 22 17V5a2 2 0 0 0-1.999-2L16 3.002A5 5 0 0 0 12 5a5 5 0 0 0-4-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 1.999 2H8a5 5 0 0 1 4 2 5 5 0 0 1 4-2z"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer" aria-label="Navigation">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-menu" viewBox="0 0 24 24"><path d="M4 5h16M4 12h16M4 19h16"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            ADA - Advanced Design & Analysis
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Provider data is global; scopes get grants
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-moon" viewBox="0 0 24 24"><path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search" aria-label="Search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-search" viewBox="0 0 24 24"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog" aria-label="Search">
+  <button type="button" class="md-search__button">
+    Search
+  </button>
+</div>
+      
+    
+    <div class="md-header__source">
+      
+        <a href="https://github.com/Krande/adapy" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    Krande/adapy
+  </div>
+</a>
+      
+    </div>
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="ADA - Advanced Design &amp; Analysis" class="md-nav__button md-logo" aria-label="ADA - Advanced Design & Analysis" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-book-open" viewBox="0 0 24 24"><path d="M12 5v16M20.001 19A2 2 0 0 0 22 17V5a2 2 0 0 0-1.999-2L16 3.002A5 5 0 0 0 12 5a5 5 0 0 0-4-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 1.999 2H8a5 5 0 0 1 4 2 5 5 0 0 1 4-2z"/></svg>
+
+    </a>
+    ADA - Advanced Design & Analysis
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/Krande/adapy" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    Krande/adapy
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Home
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Features
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_2">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Features
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../ada_studio/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Ada Studio
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../procedural_modelling/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Procedural modelling
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../dexpi/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  From P&amp;ID to 3D model
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../path_to_software_agnosticism/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Path to Software Agnosticism
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../meshing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Build mesh recipes, not meshes
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../drawings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Drawings
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Command line interface
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Primitives
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_3">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Primitives
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/design/primitives/box/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Box
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/design/primitives/sphere/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Sphere
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/design/primitives/cylinder/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Cylinder
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/design/primitives/cone/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Cone
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/design/primitives/extrusion/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Extrusion
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/design/primitives/revolve/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Revolution
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/design/primitives/sweeps/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Sweeps
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/design/primitives/beams/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Beams
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/design/primitives/plates/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Plates
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/design/primitives/pipe/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Pipe
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Modelling
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_4">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Modelling
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/design/boolean_operations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Boolean Operations
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/design/parts_and_assemblies/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Parts and Assemblies
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/design/placement/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Placement of parts and objects
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/design/sections/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Sections in ADA
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  FEA
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_5">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  FEA
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../fea/software/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  FEA Software
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../fea/verification/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  FEA Verification Report
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../architecture/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Architecture
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6" id="__nav_6_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_6">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Architecture
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/core_model/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Core object model
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/topology_engine/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Topology engine
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/geometry_and_visualisation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Geometry &amp; visualisation
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/interop/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Interoperability
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/fea/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  FEA
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/platform/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Viewer platform
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/frontend/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Frontend
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/docs_pipeline/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Docs pipeline
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Code
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_7">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Code
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../code/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Code Documentation
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Profiling
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_8">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Profiling
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../profiling/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Profiling Dashboard
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  
+                    
+                    
+                    
+                      
+                    
+                    
+                      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+                      <div class="md-sidebar-button__wrapper">
+                        <label class="md-sidebar-button" for="__toc"></label>
+                      </div>
+                    
+                  
+                  <div class="md-sidebar__inner">
+                    
+
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#goal" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Goal
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#1-current-coupling-what-ties-provider-data-to-the-launching-scope" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        1. Current coupling (what ties provider data to the launching scope)
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-data-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        2. Data model
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-api" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        3. API
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-reads-through-grants" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        4. Reads through grants
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-jobs-and-crons-become-scope-independent" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        5. Jobs and crons become scope-independent
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-authorization" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        6. Authorization
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-migration-and-dedup" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        7. Migration and dedup
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-plugin-contract" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        8. Plugin contract
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#9-phases-each-shippable-alone" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        9. Phases (each shippable alone)
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#10-open-questions" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        10. Open questions
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                <a id="__skip" tabindex="-1"></a>
+                
+                  
+
+  
+    <a href="https://github.com/Krande/adapy/edit/main/docs/design/provider-scope-grants.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-file-pen" viewBox="0 0 24 24"><path d="M12.659 22H18a2 2 0 0 0 2-2V8a2.4 2.4 0 0 0-.706-1.706l-3.588-3.588A2.4 2.4 0 0 0 14 2H6a2 2 0 0 0-2 2v9.34"/><path d="M14 2v5a1 1 0 0 0 1 1h5M10.378 12.622a1 1 0 0 1 3 3.003L8.36 20.637a2 2 0 0 1-.854.506l-2.867.837a.5.5 0 0 1-.62-.62l.836-2.869a2 2 0 0 1 .506-.853z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="provider-data-is-global-scopes-get-grants">Provider data is global; scopes get grants<a class="headerlink" href="#provider-data-is-global-scopes-get-grants" title="Permanent link">&para;</a></h1>
+<p>Status: phases 1-3 implemented; from phase 5, grants are the only scope access control (the matrix and the share seeding are migrated, see §9). Phase 4 (moving the legacy copies into the store) and the purge are open.</p>
+<h2 id="goal">Goal<a class="headerlink" href="#goal" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Provider data is stored once, keyed by provider and project, under no user or project scope. That covers the attributes in Postgres and the CSG, mesh and tree exports in S3.</li>
+<li>Extraction jobs, sweeps and crons are admin operations. Where a job is started from never changes where its data lands.</li>
+<li>An admin maps scope → dataset (provider, project) with separate permissions. Members read through the grant, and nothing is copied into the scope.</li>
+</ul>
+<p>"Collection" in the code is the provider's project (an E3D project or a web3d project). Below it is called a <em>dataset</em> <code>(provider, collection)</code>.</p>
+<h2 id="1-current-coupling-what-ties-provider-data-to-the-launching-scope">1. Current coupling (what ties provider data to the launching scope)<a class="headerlink" href="#1-current-coupling-what-ties-provider-data-to-the-launching-scope" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Where</th>
+<th>What</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td><code>storage.py:251-264</code> (<code>_scope_prefix</code>, <code>_full_key</code>), <code>scope.py</code> <code>Scope.prefix()</code></td>
+<td>Every blob key is <code>&lt;scope prefix&gt;/&lt;key&gt;</code>, and asset keys are <code>assets/&lt;collection&gt;/&lt;subject&gt;/&lt;revision&gt;/&lt;file&gt;</code> (<code>ada/assets/keys.py:42-43</code>). Provider is not in the key.</td>
+</tr>
+<tr>
+<td>2</td>
+<td><code>routes/plugin_jobs.py:412,429-432</code></td>
+<td><code>POST /plugins/{id}/jobs?scope=</code> defaults to <code>shared</code>. The job runs in whatever scope the caller names.</td>
+</tr>
+<tr>
+<td>3</td>
+<td><code>routes/plugin_jobs.py:153-171</code> (<code>enqueue_plugin_job</code>)</td>
+<td><code>JobRequest(scope=scope_obj)</code>. The worker rebuilds it (<code>worker/state.py:21</code>, <code>job_transport.py:299-300</code>).</td>
+</tr>
+<tr>
+<td>4</td>
+<td><code>formats/plugin.py:87,166,178,278</code></td>
+<td>The plugin gets a storage facade bound to the job scope, <code>scope=</code>, and a source-nodes recorder bound to the job scope. The summary is written into that scope.</td>
+</tr>
+<tr>
+<td>5</td>
+<td><code>routes/assets.py:916-1037</code> (<code>api_asset_publish</code>, <code>submit_asset_publish</code>), <code>formats/asset_publish.py:121-131,147-167</code></td>
+<td>Publish reads the staging and writes manifests/artefacts into the job scope. <code>publisher.derive(scope, ...)</code> receives it.</td>
+</tr>
+<tr>
+<td>6</td>
+<td><code>db/attribute_index.py:449,536-557</code>; migration 037 PK <code>(scope, provider, collection)</code></td>
+<td>Attribute partitions are keyed by the publishing scope. The "one copy" dedup only folds toward <code>shared</code> (<code>:54-63,417-446,569</code>).</td>
+</tr>
+<tr>
+<td>7</td>
+<td><code>routes/asset_sweeps.py:555-604</code> (admin start needs <code>scope</code>), <code>:207-264</code> (<code>start_sweep</code>), <code>:418-454</code> (options, enqueue, summary read in <code>scope_obj</code>), <code>:482-485</code> (publish in <code>scope_obj</code>), <code>:194-204</code> (provider options read from <code>assets/_options/&lt;c&gt;.json</code> in that scope)</td>
+<td>Admin sweeps are run <em>for a scope</em> and publish into it.</td>
+</tr>
+<tr>
+<td>8</td>
+<td>migration 029 <code>plugin_job_schedules.scope</code>; <code>routes/admin_plugin_jobs.py:249-251,274-279,358-368</code></td>
+<td>Crons resolve a stored scope, guard in-flight runs per scope and enqueue into it.</td>
+</tr>
+<tr>
+<td>9</td>
+<td><code>routes/asset_schedules.py:391-396</code> (<code>scope_key</code>), <code>:413-424</code> (settings per scope), <code>:430-519</code> (change check and runs per scope); migration 035 <code>asset_change_runs.scope</code></td>
+<td>Change checks run in, and are listed per, scope.</td>
+</tr>
+<tr>
+<td>10</td>
+<td>migration 028 unique <code>(scope, source, node_ref)</code>; <code>worker/source_nodes.py:43-51,145-149</code>; <code>routes/source_nodes.py:72,224</code></td>
+<td>The change feed and its watermark (the E3D cursor) are per scope. Two scopes means two cursors and two extractions.</td>
+</tr>
+<tr>
+<td>11</td>
+<td><code>routes/assets.py:186-731</code> (providers, index, geometry roll-up, tree, attributes, delivery, build)</td>
+<td>All reads come from <code>scope_obj</code> storage. Builds cache under the scope (<code>:875</code>) and run as scope jobs (<code>:882</code>). Live providers receive the reader's scope (<code>:420,627,685</code>).</td>
+</tr>
+<tr>
+<td>12</td>
+<td><code>routes/attribute_search.py:62-75,134-141</code>; <code>db/attribute_index.py:1683-1735</code></td>
+<td>Search reads its own scope plus shares, and a share is readable only if the caller can reach the <em>origin</em> scope.</td>
+</tr>
+<tr>
+<td>13</td>
+<td><code>routes/asset_exports.py:193-219,748-806</code>; <code>search_export.py:263</code>; <code>formats/export_search.py:112-119</code></td>
+<td>Export reads a hit's attributes, tree and geometry from the hit's origin scope. Design geometry comes from <code>GEOMETRY_PROVIDER</code> <em>in the same storage scope</em>. Tree/geometry requests publish into the origin.</td>
+</tr>
+<tr>
+<td>14</td>
+<td><code>routes/assets.py:150-183</code></td>
+<td>Provider display names are per scope.</td>
+</tr>
+<tr>
+<td>15</td>
+<td>Frontend: <code>services/assetScopeCollections.ts:21-25,43</code> (<code>public.assets.scope_collections</code>, "a picker filter, not a permission"); <code>services/providerOptions.ts:20-56</code>; <code>assets/collectionRequest.ts:216-284</code> (request, then publish, both in the picker scope); <code>components/admin/ProvidersTab.tsx:218,333</code>; <code>ProviderSchedulesSection.tsx:176-206</code> (scope dropdown on schedules and sweeps); <code>services/providerRescan.ts:55,70</code> (hard-coded <code>shared</code>); <code>AssetsTab.tsx:1603</code></td>
+<td>The UI binds every provider action to the current scope.</td>
+</tr>
+<tr>
+<td>16</td>
+<td>Plugins: E3D <code>adapy_job.py:916,936</code> (sweep state is one file per scope); <code>:2186-2211,2393</code> (source_nodes <code>e3d:&lt;PROJECT&gt;</code> per scope); <code>core_provider.py:129-178</code> (reads earlier revisions and the <em>other</em> provider's index in the same storage). web3d <code>asset_provider.py:116,1364</code> (<code>_derived/web3d/*</code> caches per scope); <code>:202-1264</code> ("unchanged" decided from earlier publishes in the scope); <code>mirror.py:1266,1345-1404</code> (reads <code>scope_collections</code> to pick which projects to mirror).</td>
+<td>Plugins never hard-code a scope. They read earlier state through the facade, so they follow the facade wherever it points.</td>
+</tr>
+</tbody>
+</table>
+<p>Consequence: one project extracted from three scopes means three S3 copies, three attribute partitions, three change cursors and three licensed-seat runs. Migrations 039/040 (shares) and the fold-to-shared dedup are partial workarounds for this.</p>
+<h2 id="2-data-model">2. Data model<a class="headerlink" href="#2-data-model" title="Permanent link">&para;</a></h2>
+<p><strong>Provider store.</strong> There is one storage scope, <code>Scope.providers()</code>, with prefix <code>providers</code> and wire <code>providers</code>. The key grammar inside it is unchanged:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>&lt;base&gt;/providers/assets/&lt;collection&gt;/&lt;subject&gt;/&lt;revision&gt;/&lt;file&gt;     published (manifest names the provider)
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>&lt;base&gt;/providers/assets/_staging/&lt;id&gt;/&lt;file&gt;                         provider staging
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>&lt;base&gt;/providers/assets/_options/&lt;collection&gt;.json                   admin&#39;s per-collection provider options
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>&lt;base&gt;/providers/_derived/assets/&lt;provider&gt;/&lt;collection&gt;/...         builds, roll-ups, publish summaries
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>&lt;base&gt;/providers/_derived/plugin_jobs/&lt;plugin&gt;/&lt;hash&gt;.json           job summaries
+</span></code></pre></div>
+<p>The store is a single namespace rather than <code>providers/&lt;provider&gt;/...</code> because providers of one project have to sit side by side. web3d reads E3D's index to map ids. The export builds IFC for a web3d hit from the E3D CSG of the same collection. A collection tree can be mixed. All of these read one storage scope today (<code>search_export.resolve_geometry</code>, <code>core_provider._foreign_index_ids</code>), and they keep working unchanged. The provider is recorded in each manifest and in every DB key. (Open question 1.)</p>
+<p><strong>Postgres.</strong> There is no new data table. Provider data uses the existing tables with <code>scope = 'providers'</code>: <code>attr_collections</code>, <code>attr_values</code>, <code>source_nodes</code>, <code>asset_change_runs</code>, <code>asset_sweep_runs</code> and <code>plugin_job_schedules</code>. Global uniqueness then comes from the existing keys <code>(scope, provider, collection)</code> and <code>(scope, source, node_ref)</code>. New tables:</p>
+<ul>
+<li><code>provider_grants</code> (migration 045, <strong>done</strong>): <code>(target_scope, provider, collection NULL = all)</code> is unique. It has <code>attributes</code>, <code>geometry</code> and <code>request</code> booleans, plus <code>granted_by</code>, <code>granted_at</code> and <code>note</code>. CHECK constraints keep the store and corpora from being targets. Indexes cover both directions.</li>
+<li><code>provider_store_migration</code> (phase 4): one row per moved dataset <code>(provider, collection, from_scope, revision, blobs, partition, grants_created, state)</code>. The rollback is driven from it.</li>
+</ul>
+<p><strong>What counts as provider data.</strong> A publish whose <code>provider</code> is advertised as <code>asset_provider_id</code> by a live plugin spec, or is listed in <code>ADA_STORE_PROVIDERS</code>. User uploads published under the built-in <code>published</code> provider stay in the user's scope.</p>
+<h2 id="3-api">3. API<a class="headerlink" href="#3-api" title="Permanent link">&para;</a></h2>
+<p>Admin (implemented in phase 1, under <code>/api/admin</code>):</p>
+<ul>
+<li><code>GET /provider-grants?target_scope=&amp;provider=&amp;collection=</code> lists grants. A <code>collection</code> filter also returns the provider-wide grants that cover it.</li>
+<li><code>PUT /provider-grants</code> with <code>{target_scope, provider, collection?, attributes?, geometry?, request?, note?}</code> creates a grant or replaces its permissions. The defaults are attributes and geometry on, request off.</li>
+<li><code>DELETE /provider-grants</code> with <code>{target_scope, provider, collection?}</code> revokes.</li>
+</ul>
+<p>Admin (later phases):</p>
+<ul>
+<li><code>/asset-sweeps</code>, <code>/asset-schedules</code> and <code>/plugin-jobs/schedules</code>: <code>scope</code> is no longer required. It is accepted and ignored for asset providers, and the response says <code>scope: "providers"</code>.</li>
+<li><code>GET /provider-datasets</code> returns every <code>(provider, collection)</code> in the store with revision, size, last sweep, change-feed watermark and its grants. This is the admin's main table.</li>
+<li><code>POST /provider-store/migrate</code> with <code>{plan|apply|rollback, providers?, collections?, run_id?}</code>. Plan is a dry run unless told otherwise, as with <code>attr-prune-revisions</code>.</li>
+</ul>
+<p>Scope routes keep their paths. Callers do not change URLs, and the server resolves the reads:</p>
+<ul>
+<li><code>/scopes/{s}/assets/*</code>, <code>/scopes/{s}/assets/search*</code>, <code>/scopes/{s}/assets/search/export*</code>, <code>/scopes/{s}/source-nodes</code>, <code>/scopes/{s}/asset-changes/runs*</code>.</li>
+<li>New: <code>GET /scopes/{s}/assets/blob/{provider}/{collection}?key=</code> streams a granted dataset's blob (mesh, built GLB, hierarchy). <code>delivery</code> and <code>build</code> return <code>blob_url</code> pointing at it, so the viewer never needs to name the store.</li>
+<li>New, read-only for members: <code>GET /scopes/{s}/provider-grants</code> lists what the scope may read, for the Sources tab. Worker tokens get <code>GET /api/provider-grants/datasets?provider=</code>, which replaces web3d's read of <code>scope_collections</code>.</li>
+<li><code>POST /plugins/{id}/jobs</code> for an asset-provider plugin always runs in the store. <code>?scope=</code> is then only the <em>requesting</em> scope, used for the grant check and the audit row. The response carries <code>scope: "providers"</code> so the client reads the summary from there.</li>
+</ul>
+<h2 id="4-reads-through-grants">4. Reads through grants<a class="headerlink" href="#4-reads-through-grants" title="Permanent link">&para;</a></h2>
+<p>There is one resolver in <code>routes/deps.py</code>:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>resolve_dataset(pool, user, scope, provider, collection, permission) -&gt; Scope
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>  user is admin and scope == providers                → providers
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>  grant_access(scope.prefix(), provider, collection) allows permission
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>      and the store holds the dataset                 → providers
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>  otherwise                                           → scope   (legacy local copy, until phase 5)
+</span></code></pre></div>
+<p>"The store holds it" means the store has an <code>attr_collections</code> row (for attributes) or an <code>assets/&lt;collection&gt;/</code> listing (for geometry), cached briefly. A grant therefore <em>shadows</em> a local copy only once the store has the data. Before migration this changes nothing, and after migration the stale local copy is never read again.</p>
+<ul>
+<li><strong>Search</strong>: <code>db/attribute_index._partitions</code> gains <code>granted=[(provider, collection|None)]</code> (from <code>granted_datasets(..., "attributes")</code>). It reads the matching <code>scope='providers'</code> partitions and drops the scope's own partition of the same <code>(provider, collection)</code>. Rows carry <code>scope: "providers"</code>, <code>scope_wire: null</code> and <code>granted: true</code>. <code>readable_share_origins</code> is unchanged for user-to-user shares. The admin's <code>all_scopes</code> becomes "search the store".</li>
+<li><strong>Viewer</strong> (tree, attributes, delivery, build, index, geometry roll-up, providers list): provider-addressed routes call <code>resolve_dataset(..., "geometry")</code> with the path's provider. Collection-addressed routes (index, roll-up, <code>published</code>/any) resolve to the store when any provider of the collection is geometry-granted, and filter what they return to granted providers (the roll-up is already per provider; the index filters by manifest provider). Builds of granted datasets run as store jobs and cache in the store's <code>_derived/</code>, so every granted scope shares one built GLB.</li>
+<li><strong>Export</strong>: a hit from the store has <code>origin = "providers"</code>. <code>refuse_unreadable_hits</code> accepts it only if the hit's <code>(provider, collection)</code> has an <code>attributes</code> grant. Design geometry for any hit, web3d hits included, is the <code>GEOMETRY_PROVIDER</code> CSG of the same collection in the store. It needs a <code>geometry</code> grant on <code>(GEOMETRY_PROVIDER, collection)</code>, otherwise the file reports <code>no_geometry</code> with <code>reason: "not_granted"</code>. web3d is never a geometry source, and non-mesh E3D primitives still export as exact primitives. Files are still written into the user's target scope, as today.</li>
+<li><strong>Change feed</strong> (<code>source-nodes</code>, <code>asset-changes/runs</code>): these read <code>scope='providers'</code> rows when the scope holds a grant for the provider.</li>
+</ul>
+<h2 id="5-jobs-and-crons-become-scope-independent">5. Jobs and crons become scope-independent<a class="headerlink" href="#5-jobs-and-crons-become-scope-independent" title="Permanent link">&para;</a></h2>
+<ul>
+<li><code>job_scope(plugin_spec)</code> returns <code>Scope.providers()</code> when the spec declares <code>asset_provider_id</code>. <code>enqueue_plugin_job</code>, <code>submit_asset_publish</code>, <code>start_sweep</code>, <code>start_change_check</code> and <code>plugin_schedule_fire</code> all use it, so no caller can pick the scope for provider data.</li>
+<li>Sweeps and schedules carry no scope. Each <code>(provider, collection, schedule_job)</code> has one live schedule, and the in-flight guard becomes per plugin (<code>admin_plugin_jobs.py:274</code>). Provider options live once, at <code>providers/assets/_options/&lt;c&gt;.json</code>, and are edited by admins.</li>
+<li>The source-nodes recorder is bound to the store, so each <code>(source, node)</code> has one cursor. E3D's sweep-state file becomes one file instead of one per scope.</li>
+<li>A member-initiated request (Sources "Request", node request, export's "request missing geometry/trees") is allowed when the user is an admin, or when the grant has <code>request</code> and the plugin's own <code>requires_admin</code> gate passes. The job runs in the store. The run row records <code>requested_from = &lt;scope&gt;</code> for display.</li>
+<li>Transitional (phase 3 only, flag <code>ADA_PROVIDER_AUTOGRANT=1</code>): when a job is requested from scope S, S receives a grant on that dataset if it has none. Existing workflows then keep seeing their data while admins set up grants.</li>
+</ul>
+<h2 id="6-authorization">6. Authorization<a class="headerlink" href="#6-authorization" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Who</th>
+<th>Can</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Admin</td>
+<td>Read and write the store directly (<code>/scopes/providers/...</code>, as for a corpus). Manage grants, sweeps, schedules, provider options and migration.</td>
+</tr>
+<tr>
+<td>Member of S (<code>can_access(S)</code>), with a grant <code>attributes</code></td>
+<td>Search, keys, values, export attributes for that dataset.</td>
+</tr>
+<tr>
+<td>… with <code>geometry</code></td>
+<td>Tree, attributes doc, delivery, blob, build (the shared cache is written by core, never by the caller), design geometry in export.</td>
+</tr>
+<tr>
+<td>… with <code>request</code></td>
+<td>Trigger the provider's collection, node and tree requests for that dataset. The output goes to the store.</td>
+</tr>
+<tr>
+<td>Anyone else</td>
+<td>Nothing. A non-admin cannot name <code>providers</code> (<code>can_access</code> returns False, already done).</td>
+</tr>
+</tbody>
+</table>
+<ul>
+<li>Grants on <code>shared</code> apply to every authenticated user. Grants on an archived project are inert, because <code>can_access</code> already fails.</li>
+<li>Revocation is immediate, since access is checked per request. Files already exported into a scope stay there as the user's output.</li>
+<li>A grant never copies data, and nothing a member does can write provider data except a <code>request</code> (provider job) or a core-composed derived cache.</li>
+</ul>
+<h2 id="7-migration-and-dedup">7. Migration and dedup<a class="headerlink" href="#7-migration-and-dedup" title="Permanent link">&para;</a></h2>
+<p>The tool is an admin endpoint and CLI: <code>plan</code> → <code>apply</code> → <code>verify</code> → (later) <code>purge</code>, or <code>rollback</code>. It is idempotent and resumable per dataset, and no scoped copy is deleted before <code>purge</code>.</p>
+<ol>
+<li><strong>Inventory.</strong> For every scope (<code>shared</code>, <code>projects/*</code>, <code>users/*</code>), list <code>assets/</code> and read the manifests, giving <code>(provider, collection, subject, revision)</code> per scope. Read <code>attr_collections</code> grouped by <code>(provider, collection)</code> with revision and ingest time. Also read <code>source_nodes</code> per <code>(scope, source)</code>, <code>plugin_job_schedules</code> with <code>asset_provider</code>, the per-scope <code>assets/_options/*.json</code>, <code>attr_shares</code>/<code>attr_provider_shares</code>, and <code>public.assets.scope_collections</code>.</li>
+<li><strong>Canonical copy per dataset.</strong> Use the existing <code>newest_copy</code> rule (<code>attribute_index.py:1914</code>): newest numeric revision, else latest ingest. Flag a dataset as <strong>conflict</strong> when its scopes hold different provider options documents. An admin picks the winner, and nothing moves until then.</li>
+<li><strong>Blobs.</strong> From the canonical scope, server-side copy each revision prefix <code>assets/&lt;c&gt;/&lt;s&gt;/&lt;r&gt;/</code> whose manifest names the provider into <code>providers/assets/...</code>. Copy every revision, because leaves reference older spines through <code>hierarchy_revision</code>, and let retention prune afterwards. Copy artefacts first and manifests last, keeping the publish ordering invariant. Skip identical keys (same size/etag). Do not copy <code>_staging</code>, <code>_derived</code> or <code>_publish</code>; those are caches and rebuild on demand.</li>
+<li><strong>Attributes.</strong> Re-key the canonical partition in one transaction: <code>UPDATE attr_collections SET scope='providers'</code>, keeping <code>part_key</code> and <code>partition_name</code>. Small code change: the next ingest drops the partition named in the existing row when its name differs from the computed one. Record the old scope in the migration log. Other scopes' partitions stay in place, shadowed by the grant (§4).</li>
+<li><strong>Change feed.</strong> <code>INSERT … SELECT 'providers', source, node_ref, … ON CONFLICT DO UPDATE</code> with <code>GREATEST(last_changed_at)</code> and <code>GREATEST(observed_at)</code>, so the merged watermark is the furthest any scope got.</li>
+<li><strong>Schedules.</strong> Collapse to one live schedule per <code>(provider, collection, job)</code>: keep the most recently fired, set its scope to <code>providers</code>, and archive the rest with a note. Merge provider options from the canonical scope into <code>providers/assets/_options/</code>.</li>
+<li><strong>Grants.</strong> For every scope that held a copy, every share target of one, and every explicit <code>scope_collections</code> entry, create a grant (<code>attributes</code>, <code>geometry</code>; <code>request</code> set when that scope could request before). <code>granted_by = "migration:&lt;run id&gt;"</code>.</li>
+<li><strong>Verify.</strong> For each grant: the search count per partition before and after, a tree root and one delivery resolving through the grant, and an export dry-run (preflight) for a sample hit with design geometry present.</li>
+<li><strong>Purge</strong> (phase 5, after a soak). Delete the shadowed scoped copies (blobs whose manifest provider is a store provider, their partitions, their <code>source_nodes</code> rows, archived schedules) with the existing drop and storage helpers. This step is irreversible, has a dry run by default, and is per provider.</li>
+</ol>
+<p><strong>Rollback</strong> (any time before purge): delete grants whose <code>granted_by</code> is <code>migration:&lt;run&gt;</code>; re-key each moved partition back to its logged scope; delete the run's <code>source_nodes</code>/schedule changes from the log; turn writes back to scoped (<code>ADA_PROVIDER_STORE_WRITES=0</code>). Reads then fall back to the untouched local copies. The blobs copied into the store can stay; with no grants they are invisible.</p>
+<h2 id="8-plugin-contract">8. Plugin contract<a class="headerlink" href="#8-plugin-contract" title="Permanent link">&para;</a></h2>
+<p>There is no signature change. <code>job_entrypoint(options, *, storage, scope, on_progress, derived_prefix, cancel_event?, source_nodes?)</code> keeps its shape, but for an asset-provider job <code>scope</code> is <code>Scope.providers()</code> and the facade and recorder are bound to the store. Both plugins already go only through the facade, so staging, "unchanged" detection, foreign-index reads, the E3D sweep state and the <code>_derived/web3d/*</code> caches move with it. <code>publisher.derive(scope, …)</code> and the live <code>delivery</code>/<code>attributes</code>/<code>hierarchy(scope, …)</code> receive the store scope, so a provider must not branch on the reader's scope (neither does today).</p>
+<p>Plugin-side changes, to be made in those repos and not here:</p>
+<ul>
+<li><strong>web3d</strong> <code>mirror.py</code> (done): the projects to mirror are no longer read from <code>public.assets.scope_collections</code>. Without the mirror setting's own <code>projects</code>, they are every project the provider offers minus the admin's sweep exclusions (<code>asset_sweeps.defaults.web3d</code>) -- the list an "Export every project" sweep runs over. Which scope may read a project is a grant and does not decide what is kept current.</li>
+<li><strong>E3D</strong> CLI publish (<code>assets/publish.py:392-478</code>, <code>viewer_staging.py:122-143</code>): target <code>ADAPY_API_SCOPE=providers</code> with an admin token. The comments at <code>adapy_job.py:3510</code> and <code>:2192-2198</code> ("one state per scope") become "one state".</li>
+<li>Both specs: nothing to add. <code>requires_admin</code> keeps meaning "who may ask", and the new <code>request</code> grant is checked as well as it, never instead of it.</li>
+</ul>
+<h2 id="9-phases-each-shippable-alone">9. Phases (each shippable alone)<a class="headerlink" href="#9-phases-each-shippable-alone" title="Permanent link">&para;</a></h2>
+<ol>
+<li><strong>Grants and the store scope.</strong> This commit: migration 045, <code>Scope.providers()</code> (admin-only, <code>parse_scope("providers")</code>, worker reconstruction), <code>db/provider_grants.py</code>, <code>/api/admin/provider-grants</code>, tests. Next in this phase: the Admin → Providers → Access UI. No read or write changes yet.</li>
+<li><strong>Read through grants.</strong> <code>resolve_dataset</code>, search <code>granted</code>, export origin <code>providers</code> and the geometry-grant rule, the blob route, and <code>GET /scopes/{s}/provider-grants</code>. With the store empty, behaviour is unchanged.</li>
+<li><strong>Writes go to the store.</strong> <code>job_scope()</code>, sweeps and schedules without scope, provider options in the store, the change feed in the store, member requests via <code>request</code>, transitional auto-grant. Frontend: drop the scope dropdowns, read job summaries from the returned scope, fix the <code>providerRescan</code> hard-coded <code>shared</code>. Behind <code>ADA_PROVIDER_STORE_WRITES</code> (default on once tested). New extractions land once, and old copies stay readable through the fallback.</li>
+<li><strong>Migrate and dedup</strong> the legacy copies (§7), with rollback. <em>Open.</em> Until it lands, a granted scope reads its own legacy copy until the store holds the dataset.</li>
+<li><strong>Clean up.</strong></li>
+<li><em>Done:</em> grants are the only scope access control. The Access section is per scope, per provider, one checkbox per collection (read: attributes and geometry), with "All collections" for a provider-wide grant and the raw grant rows kept under "Every grant"; <code>POST /api/admin/provider-grants/collections</code> applies a batch of ticks in one transaction. <code>scope_collections</code> is retired: at startup <code>provider_grant_migration.py</code> turns explicit entries into read grants, Shared and live projects without an entry ("unrestricted") into read grants for every collection the store's attribute catalogue or their own copy holds, personal scopes' entries into grants, and attr shares into attributes grants (per collection, or provider-wide for 040); grants are only ever added, the setting is deleted (its last value kept in <code>provider_grants.legacy_migrated</code>), and storing it again is refused (410). The request picker offers an admin every advertised collection; a member is pointed to an admin. The web3d mirror no longer reads the matrix (§8). The per-scope provider display names stay where they are, in the Providers tab.</li>
+<li><em>Open:</em> purge the shadowed copies; stop reading attr shares and drop the fold-to-shared dedup (both still serve legacy copies until phase 4 moves them); drop the 1.8.0 matrix readers from the plugin API (deprecated, kept so plugins built against it load); make <code>scope</code> columns of the run tables nullable and documented as "requested from".</li>
+</ol>
+<h2 id="10-open-questions">10. Open questions<a class="headerlink" href="#10-open-questions" title="Permanent link">&para;</a></h2>
+<ol>
+<li><strong>Layout.</strong> Use one co-located namespace <code>providers/assets/&lt;project&gt;/…</code> (recommended, so cross-provider joins keep working), or per-provider prefixes <code>providers/&lt;provider&gt;/assets/&lt;project&gt;/…</code>? The second needs a separate geometry origin for exports and for web3d's foreign-index read.</li>
+<li><strong>Permissions.</strong> Are three flags (<code>attributes</code>, <code>geometry</code>, <code>request</code>) right, with provider-wide and collection grants adding up?</li>
+<li><strong>Who may request extraction.</strong> Should members with a <code>request</code> grant be able to trigger it, or admins only? The user's model says admin-only, but the export's "request missing geometry" and the Sources "Request" are member features today.</li>
+<li><strong>Divergent per-scope provider options.</strong> If two scopes extract one project with different options (or different credentials), is one configuration per <code>(provider, project)</code> acceptable, with an admin resolving the conflicts?</li>
+<li><strong>Shared derived cache.</strong> Builds triggered by members write core-composed caches into the store. Is that acceptable?</li>
+<li><strong>Grants to personal scopes and to <code>shared</code>.</strong> Allow both, as now?</li>
+<li><strong>Seeding grants from <code>scope_collections</code>.</strong> <em>Decided:</em> explicit per-collection grants for everything such a scope could reach -- every collection the store holds of the provider, plus each one the scope held a copy of -- rather than a provider-wide grant, so the Access checkboxes show exactly what was given and nothing later is granted by default.</li>
+<li><strong>Revision history.</strong> Copy all revisions (safe, temporarily larger) or only the latest plus the spines it references?</li>
+</ol>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-circle-arrow-up" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m16 12-4-4-4 4M12 16V8"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      &copy; Kristoffer H. Andersen
+    </div>
+  
+  
+    Made with
+    <a href="https://zensical.org/" target="_blank" rel="noopener">
+      Zensical
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog" role="status" aria-atomic="true">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      
+      
+        
+        
+      <script id="__config" type="application/json">{"annotate":null,"base":"../..","features":["content.action.edit","content.code.copy","content.tabs.link","navigation.indexes","navigation.sections","navigation.top","navigation.footer","search.highlight","toc.follow"],"redirect":null,"search":"../../assets/javascripts/workers/search.7d14d953.min.js","tags":null,"translations":{"clipboard.copied":"Copied to clipboard","clipboard.copy":"Copy to clipboard","clipboard.error":"Could not copy to clipboard","search.result.more.one":"1 more on this page","search.result.more.other":"# more on this page","search.result.none":"No matching documents","search.result.one":"1 matching document","search.result.other":"# matching documents","search.result.placeholder":"Type to start searching","search.result.term.missing":"Missing","select.version":"Select version"},"version":null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.3c842f4c.min.js"></script>
+      
+        <script src="../../_static/diagrams.js"></script>
+      
+    
+  </body>
+</html>
