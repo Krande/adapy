@@ -1,4 +1,4 @@
-"""A results file as a format-neutral FEA result (``ada.fem.results.open_result``): the model data a
+"""A results file as a format-neutral FEA result (``ada.from_fem_res(path, lazy=True)``): the model data a
 structural check reads and the role fields of every case, the same from a Sesam SIN and from Code_Aster."""
 
 from __future__ import annotations
@@ -13,8 +13,12 @@ from test_code_aster_sin import (  # the model of the SIN conversion's tests
     _stiffened_plate,
 )
 
-from ada.fem.results import open_result
+import ada
 from ada.fem.results.field_data import FieldRole
+
+
+def _open(path):
+    return ada.from_fem_res(path, lazy=True)
 
 
 def _by_role(result) -> dict:
@@ -26,7 +30,7 @@ def _by_role(result) -> dict:
 
 
 def test_a_sin_opens_with_its_model_data_and_role_fields(fem_files):
-    res = open_result(fem_files / "cantilever/sesam/static/shell/STATIC_SHELL_CANTILEVER_SESAMR1.SIN")
+    res = _open(fem_files / "cantilever/sesam/static/shell/STATIC_SHELL_CANTILEVER_SESAMR1.SIN")
     mesh = res.mesh
     assert res.cases.stored and set(res.cases.names) >= set(res.cases.stored)
     shells = {int(e) for b in mesh.elements if b.elem_info.type.name in ("QUAD", "TRI") for e in b.identifiers}
@@ -43,12 +47,12 @@ def test_a_sin_opens_with_its_model_data_and_role_fields(fem_files):
 
 def test_an_unknown_suffix_is_refused(tmp_path):
     with pytest.raises(ValueError, match="no result opener"):
-        open_result(tmp_path / "x.unknown")
+        _open(tmp_path / "x.unknown")
 
 
 def test_an_rmed_without_adapys_sidecar_is_refused(tmp_path):
     with pytest.raises(FileNotFoundError, match="sidecar"):
-        open_result(tmp_path / "x.rmed")
+        _open(tmp_path / "x.rmed")
 
 
 def test_code_aster_reads_alike_from_the_rmed_and_from_its_sin(tmp_path, require_solver):
@@ -58,8 +62,8 @@ def test_code_aster_reads_alike_from_the_rmed_and_from_its_sin(tmp_path, require
     a = _stiffened_plate()
     a.fem.options.CODE_ASTER.write_sin = True
     a.to_fem("sp", "code_aster", scratch_dir=tmp_path, overwrite=True, execute=True)
-    direct = open_result(tmp_path / "sp" / "sp.rmed")
-    via_sin = open_result(tmp_path / "sp" / "spR1.SIN")
+    direct = _open(tmp_path / "sp" / "sp.rmed")
+    via_sin = _open(tmp_path / "sp" / "spR1.SIN")
 
     md, ms = direct.mesh, via_sin.mesh
     assert md.thickness == pytest.approx(ms.thickness)

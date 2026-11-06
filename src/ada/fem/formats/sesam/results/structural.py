@@ -1,6 +1,6 @@
 """A Sesam SIN as a format-neutral FEA result: role fields, model data, and its cases read one at a time.
 
-:func:`open_sin_result` is the SIN branch of :func:`ada.fem.results.open_result`. The result it returns
+:func:`open_sin_result` is the SIN branch of ``ada.from_fem_res(path, lazy=True)``. The result it returns
 holds the mesh and the model data a structural check reads (``Mesh.thickness``, ``element_frames``,
 ``result_points``, ``section_kinds``, ``concept_names``, ``restrained_nodes``, ``eccentricities``) and
 ``FEAResult.cases``, which reads the stored cases one at a time as the role fields of

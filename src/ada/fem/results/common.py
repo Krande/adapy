@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     import trimesh
 
     from ada import Material, Node, Section
+    from ada.api.spatial.assembly import FemJob
     from ada.fem import Elem, FemSet
     from ada.fem.results.cases import ResultCases
     from ada.fem.results.compare import FEAResultComparison
@@ -626,9 +627,42 @@ class FEAResult:
     # "static" / "eigen" otherwise. None leaves the bake's step-value heuristic to decide.
     analysis_kind: Literal["static", "eigen", "transient"] | None = None
     #: The result cases and how to read them one at a time, in the role layouts
-    #: (``ada.fem.results.cases.ResultCases``): set by ``ada.fem.results.open_result``; None from the
+    #: (``ada.fem.results.cases.ResultCases``): set by ``ada.from_fem_res(path, lazy=True)``; None from the
     #: readers that load every step at once.
     cases: "ResultCases | None" = None
+    #: Whether the analysis this result is of has run. ``Assembly.to_fem`` always returns a result: one written
+    #: but not run (``execute=False``, ``write_input_files_only``) has ``executed`` False and no fields, and
+    #: :meth:`execute` runs it. A result read from a file is of a run.
+    executed: bool = True
+    #: How ``Assembly.to_fem`` wrote it (``ada.api.spatial.assembly.FemJob``), for :meth:`execute`; None for a
+    #: result read from a file.
+    job: "FemJob | None" = field(default=None, repr=False, compare=False)
+
+    def execute(self, overwrite: bool = False, **options) -> "FEAResult":
+        """Run the analysis this result is of, and read its results into this object (returned too).
+
+        For the result ``Assembly.to_fem`` returned, which knows the model and the deck. Not run yet: the deck
+        ``to_fem`` wrote is run. Run already: nothing is done, unless ``overwrite`` -- then the model is written
+        again and run again, as it is now. ``options`` replace ``to_fem``'s execution options for this run
+        (``cpus``, ``gpus``, ``run_ext``, ``exit_on_complete``, ``run_in_shell``).
+        """
+        if self.job is None:
+            raise ValueError(f"{self.name}: no analysis to execute; this result was read from a file")
+        if self.executed and not overwrite:
+            logger.info(f"{self.name}: the analysis has run; execute(overwrite=True) writes and runs it again")
+            return self
+        fresh = self.job.run(overwrite=overwrite, **options)
+        self._take(fresh)
+        return self
+
+    def _take(self, other: "FEAResult") -> None:
+        """Become ``other`` (a result of the same job), keeping this object's identity."""
+        import dataclasses
+
+        for f in dataclasses.fields(self):
+            setattr(self, f.name, getattr(other, f.name))
+        for res in self.results or []:
+            res._mesh = self.mesh
 
     def __post_init__(self):
         if self.results is None:

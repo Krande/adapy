@@ -248,7 +248,7 @@ def build_beams_payload(assembly: "Assembly") -> dict:
     if fem_concepts:
         payload["fem_concepts"] = fem_concepts
     # v6: the model data a structural check reads beside the results
-    # (``ada.fem.results.open_result``): every shell section, with or without a
+    # (``ada.from_fem_res(path, lazy=True)``): every shell section, with or without a
     # CAD parent, and the nodes the analysis holds.
     shells = _build_shells(assembly)
     if shells:

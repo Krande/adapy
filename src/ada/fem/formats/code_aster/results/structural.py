@@ -1,6 +1,6 @@
 """Code_Aster results as a format-neutral FEA result: role fields, model data, and cases read one at a time.
 
-:func:`open_rmed_result` is the ``.rmed`` branch of :func:`ada.fem.results.open_result`. It reads what adapy
+:func:`open_rmed_result` is the ``.rmed`` branch of ``ada.from_fem_res(path, lazy=True)``. It reads what adapy
 wrote beside the run and what Code_Aster wrote:
 
 * the input mesh ``<name>.med`` -- adapy's node and element numbers (Code_Aster keeps each cell type's

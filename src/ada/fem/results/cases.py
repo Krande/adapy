@@ -4,7 +4,7 @@ A structural check reads a result case by case -- a Sesam SIN of a large model i
 megabytes, and its cases are read one at a time -- and builds the combinations it is asked for
 from the basic cases. :class:`ResultCases` is what it needs to know about the cases and how it
 reads them, whatever the format; a reader fills it (``FEAResult.cases``) and
-:func:`ada.fem.results.open_result` returns a result that has one.
+``ada.from_fem_res(path, lazy=True)`` returns a result that has one.
 
 The fields a case is read with are the role fields of :class:`~.field_data.FieldRole`, in its
 layout and convention.

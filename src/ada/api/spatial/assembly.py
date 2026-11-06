@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import pathlib
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Callable, Literal, Union
 
 from ada.api.spatial.part import Part
@@ -35,6 +36,69 @@ if TYPE_CHECKING:
 
 class FormatNotSupportedException(Exception):
     pass
+
+
+@dataclass
+class FemJob:
+    """An analysis ``Assembly.to_fem`` wrote: the model, the deck and how to run it. The result ``to_fem`` returns
+    keeps it, so :meth:`FEAResult.execute <ada.fem.results.common.FEAResult.execute>` can run it later."""
+
+    assembly: "Assembly"
+    name: str
+    fem_format: "FEATypes"
+    scratch_dir: pathlib.Path
+    #: ``to_fem``'s keyword arguments other than ``execute`` and ``overwrite``.
+    options: dict = field(default_factory=dict)
+
+    def run(self, overwrite: bool = False, **options) -> "FEAResult":
+        """Run the analysis and read its results: the deck already written, or with ``overwrite`` the model
+        written again first. ``options`` replace the execution options for this run."""
+        run_options = {**self.options, **options}
+        if overwrite:
+            return self.assembly.to_fem(
+                self.name, self.fem_format, scratch_dir=self.scratch_dir, execute=True, overwrite=True, **run_options
+            )
+        from ada.fem.formats.execute import execute_fem
+
+        execute_fem(
+            self.name,
+            self.fem_format,
+            self.scratch_dir,
+            run_options.get("cpus", 1),
+            run_options.get("gpus"),
+            run_options.get("run_ext", False),
+            run_options.get("metadata"),
+            True,
+            run_options.get("exit_on_complete", True),
+            run_options.get("run_in_shell", False),
+        )
+        return self.read(executed=True)
+
+    def read(self, executed: bool) -> "FEAResult":
+        """The result of the job: its result file read when it has one, else an empty result (``executed``
+        says whether the analysis ran)."""
+        from ada.fem.formats.postprocess import postprocess
+        from ada.fem.formats.utils import default_fem_res_path
+        from ada.fem.results.common import FEAResult
+
+        res_path = default_fem_res_path(self.name, scratch_dir=self.scratch_dir).get(self.fem_format)
+        if executed and self.options.get("return_fea_results", True) and res_path is not None and res_path.exists():
+            res = postprocess(res_path, fem_format=self.fem_format)
+        else:
+            res = FEAResult(
+                self.name,
+                software=self.fem_format,
+                results=[],
+                mesh=None,
+                results_file_path=res_path,
+                executed=executed,
+            )
+        try:
+            res.executed = executed
+            res.job = self
+        except AttributeError:  # a lazy result of a reader of its own (Abaqus' SQLite dump)
+            pass
+        return res
 
 
 class Assembly(Part):
@@ -184,9 +248,14 @@ class Assembly(Part):
         write_input_files_only=False,
         report_file: str | os.PathLike | None = None,
         formulations=None,
-    ) -> FEAResult | None:
+    ) -> FEAResult:
         """
         Create a FEM input file deck for executing fem analysis in a specified FEM format.
+
+        Always returns an :class:`~ada.fem.results.common.FEAResult`: the results read, when the analysis ran (here
+        with ``execute``, or before: a finished run's result file is reused unless ``overwrite``); else one with
+        ``executed`` False and no fields, whose ``execute()`` runs the deck written here (``execute(overwrite=True)``
+        writes the model again and runs it again).
         Currently there is limited write support for the following FEM formats:
 
         Open Source
@@ -242,13 +311,32 @@ class Assembly(Part):
         """
         from ada.fem.formats.execute import execute_fem
         from ada.fem.formats.general import FEATypes, write_to_fem
-        from ada.fem.formats.postprocess import postprocess
         from ada.fem.formats.utils import default_fem_res_path
 
         if isinstance(fem_format, str):
             fem_format = FEATypes.from_str(fem_format)
 
         scratch_dir = Config().fea_scratch_dir if scratch_dir is None else pathlib.Path(scratch_dir)
+        job = FemJob(
+            self,
+            name,
+            fem_format,
+            scratch_dir,
+            dict(
+                metadata=metadata,
+                run_ext=run_ext,
+                cpus=cpus,
+                gpus=gpus,
+                fem_converter=fem_converter,
+                exit_on_complete=exit_on_complete,
+                run_in_shell=run_in_shell,
+                make_zip_file=make_zip_file,
+                return_fea_results=return_fea_results,
+                model_data_only=model_data_only,
+                report_file=report_file,
+                formulations=formulations,
+            ),
+        )
 
         # Gather results
         fem_res_files = default_fem_res_path(name, scratch_dir=scratch_dir)
@@ -271,7 +359,7 @@ class Assembly(Part):
                 overwrite = True
             else:
                 logger.info(f"FEM result file already exists: {res_path}")
-                return postprocess(res_path, fem_format=fem_format)
+                return job.read(executed=True)
 
         from ada.fem import formulations as fem_formulations
         from ada.fem.formats import conversion_report
@@ -286,30 +374,23 @@ class Assembly(Part):
                 self, name, fem_format, overwrite, fem_converter, scratch_dir, metadata, make_zip_file, model_data_only
             )
 
-        if write_input_files_only:
-            return None
+        if write_input_files_only or not execute:
+            # Written, not run: the result says so, and runs it on ``execute()``.
+            return job.read(executed=False)
 
-        # Execute
-        if execute:
-            execute_fem(
-                name, fem_format, scratch_dir, cpus, gpus, run_ext, metadata, execute, exit_on_complete, run_in_shell
-            )
+        execute_fem(
+            name, fem_format, scratch_dir, cpus, gpus, run_ext, metadata, execute, exit_on_complete, run_in_shell
+        )
 
-        # Honor return_fea_results=False even when the solver DID produce a
+        if res_path.exists() is False and return_fea_results:
+            raise FileNotFoundError(f"FEM result file does not exist: {res_path}")
+        # return_fea_results=False is honoured even when the solver DID produce a
         # result file: callers that pass it (e.g. a build that only publishes the
         # .rmed) don't want the in-memory read, and postprocessing here would
         # force a result-parse they never asked for (and can trip an unsupported
-        # field-profile branch on an otherwise-successful solve).
-        if return_fea_results is False:
-            return None
-
-        if res_path.exists() is False:
-            if execute:
-                raise FileNotFoundError(f"FEM result file does not exist: {res_path}")
-            logger.info(f"FEM result file does not exist: {res_path}")
-            return None
-
-        return postprocess(res_path, fem_format=fem_format)
+        # field-profile branch on an otherwise-successful solve). The result is
+        # then an empty one that says the analysis ran (``FemJob.read``).
+        return job.read(executed=True)
 
     def to_pickle(self, pickle_file: str | pathlib.Path) -> pathlib.Path:
         """Serialize this Assembly to a pickle file (round-trips via :func:`ada.from_pickle`).
