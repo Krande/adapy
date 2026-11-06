@@ -27,7 +27,9 @@ import {THEME_PRESETS, useThemeStore, type ThemePresetId} from "@/state/themeSto
 import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
 import {useViewerHistoryStore} from "@/state/viewerHistoryStore";
 import {getViewerRuntime} from "@/state/viewerRuntime";
-import {useModelState} from "@/state/modelState";
+import {loadedSourceGroups, useModelState} from "@/state/modelState";
+import {useColorByStore} from "@/state/colorByStore";
+import {useLabelsStore} from "@/state/labelsStore";
 import {anyShownRange} from "@/utils/mesh_select/selectionSets";
 import {playbackAvailable} from "@/utils/scene/fea/playbackActions";
 import {openLocalFilePicker} from "@/utils/scene/handlers/localOpenPlan";
@@ -141,6 +143,7 @@ export function coreCommandSpecs(): CommandSpec[] {
   const visibility = () => import("@/utils/scene/visibility");
   const selection = () => import("@/utils/scene/selectionCommands");
   const playback = () => import("@/utils/scene/fea/playbackActions");
+  const colorBy = () => import("@/utils/scene/colorBy");
   const specs: CommandSpec[] = [
     // File
     {
@@ -545,6 +548,51 @@ export function coreCommandSpecs(): CommandSpec[] {
     feaViewToggle(ID.feaToggleUndeformed, "Undeformed outline", (s) => s.showUndeformed, (s) => s.setShowUndeformed),
     feaViewToggle(ID.feaToggleElementEdges, "Element edges", (s) => s.elementEdgesVisible, (s) => s.setElementEdgesVisible),
     feaViewToggle(ID.feaToggleResultColors, "Result colours", (s) => s.resultColorsVisible, (s) => s.setResultColorsVisible),
+    // Number labels (node and element ids of a loaded FEA result)
+    {
+      id: ID.labelsNodes,
+      label: "Node numbers",
+      group: "View",
+      checked: () => useLabelsStore.getState().nodes,
+      disabledReason: () => (useFeaAnimationStore.getState().sessionActive ? null : "No result is loaded"),
+      run: () => useLabelsStore.getState().setNodes(!useLabelsStore.getState().nodes),
+    },
+    {
+      id: ID.labelsElements,
+      label: "Element numbers",
+      group: "View",
+      checked: () => useLabelsStore.getState().elements,
+      disabledReason: () => (useFeaAnimationStore.getState().sessionActive ? null : "No result is loaded"),
+      run: () => useLabelsStore.getState().setElements(!useLabelsStore.getState().elements),
+    },
+    // Colour by property
+    {
+      id: ID.colorByNext,
+      label: "Colour by next property",
+      group: "View",
+      checked: () => useColorByStore.getState().activeId !== null,
+      run: () =>
+        void colorBy().then(async (m) => {
+          const next = m.nextColorBySource();
+          if (next) await m.applyColorBy(next);
+        }),
+    },
+    {
+      id: ID.colorByModel,
+      label: "Colour by model",
+      group: "View",
+      checked: () => useColorByStore.getState().activeId === "model",
+      disabledReason: () => (loadedSourceGroups.size > 1 ? null : "Needs two or more loaded models"),
+      run: () =>
+        void colorBy().then((m) => (useColorByStore.getState().activeId === "model" ? m.resetColorBy() : m.applyColorBy("model"))),
+    },
+    {
+      id: ID.colorByReset,
+      label: "Reset colours",
+      group: "View",
+      disabledReason: () => (useColorByStore.getState().activeId ? null : "Nothing is coloured by property"),
+      run: () => void colorBy().then((m) => m.resetColorBy()),
+    },
   ];
   for (const [id, preset] of Object.entries(THEME_PRESETS)) {
     specs.push({

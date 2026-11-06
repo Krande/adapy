@@ -169,3 +169,16 @@ export function ExternalModelsPanel(): null {
   return null;
 }
 export { useExternalModelsStore } from "@/state/externalModelsStore";
+
+// Colour by property and number labels.
+export {
+  applyColorBy,
+  colorBySources,
+  registerColorBySource,
+  resetColorBy,
+  unregisterColorBySource,
+} from "@/utils/scene/colorBy";
+export type { ColorBySource } from "@/utils/scene/colorBy";
+export { useColorByStore } from "@/state/colorByStore";
+export type { ColorByLegendData, ColorByLegendEntry } from "@/state/colorByStore";
+export { useLabelsStore } from "@/state/labelsStore";

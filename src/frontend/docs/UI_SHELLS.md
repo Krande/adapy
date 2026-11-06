@@ -263,7 +263,7 @@ the chrome it draws in the slots.
 | Area | Option | What it does |
 |---|---|---|
 | Arrangement | `layout.grid`, `open`, `docks` | The starting split grid, the panels opened on load, where dock-naming plugin panels go. |
-| | `layout.modes[]` | Modes, each with its own `grid` / `open` / `docks`, saved arrangement, and `viewportCover` (a panel drawn over the 3D view, a converter say), `ownsSceneColor`, `showsDeformation: false` (a shell's own mode shows the deformed FEA model unless it says false; a **plugin's** mode (`PluginModeSpec`) holds it undeformed unless it opts in with `true`), `toolbar`, `toolbars` (core's own: `playback`, `section`, `representation`, see "Core's mode toolbars"). `?mode=` opens one; `setShellModeBadge` marks one. |
+| | `layout.modes[]` | Modes, each with its own `grid` / `open` / `docks`, saved arrangement, and `viewportCover` (a panel drawn over the 3D view, a converter say), `ownsSceneColor`, `showsDeformation: false` (a shell's own mode shows the deformed FEA model unless it says false; a **plugin's** mode (`PluginModeSpec`) holds it undeformed unless it opts in with `true`), `toolbar`, `toolbars` (core's own: `playback`, `section`, `representation`, `colorBy`, see "Core's mode toolbars"). `?mode=` opens one; `setShellModeBadge` marks one. |
 | | `layout.defaultMode` | The mode used when there is no `?mode=` and none stored from an earlier visit (else the first by order). |
 | | `layout.version`, `migrate` | Re-seed or migrate users' saved arrangements when the shell ships new ones. |
 | | `layout.customisablePanels` | `"required"` (default): floating, docking and the split grid are always on in the shell, whatever the user set in another UI, and Options → Theme → Customisable panels shows the toggle on and disabled ("Always on in the … UI"); a docked layout is built on them. `"optional"`: the user's own setting for this shell. The setting is kept per shell (`LayoutPrefs.customisablePanelsByShell`; core's own UI's under `core`, where the single setting of older versions moves), so turning it off in Classic leaves the Desktop UI as designed and comes back on the way back. Read it through `customisablePanels()` / `useCustomisablePanels()`. |
@@ -274,7 +274,7 @@ the chrome it draws in the slots.
 | | `chrome.toolbar` | Core's top bar of panel toggles over the view (default on). |
 | | `chrome.groups` | Group header actions `"add"` / `"collapse"` / `"pin"`, and `tabIcons`. Pinned panels stay placed across modes. |
 | | `chrome.commandPalette: {keys} \| false` | The palette over every command (`registerCommand`; core adds its own, panels and modes) is core's, in every UI (core's own UI, composed shells, shells with `load` under `AppRoot`), mounted once under core's root and opened by core's Ctrl+K (`core:command-palette`, reserved, not while typing in a field; the browser's own Ctrl+K is taken over) or `openCommandPalette()`. `keys` adds a chord of the shell's own beside Ctrl+K; `false` turns the palette off while the shell is active. Absent: on. `MenuBar` draws menus of command ids. |
-| | `chrome.overlays: {legend, pluginPanels}` | HUD anchors over the view for core's colour legend and `overlay`-dock plugin panels; `registerViewportOverlay` adds the shell's own. |
+| | `chrome.overlays: {legend, pluginPanels, colorByLegend, labels}` | HUD anchors over the view for core's colour legend, the legend of a colour-by it does not draw itself (`colorByLegend`), and `overlay`-dock plugin panels; `labels: true` draws core's number labels over the whole view. `registerViewportOverlay` adds the shell's own. |
 | | `chrome.pageHeader` | The shell's title bar over core's `/convert` and `/admin` pages. |
 | Panels | `panels: {[id]: PanelOverride}` | A core (or plugin) panel's title, icon, modes, capabilities and content `options` (`SceneBodyProps`, `StorageBodyProps`, ...; or a function of the mode), without a copy. |
 | | `capabilities.fill`, `pinnable`, `popout` | Edge-to-edge content; may be pinned; may open in its own window. |
@@ -578,8 +578,8 @@ shell needs no code for them:
 
 ```ts
 modes: [
-  { id: "model", label: "Model", toolbars: ["section", "representation"] },
-  { id: "results", label: "Results", toolbars: ["playback", "representation"] },
+  { id: "model", label: "Model", toolbars: ["section", "representation", "colorBy"] },
+  { id: "results", label: "Results", toolbars: ["playback", "representation", "colorBy"] },
 ]
 ```
 
@@ -587,19 +587,46 @@ modes: [
 |---|---|---|
 | `playback` | Step back, play / pause, stop, step forward; the step slider and "n / N"; the oscillation period (mode shapes and static steps; a time history plays its own time axis) and the deformation scale. | `core:results-play-pause`, `core:results-stop`, `core:results-step-back`, `core:results-step-forward`; the scale and the slider call the same actions as the Simulation panel (`utils/scene/fea/playbackActions`). |
 | `section` | A plane per axis (X / Y / Z), on / off, flip, the offset slider along the plane's axis (over the model's extent), remove all. | `core:section.x` / `.y` / `.z`, `core:section-toggle`, `core:section-flip`, `core:section-clear`: the section store, so undo / redo covers them. The toolbar edits the active plane, else the last. |
-| `representation` | Geometry edges, the rest of an isolated FEA model as wireframe, and for a loaded result: result colours, element edges, the undeformed outline. | `core:edges`, `core:fea-toggle-context-wireframe`, `core:fea-toggle-result-colors`, `core:fea-toggle-element-edges`, `core:fea-toggle-undeformed`. |
+| `representation` | Geometry edges, the rest of an isolated FEA model as wireframe, and for a loaded result: result colours, element edges, the undeformed outline, node numbers and element numbers. | `core:edges`, `core:fea-toggle-context-wireframe`, `core:fea-toggle-result-colors`, `core:fea-toggle-element-edges`, `core:fea-toggle-undeformed`, `core:labels-nodes`, `core:labels-elements`. |
+| `colorBy` | A picker of what the scene can be coloured by, and a reset. | `core:color-by-next`, `core:color-by-model`, `core:color-by-reset`; `applyColorBy` / `resetColorBy` (`utils/scene/colorBy`). |
 
 All of those are commands, so the palette, the menu bar (the Desktop UI's View menu
 has Section and Results submenus and the result switches under Display), the tool
 rail and the marking menu reach them too (add the ids to `rail.tools` or the marking
 menu's `items`); each has an icon in `CORE_COMMAND_ICONS`. A shell that wants the
 controls in its own chrome mounts the components from `@/viewer-core/layout`:
-`PlaybackToolbar`, `SectionToolbar`, `RepresentationToolbar`, `CoreModeToolbars`
+`PlaybackToolbar`, `SectionToolbar`, `RepresentationToolbar`, `ColorByToolbar`, `NumberLabels`, `ColorByLegend`, `CoreModeToolbars`
 (`ids`), and `CommandButton` (`id`) for a button of its own over any command. The
 ids are `CORE_MODE_TOOLBAR_IDS` / `CoreModeToolbarId` on the root.
 
-Core has no scene-wide wireframe or transparency switch and no annotation tools
-(measure, labels, markups), so there is no toolbar group for them.
+Core has no scene-wide wireframe or transparency switch and no measure or markup
+tools, so there is no toolbar group for them.
+
+**Number labels.** `core:labels-nodes` and `core:labels-elements` (View menu ->
+"Labels and colours", the `representation` toolbar) draw the node ids and the element
+ids of a loaded FEA result as HTML over the view (`NumberLabels`, drawn by the
+overlay layer when `chrome.overlays.labels` is set; a shell with its own chrome
+mounts `NumberLabels` from `@/viewer-core/layout`). Node ids are the solver's when the
+bake carries them, else the point index + 1. What is labelled is bounded: with a
+selection on the result, its elements (and their nodes); with none, an even sample of
+at most 4000 elements; those in front of the camera and on screen are thinned on a
+screen grid (one label per 44 x 14 px cell, element numbers before node numbers) to
+at most 400, so zooming in labels more. Positions follow the deformed shape. Labels
+are not occlusion-tested, and core has no ids for other objects than a loaded
+result's elements and nodes, so there are no labels for CAD objects.
+
+**Colour by.** The `colorBy` toolbar's picker, and the three commands, colour the
+scene by a property without a second colouring pipeline: an FEA result's model
+properties (section, material, thickness: the manifest's `property` fields) are
+selected as a result field, so the FEA painter colours the elements and the colour
+legend lists the categories; "Model" (offered with two or more models loaded) gives
+every model its own colour through the batched mesh's range colours, with a legend
+(`ColorByLegend`, placed by `chrome.overlays.colorByLegend`). Reset puts back the
+result field that was shown before (or switches result colours off), and clears range
+colours. A plugin adds a source with `registerColorBySource({id, label, apply,
+reset})` (`apply` may return a legend); it appears in the picker and the cycle command.
+Core has no per-object attributes for CAD objects beyond the model they belong to, so
+that is the only non-FEA source it offers.
 ### The built-in Desktop UI
 
 Core ships one composed shell of its own next to the classic UI: **Desktop**
@@ -616,7 +643,7 @@ worked example of a full docked UI (`desktopUiShellSpec()` from `@/viewer-core`)
 |---|---|
 | Header | A menu bar (`MenuBar`) in place of core's top bar (`chrome.toolbar: false`), the mode switcher and toolbar, the plugins' top-bar buttons, a Commands button. |
 | Layout | Tree and storage tabbed in a fixed-px left dock; object info over scene info in a fixed-px right column; Simulation and Result data in a fixed-px dock under the view, collapsed to a strip in the Model mode. Group actions add, collapse, pin; tab icons. Plugin panels naming `left` / `right` / `bottom` join those docks. |
-| Modes | Model (default; toolbars: section, representation) and Results (the results dock open; toolbars: playback, representation); plugins' modes follow. |
+| Modes | Model (default; toolbars: section, representation, colorBy) and Results (the results dock open; toolbars: playback, representation, colorBy); plugins' modes follow. |
 | Footer | A status bar: connection, models loaded, selection count, mode, what Undo undoes. |
 | Rail | Core's tool rail (`DESKTOP_RAIL_TOOLS`) on the left edge: Open; Fit all, Fit selection, Reset camera, Isometric view; Hide selected, Hide others, Show all; Select all, Clear selection; Geometry edges, Clear FEA isolation; Undo, Redo. The user's own is kept per shell. |
 | Marking menu | Core's (`chrome.markingMenu: {}`), on: hold the right button over the view, or Shift+E. |

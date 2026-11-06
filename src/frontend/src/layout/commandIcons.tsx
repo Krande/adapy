@@ -225,6 +225,30 @@ export const ResultColorsIcon = glyph(
   </>,
   "ResultColors",
 );
+export const NodeLabelsIcon = glyph(
+  <>
+    <circle cx="6" cy="6" r="2" />
+    <path d="M11 6h9M11 10h5" />
+    <circle cx="6" cy="16" r="2" />
+    <path d="M11 16h9M11 20h5" />
+  </>,
+  "NodeLabels",
+);
+export const ElementLabelsIcon = glyph(
+  <>
+    <rect x="3.5" y="4" width="17" height="16" rx="1.5" />
+    <path d="M8 10h8M8 14h5" />
+  </>,
+  "ElementLabels",
+);
+export const ColorByIcon = glyph(
+  <>
+    <circle cx="8" cy="9" r="3.5" />
+    <circle cx="16" cy="9" r="3.5" strokeDasharray="2 2" />
+    <circle cx="12" cy="16" r="3.5" />
+  </>,
+  "ColorBy",
+);
 /** Core's commands' icons, by command id. */
 export const CORE_COMMAND_ICONS: Readonly<Record<string, React.FC>> = {
   [C.openFile]: OpenIcon,
@@ -281,6 +305,11 @@ export const CORE_COMMAND_ICONS: Readonly<Record<string, React.FC>> = {
   [C.feaToggleUndeformed]: UndeformedIcon,
   [C.feaToggleElementEdges]: ElementEdgesIcon,
   [C.feaToggleResultColors]: ResultColorsIcon,
+  [C.labelsNodes]: NodeLabelsIcon,
+  [C.labelsElements]: ElementLabelsIcon,
+  [C.colorByNext]: ColorByIcon,
+  [C.colorByModel]: ColorByIcon,
+  [C.colorByReset]: ClearSelectionIcon,
 };
 
 /** A command's initials, for one without an icon ("Fit selection" -> "FS"). */

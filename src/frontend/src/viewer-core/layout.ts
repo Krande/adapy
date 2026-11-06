@@ -260,11 +260,14 @@ export {
   CommandButton,
   CORE_MODE_TOOLBARS,
   CoreModeToolbars,
+  ColorByToolbar,
   PlaybackToolbar,
   RepresentationToolbar,
   SectionToolbar,
 } from "@/layout/ModeToolbars";
 export type { CommandButtonProps } from "@/layout/ModeToolbars";
+export { NumberLabels, LABEL_CAP, LABEL_SCAN_CAP } from "@/layout/NumberLabels";
+export { ColorByLegend } from "@/layout/ColorByLegend";
 export type { PanelTogglesProps } from "@/layout/PanelToggles";
 export type { LayoutContextValue, LayoutHostProps } from "@/layout/LayoutHost";
 export { DefaultWindowChrome, FloatLayer } from "@/layout/FloatLayer";

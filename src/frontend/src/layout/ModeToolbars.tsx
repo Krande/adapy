@@ -6,7 +6,8 @@
 //
 //   playback        play / pause, stop, step, the step slider, the period and the deformation scale
 //   section         section planes: one per axis, on / off, flip, the offset slider, remove
-//   representation  edges, and an FEA result's undeformed outline, element edges, colours
+//   representation  edges, an FEA result's undeformed outline, element edges and colours, node / element number labels
+//   colorBy         colour the scene by a property (an FEA section / material / thickness, the models), and reset
 //
 // Core has no scene-wide wireframe, transparency or annotation (measure, label,
 // markup) tools to put in a toolbar; there is no group for them.
@@ -18,6 +19,15 @@ import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {useModelState} from "@/state/modelState";
 import {useOptionsStore} from "@/state/optionsStore";
 import {useSectionStore} from "@/state/sectionStore";
+import {useColorByStore} from "@/state/colorByStore";
+import {useLabelsStore} from "@/state/labelsStore";
+import {
+  applyColorBy,
+  colorBySources,
+  colorBySourcesVersion,
+  resetColorBy,
+  subscribeColorBySources,
+} from "@/utils/scene/colorBy";
 import {setResultScale, setResultStep} from "@/utils/scene/fea/playbackActions";
 
 import {CORE_COMMAND_IDS as ID} from "./coreCommandIds";
@@ -206,6 +216,7 @@ export function RepresentationToolbar({className = BAR}: {className?: string}) {
   // Re-render when any of what the buttons show changes.
   useOptionsStore((s) => s.showEdges);
   useFeaAnimationStore((s) => `${s.sessionActive}${s.showUndeformed}${s.elementEdgesVisible}${s.resultColorsVisible}`);
+  useLabelsStore((s) => `${s.nodes}${s.elements}`);
   return (
     <div className={className} role="group" aria-label="Representation" data-mode-toolbar="representation">
       <CommandButton id={ID.edges} />
@@ -214,6 +225,44 @@ export function RepresentationToolbar({className = BAR}: {className?: string}) {
       <CommandButton id={ID.feaToggleResultColors} />
       <CommandButton id={ID.feaToggleElementEdges} />
       <CommandButton id={ID.feaToggleUndeformed} />
+      {DIVIDER}
+      <CommandButton id={ID.labelsNodes} />
+      <CommandButton id={ID.labelsElements} />
+    </div>
+  );
+}
+
+/**
+ * Colour the scene by a property: a picker over what the scene can be coloured by now (an FEA
+ * result's section, material and thickness; the loaded models; sources a plugin registers), and
+ * a reset. The legend is the colour legend's (an FEA property) or `ColorByLegend` (the rest).
+ */
+export function ColorByToolbar({className = BAR}: {className?: string}) {
+  React.useSyncExternalStore(subscribeColorBySources, colorBySourcesVersion, colorBySourcesVersion);
+  const active = useColorByStore((s) => s.activeId);
+  // Re-read the sources when a result loads or models come and go.
+  useFeaAnimationStore((s) => `${s.sessionActive}${s.manifest ? s.manifest.fields.length : 0}`);
+  const sources = colorBySources();
+  return (
+    <div className={className} role="group" aria-label="Colour by" data-mode-toolbar="colorBy">
+      <label className="flex items-center gap-1" title="Colour the scene by a property">
+        Colour by
+        <select
+          className={`${FIELD} max-w-40`}
+          aria-label="Colour by"
+          value={active ?? ""}
+          disabled={!sources.length}
+          onChange={(e) => void (e.target.value ? applyColorBy(e.target.value) : resetColorBy())}
+        >
+          <option value="">{sources.length ? "None" : "Nothing to colour by"}</option>
+          {sources.map((s) => (
+            <option key={s.id} value={s.id}>
+              {s.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <CommandButton id={ID.colorByReset} />
     </div>
   );
 }
@@ -223,6 +272,7 @@ export const CORE_MODE_TOOLBARS: Readonly<Record<CoreModeToolbarId, React.FC>> =
   playback: () => <PlaybackToolbar />,
   section: () => <SectionToolbar />,
   representation: () => <RepresentationToolbar />,
+  colorBy: () => <ColorByToolbar />,
 };
 
 /** The core toolbars named by `ids`, in that order, a divider between; an unknown id is skipped. */

@@ -118,7 +118,10 @@ import { isPlacedElsewhere } from "@/layout/placedElsewhere";
 // 1.15.0 — kept in step with viewer-core 1.15.0: a composed shell's mode may name core's
 //          toolbars (`UiShellMode.toolbars`: playback, section, representation) for its toolbar slot.
 //          Additive.
-export const PLUGIN_API_VERSION = "1.15.0";
+// 1.16.0 — kept in step with viewer-core 1.16.0: number labels (`core:labels-nodes`,
+//          `core:labels-elements`; `chrome.overlays.labels`) and colour by property
+//          (`"colorBy"` mode toolbar, `registerColorBySource`). Additive.
+export const PLUGIN_API_VERSION = "1.16.0";
 
 // The named mount regions core exposes in Phase 1. Deliberately small
 // (`fem-sidebar` covers the FEM simulation panel, `top-panel` the menu bar,

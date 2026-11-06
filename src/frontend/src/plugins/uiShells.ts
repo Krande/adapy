@@ -157,7 +157,7 @@ export interface UiShellChrome {
    * none of its own), and where plugin panels that name the `overlay` dock stack.
    * A shell's own HUDs are added with `registerViewportOverlay`.
    */
-  overlays?: { legend?: ViewportAnchor; pluginPanels?: ViewportAnchor };
+  overlays?: { legend?: ViewportAnchor; pluginPanels?: ViewportAnchor; colorByLegend?: ViewportAnchor; labels?: boolean };
   /** The corner of the layout core's progress toast sits in. Default bottom-right. */
   toastAnchor?: "bottom-right" | "bottom-left" | "top-right" | "top-left";
   /**

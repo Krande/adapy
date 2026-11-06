@@ -142,7 +142,7 @@ export function desktopUiShellSpec(): UiShellSpec {
           id: "model",
           label: "Model",
           hint: "The model, its tree and properties",
-          toolbars: ["section", "representation"],
+          toolbars: ["section", "representation", "colorBy"],
         },
         {
           id: "results",
@@ -150,7 +150,7 @@ export function desktopUiShellSpec(): UiShellSpec {
           hint: "Simulation results under the view",
           grid: DESKTOP_RESULTS_GRID,
           open: [tree, objectInfo, simulation],
-          toolbars: ["playback", "representation"],
+          toolbars: ["playback", "representation", "colorBy"],
         },
       ],
       defaultMode: "model",
@@ -167,7 +167,7 @@ export function desktopUiShellSpec(): UiShellSpec {
       toolbar: false,
       groups: { actions: ["add", "collapse", "pin"], tabIcons: true },
       commandPalette: { keys: "Ctrl+K" },
-      overlays: { legend: "right-center", pluginPanels: "top-left" },
+      overlays: { legend: "right-center", pluginPanels: "top-left", colorByLegend: "right-center", labels: true },
       toastAnchor: "bottom-right",
     },
   };

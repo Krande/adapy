@@ -49,7 +49,7 @@ export function clearGoToNode(): void {
  *  matrixWorld. Returns null when the mesh has no morph state yet
  *  (initial load before applyFieldToMesh runs) — caller should
  *  pretend the click never happened in that case. */
-function vertexWorldPosition(
+export function vertexWorldPosition(
     mesh: THREE.Mesh,
     vertexIndex: number,
 ): THREE.Vector3 | null {

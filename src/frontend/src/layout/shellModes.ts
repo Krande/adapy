@@ -29,7 +29,7 @@ export interface ShellMode {
 }
 
 /** Core's own mode toolbars (`./ModeToolbars`), by the id a mode's `toolbars` names. */
-export const CORE_MODE_TOOLBAR_IDS = ["playback", "section", "representation"] as const;
+export const CORE_MODE_TOOLBAR_IDS = ["playback", "section", "representation", "colorBy"] as const;
 export type CoreModeToolbarId = (typeof CORE_MODE_TOOLBAR_IDS)[number];
 
 /** A mode's badge in the switcher: a count, a dot, or none. */

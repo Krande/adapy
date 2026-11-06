@@ -7,6 +7,8 @@ import React, {Suspense, useSyncExternalStore} from "react";
 import ErrorBoundary from "@/components/common/ErrorBoundary";
 import ColorLegend from "@/components/viewer/ColorLegend";
 
+import {ColorByLegend} from "./ColorByLegend";
+import {NumberLabels} from "./NumberLabels";
 import {PanelMount} from "./LayoutHost";
 import type {RegisteredPanel} from "./panel";
 import {
@@ -33,15 +35,21 @@ export interface ViewportOverlayPlacement {
   legend?: ViewportAnchor;
   /** Where plugin panels that name the `overlay` dock stack. */
   pluginPanels?: ViewportAnchor;
+  /** Where the legend of a colour-by core's colour legend does not draw (the models, a registered source) goes. */
+  colorByLegend?: ViewportAnchor;
+  /** Draw core's number labels (node and element ids of a loaded FEA result) over the view. */
+  labels?: boolean;
 }
 
 export function ViewportOverlays({placement, pluginPanels}: {placement: ViewportOverlayPlacement; pluginPanels: readonly RegisteredPanel[]}) {
   useSyncExternalStore(subscribeViewportOverlays, viewportOverlaysVersion, viewportOverlaysVersion);
   return (
     <div className="pointer-events-none absolute inset-0 z-[4]" data-viewport-overlays="">
+      {placement.labels && <NumberLabels />}
       {VIEWPORT_ANCHORS.map((anchor) => {
         const items: React.ReactNode[] = [];
         if (placement.legend === anchor) items.push(<ColorLegend key="core:legend" />);
+        if (placement.colorByLegend === anchor) items.push(<ColorByLegend key="core:color-by-legend" />);
         if (placement.pluginPanels === anchor) {
           for (const p of pluginPanels) {
             items.push(

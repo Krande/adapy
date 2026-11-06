@@ -515,7 +515,20 @@
 //          `feaToggleResultColors`, with icons; the Desktop UI's modes use the
 //          toolbars and its View menu lists the commands. Additive. Ships with
 //          PLUGIN_API_VERSION 1.15.0.
-export const VIEWER_CORE_API_VERSION = "1.15.0";
+//   1.16.0 Number labels and colour by property. Core draws node and element ids
+//          of a loaded FEA result over the view (`NumberLabels`, bounded and
+//          thinned on a screen grid) and colours the scene by a property.
+//          `CORE_COMMAND_IDS`: `labelsNodes`, `labelsElements`, `colorByNext`,
+//          `colorByModel`, `colorByReset`. A new core mode toolbar id `"colorBy"`
+//          (`ColorByToolbar`), and `"representation"` gains the label switches.
+//          `chrome.overlays` takes `labels` (draw the labels) and `colorByLegend`
+//          (an anchor for `ColorByLegend`). On `@/viewer-core/layout`:
+//          `NumberLabels`, `ColorByToolbar`, `ColorByLegend`. A plugin adds a
+//          colouring with `registerColorBySource` (`ColorBySource`; also
+//          `applyColorBy`, `resetColorBy`, `colorBySources`, `useColorByStore`)
+//          and `useLabelsStore` switches the labels, all on `@/viewer-core/scene`. The Desktop UI uses all of
+//          it. Additive. Ships with PLUGIN_API_VERSION 1.16.0.
+export const VIEWER_CORE_API_VERSION = "1.16.0";
 
 // ---------------------------------------------------------------------------
 // Plugin declaration. `registerPlugin` is how a package announces itself —

@@ -178,12 +178,12 @@ test("the Desktop UI's modes name core toolbars that exist", () => {
   const named = modes.flatMap((m) => m.toolbars ?? []);
   assert.ok(named.includes("playback") && named.includes("section") && named.includes("representation"));
   for (const id of named) assert.ok((M.CORE_MODE_TOOLBAR_IDS as readonly string[]).includes(id), id);
-  assert.deepEqual(modes.find((m) => m.id === "results")!.toolbars, ["playback", "representation"]);
+  assert.deepEqual(modes.find((m) => m.id === "results")!.toolbars, ["playback", "representation", "colorBy"]);
 });
 
 test("the facade publishes the toolbars, and the API version moved with them", () => {
-  assert.equal(V.VIEWER_CORE_API_VERSION, "1.15.0");
-  assert.deepEqual([...V.CORE_MODE_TOOLBAR_IDS], ["playback", "section", "representation"]);
+  assert.equal(V.VIEWER_CORE_API_VERSION, "1.16.0");
+  assert.deepEqual([...V.CORE_MODE_TOOLBAR_IDS], ["playback", "section", "representation", "colorBy"]);
   // The layout entry imports every panel (and their styles), so its exports are read from the source.
   const facade = readFileSync(new URL("../../viewer-core/layout.ts", import.meta.url), "utf8");
   for (const name of ["PlaybackToolbar", "SectionToolbar", "RepresentationToolbar", "CoreModeToolbars", "CommandButton"]) {

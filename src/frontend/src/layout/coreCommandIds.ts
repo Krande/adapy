@@ -84,6 +84,13 @@ export const CORE_COMMAND_IDS = {
   feaToggleUndeformed: "core:fea-toggle-undeformed",
   feaToggleElementEdges: "core:fea-toggle-element-edges",
   feaToggleResultColors: "core:fea-toggle-result-colors",
+  /** Number labels over a loaded FEA result: node ids, element ids (all in view, or those of the selection). */
+  labelsNodes: "core:labels-nodes",
+  labelsElements: "core:labels-elements",
+  /** Colour by property: the next source (an FEA property, the models, a registered one), and back to the ordinary colours. */
+  colorByNext: "core:color-by-next",
+  colorByModel: "core:color-by-model",
+  colorByReset: "core:color-by-reset",
 } as const;
 
 export type CoreCommandId = (typeof CORE_COMMAND_IDS)[keyof typeof CORE_COMMAND_IDS];
