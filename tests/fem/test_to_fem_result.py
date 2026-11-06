@@ -48,6 +48,28 @@ def test_to_fem_lazy_returns_the_cases_to_read_one_at_a_time(tmp_path, require_s
     assert {f.role for f in both[1]} == {FieldRole.NODAL_DISPLACEMENT, FieldRole.NODAL_REACTION}
 
 
+def test_a_result_read_case_by_case_is_baked_for_the_viewer_from_its_file(fem_files, tmp_path, monkeypatch):
+    """``fea.show()`` of a lazy result: no fields in memory, so the bake reads the file, as the REST viewer's does."""
+    import json
+
+    from ada.fem.results import show_streaming
+
+    monkeypatch.setenv(show_streaming.ENV_FEA_BAKE_DIR, str(tmp_path / "bakes"))
+    lazy = ada.from_fem_res(fem_files / "cantilever/sesam/static/shell/STATIC_SHELL_CANTILEVER_SESAMR1.SIN", lazy=True)
+    bake_dir, _ = show_streaming.bake_for_show(lazy)
+    manifest = json.loads((bake_dir / show_streaming.MANIFEST_NAME).read_text())
+    assert manifest.get("fields"), "the bake holds the file's fields"
+
+
+def test_an_unexecuted_result_is_not_shown(tmp_path):
+    from ada.fem.results.show_streaming import show_streaming
+
+    a = _stiffened_plate()
+    res = a.to_fem("u", "code_aster", scratch_dir=tmp_path, overwrite=True, write_input_files_only=True)
+    with pytest.raises(ValueError, match=r"execute\(\)"):
+        show_streaming(res)
+
+
 def test_case_fields_needs_a_result_read_case_by_case(fem_files):
     whole = ada.from_fem_res(fem_files / "cantilever/sesam/static/shell/STATIC_SHELL_CANTILEVER_SESAMR1.SIN")
     with pytest.raises(ValueError, match="lazy=True"):

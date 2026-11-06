@@ -89,7 +89,15 @@ def bake_for_show(result: FEAResult) -> tuple[pathlib.Path, str]:
     try:
         # The same bake the REST viewer gets. Its compact beam solids are expanded through
         # the viewer's compute capability -- over the websocket, by this Python process.
-        bake_artefacts(FEAResultStreamAdapter(result), work_dir, src=result.name or "fea")
+        if getattr(result, "cases", None) is not None and not result.results:
+            # A result read case by case (to_fem(..., lazy=True), from_fem_res(path, lazy=True)) holds no
+            # fields: the bake reads its file, a case at a time, as the REST viewer's does.
+            from ada.fem.results.artefacts import make_stream_reader
+
+            with make_stream_reader(pathlib.Path(result.results_file_path)) as reader:
+                bake_artefacts(reader, work_dir, src=result.name or "fea")
+        else:
+            bake_artefacts(FEAResultStreamAdapter(result), work_dir, src=result.name or "fea")
         if out_dir.exists():
             shutil.rmtree(out_dir)  # left over from an older, failed bake: it has no manifest
         work_dir.rename(out_dir)
@@ -114,6 +122,8 @@ def show_streaming(
     from ada.comms.wsock.client_sync import WebSocketClientSync
     from ada.visit.renderer_manager import RendererManager
 
+    if not getattr(result, "executed", True):
+        raise ValueError(f"{result.name}: the analysis has not run; result.execute() runs it")
     bake_dir, bake_id = bake_for_show(result)
     manager = RendererManager(
         renderer="react",
