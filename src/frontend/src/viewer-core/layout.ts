@@ -141,6 +141,41 @@ export {
   saveWorkspace,
 } from "@/layout/presets/classicPlace";
 export { COMPACT_GROUP_PX } from "@/layout/presets/groupCompact";
+// Multi-window dashboards: this page's window bus, the windows open, moving panels between them.
+export {
+  REOPEN_WINDOWS_COMMAND,
+  closedWindows,
+  dashboardKey,
+  focusWindow,
+  installMainWindow,
+  moveToWindowItem,
+  onFocusPanel,
+  openNewWindow,
+  openPopoutWindow,
+  reopenWindows,
+  storeWindowLabel,
+  storedWindowLabel,
+  thisWindowId,
+  useMainWindowLive,
+  useOpenWindows,
+  useThisWindow,
+  windowBus,
+  windowLabelKey,
+  windowLayoutKey,
+} from "@/layout/windows";
+export type { MainWindowDeps, PanelHandover } from "@/layout/windows";
+export { dockAtWindowEdge, dockInWindow, removeFromWindow, windowContext, windowPanels } from "@/layout/windowLayout";
+export {
+  FEA_SESSION_TOPIC,
+  SELECTION_TOPIC,
+  SELECT_NODE_COMMAND,
+  registerCoreMirror,
+  selectionSnapshot,
+} from "@/layout/windowMirrorCore";
+export type { SelectionSnapshot as MirroredSelection } from "@/layout/windowMirrorCore";
+export { CLASSIC_GRID_OPS, GridOpsProvider, GridView } from "@/layout/presets/classicGrid";
+export type { GridOps, GridViewProps } from "@/layout/presets/classicGrid";
+export { default as PopoutPage, POPOUT_ZONE } from "@/layout/PopoutPage";
 export { ShellModeSwitcher, ShellModeToolbar, useShellMode } from "@/layout/ShellModeSwitcher";
 export type { ShellModeSwitcherProps } from "@/layout/ShellModeSwitcher";
 export type { PanelTogglesProps } from "@/layout/PanelToggles";

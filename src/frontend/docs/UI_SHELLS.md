@@ -183,9 +183,9 @@ falls back to the classic look (`components/ui/panelChrome.ts`).
 A panel that works without the 3D scene may also open in a **browser window of
 its own**: it opts in with `capabilities.popout` (a plugin slot with `popout:
 true`), and its header then offers "Open in a new window". The window boots
-canvas-less on `?popout=<panelId>` with the panel alone (core's `AppRoot` routes
-it) and the active shell's tokens; the panel leaves the window it came from. The
-new window has stores of its own, which is why a scene-dependent panel may not.
+canvas-less (core's `AppRoot` routes it) with the active shell's tokens, and the
+panel leaves the window it came from. Such windows make up a dashboard; see
+[Multi-window dashboards](#multi-window-dashboards).
 
 A shell with **modes** lists them in `layout.modes`. Each mode may give its own
 `grid`, `open` and `docks` (else the shell's) and keeps its own saved
@@ -220,6 +220,9 @@ the chrome it draws in the slots.
 | | `chrome.pageHeader` | The shell's title bar over core's `/convert` and `/admin` pages. |
 | Panels | `panels: {[id]: PanelOverride}` | A core (or plugin) panel's title, icon, modes, capabilities and content `options` (`SceneBodyProps`, `StorageBodyProps`, ...; or a function of the mode), without a copy. |
 | | `capabilities.fill`, `pinnable`, `popout` | Edge-to-edge content; may be pinned; may open in its own window. |
+| | `capabilities.mirrored` (`PanelSlot.mirrored`) | May go to a pop-out window although it reads the scene: it renders from snapshots the main window mirrors (`registerMirrorTopic`) and acts through it (`registerMirrorCommand`). Core's object info panel is one. |
+| Windows | Move panel → Move to window | A pop-out-capable panel moves to another open browser window, or a new one, from any Move menu (grid groups, layout windows, column panels, pop-out groups). Nothing to configure. |
+| | `REOPEN_WINDOWS_COMMAND` | "Reopen windows": the main window reopens the dashboard's windows that are closed (one per click where the browser allows only one). Put it in a `MenuDef` like any command. |
 | | `panels[id].available` | `false`, or a function of the active mode: hides the panel from the lists, toggles, commands and add menus (all the time, or in some modes). It can only take a panel away; a panel unavailable in itself stays so. |
 | | `panels[id].bodyPalette` | Palette variables redefined inside that one panel's body (over the shell-wide `bodyPalette`), in windows, grid groups, covers, pop-outs and framed cards. |
 | | docking sections | A composed shell may name a panel the classic UI draws inside another (`core:fea-table`, inside Simulation) in its `grid`, or let the user dock it; it then leaves its host. Core's own UI keeps it inside. |
@@ -233,6 +236,77 @@ the chrome it draws in the slots.
 
 Layout state helpers on `@/viewer-core/layout`: `resetArrangement`, `saveWorkspace`,
 `loadWorkspace`, `deleteWorkspace`, `listWorkspaces`.
+
+### Multi-window dashboards
+
+Panels can be spread over several browser windows of the same browser, on
+several monitors, which then work as one dashboard. Same origin and same browser
+only: the windows talk over a `BroadcastChannel`, scoped by the page's path and
+the active shell, with no server involved.
+
+**Windows.** The main window (the one with the 3D view) has the id `main`. A
+pop-out window is the viewer booted canvas-less on `?window=<id>`: a split grid
+of panel groups of its own -- tabs, stacks, splits, dividers, drag to dock
+within the window, collapse -- and no view. Its arrangement is a `LayoutDoc`
+under the context `window/<id>`, kept in this browser per window id, so a window
+reopened with the same id finds it again. `?popout=<panelId>` opens a new window
+holding that panel. A window is labelled ("Main", "Window 2", ...) and the user
+can rename a pop-out (its title bar, or double-click the name).
+
+**Moving panels.** Every Move panel menu (grid groups, layout windows, column
+panels and in-viewer windows in the main window; groups in a pop-out window) has
+**Move to window**: the other open windows, the main one first, and **New
+window**. A move is a handshake: the source takes the panel out, asks the target
+to dock it, and puts it back if the target does not acknowledge within
+`MOVE_ACK_MS`. A pop-out docks an arriving panel in the group last used (else
+its first group, else as its first group); the main window reveals it in its
+place. Only panels `canPopOut` admits may go to a pop-out window: those with
+`capabilities.popout` that need no canvas, and `mirrored` ones.
+
+**One panel, one window.** The main window hides a panel another window shows
+(region hosts leave a plugin panel out, too), and `reveal(id)` of such a panel
+brings that window forward rather than opening a second copy. When a pop-out
+window closes, its panels come back to the main window, unless another window
+shows them or they are open there already; a reload within `LEAVE_GRACE_MS`
+keeps them where they are. A window that stops answering (`STALE_MS`) gives its
+panels back too.
+
+**Reopening.** The main window records which windows exist and their panels.
+Browsers open several windows only from a user's click, so it offers **Reopen
+windows** (`REOPEN_WINDOWS_COMMAND`, also in the Move to window menu while one is
+closed) rather than reopening them on load.
+
+**Scene panels (mirroring).** A pop-out window has stores of its own and no 3D
+scene. A panel that reads the scene may still go there if it is `mirrored`: the
+main window publishes serialisable snapshots of what it reads, one topic per
+piece of state, on every change and on request (`registerMirrorTopic`: a
+`snapshot`, a `subscribe` in the main window, an `apply` in the pop-out), and
+the panel's actions go back as commands the main window runs on its own state
+(`registerMirrorCommand`, `sendMirrorCommand`), which it then republishes.
+Three.js objects never cross. Core mirrors the selection (`core:selection`: the
+object info store) and whether an FEA session is active, and has a
+`core:select-node` command; the object info panel is `mirrored`. While no main
+window is open, a mirrored panel shows a "Main window closed" state.
+
+What stays in the main window, and why:
+
+| Panel | Why not mirrored (yet) |
+|---|---|
+| Object info | Mirrored for reading. Its Hide / Hide others / Unhide all and navigation buttons act on the pop-out's own (empty) scene state and do nothing there; they need commands to become remote actions. |
+| Selection tree | The stock tree reads visibility from the 3D batches and its rows act on the scene through `NodeApi`s; mirroring needs a tree of its own fed by a tree snapshot, a visibility map and select / hide / isolate commands. |
+| Scene info | Its ~15 sections run scene tools (section planes, face search, clash runs) against the scene directly. |
+| Simulation, result data | Step and field changes run closures held in the main window's FEA store (`applyStep`, streaming reloads); they need commands per control and a snapshot of about 30 store fields plus the manifest. |
+
+The transport is an interface (`WindowBusTransport`: `post`, `subscribe`,
+`close`), so a relay over a websocket could join windows across browsers later
+without the panels changing.
+
+| Part | API |
+|---|---|
+| The bus (root) | `createWindowBus`, `WindowBus`, `WindowBusMessage`, `broadcastTransport`, `memoryTransportHub`, `nullTransport`, `windowBusChannelName`, `MAIN_WINDOW_ID`, `sendPanel`, `acceptPanels`, `panelsToReturn`, the dashboard record helpers, `nextWindowId` |
+| URLs (root) | `WINDOW_PARAM`, `POPOUT_PARAM`, `popoutWindowId`, `popoutPanelId`, `isPopoutPage`, `windowUrl`, `popoutUrl`, `openWindow`, `canPopOut` |
+| Mirroring (root) | `registerMirrorTopic`, `registerMirrorCommand`, `hostMirror`, `followMirror`, `sendMirrorCommand`, `capabilities.mirrored` |
+| This page (`/layout`) | `windowBus`, `useOpenWindows`, `useThisWindow`, `useMainWindowLive`, `moveToWindowItem`, `openNewWindow`, `reopenWindows`, `installMainWindow`, `GridOps` / `GridOpsProvider`, `PopoutPage` |
 
 ### A root of its own
 

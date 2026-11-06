@@ -308,6 +308,37 @@
 //          defaults to false for a plugin's mode (opt in with true); a shell's own
 //          modes still default to shown. `reveal(id)` of an unbound panel already
 //          docked or floating brings it forward where it is.
+//          Multi-window dashboards: a pop-out window (`?window=<id>`) holds a
+//          split grid of panel groups of its own (tabs, stacks, splits, drag to
+//          dock; no view), kept per window id (context `window/<id>`);
+//          `?popout=<id>` opens a new one holding that panel. The Move panel menu
+//          offers "Move to window" (the other open windows, "New window");
+//          `PanelMenuItem.items` is a submenu (or a function giving it). The
+//          windows talk over a window bus, on the root: `createWindowBus`
+//          (`WindowBus`: presence by hello / announce / heartbeat / goodbye,
+//          `windows()`, `setPanels`, `setLabel`, `onGone`), transports
+//          (`WindowBusTransport`, `broadcastTransport`, `memoryTransportHub`,
+//          `nullTransport`, `windowBusChannelName`), `MAIN_WINDOW_ID`, the move
+//          handshake `sendPanel` / `acceptPanels` (`MOVE_ACK_MS`), `panelsToReturn`,
+//          the dashboard record (`DashboardRecord`, `recordWindow`,
+//          `forgetWindow`, `readDashboard`, `closedDashboardWindows`),
+//          `nextWindowId`; window URLs on `./popout` (`WINDOW_PARAM`,
+//          `popoutWindowId`, `isPopoutPage`, `windowUrl`, `windowTarget`,
+//          `openWindow`); `setRevealElsewhere`. The main window hides a panel
+//          another window shows, reveals it there instead, takes back the panels
+//          of a window that closes, and offers "Reopen windows"
+//          (`REOPEN_WINDOWS_COMMAND`). Mirroring: `PanelCapabilities.mirrored`
+//          (`PanelSlot.mirrored`) lets a scene panel go to a pop-out window, fed
+//          by `registerMirrorTopic` snapshots the main window publishes and
+//          acting by `registerMirrorCommand` commands it runs (`hostMirror`,
+//          `followMirror`, `sendMirrorCommand`); core mirrors the selection for
+//          the object info panel (now `mirrored`). On `@/viewer-core/layout`:
+//          `windowBus`, `useOpenWindows`, `useThisWindow`, `useMainWindowLive`,
+//          `moveToWindowItem`, `openNewWindow`, `installMainWindow`,
+//          `reopenWindows`, the window-document helpers (`dockInWindow`, ...),
+//          `GridOps` / `GridOpsProvider` / `GridView`, `PopoutPage`. Behaviour
+//          change: `canPopOut` also admits `mirrored` panels; `openWindow`
+//          returns the window's handle.
 export const VIEWER_CORE_API_VERSION = "1.13.0";
 
 // ---------------------------------------------------------------------------
@@ -399,7 +430,29 @@ export {
 } from "@/layout/shortcuts";
 export type { RegisteredShortcut, ShortcutKeys, ShortcutSpec } from "@/layout/shortcuts";
 // A panel in a browser window of its own (dependency-free).
-export { POPOUT_PARAM, canPopOut, openPopout, popoutPanelId, popoutUrl } from "@/layout/popout";
+export {
+  POPOUT_PARAM,
+  WINDOW_PARAM,
+  canPopOut,
+  isPopoutPage,
+  openPopout,
+  openWindow,
+  popoutPanelId,
+  popoutUrl,
+  popoutWindowId,
+  windowTarget,
+  windowUrl,
+} from "@/layout/popout";
+// State the main window mirrors to pop-out windows, and the actions they send back (dependency-free).
+export {
+  followMirror,
+  hostMirror,
+  listMirrorTopics,
+  registerMirrorCommand,
+  registerMirrorTopic,
+  sendMirrorCommand,
+} from "@/layout/windowMirror";
+export type { MirrorCommand, MirrorTopic } from "@/layout/windowMirror";
 // Multi-window dashboards: the bus between the browser windows of one session (dependency-free).
 export {
   HEARTBEAT_MS,
@@ -487,7 +540,7 @@ export {
   listToolbarPanels,
   registerPanel,
 } from "@/layout/registry";
-export { hide, isPanelOpen, reveal, toggle } from "@/layout/reveal";
+export { hide, isPanelOpen, reveal, setRevealElsewhere, toggle } from "@/layout/reveal";
 export type { PanelController } from "@/layout/reveal";
 export {
   listSceneTreeRoots,
