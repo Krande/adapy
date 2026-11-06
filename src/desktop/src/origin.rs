@@ -3,13 +3,52 @@
 //! Three kinds of origin exist:
 //! * the **trusted** origin: the viewer (`--url`). Windows may show it, pop-outs may open on it and it
 //!   (alone) is granted IPC;
-//! * **auth** origins (`--auth-origin`): the identity provider's sign-in pages. A window may be
-//!   *navigated* there (the sign-in redirect) but no pop-out opens on them and they get no IPC;
-//! * everything else: not shown, handed to the system browser.
+//! * **sign-in** origins: the identity provider's pages (`--auth-origin`, plus a built-in set of
+//!   Microsoft Entra ID hosts when the provider is Entra, see [`ENTRA_HOSTS`]). A window may be
+//!   navigated there and they may open sign-in pop-ups, but they never get IPC;
+//! * everything else: not shown, handed to the system browser, except **during a sign-in**: once a
+//!   window is on a sign-in page, the provider may send it on to any `https` page (a federated
+//!   identity provider, an MFA service) until it comes back to the trusted origin. See [`Flow`].
 //!
 //! No tauri runtime here, so it is unit tested without a window.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::Url;
+
+/// Hosts the Microsoft identity platform (Entra ID, work/school and personal Microsoft accounts) signs
+/// users in on, besides the authorize endpoint the discovery document names: the sign-in host under
+/// its other names, personal accounts, device and certificate authentication, seamless SSO, and the
+/// "more information required" (MFA registration) interrupt. `https` only; added when one of the
+/// sign-in origins is a Microsoft login host.
+pub const ENTRA_HOSTS: &[&str] = &[
+    "login.microsoftonline.com",
+    "login.microsoft.com",
+    "login.windows.net",
+    "sts.windows.net",
+    "login.live.com",
+    "account.live.com",
+    "device.login.microsoftonline.com",
+    "certauth.login.microsoftonline.com",
+    "autologon.microsoftazuread-sso.com",
+    "mysignins.microsoft.com",
+];
+/// Sub-domains of these are Entra sign-in hosts too (tenant-specific certificate authentication).
+pub const ENTRA_SUFFIXES: &[&str] = &[".certauth.login.microsoftonline.com"];
+
+/// Whether `host` is one of Microsoft's login hosts (global cloud and the national clouds), i.e. the
+/// provider is Microsoft Entra ID.
+pub fn is_entra_login_host(host: &str) -> bool {
+    matches!(
+        host,
+        "login.microsoftonline.com"
+            | "login.microsoft.com"
+            | "login.windows.net"
+            | "sts.windows.net"
+            | "login.microsoftonline.us"
+            | "login.chinacloudapi.cn"
+            | "login.partner.microsoftonline.cn"
+    )
+}
 
 /// `127.0.0.1`, `localhost` or `[::1]`, over http: the local viewer `ada desktop` starts.
 pub fn is_loopback(url: &Url) -> bool {
@@ -36,10 +75,67 @@ pub fn parse_origin(s: &str, insecure: bool) -> Result<Url, String> {
     Ok(o)
 }
 
+/// What a navigation is, for one window.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Nav {
+    /// The trusted origin (or a `blob:` of it): the app. Ends a sign-in.
+    App,
+    /// `about:blank` and the like: allowed, changes nothing.
+    Blank,
+    /// A sign-in origin: allowed (no IPC). Starts or continues a sign-in.
+    SignIn,
+    /// Another `https` page, reached while the window is signing in: allowed (no IPC).
+    Followed,
+    /// Not shown in the window: handed to the system browser (http/https/mailto) or dropped.
+    Deny,
+}
+
+impl Nav {
+    pub fn allowed(self) -> bool {
+        self != Nav::Deny
+    }
+}
+
+/// Whether one window is in the middle of a sign-in: it went from the app to a sign-in page and has
+/// not come back yet. Every window has its own.
+#[derive(Debug, Default)]
+pub struct Flow(AtomicBool);
+
+impl Flow {
+    pub fn new(signing_in: bool) -> Flow {
+        Flow(AtomicBool::new(signing_in))
+    }
+
+    pub fn signing_in(&self) -> bool {
+        self.0.load(Ordering::Relaxed)
+    }
+
+    /// Classify a main-frame navigation of this window and track the sign-in state.
+    pub fn navigate(&self, policy: &Policy, url: &Url) -> Nav {
+        let n = policy.classify(url, self.signing_in());
+        match n {
+            Nav::App => self.0.store(false, Ordering::Relaxed),
+            Nav::SignIn => self.0.store(true, Ordering::Relaxed),
+            Nav::Blank | Nav::Followed | Nav::Deny => {}
+        }
+        n
+    }
+}
+
+/// `https://host/path` without query or fragment, for logs: sign-in URLs carry codes, state and hints.
+pub fn redact(url: &Url) -> String {
+    match url.host_str() {
+        Some(h) => format!("{}://{}{}", url.scheme(), h, url.path()),
+        None => url.scheme().to_string() + ":",
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Policy {
     trusted: Url,
     auth: Vec<Url>,
+    /// Microsoft Entra ID: the built-in hosts ([`ENTRA_HOSTS`]) are sign-in origins too.
+    entra: bool,
 }
 
 impl Policy {
@@ -71,7 +167,8 @@ impl Policy {
                 idp.push(o);
             }
         }
-        Ok(Policy { trusted, auth: idp })
+        let entra = idp.iter().any(|a| a.scheme() == "https" && a.host_str().is_some_and(is_entra_login_host));
+        Ok(Policy { trusted, auth: idp, entra })
     }
 
     pub fn trusted(&self) -> &Url {
@@ -82,20 +179,58 @@ impl Policy {
         &self.auth
     }
 
+    /// Whether the built-in Microsoft Entra ID hosts are sign-in origins.
+    pub fn entra(&self) -> bool {
+        self.entra
+    }
+
     fn is_trusted(&self, url: &Url) -> bool {
         url.origin() == self.trusted.origin()
     }
 
-    /// What a window may navigate to: the viewer (its `blob:` URLs included), a blank page, and the
-    /// sign-in pages of the identity provider.
-    pub fn allows_navigation(&self, url: &Url) -> bool {
-        url.scheme() == "about" || self.is_trusted(url) || self.auth.iter().any(|a| a.origin() == url.origin())
+    /// A sign-in origin: an `--auth-origin`, or (Entra) a built-in Microsoft sign-in host over https on
+    /// the default port.
+    pub fn is_sign_in(&self, url: &Url) -> bool {
+        if self.auth.iter().any(|a| a.origin() == url.origin()) {
+            return true;
+        }
+        self.entra
+            && url.scheme() == "https"
+            && url.port().is_none()
+            && url
+                .host_str()
+                .is_some_and(|h| ENTRA_HOSTS.contains(&h) || ENTRA_SUFFIXES.iter().any(|s| h.ends_with(s)))
     }
 
-    /// What a new native window may open on: the viewer only. A sign-in page in a pop-out would get
-    /// no way back to the opener; the system browser shows it instead.
-    pub fn allows_popup(&self, url: &Url) -> bool {
-        url.scheme() == "about" || self.is_trusted(url)
+    /// What a main-frame navigation of a window is; `signing_in` is that window's [`Flow`] state.
+    pub fn classify(&self, url: &Url, signing_in: bool) -> Nav {
+        if url.scheme() == "about" {
+            Nav::Blank
+        } else if self.is_trusted(url) {
+            Nav::App
+        } else if self.is_sign_in(url) {
+            Nav::SignIn
+        } else if signing_in && url.scheme() == "https" && url.host_str().is_some() {
+            Nav::Followed
+        } else {
+            Nav::Deny
+        }
+    }
+
+    /// What a window may navigate to outside a sign-in: the viewer (its `blob:` URLs included), a blank
+    /// page, and the sign-in pages of the identity provider.
+    #[cfg(test)]
+    pub fn allows_navigation(&self, url: &Url) -> bool {
+        self.classify(url, false).allowed()
+    }
+
+    /// What a new native window may open on: the viewer, and, for a sign-in, the provider's pages
+    /// (a pop-up the provider opens keeps `window.opener` and its POST body, because WebView2 itself
+    /// navigates the new window). `signing_in` is the opener's [`Flow`] state: a window in the middle
+    /// of a sign-in may open any `https` pop-up, which then counts as signing in too.
+    #[cfg(test)]
+    pub fn allows_popup(&self, url: &Url, signing_in: bool) -> bool {
+        self.classify(url, signing_in).allowed()
     }
 
     /// The remote-URL pattern for the IPC capability: the trusted origin and nothing else.
@@ -167,7 +302,7 @@ mod tests {
     }
 
     #[test]
-    fn popups_open_on_the_viewer_only() {
+    fn popups_open_on_the_viewer_and_sign_in_pages_only() {
         let p = Policy::new(
             &u("https://studio.example.com/"),
             Some("https://studio.example.com"),
@@ -175,8 +310,84 @@ mod tests {
             false,
         )
         .unwrap();
-        assert!(p.allows_popup(&u("https://studio.example.com/?popout=scene")));
-        assert!(!p.allows_popup(&u("https://login.example.org/authorize")));
+        assert!(p.allows_popup(&u("https://studio.example.com/?popout=scene"), false));
+        assert!(p.allows_popup(&u("https://login.example.org/authorize"), false));
+        assert!(!p.allows_popup(&u("https://docs.example.net/"), false));
+        // A sign-in page may open a pop-up anywhere https (a security key, a federated provider) ...
+        assert!(p.allows_popup(&u("https://mfa.example.net/start"), true));
+        // ... but not plain http or other schemes.
+        assert!(!p.allows_popup(&u("http://mfa.example.net/start"), true));
+        assert!(!p.allows_popup(&u("ms-settings:privacy"), true));
+    }
+
+    fn entra() -> Policy {
+        Policy::new(
+            &u("https://studio.example.com/"),
+            Some("https://studio.example.com"),
+            &["https://login.microsoftonline.com".into()],
+            false,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn entra_issuer_adds_the_built_in_sign_in_hosts() {
+        let p = entra();
+        assert!(p.entra());
+        for h in ENTRA_HOSTS {
+            assert!(p.allows_navigation(&u(&format!("https://{h}/common/oauth2/v2.0/authorize"))), "{h}");
+            assert!(!p.allows_navigation(&u(&format!("http://{h}/"))), "{h} over http");
+            assert!(!p.allows_navigation(&u(&format!("https://{h}:8443/"))), "{h} on another port");
+        }
+        assert!(p.allows_navigation(&u("https://t1234.certauth.login.microsoftonline.com/x")));
+        assert!(!p.allows_navigation(&u("https://login.microsoftonline.com.evil.example.net/")));
+        assert!(!p.allows_navigation(&u("https://evilcertauth.login.microsoftonline.com.example.net/")));
+        assert!(!p.allows_navigation(&u("https://myaccount.microsoft.com/")));
+        // Not for another provider.
+        let other = Policy::new(
+            &u("https://studio.example.com/"),
+            Some("https://studio.example.com"),
+            &["https://login.example.org".into()],
+            false,
+        )
+        .unwrap();
+        assert!(!other.entra());
+        assert!(!other.allows_navigation(&u("https://login.live.com/")));
+        // National clouds count as Entra too.
+        assert!(is_entra_login_host("login.microsoftonline.us"));
+        assert!(!is_entra_login_host("login.example.org"));
+    }
+
+    #[test]
+    fn a_sign_in_may_pass_through_other_https_hosts_until_it_returns() {
+        let p = entra();
+        let f = Flow::default();
+        // Not signing in: a foreign page is refused.
+        assert_eq!(f.navigate(&p, &u("https://sts.example.net/adfs/ls/")), Nav::Deny);
+        assert_eq!(f.navigate(&p, &u("https://studio.example.com/")), Nav::App);
+        assert_eq!(f.navigate(&p, &u("https://login.microsoftonline.com/t/oauth2/v2.0/authorize?x")), Nav::SignIn);
+        assert!(f.signing_in());
+        // The provider federates to an on-premise service and back (form POSTs included: allowed
+        // navigations proceed natively, nothing is re-issued).
+        assert_eq!(f.navigate(&p, &u("https://sts.example.net/adfs/ls/?wa=wsignin1.0")), Nav::Followed);
+        assert_eq!(f.navigate(&p, &u("about:blank")), Nav::Blank);
+        assert!(f.signing_in());
+        assert_eq!(f.navigate(&p, &u("http://sts.example.net/")), Nav::Deny);
+        assert_eq!(f.navigate(&p, &u("file:///c:/x")), Nav::Deny);
+        assert_eq!(f.navigate(&p, &u("https://login.microsoftonline.com/login.srf")), Nav::SignIn);
+        assert_eq!(f.navigate(&p, &u("https://studio.example.com/auth/callback?code=1")), Nav::App);
+        // Back in the app: the next foreign page goes to the system browser again.
+        assert!(!f.signing_in());
+        assert_eq!(f.navigate(&p, &u("https://sts.example.net/")), Nav::Deny);
+    }
+
+    #[test]
+    fn logs_drop_query_and_fragment() {
+        assert_eq!(
+            redact(&u("https://login.example.org/t/oauth2/authorize?code=secret#state")),
+            "https://login.example.org/t/oauth2/authorize"
+        );
+        assert_eq!(redact(&u("about:blank")), "about:");
     }
 
     #[test]

@@ -427,6 +427,47 @@ def test_shell_command_dev_backend_trusts_only_the_localhost_origin():
     assert cmd[-1] == "--x"
 
 
+def test_entra_is_recognised_from_the_discovered_origins():
+    assert d.is_entra(["https://login.microsoftonline.com/"])
+    assert d.is_entra(["https://idp.example.org/", "https://login.microsoftonline.us/"])
+    assert not d.is_entra(["https://idp.example.org/", "http://login.microsoftonline.com/"])
+    assert not d.is_entra(["https://login.microsoftonline.com.example.net/"]) and not d.is_entra([])
+
+
+def test_entra_discovery_yields_the_login_host():
+    tenant = "00000000-0000-0000-0000-000000000000"
+    issuer = f"https://login.microsoftonline.com/{tenant}/v2.0"
+    docs = {
+        "https://s.example.com/api/config": {"auth": {"enabled": True, "issuer": issuer}},
+        f"{issuer}/.well-known/openid-configuration": {
+            "authorization_endpoint": f"https://login.microsoftonline.com/{tenant}/oauth2/v2.0/authorize",
+            "end_session_endpoint": f"https://login.microsoftonline.com/{tenant}/oauth2/v2.0/logout",
+        },
+    }
+    found = d.discover_auth_origins("https://s.example.com/", lambda u: docs[u])
+    assert found == ["https://login.microsoftonline.com/"] and d.is_entra(found)
+
+
+def test_no_sso_is_passed_to_the_shell():
+    from ada_cli.main import _build_parser
+
+    a = _build_parser().parse_args(["desktop", "--server", "work", "--no-sso", "--shell-arg=--no-spacemouse"])
+    assert a.no_sso and d.shell_args(a) == ["--no-spacemouse", "--no-sso"]
+    assert d.shell_args(_build_parser().parse_args(["desktop"])) == []
+    cmd = d.shell_command_remote(pathlib.Path("x"), d.Server(url="https://s.example.com/"), [], "T", d.shell_args(a))
+    assert cmd[-1] == "--no-sso"
+
+
+def test_print_sign_in_mentions_entra_and_sso(capsys):
+    d.print_sign_in(["https://login.microsoftonline.com/"], _ns())
+    out = capsys.readouterr().out
+    assert "https://login.microsoftonline.com" in out and "Entra ID" in out and "Windows account: on" in out
+    d.print_sign_in(["https://login.microsoftonline.com/"], _ns(no_sso=True))
+    assert "Windows account: off" in capsys.readouterr().out
+    d.print_sign_in(["https://idp.example.org/"], _ns())
+    assert "Entra" not in capsys.readouterr().out
+
+
 def test_collect_auth_origins_filters_plain_http_and_the_server_itself():
     s = d.Server(url="https://s.example.com/", auth_origins=("https://extra.example.org/",))
     found = lambda _url: ["https://idp.example.org/", "https://s.example.com/", "http://plain.example.org/"]

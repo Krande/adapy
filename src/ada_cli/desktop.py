@@ -923,6 +923,50 @@ def refuse_local_only(args: argparse.Namespace, flags: tuple[str, ...]) -> None:
         raise CliUsageError(f"{', '.join(clash)} only {verb} to the local viewer, not with a server (use --local)")
 
 
+#: Microsoft's login hosts (global and national clouds); the shell keeps the same list (origin.rs).
+ENTRA_LOGIN_HOSTS = frozenset(
+    {
+        "login.microsoftonline.com",
+        "login.microsoft.com",
+        "login.windows.net",
+        "sts.windows.net",
+        "login.microsoftonline.us",
+        "login.chinacloudapi.cn",
+        "login.partner.microsoftonline.cn",
+    }
+)
+
+
+def is_entra(auth_origins: list[str]) -> bool:
+    """Whether the identity provider is Microsoft Entra ID (the shell then adds its built-in sign-in hosts)."""
+    for o in auth_origins:
+        u = urllib.parse.urlsplit(o)
+        if u.scheme == "https" and u.hostname in ENTRA_LOGIN_HOSTS:
+            return True
+    return False
+
+
+def shell_args(args: argparse.Namespace) -> list[str]:
+    """What is passed through to the shell: ``--shell-arg``s, plus ``--no-sso``."""
+    extra = list(getattr(args, "shell_arg", None) or [])
+    if getattr(args, "no_sso", False) and "--no-sso" not in extra:
+        extra.append("--no-sso")
+    return extra
+
+
+def print_sign_in(auth: list[str], args: argparse.Namespace) -> None:
+    """Say which sign-in pages the window may show and whether Windows single sign-on is on."""
+    if not auth:
+        return
+    _print("ada desktop: sign-in pages allowed (navigation only): " + ", ".join(a[:-1] for a in auth))
+    if is_entra(auth):
+        sso = "off (--no-sso)" if getattr(args, "no_sso", False) else "on (--no-sso turns it off)"
+        _print(
+            "ada desktop: Microsoft Entra ID: its other sign-in hosts are allowed too, and any https page the "
+            f"sign-in passes through; single sign-on with the Windows account: {sso}"
+        )
+
+
 def collect_auth_origins(server: Server, discover: Callable[[str], list[str]] | None = None) -> list[str]:
     """The identity-provider origins the window may navigate to: what the server advertises plus the
     profile's own, minus plain-http ones unless the server is ``insecure`` (or the host is loopback)."""
@@ -991,9 +1035,11 @@ def run_dev_backend(args: argparse.Namespace, server: Server) -> int:
     _print(f"ada desktop: dev frontend against server {label}{server.url}")
     _print(f"ada desktop: trusting only the origin {front[:-1]} (native events and the app itself)")
     auth = collect_auth_origins(server)
-    if auth:
-        _print("ada desktop: sign-in pages allowed (navigation only): " + ", ".join(a[:-1] for a in auth))
-    _print(f"Register this redirect URI for the app's SPA platform: {redirect_uri_for(front)}")
+    print_sign_in(auth, args)
+    _print(
+        f"Register this redirect URI for the app's SPA platform: {redirect_uri_for(front)} "
+        "(until it is, Microsoft Entra ID answers AADSTS50011)"
+    )
 
     job = _Job()
     procs: list[subprocess.Popen] = []
@@ -1016,7 +1062,7 @@ def run_dev_backend(args: argparse.Namespace, server: Server) -> int:
                 time.sleep(0.5)
         else:
             t0 = time.monotonic()
-            shell = subprocess.Popen(shell_command_dev_backend(binary, front, server, auth, args.title, args.shell_arg))
+            shell = subprocess.Popen(shell_command_dev_backend(binary, front, server, auth, args.title, shell_args(args)))
             job.assign(shell)
             rc = shell.wait()
             if args.timing:
@@ -1042,14 +1088,13 @@ def run_remote(args: argparse.Namespace, server: Server) -> int:
     _print(f"ada desktop: server {label}{server.url}")
     _print(f"ada desktop: trusting only the origin {server.url[:-1]} (native events and the app itself)")
     auth = collect_auth_origins(server)
-    if auth:
-        _print("ada desktop: sign-in pages allowed (navigation only): " + ", ".join(a[:-1] for a in auth))
+    print_sign_in(auth, args)
     if binary is None:
         _print(f"viewer: {server.url}")
         return 0
     job = _Job()
     t0 = time.monotonic()
-    shell = subprocess.Popen(shell_command_remote(binary, server, auth, args.title, args.shell_arg))
+    shell = subprocess.Popen(shell_command_remote(binary, server, auth, args.title, shell_args(args)))
     job.assign(shell)
     rc = shell.wait()
     if args.timing:
@@ -1164,6 +1209,12 @@ def add_arguments(p: argparse.ArgumentParser) -> None:
         "server advertises (/api/config). Repeatable.",
     )
     p.add_argument(
+        "--no-sso",
+        action="store_true",
+        help="Do not sign in with the Windows account (WebView2 single sign-on with the OS primary account, "
+        "on by default): the identity provider then asks for the account itself.",
+    )
+    p.add_argument(
         "--backend",
         default=None,
         metavar="URL|NAME",
@@ -1228,7 +1279,7 @@ def _key_or_warn(base: str, path: pathlib.Path | None) -> str | None:
 
 def _run_shell(binary: pathlib.Path, url: str, args: argparse.Namespace, job: _Job) -> int:
     t0 = time.monotonic()
-    shell = subprocess.Popen([str(binary), "--url", url, "--title", args.title, *args.shell_arg])
+    shell = subprocess.Popen([str(binary), "--url", url, "--title", args.title, *shell_args(args)])
     job.assign(shell)
     rc = shell.wait()
     if args.timing:

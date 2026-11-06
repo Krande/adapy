@@ -44,6 +44,7 @@ ada-desktop --version
 | `--trust-origin O` | Open a hosted server: `O` is its origin (`https://host[:port]`), the only one windows show and the only one granted native events. `--url` must be on it. |
 | `--auth-origin O` | An identity provider's sign-in origin windows may navigate to (no native events). Repeatable. |
 | `--insecure` | Accept plain `http` for `--trust-origin` / `--auth-origin` on a non-loopback host (lab setups). |
+| `--no-sso` | Do not sign in with the Windows account (see "Single sign-on" below); `ada desktop --no-sso` passes it on. |
 | `--title T` | Main window title (default `Ada Studio`). Pop-outs take their page's title. |
 | `--native-drop` | The shell takes dropped files (native paths, logged only for now) instead of the page. By default the page gets `File` objects, as in a browser. |
 | `--no-spacemouse` | Do not read the 3D mouse natively; the shim is not injected and the page sees WebView2's own WebHID. |
@@ -85,22 +86,50 @@ Profiles are a small JSON file, `%APPDATA%\ada\desktop\servers.json` on Windows
 * **Sign-in.** An OIDC redirect leaves the server's origin for the identity provider and comes back, in
   the same window. `ada desktop` reads `GET /api/config` (public) and allows the `auth.issuer` origin
   plus the origins of `authorization_endpoint` / `end_session_endpoint` in the issuer's
-  `/.well-known/openid-configuration`, and passes them as `--auth-origin`. A provider that federates to
-  yet another host (for example an on-premise federation service) needs that host added by hand:
-  `--auth-origin https://sts.example.com` (repeatable, or saved with `servers add ... --auth-origin`).
-  A sign-in page that is not allowed is not shown in the window but opens in the system browser, where
-  the flow cannot return to the app, so a missing origin shows up as a sign-in that never completes.
+  `/.well-known/openid-configuration`, and passes them as `--auth-origin` (more with `--auth-origin
+  https://sts.example.com`, repeatable, or saved with `servers add ... --auth-origin`). On top of that:
+  * **Microsoft Entra ID.** When a sign-in origin is a Microsoft login host (`login.microsoftonline.com`,
+    `login.microsoft.com`, `login.windows.net`, `sts.windows.net`, or a national cloud's), the shell also
+    allows the hosts Microsoft's sign-in uses besides the discovered one: `login.microsoftonline.com`,
+    `login.microsoft.com` (passkeys / Windows Hello, `/fido/get`), `login.windows.net`, `sts.windows.net`,
+    `login.live.com`, `account.live.com` (personal accounts), `device.login.microsoftonline.com`,
+    `certauth.login.microsoftonline.com` and its sub-domains (device and certificate authentication),
+    `autologon.microsoftazuread-sso.com` (seamless SSO) and `mysignins.microsoft.com` (the "more
+    information required" MFA registration). https on the default port only (`ENTRA_HOSTS` in
+    `src/origin.rs`).
+  * **Pass-through during a sign-in.** Once a window has gone from the app to a sign-in page, the
+    provider may send it on to **any https page** (a federated on-premise service, an MFA provider)
+    until the window is back on the trusted origin; then the allow-list applies again. So federation
+    needs no `--auth-origin` per host. Plain http and other schemes stay refused.
+  * These pages are navigation only: none gets IPC (the capability names the trusted origin alone).
+    An allowed navigation is left to WebView2 as the page made it, so a form POST stays a POST. Only a
+    refused one goes to the system browser, which can only GET it; a sign-in step that ends up there
+    shows the provider's "endpoint only accepts POST requests" error (Entra: AADSTS900561) in the browser
+    and never returns to the app. The shell logs every sign-in navigation (host and path, no query) on
+    stderr, which tells which host that was.
+  * Sign-in pop-ups (`window.open` from a sign-in page, or to a sign-in origin) open as native windows
+    created by WebView2 from the original request, so `window.opener` and POST bodies survive; they
+    are not saved or restored like pop-outs.
 * **Pop-outs** open as native windows on the server and carry the opener's `sessionStorage` (verified on
   WebView2: `window.open` from the page copies it), so the tokens the page keeps there are present in
   the new window. The copy is taken when the window opens; the pages do not share later changes. A
   provider that rotates refresh tokens on every use could therefore invalidate one window's copy after
   another window refreshes. If that shows up, the fix is on the page side (renew silently in each
   window, or hand tokens through `BroadcastChannel`), not in the shell.
-* **Single sign-on with the Windows account.** WebView2 can sign in silently with the OS work account
-  (`AllowSingleSignOnUsingOSPrimaryAccount`), but that is an environment option which the webview
-  library the shell uses (wry 0.57) does not expose, so it is **not enabled**. Integrated
-  Windows authentication for intranet servers (Kerberos/NTLM) is WebView2's default behaviour; extra
-  hosts can be allowed with `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--auth-server-allowlist=host`.
+* **Single sign-on with the Windows account** (on by default, `--no-sso` turns it off). The shell
+  creates the WebView2 environment itself with `AllowSingleSignOnUsingOSPrimaryAccount` set
+  ([ICoreWebView2EnvironmentOptions](https://learn.microsoft.com/microsoft-edge/webview2/reference/win32/icorewebview2environmentoptions#get_allowsinglesignonusingosprimaryaccount))
+  and hands it to wry (`WebviewWindowBuilder::with_environment`; wry 0.57 has no switch of its own);
+  pop-outs share it. The Microsoft identity platform then signs in with the work or school account
+  Windows is signed in with, and sees the device's identity (which device-based Conditional Access
+  needs), as Edge does: on an Entra-joined or registered machine, "Sign in" goes to the authorize
+  endpoint and straight back to `/auth/callback` without a prompt. Everything else is what wry would
+  have set (its browser arguments, the UI language) in the same user data folder, so cookies and
+  storage are those of earlier launches. One limit: WebView2 runs one browser per profile with one set
+  of options, so a window with SSO and one without (an older ada-desktop, or `--no-sso`) cannot be open
+  at the same time; the second one says so and exits. Integrated Windows authentication for intranet
+  servers (Kerberos/NTLM) is WebView2's default behaviour; extra hosts can be allowed with
+  `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--auth-server-allowlist=host`.
 
 By hand: `ada-desktop --url https://studio.example.com/ --trust-origin https://studio.example.com
 --auth-origin https://login.example.org`.
@@ -146,11 +175,13 @@ quit the driver or run with `--no-spacemouse`.
 
 * **Navigation allow-list.** Every window (main and pop-outs) may only show the viewer's own origin
   (exactly the scheme, host and port of `--url`; for a remote server the `--trust-origin`), its `blob:`
-  URLs, `about:blank`, and, for navigation only, the `--auth-origin`s (the identity provider's sign-in
-  pages). Any other navigation is cancelled; `http`, `https` and `mailto` links are handed to the system
-  browser instead, anything else (e.g. `file:`, custom protocol handlers) is dropped. `window.open` to
-  another site, and to a sign-in origin, likewise opens in the system browser rather than in a native
-  window.
+  URLs, `about:blank`, and, for navigation only, the identity provider's sign-in pages: the
+  `--auth-origin`s, the built-in Entra ID hosts when the provider is Entra, and any https page a sign-in
+  passes through before it returns to the trusted origin (see "Sign-in" above). Any other navigation is
+  cancelled; `http`, `https` and `mailto` links are handed to the system browser instead, anything else
+  (e.g. `file:`, custom protocol handlers) is dropped. `window.open` to another site likewise opens in the
+  system browser; to a sign-in page (or from one, during a sign-in) it opens a native window under the
+  same rules.
 * **IPC for one origin, minimal.** There is no static capability file: at startup the shell adds a
   runtime capability (`dynamic-acl`) whose remote URL is the trusted origin alone (the loopback viewer's
   `http://127.0.0.1:PORT/*`, or the server's), and which allows only `core:event:allow-listen`,
@@ -239,7 +270,9 @@ app's *single-page application* platform, alongside the hosted app's own:
 Register this redirect URI for the app's SPA platform: http://localhost:39198/auth/callback
 ```
 
-Providers such as Azure AD accept `http://localhost` redirect URIs for SPA apps. The port is fixed per
+Providers such as Microsoft Entra ID accept `http://localhost` redirect URIs for SPA apps. Until the URI is
+registered (for the SPA platform, not "Web"), Entra shows AADSTS50011 ("the redirect URI ... does not match")
+right after the authorize request. The port is fixed per
 user (viewer port + 500, see "Port policy"; `--dev-port N` picks another, and then another URI is needed).
 If it is taken the command stops instead of falling back to a free port, since the registered URI names it.
 
@@ -276,7 +309,8 @@ licenses with `cargo-bundle-licenses`, installs `ada-desktop.exe` to `%LIBRARY_B
 * `--native-drop` only logs the dropped paths; nothing consumes them yet.
 * Pop-out windows each have their own `sessionStorage`, seeded with a copy of the opener's when they
   open (see [Connecting to a server](#connecting-to-a-server) for what that means for sign-in).
-* Remote mode: no silent sign-in with the Windows account (not exposed by the webview library), and
-  sign-in was verified only up to the allow-list logic and an auth-less server; a provider that
-  federates through other hosts needs `--auth-origin` for each.
+* Remote mode: silent sign-in with the Windows account was verified against Microsoft Entra ID on an
+  Entra-joined machine (hosted server; `--dev --backend` up to the provider's redirect-URI check); other
+  providers only through the
+  allow-list logic. Windows with SSO and without cannot be open at the same time (one WebView2 profile).
 * No installer, auto-update or code signing; the conda package is the distribution.
