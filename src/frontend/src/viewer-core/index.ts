@@ -451,6 +451,30 @@
 //          takes the shell id. Behaviour change: turning the setting off in core's
 //          UI no longer breaks the Desktop UI's docked layout, and is kept
 //          for core's UI across a switch.
+//          FEA sets and properties in core, for every UI: while an FEA result is
+//          loaded the Scene tree gets "Sets" (element and node sets, with counts)
+//          and "Properties" (each property field's values, the elements carrying
+//          each read on demand) after the models; selecting rows isolates their
+//          union, with the rest hidden or drawn as its element edges, one undo
+//          entry per change (`ViewerActionKind` `isolate-sets` / `clear-isolation`
+//          / `context-wireframe`). `TreeNodeData.informational` / `marked` /
+//          `title`. Core commands `feaIsolateSets`, `feaIsolateSelectionSets`,
+//          `feaClearIsolation`, `feaToggleContextWireframe` (the Desktop UI's
+//          View -> FEA sets), the scene actions `feaIsolate`,
+//          `feaIsolateMatching`, `feaClearIsolation`, `feaToggleContext`,
+//          `feaHideRows`, `feaShowRows` (mirror commands `core:fea-*`), the mirror
+//          topic `core:fea-tree`, the row menu on FEA rows (a right-click there
+//          no longer selects the row), and the Selected Object panel's `fea-sets`
+//          section in `CORE_PROPERTY_PROVIDERS`. On `@/viewer-core/scene`: the
+//          rows' pure builders and ids (`buildFeaTreeRoots`, `buildSetsRoot`,
+//          `buildPropertyRow`, `elementSetRowId`, `propertyValueRowId`,
+//          `isolatedMembers`, `combineIsolation`, ...), the actions
+//          (`isolateFeaRows`, `isolateFeaSets`, `isolateFeaSetsMatching`,
+//          `clearFeaIsolation`, `toggleFeaContextWireframe`, `hideFeaRows`,
+//          `showFeaRows`), what they read (`feaTreeView`, `subscribeFeaTreeView`,
+//          `feaIsolationReason`, `feaContextReason`, `feaPickedInfo`,
+//          `ensurePropertyMembership`, `useFeaIsolationStore`) and
+//          `applyFeaIsolationOverlays`. Additive.
 export const VIEWER_CORE_API_VERSION = "1.14.0";
 
 // ---------------------------------------------------------------------------

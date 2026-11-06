@@ -29,6 +29,8 @@ import {
 } from "@/utils/tree_view/sceneTreeActions";
 
 import type {TreeNodeData} from "./CustomNode";
+import {FeaSceneMenu} from "./FeaSceneMenu";
+import {isFeaMenu} from "./feaRowMenu";
 import {AddToGroupPromptHost, addToGroupBlocker, useAddToGroupPromptStore} from "./AddToGroupPrompt";
 import {BBoxSelectionMenuHost} from "@/components/viewer/BBoxSelectionMenu";
 import {addBoxAroundSelection} from "@/utils/bboxSelection/applyBoxSelection";
@@ -104,7 +106,9 @@ export const SceneMenuHost: React.FC = () => {
     const close = useSceneMenuStore((s) => s.close);
     return (
         <>
-            {menu && <SceneTreeMenu {...menu} onClose={close}/>}
+            {menu && (isFeaMenu(menu.rows.length ? menu.rows : [menu.row])
+                ? <FeaSceneMenu {...menu} onClose={close}/>
+                : <SceneTreeMenu {...menu} onClose={close}/>)}
             <AddToGroupPromptHost/>
             <BBoxSelectionMenuHost/>
         </>

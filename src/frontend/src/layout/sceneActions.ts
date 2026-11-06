@@ -53,6 +53,18 @@ export interface SceneActions {
     fitRows(rows: readonly TreeNodeData[]): void;
     /** Unload every model (the tree's "Remove all"). */
     clearScene(): Promise<void>;
+    /** Isolate the loaded FEA result's rows `ids` (element sets, property values): replace the
+     *  isolation, add to it, or take them out of it. */
+    feaIsolate(ids: readonly string[], mode?: "replace" | "add" | "remove"): void;
+    /** Isolate the element sets whose name holds `text`. */
+    feaIsolateMatching(text: string): void;
+    /** Show the whole FEA model again. */
+    feaClearIsolation(): void;
+    /** Draw what the FEA isolation hides as a wireframe, or not. */
+    feaToggleContext(): void;
+    /** Hide (show) the elements of these FEA rows. */
+    feaHideRows(ids: readonly string[]): void;
+    feaShowRows(ids: readonly string[]): void;
 }
 
 /** The core commands a pop-out may run in the main window (`core:run-command`). */
@@ -78,6 +90,12 @@ export const SCENE_ACTION_COMMANDS = {
     isolateRows: "core:isolate-rows",
     fitRows: "core:fit-rows",
     clearScene: "core:clear-scene",
+    feaIsolate: "core:fea-isolate",
+    feaIsolateMatching: "core:fea-isolate-matching",
+    feaClearIsolation: "core:fea-clear",
+    feaToggleContext: "core:fea-context",
+    feaHideRows: "core:fea-hide-rows",
+    feaShowRows: "core:fea-show-rows",
 } as const;
 
 /** Is this page a window without the scene, whose scene panels act through the main window. */
@@ -88,6 +106,7 @@ export function isMirroredWindow(): boolean {
 const coreRun = (id: string) => void import("./coreCommands").then((m) => m.runCoreCommandAction(id));
 const treeActions = () => import("@/utils/tree_view/sceneTreeActions");
 const treeSelect = () => import("@/utils/tree_view/treeSelectionActions");
+const feaActions = () => import("@/utils/scene/fea/feaIsolation");
 
 /** The actions, run on this window's scene; and a selection of rows made in another window (shown in this one's tree too). */
 export const localSceneActions: SceneActions & {selectRowsFromElsewhere(rows: readonly TreeNodeData[], mode: RowSelectMode): void} = {
@@ -115,6 +134,12 @@ export const localSceneActions: SceneActions & {selectRowsFromElsewhere(rows: re
     isolateRows: (rows) => void treeActions().then((m) => m.isolateRows(rows)),
     fitRows: (rows) => void treeSelect().then((m) => m.fitRows(rows)),
     clearScene: () => import("@/utils/scene/handlers/clear_scene").then((m) => m.clearScene()),
+    feaIsolate: (ids, mode = "replace") => void feaActions().then((m) => m.isolateFeaRows(ids, mode)),
+    feaIsolateMatching: (text) => void feaActions().then((m) => m.isolateFeaSetsMatching(text)),
+    feaClearIsolation: () => void feaActions().then((m) => m.clearFeaIsolation()),
+    feaToggleContext: () => void feaActions().then((m) => m.toggleFeaContextWireframe()),
+    feaHideRows: (ids) => void feaActions().then((m) => m.hideFeaRows(ids)),
+    feaShowRows: (ids) => void feaActions().then((m) => m.showFeaRows(ids)),
 };
 
 const ids = (rows: readonly TreeNodeData[]) => rows.map((r) => String(r.id));
@@ -140,6 +165,12 @@ export function remoteSceneActions(bus: WindowBus = windowBus()): SceneActions {
         isolateRows: (rows) => send(SCENE_ACTION_COMMANDS.isolateRows, {ids: ids(rows)}),
         fitRows: (rows) => send(SCENE_ACTION_COMMANDS.fitRows, {ids: ids(rows)}),
         clearScene: async () => send(SCENE_ACTION_COMMANDS.clearScene),
+        feaIsolate: (rowIds, mode = "replace") => send(SCENE_ACTION_COMMANDS.feaIsolate, {ids: [...rowIds], mode}),
+        feaIsolateMatching: (text) => send(SCENE_ACTION_COMMANDS.feaIsolateMatching, {text}),
+        feaClearIsolation: () => send(SCENE_ACTION_COMMANDS.feaClearIsolation),
+        feaToggleContext: () => send(SCENE_ACTION_COMMANDS.feaToggleContext),
+        feaHideRows: (rowIds) => send(SCENE_ACTION_COMMANDS.feaHideRows, {ids: [...rowIds]}),
+        feaShowRows: (rowIds) => send(SCENE_ACTION_COMMANDS.feaShowRows, {ids: [...rowIds]}),
     };
 }
 
@@ -219,6 +250,24 @@ export function registerSceneActionCommands(rowsById: (ids: readonly string[]) =
     rowsCommand(C.isolateRows, "isolateRows");
     rowsCommand(C.fitRows, "fitRows");
     registerMirrorCommand({id: C.clearScene, run: () => void a.clearScene().catch((err) => console.error("remove all failed", err))});
+    // The FEA rows' actions: ids of FEA rows (not of a model's tree), which the action checks.
+    registerMirrorCommand<{ids: string[]; mode?: string}>({
+        id: C.feaIsolate,
+        run: (args) => {
+            const mode = args?.mode === "add" || args?.mode === "remove" ? args.mode : "replace";
+            a.feaIsolate(argIds(args), mode);
+        },
+    });
+    registerMirrorCommand<{text: string}>({
+        id: C.feaIsolateMatching,
+        run: (args) => {
+            if (typeof args?.text === "string") a.feaIsolateMatching(args.text.slice(0, 500));
+        },
+    });
+    registerMirrorCommand({id: C.feaClearIsolation, run: () => a.feaClearIsolation()});
+    registerMirrorCommand({id: C.feaToggleContext, run: () => a.feaToggleContext()});
+    registerMirrorCommand<{ids: string[]}>({id: C.feaHideRows, run: (args) => a.feaHideRows(argIds(args))});
+    registerMirrorCommand<{ids: string[]}>({id: C.feaShowRows, run: (args) => a.feaShowRows(argIds(args))});
 }
 
 /** Forget the registration -- tests only (with `resetMirror`). */

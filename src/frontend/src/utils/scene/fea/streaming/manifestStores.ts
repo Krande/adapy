@@ -128,6 +128,14 @@ export async function registerManifestStores(args: {
                 fe_object_type: g.fe_object_type,
             })),
         );
+        // The same sets as the Scene tree's FEA rows and core's isolation commands
+        // (`../feaTree`), in every UI.
+        const [{useFeaIsolationStore}, {installFeaTree}] = await Promise.all([
+            import("@/state/feaIsolationStore"),
+            import("../feaTree"),
+        ]);
+        installFeaTree();
+        useFeaIsolationStore.getState().setSets(sourceName, mg);
         // The beams that only carry a mass to its COG, from every set with that role (an
         // assembly has one per superelement). Set on every load, so a model without them
         // clears what the previous one had.

@@ -498,7 +498,7 @@ leaves stranded):
 |---|---|
 | File | Open… (Ctrl+O), Upload file… (REST); Export selection…, Export model… (REST); Storage, Convert files; Options |
 | Edit | Undo, Redo; Select all (Ctrl+A), Invert selection, Clear selection, Copy names, Save selection as group…; Visibility ▸ Hide selected, Hide others, Show all |
-| View | Panels ▸ (each panel's toggle); Camera ▸ Fit all, Fit selection, Reset camera, Top / Bottom / Front / Back / Left / Right / Isometric view; Display ▸ Geometry edges, Performance stats, Gallery mode; Theme ▸ (the presets); User interface ▸ (the shells); Command palette, Full screen |
+| View | Panels ▸ (each panel's toggle); Camera ▸ Fit all, Fit selection, Reset camera, Top / Bottom / Front / Back / Left / Right / Isometric view; Display ▸ Geometry edges, Performance stats, Gallery mode; FEA sets ▸ Isolate FEA sets…, Isolate the picked element's FEA sets, Clear FEA isolation, Show the rest as wireframe; Theme ▸ (the presets); User interface ▸ (the shells); Command palette, Full screen |
 | Modes | One per mode |
 | Window | New window, Reopen windows; Reset layout, Reset every mode's layout; Workspaces ▸ Save workspace…, (each saved one), Delete workspace… |
 | Help | Keyboard shortcuts; Server info, Connection; About |
@@ -523,6 +523,28 @@ Core also has commands made for the menus, each a scene action of its own:
 | `viewTop` … `viewIsometric` (`cameraViewCommandId(view)`, `CAMERA_VIEWS`) | The model framed from one side, as Fit all frames it (smoothly with the default camera controls). Z up by default (front looks along +Y), the same views turned when the viewer is Y up. With nothing loaded the camera turns about its target. |
 | `exportSelection`, `exportModel` | The Export dialog, on the selection or on one whole loaded model, with the format (STEP or IFC). Written by the server from the model's source, as the object info panel's "Download as…" (which the Selection scope reuses, with its export options); a model with no source behind it (a GLB, a file opened from disk) cannot be exported and the dialog says so. Greyed off a REST viewer. |
 | `about` | The About dialog: the viewer's build, the viewer core and plugin API versions, the UI, the connection, what the server's `/api/config` reports (its image tags), and links to the documentation. |
+| `feaIsolateSets`, `feaIsolateSelectionSets`, `feaClearIsolation`, `feaToggleContextWireframe` | The loaded FEA result's set isolation (below): isolate the element sets whose name holds a text (asked for), or the sets the picked element is in; show the whole model again; draw what the isolation hides as its element edges or not (checked while on). Greyed with the reason: no FEA result, no sets or properties, nothing isolated, no element edges in the result, an isolation that names no elements. Scene actions, so a pop-out window's palette acts on the main window's scene. |
+
+**FEA sets and properties, in every UI.** While an FEA result is loaded core adds
+rows of its own to the Scene tree, after the models (a provider of
+`registerSceneTreeRoots`, `core:fea-tree`): **Sets** (element sets and node
+sets, with counts; node sets are `TreeNodeData.informational`, since nodes name no
+faces) and **Properties** (each `category: "property"` field of the manifest, its
+values and how many elements carry each, read from the field's blobs the first
+time the rows or a pick need them). Selecting element-set or value rows isolates
+their union; an isolated row is `TreeNodeData.marked`. Right-clicking one does not
+select it: its row menu isolates, adds to or removes from the isolation, clears
+it, toggles the rest as wireframe, hides or shows its elements. Each change is one
+undo entry, the isolation a slice of it. The Selected Object panel's `fea-sets`
+section (in `CORE_PROPERTY_PROVIDERS`) lists a picked element's values and sets
+with Isolate buttons. In a pop-out window the rows, the menu, the section and the
+commands read the main window's view (`core:fea-tree`) and act through the scene
+actions (`feaIsolate`, `feaClearIsolation`, `feaToggleContext`, ...). A shell
+therefore needs nothing of its own for them; a plugin scopes the view with
+`isolateFeaSets` / `isolateFeaRows` on `@/viewer-core/scene`, which also has the
+rows' pure builders and ids (`buildFeaTreeRoots`, `elementSetRowId`, ...), the
+reasons (`feaIsolationReason`, `feaContextReason`), `feaTreeView` /
+`subscribeFeaTreeView` and `useFeaIsolationStore`.
 
 The dialogs are drawn by the composed layout (`openCoreDialog` / `closeCoreDialog`
 on `@/viewer-core/layout`). There are no keys for the camera views: the shortcut

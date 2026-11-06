@@ -141,7 +141,10 @@ export type ViewerActionKind =
     | "plane-add"
     | "plane-edit"
     | "plane-remove"
-    | "plane-clear";
+    | "plane-clear"
+    | "isolate-sets"
+    | "clear-isolation"
+    | "context-wireframe";
 
 /** Labels of the kinds whose label does not depend on what they changed. */
 const FIXED_LABELS: Partial<Record<ViewerActionKind, string>> = {
@@ -154,6 +157,7 @@ const FIXED_LABELS: Partial<Record<ViewerActionKind, string>> = {
     "plane-edit": "edit section plane",
     "plane-remove": "remove section plane",
     "plane-clear": "remove all section planes",
+    "context-wireframe": "toggle the rest as wireframe",
 };
 
 /** The label of a model add / remove entry. */
@@ -182,6 +186,12 @@ export function describeViewerAction(
                 : `isolate (hide ${objects(changed.hidden)})`;
         case "show-all":
             return `show all (${objects(changed.shown)})`;
+        case "isolate-sets":
+            return changed.hidden || changed.shown
+                ? `isolate FEA sets (hide ${objects(changed.hidden)}${changed.shown ? `, show ${changed.shown}` : ""})`
+                : "isolate FEA sets";
+        case "clear-isolation":
+            return `clear FEA isolation (show ${objects(changed.shown)})`;
         case "select":
             return changed.selected > 0 ? `select ${objects(changed.selected)}` : "clear selection";
         default:

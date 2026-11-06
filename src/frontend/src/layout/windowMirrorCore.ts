@@ -9,6 +9,9 @@
 //     draw ranges) stays in the main window.
 //   * `core:fea-session` -- whether an FEA result session is active (the panel
 //     words a few things differently then).
+//   * `core:fea-tree` -- the FEA result's set and property rows, the isolation
+//     and what the rows say of the picked element (`@/utils/scene/fea/feaTree`);
+//     its actions are scene actions (`core:fea-isolate`, ...).
 //   * the scene actions' commands (`./sceneActions`): `core:run-command` (core's
 //     hide / hide others / show all, clear selection, fits, undo / redo),
 //     `core:select-node`, `core:select-parent`, and the scene tree's row
@@ -24,6 +27,8 @@ import {useSceneMirrorStore} from "@/state/sceneMirrorStore";
 import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
 import {useTreeViewStore} from "@/state/treeViewStore";
 import {parentLevelName, rowsById, selectedRangeCount} from "@/utils/tree_view/treeSelection";
+
+import {installFeaTree} from "@/utils/scene/fea/feaTree";
 
 import {registerSceneActionCommands, SCENE_ACTION_COMMANDS} from "./sceneActions";
 import {registerCoreSceneTreeTopic, resetCoreSceneTreeTopic} from "./sceneTreeMirrorCore";
@@ -113,6 +118,8 @@ export function registerCoreMirror(): void {
   });
   registerCoreSceneTreeTopic();
   registerSceneActionCommands(rowsById);
+  // The FEA result's sets and properties as tree rows, and `core:fea-tree` for a pop-out's.
+  installFeaTree();
 }
 
 /** Forget the registration -- tests only (with `resetMirror`). */

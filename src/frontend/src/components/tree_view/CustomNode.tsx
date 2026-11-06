@@ -37,6 +37,13 @@ export interface TreeNodeData {
     source_label?: string;
     /** Muted text at the row's right edge: a count or a kind that qualifies the name. */
     meta?: string;
+    /** A row that only reports something (a count, a kind): drawn muted, and selecting it acts
+     *  on nothing -- e.g. an FEA node set, which names no faces to isolate. */
+    informational?: boolean;
+    /** Drawn with an accent: a row whose state is on, e.g. an FEA set that is isolated. */
+    marked?: boolean;
+    /** The row's tooltip. */
+    title?: string;
 }
 
 /** What a host adds to the Scene tree's rows (`SceneTreeProps.rowExtras` / `rowClassName`). */
@@ -75,7 +82,9 @@ export const CustomNode: React.FC<NodeRendererProps<TreeNodeData>> = ({style, no
             className={`group flex items-center gap-1.5 cursor-pointer mr-1 my-1 pr-1 rounded ${
                 isSelected ? 'bg-blue-700' : 'hover:bg-white/5'
             }${extraClass ? ` ${extraClass}` : ''}`}
-            title={hidden ? `${data.name} (hidden)` : undefined}
+            title={hidden ? `${data.name} (hidden)` : data.title}
+            data-informational={data.informational ? "true" : undefined}
+            data-marked={data.marked ? "true" : undefined}
         >
             <span
                 className={`w-3 shrink-0 grid place-items-center ${isSelected ? 'text-gray-100' : 'text-gray-400'}`}
@@ -90,7 +99,14 @@ export const CustomNode: React.FC<NodeRendererProps<TreeNodeData>> = ({style, no
             <span className={`${isSelected ? 'text-gray-100' : 'text-gray-400'} ${hidden ? 'opacity-50' : ''}`}>
                 {node.level === 0 ? <ModelGlyph/> : <NodeGlyph branch={!geometry}/>}
             </span>
-            <span className={`whitespace-nowrap flex-1 min-w-0 ${hidden ? 'opacity-50 italic' : ''}`}>{data.name}</span>
+            <span
+                className={`whitespace-nowrap flex-1 min-w-0 ${hidden ? 'opacity-50 italic' : ''}${
+                    data.informational && !isSelected ? ' text-gray-400' : ''
+                }${data.marked ? ' font-semibold text-sky-300' : ''}`}
+            >
+                {data.marked && <span aria-label="isolated" className="mr-1 text-sky-400">●</span>}
+                {data.name}
+            </span>
             {data.meta && (
                 <span className={`shrink-0 pl-2 text-[10px] tabular-nums ${isSelected ? 'text-gray-200' : 'text-gray-400'}`}>
                     {data.meta}

@@ -85,7 +85,58 @@ export {
   unionMembers,
 } from "@/utils/scene/fea/feaSets";
 export type { FeaSet } from "@/utils/scene/fea/feaSets";
-export { applyFeaGroupVisibility, clearFeaGroupVisibility } from "@/utils/scene/fea/groupVisibility";
+export { applyFeaGroupVisibility, applyFeaIsolationOverlays, clearFeaGroupVisibility } from "@/utils/scene/fea/groupVisibility";
+// The loaded result's sets and properties as Scene tree rows, and isolating them (1.14.0): the
+// rows' ids and builders (pure), the isolation actions (one undo entry each), what the rows,
+// menus and commands read, and the store behind them.
+export {
+  FEA_ELEMENT_SETS_ID,
+  FEA_NODE_SETS_ID,
+  FEA_PROPERTIES_ROOT_ID,
+  FEA_SETS_ROOT_ID,
+  buildFeaTreeRoots,
+  buildPropertyRow,
+  buildSetsRoot,
+  combineIsolation,
+  contextWireframeReason,
+  elementSetFromRowId,
+  elementSetRowId,
+  isFeaTreeRowId,
+  isIsolatableRowId,
+  isolatedMembers,
+  nodeSetFromRowId,
+  nodeSetRowId,
+  propertyFieldsOf,
+  propertyLabel,
+  propertyRowId,
+  propertyValueFromRowId,
+  propertyValueLabel,
+  propertyValueRowId,
+  setRowsMatching,
+  setsByElement,
+} from "@/utils/scene/fea/feaTreeRows";
+export type { FeaSetInfo, FeaTreeInputs, MembershipStatus, PropertyMembership } from "@/utils/scene/fea/feaTreeRows";
+export {
+  clearFeaIsolation,
+  hideFeaRows,
+  isolateFeaRows,
+  isolateFeaSets,
+  isolateFeaSetsMatching,
+  showFeaRows,
+  toggleFeaContextWireframe,
+} from "@/utils/scene/fea/feaIsolation";
+export {
+  feaContextReason,
+  feaIsolationMembers,
+  feaIsolationNow,
+  feaIsolationReason,
+  feaPickedInfo,
+  feaTreeView,
+  subscribeFeaTreeView,
+} from "@/utils/scene/fea/feaTree";
+export { ensurePropertyMembership } from "@/utils/scene/fea/feaPropertyMembership";
+export { useFeaIsolationStore } from "@/state/feaIsolationStore";
+export type { FeaIsolation, FeaPickedInfo, FeaPickedProperty, FeaTreeView } from "@/state/feaIsolationStore";
 export type { FeaManifest, FeaManifestField } from "@/services/viewerApi";
 
 // ---------------------------------------------------------------------------

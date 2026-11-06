@@ -28,6 +28,7 @@ import {getViewerRuntime} from "@/state/viewerRuntime";
 import {useModelState} from "@/state/modelState";
 import {anyShownRange} from "@/utils/mesh_select/selectionSets";
 import {openLocalFilePicker} from "@/utils/scene/handlers/localOpenPlan";
+import {feaContextReason, feaIsolationNow, feaIsolationReason, feaTreeView} from "@/utils/scene/fea/feaTree";
 
 import {
   CAMERA_VIEWS,
@@ -45,6 +46,16 @@ import {listShellModes} from "./shellModes";
 import {deleteWorkspace, listWorkspaces, loadWorkspace, resetArrangement, saveWorkspace} from "./presets/classicPlace";
 import {openNewWindow, thisWindowId, windowBus} from "./windows";
 import {MAIN_WINDOW_ID} from "./windowBus";
+import {sceneActions} from "./sceneActions";
+import {FEA_ELEMENT_SETS_ID, FEA_SETS_ROOT_ID, elementSetFromRowId} from "@/utils/scene/fea/feaTreeRows";
+
+/** Element sets the FEA rows list (here, or the main window's in a pop-out). */
+function feaSetCount(): number {
+  const sets = feaTreeView().roots.find((r) => r.id === FEA_SETS_ROOT_ID);
+  if (!sets) return 0;
+  const branch = sets.children.find((c) => c.id === FEA_ELEMENT_SETS_ID);
+  return (branch ?? sets).children.filter((c) => elementSetFromRowId(c.id) !== null).length;
+}
 
 const OWNER = "core";
 
@@ -303,6 +314,48 @@ export function coreCommandSpecs(): CommandSpec[] {
         if (isFullscreen()) void document.exitFullscreen?.();
         else void document.documentElement.requestFullscreen?.();
       },
+    },
+    // FEA: the loaded result's sets and properties (`@/utils/scene/fea/feaTree`), through the
+    // scene actions so a pop-out window's palette acts on the main window's scene.
+    {
+      id: ID.feaIsolateSets,
+      label: "Isolate FEA sets…",
+      group: "FEA",
+      disabledReason: () => feaIsolationReason() ?? (feaSetCount() ? null : "The loaded result carries no element sets"),
+      run: () =>
+        void promptDialog({
+          title: "Isolate FEA sets",
+          body: "Every element set whose name holds this text is isolated, together.",
+          label: "Set name",
+          confirmLabel: "Isolate",
+        }).then((text) => {
+          if (text?.trim()) sceneActions().feaIsolateMatching(text.trim());
+        }),
+    },
+    {
+      id: ID.feaIsolateSelectionSets,
+      label: "Isolate the picked element's FEA sets",
+      group: "FEA",
+      disabledReason: () => feaIsolationReason() ?? (feaTreeView().picked?.sets.length ? null : "Pick an element that belongs to a set"),
+      run: () => {
+        const rows = feaTreeView().picked?.sets.map((s) => s.rowId) ?? [];
+        if (rows.length) sceneActions().feaIsolate(rows, "replace");
+      },
+    },
+    {
+      id: ID.feaClearIsolation,
+      label: "Clear FEA isolation",
+      group: "FEA",
+      disabledReason: () => feaIsolationReason() ?? (feaIsolationNow().rows.length ? null : "Nothing is isolated"),
+      run: () => sceneActions().feaClearIsolation(),
+    },
+    {
+      id: ID.feaToggleContextWireframe,
+      label: "Show the rest as wireframe",
+      group: "FEA",
+      checked: () => feaIsolationNow().contextWireframe && feaContextReason() === null,
+      disabledReason: feaContextReason,
+      run: () => sceneActions().feaToggleContext(),
     },
     // Window
     {

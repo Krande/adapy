@@ -54,6 +54,11 @@ test("a right-click keeps a selection the row is in, and selects a row outside i
   const outside = fakeNode(false);
   contextRow(outside.node);
   assert.deepEqual(outside.calls, ["select"]);
+  // An FEA set row is not selected by it: selecting one isolates it, and the menu offers that.
+  const fea = fakeNode(false);
+  (fea.node as unknown as { id: string }).id = "fea:set:e:Deck";
+  contextRow(fea.node);
+  assert.deepEqual(fea.calls, []);
 });
 
 test("with multi-select off, Ctrl-click is an ordinary click", () => {

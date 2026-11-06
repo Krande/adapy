@@ -15,6 +15,8 @@ import {writeToClipboard} from "@/utils/clipboard/copySelectionNames";
 import {setSubtreeOpen} from "@/utils/tree_view/sceneTreeActions";
 
 import type {TreeNodeData} from "./CustomNode";
+import {FeaSceneMenu} from "./FeaSceneMenu";
+import {isFeaMenu} from "./feaRowMenu";
 
 /** What the mirrored visibility says of `rows`: any of them drawn at all, all of them hidden, any of them hidden. */
 export function mirroredRowsVisibility(rows: readonly TreeNodeData[], visibility: ReadonlyMap<string, number>): {drawn: boolean; allHidden: boolean; anyHidden: boolean} {
@@ -35,7 +37,10 @@ export function mirroredRowsVisibility(rows: readonly TreeNodeData[], visibility
 export const MirroredSceneMenuHost: React.FC = () => {
     const menu = useSceneMenuStore((s) => s.menu);
     const close = useSceneMenuStore((s) => s.close);
-    return menu ? <MirroredSceneMenu {...menu} onClose={close}/> : null;
+    if (!menu) return null;
+    // The FEA set and property rows have a menu of their own, the same in both windows.
+    if (isFeaMenu(menu.rows.length ? menu.rows : [menu.row])) return <FeaSceneMenu {...menu} onClose={close}/>;
+    return <MirroredSceneMenu {...menu} onClose={close}/>;
 };
 
 const MirroredSceneMenu: React.FC<SceneMenuState & {onClose: () => void}> = ({row, rows: selection, node, x, y, onClose}) => {

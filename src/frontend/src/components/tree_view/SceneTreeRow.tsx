@@ -26,7 +26,9 @@ export function clickRow(node: NodeApi<TreeNodeData>, e: React.MouseEvent): void
  *  it, the row alone becomes the selection first. (Not `node.focus()` on a selected row: with
  *  selection following focus, that would narrow the selection to the one row.) */
 export function contextRow(node: NodeApi<TreeNodeData>): void {
-  if (!node.isSelected) node.select();
+  // An FEA set or property row is not selected by a right-click: selecting one isolates it,
+  // and the menu is where you choose to hide it or add it to the isolation instead.
+  if (!node.isSelected && !String(node.id ?? "").startsWith("fea:")) node.select();
 }
 
 export type RowMenuOpener = (node: NodeApi<TreeNodeData>, x: number, y: number) => void;

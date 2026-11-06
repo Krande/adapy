@@ -54,6 +54,14 @@ export const CORE_COMMAND_IDS = {
   commandPalette: "core:command-palette",
   /** Reopens the dashboard's closed windows (`REOPEN_WINDOWS_COMMAND`); offered while there are any. */
   reopenWindows: "core:reopen-windows",
+  /** Isolate the loaded FEA result's element sets whose name holds a text (asked for). */
+  feaIsolateSets: "core:fea-isolate-sets",
+  /** Isolate the element sets the selected FEA elements belong to. */
+  feaIsolateSelectionSets: "core:fea-isolate-selection-sets",
+  /** Show the whole FEA model again. */
+  feaClearIsolation: "core:fea-clear-isolation",
+  /** Draw what an FEA isolation hides as a wireframe ("context"), or hide it outright. */
+  feaToggleContextWireframe: "core:fea-toggle-context-wireframe",
 } as const;
 
 export type CoreCommandId = (typeof CORE_COMMAND_IDS)[keyof typeof CORE_COMMAND_IDS];
