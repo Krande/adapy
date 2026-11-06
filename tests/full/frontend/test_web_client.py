@@ -33,7 +33,9 @@ async def test_basic_frontend(http_server):
         browser = await playwright.chromium.launch(headless=True)
         browser_page = await browser.new_page()
 
-        response = await browser_page.goto(http_server.url, timeout=1000)
+        # The same allowance as the tests below: the single-file bundle is ~1.4 MB, and a
+        # loaded macOS runner can take over a second to parse it before `load` fires.
+        response = await browser_page.goto(http_server.url, timeout=10000)
         assert response.status == 200
         title = await browser_page.title()
         assert title == "Ada Studio"  # Replace with your expected title
