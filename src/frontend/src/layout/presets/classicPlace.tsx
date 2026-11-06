@@ -34,9 +34,10 @@ import {
   isInGrid,
   migrateLayoutDoc,
 } from "../reducers";
-import {canPopOut, openPopout} from "../popout";
+import {canPopOut} from "../popout";
 import {getPanel, isPanelAvailable, listPanels} from "../registry";
-import {hide} from "../reveal";
+import {hide, reveal} from "../reveal";
+import {moveToWindowItem, openNewWindow, windowBus} from "../windows";
 import {
   VIEWPORT_NODE,
   findNode,
@@ -540,10 +541,16 @@ export function popoutActions(panel: RegisteredPanel): PanelAction[] {
       label: "Open in a new window",
       icon: ExternalGlyph,
       run: () => {
-        if (!openPopout(panel.id, hide)) console.warn(`[layout] the browser blocked the window for "${panel.id}"`);
+        if (openNewWindow(windowBus(), panel.id)) hide(panel.id);
+        else console.warn(`[layout] the browser blocked the window for "${panel.id}"`);
       },
     },
   ];
+}
+
+/** "Move to window" for a panel of the main window: out of here (its flag closed), back in on a refusal. */
+export function mainWindowMoveItem(panel: RegisteredPanel): PanelMenuItem | null {
+  return moveToWindowItem(panel, {remove: () => void hide(panel.id), restore: () => void reveal(panel.id)});
 }
 
 /** A group's name in a menu: its panels' titles. */
@@ -607,5 +614,7 @@ export function moveAction(panel: RegisteredPanel, doc: LayoutDoc): PanelAction 
       },
     });
   }
+  const toWindow = mainWindowMoveItem(panel);
+  if (toWindow) items.push(toWindow);
   return {id: "move", label: "Move panel", icon: MoveGlyph, run: () => {}, menu: items};
 }

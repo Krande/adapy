@@ -251,6 +251,10 @@ export function moveToWindowItem(panel: RegisteredPanel, handover: PanelHandover
           });
         },
       }));
+    const closed = bus.self().main ? closedWindows() : [];
+    if (closed.length) {
+      out.push({id: "window-reopen", label: `Reopen closed windows (${closed.length})`, run: () => void reopenWindows()});
+    }
     if (toPopout) {
       out.push({
         id: "window-new",

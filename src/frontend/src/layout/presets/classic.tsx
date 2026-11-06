@@ -71,6 +71,7 @@ import type {WindowDock} from "@/components/ui/PanelFrame";
 import {ClassicZoneKeys, ColumnDropTarget, MinimisedTray, UndockedLayer, columnActions} from "./classicUndock";
 import {GridView, ViewportDropTarget} from "./classicGrid";
 import {setPlacedElsewhere} from "../placedElsewhere";
+import {installMainWindow, windowBus} from "../windows";
 import {ShortcutKeys} from "../ShortcutKeys";
 import {ViewportOverlays} from "../ViewportOverlayLayer";
 import {offeredInMode} from "../shellModes";
@@ -443,6 +444,8 @@ function ClassicFrame() {
   // Plugin panels in a group or window of their own leave their region hosts.
   React.useEffect(() => setPlacedElsewhere(placedElsewhere(doc, customisable, narrow)), [doc, customisable, narrow]);
   React.useEffect(() => () => setPlacedElsewhere([]), []);
+  // The main window of a multi-window dashboard: panels other windows send or give back, and those they show hidden here.
+  React.useEffect(() => installMainWindow(windowBus(), {reveal, hide, isOpen: isPanelOpen}), []);
 
   // The split grid: the docked panels that are open, around the viewport.
   const frameRef = React.useRef<HTMLDivElement>(null);
