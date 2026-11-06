@@ -117,6 +117,36 @@ The release profile optimises for size (`opt-level = "z"`, LTO, one codegen unit
 WebView2 itself is not bundled: it ships with Windows 11 and current Windows 10; when it is missing the
 shell shows a message box pointing at the Evergreen runtime download and exits with code 3.
 
+## Developing the app
+
+```
+pixi run desktop            # Windows; the viewer, the frontend and the shell, all from this checkout
+```
+
+This runs `ada desktop --dev` (in the `desktop-dev` environment, which has the REST stack) after its
+task dependencies: `winstall` and `wasm-adacpp-current` in the `frontend` environment (npm install,
+the wasm backend) and `build-desktop` in `desktop-shell` (`cargo build`, incremental, so a no-op when the
+shell is up to date; the first build takes a couple of minutes). Then, step by step:
+
+1. starts the viewer as `uvicorn ada.comms.rest.app:app --reload` on the usual per-user port (local
+   storage, no login), watching `src/ada`;
+2. starts Vite from `src/frontend` with `vite.config.desktop.ts` (the regular config plus a proxy of
+   `/api` including websockets, `/config.js` and `/healthz` to the viewer; `ADA_DESKTOP_BACKEND` carries
+   the viewer URL) on the viewer port + 500 (`--dev-port N` to change), waiting for it to answer;
+3. starts `ada-desktop --url http://127.0.0.1:<vite port>/` from `src/desktop/target/release` (or
+   `--binary` / `$ADA_DESKTOP_BINARY`);
+4. when the window closes (or on Ctrl+C), ends both servers and everything they started.
+
+What reloads: **frontend** edits hot-reload in the window (Vite HMR); **Python** edits under `src/ada`
+restart the viewer in a second or two (the page keeps working and re-requests); the **shell** does not
+reload, re-run the task after changing `src/desktop` (it rebuilds). The window's origin is Vite's, so
+browser-stored layouts and settings are separate from a normal `ada desktop` run.
+
+`--dev` does not use the shutdown route, so the viewer is stopped by killing its process tree. To use a
+Vite you already run, start it with `ADA_DESKTOP_BACKEND=http://127.0.0.1:PORT/` and `--config
+vite.config.desktop.ts`, and pass `ada desktop --frontend-url http://127.0.0.1:VITEPORT/`. Windows only for
+now; elsewhere the command says so.
+
 ## Packaging
 
 The shell ships as the conda package `ada-py-desktop` (Windows only), an extra output of the ada-py

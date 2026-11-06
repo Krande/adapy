@@ -64,6 +64,14 @@ STOP_GRACE_S = 8.0
 PROBE_TIMEOUT_S = 1.5
 LOCAL_HOST = "127.0.0.1"
 
+# -- dev mode (``--dev``) -----------------------------------------------------
+#: The Vite dev server listens on the viewer port plus this, so it is per-user and stable too.
+DEV_VITE_PORT_OFFSET = 500
+#: The Vite config that proxies /api, /config.js and /healthz to ``$ENV_DEV_BACKEND``.
+DEV_VITE_CONFIG = "vite.config.desktop.ts"
+ENV_DEV_BACKEND = "ADA_DESKTOP_BACKEND"
+VITE_TIMEOUT_S = 240.0
+
 
 class DesktopError(Exception):
     """Something ``ada desktop`` could not do; printed as one line, exit 1."""
@@ -510,6 +518,163 @@ def stop_server(server: subprocess.Popen, base: str, token: str) -> str:
         return "kill"
 
 
+# ── dev mode ──────────────────────────────────────────────────────────────
+
+
+def dev_vite_port(backend_port: int) -> int:
+    return backend_port + DEV_VITE_PORT_OFFSET
+
+
+def checkout_src() -> pathlib.Path:
+    """``src`` of the source checkout this module runs from (dev mode needs the frontend sources)."""
+    return pathlib.Path(__file__).resolve().parents[1]
+
+
+def frontend_url_or_error(url: str) -> str:
+    """``--frontend-url`` normalised to ``http://HOST:PORT/``; the shell only shows loopback http."""
+    from ada_cli import CliUsageError
+
+    u = urllib.parse.urlsplit(url)
+    if u.scheme != "http" or u.hostname not in (LOCAL_HOST, "localhost", "::1") or not u.netloc:
+        raise CliUsageError(f"--frontend-url {url}: must be http on 127.0.0.1, localhost or [::1]")
+    return f"http://{u.netloc}/"
+
+
+def vite_command(frontend: pathlib.Path, port: int, node: str | None, pixi: str | None) -> list[str]:
+    """Run Vite's own entry with node: from PATH, else through the ``frontend`` pixi environment."""
+    vite_js = str(frontend / "node_modules" / "vite" / "bin" / "vite.js")
+    tail = [vite_js, "--config", DEV_VITE_CONFIG, "--host", LOCAL_HOST, "--port", str(port), "--strictPort"]
+    if node:
+        return [node, *tail]
+    if pixi:
+        return [pixi, "run", "-e", "frontend", "node", *tail]
+    raise DesktopError("--dev needs node (not on PATH); run it as `pixi run desktop`, or pass --frontend-url")
+
+
+def backend_dev_command(python: str, port: int, reload_dir: pathlib.Path) -> list[str]:
+    """The viewer under uvicorn's reloader (``python -m ada.comms.rest`` has no reload mode: it
+    builds its own Server so the shutdown route can stop it)."""
+    return [
+        python,
+        "-m",
+        "uvicorn",
+        "ada.comms.rest.app:app",
+        "--host",
+        LOCAL_HOST,
+        "--port",
+        str(port),
+        "--reload",
+        "--reload-dir",
+        str(reload_dir),
+    ]
+
+
+def dev_shell_binary(src: pathlib.Path) -> pathlib.Path | None:
+    """The shell as ``build-desktop`` leaves it in the checkout."""
+    exe = src / "desktop" / "target" / "release" / (BINARY_NAME + (".exe" if os.name == "nt" else ""))
+    return exe if exe.is_file() else None
+
+
+def kill_tree(proc: subprocess.Popen) -> None:
+    """End ``proc`` and everything it started (uvicorn's reloader and Vite's launcher both fork)."""
+    if proc.poll() is not None:
+        return
+    if os.name == "nt":
+        subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"], capture_output=True, check=False, timeout=15)
+    else:
+        proc.terminate()
+    try:
+        proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+
+
+def wait_http(url: str, proc: subprocess.Popen, what: str, timeout: float) -> float:
+    t0 = time.monotonic()
+    while time.monotonic() - t0 < timeout:
+        if proc.poll() is not None:
+            raise DesktopError(f"{what} exited during startup (code {proc.returncode}); see its log above")
+        try:
+            with urllib.request.urlopen(url, timeout=2.0) as r:
+                if r.status == 200:
+                    return time.monotonic() - t0
+        except (urllib.error.URLError, OSError):
+            pass
+        time.sleep(0.2)
+    raise DesktopError(f"{what} did not answer {url} within {timeout:.0f}s")
+
+
+def run_dev(args: argparse.Namespace) -> int:
+    """``--dev``: uvicorn --reload for the viewer, Vite (HMR) for the page, the shell on Vite."""
+    if sys.platform != "win32":
+        raise DesktopError("--dev (and `pixi run desktop`) is Windows only for now")
+    src = checkout_src()
+    frontend = src / "frontend"
+    if not (frontend / DEV_VITE_CONFIG).is_file():
+        raise DesktopError(f"--dev needs the source checkout: {frontend / DEV_VITE_CONFIG} not found")
+    file_path = _open_file_arg(args)
+    binary = None if args.no_window else find_binary(args.binary or (str(dev_shell_binary(src) or "") or None))
+    external = frontend_url_or_error(args.frontend_url) if args.frontend_url else None
+
+    port, source = requested_port(args.port)
+    choice = choose_port(port)
+    if choice.attach:
+        raise DesktopError(f"a viewer is already running on port {choice.port}; close it, or pass --port N")
+    if choice.fallback_from is not None:
+        print(fallback_warning(choice, source), file=sys.stderr, flush=True)
+    base = f"http://{LOCAL_HOST}:{choice.port}/"
+    data = pathlib.Path(args.data) if args.data else data_root()
+    data.mkdir(parents=True, exist_ok=True)
+
+    env = dict(os.environ)
+    env.update(
+        ADA_VIEWER_STORAGE_KIND="local",
+        ADA_VIEWER_LOCAL_PATH=str(data),
+        ADA_VIEWER_HOST=LOCAL_HOST,
+        ADA_VIEWER_PORT=str(choice.port),
+        ADA_VIEWER_AUTH_ENABLED="false",
+        PYTHONPATH=os.pathsep.join([str(src)] + ([env_pp] if (env_pp := os.environ.get("PYTHONPATH")) else [])),
+    )
+    env.pop("ADA_VIEWER_NATS_URL", None)
+
+    job = _Job()
+    procs: list[subprocess.Popen] = []
+    rc = 0
+    try:
+        server = subprocess.Popen(backend_dev_command(sys.executable, choice.port, src / "ada"), env=env, cwd=src)
+        procs.append(server)
+        job.assign(server)
+        wait_healthy(base, server)
+        if external:
+            front = external
+        else:
+            vport = args.dev_port or dev_vite_port(choice.port)
+            if probe_port(vport) != "free":
+                if args.dev_port:
+                    raise DesktopError(f"--dev-port {vport} is in use")
+                vport = free_port()
+            front = f"http://{LOCAL_HOST}:{vport}/"
+            cmd = vite_command(frontend, vport, shutil.which("node"), os.environ.get("PIXI_EXE"))
+            _print(f"ada desktop: starting Vite on {front} (first start optimizes dependencies; can take a minute)")
+            vite = subprocess.Popen(cmd, cwd=frontend, env={**os.environ, ENV_DEV_BACKEND: base})
+            procs.append(vite)
+            job.assign(vite)
+            wait_http(front, vite, "Vite", VITE_TIMEOUT_S)
+        url = viewer_url(front, _key_or_warn(base, file_path))
+        _print(f"viewer (dev): {url}  backend: {base}  (Python edits reload the viewer; frontend edits hot-reload)")
+        if binary is None:
+            _print("ada desktop: --no-window: press Ctrl+C to stop")
+            procs[-1].wait()
+        else:
+            rc = _run_shell(binary, url, args, job)
+    except KeyboardInterrupt:
+        rc = 130
+    finally:
+        for p in reversed(procs):
+            kill_tree(p)
+    return rc
+
+
 # ── the command ───────────────────────────────────────────────────────────
 
 
@@ -564,6 +729,26 @@ def add_arguments(p: argparse.ArgumentParser) -> None:
         help="Pass ARG to the shell, e.g. --shell-arg=--no-spacemouse; repeatable.",
     )
     p.add_argument("--timing", action="store_true", help="Print how long startup and shutdown took.")
+    p.add_argument(
+        "--dev",
+        action="store_true",
+        help="Development (source checkout, Windows): run the viewer under uvicorn --reload and the frontend "
+        "under Vite (hot reload), and open the window on Vite, which proxies to the viewer.",
+    )
+    p.add_argument(
+        "--frontend-url",
+        default=None,
+        metavar="URL",
+        help="Implies --dev, but open this already running Vite dev server instead of starting one "
+        f"(start it with ${ENV_DEV_BACKEND}=http://127.0.0.1:PORT/ and --config {DEV_VITE_CONFIG}).",
+    )
+    p.add_argument(
+        "--dev-port",
+        type=int,
+        default=None,
+        metavar="N",
+        help=f"With --dev: the Vite port (default: the viewer port + {DEV_VITE_PORT_OFFSET}).",
+    )
 
 
 def _print(msg: str) -> None:
@@ -629,6 +814,8 @@ def _attach(choice: PortChoice, args: argparse.Namespace, binary: pathlib.Path |
 
 
 def run(args: argparse.Namespace) -> int:
+    if args.dev or args.frontend_url:
+        return run_dev(args)
     t_start = time.monotonic()
     file_path = _open_file_arg(args)
     binary = None if args.no_window else find_binary(args.binary)

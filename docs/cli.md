@@ -551,6 +551,21 @@ ada desktop --no-window          # the viewer only; open the printed URL in a br
 `--timing`
 :   Print how long the viewer took to start and stop.
 
+`--dev`
+:   For working on adapy itself (a source checkout, Windows only for now;
+    `pixi run desktop` does this and builds what it needs). The viewer runs
+    under `uvicorn --reload` (Python edits under `src/ada` restart it), the
+    frontend runs under Vite with hot module reload, and the window opens on
+    Vite, which proxies `/api`, `/config.js` and `/healthz` to the viewer. The
+    shell is not reloaded. Vite listens on the viewer port + 500 unless
+    `--dev-port N` says otherwise.
+
+`--frontend-url URL`
+:   Implies `--dev`, but opens an already running Vite dev server (loopback
+    `http` only) instead of starting one. Start it with
+    `ADA_DESKTOP_BACKEND=http://127.0.0.1:PORT/` and
+    `--config vite.config.desktop.ts`.
+
 ## `ada viewers`
 
 List the installed viewer bundles. adapy's own viewer carries no plugins; they

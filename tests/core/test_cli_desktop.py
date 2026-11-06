@@ -179,3 +179,49 @@ def test_parser_surface():
     assert (args.file, args.port, args.no_window, args.shell_arg) == ("m.ifc", 40000, True, ["--no-spacemouse"])
     with pytest.raises(SystemExit):
         _build_parser().parse_args(["desktop", "--static", "a", "--zip", "b"])
+
+
+def test_parser_dev_flags():
+    from ada_cli.main import _build_parser
+
+    a = _build_parser().parse_args(["desktop", "--dev", "--dev-port", "40001"])
+    assert (a.dev, a.dev_port, a.frontend_url) == (True, 40001, None)
+    a = _build_parser().parse_args(["desktop", "--frontend-url", "http://localhost:5999"])
+    assert a.frontend_url == "http://localhost:5999" and not a.dev
+
+
+def test_dev_vite_port_follows_the_viewer_port():
+    assert d.dev_vite_port(38500) == 38500 + d.DEV_VITE_PORT_OFFSET
+
+
+def test_frontend_url_is_loopback_http_only():
+    assert d.frontend_url_or_error("http://localhost:5999/x") == "http://localhost:5999/"
+    assert d.frontend_url_or_error("http://127.0.0.1:1") == "http://127.0.0.1:1/"
+    for bad in ("https://127.0.0.1:1", "http://example.com:80", "127.0.0.1:5"):
+        with pytest.raises(CliUsageError):
+            d.frontend_url_or_error(bad)
+
+
+def test_vite_command_prefers_node_then_pixi_then_fails(tmp_path):
+    node = d.vite_command(tmp_path, 39000, "node", "pixi")
+    assert node[0] == "node" and node[1].endswith("vite.js") and "39000" in node and "--strictPort" in node
+    assert node[node.index("--config") + 1] == d.DEV_VITE_CONFIG
+    assert d.vite_command(tmp_path, 1, None, "pixi")[:5] == ["pixi", "run", "-e", "frontend", "node"]
+    with pytest.raises(d.DesktopError):
+        d.vite_command(tmp_path, 1, None, None)
+
+
+def test_backend_dev_command_reloads_the_given_directory(tmp_path):
+    cmd = d.backend_dev_command("py", 38600, tmp_path)
+    assert cmd[:4] == ["py", "-m", "uvicorn", "ada.comms.rest.app:app"]
+    assert cmd[cmd.index("--port") + 1] == "38600" and "--reload" in cmd
+    assert cmd[cmd.index("--reload-dir") + 1] == str(tmp_path)
+
+
+def test_dev_shell_binary_is_the_checkout_build(tmp_path):
+    assert d.dev_shell_binary(tmp_path) is None
+    rel = tmp_path / "desktop" / "target" / "release"
+    rel.mkdir(parents=True)
+    exe = rel / (d.BINARY_NAME + (".exe" if d.os.name == "nt" else ""))
+    exe.write_bytes(b"")
+    assert d.dev_shell_binary(tmp_path) == exe
