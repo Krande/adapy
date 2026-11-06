@@ -94,10 +94,44 @@ def test_von_mises_is_the_postprocessors_nodal_average(fem_files):
         for node, s in nodes.items():
             assert derived[case][node] == pytest.approx(s, rel=1e-5, abs=1e-3)
 
-    # Von Mises first, at every corner: at least the average's value wherever both have one.
+    # Von Mises first, at every corner: a value at every node the average has one at, and more.
     corners = lazy.derived_field("von_mises_corners")
     for case, nodes in derived.items():
         assert set(nodes) <= set(corners[case])
+
+
+def test_von_mises_averaging_limits_are_options(fem_files, tmp_path, monkeypatch):
+    """``same_thickness`` / ``same_normal_deg`` default to the postprocessor's limits; other limits average other
+    nodes, are refused when unknown or out of range, and make another viewer bake."""
+    from ada.fem.results import derived, show_streaming
+
+    lazy = ada.from_fem_res(fem_files / "cantilever/sesam/static/shell/STATIC_SHELL_CANTILEVER_SESAMR1.SIN", lazy=True)
+    default = lazy.derived_field("von_mises")
+    assert lazy.derived_field("von_mises", same_thickness=0.1, same_normal_deg=5.0) == default
+    assert derived.SAME_THICKNESS == 0.1 and derived.SAME_NORMAL_DEG == 5.0
+
+    # No limit at all on the normal: every node where two shells meet is averaged, at least the default's nodes.
+    wide = lazy.derived_field("von_mises", same_normal_deg=180.0, same_thickness=10.0)
+    for case, nodes in default.items():
+        assert set(nodes) <= set(wide[case])
+
+    with pytest.raises(TypeError, match="same_normal_deg"):
+        lazy.derived_field("von_mises", same_normal=5.0)
+    with pytest.raises(TypeError, match="no option"):
+        lazy.derived_field("von_mises_corners", same_normal_deg=5.0)
+    with pytest.raises(ValueError, match="same_normal_deg"):
+        lazy.derived_field("von_mises", same_normal_deg=-1.0)
+
+    assert derived.requests(["von_mises"]) == [("von_mises", {})]
+    assert derived.requests({"von_mises": {"same_normal_deg": 10.0}}) == [("von_mises", {"same_normal_deg": 10.0})]
+    with pytest.raises(TypeError):
+        show_streaming.bake_for_show(lazy, derived={"von_mises": {"nonsense": 1}})
+
+    monkeypatch.setenv(show_streaming.ENV_FEA_BAKE_DIR, str(tmp_path / "bakes"))
+    _, plain = show_streaming.bake_for_show(lazy, derived=["von_mises"])
+    _, wider = show_streaming.bake_for_show(lazy, derived={"von_mises": {"same_normal_deg": 10.0}})
+    assert plain != wider, "other averaging limits are another bake"
+    assert show_streaming.bake_for_show(lazy, derived={"von_mises": {}})[1] == plain
 
 
 def test_derived_von_mises_is_worked_out_and_baked_beside_the_files_fields(fem_files, tmp_path, monkeypatch):

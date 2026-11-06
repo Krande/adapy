@@ -20,8 +20,9 @@ if TYPE_CHECKING:
 #: shell's ``n1 n2 c n4 n3``, a 3-node one's ``n1 n2 c n3``.
 SURFACE_CORNERS = {4: (0, 1, -1, 3, 2), 3: (0, 1, -1, 2)}
 
-#: The elements at a node are averaged together only if each agrees with the node's first element on thickness
-#: (within this fraction) and normal (within this angle): the reference postprocessor's rule for nodal averages.
+#: The defaults of :func:`shell_von_mises`'s ``same_thickness`` and ``same_normal_deg``: the elements at a node
+#: are averaged together only if each agrees with the node's first element on thickness (within this fraction)
+#: and normal (within this angle), the reference postprocessor's rule for its nodal averages.
 SAME_THICKNESS = 0.1
 SAME_NORMAL_DEG = 5.0
 
@@ -93,22 +94,36 @@ def _into(s: np.ndarray, ex: np.ndarray, ey: np.ndarray) -> np.ndarray:
     )
 
 
-def shell_von_mises(result: FEAResult, cases: Iterable[int] | None = None) -> dict[int, dict[int, float]]:
+def shell_von_mises(
+    result: FEAResult,
+    cases: Iterable[int] | None = None,
+    *,
+    same_thickness: float = SAME_THICKNESS,
+    same_normal_deg: float = SAME_NORMAL_DEG,
+) -> dict[int, dict[int, float]]:
     """``{case: {node: von Mises stress}}`` of the plating at its nodes, in the result's stress unit (Pa).
 
     The reference postprocessor's nodal average, from ``SHELL_STRESS`` whichever solver wrote it: at a node the
     stresses of the elements meeting there are averaged, surface by surface, von Mises is taken of each
     average, and the larger surface counts. A node is averaged only where at least two elements meet and every
-    one agrees with the first on thickness (:data:`SAME_THICKNESS`) and normal (:data:`SAME_NORMAL_DEG`): a
-    plate's free edge and a junction of plates (a girder's web on its flange) have no value. The stresses are
+    one agrees with the first on thickness (``same_thickness``, a fraction of the first's) and normal
+    (``same_normal_deg``, degrees): a plate's free edge and a junction of plates (a girder's web on its flange)
+    have no value. The defaults (:data:`SAME_THICKNESS`, :data:`SAME_NORMAL_DEG`) are the postprocessor's;
+    wider limits average across more junctions, ``same_normal_deg=90`` across every one that is not folded
+    back. The stresses are
     turned into the first element's axes before they are averaged, so the value does not depend on how a
-    solver orients its elements' axes in their plane. On a Sesam SIN it is the reader's own nodal VONMISES.
+    solver orients its elements' axes in their plane. On a Sesam SIN, with the defaults, it is the reader's own
+    nodal VONMISES.
     """
+    if not same_thickness >= 0 or not 0 <= same_normal_deg <= 180:
+        raise ValueError(
+            f"same_thickness must be >= 0 and same_normal_deg in [0, 180], got {same_thickness} and {same_normal_deg}"
+        )
     mesh = result.mesh
     frames = {int(k): np.asarray(v, dtype=float) for k, v in (mesh.element_frames or {}).items()}
     thickness = {int(k): float(v) for k, v in (mesh.thickness or {}).items()}
     missing = np.full((3, 3), np.nan)
-    cos_limit = np.cos(np.deg2rad(SAME_NORMAL_DEG))
+    cos_limit = np.cos(np.deg2rad(same_normal_deg))
     out: dict[int, dict[int, float]] = {}
     for case, (element, node, bottom, top) in _shell_corners(result, cases).items():
         if not len(node):
@@ -123,7 +138,7 @@ def shell_von_mises(result: FEAResult, cases: Iterable[int] | None = None) -> di
         ref = frame[first]
         with np.errstate(invalid="ignore"):
             same_thickness = np.isfinite(thick) & (
-                np.abs(thick - thick[first]) <= SAME_THICKNESS * np.maximum(np.abs(thick[first]), 1e-30)
+                np.abs(thick - thick[first]) <= same_thickness * np.maximum(np.abs(thick[first]), 1e-30)
             )
             same_normal = np.einsum("ij,ij->i", frame[:, 2], ref[:, 2]) >= cos_limit
         averaged = np.logical_and.reduceat(same_thickness & same_normal, starts) & (counts >= 2)
@@ -170,11 +185,51 @@ DERIVED: dict[str, tuple[list[str], str, Callable]] = {
 }
 
 
-def derived_nodal(result: FEAResult, name: str, cases: Iterable[int] | None = None) -> dict[int, dict[int, float]]:
-    """``{case: {node: value}}`` of the derived quantity ``name`` (:data:`DERIVED`)."""
+def _options_of(name: str) -> list[str]:
+    """The keyword options the derived quantity ``name`` takes."""
+    import inspect
+
+    parameters = inspect.signature(DERIVED[name][2]).parameters.values()
+    return [p.name for p in parameters if p.kind is inspect.Parameter.KEYWORD_ONLY]
+
+
+def check_options(name: str, options: dict) -> None:
+    """Refuse an unknown derived quantity, or an option it does not take."""
     if name not in DERIVED:
         raise KeyError(f"no derived quantity {name!r}; known: {sorted(DERIVED)}")
-    return DERIVED[name][2](result, cases)
+    unknown = sorted(set(options) - set(_options_of(name)))
+    if unknown:
+        raise TypeError(f"{name!r} takes no option {', '.join(unknown)}; its options: {_options_of(name) or 'none'}")
+
+
+def requests(derived) -> list[tuple[str, dict]]:
+    """``[(name, options)]`` of a ``derived=`` argument: a name, a list of names (or of ``(name, options)``), or ``{name: {option: value}}``."""
+    if not derived:
+        return []
+    if isinstance(derived, str):
+        derived = [derived]
+    items = (
+        derived.items()
+        if isinstance(derived, dict)
+        else (item if isinstance(item, tuple) and len(item) == 2 else (item, {}) for item in derived)
+    )
+    out = []
+    for name, options in items:
+        name, options = str(name), dict(options or {})
+        if any(name == n for n, _ in out):
+            raise ValueError(f"derived quantity {name!r} asked for twice")
+        check_options(name, options)
+        out.append((name, options))
+    return out
+
+
+def derived_nodal(
+    result: FEAResult, name: str, cases: Iterable[int] | None = None, **options
+) -> dict[int, dict[int, float]]:
+    """``{case: {node: value}}`` of the derived quantity ``name`` (:data:`DERIVED`), with its keyword
+    ``options`` (``von_mises``: ``same_thickness``, ``same_normal_deg``)."""
+    check_options(name, options)
+    return DERIVED[name][2](result, cases, **options)
 
 
 class WithDerivedFields:
@@ -184,13 +239,11 @@ class WithDerivedFields:
     nodal field otherwise), so it sits on the same load cases in the viewer; a node with no value is NaN.
     """
 
-    def __init__(self, reader, result: FEAResult, names: Iterable[str]):
+    def __init__(self, reader, result: FEAResult, derived):
         self._reader = reader
         self._result = result
-        self._names = [str(n) for n in names]
-        for n in self._names:
-            if n not in DERIVED:
-                raise KeyError(f"no derived quantity {n!r}; known: {sorted(DERIVED)}")
+        self._options = dict(requests(derived))
+        self._names = list(self._options)
 
     def __getattr__(self, item):
         return getattr(self._reader, item)
@@ -244,7 +297,7 @@ class WithDerivedFields:
 
         n_points, index = self._points()
         spec = next(s for s in self.field_specs() if s.name == field_name)
-        by_case = derived_nodal(self._result, field_name)
+        by_case = derived_nodal(self._result, field_name, **self._options[field_name])
         for i, case in enumerate(self._result.cases.stored):
             values = np.full((n_points, spec.n_components), np.nan, dtype=float)
             for node, value in by_case.get(int(case), {}).items():
@@ -260,7 +313,9 @@ __all__ = [
     "SAME_THICKNESS",
     "SURFACE_CORNERS",
     "WithDerivedFields",
+    "check_options",
     "derived_nodal",
+    "requests",
     "shell_von_mises",
     "shell_von_mises_corners",
 ]
