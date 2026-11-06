@@ -42,7 +42,7 @@ def bake_root() -> pathlib.Path:
     return pathlib.Path(override).expanduser() if override else pathlib.Path(tempfile.gettempdir()) / "ada-fea-show"
 
 
-def bake_id_for(result: FEAResult, derived: tuple[str, ...] = ()) -> str:
+def bake_id_for(result: FEAResult, derived: tuple = ()) -> str:
     """A key for ``result``'s bake: stable for a result read from an unchanged file, unique otherwise.
 
     A result with no file behind it (built or derived in memory, e.g. a comparison's
@@ -77,15 +77,17 @@ def bake_for_show(result: FEAResult, derived=None) -> tuple[pathlib.Path, str]:
     ``derived``: quantities worked out from the role fields (``ada.fem.results.derived``) baked beside the
     file's fields, for a result read case by case."""
     from ada.fem.results.artefacts import FEAResultStreamAdapter, bake_artefacts
+    from ada.fem.results.derived import requests
 
-    derived = tuple(str(d) for d in (derived or ()))
+    asked = requests(derived)
     lazy = getattr(result, "cases", None) is not None and not result.results
-    if derived and not lazy:
+    if asked and not lazy:
         raise ValueError(
-            f"{result.name}: derived fields ({', '.join(derived)}) are worked out from a result read case by case; "
-            "read it with to_fem(..., lazy=True) or ada.from_fem_res(path, lazy=True)"
+            f"{result.name}: derived fields ({', '.join(n for n, _ in asked)}) are worked out from a result read "
+            "case by case; read it with to_fem(..., lazy=True) or ada.from_fem_res(path, lazy=True)"
         )
-    bake_id = bake_id_for(result, derived)
+    # The options are part of the key: other averaging limits are another bake.
+    bake_id = bake_id_for(result, tuple((n, tuple(sorted(o.items()))) for n, o in asked))
     out_dir = bake_root() / bake_id
     if (out_dir / MANIFEST_NAME).is_file():
         logger.info(f"Reusing the FEA bake of {result.name!r} in {out_dir}")
@@ -108,7 +110,7 @@ def bake_for_show(result: FEAResult, derived=None) -> tuple[pathlib.Path, str]:
             from ada.fem.results.derived import WithDerivedFields
 
             with make_stream_reader(pathlib.Path(result.results_file_path)) as reader:
-                source = WithDerivedFields(reader, result, derived) if derived else reader
+                source = WithDerivedFields(reader, result, asked) if asked else reader
                 bake_artefacts(source, work_dir, src=result.name or "fea")
         else:
             bake_artefacts(FEAResultStreamAdapter(result), work_dir, src=result.name or "fea")

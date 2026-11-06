@@ -61,6 +61,79 @@ def test_a_result_read_case_by_case_is_baked_for_the_viewer_from_its_file(fem_fi
     assert manifest.get("fields"), "the bake holds the file's fields"
 
 
+def test_von_mises_is_the_postprocessors_nodal_average(fem_files):
+    """``von_mises`` from the format-neutral shell stresses equals the SIN reader's own nodal VONMISES (the
+    reference postprocessor's average: stresses averaged, then von Mises; blank at free edges and junctions)."""
+    import numpy as np
+
+    from ada.fem.formats.sesam.results.read_sin import read_sin_file
+
+    sin = fem_files / "cantilever/sesam/static/shell/STATIC_SHELL_CANTILEVER_SESAMR1.SIN"
+    lazy = ada.from_fem_res(sin, lazy=True)
+    full = read_sin_file(str(sin))
+    # The full read numbers nodes internally: match the two by coordinates.
+    key = {tuple(np.round(c, 6)): int(n) for n, c in zip(lazy.mesh.nodes.identifiers, lazy.mesh.nodes.coords)}
+    to_lazy = {
+        int(n): key.get(tuple(np.round(c, 6))) for n, c in zip(full.mesh.nodes.identifiers, full.mesh.nodes.coords)
+    }
+    reference: dict[int, dict[int, float]] = {}
+    for f in full.results:
+        if f.name in ("sesam.nodes.g_stress", "sesam.nodes.g_stress.lower"):
+            v = np.asarray(f.values)
+            col = 1 + list(f.components).index("VONMISES")
+            case = reference.setdefault(int(f.step), {})
+            for n, s in zip(v[:, 0].astype(int), v[:, col]):
+                if np.isfinite(s):
+                    node = to_lazy[int(n)]
+                    case[node] = max(case.get(node, 0.0), float(s))
+    assert reference and any(reference.values())
+
+    derived = lazy.derived_field("von_mises")
+    for case, nodes in reference.items():
+        assert set(derived[case]) == set(nodes), "the same nodes are averaged, the same left blank"
+        for node, s in nodes.items():
+            assert derived[case][node] == pytest.approx(s, rel=1e-5, abs=1e-3)
+
+    # Von Mises first, at every corner: a value at every node the average has one at, and more.
+    corners = lazy.derived_field("von_mises_corners")
+    for case, nodes in derived.items():
+        assert set(nodes) <= set(corners[case])
+
+
+def test_von_mises_averaging_limits_are_options(fem_files, tmp_path, monkeypatch):
+    """``same_thickness`` / ``same_normal_deg`` default to the postprocessor's limits; other limits average other
+    nodes, are refused when unknown or out of range, and make another viewer bake."""
+    from ada.fem.results import derived, show_streaming
+
+    lazy = ada.from_fem_res(fem_files / "cantilever/sesam/static/shell/STATIC_SHELL_CANTILEVER_SESAMR1.SIN", lazy=True)
+    default = lazy.derived_field("von_mises")
+    assert lazy.derived_field("von_mises", same_thickness=0.1, same_normal_deg=5.0) == default
+    assert derived.SAME_THICKNESS == 0.1 and derived.SAME_NORMAL_DEG == 5.0
+
+    # No limit at all on the normal: every node where two shells meet is averaged, at least the default's nodes.
+    wide = lazy.derived_field("von_mises", same_normal_deg=180.0, same_thickness=10.0)
+    for case, nodes in default.items():
+        assert set(nodes) <= set(wide[case])
+
+    with pytest.raises(TypeError, match="same_normal_deg"):
+        lazy.derived_field("von_mises", same_normal=5.0)
+    with pytest.raises(TypeError, match="no option"):
+        lazy.derived_field("von_mises_corners", same_normal_deg=5.0)
+    with pytest.raises(ValueError, match="same_normal_deg"):
+        lazy.derived_field("von_mises", same_normal_deg=-1.0)
+
+    assert derived.requests(["von_mises"]) == [("von_mises", {})]
+    assert derived.requests({"von_mises": {"same_normal_deg": 10.0}}) == [("von_mises", {"same_normal_deg": 10.0})]
+    with pytest.raises(TypeError):
+        show_streaming.bake_for_show(lazy, derived={"von_mises": {"nonsense": 1}})
+
+    monkeypatch.setenv(show_streaming.ENV_FEA_BAKE_DIR, str(tmp_path / "bakes"))
+    _, plain = show_streaming.bake_for_show(lazy, derived=["von_mises"])
+    _, wider = show_streaming.bake_for_show(lazy, derived={"von_mises": {"same_normal_deg": 10.0}})
+    assert plain != wider, "other averaging limits are another bake"
+    assert show_streaming.bake_for_show(lazy, derived={"von_mises": {}})[1] == plain
+
+
 def test_derived_von_mises_is_worked_out_and_baked_beside_the_files_fields(fem_files, tmp_path, monkeypatch):
     """``fea.derived_field("von_mises")`` per case and node; ``fea.show(derived=["von_mises"])`` bakes it."""
     import json

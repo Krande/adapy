@@ -2,6 +2,15 @@
 
 
 
+## v0.136.0 (2026-11-06)
+
+### Feature
+
+* feat(fem): derived von Mises is the postprocessor&#39;s nodal average, with configurable averaging limits (#500)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`4d66b76`](https://github.com/Krande/adapy/commit/4d66b76bfaf92ab8299c18a06a7a0ab5b36eeca9))
+
+
 ## v0.135.0 (2026-11-06)
 
 ### Feature
