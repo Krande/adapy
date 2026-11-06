@@ -433,8 +433,8 @@
 //          The command palette is core's, in every UI: core's root mounts it
 //          once (`CorePaletteHost` on `@/viewer-core/layout`), core's shortcut
 //          `core:command-palette` (Ctrl+K, now in `RESERVED_SHORTCUTS`) opens it,
-//          core registers its command, and core's own UI gets a palette button
-//          and core's commands. `UiShellChrome.commandPalette` may be `false` (off
+//          core registers its command, and core's own UI gets core's commands
+//          (no button: the shortcuts dialog lists Ctrl+K). `UiShellChrome.commandPalette` may be `false` (off
 //          while the shell is active); its `keys` add a chord beside Ctrl+K.
 //          Behaviour change: a composed shell no longer mounts a palette of its
 //          own, and the palette is on unless a shell turns it off. "Reset every
