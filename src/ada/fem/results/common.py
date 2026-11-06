@@ -683,13 +683,19 @@ class FEAResult:
             for case, step in self.cases.iter_steps(steps, roles=wanted, elements=elements)
         }
 
-    def derived_field(self, name: str, cases: "Iterable[int] | None" = None) -> "dict[int, dict[int, float]]":
-        """``{case: {node: value}}`` of a quantity worked out from the role fields, the same for every solver:
-        ``"von_mises"``, the shells' von Mises stress (``ada.fem.results.derived``). For a result read case by
-        case (``to_fem(..., lazy=True)``, ``ada.from_fem_res(path, lazy=True)``)."""
+    def derived_field(
+        self, name: str, cases: "Iterable[int] | None" = None, **options
+    ) -> "dict[int, dict[int, float]]":
+        """``{case: {node: value}}`` of a quantity worked out from the role fields, the same for every solver
+        (``ada.fem.results.derived``): ``"von_mises"``, the plating's nodal von Mises stress as the reference
+        postprocessor averages it, or ``"von_mises_corners"``, von Mises taken at every corner first.
+
+        ``options``: the quantity's own, e.g. ``von_mises``'s averaging limits ``same_thickness`` (default 0.1, a
+        fraction) and ``same_normal_deg`` (default 5.0). For a result read case by case (``to_fem(...,
+        lazy=True)``, ``ada.from_fem_res(path, lazy=True)``)."""
         from .derived import derived_nodal
 
-        return derived_nodal(self, name, cases)
+        return derived_nodal(self, name, cases, **options)
 
     def _take(self, other: "FEAResult") -> None:
         """Become ``other`` (a result of the same job), keeping this object's identity."""
@@ -982,13 +988,14 @@ class FEAResult:
         apply_transform=False,
         stream: bool | None = None,
         render_backend: RenderBackend | None = None,
-        derived: "Iterable[str] | None" = None,
+        derived: "Iterable[str] | dict[str, dict] | None" = None,
     ):
         """Show the result in the viewer.
 
         ``derived``: quantities worked out from the role fields to show beside the file's own fields, one step
-        per load case, e.g. ``["von_mises"]`` (``ada.fem.results.derived.DERIVED``). For a result read case by
-        case (``to_fem(..., lazy=True)``, ``ada.from_fem_res(path, lazy=True)``), streamed.
+        per load case, e.g. ``["von_mises"]`` (``ada.fem.results.derived.DERIVED``), or with options as in
+        :meth:`derived_field`, ``{"von_mises": {"same_normal_deg": 10.0}}``. For a result read case by case
+        (``to_fem(..., lazy=True)``, ``ada.from_fem_res(path, lazy=True)``), streamed.
 
         ``stream`` (default: on for the react viewer outside a notebook): bake the result
         and let the viewer read it the way the REST viewer does -- the mesh first, then
