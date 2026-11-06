@@ -153,9 +153,12 @@ export type MenuItemDef = string | {separator: true} | {label: string; run(): vo
 
 const isSubmenu = (it: MenuItemDef): it is {label: string; items: readonly MenuItemDef[]} => typeof it === "object" && "items" in it;
 
+const isSeparator = (it: MenuItemDef): boolean => typeof it === "object" && "separator" in it;
+
 /**
  * The items of a menu that are offered: a command id nothing offers is dropped,
  * and so is a submenu left with nothing to run (a separator alone is nothing).
+ * Separators left at either end, or next to another, go too.
  */
 export function offeredMenuItems(items: readonly MenuItemDef[], offers: (commandId: string) => boolean): MenuItemDef[] {
   const out: MenuItemDef[] = [];
@@ -164,9 +167,12 @@ export function offeredMenuItems(items: readonly MenuItemDef[], offers: (command
       if (offers(it)) out.push(it);
     } else if (isSubmenu(it)) {
       const sub = offeredMenuItems(it.items, offers);
-      if (sub.some((s) => typeof s === "string" || !("separator" in s))) out.push({...it, items: sub});
+      if (sub.some((s) => !isSeparator(s))) out.push({...it, items: sub});
+    } else if (isSeparator(it)) {
+      if (out.length && !isSeparator(out[out.length - 1])) out.push(it);
     } else out.push(it);
   }
+  while (out.length && isSeparator(out[out.length - 1])) out.pop();
   return out;
 }
 

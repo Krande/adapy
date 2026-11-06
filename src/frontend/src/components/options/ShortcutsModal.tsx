@@ -177,29 +177,35 @@ const KeyCombo: React.FC<{ keys: string[] }> = ({ keys }) => (
   </span>
 );
 
+// Open from elsewhere too (a shell's Help menu): a tiny external store the host below follows.
+let externalOpen = false;
+const openListeners = new Set<() => void>();
+const setExternalOpen = (v: boolean) => {
+  if (externalOpen === v) return;
+  externalOpen = v;
+  for (const l of openListeners) l();
+};
+
+/** Open the shortcuts dialog from outside the Options panel; `ShortcutsDialogHost` draws it. */
+export function openShortcutsDialog(): void {
+  setExternalOpen(true);
+}
+
+/** Mount once (a shell's chrome does) to draw the dialog `openShortcutsDialog` opens. */
+export const ShortcutsDialogHost: React.FC = () => {
+  const open = React.useSyncExternalStore(
+    (cb) => {
+      openListeners.add(cb);
+      return () => openListeners.delete(cb);
+    },
+    () => externalOpen,
+    () => false,
+  );
+  return open ? <ShortcutsDialog onClose={() => setExternalOpen(false)} /> : null;
+};
+
 const ShortcutsModal: React.FC = () => {
   const [open, setOpen] = useState(false);
-  const customisable = useStore(layoutStore, (s) => customisablePanelsOn(s.prefs));
-  const panelKeys = customisable ? PANEL_SHORTCUTS : null;
-  // A shell's and plugins' own shortcuts (`registerShortcut`, `PanelSpec.shortcut`), by group; read when opened.
-  const registered = open ? registeredGroups() : [];
-  const groups = [
-    ...(panelKeys ? [SHORTCUT_GROUPS[0], panelKeys, ...SHORTCUT_GROUPS.slice(1)] : SHORTCUT_GROUPS),
-    ...registered,
-  ];
-
-  // Escape closes the modal (mirrors the other centered dialogs, e.g.
-  // WorkerInfoModal). Only wired while open so it doesn't shadow the
-  // viewer's own Escape handling.
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open]);
-
   return (
     <div>
       <button
@@ -208,11 +214,40 @@ const ShortcutsModal: React.FC = () => {
       >
         Shortcut Keys
       </button>
-      {open && (
+      {open && <ShortcutsDialog onClose={() => setOpen(false)} />}
+    </div>
+  );
+};
+
+/** The dialog itself, open while mounted. */
+const ShortcutsDialog: React.FC<{ onClose: () => void }> = ({ onClose }) => {
+  const customisable = useStore(layoutStore, (s) => customisablePanelsOn(s.prefs));
+  const panelKeys = customisable ? PANEL_SHORTCUTS : null;
+  // A shell's and plugins' own shortcuts (`registerShortcut`, `PanelSpec.shortcut`), by group; read when opened.
+  const registered = React.useMemo(() => registeredGroups(), []);
+  const groups = [
+    ...(panelKeys ? [SHORTCUT_GROUPS[0], panelKeys, ...SHORTCUT_GROUPS.slice(1)] : SHORTCUT_GROUPS),
+    ...registered,
+  ];
+
+  // Escape closes the modal (mirrors the other centered dialogs, e.g.
+  // WorkerInfoModal). Only wired while open so it doesn't shadow the
+  // viewer's own Escape handling.
+  const close = React.useRef(onClose);
+  close.current = onClose;
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") close.current();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  return (
         <OverlayPortal>
         <div
           className="fixed inset-0 z-[70] flex items-start sm:items-center justify-center bg-black/70 p-4 overflow-y-auto"
-          onClick={() => setOpen(false)}
+          onClick={onClose}
         >
           <div
             className="bg-gray-900 border border-gray-700 rounded-md shadow-xl flex flex-col w-full max-w-3xl max-h-[85vh] my-auto text-white"
@@ -226,7 +261,7 @@ const ShortcutsModal: React.FC = () => {
               <button
                 type="button"
                 className="shrink-0 text-gray-300 hover:text-white text-xl leading-none px-2"
-                onClick={() => setOpen(false)}
+                onClick={onClose}
                 aria-label="Close"
                 title="Close (Esc)"
               >
@@ -260,8 +295,6 @@ const ShortcutsModal: React.FC = () => {
           </div>
         </div>
         </OverlayPortal>
-      )}
-    </div>
   );
 };
 

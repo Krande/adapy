@@ -351,6 +351,17 @@
 //          `canPopOut` also admits `mirrored` panels; `openWindow` returns the
 //          window's handle and takes the session; `windowBusChannelName`,
 //          `windowUrl`, `popoutUrl` and `windowTarget` take a session.
+//          The built-in Desktop UI: a composed shell core registers in every
+//          build (`DESKTOP_UI_SHELL_ID`, `desktopUiShellSpec`; `?ui=desktop`),
+//          with a menu bar, docked panels and a status bar; the classic UI stays
+//          the default. Core's commands, registered for every composed shell
+//          (`CORE_COMMAND_IDS`, `themeCommandId`, `uiShellCommandId`,
+//          `workspaceCommandId`): upload, undo / redo, selection and visibility,
+//          camera fits, display toggles, theme, UI switch, full screen, new
+//          window, layout reset and workspaces, the shortcuts dialog. On
+//          `@/viewer-core/layout`: `desktopMenus` / `menuCommandIds` (the Desktop
+//          UI's menu model) and `openShortcutsDialog`. Behaviour change:
+//          `offeredMenuItems` drops separators left at either end or doubled.
 export const VIEWER_CORE_API_VERSION = "1.13.0";
 
 // ---------------------------------------------------------------------------
@@ -430,6 +441,11 @@ export type { FixedSize, GroupArrangement } from "@/layout/splitTree";
 // Commands (menus, palette, keys share them) and HUDs over the view (dependency-free).
 export { commandChord, getCommand, listCommands, matchCommand, registerCommand, runCommand, unregisterCommand } from "@/layout/commands";
 export type { CommandSpec, RegisteredCommand } from "@/layout/commands";
+// Core's own commands, by id (registered for every composed shell), for a shell's menus.
+export { CORE_COMMAND_IDS, themeCommandId, uiShellCommandId, workspaceCommandId } from "@/layout/coreCommandIds";
+export type { CoreCommandId } from "@/layout/coreCommandIds";
+// The built-in Desktop UI (a composed shell core registers next to the classic one).
+export { DESKTOP_UI_SHELL_ID, desktopUiShellSpec } from "@/layout/desktop/desktopShell";
 export { VIEWPORT_ANCHORS, registerViewportOverlay, unregisterViewportOverlay } from "@/layout/viewportOverlays";
 export type { ViewportAnchor, ViewportOverlaySpec } from "@/layout/viewportOverlays";
 // Shortcuts a shell or plugin adds; core's own keys are reserved (dependency-free).

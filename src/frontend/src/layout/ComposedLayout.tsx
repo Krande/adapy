@@ -14,6 +14,8 @@ import {notifyActiveModeSceneColor} from "@/utils/scene/fea/modeSceneColor";
 import {useShellLook} from "./shellTheme";
 import {CommandPaletteHost, openCommandPalette} from "./CommandPalette";
 import {registerCommand} from "./commands";
+import {registerCoreCommands} from "./coreCommands";
+import {ShortcutsDialogHost} from "@/components/options/ShortcutsModal";
 import LayoutRoot from "./LayoutRoot";
 import {setPanelOverrides} from "./registry";
 import {setClassicShell, setClassicToolbar, type ClassicArrangement} from "./presets/classicPlace";
@@ -105,6 +107,8 @@ function installShell(spec: UiShellSpec): void {
   );
   setClassicToolbar(spec.chrome?.toolbar !== false);
   setPanelOverrides(spec.panels ?? null);
+  // Core's own commands (`CORE_COMMAND_IDS`), for the shell's menus and palette.
+  registerCoreCommands();
   const palette = spec.chrome?.commandPalette;
   if (palette) {
     registerCommand(
@@ -168,6 +172,8 @@ export default function ComposedLayout({spec}: {spec: UiShellSpec}) {
       </div>
       {slot(Footer)}
       {spec.chrome?.commandPalette && <CommandPaletteHost />}
+      {/* The shortcuts dialog, for a menu's "Keyboard shortcuts" (`core:shortcuts`). */}
+      <ShortcutsDialogHost />
     </div>
   );
 }

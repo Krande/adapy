@@ -7,6 +7,7 @@ import { DEFAULT_UI_SHELL, registerBuiltinPlugins } from "./registry.generated";
 import { setBuildDefaultUiShellId } from "./uiShells";
 import { usePluginUiStore } from "./pluginUiStore";
 import { registerCorePanels } from "@/layout/corePanels";
+import { registerDesktopUiShell } from "@/layout/desktop/desktopShell";
 import { setPluginPanelVisibility } from "@/layout/pluginPanels";
 import { makePluginContextStandalone } from "./context";
 import { setPluginContextFactory } from "./registry";
@@ -20,6 +21,13 @@ export function loadPlugins(): void {
   // fallback every other shell falls back to, so it must exist even if a plugin
   // registration below blows up.
   registerCoreUiShell();
+  // Core's second UI, the Desktop one (a composed shell): in every build, never the default.
+  try {
+    registerDesktopUiShell();
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error("[plugins] registerDesktopUiShell failed", err);
+  }
   // Core's panel catalogue, then the store plugin panels with a top-bar button
   // keep their visibility in, so the panel registry binds plugin panels to it as
   // they register below. Neither changes what renders.
@@ -54,5 +62,6 @@ export { runResultSidecarLoaders, disposeResultSidecarLoaders, makeManifestFetch
 export { dispatchPluginUrlParams } from "./urlParams";
 export { makePluginContext, makePluginContextStandalone } from "./context";
 export { registerCoreUiShell } from "./coreUiShell";
+export { DESKTOP_UI_SHELL_ID, registerDesktopUiShell } from "@/layout/desktop/desktopShell";
 export { default as UiShellHost } from "./UiShellHost";
 export { UiShellSwitcher } from "./UiShellSwitcher";

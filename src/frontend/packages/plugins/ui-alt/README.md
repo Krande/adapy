@@ -6,8 +6,16 @@ alternative UI is just another entry in the same registry
 (`src/frontend/src/plugins/uiShells.ts`).
 
 This package is the template. It is **not enabled** in a stock build — it exists
-so an out-of-tree UI repo has a working shape to copy, and so the mechanism is
-exercised in CI.
+so an out-of-tree UI repo has a working shape to copy (a plugin package, its
+`register.tsx`, imports through `@/viewer-core` only), and so the mechanism is
+exercised in CI. It stays small on purpose.
+
+For a complete docked UI (a full menu bar over core's commands, fixed docks,
+modes, a status bar), see the **built-in Desktop UI** core ships in every build
+(`src/frontend/src/layout/desktop/`, `?ui=desktop`; "The built-in Desktop UI" in
+`src/frontend/docs/UI_SHELLS.md`). A shell may start from its spec
+(`desktopUiShellSpec()`) and its menu model (`desktopMenus()`), and name core's
+commands (`CORE_COMMAND_IDS`) in its own menus.
 
 ## Why a separate repo
 

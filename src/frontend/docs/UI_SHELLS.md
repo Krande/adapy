@@ -73,7 +73,8 @@ src/frontend/
     uiShells.ts          registry + resolution (id -> shell, precedence, fallback)
     coreUiShell.ts       registers the built-in `core` shell (lazy-loads @/app)
     UiShellHost.tsx      mounts the active shell; falls back to core on load/render failure
-    UiShellSwitcher.tsx  the switcher; renders NOTHING when only one shell is registered
+    UiShellSwitcher.tsx  the switcher (Options -> Theme); renders NOTHING when only one shell is registered
+  src/layout/desktop/    the built-in Desktop UI (a composed shell, registered next to `core`)
     registry.generated.ts  AUTO-GENERATED: enabled plugins + DEFAULT_UI_SHELL
   plugins.json           committed config: `enabled`, `defaultUi`
   src/index.html         loads /config.js (blocking classic script) before the SPA
@@ -336,6 +337,56 @@ without the panels changing.
 | Mirroring (root) | `registerMirrorTopic`, `registerMirrorCommand`, `hostMirror`, `followMirror`, `sendMirrorCommand`, `capabilities.mirrored` |
 | This page (`/layout`) | `windowBus`, `useOpenWindows`, `useThisWindow`, `useMainWindowLive`, `moveToWindowItem`, `openNewWindow`, `reopenWindows`, `installMainWindow`, `GridOps` / `GridOpsProvider`, `PopoutPage` |
 
+### The built-in Desktop UI
+
+Core ships one composed shell of its own next to the classic UI: **Desktop**
+(`DESKTOP_UI_SHELL_ID`, `"desktop"`; `src/layout/desktop/`). It is registered at
+startup by `loadPlugins`, like core's panels, so it is in every build without
+`ADA_PLUGINS_EXTRA`; the classic UI stays the default. Pick it in Options ->
+Theme -> User interface (sticky, `localStorage["ada:ui"]`), or per tab with
+`?ui=desktop`; View -> User interface switches back.
+
+It is nothing but configuration of the options above, so it doubles as the
+worked example of a full docked UI (`desktopUiShellSpec()` from `@/viewer-core`):
+
+| Part | What it is |
+|---|---|
+| Header | A menu bar (`MenuBar`) in place of core's top bar (`chrome.toolbar: false`), the mode switcher and toolbar, the plugins' top-bar buttons, a Commands button. |
+| Layout | Tree and storage tabbed in a fixed-px left dock; object info over scene info in a fixed-px right column; Simulation and Result data in a fixed-px dock under the view, collapsed to a strip in the Model mode. Group actions add, collapse, pin; tab icons. Plugin panels naming `left` / `right` / `bottom` join those docks. |
+| Modes | Model (default) and Results (the results dock open); plugins' modes follow. |
+| Footer | A status bar: connection, models loaded, selection count, mode, what Undo undoes. |
+| Chrome | Command palette on Ctrl+K, the colour legend at `right-center`, overlay plugin panels at `top-left`, the toast bottom-right, a title bar on `/convert` and `/admin`. |
+| Look | Core's tokens only (`--ada-window-*`, `--ada-tab-*`, the user's panel theme); no colours of its own. |
+
+The menus are command ids only (`desktopMenus()` on `@/viewer-core/layout`; an
+item whose command is not offered is left out, and so are the separators it
+leaves stranded):
+
+| Menu | Items |
+|---|---|
+| File | Upload file… (REST), Storage, Convert files, Options |
+| Edit | Undo, Redo; Clear selection, Copy names, Save selection as group…; Visibility ▸ Hide selected, Hide others, Show all |
+| View | Panels ▸ (each panel's toggle); Camera ▸ Fit all, Fit selection, Reset camera; Display ▸ Geometry edges, Performance stats, Gallery mode; Theme ▸ (the presets); User interface ▸ (the shells); Command palette, Full screen |
+| Modes | One per mode |
+| Window | New window, Reopen windows; Reset layout, Reset every mode's layout; Workspaces ▸ Save workspace…, (each saved one), Delete workspace… |
+| Help | Keyboard shortcuts; Server info, Connection |
+
+**Core's commands.** The items that are not `panel:` or `mode:` commands are
+core's own (`CORE_COMMAND_IDS` on `@/viewer-core`, with `themeCommandId`,
+`uiShellCommandId`, `workspaceCommandId`), registered for **every** composed
+shell, so another shell's menus can name them too. Each wraps an action core
+already has: the viewer's keys (shown with `chordLabel`: Ctrl+Z, Shift+H,
+Shift+A, ...), the Options panel's toggles, the theme presets, the switcher,
+`openNewWindow`, `resetArrangement` and the workspaces, and the shortcuts dialog
+(`openShortcutsDialog`; a composed layout mounts its host). A command greys
+itself with a reason where the key would do nothing (nothing selected, nothing
+to undo, no 3D view).
+
+Not in the menus, because core has no action for them yet: opening a local file
+straight into the scene (files go through storage), select all / invert
+selection, named camera views (top, front, ...), and exporting (the selection
+export needs its own dialog of formats and targets).
+
 ### A root of its own
 
 A shell that keeps `load` can still take core's root around its UI:
@@ -425,7 +476,8 @@ source, flipping `UI_DEFAULT` alone does not trigger a full viewer build — for
 one (or delete the branch image) when changing it.
 
 Omit `UI_DEFAULT` to ship **both** UIs with the classic one as the default; the
-switcher appears in the menu bar as soon as a second shell is registered.
+switcher (Options -> Theme) lists every registered shell. Since core registers
+the Desktop UI itself, it is there in every build.
 
 ## Choosing the default at runtime instead
 

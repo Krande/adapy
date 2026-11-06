@@ -129,6 +129,8 @@ test("the root entry point re-exports only the dependency-free leaves", () => {
     "@/layout/windowBus",
     "@/layout/windowMirror",
     "@/layout/commands",
+    "@/layout/coreCommandIds",
+    "@/layout/desktop/desktopShell",
     "@/layout/viewportOverlays",
   ];
   const specs = importSpecifiers(readFileSync(join(facadeDir, "index.ts"), "utf8"));

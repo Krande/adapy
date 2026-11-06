@@ -141,6 +141,10 @@ export {
   saveWorkspace,
 } from "@/layout/presets/classicPlace";
 export { COMPACT_GROUP_PX } from "@/layout/presets/groupCompact";
+// The Desktop UI's menu model (command ids only), for a shell that starts from it.
+export { desktopMenus, menuCommandIds } from "@/layout/desktop/desktopMenus";
+export type { DesktopMenuInputs } from "@/layout/desktop/desktopMenus";
+export { openShortcutsDialog } from "@/components/options/ShortcutsModal";
 // Multi-window dashboards: this page's window bus, the windows open, moving panels between them.
 export {
   REOPEN_WINDOWS_COMMAND,
