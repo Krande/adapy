@@ -387,11 +387,14 @@ export type ShownNode = ShownSplit | GroupNode | ViewportNode;
 /**
  * The grid as drawn: a group shows only its panels that `shows` (one that shows
  * none takes no room), and a split left with one child is that child. Splits
- * keep their ids, so a divider still resizes the stored split.
+ * keep their ids, so a divider still resizes the stored split. With
+ * `viewport: false` the viewport leaf takes no room either (a pop-out window,
+ * which has no view): the grid is its groups alone, and the viewport alone when
+ * no group shows.
  */
-export function shownGrid(root: GridNode, shows: (panel: PanelId) => boolean): ShownNode {
+export function shownGrid(root: GridNode, shows: (panel: PanelId) => boolean, opts: { viewport?: boolean } = {}): ShownNode {
   const visit = (n: GridNode): ShownNode | null => {
-    if (n.kind === "viewport") return n;
+    if (n.kind === "viewport") return opts.viewport === false ? null : n;
     if (n.kind === "group") {
       const panels = n.panels.filter(shows);
       if (panels.length === 0) return null;

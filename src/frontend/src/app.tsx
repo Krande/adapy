@@ -17,7 +17,8 @@ import {useSceneRestore} from "./hooks/useSceneRestore";
 import {followerParams as simFollowerParams} from "@/utils/simChannel";
 import {layoutEngineEnabled} from "@/layout/flag";
 import {activeUiShellId, getUiShell, type UiShellSpec} from "@/plugins/uiShells";
-import {popoutPanelId} from "@/layout/popout";
+import {isPopoutPage, popoutPanelId} from "@/layout/popout";
+import {thisWindowId} from "@/layout/windows";
 import {useComposedShellLook} from "@/layout/shellTheme";
 import {panelBodyAttrs} from "@/components/ui/panelChrome";
 
@@ -42,7 +43,8 @@ const AttributeSearchWindow = React.lazy(() => import("./components/asset_browse
 const SimFollowerPage = React.lazy(() => import("./components/simulation/SimFollowerPage"));
 const isRestMode = runtime.isRestMode();
 const isSimFollower = !!simFollowerParams();
-// A panel alone in a browser window of its own (`?popout=<panelId>`), canvas-less.
+// A pop-out window of a multi-window dashboard (`?window=<id>`, `?popout=<panelId>`), canvas-less.
+const isPopout = isPopoutPage();
 const popoutId = popoutPanelId();
 const PopoutPage = React.lazy(() => import("./layout/PopoutPage"));
 const isAuthCallback = isRestMode && window.location.pathname === "/auth/callback";
@@ -137,12 +139,12 @@ export function AppRoot({children}: {children: React.ReactNode}) {
         );
     }
 
-    if (popoutId) {
-        // One panel, full-window: under the provider so its stores resolve, behind
+    if (isPopout) {
+        // A window of panels: under the provider so their stores resolve, behind
         // AuthGate in REST mode, without the canvas or the deep-link loading.
         const page = (
             <Suspense fallback={null}>
-                <PopoutPage panelId={popoutId}/>
+                <PopoutPage windowId={thisWindowId()} panelId={popoutId}/>
             </Suspense>
         );
         return (

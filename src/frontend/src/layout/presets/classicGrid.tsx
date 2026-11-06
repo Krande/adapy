@@ -47,6 +47,7 @@ import {
   endDockDragAt,
   moveDockDrag,
   type DropEdge,
+  type DropTarget,
 } from "../dockDrag";
 import type {LayoutDoc} from "../layout";
 import {PanelMount} from "../LayoutHost";
@@ -92,6 +93,70 @@ import {
   usePinnedPanels,
 } from "./classicPlace";
 
+// ---------------------------------------------------------------------------
+// What the grid does with its document: the classic frame's by default; a
+// pop-out window gives its own (`../PopoutPage`).
+// ---------------------------------------------------------------------------
+
+type GroupChrome = ReturnType<typeof classicGroupChrome>;
+
+/** The moves a grid's groups make, on the document of whoever draws it. */
+export interface GridOps {
+  /** Change the document. */
+  update(fn: (doc: LayoutDoc) => LayoutDoc): void;
+  /** A group's close button. */
+  close(id: PanelId): void;
+  /** May be dragged into this grid. */
+  accepts(panel: RegisteredPanel): boolean;
+  /** A drag ended on `target`: true when the grid took the panel. */
+  drop(id: PanelId, target: DropTarget | null): boolean;
+  /** A drag ended on no target, at `at`. */
+  dropOutside(panel: RegisteredPanel, at: {x: number; y: number}): void;
+  /** A panel's header actions (before close). */
+  panelActions(panel: RegisteredPanel, doc: LayoutDoc, pinned: readonly PanelId[], chrome: GroupChrome): PanelAction[];
+  /** What "Add a panel here" offers a group. */
+  addable(group: GroupNode): RegisteredPanel[];
+  /** "Add a panel here" chose `id`. */
+  add(id: PanelId, group: GroupNode): void;
+  /** The pinned panels (a hook: called on every render). */
+  usePinned(): readonly PanelId[];
+  /** The group chrome asked for. */
+  chrome(): GroupChrome;
+  /** The zone a grid panel's `PanelProps.host` names. */
+  zone: string;
+}
+
+export const CLASSIC_GRID_OPS: GridOps = {
+  update: updateClassic,
+  close: (id) => void hide(id),
+  accepts: canDock,
+  drop: dropPanel,
+  dropOutside: (panel, at) => {
+    if (canFloat(panel) || homeOf(panel) === "window") floatOut(panel.id, at);
+  },
+  panelActions: (p, doc, pinned, chrome) => panelActions(p, doc, pinned, chrome),
+  addable: (group) =>
+    listPanels()
+      .filter((p) => !group.panels.includes(p.id) && canDock(p) && offeredInMode(p) && isPanelAvailable(p, {}))
+      .sort((a, b) => a.title.localeCompare(b.title)),
+  add: (id, group) => {
+    dockAt(id, {node: group.id, edge: "center"});
+    void reveal(id);
+  },
+  usePinned: usePinnedPanels,
+  chrome: classicGroupChrome,
+  zone: "classic.grid",
+};
+
+const GridOpsContext = React.createContext<GridOps>(CLASSIC_GRID_OPS);
+
+/** Draw the grid below with `ops` instead of the classic frame's. */
+export const GridOpsProvider: React.FC<{ops: GridOps; children: React.ReactNode}> = ({ops, children}) => (
+  <GridOpsContext.Provider value={ops}>{children}</GridOpsContext.Provider>
+);
+
+const useGridOps = () => React.useContext(GridOpsContext);
+
 /** The least size of a group and of the viewport, in px. */
 const MIN_GROUP = {w: 160, h: 96};
 const MIN_VIEWPORT = {w: 200, h: 120};
@@ -115,6 +180,7 @@ const ghostStore = createStore<{title: string; x: number; y: number} | null>()((
  * it there when on no target. A press that never travelled stays a click.
  */
 function useTabDrag(panel: RegisteredPanel) {
+  const ops = useGridOps();
   const press = useRef<{x: number; y: number; on: boolean} | null>(null);
   const dragged = useRef(false);
   const reset = () => {
@@ -145,8 +211,8 @@ function useTabDrag(panel: RegisteredPanel) {
       e.currentTarget.releasePointerCapture?.(e.pointerId);
       if (!on) return;
       const target = endDockDragAt(e.clientX, e.clientY);
-      if (dropPanel(panel.id, target)) return;
-      if (!target && (canFloat(panel) || homeOf(panel) === "window")) floatOut(panel.id, {x: e.clientX, y: e.clientY});
+      if (ops.drop(panel.id, target)) return;
+      if (!target) ops.dropOutside(panel, {x: e.clientX, y: e.clientY});
     },
     onPointerCancel: () => {
       if (press.current?.on) cancelDockDrag();
@@ -181,9 +247,10 @@ export function DragGhost() {
 
 /** Is a panel the grid may take being dragged. */
 function useDraggingDockable(): boolean {
+  const ops = useGridOps();
   return useStore(dockDragStore, (s) => {
     const p = s.panel ? getPanel(s.panel) : undefined;
-    return !!p && canDock(p);
+    return !!p && ops.accepts(p);
   });
 }
 
@@ -316,6 +383,7 @@ function minAlong(node: ShownNode, dir: "row" | "col"): number {
 
 function GridSplit(props: NodeProps & {split: ShownSplit}) {
   const {split} = props;
+  const {update: updateClassic} = useGridOps();
   const ref = useRef<HTMLDivElement>(null);
   // While a divider is dragged, the shown sizes; stored on release.
   const [live, setLive] = useState<number[] | null>(null);
@@ -583,6 +651,7 @@ function GroupTab({
   icons?: boolean;
 }) {
   const drag = useTabDrag(panel);
+  const {update: updateClassic} = useGridOps();
   return (
     <button
       type="button"
@@ -629,12 +698,11 @@ function panelActions(p: RegisteredPanel, doc: LayoutDoc, pinned: readonly Panel
 }
 
 /** The group's own actions (when the shell asks): add a panel, collapse to a strip. */
-function groupActions(group: GroupNode, chrome: ReturnType<typeof classicGroupChrome>): PanelAction[] {
+function groupActions(group: GroupNode, chrome: ReturnType<typeof classicGroupChrome>, ops: GridOps = CLASSIC_GRID_OPS): PanelAction[] {
   const out: PanelAction[] = [];
+  const updateClassic = ops.update;
   if (chrome.actions.includes("add")) {
-    const addable = listPanels()
-      .filter((p) => !group.panels.includes(p.id) && canDock(p) && offeredInMode(p) && isPanelAvailable(p, {}))
-      .sort((a, b) => a.title.localeCompare(b.title));
+    const addable = ops.addable(group);
     out.push({
       id: "add",
       label: "Add a panel here",
@@ -644,10 +712,7 @@ function groupActions(group: GroupNode, chrome: ReturnType<typeof classicGroupCh
       menu: addable.map((p) => ({
         id: `add-${p.id}`,
         label: p.title,
-        run: () => {
-          dockAt(p.id, {node: group.id, edge: "center"});
-          void reveal(p.id);
-        },
+        run: () => ops.add(p.id, group),
       })),
     });
   }
@@ -659,6 +724,7 @@ function groupActions(group: GroupNode, chrome: ReturnType<typeof classicGroupCh
 
 /** A collapsed group: a strip of its panels' icons across its split; one restores the group on that panel. */
 function GroupStrip({group, panels, along}: {group: GroupNode; panels: RegisteredPanel[]; along: "row" | "col"}) {
+  const {update: updateClassic} = useGridOps();
   const restore = (id: PanelId) =>
     updateClassic((d) => updateGrid(d, (g) => setActiveTab(setGroupCollapsed(g, group.id, false), id)));
   return (
@@ -742,8 +808,9 @@ function GridGroup({
   const dragging = useDraggingDockable();
   const zone = gridZone(group.id);
   const hover = useStore(dockDragStore, (s) => (s.over === zone && s.index !== null ? s.index : null));
-  const pinned = usePinnedPanels();
-  const chrome = classicGroupChrome();
+  const ops = useGridOps();
+  const pinned = ops.usePinned();
+  const chrome = ops.chrome();
   const [{width, height}, measure] = useSize();
   const markAt = (i: number, n: number): "before" | "after" | null =>
     hover === null ? null : hover === i ? "before" : hover >= n && i === n - 1 ? "after" : null;
@@ -757,9 +824,9 @@ function GridGroup({
   if (stacked) {
     return <StackedGroup group={group} panels={panels} doc={doc} contents={contents} pinned={pinned} chrome={chrome} dragging={dragging} sectionRef={measure} width={width} />;
   }
-  const close = () => void hide(active.id);
+  const close = () => ops.close(active.id);
   // Close stays in the bar; in a narrow dock the rest fold into a "more" menu.
-  const actions = compactActions([...panelActions(active, doc, pinned, chrome), ...groupActions(group, chrome)], width, MoreGlyph);
+  const actions = compactActions([...ops.panelActions(active, doc, pinned, chrome), ...groupActions(group, chrome, ops)], width, MoreGlyph);
   return (
     <section
       ref={measure}
@@ -844,7 +911,8 @@ function StackedGroup({
   width: number;
 }) {
   const zone = gridZone(group.id);
-  const own = groupActions(group, chrome);
+  const ops = useGridOps();
+  const own = groupActions(group, chrome, ops);
   return (
     <section
       ref={sectionRef}
@@ -860,9 +928,9 @@ function StackedGroup({
               {tabLabel(p, chrome.tabIcons)}
             </div>
             <div className="flex items-center gap-1" {...{[PANEL_ACTIONS_ATTR]: p.id}}>
-              {compactActions([...panelActions(p, doc, pinned, chrome), ...(i === 0 ? own : [])], width, MoreGlyph).map(actionButton)}
+              {compactActions([...ops.panelActions(p, doc, pinned, chrome), ...(i === 0 ? own : [])], width, MoreGlyph).map(actionButton)}
               {p.capabilities.closable && (
-                <WindowHeaderButton onClick={() => void hide(p.id)} title="Close" ariaLabel={`Close ${p.title}`}>
+                <WindowHeaderButton onClick={() => ops.close(p.id)} title="Close" ariaLabel={`Close ${p.title}`}>
                   <CloseGlyph />
                 </WindowHeaderButton>
               )}
@@ -887,7 +955,8 @@ function GroupPanel({
   contents?: Readonly<Record<PanelId, React.ComponentType<PanelProps>>>;
   active: boolean;
 }) {
-  const props: PanelProps = {panelId: panel.id, host: {kind: "dock", zone: "classic.grid"}, close: () => void hide(panel.id), isActive: active};
+  const ops = useGridOps();
+  const props: PanelProps = {panelId: panel.id, host: {kind: "dock", zone: ops.zone}, close: () => ops.close(panel.id), isActive: active};
   return (
     <ErrorBoundary label={panel.title}>
       <Suspense fallback={<div className="p-2 text-sm text-gray-400">Loading…</div>}>

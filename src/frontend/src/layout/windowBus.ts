@@ -130,6 +130,8 @@ export function broadcastTransport(name: string): WindowBusTransport {
   let channel: BroadcastChannel | null;
   try {
     channel = new BroadcastChannel(name);
+    // Node's channel holds the process open; a browser's has no `unref`.
+    (channel as { unref?: () => void }).unref?.();
   } catch {
     return nullTransport;
   }
@@ -366,7 +368,11 @@ export function createWindowBus(opts: WindowBusOptions): WindowBus {
       started = true;
       unsubscribe = transport.subscribe(receive);
       send({ type: "hello", ...presence() });
-      if (opts.timers !== false && typeof setInterval === "function") timer = setInterval(() => bus.tick(), heartbeat);
+      if (opts.timers !== false && typeof setInterval === "function") {
+        timer = setInterval(() => bus.tick(), heartbeat);
+        // Under node, a heartbeat alone must not keep the process alive.
+        (timer as { unref?: () => void }).unref?.();
+      }
     },
     tick() {
       if (!started) return;
