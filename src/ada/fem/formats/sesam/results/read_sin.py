@@ -31,6 +31,9 @@ from ada.fem.formats.sesam.results.sin_reader import (
     open_sin,
 )
 from ada.fem.results import sin_native
+from ada.fem.results.cases import (  # noqa: F401 -- defined there, imported from here too
+    CombinationRecipe,
+)
 
 if TYPE_CHECKING:
     from ada.fem.results.common import FEAResult
@@ -465,60 +468,6 @@ class SinMetadata:
         """Every result case a check can request: basic RV* steps plus any
         defined combinations (which superpose those basic steps)."""
         return sorted(set(self.steps) | set(self.combinations))
-
-
-@dataclass(frozen=True)
-class CombinationRecipe:
-    """One ``RDRESCMB`` record (Results Interface File 4.3.1.11), in file order.
-
-    ``terms`` are ``(basic IRES, FACT, PHASE)``: the basic result case, its
-    factor, and its phase angle Φ in RADIANS, as the results file stores it
-    (Prepost takes the angle in degrees at its command line; the file holds
-    radians). Terms whose factor is zero are left out — they contribute nothing
-    and their case need not be read. The same basic case may appear more than
-    once at different phases, and each occurrence is its own term.
-
-    ``complex`` is the record's COMPLX flag: whether the COMBINED case is complex
-    (a real and an imaginary part) or real. Whether a BASIC case is complex is
-    not on this record; it is ``RDRESREF``'s COMPLX (see
-    :func:`read_complex_result_cases`).
-
-    Each term contributes by the RBLODCMB formulae (4.3.1.1, Table 4.1), which
-    4.3.1.11 says apply to RDRESCMB too. For a real basic case ``[R]`` and a
-    complex one ``[R, I]``::
-
-        real combination:     [R cos Φ]·FACT              [R cos Φ − I sin Φ]·FACT
-        complex combination:  [R cos Φ, R sin Φ]·FACT     [R cos Φ − I sin Φ, I cos Φ + R sin Φ]·FACT
-
-    So a phase selects which instant of a complex (e.g. quasi-static wave)
-    response enters a real design combination.
-    """
-
-    complex: bool
-    terms: tuple[tuple[int, float, float], ...]
-
-    def __bool__(self) -> bool:
-        # An all-zero recipe superposes nothing, and callers have always treated
-        # an empty ``{basic: factor}`` dict as "no combination to build".
-        return bool(self.terms)
-
-    @property
-    def factors(self) -> dict[int, float]:
-        """``{basic IRES: summed factor}``, the shape :func:`read_result_combinations`
-        has always returned. It ignores the phases, so it describes the
-        combination exactly only when every phase is zero and every basic case
-        is real."""
-        out: dict[int, float] = {}
-        for basic, factor, _phase in self.terms:
-            out[basic] = out.get(basic, 0.0) + factor
-        return out
-
-    @classmethod
-    def coerce(cls, recipe: "CombinationRecipe | dict[int, float]") -> "CombinationRecipe":
-        """Accept the legacy ``{basic: factor}`` recipe: a real combination at zero phase."""
-        if isinstance(recipe, CombinationRecipe):
-            return recipe
-        return cls(complex=False, terms=tuple((int(b), float(f), 0.0) for b, f in recipe.items()))
 
 
 def read_result_combination_terms(sin: SinFile) -> dict[int, CombinationRecipe]:

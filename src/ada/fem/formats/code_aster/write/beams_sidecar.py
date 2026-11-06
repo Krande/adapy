@@ -97,7 +97,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from ada.api.spatial import Assembly
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 
 def _section_to_dict(section) -> dict | None:
@@ -247,7 +247,79 @@ def build_beams_payload(assembly: "Assembly") -> dict:
     fem_concepts = _build_fem_concepts_dict(assembly)
     if fem_concepts:
         payload["fem_concepts"] = fem_concepts
+    # v6: the model data a structural check reads beside the results
+    # (``ada.from_fem_res(path, lazy=True)``): every shell section, with or without a
+    # CAD parent, and the nodes the analysis holds.
+    shells = _build_shells(assembly)
+    if shells:
+        payload["shells"] = shells
+    restrained = _restrained_nodes(assembly)
+    if restrained:
+        payload["restrained_nodes"] = restrained
     return payload
+
+
+def _fems(assembly: "Assembly") -> list:
+    fems = [assembly.fem] if assembly.fem is not None else []
+    for part in assembly.get_all_parts_in_assembly(True):
+        if part.fem is None or part.fem is assembly.fem:
+            continue
+        fems.append(part.fem)
+    return fems
+
+
+def _build_shells(assembly: "Assembly") -> list[dict]:
+    """v6: one entry per shell section: its elements, thickness, material, and the reference vector its
+    Code_Aster local x is projected from (``VECTEUR``, :func:`..write_sections.write_shell_section`), plus
+    the name of the CAD plate it meshes, when it meshes one."""
+    out: list[dict] = []
+    for fem_sec in _iter_shell_fem_sections(assembly):
+        if getattr(fem_sec, "is_membrane", False):
+            continue
+        members = getattr(getattr(fem_sec, "elset", None), "members", None) or []
+        elem_ids = [int(e.id) for e in members if getattr(e, "id", None) is not None]
+        if not elem_ids:
+            continue
+        refs = getattr(fem_sec, "refs", None) or []
+        material = getattr(fem_sec, "material", None)
+        local_y = getattr(fem_sec, "local_y", None)
+        out.append(
+            {
+                "elem_ids": elem_ids,
+                "thickness": _maybe_float(fem_sec.thickness),
+                "material_name": material.name if material is not None else None,
+                "vecteur": [float(c) for c in local_y] if local_y is not None else None,
+                # The CAD plate's name only: a shell section of no plate (a mesh read from a
+                # third-party file) names no structural member.
+                "concept_name": getattr(refs[0], "name", None) if refs else None,
+            }
+        )
+    return out
+
+
+def _restrained_nodes(assembly: "Assembly") -> list[int]:
+    """v6: the nodes the analysis holds: every boundary condition that holds a DOF, and both sides of every
+    constraint (a rigid link, a coupling), as Sesam's BNBCD and BLDEP name them."""
+    nodes: set[int] = set()
+
+    def add(fem_set) -> None:
+        fem_set = getattr(fem_set, "fem_set", fem_set)  # a Surface carries its node set
+        for member in getattr(fem_set, "members", None) or []:
+            if getattr(member, "id", None) is not None and not hasattr(member, "nodes"):
+                nodes.add(int(member.id))
+
+    for fem in _fems(assembly):
+        for bc in getattr(fem, "bcs", None) or []:
+            if getattr(bc, "dofs", None):
+                add(getattr(bc, "fem_set", None))
+        for constraint in (
+            getattr(fem, "constraints", {}).values()
+            if isinstance(getattr(fem, "constraints", None), dict)
+            else getattr(fem, "constraints", None) or []
+        ):
+            add(getattr(constraint, "m_set", None))
+            add(getattr(constraint, "s_set", None))
+    return sorted(nodes)
 
 
 def _build_fem_concepts_dict(assembly: "Assembly") -> dict | None:

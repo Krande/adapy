@@ -33,6 +33,36 @@ class FieldPresentation:
     value_labels: tuple[tuple[float, str], ...] = ()
 
 
+class FieldRole(str, Enum):
+    """What a result field is, the same in every format: the per-format map of fields a consumer
+    (a code check, a comparison) reads instead of a format's field names.
+
+    A reader tags a field with a role only when it holds the field in the role's layout and
+    convention below -- adapy's canonical one, which is Sesam's (a field of another format is
+    converted to it by its reader). Ids are the numbers people read (external labels).
+
+    ``NODAL_DISPLACEMENT``
+        ``NodalFieldData``, rows ``[node, U1, U2, U3, U4, U5, U6]``, global axes.
+    ``NODAL_REACTION``
+        ``NodalFieldData``, rows ``[node, F1 .. F6]``, global axes, the force the support puts on
+        the structure.
+    ``SHELL_STRESS``
+        ``ElementFieldData``, rows ``[element, point, SIGXX, SIGYY, TAUXY]`` (tension positive) in
+        the element's axes ``Mesh.element_frames`` at the result points ``Mesh.result_points``:
+        each corner and the centroid on the bottom surface (local ``z = -t/2``), then the same on
+        the top -- for a 4-node shell ``n1 n2 c n4 n3``, for a 3-node one ``n1 n2 c n3``.
+    ``BEAM_FORCES``
+        ``ElementFieldData``, rows ``[element, station, NXX, NXY, NXZ, MXX, MXY, MXZ]`` at stations
+        1, 2, 3 (start, middle, end) in the beam's local axes (x along it, z ``Mesh.vectors``):
+        ``NXX`` tension positive, ``dMXZ/dx = NXY`` and ``dMXY/dx = -NXZ``.
+    """
+
+    NODAL_DISPLACEMENT = "nodal_displacement"
+    NODAL_REACTION = "nodal_reaction"
+    SHELL_STRESS = "shell_stress"
+    BEAM_FORCES = "beam_forces"
+
+
 @dataclass
 class FieldData:
     name: str
@@ -45,6 +75,9 @@ class FieldData:
     # The values are a DIFFERENCE between two results (``FEAResultComparison``), so zero
     # means "unchanged" and the colour scale is centred on it.
     difference: bool = False
+    #: What the field is in every format (:class:`FieldRole`), when it is held in that role's layout; None for any
+    #: other field. Last, so that readers building fields by position are not affected.
+    role: FieldRole | None = None
 
 
 class NodalFieldType(str, Enum):

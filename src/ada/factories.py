@@ -350,8 +350,16 @@ def from_fem_res(
     fem_format: str = None,
     super_element=None,
     field_cache: bool | str | pathlib.Path | None = None,
+    lazy: bool = False,
 ) -> FEAResult:
     """Read an FEA result file.
+
+    ``lazy``: read the cases one at a time instead of every one up front, the same way from every format it
+    knows (a Sesam ``.SIN``, a Code_Aster ``.rmed`` of a run adapy wrote): the result has the mesh, the model data
+    a structural check reads beside it (``Mesh.thickness``, ``element_frames``, ``result_points``,
+    ``section_kinds``, ``concept_names``, ``restrained_nodes``, ``eccentricities``) and ``FEAResult.cases``, whose
+    ``iter_steps`` reads the stored cases as the role fields of ``ada.fem.results.field_data.FieldRole``, in one
+    layout and convention whichever solver wrote them. ``results`` is empty.
 
     ``super_element`` (Sesam ``.SIN``): a superelement assembly reads whole by default, every
     superelement placed and merged. Limit it with one superelement (``"SEL12.IND1"``, ``12``,
@@ -362,6 +370,12 @@ def from_fem_res(
     memory, for results larger than you want resident; a directory puts the file there.
     None reads ``ADA_FEM_RES_CACHE`` (``1`` turns it on). The values are the same bytes.
     """
+    if lazy:
+        from ada.fem.results.open_result import open_result
+
+        options = {"super_element": super_element} if super_element is not None else {}
+        return open_result(fem_file, **options)
+
     from ada.fem.formats.postprocess import postprocess
 
     return postprocess(fem_file, fem_format, super_element=super_element, field_cache=field_cache)

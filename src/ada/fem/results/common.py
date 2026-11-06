@@ -21,9 +21,12 @@ if TYPE_CHECKING:
     import trimesh
 
     from ada import Material, Node, Section
+    from ada.api.spatial.assembly import FemJob
     from ada.fem import Elem, FemSet
+    from ada.fem.results.cases import ResultCases
     from ada.fem.results.compare import FEAResultComparison
     from ada.fem.results.concepts import EigenDataSummary
+    from ada.fem.results.field_data import FieldRole
     from ada.visit.colors import Color
     from ada.visit.rendering.renderer_react import RenderBackend
 
@@ -201,6 +204,16 @@ def report_unrenderable(unrenderable: dict[str, int]) -> None:
     )
 
 
+#: ``Mesh.section_kinds``' values: the beam profiles a section's dimensions describe.
+#:
+#: * ``"i"``: an I or T girder: ``h``, ``t_w``, top flange ``w_top``/``t_ftop``, bottom ``w_btn``/``t_fbtn``
+#: * ``"angle"``: an L section (a bulb flat idealised as one too): ``h``, ``t_w``, flange ``w_btn``/``t_fbtn``
+#: * ``"bar"``: a solid (flat) bar: height ``h``, width ``w_top`` at the top and ``w_btn`` at the bottom
+#: * ``"box"``, ``"pipe"``, ``"channel"``: closed and other open profiles a plate check does not model
+#: * ``"general"``: section properties only, no profile
+SECTION_KINDS = ("i", "angle", "bar", "box", "pipe", "channel", "general")
+
+
 @dataclass
 class Mesh:
     elements: list[ElementBlock]
@@ -216,6 +229,24 @@ class Mesh:
     # profile is drawn centred on the element axis, floating beside the plate it is
     # welded to. None for readers that carry no eccentricity concept.
     eccentricities: dict[int, list] = None
+
+    # The model data a structural check reads beside the results, the same in every format
+    # (``ada.fem.results.field_data.FieldRole``). None where the reader has none of it.
+    #: ``{shell element: thickness}``.
+    thickness: dict[int, float] = None
+    #: ``{element: 3x3}``, rows the element's local x, y, z in global axes: the axes its role fields
+    #: (``SHELL_STRESS``, ``BEAM_FORCES``) are in.
+    element_frames: dict[int, np.ndarray] = None
+    #: ``{element: {point: xyz}}``: where an element's ``SHELL_STRESS`` / ``BEAM_FORCES`` rows are.
+    result_points: dict[int, dict[int, np.ndarray]] = None
+    #: ``{section id (elem_data's): kind}``, the profile a beam section is by
+    #: :data:`SECTION_KINDS`: what a section's dimensions in ``sections`` mean.
+    section_kinds: dict[int, str] = None
+    #: ``{element: the name of the structural member it meshes}`` (a stiffener, a girder, a plate).
+    concept_names: dict[int, str] = None
+    #: Nodes held by the analysis: a support (fixed or prescribed) on any DOF, or either end of a
+    #: rigid link.
+    restrained_nodes: frozenset[int] = None
 
     def _elem_counts(self) -> dict[str, int]:
         el_counts: dict[str, int] = {}
@@ -596,6 +627,78 @@ class FEAResult:
     # dynamics frames -- the viewer opens on the last state and plays through time),
     # "static" / "eigen" otherwise. None leaves the bake's step-value heuristic to decide.
     analysis_kind: Literal["static", "eigen", "transient"] | None = None
+    #: The result cases and how to read them one at a time, in the role layouts
+    #: (``ada.fem.results.cases.ResultCases``): set by ``ada.from_fem_res(path, lazy=True)``; None from the
+    #: readers that load every step at once.
+    cases: "ResultCases | None" = None
+    #: Whether the analysis this result is of has run. ``Assembly.to_fem`` always returns a result: one written
+    #: but not run (``execute=False``, ``write_input_files_only``) has ``executed`` False and no fields, and
+    #: :meth:`execute` runs it. A result read from a file is of a run.
+    executed: bool = True
+    #: How ``Assembly.to_fem`` wrote it (``ada.api.spatial.assembly.FemJob``), for :meth:`execute`; None for a
+    #: result read from a file.
+    job: "FemJob | None" = field(default=None, repr=False, compare=False)
+
+    def execute(self, overwrite: bool = False, **options) -> "FEAResult":
+        """Run the analysis this result is of, and read its results into this object (returned too).
+
+        For the result ``Assembly.to_fem`` returned, which knows the model and the deck. Not run yet: the deck
+        ``to_fem`` wrote is run. Run already: nothing is done, unless ``overwrite`` -- then the model is written
+        again and run again, as it is now. ``options`` replace ``to_fem``'s execution options for this run
+        (``cpus``, ``gpus``, ``run_ext``, ``exit_on_complete``, ``run_in_shell``).
+        """
+        if self.job is None:
+            raise ValueError(f"{self.name}: no analysis to execute; this result was read from a file")
+        if self.executed and not overwrite:
+            logger.info(f"{self.name}: the analysis has run; execute(overwrite=True) writes and runs it again")
+            return self
+        fresh = self.job.run(overwrite=overwrite, **options)
+        self._take(fresh)
+        return self
+
+    def case_fields(
+        self,
+        *roles: "FieldRole | str",
+        cases: "Iterable[int] | None" = None,
+        elements: "Iterable[int] | None" = None,
+    ) -> "dict[int, list[ElementFieldData | NodalFieldData]]":
+        """The fields of ``roles`` (``FieldRole`` or its name, e.g. ``"shell_stress"``; all roles when none are
+        given) of each stored case, ``{case: [fields]}``, read one case at a time.
+
+        ``cases``: these stored cases only (all by default). ``elements``: the beams whose ``BEAM_FORCES`` are
+        needed (all by default). For a result read case by case (``Assembly.to_fem(..., lazy=True)``,
+        ``ada.from_fem_res(path, lazy=True)``); every format gives the same layout (``FieldRole``).
+        """
+        from .field_data import FieldRole
+
+        if self.cases is None:
+            raise ValueError(
+                f"{self.name}: no cases to read one at a time; read the result with to_fem(..., lazy=True) or "
+                "ada.from_fem_res(path, lazy=True)"
+            )
+        wanted = [FieldRole(r) for r in roles] or None
+        steps = self.cases.stored if cases is None else list(cases)
+        return {
+            int(case): [f for f in step.results if f.role is not None and (wanted is None or f.role in wanted)]
+            for case, step in self.cases.iter_steps(steps, roles=wanted, elements=elements)
+        }
+
+    def derived_field(self, name: str, cases: "Iterable[int] | None" = None) -> "dict[int, dict[int, float]]":
+        """``{case: {node: value}}`` of a quantity worked out from the role fields, the same for every solver:
+        ``"von_mises"``, the shells' von Mises stress (``ada.fem.results.derived``). For a result read case by
+        case (``to_fem(..., lazy=True)``, ``ada.from_fem_res(path, lazy=True)``)."""
+        from .derived import derived_nodal
+
+        return derived_nodal(self, name, cases)
+
+    def _take(self, other: "FEAResult") -> None:
+        """Become ``other`` (a result of the same job), keeping this object's identity."""
+        import dataclasses
+
+        for f in dataclasses.fields(self):
+            setattr(self, f.name, getattr(other, f.name))
+        for res in self.results or []:
+            res._mesh = self.mesh
 
     def __post_init__(self):
         if self.results is None:
@@ -879,8 +982,13 @@ class FEAResult:
         apply_transform=False,
         stream: bool | None = None,
         render_backend: RenderBackend | None = None,
+        derived: "Iterable[str] | None" = None,
     ):
         """Show the result in the viewer.
+
+        ``derived``: quantities worked out from the role fields to show beside the file's own fields, one step
+        per load case, e.g. ``["von_mises"]`` (``ada.fem.results.derived.DERIVED``). For a result read case by
+        case (``to_fem(..., lazy=True)``, ``ada.from_fem_res(path, lazy=True)``), streamed.
 
         ``stream`` (default: on for the react viewer outside a notebook): bake the result
         and let the viewer read it the way the REST viewer does -- the mesh first, then
@@ -911,7 +1019,10 @@ class FEAResult:
                 server_args=server_args,
                 run_ws_in_thread=run_ws_in_thread,
                 render_backend=render_backend,
+                derived=derived,
             )
+        if derived:
+            raise ValueError("derived fields are shown by the streaming viewer (stream=True)")
 
         # Use RendererManager to handle renderer setup and WebSocket connection
         renderer_manager = RendererManager(
