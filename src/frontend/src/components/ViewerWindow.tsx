@@ -1,6 +1,7 @@
 import React from "react";
 import {ViewerPanel} from "@/state/viewerPanelStore";
 import {FloatingWindow} from "@/components/ui/FloatingWindow";
+import {TransformedHost} from "@/components/ui/OverlayPortal";
 import {CloseGlyph, ExternalGlyph, WindowFrame, WindowHeaderActions, WindowHeaderButton} from "@/components/ui/PanelFrame";
 
 // The in-viewer window of the Admin and Convert panels, drawn by the classic
@@ -101,7 +102,8 @@ export const ViewerWindow: React.FC<{
                     </WindowHeaderActions>
                 }
             >
-                {children}
+                {/* The window moves by a transform: fixed overlays of the content portal out (`OverlayPortal`). */}
+                <TransformedHost>{children}</TransformedHost>
             </WindowFrame>
         )}
     </FloatingWindow>

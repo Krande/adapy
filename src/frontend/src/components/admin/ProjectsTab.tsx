@@ -3,6 +3,7 @@ import {AdminProject, ApiError, ProjectMember, viewerApi} from "@/services/viewe
 import {DataTable, DataTableColumn} from "@/components/common/DataTable";
 import {useTableLayout} from "@/components/common/useTableLayout";
 import {sortProjectsBy} from "@/utils/sortProjects";
+import {OverlayPortal} from "@/components/ui/OverlayPortal";
 
 // Project management. Two layouts:
 // * sm:↑ side-by-side list + member detail (the desktop two-pane view).
@@ -549,8 +550,10 @@ const CiBotTokenModal: React.FC<{
     };
 
     return (
+        // Out of the in-viewer window (it moves by a transform) to the page; in place on /admin.
+        <OverlayPortal>
         <div
-            className="fixed inset-0 z-60 flex items-start sm:items-center justify-center bg-black/70 p-4 overflow-y-auto"
+            className="fixed inset-0 z-[70] flex items-start sm:items-center justify-center bg-black/70 p-4 overflow-y-auto"
             onClick={onClose}
         >
             <div
@@ -605,6 +608,7 @@ export ADAPY_VIEWER_URL=<viewer URL>
                 </div>
             </div>
         </div>
+        </OverlayPortal>
     );
 };
 

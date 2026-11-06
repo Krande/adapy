@@ -6,6 +6,7 @@ import {formatBytes} from "@/utils/format";
 import {DataTable, DataTableColumn} from "@/components/common/DataTable";
 import FileTreeView from "../FileTreeView";
 import {ViewMode, ViewModeToggle} from "./shared";
+import {OverlayPortal} from "@/components/ui/OverlayPortal";
 
 const COPY_TH = "px-3 py-1 border-b border-gray-800";
 const COPY_TD = "px-3 py-1 border-b border-gray-800";
@@ -177,7 +178,9 @@ const CopyFromScopeModal: React.FC<{
     }, [dstScope, srcScope, selected, onCopied]);
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
+        // Out of the in-viewer window (it moves by a transform) to the page; in place on /admin.
+        <OverlayPortal>
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
             <div
                 className="bg-gray-900 border border-gray-700 rounded-md w-full max-w-2xl max-h-[85vh] flex flex-col"
                 onClick={(e) => e.stopPropagation()}
@@ -282,6 +285,7 @@ const CopyFromScopeModal: React.FC<{
                 </div>
             </div>
         </div>
+        </OverlayPortal>
     );
 };
 

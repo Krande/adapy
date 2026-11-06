@@ -14,6 +14,7 @@
 import React, {lazy} from "react";
 
 import {FloatingWindow} from "@/components/ui/FloatingWindow";
+import {TransformedHost} from "@/components/ui/OverlayPortal";
 import {CloseGlyph, WindowFrame, WindowHeaderButton} from "@/components/ui/PanelFrame";
 import {SEARCH_WINDOW_TITLE, useSearchWindowStore} from "@/state/searchWindowStore";
 
@@ -48,7 +49,8 @@ export const SearchWindow: React.FC<{onClose: () => void; children: React.ReactN
                     </WindowHeaderButton>
                 }
             >
-                {children}
+                {/* The window moves by a transform: fixed overlays of the content portal out (`OverlayPortal`). */}
+                <TransformedHost>{children}</TransformedHost>
             </WindowFrame>
         )}
     </FloatingWindow>

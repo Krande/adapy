@@ -3,6 +3,7 @@ import {request_list_of_nodes} from "@/utils/node_editor/handlers/request_list_o
 import {useNodeEditorStore} from '@/state/useNodeEditorStore';
 import {start_new_node_editor} from "@/utils/node_editor/handlers/start_new_node_editor";
 import {FloatingWindow} from "@/components/ui/FloatingWindow";
+import {TransformedHost} from "@/components/ui/OverlayPortal";
 import ReloadIcon from "../icons/ReloadIcon";
 import PopOutIcon from "../icons/PopOutIcon";
 import NodeEditorBody from "./NodeEditorBody";
@@ -46,9 +47,11 @@ const NodeEditorComponent: React.FC = () => {
                     <WindowDockActions/>
                 </div>
             </div>
-            {/* Content Area */}
+            {/* Content Area. The window moves by a transform: fixed overlays of the content portal out (`OverlayPortal`). */}
             <div style={{width: '100%', height: 'calc(100% - 40px)'}}>
-                <NodeEditorBody/>
+                <TransformedHost>
+                    <NodeEditorBody/>
+                </TransformedHost>
             </div>
         </FloatingWindow>
     );

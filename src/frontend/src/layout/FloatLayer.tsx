@@ -13,6 +13,7 @@
 import React from "react";
 
 import {FloatingWindow} from "@/components/ui/FloatingWindow";
+import {TransformedHost} from "@/components/ui/OverlayPortal";
 import {PanelFrame, WindowDockProvider, type WindowDock} from "@/components/ui/PanelFrame";
 
 import {PanelMount, usePanelStates, useLayout, zonePanels} from "./LayoutHost";
@@ -55,7 +56,8 @@ export const DefaultWindowChrome: WindowChrome = ({panel, close, children}) => {
           onClose={panel.capabilities.closable ? close : undefined}
           dragHandleClassName={fullScreen ? undefined : DRAG_HANDLE}
         >
-          {children}
+          {/* The window moves by a transform: fixed overlays of the content portal out (`OverlayPortal`). */}
+          <TransformedHost>{children}</TransformedHost>
         </PanelFrame>
       )}
     </FloatingWindow>

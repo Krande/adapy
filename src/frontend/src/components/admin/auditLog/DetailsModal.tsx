@@ -1,5 +1,6 @@
 import React, {useEffect, useState} from "react";
 import {ApiError, AuditEntry, viewerApi} from "@/services/viewerApi";
+import {OverlayPortal} from "@/components/ui/OverlayPortal";
 import {useAuditFilterStore} from "@/state/auditFilterStore";
 import ClientMetricsTab from "./ClientMetricsTab";
 import MetricsTab from "./MetricsTab";
@@ -101,8 +102,10 @@ const DetailsModal: React.FC<{entry: AuditEntry; onClose: () => void}> = ({entry
     };
 
     return (
+        // Out of the in-viewer window (it moves by a transform) to the page; in place on /admin.
+        <OverlayPortal>
         <div
-            className="fixed inset-0 z-60 flex items-start sm:items-center justify-center bg-black/70 p-4 overflow-y-auto"
+            className="fixed inset-0 z-[70] flex items-start sm:items-center justify-center bg-black/70 p-4 overflow-y-auto"
             onClick={onClose}
         >
             <div
@@ -187,6 +190,7 @@ const DetailsModal: React.FC<{entry: AuditEntry; onClose: () => void}> = ({entry
                 </div>
             </div>
         </div>
+        </OverlayPortal>
     );
 };
 

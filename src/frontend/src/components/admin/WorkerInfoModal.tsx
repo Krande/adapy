@@ -2,6 +2,7 @@ import React, {useEffect, useState} from "react";
 import {ApiError, viewerApi, WorkerEntry, WorkerPackage} from "@/services/viewerApi";
 import {isMissingManifest, MISSING_MANIFEST_NOTE} from "./workerPackages";
 import {formatDuration, formatRelativeTime} from "@/utils/format";
+import {OverlayPortal} from "@/components/ui/OverlayPortal";
 
 // Per-worker detail modal opened from the info button in WorkersTab. Everything shown here is
 // already in hand (the registration entry the row was built from) except the conda package
@@ -113,8 +114,10 @@ const WorkerInfoModal: React.FC<{worker: WorkerEntry; now: number; onClose: () =
     const sourceExts = w.source_exts ?? [];
 
     return (
+        // Out of the in-viewer window (it moves by a transform) to the page; in place on /admin.
+        <OverlayPortal>
         <div
-            className="fixed inset-0 z-60 flex items-start sm:items-center justify-center bg-black/70 p-4 overflow-y-auto"
+            className="fixed inset-0 z-[70] flex items-start sm:items-center justify-center bg-black/70 p-4 overflow-y-auto"
             onClick={onClose}
         >
             <div
@@ -226,6 +229,7 @@ const WorkerInfoModal: React.FC<{worker: WorkerEntry; now: number; onClose: () =
                 </div>
             </div>
         </div>
+        </OverlayPortal>
     );
 };
 

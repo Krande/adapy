@@ -1,17 +1,19 @@
 import React from "react";
 import type {UploadFailures} from "./useCorpusFiles";
+import {OverlayPortal} from "@/components/ui/OverlayPortal";
 
-// Failed-uploads overview + retry. Not portaled — like the copy-from-scope
-// modal it renders inside the admin panel's stacking context, so z-50
-// suffices here. Retry re-runs only the failed files (the skip-existing
-// pre-check makes a partially-succeeded upload a safe no-op).
+// Failed-uploads overview + retry. Like the copy-from-scope modal it portals
+// out of the in-viewer window (which moves by a transform) to the page, and
+// renders in place on /admin. Retry re-runs only the failed files (the
+// skip-existing pre-check makes a partially-succeeded upload a safe no-op).
 const UploadFailuresDialog: React.FC<{
     uploadFailures: UploadFailures;
     uploading: boolean;
     onClose: () => void;
     onRetry: (files: File[], folder?: string) => void;
 }> = ({uploadFailures, uploading, onClose, onRetry}) => (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+                <OverlayPortal>
+                <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 p-4">
                     <div className="bg-gray-900 border border-gray-700 rounded-md w-full max-w-lg max-h-[70vh] flex flex-col">
                         <div className="px-4 py-3 border-b border-gray-700 text-sm font-semibold text-gray-100">
                             {uploadFailures.failed.length} upload{uploadFailures.failed.length === 1 ? "" : "s"} failed
@@ -55,6 +57,7 @@ const UploadFailuresDialog: React.FC<{
                         </div>
                     </div>
                 </div>
+                </OverlayPortal>
 );
 
 export default UploadFailuresDialog;
