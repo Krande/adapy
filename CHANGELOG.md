@@ -2,6 +2,15 @@
 
 
 
+## v0.137.0 (2026-11-06)
+
+### Feature
+
+* feat(viewer): desktop-style UI features in core, pop-out panels, and ada desktop dev mode, remote servers and SSO (#501)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`841d262`](https://github.com/Krande/adapy/commit/841d2621926f80444d3dd9576bee03f3b956b800))
+
+
 ## v0.136.0 (2026-11-06)
 
 ### Feature
