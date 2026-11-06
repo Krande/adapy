@@ -82,7 +82,9 @@ export interface TreeViewState {
     /** O(1) selection-sync lookup by the only globally-unique identity a picked
      *  range has: the loaded model's key plus the GLB's numeric node id. */
     findNodeByRangeId: (modelKey: string, rangeId: string) => TreeNodeData | null;
+    /** @deprecated The selection tree's flag, inverted. Ask `isPanelOpen("core:tree")` (`@/viewer-core`); open and close it with `reveal` / `hide`. */
     isTreeCollapsed: boolean;
+    /** @deprecated Use `reveal("core:tree")` / `hide("core:tree")` from `@/viewer-core`, which the layout controls. */
     setIsTreeCollapsed: (collapsed: boolean) => void;
     setTree: (tree: TreeApi<any>) => void;
     searchTerm: string;

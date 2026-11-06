@@ -5,6 +5,7 @@ import {create} from "zustand";
 // services/transport.ts so the store has no transport coupling.
 
 export type OptionsState = {
+    /** @deprecated The Options panel's flag. Ask `isPanelOpen("core:options")` (`@/viewer-core`); open and close it with `reveal` / `hide`. */
     isOptionsVisible: boolean;
     showPerf: boolean;
     showEdges: boolean;
@@ -37,6 +38,7 @@ export type OptionsState = {
     // regions. Gates the solid/faces toggle so it only appears when face picking can actually work.
     faceRegionsAvailable: boolean;
 
+    /** @deprecated Use `reveal("core:options")` / `hide("core:options")` from `@/viewer-core`, which the layout controls. */
     setIsOptionsVisible: (value: boolean) => void;
     setShowPerf: (value: boolean) => void;
     setShowEdges: (value: boolean) => void;

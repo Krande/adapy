@@ -24,9 +24,12 @@ export interface TableNavState {
     /** Whether the data-table panel is open. Lifted out of
      * SimulationControls' local state so external triggers
      * (ObjectInfoBoxComponent's "Show in data" button, future
-     * keyboard shortcuts) can open the panel without prop-drilling. */
+     * keyboard shortcuts) can open the panel without prop-drilling.
+     * @deprecated The result data table's flag. Ask `isPanelOpen("core:fea-table")` (`@/viewer-core`); open and close it with `reveal` / `hide`. */
     isPanelOpen: boolean;
+    /** @deprecated Use `reveal("core:fea-table")` / `hide("core:fea-table")` from `@/viewer-core`, which the layout controls. */
     setPanelOpen: (open: boolean) => void;
+    /** @deprecated Use `toggle("core:fea-table")` from `@/viewer-core`, which the layout controls. */
     togglePanel: () => void;
 }
 

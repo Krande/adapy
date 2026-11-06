@@ -6,6 +6,7 @@ import {
 } from "@/components/common/PositionedMenu";
 import { useCellBuilderStore } from "@/state/cellBuilderStore";
 import { useEquipmentCatalogStore } from "@/state/equipmentCatalogStore";
+import { CORE_PANEL_IDS, reveal } from "@/layout/panelActions";
 
 // The cell context menu, opened by a long-press (touch) or right-click
 // (desktop) over a builder cell — see CellBuilderController. It offers the two
@@ -19,7 +20,6 @@ const CellBuilderContextMenu: React.FC = () => {
   const close = useCellBuilderStore((s) => s.closeContextMenu);
   const setSelection = useCellBuilderStore((s) => s.setSelection);
   const setGizmoMode = useCellBuilderStore((s) => s.setGizmoMode);
-  const setPanelVisible = useCellBuilderStore((s) => s.setPanelVisible);
   const openInsertMenu = useCellBuilderStore((s) => s.openInsertMenu);
   const openEquipmentEditor = useEquipmentCatalogStore((s) => s.openForSlug);
   const removeCell = useCellBuilderStore((s) => s.removeCell);
@@ -92,7 +92,7 @@ const CellBuilderContextMenu: React.FC = () => {
           return;
         }
         pick();
-        setPanelVisible(true);
+        reveal(CORE_PANEL_IDS.cellbuilder);
       },
     },
     // Equipment can be re-seated onto/into a cell (same popover as the

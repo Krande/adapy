@@ -3,11 +3,10 @@ import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
 import {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
 import {centerViewOnSelection} from "@/utils/scene/centerViewOnSelection";
 import {OrbitControls} from "three/examples/jsm/controls/OrbitControls";
-import {useOptionsStore} from "@/state/optionsStore";
 import {useGalleryStore} from "@/state/galleryStore";
 import {useMeStore} from "@/state/meStore";
 import {useViewMetricsStore} from "@/state/viewMetricsStore";
-import {useViewerPanelStore} from "@/state/viewerPanelStore";
+import {CORE_PANEL_IDS, toggle as togglePanel} from "@/layout/panelActions";
 import {useTreeViewStore} from "@/state/treeViewStore";
 import CameraControls from "camera-controls";
 import {copySelectionNames} from "@/utils/clipboard/copySelectionNames";
@@ -113,17 +112,12 @@ export function setupCameraControlsHandlers(
             void cb.compilePreviewSelected();
         }),
         "core:toggle-gallery": shortcut(() => useGalleryStore.getState().toggle()),
-        "core:toggle-options": shortcut(() => {
-            const {isOptionsVisible, setIsOptionsVisible} = useOptionsStore.getState();
-            setIsOptionsVisible(!isOptionsVisible);
-        }),
+        "core:toggle-options": shortcut(() => void togglePanel(CORE_PANEL_IDS.options)),
         // The admin panel, toggled -- offered to the same people as Options' "Admin panel" button;
         // for anyone else the key does nothing.
         "core:toggle-admin": shortcut(() => {
             if (!useMeStore.getState().isAdmin) return false;
-            const {shown, openPanel, closePanel} = useViewerPanelStore.getState();
-            if (shown.includes("admin")) closePanel("admin");
-            else openPanel("admin");
+            togglePanel(CORE_PANEL_IDS.admin);
         }),
         // Start / end a render-profiling session (administrators only). A render is requested so
         // the profiler sees the switch at once, not on the next camera move.

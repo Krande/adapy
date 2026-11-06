@@ -6,6 +6,7 @@ import {SheetHandle} from "@/components/ui/SheetHandle";
 import {hasEmbeddedDoc, useCellBuilderStore} from "@/state/cellBuilderStore";
 import {useEquipmentCatalogStore} from "@/state/equipmentCatalogStore";
 import {useBottomSheet} from "@/utils/useBottomSheet";
+import {CORE_PANEL_IDS, hide} from "@/layout/panelActions";
 import {offeredTabs, shownTab, type PanelTab} from "./cellbuilder/panel/chrome";
 import {useLocalModelBrowser} from "./cellbuilder/panel/useLocalModelBrowser";
 import {PanelHeader} from "./cellbuilder/panel/PanelHeader";
@@ -194,7 +195,7 @@ export const CellBuilderContent: React.FC<{state: CellBuilderPanelState} & CellB
 const CellBuilderPanel: React.FC = () => {
   const loaded = useCellBuilderStore((s) => s.active !== null || hasEmbeddedDoc(s));
   const panelVisible = useCellBuilderStore((s) => s.panelVisible);
-  const sheet = useBottomSheet(() => useCellBuilderStore.getState().setPanelVisible(false));
+  const sheet = useBottomSheet(() => void hide(CORE_PANEL_IDS.cellbuilder));
   const state = useCellBuilderPanelState();
 
   // Either an editable session (`active`) or a view-only document loaded off a

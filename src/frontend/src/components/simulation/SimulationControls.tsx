@@ -21,6 +21,10 @@ import React, {useEffect, useMemo, useRef, useState, useSyncExternalStore} from 
 import {useAnimationStore} from "@/state/animationStore";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {useTableNavStore} from "@/state/tableNavStore";
+import {toggle} from "@/layout/panelActions";
+
+/** The result data table, opened and closed as the panel it is (`core:fea-table`). */
+const toggleDataTable = (): void => void toggle(CORE_PANEL_IDS.feaTable);
 import {requestRender, usePerfStore} from "@/state/perfStore";
 
 import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
@@ -140,7 +144,7 @@ export function useSimulationTabs(forcedTabId?: string, opts: {excludeDockedTabs
     // work for the button-toggle case but breaks the cross-component
     // open-from-info-panel flow.
     const showSimData = useTableNavStore((s) => s.isPanelOpen);
-    const togglePanel = useTableNavStore((s) => s.togglePanel);
+    const togglePanel = toggleDataTable;
 
     const stores = useViewerStores();
 
@@ -265,11 +269,10 @@ export const AnimationControls: React.FC<ResultControlsOptions> = (display) => {
     const sessionActive = useFeaAnimationStore((s) => s.sessionActive);
     const hasAnimation = useAnimationStore((s) => s.hasAnimation);
     const showSimData = useTableNavStore((s) => s.isPanelOpen);
-    const togglePanel = useTableNavStore((s) => s.togglePanel);
     if (sessionActive) {
-        return <FeaModeControls showSimData={showSimData} onToggleData={togglePanel} display={display} />;
+        return <FeaModeControls showSimData={showSimData} onToggleData={toggleDataTable} display={display} />;
     }
-    return hasAnimation ? <GltfClipControls showSimData={showSimData} onToggleData={togglePanel} /> : null;
+    return hasAnimation ? <GltfClipControls showSimData={showSimData} onToggleData={toggleDataTable} /> : null;
 };
 
 /** The classic frame: `SimWindowFrame`, docked in the menu column, floating, or a whole window. */

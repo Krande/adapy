@@ -47,10 +47,12 @@ export interface ViewStateSlice {
    * positions + direction vectors drawn as coloured arrows (colours match the
    * catalog editor). Off by default. */
   portsOverlayVisible: boolean;
+  /** @deprecated The cellbuilder panel's flag. Ask `isPanelOpen("core:cellbuilder")` (`@/viewer-core`); open and close it with `reveal` / `hide`. */
   panelVisible: boolean;
   /** Toggle whether an equipment cell renders as its type's CAD model (vs the
    * placeholder box) in the main viewer. No-op for non-equipment cells. */
   toggleCadPreview: (cellId: string) => void;
+  /** @deprecated Use `reveal("core:cellbuilder")` / `hide("core:cellbuilder")` from `@/viewer-core`, which the layout controls. */
   setPanelVisible: (v: boolean) => void;
   setCellsVisible: (v: boolean) => void;
   /** Hide the given cells (per-cell "Hide selected"). */

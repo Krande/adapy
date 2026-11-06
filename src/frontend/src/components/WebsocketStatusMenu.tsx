@@ -1,20 +1,21 @@
 import {PanelCard} from "@/components/ui/PanelFrame";
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {useWebsocketStatusStore} from '../state/websocketStatusStore';
+import {CORE_PANEL_IDS, toggle as togglePanel} from '@/layout/panelActions';
 import {comms} from '../utils/comms';
 import {requestServerInfo} from '../utils/websocket/requestServerInfo';
 import {requestConnectedClients} from '../utils/websocket/requestConnectedClients';
 import {requestShutdownServer} from '../utils/websocket/requestShutdownServer';
 
 export function WebsocketStatusMenu() {
-    const {connected, toggleShowInfoBox} = useWebsocketStatusStore();
+    const connected = useWebsocketStatusStore((s) => s.connected);
 
     const handleInfoClick = () => {
         if (connected) {
             requestServerInfo();
             requestConnectedClients();
         }
-        toggleShowInfoBox();
+        togglePanel(CORE_PANEL_IDS.wsStatus);
     };
 
     return (

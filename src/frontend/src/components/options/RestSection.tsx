@@ -2,7 +2,7 @@ import React, {useState} from "react";
 import {runtime} from "@/runtime/config";
 import {useMeStore} from "@/state/meStore";
 import {useScopeStore, ScopeOption, scopeUrlPart} from "@/state/scopeStore";
-import {useViewerPanelStore} from "@/state/viewerPanelStore";
+import {CORE_PANEL_IDS, reveal} from "@/layout/panelActions";
 import {getUser, isAuthEnabled, signIn, signOut} from "@/services/auth/oidc";
 import {applyScopeChange} from "@/utils/scope/scopeChange";
 
@@ -32,15 +32,14 @@ const RestSection: React.FC = () => {
 const ConvertButton: React.FC = () => {
     // Any authed user can hit Convert — the panel is the primary
     // upload + convert entry point and gates on scope-level access
-    // server-side. Opens as an in-viewer Rnd modal so the 3D model
-    // stays on screen; the modal's external-link button pops the
+    // server-side. Opens as an in-viewer window so the 3D model
+    // stays on screen; the window's external-link button pops the
     // dedicated ``/convert`` page in a new tab when the user wants
     // a full-screen workspace.
-    const openPanel = useViewerPanelStore((s) => s.openPanel);
     return (
         <button
             type="button"
-            onClick={() => openPanel("convert")}
+            onClick={() => void reveal(CORE_PANEL_IDS.convert)}
             className="block w-full bg-blue-700 hover:bg-blue-600 text-white text-sm font-semibold py-1 px-2 rounded-sm"
         >
             Convert files
@@ -137,12 +136,11 @@ const ScopeSelector: React.FC = () => {
 
 const AdminButton: React.FC = () => {
     const isAdmin = useMeStore((s) => s.isAdmin);
-    const openPanel = useViewerPanelStore((s) => s.openPanel);
     if (!isAdmin) return null;
     return (
         <button
             type="button"
-            onClick={() => openPanel("admin")}
+            onClick={() => void reveal(CORE_PANEL_IDS.admin)}
             className="block w-full bg-purple-700 hover:bg-purple-600 text-white text-sm font-semibold py-1 px-2 rounded-sm"
         >
             Admin panel

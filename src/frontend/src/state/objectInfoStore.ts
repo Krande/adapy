@@ -27,7 +27,9 @@ type ObjectInfoState = {
     // can be scoped without ambiguity when multiple files are overlaid.
     fileName: string | null;
     setFileName: (fileName: string | null) => void;
+    /** @deprecated The object info panel's flag. Ask `isPanelOpen("core:object-info")` (`@/viewer-core`); open and close it with `reveal` / `hide`. */
     show_info_box: boolean;
+    /** @deprecated Use `toggle("core:object-info")` (or `reveal` / `hide`) from `@/viewer-core`, which the layout controls. */
     toggle: () => void;
 };
 

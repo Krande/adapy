@@ -48,6 +48,7 @@ export interface UtilityResult {
 export type SceneInfoMode = 'info' | 'source' | 'utilities' | 'section' | 'fem' | 'mesh' | 'joints' | 'clashes' | 'overlays';
 
 interface SceneInfoState {
+  /** @deprecated The Scene panel's flag. Ask `isPanelOpen("core:scene")` (`@/viewer-core`); open and close it with `reveal` / `hide`. */
   show_scene_info_box: boolean;
   mode: SceneInfoMode;
   selectedGroup: GroupInfo | null;
@@ -58,6 +59,7 @@ interface SceneInfoState {
   utilityKwargs: Record<string, string | number | boolean | null>;
   running: boolean;
   lastResult: UtilityResult | null;
+  /** @deprecated Use `reveal("core:scene")` / `hide("core:scene")` from `@/viewer-core`, which the layout controls. */
   setShowSceneInfoBox: (show: boolean) => void;
   setMode: (mode: SceneInfoMode) => void;
   setSelectedGroup: (group: GroupInfo | null) => void;
@@ -67,6 +69,7 @@ interface SceneInfoState {
   setUtilityKwargs: (kw: Record<string, string | number | boolean | null>) => void;
   setRunning: (r: boolean) => void;
   setLastResult: (r: UtilityResult | null) => void;
+  /** @deprecated Use `toggle("core:scene")` from `@/viewer-core`, which the layout controls. */
   toggle: () => void;
 }
 

@@ -4,6 +4,7 @@ import React, {Suspense} from "react";
 import {useIsNarrow} from "@/utils/useIsMobile";
 import {runtime} from "@/runtime/config";
 import {useOptionsStore} from "@/state/optionsStore";
+import {CORE_PANEL_IDS, hide} from "@/layout/panelActions";
 import PointSizeOptions from "./options/PointSizeOptions";
 import DisplayOptions from "./options/DisplayOptions";
 import LayoutOptions from "./options/LayoutOptions";
@@ -160,7 +161,6 @@ export function OptionsBody({sections: picked, hiddenSections}: OptionsBodyProps
 // The classic frame around `OptionsBody`, in two layouts (see above).
 function OptionsComponent() {
     const isMobile = useIsNarrow();
-    const setIsOptionsVisible = useOptionsStore((s) => s.setIsOptionsVisible);
 
     if (isMobile) {
         // Drawer pinned to the left edge, full visible-viewport height.
@@ -170,7 +170,7 @@ function OptionsComponent() {
                     <span className="font-bold text-base">Options</span>
                     <button
                         type="button"
-                        onClick={() => setIsOptionsVisible(false)}
+                        onClick={() => void hide(CORE_PANEL_IDS.options)}
                         className="text-gray-300 hover:text-white text-xl leading-none px-2"
                         aria-label="Close options"
                         title="Close"

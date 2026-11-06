@@ -20,6 +20,7 @@ interface WebsocketStatusStore {
     processInfo: ServerProcessInfo | null;
     connectedClients: WebClientInfo[];
     logFilePath: string | null;
+    /** @deprecated The connection panel's flag. Ask `isPanelOpen("core:ws-status")` (`@/viewer-core`); open and close it with `reveal` / `hide`. */
     showInfoBox: boolean;
 
     setConnected: (connected: boolean) => void;
@@ -27,7 +28,9 @@ interface WebsocketStatusStore {
     setProcessInfo: (info: ServerProcessInfo | null) => void;
     setConnectedClients: (clients: WebClientInfo[]) => void;
     setLogFilePath: (path: string | null) => void;
+    /** @deprecated Use `reveal("core:ws-status")` / `hide("core:ws-status")` from `@/viewer-core`, which the layout controls. */
     setShowInfoBox: (show: boolean) => void;
+    /** @deprecated Use `toggle("core:ws-status")` from `@/viewer-core`, which the layout controls. */
     toggleShowInfoBox: () => void;
 }
 

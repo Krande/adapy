@@ -9,6 +9,7 @@
 // driver and the go-to-node marker.
 
 import {clearCaseCache} from "@/services/fea/feaCaseResolver";
+import {CORE_PANEL_IDS, hide} from "@/layout/panelActions";
 import {useAnimationStore} from "@/state/animationStore";
 import {useColorStore} from "@/state/colorLegendStore";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
@@ -48,8 +49,5 @@ export function clearActiveFeaStreaming(): void {
     // Hide the panel — without this, the toggle button stays
     // pressed-state on a panel that has nothing useful to show.
     // Re-applying an FEA session sets it back to true.
-    const generalAnimStore = useAnimationStore.getState();
-    if (!generalAnimStore.hasAnimation) {
-        generalAnimStore.setIsControlsVisible(false);
-    }
+    if (!useAnimationStore.getState().hasAnimation) hide(CORE_PANEL_IDS.simulation);
 }

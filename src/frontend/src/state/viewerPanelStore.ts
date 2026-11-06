@@ -23,8 +23,13 @@ type ViewerPanelState = {
     // toast). null = the panel's default tab. Embedded mode doesn't touch the URL hash, so this
     // is how a trigger deep-links a tab into the floating panel.
     adminTab: AdminTabDeepLink | null;
+    /**
+     * Open `p`, on `adminTab` for the admin panel. Without a tab, prefer
+     * `reveal("core:admin")` / `reveal("core:convert")` from `@/viewer-core`, which the
+     * layout controls; with one there is no intent for it yet, so this stays.
+     */
     openPanel: (p: ViewerPanel, adminTab?: AdminTabDeepLink) => void;
-    /** Close `p`, or every window without an argument. */
+    /** Close `p`, or every window without an argument. For one window, prefer `hide("core:admin")` / `hide("core:convert")`. */
     closePanel: (p?: ViewerPanel) => void;
     /** Bring `p` to the front of the open windows. */
     raisePanel: (p: ViewerPanel) => void;

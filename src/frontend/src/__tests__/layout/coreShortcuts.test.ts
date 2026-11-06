@@ -266,3 +266,30 @@ test("a mounted viewer binds every dispatched core key and releases them on unmo
   for (const d of dispatched) assert.equal(live(d.keys), false, `${d.id} is released`);
   assert.equal(listeners.size, 0);
 });
+
+test("Shift+Q and Shift+P open and close their panels through the panel intents", async () => {
+  const { setupCameraControlsHandlers } = await import("@/components/viewer/sceneHelpers/setupCameraControlsHandlers");
+  const { useMeStore } = await import("@/state/meStore");
+  const { setPanelController } = await import("@/layout/reveal");
+  // The layout's controller decides what opening means (a docked tab, a float brought forward):
+  // the keys must ask it, not write the store flags behind its back.
+  const open = new Set<string>();
+  const calls: string[] = [];
+  setPanelController({
+    isOpen: (id) => open.has(id),
+    reveal: (id) => (calls.push(`reveal ${id}`), open.add(id), true),
+    hide: (id) => (calls.push(`hide ${id}`), open.delete(id), true),
+  });
+  const off = setupCameraControlsHandlers({} as any, {} as any, {} as any);
+  try {
+    useMeStore.setState({ isAdmin: true });
+    press("Q", { shiftKey: true });
+    press("Q", { shiftKey: true });
+    press("P", { shiftKey: true });
+    assert.deepEqual(calls, ["reveal core:options", "hide core:options", "reveal core:admin"]);
+  } finally {
+    off();
+    setPanelController(null);
+    useMeStore.setState({ isAdmin: false });
+  }
+});

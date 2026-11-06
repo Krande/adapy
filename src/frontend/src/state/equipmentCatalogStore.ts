@@ -52,9 +52,13 @@ export interface CatalogBboxJob {
 
 interface EquipmentCatalogState {
   // panel visibility
+  /** @deprecated The equipment catalog panel's flag. Ask `isPanelOpen("core:equipment-admin")` (`@/viewer-core`); open and close it with `reveal` / `hide`. */
   equipmentPanelOpen: boolean;
+  /** @deprecated The system catalog panel's flag. Ask `isPanelOpen("core:system-admin")` (`@/viewer-core`); open and close it with `reveal` / `hide`. */
   systemPanelOpen: boolean;
+  /** @deprecated Use `toggle("core:equipment-admin")` (or `reveal` / `hide`) from `@/viewer-core`, which the layout controls. */
   toggleEquipmentPanel: () => void;
+  /** @deprecated Use `toggle("core:system-admin")` (or `reveal` / `hide`) from `@/viewer-core`, which the layout controls. */
   toggleSystemPanel: () => void;
 
   // equipment catalog
