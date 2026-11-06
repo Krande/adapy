@@ -1,134 +1,80 @@
 import React, { useEffect, useState } from "react";
+import { useStore } from "zustand";
 
-// Single source of truth for the keyboard-shortcut help map. Grouped by
-// the CONTEXT in which the keys are live so the user knows WHERE/WHEN each
-// shortcut applies. Adding a shortcut later is a one-line data edit here —
-// the modal renders straight from this array.
-//
-// Inventory mirrors the real handlers:
-//   * Global / viewer  → sceneHelpers/setupCameraControlsHandlers.ts (undo / redo: utils/scene/viewerHistory.ts)
-//   * Gallery walk      → viewer/GalleryControls.tsx
-//   * Procedural cellbuilder → viewer/CellBuilderController.tsx (capture phase)
+import { OverlayPortal } from "@/components/ui/OverlayPortal";
+import { customisablePanelsOn } from "@/layout/layout";
+import { layoutStore } from "@/layout/layoutStore";
+import { CORE_SHORTCUT_GROUPS } from "@/layout/coreShortcutTable";
+import { listShortcuts } from "@/layout/shortcuts";
 
-interface Shortcut {
+// The keyboard shortcuts drawn here all come from the shortcut registry
+// (`layout/shortcuts`): core's own keys (`layout/coreShortcutTable`), a shell's
+// and plugins', and non-core panels' toggles, grouped by the context in which
+// they are live. Adding a shortcut is a registry entry, never an edit here. Only
+// the pointer gestures below are written out, because they are not keys.
+
+export interface Shortcut {
   /** One or more key tokens rendered as separate <kbd> chips, e.g.
-   *  ["Shift", "H"] → "Shift + H". Alternatives get their own entry. */
+   *  ["Shift", "H"] -> "Shift + H". Alternatives get their own entry. */
   keys: string[];
   description: string;
 }
 
-interface ShortcutGroup {
+export interface ShortcutGroup {
   context: string;
   /** Subtitle telling the user when this group's keys are live. */
   when: string;
   shortcuts: Shortcut[];
 }
 
-const SHORTCUT_GROUPS: ShortcutGroup[] = [
-  {
-    context: "Global / viewer",
-    when: "Active whenever the viewer has focus (ignored while typing in a field)",
-    shortcuts: [
-      {
-        keys: ["Shift", "Left-drag"],
-        description:
-          "Box select, added to the selection: dragged rightwards a window (wholly inside), leftwards a crossing (touching)",
-      },
-      {
-        keys: ["Ctrl / ⌘ / Shift", "Left-click"],
-        description: "Add the clicked element to the selection, or take it out if it is selected -- as Ctrl+click does in the tree",
-      },
-      { keys: ["Ctrl", "Left-drag"], description: "Pan the view" },
-      { keys: ["Shift", "H"], description: "Hide the current selection" },
-      { keys: ["Shift", "I"], description: "Hide everything except the current selection" },
-      { keys: ["Shift", "G"], description: "Save the selection as a named group (shared in the scope)" },
-      { keys: ["Shift", "U"], description: "Unhide everything" },
-      { keys: ["Ctrl / ⌘", "Z"], description: "Undo the last hide / show / isolate, selection change, model load or removal, selection box or section plane edit" },
-      { keys: ["Ctrl / ⌘", "Y"], description: "Redo (also Ctrl / ⌘ + Shift + Z)" },
-      { keys: ["Shift", "F"], description: "Center the view on the selection" },
-      { keys: ["Shift", "A"], description: "Zoom to fit the whole model" },
-      { keys: ["Shift", "Q"], description: "Toggle the Options menu" },
-      { keys: ["Shift", "W"], description: "Toggle gallery mode" },
-      { keys: ["Shift", "P"], description: "Toggle the Admin panel (administrators only)" },
-      { keys: ["Shift", "R"], description: "Start / end a render-profiling session (administrators only)" },
-      { keys: ["Shift", "T"], description: "Open the tree at the selected element and focus it for arrow-key navigation; pressed while the tree is focused, close it" },
-      {
-        keys: ["Shift", "C"],
-        description: "Copy selected names to the clipboard (levels picked in the tree copy as the levels' own names)",
-      },
-      { keys: ["Ctrl", "C"], description: "Same as Shift+C, unless text is highlighted" },
-      
-      { keys: ["Esc"], description: "While a tree has focus: close the tree panel (in Sources, first narrows a multi-selection)" },
-      {
-        keys: ["Shift", "↑"],
-        description: "Select the parent level of the current selection (tree up)",
-      },
-      { keys: ["Shift", "↓"], description: "Select the first child level (tree down)" },
-      { keys: ["Shift", "←"], description: "Select the previous sibling" },
-      { keys: ["Shift", "→"], description: "Select the next sibling" },
-    ],
-  },
-  {
-    context: "Gallery walk",
-    when: "Active while stepping through a files/geometry gallery",
-    shortcuts: [
-      { keys: ["←"], description: "Previous item (back onto the previous project's page at its start)" },
-      { keys: ["→"], description: "Next item (onto the next project's page at its end)" },
-      { keys: ["PageUp"], description: "Previous project (previous file within one project)" },
-      { keys: ["PageDown"], description: "Next project (next file within one project)" },
-    ],
-  },
-  {
-    context: "Procedural cellbuilder",
-    when: "Active when a procedural model's cell builder is open (these keys preempt the global ones)",
-    shortcuts: [
-      {
-        keys: ["G"],
-        description: "Translate gizmo (cell or equipment selected)",
-      },
-      { keys: ["R"], description: "Rotate gizmo (equipment only)" },
-      { keys: ["S"], description: "Resize gizmo (cell only)" },
-      {
-        keys: ["X"],
-        description:
-          "Lock the active gizmo to the X axis (press again to release)",
-      },
-      {
-        keys: ["Y"],
-        description:
-          "Lock the active gizmo to the Y axis (press again to release)",
-      },
-      {
-        keys: ["Z"],
-        description:
-          "Lock the active gizmo to the Z axis (press again to release)",
-      },
-      { keys: ["Shift", "H"], description: "Hide the selected cell(s)" },
-      { keys: ["Shift", "U"], description: "Unhide all cells" },
-      {
-        keys: ["PageUp"],
-        description: "Move the selected equipment or opening up a floor",
-      },
-      {
-        keys: ["PageDown"],
-        description: "Move the selected equipment or opening down a floor",
-      },
-      { keys: ["Ctrl / ⌘", "Z"], description: "Undo" },
-      { keys: ["Ctrl / ⌘", "Shift", "Z"], description: "Redo" },
-      { keys: ["Ctrl / ⌘", "Y"], description: "Redo (alternative)" },
-      {
-        keys: ["Esc"],
-        description:
-          "Step back one layer: context menu → gizmo → add-mode → selection",
-      },
-      {
-        keys: ["Enter"],
-        description: "Apply the value typed in the gizmo HUD field",
-      },
-    ],
-  },
-];
+const POINTER_GESTURES: ShortcutGroup = {
+  context: "Mouse",
+  when: "Active over the 3D view",
+  shortcuts: [
+    {
+      keys: ["Shift", "Left-drag"],
+      description: "Box select, added to the selection: dragged rightwards a window (wholly inside), leftwards a crossing (touching)",
+    },
+    {
+      keys: ["Ctrl / \u2318 / Shift", "Left-click"],
+      description: "Add the clicked element to the selection, or take it out if it is selected -- as Ctrl+click does in the tree",
+    },
+    { keys: ["Ctrl", "Left-drag"], description: "Pan the view" },
+  ],
+};
 
+const DEFAULT_WHEN = "Active whenever the viewer has focus (ignored while typing in a field)";
+
+const KEY_NAMES: Record<string, string> = {
+  ctrl: "Ctrl / \u2318",
+  cmd: "Ctrl / \u2318",
+  escape: "Esc",
+  arrowup: "\u2191",
+  arrowdown: "\u2193",
+  arrowleft: "\u2190",
+  arrowright: "\u2192",
+};
+
+/** `"Ctrl+Shift+ArrowUp"` as the chips the dialog draws. */
+function keyTokens(keys: string): string[] {
+  return keys.split("+").map((k) => KEY_NAMES[k.trim().toLowerCase()] ?? k.trim());
+}
+
+/** Every registered shortcut as the dialog's groups (the mouse gestures aside): core's in their fixed order, then the others in first-seen order. */
+export function shortcutDialogGroups(customisable: boolean): ShortcutGroup[] {
+  const byGroup = new Map<string, Shortcut[]>();
+  for (const { group } of CORE_SHORTCUT_GROUPS) byGroup.set(group, []);
+  for (const s of listShortcuts()) {
+    if (s.requires === "customisable-panels" && !customisable) continue;
+    const g = s.group ?? "Shell and plugins";
+    if (!byGroup.has(g)) byGroup.set(g, []);
+    byGroup.get(g)!.push({ keys: keyTokens(s.keys), description: s.label });
+  }
+  const when = new Map(CORE_SHORTCUT_GROUPS.map((g) => [g.group, g.when]));
+  return [...byGroup]
+    .filter(([, shortcuts]) => shortcuts.length > 0)
+    .map(([context, shortcuts]) => ({ context, when: when.get(context) ?? DEFAULT_WHEN, shortcuts }));
+}
 const Kbd: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   <kbd className="inline-block rounded border border-gray-600 bg-gray-800 px-1.5 py-0.5 text-xs font-mono text-gray-100 shadow-sm">
     {children}
@@ -146,21 +92,35 @@ const KeyCombo: React.FC<{ keys: string[] }> = ({ keys }) => (
   </span>
 );
 
+// Open from elsewhere too (a shell's Help menu): a tiny external store the host below follows.
+let externalOpen = false;
+const openListeners = new Set<() => void>();
+const setExternalOpen = (v: boolean) => {
+  if (externalOpen === v) return;
+  externalOpen = v;
+  for (const l of openListeners) l();
+};
+
+/** Open the shortcuts dialog from outside the Options panel; `ShortcutsDialogHost` draws it. */
+export function openShortcutsDialog(): void {
+  setExternalOpen(true);
+}
+
+/** Mount once (a shell's chrome does) to draw the dialog `openShortcutsDialog` opens. */
+export const ShortcutsDialogHost: React.FC = () => {
+  const open = React.useSyncExternalStore(
+    (cb) => {
+      openListeners.add(cb);
+      return () => openListeners.delete(cb);
+    },
+    () => externalOpen,
+    () => false,
+  );
+  return open ? <ShortcutsDialog onClose={() => setExternalOpen(false)} /> : null;
+};
+
 const ShortcutsModal: React.FC = () => {
   const [open, setOpen] = useState(false);
-
-  // Escape closes the modal (mirrors the other centered dialogs, e.g.
-  // WorkerInfoModal). Only wired while open so it doesn't shadow the
-  // viewer's own Escape handling.
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open]);
-
   return (
     <div>
       <button
@@ -169,10 +129,35 @@ const ShortcutsModal: React.FC = () => {
       >
         Shortcut Keys
       </button>
-      {open && (
+      {open && <ShortcutsDialog onClose={() => setOpen(false)} />}
+    </div>
+  );
+};
+
+/** The dialog itself, open while mounted. */
+const ShortcutsDialog: React.FC<{ onClose: () => void }> = ({ onClose }) => {
+  const customisable = useStore(layoutStore, (s) => customisablePanelsOn(s.prefs));
+  // Every shortcut the registry holds (core's, a shell's, plugins', non-core panels'), by group; read when opened.
+  const groups = React.useMemo(() => [POINTER_GESTURES, ...shortcutDialogGroups(customisable)], [customisable]);
+
+  // Escape closes the modal (mirrors the other centered dialogs, e.g.
+  // WorkerInfoModal). Only wired while open so it doesn't shadow the
+  // viewer's own Escape handling.
+  const close = React.useRef(onClose);
+  close.current = onClose;
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") close.current();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  return (
+        <OverlayPortal>
         <div
           className="fixed inset-0 z-[70] flex items-start sm:items-center justify-center bg-black/70 p-4 overflow-y-auto"
-          onClick={() => setOpen(false)}
+          onClick={onClose}
         >
           <div
             className="bg-gray-900 border border-gray-700 rounded-md shadow-xl flex flex-col w-full max-w-3xl max-h-[85vh] my-auto text-white"
@@ -186,7 +171,7 @@ const ShortcutsModal: React.FC = () => {
               <button
                 type="button"
                 className="shrink-0 text-gray-300 hover:text-white text-xl leading-none px-2"
-                onClick={() => setOpen(false)}
+                onClick={onClose}
                 aria-label="Close"
                 title="Close (Esc)"
               >
@@ -195,7 +180,7 @@ const ShortcutsModal: React.FC = () => {
             </div>
 
             <div className="flex-1 overflow-y-auto p-4 space-y-6">
-              {SHORTCUT_GROUPS.map((group) => (
+              {groups.map((group) => (
                 <section key={group.context}>
                   <h3 className="text-sm font-semibold text-blue-300">
                     {group.context}
@@ -219,8 +204,7 @@ const ShortcutsModal: React.FC = () => {
             </div>
           </div>
         </div>
-      )}
-    </div>
+        </OverlayPortal>
   );
 };
 

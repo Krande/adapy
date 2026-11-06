@@ -5,7 +5,7 @@ import {CORE_PANEL_IDS, hide} from "@/layout/panelActions";
 // Shared "View in 3D" dispatcher for the /convert page. Behaviour
 // depends on how the page is mounted:
 //
-// * In-viewer Rnd modal — the 3D scene is already live underneath.
+// * In-viewer window — the 3D scene is already live underneath.
 //   Close the modal (+ the Options drawer if open), then hand the
 //   derived blob straight to ``overlay_file_in_scene``. No new tab,
 //   no scene cold-start, camera state preserved.
@@ -15,7 +15,7 @@ import {CORE_PANEL_IDS, hide} from "@/layout/panelActions";
 //   tab and let ``useUrlParamLoad`` pick it up on the viewer side.
 //
 // Modal detection: ``useViewerPanelStore.open`` is non-null only
-// when ``InViewerPanelHost`` is showing. The store doesn't exist
+// while an in-viewer admin / convert window is showing. The store doesn't exist
 // in the path-mounted route's chunk because that route mounts
 // outside ``AdaViewerProvider``, but importing the store module
 // is safe (zustand initialises on import; no React state needed).

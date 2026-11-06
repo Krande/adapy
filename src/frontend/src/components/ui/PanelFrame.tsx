@@ -13,16 +13,24 @@
 //     where a layout host's actions (float, dock, minimise) go. It renders
 //     nothing until a host provides actions (`PanelHeaderActionsProvider`).
 //     `PanelCard` carries it beside its heading.
+//   * `WindowHeaderMenuButton` -- an action with a `menu` (move to the grid...).
+//   * `WindowDockProvider` -- what a host lets a panel's own window do: its
+//     title-bar actions (`WindowFrame`, `WindowDockActions`) and drag-to-dock
+//     (`FloatingWindow`).
 //
 // Markup is exactly what the panels drew before, so adopting a frame changes no
 // pixel and no DOM node.
 
-import React, {Suspense, createContext, useContext} from "react";
+import React, {Suspense, createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState} from "react";
+import {createPortal} from "react-dom";
 
-import type {PanelAction, PanelFrameProps} from "@/layout/panel";
+import type {PanelAction, PanelFrameProps, PanelMenuItem} from "@/layout/panel";
+import {PANEL_ACTIONS_ATTR, ZONE_ATTR, ZONE_PANEL_ATTR} from "@/layout/zoneKeys";
 import {
   WINDOW_CARD,
   WINDOW_HEADER_BUTTON,
+  panelBodyAttrs,
+  panelBodyAttrsFor,
   panelClass,
   windowHeaderClass,
   type PanelCardVariant,
@@ -41,7 +49,7 @@ export function PanelCard({variant = "card", heading, className, children, ref, 
   const actions = usePanelHeaderActions();
   const h2 = heading != null && <h2 className="font-bold">{heading}</h2>;
   return (
-    <div ref={ref} className={panelClass(variant, className)} {...rest}>
+    <div ref={ref} className={panelClass(variant, className)} {...panelBodyAttrs} {...rest}>
       {h2 && actions.length > 0 ? (
         <div className="flex items-center gap-2">
           {h2}
@@ -55,31 +63,229 @@ export function PanelCard({variant = "card", heading, className, children, ref, 
   );
 }
 
-const PanelHeaderActionsContext = createContext<readonly PanelAction[] | null>(null);
+const PanelHeaderActionsContext = createContext<{actions: readonly PanelAction[]; panelId?: string} | null>(null);
 
-/** Offer `actions` to the `PanelHeaderActions` slot of the panel below. */
-export const PanelHeaderActionsProvider: React.FC<{actions: readonly PanelAction[]; children: React.ReactNode}> = ({
+/**
+ * Offer `actions` to the `PanelHeaderActions` slot of the panel below. With
+ * `panelId` the slot names its panel (`PANEL_ACTIONS_ATTR`), so focus can be
+ * moved to it.
+ */
+export const PanelHeaderActionsProvider: React.FC<{actions: readonly PanelAction[]; panelId?: string; children: React.ReactNode}> = ({
   actions,
+  panelId,
   children,
-}) => <PanelHeaderActionsContext.Provider value={actions}>{children}</PanelHeaderActionsContext.Provider>;
+}) => {
+  const value = useMemo(() => ({actions, panelId}), [actions, panelId]);
+  return <PanelHeaderActionsContext.Provider value={value}>{children}</PanelHeaderActionsContext.Provider>;
+};
 
 /** The host's actions for the panel this header belongs to; none outside a provider. */
 export function usePanelHeaderActions(): readonly PanelAction[] {
-  return useContext(PanelHeaderActionsContext) ?? [];
+  return useContext(PanelHeaderActionsContext)?.actions ?? [];
 }
 
 /** The layout host's actions in a panel's own header; nothing when it offers none. */
 export function PanelHeaderActions() {
+  const panelId = useContext(PanelHeaderActionsContext)?.panelId;
   const actions = usePanelHeaderActions();
   if (actions.length === 0) return null;
+  return <WindowHeaderActions panelId={panelId}>{actions.map(actionButton)}</WindowHeaderActions>;
+}
+
+/** An action's title-bar button: a menu button when it has a menu. */
+function actionButton(a: PanelAction) {
+  if (a.menu) return <WindowHeaderMenuButton key={a.id} action={a} />;
   return (
-    <WindowHeaderActions>
-      {actions.map((a) => (
-        <WindowHeaderButton key={a.id} onClick={a.run} title={a.label} ariaLabel={a.label} disabled={a.disabled}>
-          {a.icon ? <a.icon /> : a.label}
-        </WindowHeaderButton>
-      ))}
-    </WindowHeaderActions>
+    <WindowHeaderButton key={a.id} onClick={a.run} title={a.label} ariaLabel={a.label} disabled={a.disabled}>
+      {a.icon ? <a.icon /> : a.label}
+    </WindowHeaderButton>
+  );
+}
+
+const MENU_ITEM = "menuitem";
+const MENU_ITEM_CLASS =
+  "flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-white/10 focus:bg-white/10 focus:outline-none disabled:text-gray-500 disabled:hover:bg-transparent";
+
+/** A submenu's items, resolved now. */
+function subItems(item: PanelMenuItem): readonly PanelMenuItem[] {
+  const it = item.items;
+  if (!it) return [];
+  try {
+    return typeof it === "function" ? it() : it;
+  } catch (err) {
+    console.warn(`[layout] the submenu "${item.label}" failed`, err);
+    return [];
+  }
+}
+
+function MenuItemButton({item, onRun, onBack}: {item: PanelMenuItem; onRun(): void; onBack?: () => void}) {
+  return (
+    <button
+      type="button"
+      role={MENU_ITEM}
+      disabled={item.disabled}
+      aria-current={item.current || undefined}
+      className={MENU_ITEM_CLASS}
+      onClick={() => {
+        onRun();
+        item.run();
+      }}
+      onKeyDown={
+        onBack
+          ? (e) => {
+              if (e.key !== "ArrowLeft") return;
+              e.preventDefault();
+              e.stopPropagation();
+              onBack();
+            }
+          : undefined
+      }
+    >
+      <span className="w-2 text-blue-400" aria-hidden="true">
+        {item.current ? "•" : ""}
+      </span>
+      {item.label}
+    </button>
+  );
+}
+
+/**
+ * A title-bar button opening its action's menu, drawn on the page body so no
+ * scrolling dock or moved window clips it. Arrows, Home and End move between the
+ * items, Esc closes it and returns focus to the button.
+ */
+export function WindowHeaderMenuButton({action}: {action: PanelAction}) {
+  const [at, setAt] = useState<{top: number; right: number} | null>(null);
+  // The submenu shown, by item id.
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const button = useRef<HTMLButtonElement>(null);
+  const menu = useRef<HTMLDivElement>(null);
+  const items = () => Array.from(menu.current?.querySelectorAll<HTMLElement>(`[role="${MENU_ITEM}"]:not([disabled])`) ?? []);
+  useEffect(() => {
+    if (!expanded) return;
+    menu.current?.querySelector<HTMLElement>(`[role="group"] [role="${MENU_ITEM}"]:not([disabled])`)?.focus();
+  }, [expanded]);
+  const close = (refocus: boolean) => {
+    setExpanded(null);
+    setAt(null);
+    if (refocus) button.current?.focus();
+  };
+  useLayoutEffect(() => {
+    // Above the button when there is no room below it.
+    const m = menu.current;
+    const r = button.current?.getBoundingClientRect();
+    if (!m || !r || r.bottom + 4 + m.offsetHeight <= window.innerHeight) return;
+    m.style.top = `${Math.max(4, r.top - 4 - m.offsetHeight)}px`;
+  }, [at]);
+  useEffect(() => {
+    if (!at) return;
+    items()[0]?.focus();
+    const away = (e: PointerEvent) => {
+      const t = e.target as Node;
+      if (!menu.current?.contains(t) && !button.current?.contains(t)) setAt(null);
+    };
+    document.addEventListener("pointerdown", away, true);
+    return () => document.removeEventListener("pointerdown", away, true);
+  }, [at !== null]);
+  const toggle = () => {
+    const r = button.current?.getBoundingClientRect();
+    setAt(at || !r ? null : {top: r.bottom + 4, right: Math.max(4, window.innerWidth - r.right)});
+  };
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    const list = items();
+    const i = list.indexOf(document.activeElement as HTMLElement);
+    const go = (j: number) => list[(j + list.length) % list.length]?.focus();
+    if (e.key === "ArrowDown") go(i + 1);
+    else if (e.key === "ArrowUp") go(i - 1);
+    else if (e.key === "Home") go(0);
+    else if (e.key === "End") go(list.length - 1);
+    else if (e.key === "Escape") close(true);
+    else if (e.key === "Tab") return close(false);
+    else return;
+    e.preventDefault();
+    e.stopPropagation();
+  };
+  return (
+    <>
+      <button
+        ref={button}
+        type="button"
+        onClick={toggle}
+        title={action.label}
+        aria-label={action.label}
+        aria-haspopup="menu"
+        aria-expanded={at !== null}
+        disabled={action.disabled}
+        className={WINDOW_HEADER_BUTTON}
+        onMouseDown={(e) => e.stopPropagation()}
+        onTouchStart={(e) => e.stopPropagation()}
+      >
+        {action.icon ? <action.icon /> : action.label}
+      </button>
+      {at &&
+        createPortal(
+          <div
+            ref={menu}
+            role="menu"
+            aria-label={action.label}
+            className="fixed z-[70] min-w-44 rounded-md border border-gray-600 bg-gray-800 py-1 text-sm text-white shadow-lg"
+            style={{top: at.top, right: at.right}}
+            onKeyDown={onKeyDown}
+          >
+            {action.menu!.map((item) => {
+              if (!item.items) return <MenuItemButton key={item.id} item={item} onRun={() => close(false)} />;
+              const open = expanded === item.id;
+              const sub = open ? subItems(item) : [];
+              return (
+                <React.Fragment key={item.id}>
+                  <button
+                    type="button"
+                    role={MENU_ITEM}
+                    disabled={item.disabled}
+                    aria-haspopup="menu"
+                    aria-expanded={open}
+                    data-submenu={item.id}
+                    className={MENU_ITEM_CLASS}
+                    onClick={() => setExpanded(open ? null : item.id)}
+                    onKeyDown={(e) => {
+                      if (e.key !== "ArrowRight" || open) return;
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setExpanded(item.id);
+                    }}
+                  >
+                    <span className="w-2" aria-hidden="true" />
+                    <span className="flex-1">{item.label}</span>
+                    <span aria-hidden="true" className="text-gray-400">
+                      {open ? "▾" : "▸"}
+                    </span>
+                  </button>
+                  {open && (
+                    <div role="group" aria-label={item.label} className="border-l border-gray-600 ml-4">
+                      {sub.length === 0 ? (
+                        <div className="px-3 py-1.5 text-gray-500">Nothing to choose</div>
+                      ) : (
+                        sub.map((s) => (
+                          <MenuItemButton
+                            key={s.id}
+                            item={s}
+                            onRun={() => close(false)}
+                            onBack={() => {
+                              setExpanded(null);
+                              menu.current?.querySelector<HTMLElement>(`[data-submenu="${item.id}"]`)?.focus();
+                            }}
+                          />
+                        ))
+                      )}
+                    </div>
+                  )}
+                </React.Fragment>
+              );
+            })}
+          </div>,
+          document.body,
+        )}
+    </>
   );
 }
 
@@ -118,10 +324,40 @@ export const DockGlyph: React.FC = () => (
   </svg>
 );
 
+/** The glyph of "move to another dock". */
+export const MoveGlyph: React.FC = () => (
+  <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+    <path d="M2 2 H14 V14 H2 Z M10 2 V14 M4 8 H8 M6 6 L8 8 L6 10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+  </svg>
+);
+
 /** The glyph of "minimise to the tray". */
 export const MinimiseGlyph: React.FC = () => (
   <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
     <path d="M3 12 H13" stroke="currentColor" strokeWidth="2" strokeLinecap="round" fill="none" />
+  </svg>
+);
+
+/** The glyph of "pin across modes". */
+export const PinGlyph: React.FC = () => (
+  <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+    <path d="M6 2 H10 L9.5 6 L12 8.5 H4 L6.5 6 Z M8 8.5 V14" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" fill="none" />
+  </svg>
+);
+
+/** The glyph of "add a panel here". */
+export const AddGlyph: React.FC = () => (
+  <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+    <path d="M8 3 V13 M3 8 H13" stroke="currentColor" strokeWidth="2" strokeLinecap="round" fill="none" />
+  </svg>
+);
+
+/** The glyph of "more actions": three dots. */
+export const MoreGlyph: React.FC = () => (
+  <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+    <circle cx="3.5" cy="8" r="1.4" fill="currentColor" />
+    <circle cx="8" cy="8" r="1.4" fill="currentColor" />
+    <circle cx="12.5" cy="8" r="1.4" fill="currentColor" />
   </svg>
 );
 
@@ -132,6 +368,8 @@ export interface WindowHeaderButtonProps {
   /** Classes before the button's own, e.g. `ml-auto` to push it to the end of the bar. */
   className?: string;
   disabled?: boolean;
+  /** A toggle's state, as `aria-pressed`. */
+  pressed?: boolean;
   children: React.ReactNode;
 }
 
@@ -139,7 +377,7 @@ export interface WindowHeaderButtonProps {
  * A title-bar button. It stops the press from reaching the bar, which is the
  * window's drag handle, so a click is never taken for the start of a drag.
  */
-export function WindowHeaderButton({onClick, title, ariaLabel, className, disabled, children}: WindowHeaderButtonProps) {
+export function WindowHeaderButton({onClick, title, ariaLabel, className, disabled, pressed, children}: WindowHeaderButtonProps) {
   return (
     <button
       type="button"
@@ -147,6 +385,7 @@ export function WindowHeaderButton({onClick, title, ariaLabel, className, disabl
       title={title}
       aria-label={ariaLabel}
       disabled={disabled}
+      aria-pressed={pressed}
       className={className ? `${className} ${WINDOW_HEADER_BUTTON}` : WINDOW_HEADER_BUTTON}
       onMouseDown={(e) => e.stopPropagation()}
       onTouchStart={(e) => e.stopPropagation()}
@@ -156,9 +395,11 @@ export function WindowHeaderButton({onClick, title, ariaLabel, className, disabl
   );
 }
 
-/** A group of title-bar buttons at the end of the bar. */
-export const WindowHeaderActions: React.FC<{children: React.ReactNode}> = ({children}) => (
-  <div className="ml-auto flex items-center gap-1">{children}</div>
+/** A group of title-bar buttons at the end of the bar; `panelId` names the panel they act on. */
+export const WindowHeaderActions: React.FC<{panelId?: string; children: React.ReactNode}> = ({panelId, children}) => (
+  <div className="ml-auto flex items-center gap-1" {...(panelId ? {[PANEL_ACTIONS_ATTR]: panelId} : {})}>
+    {children}
+  </div>
 );
 
 export interface WindowFrameProps {
@@ -172,17 +413,65 @@ export interface WindowFrameProps {
   children?: React.ReactNode;
 }
 
+/**
+ * What a layout host lets a panel's OWN window do: its title-bar actions (move
+ * to the grid...), and what dragging it by its title bar does. A
+ * `FloatingWindow` and a `WindowFrame` inside `WindowDockProvider` pick it up;
+ * the window's content does not.
+ */
+export interface WindowDock {
+  panelId: string;
+  actions: readonly PanelAction[];
+  onDragMove(pointer: {x: number; y: number}): void;
+  /** True when the drop was taken (the window is docked). */
+  onDragEnd(pointer: {x: number; y: number}): boolean;
+}
+
+const WindowDockContext = createContext<WindowDock | null>(null);
+
+export const WindowDockProvider: React.FC<{value: WindowDock | null; children: React.ReactNode}> = ({value, children}) => (
+  <WindowDockContext.Provider value={value}>{children}</WindowDockContext.Provider>
+);
+
+/** The host's offer to the window this is in; null outside one. */
+export function useWindowDock(): WindowDock | null {
+  return useContext(WindowDockContext);
+}
+
+/** Marks a window's root as a floating zone holding its panel, for the zone keys. */
+export function windowDockAttrs(dock: WindowDock | null): Record<string, string> {
+  return dock ? {[ZONE_ATTR]: "float", [ZONE_PANEL_ATTR]: dock.panelId} : {};
+}
+
+/** The host's actions in a window's own title bar; nothing outside `WindowDockProvider`. */
+export function WindowDockActions() {
+  const dock = useWindowDock();
+  if (!dock || dock.actions.length === 0) return null;
+  return <WindowHeaderActions panelId={dock.panelId}>{dock.actions.map(actionButton)}</WindowHeaderActions>;
+}
+
 /** A floating window's card: title bar over a body that may load lazily. */
 export function WindowFrame({title, subtitle, dragHandleClassName, actions, children}: WindowFrameProps) {
+  const dock = useWindowDock();
+  const offered = dock && dock.actions.length > 0;
   return (
-    <div className={WINDOW_CARD}>
+    <div className={WINDOW_CARD} {...windowDockAttrs(dock)}>
       <div className={windowHeaderClass(dragHandleClassName)}>
         <span className="font-medium text-sm truncate">{title}</span>
         {subtitle != null && <span className="hidden sm:inline text-xs text-gray-400 truncate">{subtitle}</span>}
-        {actions}
+        {offered ? (
+          <div className="ml-auto flex items-center gap-1" {...{[PANEL_ACTIONS_ATTR]: dock.panelId}}>
+            {dock.actions.map(actionButton)}
+            {actions}
+          </div>
+        ) : (
+          actions
+        )}
       </div>
-      <div className="flex-1 min-h-0 overflow-hidden">
-        <Suspense fallback={<div className="p-4 text-sm text-gray-400">Loading…</div>}>{children}</Suspense>
+      <div className="flex-1 min-h-0 overflow-hidden" {...panelBodyAttrs}>
+        <WindowDockContext.Provider value={null}>
+          <Suspense fallback={<div className="p-4 text-sm text-gray-400">Loading…</div>}>{children}</Suspense>
+        </WindowDockContext.Provider>
       </div>
     </div>
   );
@@ -194,11 +483,7 @@ export function WindowFrame({title, subtitle, dragHandleClassName, actions, chil
  * from the host (float, dock to..., close), so the frame has no opinion on them.
  */
 export function PanelFrame({panelId, title, host, actions, onClose, dragHandleClassName, children}: PanelFrameProps) {
-  const buttons = actions.map((a) => (
-    <WindowHeaderButton key={a.id} onClick={a.run} title={a.label} ariaLabel={a.label} disabled={a.disabled}>
-      {a.icon ? <a.icon /> : a.label}
-    </WindowHeaderButton>
-  ));
+  const buttons = actions.map(actionButton);
   const close = onClose && (
     <WindowHeaderButton onClick={onClose} title="Close" ariaLabel="Close panel">
       <CloseGlyph />
@@ -223,10 +508,15 @@ export function PanelFrame({panelId, title, host, actions, onClose, dragHandleCl
     );
   }
   return (
-    <PanelCard data-panel-id={panelId}>
-      <div className="flex items-center gap-2">
+    <PanelCard data-panel-id={panelId} {...panelBodyAttrsFor(panelId)}>
+      <div className={dragHandleClassName ? `flex items-center gap-2 ${dragHandleClassName}` : "flex items-center gap-2"}>
         <h2 className="font-bold">{title}</h2>
-        {(buttons.length > 0 || close) && <WindowHeaderActions>{buttons}{close}</WindowHeaderActions>}
+        {(buttons.length > 0 || close) && (
+          <WindowHeaderActions panelId={dragHandleClassName ? panelId : undefined}>
+            {buttons}
+            {close}
+          </WindowHeaderActions>
+        )}
       </div>
       {children}
     </PanelCard>

@@ -21,7 +21,9 @@ import type {SweepItem} from "@/services/api/assetSchedules";
 import {ApiError, viewerApi, type ExportRun, type SweepRun} from "@/services/viewerApi";
 import {useConversionStore, type ConvertStatus} from "@/state/conversionStore";
 import {toastRunTarget, useRunFocusStore} from "@/state/runFocusStore";
-import {useSearchWindowStore} from "@/state/searchWindowStore";
+// The dependency-free intents: the catalogue is registered by the bootstrap long before a toast is clicked.
+import {CORE_PANEL_IDS} from "@/layout/corePanelIds";
+import {reveal} from "@/layout/reveal";
 import {useViewerPanelStore} from "@/state/viewerPanelStore";
 
 const POLL_MS = 5000;
@@ -520,15 +522,15 @@ export function viewToastRun(key: string): void {
     if (!target) return;
     useRunFocusStore.getState().setFocus(target.focus);
     if (target.panel === "search") {
-        useSearchWindowStore.getState().show();
+        reveal(CORE_PANEL_IDS.attributeSearch);
         return;
     }
     const panel = target.panel;
     const panels = useViewerPanelStore.getState();
     // The admin panel reads its tab once, on mount: already open on another tab, it would stay
     // there. Close it and open it again on the next tick so it mounts on Providers.
-    if (panel === "admin" && panels.open === "admin") {
-        panels.closePanel();
+    if (panel === "admin" && panels.shown.includes("admin")) {
+        panels.closePanel("admin");
         setTimeout(() => useViewerPanelStore.getState().openPanel(panel, target.tab ?? undefined), 0);
         return;
     }

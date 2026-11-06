@@ -132,6 +132,23 @@ Without a job queue (`ADA_VIEWER_NATS_URL` unset) the API runs the clash check, 
 and exports in-process, but cannot convert files. Start a worker
 (`pixi run -e viewer-api viewer-worker`, with NATS) for conversions and FE bakes.
 
+### As a desktop app
+
+`ada desktop` runs the same local viewer and opens it in a native window instead of a
+browser tab (Windows first). It needs the `ada-desktop` window shell next to ada-py:
+
+```bash
+conda install -c conda-forge ada-py-desktop   # once published; until then build it from a checkout:
+pixi run -e desktop-shell build-desktop       #   then ada desktop --binary src/desktop/target/release/ada-desktop.exe
+ada desktop                                   # optionally: ada desktop model.ifc
+```
+
+Pop-outs and dashboard windows become native windows that remember their size and position,
+and a 3D mouse works without the browser's device chooser. The viewer listens on a fixed
+per-user port so layouts and settings saved in the page carry over between launches; it
+stops when the last window closes. See [the CLI reference](cli.md#ada-desktop) for the
+options and `src/desktop/README.md` for how the shell is built and what it lets the page do.
+
 ## Regenerating the screenshots
 
 ```bash

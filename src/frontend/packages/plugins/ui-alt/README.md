@@ -6,8 +6,16 @@ alternative UI is just another entry in the same registry
 (`src/frontend/src/plugins/uiShells.ts`).
 
 This package is the template. It is **not enabled** in a stock build — it exists
-so an out-of-tree UI repo has a working shape to copy, and so the mechanism is
-exercised in CI.
+so an out-of-tree UI repo has a working shape to copy (a plugin package, its
+`register.tsx`, imports through `@/viewer-core` only), and so the mechanism is
+exercised in CI. It stays small on purpose.
+
+For a complete docked UI (a full menu bar over core's commands, fixed docks,
+modes, a status bar), see the **built-in Desktop UI** core ships in every build
+(`src/frontend/src/layout/desktop/`, `?ui=desktop`; "The built-in Desktop UI" in
+`src/frontend/docs/UI_SHELLS.md`). A shell may start from its spec
+(`desktopUiShellSpec()`) and its menu model (`desktopMenus()`), and name core's
+commands (`CORE_COMMAND_IDS`) in its own menus.
 
 ## Why a separate repo
 
@@ -19,6 +27,35 @@ must be swappable rather than a fork. So:
   build (the same overlay path the external feature plugins already use);
 * the build **registers it and picks the default UI**;
 * adapy's committed source never names it.
+
+## Composed, or a root of its own
+
+A shell is one of two kinds:
+
+* **Composed** (this package): no `load`. Core mounts its own root (the
+  `/convert`, `/admin` and `/auth/callback` routes, sign-in, the viewer provider)
+  and its layout of floating, dockable panels for the shell. The shell gives:
+  * `layout.grid`: the split grid a user starts from (`GridNode`, with core's
+    panels named by `CORE_PANEL_IDS`);
+  * `layout.open`: the panels opened when the shell loads;
+  * `layout.docks`: which group of the grid a feature plugin's panel joins when
+    its slot names that `dock` (this package maps `left` and `right`);
+  * `layout.modes`: whole activities, each with its own arrangement (this package
+    has Inspect and Results; `ShellModeSwitcher` in its header switches them);
+  * `chrome.header` / `footer` / `rail`: lazy slots around the layout (this
+    package draws a `MenuBar` over core's commands, the mode switcher and a
+    status bar), and `chrome.toolbar: false` to leave out core's top bar;
+  * `chrome.groups`, `commandPalette`, `overlays`: group actions (add, pin,
+    collapse) and tab icons, the command palette and its key, HUD anchors;
+  * fixed-px docks in the grid (`fixed: {px, min, max}`) that collapse to icon strips;
+  * `panels`: core panels renamed or re-optioned for this UI, without copies;
+  * `themeTokens`: `--ada-*` custom properties set while the shell is active.
+
+  Users can rearrange everything; each shell keeps its own arrangement. Extra
+  panels are registered with `registerPanel` and placed in the grid like core's.
+  `src/frontend/docs/UI_SHELLS.md` lists every option.
+* **Own root**: `load` returns the whole React root, and the shell owns routing,
+  providers and layout itself.
 
 ## Building an image whose default UI is the alternative one
 
@@ -76,8 +113,8 @@ second copy of preflight and of every utility.
 ## What a shell may and may not do
 
 * **May** replace everything above the scene: layout, routing, panels, theming.
-* **Must** import core through `@/viewer-core` (+ `/app`, `/scene`, `/plugins`)
-  and nothing else. That facade is the contract; deep imports into core internals
+* **Must** import core through `@/viewer-core` (+ `/app`, `/scene`, `/plugins`,
+  `/layout`) and nothing else. That facade is the contract; deep imports into core internals
   fail `src/__tests__/plugins/viewerCoreFacade.test.ts`. Missing something? Add
   it to the facade in a PR — that is the contract changing, deliberately.
 * **Should** reuse core's stores, services and `CanvasWrapper` rather than

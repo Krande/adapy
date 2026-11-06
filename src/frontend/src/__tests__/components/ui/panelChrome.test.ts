@@ -3,10 +3,14 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
 import {
+  GROUP_DIVIDER,
+  GROUP_HEADER,
   PANEL_CHROME,
   PANEL_SURFACE,
+  WINDOW_CARD,
   WINDOW_HEADER,
   WINDOW_HEADER_BUTTON,
+  groupTabClass,
   panelClass,
   windowHeaderClass,
 } from "@/components/ui/panelChrome";
@@ -41,13 +45,27 @@ test("panelClass appends a panel's own classes after one space", () => {
 test("a window title bar carries the drag handle first, only while draggable", () => {
   assert.equal(windowHeaderClass("viewer-panel-drag-handle"), `viewer-panel-drag-handle cursor-move ${WINDOW_HEADER}`);
   assert.equal(windowHeaderClass(null), WINDOW_HEADER);
-  assert.equal(
-    WINDOW_HEADER,
-    "flex items-center gap-2 bg-gray-800 text-gray-100 px-3 py-2 border-b border-gray-700 shrink-0",
-  );
-  assert.equal(
-    WINDOW_HEADER_BUTTON,
-    "shrink-0 inline-flex items-center justify-center w-9 h-9 sm:w-7 sm:h-7 rounded-sm border border-gray-600 " +
-      "bg-gray-700/60 text-gray-200 hover:bg-gray-600 hover:border-gray-400 hover:text-white",
-  );
+});
+
+test("window and group chrome read tokens that fall back to the classic colours", () => {
+  // Tailwind's gray scale, which the classes used before they were tokenised.
+  const GRAY = { 100: "#f3f4f6", 400: "#9ca3af", 600: "#4b5563", 700: "#374151", 800: "#1f2937", 900: "#111827" };
+  const fallbacks = (s: string) => Object.fromEntries([...s.matchAll(/var\((--ada-[a-z-]+),([^)\]]+\)?)\)/g)].map((m) => [m[1], m[2]]));
+  assert.deepEqual(fallbacks(WINDOW_CARD), { "--ada-window-bg": GRAY[900], "--ada-window-border": GRAY[700] });
+  assert.deepEqual(fallbacks(WINDOW_HEADER), {
+    "--ada-window-header-bg": GRAY[800],
+    "--ada-window-header-text": GRAY[100],
+    "--ada-window-border": GRAY[700],
+  });
+  assert.deepEqual(fallbacks(WINDOW_HEADER_BUTTON), {
+    "--ada-window-button-border": GRAY[600],
+    "--ada-window-button-bg": "rgb(55_65_81/0.6)", // gray-700 at 60 %
+  });
+  assert.equal(fallbacks(GROUP_HEADER)["--ada-window-header-bg"], GRAY[800], "a group's tab strip is a title bar");
+  assert.deepEqual(fallbacks(groupTabClass(true)), { "--ada-tab-active-bg": GRAY[700], "--ada-tab-active-text": "#ffffff" });
+  assert.deepEqual(fallbacks(groupTabClass(false)), { "--ada-tab-text": GRAY[400] });
+  assert.deepEqual(fallbacks(GROUP_DIVIDER), { "--ada-group-divider": GRAY[700] });
+  for (const s of [WINDOW_CARD, WINDOW_HEADER, WINDOW_HEADER_BUTTON, GROUP_HEADER, GROUP_DIVIDER]) {
+    assert.doesNotMatch(s, /\b(bg|border|text)-gray-(700|800|900)\b/, "no colour left untokenised");
+  }
 });

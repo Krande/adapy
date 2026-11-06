@@ -19,7 +19,7 @@ import type { PanelBinding, PanelPlacement, PanelPlacements, PanelSpec } from ".
 
 /**
  * Plugin top-bar toggles sit after core's own (`core:cellbuilder`) and before the
- * connection status, as `Menu.tsx` renders them. All share this slot; their
+ * connection status, as the classic top bar renders them. All share this slot; their
  * `subOrder` is the slot's own `order`.
  */
 export const PLUGIN_TOOLBAR_ORDER = 500;
@@ -130,6 +130,13 @@ export function panelSpecFromSlot(
     hint: slot.topBarButton?.label,
     body: () =>
       import("./PluginPanelBody").then((m) => ({ default: m.makePluginPanelBody(pluginId, slot) })),
+    // A panel that stands on its own (a column panel, or one that names a dock) can
+    // also be placed by the layout: in a group of the split grid, or a window.
+    // Sections and tabs of a core panel without a dock stay where their host puts them.
+    content:
+      slot.region === "top-panel" || slot.dock
+        ? () => import("./PluginPanelBody").then((m) => ({ default: m.makePluginPanelContent(pluginId, slot) }))
+        : undefined,
     // A slot with a top-bar button is opened and closed by that button. One
     // without is shown whenever its activation predicate holds, so it has no
     // visibility of its own to bind.
@@ -140,6 +147,8 @@ export function panelSpecFromSlot(
     placement,
     toolbar: isToolbar ? { order: PLUGIN_TOOLBAR_ORDER, subOrder: slot.order ?? 0 } : undefined,
     modes: slot.modes,
+    capabilities:
+      slot.popout || slot.mirrored ? { ...(slot.popout ? { popout: true } : {}), ...(slot.mirrored ? { mirrored: true } : {}) } : undefined,
     frame: "own",
   };
 }

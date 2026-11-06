@@ -5,7 +5,7 @@ import type {BuildSidecar} from "@/hooks/useBuildSidecars";
 import type {KebabMenuItem} from "@/components/common/PositionedMenu";
 import InlineNameInput from "@/components/common/InlineNameInput";
 import FolderClosedIcon from "../../icons/FolderClosedIcon";
-import FileRow from "./FileRow";
+import FileRow, {type RowLoadProgress} from "./FileRow";
 import FolderRow from "./FolderRow";
 import ProceduralModelRow from "./ProceduralModelRow";
 import VersionsTree from "./VersionsTree";
@@ -24,7 +24,12 @@ export interface FileTreeListProps {
     visibleTree: ServerFileTreeNode[];
     pendingFolders: string[];
     sidecars: ReadonlyMap<string, BuildSidecar | null>;
-    maximized: boolean;
+    /** Show the Modified column. */
+    showModified: boolean;
+    /** No height cap: the list takes what its host gives the panel. */
+    fillHeight?: boolean;
+    /** A row's load, told on the row; absent, rows show a spinner. */
+    loadProgressFor?: (name: string) => RowLoadProgress | undefined;
     listScrollRef: React.RefObject<HTMLDivElement | null>;
     onListKeyDown: (e: React.KeyboardEvent) => void;
     handleDropOnFolder: (target: string, e: React.DragEvent) => Promise<void>;
@@ -72,7 +77,7 @@ export interface FileTreeListProps {
 
 const FileTreeList: React.FC<FileTreeListProps> = (props) => {
     const {
-        files, regularFiles, versionBranches, visibleTree, pendingFolders, sidecars, maximized,
+        files, regularFiles, versionBranches, visibleTree, pendingFolders, sidecars, showModified, fillHeight, loadProgressFor,
         listScrollRef, onListKeyDown, handleDropOnFolder, showRootDropStrip, newFolderAt,
         setNewFolderAt, onCreateFolder, proceduralByName, activeProcedural, openProceduralModel,
         isProceduralLoaded, toggleProceduralLoaded, proceduralMenuItems, fileMenuItems,
@@ -108,11 +113,11 @@ const FileTreeList: React.FC<FileTreeListProps> = (props) => {
                             className={
                                 "flex flex-col overflow-auto focus:outline-hidden " +
                                 "focus-visible:ring-1 focus-visible:ring-blue-500/40 rounded-sm " +
-                                // Desktop compact keeps the fixed 20rem cap;
-                                // maximized fills. On mobile compact the whole
-                                // panel scrolls (root overflow-y-auto), so the
-                                // list itself is uncapped there (no double scroll).
-                                (maximized ? "flex-1 min-h-0" : "md:max-h-80")
+                                // Desktop keeps the fixed 20rem cap in the column. On
+                                // mobile the whole panel scrolls (root overflow-y-auto),
+                                // so the list itself is uncapped there (no double scroll);
+                                // so is it in a dock or window that sizes the panel.
+                                (fillHeight ? "" : "md:max-h-80")
                             }
                             // Background (non-row) drops land at root:
                             // internal drags move to root, OS files
@@ -242,7 +247,8 @@ const FileTreeList: React.FC<FileTreeListProps> = (props) => {
                                                 renaming={renaming?.kind === "file" && renaming.path === node.file.name}
                                                 onRenameCommit={(v) => void onRenameFileCommit(node.file, v)}
                                                 onRenameCancel={() => setRenaming(null)}
-                                                showModified
+                                                showModified={showModified}
+                                                loadProgress={loadProgressFor?.(node.file.name)}
                                             />
                                         );
                                     }
@@ -332,7 +338,8 @@ const FileTreeList: React.FC<FileTreeListProps> = (props) => {
                                     onSelectToggle={toggleSelection}
                                     fileMenuItemsFor={versionFileMenuItems}
                                     onOpenContextMenu={openCtxMenu}
-                                    showModified
+                                    showModified={showModified}
+                                    loadProgressFor={loadProgressFor}
                                 />
                             )}
                         </div>

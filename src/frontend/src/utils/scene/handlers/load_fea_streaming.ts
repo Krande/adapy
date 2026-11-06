@@ -24,7 +24,7 @@ import {
 import {applyDummyMassVisibility} from "../fea/dummyMassVisibility";
 import {isPropertyField} from "../fea/propertyColors";
 import {capabilities} from "@/services/capabilities";
-import {useAnimationStore} from "@/state/animationStore";
+import {CORE_PANEL_IDS, isPanelOpen, reveal} from "@/layout/panelActions";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {
     noteFieldSourceLoaded,
@@ -539,10 +539,7 @@ export async function load_fea_streaming(args: LoadFeaStreamingArgs): Promise<vo
     // session they just kicked off. Idempotent — re-applying with a
     // panel already open is a no-op. Field-less FEM meshes have nothing
     // to drive there, so leave the panel as-is.
-    const generalAnimStore = useAnimationStore.getState();
-    if (field && !generalAnimStore.isControlsVisible) {
-        generalAnimStore.setIsControlsVisible(true);
-    }
+    if (field && !isPanelOpen(CORE_PANEL_IDS.simulation)) reveal(CORE_PANEL_IDS.simulation);
 
     stage("ready", 1.0);
 }

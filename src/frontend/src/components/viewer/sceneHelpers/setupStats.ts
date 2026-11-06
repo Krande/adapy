@@ -22,7 +22,7 @@ export function setupStats(
       top: `${i * 48}px`,
       left: "auto",
       right: "0px",
-      // Sit below the Menu wrapper (Menu.tsx, z-10) so the mobile
+      // Sit below the Menu wrapper (the classic top bar, z-10) so the mobile
       // options drawer's close button isn't covered by the stats
       // panels when both are visible. Stats.js's default cssText
       // sets z-index:10000 inline — overriding here with an explicit
@@ -43,7 +43,7 @@ export function setupStats(
       top: `${3 * 48}px`,
       left: "auto",
       right: "0px",
-      // Sit below the Menu wrapper (Menu.tsx, z-10) so the mobile
+      // Sit below the Menu wrapper (the classic top bar, z-10) so the mobile
       // options drawer's close button isn't covered by the stats
       // panels when both are visible. Stats.js's default cssText
       // sets z-index:10000 inline — overriding here with an explicit
@@ -64,7 +64,7 @@ export function setupStats(
       top: `${4 * 48}px`,
       left: "auto",
       right: "0px",
-      // Sit below the Menu wrapper (Menu.tsx, z-10) so the mobile
+      // Sit below the Menu wrapper (the classic top bar, z-10) so the mobile
       // options drawer's close button isn't covered by the stats
       // panels when both are visible. Stats.js's default cssText
       // sets z-index:10000 inline — overriding here with an explicit

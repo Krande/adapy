@@ -1,6 +1,6 @@
-// Runtime UI-shell switcher. Renders NOTHING in a stock build (one shell
-// registered), so mounting it is invisible until an image is built with an
-// alternative UI overlaid.
+// Runtime UI-shell switcher. Renders NOTHING while only one shell is
+// registered. Core registers two itself (the classic UI and the Desktop one,
+// `@/layout/desktop`), so a stock build offers both.
 //
 // Switching persists the choice and reloads: a shell owns the whole component
 // tree (canvas, websocket, stores), so hot-swapping one for another mid-session

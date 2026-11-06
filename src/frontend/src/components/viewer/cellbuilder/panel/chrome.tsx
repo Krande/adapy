@@ -112,3 +112,25 @@ export const Section: React.FC<{
 };
 
 export type PanelTab = "build" | "equipment" | "systems" | "detailing" | "view" | "tools";
+
+/** The tabs, in their default order. */
+export const PANEL_TABS: readonly PanelTab[] = ["build", "equipment", "systems", "detailing", "view", "tools"];
+
+export const PANEL_TAB_LABELS: Readonly<Record<PanelTab, string>> = {
+  build: "Build",
+  equipment: "Equipment",
+  systems: "Systems",
+  detailing: "Detailing",
+  view: "View",
+  tools: "Tools",
+};
+
+/** The tabs offered, in order: `tabs` (default all), Detailing only while an engine is selected. */
+export function offeredTabs(tabs: readonly PanelTab[] | undefined, detailingSelected: boolean): PanelTab[] {
+  return (tabs ?? PANEL_TABS).filter((t, i, all) => all.indexOf(t) === i && (t !== "detailing" || detailingSelected));
+}
+
+/** The tab shown: the chosen one while it is offered, else the first offered. */
+export function shownTab(tab: PanelTab, offered: readonly PanelTab[]): PanelTab {
+  return offered.includes(tab) ? tab : offered[0] ?? tab;
+}

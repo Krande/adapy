@@ -1,5 +1,6 @@
 import React, {useEffect, useMemo, useRef, useState} from "react";
 import type {AuditRunJob} from "@/services/viewerApi";
+import {OverlayPortal} from "@/components/ui/OverlayPortal";
 import {
     METRIC_COLOR_BUCKETS,
     MetricKey,
@@ -240,9 +241,11 @@ const RunGrid: React.FC<{
                     ))}
                 </tbody>
             </table>
+            {/* At viewport coordinates: out of the in-viewer window (it moves by a transform). */}
             {menu && (
+                <OverlayPortal>
                 <div
-                    className="fixed z-50 min-w-[160px] rounded-sm border border-gray-600 bg-gray-900 shadow-lg py-1 text-xs"
+                    className="fixed z-[70] min-w-[160px] rounded-sm border border-gray-600 bg-gray-900 shadow-lg py-1 text-xs"
                     style={{left: menu.x, top: menu.y}}
                     // Keep clicks inside the menu from bubbling to the window
                     // close-listener before the item handler runs.
@@ -296,16 +299,19 @@ const RunGrid: React.FC<{
                         </button>
                     )}
                 </div>
+                </OverlayPortal>
             )}
             {flagInfo && (
+                <OverlayPortal>
                 <div
-                    className="fixed z-50 max-w-[280px] rounded-sm border border-gray-600 bg-gray-900 shadow-lg p-2 text-xs"
+                    className="fixed z-[70] max-w-[280px] rounded-sm border border-gray-600 bg-gray-900 shadow-lg p-2 text-xs"
                     style={{left: flagInfo.x, top: flagInfo.y}}
                     onClick={(e) => e.stopPropagation()}
                 >
                     <div className="text-gray-200 font-medium mb-1">{flagInfo.label}</div>
                     <div className="text-gray-400 leading-snug">{flagInfo.title}</div>
                 </div>
+                </OverlayPortal>
             )}
         </div>
     );

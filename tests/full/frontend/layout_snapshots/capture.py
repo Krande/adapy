@@ -78,12 +78,6 @@ def node_editor(page):
     click(page, 'button[title="Toggle node editor"]')
 
 
-def storage_maximized(page):
-    click(page, 'button[title="Storage"]')
-    settle(page, 2500)
-    click(page, 'button[title="Maximize"]')
-
-
 def build_states(model):
     """state -> (action, viewport, query suffix, ready selector)"""
     states = {
@@ -91,7 +85,6 @@ def build_states(model):
         "options": (lambda p: click(p, 'button[title="Toggle options drawer"]'), DESKTOP, "", TOP_READY),
         "tree": (lambda p: click(p, 'button[aria-label="Show selection tree"]'), DESKTOP, "", TOP_READY),
         "storage": (lambda p: click(p, 'button[title="Storage"]'), DESKTOP, "", TOP_READY),
-        "storage_maximized": (storage_maximized, DESKTOP, "", TOP_READY),
         "attribute_search": (lambda p: click(p, f'button[aria-label="{SEARCH_TITLE}"]'), DESKTOP, "", TOP_READY),
         "object_info": (lambda p: click(p, 'button[title="Toggle object info"]'), DESKTOP, "", TOP_READY),
         "scene_info": (lambda p: click(p, 'button[aria-label="Toggle scene info"]'), DESKTOP, "", TOP_READY),

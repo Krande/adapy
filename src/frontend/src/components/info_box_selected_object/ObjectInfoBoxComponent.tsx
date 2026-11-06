@@ -1,16 +1,21 @@
 import {PanelCard} from "@/components/ui/PanelFrame";
-import React, {useState} from 'react';
-import {useViewerRefs, useViewerStores} from '@/state/AdaViewerContext';
+import React, {useState, useSyncExternalStore} from 'react';
+import {ErrorBoundary} from '@/components/common/ErrorBoundary';
+import {
+    listPropertyProviders,
+    providersFor,
+    subscribePropertyProviders,
+    type PropertyProvider,
+    type SelectionSnapshot,
+} from '@/plugins/propertyProviders';
+import {useViewerStores} from '@/state/AdaViewerContext';
 import {copySelectionNames, writeToClipboard} from '@/utils/clipboard/copySelectionNames';
-import {hideSelectedRanges, hideUnselectedRanges, unhideAllRanges} from '@/utils/scene/visibility';
 import {elementFirstNodeId} from '@/utils/scene/fea/goToNode';
-import {centerViewOnSelection} from '@/utils/scene/centerViewOnSelection';
-import {frameCells} from '@/utils/scene/frameCells';
-import {zoomToAll} from '@/components/viewer/sceneHelpers/setupCameraControlsHandlers';
 
-import {requestRender} from '@/state/perfStore';
 import {useCellBuilderStore} from '@/state/cellBuilderStore';
-import {parentLevelName, selectParentLevel} from '@/utils/tree_view/treeNavigation';
+import {useSceneMirrorStore} from '@/state/sceneMirrorStore';
+import {parentLevelName} from '@/utils/tree_view/treeSelection';
+import {isMirroredWindow, useSceneActions} from '@/layout/sceneActions';
 import ObjectMetadataPanel from './ObjectMetadataPanel';
 import TreeNodeInfoSection from './TreeNodeInfoSection';
 import SourceJumpSection from './SourceJumpSection';
@@ -26,15 +31,130 @@ import DownloadSelectionButton from './DownloadSelectionButton';
 // expect from a copy gesture.
 const COPIED_FEEDBACK_MS = 1500;
 
+/** Options of the Selected Object panel's content. Absent, each leaves the panel as it is. */
+export interface ObjectInfoBodyProps {
+    /** Replaces what "Show in data" does (open the FEA data table at the node), given the
+     *  picked element's first node. */
+    onShowInData?: (nodeId: number) => void;
+}
+
+const ObjectInfoOptions = React.createContext<ObjectInfoBodyProps>({});
+
+/** The selection's snapshot for the providers' `match`; cell context wins, as in the summary. */
+function useSelectionSnapshot(): SelectionSnapshot {
+    const {useObjectInfoStore, useSelectedObjectStore, useTreeViewStore} = useViewerStores();
+    const name = useObjectInfoStore((s) => s.name);
+    const selectedObjects = useSelectedObjectStore((s) => s.selectedObjects);
+    const treeData = useTreeViewStore((s) => s.treeData);
+    const cbActive = useCellBuilderStore((s) => s.active !== null);
+    const cbSelection = useCellBuilderStore((s) => s.selection);
+    const cbSelectedIds = useCellBuilderStore((s) => s.selectedCellIds);
+    const cbCells = useCellBuilderStore((s) => s.cells);
+    const mirroredCount = useSelectedRangeCount();
+    return React.useMemo<SelectionSnapshot>(() => {
+        const rangeCount = mirroredCount;
+        const base = {
+            meshName: name || null,
+            hasEntities: treeData != null || (cbActive && Object.keys(cbCells).length > 0),
+            cellBuilderActive: cbActive,
+        };
+        if (cbActive && cbSelection !== null) {
+            return {...base, kind: "cell", name: cbCells[cbSelection.cellId]?.name || null, count: cbSelectedIds.length};
+        }
+        if (rangeCount > 0 || name) return {...base, kind: "mesh", name: name || null, count: rangeCount};
+        return {...base, kind: "none", name: null, count: 0};
+    }, [name, selectedObjects, treeData, cbActive, cbSelection, cbSelectedIds, cbCells, mirroredCount]);
+}
+
+/**
+ * How many draw ranges are selected: counted here in the main window; in a
+ * pop-out window, which has no 3D selection, the main window's count
+ * (`core:selection`).
+ */
+function useSelectedRangeCount(): number {
+    const {useSelectedObjectStore} = useViewerStores();
+    const selectedObjects = useSelectedObjectStore((s) => s.selectedObjects);
+    const mirrored = useSceneMirrorStore((s) => s.rangeCount);
+    return React.useMemo(() => {
+        if (isMirroredWindow()) return mirrored;
+        let n = 0;
+        selectedObjects.forEach((ids) => {
+            n += ids.size;
+        });
+        return n;
+    }, [selectedObjects, mirrored]);
+}
+
+/** ObjectMetadataPanel takes its payload as a prop. */
+const ObjectMetadata = () => {
+    const {useObjectInfoStore} = useViewerStores();
+    const jsonData = useObjectInfoStore((s) => s.jsonData);
+    return <ObjectMetadataPanel data={jsonData}/>;
+};
+
+const notCell = (sel: SelectionSnapshot) => sel.kind !== "cell";
+const always = () => true;
+
+/** Core's own sections, as providers, in the order the panel has always drawn them. */
+export const CORE_PROPERTY_PROVIDERS: readonly PropertyProvider[] = [
+    // The name and the actions. Also with nothing selected while the scene holds anything:
+    // Unhide all / Fit all must stay reachable after the last selection was hidden.
+    {id: "selection-summary", order: 0, match: (sel) => sel.kind !== "none" || sel.hasEntities, render: () => <SelectionSummary/>},
+    // Selected FEM concepts (masses, supports, loads, equipment): drawn on the FEM
+    // overlay, not tree rows, so they have their own section.
+    {id: "fem-concepts", order: 10, match: always, render: () => <FemConceptSelectionInfo/>},
+    // Where an element of an exported file came from, and a jump to that node in the
+    // Sources tree (switching scope when it lives in another). Any loaded model whose
+    // file has a provenance record; nothing for others. Above Properties, which starts
+    // folded.
+    {id: "source-jump", order: 20, match: notCell, render: () => <SourceJumpSection/>},
+    // Renders for any picked element -- even without a server-side jsonData payload --
+    // because it also reads metadata from the lineage store (GLB extension's
+    // ``object_metadata`` field) AND hosts the clicked-coordinate row.
+    {id: "object-metadata", order: 30, match: (sel) => sel.meshName != null, render: () => <ObjectMetadata/>},
+    // The selected row's attributes from the attribute index; nothing when it has none.
+    {id: "indexed-attributes", order: 40, match: notCell, render: () => <IndexedAttributesSection/>},
+    // Its system, run and related elements from the relations index; nothing without.
+    {id: "related", order: 50, match: notCell, render: () => <RelatedSection/>},
+    // Structural facts about the selected hierarchy node. Renders for any tree selection,
+    // and is the ONLY section a spatial container can populate -- everything above is
+    // keyed on geometry the container does not have.
+    {id: "tree-node", order: 60, match: always, render: () => <TreeNodeInfoSection/>},
+    // Procedural cellbuilder selection detail -- cell/equipment parameters, gizmo toggles
+    // and connected systems. Lives here (not in the busy cellbuilder tool panel) as its
+    // own section.
+    {id: "cellbuilder-cell", order: 70, match: always, render: () => <CellBuilderSelectionInfo/>},
+];
+
 /**
  * The Selected Object Info panel's content: the selection's name, actions and
- * every section that describes it. Its frame (the card and heading) is
- * `ObjectInfoBox` below; another host may draw its own.
+ * every section that describes it -- core's and any a plugin registered
+ * (`registerPropertyProvider`), each in its own error boundary. Its frame (the
+ * card and heading) is `ObjectInfoBox` below; another host may draw its own.
  */
-export const ObjectInfoBody = () => {
-    // This viewer instance's scene-graph handles. Aliased to the names the
-    // body already uses, which until now were module-level globals.
-    const {scene: sceneRef, camera: cameraRef, controls: controlsRef} = useViewerRefs();
+export const ObjectInfoBody: React.FC<ObjectInfoBodyProps> = ({onShowInData}) => {
+    const sel = useSelectionSnapshot();
+    const plugins = useSyncExternalStore(subscribePropertyProviders, listPropertyProviders, listPropertyProviders);
+    const options = React.useMemo(() => ({onShowInData}), [onShowInData]);
+    return (
+        <ObjectInfoOptions.Provider value={options}>
+            {providersFor(sel, CORE_PROPERTY_PROVIDERS, plugins).map((p) => (
+                <ErrorBoundary key={p.id} label={p.owner ? `${p.owner} (${p.id})` : p.id}>
+                    {p.render(sel)}
+                </ErrorBoundary>
+            ))}
+        </ObjectInfoOptions.Provider>
+    );
+};
+
+/** The selection's name and actions. */
+const SelectionSummary = () => {
+    const {onShowInData: showInData} = React.useContext(ObjectInfoOptions);
+    // What the buttons do: on this window's scene, or -- in a pop-out window --
+    // sent to the main window, which has it (`@/layout/sceneActions`).
+    const actions = useSceneActions();
+    const mirrored = isMirroredWindow();
+    const mirroredParent = useSceneMirrorStore((s) => s.parentName);
     const {
         useObjectInfoStore,
         useSelectedObjectStore,
@@ -42,10 +162,7 @@ export const ObjectInfoBody = () => {
         useFeaAnimationStore,
         useTreeViewStore,
     } = useViewerStores();
-    const {
-        name,
-        jsonData,
-    } = useObjectInfoStore();
+    const name = useObjectInfoStore((s) => s.name);
     const selectedObjects = useSelectedObjectStore((s) => s.selectedObjects);
     const additiveMode = useSelectedObjectStore((s) => s.additiveMode);
     const toggleAdditiveMode = useSelectedObjectStore((s) => s.toggleAdditiveMode);
@@ -60,7 +177,6 @@ export const ObjectInfoBody = () => {
     const cbCells = useCellBuilderStore((s) => s.cells);
     const cbAddMode = useCellBuilderStore((s) => s.cellAddMode);
     const hideCells = useCellBuilderStore((s) => s.hideCells);
-    const unhideAllCells = useCellBuilderStore((s) => s.unhideAllCells);
     const toggleCellAddMode = useCellBuilderStore((s) => s.toggleCellAddMode);
     const cellCtx = cbActive && cbSelection !== null;
     const cellNames = cbSelectedIds
@@ -79,19 +195,18 @@ export const ObjectInfoBody = () => {
     // cellbuilder selection — cells aren't tree nodes). Recomputed when the
     // selection or the tree changes. Shown on mobile and desktop; desktop also
     // has the Shift+ArrowUp shortcut.
-    const parentName = React.useMemo(
-        () => (cellCtx ? null : parentLevelName()),
-        [selectedObjects, treeData, cellCtx],
+    // In a pop-out window: the main window's (it holds the 3D selection).
+    const localParent = React.useMemo(
+        () => (cellCtx || mirrored ? null : parentLevelName()),
+        [selectedObjects, treeData, cellCtx, mirrored],
     );
-    const onSelectParent = () => void selectParentLevel();
+    const parentName = mirrored ? mirroredParent : localParent;
+    const onSelectParent = actions.selectParent;
 
     // Total drawRangeIds across all selected meshes — that's the
     // count of "things selected" the user thinks of (one per
     // clicked element, regardless of how many meshes back them).
-    let rangeCount = 0;
-    selectedObjects.forEach((ids) => {
-        rangeCount += ids.size;
-    });
+    const rangeCount = useSelectedRangeCount();
     // Effective selection identity — cell context takes priority so the panel
     // reads as the cell you clicked, not a result element hidden behind it.
     const displayName = cellCtx
@@ -103,12 +218,9 @@ export const ObjectInfoBody = () => {
 
     // Visibility / selection actions dispatch to the active source. Unhide-all
     // always clears both (regular ranges + cell hides) so "show everything"
-    // never leaves something hidden in the other system.
-    const onHide = () => (cellCtx ? hideCells(cbSelectedIds) : hideSelectedRanges());
-    const onUnhideAll = () => {
-        unhideAllRanges();
-        if (cbActive) unhideAllCells();
-    };
+    // never leaves something hidden in the other system (`actions.showAll`).
+    const onHide = () => (cellCtx ? hideCells(cbSelectedIds) : actions.hideSelection());
+    const onUnhideAll = actions.showAll;
     const onToggleAddMode = () => (cellCtx ? toggleCellAddMode() : toggleAdditiveMode());
 
     const [copied, setCopied] = useState<"single" | "multi" | null>(null);
@@ -143,35 +255,16 @@ export const ObjectInfoBody = () => {
     const firstNodeId = name && feaSessionActive ? elementFirstNodeId(name) : null;
     const onShowInData = () => {
         if (firstNodeId == null) return;
+        if (showInData) return showInData(firstNodeId);
         setPanelOpen(true);
         setGoToTarget({kind: "node", id: firstNodeId});
     };
 
     // Camera actions — desktop has keyboard shortcuts (zoom-fit / center-on-selection), but
-    // mobile has no keyboard, so surface them as buttons in this panel. Builder
-    // cells are excluded from the fittable scene, so frame them explicitly.
-    const onFitAll = () => {
-        const s = sceneRef.current, c = cameraRef.current, ctl = controlsRef.current;
-        if (!c || !ctl) return;
-        if (cbActive && Object.keys(cbCells).length > 0 && frameCells("all", ctl, c)) {
-            requestRender();
-            return;
-        }
-        if (s) {
-            zoomToAll(s, c, ctl);
-            requestRender();
-        }
-    };
-    const onGoToObject = () => {
-        const c = cameraRef.current, ctl = controlsRef.current;
-        if (!c || !ctl) return;
-        if (cellCtx && frameCells(cbSelectedIds, ctl, c)) {
-            requestRender();
-            return;
-        }
-        centerViewOnSelection(ctl, c);
-        requestRender();
-    };
+    // mobile has no keyboard, so surface them as buttons in this panel. They are Shift+A and
+    // Shift+F's own actions, which frame builder cells (excluded from the fittable scene) too.
+    const onFitAll = actions.fitAll;
+    const onGoToObject = actions.fitSelection;
 
     return (
         <>
@@ -281,7 +374,7 @@ export const ObjectInfoBody = () => {
                     {displayName && !cellCtx && (
                         <button
                             type="button"
-                            onClick={hideUnselectedRanges}
+                            onClick={actions.hideOthers}
                             className="bg-gray-700 hover:bg-gray-600 active:bg-gray-800 text-white text-[11px] rounded-sm px-2 py-1 inline-flex items-center gap-1"
                             title="Hide everything that is not selected (Shift+I)"
                             aria-label="Hide unselected"
@@ -375,33 +468,6 @@ export const ObjectInfoBody = () => {
                     </>)}
                 </div>
             )}
-            {/* The Properties panel renders for any selection — even
-                without a server-side jsonData payload — because it
-                also reads metadata from the lineage store (GLB
-                extension's ``object_metadata`` field) AND hosts the
-                clicked-coordinate row that used to live above. */}
-            {/* Where an element of an exported file came from, and a jump to that node in the
-                Sources tree (switching scope when it lives in another). Any loaded model whose
-                file has a provenance record; nothing for others. Above Properties, which starts
-                folded. */}
-            {/* Selected FEM concepts (masses, supports, loads, equipment): drawn on the FEM
-                overlay, not tree rows, so they have their own section. */}
-            <FemConceptSelectionInfo/>
-            {!cellCtx && <SourceJumpSection/>}
-            {name && <ObjectMetadataPanel data={jsonData}/>}
-            {/* The selected row's attributes from the attribute index; nothing when it has none. */}
-            {!cellCtx && <IndexedAttributesSection/>}
-            {/* Its system, run and related elements from the relations index; nothing without. */}
-            {!cellCtx && <RelatedSection/>}
-            {/* Structural facts about the selected hierarchy node. Renders for
-                any tree selection, and is the ONLY section a spatial container
-                can populate — everything above is keyed on geometry the
-                container does not have. */}
-            <TreeNodeInfoSection/>
-            {/* Procedural cellbuilder selection detail — cell/equipment
-                parameters, gizmo toggles and connected systems. Lives here
-                (not in the busy cellbuilder tool panel) as its own section. */}
-            <CellBuilderSelectionInfo/>
         </>
     );
 };

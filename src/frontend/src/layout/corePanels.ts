@@ -1,12 +1,10 @@
 // The catalogue of core's own panels: every panel the classic UI offers, in one
 // readable list, each bound to the visibility flag it already has.
 //
-// Until now the list existed only implicitly, as the toggle buttons and render
-// conditions in `components/Menu.tsx` and `app.tsx`. This file states it once.
-// By default the classic UI is still that hand-written tree, reading the same
-// flags these bindings read and write; with the layout-engine flag on, the
-// layout host's classic preset (`./presets/classic`) renders the same UI from
-// this catalogue. Tests hold the catalogue to Menu.tsx
+// The list used to exist only implicitly, as the toggle buttons and render
+// conditions of a hand-written tree (since removed). This file states it once,
+// and the layout host's classic preset (`./presets/classic`) renders the
+// classic UI from it. Tests pin the catalogue to what that tree offered
 // (`__tests__/layout/corePanels.test.ts`, `classicPreset.test.ts`).
 //
 // Each entry is an ADAPTER over today's component and flag, not a new panel:
@@ -16,7 +14,7 @@
 //     same panel's content without that frame, for a host that draws its own.
 //   * `binding` reads and writes the existing flag, through the store's own
 //     action where there is one.
-//   * `available` mirrors the condition under which `Menu.tsx` offers the panel
+//   * `available` mirrors the condition under which the classic UI offers the panel
 //     (its button's `hidden`, or its render guard), read from the stores' current
 //     state.
 //
@@ -64,31 +62,9 @@ import { CLASSIC_PRESET_ID, CLASSIC_ZONES } from "./layout";
 import type { PanelBinding, PanelBodyLoader, PanelPlacement, PanelProps, PanelSpec } from "./panel";
 import { getPanel, registerPanel } from "./registry";
 
-/** The owner id core registers its panels under. */
-export const CORE_PANEL_OWNER = "core";
+import { CORE_PANEL_IDS, CORE_PANEL_OWNER, type CorePanelId } from "./corePanelIds";
 
-/** Stable ids of core's panels. */
-export const CORE_PANEL_IDS = {
-  options: "core:options",
-  tree: "core:tree",
-  nodeEditor: "core:node-editor",
-  storage: "core:storage",
-  serverInfo: "core:server-info",
-  attributeSearch: "core:attribute-search",
-  objectInfo: "core:object-info",
-  scene: "core:scene",
-  wsStatus: "core:ws-status",
-  simulation: "core:simulation",
-  feaTable: "core:fea-table",
-  componentControls: "core:component-controls",
-  cellbuilder: "core:cellbuilder",
-  equipmentAdmin: "core:equipment-admin",
-  systemAdmin: "core:system-admin",
-  admin: "core:admin",
-  convert: "core:convert",
-} as const;
-
-export type CorePanelId = (typeof CORE_PANEL_IDS)[keyof typeof CORE_PANEL_IDS];
+export { CORE_PANEL_IDS, CORE_PANEL_OWNER, type CorePanelId };
 
 /**
  * A panel's classic component (its content in its classic frame), or its
@@ -111,10 +87,11 @@ function classicContent(id: CorePanelId): PanelBodyLoader {
 /** The stores the Simulation button's condition reads. */
 const watchSimulation = watchStores(useAnimationStore, useFeaAnimationStore, useFemConceptsStore);
 
+/** A placement in the classic preset. */
 const classic = (p: PanelPlacement) => ({ [CLASSIC_PRESET_ID]: p });
 const column = (order: number) => classic({ zone: CLASSIC_ZONES.menuColumn, order });
 
-// The conditions Menu.tsx gates its buttons and panels on, as plain reads.
+// The conditions the classic UI gates its buttons and panels on, as plain reads.
 const nodeEditorOnly = () => useNodeEditorStore.getState().use_node_editor_only;
 const proceduralActive = () => {
   const s = useCellBuilderStore.getState();
@@ -132,14 +109,14 @@ const simulationOffered = () => {
   });
 };
 
-/** The in-viewer window shows one of admin / convert at a time. */
+/** An in-viewer window: admin or convert, one at a time unless the layout lets both float. */
 function viewerWindowBinding(panel: ViewerPanel): PanelBinding {
   return bindStoreFlag(
     useViewerPanelStore,
-    (s) => s.open === panel,
+    (s) => s.shown.includes(panel),
     (open, s) => {
       if (open) s.openPanel(panel);
-      else if (s.open === panel) s.closePanel();
+      else if (s.shown.includes(panel)) s.closePanel(panel);
     },
   );
 }
@@ -182,7 +159,9 @@ export function corePanelSpecs(): PanelSpec[] {
         (open, s) => s.setIsTreeCollapsed(!open),
       ),
       available: () => !nodeEditorOnly(),
-      capabilities: { stackable: false },
+      // Kept mounted once opened, as the classic drawer is: reopening must not rebuild the tree.
+      // In a pop-out window it shows the main window's tree (`core:scene-tree`) and acts there.
+      capabilities: { stackable: false, keepAlive: true, mirrored: true },
       constraints: { requiresViewerProvider: true },
       placement: classic({ zone: CLASSIC_ZONES.tree, order: 10 }),
       toolbar: { order: 20 },
@@ -224,7 +203,7 @@ export function corePanelSpecs(): PanelSpec[] {
     },
     {
       // The same flag as Storage, on the desktop/websocket viewer, which has no
-      // button for it: Menu.tsx renders this box instead of the storage browser.
+      // button for it: the classic column renders this box instead of the storage browser.
       id: CORE_PANEL_IDS.serverInfo,
       title: "Server info",
       icon: ServerIcon,
@@ -273,6 +252,8 @@ export function corePanelSpecs(): PanelSpec[] {
         },
       ),
       available: () => !nodeEditorOnly(),
+      // In a pop-out window it shows the main window's selection (`windowMirrorCore`).
+      capabilities: { mirrored: true },
       placement: column(30),
       toolbar: { order: 60 },
     },
@@ -322,8 +303,6 @@ export function corePanelSpecs(): PanelSpec[] {
         (open, s) => s.setIsControlsVisible(open),
       ),
       available: () => simulationOffered(),
-      // It floats itself: its frame docks, floats or becomes a window.
-      capabilities: { floatable: false },
       constraints: { requiresCanvas: true },
       placement: column(60),
       toolbar: { order: 80 },
@@ -342,11 +321,7 @@ export function corePanelSpecs(): PanelSpec[] {
       ),
       available: () => simulationOffered(),
       capabilities: { keepAlive: true, stackable: false },
-      placement: classic({
-        zone: CLASSIC_ZONES.menuColumn,
-        parent: CORE_PANEL_IDS.simulation,
-        as: "section",
-      }),
+      placement: classic({ zone: CLASSIC_ZONES.menuColumn, parent: CORE_PANEL_IDS.simulation, as: "section" }),
     },
     {
       id: CORE_PANEL_IDS.componentControls,
@@ -388,6 +363,7 @@ export function corePanelSpecs(): PanelSpec[] {
       id: CORE_PANEL_IDS.equipmentAdmin,
       title: "Equipment catalog",
       body: classicBody(CORE_PANEL_IDS.equipmentAdmin),
+      content: classicContent(CORE_PANEL_IDS.equipmentAdmin),
       watch: watchStores(useCellBuilderStore),
       binding: bindStoreFlag(
         useEquipmentCatalogStore,
@@ -404,6 +380,7 @@ export function corePanelSpecs(): PanelSpec[] {
       id: CORE_PANEL_IDS.systemAdmin,
       title: "System catalog",
       body: classicBody(CORE_PANEL_IDS.systemAdmin),
+      content: classicContent(CORE_PANEL_IDS.systemAdmin),
       watch: watchStores(useCellBuilderStore),
       binding: bindStoreFlag(
         useEquipmentCatalogStore,
@@ -425,6 +402,7 @@ export function corePanelSpecs(): PanelSpec[] {
       binding: viewerWindowBinding("admin"),
       available: (env) => env.restMode !== false,
       constraints: { requiresRest: true, exclusiveGroup: "classic.viewer-window" },
+      content: classicContent(CORE_PANEL_IDS.admin),
       placement: classic({ zone: CLASSIC_ZONES.window, order: 10, float: { w: 1100, h: 720 } }),
       // The classic chrome is the window host's, not the admin panel's own.
       frame: "host",
@@ -436,6 +414,7 @@ export function corePanelSpecs(): PanelSpec[] {
       binding: viewerWindowBinding("convert"),
       available: (env) => env.restMode !== false,
       constraints: { requiresRest: true, exclusiveGroup: "classic.viewer-window" },
+      content: classicContent(CORE_PANEL_IDS.convert),
       placement: classic({ zone: CLASSIC_ZONES.window, order: 20, float: { w: 1100, h: 720 } }),
       frame: "host",
     },

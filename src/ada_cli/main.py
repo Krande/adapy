@@ -17,7 +17,8 @@ Subcommand layout:
     ada audit runs|run|log|perf|profile|fetch|logfile|repro|wasm-sweep|parity
                                       query / re-run viewer audit conversions
     ada serve api|worker              run the REST API / worker process
-    ada viewers                       list the installed viewer bundles (--viewer)
+    ada desktop [FILE]                the local viewer in a native window (needs ada-desktop)
+    ada viewers                      list the installed viewer bundles (--viewer)
 
 This listing is the CLI's own claim about its surface, so it is checked against
 the parser in tests/core/test_cli_surface_docs.py — as are the README table and
@@ -133,6 +134,13 @@ def _cmd_serve_api(args: argparse.Namespace) -> int:
     _use_viewer_bundle(args.viewer)
     run()
     return 0
+
+
+def _cmd_desktop(args: argparse.Namespace) -> int:
+    from ada_cli.desktop import main_run
+
+    _use_viewer_bundle(args.viewer)
+    return main_run(args)
 
 
 def _cmd_viewers(_args: argparse.Namespace) -> int:
@@ -630,6 +638,23 @@ def _add_serve(sub: argparse._SubParsersAction) -> None:
     worker.set_defaults(func=_cmd_serve_worker)
 
 
+def _add_desktop(sub: argparse._SubParsersAction) -> None:
+    from ada_cli.desktop import add_arguments
+
+    p = sub.add_parser(
+        "desktop",
+        help="Run the local viewer and open it in a native window (needs the ada-py-desktop package).",
+        description=(
+            "Start the local viewer (local storage, no login, no job queue) on a fixed per-user "
+            "127.0.0.1 port, open it in the ada-desktop window, and stop it when the last window "
+            "closes. A second `ada desktop` opens one more window on the running viewer."
+        ),
+    )
+    _add_viewer_bundle_opt(p)
+    add_arguments(p)
+    p.set_defaults(func=_cmd_desktop)
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="ada",
@@ -649,6 +674,7 @@ def _build_parser() -> argparse.ArgumentParser:
     _add_files(sub)
     _add_audit(sub)
     _add_serve(sub)
+    _add_desktop(sub)
     _add_viewers(sub)
 
     return parser

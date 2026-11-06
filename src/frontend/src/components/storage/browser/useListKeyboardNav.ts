@@ -1,5 +1,6 @@
 import React, {useEffect, useRef, useState} from "react";
 import type {ServerFileEntry} from "@/state/serverInfoStore";
+import {alertDialog} from "@/plugins/dialogs";
 import type {ServerFileTreeNode} from "./helpers";
 
 export type FlatRow =
@@ -134,7 +135,7 @@ export function useListKeyboardNav(p: {
                         k.replace(/^\/+/, "").startsWith("versions/"),
                     );
                     if (hasVersions) {
-                        window.alert("CI version files can't be deleted");
+                        void alertDialog({title: "CI version files can't be deleted"});
                         break;
                     }
                     void onDeleteSelected();

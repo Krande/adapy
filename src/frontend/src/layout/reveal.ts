@@ -57,8 +57,20 @@ export function isPanelOpen(id: PanelId): boolean {
   return _controller.isOpen(id);
 }
 
+let _elsewhere: ((id: PanelId) => boolean) | null = null;
+
+/**
+ * Where a panel shown in ANOTHER browser window is revealed: `fn` brings that
+ * window forward and returns true, and this window does not open a second copy.
+ * Installed by the main window of a multi-window dashboard (`./windows`); `null` removes it.
+ */
+export function setRevealElsewhere(fn: ((id: PanelId) => boolean) | null): void {
+  _elsewhere = fn;
+}
+
 /** Show a panel. Unknown ids and unbound panels are a warned no-op returning false. */
 export function reveal(id: PanelId): boolean {
+  if (_elsewhere?.(id)) return true;
   const ok = _controller.reveal(id);
   if (!ok) console.warn(`[layout] reveal("${id}"): no such panel, or nothing to reveal`);
   return ok;

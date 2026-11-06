@@ -6,7 +6,8 @@ import {SheetHandle} from "@/components/ui/SheetHandle";
 import {hasEmbeddedDoc, useCellBuilderStore} from "@/state/cellBuilderStore";
 import {useEquipmentCatalogStore} from "@/state/equipmentCatalogStore";
 import {useBottomSheet} from "@/utils/useBottomSheet";
-import type {PanelTab} from "./cellbuilder/panel/chrome";
+import {CORE_PANEL_IDS, hide} from "@/layout/panelActions";
+import {offeredTabs, shownTab, type PanelTab} from "./cellbuilder/panel/chrome";
 import {useLocalModelBrowser} from "./cellbuilder/panel/useLocalModelBrowser";
 import {PanelHeader} from "./cellbuilder/panel/PanelHeader";
 import {PanelTabBar} from "./cellbuilder/panel/PanelTabBar";
@@ -84,11 +85,40 @@ export function useCellBuilderPanelState() {
 
 export type CellBuilderPanelState = ReturnType<typeof useCellBuilderPanelState>;
 
+export type CellBuilderTab = PanelTab;
+
+export interface CellBuilderBodyProps {
+  /** The tabs offered, in order. Default: all; Detailing only while an engine is selected. */
+  tabs?: readonly CellBuilderTab[];
+  tabLabels?: Partial<Record<CellBuilderTab, string>>;
+  /** Undo and redo in the header. Default on. */
+  showUndoRedo?: boolean;
+  /** The Build tab's add buttons (+ Cell, + Opening, + Loft, + Equipment). Default on. */
+  showAddButtons?: boolean;
+  /** The Build tab's "Cells & equipment" list. Default on. */
+  showComponentList?: boolean;
+  /** Shown instead of the panel while no model is open. Default: the panel, empty. */
+  emptyState?: React.ReactNode;
+  /** The pinned footer (Commit, Compile), for a shell that has them in its toolbar. Default on. */
+  showFooter?: boolean;
+}
+
 /** The cellbuilder panel's content, with its own UI state. */
-export const CellBuilderBody: React.FC = () => <CellBuilderContent state={useCellBuilderPanelState()} />;
+export const CellBuilderBody: React.FC<CellBuilderBodyProps> = (props) => (
+  <CellBuilderContent state={useCellBuilderPanelState()} {...props} />
+);
 
 /** The content, from its pinned header to its pinned footer, over state its host keeps. */
-export const CellBuilderContent: React.FC<{state: CellBuilderPanelState}> = ({state}) => {
+export const CellBuilderContent: React.FC<{state: CellBuilderPanelState} & CellBuilderBodyProps> = ({
+  state,
+  tabs,
+  tabLabels,
+  showUndoRedo = true,
+  showAddButtons = true,
+  showComponentList = true,
+  emptyState,
+  showFooter = true,
+}) => {
   const s = useCellBuilderStore();
   const {
     equipBtnRef, openingBtnRef,
@@ -98,15 +128,19 @@ export const CellBuilderContent: React.FC<{state: CellBuilderPanelState}> = ({st
     browser,
   } = state;
   const compileState = s.compileJob;
+  const offered = offeredTabs(tabs, s.selectedDetailing !== "none");
+  const shown = shownTab(tab, offered);
+
+  if (emptyState !== undefined && s.active === null && !hasEmbeddedDoc(s)) return <>{emptyState}</>;
 
   return (
     <>
-      <PanelHeader browser={browser} />
-      <PanelTabBar tab={tab} setTab={setTab} />
+      <PanelHeader browser={browser} showUndoRedo={showUndoRedo} />
+      <PanelTabBar tab={shown} setTab={setTab} tabs={offered} labels={tabLabels} />
 
       {/* ── scrollable body ── */}
             <div className="flex-1 overflow-y-auto p-2.5 min-h-0">
-                <div className={tab === "build" ? "flex flex-col gap-2" : "hidden"}>
+                <div className={shown === "build" ? "flex flex-col gap-2" : "hidden"}>
           <BuildTab
             equipBtnRef={equipBtnRef}
             openingBtnRef={openingBtnRef}
@@ -114,27 +148,29 @@ export const CellBuilderContent: React.FC<{state: CellBuilderPanelState}> = ({st
             setEquipMenuOpen={setEquipMenuOpen}
             openingMenuOpen={openingMenuOpen}
             setOpeningMenuOpen={setOpeningMenuOpen}
+            showAddButtons={showAddButtons}
+            showComponentList={showComponentList}
           />
         </div>
 
-                <div className={tab === "equipment" ? "block" : "hidden"}>
-                    <EquipmentTab active={tab === "equipment"} />
+                <div className={shown === "equipment" ? "block" : "hidden"}>
+                    <EquipmentTab active={shown === "equipment"} />
         </div>
 
-                <div className={tab === "systems" ? "block" : "hidden"}>
-                    <SystemsCatalogTab active={tab === "systems"} />
+                <div className={shown === "systems" ? "block" : "hidden"}>
+                    <SystemsCatalogTab active={shown === "systems"} />
         </div>
 
                 {/* DETAILING — data-driven from the selected engine's joint_types */}
-                <div className={tab === "detailing" ? "block" : "hidden"}>
+                <div className={shown === "detailing" ? "block" : "hidden"}>
           <DetailingPanel />
         </div>
 
-                <div className={tab === "view" ? "flex flex-col gap-2" : "hidden"}>
+                <div className={shown === "view" ? "flex flex-col gap-2" : "hidden"}>
           <ViewTab />
         </div>
 
-                <div className={tab === "tools" ? "flex flex-col gap-2" : "hidden"}>
+                <div className={shown === "tools" ? "flex flex-col gap-2" : "hidden"}>
           <ToolsTab />
         </div>
       </div>
@@ -151,7 +187,7 @@ export const CellBuilderContent: React.FC<{state: CellBuilderPanelState}> = ({st
         </div>
       )}
 
-      <PanelFooter onSaved={browser.refresh} />
+      {showFooter && <PanelFooter onSaved={browser.refresh} />}
     </>
   );
 };
@@ -159,7 +195,7 @@ export const CellBuilderContent: React.FC<{state: CellBuilderPanelState}> = ({st
 const CellBuilderPanel: React.FC = () => {
   const loaded = useCellBuilderStore((s) => s.active !== null || hasEmbeddedDoc(s));
   const panelVisible = useCellBuilderStore((s) => s.panelVisible);
-  const sheet = useBottomSheet(() => useCellBuilderStore.getState().setPanelVisible(false));
+  const sheet = useBottomSheet(() => void hide(CORE_PANEL_IDS.cellbuilder));
   const state = useCellBuilderPanelState();
 
   // Either an editable session (`active`) or a view-only document loaded off a

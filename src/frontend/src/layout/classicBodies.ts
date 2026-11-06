@@ -2,12 +2,11 @@
 // own module graph.
 //
 // Two maps: the classic component of each core panel (content in its classic
-// frame -- what the classic preset mounts, pixel-identical to `Menu.tsx`), and
-// its frameless content (what another host frames itself).
+// frame -- what the classic preset mounts), and its frameless content (what
+// another host frames itself).
 //
-// WHERE THIS MODULE LIVES IN THE BUNDLE matters. Every component here is already
-// part of the classic shell's chunk (`app.tsx` and `Menu.tsx` import them
-// statically). The catalogue (`./corePanels`) reaches these maps only through a
+// WHERE THIS MODULE LIVES IN THE BUNDLE matters. Every component here is part of
+// the classic shell's chunk (`app.tsx` re-exports this module statically). The catalogue (`./corePanels`) reaches these maps only through a
 // dynamic import of the shell module itself (`import("@/app")`), which re-exports
 // them, and the layout host imports them statically from inside that graph. A
 // dynamic import of THIS module from outside would make it a chunk entry of its
@@ -18,11 +17,12 @@
 // search, admin, convert, the catalog editors) are not here: the catalogue loads
 // those chunks directly, as the classic UI always has.
 
-import type React from "react";
+import React from "react";
 
 import OptionsComponent, { OptionsBody } from "@/components/OptionsComponent";
 import ResizableTreeView from "@/components/tree_view/ResizableTreeView";
-import AssetBrowser from "@/components/asset_browser/AssetBrowser";
+import TreeViewComponent from "@/components/tree_view/TreeViewComponent";
+import AssetBrowser, { AssetBrowserTabs, assetsTabAvailable } from "@/components/asset_browser/AssetBrowser";
 import NodeEditorComponent from "@/components/node_editor/NodeEditorComponent";
 import NodeEditorBody from "@/components/node_editor/NodeEditorBody";
 import ServerInfoBox, { ServerInfoBody } from "@/components/server_info/ServerInfoBox";
@@ -37,9 +37,39 @@ import CellBuilderPanel, { CellBuilderBody } from "@/components/viewer/CellBuild
 
 import { CORE_PANEL_IDS } from "./corePanels";
 import type { PanelId, PanelProps } from "./panel";
+import { isMirroredWindow } from "./sceneActions";
 
 /** A component that ignores the host's `PanelProps`, as a panel body. */
 const asBody = (c: React.ComponentType<never>) => c as unknown as React.ComponentType<PanelProps>;
+
+/** A frameless content component, given a shell's options (`PanelProps.options`) as its props. */
+const withOptions = <P extends object>(c: React.ComponentType<P>, base?: Partial<P>): React.ComponentType<PanelProps> => {
+  const C: React.FC<PanelProps> = (p) => React.createElement(c, { ...base, ...p.options } as P);
+  C.displayName = `Options(${c.displayName ?? c.name ?? "content"})`;
+  return C;
+};
+
+/**
+ * The selection tree without its drawer: the Scene | Sources tabs (with a server)
+ * over the tree. In a pop-out window, the Scene tree alone: it shows the main
+ * window's tree (`core:scene-tree`); the other tabs load into a scene the
+ * pop-out does not have.
+ */
+const SelectionTreeContent: React.FC = () =>
+  isMirroredWindow()
+    ? React.createElement("div", { className: "flex flex-col h-full min-h-0 text-white" }, React.createElement(TreeViewComponent))
+    : React.createElement(
+    "div",
+    { className: "flex flex-col h-full min-h-0 text-white" },
+    assetsTabAvailable()
+      ? React.createElement("div", { className: "flex items-center h-9 shrink-0 border-b border-gray-700/80" }, React.createElement(AssetBrowserTabs))
+      : null,
+    React.createElement(AssetBrowser),
+  );
+
+/** A catalog editor as the admin panel embeds it: no floating card of its own. */
+const embedded = (c: React.ComponentType<{ embedded?: boolean }>) =>
+  asBody(() => React.createElement(c, { embedded: true }));
 
 /** Each core panel's classic component: its content in its classic frame. */
 export const CLASSIC_PANEL_COMPONENTS: Readonly<Record<PanelId, React.ComponentType<PanelProps>>> = {
@@ -58,25 +88,25 @@ export const CLASSIC_PANEL_COMPONENTS: Readonly<Record<PanelId, React.ComponentT
 
 /** Each core panel's content without its classic frame. */
 export const CLASSIC_PANEL_CONTENTS: Readonly<Record<PanelId, React.ComponentType<PanelProps>>> = {
-  [CORE_PANEL_IDS.options]: asBody(OptionsBody),
-  [CORE_PANEL_IDS.tree]: asBody(AssetBrowser),
-  [CORE_PANEL_IDS.nodeEditor]: asBody(NodeEditorBody),
-  [CORE_PANEL_IDS.serverInfo]: asBody(ServerInfoBody),
-  [CORE_PANEL_IDS.objectInfo]: asBody(ObjectInfoBody),
-  [CORE_PANEL_IDS.scene]: asBody(SceneBody),
-  [CORE_PANEL_IDS.wsStatus]: asBody(WebsocketStatusBody),
-  [CORE_PANEL_IDS.simulation]: asBody(SimulationBody),
-  [CORE_PANEL_IDS.feaTable]: asBody(SimulationDataInfoPanel),
-  [CORE_PANEL_IDS.componentControls]: asBody(ComponentControlsBody),
-  [CORE_PANEL_IDS.cellbuilder]: asBody(CellBuilderBody),
+  [CORE_PANEL_IDS.options]: withOptions(OptionsBody),
+  [CORE_PANEL_IDS.tree]: asBody(SelectionTreeContent),
+  [CORE_PANEL_IDS.nodeEditor]: withOptions(NodeEditorBody),
+  [CORE_PANEL_IDS.serverInfo]: withOptions(ServerInfoBody),
+  [CORE_PANEL_IDS.objectInfo]: withOptions(ObjectInfoBody),
+  [CORE_PANEL_IDS.scene]: withOptions(SceneBody),
+  [CORE_PANEL_IDS.wsStatus]: withOptions(WebsocketStatusBody),
+  [CORE_PANEL_IDS.simulation]: withOptions(SimulationBody),
+  [CORE_PANEL_IDS.feaTable]: withOptions(SimulationDataInfoPanel),
+  [CORE_PANEL_IDS.componentControls]: withOptions(ComponentControlsBody),
+  [CORE_PANEL_IDS.cellbuilder]: withOptions(CellBuilderBody),
 };
 
 type Loader = () => Promise<React.ComponentType<PanelProps>>;
 
 /**
  * The panels the classic UI code-splits, loaded from inside this graph with the
- * very specifiers `Menu.tsx`, `app.tsx` and the window hosts use, so they land in
- * the chunks they always had.
+ * specifiers they have always had (`app.tsx`'s canvas-less pages use the same),
+ * so they land in the chunks they always had.
  */
 const LAZY_BODIES: Readonly<Record<PanelId, Loader>> = {
   [CORE_PANEL_IDS.storage]: () => import("@/components/storage/StorageBrowser").then((m) => asBody(m.default)),
@@ -90,9 +120,16 @@ const LAZY_BODIES: Readonly<Record<PanelId, Loader>> = {
 };
 
 const LAZY_CONTENTS: Readonly<Record<PanelId, Loader>> = {
-  [CORE_PANEL_IDS.storage]: () => import("@/components/storage/StorageBrowser").then((m) => asBody(m.StorageBody)),
+  // In a group or window the layout sizes the panel: the file list takes that height.
+  [CORE_PANEL_IDS.storage]: () =>
+    import("@/components/storage/StorageBrowser").then((m) => withOptions(m.StorageBody, { fillHeight: true })),
   [CORE_PANEL_IDS.attributeSearch]: () =>
-    import("@/components/asset_browser/AttributeSearchPanel").then((m) => asBody(m.default)),
+    import("@/components/asset_browser/AttributeSearchPanel").then((m) => withOptions(m.default)),
+  [CORE_PANEL_IDS.equipmentAdmin]: () => import("@/components/admin/EquipmentAdminPanel").then((m) => embedded(m.default)),
+  [CORE_PANEL_IDS.systemAdmin]: () => import("@/components/admin/SystemAdminPanel").then((m) => embedded(m.default)),
+  // The same components as their bodies, given a shell's options (`ConvertBodyProps.inViewer`, ...).
+  [CORE_PANEL_IDS.admin]: () => import("@/components/admin/AdminPanel").then((m) => withOptions(m.AdminWindowBody)),
+  [CORE_PANEL_IDS.convert]: () => import("@/components/convert/ConvertPage").then((m) => withOptions(m.default)),
 };
 
 /**

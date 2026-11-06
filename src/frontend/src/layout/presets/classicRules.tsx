@@ -1,6 +1,6 @@
 // The classic preset's rules, as data: its zones, when each panel is mounted,
 // and how each core panel's top-bar toggle is drawn. Kept apart from the preset's
-// components (`./classic`) so `node --test` can hold them to `Menu.tsx` without
+// components (`./classic`) so `node --test` can hold them to the classic UI without
 // a canvas: they import icons and ids, no scene.
 
 import React from "react";
@@ -40,7 +40,7 @@ export function classicDefaults({context, panels}: {context: string; panels: Reg
 }
 
 // ---------------------------------------------------------------------------
-// Mount rules: Menu.tsx's and app.tsx's render conditions, where they are not
+// Mount rules: the classic UI's render conditions, where they are not
 // simply "the panel is open". Everything else mounts while open.
 // ---------------------------------------------------------------------------
 
@@ -90,7 +90,7 @@ export interface ToolbarRecipe {
   statusMenu?: boolean;
 }
 
-/** Each core toolbar panel's toggle, as Menu.tsx draws it. */
+/** Each core toolbar panel's toggle, as the classic top bar draws it. */
 export const CLASSIC_TOOLBAR: Readonly<Record<PanelId, ToolbarRecipe>> = {
   [CORE_PANEL_IDS.options]: {title: () => "Toggle options drawer", content: "☰"},
   [CORE_PANEL_IDS.tree]: {

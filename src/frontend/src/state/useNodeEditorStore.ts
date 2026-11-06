@@ -11,7 +11,9 @@ type NodeEditorState = {
     onNodesChange: (changes: NodeChange[]) => void; // Use NodeChange type for onNodesChange
     onEdgesChange: (changes: EdgeChange[]) => void; // Use EdgeChange type for onEdgesChange
     onConnect: OnConnect;
+    /** @deprecated The node editor's flag. Ask `isPanelOpen("core:node-editor")` (`@/viewer-core`); open and close it with `reveal` / `hide`. */
     isNodeEditorVisible: boolean;
+    /** @deprecated Use `reveal("core:node-editor")` / `hide("core:node-editor")` from `@/viewer-core`, which the layout controls. */
     setIsNodeEditorVisible: (visible: boolean) => void;
     use_node_editor_only: boolean | undefined;
 };

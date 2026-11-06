@@ -10,12 +10,15 @@
 import React from "react";
 
 import {useCellBuilderStore} from "@/state/cellBuilderStore";
-import type {PanelTab} from "./chrome";
+import {PANEL_TAB_LABELS, type PanelTab} from "./chrome";
 
 export const PanelTabBar: React.FC<{
   tab: PanelTab;
   setTab: (t: PanelTab) => void;
-}> = ({tab, setTab}) => {
+  /** The tabs offered, in order (`offeredTabs`). */
+  tabs: readonly PanelTab[];
+  labels?: Partial<Record<PanelTab, string>>;
+}> = ({tab, setTab, tabs, labels}) => {
   const s = useCellBuilderStore();
   const cellCount = Object.keys(s.cells).length;
   const systemCount = Object.keys(s.systems).length;
@@ -44,12 +47,11 @@ export const PanelTabBar: React.FC<{
       className="shrink-0 flex gap-1 px-2 pt-1.5 border-b border-gray-600/50 overflow-x-auto overflow-y-hidden"
       role="tablist"
     >
-      {tabBtn("build", "Build", cellCount)}
-      {tabBtn("equipment", "Equipment")}
-      {tabBtn("systems", "Systems", systemCount)}
-      {s.selectedDetailing !== "none" && tabBtn("detailing", "Detailing")}
-      {tabBtn("view", "View")}
-      {tabBtn("tools", "Tools")}
+      {tabs.map((t) =>
+        <React.Fragment key={t}>
+          {tabBtn(t, labels?.[t] ?? PANEL_TAB_LABELS[t], t === "build" ? cellCount : t === "systems" ? systemCount : undefined)}
+        </React.Fragment>,
+      )}
     </div>
   );
 };

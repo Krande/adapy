@@ -9,6 +9,15 @@ import ViewIcon from "../../icons/ViewIcon";
 import {canOpenInScene, isFEAResult, isStreamingFEAResult} from "@/utils/scene/fileKinds";
 import {localDateTime} from "@/utils/time";
 import {Spinner, formatRelative, parseLastModifiedMs} from "./helpers";
+import {claimLoad} from "@/plugins/loadClaims";
+import type {RowLoadState} from "./rowLoadProgress";
+
+/** A row's load told on the row: its state and the row's Cancel and Dismiss. */
+export interface RowLoadProgress {
+    state: RowLoadState;
+    onCancel: () => void;
+    onDismiss: () => void;
+}
 
 // FileRow: one storage entry, optionally indented (for use inside
 // the per-commit subtree). Pulled out of the main component so the
@@ -61,6 +70,9 @@ export interface FileRowProps {
      *  more than one list and a future one may have the time in its own
      *  header; every caller today passes it. */
     showModified?: boolean;
+    /** Tell this row's load on the row: percent, stage, error, Cancel and Dismiss. While
+     *  set, the row claims its load (`claimLoad`), so the progress toast leaves it out. */
+    loadProgress?: RowLoadProgress;
 }
 
 const FileRow: React.FC<FileRowProps> = ({
@@ -90,6 +102,7 @@ const FileRow: React.FC<FileRowProps> = ({
     onRenameCommit,
     onRenameCancel,
     showModified,
+    loadProgress: lp,
 }) => {
     const isViewing = viewingName === f.name;
     const otherViewing = viewingName !== null && !isViewing;
@@ -99,6 +112,11 @@ const FileRow: React.FC<FileRowProps> = ({
         ? Math.max(0, Math.min(100, Math.round(viewJob.progress * 100)))
         : 0;
     const indentPx = indentLevel * 12;
+    const queued = lp ? !!isQueued || lp.state.phase === "queued" : isQueued;
+    const loadPct = lp && isViewing ? lp.state.percent : null;
+    const loadEnded = !!lp && !isViewing && (lp.state.phase === "error" || lp.state.phase === "cancelled");
+    const hasProgress = !!lp;
+    useEffect(() => (hasProgress ? claimLoad(f.name) : undefined), [f.name, hasProgress]);
 
     // Long-press = the touch path to the context menu (desktop has
     // right-click). 500 ms hold, cancelled by pointer move > 8 px
@@ -193,8 +211,8 @@ const FileRow: React.FC<FileRowProps> = ({
                     <input
                         type="checkbox"
                         className="h-5 w-5 shrink-0 cursor-pointer disabled:cursor-not-allowed"
-                        checked={isLoaded || isQueued || isViewing}
-                        onChange={() => void onToggle(f, !(isLoaded || isQueued))}
+                        checked={isLoaded || queued || isViewing}
+                        onChange={() => void onToggle(f, !(isLoaded || queued))}
                         onClick={(e) => e.stopPropagation()}
                         // One predicate for all three routes into the scene —
                         // the streaming bake, the convert pipeline, and a
@@ -210,7 +228,7 @@ const FileRow: React.FC<FileRowProps> = ({
                             ? "Nothing installed can open this file type"
                             : isLoaded
                                 ? "Unload from scene"
-                                : isQueued
+                                : queued
                                     ? "Queued to load — untick to remove from the queue"
                                     : isStreamingFEAResult(f.name)
                                         ? "Open in streaming FEA viewer (queues if another model is loading)"
@@ -262,7 +280,7 @@ const FileRow: React.FC<FileRowProps> = ({
                         selection control (bulk actions), so loaded
                         state needs its own signal — the blue filename
                         tint alone is easy to miss on mobile. */}
-                    {isQueued && (
+                    {queued && (
                         <span className="text-[10px] text-amber-400 uppercase tracking-wide shrink-0">
                             queued
                         </span>
@@ -275,7 +293,7 @@ const FileRow: React.FC<FileRowProps> = ({
                             aria-label="Loaded in scene"
                         />
                     )}
-                    {isViewing && <Spinner/>}
+                    {isViewing && loadPct === null && <Spinner/>}
                     {/* Legacy single-shot (step, field) picker — kept
                         only for hypothetical future non-streaming FEA
                         formats. SIF goes through the streaming bake
@@ -313,7 +331,68 @@ const FileRow: React.FC<FileRowProps> = ({
                     )}
                 </div>
             </div>
-            {isViewing && (
+            {isViewing && lp && (
+                <div className="mt-1 flex flex-col gap-0.5">
+                    <div
+                        className="h-1 w-full bg-gray-700 rounded-sm overflow-hidden"
+                        role="progressbar"
+                        aria-label={`Loading ${displayName}`}
+                        aria-valuemin={0}
+                        aria-valuemax={100}
+                        aria-valuenow={loadPct ?? undefined}
+                        aria-valuetext={lp.state.stage || undefined}
+                    >
+                        {loadPct !== null ? (
+                            <div className="h-full bg-blue-600 transition-[width] duration-200" style={{width: `${loadPct}%`}}/>
+                        ) : (
+                            <div className="h-full w-1/3 bg-blue-600 animate-[indeterminate_1.4s_ease-in-out_infinite]"/>
+                        )}
+                    </div>
+                    <div className="flex items-center gap-2 min-w-0 text-[10px] leading-tight text-gray-400">
+                        <span className="truncate flex-1 min-w-0" title={lp.state.stage || undefined}>
+                            {lp.state.stage || "Loading…"}
+                        </span>
+                        {loadPct !== null && <span className="shrink-0 tabular-nums">{loadPct}%</span>}
+                        {lp.state.cancel && (
+                            <button
+                                type="button"
+                                className="shrink-0 rounded-sm px-1 hover:text-red-300 hover:bg-gray-700"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    lp.onCancel();
+                                }}
+                                title="Stop this load, and the conversion running for it"
+                                aria-label={`Cancel loading ${displayName}`}
+                            >
+                                Cancel
+                            </button>
+                        )}
+                    </div>
+                </div>
+            )}
+            {loadEnded && lp && (
+                <div className="mt-0.5 flex items-center gap-1 min-w-0 text-[10px] leading-tight" role="status">
+                    <span
+                        className={"truncate flex-1 min-w-0 " + (lp.state.phase === "error" ? "text-red-400" : "text-gray-400")}
+                        title={lp.state.message ?? undefined}
+                    >
+                        {lp.state.phase === "error" ? `Load failed: ${lp.state.message}` : lp.state.message}
+                    </span>
+                    <button
+                        type="button"
+                        className="shrink-0 rounded-sm px-1 text-gray-400 hover:text-white hover:bg-gray-700"
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            lp.onDismiss();
+                        }}
+                        title="Dismiss"
+                        aria-label={`Dismiss load status for ${displayName}`}
+                    >
+                        ×
+                    </button>
+                </div>
+            )}
+            {isViewing && !lp && (
                 <div className="mt-1 h-1 w-full bg-gray-700 rounded-sm overflow-hidden">
                     {viewJob && viewJob.status !== 'queued' ? (
                         <div

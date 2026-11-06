@@ -2,7 +2,7 @@ import React from "react";
 
 import {PanelCard, PanelHeaderActions} from "@/components/ui/PanelFrame";
 import {SheetHandle} from "@/components/ui/SheetHandle";
-import {useSceneInfoStore} from "@/state/sceneInfoStore";
+import {CORE_PANEL_IDS, hide} from "@/layout/panelActions";
 import {useBottomSheet} from "@/utils/useBottomSheet";
 import SceneBody from "./SceneBody";
 
@@ -12,8 +12,7 @@ import SceneBody from "./SceneBody";
 // pinned regions manage their own padding so the tab strip can span edge-to-edge
 // and the body scrolls independently.
 const SceneInfoBox = () => {
-    const setShow = useSceneInfoStore((s) => s.setShowSceneInfoBox);
-    const {panelRef, sheetStyle, grab} = useBottomSheet(() => setShow(false));
+    const {panelRef, sheetStyle, grab} = useBottomSheet(() => void hide(CORE_PANEL_IDS.scene));
 
     return (
         <PanelCard

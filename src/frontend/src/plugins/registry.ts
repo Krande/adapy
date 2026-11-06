@@ -16,6 +16,7 @@ import type { AdaViewerStores } from "@/state/AdaViewerContext";
 import { registerUiShell, type UiShellSpec } from "./uiShells";
 import { panelSpecFromSlot } from "@/layout/pluginPanels";
 import { registerPanel, removePanelsOwnedBy } from "@/layout/registry";
+import { isPlacedElsewhere } from "@/layout/placedElsewhere";
 
 // Bumped on a breaking change to any slot interface below. A plugin declares the
 // core range it was built against via `coreApiRange`; an out-of-range plugin is
@@ -104,7 +105,11 @@ import { registerPanel, removePanelsOwnedBy } from "@/layout/registry";
 //          there as a panel, under the same namespaced id, so a host lists plugin panels
 //          beside core's. Slots themselves are unchanged and still mounted by region.
 //          Additive, so a minor bump.
-export const PLUGIN_API_VERSION = "1.12.0";
+// 1.13.0 — kept in step with viewer-core 1.13.0: a UI shell without `load` is composed from
+//          core's layout (`UiShellSpec.layout` / `chrome` / `themeTokens`). An older core
+//          rejects such a shell, so a shell built on it names this version in `coreApiRange`.
+//          Additive, so a minor bump.
+export const PLUGIN_API_VERSION = "1.13.0";
 
 // The named mount regions core exposes in Phase 1. Deliberately small
 // (`fem-sidebar` covers the FEM simulation panel, `top-panel` the menu bar,
@@ -202,6 +207,12 @@ export interface PluginModeSpec {
    * reports the transition via `notifyActiveModeSceneColor`.
    */
   ownsSceneColor?: boolean;
+  /**
+   * True: the FEA model is shown deformed while this mode is active. Default false
+   * for a plugin's mode (opt in): core holds the model undeformed (1.13.0). A
+   * shell's own modes (`UiShellMode`) default to shown.
+   */
+  showsDeformation?: boolean;
 }
 
 export type PluginLogLevel = "debug" | "info" | "warn" | "error";
@@ -524,6 +535,18 @@ export interface PanelSlot {
   activationPredicate?: ActivationPredicate;
   render: (ctx: AdaPluginContext) => React.ReactNode;
   topBarButton?: TopBarButtonSpec;
+  /**
+   * May open in a browser window of its own (1.13.0). Only for a panel that works
+   * without the 3D scene: the new window boots canvas-less, with stores of its own.
+   * Applies to a panel that stands on its own (`top-panel`, or one naming a `dock`).
+   */
+  popout?: boolean;
+  /**
+   * May go to a pop-out window although it reads the scene (1.13.0): the plugin
+   * mirrors what it reads from the main window and acts through it
+   * (`registerMirrorTopic`, `registerMirrorCommand`).
+   */
+  mirrored?: boolean;
   // When set on a `fem-sidebar` panel, core promotes the panel to a tab in the
   // Simulation panel (alongside the built-in "animation" tab) rather than
   // stacking it inline. Buttonless / non-`asTab` fem-sidebar panels keep
@@ -811,8 +834,27 @@ export function registerPlugin(spec: PluginSpec): void {
 
   // The same panels, in the panel registry's terms (see @/layout/pluginPanels).
   // Additive: the region hosts above still read `panels` directly.
-  const isDisabled = () => !!_registry.get(id)?.disabled;
-  for (const slot of panels) registerPanel(panelSpecFromSlot(id, slot, isDisabled), id);
+  // Unavailable while disabled, or while the plugin's own activation predicate is
+  // false (when the bootstrap gave a context to ask it with).
+  const isUnavailable = () => {
+    const p = _registry.get(id);
+    if (!p || p.disabled) return true;
+    if (!p.activationPredicate || !_contextFactory) return false;
+    return !isActive(p, _contextFactory(id));
+  };
+  for (const slot of panels) registerPanel(panelSpecFromSlot(id, slot, isUnavailable), id);
+}
+
+let _contextFactory: ((pluginId: string) => AdaPluginContext) | null = null;
+
+/**
+ * Hand the registry a way to build a plugin's context outside a mounted host, so
+ * a plugin's panels in the panel registry are unavailable while the plugin's own
+ * activation predicate is false (a dormant plugin's panels are not placed or
+ * listed). Called once by the bootstrap; without it only disabling counts.
+ */
+export function setPluginContextFactory(factory: ((pluginId: string) => AdaPluginContext) | null): void {
+  _contextFactory = factory;
 }
 
 /** All registered plugins in insertion order (test/introspection helper). */
@@ -880,6 +922,7 @@ export function getPluginModes(): Array<{ pluginId: string; mode: PluginModeSpec
 export function getPanelsForRegion(
   region: PluginRegion,
   ctx: AdaPluginContext,
+  opts: { includePlacedElsewhere?: boolean } = {},
 ): Array<{ pluginId: string; panel: PanelSlot }> {
   const out: Array<{ pluginId: string; panel: PanelSlot; order: number }> = [];
   for (const p of _registry.values()) {
@@ -887,6 +930,9 @@ export function getPanelsForRegion(
     if (!isActive(p, pctx)) continue;
     for (const panel of p.panels) {
       if (panel.region !== region) continue;
+      // Shown by the layout in a group or window of its own, not in its region
+      // (its top-bar button stays: `includePlacedElsewhere`).
+      if (!opts.includePlacedElsewhere && isPlacedElsewhere(panel.id)) continue;
       if (panel.activationPredicate) {
         try {
           if (!panel.activationPredicate(pctx)) continue;

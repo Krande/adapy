@@ -17,18 +17,25 @@
 
 import React, { Suspense } from "react";
 
-import { CORE_UI_SHELL_ID, activeUiShell, getUiShell } from "./uiShells";
+import { CORE_UI_SHELL_ID, activeUiShell, getUiShell, type UiShellSpec } from "./uiShells";
+
+/** A shell's root: its own, or core's root composed from the shell's layout. */
+function loadShell(shell: UiShellSpec): Promise<{ default: React.ComponentType }> {
+  if (shell.load) return shell.load();
+  // Through the core shell's module, which the panel bodies load through too.
+  return import("@/app").then((m) => ({ default: m.composedShell(shell) }));
+}
 
 function lazyShell(id: string): React.LazyExoticComponent<React.ComponentType> {
   return React.lazy(async () => {
     const shell = getUiShell(id);
     if (!shell) throw new Error(`UI shell "${id}" is not registered`);
     try {
-      return await shell.load();
+      return await loadShell(shell);
     } catch (err) {
       if (id === CORE_UI_SHELL_ID) throw err;
       console.error(`[plugins] UI shell "${id}" failed to load; falling back to core`, err);
-      return await getUiShell(CORE_UI_SHELL_ID)!.load();
+      return await loadShell(getUiShell(CORE_UI_SHELL_ID)!);
     }
   });
 }

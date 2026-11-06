@@ -1,13 +1,15 @@
 // Slim viewer UI for the `mountViewer({showControls:true})` path. Lifts
 // the three panels paradoc actually wants — selection tree, object
-// info, group info — without dragging in adapy's full Menu.tsx (REST
+// info, group info — without dragging in adapy's full panel layout (REST
 // storage browser, websocket status, server info, options drawer all
 // gated by runtime flags that don't exist in the embed).
 //
-// The three toggle buttons mirror Menu.tsx's styling so the embed
-// looks like a stripped-down adapy and not a separate UI. Buttons
-// flip the same zustand stores Menu does, so a click in the tree
-// here populates the same object-info store the full app uses.
+// The three toggle buttons mirror the classic top bar's styling so the
+// embed looks like a stripped-down adapy and not a separate UI. Buttons
+// flip the same zustand stores the panels' bindings do, so a click in
+// the tree here populates the same object-info store the full app uses.
+// (They write the embed viewer's own store instances, `useViewerStores`,
+// which the panel registry's `reveal` / `hide` do not address.)
 
 import React from "react"
 import ResizableTreeView from "@/components/tree_view/ResizableTreeView"
@@ -22,7 +24,7 @@ import { useViewerStores } from "@/state/AdaViewerContext"
 import { useFemConceptsStore } from "@/state/femConceptsStore"
 import { feModelLoaded, hasFemConcepts, simulationButtonShown } from "@/components/simulation/simPanelTabs"
 
-// ``pointer-fine:`` gate on hover styles (same as Menu.tsx): plain
+// ``pointer-fine:`` gate on hover styles (same as the top bar): plain
 // ``hover:`` resolves to ``@media (hover: hover)`` which Android
 // Chrome reports TRUE on touch devices, leaving :hover sticky after a
 // tap. The sticky translucent ``bg-blue-700/50`` made an
@@ -57,7 +59,7 @@ export const EmbedUI: React.FC = () => {
     // actually animation data — for paradoc-embed that's a FEA mode
     // shape baked into the GLB (clip animation path) or a live
     // streaming FEA session if/when the embed grows that capability.
-    // Same rule as Menu.tsx: results, or an FE model without any (its Model tab).
+    // Same rule as the viewer's Simulation button: results, or an FE model without any (its Model tab).
     const hasAnimation = useAnimationStore((s: any) => s.hasAnimation)
     const isControlsVisible = useAnimationStore((s: any) => s.isControlsVisible)
     const setIsControlsVisible = useAnimationStore.getState().setIsControlsVisible
@@ -71,7 +73,7 @@ export const EmbedUI: React.FC = () => {
     })
 
     // Push the toolbar right when the drawer is open so the buttons
-    // stay visible. Matches Menu.tsx's behavior on desktop; mobile
+    // stay visible. Matches the classic top bar on desktop; mobile
     // overlays the tree anyway so the shift is a no-op there in
     // practice (the user closes the tree to reach the toolbar).
     const shiftPx = !isTreeCollapsed ? treeViewWidth : 0

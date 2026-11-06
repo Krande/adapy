@@ -9,7 +9,9 @@ export interface ServerFileEntry {
 }
 
 type ServerInfoState = {
+    /** @deprecated The Storage (hosted) / Server info (desktop) panel's flag. Ask `isPanelOpen("core:storage")` or `"core:server-info"` (`@/viewer-core`); open and close it with `reveal` / `hide`. */
     showServerInfoBox: boolean;
+    /** @deprecated Use `reveal` / `hide` of `"core:storage"` (hosted) or `"core:server-info"` (desktop) from `@/viewer-core`, which the layout controls. */
     setShowServerInfoBox: (show_info_box: boolean) => void;
     serverFiles: string[];
     setServerFiles: (serverFiles: string[]) => void;

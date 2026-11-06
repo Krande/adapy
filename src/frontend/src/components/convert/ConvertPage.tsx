@@ -31,7 +31,13 @@ function useEnsureUserScope(): void {
     }, [available, current, setCurrent]);
 }
 
-const ConvertPage: React.FC = () => {
+export interface ConvertBodyProps {
+    /** Mounted inside a running viewer: no "back to viewer" link, which would navigate
+     *  the window away from it. Default false. */
+    inViewer?: boolean;
+}
+
+const ConvertPage: React.FC<ConvertBodyProps> = ({inViewer = false}) => {
     useEnsureUserScope();
     const rows = useConvertPageStore((s) => s.rows);
     const current = useScopeStore((s) => s.current);
@@ -51,12 +57,14 @@ const ConvertPage: React.FC = () => {
                 </div>
                 <div className="flex items-center gap-3">
                     <WorkerStatusBadge/>
+                    {!inViewer && (
                     <a
                         href="/"
                         className="text-sm text-blue-400 hover:text-blue-300"
                     >
                         ← back to viewer
                     </a>
+                    )}
                 </div>
             </header>
 

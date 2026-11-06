@@ -108,6 +108,8 @@ const EXPECTED_METHODS = [
   "adminResetAssetApplyCursor",
   // A provider's shared worker budget across its runs (assetSchedules).
   "adminAssetRunsMaxParallel", "adminSetAssetRunsMaxParallel",
+  // The caller's own preference documents (preferences).
+  "getPreference", "setPreference",
 ].sort();
 
 test("viewerApi exposes exactly the pinned method set", () => {

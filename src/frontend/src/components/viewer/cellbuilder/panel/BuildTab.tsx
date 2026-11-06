@@ -22,160 +22,169 @@ export const BuildTab: React.FC<{
   setEquipMenuOpen: React.Dispatch<React.SetStateAction<boolean>>;
   openingMenuOpen: boolean;
   setOpeningMenuOpen: React.Dispatch<React.SetStateAction<boolean>>;
-}> = ({equipBtnRef, openingBtnRef, equipMenuOpen, setEquipMenuOpen, openingMenuOpen, setOpeningMenuOpen}) => {
+  /** The + Cell / Opening / Loft / Equipment row. */
+  showAddButtons?: boolean;
+  /** The "Cells & equipment" list. */
+  showComponentList?: boolean;
+}> = ({
+  equipBtnRef, openingBtnRef, equipMenuOpen, setEquipMenuOpen, openingMenuOpen, setOpeningMenuOpen,
+  showAddButtons = true, showComponentList = true,
+}) => {
   const s = useCellBuilderStore();
     const hasCells = Object.values(s.cells).some((c) => c.kind === "cell");
   const cellCount = Object.keys(s.cells).length;
   return (
     <>
-      <div className="flex items-center gap-1 flex-wrap">
-        <button
-          className={
-            s.mode === "add-cell" ? `${btn} ring-2 ring-blue-300` : btn
-          }
-          onClick={() =>
-            s.setMode(s.mode === "add-cell" ? "idle" : "add-cell")
-          }
-          title="Click in the scene to place a cell (Esc cancels)"
-        >
-          + Cell
-        </button>
-        <button
-          ref={openingBtnRef}
-          className={
-            s.mode === "add-opening" ? `${btn} ring-2 ring-blue-300` : btn
-          }
-          onClick={() => {
-            // Already placing → toggle back to idle; otherwise open the
-            // contextual type picker (door/window/… from the engine list).
-            if (s.mode === "add-opening") {
-              s.setMode("idle");
-              return;
+      {showAddButtons && (
+        <div className="flex items-center gap-1 flex-wrap">
+          <button
+            className={
+              s.mode === "add-cell" ? `${btn} ring-2 ring-blue-300` : btn
             }
-            setOpeningMenuOpen((v) => !v);
-          }}
-          title="Add a door/window opening — pick a type, then click a wall to drop a negative-volume box that cuts the plate it overlaps (Esc cancels)."
-        >
-          + Opening
-        </button>
-        {openingMenuOpen && (
-          <PositionedMenu
-            anchor={{
-              kind: "rect",
-              getRect: () => openingBtnRef.current?.getBoundingClientRect(),
+            onClick={() =>
+              s.setMode(s.mode === "add-cell" ? "idle" : "add-cell")
+            }
+            title="Click in the scene to place a cell (Esc cancels)"
+          >
+            + Cell
+          </button>
+          <button
+            ref={openingBtnRef}
+            className={
+              s.mode === "add-opening" ? `${btn} ring-2 ring-blue-300` : btn
+            }
+            onClick={() => {
+              // Already placing → toggle back to idle; otherwise open the
+              // contextual type picker (door/window/… from the engine list).
+              if (s.mode === "add-opening") {
+                s.setMode("idle");
+                return;
+              }
+              setOpeningMenuOpen((v) => !v);
             }}
-            ignoreOutsideRef={openingBtnRef}
-            onClose={() => setOpeningMenuOpen(false)}
-            header={
-              <span className="font-medium text-gray-200">Opening type</span>
+            title="Add a door/window opening — pick a type, then click a wall to drop a negative-volume box that cuts the plate it overlaps (Esc cancels)."
+          >
+            + Opening
+          </button>
+          {openingMenuOpen && (
+            <PositionedMenu
+              anchor={{
+                kind: "rect",
+                getRect: () => openingBtnRef.current?.getBoundingClientRect(),
+              }}
+              ignoreOutsideRef={openingBtnRef}
+              onClose={() => setOpeningMenuOpen(false)}
+              header={
+                <span className="font-medium text-gray-200">Opening type</span>
+              }
+              items={
+                s.openingTypes.length
+                  ? typePickerItems(s.openingTypes).map((it) => ({
+                      key: it.key,
+                      label: it.label,
+                      onClick: () => {
+                        s.setSelectedOpeningType(it.slug);
+                        s.setMode("add-opening");
+                      },
+                    }))
+                  : [
+                      {
+                        key: "none",
+                        label: "No opening types",
+                        disabled: true,
+                        onClick: () => {},
+                      },
+                    ]
+              }
+            />
+          )}
+          <button
+            className={btn}
+            onClick={() => s.addLoftMember()}
+            title="Add a loft member (key L) — a 2-station swept surface at the origin. Keys: E extend the stack, F/D cycle stations, S resize section, T rectangle/circle, G move member, Del remove station."
+          >
+            + Loft
+          </button>
+          <button
+            ref={equipBtnRef}
+            className={
+              s.mode === "add-equipment" ? `${btn} ring-2 ring-blue-300` : btn
             }
-            items={
-              s.openingTypes.length
-                ? typePickerItems(s.openingTypes).map((it) => ({
-                    key: it.key,
-                    label: it.label,
-                    onClick: () => {
-                      s.setSelectedOpeningType(it.slug);
-                      s.setMode("add-opening");
-                    },
-                  }))
-                : [
-                    {
-                      key: "none",
-                      label: "No opening types",
-                      disabled: true,
-                      onClick: () => {},
-                    },
-                  ]
+            disabled={
+              s.equipmentTypes.length === 0 && s.selectedEquipmentType === null
             }
-          />
-        )}
-        <button
-          className={btn}
-          onClick={() => s.addLoftMember()}
-          title="Add a loft member (key L) — a 2-station swept surface at the origin. Keys: E extend the stack, F/D cycle stations, S resize section, T rectangle/circle, G move member, Del remove station."
-        >
-          + Loft
-        </button>
-        <button
-          ref={equipBtnRef}
-          className={
-            s.mode === "add-equipment" ? `${btn} ring-2 ring-blue-300` : btn
-          }
-          disabled={
-            s.equipmentTypes.length === 0 && s.selectedEquipmentType === null
-          }
-          onClick={() => {
-            // Already placing at cursor → toggle back to idle. Otherwise
-            // open the contextual type picker: pick a type to start placing
-            // it at the cursor, or seat it onto/into an existing cell.
-            if (s.mode === "add-equipment") {
-              s.setMode("idle");
-              return;
-            }
-            setEquipMenuOpen((v) => !v);
-          }}
-          title="Add equipment — pick a type to place at the cursor, or seat it onto/into a cell"
-        >
-          + Equipment
-        </button>
-        {equipMenuOpen && (
-          <PositionedMenu
-            anchor={{
-              kind: "rect",
-              getRect: () => equipBtnRef.current?.getBoundingClientRect(),
+            onClick={() => {
+              // Already placing at cursor → toggle back to idle. Otherwise
+              // open the contextual type picker: pick a type to start placing
+              // it at the cursor, or seat it onto/into an existing cell.
+              if (s.mode === "add-equipment") {
+                s.setMode("idle");
+                return;
+              }
+              setEquipMenuOpen((v) => !v);
             }}
-            ignoreOutsideRef={equipBtnRef}
-            onClose={() => setEquipMenuOpen(false)}
-            header={
-              <span className="font-medium text-gray-200">
-                Equipment type
-              </span>
-            }
-            items={[
-              ...(s.equipmentTypes.length
-                ? typePickerItems(s.equipmentTypes).map((it) => ({
-                    key: it.key,
-                    label: it.label,
-                    title: "Place this type at the cursor",
-                    onClick: () => {
-                      s.setSelectedEquipmentType(it.slug);
-                      s.setMode("add-equipment");
-                    },
-                  }))
-                : [
-                    {
-                      key: "none",
-                      label: "No equipment types",
-                      disabled: true,
-                      onClick: () => {},
-                    },
-                  ]),
-              {
-                key: "insert",
-                label: "Insert onto/into cell…",
-                separatorBefore: true,
-                disabled: !hasCells || s.equipmentTypes.length === 0,
-                title: hasCells
-                  ? "Seat the selected type on a cell's floor or roof, centred on its footprint"
-                  : "Add a cell first",
-                onClick: () => {
-                  // The insert flow builds the currently-selected type;
-                  // default to the first when none is picked yet.
-                  if (!s.selectedEquipmentType && s.equipmentTypes[0])
-                    s.setSelectedEquipmentType(s.equipmentTypes[0].slug);
-                  const r = equipBtnRef.current?.getBoundingClientRect();
-                  s.openInsertMenu(
-                    r?.left ?? 200,
-                    (r?.bottom ?? 200) + 4,
-                    null,
-                  );
+            title="Add equipment — pick a type to place at the cursor, or seat it onto/into a cell"
+          >
+            + Equipment
+          </button>
+          {equipMenuOpen && (
+            <PositionedMenu
+              anchor={{
+                kind: "rect",
+                getRect: () => equipBtnRef.current?.getBoundingClientRect(),
+              }}
+              ignoreOutsideRef={equipBtnRef}
+              onClose={() => setEquipMenuOpen(false)}
+              header={
+                <span className="font-medium text-gray-200">
+                  Equipment type
+                </span>
+              }
+              items={[
+                ...(s.equipmentTypes.length
+                  ? typePickerItems(s.equipmentTypes).map((it) => ({
+                      key: it.key,
+                      label: it.label,
+                      title: "Place this type at the cursor",
+                      onClick: () => {
+                        s.setSelectedEquipmentType(it.slug);
+                        s.setMode("add-equipment");
+                      },
+                    }))
+                  : [
+                      {
+                        key: "none",
+                        label: "No equipment types",
+                        disabled: true,
+                        onClick: () => {},
+                      },
+                    ]),
+                {
+                  key: "insert",
+                  label: "Insert onto/into cell…",
+                  separatorBefore: true,
+                  disabled: !hasCells || s.equipmentTypes.length === 0,
+                  title: hasCells
+                    ? "Seat the selected type on a cell's floor or roof, centred on its footprint"
+                    : "Add a cell first",
+                  onClick: () => {
+                    // The insert flow builds the currently-selected type;
+                    // default to the first when none is picked yet.
+                    if (!s.selectedEquipmentType && s.equipmentTypes[0])
+                      s.setSelectedEquipmentType(s.equipmentTypes[0].slug);
+                    const r = equipBtnRef.current?.getBoundingClientRect();
+                    s.openInsertMenu(
+                      r?.left ?? 200,
+                      (r?.bottom ?? 200) + 4,
+                      null,
+                    );
+                  },
                 },
-              },
-            ]}
-          />
-        )}
-      </div>
+              ]}
+            />
+          )}
+        </div>
+      )}
 
       {/* Keyboard scheme discoverability — a compact one-liner; the full
           set lives in the + Loft tooltip and the design cheat-sheet. */}
@@ -307,83 +316,85 @@ export const BuildTab: React.FC<{
         </label>
       </Section>
 
-      <Section
-        title="Cells & equipment"
-        count={cellCount}
-        // Collapsed by default so the panel opens as compact as possible —
-        // expand it when you want to browse/select from the list.
-        defaultOpen={false}
-      >
-        <div className="max-h-56 overflow-y-auto flex flex-col gap-1">
-          {Object.values(s.cells).length === 0 && (
-            <p className="italic text-gray-400">
-              No cells yet — use + Cell to start, or open a template from the
-              storage “＋ New from template” menu.
-            </p>
-          )}
-          {Object.values(s.cells).map((c) => (
-            <div
-              key={c.id}
-              className={
-                "flex items-center gap-1 border-b border-gray-600/40 pb-0.5 cursor-pointer rounded-sm px-0.5 " +
-                (s.selection?.cellId === c.id
-                  ? "bg-blue-900/40"
-                  : "hover:bg-gray-700/40")
-              }
-              onClick={() => s.setSelection({ kind: "cell", cellId: c.id })}
-            >
-              <span
-                className="inline-block w-2 h-2 rounded-sm shrink-0"
-                style={{
-                  background:
-                    c.kind === "cell"
-                      ? "#3b82f6"
-                      : c.kind === "loft"
-                        ? "#14b8a6"
-                        : "#f97316",
-                }}
-              />
-              <span
-                className="truncate"
-                title={`${c.origin.map((v) => v.toFixed(2))} / ${c.size.map((v) => v.toFixed(2))}`}
+      {showComponentList && (
+        <Section
+          title="Cells & equipment"
+          count={cellCount}
+          // Collapsed by default so the panel opens as compact as possible —
+          // expand it when you want to browse/select from the list.
+          defaultOpen={false}
+        >
+          <div className="max-h-56 overflow-y-auto flex flex-col gap-1">
+            {Object.values(s.cells).length === 0 && (
+              <p className="italic text-gray-400">
+                No cells yet — use + Cell to start, or open a template from the
+                storage “＋ New from template” menu.
+              </p>
+            )}
+            {Object.values(s.cells).map((c) => (
+              <div
+                key={c.id}
+                className={
+                  "flex items-center gap-1 border-b border-gray-600/40 pb-0.5 cursor-pointer rounded-sm px-0.5 " +
+                  (s.selection?.cellId === c.id
+                    ? "bg-blue-900/40"
+                    : "hover:bg-gray-700/40")
+                }
+                onClick={() => s.setSelection({ kind: "cell", cellId: c.id })}
               >
-                {c.name}
-              </span>
-              {c.kind === "equipment" && (
-                <span className="text-gray-400">
-                  {c.equipmentType ?? "generic"}
-                </span>
-              )}
-              {c.kind === "opening" && (
-                <select
-                  className="bg-gray-700 text-gray-100 text-[11px] rounded-sm px-1"
-                  value={c.subtype ?? "door"}
-                  onClick={(e) => e.stopPropagation()}
-                  onChange={(e) =>
-                    s.updateCell(c.id, {
-                      subtype: e.target.value as "door" | "window",
-                    })
-                  }
-                  title="door: jambs + lintel + threshold (cut to floor); window: jambs + head + sill (punched at its height)"
+                <span
+                  className="inline-block w-2 h-2 rounded-sm shrink-0"
+                  style={{
+                    background:
+                      c.kind === "cell"
+                        ? "#3b82f6"
+                        : c.kind === "loft"
+                          ? "#14b8a6"
+                          : "#f97316",
+                  }}
+                />
+                <span
+                  className="truncate"
+                  title={`${c.origin.map((v) => v.toFixed(2))} / ${c.size.map((v) => v.toFixed(2))}`}
                 >
-                  <option value="door">door</option>
-                  <option value="window">window</option>
-                </select>
-              )}
-              <button
-                className="ml-auto px-1 rounded-sm hover:bg-gray-500/40"
-                title="Delete"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  s.removeCell(c.id);
-                }}
-              >
-                🗑
-              </button>
-            </div>
-          ))}
-        </div>
-      </Section>
+                  {c.name}
+                </span>
+                {c.kind === "equipment" && (
+                  <span className="text-gray-400">
+                    {c.equipmentType ?? "generic"}
+                  </span>
+                )}
+                {c.kind === "opening" && (
+                  <select
+                    className="bg-gray-700 text-gray-100 text-[11px] rounded-sm px-1"
+                    value={c.subtype ?? "door"}
+                    onClick={(e) => e.stopPropagation()}
+                    onChange={(e) =>
+                      s.updateCell(c.id, {
+                        subtype: e.target.value as "door" | "window",
+                      })
+                    }
+                    title="door: jambs + lintel + threshold (cut to floor); window: jambs + head + sill (punched at its height)"
+                  >
+                    <option value="door">door</option>
+                    <option value="window">window</option>
+                  </select>
+                )}
+                <button
+                  className="ml-auto px-1 rounded-sm hover:bg-gray-500/40"
+                  title="Delete"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    s.removeCell(c.id);
+                  }}
+                >
+                  🗑
+                </button>
+              </div>
+            ))}
+          </div>
+        </Section>
+      )}
 
 
       {/* The equipment & system catalogs live in their own tabs now

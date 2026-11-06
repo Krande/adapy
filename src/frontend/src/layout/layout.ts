@@ -8,9 +8,8 @@
 // The model, briefly:
 //
 //   * A PRESET is a whole arrangement of zones around the viewport. Core ships
-//     `classic` (today's UI) and, later, `docked`; a UI shell may contribute
-//     more. Which preset is active is a user choice -- a "mode" -- and is
-//     persisted with the rest of the user's layout.
+//     `classic`, whose document also holds a split grid of panel groups around
+//     the viewport (`./splitTree`); a UI shell may contribute more.
 //   * A ZONE is a region of a preset that holds panels: a stack (the classic
 //     menu column), a dock, the float layer, a bottom sheet, an overlay.
 //   * A LAYOUT DOCUMENT is the user's arrangement within ONE preset (and
@@ -26,9 +25,11 @@
 
 import type React from "react";
 import type { PanelId, PresetId, RegisteredPanel, ZoneId } from "./panel";
+import type { GridNode } from "./splitTree";
 
-/** The built-in presets. Shell presets use their own ids. */
+/** The built-in preset. Shell presets use their own ids. */
 export const CLASSIC_PRESET_ID: PresetId = "classic";
+/** A placement key a plugin slot's `dock` is recorded under, for a shell that docks by it. Core has no such preset. */
 export const DOCKED_PRESET_ID: PresetId = "docked";
 
 /**
@@ -99,10 +100,14 @@ export interface LayoutDoc {
   /** A context within the preset (a shell's sub-mode); `"default"` when there is none. */
   context?: string;
   zones: Record<ZoneId, ZoneState>;
+  /** The split grid around the viewport (`./splitTree`). Absent: the viewport alone. */
+  grid?: GridNode;
   floats: Record<PanelId, FloatState>;
   minimised: PanelId[];
   /** Panels already offered once, so a panel registered after the document was saved is adopted once. */
   known: PanelId[];
+  /** The composed shell's `layout.version` the document was made under. */
+  shellVersion?: number;
 }
 
 /** A whole arrangement of zones around the viewport. */
@@ -122,6 +127,11 @@ export interface LayoutPreset {
    * inside a movable container: the WebGL canvas cannot be re-parented.
    */
   frame?: () => Promise<{ default: React.ComponentType<{ children?: React.ReactNode }> }>;
+  /**
+   * Whether `PanelConstraints.exclusiveGroup` holds under the user's prefs:
+   * revealing a panel closes the rest of its group. Omitted: always.
+   */
+  exclusiveGroups?: (prefs: LayoutPrefs) => boolean;
 }
 
 /** The key of a document in `LayoutPrefs.docs`: `<preset>` or `<preset>:<context>`. */
@@ -136,15 +146,21 @@ export function layoutDocKey(preset: PresetId, context?: string): string {
  */
 export interface LayoutPrefs {
   v: number;
-  /** The selected preset -- the user's "mode". Absent: the deployment / build default. */
+  /** A preset a user once selected. Kept for older saved prefs; core renders the classic preset whatever it says. */
   activePreset?: PresetId;
-  /**
-   * Show undock / re-dock affordances in the classic preset. Off by default,
-   * which keeps the classic UI exactly as it is.
-   */
+  /** Undock / re-dock affordances in the classic preset. Absent: on (`customisablePanelsOn`). */
   customisablePanels?: boolean;
   /** Documents by `layoutDocKey`. */
   docs: Record<string, LayoutDoc>;
+  /** A composed shell's pinned panels, by shell id: they stay open and placed across its modes. */
+  pinned?: Record<string, PanelId[]>;
+  /** A composed shell's named workspaces, by shell id then name: its documents (by `layoutDocKey`) as saved. */
+  workspaces?: Record<string, Record<string, Record<string, LayoutDoc>>>;
+}
+
+/** Are customisable panels on: unless the user turned them off. */
+export function customisablePanelsOn(prefs: Pick<LayoutPrefs, "customisablePanels">): boolean {
+  return prefs.customisablePanels !== false;
 }
 
 /**

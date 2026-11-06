@@ -71,9 +71,10 @@ src/frontend/
   src/viewer-core/       the contract: index.ts (dep-free) + app.ts + scene.ts + plugins.ts
   src/plugins/
     uiShells.ts          registry + resolution (id -> shell, precedence, fallback)
-    coreUiShell.ts       registers the built-in `core` shell (lazy-loads @/app)
+    coreUiShell.ts       registers the built-in `core` shell (lazy-loads @/app: the classic preset, through the layout engine)
     UiShellHost.tsx      mounts the active shell; falls back to core on load/render failure
-    UiShellSwitcher.tsx  the switcher; renders NOTHING when only one shell is registered
+    UiShellSwitcher.tsx  the switcher (Options -> Theme); renders NOTHING when only one shell is registered
+  src/layout/desktop/    the built-in Desktop UI (a composed shell, registered next to `core`)
     registry.generated.ts  AUTO-GENERATED: enabled plugins + DEFAULT_UI_SHELL
   plugins.json           committed config: `enabled`, `defaultUi`
   src/index.html         loads /config.js (blocking classic script) before the SPA
@@ -108,6 +109,11 @@ and resolution continues down the list. That matters most for the runtime value,
 which is the one place a typo now reaches a live deployment rather than failing a
 build — the worst case is the next source down, ultimately the built-in UI.
 
+Inside the built-in UI there is no second switch: it is always the classic
+preset of the layout engine. `?layout=classic` (and the
+`ada:layout-engine` key), which once fell back to a hand-written tree, are
+ignored.
+
 Switching from the switcher persists the choice and reloads — a shell owns the
 whole tree (canvas, websocket, stores), so hot-swapping would mean tearing all of
 that down for no benefit.
@@ -121,6 +127,352 @@ reaches the fullscreen boundary in `index.tsx`. Net effect: an image that
 defaults to a third-party UI cannot be bricked by that UI.
 
 ## Writing a shell
+
+### Composed from core's layout (recommended)
+
+A shell without `load` is composed by core. Core mounts its own root (the
+canvas-less routes, sign-in, the viewer provider, deep links) and its layout of
+floating, dockable panels. The shell gives only data and chrome:
+
+```tsx
+import { CORE_PANEL_IDS, registerPlugin } from "@/viewer-core";
+
+registerPlugin({
+  id: "my-ui",
+  version: "1.0.0",
+  coreApiRange: ">=1.13 <2.0", // composed shells need plugin API 1.13
+  uiShells: [
+    {
+      id: "my-ui",
+      label: "My UI",
+      layout: {
+        // The split grid a user starts from; their own arrangement replaces it.
+        grid: { kind: "split", id: "s1", dir: "row", sizes: [0.25, 0.75], children: [
+          { kind: "group", id: "g1", panels: [CORE_PANEL_IDS.tree], active: CORE_PANEL_IDS.tree },
+          { kind: "viewport" },
+        ] },
+        open: [CORE_PANEL_IDS.tree], // opened when the shell loads
+        docks: { left: "g1" }, // plugin panels with `dock: "left"` join group g1
+      },
+      chrome: { header: () => import("./MyHeader"), toolbar: false },
+      themeTokens: { "--ada-panel-bg": "rgb(17 24 39 / 0.95)" },
+    },
+  ],
+});
+```
+
+The header is an ordinary component; `PanelToggles` (`@/viewer-core/layout`)
+draws core's panel toggles in it and `PluginTopBarButtons`
+(`@/viewer-core/plugins`) the plugins' buttons. The shell's own panels are
+registered with `registerPanel` and named in the grid like core's. Each shell
+keeps its own saved arrangement (`LayoutDoc.context` is the shell id).
+
+Feature plugins' panels take part too. A slot in the `top-panel` region, or any
+slot that names a `dock`, can be docked and floated like a core panel. A slot that
+names a dock is placed once, the first time the shell sees it: into the group
+`layout.docks` maps that dock to, else at that edge of the view (`left`,
+`bottom`, otherwise `right`). While the layout shows a plugin panel in a group or
+window, its region host (the panel column, the Simulation or Admin tab strip, a
+core panel's section) leaves it out; its top-bar button stays and still opens and
+closes it.
+
+`themeTokens` restyles core's chrome without touching its markup. Panels read
+`--ada-panel-bg`, `--ada-panel-border`, `--ada-panel-text`,
+`--ada-panel-surface` and `--ada-panel-text-muted` (also set by the user's theme
+picker, which a shell's tokens override while it is active). Windows and the
+split grid's groups read `--ada-window-bg`, `--ada-window-border`,
+`--ada-window-header-bg` (also a group's tab strip), `--ada-window-header-text`,
+`--ada-window-button-bg`, `--ada-window-button-border`, `--ada-tab-active-bg`,
+`--ada-tab-active-text`, `--ada-tab-text` and `--ada-group-divider`; unset, each
+falls back to the classic look (`components/ui/panelChrome.ts`).
+
+A panel that works without the 3D scene may also open in a **browser window of
+its own**: it opts in with `capabilities.popout` (a plugin slot with `popout:
+true`), and its header then offers "Open in a new window". The window boots
+canvas-less (core's `AppRoot` routes it) with the active shell's tokens, and the
+panel leaves the window it came from. Such windows make up a dashboard; see
+[Multi-window dashboards](#multi-window-dashboards).
+
+A shell with **modes** lists them in `layout.modes`. Each mode may give its own
+`grid`, `open` and `docks` (else the shell's) and keeps its own saved
+arrangement. Plugins' modes (`PluginSpec.modes`) follow the shell's and start
+from the shell's arrangement. A panel that names `modes` shows only in those.
+Leaving a mode closes the panels it placed in its grid or windows, unless the
+mode entered places or opens them too. The active mode is remembered per shell,
+and core reports each change to the scene colouring (a mode with
+`ownsSceneColor`). `ShellModeSwitcher` and `ShellModeToolbar` (the active plugin
+mode's `toolbar`) from `@/viewer-core/layout` go in the header; `setShellMode`
+and `useShellMode` switch from anywhere else.
+
+### Everything a composed shell can configure
+
+A docked UI with a menu bar, modes, a tool rail and a status bar is a
+configuration of these; none of them needs a component of the shell's own beyond
+the chrome it draws in the slots.
+
+| Area | Option | What it does |
+|---|---|---|
+| Arrangement | `layout.grid`, `open`, `docks` | The starting split grid, the panels opened on load, where dock-naming plugin panels go. |
+| | `layout.modes[]` | Modes, each with its own `grid` / `open` / `docks`, saved arrangement, and `viewportCover` (a panel drawn over the 3D view, a converter say), `ownsSceneColor`, `showsDeformation: false` (a shell's own mode shows the deformed FEA model unless it says false; a **plugin's** mode (`PluginModeSpec`) holds it undeformed unless it opts in with `true`), `toolbar`. `?mode=` opens one; `setShellModeBadge` marks one. |
+| | `layout.defaultMode` | The mode used when there is no `?mode=` and none stored from an earlier visit (else the first by order). |
+| | `layout.version`, `migrate` | Re-seed or migrate users' saved arrangements when the shell ships new ones. |
+| Groups (in `grid`) | `fixed: {px, min, max}` | A dock held at a px size, kept on window resize; its divider resizes it in px. On groups and splits. |
+| | `collapsed`, `arrangement` | A strip of panel icons that restores the group; tabs, stacked, or `"auto"` (stacked while there is room). |
+| Chrome | `chrome.header`, `footer`, `rail` | Lazy slots above, below and left of the layout (menu bar, status bar, tool rail). |
+| | `chrome.toolbar` | Core's top bar of panel toggles over the view (default on). |
+| | `chrome.groups` | Group header actions `"add"` / `"collapse"` / `"pin"`, and `tabIcons`. Pinned panels stay placed across modes. |
+| | `chrome.commandPalette: {keys}` | The palette over every command (`registerCommand`; core adds panels and modes). `MenuBar` draws menus of command ids. |
+| | `chrome.overlays: {legend, pluginPanels}` | HUD anchors over the view for core's colour legend and `overlay`-dock plugin panels; `registerViewportOverlay` adds the shell's own. |
+| | `chrome.pageHeader` | The shell's title bar over core's `/convert` and `/admin` pages. |
+| Panels | `panels: {[id]: PanelOverride}` | A core (or plugin) panel's title, icon, modes, capabilities and content `options` (`SceneBodyProps`, `StorageBodyProps`, ...; or a function of the mode), without a copy. |
+| | `capabilities.fill`, `pinnable`, `popout` | Edge-to-edge content; may be pinned; may open in its own window. |
+| | `capabilities.mirrored` (`PanelSlot.mirrored`) | May go to a pop-out window although it reads the scene: it renders from snapshots the main window mirrors (`registerMirrorTopic`) and acts through it (`registerMirrorCommand`). Core's object info panel is one. |
+| Windows | Move panel → Move to window | A pop-out-capable panel moves to another open browser window, or a new one, from any Move menu (grid groups, layout windows, column panels, pop-out groups). Nothing to configure. |
+| | `REOPEN_WINDOWS_COMMAND` | "Reopen windows": the main window reopens the dashboard's windows that are closed (one per click where the browser allows only one). Put it in a `MenuDef` like any command. |
+| | `panels[id].available` | `false`, or a function of the active mode: hides the panel from the lists, toggles, commands and add menus (all the time, or in some modes). It can only take a panel away; a panel unavailable in itself stays so. |
+| | `panels[id].bodyPalette` | Palette variables redefined inside that one panel's body (over the shell-wide `bodyPalette`), in windows, grid groups, covers, pop-outs and framed cards. |
+| | docking sections | A composed shell may name a panel the classic UI draws inside another (`core:fea-table`, inside Simulation) in its `grid`, or let the user dock it; it then leaves its host. Core's own UI keeps it inside. |
+| Look | `themeTokens` | `--ada-*` tokens, or a function of the user's panel theme, applied again on every theme change. Also on core's canvas-less pages (`/convert`, `/admin`). |
+| | `bodyPalette` | Tailwind palette variables (`--color-gray-800`, `--color-blue-600`, ...) redefined inside core's panel bodies only (elements marked `data-ada-panel-body`), so every core body takes the shell's colours without a copy; or a function of the user's theme. Also on the canvas-less pages. A core body drawn outside a panel (a dialog, a flyout) is wrapped in `<PanelBodyPalette>` (`@/viewer-core/layout`; `panelId` adds that panel's own palette) to take it. |
+| | group header | In a group narrower than `COMPACT_GROUP_PX` (340 px) the header's actions fold into one "More actions" menu; close stays in the bar. Nothing to configure. |
+| | `chrome.toastAnchor` | The corner core's progress toast sits in. |
+| Keys | `registerShortcut`, `registerCommand({keys})` | Chords other than core's own (`RESERVED_SHORTCUTS`, derived from the registry, see below). A refused chord is warned about and ignored. |
+| | `registerCommand({shortcut})` | The id of a core shortcut (`core:fit-all`, ...): the command shows that entry's chord in the palette and menus. Binds nothing itself; ignored when `keys` is given. Core's own commands name their keys this way. |
+| | `registerCommand({chordLabel})` | A display-only chord for a key handled outside the registry. Prefer `shortcut`. |
+
+Core's own keys live in the same registry as yours. `CORE_SHORTCUTS` (ids under `core:`) lists every
+one; `listShortcuts()` returns them first, then registered ones and non-core panels' toggles, and the
+shortcuts dialog draws exactly that list, grouped (`CORE_SHORTCUT_GROUPS`). `RESERVED_SHORTCUTS` is the
+chords of the entries plugins may not take. One keydown listener (`installShortcutDispatcher`, shared by
+the layout and a mounted viewer, so a key never fires twice) runs the dispatched entries; it ignores keys
+typed into an input, textarea, select or editable element and keys a widget already handled.
+
+Two kinds of core entry. *Dispatched* ones (Shift+H / I / G / U / F / A / Q / W / P / R / T / C and
+Shift+Arrows, Ctrl+Z / Y / Shift+Z / C, Shift+Enter in the procedural builder) run in the registry's
+listener, bound by the mounted viewer. *Local* ones (`local: true`) are keys a widget keeps because it needs
+its own state: the gallery strip's arrows and PageUp / PageDown, the procedural builder's tool keys and
+numeric entry, a tree's Esc, the panel-zone keys F6 / Shift+F6 and Esc on a floating window. They are
+listed in the dialog and (F6, Esc) reserved, but never dispatched. Rebinding a core key is not offered.
+| Menus | `MenuDef.items` | Command ids, separators, actions of the menu's own, or a submenu `{label, items}` (nesting). Right arrow opens a submenu, Left closes it, Escape closes the menu; a submenu with nothing offered is left out. |
+
+Layout state helpers on `@/viewer-core/layout`: `resetArrangement`, `saveWorkspace`,
+`loadWorkspace`, `deleteWorkspace`, `listWorkspaces`.
+
+### Multi-window dashboards
+
+Panels can be spread over several browser windows of the same browser, on
+several monitors, which then work as one dashboard. Same origin and same browser
+only: the windows talk over a `BroadcastChannel`, scoped by the page's path, the
+active shell and the dashboard session (below), with no server involved.
+
+**Sessions.** Every main window has its own dashboard session, so two main
+windows (two tabs, two browser windows) never see each other's pop-outs, moves
+or mirrored state. A session id is 8 random URL-safe characters. The main window
+keeps it in its tab's `sessionStorage`, so a reload keeps the dashboard. A
+duplicated tab copies `sessionStorage`; so when a tab starts with a stored id,
+it asks on that session's channel (`claimSession`, waiting `CLAIM_WAIT_MS`)
+whether a live main window holds it, and takes a new id if one does. The
+channel is `windowBusChannelName(path, shell, session)`, pop-out URLs carry
+`?session=<id>` (`SESSION_PARAM`) next to `?window=<id>`, and the browser window
+name includes it (`windowTarget`), so two sessions' `w2` are two browser windows.
+A pop-out opened without a session (an old link, `?popout=` typed by hand) is
+**standalone**: it gets a session of its own, no main window shares it, it works
+on its own grid, its Move to window menu offers only **New window** (which opens
+windows in that private session), and its title bar says the main window is
+closed. Its URL is rewritten to carry the session, so a reload keeps it.
+
+**Windows.** The main window (the one with the 3D view) has the id `main`. A
+pop-out window is the viewer booted canvas-less on `?window=<id>`: a split grid
+of panel groups of its own -- tabs, stacks, splits, dividers, drag to dock
+within the window, collapse -- and no view. Its arrangement is a `LayoutDoc`
+under the context `window/<id>`, kept in this browser per session and window id
+(`ada:layout-window:<shell>:<session>:<id>`; the user's name for it under
+`ada:window-label:<shell>:<session>:<id>`), so a window reopened with the same id finds it again.
+`?popout=<panelId>` opens a new window
+holding that panel. A window is labelled ("Main", "Window 2", ...) and the user
+can rename a pop-out (its title bar, or double-click the name).
+
+**Moving panels.** Every Move panel menu (grid groups, layout windows, column
+panels and in-viewer windows in the main window; groups in a pop-out window) has
+**Move to window**: the other open windows, the main one first, and **New
+window**. A move is a handshake: the source takes the panel out, asks the target
+to dock it, and puts it back if the target does not acknowledge within
+`MOVE_ACK_MS`. A pop-out docks an arriving panel in the group last used (else
+its first group, else as its first group); the main window reveals it in its
+place. Only panels `canPopOut` admits may go to a pop-out window: those with
+`capabilities.popout` that need no canvas, and `mirrored` ones.
+
+**One panel, one window.** The main window hides a panel another window shows
+(region hosts leave a plugin panel out, too), and `reveal(id)` of such a panel
+brings that window forward rather than opening a second copy. When a pop-out
+window closes, its panels come back to the main window, unless another window
+shows them or they are open there already; a reload within `LEAVE_GRACE_MS`
+keeps them where they are. A window that stops answering (`STALE_MS`) gives its
+panels back too.
+
+**Reopening.** The main window records which windows exist and their panels.
+Browsers open several windows only from a user's click, so it offers **Reopen
+windows** (`REOPEN_WINDOWS_COMMAND`, also in the Move to window menu while one is
+closed) rather than reopening them on load. The record is per session
+(`ada:dashboard:<shell>:<session>`). One extra key per shell
+(`ada:dashboard-last:<shell>`) names the session whose dashboard was recorded
+last. A new session with no windows of its own (after a browser restart, which
+drops `sessionStorage`) offers **Reopen windows** for that dashboard, unless its
+main window is still live; reopening *adopts* those windows: their arrangements
+and names are copied into the new session's keys, then they open.
+**Pruning.** `ada:dashboard-sessions:<shell>` notes when each session was last
+used; when a main window starts it drops the sessions (and all their keys) beyond
+the newest `SESSION_KEEP` (8) or unused for `SESSION_MAX_AGE_MS` (14 days), never
+its own or the last dashboard's.
+
+**Scene panels (mirroring).** A pop-out window has stores of its own and no 3D
+scene. A panel that reads the scene may still go there if it is `mirrored`: the
+main window publishes serialisable snapshots of what it reads, one topic per
+piece of state, on every change and on request (`registerMirrorTopic`: a
+`snapshot`, a `subscribe` in the main window, an `apply` in the pop-out), and
+the panel's actions go back as commands the main window runs on its own state
+(`registerMirrorCommand`, `sendMirrorCommand`), which it then republishes.
+Three.js objects never cross. Core mirrors the selection (`core:selection`: the
+object info store, plus the selected range count and the parent level its up
+arrow selects) and whether an FEA session is active; the object info panel is
+`mirrored`. While no main window is open, a mirrored panel shows a "Main window
+closed" state.
+
+**Acting from a pop-out (`useSceneActions`).** A scene panel acts through one
+seam, `useSceneActions()` (`@/viewer-core/layout`), so its code is one path in
+every window: in the main window each action runs on its scene; in a pop-out
+(`isMirroredWindow()`) it is sent to the main window as a mirror command. Actions
+that are core commands -- hide selected, hide others, show all, fit all, fit
+selection, clear selection, undo, redo -- go as `core:run-command` `{id}`, which
+runs only the ids in `MIRRORED_CORE_COMMANDS`, through the core command's own
+action. The rest have commands of their own (`SCENE_ACTION_COMMANDS`):
+`core:select-node` `{id}`, `core:select-parent`, and the tree's row commands
+below. Arguments are ids and plain values; the main window resolves ids to its
+own tree rows and drops unknown ones. The object info panel's Hide, Hide others,
+Unhide all, Fit all, Go to object and up-a-level buttons work from a pop-out
+this way.
+
+**The scene tree in a pop-out (`core:scene-tree`).** The selection tree panel is
+`mirrored`. In a pop-out its content is the Scene tree alone (the Sources and
+Systems tabs load into a scene the pop-out does not have), the same component
+and rows as in the main window (`rowExtras`, `rowClassName`, search, the root
+label toggle). The main window publishes one topic, built for large trees
+(`sceneTreeTopic`, root facade, dependency-free):
+
+* **full** -- the tree, every row's visibility and the selected rows, sent when
+  a window asks and when the *tree* changes (a model loaded or unloaded, roots
+  relabelled), throttled (250 ms, trailing) so a bulk load sends a few trees, not
+  one per model. The tree travels flat (pre-order columns: ids, names, parent
+  indices, the rows' other fields) in chunks of 5000 rows
+  (`SCENE_TREE_CHUNK`), the first in the full message and the rest as **part**
+  messages in tasks of their own, so the main window is not held up by one huge
+  clone. The pop-out builds the tree once every part is in and puts it into its
+  own tree store, so the stock tree renders it.
+* **delta** -- otherwise only what changed: the rows whose visibility changed (a
+  code each: shown, hidden, partial, no geometry) and the selected rows when they
+  changed. Hiding one element of a 20 000-row tree sends a few codes.
+
+Every tree has a revision; a part or delta for a revision a pop-out does not
+hold is refused and the pop-out asks for the full state again (a topic's
+`apply` returning `false`, `MirrorTopic.delta`); a full for the revision it
+already holds is not rebuilt.
+
+The rows act through `useSceneActions`: a click (with Shift / Ctrl ranges and
+toggles resolved in the pop-out, whose expand state is its own) is
+`core:select-rows` `{ids, mode}` (`replace`, `add`, `toggle`); the eye is
+`core:hide-rows` / `core:show-rows` `{ids}`; the pop-out's row menu offers Go to
+(`core:fit-rows`: select and frame), Hide, Unhide, Hide all others
+(`core:isolate-rows`), Unhide all, Copy names (its own clipboard) and
+expand / collapse below; "Remove all" is `core:clear-scene`. A selection made in
+a pop-out is shown in the main window's tree too, and a pick in the main window
+selects and scrolls to the row in the pop-out's tree. Expand state, search,
+scope and scroll stay in each window.
+
+Limits: a full tree costs O(rows) to flatten, clone and rebuild, once per
+model-set change and per window that opens (every open pop-out receives it, not
+only those showing the tree). A visibility change costs the main window one
+O(rows) walk to find what changed; on the wire it is O(changed rows), so
+isolating a small part of a large tree sends close to a code per row (still no
+tree). Rows the main window has no mesh for yet show as "no geometry" until the
+next visibility change, as in the main window.
+
+What a pop-out can do of each scene panel, and what stays in the main window:
+
+| Panel | Mirrored, and what is not (yet) |
+|---|---|
+| Object info (parts) | Mirrored, buttons included. Still local to the pop-out: the mobile-only "Copy all (n)" (it copies the 3D selection's names, which the pop-out does not hold) and "+ Add mode" (the main window's additive picking); the procedural-cell context (cell names, cell hide, cell add mode: the builder store is not mirrored); "Show in data" (it resolves the picked element on the main window's FEA mesh, so it does not show); the selection download (it reads the 3D selection). |
+| Selection tree (parts) | Mirrored (Scene tab). Not in a pop-out: the Sources and Systems tabs; from the row menu, saved groups, related elements, loading from another provider, unloading one model, the selection box. |
+| Scene info | Not mirrored. Its ~15 sections run scene tools (section planes, face search, clash runs) against the scene directly; each would need its state as a topic and its actions behind the act seam. |
+| Simulation, result data | Not mirrored. The body (`SimulationBody`) reads about 35 FEA store fields at once, among them the three.js result `mesh` whose morph influence the factor / scale controls write directly, and the step and field controls run closures held in the main window's store (`applyStep`, `startFramePreload`) or reload the stream (`load_fea_streaming`, `selectFeaResultComponent`). The body also hosts the colour legend, the FEM concepts panel, the animation export and the result data table, each reading its own stores. What mirroring it needs: (1) a `core:fea-controls` topic with the plain fields the controls render -- `sourceName`, `fieldName`, `reduction`, `stepIndex`, `nSteps`, `isPlaying`, `factor`, `period`, `scaleFactor`, `colormap`, `warpEnabled`, `layer`, `ipReduction`, `nodalAverage`, `envelopeMode`, `timeHistory`, the beam-solid and colour toggles, `framePreload` progress -- plus the manifest's field and step lists (`manifest.fields` reduced to name / per_type / support / surface, the step slots of `mergeCaseSteps`, the case statuses); (2) one command per control (`core:fea-step` {index}, `core:fea-field` {name}, `core:fea-reduction`, play / pause / stop, factor, scale, warp, layer, IP reduction, nodal average, envelope, colormap, the toggles), each running that control's handler in the main window; (3) the handlers moved out of the component behind the act seam, so the body calls them in one path; (4) the legend, FEM concepts, export and data table either mirrored as panels of their own or left out of the pop-out body. |
+
+The transport is an interface (`WindowBusTransport`: `post`, `subscribe`,
+`close`), so a relay over a websocket could join windows across browsers later
+without the panels changing.
+
+| Part | API |
+|---|---|
+| The bus (root) | `createWindowBus`, `WindowBus`, `WindowBusMessage`, `broadcastTransport`, `memoryTransportHub`, `nullTransport`, `windowBusChannelName`, `MAIN_WINDOW_ID`, `sendPanel`, `acceptPanels`, `panelsToReturn`, the dashboard record helpers, `nextWindowId` |
+| URLs (root) | `WINDOW_PARAM`, `POPOUT_PARAM`, `popoutWindowId`, `popoutPanelId`, `isPopoutPage`, `windowUrl`, `popoutUrl`, `openWindow`, `canPopOut` |
+| Mirroring (root) | `registerMirrorTopic` (`MirrorTopic.delta`, `apply` returning `false`), `registerMirrorCommand`, `hostMirror`, `followMirror`, `sendMirrorCommand`, `capabilities.mirrored`; for trees: `sceneTreeTopic`, `flattenTree`, `buildTree`, `SceneTreeSource` / `SceneTreeSink`, `ROW_VISIBILITY_CODES`, `SCENE_TREE_CHUNK` |
+| Scene tree mirror (`/layout`) | `SCENE_TREE_TOPIC`, `coreSceneTreeSource`, `coreSceneTreeSink`, `useSceneMirrorStore` |
+| This page (`/layout`) | `windowBus`, `useOpenWindows`, `useThisWindow`, `useMainWindowLive`, `moveToWindowItem`, `openNewWindow`, `reopenWindows`, `installMainWindow`, `GridOps` / `GridOpsProvider`, `PopoutPage` |
+| Acting (`/layout`) | `useSceneActions`, `sceneActions`, `remoteSceneActions`, `isMirroredWindow`, `SceneActions`, `RowSelectMode`, `SCENE_ACTION_COMMANDS`, `MIRRORED_CORE_COMMANDS` |
+
+### The built-in Desktop UI
+
+Core ships one composed shell of its own next to the classic UI: **Desktop**
+(`DESKTOP_UI_SHELL_ID`, `"desktop"`; `src/layout/desktop/`). It is registered at
+startup by `loadPlugins`, like core's panels, so it is in every build without
+`ADA_PLUGINS_EXTRA`; the classic UI stays the default. Pick it in Options ->
+Theme -> User interface (sticky, `localStorage["ada:ui"]`), or per tab with
+`?ui=desktop`; View -> User interface switches back.
+
+It is nothing but configuration of the options above, so it doubles as the
+worked example of a full docked UI (`desktopUiShellSpec()` from `@/viewer-core`):
+
+| Part | What it is |
+|---|---|
+| Header | A menu bar (`MenuBar`) in place of core's top bar (`chrome.toolbar: false`), the mode switcher and toolbar, the plugins' top-bar buttons, a Commands button. |
+| Layout | Tree and storage tabbed in a fixed-px left dock; object info over scene info in a fixed-px right column; Simulation and Result data in a fixed-px dock under the view, collapsed to a strip in the Model mode. Group actions add, collapse, pin; tab icons. Plugin panels naming `left` / `right` / `bottom` join those docks. |
+| Modes | Model (default) and Results (the results dock open); plugins' modes follow. |
+| Footer | A status bar: connection, models loaded, selection count, mode, what Undo undoes. |
+| Chrome | Command palette on Ctrl+K, the colour legend at `right-center`, overlay plugin panels at `top-left`, the toast bottom-right, a title bar on `/convert` and `/admin`. |
+| Look | Core's tokens only (`--ada-window-*`, `--ada-tab-*`, the user's panel theme); no colours of its own. |
+
+The menus are command ids only (`desktopMenus()` on `@/viewer-core/layout`; an
+item whose command is not offered is left out, and so are the separators it
+leaves stranded):
+
+| Menu | Items |
+|---|---|
+| File | Upload file… (REST), Storage, Convert files, Options |
+| Edit | Undo, Redo; Clear selection, Copy names, Save selection as group…; Visibility ▸ Hide selected, Hide others, Show all |
+| View | Panels ▸ (each panel's toggle); Camera ▸ Fit all, Fit selection, Reset camera; Display ▸ Geometry edges, Performance stats, Gallery mode; Theme ▸ (the presets); User interface ▸ (the shells); Command palette, Full screen |
+| Modes | One per mode |
+| Window | New window, Reopen windows; Reset layout, Reset every mode's layout; Workspaces ▸ Save workspace…, (each saved one), Delete workspace… |
+| Help | Keyboard shortcuts; Server info, Connection |
+
+**Core's commands.** The items that are not `panel:` or `mode:` commands are
+core's own (`CORE_COMMAND_IDS` on `@/viewer-core`, with `themeCommandId`,
+`uiShellCommandId`, `workspaceCommandId`), registered for **every** composed
+shell, so another shell's menus can name them too. Each wraps an action core
+already has: the viewer's keys (each names its registry entry with `shortcut`, so
+the chord shown is the real one: Ctrl+Z, Shift+H, Shift+A, ...), the Options panel's toggles, the theme presets, the switcher,
+`openNewWindow`, `resetArrangement` and the workspaces, and the shortcuts dialog
+(`openShortcutsDialog`; a composed layout mounts its host). A command greys
+itself with a reason where the key would do nothing (nothing selected, nothing
+to undo, no 3D view).
+
+Not in the menus, because core has no action for them yet: opening a local file
+straight into the scene (files go through storage), select all / invert
+selection, named camera views (top, front, ...), and exporting (the selection
+export needs its own dialog of formats and targets).
+
+### A root of its own
+
+A shell that keeps `load` can still take core's root around its UI:
+`AppRoot` from `@/viewer-core/app` gives it the canvas-less routes, sign-in, the
+viewer provider and deep links, loaded lazily.
 
 ```tsx
 // my-adapy-ui/src/register.tsx
@@ -205,7 +557,8 @@ source, flipping `UI_DEFAULT` alone does not trigger a full viewer build — for
 one (or delete the branch image) when changing it.
 
 Omit `UI_DEFAULT` to ship **both** UIs with the classic one as the default; the
-switcher appears in the menu bar as soon as a second shell is registered.
+switcher (Options -> Theme) lists every registered shell. Since core registers
+the Desktop UI itself, it is there in every build.
 
 ## Choosing the default at runtime instead
 

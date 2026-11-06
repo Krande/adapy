@@ -5,15 +5,19 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, test } from "node:test";
 
+import { placedElsewhereVersion, setPlacedElsewhere } from "@/layout/placedElsewhere";
 import { dockZoneFor, setPluginPanelVisibility } from "@/layout/pluginPanels";
 import { getPanel, listPanels, listToolbarPanels, resetPanelRegistry } from "@/layout/registry";
 import { hide, isPanelOpen, reveal, toggle } from "@/layout/reveal";
 import { usePluginUiStore } from "@/plugins/pluginUiStore";
 import {
   disablePlugin,
+  getPanelsForRegion,
   getRegisteredPlugins,
+  getSimulationTabs,
   registerPlugin,
   resetRegistry,
+  setPluginContextFactory,
   type PanelSlot,
 } from "@/plugins/registry";
 
@@ -164,6 +168,20 @@ test("a disabled plugin's panels are unavailable", () => {
   assert.ok(getPanel("flaky:p"));
 });
 
+test("a dormant plugin's panels are unavailable once the bootstrap gives a context to ask with", () => {
+  let awake = false;
+  registerPlugin({ id: "sleepy", activationPredicate: () => awake, panels: [{ id: "p", region: "top-panel", render }] });
+  assert.deepEqual(listPanels({}).map((p) => p.id), ["sleepy:p"], "no context: only disabling counts");
+  setPluginContextFactory((pluginId) => ({ pluginId }) as never);
+  try {
+    assert.deepEqual(listPanels({}).map((p) => p.id), []);
+    awake = true;
+    assert.deepEqual(listPanels({}).map((p) => p.id), ["sleepy:p"]);
+  } finally {
+    setPluginContextFactory(null);
+  }
+});
+
 test("resetRegistry drops the plugins' panels too, so a re-registration is not a duplicate", () => {
   registerPlugin({ id: "again", panels: [{ id: "p", region: "top-panel", render, order: 1 }] });
   resetRegistry();
@@ -175,4 +193,45 @@ test("resetRegistry drops the plugins' panels too, so a re-registration is not a
 test("the body loader is lazy: registering does not load it", () => {
   registerPlugin({ id: "lazy", panels: [{ id: "p", region: "top-panel", render }] });
   assert.equal(typeof getPanel("lazy:p")?.body, "function");
+});
+
+test("a panel that stands on its own has content a layout can place; a section without a dock has none", () => {
+  registerPlugin({
+    id: "c",
+    panels: [
+      { id: "col", region: "top-panel", render },
+      { id: "sec", region: "scene-info", render },
+      { id: "secDock", region: "scene-info", render, dock: "right" },
+      { id: "tab", region: "fem-sidebar", render, asTab: { label: "T" }, dock: "bottom" },
+    ],
+  });
+  assert.equal(typeof getPanel("c:col")?.content, "function");
+  assert.equal(getPanel("c:sec")?.content, undefined);
+  assert.equal(typeof getPanel("c:secDock")?.content, "function");
+  assert.equal(typeof getPanel("c:tab")?.content, "function");
+});
+
+test("a panel the layout places elsewhere leaves its region host", () => {
+  registerPlugin({
+    id: "e",
+    panels: [
+      { id: "a", region: "top-panel", render },
+      { id: "b", region: "top-panel", render },
+      { id: "t", region: "fem-sidebar", render, asTab: { label: "T" } },
+    ],
+  });
+  const ctx = {} as never;
+  try {
+    setPlacedElsewhere(["e:a", "e:t"]);
+    assert.deepEqual(getPanelsForRegion("top-panel", ctx).map((p) => p.panel.id), ["e:b"]);
+    // The top-bar buttons still list it: they open and close it wherever it is.
+    assert.deepEqual(getPanelsForRegion("top-panel", ctx, { includePlacedElsewhere: true }).map((p) => p.panel.id), ["e:a", "e:b"]);
+    assert.deepEqual(getSimulationTabs(ctx), []);
+    const before = placedElsewhereVersion();
+    setPlacedElsewhere(["e:t", "e:a"]);
+    assert.equal(placedElsewhereVersion(), before, "the same set is no change");
+  } finally {
+    setPlacedElsewhere([]);
+  }
+  assert.deepEqual(getPanelsForRegion("top-panel", ctx).map((p) => p.panel.id), ["e:a", "e:b"]);
 });

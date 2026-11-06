@@ -1,0 +1,7 @@
+{
+  "identifier": "viewer",
+  "description": "Pages served by the local viewer on loopback http may listen to the shell's 3D mouse events and ask whether a device is open. Nothing else: no window, file system, shell or webview commands.",
+  "windows": ["*"],
+  "remote": { "urls": ["http://127.0.0.1:*/*", "http://localhost:*/*"] },
+  "permissions": ["core:event:allow-listen", "core:event:allow-unlisten", "allow-spacemouse-status"]
+}

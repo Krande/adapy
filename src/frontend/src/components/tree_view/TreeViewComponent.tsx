@@ -1,20 +1,74 @@
-import React, {useEffect, useMemo, useRef, useState} from 'react';
+import React, {useEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
 import {useViewerStores} from '@/state/AdaViewerContext';
 import {NodeApi, Tree} from "react-arborist";
-import {CustomNode, TreeNodeData} from './CustomNode';
+import {CustomNode, SceneTreeRowContext, TreeNodeData, type SceneTreeRowOptions} from './CustomNode';
 import {sceneTreeRow} from './SceneTreeRow';
 import {useSceneMenuStore} from '@/state/sceneMenuStore';
-import {handleTreeSelectionChange} from "@/utils/tree_view/handleClickedNode";
 import {syncSceneTreeToSelection} from "@/utils/tree_view/revealPick";
 import {closeTreeFromKeyboard, isTreeCloseKey} from "@/utils/tree_view/treeKeyboard";
-import {clearScene} from "@/utils/scene/handlers/clear_scene";
+import {showTreeSelection} from "@/utils/tree_view/treeSelection";
+import {claimSceneTreeSelection, sceneTreeContributedRoots, subscribeSceneTreeRoots} from "@/plugins/sceneTreeRoots";
+import {isMirroredWindow, useSceneActions} from "@/layout/sceneActions";
+import {useSceneMirrorStore} from "@/state/sceneMirrorStore";
+import {MirroredSceneMenuHost} from "./MirroredSceneMenu";
 
-const TreeViewComponent: React.FC = () => {
+/** Give the tree the selection as it is now. In a pop-out window, the main window's (mirrored); its count of rows. */
+function syncTreeToSelection(): number {
+    if (!isMirroredWindow()) return syncSceneTreeToSelection();
+    const ids = useSceneMirrorStore.getState().treeSelection;
+    showTreeSelection(ids, true);
+    return ids.length;
+}
+
+/** What a `rootFilter` lists of the model roots, and how many it left out. */
+export interface SceneTreeRootFilter {
+    shown: TreeNodeData[];
+    hidden: number;
+}
+
+/** The text of the root filter's toggle. */
+export interface SceneTreeRootFilterLabels {
+    showAll(hidden: number): string;
+    filter: string;
+}
+
+const ROOT_FILTER_LABELS: SceneTreeRootFilterLabels = {
+    showAll: (hidden) => `${hidden} more loaded — show all`,
+    filter: "Showing all — filter",
+};
+
+/** Options of the Scene tree. Absent, each leaves the tree as it is. */
+export interface SceneTreeProps {
+    /** Narrows the model roots. Called with `showAll` true after the user asks for every root;
+     *  while it hides some, a toggle under the search offers them back. */
+    rootFilter?: (roots: TreeNodeData[], showAll: boolean) => SceneTreeRootFilter;
+    /** That toggle's text. Default "N more loaded — show all" / "Showing all — filter". */
+    rootFilterLabels?: SceneTreeRootFilterLabels;
+    /** Rows appended after the model roots (and before any a plugin contributes). */
+    extraRoots?: TreeNodeData[];
+    /** Runs before the tree's own selection handler, with the selected row ids; true = handled. */
+    onSelectOverride?: (ids: string[]) => boolean;
+    /** Rendered under the search row. */
+    header?: React.ReactNode;
+    /** Drawn at each row's end, before its eye (a badge, a property chip). */
+    rowExtras?: SceneTreeRowOptions["rowExtras"];
+    /** Classes added to a row. */
+    rowClassName?: SceneTreeRowOptions["rowClassName"];
+}
+
+const TreeViewComponent: React.FC<SceneTreeProps> = ({rootFilter, rootFilterLabels = ROOT_FILTER_LABELS, extraRoots, onSelectOverride, header, rowExtras, rowClassName}) => {
+    const rowOptions = React.useMemo(() => ({rowExtras, rowClassName}), [rowExtras, rowClassName]);
+    // What the tree does: on this window's scene, or -- in a pop-out window, which shows the main
+    // window's tree (`core:scene-tree`) -- sent to the main window (`@/layout/sceneActions`).
+    const actions = useSceneActions();
+    const mirrored = isMirroredWindow();
     const {useTreeViewStore} = useViewerStores();
     const {treeData, setTree, searchTerm, scopeNodeId, scopeNodeName, setScope, rootLabelMode, setRootLabelMode} = useTreeViewStore();
     const {useModelState} = useViewerStores();
     const loadedCount = useModelState((s) => s.loadedSourceNames.size);
     const [clearing, setClearing] = useState(false);
+    const [showAllRoots, setShowAllRoots] = useState(false);
+    const contributedRoots = useSyncExternalStore(subscribeSceneTreeRoots, sceneTreeContributedRoots, sceneTreeContributedRoots);
     const [treeHeight, setTreeHeight] = useState<number>(800); // Default height
     const treeRef = useRef<any>(null);  // Use 'any' to allow custom properties
     const containerRef = useRef<HTMLDivElement | null>(null);
@@ -36,7 +90,17 @@ const TreeViewComponent: React.FC = () => {
 
     // Top level = one root per loaded model (labelled by GLB filename). The
     // store keeps them under a synthetic container; render its children.
-    const treeNodes = treeData?.children ?? [];
+    const modelRoots = treeData?.children ?? [];
+    const filtered = rootFilter ? rootFilter(modelRoots, showAllRoots) : null;
+    const shownRoots = filtered?.shown ?? modelRoots;
+    const hiddenRoots = filtered?.hidden ?? 0;
+    const treeNodes = useMemo(
+        () =>
+            !extraRoots?.length && !contributedRoots.length
+                ? shownRoots
+                : [...shownRoots, ...(extraRoots ?? []), ...contributedRoots],
+        [shownRoots, extraRoots, contributedRoots],
+    );
 
     // Update the tree height based on the container size using ResizeObserver
     useEffect(() => {
@@ -52,6 +116,10 @@ const TreeViewComponent: React.FC = () => {
         const resizeObserver = new ResizeObserver(() => updateTreeHeight());
         if (containerRef.current) {
             resizeObserver.observe(containerRef.current);
+        }
+        // The header too: the scope chip, a `header` or the root-filter toggle change its height.
+        if (headerRef.current) {
+            resizeObserver.observe(headerRef.current);
         }
 
         // Set the initial height
@@ -69,7 +137,7 @@ const TreeViewComponent: React.FC = () => {
             setTree(tree);
             // Opened for the first time: show what is already selected in 3D, rather than an empty
             // tree whose first selection event would clear it.
-            syncSceneTreeToSelection();
+            syncTreeToSelection();
         }
     }, []);
 
@@ -84,7 +152,7 @@ const TreeViewComponent: React.FC = () => {
         }
         if (!wasHidden.current) return;
         wasHidden.current = false;
-        if (syncSceneTreeToSelection()) return;
+        if (syncTreeToSelection()) return;
         const tree = treeRef.current;
         const node = tree?.mostRecentNode ?? tree?.selectedNodes?.[0];
         if (node) tree.scrollTo(node.id);
@@ -96,9 +164,14 @@ const TreeViewComponent: React.FC = () => {
         // what was picked in 3D.
         if (ids.length === 0 && !containerRef.current?.contains(document.activeElement)) return;
         if (!treeRef.current?.isProgrammaticChange) {
-            (async () => {
-                await handleTreeSelectionChange(ids);
-            })();
+            const rowIds = ids.map((n) => String(n.id));
+            if (onSelectOverride?.(rowIds) || claimSceneTreeSelection(rowIds)) return;
+            // The rows as the widget resolved them (a Shift range, a Ctrl toggle): its expand
+            // state is this window's, so the range is too.
+            const rows = ids.map((n) => n.data as TreeNodeData);
+            // The search scope is this window's own (in the main window `selectRows` sets it).
+            if (mirrored) setScope(rows.length ? rows[0].id : null, rows.length ? rows[0].name ?? null : null);
+            actions.selectRows(rows);
         }
     };
 
@@ -146,7 +219,7 @@ const TreeViewComponent: React.FC = () => {
                         {rootLabelMode === "name" ? "Names" : "IDs"}
                     </button>
                     {/* The storage browser's Clear, from here: every model out of the scene. */}
-                    {(treeNodes.length > 0 || loadedCount > 0) && (
+                    {(modelRoots.length > 0 || loadedCount > 0) && (
                         <button
                             type="button"
                             className="h-7 shrink-0 rounded-md border border-gray-700 bg-gray-800 px-2 text-xs text-gray-300 hover:bg-gray-700 hover:text-white disabled:opacity-60"
@@ -155,7 +228,7 @@ const TreeViewComponent: React.FC = () => {
                             disabled={clearing}
                             onClick={() => {
                                 setClearing(true);
-                                void clearScene()
+                                void actions.clearScene()
                                     .catch((err) => console.error("remove all failed", err))
                                     .finally(() => setClearing(false));
                             }}
@@ -164,6 +237,18 @@ const TreeViewComponent: React.FC = () => {
                         </button>
                     )}
                 </div>
+                {header}
+                {/* A list that drops roots says so, and offers them back. */}
+                {(hiddenRoots > 0 || (!!rootFilter && showAllRoots)) && (
+                    <button
+                        type="button"
+                        className="mt-1.5 w-full rounded px-1 py-0.5 text-left text-xs text-gray-400 hover:bg-white/5 hover:text-gray-100"
+                        title={showAllRoots ? "List only the filtered models" : `${hiddenRoots} other loaded model(s) are not listed; they are still in the 3D view`}
+                        onClick={() => setShowAllRoots(!showAllRoots)}
+                    >
+                        {showAllRoots ? rootFilterLabels.filter : rootFilterLabels.showAll(hiddenRoots)}
+                    </button>
+                )}
                 {scopeNodeId && (
                     <div className="mt-1.5 flex items-center">
                         <span
@@ -197,6 +282,7 @@ const TreeViewComponent: React.FC = () => {
                     closeTreeFromKeyboard();
                 }}
             >
+                <SceneTreeRowContext.Provider value={rowOptions}>
                 <Tree
                     // No focus ring: arborist moves DOM focus onto the cursor row, and the browser's
                     // outline drew a box around it on top of the selection highlight.
@@ -248,7 +334,10 @@ const TreeViewComponent: React.FC = () => {
                 >
                     {CustomNode}
                 </Tree>
+                </SceneTreeRowContext.Provider>
             </div>
+            {/* The row menu: the main window draws its own beside the viewer; a pop-out has no viewer. */}
+            {mirrored && <MirroredSceneMenuHost/>}
 
         </div>
     );

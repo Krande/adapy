@@ -3,11 +3,10 @@ import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
 import {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
 import {centerViewOnSelection} from "@/utils/scene/centerViewOnSelection";
 import {OrbitControls} from "three/examples/jsm/controls/OrbitControls";
-import {useOptionsStore} from "@/state/optionsStore";
 import {useGalleryStore} from "@/state/galleryStore";
 import {useMeStore} from "@/state/meStore";
 import {useViewMetricsStore} from "@/state/viewMetricsStore";
-import {useViewerPanelStore} from "@/state/viewerPanelStore";
+import {CORE_PANEL_IDS, toggle as togglePanel} from "@/layout/panelActions";
 import {useTreeViewStore} from "@/state/treeViewStore";
 import CameraControls from "camera-controls";
 import {copySelectionNames} from "@/utils/clipboard/copySelectionNames";
@@ -25,7 +24,8 @@ import {useCellBuilderStore, needsPreviewCompile} from "@/state/cellBuilderStore
 import {frameCells} from "@/utils/scene/frameCells";
 import {requestRender} from "@/state/perfStore";
 import {useModelState} from "@/state/modelState";
-import {undoRedoIntent} from "@/utils/keyboard/undoRedoKeys";
+import {bindCoreShortcuts, type CoreShortcutHandler} from "@/layout/shortcuts";
+import {installShortcutDispatcher} from "@/layout/shortcutDispatch";
 import {redoViewerAction, undoViewerAction} from "@/utils/scene/viewerHistory";
 import {bindViewerHistoryReset} from "@/utils/scene/viewerHistoryBindings";
 
@@ -72,140 +72,82 @@ export function setupCameraControlsHandlers(
         scopeEl.addEventListener("focusout", onFocusOut as EventListener);
     }
 
-    const handleKeyDown = (event: KeyboardEvent) => {
-        if (!inScope) return;
-
-        // Ctrl+Z / Ctrl+Y (Ctrl+Shift+Z, Cmd on macOS): step the viewer's hide / show / selection
-        // history. undoRedoIntent leaves a text field's own undo alone; an open procedural cell
-        // builder has its own history and takes the keys first.
-        const intent = undoRedoIntent(event);
-        if (intent) {
-            if (useCellBuilderStore.getState().active !== null) return;
-            event.preventDefault();
-            if (intent === "undo") undoViewerAction();
-            else redoViewerAction();
-            return;
-        }
-
-
-        // Don't hijack shortcuts while the user is typing in a form
-        // field — same trap browsers use for `/` etc. The standalone
-        // never had this check either, but the embed amplifies the
-        // problem (paradoc has search boxes a click away).
-        const t = event.target as HTMLElement | null;
-        if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) {
-            return;
-        }
-
-        const key = event.key.toLowerCase();
-        const shift = event.shiftKey;
+    // The viewer's keys are core's registered shortcuts (layout/coreShortcutTable): this gives
+    // them their handlers for as long as the viewer is mounted, scoped to `inScope`, and makes
+    // sure the registry's one listener is running (the layout may not be, in an embed). The
+    // listener ignores keys typed into a field and keys a widget already handled.
+    const live = () => inScope;
+    const shortcut = (run: () => void | boolean, when: CoreShortcutHandler["when"] = live): CoreShortcutHandler => ({run, when});
+    const copyNames = () => {
         const selectedObjects = useSelectedObjectStore.getState().selectedObjects;
-        const ctrl = event.ctrlKey || event.metaKey;
-
-        if (ctrl && !shift && !event.altKey && key === "c") {
-            // Ctrl/Cmd+C copies the selection's names -- the levels' own names when levels are
-            // picked in the tree -- unless the user has highlighted text, which the browser copies.
-            if ((window.getSelection()?.toString() ?? "").length > 0) return;
-            if (selectedObjects.size === 0 && !useTreeViewStore.getState().tree?.selectedNodes.length) return;
-            event.preventDefault();
-            void copySelectionNames(selectedObjects).then((n) => {
-                if (n === 0) console.warn("Ctrl+C: nothing copied");
-            });
-            return;
-        }
-
-        if (shift && key === "h") {
-            hideSelectedRanges();
-        } else if (shift && key === "i" && !event.ctrlKey && !event.metaKey && !event.altKey) {
-            // Modifiers excluded so a browser chord (Ctrl+Shift+I opens devtools) never also
-            // hides half the model.
-            hideUnselectedRanges();
-        } else if (shift && key === "g" && !ctrl && !event.altKey) {
-            // Shift+G: save the selection as a named group shared in the scope.
-            event.preventDefault();
-            void groupSelectionFromKeyboard();
-        } else if (shift && key === "u") {
-            unhideAllRanges();
-        } else if (shift && key === "f") {
-            fitSelectionView(camera, controls);
-        } else if (shift && key === "a") {
-            fitAllView(scene, camera, controls);
-        } else if (shift && key === "enter") {
-            // ⇧↵ — preview-compile the current (uncommitted) procedural model:
-            // the fast path when editing, and what makes a side-by-side result
-            // view feel live. No commit — the user commits only when happy.
+        void copySelectionNames(selectedObjects).then((n) => {
+            if (n === 0) console.warn("Shift+C: nothing copied");
+        });
+    };
+    // Inside a tree Shift+Arrow is the tree's own: grow or shrink the selection by a row.
+    // Traversing levels as well would replace the range the tree just extended.
+    const outsideTree: CoreShortcutHandler["when"] = (e) =>
+        inScope && !(e?.target as HTMLElement | null | undefined)?.closest?.('[role="tree"]');
+    // The procedural cell builder has its own history and takes Ctrl+Z / Ctrl+Y first.
+    const history = (step: () => void) => () => {
+        if (useCellBuilderStore.getState().active !== null) return false;
+        step();
+    };
+    const unbindShortcuts = bindCoreShortcuts({
+        "core:undo": shortcut(history(undoViewerAction)),
+        "core:redo": shortcut(history(redoViewerAction)),
+        "core:redo-alt": shortcut(history(redoViewerAction)),
+        "core:hide-selected": shortcut(() => hideSelectedRanges()),
+        "core:hide-others": shortcut(() => hideUnselectedRanges()),
+        "core:group-selection": shortcut(() => void groupSelectionFromKeyboard()),
+        "core:show-all": shortcut(() => unhideAllRanges()),
+        "core:fit-selection": shortcut(() => fitSelectionView(camera, controls)),
+        "core:fit-all": shortcut(() => fitAllView(scene, camera, controls)),
+        // Shift+Enter: preview-compile the current (uncommitted) procedural model -- the fast
+        // path when editing. Only when there is something to compile (mirrors the Compile
+        // button's disabled state, see needsPreviewCompile); otherwise the key is not ours.
+        "core:builder-compile": shortcut(() => {
             const cb = useCellBuilderStore.getState();
-            // Compile when there are uncommitted changes OR when the wanted
-            // result isn't in the scene yet — so ⇧↵ on an unchanged model with
-            // no simulation/detail loaded still produces one. Mirrors the
-            // Compile button's disabled state. See needsPreviewCompile.
-            if (cb.active && needsPreviewCompile(cb)) {
-                event.preventDefault();
-                void cb.compilePreviewSelected();
-            }
-        } else if (shift && key === "w" && !ctrl && !event.altKey) {
-            // Shift+W: gallery mode on / off.
-            event.preventDefault();
-            useGalleryStore.getState().toggle();
-        } else if (shift && key === "q") {
-            const {isOptionsVisible, setIsOptionsVisible} = useOptionsStore.getState();
-            setIsOptionsVisible(!isOptionsVisible);
-        } else if (shift && key === "p" && !ctrl && !event.altKey) {
-            // Shift+P: the admin panel, toggled -- the same floating window as Options' "Admin panel"
-            // button, and offered to the same people: for anyone else the key does nothing.
-            if (!useMeStore.getState().isAdmin) return;
-            const {open, openPanel, closePanel} = useViewerPanelStore.getState();
-            event.preventDefault();
-            if (open === "admin") closePanel();
-            else openPanel("admin");
-        } else if (shift && key === "r" && !ctrl && !event.altKey) {
-            // Shift+R: start / end a render-profiling session (the Performance option "Record render
-            // metrics"), administrators only. A render is requested so the profiler sees the switch
-            // at once, not on the next camera move.
-            if (!useMeStore.getState().isAdmin) return;
-            event.preventDefault();
+            if (!(cb.active && needsPreviewCompile(cb))) return false;
+            void cb.compilePreviewSelected();
+        }),
+        "core:toggle-gallery": shortcut(() => useGalleryStore.getState().toggle()),
+        "core:toggle-options": shortcut(() => void togglePanel(CORE_PANEL_IDS.options)),
+        // The admin panel, toggled -- offered to the same people as Options' "Admin panel" button;
+        // for anyone else the key does nothing.
+        "core:toggle-admin": shortcut(() => {
+            if (!useMeStore.getState().isAdmin) return false;
+            togglePanel(CORE_PANEL_IDS.admin);
+        }),
+        // Start / end a render-profiling session (administrators only). A render is requested so
+        // the profiler sees the switch at once, not on the next camera move.
+        "core:render-profiling": shortcut(() => {
+            if (!useMeStore.getState().isAdmin) return false;
             const m = useViewMetricsStore.getState();
             m.setCollectRenderMetrics(!m.collectRenderMetrics);
             requestRender();
-        } else if (shift && key === "t" && !ctrl && !event.altKey) {
-            // Shift+T: open the tree at the selected element and focus it for the arrow keys (or,
-            // open but unfocused, just focus it there). Closing is Shift+T or Esc from INSIDE the
-            // tree, handled by the trees themselves -- a focused tree consumes its keys.
-            // Not an Alt or Ctrl chord: the browser and OS own too many of those (Ctrl+T, Alt+T).
-            event.preventDefault();
-            toggleTreeFocus();
-        } else if (shift && key === "c") {
-            // Copy the name of each selected object to the clipboard,
-            // one per line. Same routine the ObjectInfoBox button uses
-            // on mobile — see utils/clipboard/copySelectionNames.
-            void copySelectionNames(selectedObjects).then((n) => {
-                if (n === 0) console.warn("Shift+C: nothing copied");
-            });
-        } else if (shift && key.startsWith("arrow") && t?.closest?.('[role="tree"]')) {
-            // Inside a tree Shift+Arrow is the tree's own: grow or shrink the selection by a row.
-            // Traversing levels as well would replace the range the tree just extended.
-            return;
-        } else if (shift && key === "arrowup") {
-            // Tree-level traversal from the current selection (Shift is the
-            // "activate traversal" modifier). Up = parent level; Down = first
-            // child; Left/Right = previous/next sibling. Never opens the tree
-            // panel — see utils/tree_view/treeNavigation. preventDefault stops
-            // the arrows from also scrolling the page.
-            event.preventDefault();
-            void selectParentLevel();
-        } else if (shift && key === "arrowdown") {
-            event.preventDefault();
-            void selectChildLevel();
-        } else if (shift && key === "arrowleft") {
-            event.preventDefault();
-            void selectSibling(-1);
-        } else if (shift && key === "arrowright") {
-            event.preventDefault();
-            void selectSibling(1);
-        }
-    };
+        }),
+        // Open the tree at the selected element and focus it for the arrow keys (or, open but
+        // unfocused, just focus it there). Closing is Shift+T or Esc from INSIDE the tree,
+        // handled by the trees themselves -- a focused tree consumes its keys.
+        "core:tree-focus": shortcut(() => toggleTreeFocus()),
+        "core:copy-names": shortcut(copyNames),
+        // Ctrl/Cmd+C copies the selection's names -- the levels' own names when levels are
+        // picked in the tree -- unless the user has highlighted text, which the browser copies.
+        "core:copy-names-ctrl": shortcut(() => {
+            if ((window.getSelection()?.toString() ?? "").length > 0) return false;
+            if (useSelectedObjectStore.getState().selectedObjects.size === 0 && !useTreeViewStore.getState().tree?.selectedNodes.length) return false;
+            copyNames();
+        }),
+        // Tree-level traversal from the current selection. Never opens the tree panel -- see
+        // utils/tree_view/treeNavigation.
+        "core:select-parent": shortcut(() => void selectParentLevel(), outsideTree),
+        "core:select-child": shortcut(() => void selectChildLevel(), outsideTree),
+        "core:select-prev-sibling": shortcut(() => void selectSibling(-1), outsideTree),
+        "core:select-next-sibling": shortcut(() => void selectSibling(1), outsideTree),
+    });
+    const releaseDispatcher = installShortcutDispatcher();
 
-    window.addEventListener("keydown", handleKeyDown);
     // An undo must never reach into a scene that has since been replaced.
     const unbindHistoryReset = bindViewerHistoryReset();
 
@@ -225,7 +167,8 @@ export function setupCameraControlsHandlers(
     return () => {
         unsubscribeLoaded();
         unbindHistoryReset();
-        window.removeEventListener("keydown", handleKeyDown);
+        releaseDispatcher();
+        unbindShortcuts();
         if (scopeEl) {
             if (onEnter) scopeEl.removeEventListener("mouseenter", onEnter);
             if (onLeave) scopeEl.removeEventListener("mouseleave", onLeave);

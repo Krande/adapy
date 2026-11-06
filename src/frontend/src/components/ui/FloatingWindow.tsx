@@ -26,6 +26,8 @@ import {createPortal} from "react-dom";
 import {Rnd} from "react-rnd";
 
 import {clampRect, defaultRect, parseStoredRect, type Extent, type WindowRect} from "@/assets/floatingWindow";
+import {pointerOf} from "@/layout/dockDrag";
+import {useWindowDock} from "./PanelFrame";
 import {useIsNarrow} from "@/utils/useIsMobile";
 
 export interface RememberedRect {
@@ -53,12 +55,18 @@ export interface FloatingWindowProps {
   /** Or the caller keeps the rect: shown clamped to the viewport, every move and resize reported. */
   rect?: WindowRect;
   onRectChange?: (rect: WindowRect) => void;
+  /** The pointer while the window is dragged by its title bar (a caller-kept `rect` only). */
+  onDragMove?: (pointer: {x: number; y: number}) => void;
+  /** Where the drag ended. Return true when the caller took the drop: the rect is then not reported or remembered. */
+  onDragEnd?: (pointer: {x: number; y: number}) => boolean;
   /** Draw in a portal over the page, in a click-through layer the size of the viewport. */
   overlay?: boolean;
   /** Below the `wide` breakpoint, take the whole screen. */
   fullScreenWhenNarrow?: boolean;
   /** Extra style of the window (after `zIndex`). */
   style?: React.CSSProperties;
+  /** A press anywhere on the (non-takeover) window, e.g. to bring it to the front. */
+  onActivate?: () => void;
   /**
    * The window's content. As a function it learns whether the window is a
    * full-screen takeover, where its title bar is no drag handle.
@@ -87,6 +95,11 @@ export function writeRememberedRect(remember: RememberedRect, r: WindowRect): vo
   }
 }
 
+/** `Rnd`'s press handler, passed only when set. */
+function activation(onActivate?: () => void): {onMouseDown?: () => void} {
+  return onActivate ? {onMouseDown: () => onActivate()} : {};
+}
+
 /** Optional props passed only when set, so an absent one reaches `Rnd` exactly as before: not at all. */
 function sizeLimits(min?: Extent): {minWidth?: number; minHeight?: number} {
   return min ? {minWidth: min.width, minHeight: min.height} : {};
@@ -101,11 +114,17 @@ export function FloatingWindow({
   remember,
   rect: controlledRect,
   onRectChange,
+  onDragMove,
+  onDragEnd,
   overlay = false,
   fullScreenWhenNarrow = false,
   style,
+  onActivate,
   children,
 }: FloatingWindowProps) {
+  const dock = useWindowDock();
+  const dragMove = onDragMove ?? dock?.onDragMove;
+  const dragEnd = onDragEnd ?? dock?.onDragEnd;
   const narrow = useIsNarrow();
   const fullScreen = fullScreenWhenNarrow && narrow;
   const content = typeof children === "function" ? children({fullScreen}) : children;
@@ -153,7 +172,13 @@ export function FloatingWindow({
         bounds={overlay ? "parent" : "window"}
         style={overlay ? style : {zIndex, ...style}}
         dragHandleClassName={dragHandleClassName}
-        onDragStop={(_e, d) => commit({...shown, x: d.x, y: d.y})}
+        {...activation(onActivate)}
+        {...dragReport(dragMove)}
+        onDragStop={(e, d) => {
+          const p = dragEnd ? pointerOf(e) : null;
+          if (p && dragEnd!(p)) return;
+          commit({...shown, x: d.x, y: d.y});
+        }}
         onResizeStop={(_e, _dir, ref, _delta, pos) =>
           commit({x: pos.x, y: pos.y, width: ref.offsetWidth, height: ref.offsetHeight})
         }
@@ -164,7 +189,33 @@ export function FloatingWindow({
     return overlay ? createPortal(<OverlayLayer zClassName={zClassName}>{rnd}</OverlayLayer>, document.body) : rnd;
   }
 
-  return <UncontrolledWindow {...{dragHandleClassName, zIndex, zClassName, minSize, initialRect, overlay, style}}>{content}</UncontrolledWindow>;
+  return (
+    <UncontrolledWindow {...{dragHandleClassName, zIndex, zClassName, minSize, initialRect, overlay, style, onActivate, onDragMove: dragMove, onDragEnd: dragEnd}}>
+      {content}
+    </UncontrolledWindow>
+  );
+}
+
+/** `Rnd`'s drag handler reporting the pointer, passed only when set. */
+function dragReport(onDragMove?: (pointer: {x: number; y: number}) => void): {onDrag?: (e: unknown) => void} {
+  if (!onDragMove) return {};
+  return {
+    onDrag: (e: unknown) => {
+      const p = pointerOf(e);
+      if (p) onDragMove(p);
+    },
+  };
+}
+
+/** `Rnd`'s drag-stop handler for a window that keeps no rect of its own, passed only when set. */
+function dropReport(onDragEnd?: (pointer: {x: number; y: number}) => boolean): {onDragStop?: (e: unknown) => void} {
+  if (!onDragEnd) return {};
+  return {
+    onDragStop: (e: unknown) => {
+      const p = pointerOf(e);
+      if (p) onDragEnd(p);
+    },
+  };
 }
 
 const OverlayLayer: React.FC<{zClassName: string; children: React.ReactNode}> = ({zClassName, children}) => (
@@ -182,6 +233,9 @@ function UncontrolledWindow({
   initialRect,
   overlay,
   style,
+  onActivate,
+  onDragMove,
+  onDragEnd,
   children,
 }: Omit<FloatingWindowProps, "children" | "remember" | "fullScreenWhenNarrow"> & {children: React.ReactNode}) {
   const first = useRef<WindowRect | null>(null);
@@ -197,6 +251,9 @@ function UncontrolledWindow({
       bounds={overlay ? "parent" : "window"}
       style={overlay ? style : {zIndex, ...style}}
       dragHandleClassName={dragHandleClassName}
+      {...activation(onActivate)}
+      {...dragReport(onDragMove)}
+      {...dropReport(onDragEnd)}
     >
       {children}
     </Rnd>

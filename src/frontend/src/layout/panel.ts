@@ -5,7 +5,7 @@
 // Every panel of the classic UI couples four things in one component: its
 // content, its chrome (frame, header, close button), where it sits (the menu
 // column, a bottom sheet, a floating window) and whether it is visible (a flag
-// in a domain store, read inside `Menu.tsx`). Nothing listed the panels, so any
+// in a domain store, read inside the hand-written menu). Nothing listed the panels, so any
 // other host -- a UI shell, a command palette, a shortcuts dialog -- had to
 // rediscover them, and lost some on the way.
 //
@@ -55,6 +55,16 @@ export interface PanelCapabilities {
   keepAlive: boolean;
   /** It may share a zone by vertical stacking (false for trees and tables). Default true. */
   stackable: boolean;
+  /** Its content fills its group or window edge to edge and scrolls itself (no padding, no host scroll). Default false. */
+  fill: boolean;
+  /** It may be pinned, so it stays open and placed across a shell's modes. Default true. */
+  pinnable: boolean;
+  /**
+   * It works in a pop-out window from state the main window mirrors to it, and
+   * acts through the main window (`./windowMirror`), so it may go there although
+   * it reads the scene. Default false.
+   */
+  mirrored: boolean;
 }
 
 export const DEFAULT_PANEL_CAPABILITIES: Readonly<PanelCapabilities> = Object.freeze({
@@ -65,6 +75,9 @@ export const DEFAULT_PANEL_CAPABILITIES: Readonly<PanelCapabilities> = Object.fr
   resizable: true,
   keepAlive: false,
   stackable: true,
+  fill: false,
+  pinnable: true,
+  mirrored: false,
 });
 
 /** Where a panel can live at all. */
@@ -139,6 +152,8 @@ export interface PanelProps {
   close(): void;
   /** True when this panel is the visible tab in its zone. */
   isActive: boolean;
+  /** Options for the panel's content (a shell's `PanelOverride.options`): core's frameless bodies take them as props. */
+  options?: Readonly<Record<string, unknown>>;
 }
 
 /** One action in a panel frame's header (float, dock to..., minimise, close, pop out). */
@@ -148,6 +163,26 @@ export interface PanelAction {
   icon?: React.FC;
   run(): void;
   disabled?: boolean;
+  /** A toggle's state (pinned, say); absent for a plain action. */
+  pressed?: boolean;
+  /** A menu the action's button opens instead of running it. */
+  menu?: readonly PanelMenuItem[];
+}
+
+/** One item of a `PanelAction`'s menu. */
+export interface PanelMenuItem {
+  id: string;
+  label: string;
+  run(): void;
+  disabled?: boolean;
+  /** Marks where the panel is now. */
+  current?: boolean;
+  /**
+   * A submenu instead of an action (`run` is then not called): its items, or a
+   * function giving them when the submenu opens (a list that changes, the open
+   * windows say).
+   */
+  items?: readonly PanelMenuItem[] | (() => readonly PanelMenuItem[]);
 }
 
 /**
@@ -165,7 +200,8 @@ export interface PanelFrameProps {
   onClose?: () => void;
   /**
    * In a floating host: the class the window is dragged by. The frame puts it on
-   * its title bar, so the window moves by its header and nowhere else.
+   * its title bar, so the window moves by its header and nowhere else. In a dock:
+   * the class of the header the host drags the panel out by.
    */
   dragHandleClassName?: string;
   children?: React.ReactNode;
@@ -224,7 +260,7 @@ export interface PanelSpec {
   /**
    * The classic top bar shows a toggle for this panel, at this position. Ordered
    * like `placement.order` (gaps of 10). Lets a host generate the same set of
-   * toggles the classic `Menu.tsx` hand-writes. `subOrder` breaks ties within one
+   * toggles as the classic preset's top bar. `subOrder` breaks ties within one
    * `order` (plugin buttons share one slot and keep their own `order` here), then id.
    */
   toolbar?: { order: number; subOrder?: number };
@@ -245,6 +281,8 @@ export interface RegisteredPanel extends PanelSpec {
   owner: PanelOwnerId;
   capabilities: PanelCapabilities;
   frame: "own" | "host";
+  /** Options for its frameless content, from a shell's override (`PanelProps.options`). */
+  options?: Readonly<Record<string, unknown>>;
 }
 
 /** A spec's placement for a preset: its own entry, else `default`. */

@@ -1,4 +1,4 @@
-import React, {useEffect, useState} from "react";
+import React, {useEffect, useState, useSyncExternalStore} from "react";
 import {useConversionStore} from "@/state/conversionStore";
 import {useCompressionStore} from "@/state/compressionStore";
 import {useMeStore} from "@/state/meStore";
@@ -9,6 +9,9 @@ import {useLoadQueueStore, type LoadTask} from "@/state/loadQueueStore";
 import {useAuditToastStore} from "@/state/auditToastStore";
 import {useGalleryStore} from "@/state/galleryStore";
 import ExtendJobButton from "./ExtendJobButton";
+import {eitherClaimed, isClaimedJob, withoutClaimed, type IsClaimed} from "./claimedLoads";
+import {stageText} from "./stageText";
+import {isLoadClaimed, loadClaimsVersion, subscribeLoadClaims} from "@/plugins/loadClaims";
 import {
     hasRunView,
     parentRunOf,
@@ -368,48 +371,6 @@ const CompressionToast: React.FC<{
         </div>
     );
 };
-
-// One-line summary of a job's current step. The worker publishes a
-// ``stage`` string alongside each KV update; we surface it directly so
-// users see what's actually happening ("loading", "tessellating face
-// 1247/4532", "writing output") instead of just a wall-clock spinner.
-// Terse codes the worker uses today get a friendlier rendering; any
-// free-text the worker publishes is shown verbatim so adding a new
-// stage in the worker doesn't require a frontend round trip.
-// Friendly translations for the stage codes adapy's converters emit
-// (see ada/comms/rest/converter.py — the ``on_progress(stage, frac)``
-// callback feeds these in). The map is exhaustive against what's
-// emitted today; any unrecognised stage falls through to the raw
-// string (so a worker that adds a new stage code can surface it
-// without a frontend deploy).
-const STAGE_LABEL: Record<string, string> = {
-    queued: "Waiting for worker…",
-    loading: "Loading source file…",
-    parsing: "Parsing source…",
-    unpacking: "Unpacking bundle…",
-    translating: "Translating geometry…",
-    tessellating: "Tessellating geometry…",
-    "selecting-field": "Selecting FEA field…",
-    writing: "Writing output…",
-    "writing-ifc": "Writing IFC…",
-    "writing-step": "Writing STEP…",
-    "writing-xml": "Writing Genie XML…",
-    "writing-gnx": "Writing Genie workspace…",
-    exporting: "Exporting…",
-    convert: "Converting…",
-    upload: "Uploading result…",
-    uploading: "Uploading result…",
-    ready: "Ready",
-    cached: "Cached result",
-    aborted: "Aborted",
-    misrouted: "Routed to wrong pool",
-};
-
-function stageText(stage: string | undefined | null): string {
-    if (!stage) return "";
-    const known = STAGE_LABEL[stage];
-    return known || stage;
-}
 
 import type {ConversionJob} from "@/state/conversionStore";
 
@@ -937,17 +898,41 @@ const AuditActivityBadge: React.FC = () => {
     );
 };
 
-const ConversionProgress = () => {
+export interface ConversionProgressProps {
+    /** Loads whose progress the host tells elsewhere, left out of the toast, in addition to
+     *  the ones claimed with `claimLoad` (core's storage rows claim theirs). */
+    isClaimed?: IsClaimed;
+    /** The corner of its host the toast sits in. Default `"bottom-right"`. */
+    anchor?: ToastAnchor;
+}
+
+export type ToastAnchor = "bottom-right" | "bottom-left" | "top-right" | "top-left";
+
+// Phones: across the bottom (or top), 16px from each edge, so a long source key
+// cannot overflow; from `sm:` up, a pill in its corner capped at `max-w-sm`.
+const TOAST_ANCHOR_CLASS: Readonly<Record<ToastAnchor, string>> = {
+    "bottom-right": "absolute bottom-4 left-4 right-4 sm:left-auto sm:max-w-sm z-50 flex flex-col gap-2 pointer-events-auto",
+    "bottom-left": "absolute bottom-4 left-4 right-4 sm:right-auto sm:max-w-sm z-50 flex flex-col gap-2 pointer-events-auto",
+    "top-right": "absolute top-4 left-4 right-4 sm:left-auto sm:max-w-sm z-50 flex flex-col gap-2 pointer-events-auto",
+    "top-left": "absolute top-4 left-4 right-4 sm:right-auto sm:max-w-sm z-50 flex flex-col gap-2 pointer-events-auto",
+};
+
+const ConversionProgress: React.FC<ConversionProgressProps> = ({isClaimed: hostClaimed, anchor = "bottom-right"}) => {
+    useSyncExternalStore(subscribeLoadClaims, loadClaimsVersion, loadClaimsVersion);
+    const isClaimed = eitherClaimed(isLoadClaimed, hostClaimed);
     const jobs = useConversionStore((s) => s.jobs);
     const clearJob = useConversionStore((s) => s.clearJob);
     const sweeps = useCompressionStore((s) => s.sweeps);
     const clearSweep = useCompressionStore((s) => s.clearSweep);
     const loadCurrent = useLoadQueueStore((s) => s.current);
-    const loadQueued = useLoadQueueStore((s) => s.queued);
-    const loadErrors = useLoadQueueStore((s) => s.errors);
+    const queued = useLoadQueueStore((s) => s.queued);
+    const errors = useLoadQueueStore((s) => s.errors);
     const removeQueued = useLoadQueueStore((s) => s.removeQueued);
     const clearError = useLoadQueueStore((s) => s.clearError);
     const loadCurrentName = loadCurrent?.name ?? null;
+    const shownLoad = withoutClaimed({currentName: loadCurrentName, queued, errors}, isClaimed);
+    const loadQueued = shownLoad.queued;
+    const loadErrors = shownLoad.errors;
     // On mobile the gallery HUD is a bottom bar; lift the toast stack above it so the audit toast
     // stacks on top of the gallery menu instead of overlapping. 0 (desktop/gallery-off) => default.
     const galleryBarHeight = useGalleryStore((s) => s.mobileBarHeight);
@@ -963,7 +948,9 @@ const ConversionProgress = () => {
     const modelLoadActive =
         !!modelLoadJob && (modelLoadJob.status === "queued" || modelLoadJob.status === "running");
 
-    const loadName = loadCurrentName ?? (modelLoadActive ? modelLoadJob.derivedKey || "model" : null);
+    const loadName = shownLoad.currentClaimed
+        ? null
+        : loadCurrentName ?? (modelLoadActive ? modelLoadJob.derivedKey || "model" : null);
     const loadQueueActive =
         loadName !== null || loadQueued.length > 0 || loadErrors.length > 0;
 
@@ -985,7 +972,8 @@ const ConversionProgress = () => {
             (active(j) || (!!j.parent && active(jobs[j.parent]) && j.status !== "error")) &&
             !(j.parent && jobs[j.parent]?.collapsed && active(jobs[j.parent])) &&
             k !== MODEL_LOAD_KEY &&
-            !(loadCurrentName && k.startsWith(loadCurrentName + "::")))
+            !(loadCurrentName && k.startsWith(loadCurrentName + "::")) &&
+            !isClaimedJob(k, isClaimed))
         .map(([k, j]) => ({...j, storeKey: k}));
     // While an operation runs, the model download is one of its steps: its stage line says so
     // (`operationTracking`), and the load row does not come and go beside it per model.
@@ -997,7 +985,7 @@ const ConversionProgress = () => {
             ? Object.entries(jobs).find(([k]) => k.startsWith(loadCurrentName + "::"))?.[1]
             : undefined) ?? (modelLoadActive ? modelLoadJob : undefined);
     const errored = Object.entries(jobs)
-        .filter(([, j]) => j.status === "error" && j.sourceKey !== MODEL_LOAD_KEY)
+        .filter(([k, j]) => j.status === "error" && j.sourceKey !== MODEL_LOAD_KEY && !isClaimedJob(k, isClaimed))
         .map(([k, j]) => ({...j, storeKey: k}));
     const allVisible = [...inProgress, ...errored];
     const visibleSweeps = Object.entries(sweeps);
@@ -1024,8 +1012,8 @@ const ConversionProgress = () => {
         // floating-pill style — anchored to the right, capped at
         // ``max-w-sm`` (24rem).
         <div
-            className="absolute bottom-4 left-4 right-4 sm:left-auto sm:max-w-sm z-50 flex flex-col gap-2 pointer-events-auto"
-            style={galleryBarHeight > 0 ? {bottom: galleryBarHeight + 16} : undefined}
+            className={TOAST_ANCHOR_CLASS[anchor]}
+            style={galleryBarHeight > 0 && anchor.startsWith("bottom") ? {bottom: galleryBarHeight + 16} : undefined}
         >
             <AuditActivityBadge/>
             {visibleSweeps.map(([scopeLabel, state]) => (

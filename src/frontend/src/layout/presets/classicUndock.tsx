@@ -1,102 +1,111 @@
-// Undocking in the classic preset, behind the "Customisable panels" setting
-// (`LayoutPrefs.customisablePanels`, default off).
+// Windows of the classic preset's layout, behind the "Customisable panels"
+// setting (`LayoutPrefs.customisablePanels`, on unless turned off).
 //
 // With the setting off nothing here renders and no header gets an action, so the
 // classic UI is unchanged. With it on:
 //
-//   * a menu-column panel that has frameless content and may float gets a
-//     "Float" action in its own header (`PanelHeaderActions`);
-//   * a floated panel leaves the column and shows in a window of its own, its
-//     content in the shared `PanelFrame` with Dock / Minimise / Close;
-//   * a minimised one waits in the tray at the end of the top bar.
+//   * a column or tree-track panel that has frameless content and may float gets
+//     a "Float" action in its own header (`PanelHeaderActions`);
+//   * a floated panel shows in a window of its own, its content in the shared
+//     `PanelFrame` with Back home / Minimise / Move panel / Close;
+//   * a minimised one waits in the tray at the end of the top bar;
+//   * a window dragged by its title bar drops into the split grid
+//     (`./classicGrid`), or, for a column panel, back onto the panel column,
+//     outlined as a drop target meanwhile.
 //
 // Core's panels keep their visibility flags: the classic document records only
-// WHERE a panel shows (`floats`, `minimised`), and the flag still says WHETHER.
-// So a floated panel closed from the top bar reopens in its window.
+// WHERE a panel shows (`floats`, `minimised`, `grid`), and the flag still says
+// WHETHER. So a floated panel closed from the top bar reopens in its window.
 
-import React, {useMemo} from "react";
+import React, {useRef} from "react";
+import {createPortal} from "react-dom";
 import {useStore} from "zustand";
 
 import {FloatingWindow} from "@/components/ui/FloatingWindow";
+import {TransformedHost} from "@/components/ui/OverlayPortal";
 import {DockGlyph, FloatGlyph, MinimiseGlyph, PanelFrame} from "@/components/ui/PanelFrame";
+import {panelBodyAttrsFor} from "@/components/ui/panelChrome";
 import {navBtnClass} from "@/components/navButton";
-import {defaultRect} from "@/assets/floatingWindow";
 
-import {CLASSIC_PRESET_ID, layoutDocKey, type LayoutDoc} from "../layout";
+import {DROP_ATTR, dockDragStore, endDockDragAt, moveDockDrag} from "../dockDrag";
+import {CLASSIC_ZONES, type LayoutDoc} from "../layout";
 import {PanelMount, usePanelStates, useLayout} from "../LayoutHost";
-import {layoutStore} from "../layoutStore";
 import type {PanelAction, PanelEnv, PanelId, PanelProps, RegisteredPanel} from "../panel";
 import type {PanelState} from "../panelStates";
-import {dockPanel, floatPanel, migrateLayoutDoc, minimisePanel, raiseFloat, restorePanel, setFloatRect} from "../reducers";
+import {minimisePanel, raiseFloat, restorePanel, setFloatRect} from "../reducers";
 import {getPanel} from "../registry";
 import {hide} from "../reveal";
-import {CLASSIC_ZONE_DEFS} from "./classicRules";
+import {ZoneKeys, requestFloatFocus, useFloatFocus} from "../zoneFocus";
+import {ZONE_ATTR, ZONE_PANEL_ATTR} from "../zoneKeys";
+import {
+  FLOAT_MIN_SIZE,
+  HOME_LABEL,
+  backHome,
+  canDock,
+  canFloat,
+  dropPanel,
+  floatOut,
+  homeOf,
+  moveAction,
+  popoutActions,
+  updateClassic,
+  useClassicDoc,
+} from "./classicPlace";
 
 const DRAG_HANDLE = "classic-undock-drag-handle";
-const FIRST_SIZE = {w: 420, h: 560};
-const MIN_SIZE = {width: 280, height: 160};
 
-/** Is the "Customisable panels" setting on. */
-export function useCustomisablePanels(): boolean {
-  return useStore(layoutStore, (s) => s.prefs.customisablePanels === true);
+/** The actions a column or tree-track panel's own header offers: Float, and the Move menu when it can dock. */
+export function columnActions(panel: RegisteredPanel, doc?: LayoutDoc): PanelAction[] {
+  const out: PanelAction[] = [];
+  if (canFloat(panel)) {
+    const run = () => {
+      requestFloatFocus(panel.id);
+      floatOut(panel.id);
+    };
+    out.push({id: "float", label: "Float in a window", icon: FloatGlyph, run});
+  }
+  if (doc && canDock(panel)) out.push(moveAction(panel, doc));
+  out.push(...popoutActions(panel));
+  return out;
 }
 
-/** The user's classic document, re-rendering when it changes. */
-export function useClassicDoc(): LayoutDoc {
-  const raw = useStore(layoutStore, (s) => s.prefs.docs[layoutDocKey(CLASSIC_PRESET_ID)]);
-  return useMemo(() => migrateLayoutDoc(raw, CLASSIC_PRESET_ID, CLASSIC_ZONE_DEFS), [raw]);
-}
+const closeFloat = (id: PanelId) => void hide(id);
 
-function update(fn: (doc: LayoutDoc) => LayoutDoc): void {
-  layoutStore.getState().update(CLASSIC_PRESET_ID, CLASSIC_ZONE_DEFS, fn);
-}
-
-/** A panel may leave the column: it allows floating and has content to put in a window. */
-export function canFloat(panel: RegisteredPanel): boolean {
-  return panel.capabilities.floatable && !!panel.content;
-}
-
-const CASCADE = 32;
-
-/**
- * Float a panel where it last floated, else at its first-open size near the top
- * right, stepped down and left past the windows already open.
- */
-export function floatColumnPanel(id: PanelId): void {
-  const p = getPanel(id);
-  const size = p?.placement?.[CLASSIC_PRESET_ID]?.float ?? FIRST_SIZE;
-  const vw = typeof window !== "undefined" ? window.innerWidth : 1280;
-  const vh = typeof window !== "undefined" ? window.innerHeight : 800;
-  const r = defaultRect({width: vw, height: vh}, {width: size.w, height: size.h}, MIN_SIZE);
-  update((d) => {
-    const step = Object.keys(d.floats).length * CASCADE;
-    return floatPanel(d, id, {x: Math.max(0, vw - r.width - 80 - step), y: r.y + step, w: r.width, h: r.height});
-  });
-}
-
-/** The actions a column panel's header offers. */
-export function columnActions(panel: RegisteredPanel): PanelAction[] {
-  if (!canFloat(panel)) return [];
-  return [{id: "float", label: "Float in a window", icon: FloatGlyph, run: () => floatColumnPanel(panel.id)}];
+/** F6 between the classic zones, and Esc on a window. */
+export function ClassicZoneKeys() {
+  return <ZoneKeys closeFloat={closeFloat} />;
 }
 
 /** The actions a floated panel's window offers, before its close button. */
-export function floatActions(panel: RegisteredPanel): PanelAction[] {
+export function floatActions(panel: RegisteredPanel, doc: LayoutDoc): PanelAction[] {
+  const home = homeOf(panel);
   return [
-    {id: "dock", label: "Dock back into the panel column", icon: DockGlyph, run: () => update((d) => dockPanel(d, panel.id))},
-    {id: "minimise", label: "Minimise", icon: MinimiseGlyph, run: () => update((d) => minimisePanel(d, panel.id))},
+    ...(home === "column" || home === "tree" ? [{id: "dock", label: HOME_LABEL[home], icon: DockGlyph, run: () => backHome(panel.id)}] : []),
+    {id: "minimise", label: "Minimise", icon: MinimiseGlyph, run: () => updateClassic((d) => minimisePanel(d, panel.id))},
+    moveAction(panel, doc),
+    ...popoutActions(panel),
   ];
 }
 
-/** Does the column leave this panel to the float layer. */
+/** Does the panel show in a window of the layout. */
 export function isUndocked(doc: LayoutDoc, id: PanelId): boolean {
   return !!doc.floats[id];
 }
 
-function UndockedWindow({panel, doc, contents}: {panel: RegisteredPanel; doc: LayoutDoc; contents?: Readonly<Record<PanelId, React.ComponentType<PanelProps>>>}) {
+function UndockedWindow({
+  panel,
+  doc,
+  contents,
+}: {
+  panel: RegisteredPanel;
+  doc: LayoutDoc;
+  contents?: Readonly<Record<PanelId, React.ComponentType<PanelProps>>>;
+}) {
   const f = doc.floats[panel.id]!;
+  const ref = useRef<HTMLDivElement>(null);
+  useFloatFocus(panel.id, ref);
   const close = () => void hide(panel.id);
-  const props: PanelProps = {panelId: panel.id, host: {kind: "float", zone: "classic.float"}, close, isActive: true};
+  const props: PanelProps = {panelId: panel.id, host: {kind: "float", zone: CLASSIC_ZONES.float}, close, isActive: true};
   return (
     <FloatingWindow
       dragHandleClassName={DRAG_HANDLE}
@@ -104,24 +113,38 @@ function UndockedWindow({panel, doc, contents}: {panel: RegisteredPanel; doc: La
       zClassName="z-[45]"
       overlay
       fullScreenWhenNarrow
-      minSize={MIN_SIZE}
+      minSize={FLOAT_MIN_SIZE}
       style={{zIndex: f.z}}
       rect={{x: f.x, y: f.y, width: f.w, height: f.h}}
-      onRectChange={(r) => update((d) => setFloatRect(d, panel.id, {x: r.x, y: r.y, w: r.width, h: r.height}))}
+      onRectChange={(r) => updateClassic((d) => setFloatRect(d, panel.id, {x: r.x, y: r.y, w: r.width, h: r.height}))}
+      // Drag-to-dock: into the grid, or back onto the panel column.
+      onDragMove={(p) => moveDockDrag(panel.id, p.x, p.y)}
+      onDragEnd={(p) => dropPanel(panel.id, endDockDragAt(p.x, p.y))}
     >
       {({fullScreen}) => (
-        <div className="h-full w-full" onPointerDownCapture={() => update((d) => raiseFloat(d, panel.id))}>
+        <div
+          ref={ref}
+          className="h-full w-full"
+          role="dialog"
+          aria-modal="false"
+          aria-label={panel.title}
+          {...{[ZONE_ATTR]: "float", [ZONE_PANEL_ATTR]: panel.id}}
+          onPointerDownCapture={() => updateClassic((d) => raiseFloat(d, panel.id))}
+        >
           <PanelFrame
             panelId={panel.id}
             title={panel.title}
             host={props.host}
-            actions={floatActions(panel)}
+            actions={floatActions(panel, doc)}
             onClose={panel.capabilities.closable ? close : undefined}
             dragHandleClassName={fullScreen ? undefined : DRAG_HANDLE}
           >
             {/* The column card gave the content its text colour and padding; the window body does not. */}
-            <div className="h-full overflow-y-auto p-2 text-sm text-[var(--ada-panel-text)]">
-              <PanelMount panel={panel} provided={contents?.[panel.id]} props={props} which="content" outerSuspense />
+            <div className={`h-full text-sm text-[var(--ada-panel-text)] ${panel.capabilities.fill ? "overflow-hidden" : "overflow-y-auto p-2"}`} {...panelBodyAttrsFor(panel.id)}>
+              {/* The window moves by a transform: fixed overlays of the content portal out (`OverlayPortal`). */}
+              <TransformedHost>
+                <PanelMount panel={panel} provided={contents?.[panel.id]} props={props} which="content" outerSuspense />
+              </TransformedHost>
             </div>
           </PanelFrame>
         </div>
@@ -174,7 +197,10 @@ export function MinimisedTray() {
           key={p.id}
           type="button"
           className={navBtnClass(false)}
-          onClick={() => update((d) => restorePanel(d, p.id))}
+          onClick={() => {
+            requestFloatFocus(p.id);
+            updateClassic((d) => restorePanel(d, p.id));
+          }}
           title={`Restore ${p.title}`}
           aria-label={`Restore ${p.title}`}
         >
@@ -182,5 +208,39 @@ export function MinimisedTray() {
         </button>
       ))}
     </div>
+  );
+}
+
+/** The least size of the drop target, so an emptied column is still easy to hit. */
+const DROP_MIN = {width: 320, height: 160};
+
+/**
+ * While a column panel is dragged out of its place: the panel column's drop
+ * target, over the column, highlighted while the pointer is over it.
+ */
+export function ColumnDropTarget() {
+  const dragging = useStore(dockDragStore, (s) => s.panel);
+  const over = useStore(dockDragStore, (s) => s.over === CLASSIC_ZONES.menuColumn);
+  const [rect, setRect] = React.useState<{left: number; top: number; width: number; height: number} | null>(null);
+  const columnPanel = !!dragging && homeOf(getPanel(dragging) ?? {}) === "column";
+  React.useLayoutEffect(() => {
+    if (!columnPanel) return setRect(null);
+    const column = document.querySelector(`[${ZONE_ATTR}="column"]`);
+    const r = column?.getBoundingClientRect();
+    setRect(r ? {left: r.left, top: r.top, width: Math.max(r.width, DROP_MIN.width), height: Math.max(r.height, DROP_MIN.height)} : null);
+  }, [columnPanel]);
+  if (!columnPanel || !rect) return null;
+  return createPortal(
+    <div
+      {...{[DROP_ATTR]: CLASSIC_ZONES.menuColumn}}
+      className={`fixed z-[44] rounded-md border-2 border-dashed flex items-start justify-center pt-6 text-sm transition-colors ${
+        over ? "border-blue-400 bg-blue-500/25 text-blue-100" : "border-gray-400/70 bg-gray-900/30 text-gray-300"
+      }`}
+      style={rect}
+      aria-hidden="true"
+    >
+      {HOME_LABEL.column}
+    </div>,
+    document.body,
   );
 }

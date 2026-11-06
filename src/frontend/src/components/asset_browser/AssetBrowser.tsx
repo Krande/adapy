@@ -20,6 +20,7 @@ import React, { useEffect, useState } from "react";
 import { runtime } from "@/runtime/config";
 import { useViewerStores } from "@/state/AdaViewerContext";
 import type { AssetBrowserTab } from "@/state/assetBrowserStore";
+import type { SceneTreeProps } from "@/components/tree_view/TreeViewComponent";
 
 import AssetsTabView from "./AssetsTab";
 import FilesTabView from "./FilesTab";
@@ -71,7 +72,12 @@ export const AssetBrowserTabs: React.FC = () => {
     );
 };
 
-const AssetBrowser: React.FC = () => {
+export interface TreeBodyProps {
+    /** Options of the Scene tab's tree. */
+    sceneTree?: SceneTreeProps;
+}
+
+const AssetBrowser: React.FC<TreeBodyProps> = ({ sceneTree }) => {
     const { useAssetBrowserStore } = useViewerStores();
     const stored = useAssetBrowserStore((s) => s.tab);
     const withAssets = assetsTabAvailable();
@@ -87,7 +93,7 @@ const AssetBrowser: React.FC = () => {
     return (
         <>
             <div className="flex-1 overflow-auto" hidden={tab !== "files"}>
-                <FilesTab />
+                <FilesTab {...sceneTree} />
             </div>
             {withAssets && tab === "systems" && (
                 <div className="flex-1 min-h-0 flex flex-col">

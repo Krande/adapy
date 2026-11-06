@@ -123,8 +123,9 @@ const FilePickerModal: React.FC<FilePickerModalProps> = ({
         setPicked(keys.length ? keys[keys.length - 1] : null);
     };
 
+    // z-[70]: above the in-viewer admin window (z-[60]) it is opened from, as the folder picker.
     return createPortal(
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={onCancel}>
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60" onClick={onCancel}>
             <div
                 className="bg-gray-900 text-gray-100 border border-gray-700 rounded-md shadow-xl w-[36rem] max-w-[92vw] flex flex-col"
                 onClick={(e) => e.stopPropagation()}

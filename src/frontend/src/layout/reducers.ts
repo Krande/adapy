@@ -4,18 +4,19 @@
 // panels open in each zone (in order, with the active one), the floating ones
 // with their rects, and which panels the user has already been offered. A panel
 // bound to an existing visibility flag (`PanelSpec.binding`) keeps that flag as
-// its truth, so the classic preset, whose core panels are all bound, starts from
-// an empty document and never writes one; these reducers serve unbound panels
-// (a shell's own, a plugin's `layoutPanels`) and the docked preset to come.
+// its truth, and the document records only WHERE it shows (a window, a group of
+// the split grid); these reducers also serve unbound panels (a shell's own),
+// which the document opens and closes.
 //
 // Every function returns a new document and leaves its input untouched.
 // Dependency-free, so `node --test` covers them directly.
 
 import type { FloatState, LayoutDoc, ZoneDef, ZoneState } from "./layout";
 import type { PanelId, PresetId, ZoneId } from "./panel";
+import { DEFAULT_GRID, dockInGrid, gridPanels, normaliseGrid, removeFromGrid, type GridNode, type GridTarget } from "./splitTree";
 
 /** Bumped when the document's shape changes; an older document is migrated or reset. */
-export const LAYOUT_DOC_VERSION = 1;
+export const LAYOUT_DOC_VERSION = 2;
 
 const emptyZone = (): ZoneState => ({ panels: [], active: null });
 
@@ -25,12 +26,13 @@ export function emptyLayoutDoc(preset: PresetId, zones: readonly ZoneDef[], cont
   for (const def of zones) {
     z[def.id] = def.limits ? { ...emptyZone(), size: def.limits.default } : emptyZone();
   }
-  return { v: LAYOUT_DOC_VERSION, preset, context, zones: z, floats: {}, minimised: [], known: [] };
+  return { v: LAYOUT_DOC_VERSION, preset, context, zones: z, grid: DEFAULT_GRID, floats: {}, minimised: [], known: [] };
 }
 
-/** Where a panel is open in `doc`: a zone id, `"float"`, or null when it is closed. */
-export function whereOpen(doc: LayoutDoc, id: PanelId): ZoneId | "float" | null {
+/** Where a panel is open in `doc`: a zone id, `"float"`, `"grid"`, or null when it is closed. */
+export function whereOpen(doc: LayoutDoc, id: PanelId): ZoneId | "float" | "grid" | null {
   if (doc.floats[id]) return "float";
+  if (isInGrid(doc, id)) return "grid";
   for (const [zone, state] of Object.entries(doc.zones)) if (state.panels.includes(id)) return zone;
   return null;
 }
@@ -61,7 +63,9 @@ export function closePanel(doc: LayoutDoc, id: PanelId): LayoutDoc {
   }
   const minimised = doc.minimised.filter((p) => p !== id);
   if (minimised.length !== doc.minimised.length) changed = true;
-  return changed ? { ...doc, zones, floats, minimised } : doc;
+  const grid = removeFromGrid(gridOf(doc), id);
+  if (grid !== gridOf(doc)) changed = true;
+  return changed ? { ...doc, zones, grid, floats, minimised } : doc;
 }
 
 /** Where to open a panel. */
@@ -157,15 +161,22 @@ export function raiseFloat(doc: LayoutDoc, id: PanelId): LayoutDoc {
 // it, and a floated panel keeps its window across a close.
 // ---------------------------------------------------------------------------
 
-/** Float `id` at `rect` (or where it last floated), on top, not minimised. */
+/** Float `id` at `rect` (or where it last floated), on top, not minimised, out of the grid. */
 export function floatPanel(doc: LayoutDoc, id: PanelId, rect: { x: number; y: number; w: number; h: number }): LayoutDoc {
   const prev = doc.floats[id];
   const r = prev ?? rect;
   return {
-    ...doc,
+    ...withoutGrid(doc, id),
     floats: { ...doc.floats, [id]: { x: r.x, y: r.y, w: r.w, h: r.h, z: topZ(doc) + 1 } },
     minimised: doc.minimised.filter((p) => p !== id),
   };
+}
+
+/** Float `id` with its title bar where `rect` puts it, keeping a remembered size. */
+export function floatPanelAt(doc: LayoutDoc, id: PanelId, rect: { x: number; y: number; w: number; h: number }): LayoutDoc {
+  const next = floatPanel(doc, id, rect);
+  const f = next.floats[id];
+  return f.x === rect.x && f.y === rect.y ? next : { ...next, floats: { ...next.floats, [id]: { ...f, x: rect.x, y: rect.y } } };
 }
 
 /** A floated panel's new rect. */
@@ -175,12 +186,48 @@ export function setFloatRect(doc: LayoutDoc, id: PanelId, rect: { x: number; y: 
   return { ...doc, floats: { ...doc.floats, [id]: { ...f, ...rect } } };
 }
 
-/** Back to its place in the layout: no window, not minimised. */
+/** Back to its place in the layout: no window, not minimised, not in the grid. */
 export function dockPanel(doc: LayoutDoc, id: PanelId): LayoutDoc {
-  if (!doc.floats[id] && !doc.minimised.includes(id)) return doc;
+  const next = withoutGrid(doc, id);
+  if (!next.floats[id] && !next.minimised.includes(id)) return next;
+  const floats = { ...next.floats };
+  delete floats[id];
+  return { ...next, floats, minimised: next.minimised.filter((p) => p !== id) };
+}
+
+// ---------------------------------------------------------------------------
+// The split grid (`./splitTree`). A panel is in at most one place: its own
+// place in the preset, a window (`floats`), or a group of the grid.
+// ---------------------------------------------------------------------------
+
+/** The document's grid; the viewport alone when it has none. */
+export const gridOf = (doc: LayoutDoc): GridNode => doc.grid ?? DEFAULT_GRID;
+
+/** Is `id` in a group of the grid. */
+export function isInGrid(doc: LayoutDoc, id: PanelId): boolean {
+  return gridPanels(gridOf(doc)).includes(id);
+}
+
+function withoutGrid(doc: LayoutDoc, id: PanelId): LayoutDoc {
+  const grid = gridOf(doc);
+  const next = removeFromGrid(grid, id);
+  return next === grid ? doc : { ...doc, grid: next };
+}
+
+/** Dock `id` in the grid at `target`, out of its window and the tray. A drop that moves nothing is no change. */
+export function dockInGridDoc(doc: LayoutDoc, id: PanelId, target: GridTarget): LayoutDoc {
+  const grid = dockInGrid(gridOf(doc), id, target);
+  if (grid === gridOf(doc)) return doc;
   const floats = { ...doc.floats };
   delete floats[id];
-  return { ...doc, floats, minimised: doc.minimised.filter((p) => p !== id) };
+  return { ...doc, grid, floats, minimised: doc.minimised.filter((p) => p !== id) };
+}
+
+/** Apply a change to the grid. */
+export function updateGrid(doc: LayoutDoc, fn: (grid: GridNode) => GridNode): LayoutDoc {
+  const grid = gridOf(doc);
+  const next = fn(grid);
+  return next === grid ? doc : { ...doc, grid: next };
 }
 
 export function minimisePanel(doc: LayoutDoc, id: PanelId): LayoutDoc {
@@ -214,7 +261,8 @@ const num = (v: unknown): v is number => typeof v === "number" && Number.isFinit
 /**
  * A stored document made safe to use with `preset`: a missing, foreign or
  * older-version document becomes the empty one; zones the preset no longer has
- * are dropped and new ones added; malformed entries are dropped. Panel ids are
+ * are dropped and new ones added; malformed entries are dropped, and a grid
+ * that is not a valid one is the viewport alone (`normaliseGrid`). Panel ids are
  * kept even when nothing has registered them (yet): a plugin may register later,
  * and a host renders an unknown id as absent rather than deleting it.
  */
@@ -237,9 +285,13 @@ export function migrateLayoutDoc(raw: unknown, preset: PresetId, zones: readonly
     if (typeof z.collapsed === "boolean") state.collapsed = z.collapsed;
     out[def.id] = state;
   }
+  const grid = normaliseGrid(raw.grid);
+  const docked = new Set(gridPanels(grid));
   const floats: Record<PanelId, FloatState> = {};
   if (isObj(raw.floats)) {
     for (const [id, f] of Object.entries(raw.floats)) {
+      // A panel is in one place: the grid's, when both list it.
+      if (docked.has(id)) continue;
       if (isObj(f) && num(f.x) && num(f.y) && num(f.w) && num(f.h) && f.w > 0 && f.h > 0) {
         floats[id] = { x: f.x, y: f.y, w: f.w, h: f.h, z: num(f.z) ? f.z : 0, ...(f.minimised === true ? { minimised: true } : {}) };
       }
@@ -250,8 +302,10 @@ export function migrateLayoutDoc(raw: unknown, preset: PresetId, zones: readonly
     preset,
     context: typeof raw.context === "string" ? raw.context : context,
     zones: out,
+    grid,
     floats,
     minimised: [...new Set(strings(raw.minimised))],
     known: [...new Set(strings(raw.known))],
+    ...(num(raw.shellVersion) ? { shellVersion: raw.shellVersion } : {}),
   };
 }

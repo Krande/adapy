@@ -131,7 +131,273 @@
 //          `PanelHeaderActionsProvider`, `usePanelHeaderActions`) and its glyphs;
 //          `localLayoutPersistence`; `FloatingWindow`'s caller-kept `rect` /
 //          `onRectChange`. Additive.
-export const VIEWER_CORE_API_VERSION = "1.12.0";
+//   1.13.0 Undocking, continued, on `@/viewer-core/layout`: the per-user server
+//          backend `serverLayoutPersistence` (debounced, with a browser-local
+//          fallback) and its `PreferenceStore`; the zone keys (`ZoneKeys`:
+//          F6 / Shift+F6 between zones marked `ZONE_ATTR`, Esc on a floating
+//          window, `useFloatFocus` / `restoreFocus`); an optional
+//          `panelId` on `PanelHeaderActionsProvider` and `WindowHeaderActions`;
+//          drag-to-dock (`moveDockDrag` / `endDockDrag` hit-testing drop targets
+//          marked `DROP_ATTR`, `dockDragStore`) and `FloatingWindow`'s
+//          `onDragMove` / `onDragEnd`; `OverlayPortal` / `TransformedHost`
+//          (a fixed overlay of content in a floating window portals to the
+//          body). On `viewerApi`: `getPreference` / `setPreference`.
+//          Options on core's panel contents, so a shell uses them instead of a
+//          copy. On `@/viewer-core/layout`: `SceneTreeBody` (the Scene tree) with
+//          `SceneTreeProps` (`rootFilter`, `rootFilterLabels`, `extraRoots`, `onSelectOverride`,
+//          `header`) and `TreeNodeData.meta`; `TreeBody`'s `sceneTree`;
+//          `SceneBodyProps` (`tabs`, `hiddenTabs`, `femTab`, `arrangement`,
+//          `loadedTitle`, `loadedEmpty`); `ObjectInfoBodyProps` (`onShowInData`)
+//          and `CORE_PROPERTY_PROVIDERS`. On the root: `registerSceneTreeRoots` /
+//          `listSceneTreeRoots`, the rows a plugin adds to the Scene tree, and
+//          `registerPropertyProvider` / `listPropertyProviders` / `providersFor`,
+//          the sections a plugin adds to the Selected Object panel.
+//          Simulation: `SimulationBodyProps` (`layout: "panel" | "inline"`,
+//          `showWarpToggle`, `showBeamSolids`, `showColorToggle`,
+//          `excludeDockedTabs`: a dock named in `dock` or as `region`) and
+//          `AnimationControls`. `ConvertBodyProps` (`inViewer`), and the progress
+//          toast `ConversionProgress` with `isClaimed` (loads a host reports
+//          elsewhere). The node editor's toolbar actions `request_list_of_nodes`
+//          and `start_new_node_editor`.
+//          Core's own keys in the shortcut registry: `CORE_SHORTCUTS` /
+//          `CORE_SHORTCUT_GROUPS` (every global viewer key as a `core:` entry; the
+//          keys a widget keeps for itself are marked `local`), listed by
+//          `listShortcuts`, with `RESERVED_SHORTCUTS` derived from them;
+//          `CommandSpec.shortcut` (a command shows the chord of the core shortcut
+//          it names, in place of a hand-written `chordLabel`), `coreShortcutKeys`,
+//          `installShortcutDispatcher` (the one shared keydown listener) and
+//          `RegisteredShortcut.local`. Additive.
+//          The shared `CollapsibleSection` (its `"section"` and `"caret"`
+//          looks), on `@/viewer-core/layout`. Additive.
+//          Rearranging panels. On the root: `PanelAction.menu` (`PanelMenuItem`),
+//          a header action that opens a menu. On `@/viewer-core/layout`:
+//          `WindowHeaderMenuButton` and `MoveGlyph`; indexed drop targets
+//          (`DROP_INDEX_ATTR`, `DROP_AXIS_ATTR`, `dropTargetAt`, `endDockDragAt`,
+//          `DropTarget`, `DockDragState.index`); the zone kind `"dock"`;
+//          `dragHandleClassName` on a docked `PanelFrame` marks the header a
+//          host drags the panel by.
+//          In-app dialogs on the root: `confirmDialog` / `alertDialog` /
+//          `promptDialog` (promise-based; core's storage panel asks through them
+//          instead of `window.confirm` / `alert` / `prompt`) and `setDialogHost`,
+//          which installs a host's own.
+//          Storage: `StorageBodyProps` (`rowLoadProgress`, `selectionActions:
+//          "toolbar" | "rowMenu"`, `onConvert`, `onClose`, `scopePicker`,
+//          `showModified: boolean | "auto"`) and `STORAGE_MODIFIED_MIN_PX`; its
+//          `maximized` / `setMaximized` are kept, ignored and deprecated (the panel no
+//          longer maximizes). On the root, the load claims the progress toast
+//          consults by default: `claimLoad` / `releaseLoad` / `isLoadClaimed`,
+//          `subscribeLoadClaims`, `loadClaimsVersion`.
+//          Cellbuilder: `CellBuilderBodyProps` (`tabs`, `tabLabels`, `showUndoRedo`,
+//          `showAddButtons`, `showComponentList`, `emptyState`), also taken by
+//          `CellBuilderContent`, and `CellBuilderTab`. Additive.
+//          The split grid of the classic preset, in place of a separate docked
+//          preset: `LayoutDoc.grid` (`LAYOUT_DOC_VERSION` 2; an older document
+//          starts over). On `@/viewer-core/layout`: the pure tree (`GridNode`:
+//          `SplitNode`, `GroupNode`, `ViewportNode`; `dockInGrid`,
+//          `removeFromGrid`, `setActiveTab`, `setSplitSizes`, `equaliseSplit`,
+//          `resizePair`, `shownGrid`, `normaliseGrid`,
+//          `gridGroups`, `gridPanels`, `groupOf`, `findNode`, `splitShare`,
+//          `DEFAULT_GRID`, `VIEWPORT_NODE`, `ROOT_NODE`); the document reducers
+//          `dockInGridDoc`, `updateGrid`, `gridOf`, `isInGrid`, `floatPanelAt`
+//          (`floatPanel`, `dockPanel` and `closePanel` also take a panel out of
+//          the grid); edge drop targets (`DROP_EDGES_ATTR`, `edgeAt`,
+//          `DropTarget.edge`, `DockDragState.edge`, `cancelDockDrag`); a
+//          panel's own window given actions and drag-to-dock by its host
+//          (`WindowDockProvider`, `useWindowDock`, `WindowDockActions`,
+//          `windowDockAttrs`; `FloatingWindow` and `WindowFrame` pick it up);
+//          `FloatLayerProps.skip` and `windowDock`. `DOCKED_PRESET_ID` stays
+//          a placement key only.
+//          Composed shells: `UiShellSpec.load` is optional. Without it core
+//          mounts its own root (routes, sign-in, viewer provider) and its layout
+//          of floating and dockable panels for the shell, arranged by
+//          `UiShellSpec.layout` (`UiShellLayout`: a starting `grid`, panels to
+//          `open` when it loads), dressed by `chrome` (`UiShellChrome`:
+//          a lazy `header`, `toolbar`) and `themeTokens`; each shell keeps its own
+//          layout document (`LayoutDoc.context` is the shell id). `isComposedShell`;
+//          `CORE_PANEL_IDS` / `CORE_PANEL_OWNER` / `CorePanelId` and the grid types
+//          on the root. On `@/viewer-core/layout`: `PanelToggles` (the top bar's
+//          toggles, for a shell's header), `LayoutHostProps.context`, and
+//          `LayoutStoreState.setStartingDoc`.
+//          Plugin panels in the layout: a slot that stands on its own (region
+//          `top-panel`, or any slot that names a `dock`) has frameless content, so
+//          it docks in the split grid and floats like a core panel; while the
+//          layout shows it there, its region host leaves it out (its top-bar
+//          button stays). `UiShellLayout.docks` maps a dock id to a group of the
+//          shell's grid; a dock-naming plugin panel is placed there once.
+//          Modes: `UiShellLayout.modes` (`UiShellMode`), each with its own
+//          arrangement and saved document (context `<shell>/<mode>`); plugins'
+//          modes (`PluginSpec.modes`) follow the shell's. A panel naming `modes`
+//          shows only in those. On the root: `listShellModes`, `activeShellMode`,
+//          `setShellMode`, `subscribeShellModes`, `shellModesVersion`,
+//          `offeredInMode`, `ShellMode`. On `@/viewer-core/layout`:
+//          `ShellModeSwitcher`, `ShellModeToolbar` (a plugin mode's `toolbar`),
+//          `useShellMode`. A mode change is reported to the scene colouring
+//          (`notifyActiveModeSceneColor`) by core.
+//          Window and group chrome read `--ada-window-*`, `--ada-tab-*` and
+//          `--ada-group-divider` (falling back to the classic colours), so a
+//          shell's `themeTokens` restyle them; `GROUP_HEADER`, `groupTabClass`
+//          and `GROUP_DIVIDER` on `@/viewer-core/layout`. A dormant plugin's panels
+//          are unavailable (`setPluginContextFactory`, set by the bootstrap).
+//          Shortcuts on the root: `registerShortcut` / `unregisterShortcut` /
+//          `listShortcuts` / `parseShortcut` (`ShortcutSpec`, `"Shift+K"`
+//          chords); core's own keys are `RESERVED_SHORTCUTS` and refused. A
+//          non-core panel's `PanelSpec.shortcut` toggles it. The layout dispatches
+//          them and the shortcuts dialog lists them.
+//          Pop-out windows: a panel with `capabilities.popout` that needs no
+//          canvas offers "Open in a new window": `?popout=<id>` boots canvas-less
+//          with that panel alone. On the root: `POPOUT_PARAM`, `popoutPanelId`,
+//          `popoutUrl`, `canPopOut`, `openPopout`; `PanelSlot.popout` for a plugin.
+//          On `@/viewer-core/app`: `AppRoot`, core's root (routes, sign-in, deep
+//          links) for a shell that keeps `load`.
+//          Storage: `StorageBodyProps.fillHeight` (the file list takes its host's
+//          height; core sets it where the layout sizes the panel);
+//          `ConversionProgressProps.isClaimed` now adds to core's load claims
+//          instead of replacing them. On `@/viewer-core/app`: `requestScopeChange`,
+//          `applyScopeChange`, `sceneHasModels`.
+//          Docked groups, so a docked UI is a configuration: `GroupNode` /
+//          `SplitNode` `fixed` (`FixedSize`: px with min / max, kept on window
+//          resize; dividers beside it resize it in px), `GroupNode.collapsed` (a
+//          `COLLAPSED_PX` strip of panel icons that restores it) and
+//          `arrangement` (`GroupArrangement`: tabs, stack, or auto by height); the
+//          reducers `setFixedPx`, `clampFixed`, `setGroupCollapsed`,
+//          `setGroupArrangement`; the grid honours `PanelConstraints.minSize`.
+//          `UiShellChrome.groups` (`actions`: add a panel here, collapse, pin;
+//          `tabIcons`), `footer` and `rail`. `PanelCapabilities.fill` (content
+//          edge to edge) and `pinnable`; pinned panels (`LayoutPrefs.pinned`, per
+//          shell) stay placed across modes. `PanelAction.pressed`, `AddGlyph`,
+//          `PinGlyph`. Modes: `UiShellMode.ownsSceneColor` / `showsDeformation` /
+//          `toolbar` (and `PluginModeSpec.showsDeformation`), `?mode=`
+//          (`SHELL_MODE_PARAM`), badges (`setShellModeBadge`, `shellModeBadge`,
+//          `ShellModeBadge`). `themeTokens` may be a function of the user's theme.
+//          `UiShellSpec.panels` (`PanelOverride`: title, icon, hint, shortcut,
+//          modes, capabilities, and `options` for the frameless content, or a
+//          function of the mode) changes panels a shell does not own, core's
+//          included; `PanelProps.options`, `RegisteredPanel.options`.
+//          Commands on the root: `registerCommand` (`CommandSpec`: label, group,
+//          keys, `when`, `disabledReason`, `checked`), `unregisterCommand`,
+//          `runCommand`, `getCommand`, `listCommands` (core adds one per panel and
+//          per mode), `matchCommand`; on `@/viewer-core/layout`: `MenuBar`
+//          (`MenuDef` of command ids), `CommandPaletteHost`, `openCommandPalette`,
+//          `closeCommandPalette`; `UiShellChrome.commandPalette`. HUDs:
+//          `registerViewportOverlay` at a `ViewportAnchor`,
+//          `UiShellChrome.overlays` (core's legend, `overlay`-dock plugin panels).
+//          `UiShellMode.viewportCover`, `UiShellChrome.pageHeader`,
+//          `UiShellLayout.version` / `migrate` (`LayoutDoc.shellVersion`), and on
+//          `@/viewer-core/layout` `resetArrangement`, `saveWorkspace`,
+//          `loadWorkspace`, `deleteWorkspace`, `listWorkspaces`
+//          (`LayoutPrefs.workspaces`). Core's convert and admin panels take content
+//          options.
+//          Body options: `SimulationBodyProps.builtinTabs` (false: plugin tabs only),
+//          `CellBuilderBodyProps.showFooter`, `OptionsBodyProps` (`sections`,
+//          `hiddenSections`: `OptionsSectionId`), `SceneTreeProps.rowExtras` /
+//          `rowClassName` (`SceneTreeRowOptions`).
+//          Body colours: `UiShellSpec.bodyPalette` redefines Tailwind's palette
+//          variables inside elements marked `PANEL_BODY_ATTR` (column cards, window
+//          bodies, grid groups, floats, covers, pop-out pages), so every core body
+//          takes a shell's colours with no class changed; `panelBodyAttrs`,
+//          `bodyPaletteCss` on `@/viewer-core/layout`. `UiShellChrome.toastAnchor`
+//          and `ConversionProgressProps.anchor` (`ToastAnchor`).
+//          Shell configuration gaps: `UiShellLayout.defaultMode` (the mode with no
+//          `?mode=` and nothing stored); `PanelOverride.available` (false, or a
+//          function of the mode, hides a panel from the lists, toggles, commands
+//          and add menus) and `PanelOverride.bodyPalette` (variables scoped to one
+//          panel's body: `PANEL_ID_ATTR`, `panelBodyAttrsFor`, and `bodyPaletteCss`
+//          takes a per-panel map); a composed shell may dock the sections the
+//          classic UI draws inside another panel (the result data table), which
+//          then leave their host; `themeTokens` and `bodyPalette` also apply on
+//          the canvas-less pages (`/convert`, `/admin`); `PanelBodyPalette` on
+//          `@/viewer-core/layout` gives core bodies drawn outside panels (dialogs,
+//          flyouts) the shell's body palette; `MenuItemDef` may hold a submenu
+//          (`{label, items}`, nesting; `offeredMenuItems`); `CommandSpec.chordLabel`
+//          (`commandChord`) shows a chord in the palette and menus without binding
+//          it, for keys core owns; a group narrower than `COMPACT_GROUP_PX` folds
+//          its header actions into a "more" menu (`MoreGlyph`), close stays in
+//          the bar. Behaviour change: `PluginModeSpec.showsDeformation` now
+//          defaults to false for a plugin's mode (opt in with true); a shell's own
+//          modes still default to shown. `reveal(id)` of an unbound panel already
+//          docked or floating brings it forward where it is.
+//          Multi-window dashboards: a pop-out window (`?window=<id>`) holds a
+//          split grid of panel groups of its own (tabs, stacks, splits, drag to
+//          dock; no view), kept per window id (context `window/<id>`);
+//          `?popout=<id>` opens a new one holding that panel. The Move panel menu
+//          offers "Move to window" (the other open windows, "New window");
+//          `PanelMenuItem.items` is a submenu (or a function giving it). The
+//          windows talk over a window bus, on the root: `createWindowBus`
+//          (`WindowBus`: presence by hello / announce / heartbeat / goodbye,
+//          `windows()`, `setPanels`, `setLabel`, `onGone`), transports
+//          (`WindowBusTransport`, `broadcastTransport`, `memoryTransportHub`,
+//          `nullTransport`, `windowBusChannelName(path, shell, session)`),
+//          dashboard SESSIONS -- one per main window, so two main windows never
+//          mix (`newSessionId`, `isSessionId`, `claimSession`, `resolveSessionId`;
+//          `SESSION_PARAM` / `popoutSession` on the URL) --, `MAIN_WINDOW_ID`, the move
+//          handshake `sendPanel` / `acceptPanels` (`MOVE_ACK_MS`), `panelsToReturn`,
+//          the dashboard record (`DashboardRecord`, `recordWindow`,
+//          `forgetWindow`, `readDashboard`, `closedDashboardWindows`),
+//          `nextWindowId`; window URLs on `./popout` (`WINDOW_PARAM`,
+//          `popoutWindowId`, `isPopoutPage`, `windowUrl`, `windowTarget`,
+//          `openWindow`); `setRevealElsewhere`. The main window hides a panel
+//          another window shows, reveals it there instead, takes back the panels
+//          of a window that closes, and offers "Reopen windows"
+//          (`REOPEN_WINDOWS_COMMAND`). Mirroring: `PanelCapabilities.mirrored`
+//          (`PanelSlot.mirrored`) lets a scene panel go to a pop-out window, fed
+//          by `registerMirrorTopic` snapshots the main window publishes and
+//          acting by `registerMirrorCommand` commands it runs (`hostMirror`,
+//          `followMirror`, `sendMirrorCommand`); core mirrors the selection for
+//          the object info panel (now `mirrored`). On `@/viewer-core/layout`:
+//          `windowBus`, `useOpenWindows`, `useThisWindow`, `useMainWindowLive`,
+//          `moveToWindowItem`, `openNewWindow`, `installMainWindow`,
+//          `reopenWindows`, the window-document helpers (`dockInWindow`, ...),
+//          `GridOps` / `GridOpsProvider` / `GridView`, `PopoutPage`; the session
+//          runtime (`dashboardSession`, `ensureDashboardSession`, `pruneSessions`,
+//          the session-keyed `windowLayoutKey` / `windowLabelKey` /
+//          `dashboardKey`, `lastDashboardKey`). Each main window has its own
+//          session (id in its tab's sessionStorage; a duplicated tab takes a new
+//          one), so two main windows never share pop-outs, moves or mirroring;
+//          pop-outs carry it in `?session=`, one without is standalone; storage
+//          is keyed by session, the last dashboard can be reopened (adopted)
+//          from a new session, old sessions are pruned. Behaviour change:
+//          `canPopOut` also admits `mirrored` panels; `openWindow` returns the
+//          window's handle and takes the session; `windowBusChannelName`,
+//          `windowUrl`, `popoutUrl` and `windowTarget` take a session.
+//          The built-in Desktop UI: a composed shell core registers in every
+//          build (`DESKTOP_UI_SHELL_ID`, `desktopUiShellSpec`; `?ui=desktop`),
+//          with a menu bar, docked panels and a status bar; the classic UI stays
+//          the default. Core's commands, registered for every composed shell
+//          (`CORE_COMMAND_IDS`, `themeCommandId`, `uiShellCommandId`,
+//          `workspaceCommandId`): upload, undo / redo, selection and visibility,
+//          camera fits, display toggles, theme, UI switch, full screen, new
+//          window, layout reset and workspaces, the shortcuts dialog. On
+//          `@/viewer-core/layout`: `desktopMenus` / `menuCommandIds` (the Desktop
+//          UI's menu model) and `openShortcutsDialog`. Behaviour change:
+//          `offeredMenuItems` drops separators left at either end or doubled.
+//          Scene panels act from pop-outs and the scene tree is mirrored:
+//          `MirrorTopic.delta` (sent on a change instead of the snapshot) and
+//          an `apply` that returns `false` (the window asks for the snapshot
+//          again); the dependency-free `sceneTreeTopic` (a tree sent flat and
+//          in chunks on a tree change only, visibility and selection as deltas
+//          otherwise; `flattenTree`, `buildTree`, `ROW_VISIBILITY_CODES`,
+//          `SCENE_TREE_CHUNK`). On `@/viewer-core/layout`: the act seam
+//          `useSceneActions` / `sceneActions` / `remoteSceneActions` /
+//          `isMirroredWindow` (`SCENE_ACTION_COMMANDS`, `MIRRORED_CORE_COMMANDS`),
+//          core's `core:scene-tree` topic (`SCENE_TREE_TOPIC`,
+//          `coreSceneTreeSource`, `coreSceneTreeSink`, `useSceneMirrorStore`).
+//          Behaviour change: the selection tree panel is `mirrored`;
+//          `core:selection` also carries `rangeCount` and `parentName`.
+//          The layout engine is the only path: the built-in UI is the classic
+//          preset, and the hand-written tree it replaced is gone. Behaviour
+//          change: `?layout=classic` and `localStorage["ada:layout-engine"]` no
+//          longer switch anything. DEPRECATED, kept (released in 1.12.0, on
+//          `@/viewer-core/layout`): `layoutEngineEnabled` (always true),
+//          `LAYOUT_ENGINE_PARAM`, `LAYOUT_ENGINE_STORAGE_KEY`. DEPRECATED, kept:
+//          the store flags a panel's binding wraps (`isOptionsVisible`,
+//          `show_info_box`, `show_scene_info_box`, `isControlsVisible`,
+//          `showServerInfoBox`, `isTreeCollapsed`, ... and their setters and
+//          toggles): open, close and ask through `reveal` / `hide` / `toggle` /
+//          `isPanelOpen` with the panel's id, which the layout controls.
+//          The in-viewer admin / convert window, the attribute search's and the
+//          node editor's windows are `TransformedHost`s, so the fixed overlays
+//          inside them (`OverlayPortal`) open over the page.
+export const VIEWER_CORE_API_VERSION = "1.13.0";
 
 // ---------------------------------------------------------------------------
 // Plugin declaration. `registerPlugin` is how a package announces itself —
@@ -193,7 +459,143 @@ export {
   UI_SHELL_STORAGE_KEY,
   UI_SHELL_URL_PARAM,
 } from "@/plugins/uiShells";
-export type { RegisteredUiShell, UiShellResolution, UiShellSpec } from "@/plugins/uiShells";
+export type { RegisteredUiShell, UiShellChrome, UiShellLayout, UiShellMode, UiShellResolution, UiShellSpec } from "@/plugins/uiShells";
+// A composed shell's modes (dependency-free; the switcher components are on `@/viewer-core/layout`).
+export {
+  activeShellMode,
+  listShellModes,
+  offeredInMode,
+  setShellMode,
+  shellModesVersion,
+  subscribeShellModes,
+} from "@/layout/shellModes";
+export type { ShellMode, ShellModeBadge } from "@/layout/shellModes";
+export { SHELL_MODE_PARAM, setShellModeBadge, shellModeBadge } from "@/layout/shellModes";
+export type { PanelOverride } from "@/layout/registry";
+export type { FixedSize, GroupArrangement } from "@/layout/splitTree";
+// Commands (menus, palette, keys share them) and HUDs over the view (dependency-free).
+export { commandChord, getCommand, listCommands, matchCommand, registerCommand, runCommand, unregisterCommand } from "@/layout/commands";
+export type { CommandSpec, RegisteredCommand } from "@/layout/commands";
+// Core's own commands, by id (registered for every composed shell), for a shell's menus.
+export { CORE_COMMAND_IDS, themeCommandId, uiShellCommandId, workspaceCommandId } from "@/layout/coreCommandIds";
+export type { CoreCommandId } from "@/layout/coreCommandIds";
+// The built-in Desktop UI (a composed shell core registers next to the classic one).
+export { DESKTOP_UI_SHELL_ID, desktopUiShellSpec } from "@/layout/desktop/desktopShell";
+export { VIEWPORT_ANCHORS, registerViewportOverlay, unregisterViewportOverlay } from "@/layout/viewportOverlays";
+export type { ViewportAnchor, ViewportOverlaySpec } from "@/layout/viewportOverlays";
+// Shortcuts a shell or plugin adds; core's own keys are reserved (dependency-free).
+export {
+  RESERVED_SHORTCUTS,
+  coreShortcutKeys,
+  listShortcuts,
+  parseShortcut,
+  registerShortcut,
+  unregisterShortcut,
+} from "@/layout/shortcuts";
+export type { RegisteredShortcut, ShortcutKeys, ShortcutSpec } from "@/layout/shortcuts";
+export { CORE_SHORTCUTS, CORE_SHORTCUT_GROUPS } from "@/layout/coreShortcutTable";
+export type { CoreShortcutDef } from "@/layout/coreShortcutTable";
+export { installShortcutDispatcher } from "@/layout/shortcutDispatch";
+// A panel in a browser window of its own (dependency-free).
+export {
+  POPOUT_PARAM,
+  SESSION_PARAM,
+  WINDOW_PARAM,
+  canPopOut,
+  isPopoutPage,
+  openPopout,
+  openWindow,
+  popoutPanelId,
+  popoutSession,
+  popoutUrl,
+  popoutWindowId,
+  windowTarget,
+  windowUrl,
+} from "@/layout/popout";
+// State the main window mirrors to pop-out windows, and the actions they send back (dependency-free).
+export {
+  followMirror,
+  hostMirror,
+  listMirrorTopics,
+  registerMirrorCommand,
+  registerMirrorTopic,
+  sendMirrorCommand,
+} from "@/layout/windowMirror";
+export type { MirrorCommand, MirrorTopic } from "@/layout/windowMirror";
+// A tree mirrored in chunks, with visibility and selection deltas (dependency-free).
+export {
+  ROW_VISIBILITY_CODES,
+  ROW_VISIBILITY_NAMES,
+  SCENE_TREE_CHUNK,
+  buildTree,
+  flattenTree,
+  sceneTreeTopic,
+} from "@/layout/sceneTreeMirror";
+export type {
+  FlatTreeChunk,
+  FlatTreeRoot,
+  MirrorTreeNode,
+  RowVisibilityName,
+  SceneTreeMessage,
+  SceneTreeSink,
+  SceneTreeSource,
+  SceneTreeTopicOptions,
+} from "@/layout/sceneTreeMirror";
+// Multi-window dashboards: the bus between the browser windows of one session (dependency-free).
+export {
+  CLAIM_WAIT_MS,
+  HEARTBEAT_MS,
+  LEAVE_GRACE_MS,
+  MAIN_WINDOW_ID,
+  MAIN_WINDOW_LABEL,
+  MOVE_ACK_MS,
+  STALE_MS,
+  acceptPanels,
+  broadcastTransport,
+  claimSession,
+  closedDashboardWindows,
+  createWindowBus,
+  defaultWindowLabel,
+  emptyDashboard,
+  findWindow,
+  forgetWindow,
+  isSessionId,
+  isWindowBusMessage,
+  isWindowId,
+  mainWindowLive,
+  memoryTransportHub,
+  newSessionId,
+  nextWindowId,
+  nullTransport,
+  panelsToReturn,
+  readDashboard,
+  recordWindow,
+  resolveSessionId,
+  sendPanel,
+  windowBusChannelName,
+  windowLabel,
+  windowShowing,
+} from "@/layout/windowBus";
+export type {
+  DashboardRecord,
+  DashboardWindow,
+  OutgoingWindowMessage,
+  SendPanelOptions,
+  WindowBus,
+  WindowBusMessage,
+  WindowBusMessageType,
+  WindowBusOptions,
+  WindowBusTransport,
+  WindowGoneReason,
+  WindowId,
+  WindowInfo,
+  WindowPresence,
+} from "@/layout/windowBus";
+export { isComposedShell } from "@/plugins/uiShells";
+// Core's panel ids, for a composed shell's `layout` (dependency-free: the ids alone).
+export { CORE_PANEL_IDS, CORE_PANEL_OWNER } from "@/layout/corePanelIds";
+export type { CorePanelId } from "@/layout/corePanelIds";
+export type { GridNode, GroupNode, SplitDir, SplitNode, ViewportNode } from "@/layout/splitTree";
 
 // ---------------------------------------------------------------------------
 // Panels (1.10.0) -- the catalogue of every panel, core's and plugins', and the
@@ -206,6 +608,7 @@ export {
 } from "@/layout/panel";
 export type {
   PanelAction,
+  PanelMenuItem,
   PanelBinding,
   PanelBodyLoader,
   PanelCapabilities,
@@ -230,8 +633,40 @@ export {
   listToolbarPanels,
   registerPanel,
 } from "@/layout/registry";
-export { hide, isPanelOpen, reveal, toggle } from "@/layout/reveal";
+export { hide, isPanelOpen, reveal, setRevealElsewhere, toggle } from "@/layout/reveal";
 export type { PanelController } from "@/layout/reveal";
+export {
+  listSceneTreeRoots,
+  registerSceneTreeRoots,
+} from "@/plugins/sceneTreeRoots";
+export type { SceneTreeRootProvider } from "@/plugins/sceneTreeRoots";
+export {
+  listPropertyProviders,
+  providersFor,
+  registerPropertyProvider,
+} from "@/plugins/propertyProviders";
+export type { PropertyProvider, SelectionSnapshot } from "@/plugins/propertyProviders";
+export {
+  alertDialog,
+  confirmDialog,
+  promptDialog,
+  setDialogHost,
+} from "@/plugins/dialogs";
+export type {
+  AlertOptions,
+  ConfirmOptions,
+  DialogHost,
+  DialogText,
+  DialogTone,
+  PromptOptions,
+} from "@/plugins/dialogs";
+export {
+  claimLoad,
+  isLoadClaimed,
+  loadClaimsVersion,
+  releaseLoad,
+  subscribeLoadClaims,
+} from "@/plugins/loadClaims";
 export { bindStoreFlag, watchStores } from "@/layout/bindings";
 export type { FlagStore } from "@/layout/bindings";
 export {

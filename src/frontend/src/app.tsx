@@ -3,19 +3,17 @@
 // the built-in UI shell and is lazy-loaded, so a CSS import here reaches only builds
 // where this shell is the active one.
 import React, {Suspense} from 'react'
-import CanvasWrapper from './components/viewer/CanvasWrapper';
-import Menu from './components/Menu';
 import {runtime} from "@/runtime/config";
 
-import ResizableTreeView from './components/tree_view/ResizableTreeView';
-import {SceneMenuHost} from './components/tree_view/SceneTreeMenu';
-import {useNodeEditorStore} from "./state/useNodeEditorStore";
 import {AdaViewerProvider} from "./state/AdaViewerContext";
-import NodeEditorComponent from "./components/node_editor/NodeEditorComponent";
 import {useUrlParamLoad} from "./hooks/useUrlParamLoad";
 import {useSceneRestore} from "./hooks/useSceneRestore";
 import {followerParams as simFollowerParams} from "@/utils/simChannel";
-import {layoutEngineEnabled} from "@/layout/flag";
+import {activeUiShellId, getUiShell, type UiShellSpec} from "@/plugins/uiShells";
+import {isPopoutPage, popoutPanelId} from "@/layout/popout";
+import {thisWindowId} from "@/layout/windows";
+import {useComposedShellLook} from "@/layout/shellTheme";
+import {panelBodyAttrs} from "@/components/ui/panelChrome";
 
 // The core panel catalogue loads each panel's classic component and content
 // through this module (`import("@/app")`), so they come out of this shell's own
@@ -26,29 +24,62 @@ export {CLASSIC_PANEL_COMPONENTS, CLASSIC_PANEL_CONTENTS, loadClassicPanel} from
 // (the index.zip shipped with ada-py) doesn't pull in the conversion /
 // upload / Pyodide / OIDC code. The chunk only loads when
 // COMMS_MODE === "rest".
-const RestModeUI = React.lazy(() => import("./components/rest_mode/RestModeUI"));
 const AuthGate = React.lazy(() => import("./components/auth/AuthGate"));
 const AuthCallback = React.lazy(() => import("./components/auth/AuthCallback"));
 const ConvertPage = React.lazy(() => import("./components/convert/ConvertPage"));
 const AdminPanel = React.lazy(() => import("./components/admin/AdminPanel"));
-const InViewerPanelHost = React.lazy(() => import("./components/InViewerPanelHost"));
-const AttributeSearchWindow = React.lazy(() => import("./components/asset_browser/AttributeSearchWindow"));
 // Canvas-less Simulation follower window (`?simfollow=…`) — mounted in its own
 // lazy chunk so a normal viewer tab never pulls it in.
 const SimFollowerPage = React.lazy(() => import("./components/simulation/SimFollowerPage"));
 const isRestMode = runtime.isRestMode();
 const isSimFollower = !!simFollowerParams();
+// A pop-out window of a multi-window dashboard (`?window=<id>`, `?popout=<panelId>`), canvas-less.
+const isPopout = isPopoutPage();
+const popoutId = popoutPanelId();
+const PopoutPage = React.lazy(() => import("./layout/PopoutPage"));
 const isAuthCallback = isRestMode && window.location.pathname === "/auth/callback";
 const isConvertPage = isRestMode && window.location.pathname.startsWith("/convert");
 const isAdminPage = isRestMode && window.location.pathname.startsWith("/admin");
-// The layout engine (`?layout=engine`, off by default): the same UI rendered from
-// the panel registry by the layout host's classic preset. Its own chunk, so the
-// default path does not load it.
-const useLayoutEngine = layoutEngineEnabled();
-const ClassicLayout = React.lazy(() => import("./layout/presets/classic"));
+// The classic UI: rendered from the panel registry by the layout host, with the
+// classic preset (`layout/presets/classic`).
+const LayoutRoot = React.lazy(() => import("./layout/LayoutRoot"));
 
 
-function App() {
+/** The active shell's header for canvas-less pages (`UiShellChrome.pageHeader`), loaded once. */
+let pageHeader: React.LazyExoticComponent<React.ComponentType<{title: string; backHref: string}>> | null | undefined;
+function shellPageHeader() {
+    if (pageHeader === undefined) {
+        const load = getUiShell(activeUiShellId())?.chrome?.pageHeader;
+        pageHeader = load ? React.lazy(load) : null;
+    }
+    return pageHeader;
+}
+
+/** A canvas-less page, the whole window: under the active shell's page header when it has one. */
+function CanvasLessPage({title, children}: {title: string; children: React.ReactNode}) {
+    // A composed shell's tokens and body palette dress these pages as they do its layout.
+    useComposedShellLook(getUiShell(activeUiShellId()));
+    const Header = shellPageHeader();
+    if (!Header) return <div className="h-[100dvh] w-full overflow-hidden" {...panelBodyAttrs}>{children}</div>;
+    const back = new URL(window.location.href);
+    back.pathname = "/";
+    back.hash = "";
+    return (
+        <div className="flex h-[100dvh] w-full flex-col overflow-hidden">
+            <Suspense fallback={null}>
+                <Header title={title} backHref={back.toString()}/>
+            </Suspense>
+            <div className="min-h-0 flex-1 overflow-hidden" {...panelBodyAttrs}>{children}</div>
+        </div>
+    );
+}
+
+/**
+ * What every shell core mounts shares: the canvas-less pages (`/auth/callback`,
+ * `/convert`, `/admin`, a Simulation follower window, a popped-out panel), and around `children`
+ * the viewer provider and, in hosted mode, the sign-in gate.
+ */
+export function AppRoot({children}: {children: React.ReactNode}) {
     if (isAuthCallback) {
         // Dedicated landing for OIDC redirect_uri. Doesn't render the
         // viewer at all — it just exchanges the code and bounces back.
@@ -70,9 +101,9 @@ function App() {
         return (
             <Suspense fallback={null}>
                 <AuthGate>
-                    <div className="h-[100dvh] w-full overflow-hidden">
+                    <CanvasLessPage title="Convert">
                         <ConvertPage/>
-                    </div>
+                    </CanvasLessPage>
                 </AuthGate>
             </Suspense>
         );
@@ -88,11 +119,32 @@ function App() {
         return (
             <Suspense fallback={null}>
                 <AuthGate>
-                    <div className="h-[100dvh] w-full overflow-hidden">
+                    <CanvasLessPage title="Admin">
                         <AdminPanel/>
-                    </div>
+                    </CanvasLessPage>
                 </AuthGate>
             </Suspense>
+        );
+    }
+
+    if (isPopout) {
+        // A window of panels: under the provider so their stores resolve, behind
+        // AuthGate in REST mode, without the canvas or the deep-link loading.
+        const page = (
+            <Suspense fallback={null}>
+                <PopoutPage windowId={thisWindowId()} panelId={popoutId}/>
+            </Suspense>
+        );
+        return (
+            <AdaViewerProvider>
+                {isRestMode ? (
+                    <Suspense fallback={null}>
+                        <AuthGate>{page}</AuthGate>
+                    </Suspense>
+                ) : (
+                    page
+                )}
+            </AdaViewerProvider>
         );
     }
 
@@ -121,76 +173,58 @@ function App() {
 
     // Everything that touches viewer state lives under the provider: it is
     // what owns this viewer's scene, camera, controls and renderer, and
-    // `useViewerRefs()` throws without it.
+    // `useViewerRefs()` throws without it. AuthGate is a pass-through when
+    // AUTH_ENABLED is false; the real sign-in UI only fires when the deployment
+    // turns auth on.
     return (
         <AdaViewerProvider>
-            <AppBody/>
+            <ViewerBootstrap/>
+            {isRestMode ? (
+                <Suspense fallback={null}>
+                    <AuthGate>{children}</AuthGate>
+                </Suspense>
+            ) : (
+                children
+            )}
         </AdaViewerProvider>
     );
 }
 
-function AppBody() {
-    const {isNodeEditorVisible, use_node_editor_only} = useNodeEditorStore();
+/** Deep links (`?file=…`) and the restored scene, for every shell; outside the sign-in gate, as before. */
+function ViewerBootstrap() {
     useUrlParamLoad();
     useSceneRestore();
+    return null;
+}
 
-    const tree = useLayoutEngine ? (
-        <Suspense fallback={null}>
-            <ClassicLayout/>
-        </Suspense>
-    ) : (
-        <div className={"relative flex flex-row h-full w-full bg-gray-900"}>
-            {/* Tree View Section */}
-            <div className={"relative h-full"}>
-                <ResizableTreeView/>
-            </div>
-            {/* The Scene's right-click menu, for tree rows and 3D picks alike; portals to the body. */}
-            <SceneMenuHost/>
-
-            <div className={"relative top-0 left-0"}>
-                <Menu/>
-            </div>
-
-            <div className={"w-full h-full"}>
-                {use_node_editor_only ? <NodeEditorComponent/> : <CanvasWrapper/>}
-            </div>
-
-            {/* Only render NodeEditorComponent if it's visible */}
-            {isNodeEditorVisible && <NodeEditorComponent/>}
-
-            {isRestMode && (
-                <Suspense fallback={null}>
-                    <RestModeUI/>
-                </Suspense>
-            )}
-
-            {/* Rnd-hosted Admin / Convert modal — mounted last so it
-                layers above the canvas + tree, but still under the
-                toast slot (z-50 vs the host's z-60). Lazy so the
-                Admin/Convert chunks don't load until the user opens
-                them. */}
-            {isRestMode && (
-                <Suspense fallback={null}>
-                    <InViewerPanelHost/>
-                </Suspense>
-            )}
-            {/* The attribute search's own window: independent of the host above, so it can stay
-                open beside Admin or Convert. Renders nothing until opened. */}
-            {isRestMode && (
-                <Suspense fallback={null}>
-                    <AttributeSearchWindow/>
-                </Suspense>
-            )}
-
-        </div>
+/** The classic UI: the layout host with the classic preset. */
+function App() {
+    return (
+        <AppRoot>
+            <Suspense fallback={null}>
+                <LayoutRoot/>
+            </Suspense>
+        </AppRoot>
     );
+}
 
-    if (!isRestMode) return tree;
-    // AuthGate is a pass-through when AUTH_ENABLED is false; the real
-    // sign-in UI only fires when the deployment turns auth on.
+/** A shell composed from core's layout (`UiShellSpec` without `load`). */
+export function composedShell(spec: UiShellSpec): React.ComponentType {
+    const Composed = () => (
+        <AppRoot>
+            <ComposedShellBody spec={spec}/>
+        </AppRoot>
+    );
+    return Composed;
+}
+
+
+const ComposedLayout = React.lazy(() => import("./layout/ComposedLayout"));
+
+function ComposedShellBody({spec}: {spec: UiShellSpec}) {
     return (
         <Suspense fallback={null}>
-            <AuthGate>{tree}</AuthGate>
+            <ComposedLayout spec={spec}/>
         </Suspense>
     );
 }

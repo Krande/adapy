@@ -1,9 +1,23 @@
 import React from 'react';
 import {NodeRendererProps} from 'react-arborist';
 
+import {isMirroredWindow, useSceneActions} from '@/layout/sceneActions';
+import {ROW_VISIBILITY_NAMES} from '@/layout/sceneTreeMirror';
+import {useSceneMirrorStore} from '@/state/sceneMirrorStore';
 import {useVisibilityStore} from '@/state/visibilityStore';
-import {hideRows, RowVisibility, rowVisibility, showRows} from '@/utils/tree_view/sceneTreeActions';
+import {RowVisibility, rowVisibility} from '@/utils/tree_view/sceneTreeActions';
 import {Chevron, EyeGlyph, ModelGlyph, NodeGlyph} from './treeGlyphs';
+
+/**
+ * A row's visibility: read from the 3D batches in the main window; in a pop-out
+ * window, the main window's (`core:scene-tree`, a code per row; none = shown).
+ */
+function useRowVisibility(data: TreeNodeData, tree: unknown): RowVisibility {
+    const version = useVisibilityStore((s) => s.version);
+    const mirrored = isMirroredWindow();
+    const code = useSceneMirrorStore((s) => (mirrored ? s.visibility.get(data.id) ?? 0 : 0));
+    return mirrored ? ROW_VISIBILITY_NAMES[code] ?? "shown" : rowVisibility(data, version, tree);
+}
 
 export interface TreeNodeData {
     id: string;
@@ -21,7 +35,19 @@ export interface TreeNodeData {
      *  names the Scene tree can show for it (`@/utils/tree_view/rootLabels`). */
     top_name?: string;
     source_label?: string;
+    /** Muted text at the row's right edge: a count or a kind that qualifies the name. */
+    meta?: string;
 }
+
+/** What a host adds to the Scene tree's rows (`SceneTreeProps.rowExtras` / `rowClassName`). */
+export interface SceneTreeRowOptions {
+    /** Drawn at the row's end, before its eye: a host's badge, a property chip. */
+    rowExtras?: (row: TreeNodeData) => React.ReactNode;
+    /** Classes added to the row (a host's emphasis for some rows). */
+    rowClassName?: (row: TreeNodeData) => string | undefined;
+}
+
+export const SceneTreeRowContext = React.createContext<SceneTreeRowOptions>({});
 
 const VISIBILITY_TITLE: Record<RowVisibility, string> = {
     shown: "Visible -- click to hide",
@@ -36,9 +62,11 @@ export const CustomNode: React.FC<NodeRendererProps<TreeNodeData>> = ({style, no
     // A row with its own draw range is a piece of geometry; one without is a level. The top row of
     // each loaded model is the model.
     const geometry = data.rangeId != null && !!data.node_name;
-    const version = useVisibilityStore((s) => s.version);
-    const visibility = rowVisibility(data, version, node.tree.props.data);
+    const visibility = useRowVisibility(data, node.tree.props.data);
+    const actions = useSceneActions();
     const hidden = visibility === "hidden";
+    const {rowExtras, rowClassName} = React.useContext(SceneTreeRowContext);
+    const extraClass = rowClassName?.(data);
 
     return (
         <div
@@ -46,7 +74,7 @@ export const CustomNode: React.FC<NodeRendererProps<TreeNodeData>> = ({style, no
             ref={dragHandle}
             className={`group flex items-center gap-1.5 cursor-pointer mr-1 my-1 pr-1 rounded ${
                 isSelected ? 'bg-blue-700' : 'hover:bg-white/5'
-            }`}
+            }${extraClass ? ` ${extraClass}` : ''}`}
             title={hidden ? `${data.name} (hidden)` : undefined}
         >
             <span
@@ -63,6 +91,12 @@ export const CustomNode: React.FC<NodeRendererProps<TreeNodeData>> = ({style, no
                 {node.level === 0 ? <ModelGlyph/> : <NodeGlyph branch={!geometry}/>}
             </span>
             <span className={`whitespace-nowrap flex-1 min-w-0 ${hidden ? 'opacity-50 italic' : ''}`}>{data.name}</span>
+            {data.meta && (
+                <span className={`shrink-0 pl-2 text-[10px] tabular-nums ${isSelected ? 'text-gray-200' : 'text-gray-400'}`}>
+                    {data.meta}
+                </span>
+            )}
+            {rowExtras?.(data)}
             {visibility !== "none" && (
                 <button
                     type="button"
@@ -76,8 +110,8 @@ export const CustomNode: React.FC<NodeRendererProps<TreeNodeData>> = ({style, no
                     }`}
                     onClick={(e) => {
                         e.stopPropagation();
-                        if (visibility === "shown") hideRows([data]);
-                        else showRows([data]);
+                        if (visibility === "shown") actions.hideRows([data]);
+                        else actions.showRows([data]);
                     }}
                 >
                     <EyeGlyph shut={visibility !== "shown"}/>

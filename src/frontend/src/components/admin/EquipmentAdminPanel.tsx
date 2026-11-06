@@ -1,5 +1,7 @@
 import React from "react";
 
+import { PanelHeaderActions, usePanelHeaderActions } from "@/components/ui/PanelFrame";
+
 import { scopeUrlPart, useScopeStore } from "@/state/scopeStore";
 import { useEquipmentCatalogStore } from "@/state/equipmentCatalogStore";
 import type {
@@ -246,6 +248,8 @@ const EquipmentAdminPanel: React.FC<{ embedded?: boolean }> = ({
     bboxJob,
   } = useEquipmentCatalogStore();
   const store = useEquipmentCatalogStore;
+  const hostActions = usePanelHeaderActions();
+  const hosted = !embedded && hostActions.length > 0;
   const [newName, setNewName] = React.useState("");
   const [cadPickerOpen, setCadPickerOpen] = React.useState(false);
   const fileRef = React.useRef<HTMLInputElement | null>(null);
@@ -282,9 +286,11 @@ const EquipmentAdminPanel: React.FC<{ embedded?: boolean }> = ({
         <span className="font-bold truncate">
           {draft ? draft.name : "Equipment catalog"}
         </span>
+        {/* A layout host's actions (float, dock) in the column; the editor's own buttons follow. */}
+        {hosted && <PanelHeaderActions />}
         {!draft && (
           <button
-            className="ml-auto px-1 rounded-sm hover:bg-gray-500/40"
+            className={(hosted ? "" : "ml-auto ") + "px-1 rounded-sm hover:bg-gray-500/40"}
             title="Refresh"
             onClick={() => void store.getState().refreshEquipment()}
           >
@@ -294,7 +300,7 @@ const EquipmentAdminPanel: React.FC<{ embedded?: boolean }> = ({
         {!embedded && (
           <button
             className={
-              (draft ? "ml-auto " : "") + "px-1 rounded-sm hover:bg-gray-500/40"
+              (draft && !hosted ? "ml-auto " : "") + "px-1 rounded-sm hover:bg-gray-500/40"
             }
             title="Close"
             onClick={() => store.setState({ equipmentPanelOpen: false })}

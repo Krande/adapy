@@ -1,13 +1,13 @@
 import React, {useRef, useState} from "react";
 import type {ProceduralModelSummary, ProceduralTemplate} from "@/services/viewerApi";
-import type {ScopeOption} from "@/state/scopeStore";
+import {scopeUrlPart, useScopeStore, type ScopeOption} from "@/state/scopeStore";
 import type {ServerFileEntry} from "@/state/serverInfoStore";
 import {useCellBuilderStore} from "@/state/cellBuilderStore";
 import PositionedMenu, {KebabMenuItem} from "@/components/common/PositionedMenu";
-import {PanelHeaderActions} from "@/components/ui/PanelFrame";
+import {CloseGlyph, PanelHeaderActions} from "@/components/ui/PanelFrame";
+import {requestScopeChange} from "@/utils/scope/scopeChange";
 import ReloadIcon from "../../icons/ReloadIcon";
 import PlusIcon from "../../icons/PlusIcon";
-import ExpandIcon from "../../icons/ExpandIcon";
 import GearIcon from "../../icons/GearIcon";
 import {uploadAcceptAttr} from "@/utils/scene/handlers/upload_source_file";
 import {Spinner} from "./helpers";
@@ -16,7 +16,7 @@ import type {useProceduralModels} from "./useProceduralModels";
 type Procedural = ReturnType<typeof useProceduralModels>;
 
 // Title row of the storage panel: scope line, "+" menu (upload / new folder /
-// new procedural model / import / templates), refresh, clear scene, maximize.
+// new procedural model / import / templates), refresh, clear scene, and Close when the host offers it.
 export interface BrowserHeaderProps {
     currentScope: ScopeOption | null;
     hiddenFiles: ServerFileEntry[];
@@ -45,8 +45,10 @@ export interface BrowserHeaderProps {
     anyLoaded: boolean;
     bulkBusy: string | null;
     onHideAll: () => Promise<void>;
-    maximized: boolean;
-    setMaximized: React.Dispatch<React.SetStateAction<boolean>>;
+    /** Offer Close. */
+    onClose?: () => void;
+    /** The scope line is a picker. */
+    scopePicker?: boolean;
 }
 
 const BrowserHeader: React.FC<BrowserHeaderProps> = ({
@@ -76,9 +78,10 @@ const BrowserHeader: React.FC<BrowserHeaderProps> = ({
     anyLoaded,
     bulkBusy,
     onHideAll,
-    maximized,
-    setMaximized,
+    onClose,
+    scopePicker,
 }) => {
+    const scopes = useScopeStore((s) => s.available);
     // Gear menu: settings and maintenance for the scope. The + menu only adds to storage.
     const [settingsOpen, setSettingsOpen] = useState(false);
     const settingsBtnRef = useRef<HTMLButtonElement>(null);
@@ -103,10 +106,29 @@ const BrowserHeader: React.FC<BrowserHeaderProps> = ({
                         scope are invisible to a list query under another
                         — surfacing the name avoids the "I uploaded but
                         nothing shows" confusion when scope drifts. */}
+                    {scopePicker && scopes.length > 1 ? (
+                        <select
+                            className="mt-0.5 max-w-full bg-gray-700 border border-gray-600 rounded-sm px-1 py-0.5 text-[11px] text-white"
+                            aria-label="Scope"
+                            title="Scope: the space this list reflects"
+                            value={currentScope ? scopeUrlPart(currentScope) : ""}
+                            onChange={(e) => {
+                                const picked = scopes.find((o) => scopeUrlPart(o) === e.target.value);
+                                if (picked) void requestScopeChange(picked);
+                            }}
+                        >
+                            {scopes.map((o) => (
+                                <option key={scopeUrlPart(o)} value={scopeUrlPart(o)}>
+                                    {o.kind === "providers" ? o.name : `${o.name} (${o.kind})`}
+                                </option>
+                            ))}
+                        </select>
+                    ) : (
                     <div className="text-[10px] uppercase tracking-wide text-gray-400 truncate"
                          title={currentScope?.kind ? `${currentScope.kind}${currentScope.id ? ":" + currentScope.id : ""}` : "shared"}>
                         scope: {currentScope?.name ?? "Shared"}
                     </div>
+                    )}
                     {/* Say that something is being withheld. A browser that hides
                         files without admitting it is indistinguishable from one
                         that lost them — and a publishing scope can hide thousands. */}
@@ -161,7 +183,7 @@ const BrowserHeader: React.FC<BrowserHeaderProps> = ({
                         aria-expanded={plusOpen}
                     >
                         {/* Fixed 24px icon slot — keeps this button the
-                            same size as Refresh/Maximize whether it
+                            same size as Refresh whether it
                             shows the plus or the busy spinner. */}
                         <span className="inline-flex h-6 w-6 items-center justify-center">
                             {uploading ? <Spinner/> : <PlusIcon width="24px" height="24px"/>}
@@ -353,22 +375,24 @@ const BrowserHeader: React.FC<BrowserHeaderProps> = ({
                             {bulkBusy === "clear" ? "Clearing…" : "Clear"}
                         </button>
                     )}
-                    <button
-                        type="button"
-                        className={
-                            "bg-gray-700 hover:bg-gray-600 active:bg-gray-800 text-white rounded-sm cursor-pointer " +
-                            "flex items-center justify-center " +
-                            "p-2 sm:p-1 min-h-[40px] min-w-[40px] sm:min-h-0 sm:min-w-0 " +
-                            "focus:outline-hidden focus:ring-2 focus:ring-blue-400"
-                        }
-                        onClick={() => setMaximized((v) => !v)}
-                        title={maximized ? "Restore compact panel" : "Maximize"}
-                        aria-label={maximized ? "Restore compact panel" : "Maximize"}
-                    >
-                        <span className="inline-flex h-6 w-6 items-center justify-center">
-                            <ExpandIcon expanded={maximized} width="24px" height="24px"/>
-                        </span>
-                    </button>
+                    {onClose && (
+                        <button
+                            type="button"
+                            className={
+                                "bg-gray-700 hover:bg-gray-600 active:bg-gray-800 text-white rounded-sm cursor-pointer " +
+                                "flex items-center justify-center " +
+                                "p-2 sm:p-1 min-h-[40px] min-w-[40px] sm:min-h-0 sm:min-w-0 " +
+                                "focus:outline-hidden focus:ring-2 focus:ring-blue-400"
+                            }
+                            onClick={onClose}
+                            title="Close"
+                            aria-label="Close storage"
+                        >
+                            <span className="inline-flex h-6 w-6 items-center justify-center">
+                                <CloseGlyph/>
+                            </span>
+                        </button>
+                    )}
                     <PanelHeaderActions/>
                 </div>
             </div>

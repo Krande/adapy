@@ -16,15 +16,22 @@ import {
     WindowHeaderButton,
 } from "@/components/ui/PanelFrame";
 import {SheetHandle} from "@/components/ui/SheetHandle";
-import {PANEL_CHROME, PANEL_SURFACE} from "@/components/ui/panelChrome";
+import {PANEL_CHROME, PANEL_SURFACE, WINDOW_CARD, WINDOW_HEADER, WINDOW_HEADER_BUTTON} from "@/components/ui/panelChrome";
 
 // Every frame here replaced markup a panel used to write itself. Each test renders
 // that legacy markup, verbatim from the component it came from, beside the frame,
 // and requires the two to be the same string: adopting a frame must not change one
 // node, class or attribute.
 
-const html = (el: React.ReactElement) => renderToStaticMarkup(el);
+// The legacy markup these compare against predates the body marker (`PANEL_BODY_ATTR`),
+// which draws nothing: it is left out of the comparison, and checked on its own below.
+const html = (el: React.ReactElement) => renderToStaticMarkup(el).replaceAll(' data-ada-panel-body=""', "").replace(/ data-ada-panel-id="[^"]*"/g, "");
 const noop = () => {};
+
+test("a card and a window's body carry the body marker a shell's palette is scoped to", () => {
+    assert.match(renderToStaticMarkup(<PanelCard>x</PanelCard>), /^<div[^>]* data-ada-panel-body=""/);
+    assert.match(renderToStaticMarkup(<WindowFrame title="W">x</WindowFrame>), /<div class="flex-1 min-h-0 overflow-hidden" data-ada-panel-body="">x<\/div>/);
+});
 
 test("PanelCard draws the menu-column card with its heading", () => {
     const legacy = (
@@ -58,16 +65,11 @@ test("PanelCard's surface variant is the bare surface, other props reach the roo
 });
 
 test("WindowFrame is the in-viewer window's card, title bar and lazy body", () => {
-    // InViewerPanelHost before the frame: HeaderBar + the body wrapper.
+    // The in-viewer window before the frame: HeaderBar + the body wrapper (its
+    // colours since tokenised: the chrome constants below).
     const legacy = (
-        <div className="h-full w-full flex flex-col bg-gray-900 border border-gray-700 sm:rounded-sm shadow-2xl overflow-hidden">
-            <div
-                className={
-                    "viewer-panel-drag-handle cursor-move " +
-                    "flex items-center gap-2 bg-gray-800 text-gray-100 px-3 py-2 " +
-                    "border-b border-gray-700 shrink-0"
-                }
-            >
+        <div className={WINDOW_CARD}>
+            <div className={"viewer-panel-drag-handle cursor-move " + WINDOW_HEADER}>
                 <span className="font-medium text-sm truncate">Admin panel</span>
                 <div className="ml-auto flex items-center gap-1">
                     <button
@@ -75,12 +77,7 @@ test("WindowFrame is the in-viewer window's card, title bar and lazy body", () =
                         onClick={noop}
                         title="Open in dedicated tab"
                         aria-label="Open in dedicated tab"
-                        className={
-                            "shrink-0 inline-flex items-center justify-center " +
-                            "w-9 h-9 sm:w-7 sm:h-7 rounded-sm border border-gray-600 " +
-                            "bg-gray-700/60 text-gray-200 hover:bg-gray-600 " +
-                            "hover:border-gray-400 hover:text-white"
-                        }
+                        className={WINDOW_HEADER_BUTTON}
                     >
                         <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
                             <path
@@ -98,12 +95,7 @@ test("WindowFrame is the in-viewer window's card, title bar and lazy body", () =
                         onClick={noop}
                         title="Close"
                         aria-label="Close panel"
-                        className={
-                            "shrink-0 inline-flex items-center justify-center " +
-                            "w-9 h-9 sm:w-7 sm:h-7 rounded-sm border border-gray-600 " +
-                            "bg-gray-700/60 text-gray-200 hover:bg-gray-600 " +
-                            "hover:border-gray-400 hover:text-white"
-                        }
+                        className={WINDOW_HEADER_BUTTON}
                     >
                         <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
                             <path d="M4 4 L12 12 M12 4 L4 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" fill="none"/>
@@ -138,13 +130,11 @@ test("WindowFrame is the in-viewer window's card, title bar and lazy body", () =
 });
 
 test("WindowFrame with a subtitle and a lone close button is the search window's", () => {
-    const HEADER_BTN =
-        "shrink-0 inline-flex items-center justify-center w-9 h-9 sm:w-7 sm:h-7 rounded-sm border border-gray-600 " +
-        "bg-gray-700/60 text-gray-200 hover:bg-gray-600 hover:border-gray-400 hover:text-white";
+    const HEADER_BTN = WINDOW_HEADER_BUTTON;
     // AttributeSearchWindow before the frame, on a phone (no drag handle).
     const legacy = (
-        <div className="h-full w-full flex flex-col bg-gray-900 border border-gray-700 sm:rounded-sm shadow-2xl overflow-hidden">
-            <div className={"" + "flex items-center gap-2 bg-gray-800 text-gray-100 px-3 py-2 border-b border-gray-700 shrink-0"}>
+        <div className={WINDOW_CARD}>
+            <div className={"" + WINDOW_HEADER}>
                 <span className="font-medium text-sm truncate">Search</span>
                 <span className="hidden sm:inline text-xs text-gray-400 truncate">· every provider in this scope</span>
                 <button
@@ -243,4 +233,22 @@ test("a header's action slot is empty until a host offers actions", () => {
     );
     assert.match(offered, /<div class="flex items-center gap-2"><h2 class="font-bold">Options<\/h2><div class="ml-auto/);
     assert.match(offered, /title="Float in a window" aria-label="Float in a window"/);
+});
+
+test("an action with a menu is a closed menu button; a docked card's header carries the drag handle and names its panel", () => {
+    const out = html(
+        <PanelFrame
+            panelId="core:x"
+            title="Things"
+            host={{kind: "dock", zone: "right"}}
+            actions={[{id: "move", label: "Move", run: noop, menu: [{id: "a", label: "A", run: noop}]}]}
+            dragHandleClassName="my-handle"
+        >
+            <p>body</p>
+        </PanelFrame>,
+    );
+    assert.match(out, /<div class="flex items-center gap-2 my-handle"><h2/);
+    assert.match(out, /data-panel-actions="core:x"/);
+    assert.match(out, /aria-label="Move" aria-haspopup="menu" aria-expanded="false"/);
+    assert.doesNotMatch(out, /role="menu"/);
 });

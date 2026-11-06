@@ -23,6 +23,12 @@
 
 import type React from "react";
 
+import type { LayoutDoc } from "@/layout/layout";
+import type { PanelOverride } from "@/layout/registry";
+import type { GridNode } from "@/layout/splitTree";
+import type { ViewportAnchor } from "@/layout/viewportOverlays";
+import type { AdaPluginContext, PluginTheme } from "./registry";
+
 /** The built-in shell id — the stock Ada Studio UI. Always registered. */
 export const CORE_UI_SHELL_ID = "core";
 
@@ -31,6 +37,109 @@ export const UI_SHELL_URL_PARAM = "ui";
 
 /** localStorage key holding the user's sticky choice. */
 export const UI_SHELL_STORAGE_KEY = "ada:ui";
+
+/** Where a composed shell's panels start, for a user who has not arranged them yet. */
+export interface UiShellLayout {
+  /**
+   * The split grid around the viewport (`GridNode`, one viewport leaf). Used
+   * until the user rearranges anything; after that their own arrangement is
+   * kept, per shell. Absent: the viewport alone.
+   */
+  grid?: GridNode;
+  /** Panels opened when the shell loads. Where they show is the user's arrangement. */
+  open?: string[];
+  /**
+   * Where a plugin panel that names a dock (`PanelSlot.dock`) goes the first
+   * time it is seen: dock id to the id of a group in `grid`. A dock with no
+   * group here (or a group the user has since removed) goes to that edge of the
+   * view (`left`, `bottom`, otherwise `right`). `float` and `overlay` docks stay
+   * in their region.
+   */
+  docks?: Record<string, string>;
+  /**
+   * The shell's modes, each with its own arrangement of panels (its own saved
+   * document). A mode's `grid`, `open` and `docks` default to the ones above;
+   * plugins' modes (`PluginSpec.modes`) are added after these and start from the
+   * ones above. A panel that names `modes` shows only in those. Absent: one
+   * arrangement, no modes.
+   */
+  modes?: UiShellMode[];
+  /**
+   * The id of the mode used when there is no `?mode=` and none stored from an
+   * earlier visit. Absent, or not one of the modes: the first by order.
+   */
+  defaultMode?: string;
+  /**
+   * The version of these arrangements. Raise it when the shell ships a new one: a
+   * user's saved arrangement made under another version is passed to `migrate`,
+   * or without it, starts over from the new grid.
+   */
+  version?: number;
+  /** A saved arrangement made under `from` (undefined: before versions), brought up to date; null starts it over. */
+  migrate?: (doc: LayoutDoc, from: number | undefined) => LayoutDoc | null;
+}
+
+/** One of a composed shell's modes. */
+export interface UiShellMode {
+  /** Kebab-case; what a panel's `modes` names. */
+  id: string;
+  label: string;
+  hint?: string;
+  icon?: React.FC;
+  /** Sort key; plugins' modes sort among these by theirs. Default: the position in the list. */
+  order?: number;
+  grid?: GridNode;
+  open?: string[];
+  docks?: Record<string, string>;
+  /**
+   * A panel drawn over the 3D view while this mode is active (a page that needs
+   * the whole view, a converter say); the canvas stays mounted underneath.
+   */
+  viewportCover?: string;
+  /** Core suspends the FEA field colouring while it is active (it paints its own). */
+  ownsSceneColor?: boolean;
+  /** False: core holds the FEA model undeformed while it is active. Default true. */
+  showsDeformation?: boolean;
+  /** The mode's own controls, drawn by `ShellModeToolbar` while it is active (in the shell's plugin context). */
+  toolbar?: (ctx: AdaPluginContext) => React.ReactNode;
+}
+
+/** The chrome core draws around a composed shell's layout. */
+export interface UiShellChrome {
+  /** Drawn full width above the layout: the shell's own menu bar. Lazy. */
+  header?: () => Promise<{ default: React.ComponentType }>;
+  /** Drawn full width below the layout: a status bar. Lazy. */
+  footer?: () => Promise<{ default: React.ComponentType }>;
+  /** Drawn down the left of the layout, between header and footer: a tool rail. Lazy; it sizes itself. */
+  rail?: () => Promise<{ default: React.ComponentType }>;
+  /**
+   * The command palette over every registered command, core's panels and modes
+   * included (`openCommandPalette()` opens it from the shell's own button), and
+   * the key that opens it. Absent: no palette.
+   */
+  commandPalette?: { keys?: string };
+  /**
+   * HUDs over the 3D view: where core's colour legend goes (the canvas then draws
+   * none of its own), and where plugin panels that name the `overlay` dock stack.
+   * A shell's own HUDs are added with `registerViewportOverlay`.
+   */
+  overlays?: { legend?: ViewportAnchor; pluginPanels?: ViewportAnchor };
+  /** The corner of the layout core's progress toast sits in. Default bottom-right. */
+  toastAnchor?: "bottom-right" | "bottom-left" | "top-right" | "top-left";
+  /**
+   * Drawn above core's canvas-less pages (`/convert`, `/admin`) in place of
+   * nothing: the shell's title bar there, given the page's title and the way back
+   * to the viewer. Lazy.
+   */
+  pageHeader?: () => Promise<{ default: React.ComponentType<{ title: string; backHref: string }> }>;
+  /** Core's top bar of panel toggles over the viewport. Default true. */
+  toolbar?: boolean;
+  /**
+   * The grid's groups: extra header actions (`"add"` a panel here, `"collapse"`
+   * to a strip of icons, `"pin"` a panel across modes) and panel icons in the tabs.
+   */
+  groups?: { actions?: ("add" | "collapse" | "pin")[]; tabIcons?: boolean };
+}
 
 /** A whole-UI implementation a plugin can contribute. */
 export interface UiShellSpec {
@@ -47,8 +156,41 @@ export interface UiShellSpec {
    * Lazy so a build that carries several shells only downloads the active one
    * (hosted, code-split build). The embed build inlines every chunk, so there
    * it costs bundle size but no extra request — see frontend.md.
+   *
+   * Omit it to COMPOSE the shell from core instead: core mounts its own root
+   * (routing, sign-in, the viewer provider) and its layout of floating and
+   * dockable panels, arranged and dressed by `layout`, `chrome` and
+   * `themeTokens`. A shell that gives `load` owns all of that itself.
    */
-  load: () => Promise<{ default: React.ComponentType }>;
+  load?: () => Promise<{ default: React.ComponentType }>;
+  /** A composed shell's starting arrangement. */
+  layout?: UiShellLayout;
+  /** A composed shell's chrome. */
+  chrome?: UiShellChrome;
+  /**
+   * Changes to panels the shell does not own, core's included, by panel id: title,
+   * icon, modes, capabilities, and options for their frameless content (`PanelOverride`).
+   * The panels keep their bindings and every `reveal()` that names them.
+   */
+  panels?: Record<string, PanelOverride>;
+  /**
+   * CSS custom properties set on the document root while the shell is active
+   * (`--ada-*`, or the shell's own). A function of the user's panel theme is
+   * applied again whenever the theme changes.
+   */
+  themeTokens?: Record<string, string> | ((theme: PluginTheme) => Record<string, string>);
+  /**
+   * Tailwind palette variables redefined inside core's panel bodies only
+   * (`{"--color-gray-800": "...", "--color-blue-600": "..."}`), so every core
+   * body takes the shell's colours without a copy; a function of the user's panel
+   * theme is applied again whenever it changes. The shell's own chrome is untouched.
+   */
+  bodyPalette?: Record<string, string> | ((theme: PluginTheme) => Record<string, string>);
+}
+
+/** Is `spec` composed from core's layout (no root component of its own). */
+export function isComposedShell(spec: Pick<UiShellSpec, "load">): boolean {
+  return typeof spec.load !== "function";
 }
 
 export interface RegisteredUiShell extends UiShellSpec {
@@ -90,8 +232,8 @@ export function registerUiShell(spec: UiShellSpec, pluginId: string): void {
     console.warn(`[plugins] duplicate UI shell id "${id}"; ignoring the later registration`);
     return;
   }
-  if (typeof spec.load !== "function") {
-    console.warn(`[plugins] UI shell "${id}" has no load(); ignored`);
+  if (spec.load !== undefined && typeof spec.load !== "function") {
+    console.warn(`[plugins] UI shell "${id}" has a load that is not a function; ignored`);
     return;
   }
   _shells.set(id, {

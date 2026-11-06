@@ -1413,6 +1413,26 @@ async def api_asset_staging(
     return JSONResponse({"staged": [staged[k] for k in sorted(staged)]})
 
 
+@router.delete("/scopes/{scope}/assets/staging")
+async def api_asset_staging_delete(
+    request: Request,
+    staging_id: str | None = None,
+    scope_obj: Scope = Depends(scope_from_path),
+    ctx: RestContext = Depends(rest_context),
+    user: User = Depends(auth_module.current_user),
+) -> JSONResponse:
+    """Delete what is staged and not yet published: everything, or one ``staging_id``. Nothing
+    references staging, so this never touches a published revision. Batched, so clearing thousands
+    of files is a few backend calls; ``failed`` lists the keys that remain."""
+    if staging_id is not None and (not staging_id or "/" in staging_id or staging_id in (".", "..")):
+        raise HTTPException(status_code=400, detail=f"{staging_id!r} is not a staging id")
+    prefix = staged_prefix(staging_id) if staging_id else f"{ASSET_PREFIX}/{STAGING_SEGMENT}/"
+    keys = [e.key for e in await ctx.storage.list_prefix(scope_obj, prefix)]
+    failed = await ctx.storage.delete_many(scope_obj, keys) if keys else []
+    await ctx.audit(request, user, scope_obj, "asset_staging_delete", key=prefix, status="error" if failed else "done")
+    return JSONResponse({"ok": not failed, "deleted": len(keys) - len(failed), "failed": failed})
+
+
 def _classify_asset_file(key: str) -> dict | None:
     """What an asset-area key IS: a published file, a staged one, or a cached build.
 

@@ -12,18 +12,21 @@ import type { StoreApi } from "zustand/vanilla";
 import type { ZoneDef } from "./layout";
 import type { LayoutStoreState } from "./layoutStore";
 import { placementFor, type PanelId, type PresetId, type RegisteredPanel } from "./panel";
-import { closePanel, isOpenIn, openPanel, restorePanel } from "./reducers";
+import { closePanel, gridOf, isOpenIn, openPanel, raiseFloat, restorePanel, updateGrid } from "./reducers";
 import { getPanel, listPanels } from "./registry";
 import type { PanelController } from "./reveal";
+import { groupOf, setActiveTab, setGroupCollapsed } from "./splitTree";
 
 export interface LayoutControllerOptions {
   preset: PresetId;
   zones: readonly ZoneDef[];
   store: StoreApi<LayoutStoreState>;
   context?: string;
+  /** Whether exclusive groups hold right now. Default: always. */
+  exclusive?: () => boolean;
 }
 
-export function createLayoutController({ preset, zones, store, context }: LayoutControllerOptions): PanelController {
+export function createLayoutController({ preset, zones, store, context, exclusive }: LayoutControllerOptions): PanelController {
   const doc = () => store.getState().doc(preset, zones, context);
   const update = (fn: Parameters<LayoutStoreState["update"]>[2]) => store.getState().update(preset, zones, fn, context);
 
@@ -37,7 +40,7 @@ export function createLayoutController({ preset, zones, store, context }: Layout
   /** The other open panels of `p`'s exclusive group. */
   const rivals = (p: RegisteredPanel): RegisteredPanel[] => {
     const group = p.constraints?.exclusiveGroup;
-    if (!group) return [];
+    if (!group || exclusive?.() === false) return [];
     return listPanels().filter((o) => o.id !== p.id && o.constraints?.exclusiveGroup === group && isOpen(o));
   };
 
@@ -54,6 +57,17 @@ export function createLayoutController({ preset, zones, store, context }: Layout
       if (doc().minimised.includes(p.id)) update((d) => restorePanel(d, p.id));
       if (p.binding) {
         p.binding.setOpen(true);
+        return true;
+      }
+      // Already docked in the grid: brought to the front where it is (its tab
+      // made active, its group expanded), never moved out to its zone.
+      const group = groupOf(gridOf(doc()), p.id);
+      if (group) {
+        update((d) => updateGrid(d, (g) => setGroupCollapsed(setActiveTab(g, p.id), group.id, false)));
+        return true;
+      }
+      if (doc().floats[p.id]) {
+        update((d) => raiseFloat(d, p.id));
         return true;
       }
       const placement = placementFor(p, preset);

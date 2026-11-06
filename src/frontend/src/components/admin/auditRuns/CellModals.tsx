@@ -2,6 +2,9 @@ import React, {useEffect, useState} from "react";
 import {viewerApi, AuditRun, AuditRunJob, AuditCellHistoryRow} from "@/services/viewerApi";
 import {DataTable, DataTableColumn} from "@/components/common/DataTable";
 import {formatBytes, formatMillis} from "@/utils/format";
+import {OverlayPortal} from "@/components/ui/OverlayPortal";
+
+// Both modals portal out of the in-viewer window (it moves by a transform) to the page.
 
 const HISTORY_TH = "px-2 py-1 border-b border-gray-700";
 const HISTORY_TD = "px-2 py-1 border-b border-gray-800";
@@ -85,7 +88,8 @@ const CellHistoryModal: React.FC<{
     }, [onClose]);
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
+        <OverlayPortal>
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
             <div
                 className="bg-gray-900 border border-gray-700 rounded-sm max-w-3xl w-full max-h-[80vh] flex flex-col"
                 onClick={(e) => e.stopPropagation()}
@@ -123,6 +127,7 @@ const CellHistoryModal: React.FC<{
                 </div>
             </div>
         </div>
+        </OverlayPortal>
     );
 };
 
@@ -162,7 +167,8 @@ const CellDetailsModal: React.FC<{
     }
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
+        <OverlayPortal>
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
             <div
                 className="bg-gray-900 border border-gray-700 rounded-sm max-w-2xl w-full max-h-[80vh] flex flex-col"
                 onClick={(e) => e.stopPropagation()}
@@ -205,6 +211,7 @@ const CellDetailsModal: React.FC<{
                 </div>
             </div>
         </div>
+        </OverlayPortal>
     );
 };
 

@@ -15,8 +15,11 @@ import {create} from "zustand";
 export type ComponentInputs = Record<string, Record<string, unknown>>;
 
 type ComponentControlsState = {
+    /** @deprecated The connection-component panel's flag. Ask `isPanelOpen("core:component-controls")` (`@/viewer-core`); open and close it with `reveal` / `hide`. */
     isVisible: boolean;
+    /** @deprecated Use `reveal("core:component-controls")` / `hide("core:component-controls")` from `@/viewer-core`, which the layout controls. */
     setIsVisible: (v: boolean) => void;
+    /** @deprecated Use `toggle("core:component-controls")` from `@/viewer-core`, which the layout controls. */
     toggleVisible: () => void;
 
     selectedSpecName: string | null;

@@ -2,19 +2,17 @@ import React, {useState} from "react";
 import {runtime} from "@/runtime/config";
 import {useMeStore} from "@/state/meStore";
 import {useScopeStore, ScopeOption, scopeUrlPart} from "@/state/scopeStore";
-import {useServerInfoStore} from "@/state/serverInfoStore";
-import {useViewerPanelStore} from "@/state/viewerPanelStore";
+import {CORE_PANEL_IDS, reveal} from "@/layout/panelActions";
 import {getUser, isAuthEnabled, signIn, signOut} from "@/services/auth/oidc";
-import {request_list_of_files_from_server} from "@/utils/server_info/handlers/request_list_of_files_from_server";
-import {clear_loaded_model} from "@/utils/scene/handlers/clear_loaded_model";
+import {applyScopeChange} from "@/utils/scope/scopeChange";
 
 // REST-mode controls inside the options drawer. Replaces the cluster
 // of menu-bar buttons (scope picker / admin / user pill) — those don't
 // fit on phones and clutter the top bar on desktop too. The drawer is
 // mobile-friendly already, so we get readable controls for free.
 //
-// Admin + Convert open in-viewer modals (Rnd-hosted by
-// ``InViewerPanelHost``) so the 3D model stays on screen while the
+// Admin + Convert open in-viewer windows (the classic preset's
+// window layer, ``ViewerWindow``) so the 3D model stays on screen while the
 // user pokes at admin tabs or kicks off a conversion. The modal
 // header carries an "open in new tab" button that pops the same UI
 // in dedicated full-page ``/admin`` / ``/convert`` routes.
@@ -34,15 +32,14 @@ const RestSection: React.FC = () => {
 const ConvertButton: React.FC = () => {
     // Any authed user can hit Convert — the panel is the primary
     // upload + convert entry point and gates on scope-level access
-    // server-side. Opens as an in-viewer Rnd modal so the 3D model
-    // stays on screen; the modal's external-link button pops the
+    // server-side. Opens as an in-viewer window so the 3D model
+    // stays on screen; the window's external-link button pops the
     // dedicated ``/convert`` page in a new tab when the user wants
     // a full-screen workspace.
-    const openPanel = useViewerPanelStore((s) => s.openPanel);
     return (
         <button
             type="button"
-            onClick={() => openPanel("convert")}
+            onClick={() => void reveal(CORE_PANEL_IDS.convert)}
             className="block w-full bg-blue-700 hover:bg-blue-600 text-white text-sm font-semibold py-1 px-2 rounded-sm"
         >
             Convert files
@@ -111,27 +108,13 @@ const SignedInRow: React.FC = () => {
 };
 
 const ScopeSelector: React.FC = () => {
-    const {current, available, setCurrent} = useScopeStore();
+    const {current, available} = useScopeStore();
     if (available.length <= 1) return null;
     const value = current ? scopeUrlPart(current) : "";
     const onChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
         const picked = available.find((s) => scopeUrlPart(s) === e.target.value);
         if (!picked) return;
-        // Project switch tears down anything that belongs to the
-        // outgoing scope: the file list (server-derived; the new
-        // request below re-populates it), every loaded model in
-        // the scene, and the selection state. Without these, the
-        // user sees the old project's files lingering in the
-        // panel and a stale 3D scene from a project they're no
-        // longer in.
-        useServerInfoStore.getState().setServerFileObjects([]);
-        useServerInfoStore.getState().setServerFiles([]);
-        void clear_loaded_model();
-        setCurrent(picked as ScopeOption);
-        // Background refresh — the response lands via the same
-        // LIST_FILE_OBJECTS handler the Refresh button uses. UI
-        // shows "no files yet" until it returns (~hundreds of ms).
-        void request_list_of_files_from_server();
+        applyScopeChange(picked as ScopeOption);
     };
     return (
         <label className="block text-xs">
@@ -153,12 +136,11 @@ const ScopeSelector: React.FC = () => {
 
 const AdminButton: React.FC = () => {
     const isAdmin = useMeStore((s) => s.isAdmin);
-    const openPanel = useViewerPanelStore((s) => s.openPanel);
     if (!isAdmin) return null;
     return (
         <button
             type="button"
-            onClick={() => openPanel("admin")}
+            onClick={() => void reveal(CORE_PANEL_IDS.admin)}
             className="block w-full bg-purple-700 hover:bg-purple-600 text-white text-sm font-semibold py-1 px-2 rounded-sm"
         >
             Admin panel

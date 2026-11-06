@@ -10,9 +10,13 @@ import {create} from "zustand";
 export const SEARCH_WINDOW_TITLE = "Search all collections (attributes)";
 
 interface SearchWindowState {
+    /** @deprecated The attribute search's flag. Ask `isPanelOpen("core:attribute-search")` (`@/viewer-core`); open and close it with `reveal` / `hide`. */
     open: boolean;
+    /** @deprecated Use `reveal("core:attribute-search")` from `@/viewer-core`, which the layout controls. */
     show: () => void;
+    /** @deprecated Use `hide("core:attribute-search")` from `@/viewer-core`, which the layout controls. */
     hide: () => void;
+    /** @deprecated Use `toggle("core:attribute-search")` from `@/viewer-core`, which the layout controls. */
     toggle: () => void;
 }
 
