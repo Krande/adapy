@@ -1,5 +1,5 @@
-// The classic top bar's toggle-button recipe, shared by `Menu.tsx` and the
-// layout host's classic preset, which must draw the same buttons.
+// The classic top bar's toggle-button recipe, used by the layout host's
+// classic preset and by the hosts that draw the same buttons.
 //
 // Top-bar button styling. Inactive uses a translucent hover (lighter
 // than the base) so the button "lifts" on hover. Active uses a darker

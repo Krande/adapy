@@ -11,8 +11,8 @@ import {applyScopeChange} from "@/utils/scope/scopeChange";
 // fit on phones and clutter the top bar on desktop too. The drawer is
 // mobile-friendly already, so we get readable controls for free.
 //
-// Admin + Convert open in-viewer modals (Rnd-hosted by
-// ``InViewerPanelHost``) so the 3D model stays on screen while the
+// Admin + Convert open in-viewer windows (the classic preset's
+// window layer, ``ViewerWindow``) so the 3D model stays on screen while the
 // user pokes at admin tabs or kicks off a conversion. The modal
 // header carries an "open in new tab" button that pops the same UI
 // in dedicated full-page ``/admin`` / ``/convert`` routes.

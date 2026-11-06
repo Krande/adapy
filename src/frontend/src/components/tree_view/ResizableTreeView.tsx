@@ -10,7 +10,7 @@ const MAX_WIDTH = 560;
 const SOURCES_DEFAULT_WIDTH = 440;
 
 // Floating left drawer that holds the selection tree. Toggled from the
-// top-bar button (Menu.tsx) and Shift+T (setupCameraControlsHandlers);
+// top-bar button and Shift+T (setupCameraControlsHandlers);
 // closed via the same controls or the panel's own close button. Always
 // overlays the canvas — no canvas reflow on open/close/resize.
 //

@@ -19,7 +19,7 @@ import type { PanelBinding, PanelPlacement, PanelPlacements, PanelSpec } from ".
 
 /**
  * Plugin top-bar toggles sit after core's own (`core:cellbuilder`) and before the
- * connection status, as `Menu.tsx` renders them. All share this slot; their
+ * connection status, as the classic top bar renders them. All share this slot; their
  * `subOrder` is the slot's own `order`.
  */
 export const PLUGIN_TOOLBAR_ORDER = 500;

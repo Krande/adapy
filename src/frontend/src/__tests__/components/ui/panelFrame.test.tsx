@@ -65,7 +65,7 @@ test("PanelCard's surface variant is the bare surface, other props reach the roo
 });
 
 test("WindowFrame is the in-viewer window's card, title bar and lazy body", () => {
-    // InViewerPanelHost before the frame: HeaderBar + the body wrapper (its
+    // The in-viewer window before the frame: HeaderBar + the body wrapper (its
     // colours since tokenised: the chrome constants below).
     const legacy = (
         <div className={WINDOW_CARD}>

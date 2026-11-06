@@ -5,7 +5,7 @@
 // Every panel of the classic UI couples four things in one component: its
 // content, its chrome (frame, header, close button), where it sits (the menu
 // column, a bottom sheet, a floating window) and whether it is visible (a flag
-// in a domain store, read inside `Menu.tsx`). Nothing listed the panels, so any
+// in a domain store, read inside the hand-written menu). Nothing listed the panels, so any
 // other host -- a UI shell, a command palette, a shortcuts dialog -- had to
 // rediscover them, and lost some on the way.
 //
@@ -260,7 +260,7 @@ export interface PanelSpec {
   /**
    * The classic top bar shows a toggle for this panel, at this position. Ordered
    * like `placement.order` (gaps of 10). Lets a host generate the same set of
-   * toggles the classic `Menu.tsx` hand-writes. `subOrder` breaks ties within one
+   * toggles as the classic preset's top bar. `subOrder` breaks ties within one
    * `order` (plugin buttons share one slot and keep their own `order` here), then id.
    */
   toolbar?: { order: number; subOrder?: number };

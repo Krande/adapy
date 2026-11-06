@@ -3,18 +3,14 @@
 // Two properties, both guarding the same failure -- a panel the classic UI has
 // but the catalogue does not, which no other host can then find:
 //
-//   1. Every toggle in Menu.tsx's top bar is a registered panel with a toolbar
-//      entry, in the same order, and every panel the menu column mounts is
-//      registered in the same order. Read from Menu.tsx's source, so adding a
-//      button there without a catalogue entry fails here.
-//   2. Each binding writes exactly the flag its Menu.tsx toggle writes, and no
-//      other: `toggle(id)` from a given state ends in the same state as the
-//      button's own onClick.
+//   1. The classic top bar's toggles are registered panels with a toolbar
+//      entry, in the order the classic UI has always drawn them, and the menu
+//      column's panels are registered in the order it stacks them.
+//   2. Each binding writes exactly the flag the classic toggle wrote (its
+//      store's own setter), and no other: `toggle(id)` from a given state ends
+//      in the same state as that setter.
 
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 import { beforeEach, test } from "node:test";
 
 import type { PanelEnv } from "@/layout/panel";
@@ -52,6 +48,7 @@ g.document ??= {
 const { CORE_PANEL_IDS, corePanelSpecs, registerCorePanels } = await import("@/layout/corePanels");
 const { getPanel, listPanels, listToolbarPanels, resetPanelRegistry } = await import("@/layout/registry");
 const { placementFor } = await import("@/layout/panel");
+const { PLUGIN_TOOLBAR_ORDER } = await import("@/layout/pluginPanels");
 const panelActions = await import("@/layout/panelActions");
 const { toggle, reveal, hide } = await import("@/layout/reveal");
 const { useOptionsStore } = await import("@/state/optionsStore");
@@ -68,9 +65,6 @@ const { useEquipmentCatalogStore } = await import("@/state/equipmentCatalogStore
 const { useWebsocketStatusStore } = await import("@/state/websocketStatusStore");
 const { useViewerPanelStore } = await import("@/state/viewerPanelStore");
 const { useTableNavStore } = await import("@/state/tableNavStore");
-
-const here = dirname(fileURLToPath(import.meta.url));
-const menuSrc = readFileSync(resolve(here, "../../components/Menu.tsx"), "utf8");
 
 /** Every visibility flag the classic UI keeps, by name. */
 function flags(): Record<string, unknown> {
@@ -112,9 +106,9 @@ function resetFlags(): void {
 }
 
 /**
- * Menu.tsx's top bar, toggle by toggle: the expression its `aria-pressed` (or,
- * for the connection status, its `navBtnClass`) reads, the panel it toggles, and
- * its onClick, written as Menu.tsx writes it.
+ * The classic top bar, toggle by toggle in its order: the flag its pressed
+ * state reads, the panel it toggles, and the store setter the classic button
+ * called.
  */
 const MENU_TOGGLES: Array<{ pressed: string; id: string; flag: string; onClick: () => void }> = [
   {
@@ -202,7 +196,7 @@ const MENU_TOGGLES: Array<{ pressed: string; id: string; flag: string; onClick: 
   },
 ];
 
-/** The flags Menu.tsx gates or renders panels on that have no top-bar button. */
+/** The flags the classic UI gates or renders panels on that have no top-bar button. */
 const OTHER_BINDINGS: Array<{ id: string; flag: string; open: unknown; closed: unknown }> = [
   { id: CORE_PANEL_IDS.serverInfo, flag: "showServerInfoBox", open: true, closed: false },
   { id: CORE_PANEL_IDS.feaTable, flag: "tablePanelOpen", open: true, closed: false },
@@ -227,52 +221,39 @@ test("registerCorePanels is idempotent and registers every core id under owner c
   assert.equal(corePanelSpecs().length, ids.length);
 });
 
-test("every toggle in Menu.tsx's top bar is a registered toolbar panel, in Menu.tsx order", () => {
-  const pressed = [...menuSrc.matchAll(/aria-pressed=\{([^}]+)\}/g)].map((m) => m[1].trim());
-  const wsBox = [...menuSrc.matchAll(/navBtnClass\((showWebsocketInfoBox)\)/g)].map((m) => m[1]);
-  const inMenu = [...pressed, ...wsBox];
-  const known = MENU_TOGGLES.map((t) => t.pressed);
-  assert.deepEqual(
-    inMenu.filter((p) => !known.includes(p)),
-    [],
-    "Menu.tsx has a top-bar toggle the panel catalogue does not know: register the panel in " +
-      "layout/corePanels.ts and add it to MENU_TOGGLES",
-  );
-  assert.deepEqual(inMenu, known, "the catalogue's toolbar order differs from Menu.tsx's");
+test("the classic top bar's toggles are the registered toolbar panels, in their order", () => {
   assert.deepEqual(
     listToolbarPanels().map((p) => p.id),
     MENU_TOGGLES.map((t) => t.id),
   );
   // Plugin buttons sit between the last core toggle and the connection status.
-  assert.ok(menuSrc.indexOf("<PluginTopBarButtons") > menuSrc.indexOf("cellBuilderPanelVisible}"));
-  assert.ok(menuSrc.indexOf("<PluginTopBarButtons") < menuSrc.indexOf("<WebsocketStatusMenu"));
+  const order = (id: string) => getPanel(id)!.toolbar!.order;
+  assert.ok(order(CORE_PANEL_IDS.cellbuilder) < PLUGIN_TOOLBAR_ORDER);
+  assert.ok(order(CORE_PANEL_IDS.wsStatus) >= PLUGIN_TOOLBAR_ORDER);
 });
 
-test("the menu column's panels are registered, in Menu.tsx render order", () => {
-  const column: Array<[string, string]> = [
-    ["<OptionsComponent", CORE_PANEL_IDS.options],
-    ["<StorageBrowser", CORE_PANEL_IDS.storage],
-    ["<ServerInfoBox", CORE_PANEL_IDS.serverInfo],
-    ["<ObjectInfoBox", CORE_PANEL_IDS.objectInfo],
-    ["<SceneInfoBox", CORE_PANEL_IDS.scene],
-    ["<WebsocketStatusBox", CORE_PANEL_IDS.wsStatus],
-    ["<SimulationControls", CORE_PANEL_IDS.simulation],
-    ["<ComponentControls", CORE_PANEL_IDS.componentControls],
-    ["<CellBuilderPanel", CORE_PANEL_IDS.cellbuilder],
-    ["<EquipmentAdminPanel", CORE_PANEL_IDS.equipmentAdmin],
-    ["<SystemAdminPanel", CORE_PANEL_IDS.systemAdmin],
+test("the menu column's panels are registered, in the order the column stacks them", () => {
+  const column = [
+    CORE_PANEL_IDS.options,
+    CORE_PANEL_IDS.storage,
+    CORE_PANEL_IDS.serverInfo,
+    CORE_PANEL_IDS.objectInfo,
+    CORE_PANEL_IDS.scene,
+    CORE_PANEL_IDS.wsStatus,
+    CORE_PANEL_IDS.simulation,
+    CORE_PANEL_IDS.componentControls,
+    CORE_PANEL_IDS.cellbuilder,
+    CORE_PANEL_IDS.equipmentAdmin,
+    CORE_PANEL_IDS.systemAdmin,
   ];
-  const at = column.map(([tag]) => menuSrc.indexOf(tag));
-  assert.ok(at.every((i) => i > 0), `missing in Menu.tsx: ${column.filter((_, i) => at[i] < 0)}`);
-  assert.deepEqual([...at].sort((a, b) => a - b), at, "Menu.tsx renders these in another order");
-  const orders = column.map(([, id]) => placementFor(getPanel(id)!, "classic"));
+  const orders = column.map((id) => placementFor(getPanel(id)!, "classic"));
   assert.ok(orders.every((p) => p?.zone === "classic.menu-column"));
   const nums = orders.map((p) => p!.order!);
   assert.deepEqual([...nums].sort((a, b) => a - b), nums);
 });
 
 for (const t of MENU_TOGGLES) {
-  test(`toggle("${t.id}") writes exactly what its Menu.tsx button writes`, () => {
+  test(`toggle("${t.id}") writes exactly what the classic button's store setter writes`, () => {
     for (const start of ["closed", "open"] as const) {
       resetFlags();
       if (start === "open") t.onClick();
@@ -361,7 +342,7 @@ test("closePanel used as a click handler closes every window", () => {
   assert.equal(s().open, null);
 });
 
-test("availability follows the conditions Menu.tsx gates on", () => {
+test("availability follows the conditions the classic top bar gates on", () => {
   const ids = (env: PanelEnv) => listPanels(env).map((p) => p.id);
   // Hosted mode: storage + attribute search + admin/convert, no server-info box, no connection status.
   const rest = ids({ restMode: true });

@@ -2,12 +2,11 @@
 // own module graph.
 //
 // Two maps: the classic component of each core panel (content in its classic
-// frame -- what the classic preset mounts, pixel-identical to `Menu.tsx`), and
-// its frameless content (what another host frames itself).
+// frame -- what the classic preset mounts), and its frameless content (what
+// another host frames itself).
 //
-// WHERE THIS MODULE LIVES IN THE BUNDLE matters. Every component here is already
-// part of the classic shell's chunk (`app.tsx` and `Menu.tsx` import them
-// statically). The catalogue (`./corePanels`) reaches these maps only through a
+// WHERE THIS MODULE LIVES IN THE BUNDLE matters. Every component here is part of
+// the classic shell's chunk (`app.tsx` re-exports this module statically). The catalogue (`./corePanels`) reaches these maps only through a
 // dynamic import of the shell module itself (`import("@/app")`), which re-exports
 // them, and the layout host imports them statically from inside that graph. A
 // dynamic import of THIS module from outside would make it a chunk entry of its
@@ -106,8 +105,8 @@ type Loader = () => Promise<React.ComponentType<PanelProps>>;
 
 /**
  * The panels the classic UI code-splits, loaded from inside this graph with the
- * very specifiers `Menu.tsx`, `app.tsx` and the window hosts use, so they land in
- * the chunks they always had.
+ * specifiers they have always had (`app.tsx`'s canvas-less pages use the same),
+ * so they land in the chunks they always had.
  */
 const LAZY_BODIES: Readonly<Record<PanelId, Loader>> = {
   [CORE_PANEL_IDS.storage]: () => import("@/components/storage/StorageBrowser").then((m) => asBody(m.default)),

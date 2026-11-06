@@ -286,6 +286,8 @@ export type { DockDragState, DropCandidate, DropEdge, DropTarget } from "@/layou
 export type { ZoneKeysProps } from "@/layout/zoneFocus";
 export { panelStates, panelStatesKey, subscribePanels } from "@/layout/panelStates";
 export type { PanelState } from "@/layout/panelStates";
+// DEPRECATED (released in 1.12.0): the layout engine is the only path, so
+// `layoutEngineEnabled()` is always true and the parameter / key are ignored.
 export { LAYOUT_ENGINE_PARAM, LAYOUT_ENGINE_STORAGE_KEY, layoutEngineEnabled } from "@/layout/flag";
 export {
   COLLAPSED_PX,

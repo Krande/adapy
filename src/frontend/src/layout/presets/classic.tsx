@@ -1,27 +1,25 @@
-// The classic preset: today's UI, as a layout of registered panels.
+// The classic preset: the viewer's own UI, as a layout of registered panels.
 //
-// Rendered through `LayoutHost` when the layout-engine flag is on (`../flag`),
-// it must produce exactly the DOM of the hand-written tree it stands in for --
-// `app.tsx`'s `AppBody` and `Menu.tsx` -- and a screenshot and DOM comparison
-// holds it to that. So the frame below emits the same wrapper elements with the
-// same classes, and the zones are filled from the registry:
+// Rendered through `LayoutHost`, the only path the UI takes. It replaced a
+// hand-written tree (since removed) and kept its DOM: the frame below emits
+// the same wrapper elements with the same classes, and the zones are filled
+// from the registry:
 //
 //   classic.tree         the selection tree, always mounted (it hides itself)
 //   (toolbar)            one toggle per core toolbar panel, in `toolbar.order`,
 //                        drawn from `CLASSIC_TOOLBAR`, plus the plugin buttons
-//                        at their slot -- the same `hidden!` / omitted rules as
-//                        Menu.tsx
+//                        at their slot -- a gated toggle stays in the row,
+//                        `hidden`, a hosted-only one is omitted
 //   classic.menu-column  the stacked panels, in placement order, each its own
 //                        card (`frame: "own"`), with the plugin `top-panel`
 //                        region at its slot
 //   classic.float        the node editor and the attribute search
 //   classic.window       the in-viewer admin / convert window
 //
-// Visibility is each panel's binding -- the very flags Menu.tsx reads -- and the
-// mount rules below restate Menu.tsx's render conditions where they differ from
-// "open". Panel components come synchronously from the classic shell's own
-// module graph (`../classicBodies`), and lazily, with the same Suspense
-// boundaries, where Menu.tsx loads them lazily.
+// Visibility is each panel's binding, and the mount rules (`classicRules`)
+// say where mounting differs from "open". Panel components come synchronously
+// from the classic shell's own module graph (`../classicBodies`), and lazily,
+// behind Suspense, where they are code-split.
 
 import React, {Suspense} from "react";
 
@@ -34,7 +32,7 @@ import CellBuilderPortMenu from "@/components/viewer/CellBuilderPortMenu";
 import CellBuilderInsertMenu from "@/components/viewer/CellBuilderInsertMenu";
 import CellBuilderGizmoHud from "@/components/viewer/CellBuilderGizmoHud";
 import {WebsocketStatusMenu} from "@/components/WebsocketStatusMenu";
-import {ViewerWindow, VIEWER_PANEL_TITLE, viewerPanelExternal} from "@/components/InViewerPanelHost";
+import {ViewerWindow, VIEWER_PANEL_TITLE, viewerPanelExternal} from "@/components/ViewerWindow";
 import {navBtnClass} from "@/components/navButton";
 import ReloadIcon from "@/components/icons/ReloadIcon";
 import {PluginPanelRegion, PluginTopBarButtons} from "@/plugins";
@@ -197,7 +195,7 @@ const SceneBoundary: React.FC<{children: React.ReactNode}> = ({children}) => (
   <ErrorBoundary label="Scene info">{children}</ErrorBoundary>
 );
 
-/** Error boundaries around column panels, as Menu.tsx puts them. */
+/** Error boundaries around column panels. */
 const COLUMN_WRAP: Readonly<Record<PanelId, React.ComponentType<{children: React.ReactNode}>>> = {
   [CORE_PANEL_IDS.objectInfo]: ObjectInfoBoundary,
   [CORE_PANEL_IDS.scene]: SceneBoundary,
@@ -419,7 +417,7 @@ function ViewportCover({panelId}: {panelId: PanelId}) {
   );
 }
 
-/** The classic frame: `AppBody`'s tree, its zones filled from the registry. */
+/** The classic frame: tree, top bar and column, viewport and windows, its zones filled from the registry. */
 function ClassicFrame() {
   const {preset, env} = useLayout();
   const nodeEditorOnly = useNodeEditorStore((s) => s.use_node_editor_only);

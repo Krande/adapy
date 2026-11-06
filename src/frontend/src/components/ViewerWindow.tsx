@@ -1,30 +1,24 @@
-import React, {lazy} from "react";
-import {useViewerPanelStore, ViewerPanel} from "@/state/viewerPanelStore";
+import React from "react";
+import {ViewerPanel} from "@/state/viewerPanelStore";
 import {FloatingWindow} from "@/components/ui/FloatingWindow";
 import {CloseGlyph, ExternalGlyph, WindowFrame, WindowHeaderActions, WindowHeaderButton} from "@/components/ui/PanelFrame";
 
-// In-viewer modal host for the Admin and Convert panels. Mounting
-// them as a draggable window keeps the 3D model on-screen while
-// the operator pokes at admin tabs or kicks off a conversion — no
-// context switch, no losing the camera state.
+// The in-viewer window of the Admin and Convert panels, drawn by the classic
+// preset's window layer (`layout/presets/classic.tsx`, `ViewerWindowChrome`).
+// Mounting them as a draggable window keeps the 3D model on-screen while the
+// operator pokes at admin tabs or kicks off a conversion -- no context switch,
+// no losing the camera state.
 //
 // Layout mode is responsive (both halves are `FloatingWindow`'s):
-// * Desktop (≥768px): draggable + resizable window over the viewer.
-// * Mobile (<768px): fixed full-screen overlay. Drag-resizing a
-//   ~360px-wide window on a touch screen is hostile; the standard
-//   mobile pattern is "panel takes over." The drag handle goes
-//   away, but the same header buttons (close, open in new tab)
-//   stay in place.
+// * Desktop (>=768px): draggable + resizable window over the viewer.
+// * Mobile (<768px): fixed full-screen overlay. Drag-resizing a ~360px-wide
+//   window on a touch screen is hostile; the standard mobile pattern is "panel
+//   takes over." The drag handle goes away, but the same header buttons (close,
+//   open in new tab) stay in place.
 //
-// The dedicated path-mounted ``/admin`` and ``/convert`` routes
-// remain available for direct URL navigation and for "open in
-// external" tap-targets in the modal header (the arrow-out icon
-// below).
-
-const AdminPanel = lazy(() => import("@/components/admin/AdminPanel"));
-const ConvertPage = lazy(() => import("@/components/convert/ConvertPage"));
-// The attribute search is not hosted here: this host shows one panel at a time, and the search must
-// stay open beside Admin or Convert -- it has its own window (`AttributeSearchWindow`).
+// The dedicated path-mounted ``/admin`` and ``/convert`` routes remain available
+// for direct URL navigation and for the "open in a dedicated tab" button in the
+// window header (the arrow-out icon below).
 
 export const VIEWER_PANEL_TITLE: Record<ViewerPanel, string> = {
     admin: "Admin panel",
@@ -55,7 +49,7 @@ export function viewerPanelExternal(panel: ViewerPanel, adminTab: string | null,
 }
 
 /**
- * The in-viewer window: centred near the top at 1100×720 (capped to the
+ * The in-viewer window: centred near the top at 1100x720 (capped to the
  * viewport), above the canvas and the tree but under the toast slot, a
  * full-screen takeover on narrow screens. `offset` steps it down and right, for a
  * second window beside the first; `layer` stacks it over the other.
@@ -80,10 +74,9 @@ export const ViewerWindow: React.FC<{
         onActivate={onActivate}
         minSize={{width: 420, height: 320}}
         initialRect={() => ({
-            // Centered-ish over the viewport. Big enough that
-            // the admin tabs + audit-runs grid don't feel
-            // claustrophobic; the user can drag-resize as they
-            // like.
+            // Centered-ish over the viewport. Big enough that the admin tabs +
+            // audit-runs grid don't feel claustrophobic; the user can
+            // drag-resize as they like.
             x: Math.max(0, (window.innerWidth - 1100) / 2) + offset,
             y: 60 + offset,
             width: Math.min(1100, window.innerWidth - 32),
@@ -113,24 +106,3 @@ export const ViewerWindow: React.FC<{
         )}
     </FloatingWindow>
 );
-
-const InViewerPanelHost: React.FC = () => {
-    const open = useViewerPanelStore((s) => s.open);
-    const adminTab = useViewerPanelStore((s) => s.adminTab);
-    const closePanel = useViewerPanelStore((s) => s.closePanel);
-
-    if (open === null) return null;
-
-    return (
-        <ViewerWindow
-            title={VIEWER_PANEL_TITLE[open]}
-            onExternal={viewerPanelExternal(open, adminTab, closePanel)}
-            onClose={closePanel}
-        >
-            {open === "admin" && <AdminPanel embedded initialTab={adminTab ?? undefined}/>}
-            {open === "convert" && <ConvertPage/>}
-        </ViewerWindow>
-    );
-};
-
-export default InViewerPanelHost;

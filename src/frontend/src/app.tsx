@@ -3,19 +3,12 @@
 // the built-in UI shell and is lazy-loaded, so a CSS import here reaches only builds
 // where this shell is the active one.
 import React, {Suspense} from 'react'
-import CanvasWrapper from './components/viewer/CanvasWrapper';
-import Menu from './components/Menu';
 import {runtime} from "@/runtime/config";
 
-import ResizableTreeView from './components/tree_view/ResizableTreeView';
-import {SceneMenuHost} from './components/tree_view/SceneTreeMenu';
-import {useNodeEditorStore} from "./state/useNodeEditorStore";
 import {AdaViewerProvider} from "./state/AdaViewerContext";
-import NodeEditorComponent from "./components/node_editor/NodeEditorComponent";
 import {useUrlParamLoad} from "./hooks/useUrlParamLoad";
 import {useSceneRestore} from "./hooks/useSceneRestore";
 import {followerParams as simFollowerParams} from "@/utils/simChannel";
-import {layoutEngineEnabled} from "@/layout/flag";
 import {activeUiShellId, getUiShell, type UiShellSpec} from "@/plugins/uiShells";
 import {isPopoutPage, popoutPanelId} from "@/layout/popout";
 import {thisWindowId} from "@/layout/windows";
@@ -31,13 +24,10 @@ export {CLASSIC_PANEL_COMPONENTS, CLASSIC_PANEL_CONTENTS, loadClassicPanel} from
 // (the index.zip shipped with ada-py) doesn't pull in the conversion /
 // upload / Pyodide / OIDC code. The chunk only loads when
 // COMMS_MODE === "rest".
-const RestModeUI = React.lazy(() => import("./components/rest_mode/RestModeUI"));
 const AuthGate = React.lazy(() => import("./components/auth/AuthGate"));
 const AuthCallback = React.lazy(() => import("./components/auth/AuthCallback"));
 const ConvertPage = React.lazy(() => import("./components/convert/ConvertPage"));
 const AdminPanel = React.lazy(() => import("./components/admin/AdminPanel"));
-const InViewerPanelHost = React.lazy(() => import("./components/InViewerPanelHost"));
-const AttributeSearchWindow = React.lazy(() => import("./components/asset_browser/AttributeSearchWindow"));
 // Canvas-less Simulation follower window (`?simfollow=…`) — mounted in its own
 // lazy chunk so a normal viewer tab never pulls it in.
 const SimFollowerPage = React.lazy(() => import("./components/simulation/SimFollowerPage"));
@@ -50,10 +40,8 @@ const PopoutPage = React.lazy(() => import("./layout/PopoutPage"));
 const isAuthCallback = isRestMode && window.location.pathname === "/auth/callback";
 const isConvertPage = isRestMode && window.location.pathname.startsWith("/convert");
 const isAdminPage = isRestMode && window.location.pathname.startsWith("/admin");
-// The layout engine (`?layout=engine`, off by default): the same UI rendered from
-// the panel registry by the layout host, in the user's preset (classic unless
-// they chose docked). Its own chunk, so the default path does not load it.
-const useLayoutEngine = layoutEngineEnabled();
+// The classic UI: rendered from the panel registry by the layout host, with the
+// classic preset (`layout/presets/classic`).
 const LayoutRoot = React.lazy(() => import("./layout/LayoutRoot"));
 
 
@@ -209,10 +197,13 @@ function ViewerBootstrap() {
     return null;
 }
 
+/** The classic UI: the layout host with the classic preset. */
 function App() {
     return (
         <AppRoot>
-            <AppBody/>
+            <Suspense fallback={null}>
+                <LayoutRoot/>
+            </Suspense>
         </AppRoot>
     );
 }
@@ -227,61 +218,6 @@ export function composedShell(spec: UiShellSpec): React.ComponentType {
     return Composed;
 }
 
-function AppBody() {
-    const {isNodeEditorVisible, use_node_editor_only} = useNodeEditorStore();
-
-    const tree = useLayoutEngine ? (
-        <Suspense fallback={null}>
-            <LayoutRoot/>
-        </Suspense>
-    ) : (
-        <div className={"relative flex flex-row h-full w-full bg-gray-900"}>
-            {/* Tree View Section */}
-            <div className={"relative h-full"}>
-                <ResizableTreeView/>
-            </div>
-            {/* The Scene's right-click menu, for tree rows and 3D picks alike; portals to the body. */}
-            <SceneMenuHost/>
-
-            <div className={"relative top-0 left-0"}>
-                <Menu/>
-            </div>
-
-            <div className={"w-full h-full"}>
-                {use_node_editor_only ? <NodeEditorComponent/> : <CanvasWrapper/>}
-            </div>
-
-            {/* Only render NodeEditorComponent if it's visible */}
-            {isNodeEditorVisible && <NodeEditorComponent/>}
-
-            {isRestMode && (
-                <Suspense fallback={null}>
-                    <RestModeUI/>
-                </Suspense>
-            )}
-
-            {/* Rnd-hosted Admin / Convert modal — mounted last so it
-                layers above the canvas + tree, but still under the
-                toast slot (z-50 vs the host's z-60). Lazy so the
-                Admin/Convert chunks don't load until the user opens
-                them. */}
-            {isRestMode && (
-                <Suspense fallback={null}>
-                    <InViewerPanelHost/>
-                </Suspense>
-            )}
-            {/* The attribute search's own window: independent of the host above, so it can stay
-                open beside Admin or Convert. Renders nothing until opened. */}
-            {isRestMode && (
-                <Suspense fallback={null}>
-                    <AttributeSearchWindow/>
-                </Suspense>
-            )}
-
-        </div>
-    );
-    return tree;
-}
 
 const ComposedLayout = React.lazy(() => import("./layout/ComposedLayout"));
 

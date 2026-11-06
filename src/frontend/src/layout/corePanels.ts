@@ -1,12 +1,10 @@
 // The catalogue of core's own panels: every panel the classic UI offers, in one
 // readable list, each bound to the visibility flag it already has.
 //
-// Until now the list existed only implicitly, as the toggle buttons and render
-// conditions in `components/Menu.tsx` and `app.tsx`. This file states it once.
-// By default the classic UI is still that hand-written tree, reading the same
-// flags these bindings read and write; with the layout-engine flag on, the
-// layout host's classic preset (`./presets/classic`) renders the same UI from
-// this catalogue. Tests hold the catalogue to Menu.tsx
+// The list used to exist only implicitly, as the toggle buttons and render
+// conditions of a hand-written tree (since removed). This file states it once,
+// and the layout host's classic preset (`./presets/classic`) renders the
+// classic UI from it. Tests pin the catalogue to what that tree offered
 // (`__tests__/layout/corePanels.test.ts`, `classicPreset.test.ts`).
 //
 // Each entry is an ADAPTER over today's component and flag, not a new panel:
@@ -16,7 +14,7 @@
 //     same panel's content without that frame, for a host that draws its own.
 //   * `binding` reads and writes the existing flag, through the store's own
 //     action where there is one.
-//   * `available` mirrors the condition under which `Menu.tsx` offers the panel
+//   * `available` mirrors the condition under which the classic UI offers the panel
 //     (its button's `hidden`, or its render guard), read from the stores' current
 //     state.
 //
@@ -93,7 +91,7 @@ const watchSimulation = watchStores(useAnimationStore, useFeaAnimationStore, use
 const classic = (p: PanelPlacement) => ({ [CLASSIC_PRESET_ID]: p });
 const column = (order: number) => classic({ zone: CLASSIC_ZONES.menuColumn, order });
 
-// The conditions Menu.tsx gates its buttons and panels on, as plain reads.
+// The conditions the classic UI gates its buttons and panels on, as plain reads.
 const nodeEditorOnly = () => useNodeEditorStore.getState().use_node_editor_only;
 const proceduralActive = () => {
   const s = useCellBuilderStore.getState();
@@ -205,7 +203,7 @@ export function corePanelSpecs(): PanelSpec[] {
     },
     {
       // The same flag as Storage, on the desktop/websocket viewer, which has no
-      // button for it: Menu.tsx renders this box instead of the storage browser.
+      // button for it: the classic column renders this box instead of the storage browser.
       id: CORE_PANEL_IDS.serverInfo,
       title: "Server info",
       icon: ServerIcon,
