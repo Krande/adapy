@@ -26,6 +26,7 @@ if TYPE_CHECKING:
     from ada.fem.results.cases import ResultCases
     from ada.fem.results.compare import FEAResultComparison
     from ada.fem.results.concepts import EigenDataSummary
+    from ada.fem.results.field_data import FieldRole
     from ada.visit.colors import Color
     from ada.visit.rendering.renderer_react import RenderBackend
 
@@ -654,6 +655,33 @@ class FEAResult:
         fresh = self.job.run(overwrite=overwrite, **options)
         self._take(fresh)
         return self
+
+    def case_fields(
+        self,
+        *roles: "FieldRole | str",
+        cases: "Iterable[int] | None" = None,
+        elements: "Iterable[int] | None" = None,
+    ) -> "dict[int, list[ElementFieldData | NodalFieldData]]":
+        """The fields of ``roles`` (``FieldRole`` or its name, e.g. ``"shell_stress"``; all roles when none are
+        given) of each stored case, ``{case: [fields]}``, read one case at a time.
+
+        ``cases``: these stored cases only (all by default). ``elements``: the beams whose ``BEAM_FORCES`` are
+        needed (all by default). For a result read case by case (``Assembly.to_fem(..., lazy=True)``,
+        ``ada.from_fem_res(path, lazy=True)``); every format gives the same layout (``FieldRole``).
+        """
+        from .field_data import FieldRole
+
+        if self.cases is None:
+            raise ValueError(
+                f"{self.name}: no cases to read one at a time; read the result with to_fem(..., lazy=True) or "
+                "ada.from_fem_res(path, lazy=True)"
+            )
+        wanted = [FieldRole(r) for r in roles] or None
+        steps = self.cases.stored if cases is None else list(cases)
+        return {
+            int(case): [f for f in step.results if f.role is not None and (wanted is None or f.role in wanted)]
+            for case, step in self.cases.iter_steps(steps, roles=wanted, elements=elements)
+        }
 
     def _take(self, other: "FEAResult") -> None:
         """Become ``other`` (a result of the same job), keeping this object's identity."""

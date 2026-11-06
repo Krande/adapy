@@ -41,6 +41,18 @@ def test_to_fem_lazy_returns_the_cases_to_read_one_at_a_time(tmp_path, require_s
     ((case, step),) = fea.cases.iter_steps([1], roles=[FieldRole.SHELL_STRESS])
     assert case == 1 and all(f.role == FieldRole.SHELL_STRESS for f in step.results) and step.results
 
+    # case_fields: {case: fields} of the roles asked for, by FieldRole or its name.
+    stresses = fea.case_fields(FieldRole.SHELL_STRESS)
+    assert list(stresses) == [1] and stresses[1] and all(f.role == FieldRole.SHELL_STRESS for f in stresses[1])
+    both = fea.case_fields("nodal_displacement", "nodal_reaction", cases=[1])
+    assert {f.role for f in both[1]} == {FieldRole.NODAL_DISPLACEMENT, FieldRole.NODAL_REACTION}
+
+
+def test_case_fields_needs_a_result_read_case_by_case(fem_files):
+    whole = ada.from_fem_res(fem_files / "cantilever/sesam/static/shell/STATIC_SHELL_CANTILEVER_SESAMR1.SIN")
+    with pytest.raises(ValueError, match="lazy=True"):
+        whole.case_fields("shell_stress")
+
 
 def test_execute_runs_the_written_deck_and_overwrite_runs_it_again(tmp_path, require_solver):
     require_solver("code_aster")
