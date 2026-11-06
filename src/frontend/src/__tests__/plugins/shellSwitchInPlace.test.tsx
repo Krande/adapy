@@ -235,6 +235,9 @@ test("an in-place switch swaps the layout's shell without remounting the layout,
   await show(plug);
   assert.equal(O.overlaysAt("top-left").length, 1, "the module-level HUD comes back with its shell");
   assert.ok(C.getCommand("plug:do"));
+  await show(null);
+  assert.equal(O.overlaysAt("top-left").length, 0, "and goes again when it leaves again");
+  assert.equal(C.getCommand("plug:do"), undefined);
   assert.deepEqual(seen, { mounts: 1, unmounts: 0 }, "the layout was never remounted");
 
   await act(async () => root.unmount());

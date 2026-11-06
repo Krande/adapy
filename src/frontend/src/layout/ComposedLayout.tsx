@@ -6,7 +6,7 @@
 // (`spec` null), so a switch between it and a composed shell, or between two
 // composed shells, only hands in another `spec` (see `UiShellHost`).
 
-import React, {Suspense, useEffect, useRef} from "react";
+import React, {Suspense, useEffect, useLayoutEffect, useRef} from "react";
 
 import {getPluginModes} from "@/plugins/registry";
 import type {RegisteredUiShell, UiShellSpec} from "@/plugins/uiShells";
@@ -96,7 +96,19 @@ interface ShellRegistrations {
 }
 const parked = new Map<string, ShellRegistrations>();
 
-function registrationsOf(owner: string): ShellRegistrations {
+/** The plugin a shell's own registrations are kept under; null for core's shells. */
+function shellOwner(spec: UiShellSpec | null): string | null {
+  const owner = (spec as Partial<RegisteredUiShell> | null)?.pluginId;
+  return owner && owner !== CORE_PANEL_OWNER ? owner : null;
+}
+
+/** What `spec`'s plugin has registered now: a shell's baseline, read without changing anything. */
+export function shellBaseline(spec: UiShellSpec | null): ShellRegistrations | null {
+  const owner = shellOwner(spec);
+  return owner ? registrationsOf(owner) : null;
+}
+
+export function registrationsOf(owner: string): ShellRegistrations {
   return {
     commands: commandsOwnedBy(owner),
     // A command's own key is the command's: it comes back with it.
@@ -113,9 +125,11 @@ function registrationsOf(owner: string): ShellRegistrations {
  * everything a plugin's shell registered under its plugin's id while it was up
  * (commands, shortcuts, HUDs over the view), parked to come back if the shell
  * is installed again. What every install sets (modes, arrangements, the top bar,
- * overrides) the next install sets again.
+ * overrides) the next install sets again. `baseline`: what the shell's plugin
+ * had registered before the shell came up, when taken earlier than the install
+ * (an in-place switch takes it while rendering, before the shell's chrome loads).
  */
-export function installShell(spec: UiShellSpec | null): () => void {
+export function installShell(spec: UiShellSpec | null, baseline?: ShellRegistrations | null): () => void {
   if (!spec) {
     setShellModes([]);
     setClassicShell(null);
@@ -152,16 +166,16 @@ export function installShell(spec: UiShellSpec | null): () => void {
   registerCoreCommands();
   // A plugin's shell: what it registered when it was last up comes back (a
   // module-level registration in its chrome runs only once a page).
-  const owner = (spec as Partial<RegisteredUiShell>).pluginId;
-  const scoped = !!owner && owner !== CORE_PANEL_OWNER;
-  const back = scoped ? parked.get(spec.id) : undefined;
+  const owner = shellOwner(spec);
+  // What the plugin had before its shell came up (taken before the parked ones come back).
+  const before = owner ? (baseline ?? registrationsOf(owner)) : null;
+  const back = owner ? parked.get(spec.id) : undefined;
   if (back) {
     parked.delete(spec.id);
     for (const {owner: o, ...c} of back.commands) registerCommand(c, o);
     for (const {owner: o, ...s} of back.shortcuts) registerShortcut(s, o);
     for (const {owner: o, ...v} of back.overlays) registerViewportOverlay(v, o);
   }
-  const before = scoped ? registrationsOf(owner!) : null;
   return () => {
     if (!before) return;
     // What the plugin registered while its shell was up is the shell's (its
@@ -182,16 +196,30 @@ export function installShell(spec: UiShellSpec | null): () => void {
 }
 
 /**
- * Keep shell `spec` installed: before the first render, and again, after the
- * previous one's undo, whenever an in-place switch hands in another one. The
- * frame below keeps its state, the 3D canvas included.
+ * Keep shell `spec` installed: before the first render (nothing below reads it
+ * yet), and again, after the previous one's undo, whenever an in-place switch
+ * hands in another one. A switch installs in a layout effect, before the
+ * browser paints: the install tells the stores' subscribers (the menu bar, the
+ * frame), which must not be updated while this component renders. They render
+ * once more with the new shell before anything is shown. The frame below keeps
+ * its state, the 3D canvas included.
  */
 function useInstalledShell(spec: UiShellSpec | null): void {
   const installed = useRef<{spec: UiShellSpec | null; undo: () => void} | null>(null);
-  if (!installed.current || installed.current.spec !== spec) {
-    installed.current?.undo();
-    installed.current = {spec, undo: installShell(spec)};
-  }
+  if (!installed.current) installed.current = {spec, undo: installShell(spec)};
+  // The incoming shell's baseline, read while rendering (it changes nothing),
+  // before its chrome's chunks run and register anything.
+  const baseline = useRef<{spec: UiShellSpec | null; regs: ShellRegistrations | null} | null>(null);
+  if (installed.current.spec !== spec && baseline.current?.spec !== spec) baseline.current = {spec, regs: shellBaseline(spec)};
+  useLayoutEffect(() => {
+    if (!installed.current) installed.current = {spec, undo: installShell(spec)};
+    else if (installed.current.spec !== spec) {
+      installed.current.undo();
+      const regs = baseline.current?.spec === spec ? baseline.current.regs : undefined;
+      installed.current = {spec, undo: installShell(spec, regs)};
+    }
+    baseline.current = null;
+  }, [spec]);
   useEffect(
     () => () => {
       installed.current?.undo();
