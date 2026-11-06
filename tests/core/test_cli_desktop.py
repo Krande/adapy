@@ -226,12 +226,23 @@ def test_dev_shell_binary_is_the_checkout_build(tmp_path):
     exe.write_bytes(b"")
     assert d.dev_shell_binary(tmp_path) == exe
 
+
 # -- remote mode: --server, saved profiles ------------------------------------------------------
 
 
 def _ns(**kw):
-    base = dict(server=None, local=False, insecure=False, auth_origin=[], words=[], no_window=True,
-                binary=None, title="T", shell_arg=[], timing=False)
+    base = dict(
+        server=None,
+        local=False,
+        insecure=False,
+        auth_origin=[],
+        words=[],
+        no_window=True,
+        binary=None,
+        title="T",
+        shell_arg=[],
+        timing=False,
+    )
     base.update(kw)
     return argparse.Namespace(**base)
 
@@ -245,8 +256,14 @@ def test_normalize_origin_keeps_only_the_origin():
 
 @pytest.mark.parametrize(
     "bad",
-    ["http://studio.example.com/", "studio.example.com", "ftp://studio.example.com", "https://u:p@studio.example.com",
-     "https://studio.example.com:99999", "https://"],
+    [
+        "http://studio.example.com/",
+        "studio.example.com",
+        "ftp://studio.example.com",
+        "https://u:p@studio.example.com",
+        "https://studio.example.com:99999",
+        "https://",
+    ],
 )
 def test_normalize_origin_rejects(bad):
     with pytest.raises(CliUsageError):
@@ -318,7 +335,9 @@ def test_resolve_server_unknown_name_lists_the_known_ones():
 
 
 def test_resolve_server_merges_flags_into_the_profile():
-    prof = {"lab": d.make_profile("lab", "http://lab.example.com", insecure=True, auth_origins=["https://a.example.org"])}
+    prof = {
+        "lab": d.make_profile("lab", "http://lab.example.com", insecure=True, auth_origins=["https://a.example.org"])
+    }
     s = d.resolve_server(_ns(server="lab", auth_origin=["https://b.example.org/p"]), {}, prof)
     assert s.insecure and s.auth_origins == ("https://a.example.org/", "https://b.example.org/")
 
@@ -335,11 +354,11 @@ def test_auth_origins_come_from_config_and_discovery():
 def test_discover_auth_origins_is_best_effort():
     docs = {
         "https://s.example.com/api/config": {"auth": {"enabled": True, "issuer": "https://idp.example.org/r/"}},
-        "https://idp.example.org/r/.well-known/openid-configuration": {"authorization_endpoint": "https://idp.example.org/r/auth"},
+        "https://idp.example.org/r/.well-known/openid-configuration": {
+            "authorization_endpoint": "https://idp.example.org/r/auth"
+        },
     }
-    assert d.discover_auth_origins("https://s.example.com/", lambda u: docs[u]) == [
-        "https://idp.example.org/"
-    ]
+    assert d.discover_auth_origins("https://s.example.com/", lambda u: docs[u]) == ["https://idp.example.org/"]
 
     def down(url):
         raise OSError("unreachable")
@@ -350,7 +369,9 @@ def test_discover_auth_origins_is_best_effort():
 
 def test_shell_command_remote_trusts_exactly_the_server():
     s = d.Server(url="http://lab.example.com:8080/", insecure=True)
-    cmd = d.shell_command_remote(pathlib.Path("ada-desktop.exe"), s, ["https://idp.example.org/"], "T", ["--no-spacemouse"])
+    cmd = d.shell_command_remote(
+        pathlib.Path("ada-desktop.exe"), s, ["https://idp.example.org/"], "T", ["--no-spacemouse"]
+    )
     assert cmd[cmd.index("--url") + 1] == cmd[cmd.index("--trust-origin") + 1] == "http://lab.example.com:8080/"
     assert cmd[cmd.index("--auth-origin") + 1] == "https://idp.example.org/"
     assert "--insecure" in cmd and cmd[-1] == "--no-spacemouse"
@@ -382,7 +403,9 @@ def test_servers_command_add_list_remove(tmp_path, monkeypatch, capsys):
 def test_parser_server_flags_and_servers_words():
     from ada_cli.main import _build_parser
 
-    a = _build_parser().parse_args(["desktop", "--server", "prod", "--insecure", "--auth-origin", "https://a.example.org"])
+    a = _build_parser().parse_args(
+        ["desktop", "--server", "prod", "--insecure", "--auth-origin", "https://a.example.org"]
+    )
     assert (a.server, a.insecure, a.auth_origin, a.words) == ("prod", True, ["https://a.example.org"], [])
     a = _build_parser().parse_args(["desktop", "servers", "add", "prod", "https://studio.example.com"])
     assert a.words == ["servers", "add", "prod", "https://studio.example.com"]
@@ -470,7 +493,10 @@ def test_print_sign_in_mentions_entra_and_sso(capsys):
 
 def test_collect_auth_origins_filters_plain_http_and_the_server_itself():
     s = d.Server(url="https://s.example.com/", auth_origins=("https://extra.example.org/",))
-    found = lambda _url: ["https://idp.example.org/", "https://s.example.com/", "http://plain.example.org/"]
+
+    def found(_url):
+        return ["https://idp.example.org/", "https://s.example.com/", "http://plain.example.org/"]
+
     assert d.collect_auth_origins(s, found) == ["https://idp.example.org/", "https://extra.example.org/"]
 
 
@@ -498,7 +524,9 @@ def test_dev_with_server_is_an_alias_for_backend(monkeypatch):
     for kw in (dict(server="work"), dict(backend="work")):
         assert _dispatch(monkeypatch, _full(dev=True, **kw), prof) == [("backend", "https://s.example.com/")]
     # --backend alone implies --dev; --server alone stays plain remote mode
-    assert _dispatch(monkeypatch, _full(backend="https://b.example.com"), prof) == [("backend", "https://b.example.com/")]
+    assert _dispatch(monkeypatch, _full(backend="https://b.example.com"), prof) == [
+        ("backend", "https://b.example.com/")
+    ]
     assert _dispatch(monkeypatch, _full(server="work"), prof) == [("remote", "https://s.example.com/")]
 
 
@@ -523,7 +551,9 @@ def test_run_dev_backend_prints_the_redirect_uri_and_never_starts_a_viewer(monke
     monkeypatch.setattr(d, "probe_port", lambda p, host=d.LOCAL_HOST: "free")
     monkeypatch.setattr(d, "discover_auth_origins", lambda url: ["https://idp.example.org/"])
     started = []
-    monkeypatch.setattr(d.subprocess, "Popen", lambda *a, **k: started.append(a) or (_ for _ in ()).throw(KeyboardInterrupt))
+    monkeypatch.setattr(
+        d.subprocess, "Popen", lambda *a, **k: started.append(a) or (_ for _ in ()).throw(KeyboardInterrupt)
+    )
     monkeypatch.setattr(d, "vite_command", lambda *a: ["node", "vite"])
     args = _full(port=None, dev=True, dev_port=39198, viewer=None, no_window=True)
     assert d.run_dev_backend(args, d.Server(url="https://s.example.com/", name="work")) == 130
@@ -567,7 +597,10 @@ def _rewrite(text, backend, dev):
     )
     return subprocess.run(
         [node, "--input-type=module", "-e", script, json.dumps([text, backend, dev])],
-        cwd=_FRONTEND, capture_output=True, text=True, check=True,
+        cwd=_FRONTEND,
+        capture_output=True,
+        text=True,
+        check=True,
     ).stdout
 
 

@@ -1062,7 +1062,9 @@ def run_dev_backend(args: argparse.Namespace, server: Server) -> int:
                 time.sleep(0.5)
         else:
             t0 = time.monotonic()
-            shell = subprocess.Popen(shell_command_dev_backend(binary, front, server, auth, args.title, shell_args(args)))
+            shell = subprocess.Popen(
+                shell_command_dev_backend(binary, front, server, auth, args.title, shell_args(args))
+            )
             job.assign(shell)
             rc = shell.wait()
             if args.timing:
@@ -1133,6 +1135,7 @@ def run_servers(words: list[str], args: argparse.Namespace) -> int:
         _print(f"removed server {words[1]}")
         return 0
     raise CliUsageError("usage: ada desktop servers list | add NAME URL [--insecure] [--auth-origin O] | remove NAME")
+
 
 # ── the command ───────────────────────────────────────────────────────────
 
