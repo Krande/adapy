@@ -17,6 +17,7 @@
 
 import React, { useEffect, useState } from "react";
 
+import { isMirroredWindow } from "@/layout/sceneActions";
 import { runtime } from "@/runtime/config";
 import { useViewerStores } from "@/state/AdaViewerContext";
 import type { AssetBrowserTab } from "@/state/assetBrowserStore";
@@ -36,6 +37,17 @@ export function assetsTabAvailable(): boolean {
     return runtime.isRestMode();
 }
 
+/** Is this tab offered in this window? A pop-out window has the Scene and Systems tabs: Sources
+ *  loads models into a scene it does not have. */
+function offered(tab: AssetBrowserTab): boolean {
+    return !(isMirroredWindow() && tab === "assets");
+}
+
+/** The tab to show: the stored one, or the Scene tab when that is not offered here. */
+function shownTab(stored: AssetBrowserTab): AssetBrowserTab {
+    return offered(stored) ? stored : "files";
+}
+
 const TABS: readonly { id: AssetBrowserTab; label: string; title: string }[] = [
     // Ids kept from the first names ("files" / "assets"): they are the store's values and nobody
     // reads them. The labels say what a user sees -- what is in the scene, and the provider-backed
@@ -49,11 +61,13 @@ const TABS: readonly { id: AssetBrowserTab; label: string; title: string }[] = [
  *  the height it had. */
 export const AssetBrowserTabs: React.FC = () => {
     const { useAssetBrowserStore } = useViewerStores();
-    const tab = useAssetBrowserStore((s) => s.tab);
+    const stored = useAssetBrowserStore((s) => s.tab);
     const setTab = useAssetBrowserStore((s) => s.setTab);
+    const tab = shownTab(stored);
+    const tabs = TABS.filter((t) => offered(t.id));
     return (
         <div role="tablist" aria-label="Browser" className="flex items-center gap-0.5 rounded-md bg-gray-900/60 p-0.5">
-            {TABS.map((t) => (
+            {tabs.map((t) => (
                 <button
                     key={t.id}
                     type="button"
@@ -81,7 +95,7 @@ const AssetBrowser: React.FC<TreeBodyProps> = ({ sceneTree }) => {
     const { useAssetBrowserStore } = useViewerStores();
     const stored = useAssetBrowserStore((s) => s.tab);
     const withAssets = assetsTabAvailable();
-    const tab: AssetBrowserTab = withAssets ? stored : "files";
+    const tab: AssetBrowserTab = withAssets ? shownTab(stored) : "files";
     // THE ASSETS TAB, TOO, IS KEPT once opened. Mounted only while selected, every click on it
     // re-read the collections, re-merged every collection index and rebuilt the whole view on the
     // main thread -- the freeze on switching to it. Mounted on the first visit (a viewer who never
@@ -100,7 +114,7 @@ const AssetBrowser: React.FC<TreeBodyProps> = ({ sceneTree }) => {
                     <SystemsTab />
                 </div>
             )}
-            {withAssets && (assetsVisited || tab === "assets") && (
+            {withAssets && offered("assets") && (assetsVisited || tab === "assets") && (
                 <div className={`flex-1 min-h-0 flex-col ${tab === "assets" ? "flex" : "hidden"}`} hidden={tab !== "assets"}>
                     <AssetsTab />
                 </div>

@@ -125,12 +125,12 @@ test("Move panel: float, the view's four edges, the other groups by their panels
   for (const l of [...labels("t:a"), ...search]) assert.doesNotMatch(l, /inner|outer|aux/i);
 });
 
-test("a column panel's header offers Float and the Move menu", async () => {
+test("a column panel's header offers Float and the Move menu (a panel that cannot go to a window has no pop-out entry)", async () => {
   const { columnActions } = await import("@/layout/presets/classicUndock");
   const ids = (id: string) => columnActions(getPanel(id)!, emptyLayoutDoc("classic", [])).map((a) => a.id);
-  assert.deepEqual(ids(CORE_PANEL_IDS.scene), ["float", "move"]);
-  assert.deepEqual(columnActions(getPanel(CORE_PANEL_IDS.scene)!).map((a) => a.id), ["float"], "no document: Float only");
-  const move = columnActions(getPanel(CORE_PANEL_IDS.scene)!, emptyLayoutDoc("classic", [])).find((a) => a.id === "move")!;
+  assert.deepEqual(ids(CORE_PANEL_IDS.componentControls), ["float", "move"]);
+  assert.deepEqual(columnActions(getPanel(CORE_PANEL_IDS.componentControls)!).map((a) => a.id), ["float"], "no document: Float only");
+  const move = columnActions(getPanel(CORE_PANEL_IDS.componentControls)!, emptyLayoutDoc("classic", [])).find((a) => a.id === "move")!;
   assert.ok(move.menu!.some((i) => i.label === "Dock right of the view"));
 });
 

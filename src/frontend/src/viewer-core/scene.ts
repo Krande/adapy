@@ -137,6 +137,20 @@ export {
 export { ensurePropertyMembership } from "@/utils/scene/fea/feaPropertyMembership";
 export { useFeaIsolationStore } from "@/state/feaIsolationStore";
 export type { FeaIsolation, FeaPickedInfo, FeaPickedProperty, FeaTreeView } from "@/state/feaIsolationStore";
+// The result controls and the result data table in a pop-out window.
+export {
+  FEA_CONTROLS_TOPIC,
+  FEA_CONTROL_COMMANDS,
+  feaControlActions,
+  localFeaControlActions,
+  remoteFeaControlActions,
+  useFeaControlActions,
+} from "@/utils/scene/fea/feaControls";
+export type { FeaControlActions, FeaControlsSnapshot } from "@/utils/scene/fea/feaControls";
+export { FEA_TABLE_ROW_CAP, FEA_TABLE_TOPIC } from "@/utils/scene/fea/feaTableMirror";
+export type { FeaTableQuery, FeaTableSnapshot } from "@/utils/scene/fea/feaTableMirror";
+export { tableRowIndices } from "@/utils/scene/fea/feaTableRows";
+export type { TableSort } from "@/utils/scene/fea/feaTableRows";
 export type { FeaManifest, FeaManifestField } from "@/services/viewerApi";
 
 // ---------------------------------------------------------------------------

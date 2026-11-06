@@ -5,8 +5,8 @@ import {useVirtualizer} from "@tanstack/react-virtual";
 import type {GroupInfo} from '@/state/sceneInfoStore';
 import {useViewerStores, useViewerRefs} from '@/state/AdaViewerContext';
 import {useModelState, loadedSourceGroups} from '@/state/modelState';
-import {selectGroupMembers} from "@/utils/selectGroupMembers";
-import {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
+import {applyGroupSelection} from "@/utils/groups/applyGroupSelection";
+import {isMirroredWindow, useSceneActions} from "@/layout/sceneActions";
 
 // Pull every group out of one model's ADA extension, tagged with the
 // storage key it came from.
@@ -44,6 +44,9 @@ const GroupsSection = () => {
     const {useSceneInfoStore, useObjectInfoStore} = useViewerStores();
     const {adaExtension: adaExtensionRef, scene: sceneRef} = useViewerRefs();
     const loadedSourceNames = useModelState((s) => s.loadedSourceNames);
+    // A pop-out lists the main window's groups (`core:scene-info`) and selects through it.
+    const mirrored = isMirroredWindow();
+    const actions = useSceneActions();
     const {
         selectedGroup,
         availableGroups,
@@ -61,6 +64,7 @@ const GroupsSection = () => {
     // of element / node sets into ADA_EXT_data — building the array
     // is cheap; the combobox below virtualizes the render.
     useEffect(() => {
+        if (mirrored) return;
         // Scene emptied → drop everything, selection included. The
         // active-extension ref still holds the LAST model's data at
         // this point, so it must not be consulted.
@@ -100,47 +104,18 @@ const GroupsSection = () => {
         }
     }, [setAvailableGroups, setSelectedGroup, useSceneInfoStore, loadedSourceNames, adaExtensionRef]);
 
-    const applyGroupSelection = async (group: GroupInfo | null) => {
-        if (!group) {
-            setSelectedGroup(null);
-            useObjectInfoStore.getState().setName('');
-            await selectGroupMembers("", [], undefined);
+    const selectGroup = async (group: GroupInfo | null) => {
+        if (mirrored) {
+            actions.selectGroup(group ? {source: group.source ?? null, name: group.name, parent_name: group.parent_name} : null);
             return;
         }
-
-        setSelectedGroup(group);
-
-        if (group.members && group.members.length > 0) {
-            useObjectInfoStore.getState().setName(`Group: ${group.name}`);
-
-            // Resolve parent_name → mesh inside the owning model's scene
-            // group when we know the source; two loaded files with
-            // same-named objects would otherwise race on whichever the
-            // whole-scene traversal finds first.
-            const searchRoot = (group.source && loadedSourceGroups.get(group.source))
-                || sceneRef.current;
-            const customBatchedMeshes: CustomBatchedMesh[] = [];
-            searchRoot?.traverse(obj => {
-                if (obj instanceof CustomBatchedMesh) {
-                    customBatchedMeshes.push(obj);
-                }
-            });
-            let mesh_obj: CustomBatchedMesh | null = null;
-            for (const cbm of customBatchedMeshes) {
-                if (cbm.ada_ext_data?.name == group.parent_name) {
-                    mesh_obj = cbm;
-                    break;
-                }
-            }
-
-            if (!mesh_obj) {
-                console.warn(`Parent object ${group.parent_name} not found in scene`);
-                return;
-            }
-            await selectGroupMembers(mesh_obj.unique_key, group.members, group.fe_object_type);
-        }
+        await applyGroupSelection(group, {
+            setSelectedGroup,
+            setName: (name) => useObjectInfoStore.getState().setName(name),
+            sourceGroup: (source) => loadedSourceGroups.get(source),
+            scene: () => sceneRef.current,
+        });
     };
-
     return (
         <div className="table">
             <div className="table-row">
@@ -149,7 +124,7 @@ const GroupsSection = () => {
                     <GroupCombobox
                         groups={availableGroups}
                         selected={selectedGroup}
-                        onSelect={(g) => void applyGroupSelection(g)}
+                        onSelect={(g) => void selectGroup(g)}
                     />
                 </div>
             </div>
@@ -181,7 +156,7 @@ const GroupsSection = () => {
                     <div className="table-row">
                         <div className="table-cell w-24">Members:</div>
                         <div className="table-cell w-48">
-                            {selectedGroup.members ? selectedGroup.members.length : 0}
+                            {selectedGroup.members ? selectedGroup.members.length : (selectedGroup.member_count ?? 0)}
                         </div>
                     </div>
                 </>

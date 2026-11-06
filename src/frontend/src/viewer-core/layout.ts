@@ -245,7 +245,10 @@ export {
   sceneActions,
   useSceneActions,
 } from "@/layout/sceneActions";
-export type { RowSelectMode, SceneActions } from "@/layout/sceneActions";
+export type { BoxPatch, GroupKey, RowSelectMode, SceneActions } from "@/layout/sceneActions";
+// The Scene panel in a pop-out window.
+export { SCENE_INFO_GROUP_CAP, SCENE_INFO_TOPIC } from "@/layout/sceneInfoMirror";
+export type { MirroredGroup, SceneInfoSnapshot } from "@/layout/sceneInfoMirror";
 // The scene tree's mirror topic (`core:scene-tree`): the main window's source, a pop-out's sink.
 export { SCENE_TREE_TOPIC, coreSceneTreeSink, coreSceneTreeSource } from "@/layout/sceneTreeMirrorCore";
 export { useSceneMirrorStore } from "@/state/sceneMirrorStore";

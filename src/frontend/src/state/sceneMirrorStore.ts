@@ -7,7 +7,9 @@
 //   * `visibility`, `visVersion` -- each scene-tree row's visibility, by row id,
 //     as a code (`ROW_VISIBILITY_CODES`, absent = shown). Changed in place, with
 //     `visVersion` bumped, so a delta of one row does not copy 20 000 entries;
-//   * `treeSelection` -- the scene-tree rows the main window has selected.
+//   * `treeSelection` -- the scene-tree rows the main window has selected;
+//   * `modelVisible`, `groupsTotal` -- the Scene panel's loaded models that are shown,
+//     and how many groups the models carry (`../layout/sceneInfoMirror`).
 //
 // In the main window it stays empty.
 
@@ -19,6 +21,10 @@ export interface SceneMirrorState {
     visibility: Map<string, number>;
     visVersion: number;
     treeSelection: readonly string[];
+    /** Whether each loaded model is shown, by source name (absent: it has no scene group to flip). */
+    modelVisible: Readonly<Record<string, boolean>>;
+    /** How many groups the loaded models carry (a pop-out lists at most SCENE_INFO_GROUP_CAP). */
+    groupsTotal: number;
 }
 
 export const useSceneMirrorStore = create<SceneMirrorState>()(() => ({
@@ -27,6 +33,8 @@ export const useSceneMirrorStore = create<SceneMirrorState>()(() => ({
     visibility: new Map(),
     visVersion: 0,
     treeSelection: [],
+    modelVisible: {},
+    groupsTotal: 0,
 }));
 
 /** Put visibility codes in (`reset`: they replace every row's). */

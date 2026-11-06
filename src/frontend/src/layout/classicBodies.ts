@@ -21,7 +21,6 @@ import React from "react";
 
 import OptionsComponent, { OptionsBody } from "@/components/OptionsComponent";
 import ResizableTreeView from "@/components/tree_view/ResizableTreeView";
-import TreeViewComponent from "@/components/tree_view/TreeViewComponent";
 import AssetBrowser, { AssetBrowserTabs, assetsTabAvailable } from "@/components/asset_browser/AssetBrowser";
 import NodeEditorComponent from "@/components/node_editor/NodeEditorComponent";
 import NodeEditorBody from "@/components/node_editor/NodeEditorBody";
@@ -37,7 +36,6 @@ import CellBuilderPanel, { CellBuilderBody } from "@/components/viewer/CellBuild
 
 import { CORE_PANEL_IDS } from "./corePanels";
 import type { PanelId, PanelProps } from "./panel";
-import { isMirroredWindow } from "./sceneActions";
 
 /** A component that ignores the host's `PanelProps`, as a panel body. */
 const asBody = (c: React.ComponentType<never>) => c as unknown as React.ComponentType<PanelProps>;
@@ -50,15 +48,13 @@ const withOptions = <P extends object>(c: React.ComponentType<P>, base?: Partial
 };
 
 /**
- * The selection tree without its drawer: the Scene | Sources tabs (with a server)
- * over the tree. In a pop-out window, the Scene tree alone: it shows the main
- * window's tree (`core:scene-tree`); the other tabs load into a scene the
- * pop-out does not have.
+ * The selection tree without its drawer: the Scene | Systems | Sources tabs (with a server)
+ * over the tree. In a pop-out window the Scene tree shows the main window's tree
+ * (`core:scene-tree`) and the Systems tab acts through it; Sources, which loads models into
+ * the scene, is not offered there.
  */
 const SelectionTreeContent: React.FC = () =>
-  isMirroredWindow()
-    ? React.createElement("div", { className: "flex flex-col h-full min-h-0 text-white" }, React.createElement(TreeViewComponent))
-    : React.createElement(
+  React.createElement(
     "div",
     { className: "flex flex-col h-full min-h-0 text-white" },
     assetsTabAvailable()
@@ -66,7 +62,6 @@ const SelectionTreeContent: React.FC = () =>
       : null,
     React.createElement(AssetBrowser),
   );
-
 /** A catalog editor as the admin panel embeds it: no floating card of its own. */
 const embedded = (c: React.ComponentType<{ embedded?: boolean }>) =>
   asBody(() => React.createElement(c, { embedded: true }));

@@ -123,7 +123,10 @@ import { isPlacedElsewhere } from "@/layout/placedElsewhere";
 //          (`"colorBy"` mode toolbar, `registerColorBySource`). Additive.
 // 1.17.0 — kept in step with viewer-core 1.17.0: the `"build"` mode toolbar, `UiShellMode.requires`
 //          (`"builder"`), `chrome.overlays.builder` and the `core:builder-*` commands. Additive.
-export const PLUGIN_API_VERSION = "1.17.0";
+// 1.18.0 — kept in step with viewer-core 1.18.0: the mirror topics `core:fea-controls`, `core:fea-table`
+//          and `core:scene-info`, `feaControlActions`, and the new `SceneActions` (models, groups, selection
+//          boxes, related). Additive.
+export const PLUGIN_API_VERSION = "1.18.0";
 
 // The named mount regions core exposes in Phase 1. Deliberately small
 // (`fem-sidebar` covers the FEM simulation panel, `top-panel` the menu bar,

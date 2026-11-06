@@ -146,7 +146,7 @@ test("the Build menu names the builder's commands, only where the shell has the 
 
 test("the API version moved with the Build mode", () => {
   const index = readFileSync(new URL("../../viewer-core/index.ts", import.meta.url), "utf8");
-  assert.match(index, /VIEWER_CORE_API_VERSION = "1\.17\.0"/);
+  assert.match(index, /VIEWER_CORE_API_VERSION = "1\.18\.0"/);
   const reg = readFileSync(new URL("../../plugins/registry.ts", import.meta.url), "utf8");
-  assert.match(reg, /PLUGIN_API_VERSION = "1\.17\.0"/);
+  assert.match(reg, /PLUGIN_API_VERSION = "1\.18\.0"/);
 });

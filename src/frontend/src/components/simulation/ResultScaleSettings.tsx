@@ -4,7 +4,7 @@ import {useColorStore} from "@/state/colorLegendStore";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {COLORMAP_NAMES} from "@/utils/scene/fea/colormaps";
 import {MAX_LEVELS, MIN_LEVELS, contourBands} from "@/utils/scene/fea/contourScale";
-import {applyContourSettings, resetContourBounds} from "@/utils/scene/fea/resultSelection";
+import {useFeaControlActions} from "@/utils/scene/fea/feaControls";
 import {selectedResultRange} from "@/utils/scene/fea/resultUnits";
 
 // How the colour scale is drawn: the range it spans, how many bands it is cut
@@ -35,7 +35,8 @@ function boundText(value: number | null): string {
 const ResultScaleSettings: React.FC<{onClose?: () => void}> = ({onClose}) => {
     const contour = useFeaAnimationStore((s) => s.contour);
     const colormap = useFeaAnimationStore((s) => s.colormap);
-    const setColormap = useFeaAnimationStore((s) => s.setColormap);
+    // Run here, or sent to the main window from a pop-out.
+    const actions = useFeaControlActions();
     const manifest = useFeaAnimationStore((s) => s.manifest);
     const fieldName = useFeaAnimationStore((s) => s.fieldName);
     const reduction = useFeaAnimationStore((s) => s.reduction);
@@ -58,7 +59,7 @@ const ResultScaleSettings: React.FC<{onClose?: () => void}> = ({onClose}) => {
     const banded = contour.levels !== null;
 
     const commitBounds = () => {
-        void applyContourSettings({min: parseBound(minText), max: parseBound(maxText)});
+        actions.setContour({min: parseBound(minText), max: parseBound(maxText)});
     };
 
     const preview = contourBands([legendMin, legendMax], contour.levels ?? 10, colormap);
@@ -85,8 +86,7 @@ const ResultScaleSettings: React.FC<{onClose?: () => void}> = ({onClose}) => {
                     className="min-w-0 flex-1 rounded-sm border border-[var(--ada-panel-border)] bg-[var(--ada-panel-surface)] px-1 py-0.5 text-[var(--ada-panel-text)] [&_option]:bg-[Canvas] [&_option]:text-[CanvasText]"
                     value={colormap}
                     onChange={(e) => {
-                        setColormap(e.target.value);
-                        void applyContourSettings({});
+                        actions.setColormap(e.target.value);
                     }}
                 >
                     {COLORMAP_NAMES.map((name) => (
@@ -129,7 +129,7 @@ const ResultScaleSettings: React.FC<{onClose?: () => void}> = ({onClose}) => {
             <button
                 type="button"
                 className="self-start rounded-sm border border-[var(--ada-panel-border)] px-2 py-0.5 hover:bg-[var(--ada-panel-surface)]"
-                onClick={() => void resetContourBounds()}
+                onClick={() => actions.resetContourRange()}
                 title="Back to the minimum and maximum of what is shown"
             >
                 Reset range
@@ -142,7 +142,7 @@ const ResultScaleSettings: React.FC<{onClose?: () => void}> = ({onClose}) => {
                 <input
                     type="checkbox"
                     checked={banded}
-                    onChange={(e) => void applyContourSettings({levels: e.target.checked ? 9 : null})}
+                    onChange={(e) => actions.setContour({levels: e.target.checked ? 9 : null})}
                 />
                 <span>Contour bands</span>
             </label>
@@ -156,7 +156,7 @@ const ResultScaleSettings: React.FC<{onClose?: () => void}> = ({onClose}) => {
                         step={1}
                         className="w-20 rounded-sm border border-[var(--ada-panel-border)] bg-[var(--ada-panel-surface)] px-1 py-0.5 text-[var(--ada-panel-text)]"
                         value={contour.levels ?? 9}
-                        onChange={(e) => void applyContourSettings({levels: Number(e.target.value)})}
+                        onChange={(e) => actions.setContour({levels: Number(e.target.value)})}
                         title={`How many bands the range is cut into (${MIN_LEVELS}–${MAX_LEVELS})`}
                     />
                 </label>

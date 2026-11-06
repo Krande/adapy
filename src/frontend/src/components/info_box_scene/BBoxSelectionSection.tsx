@@ -1,7 +1,8 @@
 import React from "react";
 
 import {useBBoxSelectionStore} from "@/state/bboxSelectionStore";
-import {addBoxAroundSelection, applyBoxSelection} from "@/utils/bboxSelection/applyBoxSelection";
+import {isMirroredWindow, useSceneActions} from "@/layout/sceneActions";
+import {useSceneMirrorStore} from "@/state/sceneMirrorStore";
 import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
 import {BoxRequestStatus} from "@/components/viewer/BoxRequestSection";
 
@@ -11,8 +12,12 @@ import {BoxRequestStatus} from "@/components/viewer/BoxRequestSection";
 const BBoxSelectionSection: React.FC = () => {
     const boxes = useBBoxSelectionStore((s) => s.boxes);
     const activeId = useBBoxSelectionStore((s) => s.activeId);
-    const {update, remove, setActive, clearAll} = useBBoxSelectionStore.getState();
-    const hasSelection = useSelectedObjectStore((s) => s.selectedObjects.size > 0);
+    // Run here, or sent to the main window from a pop-out (which mirrors the boxes and the selection's size).
+    const actions = useSceneActions();
+    const mirrored = isMirroredWindow();
+    const hasLocalSelection = useSelectedObjectStore((s) => s.selectedObjects.size > 0);
+    const hasMirroredSelection = useSceneMirrorStore((s) => s.rangeCount > 0);
+    const hasSelection = mirrored ? hasMirroredSelection : hasLocalSelection;
 
     return (
         <div className="space-y-1 p-1 text-xs">
@@ -22,7 +27,7 @@ const BBoxSelectionSection: React.FC = () => {
                     className="rounded-sm bg-blue-600 px-2 py-1 text-white disabled:opacity-50"
                     disabled={!hasSelection}
                     title={hasSelection ? "A box around the current selection" : "Select something first, or right-click an element in the 3D view"}
-                    onClick={() => addBoxAroundSelection()}
+                    onClick={() => actions.boxAroundSelection()}
                 >
                     + Box around selection
                 </button>
@@ -31,7 +36,7 @@ const BBoxSelectionSection: React.FC = () => {
                         type="button"
                         className="ml-auto rounded-sm px-2 py-1 text-red-300 hover:bg-gray-500/40"
                         title="Delete every selection box, here and in this browser's saved copy"
-                        onClick={() => clearAll()}
+                        onClick={() => actions.clearBoxes()}
                     >
                         Clear all
                     </button>
@@ -46,7 +51,7 @@ const BBoxSelectionSection: React.FC = () => {
                         <input
                             type="checkbox"
                             checked={b.visible}
-                            onChange={(e) => update(b.id, {visible: e.target.checked})}
+                            onChange={(e) => actions.updateBox(b.id, {visible: e.target.checked})}
                             title={b.visible ? "Hide the box" : "Show the box"}
                         />
                         <span className="inline-block h-3 w-3 rounded-sm border border-gray-500" style={{background: b.color}}/>
@@ -55,10 +60,7 @@ const BBoxSelectionSection: React.FC = () => {
                                 type="radio"
                                 name="bbox-active"
                                 checked={activeId === b.id}
-                                onChange={() => {
-                                    setActive(b.id);
-                                    applyBoxSelection(b.id);
-                                }}
+                                onChange={() => actions.activateBox(b.id)}
                             />
                             <span className={b.visible ? "" : "opacity-50"}>{b.label}</span>
                         </label>
@@ -66,16 +68,18 @@ const BBoxSelectionSection: React.FC = () => {
                         <button
                             type="button"
                             className="rounded-sm px-1 text-red-300 hover:bg-gray-500/40"
-                            onClick={() => remove(b.id)}
+                            onClick={() => actions.removeBox(b.id)}
                             aria-label={`Delete ${b.label}`}
                             title="Delete"
                         >
                             ✕
                         </button>
                     </div>
-                    <div className="pl-5">
-                        <BoxRequestStatus boxId={b.id} label={b.label}/>
-                    </div>
+                    {!mirrored && (
+                        <div className="pl-5">
+                            <BoxRequestStatus boxId={b.id} label={b.label}/>
+                        </div>
+                    )}
                 </div>
             ))}
         </div>

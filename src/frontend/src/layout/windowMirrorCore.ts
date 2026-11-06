@@ -12,6 +12,11 @@
 //   * `core:fea-tree` -- the FEA result's set and property rows, the isolation
 //     and what the rows say of the picked element (`@/utils/scene/fea/feaTree`);
 //     its actions are scene actions (`core:fea-isolate`, ...).
+//   * `core:fea-controls` -- the result session's state, with the controls' commands
+//     (`@/utils/scene/fea/feaControls`); `core:fea-table` -- the result data table's
+//     first rows of the main window's query (`@/utils/scene/fea/feaTableMirror`);
+//     `core:scene-info` -- the Scene panel's models, groups, take-off and selection
+//     boxes (`./sceneInfoMirror`).
 //   * the scene actions' commands (`./sceneActions`): `core:run-command` (core's
 //     hide / hide others / show all, clear selection, fits, undo / redo),
 //     `core:select-node`, `core:select-parent`, and the scene tree's row
@@ -26,13 +31,18 @@ import {useObjectInfoStore} from "@/state/objectInfoStore";
 import {useSceneMirrorStore} from "@/state/sceneMirrorStore";
 import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
 import {useTreeViewStore} from "@/state/treeViewStore";
+import {registerSystemsCommands} from "@/utils/systems/systems";
 import {parentLevelName, rowsById, selectedRangeCount} from "@/utils/tree_view/treeSelection";
 
+import {installFeaControls, resetFeaControlsForTests} from "@/utils/scene/fea/feaControls";
+import {installFeaTable, resetFeaTableForTests} from "@/utils/scene/fea/feaTableMirror";
 import {installFeaTree} from "@/utils/scene/fea/feaTree";
 
 import {registerSceneActionCommands, SCENE_ACTION_COMMANDS} from "./sceneActions";
+import {registerSceneInfoTopic, resetSceneInfoTopic} from "./sceneInfoMirror";
 import {registerCoreSceneTreeTopic, resetCoreSceneTreeTopic} from "./sceneTreeMirrorCore";
 import {registerMirrorTopic} from "./windowMirror";
+import {windowBus} from "./windows";
 
 export const SELECTION_TOPIC = "core:selection";
 export const FEA_SESSION_TOPIC = "core:fea-session";
@@ -117,13 +127,22 @@ export function registerCoreMirror(): void {
     apply: (data) => useFeaAnimationStore.setState({sessionActive: data.sessionActive}),
   });
   registerCoreSceneTreeTopic();
+  registerSceneInfoTopic();
   registerSceneActionCommands(rowsById);
+  // The Systems tab's select and load by name.
+  registerSystemsCommands();
   // The FEA result's sets and properties as tree rows, and `core:fea-tree` for a pop-out's.
   installFeaTree();
+  // The result controls (`core:fea-controls`) and the result data table (`core:fea-table`).
+  installFeaControls();
+  installFeaTable(() => windowBus().windows().map((w) => w.id));
 }
 
 /** Forget the registration -- tests only (with `resetMirror`). */
 export function resetCoreMirror(): void {
   registered = false;
   resetCoreSceneTreeTopic();
+  resetSceneInfoTopic();
+  resetFeaControlsForTests();
+  resetFeaTableForTests();
 }

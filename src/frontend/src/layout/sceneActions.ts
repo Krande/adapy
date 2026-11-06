@@ -65,6 +65,35 @@ export interface SceneActions {
     /** Hide (show) the elements of these FEA rows. */
     feaHideRows(ids: readonly string[]): void;
     feaShowRows(ids: readonly string[]): void;
+    /** Show or hide a loaded model (it stays loaded). */
+    setModelVisible(source: string, visible: boolean): void;
+    /** Unload these models (by their source names). */
+    unloadModels(sources: readonly string[]): void;
+    /** Select a group a loaded model carries (its members); null clears the selection. */
+    selectGroup(group: GroupKey | null): void;
+    /** Show or hide a selection box, or change what it selects. */
+    updateBox(id: string, patch: BoxPatch): void;
+    removeBox(id: string): void;
+    /** Make a box the active one and select what it selects. */
+    activateBox(id: string): void;
+    clearBoxes(): void;
+    /** A box around the selection. */
+    boxAroundSelection(): void;
+    /** Run a related action (`@/utils/systems/relatedActions`, by its key) for the model row `row`. */
+    runRelated(row: TreeNodeData, key: string): void;
+}
+
+/** A group a loaded model carries, named as the Groups list names it. */
+export interface GroupKey {
+    source?: string | null;
+    name: string;
+    parent_name: string;
+}
+
+/** What a pop-out may change of a selection box. */
+export interface BoxPatch {
+    visible?: boolean;
+    mode?: "full" | "partial";
 }
 
 /** The core commands a pop-out may run in the main window (`core:run-command`). */
@@ -96,6 +125,15 @@ export const SCENE_ACTION_COMMANDS = {
     feaToggleContext: "core:fea-context",
     feaHideRows: "core:fea-hide-rows",
     feaShowRows: "core:fea-show-rows",
+    setModelVisible: "core:model-visible",
+    unloadModels: "core:unload-models",
+    selectGroup: "core:select-group",
+    updateBox: "core:box-update",
+    removeBox: "core:box-remove",
+    activateBox: "core:box-activate",
+    clearBoxes: "core:box-clear",
+    boxAroundSelection: "core:box-around-selection",
+    runRelated: "core:run-related",
 } as const;
 
 /** Is this page a window without the scene, whose scene panels act through the main window. */
@@ -140,6 +178,16 @@ export const localSceneActions: SceneActions & {selectRowsFromElsewhere(rows: re
     feaToggleContext: () => void feaActions().then((m) => m.toggleFeaContextWireframe()),
     feaHideRows: (ids) => void feaActions().then((m) => m.hideFeaRows(ids)),
     feaShowRows: (ids) => void feaActions().then((m) => m.showFeaRows(ids)),
+    setModelVisible: (source, visible) =>
+        void import("./sceneInfoActions").then((m) => m.setModelVisible(source, visible)),
+    unloadModels: (sources) => void import("./sceneInfoActions").then((m) => m.unloadModels(sources)),
+    selectGroup: (group) => void import("./sceneInfoActions").then((m) => m.selectGroupByKey(group)),
+    updateBox: (id, patch) => void import("./sceneInfoActions").then((m) => m.updateBox(id, patch)),
+    removeBox: (id) => void import("./sceneInfoActions").then((m) => m.removeBox(id)),
+    activateBox: (id) => void import("./sceneInfoActions").then((m) => m.activateBox(id)),
+    clearBoxes: () => void import("./sceneInfoActions").then((m) => m.clearBoxes()),
+    boxAroundSelection: () => void import("./sceneInfoActions").then((m) => m.boxAroundSelection()),
+    runRelated: (row, key) => void import("./sceneInfoActions").then((m) => m.runRelated(row, key)),
 };
 
 const ids = (rows: readonly TreeNodeData[]) => rows.map((r) => String(r.id));
@@ -171,6 +219,15 @@ export function remoteSceneActions(bus: WindowBus = windowBus()): SceneActions {
         feaToggleContext: () => send(SCENE_ACTION_COMMANDS.feaToggleContext),
         feaHideRows: (rowIds) => send(SCENE_ACTION_COMMANDS.feaHideRows, {ids: [...rowIds]}),
         feaShowRows: (rowIds) => send(SCENE_ACTION_COMMANDS.feaShowRows, {ids: [...rowIds]}),
+        setModelVisible: (source, visible) => send(SCENE_ACTION_COMMANDS.setModelVisible, {source, visible}),
+        unloadModels: (sources) => send(SCENE_ACTION_COMMANDS.unloadModels, {sources: [...sources]}),
+        selectGroup: (group) => send(SCENE_ACTION_COMMANDS.selectGroup, {group}),
+        updateBox: (id, patch) => send(SCENE_ACTION_COMMANDS.updateBox, {id, patch}),
+        removeBox: (id) => send(SCENE_ACTION_COMMANDS.removeBox, {id}),
+        activateBox: (id) => send(SCENE_ACTION_COMMANDS.activateBox, {id}),
+        clearBoxes: () => send(SCENE_ACTION_COMMANDS.clearBoxes),
+        boxAroundSelection: () => send(SCENE_ACTION_COMMANDS.boxAroundSelection),
+        runRelated: (row, key) => send(SCENE_ACTION_COMMANDS.runRelated, {ids: [String(row.id)], key}),
     };
 }
 
@@ -268,6 +325,51 @@ export function registerSceneActionCommands(rowsById: (ids: readonly string[]) =
     registerMirrorCommand({id: C.feaToggleContext, run: () => a.feaToggleContext()});
     registerMirrorCommand<{ids: string[]}>({id: C.feaHideRows, run: (args) => a.feaHideRows(argIds(args))});
     registerMirrorCommand<{ids: string[]}>({id: C.feaShowRows, run: (args) => a.feaShowRows(argIds(args))});
+    // The Scene panel's actions: models, groups and selection boxes, named by source, group key and box id.
+    registerMirrorCommand<{source?: unknown; visible?: unknown}>({
+        id: C.setModelVisible,
+        run: (args) => {
+            if (typeof args?.source === "string" && typeof args.visible === "boolean") a.setModelVisible(args.source, args.visible);
+        },
+    });
+    registerMirrorCommand<{sources?: unknown}>({
+        id: C.unloadModels,
+        run: (args) => {
+            const sources = Array.isArray(args?.sources) ? args.sources.filter((s): s is string => typeof s === "string") : [];
+            if (sources.length) a.unloadModels(sources.slice(0, 1000));
+        },
+    });
+    registerMirrorCommand<{group?: unknown}>({
+        id: C.selectGroup,
+        run: (args) => {
+            const g = args?.group as GroupKey | null | undefined;
+            if (g === null) a.selectGroup(null);
+            else if (g && typeof g.name === "string" && typeof g.parent_name === "string" && (g.source == null || typeof g.source === "string")) {
+                a.selectGroup({source: g.source ?? null, name: g.name, parent_name: g.parent_name});
+            }
+        },
+    });
+    registerMirrorCommand<{id?: unknown; patch?: BoxPatch}>({
+        id: C.updateBox,
+        run: (args) => {
+            if (typeof args?.id !== "string") return;
+            const patch: BoxPatch = {};
+            if (typeof args.patch?.visible === "boolean") patch.visible = args.patch.visible;
+            if (args.patch?.mode === "full" || args.patch?.mode === "partial") patch.mode = args.patch.mode;
+            a.updateBox(args.id, patch);
+        },
+    });
+    registerMirrorCommand<{id?: unknown}>({id: C.removeBox, run: (args) => void (typeof args?.id === "string" && a.removeBox(args.id))});
+    registerMirrorCommand<{id?: unknown}>({id: C.activateBox, run: (args) => void (typeof args?.id === "string" && a.activateBox(args.id))});
+    registerMirrorCommand({id: C.clearBoxes, run: () => a.clearBoxes()});
+    registerMirrorCommand({id: C.boxAroundSelection, run: () => a.boxAroundSelection()});
+    registerMirrorCommand<{ids: string[]; key?: unknown}>({
+        id: C.runRelated,
+        run: (args) => {
+            const row = rowsById(argIds(args, 1))[0];
+            if (row && typeof args?.key === "string") a.runRelated(row, args.key);
+        },
+    });
 }
 
 /** Forget the registration -- tests only (with `resetMirror`). */

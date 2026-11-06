@@ -271,6 +271,9 @@ export function corePanelSpecs(): PanelSpec[] {
         (open, s) => s.setShowSceneInfoBox(open),
       ),
       available: () => !nodeEditorOnly(),
+      // In a pop-out window: the Model tab -- loaded models, take-off, groups, selection boxes
+      // (`core:scene-info`); the tabs that act on the scene stay in the main window.
+      capabilities: { mirrored: true },
       placement: column(40),
       toolbar: { order: 70 },
     },
@@ -303,6 +306,8 @@ export function corePanelSpecs(): PanelSpec[] {
         (open, s) => s.setIsControlsVisible(open),
       ),
       available: () => simulationOffered(),
+      // In a pop-out window it shows the main window's result session and drives it (core:fea-controls).
+      capabilities: { mirrored: true },
       constraints: { requiresCanvas: true },
       placement: column(60),
       toolbar: { order: 80 },
@@ -320,7 +325,8 @@ export function corePanelSpecs(): PanelSpec[] {
         (open, s) => s.setPanelOpen(open),
       ),
       available: () => simulationOffered(),
-      capabilities: { keepAlive: true, stackable: false },
+      // In a pop-out window it lists rows the main window sends (core:fea-table).
+      capabilities: { keepAlive: true, stackable: false, mirrored: true },
       placement: classic({ zone: CLASSIC_ZONES.menuColumn, parent: CORE_PANEL_IDS.simulation, as: "section" }),
     },
     {

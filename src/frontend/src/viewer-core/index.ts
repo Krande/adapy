@@ -540,7 +540,28 @@
 //          `builderCompileBrowser`, `builderCommit`, `builderClose`, each greyed
 //          with its reason (no model, read-only, no server compile). The Desktop
 //          UI gains a Build mode. Additive. Ships with PLUGIN_API_VERSION 1.17.0.
-export const VIEWER_CORE_API_VERSION = "1.17.0";
+//   1.18.0 More panels work in a pop-out window. The Simulation panel, the result
+//          data table and the Scene panel (its Model tab) are mirrored
+//          (`capabilities.mirrored`); the scene tree gains the Systems tab and the
+//          row menu's selection box, unload, saved-group and related entries.
+//          New mirror topics `core:fea-controls` (the result session's state:
+//          manifest, field / component / step, transport, toggles, colour scale,
+//          edge fade), `core:fea-table` (the data table's first
+//          `FEA_TABLE_ROW_CAP` rows of the main window's filter and sort, with the
+//          count matched) and `core:scene-info` (loaded models and whether each is
+//          shown, groups without member lists, take-off, selection boxes). The
+//          result controls go through an act seam, `feaControlActions()` /
+//          `useFeaControlActions` (`FeaControlActions`, `localFeaControlActions`,
+//          `remoteFeaControlActions`, `FEA_CONTROL_COMMANDS`), the same play /
+//          pause / stop / step / scale / field / toggle code the main window
+//          runs; `SceneActions` gains `setModelVisible`, `unloadModels`,
+//          `selectGroup`, `updateBox`, `removeBox`, `activateBox`, `clearBoxes`,
+//          `boxAroundSelection` and `runRelated` (mirror commands `core:model-visible`,
+//          `core:unload-models`, `core:select-group`, `core:box-*`,
+//          `core:run-related`). On `@/viewer-core/scene`: the topics and their
+//          snapshot types, `tableRowIndices`. Additive. Ships with
+//          PLUGIN_API_VERSION 1.18.0.
+export const VIEWER_CORE_API_VERSION = "1.18.0";
 
 // ---------------------------------------------------------------------------
 // Plugin declaration. `registerPlugin` is how a package announces itself —

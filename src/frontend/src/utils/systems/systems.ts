@@ -11,6 +11,9 @@ import type { TreeNodeData } from "@/components/tree_view/CustomNode";
 import { nodeRelationsApi, type NodeRelation, type SystemMember } from "@/services/api/nodeRelations";
 import { useAssetBrowserStore } from "@/state/assetBrowserStore";
 import { scopeUrlPart, useScopeStore } from "@/state/scopeStore";
+import { isMirroredWindow } from "@/layout/sceneActions";
+import { registerMirrorCommand, sendMirrorCommand } from "@/layout/windowMirror";
+import { windowBus } from "@/layout/windows";
 import { useTreeViewStore } from "@/state/treeViewStore";
 import { refOfSourceName, type GroupMember } from "@/utils/groups/savedGroups";
 import { buildTreeIndices } from "@/utils/tree_view/treeGraph";
@@ -101,9 +104,20 @@ export async function membersOf(scope: string, collection: string, system: strin
 /** Select what is loaded of `names` -- with `add`, on top of the current selection. Returns how
  *  many draw ranges were selected. */
 export async function selectNames(names: Iterable<string>, label: string, add = false): Promise<number> {
+  const set = new Set(names);
+  // A pop-out window has no scene: the main window selects. How many it found is not known here.
+  if (isMirroredWindow()) {
+    sendMirrorCommand(windowBus(), SELECT_NAMES_COMMAND, { names: [...set].slice(0, MAX_NAMES), label, add });
+    return set.size;
+  }
   const { selectNamedElements } = await import("@/utils/groups/groupScene");
-  return selectNamedElements(new Set(names), label, add);
+  return selectNamedElements(set, label, add);
 }
+
+export const SELECT_NAMES_COMMAND = "core:select-names";
+export const LOAD_MEMBERS_COMMAND = "core:load-members";
+/** Most names or members one request from a pop-out window carries. */
+const MAX_NAMES = 200_000;
 
 /** The runs the elements `names` belong to, each with its system: `[{system, run}]`, once each. */
 export async function runsOf(scope: string, collection: string, names: readonly string[]): Promise<{ system: string; run: string }[]> {
@@ -147,6 +161,36 @@ export function loadPlan(
 /** Load `members` into the scene, each as its whole site with the rest hidden. Resolves a sentence
  *  saying what happened. */
 export async function loadMembers(collection: string, members: readonly SystemMember[], label: string): Promise<string> {
+  if (isMirroredWindow()) {
+    sendMirrorCommand(windowBus(), LOAD_MEMBERS_COMMAND, { collection, members: members.slice(0, MAX_NAMES), label });
+    return `Loading ${label} in the main window.`;
+  }
+  return loadMembersHere(collection, members, label);
+}
+
+/** Let pop-out windows select and load by name here (once per page). */
+let commandsRegistered = false;
+export function registerSystemsCommands(): void {
+  if (commandsRegistered) return;
+  commandsRegistered = true;
+  registerMirrorCommand<{ names?: unknown; label?: unknown; add?: unknown }>({
+    id: SELECT_NAMES_COMMAND,
+    run: (args) => {
+      if (!Array.isArray(args?.names) || typeof args.label !== "string") return;
+      void selectNames(args.names.filter((n): n is string => typeof n === "string"), args.label.slice(0, 500), args.add === true);
+    },
+  });
+  registerMirrorCommand<{ collection?: unknown; members?: unknown; label?: unknown }>({
+    id: LOAD_MEMBERS_COMMAND,
+    run: (args) => {
+      if (typeof args?.collection !== "string" || !Array.isArray(args.members) || typeof args.label !== "string") return;
+      const members = args.members.filter((m): m is SystemMember => !!m && typeof (m as SystemMember).full_name === "string");
+      void loadMembersHere(args.collection, members, args.label.slice(0, 500)).then((s) => console.info(s));
+    },
+  });
+}
+
+async function loadMembersHere(collection: string, members: readonly SystemMember[], label: string): Promise<string> {
   const plan = loadPlan(collection, members, loadedCollections().get(collection.toLowerCase()) ?? new Set());
   if (plan.members.length === 0) {
     return `None of the ${members.length} element${members.length === 1 ? "" : "s"} of ${label} has a published place to load it from.`;

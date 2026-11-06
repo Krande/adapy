@@ -24,31 +24,21 @@ import {useTableNavStore} from "@/state/tableNavStore";
 import {toggle} from "@/layout/panelActions";
 
 /** The result data table, opened and closed as the panel it is (`core:fea-table`). */
-const toggleDataTable = (): void => void toggle(CORE_PANEL_IDS.feaTable);
-import {requestRender, usePerfStore} from "@/state/perfStore";
+// In a pop-out window the table is a section of the Simulation panel there (its flag is this window's own); the panel's own placement is the main window's.
+const toggleDataTable = (): void => (isMirroredWindow() ? useTableNavStore.getState().togglePanel() : void toggle(CORE_PANEL_IDS.feaTable));
+import {edgeFadeSnapshot, subscribeEdgeFade, useFeaControlActions} from "@/utils/scene/fea/feaControls";
+import {isMirroredWindow} from "@/layout/sceneActions";
 
 import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
 import {COLORMAP_NAMES} from "@/utils/scene/fea/colormaps";
 import ResultScaleSettings from "./ResultScaleSettings";
 import AnchoredPopover from "../common/AnchoredPopover";
-import {pauseResults, playResults, setResultFactor, setResultScale, stopResults} from "@/utils/scene/fea/playbackActions";
 import {buildFeaPropertyFields, buildFeaResultHierarchy} from "@/utils/scene/fea/resultHierarchy";
 import {unbakedStepsNote} from "@/utils/scene/fea/bakedSteps";
 import {caseStatusText, hasLazyCases, mergeCaseSteps} from "@/utils/scene/fea/caseSteps";
 import {caseStatus, caseStatusVersion, subscribeCaseStatus} from "@/services/fea/feaCaseResolver";
 import {availableResultLayers} from "@/utils/scene/fea/resultLayers";
 import {selectedResultUnit} from "@/utils/scene/fea/resultUnits";
-import {
-    selectFeaResultComponent,
-    selectFeaResultLayer,
-} from "@/utils/scene/fea/resultSelection";
-import {
-    load_fea_streaming,
-    setBeamSolidsVisible as setBeamSolidsVisibleScene,
-    setFeaResultColorsVisible,
-    setFeaResultPointMarkersVisible,
-    syncFeaOverlayVisibility,
-} from "@/utils/scene/handlers/load_fea_streaming";
 import {fieldHasResultPointMarkers} from "@/utils/scene/fea/resultPointMarkers";
 import {beamSolidsToggleState} from "@/utils/scene/fea/streaming/beamSolidsToggle";
 import {followerUrl} from "@/utils/simChannel";
@@ -153,16 +143,19 @@ export function useSimulationTabs(forcedTabId?: string, opts: {excludeDockedTabs
     // A tab the layout shows in a group or window of its own leaves the strip.
     usePlacedElsewhereVersion();
     const baseCtx = makePluginContext("", stores);
-    const allTabs = getSimulationTabs(baseCtx);
+    // A pop-out window shows the Results tab alone: the plugin tabs, the FE model and the phone
+    // legend read the scene, which only the main window has.
+    const mirrored = isMirroredWindow();
+    const allTabs = mirrored ? [] : getSimulationTabs(baseCtx);
     const tabs = opts.excludeDockedTabs ? withoutDockedTabs(allTabs) : allTabs;
     // Phones: the colour legend is a tab here rather than floating over the canvas.
     const isMobile = useIsMobile();
     const legendShown = useColorStore((s) => s.showLegend);
-    const legendTab = builtin && !forcedTabId && isMobile && sessionActive && legendShown;
+    const legendTab = !mirrored && builtin && !forcedTabId && isMobile && sessionActive && legendShown;
     // The FE model tab: masses, supports, constraints, load scenarios.
     const manifest = useFeaAnimationStore((s) => s.manifest);
     const femHasConcepts = useFemConceptsStore(hasFemConcepts);
-    const modelTab = builtin && !forcedTabId && feModelLoaded({manifest, femHasConcepts});
+    const modelTab = !mirrored && builtin && !forcedTabId && feModelLoaded({manifest, femHasConcepts});
 
     // The last pick, for the model it was made on; a tab that went away (model
     // unloaded, plugin deactivated) falls back to the default.
@@ -286,7 +279,7 @@ const SimulationControls: React.FC<SimulationControlsProps> = ({initialMode = "d
         // utils/simChannel.ts's followerUrl) -- neither works from a file:// tab
         // (every `file:` document is its own unique origin), so the button is
         // omitted there rather than offered and failing.
-        <SimWindowFrame mode={mode} setMode={setMode} onOpenWindow={runtime.isFileOrigin() ? undefined : sim.onOpenWindow}>
+        <SimWindowFrame mode={mode} setMode={setMode} onOpenWindow={runtime.isFileOrigin() || isMirroredWindow() ? undefined : sim.onOpenWindow}>
             <SimulationContent sim={sim}/>
         </SimWindowFrame>
     );
@@ -304,7 +297,8 @@ const AnimationTab: React.FC<{
 }> = ({sessionActive, hasResults, showSimData, onToggleData, display}) => {
     // A shell that docks the data table in a group of its own takes it out of this tab.
     usePlacedElsewhereVersion();
-    const dataElsewhere = isPlacedElsewhere(CORE_PANEL_IDS.feaTable);
+    // (A pop-out window shows it in place: the main window's placement does not apply there.)
+    const dataElsewhere = !isMirroredWindow() && isPlacedElsewhere(CORE_PANEL_IDS.feaTable);
     return (
     <div className="flex flex-col gap-2">
         {sessionActive ? (
@@ -324,7 +318,7 @@ const AnimationTab: React.FC<{
         {/* Plugin-contributed FEM-sidebar panels that did NOT opt into a tab.
             Each is ErrorBoundary-wrapped; renders nothing when no plugin is
             active. `excludeTabs` keeps asTab panels out (the tab host owns them). */}
-        <PluginPanelRegion region="fem-sidebar" excludeTabs />
+        {!isMirroredWindow() && <PluginPanelRegion region="fem-sidebar" excludeTabs />}
     </div>
     );
 };
@@ -458,7 +452,6 @@ const FeaModeControls: React.FC<ControlPanelProps & {display?: ResultControlsOpt
     const {layout = "panel", showWarpToggle = true, showBeamSolids = true, showColorToggle = false} = display;
     const inline = layout === "inline";
     const {
-        mesh,
         range,
         factor,
         period,
@@ -475,52 +468,22 @@ const FeaModeControls: React.FC<ControlPanelProps & {display?: ResultControlsOpt
         layer,
         ipReduction,
         nodalAverage,
-        applyStep,
-        setFactor,
-        setPeriod,
-        setIsPlaying,
-        setStepIndex,
-        setColormap,
-        setWarpEnabled,
-        setScaleFactor,
-        setIpReduction,
-        setNodalAverage,
         beamSolidsVisible,
-        setBeamSolidsVisible,
         beamSolidsUnavailable,
         beamSolidEdgesVisible,
-        setBeamSolidEdgesVisible,
         resultPointMarkersVisible,
         timeHistory,
         envelopeMode,
-        setEnvelopeMode,
-        startFramePreload,
         framePreload,
         resultColorsVisible,
-        setResultColorsVisible,
     } = useFeaAnimationStore();
-    const onResultColorsToggle = (next: boolean) => {
-        setResultColorsVisible(next);
-        setFeaResultColorsVisible(next);
-    };
-
-    const edgeFade = usePerfStore((s) => s.edgeFade);
-    const edgeFadeFullPx = usePerfStore((s) => s.edgeFadeFullPx);
-    const onEdgeFadeChange = (on: boolean, fullPx: number) => {
-        const perf = usePerfStore.getState();
-        perf.setEdgeFade(on);
-        perf.setEdgeFadeFullPx(fullPx);
-        requestRender();
-    };
+    // What the controls do: on this window's scene, or sent to the main window from a pop-out.
+    const actions = useFeaControlActions();
+    // The window of a pop-out has no canvas to export from.
+    const mirrored = isMirroredWindow();
+    const {on: edgeFade, fullPx: edgeFadeFullPx} = useSyncExternalStore(subscribeEdgeFade, edgeFadeSnapshot, edgeFadeSnapshot);
+    const onEdgeFadeChange = (on: boolean, fullPx: number) => actions.setEdgeFade({on, fullPx});
     const beamSolidsToggle = beamSolidsToggleState(manifest, beamSolidsUnavailable);
-    const onToggleBeamSolidEdges = (next: boolean) => {
-        setBeamSolidEdgesVisible(next);
-        syncFeaOverlayVisibility();
-    };
-    const onToggleBeamSolids = (next: boolean) => {
-        setBeamSolidsVisible(next);
-        setBeamSolidsVisibleScene(next);
-    };
     // Options panel toggle — currently houses just the colormap
     // picker. Kept folded by default so the controls row stays
     // single-line; new per-session preferences (background tone,
@@ -611,138 +574,30 @@ const FeaModeControls: React.FC<ControlPanelProps & {display?: ResultControlsOpt
         && activeField?.support !== "element_average";
     const ipReductionOptions = ["max_abs", "max", "min", "mean"];
 
-    // Composite morph influence = slider factor × user-set scale.
-    // Captured in a helper so every load_fea_streaming call site
-    // computes it the same way; missing one would leave a stale
-    // unscaled morph after a field / reduction / step change.
-    const morphInfluence = factor * scaleFactor;
-
-    const onFieldChange = (newFieldName: string) => {
-        void selectFeaResultComponent(newFieldName);
-    };
-
-    const onReductionChange = (newReduction: string) => {
-        if (!sourceName || !manifest || !fieldName) return;
-        void load_fea_streaming({
-            sourceName,
-            manifest,
-            fieldName,
-            stepIndex,
-            reduction: newReduction,
-            displacementScale: morphInfluence,
-        });
-    };
-
-    // The transport's actions live with the store (core's playback toolbar calls the same ones).
-    const onPlay = playResults;
-    const onPause = pauseResults;
-    const onStop = stopResults;
-
+    // The controls' actions (the transport's, the loader's, the pickers'): `useFeaControlActions`,
+    // run here or sent to the main window. Core's playback toolbar calls the same ones.
+    const onFieldChange = actions.selectField;
+    const onReductionChange = actions.setReduction;
+    const onPlay = actions.play;
+    const onPause = actions.pause;
+    const onStop = actions.stop;
     // Manual factor drag: written through to the morph influence at once. The RAF driver
     // only runs while playing, so a direct write is the hook for paused scrubs.
-    const onFactorChange = setResultFactor;
-
+    const onFactorChange = actions.setFactor;
     // A NaN from an in-progress edit (the user clearing the field) is ignored.
-    const onScaleFactorChange = setResultScale;
-    const onStepChange = (newStep: number) => {
-        setStepIndex(newStep);
-        if (applyStep) {
-            // Fire-and-forget: errors surface in the picker's own
-            // error state (the callback is registered there). The
-            // slider doesn't have an error display of its own.
-            void applyStep(newStep);
-        }
-    };
-
-    // Warp toggle re-runs load_fea_streaming so the warp-source
-    // resolution (in load_fea_streaming.resolveWarpSource) re-fires
-    // and the morph attribute updates without a re-fetch of the
-    // color field. Cheap — the field blob is cached.
-    const onWarpToggle = (next: boolean) => {
-        setWarpEnabled(next);
-        if (!sourceName || !manifest || !fieldName) return;
-        void load_fea_streaming({
-            sourceName,
-            manifest,
-            fieldName,
-            stepIndex,
-            reduction,
-            displacementScale: morphInfluence,
-        });
-    };
-
-    // Layer + IP-reduction change. Re-runs load_fea_streaming on the
-    // current (field, step, reduction) so the AFEL kernel re-runs
-    // with the new reduction parameters. Blob is cached so this is
-    // CPU-only after the first apply.
-    const onLayerChange = (next: string) => {
-        void selectFeaResultLayer(next);
-    };
-
-    const onIpReductionChange = (next: string) => {
-        setIpReduction(next);
-        if (!sourceName || !manifest || !fieldName) return;
-        void load_fea_streaming({
-            sourceName,
-            manifest,
-            fieldName,
-            stepIndex,
-            reduction,
-            displacementScale: morphInfluence,
-            colormap,
-        });
-    };
-
-    // Scale over every load combination (the envelope) vs the shown case.
-    // Repaints the current step; the loader falls back to the case's own range,
-    // labelled as such, when the server offers no envelope.
-    const onEnvelopeToggle = (next: boolean) => {
-        setEnvelopeMode(next);
-        if (!sourceName || !manifest || !fieldName) return;
-        void load_fea_streaming({
-            sourceName,
-            manifest,
-            fieldName,
-            stepIndex,
-            reduction,
-            displacementScale: morphInfluence,
-            colormap,
-        });
-    };
-
-    const onNodalAverageToggle = (next: boolean) => {
-        setNodalAverage(next);
-        if (!sourceName || !manifest || !fieldName) return;
-        void load_fea_streaming({
-            sourceName,
-            manifest,
-            fieldName,
-            stepIndex,
-            reduction,
-            displacementScale: morphInfluence,
-            colormap,
-        });
-    };
-
-    const onColormapChange = (next: string) => {
-        // Update the store first so the applyStep closure (which
-        // reads colormap off the store at call time) sees the new
-        // value, then re-run load_fea_streaming on the current
-        // (field, step, reduction) so the mesh re-colours without
-        // re-fetching the blob. Cheap — applyFieldToMesh is the only
-        // work that runs since active.sourceName matches.
-        setColormap(next);
-        if (!sourceName || !manifest || !fieldName) return;
-        void load_fea_streaming({
-            sourceName,
-            manifest,
-            fieldName,
-            stepIndex,
-            reduction,
-            displacementScale: morphInfluence,
-            colormap: next,
-        });
-    };
+    const onScaleFactorChange = actions.setScale;
+    const onStepChange = actions.setStep;
+    // Warp, layer, IP reduction, the envelope, smoothing and the colormap re-run the loader on
+    // the shown (field, step, reduction): the field blob is cached, so it is CPU work only.
+    const onWarpToggle = actions.setWarp;
+    const onLayerChange = actions.setLayer;
+    const onIpReductionChange = actions.setIpReduction;
+    const onEnvelopeToggle = actions.setEnvelope;
+    const onNodalAverageToggle = actions.setNodalAverage;
+    const onColormapChange = actions.setColormap;
+    const onResultColorsToggle = actions.setResultColors;
+    const onToggleBeamSolidEdges = actions.setBeamSolidEdges;
+    const onToggleBeamSolids = actions.setBeamSolids;
 
     // Laid out by the panel's OWN width, not the browser window's: no window
     // breakpoints, rows wrap when they must. In a document the window is wide
@@ -977,7 +832,7 @@ const FeaModeControls: React.FC<ControlPanelProps & {display?: ResultControlsOpt
                 >
                     <FEMDataPanelIcon/>
                 </button>
-                <AnimationExportButton/>
+                {!mirrored && <AnimationExportButton/>}
                 {!inline && (
                 <button
                     className={`${TRANSPORT_BUTTON} ${showOptions ? TRANSPORT_BUTTON_ON : ""}`}
@@ -1025,7 +880,7 @@ const FeaModeControls: React.FC<ControlPanelProps & {display?: ResultControlsOpt
                                 min={0.1}
                                 step={0.1}
                                 value={period}
-                                onChange={(e) => setPeriod(parseFloat(e.target.value))}
+                                onChange={(e) => actions.setPeriod(parseFloat(e.target.value))}
                                 className={`${FIELD_CONTROL} w-12 font-mono tabular-nums`}
                                 aria-label="Oscillation period in seconds"
                             />
@@ -1074,7 +929,7 @@ const FeaModeControls: React.FC<ControlPanelProps & {display?: ResultControlsOpt
                             <input
                                 type="checkbox"
                                 checked={resultPointMarkersVisible}
-                                onChange={(e) => setFeaResultPointMarkersVisible(e.target.checked)}
+                                onChange={(e) => actions.setResultPointMarkers(e.target.checked)}
                             />
                             <span className="text-gray-300">Result points</span>
                         </label>

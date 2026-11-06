@@ -504,9 +504,10 @@ Unhide all, Fit all, Go to object and up-a-level buttons work from a pop-out
 this way.
 
 **The scene tree in a pop-out (`core:scene-tree`).** The selection tree panel is
-`mirrored`. In a pop-out its content is the Scene tree alone (the Sources and
-Systems tabs load into a scene the pop-out does not have), the same component
-and rows as in the main window (`rowExtras`, `rowClassName`, search, the root
+`mirrored`. In a pop-out its content is the Scene tab and, with a server, the
+Systems tab (the Sources tab loads models into a scene the pop-out does not
+have, so it is not offered there), the same component and rows as in the main
+window (`rowExtras`, `rowClassName`, search, the root
 label toggle). The main window publishes one topic, built for large trees
 (`sceneTreeTopic`, root facade, dependency-free):
 
@@ -547,14 +548,75 @@ isolating a small part of a large tree sends close to a code per row (still no
 tree). Rows the main window has no mesh for yet show as "no geometry" until the
 next visibility change, as in the main window.
 
+**The row menu, the Systems tab and related elements.** The pop-out's row menu
+also offers Select with bounding box (`core:box-around-selection`), Unload model
+(`core:unload-models` `{sources}`, the models found in the mirrored tree), Add to
+group... (the same prompt as in the main window: it works on the mirrored tree
+and the saved-groups service, no scene) and the related actions of the row
+(`useRelatedActions` lists them from the relations index; running one is
+`core:run-related` `{ids, key}`, resolved and run in the main window). The
+Systems tab's two scene calls, `selectNames` and `loadMembers`
+(`@/utils/systems/systems`), send `core:select-names` / `core:load-members` from
+a pop-out (so the tab does not know how many it selected there). Loading a node
+from another provider reads the Sources tab and stays in the main window's menu.
+
+**Simulation and result controls (`core:fea-controls`).** The Simulation panel
+and the result data panel are `mirrored`. The result session is one topic of
+plain data (`feaControlsSnapshot`): the manifest (sent when it changes and to a
+window that asks, left out of the other messages), the shown field, component and
+step, the transport (playing, factor, period, scale), the visualisation toggles
+(undeformed, element edges, result colours, warp, beam solids, result points,
+smoothing, envelope), the layer and IP reduction, the colour scale (bands and
+bounds, the colormap), the legend range and the edge fade. A pop-out puts it into
+its own FEA animation store, so the panel's component is the main window's. The
+playing fields (factor, step, preload progress) are throttled to one message per
+100 ms; everything else goes at once. What the controls do goes through one seam,
+`useFeaControlActions()` / `feaControlActions()` (`@/viewer-core/scene`): in the
+main window `localFeaControlActions` runs the play / pause / stop / step / scale
+code of `playbackActions`, the loader and `resultSelection`; in a pop-out
+`remoteFeaControlActions` sends the matching command from `FEA_CONTROL_COMMANDS`
+(`core:fea-play`, `core:fea-step`, `core:fea-set-step`, `core:fea-select-field`,
+`core:fea-set-colormap`, `core:fea-set-contour`, ...), each carrying one checked
+value. Core's playback toolbar and the panel call the same functions. In a pop-out
+the panel shows the Results tab only (the FE model tab, plugin tabs and the phone
+legend tab read the scene), has no animation export button (no canvas) and no
+"open in follower window" button; a glTF animation clip's controls are not
+mirrored.
+
+**Result data (`core:fea-table`).** A node table holds tens of thousands of rows,
+so a pop-out is not sent the step. It sends its query (`core:fea-table-query`
+`{filter, sort}`) to the main window, which reads the shown step while a table
+watches (`core:fea-table-watch` `{on}`), applies the query with the same
+`tableRowIndices` the table uses and publishes the first `FEA_TABLE_ROW_CAP`
+(2000) rows of the answer with how many matched; the table says "Showing the
+first 2000 of N rows" when there are more, and filtering or sorting reaches the
+rest. The eye on a row is `core:fea-goto-node` `{id | null}`, and the marked node
+comes back with the snapshot. Element fields have no node rows (the table says
+so, as in the main window); "Show in data" from the object info panel does not
+reach a pop-out's table.
+
+**Scene info (`core:scene-info`).** The Scene panel is `mirrored` with its Model
+tab: the loaded models (shown or hidden, hide / show, unload, Remove all), the
+take-off, the groups the models carry and the selection boxes (show / hide, make
+active, delete, clear, a box around the selection). The topic carries plain data:
+the model list and visibility, the groups *without* their member lists (a group
+has `member_count`; at most `SCENE_INFO_GROUP_CAP` (5000) groups are sent, sent
+again only when they change), the stats store's take-off and the boxes. The panel
+acts through `useSceneActions` (`setModelVisible`, `unloadModels`, `selectGroup`,
+`updateBox`, `removeBox`, `activateBox`, `clearBoxes`, `boxAroundSelection`;
+commands `core:model-visible`, `core:unload-models`, `core:select-group`,
+`core:box-*`). The other tabs (Overlays, Tools, Clip, Mesh, Clashes, Joints) and
+the Saved groups, Source and face picking / search sections read or change the
+scene directly and stay in the main window: a pop-out does not show them.
+
 What a pop-out can do of each scene panel, and what stays in the main window:
 
 | Panel | Mirrored, and what is not (yet) |
 |---|---|
 | Object info (parts) | Mirrored, buttons included. Still local to the pop-out: the mobile-only "Copy all (n)" (it copies the 3D selection's names, which the pop-out does not hold) and "+ Add mode" (the main window's additive picking); the procedural-cell context (cell names, cell hide, cell add mode: the builder store is not mirrored); "Show in data" (it resolves the picked element on the main window's FEA mesh, so it does not show); the selection download (it reads the 3D selection). |
-| Selection tree (parts) | Mirrored (Scene tab). Not in a pop-out: the Sources and Systems tabs; from the row menu, saved groups, related elements, loading from another provider, unloading one model, the selection box. |
-| Scene info | Not mirrored. Its ~15 sections run scene tools (section planes, face search, clash runs) against the scene directly; each would need its state as a topic and its actions behind the act seam. |
-| Simulation, result data | Not mirrored. The body (`SimulationBody`) reads about 35 FEA store fields at once, among them the three.js result `mesh` whose morph influence the factor / scale controls write directly, and the step and field controls run closures held in the main window's store (`applyStep`, `startFramePreload`) or reload the stream (`load_fea_streaming`, `selectFeaResultComponent`). The body also hosts the colour legend, the FEM concepts panel, the animation export and the result data table, each reading its own stores. What mirroring it needs: (1) a `core:fea-controls` topic with the plain fields the controls render -- `sourceName`, `fieldName`, `reduction`, `stepIndex`, `nSteps`, `isPlaying`, `factor`, `period`, `scaleFactor`, `colormap`, `warpEnabled`, `layer`, `ipReduction`, `nodalAverage`, `envelopeMode`, `timeHistory`, the beam-solid and colour toggles, `framePreload` progress -- plus the manifest's field and step lists (`manifest.fields` reduced to name / per_type / support / surface, the step slots of `mergeCaseSteps`, the case statuses); (2) one command per control (`core:fea-step` {index}, `core:fea-field` {name}, `core:fea-reduction`, play / pause / stop, factor, scale, warp, layer, IP reduction, nodal average, envelope, colormap, the toggles), each running that control's handler in the main window; (3) the handlers moved out of the component behind the act seam, so the body calls them in one path; (4) the legend, FEM concepts, export and data table either mirrored as panels of their own or left out of the pop-out body. |
+| Selection tree (parts) | Mirrored (Scene and, with a server, Systems tabs). Not in a pop-out: the Sources tab; from the row menu, loading a node from another provider. |
+| Scene info | Mirrored, Model tab: loaded models, take-off, groups, selection boxes. Not in a pop-out: the Overlays, Tools, Clip, Mesh, Clashes and Joints tabs, and the Saved groups, Source and face picking / search sections (they run scene tools against the scene). |
+| Simulation, result data | Mirrored (`core:fea-controls`, `core:fea-table`): the Results tab with every control, the colour scale dialog and the data table (rows capped at 2000, filter and sort in the main window). Not in a pop-out: the FE model tab, plugin tabs, the animation export, the follower-window button, a glTF animation clip's controls. |
 
 The transport is an interface (`WindowBusTransport`: `post`, `subscribe`,
 `close`), so a relay over a websocket could join windows across browsers later
@@ -565,9 +627,10 @@ without the panels changing.
 | The bus (root) | `createWindowBus`, `WindowBus`, `WindowBusMessage`, `broadcastTransport`, `memoryTransportHub`, `nullTransport`, `windowBusChannelName`, `MAIN_WINDOW_ID`, `sendPanel`, `acceptPanels`, `panelsToReturn`, the dashboard record helpers, `nextWindowId` |
 | URLs (root) | `WINDOW_PARAM`, `POPOUT_PARAM`, `popoutWindowId`, `popoutPanelId`, `isPopoutPage`, `windowUrl`, `popoutUrl`, `openWindow`, `canPopOut` |
 | Mirroring (root) | `registerMirrorTopic` (`MirrorTopic.delta`, `apply` returning `false`), `registerMirrorCommand`, `hostMirror`, `followMirror`, `sendMirrorCommand`, `capabilities.mirrored`; for trees: `sceneTreeTopic`, `flattenTree`, `buildTree`, `SceneTreeSource` / `SceneTreeSink`, `ROW_VISIBILITY_CODES`, `SCENE_TREE_CHUNK` |
-| Scene tree mirror (`/layout`) | `SCENE_TREE_TOPIC`, `coreSceneTreeSource`, `coreSceneTreeSink`, `useSceneMirrorStore` |
+| Scene tree mirror (`/layout`) | `SCENE_TREE_TOPIC`, `coreSceneTreeSource`, `coreSceneTreeSink`, `useSceneMirrorStore`, `SCENE_INFO_TOPIC`, `SCENE_INFO_GROUP_CAP`, `SceneInfoSnapshot` |
+| Result controls (`/scene`) | `FEA_CONTROLS_TOPIC`, `feaControlActions`, `useFeaControlActions`, `localFeaControlActions`, `remoteFeaControlActions`, `FEA_CONTROL_COMMANDS`, `FeaControlActions`, `FeaControlsSnapshot`, `FEA_TABLE_TOPIC`, `FEA_TABLE_ROW_CAP`, `FeaTableSnapshot`, `tableRowIndices` |
 | This page (`/layout`) | `windowBus`, `useOpenWindows`, `useThisWindow`, `useMainWindowLive`, `moveToWindowItem`, `openNewWindow`, `reopenWindows`, `installMainWindow`, `GridOps` / `GridOpsProvider`, `PopoutPage` |
-| Acting (`/layout`) | `useSceneActions`, `sceneActions`, `remoteSceneActions`, `isMirroredWindow`, `SceneActions`, `RowSelectMode`, `SCENE_ACTION_COMMANDS`, `MIRRORED_CORE_COMMANDS` |
+| Acting (`/layout`) | `useSceneActions`, `sceneActions`, `remoteSceneActions`, `isMirroredWindow`, `SceneActions`, `GroupKey`, `BoxPatch`, `RowSelectMode`, `SCENE_ACTION_COMMANDS`, `MIRRORED_CORE_COMMANDS` |
 
 ### Core's mode toolbars
 
