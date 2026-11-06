@@ -5,6 +5,8 @@ import {runtime} from "@/runtime/config";
 import {dispatchPluginUrlParams} from "@/plugins/urlParams";
 import {isStreamingFEAResult} from "@/utils/scene/fileKinds";
 import {pollUntilTerminal} from "@/hooks/useJobPoll";
+import {carryDeepLinkOnShellSwitch} from "@/hooks/deepLinkCarry";
+import {useModelState} from "@/state/modelState";
 
 // Consume ``?scope=...&file=...`` query params on viewer mount.
 //
@@ -22,6 +24,8 @@ import {pollUntilTerminal} from "@/hooks/useJobPoll";
 // The query string is stripped from window.location after consumption
 // so a manual reload doesn't re-trigger the load (and doesn't leak
 // the scope id into bookmarks / shares more than the user intended).
+// A UI-shell switch is the exception: it puts the params back into its
+// reload URL while the file is still loaded (see deepLinkCarry.ts).
 //
 // REST-only; in WS / desktop builds we never get here.
 
@@ -71,6 +75,12 @@ export function useUrlParamLoad(): void {
             // exist under the active scope and the user sees a clear
             // 404 in the conversion toast.
         }
+
+        // A UI-shell switch reloads the page as well, and must bring the
+        // file along: remember the params before they go (deepLinkCarry).
+        const carry = carryDeepLinkOnShellSwitch(window.location.search, () =>
+            useModelState.getState().loadedSourceNames.has(fileParam),
+        );
 
         // Strip the params from the URL right away so a reload doesn't
         // re-fire. We keep the pathname (so /scopes/foo deep links
@@ -129,6 +139,6 @@ export function useUrlParamLoad(): void {
                 console.warn("[useUrlParamLoad] load failed for", fileParam, err);
             }
         };
-        void pump();
+        void pump().finally(() => carry.settle());
     }, [available, setCurrent]);
 }
