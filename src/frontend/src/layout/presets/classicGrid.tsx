@@ -151,7 +151,7 @@ export const CLASSIC_GRID_OPS: GridOps = {
 const GridOpsContext = React.createContext<GridOps>(CLASSIC_GRID_OPS);
 
 /** Draw the grid below with `ops` instead of the classic frame's. */
-export const GridOpsProvider: React.FC<{ops: GridOps; children: React.ReactNode}> = ({ops, children}) => (
+export const GridOpsProvider: React.FC<{ops: GridOps; children?: React.ReactNode}> = ({ops, children}) => (
   <GridOpsContext.Provider value={ops}>{children}</GridOpsContext.Provider>
 );
 
