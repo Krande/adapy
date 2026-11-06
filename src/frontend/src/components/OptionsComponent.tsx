@@ -3,7 +3,6 @@ import {CollapsibleSection} from "@/components/ui/CollapsibleSection";
 import React, {Suspense} from "react";
 import {useIsNarrow} from "@/utils/useIsMobile";
 import {runtime} from "@/runtime/config";
-import {useOptionsStore} from "@/state/optionsStore";
 import {CORE_PANEL_IDS, hide} from "@/layout/panelActions";
 import PointSizeOptions from "./options/PointSizeOptions";
 import DisplayOptions from "./options/DisplayOptions";

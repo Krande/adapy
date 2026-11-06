@@ -90,7 +90,6 @@ import {
   classicToolbarShown,
   dropPanel,
   openStartingPanels,
-  homeOf,
   moveAction,
   shownPlace,
   useClassicDoc,
