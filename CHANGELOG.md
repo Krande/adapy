@@ -2,6 +2,15 @@
 
 
 
+## v0.134.0 (2026-11-06)
+
+### Feature
+
+* feat(frontend): panel system phases 2-3, split grid, composed UI shells and staged-file cleanup (#495)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`3adf973`](https://github.com/Krande/adapy/commit/3adf97309ffb0626e672043ad2d1f0e7f6203c8a))
+
+
 ## v0.133.0 (2026-11-05)
 
 ### Feature
