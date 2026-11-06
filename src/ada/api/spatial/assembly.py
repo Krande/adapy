@@ -83,7 +83,12 @@ class FemJob:
 
         res_path = default_fem_res_path(self.name, scratch_dir=self.scratch_dir).get(self.fem_format)
         if executed and self.options.get("return_fea_results", True) and res_path is not None and res_path.exists():
-            res = postprocess(res_path, fem_format=self.fem_format)
+            if self.options.get("lazy"):
+                from ada.fem.results.open_result import open_result
+
+                res = open_result(res_path)
+            else:
+                res = postprocess(res_path, fem_format=self.fem_format)
         else:
             res = FEAResult(
                 self.name,
@@ -248,6 +253,7 @@ class Assembly(Part):
         write_input_files_only=False,
         report_file: str | os.PathLike | None = None,
         formulations=None,
+        lazy: bool = False,
     ) -> FEAResult:
         """
         Create a FEM input file deck for executing fem analysis in a specified FEM format.
@@ -256,6 +262,10 @@ class Assembly(Part):
         with ``execute``, or before: a finished run's result file is reused unless ``overwrite``); else one with
         ``executed`` False and no fields, whose ``execute()`` runs the deck written here (``execute(overwrite=True)``
         writes the model again and runs it again).
+
+        ``lazy``: the results read case by case, as ``ada.from_fem_res(path, lazy=True)`` reads them -- the mesh,
+        the model data a structural check reads and ``FEAResult.cases`` (Sesam and Code_Aster) -- instead of every
+        step read up front.
         Currently there is limited write support for the following FEM formats:
 
         Open Source
@@ -335,6 +345,7 @@ class Assembly(Part):
                 model_data_only=model_data_only,
                 report_file=report_file,
                 formulations=formulations,
+                lazy=lazy,
             ),
         )
 

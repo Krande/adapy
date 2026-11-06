@@ -30,6 +30,18 @@ def test_from_fem_res_lazy_reads_the_cases_one_at_a_time(fem_files):
     assert res.mesh.thickness
 
 
+def test_to_fem_lazy_returns_the_cases_to_read_one_at_a_time(tmp_path, require_solver):
+    require_solver("code_aster")
+    from ada.fem.results.field_data import FieldRole
+
+    a = _stiffened_plate()
+    fea = a.to_fem("lz", "code_aster", scratch_dir=tmp_path, overwrite=True, execute=True, lazy=True)
+    assert fea.executed and fea.results == [] and fea.cases.names == {1: "pull"}
+    assert fea.mesh.thickness and fea.mesh.element_frames
+    ((case, step),) = fea.cases.iter_steps([1], roles=[FieldRole.SHELL_STRESS])
+    assert case == 1 and all(f.role == FieldRole.SHELL_STRESS for f in step.results) and step.results
+
+
 def test_execute_runs_the_written_deck_and_overwrite_runs_it_again(tmp_path, require_solver):
     require_solver("code_aster")
     a = _stiffened_plate()
