@@ -24,7 +24,7 @@
 import React, {Suspense, createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState} from "react";
 import {createPortal} from "react-dom";
 
-import type {PanelAction, PanelFrameProps} from "@/layout/panel";
+import type {PanelAction, PanelFrameProps, PanelMenuItem} from "@/layout/panel";
 import {PANEL_ACTIONS_ATTR, ZONE_ATTR, ZONE_PANEL_ATTR} from "@/layout/zoneKeys";
 import {
   WINDOW_CARD,
@@ -103,6 +103,51 @@ function actionButton(a: PanelAction) {
 }
 
 const MENU_ITEM = "menuitem";
+const MENU_ITEM_CLASS =
+  "flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-white/10 focus:bg-white/10 focus:outline-none disabled:text-gray-500 disabled:hover:bg-transparent";
+
+/** A submenu's items, resolved now. */
+function subItems(item: PanelMenuItem): readonly PanelMenuItem[] {
+  const it = item.items;
+  if (!it) return [];
+  try {
+    return typeof it === "function" ? it() : it;
+  } catch (err) {
+    console.warn(`[layout] the submenu "${item.label}" failed`, err);
+    return [];
+  }
+}
+
+function MenuItemButton({item, onRun, onBack}: {item: PanelMenuItem; onRun(): void; onBack?: () => void}) {
+  return (
+    <button
+      type="button"
+      role={MENU_ITEM}
+      disabled={item.disabled}
+      aria-current={item.current || undefined}
+      className={MENU_ITEM_CLASS}
+      onClick={() => {
+        onRun();
+        item.run();
+      }}
+      onKeyDown={
+        onBack
+          ? (e) => {
+              if (e.key !== "ArrowLeft") return;
+              e.preventDefault();
+              e.stopPropagation();
+              onBack();
+            }
+          : undefined
+      }
+    >
+      <span className="w-2 text-blue-400" aria-hidden="true">
+        {item.current ? "•" : ""}
+      </span>
+      {item.label}
+    </button>
+  );
+}
 
 /**
  * A title-bar button opening its action's menu, drawn on the page body so no
@@ -111,10 +156,17 @@ const MENU_ITEM = "menuitem";
  */
 export function WindowHeaderMenuButton({action}: {action: PanelAction}) {
   const [at, setAt] = useState<{top: number; right: number} | null>(null);
+  // The submenu shown, by item id.
+  const [expanded, setExpanded] = useState<string | null>(null);
   const button = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLDivElement>(null);
   const items = () => Array.from(menu.current?.querySelectorAll<HTMLElement>(`[role="${MENU_ITEM}"]:not([disabled])`) ?? []);
+  useEffect(() => {
+    if (!expanded) return;
+    menu.current?.querySelector<HTMLElement>(`[role="group"] [role="${MENU_ITEM}"]:not([disabled])`)?.focus();
+  }, [expanded]);
   const close = (refocus: boolean) => {
+    setExpanded(null);
     setAt(null);
     if (refocus) button.current?.focus();
   };
@@ -180,25 +232,56 @@ export function WindowHeaderMenuButton({action}: {action: PanelAction}) {
             style={{top: at.top, right: at.right}}
             onKeyDown={onKeyDown}
           >
-            {action.menu!.map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                role={MENU_ITEM}
-                disabled={item.disabled}
-                aria-current={item.current || undefined}
-                className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-white/10 focus:bg-white/10 focus:outline-none disabled:text-gray-500 disabled:hover:bg-transparent"
-                onClick={() => {
-                  close(false);
-                  item.run();
-                }}
-              >
-                <span className="w-2 text-blue-400" aria-hidden="true">
-                  {item.current ? "•" : ""}
-                </span>
-                {item.label}
-              </button>
-            ))}
+            {action.menu!.map((item) => {
+              if (!item.items) return <MenuItemButton key={item.id} item={item} onRun={() => close(false)} />;
+              const open = expanded === item.id;
+              const sub = open ? subItems(item) : [];
+              return (
+                <React.Fragment key={item.id}>
+                  <button
+                    type="button"
+                    role={MENU_ITEM}
+                    disabled={item.disabled}
+                    aria-haspopup="menu"
+                    aria-expanded={open}
+                    data-submenu={item.id}
+                    className={MENU_ITEM_CLASS}
+                    onClick={() => setExpanded(open ? null : item.id)}
+                    onKeyDown={(e) => {
+                      if (e.key !== "ArrowRight" || open) return;
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setExpanded(item.id);
+                    }}
+                  >
+                    <span className="w-2" aria-hidden="true" />
+                    <span className="flex-1">{item.label}</span>
+                    <span aria-hidden="true" className="text-gray-400">
+                      {open ? "▾" : "▸"}
+                    </span>
+                  </button>
+                  {open && (
+                    <div role="group" aria-label={item.label} className="border-l border-gray-600 ml-4">
+                      {sub.length === 0 ? (
+                        <div className="px-3 py-1.5 text-gray-500">Nothing to choose</div>
+                      ) : (
+                        sub.map((s) => (
+                          <MenuItemButton
+                            key={s.id}
+                            item={s}
+                            onRun={() => close(false)}
+                            onBack={() => {
+                              setExpanded(null);
+                              menu.current?.querySelector<HTMLElement>(`[data-submenu="${item.id}"]`)?.focus();
+                            }}
+                          />
+                        ))
+                      )}
+                    </div>
+                  )}
+                </React.Fragment>
+              );
+            })}
           </div>,
           document.body,
         )}

@@ -400,6 +400,51 @@ export {
 export type { RegisteredShortcut, ShortcutKeys, ShortcutSpec } from "@/layout/shortcuts";
 // A panel in a browser window of its own (dependency-free).
 export { POPOUT_PARAM, canPopOut, openPopout, popoutPanelId, popoutUrl } from "@/layout/popout";
+// Multi-window dashboards: the bus between the browser windows of one session (dependency-free).
+export {
+  HEARTBEAT_MS,
+  LEAVE_GRACE_MS,
+  MAIN_WINDOW_ID,
+  MAIN_WINDOW_LABEL,
+  MOVE_ACK_MS,
+  STALE_MS,
+  acceptPanels,
+  broadcastTransport,
+  closedDashboardWindows,
+  createWindowBus,
+  defaultWindowLabel,
+  emptyDashboard,
+  findWindow,
+  forgetWindow,
+  isWindowBusMessage,
+  isWindowId,
+  mainWindowLive,
+  memoryTransportHub,
+  nextWindowId,
+  nullTransport,
+  panelsToReturn,
+  readDashboard,
+  recordWindow,
+  sendPanel,
+  windowBusChannelName,
+  windowLabel,
+  windowShowing,
+} from "@/layout/windowBus";
+export type {
+  DashboardRecord,
+  DashboardWindow,
+  OutgoingWindowMessage,
+  SendPanelOptions,
+  WindowBus,
+  WindowBusMessage,
+  WindowBusMessageType,
+  WindowBusOptions,
+  WindowBusTransport,
+  WindowGoneReason,
+  WindowId,
+  WindowInfo,
+  WindowPresence,
+} from "@/layout/windowBus";
 export { isComposedShell } from "@/plugins/uiShells";
 // Core's panel ids, for a composed shell's `layout` (dependency-free: the ids alone).
 export { CORE_PANEL_IDS, CORE_PANEL_OWNER } from "@/layout/corePanelIds";

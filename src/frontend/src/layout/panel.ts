@@ -59,6 +59,12 @@ export interface PanelCapabilities {
   fill: boolean;
   /** It may be pinned, so it stays open and placed across a shell's modes. Default true. */
   pinnable: boolean;
+  /**
+   * It works in a pop-out window from state the main window mirrors to it, and
+   * acts through the main window (`./windowMirror`), so it may go there although
+   * it reads the scene. Default false.
+   */
+  mirrored: boolean;
 }
 
 export const DEFAULT_PANEL_CAPABILITIES: Readonly<PanelCapabilities> = Object.freeze({
@@ -71,6 +77,7 @@ export const DEFAULT_PANEL_CAPABILITIES: Readonly<PanelCapabilities> = Object.fr
   stackable: true,
   fill: false,
   pinnable: true,
+  mirrored: false,
 });
 
 /** Where a panel can live at all. */
@@ -170,6 +177,12 @@ export interface PanelMenuItem {
   disabled?: boolean;
   /** Marks where the panel is now. */
   current?: boolean;
+  /**
+   * A submenu instead of an action (`run` is then not called): its items, or a
+   * function giving them when the submenu opens (a list that changes, the open
+   * windows say).
+   */
+  items?: readonly PanelMenuItem[] | (() => readonly PanelMenuItem[]);
 }
 
 /**
