@@ -430,6 +430,15 @@
 //          dashboard stays that shell's through an in-place switch, and a
 //          pop-out it opens boots into it). Behaviour change: a switch between
 //          core's UI and the Desktop UI no longer reloads the page.
+//          The command palette is core's, in every UI: core's root mounts it
+//          once (`CorePaletteHost` on `@/viewer-core/layout`), core's shortcut
+//          `core:command-palette` (Ctrl+K, now in `RESERVED_SHORTCUTS`) opens it,
+//          core registers its command, and core's own UI gets a palette button
+//          and core's commands. `UiShellChrome.commandPalette` may be `false` (off
+//          while the shell is active); its `keys` add a chord beside Ctrl+K.
+//          Behaviour change: a composed shell no longer mounts a palette of its
+//          own, and the palette is on unless a shell turns it off. "Reset every
+//          mode's layout" is greyed, with the reason, in a UI without modes.
 export const VIEWER_CORE_API_VERSION = "1.14.0";
 
 // ---------------------------------------------------------------------------

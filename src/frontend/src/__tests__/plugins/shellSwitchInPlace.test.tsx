@@ -17,7 +17,7 @@ const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const U = await import("@/plugins/uiShells");
 const { default: UiShellHost, CORE_ROOT_KEY, shellRootKey } = await import("@/plugins/UiShellHost");
-const { default: ComposedLayout, COMMAND_PALETTE_COMMAND } = await import("@/layout/ComposedLayout");
+const { default: ComposedLayout } = await import("@/layout/ComposedLayout");
 const C = await import("@/layout/commands");
 const S = await import("@/layout/shortcuts");
 const O = await import("@/layout/viewportOverlays");
@@ -169,7 +169,7 @@ test("an in-place switch swaps the layout's shell without remounting the layout,
     id: "t-desk",
     label: "Desk",
     layout: { modes: [{ id: "model", label: "Model" }, { id: "results", label: "Results" }] },
-    chrome: { header: header("data-desk-header"), commandPalette: { keys: "Alt+Shift+P" }, toolbar: false },
+    chrome: { header: header("data-desk-header"), toolbar: false },
     panels: { "t:hidden-by-desk": { available: false } },
   };
   // A plugin's shell whose chrome registers a HUD when its module loads (once a page) and a command while mounted.
@@ -212,16 +212,12 @@ test("an in-place switch swaps the layout's shell without remounting the layout,
   assert.equal(P.classicShellId(), "t-desk");
   assert.equal(P.classicToolbarShown(), false);
   assert.deepEqual(M.listShellModes().map((m) => m.id), ["model", "results"]);
-  assert.ok(C.getCommand(COMMAND_PALETTE_COMMAND), "its palette command");
-  assert.ok(S.listShortcuts().some((s) => s.keys === "Alt+Shift+P"), "and the palette's key");
   assert.ok(!listPanels().some((p) => p.id === "t:hidden-by-desk"), "its panel overrides");
 
   await show(plug);
   assert.equal(el.querySelector("[data-probe]"), node);
   assert.equal(el.querySelector("[data-desk-header]"), null, "the previous header is gone");
   assert.ok(el.querySelector("[data-plug-header]"));
-  assert.equal(C.getCommand(COMMAND_PALETTE_COMMAND), undefined, "the previous shell's palette command went with it");
-  assert.ok(!S.listShortcuts().some((s) => s.keys === "Alt+Shift+P"), "and its key");
   assert.deepEqual(M.listShellModes(), [], "and its modes");
   assert.ok(listPanels().some((p) => p.id === "t:hidden-by-desk"), "and its overrides");
   assert.ok(C.getCommand("plug:do"));

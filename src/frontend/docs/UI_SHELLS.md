@@ -129,8 +129,9 @@ the camera, the selection, hidden objects, the FEA result on screen, open
 panels (shown at their place in the shell switched to), the undo history, every
 store. Swapped: the shell's header, footer and rail, its modes, its arrangements
 (each shell keeps its own saved documents), the top bar, panel overrides, theme
-tokens and body palette. The shell left behind is cleaned up: its palette command
-and key go, a mode that owned the scene colouring hands it back, and for a
+tokens and body palette. The command palette is core's and stays (its extra chord
+follows the shell). The shell left behind is cleaned up: a mode that owned the
+scene colouring hands it back, and for a
 plugin's shell everything its plugin registered while the shell was up (commands,
 shortcuts, HUDs over the view: its chrome's) is taken down and given back when
 the shell returns. What the plugin registered before its shell came up (its
@@ -270,7 +271,7 @@ the chrome it draws in the slots.
 | Chrome | `chrome.header`, `footer`, `rail` | Lazy slots above, below and left of the layout (menu bar, status bar, tool rail). |
 | | `chrome.toolbar` | Core's top bar of panel toggles over the view (default on). |
 | | `chrome.groups` | Group header actions `"add"` / `"collapse"` / `"pin"`, and `tabIcons`. Pinned panels stay placed across modes. |
-| | `chrome.commandPalette: {keys}` | The palette over every command (`registerCommand`; core adds panels and modes). `MenuBar` draws menus of command ids. |
+| | `chrome.commandPalette: {keys} \| false` | The palette over every command (`registerCommand`; core adds its own, panels and modes) is core's, in every UI (core's own UI, composed shells, shells with `load` under `AppRoot`), mounted once under core's root and opened by core's Ctrl+K (`core:command-palette`, reserved, not while typing in a field; the browser's own Ctrl+K is taken over) or `openCommandPalette()`. `keys` adds a chord of the shell's own beside Ctrl+K; `false` turns the palette off while the shell is active. Absent: on. `MenuBar` draws menus of command ids. |
 | | `chrome.overlays: {legend, pluginPanels}` | HUD anchors over the view for core's colour legend and `overlay`-dock plugin panels; `registerViewportOverlay` adds the shell's own. |
 | | `chrome.pageHeader` | The shell's title bar over core's `/convert` and `/admin` pages. |
 | Panels | `panels: {[id]: PanelOverride}` | A core (or plugin) panel's title, icon, modes, capabilities and content `options` (`SceneBodyProps`, `StorageBodyProps`, ...; or a function of the mode), without a copy. |

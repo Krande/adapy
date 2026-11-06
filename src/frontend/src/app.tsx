@@ -14,6 +14,7 @@ import {isPopoutPage, popoutPanelId} from "@/layout/popout";
 import {thisWindowId} from "@/layout/windows";
 import {useComposedShellLook} from "@/layout/shellTheme";
 import {panelBodyAttrs} from "@/components/ui/panelChrome";
+import {CorePaletteHost} from "@/layout/CommandPalette";
 
 // The core panel catalogue loads each panel's classic component and content
 // through this module (`import("@/app")`), so they come out of this shell's own
@@ -176,6 +177,8 @@ export function AppRoot({children}: {children: React.ReactNode}) {
     return (
         <AdaViewerProvider>
             <ViewerBootstrap/>
+            {/* The command palette (Ctrl+K), in every UI; here, so a shell switch keeps one. */}
+            <CorePaletteHost/>
             {isRestMode ? (
                 <Suspense fallback={null}>
                     <AuthGate>{children}</AuthGate>

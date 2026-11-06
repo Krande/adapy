@@ -41,6 +41,7 @@ import {
 import {openCoreDialog} from "./coreDialogs";
 import {registerCommand, unregisterCommand, type CommandSpec} from "./commands";
 import {layoutStore} from "./layoutStore";
+import {listShellModes} from "./shellModes";
 import {deleteWorkspace, listWorkspaces, loadWorkspace, resetArrangement, saveWorkspace} from "./presets/classicPlace";
 import {openNewWindow, thisWindowId, windowBus} from "./windows";
 import {MAIN_WINDOW_ID} from "./windowBus";
@@ -315,7 +316,14 @@ export function coreCommandSpecs(): CommandSpec[] {
       },
     },
     {id: ID.resetLayout, label: "Reset layout", group: "Window", run: () => resetArrangement()},
-    {id: ID.resetAllLayouts, label: "Reset every mode's layout", group: "Window", run: () => resetArrangement(true)},
+    {
+      id: ID.resetAllLayouts,
+      label: "Reset every mode's layout",
+      group: "Window",
+      // Core's own UI (and a shell without modes) has one layout: "Reset layout" is the one.
+      disabledReason: () => (listShellModes().length ? null : "This user interface has no modes"),
+      run: () => resetArrangement(true),
+    },
     {
       id: ID.saveWorkspace,
       label: "Save workspace…",

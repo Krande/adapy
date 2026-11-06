@@ -73,6 +73,9 @@ import {installMainWindow, windowBus} from "../windows";
 import {hostMirror} from "../windowMirror";
 import {registerCoreMirror} from "../windowMirrorCore";
 import {ShortcutKeys} from "../ShortcutKeys";
+import {COMMAND_PALETTE_SHORTCUT, openCommandPalette, paletteConfig} from "../CommandPalette";
+import {activeUiShellId, getUiShell} from "@/plugins/uiShells";
+import {coreShortcutKeys} from "../shortcuts";
 import {ViewportOverlays} from "../ViewportOverlayLayer";
 import {offeredInMode} from "../shellModes";
 import {
@@ -171,6 +174,19 @@ function ClassicToolbar({nodeEditorOnly}: {nodeEditorOnly: boolean}) {
       {before.map(button)}
       <PluginTopBarButtons navBtnClass={(active) => navBtnClass(active)} />
       {after.map(button)}
+      {/* Every command by name: the palette core draws in every UI. */}
+      {paletteConfig(getUiShell(activeUiShellId())).on && <button
+        className={navBtnClass(false)}
+        onClick={openCommandPalette}
+        title={`Command palette (${coreShortcutKeys(COMMAND_PALETTE_SHORTCUT) ?? "Ctrl+K"})`}
+        aria-label="Command palette"
+        data-command-palette-button=""
+      >
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+          <circle cx="11" cy="11" r="6" />
+          <path d="M20 20l-4.5-4.5" />
+        </svg>
+      </button>}
       {customisable && <MinimisedTray />}
     </div>
   );

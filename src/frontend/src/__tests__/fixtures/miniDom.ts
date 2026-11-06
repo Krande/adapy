@@ -206,6 +206,28 @@ export function setLocation(href: string): void {
   location.href = href;
 }
 
+const windowListeners = new Map<string, Set<(e: unknown) => void>>();
+
+/** Press a key on the page: a keydown on the window, from `target` (the body by default). False when it was prevented. */
+export function pressKey(key: string, mods: { ctrl?: boolean; shift?: boolean; alt?: boolean } = {}, target: unknown = miniDocument.body): boolean {
+  const e = {
+    type: "keydown",
+    key,
+    ctrlKey: !!mods.ctrl,
+    shiftKey: !!mods.shift,
+    altKey: !!mods.alt,
+    metaKey: false,
+    repeat: false,
+    target,
+    defaultPrevented: false,
+    preventDefault() {
+      e.defaultPrevented = true;
+    },
+  };
+  (win.dispatchEvent as (e: unknown) => boolean)(e);
+  return !e.defaultPrevented;
+}
+
 const win: Record<string, unknown> = {
   document: miniDocument,
   location,
@@ -217,9 +239,15 @@ const win: Record<string, unknown> = {
   localStorage: storage,
   sessionStorage: storage,
   devicePixelRatio: 1,
-  addEventListener() {},
-  removeEventListener() {},
-  dispatchEvent: () => true,
+  addEventListener: (type: string, fn: (e: unknown) => void) => {
+    if (!windowListeners.has(type)) windowListeners.set(type, new Set());
+    windowListeners.get(type)!.add(fn);
+  },
+  removeEventListener: (type: string, fn: (e: unknown) => void) => void windowListeners.get(type)?.delete(fn),
+  dispatchEvent: (e: { type: string }) => {
+    for (const fn of [...(windowListeners.get(e.type) ?? [])]) fn(e);
+    return true;
+  },
   matchMedia: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }),
   getComputedStyle: () => new MiniStyle(),
   requestAnimationFrame: (cb: (t: number) => void) => setTimeout(() => cb(Date.now()), 0),

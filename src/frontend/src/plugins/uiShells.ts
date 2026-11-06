@@ -114,10 +114,12 @@ export interface UiShellChrome {
   rail?: () => Promise<{ default: React.ComponentType }>;
   /**
    * The command palette over every registered command, core's panels and modes
-   * included (`openCommandPalette()` opens it from the shell's own button), and
-   * the key that opens it. Absent: no palette.
+   * included. A core feature in every UI, opened by core's Ctrl+K
+   * (`core:command-palette`) and by `openCommandPalette()` (a shell's own
+   * button). `keys` adds a chord of the shell's own; `false` turns the palette
+   * off while this shell is active. Absent: on, with Ctrl+K.
    */
-  commandPalette?: { keys?: string };
+  commandPalette?: { keys?: string } | false;
   /**
    * HUDs over the 3D view: where core's colour legend goes (the canvas then draws
    * none of its own), and where plugin panels that name the `overlay` dock stack.

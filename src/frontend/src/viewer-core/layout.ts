@@ -131,7 +131,17 @@ export { OverlayPortal, TransformedHost, useInTransformedHost } from "@/componen
 // ---------------------------------------------------------------------------
 export { LayoutHost, PanelMount, lazyPanelBody, useLayout, usePanelStates, zonePanels } from "@/layout/LayoutHost";
 export { PanelToggles } from "@/layout/PanelToggles";
-export { CommandPaletteHost, MenuBar, closeCommandPalette, offeredMenuItems, openCommandPalette } from "@/layout/CommandPalette";
+export {
+  COMMAND_PALETTE_COMMAND,
+  COMMAND_PALETTE_SHORTCUT,
+  CommandPaletteHost,
+  CorePaletteHost,
+  MenuBar,
+  closeCommandPalette,
+  offeredMenuItems,
+  openCommandPalette,
+  paletteConfig,
+} from "@/layout/CommandPalette";
 export type { MenuBarProps, MenuDef, MenuItemDef } from "@/layout/CommandPalette";
 export {
   deleteWorkspace,

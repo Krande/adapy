@@ -14,7 +14,6 @@ import {setFeaDeformationShown} from "@/utils/scene/fea/deformationGate";
 import {notifyActiveModeSceneColor} from "@/utils/scene/fea/modeSceneColor";
 
 import {useShellLook} from "./shellTheme";
-import {CommandPaletteHost, openCommandPalette} from "./CommandPalette";
 import {commandsOwnedBy, registerCommand, unregisterCommand, type RegisteredCommand} from "./commands";
 import {CORE_PANEL_OWNER} from "./corePanelIds";
 import {registerShortcut, shortcutsOwnedBy, unregisterShortcut, type RegisteredShortcut} from "./shortcuts";
@@ -89,9 +88,6 @@ export function initialShellMode(
   return [asked, stored, fallback].find(has) ?? null;
 }
 
-/** The palette's command, registered by a shell that asks for the palette. */
-export const COMMAND_PALETTE_COMMAND = "core:command-palette";
-
 /** What a plugin shell had registered under its plugin's id when it was taken down, put back when it is installed again. */
 interface ShellRegistrations {
   commands: RegisteredCommand[];
@@ -111,9 +107,9 @@ function registrationsOf(owner: string): ShellRegistrations {
 
 /**
  * Install shell `spec` (null: core's own UI) before the frame renders, which
- * reads it: its modes, its arrangements, the top bar, its panel overrides, core's
- * commands and the palette's. Returns the undo, which an in-place switch runs
- * before installing the next shell: the palette's command goes, and so does
+ * reads it: its modes, its arrangements, the top bar, its panel overrides and
+ * core's commands (the palette itself is core's, `CorePaletteHost`). Returns the
+ * undo, which an in-place switch runs before installing the next shell:
  * everything a plugin's shell registered under its plugin's id while it was up
  * (commands, shortcuts, HUDs over the view), parked to come back if the shell
  * is installed again. What every install sets (modes, arrangements, the top bar,
@@ -125,6 +121,8 @@ export function installShell(spec: UiShellSpec | null): () => void {
     setClassicShell(null);
     setClassicToolbar(true);
     setPanelOverrides(null);
+    // Core's commands, for the palette (Ctrl+K) in core's own UI too.
+    registerCoreCommands();
     return () => {};
   }
   const modes = shellModes(spec);
@@ -151,13 +149,6 @@ export function installShell(spec: UiShellSpec | null): () => void {
   setPanelOverrides(spec.panels ?? null);
   // Core's own commands (`CORE_COMMAND_IDS`), for the shell's menus and palette.
   registerCoreCommands();
-  const palette = spec.chrome?.commandPalette;
-  if (palette) {
-    registerCommand(
-      {id: COMMAND_PALETTE_COMMAND, label: "Command palette", group: "View", keys: palette.keys, run: openCommandPalette},
-      "core",
-    );
-  }
   // A plugin's shell: what it registered when it was last up comes back (a
   // module-level registration in its chrome runs only once a page).
   const owner = (spec as Partial<RegisteredUiShell>).pluginId;
@@ -171,7 +162,6 @@ export function installShell(spec: UiShellSpec | null): () => void {
   }
   const before = scoped ? registrationsOf(owner!) : null;
   return () => {
-    if (palette) unregisterCommand(COMMAND_PALETTE_COMMAND);
     if (!before) return;
     // What the plugin registered while its shell was up is the shell's (its
     // chrome's); what it had before (its feature plugin's) stays.
@@ -271,7 +261,7 @@ export default function ComposedLayout({spec, children}: {spec: UiShellSpec | nu
         <div className="relative h-full min-w-0 flex-1">{children ?? <LayoutRoot />}</div>
       </div>
       {slot(Footer)}
-      {spec?.chrome?.commandPalette && <CommandPaletteHost />}
+
       {/* The shortcuts dialog, for a menu's "Keyboard shortcuts" (`core:shortcuts`). */}
       {spec && <ShortcutsDialogHost />}
       {/* Help -> About and File -> Export (`core:about`, `core:export-*`). */}
