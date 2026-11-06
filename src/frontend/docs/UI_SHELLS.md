@@ -376,14 +376,14 @@ isolating a small part of a large tree sends close to a code per row (still no
 tree). Rows the main window has no mesh for yet show as "no geometry" until the
 next visibility change, as in the main window.
 
-What stays in the main window, and why:
+What a pop-out can do of each scene panel, and what stays in the main window:
 
-| Panel | Why not mirrored (yet) |
+| Panel | Mirrored, and what is not (yet) |
 |---|---|
 | Object info (parts) | Mirrored, buttons included. Still local to the pop-out: the mobile-only "Copy all (n)" (it copies the 3D selection's names, which the pop-out does not hold) and "+ Add mode" (the main window's additive picking); the procedural-cell context (cell names, cell hide, cell add mode: the builder store is not mirrored); "Show in data" (it resolves the picked element on the main window's FEA mesh, so it does not show); the selection download (it reads the 3D selection). |
 | Selection tree (parts) | Mirrored (Scene tab). Not in a pop-out: the Sources and Systems tabs; from the row menu, saved groups, related elements, loading from another provider, unloading one model, the selection box. |
-| Scene info | Its ~15 sections run scene tools (section planes, face search, clash runs) against the scene directly. |
-| Simulation, result data | Step and field changes run closures held in the main window's FEA store (`applyStep`, streaming reloads); they need commands per control and a snapshot of about 30 store fields plus the manifest. |
+| Scene info | Not mirrored. Its ~15 sections run scene tools (section planes, face search, clash runs) against the scene directly; each would need its state as a topic and its actions behind the act seam. |
+| Simulation, result data | Not mirrored. The body (`SimulationBody`) reads about 35 FEA store fields at once, among them the three.js result `mesh` whose morph influence the factor / scale controls write directly, and the step and field controls run closures held in the main window's store (`applyStep`, `startFramePreload`) or reload the stream (`load_fea_streaming`, `selectFeaResultComponent`). The body also hosts the colour legend, the FEM concepts panel, the animation export and the result data table, each reading its own stores. What mirroring it needs: (1) a `core:fea-controls` topic with the plain fields the controls render -- `sourceName`, `fieldName`, `reduction`, `stepIndex`, `nSteps`, `isPlaying`, `factor`, `period`, `scaleFactor`, `colormap`, `warpEnabled`, `layer`, `ipReduction`, `nodalAverage`, `envelopeMode`, `timeHistory`, the beam-solid and colour toggles, `framePreload` progress -- plus the manifest's field and step lists (`manifest.fields` reduced to name / per_type / support / surface, the step slots of `mergeCaseSteps`, the case statuses); (2) one command per control (`core:fea-step` {index}, `core:fea-field` {name}, `core:fea-reduction`, play / pause / stop, factor, scale, warp, layer, IP reduction, nodal average, envelope, colormap, the toggles), each running that control's handler in the main window; (3) the handlers moved out of the component behind the act seam, so the body calls them in one path; (4) the legend, FEM concepts, export and data table either mirrored as panels of their own or left out of the pop-out body. |
 
 The transport is an interface (`WindowBusTransport`: `post`, `subscribe`,
 `close`), so a relay over a websocket could join windows across browsers later

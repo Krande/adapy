@@ -362,6 +362,19 @@
 //          `@/viewer-core/layout`: `desktopMenus` / `menuCommandIds` (the Desktop
 //          UI's menu model) and `openShortcutsDialog`. Behaviour change:
 //          `offeredMenuItems` drops separators left at either end or doubled.
+//          Scene panels act from pop-outs and the scene tree is mirrored:
+//          `MirrorTopic.delta` (sent on a change instead of the snapshot) and
+//          an `apply` that returns `false` (the window asks for the snapshot
+//          again); the dependency-free `sceneTreeTopic` (a tree sent flat and
+//          in chunks on a tree change only, visibility and selection as deltas
+//          otherwise; `flattenTree`, `buildTree`, `ROW_VISIBILITY_CODES`,
+//          `SCENE_TREE_CHUNK`). On `@/viewer-core/layout`: the act seam
+//          `useSceneActions` / `sceneActions` / `remoteSceneActions` /
+//          `isMirroredWindow` (`SCENE_ACTION_COMMANDS`, `MIRRORED_CORE_COMMANDS`),
+//          core's `core:scene-tree` topic (`SCENE_TREE_TOPIC`,
+//          `coreSceneTreeSource`, `coreSceneTreeSink`, `useSceneMirrorStore`).
+//          Behaviour change: the selection tree panel is `mirrored`;
+//          `core:selection` also carries `rangeCount` and `parentName`.
 export const VIEWER_CORE_API_VERSION = "1.13.0";
 
 // ---------------------------------------------------------------------------
