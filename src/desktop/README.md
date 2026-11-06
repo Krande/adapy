@@ -72,7 +72,8 @@ configure) and sign-in works unchanged, because the OIDC redirect URI the page u
 (`origin + /auth/callback`) is the one already registered for the hosted app. Local files are opened
 by the page itself (File menu), and uploads go to the server. Layouts and settings live in the page's
 origin storage, so each server has its own. FILE and the local-viewer flags (`--port`, `--data`,
-`--static`, `--zip`, `--viewer`, `--dev`) are refused with `--server`.
+`--static`, `--zip`, `--viewer`) are refused with `--server`. (`--dev --server` develops the frontend
+against the server, see "Developing against a hosted server".)
 
 Profiles are a small JSON file, `%APPDATA%\ada\desktop\servers.json` on Windows
 (`~/Library/Application Support/ada/desktop` on macOS, `$XDG_CONFIG_HOME/ada/desktop` elsewhere):
@@ -211,6 +212,49 @@ browser-stored layouts and settings are separate from a normal `ada desktop` run
 Vite you already run, start it with `ADA_DESKTOP_BACKEND=http://127.0.0.1:PORT/` and `--config
 vite.config.desktop.ts`, and pass `ada desktop --frontend-url http://127.0.0.1:VITEPORT/`. Windows only for
 now; elsewhere the command says so.
+
+### Developing against a hosted server
+
+To work on the frontend with a hosted deployment's data, storage and sign-in:
+
+```
+ada desktop servers add work https://studio.example.com    # once
+pixi run desktop-server work     # just open it (builds the shell first)
+pixi run desktop-backend work    # this checkout's frontend (hot reload) against it
+```
+
+`desktop-backend` runs `ada desktop --dev --backend work` (`--dev --server work` is the same thing; a plain
+`--dev` stays local even when `$ADA_DESKTOP_SERVER` is set). No local viewer is started. Vite serves the
+sources from `src/frontend` on **`http://localhost:<port>`** and proxies `/api` (websockets included, as
+`wss` for an https server), `/healthz` and `/config.js` to the server with TLS verified, `Host` and `Origin`
+presented as the server's own, and cookies and `Authorization` forwarded. `/auth/callback` and every other
+route stay the SPA's. The window opens on `localhost`, not `127.0.0.1`, because the redirect URI is
+registered by name.
+
+**Register the redirect URI.** The page signs in with PKCE and sends `origin + /auth/callback`, which is now
+the dev origin. The command prints the exact value; register it once in the identity provider, for the
+app's *single-page application* platform, alongside the hosted app's own:
+
+```
+Register this redirect URI for the app's SPA platform: http://localhost:39198/auth/callback
+```
+
+Providers such as Azure AD accept `http://localhost` redirect URIs for SPA apps. The port is fixed per
+user (viewer port + 500, see "Port policy"; `--dev-port N` picks another, and then another URI is needed).
+If it is taken the command stops instead of falling back to a free port, since the registered URI names it.
+
+**Trust.** The shell trusts (and grants native events to) exactly `http://localhost:<port>`, the same loopback
+origin as `--dev`; the hosted server is reached only through the proxy. The identity provider's origins,
+read from the server's `/api/config` (`auth.issuer`) and the issuer's `.well-known`, plus `--auth-origin`
+and the profile's, are allowed for navigation so the sign-in page loads in the window.
+
+**`/config.js`.** The stock server writes a relative `window.API_BASE = "/api"`, which already goes through
+the proxy. In case a deployment spells out its own address, the dev server fetches `/config.js` from the
+server and rewrites that origin (and its `ws`/`wss` form) to the dev origin (`vite.desktop-proxy.mjs`);
+other origins, such as the identity provider's, are left alone.
+
+Limits: sign-in cannot work until the redirect URI is registered; layouts and settings are stored under
+the dev origin, separate from the server's own; the server's CORS/CSRF rules see the server's own origin.
 
 ## Packaging
 

@@ -283,6 +283,11 @@ desktop-dev = { features = ["viewer-api", "prod", "adacpp-runtime", "desktop-dev
 # `frontend` and `desktop-shell` envs through the task dependencies.
 [feature.desktop-dev.tasks]
 desktop = { cmd = "python -m ada_cli.main desktop --dev", depends-on = [{ task = "winstall", environment = "frontend" }, { task = "wasm-adacpp-current", environment = "frontend" }, { task = "build-desktop", environment = "desktop-shell" }], env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" }, description = "Desktop app with hot reload: Vite + uvicorn --reload + the window shell" }
+# `pixi run desktop-server NAME`: open a saved (or URL) hosted server in the window. The shell is built first.
+desktop-server = { cmd = "python -m ada_cli.main desktop --server {{ name }}", args = ["name"], depends-on = [{ task = "build-desktop", environment = "desktop-shell" }], env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src", "ADA_DESKTOP_BINARY" = "$PIXI_PROJECT_ROOT/src/desktop/target/release/ada-desktop.exe" }, description = "Open a hosted server (saved name or URL) in the desktop window" }
+# `pixi run desktop-backend NAME`: this checkout's frontend (Vite, hot reload on http://localhost:PORT) against a
+# hosted server; prints the redirect URI to register at its identity provider.
+desktop-backend = { cmd = "python -m ada_cli.main desktop --dev --backend {{ name }}", args = ["name"], depends-on = [{ task = "winstall", environment = "frontend" }, { task = "wasm-adacpp-current", environment = "frontend" }, { task = "build-desktop", environment = "desktop-shell" }], env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" }, description = "Dev frontend (hot reload) against a hosted server (saved name or URL)" }
 
 # Official buildingSMART-aligned IFC validation, kept in a dedicated feature so
 # its closure stays out of the main envs. Covers the OFFLINE, installable parts

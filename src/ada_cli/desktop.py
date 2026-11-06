@@ -17,6 +17,10 @@
 opens the window on a hosted deployment and trusts exactly that origin (plus its identity provider's sign-in
 pages). ``ada desktop servers list|add|remove`` keeps named profiles in a small per-user file.
 
+``--dev --backend URL|NAME`` (``--dev --server`` means the same) develops the frontend against a hosted
+deployment: Vite serves the local sources with hot reload on ``http://localhost:PORT`` and proxies the page's
+own-origin requests to the deployment; the redirect URI to register at its identity provider is printed.
+
 Stdlib only, and nothing from ``ada`` is imported: ``ada --help`` builds this parser, and the viewer
 runs in its own process anyway.
 """
@@ -78,6 +82,11 @@ DEV_VITE_PORT_OFFSET = 500
 DEV_VITE_CONFIG = "vite.config.desktop.ts"
 ENV_DEV_BACKEND = "ADA_DESKTOP_BACKEND"
 VITE_TIMEOUT_S = 240.0
+#: ``--dev --backend`` opens the window on this host, not 127.0.0.1: the identity provider's registered
+#: redirect URI for the app is ``http://localhost:PORT/auth/callback`` (providers accept localhost for http).
+DEV_WINDOW_HOST = "localhost"
+ENV_DEV_REMOTE = "ADA_DESKTOP_REMOTE"
+ENV_DEV_ORIGIN = "ADA_DESKTOP_DEV_ORIGIN"
 
 
 class DesktopError(Exception):
@@ -799,6 +808,7 @@ def resolve_server(
     args: argparse.Namespace,
     environ: Mapping[str, str] | None = None,
     profiles: Mapping[str, Server] | None = None,
+    option: str = "server",
 ) -> Server | None:
     """The deployment to open, or ``None`` for the local viewer: ``--local`` wins, then ``--server``, then
     ``$ADA_DESKTOP_SERVER``. The value is a URL (anything with ``://``) or the name of a saved profile."""
@@ -806,11 +816,11 @@ def resolve_server(
 
     environ = os.environ if environ is None else environ
     if getattr(args, "local", False):
-        if getattr(args, "server", None):
-            raise CliUsageError("--local and --server exclude each other")
+        if getattr(args, option, None):
+            raise CliUsageError(f"--local and --{option} exclude each other")
         return None
-    value, source = getattr(args, "server", None), "--server"
-    if not value and environ.get(ENV_SERVER, "").strip():
+    value, source = getattr(args, option, None), f"--{option}"
+    if not value and option == "server" and environ.get(ENV_SERVER, "").strip():
         value, source = environ[ENV_SERVER].strip(), f"${ENV_SERVER}"
     if not value:
         return None
@@ -904,21 +914,19 @@ def shell_command_remote(
 LOCAL_ONLY_FLAGS = ("port", "data", "static", "zip", "viewer", "dev", "frontend_url", "dev_port")
 
 
-def run_remote(args: argparse.Namespace, server: Server) -> int:
-    """Open the window on a hosted deployment. No viewer is started and nothing is uploaded: the page
-    runs on the server's own origin, so its sign-in redirect URI and API need no change."""
+def refuse_local_only(args: argparse.Namespace, flags: tuple[str, ...]) -> None:
     from ada_cli import CliUsageError
 
-    clash = [f"--{f.replace('_', '-')}" for f in LOCAL_ONLY_FLAGS if getattr(args, f, None)]
+    clash = [f"--{f.replace('_', '-')}" for f in flags if getattr(args, f, None)]
     if clash:
-        raise CliUsageError(f"{', '.join(clash)} only apply to the local viewer, not with a server (use --local)")
-    if _files(args):
-        raise CliUsageError("FILE is not uploaded to a server from the command line; open it in the app (File > Open)")
-    binary = None if args.no_window else find_binary(args.binary)
-    label = f"{server.name} " if server.name else ""
-    _print(f"ada desktop: server {label}{server.url}")
-    _print(f"ada desktop: trusting only the origin {server.url[:-1]} (native events and the app itself)")
-    found = discover_auth_origins(server.url)
+        verb = "applies" if len(clash) == 1 else "apply"
+        raise CliUsageError(f"{', '.join(clash)} only {verb} to the local viewer, not with a server (use --local)")
+
+
+def collect_auth_origins(server: Server, discover: Callable[[str], list[str]] | None = None) -> list[str]:
+    """The identity-provider origins the window may navigate to: what the server advertises plus the
+    profile's own, minus plain-http ones unless the server is ``insecure`` (or the host is loopback)."""
+    found = (discover or discover_auth_origins)(server.url)
     auth: list[str] = []
     for o in [*found, *server.auth_origins]:
         if o in auth or o == server.url:
@@ -928,6 +936,112 @@ def run_remote(args: argparse.Namespace, server: Server) -> int:
             print(f"ada desktop: warning: not allowing sign-in at {o} (plain http); pass --insecure", file=sys.stderr)
             continue
         auth.append(o)
+    return auth
+
+
+def dev_window_url(port: int) -> str:
+    """Where ``--dev --backend`` opens the window (and where the identity provider sends users back)."""
+    return f"http://{DEV_WINDOW_HOST}:{port}/"
+
+
+def redirect_uri_for(front: str) -> str:
+    """The SPA redirect URI the page will use on ``front`` (the page sends ``origin + /auth/callback``)."""
+    return front.rstrip("/") + "/auth/callback"
+
+
+def shell_command_dev_backend(
+    binary: pathlib.Path, front: str, server: Server, auth_origins: list[str], title: str, shell_args: list[str]
+) -> list[str]:
+    """The shell on the dev frontend: it trusts (and grants native events to) exactly that loopback origin;
+    the hosted server is only reached through the dev server's proxy, so it needs no trust of its own."""
+    cmd = [str(binary), "--url", front, "--trust-origin", front, "--title", title]
+    for a in auth_origins:
+        cmd += ["--auth-origin", a]
+    if server.insecure:
+        cmd.append("--insecure")
+    return cmd + list(shell_args)
+
+
+def run_dev_backend(args: argparse.Namespace, server: Server) -> int:
+    """``--dev --backend``: Vite (HMR) on localhost proxying to a hosted deployment; no local viewer."""
+    from ada_cli import CliUsageError
+
+    refuse_local_only(args, ("data", "static", "zip", "viewer"))
+    if _files(args):
+        raise CliUsageError("FILE is not uploaded to a server from the command line; open it in the app (File > Open)")
+    src = checkout_src()
+    frontend = src / "frontend"
+    if not (frontend / DEV_VITE_CONFIG).is_file():
+        raise DesktopError(f"--dev needs the source checkout: {frontend / DEV_VITE_CONFIG} not found")
+    binary = None if args.no_window else find_binary(args.binary or (str(dev_shell_binary(src) or "") or None))
+    external = frontend_url_or_error(args.frontend_url) if args.frontend_url else None
+    vport = 0
+    if external:
+        front = external
+    else:
+        vport = args.dev_port or dev_vite_port(requested_port(args.port)[0])
+        if probe_port(vport) != "free":
+            # Not a fallback port: the redirect URI registered at the identity provider names this one.
+            raise DesktopError(
+                f"port {vport} is in use (the dev port is fixed because the sign-in redirect URI names it); "
+                "close what uses it, or pass --dev-port N and register that redirect URI instead"
+            )
+        front = dev_window_url(vport)
+    label = f"{server.name} " if server.name else ""
+    _print(f"ada desktop: dev frontend against server {label}{server.url}")
+    _print(f"ada desktop: trusting only the origin {front[:-1]} (native events and the app itself)")
+    auth = collect_auth_origins(server)
+    if auth:
+        _print("ada desktop: sign-in pages allowed (navigation only): " + ", ".join(a[:-1] for a in auth))
+    _print(f"Register this redirect URI for the app's SPA platform: {redirect_uri_for(front)}")
+
+    job = _Job()
+    procs: list[subprocess.Popen] = []
+    rc = 0
+    try:
+        if not external:
+            cmd = vite_command(frontend, vport, shutil.which("node"), os.environ.get("PIXI_EXE"))
+            _print(f"ada desktop: starting Vite on {front} (first start optimizes dependencies; can take a minute)")
+            env = {**os.environ, ENV_DEV_BACKEND: server.url, ENV_DEV_REMOTE: "1", ENV_DEV_ORIGIN: front[:-1]}
+            vite = subprocess.Popen(cmd, cwd=frontend, env=env)
+            procs.append(vite)
+            job.assign(vite)
+            wait_http(front, vite, "Vite", VITE_TIMEOUT_S)
+        _print(f"viewer (dev): {front}  backend: {server.url}  (frontend edits hot-reload)")
+        if binary is None:
+            _print("ada desktop: --no-window: press Ctrl+C to stop")
+            while True:
+                if procs and procs[-1].poll() is not None:
+                    break
+                time.sleep(0.5)
+        else:
+            t0 = time.monotonic()
+            shell = subprocess.Popen(shell_command_dev_backend(binary, front, server, auth, args.title, args.shell_arg))
+            job.assign(shell)
+            rc = shell.wait()
+            if args.timing:
+                _print(f"[timing] window open {time.monotonic() - t0:.1f}s, shell exit {rc}")
+    except KeyboardInterrupt:
+        rc = 130
+    finally:
+        for p in reversed(procs):
+            kill_tree(p)
+    return rc
+
+
+def run_remote(args: argparse.Namespace, server: Server) -> int:
+    """Open the window on a hosted deployment. No viewer is started and nothing is uploaded: the page
+    runs on the server's own origin, so its sign-in redirect URI and API need no change."""
+    from ada_cli import CliUsageError
+
+    refuse_local_only(args, LOCAL_ONLY_FLAGS)
+    if _files(args):
+        raise CliUsageError("FILE is not uploaded to a server from the command line; open it in the app (File > Open)")
+    binary = None if args.no_window else find_binary(args.binary)
+    label = f"{server.name} " if server.name else ""
+    _print(f"ada desktop: server {label}{server.url}")
+    _print(f"ada desktop: trusting only the origin {server.url[:-1]} (native events and the app itself)")
+    auth = collect_auth_origins(server)
     if auth:
         _print("ada desktop: sign-in pages allowed (navigation only): " + ", ".join(a[:-1] for a in auth))
     if binary is None:
@@ -1049,6 +1163,14 @@ def add_arguments(p: argparse.ArgumentParser) -> None:
         help="With --server: an identity provider origin the window may sign in at, in addition to the one the "
         "server advertises (/api/config). Repeatable.",
     )
+    p.add_argument(
+        "--backend",
+        default=None,
+        metavar="URL|NAME",
+        help="Implies --dev against a hosted deployment (its https URL or a saved server name): Vite serves the "
+        f"local frontend on http://{DEV_WINDOW_HOST}:PORT and proxies /api, /config.js and /healthz to it; "
+        "prints the redirect URI to register at its identity provider. --dev --server means the same.",
+    )
     p.add_argument("--timing", action="store_true", help="Print how long startup and shutdown took.")
     p.add_argument(
         "--dev",
@@ -1145,10 +1267,21 @@ def run(args: argparse.Namespace) -> int:
     words = _files(args)
     if words[:1] == ["servers"] and not pathlib.Path("servers").exists():
         return run_servers(words[1:], args)
-    server = resolve_server(args)
+    dev = bool(args.dev or args.frontend_url)
+    backend = getattr(args, "backend", None)
+    if backend and args.server:
+        from ada_cli import CliUsageError
+
+        raise CliUsageError("--backend and --server exclude each other (with --dev they mean the same)")
+    if dev and not (backend or args.server) and not args.local:
+        return run_dev(args)  # the local viewer: $ADA_DESKTOP_SERVER does not turn a plain --dev remote
+    server = resolve_server(args, option="backend" if backend else "server")
     if server is not None:
+        # `--dev --server X` is `--dev --backend X`: dev frontend, hosted backend.
+        if dev or backend:
+            return run_dev_backend(args, server)
         return run_remote(args, server)
-    if args.dev or args.frontend_url:
+    if dev:
         return run_dev(args)
     t_start = time.monotonic()
     file_path = _open_file_arg(args)

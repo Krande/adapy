@@ -585,7 +585,8 @@ ada desktop servers remove work
 :   The deployment to open: an `https` URL, or the name of a saved server.
     Default: `$ADA_DESKTOP_SERVER`. The origin the window will trust is printed
     first. `FILE` and the local-viewer flags (`--port`, `--data`, `--static`,
-    `--zip`, `--viewer`, `--dev`) cannot be combined with it.
+    `--zip`, `--viewer`) cannot be combined with it. With `--dev` it means
+    `--backend`.
 
 `--local`
 :   Start the local viewer even though `$ADA_DESKTOP_SERVER` is set.
@@ -604,6 +605,18 @@ ada desktop servers remove work
 `servers list | add NAME URL | remove NAME`
 :   Manage saved servers, kept in `%APPDATA%\ada\desktop\servers.json` on
     Windows (`$XDG_CONFIG_HOME/ada/desktop/servers.json` on Linux).
+
+`--backend URL|NAME`
+:   Implies `--dev`, against a hosted server (a URL or a saved name) instead of
+    a local viewer (source checkout, Windows; `pixi run desktop-backend NAME`).
+    Vite serves the local frontend with hot reload on
+    `http://localhost:PORT` (the `--dev` port, viewer port + 500, fixed per
+    user; `--dev-port N` overrides) and proxies `/api` (websockets included),
+    `/config.js` and `/healthz` to the server. The command prints
+    `Register this redirect URI for the app's SPA platform:
+    http://localhost:PORT/auth/callback`; register it once in the server's
+    identity provider. `--dev --server NAME` is the same; a plain `--dev`
+    stays local. `pixi run desktop-server NAME` just opens the server.
 
 See `src/desktop/README.md` for the security model (which origins may be shown
 and which one is granted native events) and the sign-in details.
