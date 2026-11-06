@@ -8,8 +8,12 @@ import {
   MAIN_WINDOW_ID,
   acceptPanels,
   broadcastTransport,
+  claimSession,
   closedDashboardWindows,
   createWindowBus,
+  isSessionId,
+  newSessionId,
+  resolveSessionId,
   defaultWindowLabel,
   emptyDashboard,
   forgetWindow,
@@ -73,9 +77,74 @@ test("without BroadcastChannel the transport is a no-op", () => {
 });
 
 test("the channel is scoped by the page path and the shell", () => {
-  assert.notEqual(windowBusChannelName("/", "core"), windowBusChannelName("/", "alt"));
-  assert.notEqual(windowBusChannelName("/a/", "core"), windowBusChannelName("/b/", "core"));
-  assert.equal(windowBusChannelName("", "core"), windowBusChannelName("/", "core"));
+  assert.notEqual(windowBusChannelName("/", "core", "s1"), windowBusChannelName("/", "alt", "s1"));
+  assert.notEqual(windowBusChannelName("/a/", "core", "s1"), windowBusChannelName("/b/", "core", "s1"));
+  assert.equal(windowBusChannelName("", "core", "s1"), windowBusChannelName("/", "core", "s1"));
+  assert.notEqual(windowBusChannelName("/", "core", "s1"), windowBusChannelName("/", "core", "s2"), "and by session");
+});
+
+test("two sessions on one hub never see each other: presence, moves", async () => {
+  const hub = memoryTransportHub();
+  const c = clock();
+  const mk = (id: string, label: string, session: string) =>
+    createWindowBus({ id, label, transport: hub.connect(windowBusChannelName("/", "core", session)), now: c.now, timers: false });
+  const mainA = mk(MAIN_WINDOW_ID, "Main", "sessA");
+  const mainB = mk(MAIN_WINDOW_ID, "Main", "sessB");
+  const a2 = mk("w2", "Window 2", "sessA");
+  const b2 = mk("w2", "Window 2", "sessB");
+  for (const b of [mainA, mainB, a2, b2]) b.start();
+  a2.setPanels(["demo:a"]);
+  assert.deepEqual(mainA.windows().map((w) => w.id), ["w2"]);
+  assert.deepEqual(mainB.windows().map((w) => w.id), ["w2"]);
+  assert.deepEqual(mainA.windows()[0].panels, ["demo:a"]);
+  assert.deepEqual(mainB.windows()[0].panels, [], "the other session's w2 is not a's");
+  assert.equal(b2.windows().length, 1, "b's window sees b's main only");
+  // A move in session A reaches A's main, not B's.
+  const docked: string[] = [];
+  acceptPanels(mainA, (id) => (docked.push(`A:${id}`), true));
+  acceptPanels(mainB, (id) => (docked.push(`B:${id}`), true));
+  assert.equal(await sendPanel(a2, "demo:a", MAIN_WINDOW_ID, { remove() {}, restore() {}, timeoutMs: 20 }), true);
+  assert.deepEqual(docked, ["A:demo:a"]);
+});
+
+test("session ids: random, short, URL-safe", () => {
+  const ids = new Set(Array.from({ length: 50 }, () => newSessionId()));
+  assert.equal(ids.size, 50);
+  for (const id of ids) assert.equal(isSessionId(id), true, id);
+  assert.equal(newSessionId(() => 0), "00000000");
+  for (const bad of [null, undefined, "", "ab", "a b c d", "a/b/c/d", "x".repeat(30)]) assert.equal(isSessionId(bad), false);
+});
+
+function liveMain(hub: ReturnType<typeof memoryTransportHub>, session: string) {
+  const main = createWindowBus({ id: MAIN_WINDOW_ID, label: "Main", transport: hub.connect(windowBusChannelName("/", "core", session)), timers: false });
+  main.start();
+  return main;
+}
+
+test("a stored session id is kept when nobody holds it (a reload) and replaced when a live main window does (a duplicated tab)", async () => {
+  const hub = memoryTransportHub();
+  const channel = (s: string) => hub.connect(windowBusChannelName("/", "core", s));
+  assert.equal(await resolveSessionId("sessA123", channel, { waitMs: 10 }), "sessA123", "free: kept");
+  const holder = liveMain(hub, "sessA123");
+  const next = await resolveSessionId("sessA123", channel, { waitMs: 200 });
+  assert.notEqual(next, "sessA123", "taken: a new id");
+  assert.equal(isSessionId(next), true);
+  // The holder is untouched, and the newcomer's session is its own.
+  assert.equal(holder.windows().length, 0);
+  assert.equal(await resolveSessionId(next, channel, { waitMs: 10 }), next);
+  // Nothing stored: a fresh id, no question asked.
+  assert.equal(isSessionId(await resolveSessionId(null, channel, { waitMs: 10 })), true);
+});
+
+test("only a main window answers a claim; another session's main does not", async () => {
+  const hub = memoryTransportHub();
+  const channel = (s: string) => hub.connect(windowBusChannelName("/", "core", s));
+  const popout = createWindowBus({ id: "w2", label: "Window 2", transport: channel("sessA123"), timers: false });
+  popout.start();
+  assert.equal(await claimSession(channel("sessA123"), { waitMs: 10 }), true, "a pop-out does not hold a session");
+  liveMain(hub, "sessB456");
+  assert.equal(await claimSession(channel("sessA123"), { waitMs: 10 }), true, "another session's main is not asked");
+  assert.equal(await claimSession(channel("sessB456"), { waitMs: 200 }), false);
 });
 
 test("messages are recognised by type and sender", () => {

@@ -51,8 +51,26 @@ const root = createRoot(container); // create a root
 // from the shell registry (`?ui=` > localStorage > build-time default > core).
 // A stock build has exactly one shell registered and mounts the same `App` as
 // before; an image built with an alternative UI overlaid boots into that one.
-root.render(
-  <ErrorBoundary variant="fullscreen" label="Viewer">
-    <UiShellHost />
-  </ErrorBoundary>,
-);
+const render = () =>
+  root.render(
+    <ErrorBoundary variant="fullscreen" label="Viewer">
+      <UiShellHost />
+    </ErrorBoundary>,
+  );
+// A main window settles its dashboard session first (a duplicated tab must not
+// share its original's); that asks other windows over a channel and waits a
+// moment, only when the tab kept a session from before (a reload or a duplicate).
+let hasSession = false;
+try {
+  hasSession = sessionStorage.length > 0 && Object.keys(sessionStorage).some((k) => k.startsWith("ada:dashboard-session:"));
+} catch {
+  // No sessionStorage: nothing to settle.
+}
+if (hasSession) {
+  import("@/layout/windows")
+    .then((m) => m.ensureDashboardSession())
+    .catch(() => undefined)
+    .then(render);
+} else {
+  render();
+}

@@ -7,7 +7,9 @@
 // the main window.
 //
 // Its arrangement is its own document (context `window/<id>`), kept in this
-// browser under the window's id, so a reopened window finds it again.
+// browser under the window's id and its dashboard session (`?session=`, the main
+// window's), so a reopened window finds it again. A window opened without a
+// session is standalone: a session of its own, no main window to talk to.
 // `?popout=<panelId>` adds that panel on load (a new window opened for it).
 //
 // `AppRoot` mounts it under the viewer provider and, in hosted mode, the
@@ -27,7 +29,7 @@ import {CLASSIC_PRESET_ID, layoutDocKey, type LayoutDoc, type ZoneDef} from "./l
 import {createLayoutStore} from "./layoutStore";
 import {localLayoutPersistence} from "./localPersistence";
 import type {PanelAction, PanelId, PanelMenuItem, RegisteredPanel} from "./panel";
-import {POPOUT_PARAM, WINDOW_PARAM, canPopOut} from "./popout";
+import {POPOUT_PARAM, SESSION_PARAM, WINDOW_PARAM, canPopOut} from "./popout";
 import {dockInGridDoc, gridOf, migrateLayoutDoc} from "./reducers";
 import {getPanel, setPanelOverrides} from "./registry";
 import {setPanelController, type PanelController} from "./reveal";
@@ -39,6 +41,7 @@ import {dockAtWindowEdge, dockInWindow, removeFromWindow, windowContext, windowP
 import {followMirror} from "./windowMirror";
 import {registerCoreMirror} from "./windowMirrorCore";
 import {
+  dashboardSession,
   moveToWindowItem,
   onFocusPanel,
   storeWindowLabel,
@@ -126,6 +129,8 @@ export default function PopoutPage({windowId, panelId}: {windowId: WindowId; pan
       const url = new URL(window.location.href);
       url.searchParams.delete(POPOUT_PARAM);
       url.searchParams.set(WINDOW_PARAM, windowId);
+      // A window opened without a session is standalone: its own, so a reload (and the windows it opens) keep it.
+      url.searchParams.set(SESSION_PARAM, dashboardSession());
       window.history.replaceState(window.history.state, "", url.toString());
     } catch {
       // The URL stays as it was.

@@ -133,3 +133,160 @@ test("Reopen windows is offered only while a recorded window is closed, and stop
   assert.equal(runCommand(REOPEN_WINDOWS_COMMAND), false, "nothing closed: not offered");
   s.uninstall();
 });
+
+// ---------------------------------------------------------------------------
+// Dashboard sessions: storage per session, adoption of the last dashboard, pruning.
+// ---------------------------------------------------------------------------
+
+const { windowLabelKey, lastDashboardKey, sessionsKey, dashboardProbed, pruneSessions, closedWindows, reopenWindows, touchSession, SESSION_KEEP } = await import(
+  "@/layout/windows"
+);
+const { windowBusChannelName } = await import("@/layout/windowBus");
+
+/** A storage that can be enumerated, as `localStorage` can. */
+function listStorage() {
+  const s = memStorage();
+  return {
+    ...s,
+    get length() {
+      return s.m.size;
+    },
+    key: (i: number) => [...s.m.keys()][i] ?? null,
+  };
+}
+const rec = (...ids: string[]) => JSON.stringify({ v: 1, windows: ids.map((id) => ({ id, label: `Window ${id.slice(1)}`, panels: [] })) });
+const DAY = 24 * 3600 * 1000;
+
+function mainFor(storage: ReturnType<typeof listStorage>, session: string, hub = memoryTransportHub(), now = () => 10 * DAY) {
+  const bus = createWindowBus({ id: MAIN_WINDOW_ID, label: "Main", transport: hub.connect(windowBusChannelName("/", "core", session)), now, timers: false });
+  bus.start();
+  const opened: string[] = [];
+  const uninstall = installMainWindow(bus, {
+    reveal: () => true,
+    hide: () => true,
+    isOpen: () => false,
+    panels: () => [],
+    storage,
+    session,
+    now,
+    command: false,
+    open: (id) => (opened.push(id), true),
+    claimWaitMs: 20,
+    channel: (s) => hub.connect(windowBusChannelName("/", "core", s)),
+  });
+  return { bus, opened, uninstall, hub };
+}
+
+test("storage keys are per session: layouts, labels and the dashboard record", () => {
+  assert.match(windowLayoutKey("w2", "sessA123", "core"), /^ada:layout-window:core:sessA123:w2$/);
+  assert.match(windowLabelKey("w2", "sessA123", "core"), /^ada:window-label:core:sessA123:w2$/);
+  assert.match(dashboardKey("sessA123", "core"), /^ada:dashboard:core:sessA123$/);
+  assert.notEqual(windowLayoutKey("w2", "sessA123"), windowLayoutKey("w2", "sessB456"));
+  assert.notEqual(dashboardKey("sessA123"), dashboardKey("sessB456"));
+});
+
+test("two main windows of different sessions keep their dashboards apart in one storage", () => {
+  const storage = listStorage();
+  const hub = memoryTransportHub();
+  const a = mainFor(storage, "sessA123", hub);
+  const b = mainFor(storage, "sessB456", hub);
+  const wa = createWindowBus({ id: "w2", label: "Window 2", transport: hub.connect(windowBusChannelName("/", "core", "sessA123")), timers: false });
+  wa.start();
+  wa.setPanels(["demo:a"]);
+  assert.match(storage.getItem(dashboardKey("sessA123")) ?? "", /"w2"/);
+  assert.equal(storage.getItem(dashboardKey("sessB456")), null, "b never heard of it");
+  assert.equal(b.bus.windows().length, 0);
+  wa.stop();
+  a.uninstall();
+  b.uninstall();
+});
+
+test("a new session offers the last dashboard's windows and adopts them on reopen", async () => {
+  const storage = listStorage();
+  const old = "sessOLD1";
+  storage.setItem(dashboardKey(old), rec("w2", "w3"));
+  storage.setItem(lastDashboardKey(), JSON.stringify({ v: 1, session: old }));
+  storage.setItem(windowLayoutKey("w2", old), '{"layout":"two"}');
+  storage.setItem(windowLabelKey("w2", old), "Plots");
+  storage.setItem(windowLayoutKey("w3", old), '{"layout":"three"}');
+  const s = mainFor(storage, "sessNEW1");
+  await dashboardProbed();
+  const items = closedWindows();
+  assert.deepEqual(items.map((w) => w.id), ["w2", "w3"], "offered");
+  assert.equal(storage.getItem(windowLayoutKey("w2", "sessNEW1")), null, "nothing copied before the click");
+  assert.deepEqual(reopenWindows(), ["w2", "w3"]);
+  assert.deepEqual(s.opened, ["w2", "w3"]);
+  assert.equal(storage.getItem(windowLayoutKey("w2", "sessNEW1")), '{"layout":"two"}', "layout copied");
+  assert.equal(storage.getItem(windowLabelKey("w2", "sessNEW1")), "Plots", "label copied");
+  assert.equal(storage.getItem(windowLayoutKey("w3", "sessNEW1")), '{"layout":"three"}');
+  assert.match(storage.getItem(dashboardKey("sessNEW1")) ?? "", /"w3"/, "recorded in the new session");
+  assert.deepEqual(JSON.parse(storage.getItem(lastDashboardKey())!), { v: 1, session: "sessNEW1" }, "the last dashboard is now this one");
+  assert.equal(storage.getItem(windowLayoutKey("w2", old)), '{"layout":"two"}', "copied, not moved");
+  s.uninstall();
+});
+
+test("the last dashboard is not offered while its main window is still live, or to its own session", async () => {
+  const storage = listStorage();
+  storage.setItem(dashboardKey("sessOLD1"), rec("w2"));
+  storage.setItem(lastDashboardKey(), JSON.stringify({ v: 1, session: "sessOLD1" }));
+  const hub = memoryTransportHub();
+  const holder = mainFor(storage, "sessOLD1", hub); // the old session's own main: it reloaded, its own record is its own
+  await dashboardProbed();
+  assert.deepEqual(closedWindows().map((w) => w.id), ["w2"], "its own session: its record");
+  holder.uninstall();
+  // A second browser window with a new session, while the first is live.
+  const first = createWindowBus({ id: MAIN_WINDOW_ID, label: "Main", transport: hub.connect(windowBusChannelName("/", "core", "sessOLD1")), timers: false });
+  first.start();
+  const second = mainFor(storage, "sessNEW2", hub);
+  await dashboardProbed();
+  assert.deepEqual(closedWindows(), [], "the first window's dashboard is live: not adopted");
+  second.uninstall();
+});
+
+test("sessions beyond the newest N, or unused for too long, are pruned with their keys; the current and last are kept", () => {
+  const storage = listStorage();
+  const now = 100 * DAY;
+  const mk = (id: string, ageDays: number) => {
+    touchSession(storage, id, now - ageDays * DAY, "core");
+    storage.setItem(dashboardKey(id, "core"), rec("w2"));
+    storage.setItem(windowLayoutKey("w2", id, "core"), "{}");
+    storage.setItem(windowLabelKey("w2", id, "core"), "x");
+  };
+  for (let i = 0; i < 12; i++) mk(`recent${String(i).padStart(2, "0")}`, 1 + i * 0.1);
+  mk("ancient1", 40);
+  mk("lastSess", 30); // old, but the last dashboard's
+  mk("currentS", 0);
+  storage.setItem(windowLayoutKey("w9", "orphan01", "core"), "{}"); // never registered
+  storage.setItem("unrelated", "keep");
+  const dropped = pruneSessions(storage, { keep: ["currentS", "lastSess"], now, shellId: "core" });
+  assert.ok(dropped.includes("ancient1"));
+  assert.ok(dropped.includes("orphan01"), "unregistered keys go too");
+  assert.equal(storage.getItem(windowLayoutKey("w9", "orphan01", "core")), null);
+  assert.equal(storage.getItem(dashboardKey("ancient1", "core")), null);
+  assert.equal(storage.getItem(windowLayoutKey("w2", "ancient1", "core")), null);
+  assert.equal(storage.getItem(windowLabelKey("w2", "ancient1", "core")), null);
+  const left = ["currentS", "lastSess", ...Array.from({ length: 12 }, (_, i) => `recent${String(i).padStart(2, "0")}`)].filter(
+    (id) => storage.getItem(dashboardKey(id, "core")) !== null,
+  );
+  assert.equal(left.length, SESSION_KEEP, "the newest N in all, kept ones counted");
+  assert.ok(left.includes("currentS") && left.includes("lastSess"));
+  assert.ok(left.includes("recent00") && !left.includes("recent11"), "the oldest of the recent go first");
+  assert.equal(storage.getItem("unrelated"), "keep");
+  assert.ok(!(JSON.parse(storage.getItem(sessionsKey("core"))!).at as object).hasOwnProperty("ancient1"));
+});
+
+test("installing the main window prunes, keeping its own session and the last dashboard's", () => {
+  const storage = listStorage();
+  const now = () => 100 * DAY;
+  for (let i = 0; i < 12; i++) {
+    touchSession(storage, `old${String(i).padStart(5, "0")}`, now() - (i + 1) * 3600 * 1000, "core");
+    storage.setItem(dashboardKey(`old${String(i).padStart(5, "0")}`, "core"), rec("w2"));
+  }
+  storage.setItem(lastDashboardKey("core"), JSON.stringify({ v: 1, session: "old00011" }));
+  const s = mainFor(storage, "sessCUR1", memoryTransportHub(), now);
+  assert.ok(storage.getItem(dashboardKey("old00011", "core")) !== null, "the last dashboard's survives");
+  const sessions = Object.keys(JSON.parse(storage.getItem(sessionsKey("core"))!).at);
+  assert.equal(sessions.length, SESSION_KEEP);
+  assert.ok(sessions.includes("sessCUR1"));
+  s.uninstall();
+});

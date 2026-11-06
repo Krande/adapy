@@ -3,9 +3,11 @@
 //
 //   * A TRANSPORT carries messages between the windows (`WindowBusTransport`).
 //     In the browser that is a `BroadcastChannel`, same origin and same browser
-//     only, scoped by the page's path and the active UI shell, so two shells or
-//     two deployments on one origin never hear each other. An in-memory hub
-//     serves tests. A relay over a websocket would implement the same interface.
+//     only, scoped by the page's path, the active UI shell and the dashboard
+//     SESSION (one per main window; a pop-out carries it in `?session=`), so two
+//     shells, two deployments or two main windows on one origin never hear each
+//     other. An in-memory hub serves tests. A relay over a websocket would
+//     implement the same interface.
 //   * Every window has an ID: the main window is `MAIN_WINDOW_ID`; a pop-out
 //     window carries its own in its URL (`?window=<id>`, see `./popout`), so a
 //     reopened window finds its arrangement again. It also has a LABEL ("Main",
@@ -73,7 +75,11 @@ export type WindowBusMessage =
   /** Ask for the current snapshots (of `topics`, else all). */
   | { type: "mirror-request"; from: WindowId; topics?: string[] }
   /** An action for window `to` to run on its own state (`./windowMirror`). */
-  | { type: "command"; from: WindowId; to: WindowId; name: string; args: unknown };
+  | { type: "command"; from: WindowId; to: WindowId; name: string; args: unknown }
+  /** A main window starting asks whether a live main window already holds the session (`claimSession`). `from` is `claim:<nonce>`. */
+  | { type: "session-claim"; from: WindowId; nonce: string }
+  /** A live main window's answer to `session-claim`: the session is taken. */
+  | { type: "session-held"; from: WindowId; nonce: string };
 
 export type WindowBusMessageType = WindowBusMessage["type"];
 
@@ -91,6 +97,8 @@ const TYPES: ReadonlySet<string> = new Set<WindowBusMessageType>([
   "mirror",
   "mirror-request",
   "command",
+  "session-claim",
+  "session-held",
 ]);
 
 /** Is `raw` a bus message (anything else on the channel is ignored). */
@@ -119,9 +127,72 @@ export const nullTransport: WindowBusTransport = {
   close() {},
 };
 
-/** The channel name for the windows of one page path and UI shell. */
-export function windowBusChannelName(pathname: string, shellId: string): string {
-  return `ada-windows:${pathname || "/"}:${shellId}`;
+/** The channel name for the windows of one dashboard session on one page path and UI shell. */
+export function windowBusChannelName(pathname: string, shellId: string, sessionId: string): string {
+  return `ada-windows:${pathname || "/"}:${shellId}:${sessionId}`;
+}
+
+// ---------------------------------------------------------------------------
+// Dashboard sessions: one per main window, so two main windows never mix.
+// ---------------------------------------------------------------------------
+
+/** How long a starting main window waits for a live holder of its session to answer, in ms. */
+export const CLAIM_WAIT_MS = 250;
+
+/** Is `id` usable as a session id (it goes into URLs, channel names and storage keys). */
+export function isSessionId(id: unknown): id is string {
+  return typeof id === "string" && /^[A-Za-z0-9]{4,24}$/.test(id);
+}
+
+/** A fresh session id: 8 random base-36 characters. */
+export function newSessionId(random: () => number = Math.random): string {
+  let id = "";
+  while (id.length < 8) id += Math.floor(random() * 36).toString(36);
+  return id;
+}
+
+/**
+ * Ask on `transport` (a channel of the session) whether a live main window holds
+ * it. Resolves true when nobody answers within `waitMs` (the session is free),
+ * false when one does. The transport is closed afterwards.
+ */
+export function claimSession(
+  transport: WindowBusTransport,
+  opts: { nonce?: string; waitMs?: number; setTimer?: (fn: () => void, ms: number) => unknown; clearTimer?: (h: unknown) => void } = {},
+): Promise<boolean> {
+  const nonce = opts.nonce ?? newSessionId();
+  const setTimer = opts.setTimer ?? ((fn, ms) => setTimeout(fn, ms));
+  const clearTimer = opts.clearTimer ?? ((h) => clearTimeout(h as ReturnType<typeof setTimeout>));
+  return new Promise<boolean>((resolve) => {
+    let handle: unknown = null;
+    const finish = (free: boolean) => {
+      off();
+      if (handle !== null) clearTimer(handle);
+      transport.close();
+      resolve(free);
+    };
+    const off = transport.subscribe((msg) => {
+      if (msg.type === "session-held" && msg.nonce === nonce) finish(false);
+    });
+    handle = setTimer(() => finish(true), opts.waitMs ?? CLAIM_WAIT_MS);
+    transport.post({ type: "session-claim", from: `claim:${nonce}`, nonce });
+  });
+}
+
+/**
+ * The session id a starting main window uses. `stored` is the id its tab kept
+ * (sessionStorage): kept when no live main window holds it (a reload), replaced
+ * by a fresh id when one does (the tab was duplicated, which copies
+ * sessionStorage). With nothing stored a fresh id is used without asking.
+ */
+export async function resolveSessionId(
+  stored: string | null | undefined,
+  channel: (sessionId: string) => WindowBusTransport,
+  opts: { waitMs?: number; random?: () => number } = {},
+): Promise<string> {
+  if (!isSessionId(stored)) return newSessionId(opts.random);
+  const free = await claimSession(channel(stored), { waitMs: opts.waitMs });
+  return free ? stored : newSessionId(opts.random);
 }
 
 /** A `BroadcastChannel` transport; `nullTransport` where the browser has none. */
@@ -162,20 +233,22 @@ export function broadcastTransport(name: string): WindowBusTransport {
 
 /**
  * Transports joined in memory, for tests: a post reaches every other transport
- * of the hub (synchronously, a structured copy), never its own.
+ * of the hub on the same channel `name` (synchronously, a structured copy),
+ * never its own. Transports of different names never hear each other, as with
+ * `BroadcastChannel`.
  */
-export function memoryTransportHub(): { connect(): WindowBusTransport } {
-  const members = new Set<{ cbs: Set<(msg: WindowBusMessage) => void> }>();
+export function memoryTransportHub(): { connect(name?: string): WindowBusTransport } {
+  const members = new Set<{ name: string; cbs: Set<(msg: WindowBusMessage) => void> }>();
   const copy = <T>(v: T): T => (typeof structuredClone === "function" ? structuredClone(v) : (JSON.parse(JSON.stringify(v)) as T));
   return {
-    connect() {
-      const me = { cbs: new Set<(msg: WindowBusMessage) => void>() };
+    connect(name = "") {
+      const me = { name, cbs: new Set<(msg: WindowBusMessage) => void>() };
       members.add(me);
       return {
         post(msg) {
           if (!members.has(me)) return;
           for (const m of [...members]) {
-            if (m === me) continue;
+            if (m === me || m.name !== name) continue;
             for (const cb of [...m.cbs]) cb(copy(msg));
           }
         },
@@ -299,6 +372,12 @@ export function createWindowBus(opts: WindowBusOptions): WindowBus {
   };
 
   const receive = (msg: WindowBusMessage) => {
+    // A main window starting asks whether this session is taken: it is, by this one.
+    if (msg.type === "session-claim") {
+      if (me.main) send({ type: "session-held", nonce: msg.nonce });
+      return;
+    }
+    if (msg.type === "session-held") return;
     if (msg.from === me.id) return;
     // Anything from a window is a sign of life.
     const known = others.get(msg.from);

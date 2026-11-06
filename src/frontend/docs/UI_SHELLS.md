@@ -241,15 +241,33 @@ Layout state helpers on `@/viewer-core/layout`: `resetArrangement`, `saveWorkspa
 
 Panels can be spread over several browser windows of the same browser, on
 several monitors, which then work as one dashboard. Same origin and same browser
-only: the windows talk over a `BroadcastChannel`, scoped by the page's path and
-the active shell, with no server involved.
+only: the windows talk over a `BroadcastChannel`, scoped by the page's path, the
+active shell and the dashboard session (below), with no server involved.
+
+**Sessions.** Every main window has its own dashboard session, so two main
+windows (two tabs, two browser windows) never see each other's pop-outs, moves
+or mirrored state. A session id is 8 random URL-safe characters. The main window
+keeps it in its tab's `sessionStorage`, so a reload keeps the dashboard. A
+duplicated tab copies `sessionStorage`; so when a tab starts with a stored id,
+it asks on that session's channel (`claimSession`, waiting `CLAIM_WAIT_MS`)
+whether a live main window holds it, and takes a new id if one does. The
+channel is `windowBusChannelName(path, shell, session)`, pop-out URLs carry
+`?session=<id>` (`SESSION_PARAM`) next to `?window=<id>`, and the browser window
+name includes it (`windowTarget`), so two sessions' `w2` are two browser windows.
+A pop-out opened without a session (an old link, `?popout=` typed by hand) is
+**standalone**: it gets a session of its own, no main window shares it, it works
+on its own grid, its Move to window menu offers only **New window** (which opens
+windows in that private session), and its title bar says the main window is
+closed. Its URL is rewritten to carry the session, so a reload keeps it.
 
 **Windows.** The main window (the one with the 3D view) has the id `main`. A
 pop-out window is the viewer booted canvas-less on `?window=<id>`: a split grid
 of panel groups of its own -- tabs, stacks, splits, dividers, drag to dock
 within the window, collapse -- and no view. Its arrangement is a `LayoutDoc`
-under the context `window/<id>`, kept in this browser per window id, so a window
-reopened with the same id finds it again. `?popout=<panelId>` opens a new window
+under the context `window/<id>`, kept in this browser per session and window id
+(`ada:layout-window:<shell>:<session>:<id>`; the user's name for it under
+`ada:window-label:<shell>:<session>:<id>`), so a window reopened with the same id finds it again.
+`?popout=<panelId>` opens a new window
 holding that panel. A window is labelled ("Main", "Window 2", ...) and the user
 can rename a pop-out (its title bar, or double-click the name).
 
@@ -274,7 +292,17 @@ panels back too.
 **Reopening.** The main window records which windows exist and their panels.
 Browsers open several windows only from a user's click, so it offers **Reopen
 windows** (`REOPEN_WINDOWS_COMMAND`, also in the Move to window menu while one is
-closed) rather than reopening them on load.
+closed) rather than reopening them on load. The record is per session
+(`ada:dashboard:<shell>:<session>`). One extra key per shell
+(`ada:dashboard-last:<shell>`) names the session whose dashboard was recorded
+last. A new session with no windows of its own (after a browser restart, which
+drops `sessionStorage`) offers **Reopen windows** for that dashboard, unless its
+main window is still live; reopening *adopts* those windows: their arrangements
+and names are copied into the new session's keys, then they open.
+**Pruning.** `ada:dashboard-sessions:<shell>` notes when each session was last
+used; when a main window starts it drops the sessions (and all their keys) beyond
+the newest `SESSION_KEEP` (8) or unused for `SESSION_MAX_AGE_MS` (14 days), never
+its own or the last dashboard's.
 
 **Scene panels (mirroring).** A pop-out window has stores of its own and no 3D
 scene. A panel that reads the scene may still go there if it is `mirrored`: the

@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { beforeEach, test } from "node:test";
 
 import { DEFAULT_PANEL_CAPABILITIES } from "@/layout/panel";
-import { canPopOut, popoutPanelId, popoutUrl } from "@/layout/popout";
+import { SESSION_PARAM, canPopOut, popoutPanelId, popoutSession, popoutUrl, popoutWindowId, windowTarget, windowUrl } from "@/layout/popout";
 import { getPanel, resetPanelRegistry } from "@/layout/registry";
 import { registerPlugin, resetRegistry } from "@/plugins/registry";
 
@@ -37,6 +37,22 @@ test("the window's URL names the panel, keeps the UI, plugins and scope, and dro
   assert.equal(url.hash, "");
   assert.equal(popoutPanelId(url.search), "demo:hello");
   assert.equal(popoutPanelId("?ui=alt"), null);
+});
+
+test("a window's URL carries the dashboard session next to its id; the browser window name does too", () => {
+  const url = new URL(windowUrl("w2", "demo:hello", "https://viewer.example/app/?ui=alt&file=a.glb", "abc12345"));
+  assert.equal(url.searchParams.get("window"), "w2");
+  assert.equal(url.searchParams.get(SESSION_PARAM), "abc12345");
+  assert.equal(url.searchParams.get("popout"), "demo:hello");
+  assert.equal(popoutSession(url.search), "abc12345");
+  assert.equal(popoutWindowId(url.search), "w2");
+  assert.equal(new URL(popoutUrl("demo:hello", "https://viewer.example/", "abc12345")).searchParams.get("session"), "abc12345");
+  // Without a session (an old link): none in the URL, none read.
+  assert.equal(new URL(windowUrl("w2", undefined, "https://viewer.example/")).searchParams.get("session"), null);
+  assert.equal(popoutSession("?window=w2"), null);
+  assert.equal(popoutSession("?session=bad%20id"), null, "malformed");
+  assert.notEqual(windowTarget("w2", "aaaa1111"), windowTarget("w2", "bbbb2222"), "two sessions' w2 are two browser windows");
+  assert.equal(windowTarget("w2", "aaaa1111"), windowTarget("w2", "aaaa1111"));
 });
 
 test("a plugin slot opts in with `popout`", () => {

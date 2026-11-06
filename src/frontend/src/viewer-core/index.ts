@@ -318,7 +318,10 @@
 //          (`WindowBus`: presence by hello / announce / heartbeat / goodbye,
 //          `windows()`, `setPanels`, `setLabel`, `onGone`), transports
 //          (`WindowBusTransport`, `broadcastTransport`, `memoryTransportHub`,
-//          `nullTransport`, `windowBusChannelName`), `MAIN_WINDOW_ID`, the move
+//          `nullTransport`, `windowBusChannelName(path, shell, session)`),
+//          dashboard SESSIONS -- one per main window, so two main windows never
+//          mix (`newSessionId`, `isSessionId`, `claimSession`, `resolveSessionId`;
+//          `SESSION_PARAM` / `popoutSession` on the URL) --, `MAIN_WINDOW_ID`, the move
 //          handshake `sendPanel` / `acceptPanels` (`MOVE_ACK_MS`), `panelsToReturn`,
 //          the dashboard record (`DashboardRecord`, `recordWindow`,
 //          `forgetWindow`, `readDashboard`, `closedDashboardWindows`),
@@ -336,9 +339,18 @@
 //          `windowBus`, `useOpenWindows`, `useThisWindow`, `useMainWindowLive`,
 //          `moveToWindowItem`, `openNewWindow`, `installMainWindow`,
 //          `reopenWindows`, the window-document helpers (`dockInWindow`, ...),
-//          `GridOps` / `GridOpsProvider` / `GridView`, `PopoutPage`. Behaviour
-//          change: `canPopOut` also admits `mirrored` panels; `openWindow`
-//          returns the window's handle.
+//          `GridOps` / `GridOpsProvider` / `GridView`, `PopoutPage`; the session
+//          runtime (`dashboardSession`, `ensureDashboardSession`, `pruneSessions`,
+//          the session-keyed `windowLayoutKey` / `windowLabelKey` /
+//          `dashboardKey`, `lastDashboardKey`). Each main window has its own
+//          session (id in its tab's sessionStorage; a duplicated tab takes a new
+//          one), so two main windows never share pop-outs, moves or mirroring;
+//          pop-outs carry it in `?session=`, one without is standalone; storage
+//          is keyed by session, the last dashboard can be reopened (adopted)
+//          from a new session, old sessions are pruned. Behaviour change:
+//          `canPopOut` also admits `mirrored` panels; `openWindow` returns the
+//          window's handle and takes the session; `windowBusChannelName`,
+//          `windowUrl`, `popoutUrl` and `windowTarget` take a session.
 export const VIEWER_CORE_API_VERSION = "1.13.0";
 
 // ---------------------------------------------------------------------------
@@ -432,12 +444,14 @@ export type { RegisteredShortcut, ShortcutKeys, ShortcutSpec } from "@/layout/sh
 // A panel in a browser window of its own (dependency-free).
 export {
   POPOUT_PARAM,
+  SESSION_PARAM,
   WINDOW_PARAM,
   canPopOut,
   isPopoutPage,
   openPopout,
   openWindow,
   popoutPanelId,
+  popoutSession,
   popoutUrl,
   popoutWindowId,
   windowTarget,
@@ -455,6 +469,7 @@ export {
 export type { MirrorCommand, MirrorTopic } from "@/layout/windowMirror";
 // Multi-window dashboards: the bus between the browser windows of one session (dependency-free).
 export {
+  CLAIM_WAIT_MS,
   HEARTBEAT_MS,
   LEAVE_GRACE_MS,
   MAIN_WINDOW_ID,
@@ -463,21 +478,25 @@ export {
   STALE_MS,
   acceptPanels,
   broadcastTransport,
+  claimSession,
   closedDashboardWindows,
   createWindowBus,
   defaultWindowLabel,
   emptyDashboard,
   findWindow,
   forgetWindow,
+  isSessionId,
   isWindowBusMessage,
   isWindowId,
   mainWindowLive,
   memoryTransportHub,
+  newSessionId,
   nextWindowId,
   nullTransport,
   panelsToReturn,
   readDashboard,
   recordWindow,
+  resolveSessionId,
   sendPanel,
   windowBusChannelName,
   windowLabel,

@@ -20,7 +20,7 @@ import {activeUiShellId} from "@/plugins/uiShells";
 import {registerCommand, unregisterCommand} from "./commands";
 import type {PanelId, PanelMenuItem, RegisteredPanel} from "./panel";
 import {setPlacedInOtherWindows} from "./placedElsewhere";
-import {canPopOut, openWindow, popoutPanelId, popoutWindowId} from "./popout";
+import {canPopOut, openWindow, popoutPanelId, popoutSession, popoutWindowId} from "./popout";
 import {listPanels} from "./registry";
 import {setRevealElsewhere} from "./reveal";
 import {subscribePanels} from "./panelStates";
@@ -29,19 +29,25 @@ import {
   MAIN_WINDOW_LABEL,
   acceptPanels,
   broadcastTransport,
+  claimSession,
   closedDashboardWindows,
   createWindowBus,
   defaultWindowLabel,
   forgetWindow,
+  isSessionId,
   mainWindowLive,
+  newSessionId,
   nextWindowId,
   panelsToReturn,
   readDashboard,
   recordWindow,
+  resolveSessionId,
   sendPanel,
   windowBusChannelName,
   type DashboardRecord,
+  type DashboardWindow,
   type WindowBus,
+  type WindowBusTransport,
   type WindowId,
   type WindowInfo,
 } from "./windowBus";
@@ -51,17 +57,28 @@ import {
 // ---------------------------------------------------------------------------
 
 const shell = () => activeUiShellId();
-/** A pop-out window's arrangement (its own `LayoutPrefs`, apart from the main window's). */
-export const windowLayoutKey = (id: WindowId, shellId: string = shell()) => `ada:layout-window:${shellId}:${id}`;
-/** A pop-out window's label as the user named it. */
-export const windowLabelKey = (id: WindowId, shellId: string = shell()) => `ada:window-label:${shellId}:${id}`;
-/** The main window's record of the dashboard's windows. */
-export const dashboardKey = (shellId: string = shell()) => `ada:dashboard:${shellId}`;
+/** A pop-out window's arrangement (its own `LayoutPrefs`, apart from the main window's), in dashboard session `session`. */
+export const windowLayoutKey = (id: WindowId, session: string = dashboardSession(), shellId: string = shell()) =>
+  `ada:layout-window:${shellId}:${session}:${id}`;
+/** A pop-out window's label as the user named it, in dashboard session `session`. */
+export const windowLabelKey = (id: WindowId, session: string = dashboardSession(), shellId: string = shell()) =>
+  `ada:window-label:${shellId}:${session}:${id}`;
+/** The main window's record of the dashboard's windows, for dashboard session `session`. */
+export const dashboardKey = (session: string = dashboardSession(), shellId: string = shell()) => `ada:dashboard:${shellId}:${session}`;
+/** The session whose dashboard was recorded last on this shell: a new session offers to reopen its windows. */
+export const lastDashboardKey = (shellId: string = shell()) => `ada:dashboard-last:${shellId}`;
+/** The sessions known on this shell, with when each was last used (what pruning goes by). */
+export const sessionsKey = (shellId: string = shell()) => `ada:dashboard-sessions:${shellId}`;
+/** Where a tab keeps its main window's session id (sessionStorage: it survives a reload, not a browser restart). */
+const tabSessionKey = (shellId: string = shell()) => `ada:dashboard-session:${shellId}`;
 
 export interface KeyValueStorage {
   getItem(key: string): string | null;
   setItem(key: string, value: string): void;
   removeItem(key: string): void;
+  /** Enumeration (`Storage` has it): lets pruning find every key of a session. */
+  readonly length?: number;
+  key?(index: number): string | null;
 }
 
 function browserStorage(): KeyValueStorage | null {
@@ -90,12 +107,123 @@ function write(storage: KeyValueStorage | null, key: string, value: string | nul
 }
 
 /** The label stored for pop-out `id`, or null. */
-export function storedWindowLabel(id: WindowId, storage = browserStorage()): string | null {
-  return read(storage, windowLabelKey(id));
+export function storedWindowLabel(id: WindowId, storage = browserStorage(), session: string = dashboardSession()): string | null {
+  return read(storage, windowLabelKey(id, session));
 }
 
-export function storeWindowLabel(id: WindowId, label: string, storage = browserStorage()): void {
-  write(storage, windowLabelKey(id), label.trim() || null);
+export function storeWindowLabel(id: WindowId, label: string, storage = browserStorage(), session: string = dashboardSession()): void {
+  write(storage, windowLabelKey(id, session), label.trim() || null);
+}
+
+// ---------------------------------------------------------------------------
+// Sessions: remembered, and pruned so storage does not grow for ever.
+// ---------------------------------------------------------------------------
+
+/** At most this many sessions are kept per shell (the current and the last dashboard's always). */
+export const SESSION_KEEP = 8;
+/** A session unused for this long is pruned, in ms. */
+export const SESSION_MAX_AGE_MS = 14 * 24 * 3600 * 1000;
+
+interface SessionRegistry {
+  v: 1;
+  at: Record<string, number>;
+}
+
+function readRegistry(storage: KeyValueStorage | null, shellId: string): SessionRegistry {
+  const raw = parseJson(read(storage, sessionsKey(shellId))) as Partial<SessionRegistry> | null;
+  const at: Record<string, number> = {};
+  if (raw && raw.v === 1 && raw.at && typeof raw.at === "object") {
+    for (const [id, t] of Object.entries(raw.at)) if (isSessionId(id) && typeof t === "number" && Number.isFinite(t)) at[id] = t;
+  }
+  return {v: 1, at};
+}
+
+/** Note that `session` is in use (now). */
+export function touchSession(storage: KeyValueStorage | null, session: string, now: number = Date.now(), shellId: string = shell()): void {
+  const reg = readRegistry(storage, shellId);
+  if (reg.at[session] === now) return;
+  reg.at[session] = now;
+  write(storage, sessionsKey(shellId), JSON.stringify(reg));
+}
+
+/** The session recorded as the last dashboard's on this shell, or null. */
+export function lastDashboardSession(storage: KeyValueStorage | null, shellId: string = shell()): string | null {
+  const raw = parseJson(read(storage, lastDashboardKey(shellId))) as {v?: number; session?: unknown} | null;
+  return raw && raw.v === 1 && isSessionId(raw.session) ? raw.session : null;
+}
+
+function keysOf(storage: KeyValueStorage | null): string[] {
+  if (!storage || typeof storage.length !== "number" || typeof storage.key !== "function") return [];
+  const out: string[] = [];
+  try {
+    for (let i = 0; i < storage.length; i++) {
+      const k = storage.key(i);
+      if (k) out.push(k);
+    }
+  } catch {
+    // Not enumerable: only what the registry and the records name is pruned.
+  }
+  return out;
+}
+
+/** The storage keys that belong to `session` (windows' layouts and labels, and the dashboard record). */
+function sessionKeys(storage: KeyValueStorage | null, session: string, shellId: string): string[] {
+  const own = [`ada:layout-window:${shellId}:${session}:`, `ada:window-label:${shellId}:${session}:`];
+  const keys = new Set(keysOf(storage).filter((k) => own.some((p) => k.startsWith(p))));
+  keys.add(dashboardKey(session, shellId));
+  for (const w of readDashboard(parseJson(read(storage, dashboardKey(session, shellId)))).windows) {
+    keys.add(windowLayoutKey(w.id, session, shellId));
+    keys.add(windowLabelKey(w.id, session, shellId));
+  }
+  return [...keys];
+}
+
+/** Every session with keys in storage on this shell. */
+function sessionsInStorage(storage: KeyValueStorage | null, shellId: string): string[] {
+  const found = new Set<string>();
+  const prefixes = [`ada:layout-window:${shellId}:`, `ada:window-label:${shellId}:`, `ada:dashboard:${shellId}:`];
+  for (const k of keysOf(storage)) {
+    for (const p of prefixes) {
+      if (!k.startsWith(p)) continue;
+      const s = k.slice(p.length).split(":")[0];
+      if (isSessionId(s)) found.add(s);
+    }
+  }
+  return [...found];
+}
+
+export interface PruneOptions {
+  /** Sessions never pruned (the current one, the last dashboard's). */
+  keep: readonly (string | null | undefined)[];
+  now?: number;
+  shellId?: string;
+  maxCount?: number;
+  maxAgeMs?: number;
+}
+
+/**
+ * Drop the sessions beyond the newest `maxCount` (default `SESSION_KEEP`, the
+ * kept ones counted) and those unused for `maxAgeMs`, with their keys. A session
+ * that has keys but was never registered counts as oldest. The ids dropped.
+ */
+export function pruneSessions(storage: KeyValueStorage | null, opts: PruneOptions): string[] {
+  const shellId = opts.shellId ?? shell();
+  const now = opts.now ?? Date.now();
+  const reg = readRegistry(storage, shellId);
+  const keep = new Set(opts.keep.filter((s): s is string => !!s));
+  const ids = new Set([...Object.keys(reg.at), ...sessionsInStorage(storage, shellId)]);
+  const others = [...ids].filter((s) => !keep.has(s)).sort((a, b) => (reg.at[b] ?? 0) - (reg.at[a] ?? 0));
+  const room = Math.max(0, (opts.maxCount ?? SESSION_KEEP) - keep.size);
+  const maxAge = opts.maxAgeMs ?? SESSION_MAX_AGE_MS;
+  const survivors = new Set(others.filter((s) => now - (reg.at[s] ?? 0) <= maxAge).slice(0, room));
+  const dropped = others.filter((s) => !survivors.has(s));
+  if (!dropped.length) return dropped;
+  for (const s of dropped) {
+    for (const k of sessionKeys(storage, s, shellId)) write(storage, k, null);
+    delete reg.at[s];
+  }
+  write(storage, sessionsKey(shellId), JSON.stringify(reg));
+  return dropped;
 }
 
 // ---------------------------------------------------------------------------
@@ -114,6 +242,63 @@ export function thisWindowId(): WindowId {
   return MAIN_WINDOW_ID;
 }
 
+let sessionId: string | null = null;
+
+function tabStorage(): KeyValueStorage | null {
+  try {
+    return typeof sessionStorage !== "undefined" ? sessionStorage : null;
+  } catch {
+    return null;
+  }
+}
+
+const pagePath = () => (typeof window !== "undefined" ? window.location.pathname : "/");
+
+/**
+ * This page's dashboard session. A pop-out has the one in its URL (`?session=`);
+ * one opened without (an old link, `?popout=` typed by hand) is STANDALONE: it
+ * gets a session of its own that no main window shares, so it works on its own
+ * grid and its Move menu offers only "New window". A main window keeps its id in
+ * the tab's sessionStorage (a reload keeps the dashboard) and starts without one
+ * the first time. `ensureDashboardSession` settles it before the page renders.
+ */
+export function dashboardSession(): string {
+  if (sessionId) return sessionId;
+  if (thisWindowId() !== MAIN_WINDOW_ID) {
+    sessionId = popoutSession() ?? newSessionId();
+    return sessionId;
+  }
+  const tab = tabStorage();
+  const stored = read(tab, tabSessionKey());
+  sessionId = isSessionId(stored) ? stored : newSessionId();
+  write(tab, tabSessionKey(), sessionId);
+  return sessionId;
+}
+
+/**
+ * Settle this page's session before anything uses it: a main window whose tab
+ * kept an id asks the session's channel whether a live main window holds it
+ * (a duplicated tab copies sessionStorage), and takes a new id when one does.
+ */
+export async function ensureDashboardSession(): Promise<string> {
+  if (sessionId) return sessionId;
+  if (thisWindowId() !== MAIN_WINDOW_ID) return dashboardSession();
+  const tab = tabStorage();
+  const stored = read(tab, tabSessionKey());
+  if (!isSessionId(stored)) return dashboardSession();
+  const id = await resolveSessionId(stored, (s) => broadcastTransport(windowBusChannelName(pagePath(), shell(), s)));
+  if (!sessionId) {
+    sessionId = id;
+    write(tab, tabSessionKey(), id);
+  }
+  return sessionId;
+}
+
+/** Set this page's session (tests); null forgets it. */
+export function setDashboardSession(id: string | null): void {
+  sessionId = id;
+}
+
 let pageBus: WindowBus | null = null;
 /** Pop-out windows this page opened, by id: focusing one through its handle works where `focus()` from inside does not. */
 const opened = new Map<WindowId, Window>();
@@ -122,9 +307,15 @@ const opened = new Map<WindowId, Window>();
 export function windowBus(): WindowBus {
   if (pageBus) return pageBus;
   const id = thisWindowId();
-  const path = typeof window !== "undefined" ? window.location.pathname : "/";
+  const session = dashboardSession();
+  touchSession(browserStorage(), session);
   const label = id === MAIN_WINDOW_ID ? MAIN_WINDOW_LABEL : (storedWindowLabel(id) ?? defaultWindowLabel(id));
-  const bus = createWindowBus({id, label, transport: broadcastTransport(windowBusChannelName(path, shell())), timers: typeof window !== "undefined"});
+  const bus = createWindowBus({
+    id,
+    label,
+    transport: broadcastTransport(windowBusChannelName(pagePath(), shell(), session)),
+    timers: typeof window !== "undefined",
+  });
   pageBus = bus;
   bus.on("focus", (msg) => {
     if (msg.to !== bus.id) return;
@@ -196,6 +387,9 @@ export function useMainWindowLive(): boolean {
 /** The window ids in use or remembered: a new window takes another. */
 function takenIds(bus: WindowBus, storage = browserStorage()): WindowId[] {
   const rec = readDashboard(parseJson(read(storage, dashboardKey())));
+  // A previous dashboard's windows (offered for reopening) take their ids back: a new window must not collide.
+  const prev = lastDashboardSession(storage);
+  if (prev && prev !== dashboardSession()) rec.windows.push(...readDashboard(parseJson(read(storage, dashboardKey(prev)))).windows);
   return [bus.id, ...bus.windows().map((w) => w.id), ...rec.windows.map((w) => w.id)];
 }
 
@@ -210,7 +404,7 @@ const parseJson = (raw: string | null): unknown => {
 
 /** Open pop-out `id` (focusing it when open), adding `panel` to it. False when the browser blocked it. */
 export function openPopoutWindow(id: WindowId, panel?: PanelId): boolean {
-  const handle = openWindow(id, panel);
+  const handle = openWindow(id, panel, dashboardSession());
   if (!handle) return false;
   opened.set(id, handle);
   return true;
@@ -285,6 +479,14 @@ export interface MainWindowDeps {
   open?: (id: WindowId) => boolean;
   /** Register the "Reopen windows" command (default true). */
   command?: boolean;
+  /** This dashboard's session (default `dashboardSession()`). */
+  session?: string;
+  /** The channel of a session, to ask whether its main window is live (default: the `BroadcastChannel`). */
+  channel?: (session: string) => WindowBusTransport;
+  /** How long to wait for a live main window's answer, in ms. */
+  claimWaitMs?: number;
+  /** The clock for session bookkeeping. */
+  now?: () => number;
 }
 
 export const REOPEN_WINDOWS_COMMAND = "core:reopen-windows";
@@ -301,15 +503,58 @@ export const REOPEN_WINDOWS_COMMAND = "core:reopen-windows";
  *   * Which windows exist, with their panels, is recorded; a window closed while
  *     this one watched is forgotten (and its saved arrangement with it), so
  *     "Reopen windows" brings back what was open when this page last saw it.
+ *   * All of it is keyed by this window's dashboard SESSION. The session whose
+ *     dashboard was recorded last is remembered; a new session (a browser
+ *     restart drops the old id) with no windows of its own offers to reopen that
+ *     dashboard's windows, unless its main window is still live, and reopening
+ *     ADOPTS them: their arrangements and names are copied into this session.
+ *     Old sessions are pruned (`pruneSessions`).
  */
 export function installMainWindow(bus: WindowBus, deps: MainWindowDeps): () => void {
   const storage = deps.storage === undefined ? browserStorage() : deps.storage;
   const panels = deps.panels ?? (() => listPanels());
-  let record: DashboardRecord = readDashboard(parseJson(read(storage, dashboardKey())));
+  const session = deps.session ?? dashboardSession();
+  const shellId = shell();
+  const clock = deps.now ?? (() => Date.now());
+  const channel = deps.channel ?? ((s: string) => broadcastTransport(windowBusChannelName(pagePath(), shellId, s)));
+  let record: DashboardRecord = readDashboard(parseJson(read(storage, dashboardKey(session))));
+  const previous = lastDashboardSession(storage);
+  touchSession(storage, session, clock());
+  pruneSessions(storage, {keep: [session, previous], now: clock()});
   const save = (next: DashboardRecord) => {
     if (next === record) return;
     record = next;
-    write(storage, dashboardKey(), JSON.stringify(record));
+    write(storage, dashboardKey(session), JSON.stringify(record));
+    if (record.windows.length) {
+      write(storage, lastDashboardKey(shellId), JSON.stringify({v: 1, session}));
+      touchSession(storage, session, clock());
+    }
+  };
+
+  /** The previous session's windows, once known to be free to adopt. */
+  let adoptable: DashboardWindow[] = [];
+  let live = true;
+  const probed = (async () => {
+    if (!previous || previous === session || record.windows.length) return;
+    const windows = readDashboard(parseJson(read(storage, dashboardKey(previous)))).windows;
+    if (!windows.length) return;
+    const free = await claimSession(channel(previous), {waitMs: deps.claimWaitMs});
+    if (free && live) adoptable = windows;
+  })();
+  /** Not yet in this dashboard and not open. */
+  const adoptableNow = () => adoptable.filter((w) => !record.windows.some((x) => x.id === w.id) && !bus.windows().some((x) => x.id === w.id));
+  const adopt = () => {
+    const from = previous!;
+    let next = record;
+    for (const w of adoptableNow()) {
+      const layout = read(storage, windowLayoutKey(w.id, from, shellId));
+      if (layout !== null) write(storage, windowLayoutKey(w.id, session, shellId), layout);
+      const label = read(storage, windowLabelKey(w.id, from, shellId));
+      if (label !== null) write(storage, windowLabelKey(w.id, session, shellId), label);
+      next = recordWindow(next, w);
+    }
+    adoptable = [];
+    save(next);
   };
   /** A window whose arriving panel is being docked here: its own presence may still list it. */
   let arrivingFrom: WindowId | null = null;
@@ -362,14 +607,14 @@ export function installMainWindow(bus: WindowBus, deps: MainWindowDeps): () => v
       for (const id of panelsToReturn(info.panels, bus.windows(), deps.isOpen)) deps.reveal(id);
       if (reason === "closed") {
         save(forgetWindow(record, info.id));
-        write(storage, windowLayoutKey(info.id), null);
-        write(storage, windowLabelKey(info.id), null);
+        write(storage, windowLayoutKey(info.id, session, shellId), null);
+        write(storage, windowLabelKey(info.id, session, shellId), null);
       }
     }),
   );
   onWindows();
 
-  const closed = () => closedDashboardWindows(record, bus.windows());
+  const closed = () => [...closedDashboardWindows(record, bus.windows()), ...adoptableNow()];
   if (deps.command !== false) {
     registerCommand(
       {
@@ -383,8 +628,9 @@ export function installMainWindow(bus: WindowBus, deps: MainWindowDeps): () => v
     );
   }
   const open = deps.open ?? ((id: WindowId) => openPopoutWindow(id));
-  /** Reopen the recorded windows that are closed, until the browser blocks one. The ids opened. */
+  /** Reopen the recorded windows that are closed (adopting the previous dashboard's first), until the browser blocks one. The ids opened. */
   const reopenWindows = (): WindowId[] => {
+    if (adoptableNow().length) adopt();
     const done: WindowId[] = [];
     for (const w of closed()) {
       if (!open(w.id)) break;
@@ -392,9 +638,10 @@ export function installMainWindow(bus: WindowBus, deps: MainWindowDeps): () => v
     }
     return done;
   };
-  installed = {reopen: reopenWindows, closed};
+  installed = {reopen: reopenWindows, closed, probed};
 
   return () => {
+    live = false;
     for (const off of offs) off();
     setRevealElsewhere(null);
     setPlacedInOtherWindows([]);
@@ -403,7 +650,12 @@ export function installMainWindow(bus: WindowBus, deps: MainWindowDeps): () => v
   };
 }
 
-let installed: {reopen(): WindowId[]; closed(): ReturnType<typeof closedDashboardWindows>} | null = null;
+let installed: {reopen(): WindowId[]; closed(): ReturnType<typeof closedDashboardWindows>; probed: Promise<void>} | null = null;
+
+/** Resolves once the main window has checked whether the previous dashboard's windows can be offered for reopening. */
+export function dashboardProbed(): Promise<void> {
+  return installed?.probed ?? Promise.resolve();
+}
 
 /** Reopen the dashboard's closed windows (from a click: browsers block windows opened without one). */
 export function reopenWindows(): WindowId[] {

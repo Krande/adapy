@@ -14,12 +14,21 @@
 // Dependency-free, so the facade root can export it.
 
 import type { PanelId, RegisteredPanel } from "./panel";
-import { isWindowId, type WindowId } from "./windowBus";
+import { isSessionId, isWindowId, type WindowId } from "./windowBus";
 
 /** The URL parameter naming a panel a new pop-out window shows. */
 export const POPOUT_PARAM = "popout";
 /** The URL parameter naming the pop-out window a page is. */
 export const WINDOW_PARAM = "window";
+
+/** The URL parameter naming the dashboard session a pop-out window belongs to (its main window's). */
+export const SESSION_PARAM = "session";
+
+/** The dashboard session in the URL (`?session=`); null when absent or malformed. */
+export function popoutSession(search: string = typeof window !== "undefined" ? window.location.search : ""): string | null {
+  const id = new URLSearchParams(search).get(SESSION_PARAM);
+  return isSessionId(id) ? id : null;
+}
 
 /** The panel id a new pop-out window should show; null for a normal tab. */
 export function popoutPanelId(search: string = typeof window !== "undefined" ? window.location.search : ""): PanelId | null {
@@ -61,29 +70,35 @@ function baseUrl(href: string): URL {
   return url;
 }
 
-/** The URL of a new pop-out window holding `id` (the window's id chosen when it loads). */
-export function popoutUrl(id: PanelId, href: string = window.location.href): string {
+/**
+ * The URL of a new pop-out window holding `id` (the window's id chosen when it
+ * loads). `session` ties it to a dashboard session; without one it is standalone.
+ */
+export function popoutUrl(id: PanelId, href: string = window.location.href, session?: string | null): string {
   const url = baseUrl(href);
   url.searchParams.set(POPOUT_PARAM, id);
+  if (session) url.searchParams.set(SESSION_PARAM, session);
   return url.toString();
 }
 
-/** The URL of pop-out window `windowId`, adding `panel` to it when given. */
-export function windowUrl(windowId: WindowId, panel?: PanelId, href: string = window.location.href): string {
+/** The URL of pop-out window `windowId` of dashboard session `session`, adding `panel` to it when given. */
+export function windowUrl(windowId: WindowId, panel?: PanelId, href: string = window.location.href, session?: string | null): string {
   const url = baseUrl(href);
   url.searchParams.set(WINDOW_PARAM, windowId);
+  if (session) url.searchParams.set(SESSION_PARAM, session);
   if (panel) url.searchParams.set(POPOUT_PARAM, panel);
   return url.toString();
 }
 
-/** The browser window name of pop-out `windowId`: opening it again focuses it. */
-export const windowTarget = (windowId: WindowId): string => `ada-window-${windowId}`;
+/** The browser window name of pop-out `windowId` of `session`: opening it again focuses it; another session's same id does not collide. */
+export const windowTarget = (windowId: WindowId, session?: string | null): string =>
+  session ? `ada-window-${session}-${windowId}` : `ada-window-${windowId}`;
 
 const FEATURES = "popup,width=720,height=760";
 
-/** Open (or focus) pop-out window `windowId`, adding `panel` to it. Its handle; null when the browser blocked it. */
-export function openWindow(windowId: WindowId, panel?: PanelId): Window | null {
-  const win = window.open(windowUrl(windowId, panel), windowTarget(windowId), FEATURES);
+/** Open (or focus) pop-out window `windowId` of `session`, adding `panel` to it. Its handle; null when the browser blocked it. */
+export function openWindow(windowId: WindowId, panel?: PanelId, session?: string | null): Window | null {
+  const win = window.open(windowUrl(windowId, panel, undefined, session), windowTarget(windowId, session), FEATURES);
   if (!win) return null;
   win.focus?.();
   return win;
@@ -94,9 +109,9 @@ export function openWindow(windowId: WindowId, panel?: PanelId): Window | null {
  * twice. `windowId` names the new window (default: one derived from the panel).
  * False when the browser blocked the window.
  */
-export function openPopout(id: PanelId, hide: (id: PanelId) => unknown, windowId?: WindowId): boolean {
+export function openPopout(id: PanelId, hide: (id: PanelId) => unknown, windowId?: WindowId, session?: string | null): boolean {
   const target = windowId ?? `p-${id.replace(/[^A-Za-z0-9_-]/g, "-").slice(0, 36)}`;
-  if (!openWindow(target, id)) return false;
+  if (!openWindow(target, id, session)) return false;
   hide(id);
   return true;
 }
