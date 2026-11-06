@@ -500,7 +500,10 @@
 //          kept per shell in `LayoutPrefs.rail` (`RailPrefs`, with the tools a
 //          later shell list adds put in: `railTools`). The Desktop UI has both
 //          (`DESKTOP_RAIL_TOOLS`). Additive, apart from the reserved Shift+E.
-//   1.15.0 Core mode toolbars: `UiShellMode.toolbars` names core's ready-made
+//   1.15.0 Mode toolbars, number labels and colour by, a Build mode, and more
+//          panels in pop-out windows. All additive. Ships with
+//          PLUGIN_API_VERSION 1.15.0.
+//          - Core mode toolbars: `UiShellMode.toolbars` names core's ready-made
 //          toolbars for a mode's toolbar slot (`"playback"`, `"section"`,
 //          `"representation"`; `CoreModeToolbarId`, `CORE_MODE_TOOLBAR_IDS` on the
 //          root), drawn by `ShellModeToolbar` before the mode's own `toolbar`.
@@ -513,9 +516,8 @@
 //          `sectionToggle`, `sectionFlip`, `sectionClear`, and
 //          `feaToggleUndeformed` / `feaToggleElementEdges` /
 //          `feaToggleResultColors`, with icons; the Desktop UI's modes use the
-//          toolbars and its View menu lists the commands. Additive. Ships with
-//          PLUGIN_API_VERSION 1.15.0.
-//   1.16.0 Number labels and colour by property. Core draws node and element ids
+//          toolbars and its View menu lists the commands.
+//          - Number labels and colour by property. Core draws node and element ids
 //          of a loaded FEA result over the view (`NumberLabels`, bounded and
 //          thinned on a screen grid) and colours the scene by a property.
 //          `CORE_COMMAND_IDS`: `labelsNodes`, `labelsElements`, `colorByNext`,
@@ -527,8 +529,8 @@
 //          colouring with `registerColorBySource` (`ColorBySource`; also
 //          `applyColorBy`, `resetColorBy`, `colorBySources`, `useColorByStore`)
 //          and `useLabelsStore` switches the labels, all on `@/viewer-core/scene`. The Desktop UI uses all of
-//          it. Additive. Ships with PLUGIN_API_VERSION 1.16.0.
-//   1.17.0 Build mode for the procedural builder. A new core mode toolbar id
+//          it.
+//          - Build mode for the procedural builder. A new core mode toolbar id
 //          `"build"` (`BuilderToolbar`, on `@/viewer-core/layout`): the open model's
 //          name and revision, undo / redo, compile, compile in the browser,
 //          commit and close. `UiShellMode.requires: "builder"` offers a mode only
@@ -539,8 +541,8 @@
 //          `builderUndo`, `builderRedo`, `builderCompile`, `builderRecompile`,
 //          `builderCompileBrowser`, `builderCommit`, `builderClose`, each greyed
 //          with its reason (no model, read-only, no server compile). The Desktop
-//          UI gains a Build mode. Additive. Ships with PLUGIN_API_VERSION 1.17.0.
-//   1.18.0 More panels work in a pop-out window. The Simulation panel, the result
+//          UI gains a Build mode.
+//          - More panels work in a pop-out window. The Simulation panel, the result
 //          data table and the Scene panel (its Model tab) are mirrored
 //          (`capabilities.mirrored`); the scene tree gains the Systems tab and the
 //          row menu's selection box, unload, saved-group and related entries.
@@ -559,9 +561,8 @@
 //          `boxAroundSelection` and `runRelated` (mirror commands `core:model-visible`,
 //          `core:unload-models`, `core:select-group`, `core:box-*`,
 //          `core:run-related`). On `@/viewer-core/scene`: the topics and their
-//          snapshot types, `tableRowIndices`. Additive. Ships with
-//          PLUGIN_API_VERSION 1.18.0.
-export const VIEWER_CORE_API_VERSION = "1.18.0";
+//          snapshot types, `tableRowIndices`.
+export const VIEWER_CORE_API_VERSION = "1.15.0";
 
 // ---------------------------------------------------------------------------
 // Plugin declaration. `registerPlugin` is how a package announces itself —
