@@ -528,7 +528,19 @@
 //          `applyColorBy`, `resetColorBy`, `colorBySources`, `useColorByStore`)
 //          and `useLabelsStore` switches the labels, all on `@/viewer-core/scene`. The Desktop UI uses all of
 //          it. Additive. Ships with PLUGIN_API_VERSION 1.16.0.
-export const VIEWER_CORE_API_VERSION = "1.16.0";
+//   1.17.0 Build mode for the procedural builder. A new core mode toolbar id
+//          `"build"` (`BuilderToolbar`, on `@/viewer-core/layout`): the open model's
+//          name and revision, undo / redo, compile, compile in the browser,
+//          commit and close. `UiShellMode.requires: "builder"` offers a mode only
+//          while a procedural model is open (left out of the switcher, the Modes
+//          menu and the palette otherwise; the shell falls back when it goes
+//          away). `chrome.overlays.builder` mounts the builder's canvas menus and
+//          gizmo HUD for a shell that docks the panel. `CORE_COMMAND_IDS`:
+//          `builderUndo`, `builderRedo`, `builderCompile`, `builderRecompile`,
+//          `builderCompileBrowser`, `builderCommit`, `builderClose`, each greyed
+//          with its reason (no model, read-only, no server compile). The Desktop
+//          UI gains a Build mode. Additive. Ships with PLUGIN_API_VERSION 1.17.0.
+export const VIEWER_CORE_API_VERSION = "1.17.0";
 
 // ---------------------------------------------------------------------------
 // Plugin declaration. `registerPlugin` is how a package announces itself —

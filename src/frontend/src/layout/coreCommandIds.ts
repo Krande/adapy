@@ -91,6 +91,14 @@ export const CORE_COMMAND_IDS = {
   colorByNext: "core:color-by-next",
   colorByModel: "core:color-by-model",
   colorByReset: "core:color-by-reset",
+  /** The procedural builder: its own undo and redo, compile (server, forced, in the browser), commit, close the model. */
+  builderUndo: "core:builder-undo",
+  builderRedo: "core:builder-redo",
+  builderCompile: "core:builder-compile",
+  builderRecompile: "core:builder-recompile",
+  builderCompileBrowser: "core:builder-compile-browser",
+  builderCommit: "core:builder-commit",
+  builderClose: "core:builder-close",
 } as const;
 
 export type CoreCommandId = (typeof CORE_COMMAND_IDS)[keyof typeof CORE_COMMAND_IDS];

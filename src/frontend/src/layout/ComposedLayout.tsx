@@ -27,7 +27,8 @@ import {ToolRail, ToolRailCustomiseHost} from "./ToolRail";
 import {railConfig} from "./toolRailModel";
 import {setPanelOverrides} from "./registry";
 import {setClassicShell, setClassicToolbar, type ClassicArrangement} from "./presets/classicPlace";
-import {SHELL_MODE_PARAM, activeShellMode, listShellModes, setShellModes, subscribeShellModes, type ShellMode} from "./shellModes";
+import {modeAvailable, subscribeModeRequirements} from "./modeRequirements";
+import {SHELL_MODE_PARAM,activeShellMode, listShellModes, setShellMode, setShellModes, subscribeShellModes, type ShellMode} from "./shellModes";
 
 /** Who holds the FEA model undeformed for a mode that shows no deformation. */
 const MODE_DEFORMATION_OWNER = "shell-mode";
@@ -60,6 +61,7 @@ export function shellModes(spec: UiShellSpec): ShellMode[] {
     showsDeformation: m.showsDeformation,
     toolbar: m.toolbar,
     toolbars: m.toolbars,
+    requires: m.requires,
   }));
   const theirs: ShellMode[] = getPluginModes()
     .filter(({mode}) => !own.some((m) => m.id === mode.id))
@@ -251,10 +253,20 @@ function useModeEffects(shellId: string | null): void {
         // Storage unavailable: the shell starts in its first mode next time.
       }
     };
+    // A mode whose requirement no longer holds (the builder's model was closed) hands over to the first on offer.
+    const settle = () => {
+      const cur = listShellModes().find((m) => m.id === activeShellMode());
+      if (!cur || modeAvailable(cur)) return;
+      const next = listShellModes().find(modeAvailable);
+      if (next) setShellMode(next.id);
+    };
+    settle();
     report();
     const unsubscribe = subscribeShellModes(report);
+    const unsubscribeAvailable = subscribeModeRequirements(settle);
     return () => {
       unsubscribe();
+      unsubscribeAvailable();
       setFeaDeformationShown(MODE_DEFORMATION_OWNER, true);
       // Leaving the shell (an in-place switch): a mode that owned the scene
       // colouring gives it back, as leaving that mode would.

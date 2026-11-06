@@ -27,10 +27,7 @@ import CanvasWrapper from "@/components/viewer/CanvasWrapper";
 import {SceneMenuHost} from "@/components/tree_view/SceneTreeMenu";
 import NodeEditorComponent from "@/components/node_editor/NodeEditorComponent";
 import ErrorBoundary from "@/components/common/ErrorBoundary";
-import CellBuilderContextMenu from "@/components/viewer/CellBuilderContextMenu";
-import CellBuilderPortMenu from "@/components/viewer/CellBuilderPortMenu";
-import CellBuilderInsertMenu from "@/components/viewer/CellBuilderInsertMenu";
-import CellBuilderGizmoHud from "@/components/viewer/CellBuilderGizmoHud";
+import {CellBuilderOverlays} from "../CellBuilderOverlays";
 import {WebsocketStatusMenu} from "@/components/WebsocketStatusMenu";
 import {ViewerWindow, VIEWER_PANEL_TITLE, viewerPanelExternal} from "@/components/ViewerWindow";
 import {navBtnClass} from "@/components/navButton";
@@ -203,15 +200,7 @@ const COLUMN_WRAP: Readonly<Record<PanelId, React.ComponentType<{children: React
   [CORE_PANEL_IDS.scene]: SceneBoundary,
 };
 
-/** The cellbuilder's canvas menus and gizmo HUD, mounted beside its panel while a model is loaded. */
-export const CellBuilderOverlays: React.FC = () => (
-  <>
-    <CellBuilderContextMenu />
-    <CellBuilderPortMenu />
-    <CellBuilderInsertMenu />
-    <CellBuilderGizmoHud />
-  </>
-);
+export {CellBuilderOverlays};
 
 const NO_ACTIONS: readonly PanelAction[] = [];
 

@@ -8,6 +8,7 @@
 //   section         section planes: one per axis, on / off, flip, the offset slider, remove
 //   representation  edges, an FEA result's undeformed outline, element edges and colours, node / element number labels
 //   colorBy         colour the scene by a property (an FEA section / material / thickness, the models), and reset
+//   build           the procedural builder: model name and revision, undo / redo, compile, commit, close
 //
 // Core has no scene-wide wireframe, transparency or annotation (measure, label,
 // markup) tools to put in a toolbar; there is no group for them.
@@ -19,6 +20,7 @@ import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {useModelState} from "@/state/modelState";
 import {useOptionsStore} from "@/state/optionsStore";
 import {useSectionStore} from "@/state/sectionStore";
+import {hasEmbeddedDoc, useCellBuilderStore} from "@/state/cellBuilderStore";
 import {useColorByStore} from "@/state/colorByStore";
 import {useLabelsStore} from "@/state/labelsStore";
 import {
@@ -267,8 +269,49 @@ export function ColorByToolbar({className = BAR}: {className?: string}) {
   );
 }
 
+/**
+ * The procedural builder: which model is open and whether it has unsaved changes, undo / redo, compile
+ * (on the server, forced, in the browser), commit, and closing the model. Each button is a core command,
+ * greyed with its reason when the model is read-only, the connection cannot compile, or there is nothing to do.
+ */
+export function BuilderToolbar({className = BAR}: {className?: string}) {
+  // Re-render when any of what the buttons and the status show changes.
+  const status = useCellBuilderStore(
+    (s) =>
+      `${s.active?.name ?? ""}|${s.active?.revision ?? ""}|${s.dirty}|${s.past.length}|${s.future.length}|${s.compileJob?.status ?? ""}|${s.committing}`,
+  );
+  const s = useCellBuilderStore.getState();
+  void status;
+  const loaded = s.active !== null || hasEmbeddedDoc(s);
+  return (
+    <div className={className} role="group" aria-label="Procedural builder" data-mode-toolbar="build">
+      <span className="mr-1 max-w-48 truncate font-semibold" data-builder-model="" title={s.active?.modelId ?? undefined}>
+        {s.active ? `${s.active.name} r${s.active.revision}` : loaded ? "Model from the scene (read-only)" : "No procedural model"}
+      </span>
+      {s.dirty && (
+        <span className="mr-1 whitespace-nowrap text-amber-400" data-builder-dirty="">
+          unsaved
+        </span>
+      )}
+      <CommandButton id={ID.builderUndo} />
+      <CommandButton id={ID.builderRedo} />
+      {DIVIDER}
+      <CommandButton id={ID.builderCompile}>
+        <span className="ml-1">{s.compileJob?.status === "queued" || s.compileJob?.status === "running" ? "Compiling…" : "Compile"}</span>
+      </CommandButton>
+      <CommandButton id={ID.builderCompileBrowser} label="Compile in browser (WASM)" />
+      <CommandButton id={ID.builderCommit}>
+        <span className="ml-1">{s.committing ? "Committing…" : "Commit"}</span>
+      </CommandButton>
+      {DIVIDER}
+      <CommandButton id={ID.builderClose} />
+    </div>
+  );
+}
+
 /** Core's mode toolbars by id: what `UiShellMode.toolbars` names. */
 export const CORE_MODE_TOOLBARS: Readonly<Record<CoreModeToolbarId, React.FC>> = {
+  build: () => <BuilderToolbar />,
   playback: () => <PlaybackToolbar />,
   section: () => <SectionToolbar />,
   representation: () => <RepresentationToolbar />,

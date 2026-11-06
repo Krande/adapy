@@ -10,6 +10,7 @@ import {useViewerStores} from "@/state/AdaViewerContext";
 import {usePluginTheme} from "@/state/themeStore";
 
 import {CoreModeToolbars} from "./ModeToolbars";
+import {modeAvailable, modeRequirementsVersion, subscribeModeAvailability} from "./modeRequirements";
 
 import {
   activeShellMode,
@@ -21,10 +22,11 @@ import {
   type ShellMode,
 } from "./shellModes";
 
-/** The modes, the active one and the switch, re-rendering on change. */
+/** The modes on offer (those whose `requires` holds), the active one and the switch, re-rendering on change. */
 export function useShellMode(): {modes: readonly ShellMode[]; active: string | null; setMode: (id: string) => boolean} {
   useSyncExternalStore(subscribeShellModes, shellModesVersion, shellModesVersion);
-  return {modes: listShellModes(), active: activeShellMode(), setMode: setShellMode};
+  useSyncExternalStore(subscribeModeAvailability, modeRequirementsVersion, modeRequirementsVersion);
+  return {modes: listShellModes().filter(modeAvailable), active: activeShellMode(), setMode: setShellMode};
 }
 
 export interface ShellModeSwitcherProps {

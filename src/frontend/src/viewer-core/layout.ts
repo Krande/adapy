@@ -261,6 +261,7 @@ export {
   CORE_MODE_TOOLBARS,
   CoreModeToolbars,
   ColorByToolbar,
+  BuilderToolbar,
   PlaybackToolbar,
   RepresentationToolbar,
   SectionToolbar,

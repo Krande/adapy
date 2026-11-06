@@ -43,7 +43,7 @@ export const DESKTOP_GROUPS = {
   bottom: "bottom",
 } as const;
 
-const { tree, storage, objectInfo, scene, simulation, feaTable } = CORE_PANEL_IDS;
+const { tree, storage, objectInfo, scene, simulation, feaTable, cellbuilder, equipmentAdmin, systemAdmin } = CORE_PANEL_IDS;
 
 /** The view and the results dock under it; collapsed to a strip of icons in the Model mode. */
 function centre(bottomCollapsed: boolean): GridNode {
@@ -90,6 +90,36 @@ function desktopGrid(bottomCollapsed: boolean): GridNode {
     ],
   };
 }
+
+/** The Build mode's dock on the left: the builder first, wider than the other modes' left dock. */
+const BUILD_LEFT = { px: 380, min: 280, max: 640 };
+
+/**
+ * The Build mode's grid: the builder (its tabs, cells and systems) on the left with the tree and
+ * storage behind it, the view in the middle, the selected cell or equipment above the scene and the
+ * equipment / system catalogs on the right. No results dock: the toolbar carries compile and commit.
+ */
+export const DESKTOP_BUILD_GRID: GridNode = {
+  kind: "split",
+  id: "s-main",
+  dir: "row",
+  sizes: [0.24, 0.5, 0.26],
+  children: [
+    { kind: "group", id: DESKTOP_GROUPS.left, panels: [cellbuilder, tree, storage], active: cellbuilder, fixed: BUILD_LEFT },
+    { kind: "viewport" },
+    {
+      kind: "split",
+      id: "s-right",
+      dir: "col",
+      sizes: [0.55, 0.45],
+      fixed: RIGHT,
+      children: [
+        { kind: "group", id: DESKTOP_GROUPS.rightTop, panels: [objectInfo], active: objectInfo },
+        { kind: "group", id: DESKTOP_GROUPS.rightBottom, panels: [scene, equipmentAdmin, systemAdmin], active: scene, arrangement: "auto" },
+      ],
+    },
+  ],
+};
 
 /** The Model mode's grid: results dock collapsed. */
 export const DESKTOP_GRID: GridNode = desktopGrid(true);
@@ -152,10 +182,24 @@ export function desktopUiShellSpec(): UiShellSpec {
           open: [tree, objectInfo, simulation],
           toolbars: ["playback", "representation", "colorBy"],
         },
+        {
+          id: "build",
+          label: "Build",
+          hint: "Build a procedural model: cells, equipment and systems, compile and commit",
+          grid: DESKTOP_BUILD_GRID,
+          open: [cellbuilder, objectInfo, scene],
+          toolbars: ["build", "section"],
+          // Offered once a procedural model is open (from storage, or read off the loaded scene).
+          requires: "builder",
+        },
       ],
       defaultMode: "model",
       // Raise when the arrangements above change, so saved ones start over.
-      version: 1,
+      version: 2,
+    },
+    panels: {
+      // In the Build mode the toolbar carries undo / redo, compile and commit, so the panel leaves out its footer and undo / redo.
+      [cellbuilder]: { options: (mode) => (mode === "build" ? { showFooter: false, showUndoRedo: false } : {}) },
     },
     chrome: {
       header: () => import("./DesktopHeader"),
@@ -167,7 +211,7 @@ export function desktopUiShellSpec(): UiShellSpec {
       toolbar: false,
       groups: { actions: ["add", "collapse", "pin"], tabIcons: true },
       commandPalette: { keys: "Ctrl+K" },
-      overlays: { legend: "right-center", pluginPanels: "top-left", colorByLegend: "right-center", labels: true },
+      overlays: { legend: "right-center", pluginPanels: "top-left", colorByLegend: "right-center", labels: true, builder: true },
       toastAnchor: "bottom-right",
     },
   };

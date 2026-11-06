@@ -103,6 +103,13 @@ export function desktopMenus({ modes, workspaces, shells, themes }: DesktopMenuI
     },
   ];
   if (modes.length) menus.push({ label: "Modes", items: modes.map((m) => `mode:${m.id}`) });
+  // The builder's commands, once the shell has a mode for it; greyed, with the reason, until a model is open.
+  if (modes.some((m) => m.id === "build")) {
+    menus.push({
+      label: "Build",
+      items: [C.builderUndo, C.builderRedo, SEP, C.builderCompile, C.builderRecompile, C.builderCompileBrowser, SEP, C.builderCommit, C.builderClose, SEP, panel(P.cellbuilder)],
+    });
+  }
   menus.push(
     {
       label: "Window",

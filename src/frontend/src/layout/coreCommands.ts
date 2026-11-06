@@ -16,6 +16,7 @@ import {useStore} from "zustand";
 import {runtime} from "@/runtime/config";
 import {listUiShells, activeUiShellId, setActiveUiShell} from "@/plugins/uiShells";
 import {promptDialog} from "@/plugins/dialogs";
+import {capabilities} from "@/services/capabilities";
 import {useCellBuilderStore} from "@/state/cellBuilderStore";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {useGalleryStore} from "@/state/galleryStore";
@@ -48,6 +49,7 @@ import {openCoreDialog} from "./coreDialogs";
 import {registerCommand, unregisterCommand, type CommandSpec} from "./commands";
 import {layoutStore} from "./layoutStore";
 import {listShellModes} from "./shellModes";
+import {builderLoaded} from "./modeRequirements";
 import {deleteWorkspace, listWorkspaces, loadWorkspace, resetArrangement, saveWorkspace} from "./presets/classicPlace";
 import {openNewWindow, thisWindowId, windowBus} from "./windows";
 import {MAIN_WINDOW_ID} from "./windowBus";
@@ -108,6 +110,24 @@ const nothingSelected = () => (selectionCount() === 0 ? "Nothing selected" : nul
 
 /** The procedural builder takes Ctrl+Z / Ctrl+Y for its own history while it is open. */
 const builderOwnsHistory = () => (useCellBuilderStore.getState().active !== null ? "The procedural builder has its own undo" : null);
+
+const noBuilderModel = () => (builderLoaded() ? null : "No procedural model is open");
+/** Editing, compiling and committing need a model opened from storage, on a connection that can edit it. */
+const builderReadOnly = () =>
+  noBuilderModel() ??
+  (useCellBuilderStore.getState().active
+    ? capabilities.procedural.canEdit
+      ? null
+      : "This connection cannot edit procedural models"
+    : "This model was read off the scene, not opened from storage");
+const builderCompileBusy = () => {
+  const job = useCellBuilderStore.getState().compileJob;
+  return job && (job.status === "queued" || job.status === "running") ? "A compile is running" : null;
+};
+const builderServerCompile = () =>
+  builderReadOnly() ??
+  builderCompileBusy() ??
+  (capabilities.procedural.supports("previewModel") ? null : "Server-side compile is not available over this connection");
 
 /** The scene's handles, when a canvas is mounted. */
 function sceneHandles() {
@@ -592,6 +612,59 @@ export function coreCommandSpecs(): CommandSpec[] {
       group: "View",
       disabledReason: () => (useColorByStore.getState().activeId ? null : "Nothing is coloured by property"),
       run: () => void colorBy().then((m) => m.resetColorBy()),
+    },
+    // The procedural builder (the Build mode's toolbar)
+    {
+      id: ID.builderUndo,
+      label: "Undo build step",
+      group: "Build",
+      disabledReason: () => builderReadOnly() ?? (useCellBuilderStore.getState().past.length ? null : "Nothing to undo"),
+      run: () => useCellBuilderStore.getState().undo(),
+    },
+    {
+      id: ID.builderRedo,
+      label: "Redo build step",
+      group: "Build",
+      disabledReason: () => builderReadOnly() ?? (useCellBuilderStore.getState().future.length ? null : "Nothing to redo"),
+      run: () => useCellBuilderStore.getState().redo(),
+    },
+    {
+      id: ID.builderCompile,
+      label: "Compile preview",
+      group: "Build",
+      disabledReason: builderServerCompile,
+      run: () => void useCellBuilderStore.getState().compilePreviewSelected(),
+    },
+    {
+      id: ID.builderRecompile,
+      label: "Recompile preview (force)",
+      group: "Build",
+      disabledReason: builderServerCompile,
+      run: () => void useCellBuilderStore.getState().compilePreviewSelected(true),
+    },
+    {
+      id: ID.builderCompileBrowser,
+      label: "Compile in browser (WASM)",
+      group: "Build",
+      disabledReason: () => builderReadOnly() ?? builderCompileBusy(),
+      run: () => void useCellBuilderStore.getState().compileInBrowser(),
+    },
+    {
+      id: ID.builderCommit,
+      label: "Commit model",
+      group: "Build",
+      disabledReason: () => {
+        const s = useCellBuilderStore.getState();
+        return builderReadOnly() ?? (s.committing ? "A commit is running" : s.dirty ? null : "No unsaved changes");
+      },
+      run: () => void useCellBuilderStore.getState().commit(),
+    },
+    {
+      id: ID.builderClose,
+      label: "Close procedural model",
+      group: "Build",
+      disabledReason: () => (useCellBuilderStore.getState().active ? null : "No procedural model is open"),
+      run: () => useCellBuilderStore.getState().close(),
     },
   ];
   for (const [id, preset] of Object.entries(THEME_PRESETS)) {

@@ -7,7 +7,10 @@ import React, {Suspense, useSyncExternalStore} from "react";
 import ErrorBoundary from "@/components/common/ErrorBoundary";
 import ColorLegend from "@/components/viewer/ColorLegend";
 
+import {hasEmbeddedDoc, useCellBuilderStore} from "@/state/cellBuilderStore";
+
 import {ColorByLegend} from "./ColorByLegend";
+import {CellBuilderOverlays} from "./CellBuilderOverlays";
 import {NumberLabels} from "./NumberLabels";
 import {PanelMount} from "./LayoutHost";
 import type {RegisteredPanel} from "./panel";
@@ -39,6 +42,14 @@ export interface ViewportOverlayPlacement {
   colorByLegend?: ViewportAnchor;
   /** Draw core's number labels (node and element ids of a loaded FEA result) over the view. */
   labels?: boolean;
+  /** Mount the procedural builder's canvas menus and gizmo HUD while a model is open. */
+  builder?: boolean;
+}
+
+/** The builder's canvas menus and gizmo HUD, while a procedural model is open. */
+function BuilderOverlays() {
+  const loaded = useCellBuilderStore((s) => s.active !== null || hasEmbeddedDoc(s));
+  return loaded ? <CellBuilderOverlays /> : null;
 }
 
 export function ViewportOverlays({placement, pluginPanels}: {placement: ViewportOverlayPlacement; pluginPanels: readonly RegisteredPanel[]}) {
@@ -46,6 +57,7 @@ export function ViewportOverlays({placement, pluginPanels}: {placement: Viewport
   return (
     <div className="pointer-events-none absolute inset-0 z-[4]" data-viewport-overlays="">
       {placement.labels && <NumberLabels />}
+      {placement.builder && <BuilderOverlays />}
       {VIEWPORT_ANCHORS.map((anchor) => {
         const items: React.ReactNode[] = [];
         if (placement.legend === anchor) items.push(<ColorLegend key="core:legend" />);

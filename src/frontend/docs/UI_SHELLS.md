@@ -263,7 +263,7 @@ the chrome it draws in the slots.
 | Area | Option | What it does |
 |---|---|---|
 | Arrangement | `layout.grid`, `open`, `docks` | The starting split grid, the panels opened on load, where dock-naming plugin panels go. |
-| | `layout.modes[]` | Modes, each with its own `grid` / `open` / `docks`, saved arrangement, and `viewportCover` (a panel drawn over the 3D view, a converter say), `ownsSceneColor`, `showsDeformation: false` (a shell's own mode shows the deformed FEA model unless it says false; a **plugin's** mode (`PluginModeSpec`) holds it undeformed unless it opts in with `true`), `toolbar`, `toolbars` (core's own: `playback`, `section`, `representation`, `colorBy`, see "Core's mode toolbars"). `?mode=` opens one; `setShellModeBadge` marks one. |
+| | `layout.modes[]` | Modes, each with its own `grid` / `open` / `docks`, saved arrangement, and `viewportCover` (a panel drawn over the 3D view, a converter say), `ownsSceneColor`, `showsDeformation: false` (a shell's own mode shows the deformed FEA model unless it says false; a **plugin's** mode (`PluginModeSpec`) holds it undeformed unless it opts in with `true`), `toolbar`, `toolbars` (core's own: `playback`, `section`, `representation`, `colorBy`, `build`, see "Core's mode toolbars"), `requires: "builder"` (offered only while a procedural model is open). `?mode=` opens one; `setShellModeBadge` marks one. |
 | | `layout.defaultMode` | The mode used when there is no `?mode=` and none stored from an earlier visit (else the first by order). |
 | | `layout.version`, `migrate` | Re-seed or migrate users' saved arrangements when the shell ships new ones. |
 | | `layout.customisablePanels` | `"required"` (default): floating, docking and the split grid are always on in the shell, whatever the user set in another UI, and Options → Theme → Customisable panels shows the toggle on and disabled ("Always on in the … UI"); a docked layout is built on them. `"optional"`: the user's own setting for this shell. The setting is kept per shell (`LayoutPrefs.customisablePanelsByShell`; core's own UI's under `core`, where the single setting of older versions moves), so turning it off in Classic leaves the Desktop UI as designed and comes back on the way back. Read it through `customisablePanels()` / `useCustomisablePanels()`. |
@@ -274,7 +274,7 @@ the chrome it draws in the slots.
 | | `chrome.toolbar` | Core's top bar of panel toggles over the view (default on). |
 | | `chrome.groups` | Group header actions `"add"` / `"collapse"` / `"pin"`, and `tabIcons`. Pinned panels stay placed across modes. |
 | | `chrome.commandPalette: {keys} \| false` | The palette over every command (`registerCommand`; core adds its own, panels and modes) is core's, in every UI (core's own UI, composed shells, shells with `load` under `AppRoot`), mounted once under core's root and opened by core's Ctrl+K (`core:command-palette`, reserved, not while typing in a field; the browser's own Ctrl+K is taken over) or `openCommandPalette()`. `keys` adds a chord of the shell's own beside Ctrl+K; `false` turns the palette off while the shell is active. Absent: on. `MenuBar` draws menus of command ids. |
-| | `chrome.overlays: {legend, pluginPanels, colorByLegend, labels}` | HUD anchors over the view for core's colour legend, the legend of a colour-by it does not draw itself (`colorByLegend`), and `overlay`-dock plugin panels; `labels: true` draws core's number labels over the whole view. `registerViewportOverlay` adds the shell's own. |
+| | `chrome.overlays: {legend, pluginPanels, colorByLegend, labels, builder}` | HUD anchors over the view for core's colour legend, the legend of a colour-by it does not draw itself (`colorByLegend`), and `overlay`-dock plugin panels; `labels: true` draws core's number labels over the whole view; `builder: true` mounts the procedural builder's canvas menus and gizmo HUD while a model is open. `registerViewportOverlay` adds the shell's own. |
 | | `chrome.pageHeader` | The shell's title bar over core's `/convert` and `/admin` pages. |
 | Panels | `panels: {[id]: PanelOverride}` | A core (or plugin) panel's title, icon, modes, capabilities and content `options` (`SceneBodyProps`, `StorageBodyProps`, ...; or a function of the mode), without a copy. |
 | | `capabilities.fill`, `pinnable`, `popout` | Edge-to-edge content; may be pinned; may open in its own window. |
@@ -589,13 +589,14 @@ modes: [
 | `section` | A plane per axis (X / Y / Z), on / off, flip, the offset slider along the plane's axis (over the model's extent), remove all. | `core:section.x` / `.y` / `.z`, `core:section-toggle`, `core:section-flip`, `core:section-clear`: the section store, so undo / redo covers them. The toolbar edits the active plane, else the last. |
 | `representation` | Geometry edges, the rest of an isolated FEA model as wireframe, and for a loaded result: result colours, element edges, the undeformed outline, node numbers and element numbers. | `core:edges`, `core:fea-toggle-context-wireframe`, `core:fea-toggle-result-colors`, `core:fea-toggle-element-edges`, `core:fea-toggle-undeformed`, `core:labels-nodes`, `core:labels-elements`. |
 | `colorBy` | A picker of what the scene can be coloured by, and a reset. | `core:color-by-next`, `core:color-by-model`, `core:color-by-reset`; `applyColorBy` / `resetColorBy` (`utils/scene/colorBy`). |
+| `build` | The open procedural model (name, revision, "unsaved"), undo / redo, Compile, compile in the browser (WASM), Commit, close the model. | `core:builder-undo`, `core:builder-redo`, `core:builder-compile`, `core:builder-recompile` (force, menu only), `core:builder-compile-browser`, `core:builder-commit`, `core:builder-close`: the cellbuilder store. Greyed with the reason when no model is open, it is read off the scene (read-only), the connection cannot edit or compile on a server, a job is running, or there is nothing to undo / commit. |
 
 All of those are commands, so the palette, the menu bar (the Desktop UI's View menu
 has Section and Results submenus and the result switches under Display), the tool
 rail and the marking menu reach them too (add the ids to `rail.tools` or the marking
 menu's `items`); each has an icon in `CORE_COMMAND_ICONS`. A shell that wants the
 controls in its own chrome mounts the components from `@/viewer-core/layout`:
-`PlaybackToolbar`, `SectionToolbar`, `RepresentationToolbar`, `ColorByToolbar`, `NumberLabels`, `ColorByLegend`, `CoreModeToolbars`
+`PlaybackToolbar`, `SectionToolbar`, `RepresentationToolbar`, `ColorByToolbar`, `BuilderToolbar`, `NumberLabels`, `ColorByLegend`, `CoreModeToolbars`
 (`ids`), and `CommandButton` (`id`) for a button of its own over any command. The
 ids are `CORE_MODE_TOOLBAR_IDS` / `CoreModeToolbarId` on the root.
 
@@ -627,6 +628,19 @@ colours. A plugin adds a source with `registerColorBySource({id, label, apply,
 reset})` (`apply` may return a legend); it appears in the picker and the cycle command.
 Core has no per-object attributes for CAD objects beyond the model they belong to, so
 that is the only non-FEA source it offers.
+
+**Build mode.** A mode with `requires: "builder"` is offered only while a procedural
+model is open (an editable one opened from storage, or one read off the loaded scene):
+until then it is left out of the switcher, the Modes menu and the palette, and `?mode=`
+or a stored choice that names it falls back to the first mode on offer; if the model is
+closed while the mode is active, the shell switches away. A shell that docks the
+`core:cellbuilder` panel passes `panels: {"core:cellbuilder": {options: {showFooter:
+false, showUndoRedo: false}}}` when its toolbar carries commit, compile and undo (the
+`build` toolbar does), and sets `chrome.overlays.builder` so the canvas menus and the
+gizmo HUD, which the classic UI mounts beside the panel, are drawn over the view. Core
+has no "new model" or "reset parameters" action, so a model is opened from the storage
+panel (or the panel's Local models menu) first.
+
 ### The built-in Desktop UI
 
 Core ships one composed shell of its own next to the classic UI: **Desktop**
@@ -643,7 +657,7 @@ worked example of a full docked UI (`desktopUiShellSpec()` from `@/viewer-core`)
 |---|---|
 | Header | A menu bar (`MenuBar`) in place of core's top bar (`chrome.toolbar: false`), the mode switcher and toolbar, the plugins' top-bar buttons, a Commands button. |
 | Layout | Tree and storage tabbed in a fixed-px left dock; object info over scene info in a fixed-px right column; Simulation and Result data in a fixed-px dock under the view, collapsed to a strip in the Model mode. Group actions add, collapse, pin; tab icons. Plugin panels naming `left` / `right` / `bottom` join those docks. |
-| Modes | Model (default; toolbars: section, representation, colorBy) and Results (the results dock open; toolbars: playback, representation, colorBy); plugins' modes follow. |
+| Modes | Model (default; toolbars: section, representation, colorBy), Results (the results dock open; toolbars: playback, representation, colorBy) and Build (offered once a procedural model is open; the builder with the tree and storage behind it on the left, the selection and the scene with the equipment and system catalogs on the right; toolbars: build, section; a Build menu); plugins' modes follow. |
 | Footer | A status bar: connection, models loaded, selection count, mode, what Undo undoes. |
 | Rail | Core's tool rail (`DESKTOP_RAIL_TOOLS`) on the left edge: Open; Fit all, Fit selection, Reset camera, Isometric view; Hide selected, Hide others, Show all; Select all, Clear selection; Geometry edges, Clear FEA isolation; Undo, Redo. The user's own is kept per shell. |
 | Marking menu | Core's (`chrome.markingMenu: {}`), on: hold the right button over the view, or Shift+E. |

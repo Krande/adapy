@@ -249,6 +249,21 @@ export const ColorByIcon = glyph(
   </>,
   "ColorBy",
 );
+export const CompileIcon = glyph(
+  <>
+    <path d="M8 5 3 12l5 7M16 5l5 7-5 7" />
+    <path d="m13 4-2 16" />
+  </>,
+  "Compile",
+);
+export const CommitIcon = glyph(
+  <>
+    <path d="M5 4h11l3 3v13H5Z" />
+    <path d="M8 4v5h7V4M8 20v-6h8v6" />
+  </>,
+  "Commit",
+);
+export const CloseModelIcon = glyph(<path d="m6 6 12 12M18 6 6 18" />, "CloseModel");
 /** Core's commands' icons, by command id. */
 export const CORE_COMMAND_ICONS: Readonly<Record<string, React.FC>> = {
   [C.openFile]: OpenIcon,
@@ -310,6 +325,13 @@ export const CORE_COMMAND_ICONS: Readonly<Record<string, React.FC>> = {
   [C.colorByNext]: ColorByIcon,
   [C.colorByModel]: ColorByIcon,
   [C.colorByReset]: ClearSelectionIcon,
+  [C.builderUndo]: UndoIcon,
+  [C.builderRedo]: RedoIcon,
+  [C.builderCompile]: CompileIcon,
+  [C.builderRecompile]: CompileIcon,
+  [C.builderCompileBrowser]: CompileIcon,
+  [C.builderCommit]: CommitIcon,
+  [C.builderClose]: CloseModelIcon,
 };
 
 /** A command's initials, for one without an icon ("Fit selection" -> "FS"). */

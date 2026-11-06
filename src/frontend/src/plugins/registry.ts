@@ -121,7 +121,9 @@ import { isPlacedElsewhere } from "@/layout/placedElsewhere";
 // 1.16.0 — kept in step with viewer-core 1.16.0: number labels (`core:labels-nodes`,
 //          `core:labels-elements`; `chrome.overlays.labels`) and colour by property
 //          (`"colorBy"` mode toolbar, `registerColorBySource`). Additive.
-export const PLUGIN_API_VERSION = "1.16.0";
+// 1.17.0 — kept in step with viewer-core 1.17.0: the `"build"` mode toolbar, `UiShellMode.requires`
+//          (`"builder"`), `chrome.overlays.builder` and the `core:builder-*` commands. Additive.
+export const PLUGIN_API_VERSION = "1.17.0";
 
 // The named mount regions core exposes in Phase 1. Deliberately small
 // (`fem-sidebar` covers the FEM simulation panel, `top-panel` the menu bar,

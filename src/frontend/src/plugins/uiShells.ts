@@ -115,11 +115,19 @@ export interface UiShellMode {
   /**
    * Core's own toolbars to draw for the mode, left to right, before `toolbar`: `"playback"`
    * (play / pause, step, the step slider, period, deformation scale), `"section"` (section
-   * planes) and `"representation"` (edges, an FEA result's outline, element edges and colours).
+   * planes), `"representation"` (edges, an FEA result's outline, element edges and colours),
+   * `"colorBy"` (colour by a property) and `"build"` (the procedural builder: undo / redo,
+   * compile, commit, close).
    * Configuration only: needs no plugin code, and the same components are exported for a shell's
    * own chrome (`PlaybackToolbar`, ...).
    */
   toolbars?: CoreModeToolbarId[];
+  /**
+   * Offer the mode only while something holds: `"builder"`, a procedural model open in the
+   * cellbuilder. Until then the mode is left out of the switcher, the Modes menu and the
+   * palette, and if it was active the shell falls back to the first mode that is offered.
+   */
+  requires?: "builder";
 }
 
 /** The chrome core draws around a composed shell's layout. */
@@ -155,9 +163,11 @@ export interface UiShellChrome {
   /**
    * HUDs over the 3D view: where core's colour legend goes (the canvas then draws
    * none of its own), and where plugin panels that name the `overlay` dock stack.
-   * A shell's own HUDs are added with `registerViewportOverlay`.
+   * A shell's own HUDs are added with `registerViewportOverlay`. `labels` draws core's number
+   * labels; `builder` mounts the procedural builder's canvas menus and gizmo HUD (needed when
+   * the builder panel is docked, as the classic UI mounts them beside its panel).
    */
-  overlays?: { legend?: ViewportAnchor; pluginPanels?: ViewportAnchor; colorByLegend?: ViewportAnchor; labels?: boolean };
+  overlays?: { legend?: ViewportAnchor; pluginPanels?: ViewportAnchor; colorByLegend?: ViewportAnchor; labels?: boolean; builder?: boolean };
   /** The corner of the layout core's progress toast sits in. Default bottom-right. */
   toastAnchor?: "bottom-right" | "bottom-left" | "top-right" | "top-left";
   /**
