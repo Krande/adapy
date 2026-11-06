@@ -145,6 +145,9 @@ export { COMPACT_GROUP_PX } from "@/layout/presets/groupCompact";
 export { desktopMenus, menuCommandIds } from "@/layout/desktop/desktopMenus";
 export type { DesktopMenuInputs } from "@/layout/desktop/desktopMenus";
 export { openShortcutsDialog } from "@/components/options/ShortcutsModal";
+// Core's About and Export dialogs (what `core:about` / `core:export-*` open); a composed layout mounts their host.
+export { closeCoreDialog, openCoreDialog } from "@/layout/coreDialogs";
+export type { CoreDialogRequest, ExportScope } from "@/layout/coreDialogs";
 // Multi-window dashboards: this page's window bus, the windows open, moving panels between them.
 export {
   REOPEN_WINDOWS_COMMAND,

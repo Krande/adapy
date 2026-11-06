@@ -397,7 +397,22 @@
 //          The in-viewer admin / convert window, the attribute search's and the
 //          node editor's windows are `TransformedHost`s, so the fixed overlays
 //          inside them (`OverlayPortal`) open over the page.
-export const VIEWER_CORE_API_VERSION = "1.13.0";
+//   1.14.0 Core commands for what the Desktop UI's menus lacked, on the root's
+//          `CORE_COMMAND_IDS`: `openFile` (File -> Open…: GLB / glTF from disk
+//          straight into the scene, no upload, in any viewer; other formats are
+//          uploaded and converted on a converting REST server, and refused with
+//          the reason elsewhere; files dropped on the 3D view open the same way,
+//          added to the scene), `selectAll` / `invertSelection` (the shown
+//          elements, one undo entry each), the named camera views (`viewTop` ...
+//          `viewIsometric`; `CAMERA_VIEWS`, `cameraViewCommandId`, `CameraView`),
+//          `exportSelection` / `exportModel` (the server's STEP / IFC export in a
+//          dialog of scope and format; REST viewer) and `about`. Core shortcuts
+//          `core:select-all` (Ctrl+A) and `core:open-file` (Ctrl+O), so both are
+//          now in `RESERVED_SHORTCUTS`. On `@/viewer-core/layout`:
+//          `openCoreDialog` / `closeCoreDialog` (`CoreDialogRequest`,
+//          `ExportScope`), drawn by a composed layout. Additive, apart from the two
+//          reserved chords.
+export const VIEWER_CORE_API_VERSION = "1.14.0";
 
 // ---------------------------------------------------------------------------
 // Plugin declaration. `registerPlugin` is how a package announces itself —
@@ -477,8 +492,8 @@ export type { FixedSize, GroupArrangement } from "@/layout/splitTree";
 export { commandChord, getCommand, listCommands, matchCommand, registerCommand, runCommand, unregisterCommand } from "@/layout/commands";
 export type { CommandSpec, RegisteredCommand } from "@/layout/commands";
 // Core's own commands, by id (registered for every composed shell), for a shell's menus.
-export { CORE_COMMAND_IDS, themeCommandId, uiShellCommandId, workspaceCommandId } from "@/layout/coreCommandIds";
-export type { CoreCommandId } from "@/layout/coreCommandIds";
+export { CAMERA_VIEWS, CORE_COMMAND_IDS, cameraViewCommandId, themeCommandId, uiShellCommandId, workspaceCommandId } from "@/layout/coreCommandIds";
+export type { CameraView, CoreCommandId } from "@/layout/coreCommandIds";
 // The built-in Desktop UI (a composed shell core registers next to the classic one).
 export { DESKTOP_UI_SHELL_ID, desktopUiShellSpec } from "@/layout/desktop/desktopShell";
 export { VIEWPORT_ANCHORS, registerViewportOverlay, unregisterViewportOverlay } from "@/layout/viewportOverlays";

@@ -4,7 +4,14 @@
 // viewer, say) is left out by `MenuBar`. Pure, so it is tested without a DOM.
 
 import type { MenuDef, MenuItemDef } from "../CommandPalette";
-import { CORE_COMMAND_IDS as C, themeCommandId, uiShellCommandId, workspaceCommandId } from "../coreCommandIds";
+import {
+  CAMERA_VIEWS,
+  CORE_COMMAND_IDS as C,
+  cameraViewCommandId,
+  themeCommandId,
+  uiShellCommandId,
+  workspaceCommandId,
+} from "../coreCommandIds";
 import { CORE_PANEL_IDS as P } from "../corePanelIds";
 
 const panel = (id: string) => `panel:${id}`;
@@ -27,7 +34,18 @@ export function desktopMenus({ modes, workspaces, shells, themes }: DesktopMenuI
   const menus: MenuDef[] = [
     {
       label: "File",
-      items: [C.uploadFile, panel(P.storage), panel(P.convert), SEP, panel(P.options)],
+      items: [
+        C.openFile,
+        C.uploadFile,
+        SEP,
+        C.exportSelection,
+        C.exportModel,
+        SEP,
+        panel(P.storage),
+        panel(P.convert),
+        SEP,
+        panel(P.options),
+      ],
     },
     {
       label: "Edit",
@@ -35,6 +53,8 @@ export function desktopMenus({ modes, workspaces, shells, themes }: DesktopMenuI
         C.undo,
         C.redo,
         SEP,
+        C.selectAll,
+        C.invertSelection,
         C.clearSelection,
         C.copyNames,
         C.groupSelection,
@@ -60,7 +80,7 @@ export function desktopMenus({ modes, workspaces, shells, themes }: DesktopMenuI
           ],
         },
         SEP,
-        { label: "Camera", items: [C.fitAll, C.fitSelection, C.resetCamera] },
+        { label: "Camera", items: [C.fitAll, C.fitSelection, C.resetCamera, SEP, ...CAMERA_VIEWS.map(cameraViewCommandId)] },
         { label: "Display", items: [C.edges, C.stats, C.gallery] },
         { label: "Theme", items: themes.map(themeCommandId) },
         { label: "User interface", items: shells.map((s) => uiShellCommandId(s.id)) },
@@ -89,7 +109,7 @@ export function desktopMenus({ modes, workspaces, shells, themes }: DesktopMenuI
     },
     {
       label: "Help",
-      items: [C.shortcuts, SEP, panel(P.serverInfo), panel(P.wsStatus)],
+      items: [C.shortcuts, SEP, panel(P.serverInfo), panel(P.wsStatus), SEP, C.about],
     },
   );
   return menus;

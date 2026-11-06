@@ -29,6 +29,7 @@ import {bindSpaceMouseToOptions, tickSpaceMouse} from "@/utils/spacemouse/spaceM
 import {AdacppViewport} from "@/viewport/adacpp/adacppViewport";
 import {ensureViewportInput} from "@/viewport/input";
 import {setPickingViewport} from "@/viewport/picking";
+import {bindLocalFileDrop} from "@/utils/scene/handlers/open_local_file";
 
 
 const ThreeCanvas: React.FC = () => {
@@ -81,6 +82,12 @@ const ThreeCanvas: React.FC = () => {
     // The 3D mouse follows its Options toggle while a canvas is mounted; off,
     // it costs nothing.
     useEffect(() => bindSpaceMouseToOptions(), []);
+
+    // GLB / glTF files dropped from the desktop open into the scene (File -> Open's handler).
+    useEffect(() => {
+        const container = containerRef.current;
+        return container ? bindLocalFileDrop(container) : undefined;
+    }, []);
 
     useEffect(() => {
         if (!containerRef.current) return;

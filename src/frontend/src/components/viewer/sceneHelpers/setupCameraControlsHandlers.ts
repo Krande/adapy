@@ -28,6 +28,9 @@ import {bindCoreShortcuts, type CoreShortcutHandler} from "@/layout/shortcuts";
 import {installShortcutDispatcher} from "@/layout/shortcutDispatch";
 import {redoViewerAction, undoViewerAction} from "@/utils/scene/viewerHistory";
 import {bindViewerHistoryReset} from "@/utils/scene/viewerHistoryBindings";
+import {anyShownRange} from "@/utils/mesh_select/selectionSets";
+import {selectAllRanges} from "@/utils/scene/selectionCommands";
+import {openLocalFilePicker} from "@/utils/scene/handlers/localOpenPlan";
 
 export function setupCameraControlsHandlers(
     scene: THREE.Scene,
@@ -139,6 +142,13 @@ export function setupCameraControlsHandlers(
             if (useSelectedObjectStore.getState().selectedObjects.size === 0 && !useTreeViewStore.getState().tree?.selectedNodes.length) return false;
             copyNames();
         }),
+        // Ctrl+A selects every shown element; with nothing to select the key is the browser's.
+        "core:select-all": shortcut(() => {
+            if (!anyShownRange(scene)) return false;
+            selectAllRanges();
+        }),
+        // Ctrl+O: File -> Open. The picker opens from this key press (a user gesture).
+        "core:open-file": shortcut(() => openLocalFilePicker()),
         // Tree-level traversal from the current selection. Never opens the tree panel -- see
         // utils/tree_view/treeNavigation.
         "core:select-parent": shortcut(() => void selectParentLevel(), outsideTree),

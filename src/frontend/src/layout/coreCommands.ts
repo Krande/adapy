@@ -1,9 +1,11 @@
 // Core's own commands, registered for every composed shell (`./ComposedLayout`)
 // so its menu bar and command palette can name them (`CORE_COMMAND_IDS`). Each
 // wraps an action core already has -- the viewer's keys (Shift+H, Shift+A,
-// Ctrl+Z, ...), the Options panel's toggles, the layout's workspaces -- and adds
-// no behaviour of its own. Chords core already handles are shown with
-// `shortcut`, which names the registry entry (`./coreShortcutTable`) that binds the key, so the\n// chord shown is the real one.
+// Ctrl+Z, ...), the Options panel's toggles, the layout's workspaces -- or one
+// of the scene actions made for the menus (open a local file, select all /
+// invert, the named camera views, the export and About dialogs). Chords core
+// handles are shown with `shortcut`, which names the registry entry
+// (`./coreShortcutTable`) that binds the key, so the chord shown is the real one.
 //
 // The scene-side actions are imported when run, so registering the commands
 // costs no scene code.
@@ -23,8 +25,20 @@ import {THEME_PRESETS, useThemeStore, type ThemePresetId} from "@/state/themeSto
 import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
 import {useViewerHistoryStore} from "@/state/viewerHistoryStore";
 import {getViewerRuntime} from "@/state/viewerRuntime";
+import {useModelState} from "@/state/modelState";
+import {anyShownRange} from "@/utils/mesh_select/selectionSets";
+import {openLocalFilePicker} from "@/utils/scene/handlers/localOpenPlan";
 
-import {CORE_COMMAND_IDS as ID, themeCommandId, uiShellCommandId, workspaceCommandId} from "./coreCommandIds";
+import {
+  CAMERA_VIEWS,
+  CORE_COMMAND_IDS as ID,
+  cameraViewCommandId,
+  themeCommandId,
+  uiShellCommandId,
+  workspaceCommandId,
+  type CameraView,
+} from "./coreCommandIds";
+import {openCoreDialog} from "./coreDialogs";
 import {registerCommand, unregisterCommand, type CommandSpec} from "./commands";
 import {layoutStore} from "./layoutStore";
 import {deleteWorkspace, listWorkspaces, loadWorkspace, resetArrangement, saveWorkspace} from "./presets/classicPlace";
@@ -53,6 +67,23 @@ function sceneHandles() {
 
 const noScene = () => (sceneHandles() ? null : "No 3D view");
 
+/** Select all / invert take the shown elements: none, and there is nothing to do. */
+const nothingToSelect = () => noScene() ?? (anyShownRange(getViewerRuntime().scene.current) ? null : "Nothing to select");
+
+/** The exports are written by the server from the model's source. */
+const notServer = () => (runtime.isRestMode() ? null : "Exports are written by a server, and this viewer is not connected to one");
+
+/** The named views as the menus word them. */
+export const CAMERA_VIEW_LABELS: Readonly<Record<CameraView, string>> = {
+  top: "Top",
+  bottom: "Bottom",
+  front: "Front",
+  back: "Back",
+  left: "Left",
+  right: "Right",
+  isometric: "Isometric",
+};
+
 const fullscreenAvailable = () => typeof document !== "undefined" && !!document.documentElement?.requestFullscreen;
 const isFullscreen = () => typeof document !== "undefined" && !!document.fullscreenElement;
 
@@ -60,6 +91,7 @@ const isFullscreen = () => typeof document !== "undefined" && !!document.fullscr
 export function coreCommandSpecs(): CommandSpec[] {
   const camera = () => import("@/components/viewer/sceneHelpers/setupCameraControlsHandlers");
   const visibility = () => import("@/utils/scene/visibility");
+  const selection = () => import("@/utils/scene/selectionCommands");
   const specs: CommandSpec[] = [
     // File
     {
@@ -68,6 +100,29 @@ export function coreCommandSpecs(): CommandSpec[] {
       group: "File",
       when: () => runtime.isRestMode(),
       run: () => void import("@/utils/scene/handlers/upload_source_file").then((m) => m.triggerUploadPicker()),
+    },
+    {
+      id: ID.openFile,
+      label: "Open…",
+      group: "File",
+      shortcut: "core:open-file",
+      disabledReason: noScene,
+      // The picker opens synchronously, inside the click: a browser shows one only from a gesture.
+      run: () => openLocalFilePicker(),
+    },
+    {
+      id: ID.exportSelection,
+      label: "Export selection…",
+      group: "File",
+      disabledReason: () => notServer() ?? nothingSelected(),
+      run: () => openCoreDialog({kind: "export", scope: "selection"}),
+    },
+    {
+      id: ID.exportModel,
+      label: "Export model…",
+      group: "File",
+      disabledReason: () => notServer() ?? (useModelState.getState().loadedSourceNames.size ? null : "No model loaded"),
+      run: () => openCoreDialog({kind: "export", scope: "model"}),
     },
     // Edit
     {
@@ -85,6 +140,21 @@ export function coreCommandSpecs(): CommandSpec[] {
       shortcut: "core:redo",
       disabledReason: () => builderOwnsHistory() ?? (useViewerHistoryStore.getState().future.length ? null : "Nothing to redo"),
       run: () => void import("@/utils/scene/viewerHistory").then((m) => m.redoViewerAction()),
+    },
+    {
+      id: ID.selectAll,
+      label: "Select all",
+      group: "Edit",
+      shortcut: "core:select-all",
+      disabledReason: nothingToSelect,
+      run: () => void selection().then((m) => m.selectAllRanges()),
+    },
+    {
+      id: ID.invertSelection,
+      label: "Invert selection",
+      group: "Edit",
+      disabledReason: nothingToSelect,
+      run: () => void selection().then((m) => m.invertSelection()),
     },
     {
       id: ID.clearSelection,
@@ -178,6 +248,20 @@ export function coreCommandSpecs(): CommandSpec[] {
           if (h) m.resetCameraHome(h.camera, h.controls);
         }),
     },
+    ...CAMERA_VIEWS.map(
+      (view): CommandSpec => ({
+        id: cameraViewCommandId(view),
+        label: `${CAMERA_VIEW_LABELS[view]} view`,
+        group: "View",
+        disabledReason: noScene,
+        run: () =>
+          void import("@/components/viewer/sceneHelpers/namedViews").then((m) => {
+            const h = sceneHandles();
+            if (h) m.applyNamedView(view, h.scene, h.camera, h.controls, useModelState.getState().zIsUp);
+            requestRender();
+          }),
+      }),
+    ),
     {
       id: ID.edges,
       label: "Geometry edges",
@@ -263,6 +347,7 @@ export function coreCommandSpecs(): CommandSpec[] {
       group: "Help",
       run: () => void import("@/components/options/ShortcutsModal").then((m) => m.openShortcutsDialog()),
     },
+    {id: ID.about, label: "About", group: "Help", run: () => openCoreDialog({kind: "about"})},
   ];
   for (const [id, preset] of Object.entries(THEME_PRESETS)) {
     specs.push({

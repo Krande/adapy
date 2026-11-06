@@ -16,6 +16,7 @@ import {CommandPaletteHost, openCommandPalette} from "./CommandPalette";
 import {registerCommand} from "./commands";
 import {registerCoreCommands} from "./coreCommands";
 import {ShortcutsDialogHost} from "@/components/options/ShortcutsModal";
+import {CoreDialogsHost} from "./CoreDialogsHost";
 import LayoutRoot from "./LayoutRoot";
 import {setPanelOverrides} from "./registry";
 import {setClassicShell, setClassicToolbar, type ClassicArrangement} from "./presets/classicPlace";
@@ -174,6 +175,8 @@ export default function ComposedLayout({spec}: {spec: UiShellSpec}) {
       {spec.chrome?.commandPalette && <CommandPaletteHost />}
       {/* The shortcuts dialog, for a menu's "Keyboard shortcuts" (`core:shortcuts`). */}
       <ShortcutsDialogHost />
+      {/* Help -> About and File -> Export (`core:about`, `core:export-*`). */}
+      <CoreDialogsHost />
     </div>
   );
 }

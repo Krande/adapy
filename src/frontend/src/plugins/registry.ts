@@ -109,7 +109,11 @@ import { isPlacedElsewhere } from "@/layout/placedElsewhere";
 //          core's layout (`UiShellSpec.layout` / `chrome` / `themeTokens`). An older core
 //          rejects such a shell, so a shell built on it names this version in `coreApiRange`.
 //          Additive, so a minor bump.
-export const PLUGIN_API_VERSION = "1.13.0";
+// 1.14.0 — kept in step with viewer-core 1.14.0: core binds Ctrl+A (select all) and Ctrl+O
+//          (open a file from disk) itself, so `registerShortcut` refuses those two chords to a
+//          plugin, as it does core's other keys (`RESERVED_SHORTCUTS`). Nothing else changes for
+//          a plugin; the new core commands are named by id like the others.
+export const PLUGIN_API_VERSION = "1.14.0";
 
 // The named mount regions core exposes in Phase 1. Deliberately small
 // (`fem-sidebar` covers the FEM simulation panel, `top-panel` the menu bar,

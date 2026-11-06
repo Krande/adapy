@@ -445,12 +445,12 @@ leaves stranded):
 
 | Menu | Items |
 |---|---|
-| File | Upload file… (REST), Storage, Convert files, Options |
-| Edit | Undo, Redo; Clear selection, Copy names, Save selection as group…; Visibility ▸ Hide selected, Hide others, Show all |
-| View | Panels ▸ (each panel's toggle); Camera ▸ Fit all, Fit selection, Reset camera; Display ▸ Geometry edges, Performance stats, Gallery mode; Theme ▸ (the presets); User interface ▸ (the shells); Command palette, Full screen |
+| File | Open… (Ctrl+O), Upload file… (REST); Export selection…, Export model… (REST); Storage, Convert files; Options |
+| Edit | Undo, Redo; Select all (Ctrl+A), Invert selection, Clear selection, Copy names, Save selection as group…; Visibility ▸ Hide selected, Hide others, Show all |
+| View | Panels ▸ (each panel's toggle); Camera ▸ Fit all, Fit selection, Reset camera, Top / Bottom / Front / Back / Left / Right / Isometric view; Display ▸ Geometry edges, Performance stats, Gallery mode; Theme ▸ (the presets); User interface ▸ (the shells); Command palette, Full screen |
 | Modes | One per mode |
 | Window | New window, Reopen windows; Reset layout, Reset every mode's layout; Workspaces ▸ Save workspace…, (each saved one), Delete workspace… |
-| Help | Keyboard shortcuts; Server info, Connection |
+| Help | Keyboard shortcuts; Server info, Connection; About |
 
 **Core's commands.** The items that are not `panel:` or `mode:` commands are
 core's own (`CORE_COMMAND_IDS` on `@/viewer-core`, with `themeCommandId`,
@@ -463,10 +463,20 @@ the chord shown is the real one: Ctrl+Z, Shift+H, Shift+A, ...), the Options pan
 itself with a reason where the key would do nothing (nothing selected, nothing
 to undo, no 3D view).
 
-Not in the menus, because core has no action for them yet: opening a local file
-straight into the scene (files go through storage), select all / invert
-selection, named camera views (top, front, ...), and exporting (the selection
-export needs its own dialog of formats and targets).
+Core also has commands made for the menus, each a scene action of its own:
+
+| Command | What it does, and where it stops |
+|---|---|
+| `openFile` (File → Open…, Ctrl+O) | A file picker; GLB and glTF are read in the browser and loaded straight into the scene (replacing it), in any viewer, with no upload. A glTF must have its buffers and images embedded. Other formats need the server to convert them: on a REST viewer whose server converts, the user is asked, then the file is uploaded to storage and loaded through the load queue (converted on the way); elsewhere it is refused with the reason. Files dropped from the desktop on the 3D view open the same way, added to what is loaded. Greyed with "No 3D view" off the canvas. |
+| `selectAll` (Ctrl+A), `invertSelection` | Select every shown element of the loaded models, or the shown ones that are not selected. Hidden elements and switched-off models are never taken. One undo entry each. "Nothing to select" when nothing is shown. |
+| `viewTop` … `viewIsometric` (`cameraViewCommandId(view)`, `CAMERA_VIEWS`) | The model framed from one side, as Fit all frames it (smoothly with the default camera controls). Z up by default (front looks along +Y), the same views turned when the viewer is Y up. With nothing loaded the camera turns about its target. |
+| `exportSelection`, `exportModel` | The Export dialog, on the selection or on one whole loaded model, with the format (STEP or IFC). Written by the server from the model's source, as the object info panel's "Download as…" (which the Selection scope reuses, with its export options); a model with no source behind it (a GLB, a file opened from disk) cannot be exported and the dialog says so. Greyed off a REST viewer. |
+| `about` | The About dialog: the viewer's build, the viewer core and plugin API versions, the UI, the connection, what the server's `/api/config` reports (its image tags), and links to the documentation. |
+
+The dialogs are drawn by the composed layout (`openCoreDialog` / `closeCoreDialog`
+on `@/viewer-core/layout`). There are no keys for the camera views: the shortcut
+registry matches `KeyboardEvent.key`, so the numeric keypad cannot be told from
+the digit row.
 
 ### A root of its own
 
