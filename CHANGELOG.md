@@ -2,6 +2,15 @@
 
 
 
+## v0.135.0 (2026-11-06)
+
+### Feature
+
+* feat(results): a format-neutral FEA result via ada.from_fem_res(lazy=True) for Sesam SIN and Code_Aster RMED; to_fem always returns an FEAResult (#498)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`32aade1`](https://github.com/Krande/adapy/commit/32aade1d2c669e5fdf589e9eebbfcc281e6581e9))
+
+
 ## v0.134.0 (2026-11-06)
 
 ### Feature
