@@ -62,6 +62,12 @@ export const CORE_COMMAND_IDS = {
   feaClearIsolation: "core:fea-clear-isolation",
   /** Draw what an FEA isolation hides as a wireframe ("context"), or hide it outright. */
   feaToggleContextWireframe: "core:fea-toggle-context-wireframe",
+  /** Open the marking menu at the pointer over the 3D view (Shift+E); offered where the UI has one turned on. */
+  markingMenu: "core:marking-menu",
+  /** Turn the marking menu on or off in this UI (checked while on); offered where the UI has one. */
+  toggleMarkingMenu: "core:toggle-marking-menu",
+  /** The tool rail's customise dialog; offered in a shell with core's tool rail. */
+  customiseRail: "core:customise-rail",
 } as const;
 
 export type CoreCommandId = (typeof CORE_COMMAND_IDS)[keyof typeof CORE_COMMAND_IDS];

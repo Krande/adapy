@@ -17,6 +17,7 @@ import { createStore, type StoreApi } from "zustand/vanilla";
 import { layoutDocKey, type LayoutDoc, type LayoutPersistence, type LayoutPrefs, type ZoneDef } from "./layout";
 import type { PresetId } from "./panel";
 import { emptyLayoutDoc, migrateLayoutDoc } from "./reducers";
+import { migrateRailPrefs, type RailPrefs } from "./toolRailModel";
 
 export const LAYOUT_PREFS_VERSION = 1;
 
@@ -45,6 +46,10 @@ export interface LayoutStoreState {
   setWorkspace(shell: string, name: string, docs: Record<string, LayoutDoc> | null): void;
   /** Replace saved documents at once (loading a workspace). */
   putDocs(docs: Record<string, LayoutDoc>): void;
+  /** Save the user's tool rail in composed shell `shell` (null: back to the shell's own). */
+  setRail(shell: string, rail: RailPrefs | null): void;
+  /** Turn the marking menu on or off in UI shell `shell` (null: the shell's default). */
+  setMarkingMenu(shell: string, on: boolean | null): void;
   /** Load the saved prefs and keep saving every change to `persistence`. */
   hydrate(persistence: LayoutPersistence): Promise<void>;
 }
@@ -76,6 +81,20 @@ export function migrateLayoutPrefs(raw: unknown): LayoutPrefs {
   }
   // Workspaces are kept as stored; each document is made safe when it is loaded.
   if (r.workspaces && typeof r.workspaces === "object") prefs.workspaces = r.workspaces;
+  // A shell's tool rail: each one checked, a broken one dropped (the shell's own list is used).
+  if (r.rail && typeof r.rail === "object") {
+    const rail: Record<string, RailPrefs> = {};
+    for (const [shell, saved] of Object.entries(r.rail)) {
+      const ok = migrateRailPrefs(saved);
+      if (ok) rail[shell] = ok;
+    }
+    if (Object.keys(rail).length) prefs.rail = rail;
+  }
+  if (r.markingMenuByShell && typeof r.markingMenuByShell === "object") {
+    const byShell: Record<string, boolean> = {};
+    for (const [shell, on] of Object.entries(r.markingMenuByShell)) if (typeof on === "boolean") byShell[shell] = on;
+    if (Object.keys(byShell).length) prefs.markingMenuByShell = byShell;
+  }
   return prefs;
 }
 
@@ -157,6 +176,24 @@ export function createLayoutStore(): StoreApi<LayoutStoreState> {
       },
       putDocs(docs) {
         setPrefs({ ...get().prefs, docs: { ...get().prefs.docs, ...docs } });
+      },
+      setRail(shell, rail) {
+        const prefs = get().prefs;
+        const mine = { ...prefs.rail };
+        if (rail) mine[shell] = { tools: [...rail.tools], base: [...rail.base] };
+        else if (shell in mine) delete mine[shell];
+        else return;
+        setPrefs({ ...prefs, rail: mine });
+      },
+      setMarkingMenu(shell, on) {
+        const prefs = get().prefs;
+        const byShell = { ...prefs.markingMenuByShell };
+        if (on === null) {
+          if (!(shell in byShell)) return;
+          delete byShell[shell];
+        } else if (byShell[shell] === on) return;
+        else byShell[shell] = on;
+        setPrefs({ ...prefs, markingMenuByShell: byShell });
       },
       setPinned(shell, panel, pinned) {
         const prefs = get().prefs;

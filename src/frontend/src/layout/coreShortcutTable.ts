@@ -82,6 +82,12 @@ export const CORE_SHORTCUTS: readonly CoreShortcutDef[] = [
   { id: "core:select-all", keys: "Ctrl+A", label: "Select every shown element of the loaded models", group: VIEWER },
   { id: "core:open-file", keys: "Ctrl+O", label: "Open a GLB / glTF file from disk in the scene (File → Open…)", group: VIEWER },
   { id: "core:command-palette", keys: "Ctrl+K", label: "Open the command palette: every command, found by name", group: VIEWER },
+  {
+    id: "core:marking-menu",
+    keys: "Shift+E",
+    label: "Open the marking menu at the pointer over the 3D view (where the UI has it on; arrows choose, Enter runs, Escape closes)",
+    group: VIEWER,
+  },
   { id: "core:select-parent", keys: "Shift+ArrowUp", label: "Select the parent level of the current selection (tree up)", group: VIEWER },
   { id: "core:select-child", keys: "Shift+ArrowDown", label: "Select the first child level (tree down)", group: VIEWER },
   { id: "core:select-prev-sibling", keys: "Shift+ArrowLeft", label: "Select the previous sibling", group: VIEWER },

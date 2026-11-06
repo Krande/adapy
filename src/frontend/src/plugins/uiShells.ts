@@ -24,6 +24,8 @@
 import type React from "react";
 
 import type { LayoutDoc } from "@/layout/layout";
+import type { MarkingMenuConfig } from "@/layout/markingMenuModel";
+import type { ToolRailConfig } from "@/layout/toolRailModel";
 import type { PanelOverride } from "@/layout/registry";
 import type { GridNode } from "@/layout/splitTree";
 import type { ViewportAnchor } from "@/layout/viewportOverlays";
@@ -117,8 +119,22 @@ export interface UiShellChrome {
   header?: () => Promise<{ default: React.ComponentType }>;
   /** Drawn full width below the layout: a status bar. Lazy. */
   footer?: () => Promise<{ default: React.ComponentType }>;
-  /** Drawn down the left of the layout, between header and footer: a tool rail. Lazy; it sizes itself. */
-  rail?: () => Promise<{ default: React.ComponentType }>;
+  /**
+   * Drawn down the left of the layout, between header and footer, outside the
+   * docks: a tool rail. Either core's (`{tools}`: command ids, `RAIL_SEPARATOR`
+   * between groups; icons and tooltips from the commands, and the user may add,
+   * remove and reorder tools, kept per shell in the layout prefs), or a
+   * component of the shell's own (lazy; it sizes itself).
+   */
+  rail?: ToolRailConfig | (() => Promise<{ default: React.ComponentType }>);
+  /**
+   * Core's marking menu over the 3D view: hold the right button (or press
+   * Shift+E) for a radial menu of commands at the pointer, flick to one and
+   * release. Given: on in this shell (the user may turn it off in Options),
+   * with core's items unless `items` / `more` name others. Absent or `false`:
+   * none in this shell. Core's own UI offers it off by default.
+   */
+  markingMenu?: MarkingMenuConfig | false;
   /**
    * The command palette over every registered command, core's panels and modes
    * included. A core feature in every UI, opened by core's Ctrl+K

@@ -47,6 +47,9 @@ import {deleteWorkspace, listWorkspaces, loadWorkspace, resetArrangement, saveWo
 import {openNewWindow, thisWindowId, windowBus} from "./windows";
 import {MAIN_WINDOW_ID} from "./windowBus";
 import {sceneActions} from "./sceneActions";
+import {CORE_COMMAND_ICONS} from "./commandIcons";
+import {markingMenuMounted, openMarkingMenu, servedMarkingMenu, setMarkingMenuOn} from "./markingMenuState";
+import {activeRail, openRailCustomise} from "./toolRailState";
 import {FEA_ELEMENT_SETS_ID, FEA_SETS_ROOT_ID, elementSetFromRowId} from "@/utils/scene/fea/feaTreeRows";
 
 /** Element sets the FEA rows list (here, or the main window's in a pop-out). */
@@ -409,6 +412,32 @@ export function coreCommandSpecs(): CommandSpec[] {
       run: () => void import("@/components/options/ShortcutsModal").then((m) => m.openShortcutsDialog()),
     },
     {id: ID.about, label: "About", group: "Help", run: () => openCoreDialog({kind: "about"})},
+    // The marking menu (`./MarkingMenu`) and the tool rail (`./ToolRail`).
+    {
+      id: ID.markingMenu,
+      label: "Marking menu",
+      group: "View",
+      shortcut: "core:marking-menu",
+      // Where the UI has it on, in the main window (its host is mounted there).
+      when: () => servedMarkingMenu().on && markingMenuMounted(),
+      disabledReason: noScene,
+      run: () => void openMarkingMenu(),
+    },
+    {
+      id: ID.toggleMarkingMenu,
+      label: "Marking menu on the right button",
+      group: "View",
+      when: () => servedMarkingMenu().available,
+      checked: () => servedMarkingMenu().on,
+      run: () => setMarkingMenuOn(!servedMarkingMenu().on),
+    },
+    {
+      id: ID.customiseRail,
+      label: "Customise tool rail…",
+      group: "Window",
+      when: () => activeRail()?.config.customisable === true,
+      run: () => openRailCustomise(),
+    },
   ];
   for (const [id, preset] of Object.entries(THEME_PRESETS)) {
     specs.push({
@@ -434,6 +463,8 @@ export function coreCommandSpecs(): CommandSpec[] {
       },
     });
   }
+  // Icons, for the tool rail and the marking menu.
+  for (const s of specs) s.icon ??= CORE_COMMAND_ICONS[s.id];
   return specs;
 }
 

@@ -26,6 +26,7 @@
 import type React from "react";
 import type { PanelId, PresetId, RegisteredPanel, ZoneId } from "./panel";
 import type { GridNode } from "./splitTree";
+import type { RailPrefs } from "./toolRailModel";
 
 /** The built-in preset. Shell presets use their own ids. */
 export const CLASSIC_PRESET_ID: PresetId = "classic";
@@ -165,6 +166,10 @@ export interface LayoutPrefs {
   pinned?: Record<string, PanelId[]>;
   /** A composed shell's named workspaces, by shell id then name: its documents (by `layoutDocKey`) as saved. */
   workspaces?: Record<string, Record<string, Record<string, LayoutDoc>>>;
+  /** A composed shell's tool rail as the user arranged it, by shell id (`./toolRailModel`). Absent for a shell: the shell's own. */
+  rail?: Record<string, RailPrefs>;
+  /** The marking menu on or off, by UI shell id, where the user chose (`./markingMenuModel`). Absent: the shell's default. */
+  markingMenuByShell?: Record<string, boolean>;
 }
 
 /**

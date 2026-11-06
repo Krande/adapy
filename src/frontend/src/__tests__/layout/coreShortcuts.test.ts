@@ -246,8 +246,8 @@ test("a mounted viewer binds every dispatched core key and releases them on unmo
     const c = chordOf(keys);
     return listShortcuts().find((s) => !s.local && s.keys === keys)!.when!({ key: c.key, shiftKey: c.shiftKey, ctrlKey: c.ctrlKey, metaKey: false, altKey: false, target: { tagName: "DIV" } as any });
   };
-  // Ctrl+K is bound by core's palette host (`CorePaletteHost`), not by the viewer.
-  const viewerKeys = dispatched.filter((d) => d.id !== "core:command-palette");
+  // Ctrl+K is bound by core's palette host (`CorePaletteHost`), Shift+E by the marking menu's (`MarkingMenuHost`), not by the viewer.
+  const viewerKeys = dispatched.filter((d) => d.id !== "core:command-palette" && d.id !== "core:marking-menu");
   for (const d of viewerKeys) assert.equal(live(d.keys), true, `${d.id} is bound`);
 
   useGalleryStore.getState().setEnabled(false);

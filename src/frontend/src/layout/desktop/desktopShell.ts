@@ -12,7 +12,9 @@
 // registration (and its tests) costs no scene or store code: the chrome loads
 // only when this shell is the active one.
 
+import { CORE_COMMAND_IDS, cameraViewCommandId } from "../coreCommandIds";
 import { CORE_PANEL_IDS } from "../corePanelIds";
+import { RAIL_SEPARATOR } from "../toolRailModel";
 import type { GridNode } from "../splitTree";
 import { getUiShell, registerUiShell, type UiShellSpec } from "@/plugins/uiShells";
 
@@ -94,6 +96,33 @@ export const DESKTOP_GRID: GridNode = desktopGrid(true);
 /** The Results mode's grid: results dock open. */
 export const DESKTOP_RESULTS_GRID: GridNode = desktopGrid(false);
 
+/**
+ * The tool rail down the left edge, outside the docks: opening files, the
+ * camera, visibility, selection, display, history. Users add, remove and
+ * reorder tools; theirs is kept per shell (`LayoutPrefs.rail`).
+ */
+export const DESKTOP_RAIL_TOOLS: readonly string[] = [
+  CORE_COMMAND_IDS.openFile,
+  RAIL_SEPARATOR,
+  CORE_COMMAND_IDS.fitAll,
+  CORE_COMMAND_IDS.fitSelection,
+  CORE_COMMAND_IDS.resetCamera,
+  cameraViewCommandId("isometric"),
+  RAIL_SEPARATOR,
+  CORE_COMMAND_IDS.hideSelected,
+  CORE_COMMAND_IDS.hideOthers,
+  CORE_COMMAND_IDS.showAll,
+  RAIL_SEPARATOR,
+  CORE_COMMAND_IDS.selectAll,
+  CORE_COMMAND_IDS.clearSelection,
+  RAIL_SEPARATOR,
+  CORE_COMMAND_IDS.edges,
+  CORE_COMMAND_IDS.feaClearIsolation,
+  RAIL_SEPARATOR,
+  CORE_COMMAND_IDS.undo,
+  CORE_COMMAND_IDS.redo,
+];
+
 /** Where plugin panels that name a dock go, the first time they are seen. */
 const DOCKS = { left: DESKTOP_GROUPS.left, right: DESKTOP_GROUPS.rightBottom, bottom: DESKTOP_GROUPS.bottom };
 
@@ -102,7 +131,7 @@ export function desktopUiShellSpec(): UiShellSpec {
   return {
     id: DESKTOP_UI_SHELL_ID,
     label: "Desktop",
-    description: "A menu bar and docked panels around the 3D view, with a status bar.",
+    description: "A menu bar, a tool rail and docked panels around the 3D view, with a status bar.",
     order: 5,
     layout: {
       grid: DESKTOP_GRID,
@@ -126,6 +155,9 @@ export function desktopUiShellSpec(): UiShellSpec {
       header: () => import("./DesktopHeader"),
       footer: () => import("./DesktopFooter"),
       pageHeader: () => import("./DesktopPageHeader"),
+      rail: { tools: DESKTOP_RAIL_TOOLS },
+      // Core's wheel (hold the right button over the view, or Shift+E); on unless the user turns it off.
+      markingMenu: {},
       toolbar: false,
       groups: { actions: ["add", "collapse", "pin"], tabIcons: true },
       commandPalette: { keys: "Ctrl+K" },

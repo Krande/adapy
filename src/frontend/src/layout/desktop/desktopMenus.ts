@@ -81,7 +81,7 @@ export function desktopMenus({ modes, workspaces, shells, themes }: DesktopMenuI
         },
         SEP,
         { label: "Camera", items: [C.fitAll, C.fitSelection, C.resetCamera, SEP, ...CAMERA_VIEWS.map(cameraViewCommandId)] },
-        { label: "Display", items: [C.edges, C.stats, C.gallery] },
+        { label: "Display", items: [C.edges, C.stats, C.gallery, SEP, C.toggleMarkingMenu] },
         // The loaded result's sets and properties (rows in the tree too); greyed, with the reason, without one.
         {
           label: "FEA sets",
@@ -91,6 +91,7 @@ export function desktopMenus({ modes, workspaces, shells, themes }: DesktopMenuI
         { label: "User interface", items: shells.map((s) => uiShellCommandId(s.id)) },
         SEP,
         C.commandPalette,
+        C.markingMenu,
         C.fullscreen,
       ],
     },
@@ -105,6 +106,7 @@ export function desktopMenus({ modes, workspaces, shells, themes }: DesktopMenuI
         SEP,
         C.resetLayout,
         C.resetAllLayouts,
+        C.customiseRail,
         SEP,
         {
           label: "Workspaces",

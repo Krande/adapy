@@ -150,6 +150,34 @@ export {
   paletteConfig,
 } from "@/layout/CommandPalette";
 export type { MenuBarProps, MenuDef, MenuItemDef } from "@/layout/CommandPalette";
+// The marking menu over the 3D view (a composed layout mounts its host) and core's tool rail (`chrome.rail: {tools}`).
+export {
+  MARKING_MENU_SHORTCUT,
+  MarkingMenuHost,
+  MarkingMenuView,
+  clampMarkingCentre,
+  isViewTarget,
+  markingSlots,
+  moreSlots,
+} from "@/layout/MarkingMenu";
+export type { MarkingMenuViewProps, MarkingSlot } from "@/layout/MarkingMenu";
+export { markingMenuMounted, openMarkingMenu, servedMarkingMenu, setMarkingMenuOn, useServedMarkingMenu } from "@/layout/markingMenuState";
+export type { ServedMarkingMenu } from "@/layout/markingMenuState";
+export { ToolRail, ToolRailCustomiseDialog, ToolRailCustomiseHost } from "@/layout/ToolRail";
+export type { ToolRailProps } from "@/layout/ToolRail";
+export {
+  activeRail,
+  closeRailCustomise,
+  openRailCustomise,
+  railList,
+  resetRail,
+  saveRail,
+  savedRail,
+  useRailCustomiseOpen,
+  useRailList,
+} from "@/layout/toolRailState";
+// Core's commands' icons, and the initials drawn for a command without one.
+export { CORE_COMMAND_ICONS, CommandGlyph, commandInitials } from "@/layout/commandIcons";
 export {
   deleteWorkspace,
   listWorkspaces,

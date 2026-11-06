@@ -22,6 +22,9 @@ import {registerCoreCommands} from "./coreCommands";
 import {ShortcutsDialogHost} from "@/components/options/ShortcutsModal";
 import {CoreDialogsHost} from "./CoreDialogsHost";
 import LayoutRoot from "./LayoutRoot";
+import {MarkingMenuHost} from "./MarkingMenu";
+import {ToolRail, ToolRailCustomiseHost} from "./ToolRail";
+import {railConfig} from "./toolRailModel";
 import {setPanelOverrides} from "./registry";
 import {setClassicShell, setClassicToolbar, type ClassicArrangement} from "./presets/classicPlace";
 import {SHELL_MODE_PARAM, activeShellMode, listShellModes, setShellModes, subscribeShellModes, type ShellMode} from "./shellModes";
@@ -273,7 +276,10 @@ export default function ComposedLayout({spec, children}: {spec: UiShellSpec | nu
   const lazyOf = (load?: () => Promise<{default: React.ComponentType}>) => (load ? React.lazy(load) : null);
   const Header = React.useMemo(() => lazyOf(spec?.chrome?.header), [spec]);
   const Footer = React.useMemo(() => lazyOf(spec?.chrome?.footer), [spec]);
-  const Rail = React.useMemo(() => lazyOf(spec?.chrome?.rail), [spec]);
+  // `chrome.rail`: core's tool rail (`{tools}`), or a component of the shell's own.
+  const railSlot = spec?.chrome?.rail;
+  const Rail = React.useMemo(() => lazyOf(typeof railSlot === "function" ? railSlot : undefined), [railSlot]);
+  const tools = React.useMemo(() => railConfig(railSlot), [railSlot]);
   const slot = (C: React.ComponentType | null) =>
     C && (
       <Suspense fallback={null}>
@@ -286,10 +292,15 @@ export default function ComposedLayout({spec, children}: {spec: UiShellSpec | nu
     <div className="flex h-full w-full flex-col">
       {slot(Header)}
       <div className="flex min-h-0 w-full flex-1 flex-row">
-        {Rail && <div className="relative h-full shrink-0">{slot(Rail)}</div>}
+        {(Rail || tools) && <div className="relative h-full shrink-0">{tools ? <ToolRail shell={spec!.id} config={tools} /> : slot(Rail)}</div>}
         <div className="relative h-full min-w-0 flex-1">{children ?? <LayoutRoot />}</div>
       </div>
       {slot(Footer)}
+
+      {/* The marking menu over the 3D view, where the served UI has it on (nothing otherwise). */}
+      <MarkingMenuHost />
+      {/* Core's rail's customise dialog (Window -> Customise tool rail…, the rail's own button). */}
+      {spec && tools && <ToolRailCustomiseHost shell={spec.id} config={tools} />}
 
       {/* The shortcuts dialog, for a menu's "Keyboard shortcuts" (`core:shortcuts`). */}
       {spec && <ShortcutsDialogHost />}

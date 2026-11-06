@@ -475,6 +475,31 @@
 //          `feaIsolationReason`, `feaContextReason`, `feaPickedInfo`,
 //          `ensurePropertyMembership`, `useFeaIsolationStore`) and
 //          `applyFeaIsolationOverlays`. Additive.
+//          A marking menu in core: a wheel of up to eight commands (and a short
+//          list under it) at the pointer over the 3D view, opened by holding the
+//          right button still for 300 ms (a quick right click is still the Scene
+//          menu, a right drag still pans) or by core's `core:marking-menu`
+//          (Shift+E, now in `RESERVED_SHORTCUTS`); flick and release, or click,
+//          or arrows and Enter. `UiShellChrome.markingMenu` (`MarkingMenuConfig`:
+//          `items` / `more`, as lists or functions of `MarkingMenuContext`,
+//          submenus, `gesture`; `false`: none): on in a shell that gives it,
+//          off in core's own UI unless the user turns it on (Options -> Theme;
+//          `LayoutPrefs.markingMenuByShell`). Core commands `markingMenu`,
+//          `toggleMarkingMenu`. On the root, the rules (`MarkingGesture`,
+//          `sectorAt`, `resolveMarkingMenu`, `defaultMarkingMenuItems`, ...); on
+//          `@/viewer-core/layout` the component (`MarkingMenuView`,
+//          `MarkingMenuHost`, mounted by a composed layout in the main window)
+//          and `openMarkingMenu` / `setMarkingMenuOn` / `servedMarkingMenu`.
+//          Core's tool rail: `UiShellChrome.rail` may be `{tools}`
+//          (`ToolRailConfig`: command ids, `RAIL_SEPARATOR`) in place of a lazy
+//          component (still taken): icon buttons from the commands
+//          (`CommandSpec.icon`; core's commands have icons now,
+//          `CORE_COMMAND_ICONS`), the chord in the tooltip, pressed for a
+//          checked toggle, greyed with the reason; the user adds, removes and
+//          reorders tools (`core:customise-rail`, the rail's menu and button),
+//          kept per shell in `LayoutPrefs.rail` (`RailPrefs`, with the tools a
+//          later shell list adds put in: `railTools`). The Desktop UI has both
+//          (`DESKTOP_RAIL_TOOLS`). Additive, apart from the reserved Shift+E.
 export const VIEWER_CORE_API_VERSION = "1.14.0";
 
 // ---------------------------------------------------------------------------
@@ -574,7 +599,51 @@ export type { CommandSpec, RegisteredCommand } from "@/layout/commands";
 export { CAMERA_VIEWS, CORE_COMMAND_IDS, cameraViewCommandId, themeCommandId, uiShellCommandId, workspaceCommandId } from "@/layout/coreCommandIds";
 export type { CameraView, CoreCommandId } from "@/layout/coreCommandIds";
 // The built-in Desktop UI (a composed shell core registers next to the classic one).
-export { DESKTOP_UI_SHELL_ID, desktopUiShellSpec } from "@/layout/desktop/desktopShell";
+export { DESKTOP_RAIL_TOOLS, DESKTOP_UI_SHELL_ID, desktopUiShellSpec } from "@/layout/desktop/desktopShell";
+// The marking menu's and the tool rail's rules (dependency-free; the components are on `@/viewer-core/layout`).
+export {
+  MARKING_DEAD_ZONE_PX,
+  MARKING_DIRECTIONS,
+  MARKING_HOLD_MS,
+  MARKING_MENU_MAX_SECTORS,
+  MARKING_MOVE_TOLERANCE_PX,
+  MARKING_RADIUS_PX,
+  MARKING_VIEWS_SUBMENU,
+  MarkingGesture,
+  defaultMarkingMenuItems,
+  defaultMarkingMenuMore,
+  directionOf,
+  markingGestureOptions,
+  markingMenuAvailability,
+  resolveMarkingMenu,
+  sectorAt,
+  sectorOffset,
+  stepSelection,
+} from "@/layout/markingMenuModel";
+export type {
+  MarkingDirection,
+  MarkingGestureOptions,
+  MarkingMenuConfig,
+  MarkingMenuContext,
+  MarkingMenuGesture,
+  MarkingMenuItemDef,
+  MarkingRelease,
+  MarkingSubmenu,
+} from "@/layout/markingMenuModel";
+export {
+  RAIL_SEPARATOR,
+  addRailTool,
+  dedupeRail,
+  isRailSeparator,
+  migrateRailPrefs,
+  moveRailTool,
+  railConfig,
+  railIsDefault,
+  railTools,
+  removeRailTool,
+  tidyRail,
+} from "@/layout/toolRailModel";
+export type { RailPrefs, ToolRailConfig } from "@/layout/toolRailModel";
 export { VIEWPORT_ANCHORS, registerViewportOverlay, unregisterViewportOverlay } from "@/layout/viewportOverlays";
 export type { ViewportAnchor, ViewportOverlaySpec } from "@/layout/viewportOverlays";
 // Shortcuts a shell or plugin adds; core's own keys are reserved (dependency-free).
