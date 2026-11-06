@@ -1,5 +1,5 @@
 // Windows of the classic preset's layout, behind the "Customisable panels"
-// setting (`LayoutPrefs.customisablePanels`, on unless turned off).
+// setting (`customisablePanels()`: per UI shell, always on in a composed shell).
 //
 // With the setting off nothing here renders and no header gets an action, so the
 // classic UI is unchanged. With it on:

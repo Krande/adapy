@@ -24,7 +24,15 @@ export interface ShellMode {
   showsDeformation?: boolean;
   /** The mode's own controls (`PluginModeSpec.toolbar`). */
   toolbar?: (ctx: AdaPluginContext) => React.ReactNode;
+  /** Core toolbars drawn for the mode (`UiShellMode.toolbars`), before its own `toolbar`. */
+  toolbars?: readonly string[];
+  /** Offered only while this holds (`UiShellMode.requires`; `./modeRequirements`). */
+  requires?: "builder";
 }
+
+/** Core's own mode toolbars (`./ModeToolbars`), by the id a mode's `toolbars` names. */
+export const CORE_MODE_TOOLBAR_IDS = ["playback", "section", "representation", "colorBy", "build"] as const;
+export type CoreModeToolbarId = (typeof CORE_MODE_TOOLBAR_IDS)[number];
 
 /** A mode's badge in the switcher: a count, a dot, or none. */
 export type ShellModeBadge = number | "dot";

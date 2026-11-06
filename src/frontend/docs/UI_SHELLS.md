@@ -114,9 +114,59 @@ preset of the layout engine. `?layout=classic` (and the
 `ada:layout-engine` key), which once fell back to a hand-written tree, are
 ignored.
 
-Switching from the switcher persists the choice and reloads — a shell owns the
-whole tree (canvas, websocket, stores), so hot-swapping would mean tearing all of
-that down for no benefit.
+Switching (the Options switcher, View → User interface, `setActiveUiShell`)
+persists the choice and then either happens in place or reloads the page.
+
+### What a switch keeps
+
+**In place: between core's own UI and composed shells.** Classic ↔ Desktop, and
+to or from any plugin shell without `load`. `UiShellHost` keeps one root of core's
+mounted (`CoreShellRoot`: the viewer provider, the sign-in gate, the 3D canvas,
+the layout) and only tells it which shell to show; the elements around the layout
+keep their places, so React remounts nothing below it. Kept: the websocket, the
+loaded models (from storage, a deep link, File → Open or a drop, the websocket),
+the camera, the selection, hidden objects, the FEA result on screen, open
+panels (shown at their place in the shell switched to), the undo history, every
+store. Swapped: the shell's header, footer and rail, its modes, its arrangements
+(each shell keeps its own saved documents), the top bar, panel overrides, theme
+tokens and body palette. The command palette is core's and stays (its extra chord
+follows the shell). The shell left behind is cleaned up: a mode that owned the
+scene colouring hands it back, and for a
+plugin's shell everything its plugin registered while the shell was up (commands,
+shortcuts, HUDs over the view: its chrome's) is taken down and given back when
+the shell returns. What the plugin registered before its shell came up (its
+feature plugin's) stays. `?ui=` is dropped from the address bar, so a manual
+reload opens the shell chosen. A multi-window dashboard stays the shell the page
+booted in (`bootUiShellId`): its pop-out windows keep talking to this one, and a
+new one opens in that shell; a reload rebinds it.
+
+**By a reload: a shell with `load`** (it brings a root of its own) **or one that
+sets `reloadOnSwitch`** (a composed shell that sets up something at load time it
+cannot take down), in either direction, and every switch after a shell crashed
+into the core fallback. The reload carries what it can:
+
+- *A deep-linked model.* `useUrlParamLoad` strips `?scope&file&derived` (and
+  every other param that came with them) once it has started the load, so the
+  address bar no longer says what is on screen; it registers the stripped params
+  with `carryOnShellSwitch`, and the reload goes to `shellSwitchUrl(...)`, which
+  puts them back. They are carried while the load is running and, after it, only
+  while the file is still loaded (a model the user closed does not come back);
+  `ui` is never carried, a param already in the URL wins, a throwing carry is
+  skipped. Nothing is written to the address bar for good, so a bookmark or a
+  manual reload behaves as before, and a deep-linked load is still not added to
+  the scope's scene record.
+- *Models from storage or the asset browser* (REST): the scene restore brings
+  them back from the scope's scene record, with the camera, hidden objects and
+  selection, as after any reload. The switch marks its reload
+  (`loadedByShellSwitch`), so they come back even with "restore after reload" off.
+- *Not carried:* a file opened from disk (File → Open, a drop) has no server copy,
+  and a websocket viewer's scene is the server's; they survive in-place switches
+  only. Stashing local files' bytes for a reload was left out: a model can be
+  hundreds of megabytes, and the switches users make (Classic ↔ Desktop) are in place.
+
+**Modes** of a composed shell (`setShellMode`) never reload or remount: the
+canvas, the models and the selection stay; panels the mode left placed go with it
+(unless pinned), and a mode that owns the scene colouring suspends and restores it.
 
 ## Failure isolation
 
@@ -213,16 +263,18 @@ the chrome it draws in the slots.
 | Area | Option | What it does |
 |---|---|---|
 | Arrangement | `layout.grid`, `open`, `docks` | The starting split grid, the panels opened on load, where dock-naming plugin panels go. |
-| | `layout.modes[]` | Modes, each with its own `grid` / `open` / `docks`, saved arrangement, and `viewportCover` (a panel drawn over the 3D view, a converter say), `ownsSceneColor`, `showsDeformation: false` (a shell's own mode shows the deformed FEA model unless it says false; a **plugin's** mode (`PluginModeSpec`) holds it undeformed unless it opts in with `true`), `toolbar`. `?mode=` opens one; `setShellModeBadge` marks one. |
+| | `layout.modes[]` | Modes, each with its own `grid` / `open` / `docks`, saved arrangement, and `viewportCover` (a panel drawn over the 3D view, a converter say), `ownsSceneColor`, `showsDeformation: false` (a shell's own mode shows the deformed FEA model unless it says false; a **plugin's** mode (`PluginModeSpec`) holds it undeformed unless it opts in with `true`), `toolbar`, `toolbars` (core's own: `playback`, `section`, `representation`, `colorBy`, `build`, see "Core's mode toolbars"), `requires: "builder"` (offered only while a procedural model is open). `?mode=` opens one; `setShellModeBadge` marks one. |
 | | `layout.defaultMode` | The mode used when there is no `?mode=` and none stored from an earlier visit (else the first by order). |
 | | `layout.version`, `migrate` | Re-seed or migrate users' saved arrangements when the shell ships new ones. |
+| | `layout.customisablePanels` | `"required"` (default): floating, docking and the split grid are always on in the shell, whatever the user set in another UI, and Options → Theme → Customisable panels shows the toggle on and disabled ("Always on in the … UI"); a docked layout is built on them. `"optional"`: the user's own setting for this shell. The setting is kept per shell (`LayoutPrefs.customisablePanelsByShell`; core's own UI's under `core`, where the single setting of older versions moves), so turning it off in Classic leaves the Desktop UI as designed and comes back on the way back. Read it through `customisablePanels()` / `useCustomisablePanels()`. |
 | Groups (in `grid`) | `fixed: {px, min, max}` | A dock held at a px size, kept on window resize; its divider resizes it in px. On groups and splits. |
 | | `collapsed`, `arrangement` | A strip of panel icons that restores the group; tabs, stacked, or `"auto"` (stacked while there is room). |
-| Chrome | `chrome.header`, `footer`, `rail` | Lazy slots above, below and left of the layout (menu bar, status bar, tool rail). |
+| Chrome | `chrome.header`, `footer`, `rail` | Lazy slots above, below and left of the layout (menu bar, status bar, tool rail). `rail` may instead be core's tool rail as data, `{tools}` (see [The tool rail](#the-tool-rail)). |
+| | `chrome.markingMenu: {items, more, gesture} \| false` | Core's marking menu over the 3D view (see [The marking menu](#the-marking-menu)): given, on in the shell; absent or `false`, none. |
 | | `chrome.toolbar` | Core's top bar of panel toggles over the view (default on). |
 | | `chrome.groups` | Group header actions `"add"` / `"collapse"` / `"pin"`, and `tabIcons`. Pinned panels stay placed across modes. |
-| | `chrome.commandPalette: {keys}` | The palette over every command (`registerCommand`; core adds panels and modes). `MenuBar` draws menus of command ids. |
-| | `chrome.overlays: {legend, pluginPanels}` | HUD anchors over the view for core's colour legend and `overlay`-dock plugin panels; `registerViewportOverlay` adds the shell's own. |
+| | `chrome.commandPalette: {keys} \| false` | The palette over every command (`registerCommand`; core adds its own, panels and modes) is core's, in every UI (core's own UI, composed shells, shells with `load` under `AppRoot`), mounted once under core's root and opened by core's Ctrl+K (`core:command-palette`, reserved, not while typing in a field; the browser's own Ctrl+K is taken over) or `openCommandPalette()`. `keys` adds a chord of the shell's own beside Ctrl+K; `false` turns the palette off while the shell is active. Absent: on. `MenuBar` draws menus of command ids. |
+| | `chrome.overlays: {legend, pluginPanels, colorByLegend, labels, builder}` | HUD anchors over the view for core's colour legend, the legend of a colour-by it does not draw itself (`colorByLegend`), and `overlay`-dock plugin panels; `labels: true` draws core's number labels over the whole view; `builder: true` mounts the procedural builder's canvas menus and gizmo HUD while a model is open. `registerViewportOverlay` adds the shell's own. |
 | | `chrome.pageHeader` | The shell's title bar over core's `/convert` and `/admin` pages. |
 | Panels | `panels: {[id]: PanelOverride}` | A core (or plugin) panel's title, icon, modes, capabilities and content `options` (`SceneBodyProps`, `StorageBodyProps`, ...; or a function of the mode), without a copy. |
 | | `capabilities.fill`, `pinnable`, `popout` | Edge-to-edge content; may be pinned; may open in its own window. |
@@ -247,7 +299,7 @@ chords of the entries plugins may not take. One keydown listener (`installShortc
 the layout and a mounted viewer, so a key never fires twice) runs the dispatched entries; it ignores keys
 typed into an input, textarea, select or editable element and keys a widget already handled.
 
-Two kinds of core entry. *Dispatched* ones (Shift+H / I / G / U / F / A / Q / W / P / R / T / C and
+Two kinds of core entry. *Dispatched* ones (Shift+H / I / G / U / F / A / Q / W / P / R / T / C / E and
 Shift+Arrows, Ctrl+Z / Y / Shift+Z / C, Shift+Enter in the procedural builder) run in the registry's
 listener, bound by the mounted viewer. *Local* ones (`local: true`) are keys a widget keeps because it needs
 its own state: the gallery strip's arrows and PageUp / PageDown, the procedural builder's tool keys and
@@ -257,6 +309,105 @@ listed in the dialog and (F6, Esc) reserved, but never dispatched. Rebinding a c
 
 Layout state helpers on `@/viewer-core/layout`: `resetArrangement`, `saveWorkspace`,
 `loadWorkspace`, `deleteWorkspace`, `listWorkspaces`.
+
+### The marking menu
+
+A wheel of up to eight commands at the pointer over the 3D view, with a short list under it
+for what does not fit. Core's, in the main window of every UI that has it on; a pop-out window
+has no 3D view and no marking menu.
+
+**The gesture, and why that one.** Over the view the right button already does two things: a
+quick click opens the Scene menu for what is under the cursor, and a drag pans the camera
+(Shift + left drag is the selection box, left drag orbits, a left click picks). The marking
+menu takes the one thing left, a **hold**: press the right button and keep it still for
+`holdMs` (300 ms) and the menu opens at the pointer. Then:
+
+- *flick and release* -- move past `deadZonePx` (24 px) towards an item and let go: it runs.
+  Past a submenu's label the submenu's wheel opens there and the flick goes on from it.
+- *release without moving* -- the menu stays open: hover highlights, a click on an item or
+  anywhere in its sector runs it, a click in the centre or far off closes it.
+- *keys* -- core's `core:marking-menu` (**Shift+E**, reserved) opens it at the pointer when
+  that is over the view, else at the view's centre, with the first item that can run
+  highlighted; arrows (and Tab) move round the wheel and through the list, Enter runs,
+  Backspace leaves a submenu, Escape closes. The highlighted item has the focus, and the focus
+  goes back where it was when the menu closes.
+
+A press that moves more than `moveTolerancePx` (5 px) before the hold is a pan, as before; a
+quick click is the Scene menu, as before. Browsers on macOS and Linux fire `contextmenu` on the
+*press*: core holds that event back until it knows which of the three the press is, and hands
+it on to the Scene menu for a click (and drops it for a pan or a hold). Once the menu opened,
+the camera's drag is cancelled and the moves of the flick are kept from it, and the
+`contextmenu` Windows fires on the release is swallowed. Shift / Ctrl / Alt + right press, touch
+and pen input, a press on a HUD or a panel over the view, and the procedural builder (it has
+right-click menus of its own) are left alone. The rules are a state machine with no DOM
+(`MarkingGesture`), tested on its own.
+
+**Items.** Command ids (`registerCommand`; core's, `panel:<id>`, `mode:<id>` too), clockwise
+from north; `null` keeps a slot empty and a `{label, items}` is a submenu. An item keeps its
+place: a command that cannot run is greyed where it is, its reason in the tooltip, and a command
+nothing offers is an empty slot. Core's wheel (`defaultMarkingMenuItems`): Fit all (N), Fit
+selection (NE), Select all (E), Clear selection (SE), Views ▸ (S: top, isometric, right, front,
+left, back), Hide others (SW), Hide selected (W), Show all (NW); its list
+(`defaultMarkingMenuMore`): the picked element's FEA sets and Clear FEA isolation while a
+result is loaded, Undo, Redo.
+
+```ts
+chrome: {
+  markingMenu: {
+    // A list, or a function asked each time the menu opens.
+    items: (ctx) => [CORE_COMMAND_IDS.fitAll, ..., ctx.mode === "results" ? "my-shell:probe" : null],
+    more: [CORE_COMMAND_IDS.undo, CORE_COMMAND_IDS.redo],
+    gesture: { holdMs: 250 },
+  },
+},
+```
+
+| Where | On by default | Why |
+|---|---|---|
+| Core's own UI | No; Options -> Theme -> Marking menu turns it on | Its right button has meant "Scene menu or pan" for a long time; a hold opening something new should be a choice. |
+| A composed shell with `chrome.markingMenu` | Yes; the user may turn it off | The shell asked for it. |
+| A composed shell without it, or `false` | Not offered | It may have right-button gestures of its own. |
+| A shell with `load` | Not offered | It mounts no core layout. |
+
+The user's choice is per UI shell (`LayoutPrefs.markingMenuByShell`), like "Customisable
+panels". Core's commands: `markingMenu` (open it; offered where it is on) and
+`toggleMarkingMenu` (on or off, checked while on). On `@/viewer-core/layout`:
+`MarkingMenuView` (the wheel as drawn, for a shell that opens it its own way), `markingSlots`,
+`MarkingMenuHost`, `openMarkingMenu`, `setMarkingMenuOn`, `servedMarkingMenu`; the rules on the
+root: `MarkingGesture`, `sectorAt`, `sectorOffset`, `resolveMarkingMenu`,
+`markingMenuAvailability`.
+
+### The tool rail
+
+`chrome.rail` takes core's rail as data, in place of a component of the shell's own (which it
+still takes):
+
+```ts
+chrome: { rail: { tools: [CORE_COMMAND_IDS.fitAll, CORE_COMMAND_IDS.fitSelection, RAIL_SEPARATOR, "panel:core:tree"] } },
+```
+
+A column of icon buttons down the left edge of the layout, outside the docks, between header and
+footer. Each tool is a command: its `icon` (`CommandSpec.icon`; core's commands have icons,
+`CORE_COMMAND_ICONS`, panels and modes use theirs, and a command without one is drawn with its
+initials), its label and chord as the tooltip, `aria-pressed` while a toggle is `checked`,
+greyed with the reason while it cannot run. A tool nothing offers now is left out, and so are
+the separators that leaves stranded. What greys or ticks a command lives in stores of every
+kind, so the rail asks its tools again after a click or a key anywhere, when the selection, the
+history or the layout changes, and once a second.
+
+The user arranges it (`customisable: false` takes that away): right-click a tool to remove it;
+the button at the foot of the rail, its right-click menu and `core:customise-rail` (Window ->
+Customise tool rail… in the Desktop UI) open the customise dialog, which reorders, removes and
+adds tools from every command (with a filter), adds separators and resets to the shell's list.
+Changes are saved as they are made, per shell, in the layout prefs (`LayoutPrefs.rail[shell]`:
+`RailPrefs`), so they go to the server with the arrangements. The saved value is the user's
+whole list and the shell's list when they saved it (`base`): a tool the shell adds in a later
+release is in neither and is put in next to the tool before it in the shell's list
+(`railTools`); one the user removed is in `base` and stays out. A list equal to the shell's is
+not stored. On `@/viewer-core/layout`: `ToolRail`, `ToolRailCustomiseDialog`,
+`openRailCustomise`, `saveRail`, `resetRail`, `railList`; the rules on the root:
+`railTools`, `tidyRail`, `moveRailTool`, `addRailTool`, `removeRailTool`, `migrateRailPrefs`.
+Main window only: a pop-out window draws no shell chrome.
 
 ### Multi-window dashboards
 
@@ -353,9 +504,10 @@ Unhide all, Fit all, Go to object and up-a-level buttons work from a pop-out
 this way.
 
 **The scene tree in a pop-out (`core:scene-tree`).** The selection tree panel is
-`mirrored`. In a pop-out its content is the Scene tree alone (the Sources and
-Systems tabs load into a scene the pop-out does not have), the same component
-and rows as in the main window (`rowExtras`, `rowClassName`, search, the root
+`mirrored`. In a pop-out its content is the Scene tab and, with a server, the
+Systems tab (the Sources tab loads models into a scene the pop-out does not
+have, so it is not offered there), the same component and rows as in the main
+window (`rowExtras`, `rowClassName`, search, the root
 label toggle). The main window publishes one topic, built for large trees
 (`sceneTreeTopic`, root facade, dependency-free):
 
@@ -396,14 +548,75 @@ isolating a small part of a large tree sends close to a code per row (still no
 tree). Rows the main window has no mesh for yet show as "no geometry" until the
 next visibility change, as in the main window.
 
+**The row menu, the Systems tab and related elements.** The pop-out's row menu
+also offers Select with bounding box (`core:box-around-selection`), Unload model
+(`core:unload-models` `{sources}`, the models found in the mirrored tree), Add to
+group... (the same prompt as in the main window: it works on the mirrored tree
+and the saved-groups service, no scene) and the related actions of the row
+(`useRelatedActions` lists them from the relations index; running one is
+`core:run-related` `{ids, key}`, resolved and run in the main window). The
+Systems tab's two scene calls, `selectNames` and `loadMembers`
+(`@/utils/systems/systems`), send `core:select-names` / `core:load-members` from
+a pop-out (so the tab does not know how many it selected there). Loading a node
+from another provider reads the Sources tab and stays in the main window's menu.
+
+**Simulation and result controls (`core:fea-controls`).** The Simulation panel
+and the result data panel are `mirrored`. The result session is one topic of
+plain data (`feaControlsSnapshot`): the manifest (sent when it changes and to a
+window that asks, left out of the other messages), the shown field, component and
+step, the transport (playing, factor, period, scale), the visualisation toggles
+(undeformed, element edges, result colours, warp, beam solids, result points,
+smoothing, envelope), the layer and IP reduction, the colour scale (bands and
+bounds, the colormap), the legend range and the edge fade. A pop-out puts it into
+its own FEA animation store, so the panel's component is the main window's. The
+playing fields (factor, step, preload progress) are throttled to one message per
+100 ms; everything else goes at once. What the controls do goes through one seam,
+`useFeaControlActions()` / `feaControlActions()` (`@/viewer-core/scene`): in the
+main window `localFeaControlActions` runs the play / pause / stop / step / scale
+code of `playbackActions`, the loader and `resultSelection`; in a pop-out
+`remoteFeaControlActions` sends the matching command from `FEA_CONTROL_COMMANDS`
+(`core:fea-play`, `core:fea-step`, `core:fea-set-step`, `core:fea-select-field`,
+`core:fea-set-colormap`, `core:fea-set-contour`, ...), each carrying one checked
+value. Core's playback toolbar and the panel call the same functions. In a pop-out
+the panel shows the Results tab only (the FE model tab, plugin tabs and the phone
+legend tab read the scene), has no animation export button (no canvas) and no
+"open in follower window" button; a glTF animation clip's controls are not
+mirrored.
+
+**Result data (`core:fea-table`).** A node table holds tens of thousands of rows,
+so a pop-out is not sent the step. It sends its query (`core:fea-table-query`
+`{filter, sort}`) to the main window, which reads the shown step while a table
+watches (`core:fea-table-watch` `{on}`), applies the query with the same
+`tableRowIndices` the table uses and publishes the first `FEA_TABLE_ROW_CAP`
+(2000) rows of the answer with how many matched; the table says "Showing the
+first 2000 of N rows" when there are more, and filtering or sorting reaches the
+rest. The eye on a row is `core:fea-goto-node` `{id | null}`, and the marked node
+comes back with the snapshot. Element fields have no node rows (the table says
+so, as in the main window); "Show in data" from the object info panel does not
+reach a pop-out's table.
+
+**Scene info (`core:scene-info`).** The Scene panel is `mirrored` with its Model
+tab: the loaded models (shown or hidden, hide / show, unload, Remove all), the
+take-off, the groups the models carry and the selection boxes (show / hide, make
+active, delete, clear, a box around the selection). The topic carries plain data:
+the model list and visibility, the groups *without* their member lists (a group
+has `member_count`; at most `SCENE_INFO_GROUP_CAP` (5000) groups are sent, sent
+again only when they change), the stats store's take-off and the boxes. The panel
+acts through `useSceneActions` (`setModelVisible`, `unloadModels`, `selectGroup`,
+`updateBox`, `removeBox`, `activateBox`, `clearBoxes`, `boxAroundSelection`;
+commands `core:model-visible`, `core:unload-models`, `core:select-group`,
+`core:box-*`). The other tabs (Overlays, Tools, Clip, Mesh, Clashes, Joints) and
+the Saved groups, Source and face picking / search sections read or change the
+scene directly and stay in the main window: a pop-out does not show them.
+
 What a pop-out can do of each scene panel, and what stays in the main window:
 
 | Panel | Mirrored, and what is not (yet) |
 |---|---|
 | Object info (parts) | Mirrored, buttons included. Still local to the pop-out: the mobile-only "Copy all (n)" (it copies the 3D selection's names, which the pop-out does not hold) and "+ Add mode" (the main window's additive picking); the procedural-cell context (cell names, cell hide, cell add mode: the builder store is not mirrored); "Show in data" (it resolves the picked element on the main window's FEA mesh, so it does not show); the selection download (it reads the 3D selection). |
-| Selection tree (parts) | Mirrored (Scene tab). Not in a pop-out: the Sources and Systems tabs; from the row menu, saved groups, related elements, loading from another provider, unloading one model, the selection box. |
-| Scene info | Not mirrored. Its ~15 sections run scene tools (section planes, face search, clash runs) against the scene directly; each would need its state as a topic and its actions behind the act seam. |
-| Simulation, result data | Not mirrored. The body (`SimulationBody`) reads about 35 FEA store fields at once, among them the three.js result `mesh` whose morph influence the factor / scale controls write directly, and the step and field controls run closures held in the main window's store (`applyStep`, `startFramePreload`) or reload the stream (`load_fea_streaming`, `selectFeaResultComponent`). The body also hosts the colour legend, the FEM concepts panel, the animation export and the result data table, each reading its own stores. What mirroring it needs: (1) a `core:fea-controls` topic with the plain fields the controls render -- `sourceName`, `fieldName`, `reduction`, `stepIndex`, `nSteps`, `isPlaying`, `factor`, `period`, `scaleFactor`, `colormap`, `warpEnabled`, `layer`, `ipReduction`, `nodalAverage`, `envelopeMode`, `timeHistory`, the beam-solid and colour toggles, `framePreload` progress -- plus the manifest's field and step lists (`manifest.fields` reduced to name / per_type / support / surface, the step slots of `mergeCaseSteps`, the case statuses); (2) one command per control (`core:fea-step` {index}, `core:fea-field` {name}, `core:fea-reduction`, play / pause / stop, factor, scale, warp, layer, IP reduction, nodal average, envelope, colormap, the toggles), each running that control's handler in the main window; (3) the handlers moved out of the component behind the act seam, so the body calls them in one path; (4) the legend, FEM concepts, export and data table either mirrored as panels of their own or left out of the pop-out body. |
+| Selection tree (parts) | Mirrored (Scene and, with a server, Systems tabs). Not in a pop-out: the Sources tab; from the row menu, loading a node from another provider. |
+| Scene info | Mirrored, Model tab: loaded models, take-off, groups, selection boxes. Not in a pop-out: the Overlays, Tools, Clip, Mesh, Clashes and Joints tabs, and the Saved groups, Source and face picking / search sections (they run scene tools against the scene). |
+| Simulation, result data | Mirrored (`core:fea-controls`, `core:fea-table`): the Results tab with every control, the colour scale dialog and the data table (rows capped at 2000, filter and sort in the main window). Not in a pop-out: the FE model tab, plugin tabs, the animation export, the follower-window button, a glTF animation clip's controls. |
 
 The transport is an interface (`WindowBusTransport`: `post`, `subscribe`,
 `close`), so a relay over a websocket could join windows across browsers later
@@ -414,9 +627,82 @@ without the panels changing.
 | The bus (root) | `createWindowBus`, `WindowBus`, `WindowBusMessage`, `broadcastTransport`, `memoryTransportHub`, `nullTransport`, `windowBusChannelName`, `MAIN_WINDOW_ID`, `sendPanel`, `acceptPanels`, `panelsToReturn`, the dashboard record helpers, `nextWindowId` |
 | URLs (root) | `WINDOW_PARAM`, `POPOUT_PARAM`, `popoutWindowId`, `popoutPanelId`, `isPopoutPage`, `windowUrl`, `popoutUrl`, `openWindow`, `canPopOut` |
 | Mirroring (root) | `registerMirrorTopic` (`MirrorTopic.delta`, `apply` returning `false`), `registerMirrorCommand`, `hostMirror`, `followMirror`, `sendMirrorCommand`, `capabilities.mirrored`; for trees: `sceneTreeTopic`, `flattenTree`, `buildTree`, `SceneTreeSource` / `SceneTreeSink`, `ROW_VISIBILITY_CODES`, `SCENE_TREE_CHUNK` |
-| Scene tree mirror (`/layout`) | `SCENE_TREE_TOPIC`, `coreSceneTreeSource`, `coreSceneTreeSink`, `useSceneMirrorStore` |
+| Scene tree mirror (`/layout`) | `SCENE_TREE_TOPIC`, `coreSceneTreeSource`, `coreSceneTreeSink`, `useSceneMirrorStore`, `SCENE_INFO_TOPIC`, `SCENE_INFO_GROUP_CAP`, `SceneInfoSnapshot` |
+| Result controls (`/scene`) | `FEA_CONTROLS_TOPIC`, `feaControlActions`, `useFeaControlActions`, `localFeaControlActions`, `remoteFeaControlActions`, `FEA_CONTROL_COMMANDS`, `FeaControlActions`, `FeaControlsSnapshot`, `FEA_TABLE_TOPIC`, `FEA_TABLE_ROW_CAP`, `FeaTableSnapshot`, `tableRowIndices` |
 | This page (`/layout`) | `windowBus`, `useOpenWindows`, `useThisWindow`, `useMainWindowLive`, `moveToWindowItem`, `openNewWindow`, `reopenWindows`, `installMainWindow`, `GridOps` / `GridOpsProvider`, `PopoutPage` |
-| Acting (`/layout`) | `useSceneActions`, `sceneActions`, `remoteSceneActions`, `isMirroredWindow`, `SceneActions`, `RowSelectMode`, `SCENE_ACTION_COMMANDS`, `MIRRORED_CORE_COMMANDS` |
+| Acting (`/layout`) | `useSceneActions`, `sceneActions`, `remoteSceneActions`, `isMirroredWindow`, `SceneActions`, `GroupKey`, `BoxPatch`, `RowSelectMode`, `SCENE_ACTION_COMMANDS`, `MIRRORED_CORE_COMMANDS` |
+
+### Core's mode toolbars
+
+A mode's toolbar slot (`ShellModeToolbar`, in the header) comes filled with core's
+own toolbars. A mode names them in `toolbars`, left to right; they are drawn
+before the mode's own `toolbar` (a function in the shell plugin's context), so a
+shell needs no code for them:
+
+```ts
+modes: [
+  { id: "model", label: "Model", toolbars: ["section", "representation", "colorBy"] },
+  { id: "results", label: "Results", toolbars: ["playback", "representation", "colorBy"] },
+]
+```
+
+| Id | Controls | Backed by |
+|---|---|---|
+| `playback` | Step back, play / pause, stop, step forward; the step slider and "n / N"; the oscillation period (mode shapes and static steps; a time history plays its own time axis) and the deformation scale. | `core:results-play-pause`, `core:results-stop`, `core:results-step-back`, `core:results-step-forward`; the scale and the slider call the same actions as the Simulation panel (`utils/scene/fea/playbackActions`). |
+| `section` | A plane per axis (X / Y / Z), on / off, flip, the offset slider along the plane's axis (over the model's extent), remove all. | `core:section.x` / `.y` / `.z`, `core:section-toggle`, `core:section-flip`, `core:section-clear`: the section store, so undo / redo covers them. The toolbar edits the active plane, else the last. |
+| `representation` | Geometry edges, the rest of an isolated FEA model as wireframe, and for a loaded result: result colours, element edges, the undeformed outline, node numbers and element numbers. | `core:edges`, `core:fea-toggle-context-wireframe`, `core:fea-toggle-result-colors`, `core:fea-toggle-element-edges`, `core:fea-toggle-undeformed`, `core:labels-nodes`, `core:labels-elements`. |
+| `colorBy` | A picker of what the scene can be coloured by, and a reset. | `core:color-by-next`, `core:color-by-model`, `core:color-by-reset`; `applyColorBy` / `resetColorBy` (`utils/scene/colorBy`). |
+| `build` | The open procedural model (name, revision, "unsaved"), undo / redo, Compile, compile in the browser (WASM), Commit, close the model. | `core:builder-undo`, `core:builder-redo`, `core:builder-compile`, `core:builder-recompile` (force, menu only), `core:builder-compile-browser`, `core:builder-commit`, `core:builder-close`: the cellbuilder store. Greyed with the reason when no model is open, it is read off the scene (read-only), the connection cannot edit or compile on a server, a job is running, or there is nothing to undo / commit. |
+
+All of those are commands, so the palette, the menu bar (the Desktop UI's View menu
+has Section and Results submenus and the result switches under Display), the tool
+rail and the marking menu reach them too (add the ids to `rail.tools` or the marking
+menu's `items`); each has an icon in `CORE_COMMAND_ICONS`. A shell that wants the
+controls in its own chrome mounts the components from `@/viewer-core/layout`:
+`PlaybackToolbar`, `SectionToolbar`, `RepresentationToolbar`, `ColorByToolbar`, `BuilderToolbar`, `NumberLabels`, `ColorByLegend`, `CoreModeToolbars`
+(`ids`), and `CommandButton` (`id`) for a button of its own over any command. The
+ids are `CORE_MODE_TOOLBAR_IDS` / `CoreModeToolbarId` on the root.
+
+Core has no scene-wide wireframe or transparency switch and no measure or markup
+tools, so there is no toolbar group for them.
+
+**Number labels.** `core:labels-nodes` and `core:labels-elements` (View menu ->
+"Labels and colours", the `representation` toolbar) draw the node ids and the element
+ids of a loaded FEA result as HTML over the view (`NumberLabels`, drawn by the
+overlay layer when `chrome.overlays.labels` is set; a shell with its own chrome
+mounts `NumberLabels` from `@/viewer-core/layout`). Node ids are the solver's when the
+bake carries them, else the point index + 1. What is labelled is bounded: with a
+selection on the result, its elements (and their nodes); with none, an even sample of
+at most 4000 elements; those in front of the camera and on screen are thinned on a
+screen grid (one label per 44 x 14 px cell, element numbers before node numbers) to
+at most 400, so zooming in labels more. Positions follow the deformed shape. Labels
+are not occlusion-tested, and core has no ids for other objects than a loaded
+result's elements and nodes, so there are no labels for CAD objects.
+
+**Colour by.** The `colorBy` toolbar's picker, and the three commands, colour the
+scene by a property without a second colouring pipeline: an FEA result's model
+properties (section, material, thickness: the manifest's `property` fields) are
+selected as a result field, so the FEA painter colours the elements and the colour
+legend lists the categories; "Model" (offered with two or more models loaded) gives
+every model its own colour through the batched mesh's range colours, with a legend
+(`ColorByLegend`, placed by `chrome.overlays.colorByLegend`). Reset puts back the
+result field that was shown before (or switches result colours off), and clears range
+colours. A plugin adds a source with `registerColorBySource({id, label, apply,
+reset})` (`apply` may return a legend); it appears in the picker and the cycle command.
+Core has no per-object attributes for CAD objects beyond the model they belong to, so
+that is the only non-FEA source it offers.
+
+**Build mode.** A mode with `requires: "builder"` is offered only while a procedural
+model is open (an editable one opened from storage, or one read off the loaded scene):
+until then it is left out of the switcher, the Modes menu and the palette, and `?mode=`
+or a stored choice that names it falls back to the first mode on offer; if the model is
+closed while the mode is active, the shell switches away. A shell that docks the
+`core:cellbuilder` panel passes `panels: {"core:cellbuilder": {options: {showFooter:
+false, showUndoRedo: false}}}` when its toolbar carries commit, compile and undo (the
+`build` toolbar does), and sets `chrome.overlays.builder` so the canvas menus and the
+gizmo HUD, which the classic UI mounts beside the panel, are drawn over the view. Core
+has no "new model" or "reset parameters" action, so a model is opened from the storage
+panel (or the panel's Local models menu) first.
 
 ### The built-in Desktop UI
 
@@ -434,8 +720,10 @@ worked example of a full docked UI (`desktopUiShellSpec()` from `@/viewer-core`)
 |---|---|
 | Header | A menu bar (`MenuBar`) in place of core's top bar (`chrome.toolbar: false`), the mode switcher and toolbar, the plugins' top-bar buttons, a Commands button. |
 | Layout | Tree and storage tabbed in a fixed-px left dock; object info over scene info in a fixed-px right column; Simulation and Result data in a fixed-px dock under the view, collapsed to a strip in the Model mode. Group actions add, collapse, pin; tab icons. Plugin panels naming `left` / `right` / `bottom` join those docks. |
-| Modes | Model (default) and Results (the results dock open); plugins' modes follow. |
+| Modes | Model (default; toolbars: section, representation, colorBy), Results (the results dock open; toolbars: playback, representation, colorBy) and Build (offered once a procedural model is open; the builder with the tree and storage behind it on the left, the selection and the scene with the equipment and system catalogs on the right; toolbars: build, section; a Build menu); plugins' modes follow. |
 | Footer | A status bar: connection, models loaded, selection count, mode, what Undo undoes. |
+| Rail | Core's tool rail (`DESKTOP_RAIL_TOOLS`) on the left edge: Open; Fit all, Fit selection, Reset camera, Isometric view; Hide selected, Hide others, Show all; Select all, Clear selection; Geometry edges, Clear FEA isolation; Undo, Redo. The user's own is kept per shell. |
+| Marking menu | Core's (`chrome.markingMenu: {}`), on: hold the right button over the view, or Shift+E. |
 | Chrome | Command palette on Ctrl+K, the colour legend at `right-center`, overlay plugin panels at `top-left`, the toast bottom-right, a title bar on `/convert` and `/admin`. |
 | Look | Core's tokens only (`--ada-window-*`, `--ada-tab-*`, the user's panel theme); no colours of its own. |
 
@@ -445,12 +733,12 @@ leaves stranded):
 
 | Menu | Items |
 |---|---|
-| File | Upload file… (REST), Storage, Convert files, Options |
-| Edit | Undo, Redo; Clear selection, Copy names, Save selection as group…; Visibility ▸ Hide selected, Hide others, Show all |
-| View | Panels ▸ (each panel's toggle); Camera ▸ Fit all, Fit selection, Reset camera; Display ▸ Geometry edges, Performance stats, Gallery mode; Theme ▸ (the presets); User interface ▸ (the shells); Command palette, Full screen |
+| File | Open… (Ctrl+O), Upload file… (REST); Export selection…, Export model… (REST); Storage, Convert files; Options |
+| Edit | Undo, Redo; Select all (Ctrl+A), Invert selection, Clear selection, Copy names, Save selection as group…; Visibility ▸ Hide selected, Hide others, Show all |
+| View | Panels ▸ (each panel's toggle); Camera ▸ Fit all, Fit selection, Reset camera, Top / Bottom / Front / Back / Left / Right / Isometric view; Display ▸ Geometry edges, Performance stats, Gallery mode, Marking menu on the right button; FEA sets ▸ Isolate FEA sets…, Isolate the picked element's FEA sets, Clear FEA isolation, Show the rest as wireframe; Theme ▸ (the presets); User interface ▸ (the shells); Command palette, Marking menu (Shift+E), Full screen |
 | Modes | One per mode |
-| Window | New window, Reopen windows; Reset layout, Reset every mode's layout; Workspaces ▸ Save workspace…, (each saved one), Delete workspace… |
-| Help | Keyboard shortcuts; Server info, Connection |
+| Window | New window, Reopen windows; Reset layout, Reset every mode's layout, Customise tool rail…; Workspaces ▸ Save workspace…, (each saved one), Delete workspace… |
+| Help | Keyboard shortcuts; Server info, Connection; About |
 
 **Core's commands.** The items that are not `panel:` or `mode:` commands are
 core's own (`CORE_COMMAND_IDS` on `@/viewer-core`, with `themeCommandId`,
@@ -463,10 +751,42 @@ the chord shown is the real one: Ctrl+Z, Shift+H, Shift+A, ...), the Options pan
 itself with a reason where the key would do nothing (nothing selected, nothing
 to undo, no 3D view).
 
-Not in the menus, because core has no action for them yet: opening a local file
-straight into the scene (files go through storage), select all / invert
-selection, named camera views (top, front, ...), and exporting (the selection
-export needs its own dialog of formats and targets).
+Core also has commands made for the menus, each a scene action of its own:
+
+| Command | What it does, and where it stops |
+|---|---|
+| `openFile` (File → Open…, Ctrl+O) | A file picker; GLB and glTF are read in the browser and loaded straight into the scene (replacing it), in any viewer, with no upload. A glTF must have its buffers and images embedded. Other formats need the server to convert them: on a REST viewer whose server converts, the user is asked, then the file is uploaded to storage and loaded through the load queue (converted on the way); elsewhere it is refused with the reason. Files dropped from the desktop on the 3D view open the same way, added to what is loaded. Greyed with "No 3D view" off the canvas. |
+| `selectAll` (Ctrl+A), `invertSelection` | Select every shown element of the loaded models, or the shown ones that are not selected. Hidden elements and switched-off models are never taken. One undo entry each. "Nothing to select" when nothing is shown. |
+| `viewTop` … `viewIsometric` (`cameraViewCommandId(view)`, `CAMERA_VIEWS`) | The model framed from one side, as Fit all frames it (smoothly with the default camera controls). Z up by default (front looks along +Y), the same views turned when the viewer is Y up. With nothing loaded the camera turns about its target. |
+| `exportSelection`, `exportModel` | The Export dialog, on the selection or on one whole loaded model, with the format (STEP or IFC). Written by the server from the model's source, as the object info panel's "Download as…" (which the Selection scope reuses, with its export options); a model with no source behind it (a GLB, a file opened from disk) cannot be exported and the dialog says so. Greyed off a REST viewer. |
+| `about` | The About dialog: the viewer's build, the viewer core and plugin API versions, the UI, the connection, what the server's `/api/config` reports (its image tags), and links to the documentation. |
+| `feaIsolateSets`, `feaIsolateSelectionSets`, `feaClearIsolation`, `feaToggleContextWireframe` | The loaded FEA result's set isolation (below): isolate the element sets whose name holds a text (asked for), or the sets the picked element is in; show the whole model again; draw what the isolation hides as its element edges or not (checked while on). Greyed with the reason: no FEA result, no sets or properties, nothing isolated, no element edges in the result, an isolation that names no elements. Scene actions, so a pop-out window's palette acts on the main window's scene. |
+
+**FEA sets and properties, in every UI.** While an FEA result is loaded core adds
+rows of its own to the Scene tree, after the models (a provider of
+`registerSceneTreeRoots`, `core:fea-tree`): **Sets** (element sets and node
+sets, with counts; node sets are `TreeNodeData.informational`, since nodes name no
+faces) and **Properties** (each `category: "property"` field of the manifest, its
+values and how many elements carry each, read from the field's blobs the first
+time the rows or a pick need them). Selecting element-set or value rows isolates
+their union; an isolated row is `TreeNodeData.marked`. Right-clicking one does not
+select it: its row menu isolates, adds to or removes from the isolation, clears
+it, toggles the rest as wireframe, hides or shows its elements. Each change is one
+undo entry, the isolation a slice of it. The Selected Object panel's `fea-sets`
+section (in `CORE_PROPERTY_PROVIDERS`) lists a picked element's values and sets
+with Isolate buttons. In a pop-out window the rows, the menu, the section and the
+commands read the main window's view (`core:fea-tree`) and act through the scene
+actions (`feaIsolate`, `feaClearIsolation`, `feaToggleContext`, ...). A shell
+therefore needs nothing of its own for them; a plugin scopes the view with
+`isolateFeaSets` / `isolateFeaRows` on `@/viewer-core/scene`, which also has the
+rows' pure builders and ids (`buildFeaTreeRoots`, `elementSetRowId`, ...), the
+reasons (`feaIsolationReason`, `feaContextReason`), `feaTreeView` /
+`subscribeFeaTreeView` and `useFeaIsolationStore`.
+
+The dialogs are drawn by the composed layout (`openCoreDialog` / `closeCoreDialog`
+on `@/viewer-core/layout`). There are no keys for the camera views: the shortcut
+registry matches `KeyboardEvent.key`, so the numeric keypad cannot be told from
+the digit row.
 
 ### A root of its own
 

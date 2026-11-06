@@ -1,0 +1,4 @@
+# Kept on purpose. The app's capability is built at startup for the viewer's origin
+# (main.rs), so there is no static capability file here, but tauri-build watches this
+# folder: without it cargo sees "the file `capabilities` is missing" and relinks the
+# shell on every build. Only .json / .json5 / .toml files here are read.

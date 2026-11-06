@@ -9,11 +9,12 @@ import {AdaViewerProvider} from "./state/AdaViewerContext";
 import {useUrlParamLoad} from "./hooks/useUrlParamLoad";
 import {useSceneRestore} from "./hooks/useSceneRestore";
 import {followerParams as simFollowerParams} from "@/utils/simChannel";
-import {activeUiShellId, getUiShell, type UiShellSpec} from "@/plugins/uiShells";
+import {CORE_UI_SHELL_ID, activeUiShellId, getUiShell, isComposedShell, type UiShellSpec} from "@/plugins/uiShells";
 import {isPopoutPage, popoutPanelId} from "@/layout/popout";
 import {thisWindowId} from "@/layout/windows";
 import {useComposedShellLook} from "@/layout/shellTheme";
 import {panelBodyAttrs} from "@/components/ui/panelChrome";
+import {CorePaletteHost} from "@/layout/CommandPalette";
 
 // The core panel catalogue loads each panel's classic component and content
 // through this module (`import("@/app")`), so they come out of this shell's own
@@ -40,9 +41,6 @@ const PopoutPage = React.lazy(() => import("./layout/PopoutPage"));
 const isAuthCallback = isRestMode && window.location.pathname === "/auth/callback";
 const isConvertPage = isRestMode && window.location.pathname.startsWith("/convert");
 const isAdminPage = isRestMode && window.location.pathname.startsWith("/admin");
-// The classic UI: rendered from the panel registry by the layout host, with the
-// classic preset (`layout/presets/classic`).
-const LayoutRoot = React.lazy(() => import("./layout/LayoutRoot"));
 
 
 /** The active shell's header for canvas-less pages (`UiShellChrome.pageHeader`), loaded once. */
@@ -179,6 +177,8 @@ export function AppRoot({children}: {children: React.ReactNode}) {
     return (
         <AdaViewerProvider>
             <ViewerBootstrap/>
+            {/* The command palette (Ctrl+K), in every UI; here, so a shell switch keeps one. */}
+            <CorePaletteHost/>
             {isRestMode ? (
                 <Suspense fallback={null}>
                     <AuthGate>{children}</AuthGate>
@@ -197,22 +197,32 @@ function ViewerBootstrap() {
     return null;
 }
 
-/** The classic UI: the layout host with the classic preset. */
-function App() {
+/**
+ * Core's root for every shell that runs under it: core's own UI and the composed
+ * shells. `UiShellHost` keeps ONE of these mounted and switches `shellId` in
+ * place, so the provider, the canvas and the scene outlive a switch; only the
+ * layout's shell (its chrome, modes, overrides and look) changes.
+ */
+export function CoreShellRoot({shellId}: {shellId: string}) {
     return (
         <AppRoot>
-            <Suspense fallback={null}>
-                <LayoutRoot/>
-            </Suspense>
+            <ShellBody shellId={shellId}/>
         </AppRoot>
     );
 }
 
-/** A shell composed from core's layout (`UiShellSpec` without `load`). */
+/** The classic UI: core's root showing core's own shell. */
+function App() {
+    return <CoreShellRoot shellId={CORE_UI_SHELL_ID}/>;
+}
+
+/** A shell composed from core's layout (`UiShellSpec` without `load`), on a root of its own (no in-place switching). */
 export function composedShell(spec: UiShellSpec): React.ComponentType {
     const Composed = () => (
         <AppRoot>
-            <ComposedShellBody spec={spec}/>
+            <Suspense fallback={null}>
+                <ComposedLayout spec={spec}/>
+            </Suspense>
         </AppRoot>
     );
     return Composed;
@@ -221,10 +231,12 @@ export function composedShell(spec: UiShellSpec): React.ComponentType {
 
 const ComposedLayout = React.lazy(() => import("./layout/ComposedLayout"));
 
-function ComposedShellBody({spec}: {spec: UiShellSpec}) {
+/** The layout, dressed as shell `shellId`: a composed shell's spec, or none for core's own UI. */
+function ShellBody({shellId}: {shellId: string}) {
+    const spec = getUiShell(shellId);
     return (
         <Suspense fallback={null}>
-            <ComposedLayout spec={spec}/>
+            <ComposedLayout spec={spec && isComposedShell(spec) ? spec : null}/>
         </Suspense>
     );
 }

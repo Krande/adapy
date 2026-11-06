@@ -20,7 +20,8 @@ import {ExternalGlyph, MoveGlyph} from "@/components/ui/PanelFrame";
 
 import type {DropTarget} from "../dockDrag";
 import {CORE_PANEL_OWNER} from "../corePanelIds";
-import {CLASSIC_PRESET_ID, CLASSIC_ZONES, DOCKED_PRESET_ID, customisablePanelsOn, layoutDocKey, type LayoutDoc} from "../layout";
+import {CLASSIC_PRESET_ID, CLASSIC_ZONES, DOCKED_PRESET_ID, layoutDocKey, type LayoutDoc} from "../layout";
+import {setCustomisableShell, useCustomisablePanels as useServedCustomisablePanels} from "../customisable";
 import {layoutStore} from "../layoutStore";
 import type {PanelAction, PanelId, PanelMenuItem, RegisteredPanel} from "../panel";
 import {
@@ -65,10 +66,8 @@ export const GRID_ROOT_ATTR = "data-grid-root";
 export const gridZone = (node: string) => `grid:${node}`;
 export const gridNodeOfZone = (zone: string): string | null => (zone.startsWith("grid:") ? zone.slice(5) : null);
 
-/** Is the "Customisable panels" setting on. */
-export function useCustomisablePanels(): boolean {
-  return useStore(layoutStore, (s) => customisablePanelsOn(s.prefs));
-}
+/** Are customisable panels on in the served UI (`../customisable`: always in a composed shell, else the user's setting for it). */
+export const useCustomisablePanels = useServedCustomisablePanels;
 
 /** One arrangement of a composed shell: its starting grid, panels to open, dock groups. */
 export interface ClassicArrangement {
@@ -95,6 +94,8 @@ export interface ClassicShell extends ClassicArrangement {
   toastAnchor?: "bottom-right" | "bottom-left" | "top-right" | "top-left";
   /** The arrangements' version, and how a saved one of another version is brought up to date. */
   version?: number;
+  /** Customisable panels: always on ("required", the default), or the user's setting for this shell. */
+  customisablePanels?: "required" | "optional";
   migrate?: (doc: LayoutDoc, from: number | undefined) => LayoutDoc | null;
 }
 
@@ -134,8 +135,13 @@ export function togglePin(id: PanelId): void {
   if (shell) layoutStore.getState().setPinned(shell.id, id, !pinnedPanels().includes(id));
 }
 
-/** The composed shell served; null for core's own UI. Set once at startup, before the frame renders. */
+/** The composed shell served; null for core's own UI. Set before the frame renders, again by an in-place shell switch. */
 let shell: ClassicShell | null = null;
+
+/** The id of the composed shell served; null for core's own UI. */
+export function classicShellId(): string | null {
+  return shell?.id ?? null;
+}
 
 /**
  * Serve a composed shell: a document of its own per mode (context `<shell>` or
@@ -146,6 +152,7 @@ let shell: ClassicShell | null = null;
 export function setClassicShell(next: ClassicShell | null, modeIds: readonly string[] = []): void {
   shell = next;
   shellContexts = ["default"];
+  setCustomisableShell(next?.id ?? null, next?.customisablePanels !== "optional");
   if (!next) return;
   const contexts = modeIds.length ? modeIds.map((m) => [contextOf(next.id, m), m] as const) : [[next.id, null] as const];
   shellContexts = contexts.map(([ctx]) => ctx);

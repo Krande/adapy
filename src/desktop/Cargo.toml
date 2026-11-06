@@ -13,10 +13,16 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 # No default features: no tray, no updater, no bundled assets server beyond what a remote-URL
 # window needs. `compression` keeps the (tiny) embedded config/ACL compressed.
-tauri = { version = "2", default-features = false, features = ["wry", "common-controls-v6", "compression"] }
+tauri = { version = "2", default-features = false, features = ["wry", "common-controls-v6", "compression", "dynamic-acl"] }
 tauri-plugin-window-state = "2"
 serde_json = "1"
 hidapi = { version = "2", default-features = false, features = ["windows-native"] }
+
+# The WebView2 environment with single sign-on (AllowSingleSignOnUsingOSPrimaryAccount), which wry does
+# not set itself; the same versions wry already uses, so nothing new is built.
+[target.'cfg(windows)'.dependencies]
+webview2-com = "0.39"
+windows-core = "0.62"
 
 # Size first: the shell does almost nothing on its own, so speed is irrelevant and a small exe
 # keeps the conda package small.

@@ -23,6 +23,7 @@ import IndexedAttributesSection from './IndexedAttributesSection';
 import RelatedSection from './RelatedSection';
 import CellBuilderSelectionInfo from './CellBuilderSelectionInfo';
 import FemConceptSelectionInfo from './FemConceptSelectionInfo';
+import FeaSetsSection from './FeaSetsSection';
 import DownloadSelectionButton from './DownloadSelectionButton';
 
 // 1500 ms is the smallest hold that still feels intentional vs a
@@ -112,6 +113,9 @@ export const CORE_PROPERTY_PROVIDERS: readonly PropertyProvider[] = [
     // because it also reads metadata from the lineage store (GLB extension's
     // ``object_metadata`` field) AND hosts the clicked-coordinate row.
     {id: "object-metadata", order: 30, match: (sel) => sel.meshName != null, render: () => <ObjectMetadata/>},
+    // A picked element of the loaded FEA result: its property values and the element sets
+    // naming it, each isolatable. Nothing for a pick no set or property names.
+    {id: "fea-sets", order: 35, match: (sel) => sel.kind === "mesh" && /^E\d+$/.test(sel.meshName ?? ""), render: () => <FeaSetsSection/>},
     // The selected row's attributes from the attribute index; nothing when it has none.
     {id: "indexed-attributes", order: 40, match: notCell, render: () => <IndexedAttributesSection/>},
     // Its system, run and related elements from the relations index; nothing without.

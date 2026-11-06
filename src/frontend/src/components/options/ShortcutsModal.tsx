@@ -1,9 +1,7 @@
 import React, { useEffect, useState } from "react";
-import { useStore } from "zustand";
 
 import { OverlayPortal } from "@/components/ui/OverlayPortal";
-import { customisablePanelsOn } from "@/layout/layout";
-import { layoutStore } from "@/layout/layoutStore";
+import { useCustomisablePanels } from "@/layout/customisable";
 import { CORE_SHORTCUT_GROUPS } from "@/layout/coreShortcutTable";
 import { listShortcuts } from "@/layout/shortcuts";
 
@@ -136,7 +134,7 @@ const ShortcutsModal: React.FC = () => {
 
 /** The dialog itself, open while mounted. */
 const ShortcutsDialog: React.FC<{ onClose: () => void }> = ({ onClose }) => {
-  const customisable = useStore(layoutStore, (s) => customisablePanelsOn(s.prefs));
+  const customisable = useCustomisablePanels();
   // Every shortcut the registry holds (core's, a shell's, plugins', non-core panels'), by group; read when opened.
   const groups = React.useMemo(() => [POINTER_GESTURES, ...shortcutDialogGroups(customisable)], [customisable]);
 

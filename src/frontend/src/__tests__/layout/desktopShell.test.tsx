@@ -84,7 +84,7 @@ test("every menu item names a command core registers, or a panel or mode that ex
   C.registerCommand({ id: CORE_COMMAND_IDS.commandPalette, label: "Command palette", run() {} }, "core");
   try {
     const menus = desktopMenus({ modes, workspaces: ["mine"], shells: U.listUiShells(), themes: Object.keys(THEME_PRESETS) });
-    assert.deepEqual(menus.map((m) => m.label), ["File", "Edit", "View", "Modes", "Window", "Help"]);
+    assert.deepEqual(menus.map((m) => m.label), ["File", "Edit", "View", "Modes", "Build", "Window", "Help"]);
     const modeIds = new Set(modes.map((m) => m.id));
     for (const id of menuCommandIds(menus)) {
       if (id.startsWith("panel:")) {

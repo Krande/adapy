@@ -13,6 +13,14 @@
    ended), stop the viewer: ``POST /api/local/shutdown`` with the token, then terminate, then kill.
    On Windows a job object also ends the viewer and the shell if this process is killed outright.
 
+``--server URL|NAME`` (or ``$ADA_DESKTOP_SERVER``) is remote mode instead: no local viewer is started; the shell
+opens the window on a hosted deployment and trusts exactly that origin (plus its identity provider's sign-in
+pages). ``ada desktop servers list|add|remove`` keeps named profiles in a small per-user file.
+
+``--dev --backend URL|NAME`` (``--dev --server`` means the same) develops the frontend against a hosted
+deployment: Vite serves the local sources with hot reload on ``http://localhost:PORT`` and proxies the page's
+own-origin requests to the deployment; the redirect URI to register at its identity provider is printed.
+
 Stdlib only, and nothing from ``ada`` is imported: ``ada --help`` builds this parser, and the viewer
 runs in its own process anyway.
 """
@@ -25,6 +33,7 @@ import hashlib
 import json
 import os
 import pathlib
+import re
 import secrets
 import shutil
 import socket
@@ -46,6 +55,8 @@ DEFAULT_PORT_BASE = 38500
 DEFAULT_PORT_SPAN = 500
 ENV_PORT = "ADA_DESKTOP_PORT"
 ENV_BINARY = "ADA_DESKTOP_BINARY"
+ENV_SERVER = "ADA_DESKTOP_SERVER"
+SERVERS_FILE = "servers.json"
 BINARY_NAME = "ada-desktop"
 INSTALL_HINT = (
     "the ada-desktop window shell was not found. Install it next to ada-py with "
@@ -63,6 +74,19 @@ HEALTH_TIMEOUT_S = 90.0
 STOP_GRACE_S = 8.0
 PROBE_TIMEOUT_S = 1.5
 LOCAL_HOST = "127.0.0.1"
+
+# -- dev mode (``--dev``) -----------------------------------------------------
+#: The Vite dev server listens on the viewer port plus this, so it is per-user and stable too.
+DEV_VITE_PORT_OFFSET = 500
+#: The Vite config that proxies /api, /config.js and /healthz to ``$ENV_DEV_BACKEND``.
+DEV_VITE_CONFIG = "vite.config.desktop.ts"
+ENV_DEV_BACKEND = "ADA_DESKTOP_BACKEND"
+VITE_TIMEOUT_S = 240.0
+#: ``--dev --backend`` opens the window on this host, not 127.0.0.1: the identity provider's registered
+#: redirect URI for the app is ``http://localhost:PORT/auth/callback`` (providers accept localhost for http).
+DEV_WINDOW_HOST = "localhost"
+ENV_DEV_REMOTE = "ADA_DESKTOP_REMOTE"
+ENV_DEV_ORIGIN = "ADA_DESKTOP_DEV_ORIGIN"
 
 
 class DesktopError(Exception):
@@ -91,6 +115,18 @@ def _platform_dirs(environ: Mapping[str, str], platform: str) -> tuple[pathlib.P
 def cache_root(environ: Mapping[str, str] | None = None, platform: str | None = None) -> pathlib.Path:
     """Unpacked viewer builds and the attached-window registry. Safe to delete while nothing runs."""
     return _platform_dirs(os.environ if environ is None else environ, platform or sys.platform)[0]
+
+
+def config_root(environ: Mapping[str, str] | None = None, platform: str | None = None) -> pathlib.Path:
+    """Per-user settings (the server profiles): ``%APPDATA%/ada/desktop`` on Windows."""
+    environ = os.environ if environ is None else environ
+    platform = platform or sys.platform
+    home = pathlib.Path(environ.get("USERPROFILE") or environ.get("HOME") or os.path.expanduser("~"))
+    if platform == "win32":
+        return pathlib.Path(environ.get("APPDATA") or home / "AppData" / "Roaming") / "ada" / "desktop"
+    if platform == "darwin":
+        return home / "Library" / "Application Support" / "ada" / "desktop"
+    return pathlib.Path(environ.get("XDG_CONFIG_HOME") or home / ".config") / "ada" / "desktop"
 
 
 def data_root(environ: Mapping[str, str] | None = None, platform: str | None = None) -> pathlib.Path:
@@ -510,16 +546,607 @@ def stop_server(server: subprocess.Popen, base: str, token: str) -> str:
         return "kill"
 
 
+# ── dev mode ──────────────────────────────────────────────────────────────
+
+
+def dev_vite_port(backend_port: int) -> int:
+    return backend_port + DEV_VITE_PORT_OFFSET
+
+
+def checkout_src() -> pathlib.Path:
+    """``src`` of the source checkout this module runs from (dev mode needs the frontend sources)."""
+    return pathlib.Path(__file__).resolve().parents[1]
+
+
+def frontend_url_or_error(url: str) -> str:
+    """``--frontend-url`` normalised to ``http://HOST:PORT/``; the shell only shows loopback http."""
+    from ada_cli import CliUsageError
+
+    u = urllib.parse.urlsplit(url)
+    if u.scheme != "http" or u.hostname not in (LOCAL_HOST, "localhost", "::1") or not u.netloc:
+        raise CliUsageError(f"--frontend-url {url}: must be http on 127.0.0.1, localhost or [::1]")
+    return f"http://{u.netloc}/"
+
+
+def vite_command(frontend: pathlib.Path, port: int, node: str | None, pixi: str | None) -> list[str]:
+    """Run Vite's own entry with node: from PATH, else through the ``frontend`` pixi environment."""
+    vite_js = str(frontend / "node_modules" / "vite" / "bin" / "vite.js")
+    tail = [vite_js, "--config", DEV_VITE_CONFIG, "--host", LOCAL_HOST, "--port", str(port), "--strictPort"]
+    if node:
+        return [node, *tail]
+    if pixi:
+        return [pixi, "run", "-e", "frontend", "node", *tail]
+    raise DesktopError("--dev needs node (not on PATH); run it as `pixi run desktop`, or pass --frontend-url")
+
+
+def backend_dev_command(python: str, port: int, reload_dir: pathlib.Path) -> list[str]:
+    """The viewer under uvicorn's reloader (``python -m ada.comms.rest`` has no reload mode: it
+    builds its own Server so the shutdown route can stop it)."""
+    return [
+        python,
+        "-m",
+        "uvicorn",
+        "ada.comms.rest.app:app",
+        "--host",
+        LOCAL_HOST,
+        "--port",
+        str(port),
+        "--reload",
+        "--reload-dir",
+        str(reload_dir),
+    ]
+
+
+def dev_shell_binary(src: pathlib.Path) -> pathlib.Path | None:
+    """The shell as ``build-desktop`` leaves it in the checkout."""
+    exe = src / "desktop" / "target" / "release" / (BINARY_NAME + (".exe" if os.name == "nt" else ""))
+    return exe if exe.is_file() else None
+
+
+def kill_tree(proc: subprocess.Popen) -> None:
+    """End ``proc`` and everything it started (uvicorn's reloader and Vite's launcher both fork)."""
+    if proc.poll() is not None:
+        return
+    if os.name == "nt":
+        subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"], capture_output=True, check=False, timeout=15)
+    else:
+        proc.terminate()
+    try:
+        proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+
+
+def wait_http(url: str, proc: subprocess.Popen, what: str, timeout: float) -> float:
+    t0 = time.monotonic()
+    while time.monotonic() - t0 < timeout:
+        if proc.poll() is not None:
+            raise DesktopError(f"{what} exited during startup (code {proc.returncode}); see its log above")
+        try:
+            with urllib.request.urlopen(url, timeout=2.0) as r:
+                if r.status == 200:
+                    return time.monotonic() - t0
+        except (urllib.error.URLError, OSError):
+            pass
+        time.sleep(0.2)
+    raise DesktopError(f"{what} did not answer {url} within {timeout:.0f}s")
+
+
+def run_dev(args: argparse.Namespace) -> int:
+    """``--dev``: uvicorn --reload for the viewer, Vite (HMR) for the page, the shell on Vite."""
+    if sys.platform != "win32":
+        raise DesktopError("--dev (and `pixi run desktop`) is Windows only for now")
+    src = checkout_src()
+    frontend = src / "frontend"
+    if not (frontend / DEV_VITE_CONFIG).is_file():
+        raise DesktopError(f"--dev needs the source checkout: {frontend / DEV_VITE_CONFIG} not found")
+    file_path = _open_file_arg(args)
+    binary = None if args.no_window else find_binary(args.binary or (str(dev_shell_binary(src) or "") or None))
+    external = frontend_url_or_error(args.frontend_url) if args.frontend_url else None
+
+    port, source = requested_port(args.port)
+    choice = choose_port(port)
+    if choice.attach:
+        raise DesktopError(f"a viewer is already running on port {choice.port}; close it, or pass --port N")
+    if choice.fallback_from is not None:
+        print(fallback_warning(choice, source), file=sys.stderr, flush=True)
+    base = f"http://{LOCAL_HOST}:{choice.port}/"
+    data = pathlib.Path(args.data) if args.data else data_root()
+    data.mkdir(parents=True, exist_ok=True)
+
+    env = dict(os.environ)
+    env.update(
+        ADA_VIEWER_STORAGE_KIND="local",
+        ADA_VIEWER_LOCAL_PATH=str(data),
+        ADA_VIEWER_HOST=LOCAL_HOST,
+        ADA_VIEWER_PORT=str(choice.port),
+        ADA_VIEWER_AUTH_ENABLED="false",
+        PYTHONPATH=os.pathsep.join([str(src)] + ([env_pp] if (env_pp := os.environ.get("PYTHONPATH")) else [])),
+    )
+    env.pop("ADA_VIEWER_NATS_URL", None)
+
+    job = _Job()
+    procs: list[subprocess.Popen] = []
+    rc = 0
+    try:
+        server = subprocess.Popen(backend_dev_command(sys.executable, choice.port, src / "ada"), env=env, cwd=src)
+        procs.append(server)
+        job.assign(server)
+        wait_healthy(base, server)
+        if external:
+            front = external
+        else:
+            vport = args.dev_port or dev_vite_port(choice.port)
+            if probe_port(vport) != "free":
+                if args.dev_port:
+                    raise DesktopError(f"--dev-port {vport} is in use")
+                vport = free_port()
+            front = f"http://{LOCAL_HOST}:{vport}/"
+            cmd = vite_command(frontend, vport, shutil.which("node"), os.environ.get("PIXI_EXE"))
+            _print(f"ada desktop: starting Vite on {front} (first start optimizes dependencies; can take a minute)")
+            vite = subprocess.Popen(cmd, cwd=frontend, env={**os.environ, ENV_DEV_BACKEND: base})
+            procs.append(vite)
+            job.assign(vite)
+            wait_http(front, vite, "Vite", VITE_TIMEOUT_S)
+        url = viewer_url(front, _key_or_warn(base, file_path))
+        _print(f"viewer (dev): {url}  backend: {base}  (Python edits reload the viewer; frontend edits hot-reload)")
+        if binary is None:
+            _print("ada desktop: --no-window: press Ctrl+C to stop")
+            procs[-1].wait()
+        else:
+            rc = _run_shell(binary, url, args, job)
+    except KeyboardInterrupt:
+        rc = 130
+    finally:
+        for p in reversed(procs):
+            kill_tree(p)
+    return rc
+
+
+# ── remote mode: a hosted deployment ───────────────────────────────────────
+
+
+@dataclasses.dataclass(frozen=True)
+class Server:
+    """A hosted deployment to open: its origin, whether plain http was explicitly allowed, and extra
+    identity-provider origins (beyond what the server advertises)."""
+
+    url: str
+    insecure: bool = False
+    auth_origins: tuple[str, ...] = ()
+    name: str | None = None
+
+
+_PROFILE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+
+
+def _is_loopback_host(host: str | None) -> bool:
+    return host in ("127.0.0.1", "localhost", "::1")
+
+
+def normalize_origin(url: str, insecure: bool = False, what: str = "server URL") -> str:
+    """``scheme://host[:port]/`` of ``url``. https is required, except for loopback hosts and when
+    ``insecure`` says plain http is meant (a lab setup)."""
+    from ada_cli import CliUsageError
+
+    u = urllib.parse.urlsplit(url.strip())
+    try:
+        port = u.port
+    except ValueError:
+        raise CliUsageError(f"{what} {url!r}: bad port") from None
+    if u.scheme not in ("http", "https") or not u.hostname:
+        raise CliUsageError(f"{what} {url!r}: must be an http(s) URL with a host, e.g. https://studio.example.com")
+    if u.username or u.password:
+        raise CliUsageError(f"{what} {url!r}: must not contain credentials")
+    if u.scheme == "http" and not insecure and not _is_loopback_host(u.hostname):
+        raise CliUsageError(
+            f"{what} {url!r}: plain http is only accepted for loopback hosts. Use https, or pass --insecure "
+            "if this really is an http-only lab server (sign-in tokens then cross the network unencrypted)."
+        )
+    host = f"[{u.hostname}]" if ":" in u.hostname else u.hostname
+    return f"{u.scheme}://{host}{':' + str(port) if port else ''}/"
+
+
+def servers_path(environ: Mapping[str, str] | None = None, platform: str | None = None) -> pathlib.Path:
+    return config_root(environ, platform) / SERVERS_FILE
+
+
+def load_servers(path: pathlib.Path | None = None) -> dict[str, Server]:
+    """The saved profiles (``{"servers": {NAME: {"url", "insecure"?, "auth_origins"?}}}``); none if the
+    file is missing. A damaged file is an error rather than silently ignored: ``add`` would overwrite it."""
+    path = servers_path() if path is None else path
+    if not path.is_file():
+        return {}
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8-sig"))
+        entries = raw["servers"]
+        out = {}
+        for name, e in entries.items():
+            out[name] = Server(
+                url=str(e["url"]),
+                insecure=bool(e.get("insecure", False)),
+                auth_origins=tuple(str(a) for a in e.get("auth_origins", ())),
+                name=name,
+            )
+        return out
+    except (OSError, ValueError, KeyError, TypeError, AttributeError) as e:
+        raise DesktopError(f"{path}: not a valid server profile file ({e}); fix or delete it") from None
+
+
+def save_servers(servers: Mapping[str, Server], path: pathlib.Path | None = None) -> pathlib.Path:
+    path = servers_path() if path is None else path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    body = {}
+    for name in sorted(servers):
+        s = servers[name]
+        entry: dict = {"url": s.url}
+        if s.insecure:
+            entry["insecure"] = True
+        if s.auth_origins:
+            entry["auth_origins"] = list(s.auth_origins)
+        body[name] = entry
+    tmp = path.with_name(path.name + f".tmp-{os.getpid()}")
+    tmp.write_text(json.dumps({"servers": body}, indent=2) + "\n", encoding="utf-8")
+    os.replace(tmp, path)
+    return path
+
+
+def make_profile(name: str, url: str, insecure: bool = False, auth_origins: list[str] | tuple[str, ...] = ()) -> Server:
+    from ada_cli import CliUsageError
+
+    if not _PROFILE_NAME.match(name):
+        raise CliUsageError(f"server name {name!r}: use letters, digits, '.', '_' or '-' (no URL here)")
+    return Server(
+        url=normalize_origin(url, insecure),
+        insecure=insecure,
+        auth_origins=tuple(normalize_origin(a, insecure, "--auth-origin") for a in auth_origins),
+        name=name,
+    )
+
+
+def resolve_server(
+    args: argparse.Namespace,
+    environ: Mapping[str, str] | None = None,
+    profiles: Mapping[str, Server] | None = None,
+    option: str = "server",
+) -> Server | None:
+    """The deployment to open, or ``None`` for the local viewer: ``--local`` wins, then ``--server``, then
+    ``$ADA_DESKTOP_SERVER``. The value is a URL (anything with ``://``) or the name of a saved profile."""
+    from ada_cli import CliUsageError
+
+    environ = os.environ if environ is None else environ
+    if getattr(args, "local", False):
+        if getattr(args, option, None):
+            raise CliUsageError(f"--local and --{option} exclude each other")
+        return None
+    value, source = getattr(args, option, None), f"--{option}"
+    if not value and option == "server" and environ.get(ENV_SERVER, "").strip():
+        value, source = environ[ENV_SERVER].strip(), f"${ENV_SERVER}"
+    if not value:
+        return None
+    insecure = bool(getattr(args, "insecure", False))
+    extra = tuple(normalize_origin(a, insecure, "--auth-origin") for a in getattr(args, "auth_origin", None) or ())
+    if "://" in value:
+        return Server(url=normalize_origin(value, insecure, source), insecure=insecure, auth_origins=extra)
+    known = load_servers() if profiles is None else dict(profiles)
+    if value not in known:
+        have = ", ".join(sorted(known)) or "none saved"
+        raise CliUsageError(
+            f"{source} {value!r}: not a URL and no saved server of that name ({have}). "
+            "Add one with `ada desktop servers add NAME URL`."
+        )
+    p = known[value]
+    return dataclasses.replace(
+        p,
+        insecure=p.insecure or insecure,
+        auth_origins=tuple(dict.fromkeys(p.auth_origins + extra)),
+    )
+
+
+def _get_json(url: str, timeout: float = 6.0) -> object:
+    with urllib.request.urlopen(url, timeout=timeout) as r:
+        return json.loads(r.read().decode("utf-8"))
+
+
+def _origin_of(url: str) -> str | None:
+    u = urllib.parse.urlsplit(url)
+    if u.scheme not in ("http", "https") or not u.netloc:
+        return None
+    return f"{u.scheme}://{u.netloc}/"
+
+
+def auth_origins_from(config: object, discovery: object = None) -> list[str]:
+    """The identity provider's origins a sign-in redirect visits: the issuer from ``/api/config``
+    (``auth.issuer``, only when ``auth.enabled``) and the hosts of the endpoints its discovery document
+    names (a provider may sign in on one host and issue tokens on another)."""
+    if not isinstance(config, dict):
+        return []
+    auth = config.get("auth")
+    if not isinstance(auth, dict) or not auth.get("enabled") or not isinstance(auth.get("issuer"), str):
+        return []
+    found: list[str] = []
+    candidates = [auth["issuer"]]
+    if isinstance(discovery, dict):
+        candidates += [discovery.get(k) for k in ("authorization_endpoint", "end_session_endpoint")]
+    for c in candidates:
+        o = _origin_of(c) if isinstance(c, str) else None
+        if o and o not in found:
+            found.append(o)
+    return found
+
+
+def discover_auth_origins(
+    origin: str, get: Callable[[str], object] = _get_json, warn: Callable[[str], None] | None = None
+) -> list[str]:
+    """Ask the server who signs its users in (``GET /api/config``, public by design). Best effort: a
+    server that cannot be asked yields nothing (``--auth-origin`` can name the provider by hand)."""
+    warn = warn or (lambda m: print(f"ada desktop: warning: {m}", file=sys.stderr, flush=True))
+    try:
+        config = get(origin + "api/config")
+    except (urllib.error.URLError, OSError, ValueError) as e:
+        warn(
+            f"could not read {origin}api/config ({e}); "
+            "if the server uses sign-in, pass the identity provider with --auth-origin"
+        )
+        return []
+    discovery = None
+    auth = config.get("auth") if isinstance(config, dict) else None
+    if isinstance(auth, dict) and auth.get("enabled") and isinstance(auth.get("issuer"), str) and auth["issuer"]:
+        try:
+            discovery = get(auth["issuer"].rstrip("/") + "/.well-known/openid-configuration")
+        except (urllib.error.URLError, OSError, ValueError):
+            discovery = None  # the issuer's own origin is still allowed
+    return auth_origins_from(config, discovery)
+
+
+def shell_command_remote(
+    binary: pathlib.Path, server: Server, auth_origins: list[str], title: str, shell_args: list[str]
+) -> list[str]:
+    cmd = [str(binary), "--url", server.url, "--trust-origin", server.url, "--title", title]
+    for a in auth_origins:
+        cmd += ["--auth-origin", a]
+    if server.insecure:
+        cmd.append("--insecure")
+    return cmd + list(shell_args)
+
+
+#: Flags that only mean something for the local viewer; with a remote server they would be ignored silently.
+LOCAL_ONLY_FLAGS = ("port", "data", "static", "zip", "viewer", "dev", "frontend_url", "dev_port")
+
+
+def refuse_local_only(args: argparse.Namespace, flags: tuple[str, ...]) -> None:
+    from ada_cli import CliUsageError
+
+    clash = [f"--{f.replace('_', '-')}" for f in flags if getattr(args, f, None)]
+    if clash:
+        verb = "applies" if len(clash) == 1 else "apply"
+        raise CliUsageError(f"{', '.join(clash)} only {verb} to the local viewer, not with a server (use --local)")
+
+
+#: Microsoft's login hosts (global and national clouds); the shell keeps the same list (origin.rs).
+ENTRA_LOGIN_HOSTS = frozenset(
+    {
+        "login.microsoftonline.com",
+        "login.microsoft.com",
+        "login.windows.net",
+        "sts.windows.net",
+        "login.microsoftonline.us",
+        "login.chinacloudapi.cn",
+        "login.partner.microsoftonline.cn",
+    }
+)
+
+
+def is_entra(auth_origins: list[str]) -> bool:
+    """Whether the identity provider is Microsoft Entra ID (the shell then adds its built-in sign-in hosts)."""
+    for o in auth_origins:
+        u = urllib.parse.urlsplit(o)
+        if u.scheme == "https" and u.hostname in ENTRA_LOGIN_HOSTS:
+            return True
+    return False
+
+
+def shell_args(args: argparse.Namespace) -> list[str]:
+    """What is passed through to the shell: ``--shell-arg``s, plus ``--no-sso``."""
+    extra = list(getattr(args, "shell_arg", None) or [])
+    if getattr(args, "no_sso", False) and "--no-sso" not in extra:
+        extra.append("--no-sso")
+    return extra
+
+
+def print_sign_in(auth: list[str], args: argparse.Namespace) -> None:
+    """Say which sign-in pages the window may show and whether Windows single sign-on is on."""
+    if not auth:
+        return
+    _print("ada desktop: sign-in pages allowed (navigation only): " + ", ".join(a[:-1] for a in auth))
+    if is_entra(auth):
+        sso = "off (--no-sso)" if getattr(args, "no_sso", False) else "on (--no-sso turns it off)"
+        _print(
+            "ada desktop: Microsoft Entra ID: its other sign-in hosts are allowed too, and any https page the "
+            f"sign-in passes through; single sign-on with the Windows account: {sso}"
+        )
+
+
+def collect_auth_origins(server: Server, discover: Callable[[str], list[str]] | None = None) -> list[str]:
+    """The identity-provider origins the window may navigate to: what the server advertises plus the
+    profile's own, minus plain-http ones unless the server is ``insecure`` (or the host is loopback)."""
+    found = (discover or discover_auth_origins)(server.url)
+    auth: list[str] = []
+    for o in [*found, *server.auth_origins]:
+        if o in auth or o == server.url:
+            continue
+        u = urllib.parse.urlsplit(o)
+        if u.scheme == "http" and not server.insecure and not _is_loopback_host(u.hostname):
+            print(f"ada desktop: warning: not allowing sign-in at {o} (plain http); pass --insecure", file=sys.stderr)
+            continue
+        auth.append(o)
+    return auth
+
+
+def dev_window_url(port: int) -> str:
+    """Where ``--dev --backend`` opens the window (and where the identity provider sends users back)."""
+    return f"http://{DEV_WINDOW_HOST}:{port}/"
+
+
+def redirect_uri_for(front: str) -> str:
+    """The SPA redirect URI the page will use on ``front`` (the page sends ``origin + /auth/callback``)."""
+    return front.rstrip("/") + "/auth/callback"
+
+
+def shell_command_dev_backend(
+    binary: pathlib.Path, front: str, server: Server, auth_origins: list[str], title: str, shell_args: list[str]
+) -> list[str]:
+    """The shell on the dev frontend: it trusts (and grants native events to) exactly that loopback origin;
+    the hosted server is only reached through the dev server's proxy, so it needs no trust of its own."""
+    cmd = [str(binary), "--url", front, "--trust-origin", front, "--title", title]
+    for a in auth_origins:
+        cmd += ["--auth-origin", a]
+    if server.insecure:
+        cmd.append("--insecure")
+    return cmd + list(shell_args)
+
+
+def run_dev_backend(args: argparse.Namespace, server: Server) -> int:
+    """``--dev --backend``: Vite (HMR) on localhost proxying to a hosted deployment; no local viewer."""
+    from ada_cli import CliUsageError
+
+    refuse_local_only(args, ("data", "static", "zip", "viewer"))
+    if _files(args):
+        raise CliUsageError("FILE is not uploaded to a server from the command line; open it in the app (File > Open)")
+    src = checkout_src()
+    frontend = src / "frontend"
+    if not (frontend / DEV_VITE_CONFIG).is_file():
+        raise DesktopError(f"--dev needs the source checkout: {frontend / DEV_VITE_CONFIG} not found")
+    binary = None if args.no_window else find_binary(args.binary or (str(dev_shell_binary(src) or "") or None))
+    external = frontend_url_or_error(args.frontend_url) if args.frontend_url else None
+    vport = 0
+    if external:
+        front = external
+    else:
+        vport = args.dev_port or dev_vite_port(requested_port(args.port)[0])
+        if probe_port(vport) != "free":
+            # Not a fallback port: the redirect URI registered at the identity provider names this one.
+            raise DesktopError(
+                f"port {vport} is in use (the dev port is fixed because the sign-in redirect URI names it); "
+                "close what uses it, or pass --dev-port N and register that redirect URI instead"
+            )
+        front = dev_window_url(vport)
+    label = f"{server.name} " if server.name else ""
+    _print(f"ada desktop: dev frontend against server {label}{server.url}")
+    _print(f"ada desktop: trusting only the origin {front[:-1]} (native events and the app itself)")
+    auth = collect_auth_origins(server)
+    print_sign_in(auth, args)
+    _print(
+        f"Register this redirect URI for the app's SPA platform: {redirect_uri_for(front)} "
+        "(until it is, Microsoft Entra ID answers AADSTS50011)"
+    )
+
+    job = _Job()
+    procs: list[subprocess.Popen] = []
+    rc = 0
+    try:
+        if not external:
+            cmd = vite_command(frontend, vport, shutil.which("node"), os.environ.get("PIXI_EXE"))
+            _print(f"ada desktop: starting Vite on {front} (first start optimizes dependencies; can take a minute)")
+            env = {**os.environ, ENV_DEV_BACKEND: server.url, ENV_DEV_REMOTE: "1", ENV_DEV_ORIGIN: front[:-1]}
+            vite = subprocess.Popen(cmd, cwd=frontend, env=env)
+            procs.append(vite)
+            job.assign(vite)
+            wait_http(front, vite, "Vite", VITE_TIMEOUT_S)
+        _print(f"viewer (dev): {front}  backend: {server.url}  (frontend edits hot-reload)")
+        if binary is None:
+            _print("ada desktop: --no-window: press Ctrl+C to stop")
+            while True:
+                if procs and procs[-1].poll() is not None:
+                    break
+                time.sleep(0.5)
+        else:
+            t0 = time.monotonic()
+            shell = subprocess.Popen(
+                shell_command_dev_backend(binary, front, server, auth, args.title, shell_args(args))
+            )
+            job.assign(shell)
+            rc = shell.wait()
+            if args.timing:
+                _print(f"[timing] window open {time.monotonic() - t0:.1f}s, shell exit {rc}")
+    except KeyboardInterrupt:
+        rc = 130
+    finally:
+        for p in reversed(procs):
+            kill_tree(p)
+    return rc
+
+
+def run_remote(args: argparse.Namespace, server: Server) -> int:
+    """Open the window on a hosted deployment. No viewer is started and nothing is uploaded: the page
+    runs on the server's own origin, so its sign-in redirect URI and API need no change."""
+    from ada_cli import CliUsageError
+
+    refuse_local_only(args, LOCAL_ONLY_FLAGS)
+    if _files(args):
+        raise CliUsageError("FILE is not uploaded to a server from the command line; open it in the app (File > Open)")
+    binary = None if args.no_window else find_binary(args.binary)
+    label = f"{server.name} " if server.name else ""
+    _print(f"ada desktop: server {label}{server.url}")
+    _print(f"ada desktop: trusting only the origin {server.url[:-1]} (native events and the app itself)")
+    auth = collect_auth_origins(server)
+    print_sign_in(auth, args)
+    if binary is None:
+        _print(f"viewer: {server.url}")
+        return 0
+    job = _Job()
+    t0 = time.monotonic()
+    shell = subprocess.Popen(shell_command_remote(binary, server, auth, args.title, shell_args(args)))
+    job.assign(shell)
+    rc = shell.wait()
+    if args.timing:
+        _print(f"[timing] window open {time.monotonic() - t0:.1f}s, shell exit {rc}")
+    return rc
+
+
+def run_servers(words: list[str], args: argparse.Namespace) -> int:
+    """``ada desktop servers list|add NAME URL|remove NAME``."""
+    from ada_cli import CliUsageError
+
+    action = words[0] if words else "list"
+    path = servers_path()
+    if action == "list" and len(words) <= 1:
+        servers = load_servers(path)
+        if not servers:
+            _print(f"no saved servers ({path}); add one with `ada desktop servers add NAME URL`")
+        for name, s in sorted(servers.items()):
+            extra = (" insecure" if s.insecure else "") + "".join(f" auth={a[:-1]}" for a in s.auth_origins)
+            _print(f"{name}\t{s.url}{extra}")
+        return 0
+    if action == "add" and len(words) == 3:
+        profile = make_profile(words[1], words[2], bool(args.insecure), args.auth_origin or ())
+        servers = load_servers(path)
+        replaced = words[1] in servers
+        servers[words[1]] = profile
+        save_servers(servers, path)
+        _print(f"{'updated' if replaced else 'added'} server {words[1]}: {profile.url} ({path})")
+        return 0
+    if action in ("remove", "rm") and len(words) == 2:
+        servers = load_servers(path)
+        if words[1] not in servers:
+            raise CliUsageError(f"no saved server {words[1]!r}")
+        del servers[words[1]]
+        save_servers(servers, path)
+        _print(f"removed server {words[1]}")
+        return 0
+    raise CliUsageError("usage: ada desktop servers list | add NAME URL [--insecure] [--auth-origin O] | remove NAME")
+
+
 # ── the command ───────────────────────────────────────────────────────────
 
 
 def add_arguments(p: argparse.ArgumentParser) -> None:
     p.add_argument(
-        "file",
-        nargs="?",
-        default=None,
+        "words",
+        nargs="*",
         metavar="FILE",
-        help="A model to open: uploaded into the local viewer's personal scope and loaded (?file=).",
+        help="A model to open: uploaded into the local viewer's personal scope and loaded (?file=). "
+        "Or `servers list|add NAME URL|remove NAME` to manage saved servers (see --server).",
     )
     p.add_argument(
         "--port",
@@ -563,21 +1190,83 @@ def add_arguments(p: argparse.ArgumentParser) -> None:
         metavar="ARG",
         help="Pass ARG to the shell, e.g. --shell-arg=--no-spacemouse; repeatable.",
     )
+    p.add_argument(
+        "--server",
+        default=None,
+        metavar="URL|NAME",
+        help=f"Open a hosted deployment instead of starting the local viewer: its https URL, or the name of a server "
+        f"saved with `servers add`. Default: ${ENV_SERVER}. Sign-in, storage and jobs are then the server's.",
+    )
+    p.add_argument("--local", action="store_true", help=f"Start the local viewer even if ${ENV_SERVER} is set.")
+    p.add_argument(
+        "--insecure",
+        action="store_true",
+        help="With --server: accept plain http for a non-loopback host (lab servers only; tokens are not encrypted).",
+    )
+    p.add_argument(
+        "--auth-origin",
+        action="append",
+        default=[],
+        metavar="ORIGIN",
+        help="With --server: an identity provider origin the window may sign in at, in addition to the one the "
+        "server advertises (/api/config). Repeatable.",
+    )
+    p.add_argument(
+        "--no-sso",
+        action="store_true",
+        help="Do not sign in with the Windows account (WebView2 single sign-on with the OS primary account, "
+        "on by default): the identity provider then asks for the account itself.",
+    )
+    p.add_argument(
+        "--backend",
+        default=None,
+        metavar="URL|NAME",
+        help="Implies --dev against a hosted deployment (its https URL or a saved server name): Vite serves the "
+        f"local frontend on http://{DEV_WINDOW_HOST}:PORT and proxies /api, /config.js and /healthz to it; "
+        "prints the redirect URI to register at its identity provider. --dev --server means the same.",
+    )
     p.add_argument("--timing", action="store_true", help="Print how long startup and shutdown took.")
+    p.add_argument(
+        "--dev",
+        action="store_true",
+        help="Development (source checkout, Windows): run the viewer under uvicorn --reload and the frontend "
+        "under Vite (hot reload), and open the window on Vite, which proxies to the viewer.",
+    )
+    p.add_argument(
+        "--frontend-url",
+        default=None,
+        metavar="URL",
+        help="Implies --dev, but open this already running Vite dev server instead of starting one "
+        f"(start it with ${ENV_DEV_BACKEND}=http://127.0.0.1:PORT/ and --config {DEV_VITE_CONFIG}).",
+    )
+    p.add_argument(
+        "--dev-port",
+        type=int,
+        default=None,
+        metavar="N",
+        help=f"With --dev: the Vite port (default: the viewer port + {DEV_VITE_PORT_OFFSET}).",
+    )
 
 
 def _print(msg: str) -> None:
     print(msg, flush=True)
 
 
+def _files(args: argparse.Namespace) -> list[str]:
+    return list(getattr(args, "words", None) or [])
+
+
 def _open_file_arg(args: argparse.Namespace) -> pathlib.Path | None:
     from ada_cli import CliUsageError
 
-    if not args.file:
+    words = _files(args)
+    if not words:
         return None
-    path = pathlib.Path(args.file)
+    if len(words) > 1:
+        raise CliUsageError(f"only one FILE can be opened, got {len(words)}")
+    path = pathlib.Path(words[0])
     if not path.is_file():
-        raise CliUsageError(f"{args.file}: no such file")
+        raise CliUsageError(f"{words[0]}: no such file")
     return path
 
 
@@ -593,7 +1282,7 @@ def _key_or_warn(base: str, path: pathlib.Path | None) -> str | None:
 
 def _run_shell(binary: pathlib.Path, url: str, args: argparse.Namespace, job: _Job) -> int:
     t0 = time.monotonic()
-    shell = subprocess.Popen([str(binary), "--url", url, "--title", args.title, *args.shell_arg])
+    shell = subprocess.Popen([str(binary), "--url", url, "--title", args.title, *shell_args(args)])
     job.assign(shell)
     rc = shell.wait()
     if args.timing:
@@ -629,6 +1318,25 @@ def _attach(choice: PortChoice, args: argparse.Namespace, binary: pathlib.Path |
 
 
 def run(args: argparse.Namespace) -> int:
+    words = _files(args)
+    if words[:1] == ["servers"] and not pathlib.Path("servers").exists():
+        return run_servers(words[1:], args)
+    dev = bool(args.dev or args.frontend_url)
+    backend = getattr(args, "backend", None)
+    if backend and args.server:
+        from ada_cli import CliUsageError
+
+        raise CliUsageError("--backend and --server exclude each other (with --dev they mean the same)")
+    if dev and not (backend or args.server) and not args.local:
+        return run_dev(args)  # the local viewer: $ADA_DESKTOP_SERVER does not turn a plain --dev remote
+    server = resolve_server(args, option="backend" if backend else "server")
+    if server is not None:
+        # `--dev --server X` is `--dev --backend X`: dev frontend, hosted backend.
+        if dev or backend:
+            return run_dev_backend(args, server)
+        return run_remote(args, server)
+    if dev:
+        return run_dev(args)
     t_start = time.monotonic()
     file_path = _open_file_arg(args)
     binary = None if args.no_window else find_binary(args.binary)

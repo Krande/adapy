@@ -135,6 +135,8 @@ test("the root entry point re-exports only the dependency-free leaves", () => {
     "@/layout/coreCommandIds",
     "@/layout/desktop/desktopShell",
     "@/layout/viewportOverlays",
+    "@/layout/markingMenuModel",
+    "@/layout/toolRailModel",
   ];
   const specs = importSpecifiers(readFileSync(join(facadeDir, "index.ts"), "utf8"));
   const offenders = specs.filter((s) => !DEP_FREE_LEAVES.includes(s));

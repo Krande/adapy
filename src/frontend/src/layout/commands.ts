@@ -10,6 +10,7 @@ import type React from "react";
 import type { PanelId } from "./panel";
 import { listPanels } from "./registry";
 import { activeShellMode, listShellModes, setShellMode } from "./shellModes";
+import { modeAvailable } from "./modeRequirements";
 import { coreShortcutKeys, registerShortcut, unregisterShortcut, type ShortcutKeys } from "./shortcuts";
 
 export interface CommandSpec {
@@ -96,7 +97,7 @@ function coreCommands(toggle?: (id: PanelId) => void, isOpen?: (id: PanelId) => 
       run: () => toggle?.(p.id),
       checked: isOpen ? () => isOpen(p.id) : undefined,
     }));
-  const modes: RegisteredCommand[] = listShellModes().map((m) => ({
+  const modes: RegisteredCommand[] = listShellModes().filter(modeAvailable).map((m) => ({
     id: `mode:${m.id}`,
     label: m.label,
     group: "Modes",
@@ -104,6 +105,7 @@ function coreCommands(toggle?: (id: PanelId) => void, isOpen?: (id: PanelId) => 
     owner: m.pluginId ?? "shell",
     run: () => void setShellMode(m.id),
     checked: () => activeShellMode() === m.id,
+    when: () => modeAvailable(m),
   }));
   return [...panels, ...modes];
 }
@@ -125,6 +127,11 @@ export function listCommands(opts: { toggle?: (id: PanelId) => void; isOpen?: (i
 
 export function getCommand(id: string): RegisteredCommand | undefined {
   return _commands.get(id);
+}
+
+/** The registered commands of `owner` (every one, offered now or not). */
+export function commandsOwnedBy(owner: string): RegisteredCommand[] {
+  return [..._commands.values()].filter((c) => c.owner === owner);
 }
 
 /** Run a registered command when it is offered and runnable. False otherwise (or when it threw). */

@@ -37,7 +37,7 @@ test("nothing is saved before hydrate; after it, every change is", async () => {
   await s.getState().hydrate(backend);
   assert.equal(s.getState().hydrated, true);
   // Nothing was saved: the in-memory prefs stand.
-  assert.equal(s.getState().prefs.customisablePanels, true);
+  assert.equal(s.getState().prefs.customisablePanelsByShell?.core, true);
   s.getState().setActivePreset("docked");
   assert.equal(saved()?.activePreset, "docked");
   s.getState().setActivePreset(undefined);
@@ -68,7 +68,7 @@ test("a backend that fails to load leaves the defaults and still saves later cha
   }
   assert.equal(s.getState().hydrated, true);
   s.getState().setCustomisablePanels(true);
-  assert.deepEqual(saved, { v: LAYOUT_PREFS_VERSION, docs: {}, customisablePanels: true });
+  assert.deepEqual(saved, { v: LAYOUT_PREFS_VERSION, docs: {}, customisablePanelsByShell: { core: true } });
 });
 
 test("prefs of another version, or not prefs at all, start over", () => {

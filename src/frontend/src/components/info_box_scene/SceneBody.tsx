@@ -24,6 +24,7 @@ import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {useStatsStore} from "@/state/statsStore";
 import {useClashCheckStore} from "@/state/clashCheckStore";
 import {useIsMobile} from "@/utils/useIsMobile";
+import {isMirroredWindow} from "@/layout/sceneActions";
 
 export type SceneArrangement = "tabs" | "stacked" | "auto";
 
@@ -82,7 +83,10 @@ const SceneBody: React.FC<SceneBodyProps> = ({tabs: tabIds, hiddenTabs, femTab =
     const isMobile = useIsMobile();
 
     const ctxAvailable: Partial<Record<SceneTab, boolean>> = {joints: hasJoints, fem: hasFemConcepts || feaSessionActive};
-    const tabs = sceneTabs({tabs: tabIds, hiddenTabs, femTab}, ctxAvailable);
+    // A pop-out window has the Model tab: the others (overlays, tools, clip, mesh, clashes, joints)
+    // read and change the scene itself, which only the main window has.
+    const mirrored = isMirroredWindow();
+    const tabs = sceneTabs({tabs: tabIds, hiddenTabs, femTab}, ctxAvailable).filter((t) => !mirrored || t.id === "model");
     // Derive the active tab from the store mode, falling back to Model if the
     // stored mode points at a tab that isn't currently available (e.g. Joints
     // after the model carrying them was unloaded).
@@ -174,8 +178,8 @@ const SceneBody: React.FC<SceneBodyProps> = ({tabs: tabIds, hiddenTabs, femTab =
 const TabContent: React.FC<{tab: SceneTab; isMobile: boolean}> = ({tab, isMobile}) =>
                 tab === "model" ? (
                     <>
-                        <FacePickingToggle />
-                        <FaceSearchSection />
+                        {!isMirroredWindow() && <FacePickingToggle />}
+                        {!isMirroredWindow() && <FaceSearchSection />}
                         {/* ONE section, not two. `Stats` and `Take-off` were answering the same
                             question from different places -- what a GLB carried baked in, and the
                             take-off the conversion wrote beside it -- and for an ordinary
@@ -193,16 +197,20 @@ const TabContent: React.FC<{tab: SceneTab; isMobile: boolean}> = ({tab, isMobile
                         {/* The viewer's OWN groups, named from a selection across models and
                             shared in the scope -- beside the groups a model carries, not mixed
                             into that list, which is read-only and per model. */}
-                        <CollapsibleSection title="Saved groups" defaultOpen={false}>
-                            <SavedGroupsSection />
-                        </CollapsibleSection>
+                        {!isMirroredWindow() && (
+                            <CollapsibleSection title="Saved groups" defaultOpen={false}>
+                                <SavedGroupsSection />
+                            </CollapsibleSection>
+                        )}
                         {/* Selection boxes beside the groups: both are ways of naming a selection. */}
                         <CollapsibleSection title="Selection boxes" defaultOpen={!isMobile}>
                             <BBoxSelectionSection />
                         </CollapsibleSection>
-                        <CollapsibleSection title="Source & re-convert" defaultOpen={false}>
-                            <SourceSection />
-                        </CollapsibleSection>
+                        {!isMirroredWindow() && (
+                            <CollapsibleSection title="Source & re-convert" defaultOpen={false}>
+                                <SourceSection />
+                            </CollapsibleSection>
+                        )}
                     </>
                 ) : tab === "overlays" ? (
                     <OverlaysPanel />

@@ -7,9 +7,13 @@ import {persist} from "zustand/middleware";
 // connection status does not (`partialize`), since it describes this page's
 // session with the device, not a preference.
 //
-// OFF BY DEFAULT. Off means no WebHID listener, no device open and nothing asked
-// of the browser, so a user without the device sees no change at all. The
-// adapter in utils/spacemouse/spaceMouseDevice follows `enabled`.
+// ON WHEN A DEVICE IS FOUND, until the user chooses. While `chosen` is false the
+// adapter (utils/spacemouse/spaceMouseDevice) looks, without asking anything of
+// the browser, for a device it may already use -- the desktop app's native
+// reader, or one this site was granted before -- and switches `enabled` on when
+// one is there or is plugged in later. A user without the device sees no change.
+// Turning the toggle on or off in Options is a choice (`chosen`), kept from then
+// on. The adapter follows `enabled`.
 
 export type SpaceMouseButtonAction = "none" | "fitAll" | "fitSelection";
 
@@ -23,6 +27,8 @@ export type SpaceMouseConnection =
 
 export interface SpaceMouseState {
     enabled: boolean;
+    /** The user set `enabled` in Options; until then a found device turns it on. */
+    chosen: boolean;
     /** Overall speed multiplier, 0.1..3. */
     sensitivity: number;
     /** Fraction of full deflection ignored around rest. */
@@ -42,7 +48,10 @@ export interface SpaceMouseState {
     deviceName: string | null;
     error: string | null;
 
+    /** The user's choice, from Options. */
     setEnabled: (v: boolean) => void;
+    /** Switched on because a device was found; not a user choice. */
+    autoEnable: () => void;
     setSensitivity: (v: number) => void;
     setDeadZone: (v: number) => void;
     setInvert: (axis: number, v: boolean) => void;
@@ -59,6 +68,7 @@ export const useSpaceMouseStore = create<SpaceMouseState>()(
     persist(
         (set) => ({
             enabled: false,
+            chosen: false,
             sensitivity: 1,
             deadZone: 0.08,
             invert: [false, false, false, false, false, false],
@@ -73,7 +83,8 @@ export const useSpaceMouseStore = create<SpaceMouseState>()(
             deviceName: null,
             error: null,
 
-            setEnabled: (v) => set({enabled: v}),
+            setEnabled: (v) => set({enabled: v, chosen: true}),
+            autoEnable: () => set((s) => (s.chosen || s.enabled ? s : {enabled: true})),
             setSensitivity: (v) => set({sensitivity: v}),
             setDeadZone: (v) => set({deadZone: v}),
             setInvert: (axis, v) =>
@@ -96,6 +107,10 @@ export const useSpaceMouseStore = create<SpaceMouseState>()(
             name: "ada-spacemouse",
             partialize: (s) => ({
                 enabled: s.enabled,
+                // Stored before `chosen` existed: absent, so false -- a stored `false`
+                // was the old default, not necessarily a choice, and a found device
+                // now turns it on. A stored `true` stays on either way.
+                chosen: s.chosen,
                 sensitivity: s.sensitivity,
                 deadZone: s.deadZone,
                 invert: s.invert,

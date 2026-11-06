@@ -7,7 +7,22 @@ import React, {useEffect, useMemo, useRef, useState, useSyncExternalStore} from 
 
 import {OverlayPortal} from "@/components/ui/OverlayPortal";
 
-import {commandChord, commandsVersion, getCommand, listCommands, matchCommand, runCommand, subscribeCommands, type RegisteredCommand} from "./commands";
+import {activeUiShellId, activeUiShellVersion, getUiShell, subscribeActiveUiShell, type UiShellSpec} from "@/plugins/uiShells";
+
+import {
+  commandChord,
+  commandsVersion,
+  getCommand,
+  listCommands,
+  matchCommand,
+  registerCommand,
+  runCommand,
+  subscribeCommands,
+  unregisterCommand,
+  type RegisteredCommand,
+} from "./commands";
+import {installShortcutDispatcher} from "./shortcutDispatch";
+import {bindCoreShortcuts, coreShortcutKeys} from "./shortcuts";
 import {isPanelOpen, toggle} from "./reveal";
 import {shellModesVersion, subscribeShellModes} from "./shellModes";
 
@@ -56,11 +71,60 @@ function run(c: RegisteredCommand): void {
   else c.run();
 }
 
-/** Mount once (the composed layout does); draws the palette while it is open. */
+/** Draws the palette while it is open. Core mounts one under its root (`CorePaletteHost`); a shell mounts none of its own. */
 export function CommandPaletteHost() {
   const open = usePaletteOpen();
   if (!open) return null;
   return <CommandPalette onClose={closeCommandPalette} />;
+}
+
+/** The palette's command (View → Command palette), registered by core while the palette is on. */
+export const COMMAND_PALETTE_COMMAND = "core:command-palette";
+/** Core's shortcut that opens it (Ctrl+K, `./coreShortcutTable`). */
+export const COMMAND_PALETTE_SHORTCUT = "core:command-palette";
+
+const normChord = (k: string) => k.replace(/\s+/g, "").toLowerCase();
+
+/**
+ * What shell `spec` asks of the palette: on unless `chrome.commandPalette` is
+ * `false`, and the extra chord its `keys` adds to core's Ctrl+K (none when they
+ * are Ctrl+K anyway).
+ */
+export function paletteConfig(spec: Pick<UiShellSpec, "chrome"> | undefined): {on: boolean; extraKeys?: string} {
+  const cfg = spec?.chrome?.commandPalette;
+  if (cfg === false) return {on: false};
+  const keys = cfg?.keys?.trim();
+  return keys && normChord(keys) !== normChord(coreShortcutKeys(COMMAND_PALETTE_SHORTCUT) ?? "") ? {on: true, extraKeys: keys} : {on: true};
+}
+
+/**
+ * The command palette as a core feature, in every UI: mounted once under core's
+ * root (so an in-place shell switch keeps it), it binds core's Ctrl+K, registers
+ * the palette's command and draws the palette. The active shell may add a chord
+ * (`chrome.commandPalette.keys`) or turn it off (`chrome.commandPalette: false`).
+ */
+export function CorePaletteHost() {
+  useSyncExternalStore(subscribeActiveUiShell, activeUiShellVersion, activeUiShellVersion);
+  const {on, extraKeys} = paletteConfig(getUiShell(activeUiShellId()));
+  useEffect(() => {
+    if (!on) return;
+    // Core's commands, in a UI that has not registered them (a shell with a root of its own).
+    void import("./coreCommands").then((m) => m.registerCoreCommands()).catch(() => {});
+    registerCommand(
+      {id: COMMAND_PALETTE_COMMAND, label: "Command palette", group: "View", shortcut: COMMAND_PALETTE_SHORTCUT, keys: extraKeys, run: openCommandPalette},
+      "core",
+    );
+    const unbind = bindCoreShortcuts({[COMMAND_PALETTE_SHORTCUT]: {run: () => void openCommandPalette()}});
+    // The listener, also where no layout or canvas installs it (a shell with a root of its own).
+    const release = installShortcutDispatcher();
+    return () => {
+      release();
+      unbind();
+      unregisterCommand(COMMAND_PALETTE_COMMAND);
+      closeCommandPalette();
+    };
+  }, [on, extraKeys]);
+  return on ? <CommandPaletteHost /> : null;
 }
 
 function CommandPalette({onClose}: {onClose(): void}) {

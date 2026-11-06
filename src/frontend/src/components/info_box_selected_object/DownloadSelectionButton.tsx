@@ -7,22 +7,19 @@ import {useAssetBrowserStore} from '@/state/assetBrowserStore';
 import {useProviderName} from '@/state/providerNamesStore';
 import {buildTreeIndices} from '@/utils/tree_view/treeGraph';
 import {captureSelection} from '@/utils/groups/groupScene';
-import {selectionExportApi} from '@/services/api/selectionExport';
 import {clashCheckApi, type WireGeometryProvider} from '@/services/api/clashCheck';
-import {conversionApi} from '@/services/api/conversion';
 import {filesApi} from '@/services/api/files';
 import {pluginsApi} from '@/services/api/plugins';
 import {assetProviderCollections} from '@/services/assetScopeCollections';
-import {trackJob} from '@/services/jobTracking';
 import {useConversionStore} from '@/state/conversionStore';
 import {useMeStore} from '@/state/meStore';
 import {
     IFC_SCHEMAS,
     STEP_SCHEMAS,
     exportOptionsChanged,
-    exportOptionsWire,
     useExportOptionsStore,
 } from '@/state/exportOptionsStore';
+import {selectionExportDeps} from '@/utils/export/selectionExportDeps';
 import {exportFileName, groupExportLabel} from '@/utils/exportFileName';
 import {
     SELECTION_EXPORT_FORMATS,
@@ -184,50 +181,9 @@ const DownloadSelectionButton: React.FC = () => {
     const projects = new Set(captured.members.flatMap((m) => (m.target.kind === 'node' ? [m.target.collection] : [])));
     const project = projects.size === 1 ? [...projects][0].toUpperCase() : null;
 
-    const deps: SelectionExportDeps = {
-        api: {
-            // Every export from here -- one selection, a group, the re-run after a request -- is
-            // written with the configuration panel's options as they are when it is sent.
-            exportSelection: (s, body) => {
-                const o = useExportOptionsStore.getState();
-                const labelled = body as {format?: string; element?: string | null; label?: string | null};
-                // The IFC header names the file as it will be saved, and the project it is from; the
-                // server adds the signed-in user as its author.
-                const fileName = exportFileName({
-                    serverName: `${labelled.element || labelled.label || 'selection'}.${labelled.format ?? 'ifc'}`,
-                    project: o.prefixProject ? project : null,
-                    customPrefix: o.customPrefix,
-                    includeName: o.includeName,
-                });
-                return selectionExportApi.exportSelection(s, {
-                    ...body,
-                    export_options: {
-                        ...exportOptionsWire(o),
-                        ifc_header: {file_name: fileName, ...(project ? {project} : {})},
-                    },
-                });
-            },
-            async jobStatus(jobId) {
-                const status = await conversionApi.convertStatus(jobId);
-                return {status: status.status, error: status.error};
-            },
-        },
-        // Saved under the configured prefixes, read when the file arrives.
-        download: (s, key, filename) => {
-            const o = useExportOptionsStore.getState();
-            return filesApi.downloadBlob(
-                s,
-                key,
-                exportFileName({
-                    serverName: filename,
-                    project: o.prefixProject ? project : null,
-                    customPrefix: o.customPrefix,
-                    includeName: o.includeName,
-                }),
-            );
-        },
-        trackJob: (opts) => void trackJob({...opts, scopeUrl: scope}),
-    };
+    // Every export from here -- one selection, a group, the re-run after a request -- is written
+    // with the configuration panel's options as they are when it is sent.
+    const deps: SelectionExportDeps = selectionExportDeps(scope, project);
 
     const runGroup = async (
         format: SelectionExportFormat,

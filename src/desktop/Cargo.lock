@@ -11,6 +11,8 @@ dependencies = [
  "tauri",
  "tauri-build",
  "tauri-plugin-window-state",
+ "webview2-com",
+ "windows-core",
 ]
 
 [[package]]

@@ -55,12 +55,11 @@ export const frameBox = (
     }
 };
 
-export const zoomToAll = (scene: THREE.Scene, camera: THREE.PerspectiveCamera, controls: OrbitControls | CameraControls) => {
-    // Compute bounding box only from imported/visible meshes, excluding helpers
-    // like GridHelper, the section caps/stencil and the transform gizmo.
+/** The world box of everything "fit all" frames: the imported, visible meshes, helpers (the grid,
+ *  the section caps, the transform gizmo) left out. Null when there is none. */
+export const sceneFitBox = (scene: THREE.Object3D): THREE.Box3 | null => {
     const overallBox = new THREE.Box3();
     let hasMesh = false;
-
     scene.traverse((obj) => {
         if (obj instanceof THREE.Mesh && !isExcludedFromFit(obj)) {
             const objBox = new THREE.Box3().setFromObject(obj);
@@ -70,8 +69,25 @@ export const zoomToAll = (scene: THREE.Scene, camera: THREE.PerspectiveCamera, c
             }
         }
     });
+    return hasMesh && !overallBox.isEmpty() ? overallBox : null;
+};
 
-    if (!hasMesh || overallBox.isEmpty()) return;
+/** How far from a sphere's centre the camera must stand for the WHOLE sphere to be in view, both
+ *  ways (its silhouette inside the narrower field of view). Farther than zoomToAll's fit, which
+ *  puts the sphere's outline at the centre's depth on the edge, so geometry nearer the camera
+ *  than the centre can fall outside. */
+export const fitDistance = (camera: THREE.PerspectiveCamera, radius: number): number => {
+    const vFov = THREE.MathUtils.degToRad(camera.fov);
+    const aspect = camera.aspect || 1;
+    const hFov = 2 * Math.atan(Math.tan(vFov / 2) * aspect);
+    return radius / Math.sin(Math.min(vFov, hFov) / 2);
+};
+
+export const zoomToAll = (scene: THREE.Scene, camera: THREE.PerspectiveCamera, controls: OrbitControls | CameraControls) => {
+    // Compute bounding box only from imported/visible meshes, excluding helpers
+    // like GridHelper, the section caps/stencil and the transform gizmo.
+    const overallBox = sceneFitBox(scene);
+    if (!overallBox) return;
 
     // Compute a bounding sphere from the overall box for robust FOV-based fitting
     const sphere = overallBox.getBoundingSphere(new THREE.Sphere());

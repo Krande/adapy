@@ -12,7 +12,9 @@
 // registration (and its tests) costs no scene or store code: the chrome loads
 // only when this shell is the active one.
 
+import { CORE_COMMAND_IDS, cameraViewCommandId } from "../coreCommandIds";
 import { CORE_PANEL_IDS } from "../corePanelIds";
+import { RAIL_SEPARATOR } from "../toolRailModel";
 import type { GridNode } from "../splitTree";
 import { getUiShell, registerUiShell, type UiShellSpec } from "@/plugins/uiShells";
 
@@ -41,7 +43,7 @@ export const DESKTOP_GROUPS = {
   bottom: "bottom",
 } as const;
 
-const { tree, storage, objectInfo, scene, simulation, feaTable } = CORE_PANEL_IDS;
+const { tree, storage, objectInfo, scene, simulation, feaTable, cellbuilder, equipmentAdmin, systemAdmin } = CORE_PANEL_IDS;
 
 /** The view and the results dock under it; collapsed to a strip of icons in the Model mode. */
 function centre(bottomCollapsed: boolean): GridNode {
@@ -89,10 +91,67 @@ function desktopGrid(bottomCollapsed: boolean): GridNode {
   };
 }
 
+/** The Build mode's dock on the left: the builder first, wider than the other modes' left dock. */
+const BUILD_LEFT = { px: 380, min: 280, max: 640 };
+
+/**
+ * The Build mode's grid: the builder (its tabs, cells and systems) on the left with the tree and
+ * storage behind it, the view in the middle, the selected cell or equipment above the scene and the
+ * equipment / system catalogs on the right. No results dock: the toolbar carries compile and commit.
+ */
+export const DESKTOP_BUILD_GRID: GridNode = {
+  kind: "split",
+  id: "s-main",
+  dir: "row",
+  sizes: [0.24, 0.5, 0.26],
+  children: [
+    { kind: "group", id: DESKTOP_GROUPS.left, panels: [cellbuilder, tree, storage], active: cellbuilder, fixed: BUILD_LEFT },
+    { kind: "viewport" },
+    {
+      kind: "split",
+      id: "s-right",
+      dir: "col",
+      sizes: [0.55, 0.45],
+      fixed: RIGHT,
+      children: [
+        { kind: "group", id: DESKTOP_GROUPS.rightTop, panels: [objectInfo], active: objectInfo },
+        { kind: "group", id: DESKTOP_GROUPS.rightBottom, panels: [scene, equipmentAdmin, systemAdmin], active: scene, arrangement: "auto" },
+      ],
+    },
+  ],
+};
+
 /** The Model mode's grid: results dock collapsed. */
 export const DESKTOP_GRID: GridNode = desktopGrid(true);
 /** The Results mode's grid: results dock open. */
 export const DESKTOP_RESULTS_GRID: GridNode = desktopGrid(false);
+
+/**
+ * The tool rail down the left edge, outside the docks: opening files, the
+ * camera, visibility, selection, display, history. Users add, remove and
+ * reorder tools; theirs is kept per shell (`LayoutPrefs.rail`).
+ */
+export const DESKTOP_RAIL_TOOLS: readonly string[] = [
+  CORE_COMMAND_IDS.openFile,
+  RAIL_SEPARATOR,
+  CORE_COMMAND_IDS.fitAll,
+  CORE_COMMAND_IDS.fitSelection,
+  CORE_COMMAND_IDS.resetCamera,
+  cameraViewCommandId("isometric"),
+  RAIL_SEPARATOR,
+  CORE_COMMAND_IDS.hideSelected,
+  CORE_COMMAND_IDS.hideOthers,
+  CORE_COMMAND_IDS.showAll,
+  RAIL_SEPARATOR,
+  CORE_COMMAND_IDS.selectAll,
+  CORE_COMMAND_IDS.clearSelection,
+  RAIL_SEPARATOR,
+  CORE_COMMAND_IDS.edges,
+  CORE_COMMAND_IDS.feaClearIsolation,
+  RAIL_SEPARATOR,
+  CORE_COMMAND_IDS.undo,
+  CORE_COMMAND_IDS.redo,
+];
 
 /** Where plugin panels that name a dock go, the first time they are seen. */
 const DOCKS = { left: DESKTOP_GROUPS.left, right: DESKTOP_GROUPS.rightBottom, bottom: DESKTOP_GROUPS.bottom };
@@ -102,34 +161,57 @@ export function desktopUiShellSpec(): UiShellSpec {
   return {
     id: DESKTOP_UI_SHELL_ID,
     label: "Desktop",
-    description: "A menu bar and docked panels around the 3D view, with a status bar.",
+    description: "A menu bar, a tool rail and docked panels around the 3D view, with a status bar.",
     order: 5,
     layout: {
       grid: DESKTOP_GRID,
       open: [tree, objectInfo, scene],
       docks: DOCKS,
       modes: [
-        { id: "model", label: "Model", hint: "The model, its tree and properties" },
+        {
+          id: "model",
+          label: "Model",
+          hint: "The model, its tree and properties",
+          toolbars: ["section", "representation", "colorBy"],
+        },
         {
           id: "results",
           label: "Results",
           hint: "Simulation results under the view",
           grid: DESKTOP_RESULTS_GRID,
           open: [tree, objectInfo, simulation],
+          toolbars: ["playback", "representation", "colorBy"],
+        },
+        {
+          id: "build",
+          label: "Build",
+          hint: "Build a procedural model: cells, equipment and systems, compile and commit",
+          grid: DESKTOP_BUILD_GRID,
+          open: [cellbuilder, objectInfo, scene],
+          toolbars: ["build", "section"],
+          // Offered once a procedural model is open (from storage, or read off the loaded scene).
+          requires: "builder",
         },
       ],
       defaultMode: "model",
       // Raise when the arrangements above change, so saved ones start over.
-      version: 1,
+      version: 2,
+    },
+    panels: {
+      // In the Build mode the toolbar carries undo / redo, compile and commit, so the panel leaves out its footer and undo / redo.
+      [cellbuilder]: { options: (mode) => (mode === "build" ? { showFooter: false, showUndoRedo: false } : {}) },
     },
     chrome: {
       header: () => import("./DesktopHeader"),
       footer: () => import("./DesktopFooter"),
       pageHeader: () => import("./DesktopPageHeader"),
+      rail: { tools: DESKTOP_RAIL_TOOLS },
+      // Core's wheel (hold the right button over the view, or Shift+E); on unless the user turns it off.
+      markingMenu: {},
       toolbar: false,
       groups: { actions: ["add", "collapse", "pin"], tabIcons: true },
       commandPalette: { keys: "Ctrl+K" },
-      overlays: { legend: "right-center", pluginPanels: "top-left" },
+      overlays: { legend: "right-center", pluginPanels: "top-left", colorByLegend: "right-center", labels: true, builder: true },
       toastAnchor: "bottom-right",
     },
   };

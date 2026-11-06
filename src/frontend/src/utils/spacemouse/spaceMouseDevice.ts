@@ -54,6 +54,7 @@ import {
     resetAxes,
     takePressedButtons,
 } from "./hidReport";
+import {followAutoEnable} from "./autoEnable";
 import {applyObjectModeMotion, DEFAULT_RATES, rolledUp} from "./navigation";
 import {createOneEuro, resetOneEuro, stepOneEuro} from "./smoothing";
 import type {InputWindow} from "@/utils/scene/renderInputSummary";
@@ -526,6 +527,7 @@ export async function requestSpaceMouse(): Promise<void> {
 
 let bindCount = 0;
 let unsubscribe: (() => void) | null = null;
+let stopAuto: (() => void) | null = null;
 
 /**
  * Make the device follow the Options toggle for as long as a viewer canvas is
@@ -536,6 +538,8 @@ export function bindSpaceMouseToOptions(): () => void {
     if (bindCount++ === 0) {
         const sync = (on: boolean) => (on ? void enable() : disable());
         sync(useSpaceMouseStore.getState().enabled);
+        // Until the user chooses, a device that is there switches support on (./autoEnable).
+        stopAuto = followAutoEnable();
         unsubscribe = useSpaceMouseStore.subscribe((s, prev) => {
             if (s.enabled !== prev.enabled) sync(s.enabled);
             // Off levels the view: a camera left at an angle with nothing to undo it.
@@ -549,6 +553,8 @@ export function bindSpaceMouseToOptions(): () => void {
         if (--bindCount > 0) return;
         unsubscribe?.();
         unsubscribe = null;
+        stopAuto?.();
+        stopAuto = null;
         disable();
     };
 }

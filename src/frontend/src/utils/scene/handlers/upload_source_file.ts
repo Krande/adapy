@@ -5,6 +5,7 @@ import {capabilities} from "@/services/capabilities";
 import type {ScopeUrl} from "@/services/viewerApi";
 import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
 import {useOptionsStore} from "@/state/optionsStore";
+import {acceptedSourceExts, extOf} from "./sourceExts";
 
 // Mirror the server's _DIRECT_UPLOAD_THRESHOLD_BYTES. The server is
 // authoritative — it 413s above this — but knowing it client-side lets
@@ -82,37 +83,8 @@ async function putToPresignedUrl(
     });
 }
 
-// Built-in source extensions adapy itself handles (the base worker
-// image carries all the parsers). Capability workers can announce
-// additional extensions via their registry entry; runtime() pulls
-// them from /api/config and ``acceptedSourceExts`` below merges the
-// two lists for picker / drag-drop filtering.
-const SUPPORTED_EXTS = [
-    ".glb", ".gltf",
-    ".ifc", ".step", ".stp",
-    ".xml", ".gnx", ".inp", ".fem",
-    ".sat", ".acis",
-    ".obj", ".stl", ".ply", ".dae", ".off",
-    // Multi-file analysis bundles. Worker unpacks + validates the
-    // include chain at convert time; rejects mixed-format / ambiguous
-    // entry / missing includes with a clear error.
-    ".zip",
-    // FEA result formats consumed by the streaming-viewer bake:
-    //   .sif  Sesam result database (text-based, gzip-compressible).
-    //   .rmed Code_Aster / Salome result file (HDF5).
-    ".sif",
-    ".rmed",
-];
-
-function acceptedSourceExts(): readonly string[] {
-    const extra = runtime.extraSourceExts();
-    if (extra.length === 0) return SUPPORTED_EXTS;
-    const merged = new Set<string>(SUPPORTED_EXTS);
-    for (const e of extra) {
-        merged.add(e.startsWith(".") ? e.toLowerCase() : `.${e.toLowerCase()}`);
-    }
-    return Array.from(merged);
-}
+// The accepted extensions (built-in and worker-advertised) live in ./sourceExts, which the
+// File -> Open command reads without loading this module.
 
 // True for source extensions whose viewing path is the streaming FEA
 // bake (`/fea/manifest`), not the legacy single-GLB pipeline
@@ -149,11 +121,6 @@ export function triggerUploadPicker(): void {
 
 export function uploadAcceptAttr(): string {
     return acceptedSourceExts().join(",");
-}
-
-function extOf(name: string): string {
-    const i = name.lastIndexOf(".");
-    return i === -1 ? "" : name.slice(i).toLowerCase();
 }
 
 /**

@@ -56,6 +56,11 @@ export function unregisterViewportOverlay(id: string): void {
   if (_overlays.delete(id)) changed();
 }
 
+/** The registered HUDs of `owner`. */
+export function viewportOverlaysOwnedBy(owner: string): (ViewportOverlaySpec & { owner: string })[] {
+  return [..._overlays.values()].filter((o) => o.owner === owner);
+}
+
 /** The HUDs at `anchor`, in order. */
 export function overlaysAt(anchor: ViewportAnchor): (ViewportOverlaySpec & { owner: string })[] {
   return [..._overlays.values()]

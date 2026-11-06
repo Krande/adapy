@@ -16,17 +16,20 @@
 // row each kills frame budget. ``@tanstack/react-virtual`` windows the
 // scroll, keeping the header sticky and only mounting visible rows.
 
-import React, {useEffect, useMemo, useRef, useState} from "react";
+import React, {useEffect, useMemo, useRef, useState, useSyncExternalStore} from "react";
 import {useVirtualizer} from "@tanstack/react-virtual";
 
+import {isMirroredWindow} from "@/layout/sceneActions";
+import {useMainWindowLive, windowBus} from "@/layout/windows";
+import {sendMirrorCommand} from "@/layout/windowMirror";
+import {FEA_GOTO_NODE_COMMAND, FEA_TABLE_QUERY_COMMAND, FEA_TABLE_WATCH_COMMAND, receivedFeaTable, subscribeReceivedFeaTable} from "@/utils/scene/fea/feaTableMirror";
+import type {TableSort} from "@/utils/scene/fea/feaTableRows";
 import {useViewerRefs} from "@/state/AdaViewerContext";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {useScopeStore, scopeUrlPart} from "@/state/scopeStore";
 import {useTableNavStore} from "@/state/tableNavStore";
-import {fetchFieldStep} from "@/services/feaFieldBlob";
-import {capabilities} from "@/services/capabilities";
-import {fieldAtStep} from "@/services/fea/feaCaseResolver";
-import {mergeCaseSteps, slotRef} from "@/utils/scene/fea/caseSteps";
+import {mergeCaseSteps} from "@/utils/scene/fea/caseSteps";
+import {loadFeaStepValues, tableRowIndices} from "@/utils/scene/fea/feaTableRows";
 import {goToNode, clearGoToNode} from "@/utils/scene/fea/goToNode";
 import type {SimulationDataExtensionMetadata, FieldObject} from "@/extensions/design_and_analysis_extension";
 import type {
@@ -40,6 +43,8 @@ const ROW_HEIGHT_PX = 24;
 export default function SimulationDataInfoPanel() {
     const sessionActive = useFeaAnimationStore((s) => s.sessionActive);
     if (sessionActive) return <FeaNodalDataPanel/>;
+    // A pop-out has no glTF simulation data to read: only a streamed result is mirrored.
+    if (isMirroredWindow()) return <PanelShell><div className="text-xs italic text-gray-500">No result data is loaded.</div></PanelShell>;
     return <LegacyGltfSimDataPanel/>;
 }
 
@@ -116,13 +121,17 @@ const FeaNodalDataPanel: React.FC = () => {
                 stepIndex={stepIndex}
                 reduction={reduction}
             />
-            <FeaNodalTable
-                scopeUrl={scopeUrlPart(scope)}
-                sourceName={sourceName}
-                field={activeField}
-                stepIndex={stepIndex}
-                reduction={reduction}
-            />
+            {isMirroredWindow() ? (
+                <MirroredNodalTable field={activeField} sourceName={sourceName} stepIndex={stepIndex}/>
+            ) : (
+                <FeaNodalTable
+                    scopeUrl={scopeUrlPart(scope)}
+                    sourceName={sourceName}
+                    field={activeField}
+                    stepIndex={stepIndex}
+                    reduction={reduction}
+                />
+            )}
             {manifest.history && manifest.history.regions.length > 0 && (
                 <FeaHistorySection history={manifest.history}/>
             )}
@@ -202,20 +211,9 @@ const FeaNodalTable: React.FC<{
         let cancelled = false;
         setError(null);
         setLoading(true);
-        // The transport's fetchers for this source's bake: the whole-blob
-        // fetcher (fallback), the range fetcher, and a stable cache key.
-        const {fetcher, rangeFetcher, cacheKey} = capabilities.fea.fieldFetchers(scopeUrl, sourceName);
-        // A load-combination slot reads the materialised case (feaCaseResolver).
-        const manifest = useFeaAnimationStore.getState().manifest;
-        const ref = slotRef(manifest, field, stepIndex);
-        const read = manifest
-            ? fieldAtStep(manifest, field, ref, {scope: scopeUrl, sourceKey: sourceName})
-            : Promise.resolve({field, step: stepIndex});
-        read
-            .then((at) => {
-                if (!at) throw new Error("this load combination does not carry the field");
-                return fetchFieldStep(rangeFetcher, fetcher, at.field, at.step, cacheKey);
-            })
+        // A load-combination slot reads the materialised case (feaCaseResolver); the step
+        // is range-fetched and cached (`loadFeaStepValues`).
+        loadFeaStepValues(scopeUrl, sourceName, field, stepIndex)
             .then((sv) => {
                 if (cancelled) return;
                 setStepValues(sv);
@@ -264,62 +262,10 @@ const FeaNodalTable: React.FC<{
     // ``stepValues`` at that index. Memoised on the input arrays so
     // a step change (which swaps stepValues) re-sorts but a filter
     // keystroke doesn't re-fetch.
-    const visibleRowIndices = useMemo<Int32Array>(() => {
-        if (n_points === 0) return new Int32Array(0);
-        // Filter pass — substring match on the node id ("12" matches
-        // 12, 120, 1234, …). Empty filter keeps everything.
-        let indices: Int32Array;
-        const f = filter.trim();
-        if (!f) {
-            indices = new Int32Array(n_points);
-            for (let i = 0; i < n_points; i++) indices[i] = i;
-        } else {
-            const buf: number[] = [];
-            for (let i = 0; i < n_points; i++) {
-                if (String(i + 1).includes(f)) buf.push(i);
-            }
-            indices = Int32Array.from(buf);
-        }
-
-        if (!sort || !stepValues) return indices;
-
-        // Sort pass. Sort key per row:
-        //   * col 0 → node id (the index + 1).
-        //   * col 1..n_components → component value at that column.
-        //   * col n_components + 1 (only for vectors) → magnitude.
-        // Magnitude is recomputed inline rather than cached — the
-        // CPU cost of one sqrt per row is negligible next to the
-        // sort and saves us a per-step magnitude buffer.
-        const {col, dir} = sort;
-        const sign = dir === "asc" ? 1 : -1;
-        const isMagCol = isVector && col === n_components + 1;
-        const compIdx = col - 1; // -1 for node-id col, 0..n_components-1 for comp cols
-        // Materialise sort keys once, then sort an index Array — this
-        // avoids closure overhead inside Array.sort's comparator.
-        const keys = new Float64Array(indices.length);
-        for (let k = 0; k < indices.length; k++) {
-            const row = indices[k];
-            if (col === 0) {
-                keys[k] = row + 1;
-            } else if (isMagCol) {
-                const off = row * n_components;
-                let m = 0;
-                for (let c = 0; c < Math.min(n_components, 3); c++) {
-                    const v = stepValues[off + c] || 0;
-                    m += v * v;
-                }
-                keys[k] = Math.sqrt(m);
-            } else {
-                const v = stepValues[row * n_components + compIdx];
-                keys[k] = isFinite(v) ? v : 0;
-            }
-        }
-        const sortedOrder = Array.from(indices)
-            .map((row, k) => ({row, key: keys[k]}))
-            .sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0) * sign)
-            .map((x) => x.row);
-        return Int32Array.from(sortedOrder);
-    }, [n_points, filter, sort, stepValues, n_components, isVector]);
+    const visibleRowIndices = useMemo<Int32Array>(
+        () => tableRowIndices(n_points, filter, sort, stepValues, n_components, isVector),
+        [n_points, filter, sort, stepValues, n_components, isVector],
+    );
 
     const parentRef = useRef<HTMLDivElement | null>(null);
     const rowVirtualizer = useVirtualizer({
@@ -454,6 +400,86 @@ const FeaNodalTable: React.FC<{
     );
 };
 
+// ── A pop-out window's table: the main window's rows ─────────────────
+
+/** Rows per second of typing: the filter goes to the main window after this long without a key. */
+const QUERY_DEBOUNCE_MS = 250;
+
+/**
+ * The nodal table in a pop-out window, which has no scene and no step to read: the main
+ * window applies this table's filter and sort to the step and sends the first
+ * `FEA_TABLE_ROW_CAP` rows (`@/utils/scene/fea/feaTableMirror`), with how many matched.
+ */
+const MirroredNodalTable: React.FC<{field: FeaManifestField; sourceName: string; stepIndex: number}> = ({field, sourceName, stepIndex}) => {
+    const bus = windowBus();
+    const mainLive = useMainWindowLive();
+    const snap = useSyncExternalStore(subscribeReceivedFeaTable, receivedFeaTable, receivedFeaTable);
+    const activeNodeId = useTableNavStore((s) => s.activeNodeId);
+    const [filter, setFilter] = useState("");
+    const [sort, setSort] = useState<TableSort | null>(null);
+
+    // The main window reads the step only while a table watches.
+    useEffect(() => {
+        if (!mainLive) return;
+        sendMirrorCommand(bus, FEA_TABLE_WATCH_COMMAND, {on: true});
+        return () => sendMirrorCommand(bus, FEA_TABLE_WATCH_COMMAND, {on: false});
+    }, [bus, mainLive]);
+    useEffect(() => {
+        const t = setTimeout(() => sendMirrorCommand(bus, FEA_TABLE_QUERY_COMMAND, {filter, sort}), filter ? QUERY_DEBOUNCE_MS : 0);
+        return () => clearTimeout(t);
+    }, [bus, filter, sort, mainLive]);
+
+    const isVector = field.kind.startsWith("vector");
+    const nComponents = field.components.length;
+    const headerCols = useMemo(() => ["Node", ...field.components, ...(isVector ? ["|·|"] : []), ""], [field.components, isVector]);
+    const parentRef = useRef<HTMLDivElement | null>(null);
+    const rows = snap?.state === "ready" ? snap.ids.length : 0;
+    const virtualizer = useVirtualizer({count: rows, getScrollElement: () => parentRef.current, estimateSize: () => ROW_HEIGHT_PX, overscan: 16});
+
+    const key = `${sourceName}\u0000${field.name_canonical}\u0000${stepIndex}`;
+    if (snap?.state === "error" && snap.key === key) {
+        return <div className="text-xs text-red-600 font-mono whitespace-pre-wrap">Failed to load field data: {snap.error}</div>;
+    }
+    // A snapshot of another step is not this one's: wait for the main window's.
+    if (!snap || snap.state !== "ready" || snap.key !== key) {
+        return <div className="text-xs text-gray-500 italic">Loading nodal data…</div>;
+    }
+    const onHeaderClick = (col: number) =>
+        setSort((prev) => (!prev || prev.col !== col ? {col, dir: "asc"} : prev.dir === "asc" ? {col, dir: "desc"} : null));
+    const onGoTo = (nodeId: number) => sendMirrorCommand(bus, FEA_GOTO_NODE_COMMAND, {id: activeNodeId === nodeId ? null : nodeId});
+    const capped = snap.matched > snap.ids.length;
+    return (
+        <div className="flex flex-col flex-1 min-h-0" data-testid="fea-table-mirrored">
+            <TableToolbar filter={filter} onFilter={setFilter} idLabel="Node" resultCount={snap.matched} totalCount={snap.nPoints}/>
+            {capped && (
+                <div className="mb-1 text-xs text-amber-700" data-testid="fea-table-capped">
+                    Showing the first {snap.ids.length.toLocaleString()} of {snap.matched.toLocaleString()} rows. Filter or sort to reach the others.
+                </div>
+            )}
+            <div ref={parentRef} className="flex-1 overflow-auto border border-gray-200 rounded-sm bg-white" style={{maxHeight: 320}}>
+                <div style={{minWidth: gridMinWidth(headerCols.length), position: "relative"}}>
+                    <FeaTableHead headerCols={headerCols} sort={sort} onHeaderClick={onHeaderClick}/>
+                    <div style={{height: virtualizer.getTotalSize(), position: "relative"}}>
+                        {virtualizer.getVirtualItems().map((v) => (
+                            <FeaTableRow
+                                key={snap.ids[v.index]}
+                                top={v.start}
+                                height={v.size}
+                                nodeId={snap.ids[v.index]}
+                                values={snap.values}
+                                offset={v.index * nComponents}
+                                n_components={nComponents}
+                                isVector={isVector}
+                                active={activeNodeId === snap.ids[v.index]}
+                                onGoTo={onGoTo}
+                            />
+                        ))}
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
 const TableToolbar: React.FC<{
     filter: string;
     onFilter: (v: string) => void;

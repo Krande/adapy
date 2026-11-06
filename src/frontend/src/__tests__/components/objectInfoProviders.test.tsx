@@ -29,7 +29,7 @@ const none: Snapshot = { kind: "none", name: null, meshName: null, count: 0, has
 test("core's sections keep their order and rules", () => {
     assert.deepEqual(
         CORE_PROPERTY_PROVIDERS.map((p) => p.id),
-        ["selection-summary", "fem-concepts", "source-jump", "object-metadata", "indexed-attributes", "related", "tree-node", "cellbuilder-cell"],
+        ["selection-summary", "fem-concepts", "source-jump", "object-metadata", "fea-sets", "indexed-attributes", "related", "tree-node", "cellbuilder-cell"],
     );
     const ids = (sel: Snapshot) => providersFor(sel, CORE_PROPERTY_PROVIDERS, []).map((p) => p.id);
     assert.deepEqual(ids(none), ["fem-concepts", "source-jump", "indexed-attributes", "related", "tree-node", "cellbuilder-cell"]);

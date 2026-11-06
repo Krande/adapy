@@ -59,6 +59,31 @@ hundreds of steps opens as fast as one with a single step.
 
 ![Eigenmodes of a Code_Aster result](screenshots/ada-studio/fea-modes.png)
 
+### Sets and properties
+
+The result's named sets and model properties appear in the Scene tree after the loaded
+models, in every user interface. **Sets** lists the element sets and the node sets with their
+member counts. **Properties** lists each model property the bake carries, such as plate
+thickness, material and beam section, with every value and how many elements have it. Which
+element has which value is read from the result the first time the tree, or a picked
+element, needs it. Node sets are listed for information only, because nodes carry no faces
+to isolate.
+
+Select one or more element sets or property values to **isolate** them, together. The
+isolated elements keep their result colours and their deformation, the colour legend
+measures only what is drawn, and the rest of the model is hidden or shown as its element
+edges (**Show the rest as wireframe**). The rest cannot be shown that way when the result
+has no element edges. The row menu (right-click) adds rows to the isolation, removes them,
+clears it, toggles the wireframe, and hides or shows a set's elements without isolating it
+(beams drawn as lines are reached only by an isolation).
+Every change is one step in the undo history (Ctrl+Z).
+
+The **Selected Object** panel lists a picked element's property values and the sets it is
+in, each with an **Isolate** button. The same actions are commands in the palette (Ctrl+K),
+in the Desktop UI's **View → FEA sets** menu, and work from a panel opened in a window of its
+own: **Isolate FEA sets…** (by part of a set's name), **Isolate the picked element's FEA
+sets**, **Clear FEA isolation** and **Show the rest as wireframe**.
+
 ## Clash and joint check
 
 **Scene → Clashes → Run clash check** finds every place members meet: beam to beam, plate to
@@ -92,6 +117,26 @@ any axis, keep only the strongest axis, lock rotation or panning, and remap the 
 
 On Windows, the vendor's 3DxWare driver may hold the device. If the status reads **Could not
 connect**, quit the driver (the 3DxService process) and connect again.
+
+## Marking menu and tool rail
+
+The **marking menu** is a wheel of commands at the pointer. Hold the right mouse button still
+over the 3D view for a moment and it opens: move towards a command and let go to run it. Fit
+all is up, hiding is to the left with Show all above it, selection is to the right, and the
+camera views are below, in a second wheel that opens as you move past **Views**. A list under
+the wheel holds Undo and Redo, and, while an FE result is loaded, the set isolation. Let go
+without moving and the menu stays open, so you can click a command, or choose one with the
+arrow keys and Enter. **Shift+E** opens it from the keyboard, and Escape closes it. A command
+that cannot run now stays in its place, greyed, and its tooltip says why. A quick right-click
+still opens the object's menu, and a right-drag still pans. The menu is on in the Desktop UI.
+In the classic UI, turn it on in **Options → Theme → Marking menu**. Either UI can turn it off
+there or in the Desktop UI's **View → Display** menu.
+
+The Desktop UI also has a **tool rail** down its left edge: one button per command, with its
+shortcut in the tooltip. A toggle, such as Geometry edges, shows as pressed while it is on.
+Right-click a tool to remove it. The button at the foot of the rail (also **Window → Customise
+tool rail…**) adds any command, reorders the tools, adds separators and resets the rail to
+the default. Your rail is saved with your layout.
 
 ## What else is in it
 

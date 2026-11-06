@@ -1,9 +1,11 @@
 // Core's own commands, registered for every composed shell (`./ComposedLayout`)
 // so its menu bar and command palette can name them (`CORE_COMMAND_IDS`). Each
 // wraps an action core already has -- the viewer's keys (Shift+H, Shift+A,
-// Ctrl+Z, ...), the Options panel's toggles, the layout's workspaces -- and adds
-// no behaviour of its own. Chords core already handles are shown with
-// `shortcut`, which names the registry entry (`./coreShortcutTable`) that binds the key, so the\n// chord shown is the real one.
+// Ctrl+Z, ...), the Options panel's toggles, the layout's workspaces -- or one
+// of the scene actions made for the menus (open a local file, select all /
+// invert, the named camera views, the export and About dialogs). Chords core
+// handles are shown with `shortcut`, which names the registry entry
+// (`./coreShortcutTable`) that binds the key, so the chord shown is the real one.
 //
 // The scene-side actions are imported when run, so registering the commands
 // costs no scene code.
@@ -14,8 +16,11 @@ import {useStore} from "zustand";
 import {runtime} from "@/runtime/config";
 import {listUiShells, activeUiShellId, setActiveUiShell} from "@/plugins/uiShells";
 import {promptDialog} from "@/plugins/dialogs";
+import {capabilities} from "@/services/capabilities";
 import {useCellBuilderStore} from "@/state/cellBuilderStore";
+import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {useGalleryStore} from "@/state/galleryStore";
+import {useSectionStore, type SectionPlane} from "@/state/sectionStore";
 import {useObjectInfoStore} from "@/state/objectInfoStore";
 import {useOptionsStore} from "@/state/optionsStore";
 import {requestRender} from "@/state/perfStore";
@@ -23,16 +28,77 @@ import {THEME_PRESETS, useThemeStore, type ThemePresetId} from "@/state/themeSto
 import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
 import {useViewerHistoryStore} from "@/state/viewerHistoryStore";
 import {getViewerRuntime} from "@/state/viewerRuntime";
+import {loadedSourceGroups, useModelState} from "@/state/modelState";
+import {useColorByStore} from "@/state/colorByStore";
+import {useLabelsStore} from "@/state/labelsStore";
+import {anyShownRange} from "@/utils/mesh_select/selectionSets";
+import {playbackAvailable} from "@/utils/scene/fea/playbackActions";
+import {openLocalFilePicker} from "@/utils/scene/handlers/localOpenPlan";
+import {feaContextReason, feaIsolationNow, feaIsolationReason, feaTreeView} from "@/utils/scene/fea/feaTree";
 
-import {CORE_COMMAND_IDS as ID, themeCommandId, uiShellCommandId, workspaceCommandId} from "./coreCommandIds";
+import {
+  CAMERA_VIEWS,
+  CORE_COMMAND_IDS as ID,
+  cameraViewCommandId,
+  themeCommandId,
+  uiShellCommandId,
+  workspaceCommandId,
+  type CameraView,
+} from "./coreCommandIds";
+import {openCoreDialog} from "./coreDialogs";
 import {registerCommand, unregisterCommand, type CommandSpec} from "./commands";
 import {layoutStore} from "./layoutStore";
+import {listShellModes} from "./shellModes";
+import {builderLoaded} from "./modeRequirements";
 import {deleteWorkspace, listWorkspaces, loadWorkspace, resetArrangement, saveWorkspace} from "./presets/classicPlace";
 import {openNewWindow, thisWindowId, windowBus} from "./windows";
 import {MAIN_WINDOW_ID} from "./windowBus";
+import {sceneActions} from "./sceneActions";
+import {CORE_COMMAND_ICONS} from "./commandIcons";
+import {markingMenuMounted, openMarkingMenu, servedMarkingMenu, setMarkingMenuOn} from "./markingMenuState";
+import {activeRail, openRailCustomise} from "./toolRailState";
+import {FEA_ELEMENT_SETS_ID, FEA_SETS_ROOT_ID, elementSetFromRowId} from "@/utils/scene/fea/feaTreeRows";
+
+/** Element sets the FEA rows list (here, or the main window's in a pop-out). */
+function feaSetCount(): number {
+  const sets = feaTreeView().roots.find((r) => r.id === FEA_SETS_ROOT_ID);
+  if (!sets) return 0;
+  const branch = sets.children.find((c) => c.id === FEA_ELEMENT_SETS_ID);
+  return (branch ?? sets).children.filter((c) => elementSetFromRowId(c.id) !== null).length;
+}
 
 const OWNER = "core";
 
+const noResults = () => (playbackAvailable() ? null : "No result is loaded");
+
+/** The section plane the toolbar edits: the active one, else the last. */
+export function workingPlane(): SectionPlane | undefined {
+  const {planes, activeId} = useSectionStore.getState();
+  return planes.find((p) => p.id === activeId) ?? planes[planes.length - 1];
+}
+
+type FeaState = ReturnType<typeof useFeaAnimationStore.getState>;
+
+/** A switch of how a loaded FEA result is drawn: ticked while on, offered once a result is loaded. */
+function feaViewToggle(
+  id: string,
+  label: string,
+  read: (s: FeaState) => boolean,
+  setter: (s: FeaState) => (v: boolean) => void,
+): CommandSpec {
+  return {
+    id,
+    label,
+    group: "View",
+    checked: () => read(useFeaAnimationStore.getState()),
+    disabledReason: () => (useFeaAnimationStore.getState().sessionActive ? null : "No result is loaded"),
+    run: () => {
+      const s = useFeaAnimationStore.getState();
+      setter(s)(!read(s));
+      requestRender();
+    },
+  };
+}
 /** How many draw ranges are selected. */
 export function selectionCount(selected: ReadonlyMap<unknown, ReadonlySet<string>> = useSelectedObjectStore.getState().selectedObjects): number {
   let n = 0;
@@ -45,6 +111,24 @@ const nothingSelected = () => (selectionCount() === 0 ? "Nothing selected" : nul
 /** The procedural builder takes Ctrl+Z / Ctrl+Y for its own history while it is open. */
 const builderOwnsHistory = () => (useCellBuilderStore.getState().active !== null ? "The procedural builder has its own undo" : null);
 
+const noBuilderModel = () => (builderLoaded() ? null : "No procedural model is open");
+/** Editing, compiling and committing need a model opened from storage, on a connection that can edit it. */
+const builderReadOnly = () =>
+  noBuilderModel() ??
+  (useCellBuilderStore.getState().active
+    ? capabilities.procedural.canEdit
+      ? null
+      : "This connection cannot edit procedural models"
+    : "This model was read off the scene, not opened from storage");
+const builderCompileBusy = () => {
+  const job = useCellBuilderStore.getState().compileJob;
+  return job && (job.status === "queued" || job.status === "running") ? "A compile is running" : null;
+};
+const builderServerCompile = () =>
+  builderReadOnly() ??
+  builderCompileBusy() ??
+  (capabilities.procedural.supports("previewModel") ? null : "Server-side compile is not available over this connection");
+
 /** The scene's handles, when a canvas is mounted. */
 function sceneHandles() {
   const {scene, camera, controls} = getViewerRuntime();
@@ -53,6 +137,23 @@ function sceneHandles() {
 
 const noScene = () => (sceneHandles() ? null : "No 3D view");
 
+/** Select all / invert take the shown elements: none, and there is nothing to do. */
+const nothingToSelect = () => noScene() ?? (anyShownRange(getViewerRuntime().scene.current) ? null : "Nothing to select");
+
+/** The exports are written by the server from the model's source. */
+const notServer = () => (runtime.isRestMode() ? null : "Exports are written by a server, and this viewer is not connected to one");
+
+/** The named views as the menus word them. */
+export const CAMERA_VIEW_LABELS: Readonly<Record<CameraView, string>> = {
+  top: "Top",
+  bottom: "Bottom",
+  front: "Front",
+  back: "Back",
+  left: "Left",
+  right: "Right",
+  isometric: "Isometric",
+};
+
 const fullscreenAvailable = () => typeof document !== "undefined" && !!document.documentElement?.requestFullscreen;
 const isFullscreen = () => typeof document !== "undefined" && !!document.fullscreenElement;
 
@@ -60,6 +161,9 @@ const isFullscreen = () => typeof document !== "undefined" && !!document.fullscr
 export function coreCommandSpecs(): CommandSpec[] {
   const camera = () => import("@/components/viewer/sceneHelpers/setupCameraControlsHandlers");
   const visibility = () => import("@/utils/scene/visibility");
+  const selection = () => import("@/utils/scene/selectionCommands");
+  const playback = () => import("@/utils/scene/fea/playbackActions");
+  const colorBy = () => import("@/utils/scene/colorBy");
   const specs: CommandSpec[] = [
     // File
     {
@@ -68,6 +172,29 @@ export function coreCommandSpecs(): CommandSpec[] {
       group: "File",
       when: () => runtime.isRestMode(),
       run: () => void import("@/utils/scene/handlers/upload_source_file").then((m) => m.triggerUploadPicker()),
+    },
+    {
+      id: ID.openFile,
+      label: "Open…",
+      group: "File",
+      shortcut: "core:open-file",
+      disabledReason: noScene,
+      // The picker opens synchronously, inside the click: a browser shows one only from a gesture.
+      run: () => openLocalFilePicker(),
+    },
+    {
+      id: ID.exportSelection,
+      label: "Export selection…",
+      group: "File",
+      disabledReason: () => notServer() ?? nothingSelected(),
+      run: () => openCoreDialog({kind: "export", scope: "selection"}),
+    },
+    {
+      id: ID.exportModel,
+      label: "Export model…",
+      group: "File",
+      disabledReason: () => notServer() ?? (useModelState.getState().loadedSourceNames.size ? null : "No model loaded"),
+      run: () => openCoreDialog({kind: "export", scope: "model"}),
     },
     // Edit
     {
@@ -85,6 +212,21 @@ export function coreCommandSpecs(): CommandSpec[] {
       shortcut: "core:redo",
       disabledReason: () => builderOwnsHistory() ?? (useViewerHistoryStore.getState().future.length ? null : "Nothing to redo"),
       run: () => void import("@/utils/scene/viewerHistory").then((m) => m.redoViewerAction()),
+    },
+    {
+      id: ID.selectAll,
+      label: "Select all",
+      group: "Edit",
+      shortcut: "core:select-all",
+      disabledReason: nothingToSelect,
+      run: () => void selection().then((m) => m.selectAllRanges()),
+    },
+    {
+      id: ID.invertSelection,
+      label: "Invert selection",
+      group: "Edit",
+      disabledReason: nothingToSelect,
+      run: () => void selection().then((m) => m.invertSelection()),
     },
     {
       id: ID.clearSelection,
@@ -178,6 +320,20 @@ export function coreCommandSpecs(): CommandSpec[] {
           if (h) m.resetCameraHome(h.camera, h.controls);
         }),
     },
+    ...CAMERA_VIEWS.map(
+      (view): CommandSpec => ({
+        id: cameraViewCommandId(view),
+        label: `${CAMERA_VIEW_LABELS[view]} view`,
+        group: "View",
+        disabledReason: noScene,
+        run: () =>
+          void import("@/components/viewer/sceneHelpers/namedViews").then((m) => {
+            const h = sceneHandles();
+            if (h) m.applyNamedView(view, h.scene, h.camera, h.controls, useModelState.getState().zIsUp);
+            requestRender();
+          }),
+      }),
+    ),
     {
       id: ID.edges,
       label: "Geometry edges",
@@ -219,6 +375,48 @@ export function coreCommandSpecs(): CommandSpec[] {
         else void document.documentElement.requestFullscreen?.();
       },
     },
+    // FEA: the loaded result's sets and properties (`@/utils/scene/fea/feaTree`), through the
+    // scene actions so a pop-out window's palette acts on the main window's scene.
+    {
+      id: ID.feaIsolateSets,
+      label: "Isolate FEA sets…",
+      group: "FEA",
+      disabledReason: () => feaIsolationReason() ?? (feaSetCount() ? null : "The loaded result carries no element sets"),
+      run: () =>
+        void promptDialog({
+          title: "Isolate FEA sets",
+          body: "Every element set whose name holds this text is isolated, together.",
+          label: "Set name",
+          confirmLabel: "Isolate",
+        }).then((text) => {
+          if (text?.trim()) sceneActions().feaIsolateMatching(text.trim());
+        }),
+    },
+    {
+      id: ID.feaIsolateSelectionSets,
+      label: "Isolate the picked element's FEA sets",
+      group: "FEA",
+      disabledReason: () => feaIsolationReason() ?? (feaTreeView().picked?.sets.length ? null : "Pick an element that belongs to a set"),
+      run: () => {
+        const rows = feaTreeView().picked?.sets.map((s) => s.rowId) ?? [];
+        if (rows.length) sceneActions().feaIsolate(rows, "replace");
+      },
+    },
+    {
+      id: ID.feaClearIsolation,
+      label: "Clear FEA isolation",
+      group: "FEA",
+      disabledReason: () => feaIsolationReason() ?? (feaIsolationNow().rows.length ? null : "Nothing is isolated"),
+      run: () => sceneActions().feaClearIsolation(),
+    },
+    {
+      id: ID.feaToggleContextWireframe,
+      label: "Show the rest as wireframe",
+      group: "FEA",
+      checked: () => feaIsolationNow().contextWireframe && feaContextReason() === null,
+      disabledReason: feaContextReason,
+      run: () => sceneActions().feaToggleContext(),
+    },
     // Window
     {
       id: ID.newWindow,
@@ -231,7 +429,14 @@ export function coreCommandSpecs(): CommandSpec[] {
       },
     },
     {id: ID.resetLayout, label: "Reset layout", group: "Window", run: () => resetArrangement()},
-    {id: ID.resetAllLayouts, label: "Reset every mode's layout", group: "Window", run: () => resetArrangement(true)},
+    {
+      id: ID.resetAllLayouts,
+      label: "Reset every mode's layout",
+      group: "Window",
+      // Core's own UI (and a shell without modes) has one layout: "Reset layout" is the one.
+      disabledReason: () => (listShellModes().length ? null : "This user interface has no modes"),
+      run: () => resetArrangement(true),
+    },
     {
       id: ID.saveWorkspace,
       label: "Save workspace…",
@@ -263,6 +468,204 @@ export function coreCommandSpecs(): CommandSpec[] {
       group: "Help",
       run: () => void import("@/components/options/ShortcutsModal").then((m) => m.openShortcutsDialog()),
     },
+    {id: ID.about, label: "About", group: "Help", run: () => openCoreDialog({kind: "about"})},
+    // The marking menu (`./MarkingMenu`) and the tool rail (`./ToolRail`).
+    {
+      id: ID.markingMenu,
+      label: "Marking menu",
+      group: "View",
+      shortcut: "core:marking-menu",
+      // Where the UI has it on, in the main window (its host is mounted there).
+      when: () => servedMarkingMenu().on && markingMenuMounted(),
+      disabledReason: noScene,
+      run: () => void openMarkingMenu(),
+    },
+    {
+      id: ID.toggleMarkingMenu,
+      label: "Marking menu on the right button",
+      group: "View",
+      when: () => servedMarkingMenu().available,
+      checked: () => servedMarkingMenu().on,
+      run: () => setMarkingMenuOn(!servedMarkingMenu().on),
+    },
+    {
+      id: ID.customiseRail,
+      label: "Customise tool rail…",
+      group: "Window",
+      when: () => activeRail()?.config.customisable === true,
+      run: () => openRailCustomise(),
+    },
+    // Results playback (the transport's actions, shared with the Simulation panel).
+    {
+      id: ID.playPause,
+      label: "Play / pause results",
+      group: "Results",
+      disabledReason: noResults,
+      checked: () => useFeaAnimationStore.getState().isPlaying,
+      run: () => void playback().then((m) => m.togglePlayResults()),
+    },
+    {
+      id: ID.stopResults,
+      label: "Stop results",
+      group: "Results",
+      disabledReason: noResults,
+      run: () => void playback().then((m) => m.stopResults()),
+    },
+    {
+      id: ID.stepBack,
+      label: "Previous result step",
+      group: "Results",
+      disabledReason: noResults,
+      run: () => void playback().then((m) => m.stepResults(-1)),
+    },
+    {
+      id: ID.stepForward,
+      label: "Next result step",
+      group: "Results",
+      disabledReason: noResults,
+      run: () => void playback().then((m) => m.stepResults(1)),
+    },
+    // Section planes
+    ...(["x", "y", "z"] as const).map(
+      (axis): CommandSpec => ({
+        id: ID[`section${axis.toUpperCase() as "X" | "Y" | "Z"}`],
+        label: `Section plane ${axis.toUpperCase()}`,
+        group: "Section",
+        run: () => useSectionStore.getState().addPlane(axis),
+      }),
+    ),
+    {
+      id: ID.sectionToggle,
+      label: "Section plane on / off",
+      group: "Section",
+      checked: () => workingPlane()?.enabled === true,
+      // With no plane yet, the first press cuts through the model on Z.
+      run: () => {
+        const s = useSectionStore.getState();
+        const p = workingPlane();
+        if (p) s.toggle(p.id);
+        else s.addPlane("z");
+      },
+    },
+    {
+      id: ID.sectionFlip,
+      label: "Flip section plane",
+      group: "Section",
+      disabledReason: () => (workingPlane() ? null : "No section plane"),
+      run: () => {
+        const p = workingPlane();
+        if (p) useSectionStore.getState().flip(p.id);
+      },
+    },
+    {
+      id: ID.sectionClear,
+      label: "Remove section planes",
+      group: "Section",
+      disabledReason: () => (useSectionStore.getState().planes.length ? null : "No section plane"),
+      run: () => useSectionStore.getState().clearAll(),
+    },
+    // Representation of a loaded FEA result
+    feaViewToggle(ID.feaToggleUndeformed, "Undeformed outline", (s) => s.showUndeformed, (s) => s.setShowUndeformed),
+    feaViewToggle(ID.feaToggleElementEdges, "Element edges", (s) => s.elementEdgesVisible, (s) => s.setElementEdgesVisible),
+    feaViewToggle(ID.feaToggleResultColors, "Result colours", (s) => s.resultColorsVisible, (s) => s.setResultColorsVisible),
+    // Number labels (node and element ids of a loaded FEA result)
+    {
+      id: ID.labelsNodes,
+      label: "Node numbers",
+      group: "View",
+      checked: () => useLabelsStore.getState().nodes,
+      disabledReason: () => (useFeaAnimationStore.getState().sessionActive ? null : "No result is loaded"),
+      run: () => useLabelsStore.getState().setNodes(!useLabelsStore.getState().nodes),
+    },
+    {
+      id: ID.labelsElements,
+      label: "Element numbers",
+      group: "View",
+      checked: () => useLabelsStore.getState().elements,
+      disabledReason: () => (useFeaAnimationStore.getState().sessionActive ? null : "No result is loaded"),
+      run: () => useLabelsStore.getState().setElements(!useLabelsStore.getState().elements),
+    },
+    // Colour by property
+    {
+      id: ID.colorByNext,
+      label: "Colour by next property",
+      group: "View",
+      checked: () => useColorByStore.getState().activeId !== null,
+      run: () =>
+        void colorBy().then(async (m) => {
+          const next = m.nextColorBySource();
+          if (next) await m.applyColorBy(next);
+        }),
+    },
+    {
+      id: ID.colorByModel,
+      label: "Colour by model",
+      group: "View",
+      checked: () => useColorByStore.getState().activeId === "model",
+      disabledReason: () => (loadedSourceGroups.size > 1 ? null : "Needs two or more loaded models"),
+      run: () =>
+        void colorBy().then((m) => (useColorByStore.getState().activeId === "model" ? m.resetColorBy() : m.applyColorBy("model"))),
+    },
+    {
+      id: ID.colorByReset,
+      label: "Reset colours",
+      group: "View",
+      disabledReason: () => (useColorByStore.getState().activeId ? null : "Nothing is coloured by property"),
+      run: () => void colorBy().then((m) => m.resetColorBy()),
+    },
+    // The procedural builder (the Build mode's toolbar)
+    {
+      id: ID.builderUndo,
+      label: "Undo build step",
+      group: "Build",
+      disabledReason: () => builderReadOnly() ?? (useCellBuilderStore.getState().past.length ? null : "Nothing to undo"),
+      run: () => useCellBuilderStore.getState().undo(),
+    },
+    {
+      id: ID.builderRedo,
+      label: "Redo build step",
+      group: "Build",
+      disabledReason: () => builderReadOnly() ?? (useCellBuilderStore.getState().future.length ? null : "Nothing to redo"),
+      run: () => useCellBuilderStore.getState().redo(),
+    },
+    {
+      id: ID.builderCompile,
+      label: "Compile preview",
+      group: "Build",
+      disabledReason: builderServerCompile,
+      run: () => void useCellBuilderStore.getState().compilePreviewSelected(),
+    },
+    {
+      id: ID.builderRecompile,
+      label: "Recompile preview (force)",
+      group: "Build",
+      disabledReason: builderServerCompile,
+      run: () => void useCellBuilderStore.getState().compilePreviewSelected(true),
+    },
+    {
+      id: ID.builderCompileBrowser,
+      label: "Compile in browser (WASM)",
+      group: "Build",
+      disabledReason: () => builderReadOnly() ?? builderCompileBusy(),
+      run: () => void useCellBuilderStore.getState().compileInBrowser(),
+    },
+    {
+      id: ID.builderCommit,
+      label: "Commit model",
+      group: "Build",
+      disabledReason: () => {
+        const s = useCellBuilderStore.getState();
+        return builderReadOnly() ?? (s.committing ? "A commit is running" : s.dirty ? null : "No unsaved changes");
+      },
+      run: () => void useCellBuilderStore.getState().commit(),
+    },
+    {
+      id: ID.builderClose,
+      label: "Close procedural model",
+      group: "Build",
+      disabledReason: () => (useCellBuilderStore.getState().active ? null : "No procedural model is open"),
+      run: () => useCellBuilderStore.getState().close(),
+    },
   ];
   for (const [id, preset] of Object.entries(THEME_PRESETS)) {
     specs.push({
@@ -282,12 +685,14 @@ export function coreCommandSpecs(): CommandSpec[] {
       label: shell.label,
       group: "User interface",
       checked: () => activeUiShellId() === shell.id,
-      // Persisted, then a reload: a shell owns the whole tree.
+      // Persisted, then in place (core's own UI, composed shells) or by a reload (`setActiveUiShell`).
       run: () => {
         if (activeUiShellId() !== shell.id) setActiveUiShell(shell.id);
       },
     });
   }
+  // Icons, for the tool rail and the marking menu.
+  for (const s of specs) s.icon ??= CORE_COMMAND_ICONS[s.id];
   return specs;
 }
 

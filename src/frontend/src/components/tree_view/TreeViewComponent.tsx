@@ -79,7 +79,8 @@ const TreeViewComponent: React.FC<SceneTreeProps> = ({rootFilter, rootFilterLabe
             sceneTreeRow((node: NodeApi<TreeNodeData>, x, y) =>
                 useSceneMenuStore.getState().open({
                     row: node.data,
-                    rows: (node.tree.selectedNodes.length ? node.tree.selectedNodes : [node]).map((n) => n.data),
+                    // An FEA row right-clicked outside the selection is not selected (`contextRow`): the menu is its own.
+                    rows: (node.tree.selectedNodes.length && (node.isSelected || !node.id.startsWith("fea:")) ? node.tree.selectedNodes : [node]).map((n) => n.data),
                     node,
                     x,
                     y,

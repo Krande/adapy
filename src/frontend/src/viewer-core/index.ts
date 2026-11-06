@@ -397,7 +397,172 @@
 //          The in-viewer admin / convert window, the attribute search's and the
 //          node editor's windows are `TransformedHost`s, so the fixed overlays
 //          inside them (`OverlayPortal`) open over the page.
-export const VIEWER_CORE_API_VERSION = "1.13.0";
+//   1.14.0 Core commands for what the Desktop UI's menus lacked, on the root's
+//          `CORE_COMMAND_IDS`: `openFile` (File -> Open…: GLB / glTF from disk
+//          straight into the scene, no upload, in any viewer; other formats are
+//          uploaded and converted on a converting REST server, and refused with
+//          the reason elsewhere; files dropped on the 3D view open the same way,
+//          added to the scene), `selectAll` / `invertSelection` (the shown
+//          elements, one undo entry each), the named camera views (`viewTop` ...
+//          `viewIsometric`; `CAMERA_VIEWS`, `cameraViewCommandId`, `CameraView`),
+//          `exportSelection` / `exportModel` (the server's STEP / IFC export in a
+//          dialog of scope and format; REST viewer) and `about`. Core shortcuts
+//          `core:select-all` (Ctrl+A) and `core:open-file` (Ctrl+O), so both are
+//          now in `RESERVED_SHORTCUTS`. On `@/viewer-core/layout`:
+//          `openCoreDialog` / `closeCoreDialog` (`CoreDialogRequest`,
+//          `ExportScope`), drawn by a composed layout. Additive, apart from the two
+//          reserved chords.
+//          UI-shell switches keep the scene. Between core's own UI and composed
+//          shells `setActiveUiShell` switches IN PLACE (no reload): the viewer,
+//          its canvas, the loaded models, the selection, the camera and every
+//          store stay, and the shell's layout, chrome, modes, panel overrides,
+//          theme tokens and body palette are swapped; the shell switched away
+//          from loses its palette command and, for a plugin's shell, what its
+//          plugin registered while it was up (commands, shortcuts, HUDs), given
+//          back when it returns. A shell with `load`, or one that sets the new
+//          `UiShellSpec.reloadOnSwitch`, is still switched by a reload, which
+//          carries a deep link (`carryOnShellSwitch`, `shellSwitchUrl`,
+//          `ShellSwitchCarry`) and restores the stored models, camera, hidden
+//          objects and selection through the scene restore, even with that
+//          setting off (`loadedByShellSwitch`). On the root: `switchesInPlace`,
+//          `canSwitchInPlace`, `subscribeActiveUiShell`, `activeUiShellVersion`,
+//          `bootUiShellId` (the shell the page booted in; a multi-window
+//          dashboard stays that shell's through an in-place switch, and a
+//          pop-out it opens boots into it). Behaviour change: a switch between
+//          core's UI and the Desktop UI no longer reloads the page.
+//          The command palette is core's, in every UI: core's root mounts it
+//          once (`CorePaletteHost` on `@/viewer-core/layout`), core's shortcut
+//          `core:command-palette` (Ctrl+K, now in `RESERVED_SHORTCUTS`) opens it,
+//          core registers its command, and core's own UI gets core's commands
+//          (no button: the shortcuts dialog lists Ctrl+K). `UiShellChrome.commandPalette` may be `false` (off
+//          while the shell is active); its `keys` add a chord beside Ctrl+K.
+//          Behaviour change: a composed shell no longer mounts a palette of its
+//          own, and the palette is on unless a shell turns it off. "Reset every
+//          mode's layout" is greyed, with the reason, in a UI without modes.
+//          "Customisable panels" is per UI shell (`LayoutPrefs.customisablePanelsByShell`;
+//          the one setting of before, `LayoutPrefs.customisablePanels`, is moved to
+//          core's own UI's on load) and REQUIRED by a composed shell
+//          (`UiShellLayout.customisablePanels`: "required", the default, or
+//          "optional"): always on there, the Options toggle disabled with the
+//          reason. Every reader asks one selector, on `@/viewer-core/layout`:
+//          `customisablePanels`, `customisablePanelsRequired`,
+//          `setCustomisablePanels`, `useCustomisablePanels`,
+//          `useCustomisablePanelsRequired`; `LayoutStoreState.setCustomisablePanels`
+//          takes the shell id. Behaviour change: turning the setting off in core's
+//          UI no longer breaks the Desktop UI's docked layout, and is kept
+//          for core's UI across a switch.
+//          FEA sets and properties in core, for every UI: while an FEA result is
+//          loaded the Scene tree gets "Sets" (element and node sets, with counts)
+//          and "Properties" (each property field's values, the elements carrying
+//          each read on demand) after the models; selecting rows isolates their
+//          union, with the rest hidden or drawn as its element edges, one undo
+//          entry per change (`ViewerActionKind` `isolate-sets` / `clear-isolation`
+//          / `context-wireframe`). `TreeNodeData.informational` / `marked` /
+//          `title`. Core commands `feaIsolateSets`, `feaIsolateSelectionSets`,
+//          `feaClearIsolation`, `feaToggleContextWireframe` (the Desktop UI's
+//          View -> FEA sets), the scene actions `feaIsolate`,
+//          `feaIsolateMatching`, `feaClearIsolation`, `feaToggleContext`,
+//          `feaHideRows`, `feaShowRows` (mirror commands `core:fea-*`), the mirror
+//          topic `core:fea-tree`, the row menu on FEA rows (a right-click there
+//          no longer selects the row), and the Selected Object panel's `fea-sets`
+//          section in `CORE_PROPERTY_PROVIDERS`. On `@/viewer-core/scene`: the
+//          rows' pure builders and ids (`buildFeaTreeRoots`, `buildSetsRoot`,
+//          `buildPropertyRow`, `elementSetRowId`, `propertyValueRowId`,
+//          `isolatedMembers`, `combineIsolation`, ...), the actions
+//          (`isolateFeaRows`, `isolateFeaSets`, `isolateFeaSetsMatching`,
+//          `clearFeaIsolation`, `toggleFeaContextWireframe`, `hideFeaRows`,
+//          `showFeaRows`), what they read (`feaTreeView`, `subscribeFeaTreeView`,
+//          `feaIsolationReason`, `feaContextReason`, `feaPickedInfo`,
+//          `ensurePropertyMembership`, `useFeaIsolationStore`) and
+//          `applyFeaIsolationOverlays`. Additive.
+//          A marking menu in core: a wheel of up to eight commands (and a short
+//          list under it) at the pointer over the 3D view, opened by holding the
+//          right button still for 300 ms (a quick right click is still the Scene
+//          menu, a right drag still pans) or by core's `core:marking-menu`
+//          (Shift+E, now in `RESERVED_SHORTCUTS`); flick and release, or click,
+//          or arrows and Enter. `UiShellChrome.markingMenu` (`MarkingMenuConfig`:
+//          `items` / `more`, as lists or functions of `MarkingMenuContext`,
+//          submenus, `gesture`; `false`: none): on in a shell that gives it,
+//          off in core's own UI unless the user turns it on (Options -> Theme;
+//          `LayoutPrefs.markingMenuByShell`). Core commands `markingMenu`,
+//          `toggleMarkingMenu`. On the root, the rules (`MarkingGesture`,
+//          `sectorAt`, `resolveMarkingMenu`, `defaultMarkingMenuItems`, ...); on
+//          `@/viewer-core/layout` the component (`MarkingMenuView`,
+//          `MarkingMenuHost`, mounted by a composed layout in the main window)
+//          and `openMarkingMenu` / `setMarkingMenuOn` / `servedMarkingMenu`.
+//          Core's tool rail: `UiShellChrome.rail` may be `{tools}`
+//          (`ToolRailConfig`: command ids, `RAIL_SEPARATOR`) in place of a lazy
+//          component (still taken): icon buttons from the commands
+//          (`CommandSpec.icon`; core's commands have icons now,
+//          `CORE_COMMAND_ICONS`), the chord in the tooltip, pressed for a
+//          checked toggle, greyed with the reason; the user adds, removes and
+//          reorders tools (`core:customise-rail`, the rail's menu and button),
+//          kept per shell in `LayoutPrefs.rail` (`RailPrefs`, with the tools a
+//          later shell list adds put in: `railTools`). The Desktop UI has both
+//          (`DESKTOP_RAIL_TOOLS`). Additive, apart from the reserved Shift+E.
+//   1.15.0 Mode toolbars, number labels and colour by, a Build mode, and more
+//          panels in pop-out windows. All additive. Ships with
+//          PLUGIN_API_VERSION 1.15.0.
+//          - Core mode toolbars: `UiShellMode.toolbars` names core's ready-made
+//          toolbars for a mode's toolbar slot (`"playback"`, `"section"`,
+//          `"representation"`; `CoreModeToolbarId`, `CORE_MODE_TOOLBAR_IDS` on the
+//          root), drawn by `ShellModeToolbar` before the mode's own `toolbar`.
+//          On `@/viewer-core/layout` the components (`PlaybackToolbar`,
+//          `SectionToolbar`, `RepresentationToolbar`, `CoreModeToolbars`,
+//          `CORE_MODE_TOOLBARS`) and `CommandButton` (a button over a command), for a
+//          shell that mounts them in its own chrome. New core commands on
+//          `CORE_COMMAND_IDS`: `playPause`, `stopResults`, `stepBack`, `stepForward`
+//          (result playback), `sectionX` / `sectionY` / `sectionZ`,
+//          `sectionToggle`, `sectionFlip`, `sectionClear`, and
+//          `feaToggleUndeformed` / `feaToggleElementEdges` /
+//          `feaToggleResultColors`, with icons; the Desktop UI's modes use the
+//          toolbars and its View menu lists the commands.
+//          - Number labels and colour by property. Core draws node and element ids
+//          of a loaded FEA result over the view (`NumberLabels`, bounded and
+//          thinned on a screen grid) and colours the scene by a property.
+//          `CORE_COMMAND_IDS`: `labelsNodes`, `labelsElements`, `colorByNext`,
+//          `colorByModel`, `colorByReset`. A new core mode toolbar id `"colorBy"`
+//          (`ColorByToolbar`), and `"representation"` gains the label switches.
+//          `chrome.overlays` takes `labels` (draw the labels) and `colorByLegend`
+//          (an anchor for `ColorByLegend`). On `@/viewer-core/layout`:
+//          `NumberLabels`, `ColorByToolbar`, `ColorByLegend`. A plugin adds a
+//          colouring with `registerColorBySource` (`ColorBySource`; also
+//          `applyColorBy`, `resetColorBy`, `colorBySources`, `useColorByStore`)
+//          and `useLabelsStore` switches the labels, all on `@/viewer-core/scene`. The Desktop UI uses all of
+//          it.
+//          - Build mode for the procedural builder. A new core mode toolbar id
+//          `"build"` (`BuilderToolbar`, on `@/viewer-core/layout`): the open model's
+//          name and revision, undo / redo, compile, compile in the browser,
+//          commit and close. `UiShellMode.requires: "builder"` offers a mode only
+//          while a procedural model is open (left out of the switcher, the Modes
+//          menu and the palette otherwise; the shell falls back when it goes
+//          away). `chrome.overlays.builder` mounts the builder's canvas menus and
+//          gizmo HUD for a shell that docks the panel. `CORE_COMMAND_IDS`:
+//          `builderUndo`, `builderRedo`, `builderCompile`, `builderRecompile`,
+//          `builderCompileBrowser`, `builderCommit`, `builderClose`, each greyed
+//          with its reason (no model, read-only, no server compile). The Desktop
+//          UI gains a Build mode.
+//          - More panels work in a pop-out window. The Simulation panel, the result
+//          data table and the Scene panel (its Model tab) are mirrored
+//          (`capabilities.mirrored`); the scene tree gains the Systems tab and the
+//          row menu's selection box, unload, saved-group and related entries.
+//          New mirror topics `core:fea-controls` (the result session's state:
+//          manifest, field / component / step, transport, toggles, colour scale,
+//          edge fade), `core:fea-table` (the data table's first
+//          `FEA_TABLE_ROW_CAP` rows of the main window's filter and sort, with the
+//          count matched) and `core:scene-info` (loaded models and whether each is
+//          shown, groups without member lists, take-off, selection boxes). The
+//          result controls go through an act seam, `feaControlActions()` /
+//          `useFeaControlActions` (`FeaControlActions`, `localFeaControlActions`,
+//          `remoteFeaControlActions`, `FEA_CONTROL_COMMANDS`), the same play /
+//          pause / stop / step / scale / field / toggle code the main window
+//          runs; `SceneActions` gains `setModelVisible`, `unloadModels`,
+//          `selectGroup`, `updateBox`, `removeBox`, `activateBox`, `clearBoxes`,
+//          `boxAroundSelection` and `runRelated` (mirror commands `core:model-visible`,
+//          `core:unload-models`, `core:select-group`, `core:box-*`,
+//          `core:run-related`). On `@/viewer-core/scene`: the topics and their
+//          snapshot types, `tableRowIndices`.
+export const VIEWER_CORE_API_VERSION = "1.15.0";
 
 // ---------------------------------------------------------------------------
 // Plugin declaration. `registerPlugin` is how a package announces itself —
@@ -451,15 +616,31 @@ export type {
 export {
   activeUiShell,
   activeUiShellId,
+  activeUiShellVersion,
+  bootUiShellId,
   buildDefaultUiShellId,
+  canSwitchInPlace,
+  carryOnShellSwitch,
   CORE_UI_SHELL_ID,
   getUiShell,
   listUiShells,
+  loadedByShellSwitch,
   setActiveUiShell,
+  shellSwitchUrl,
+  subscribeActiveUiShell,
+  switchesInPlace,
   UI_SHELL_STORAGE_KEY,
   UI_SHELL_URL_PARAM,
 } from "@/plugins/uiShells";
-export type { RegisteredUiShell, UiShellChrome, UiShellLayout, UiShellMode, UiShellResolution, UiShellSpec } from "@/plugins/uiShells";
+export type {
+  RegisteredUiShell,
+  ShellSwitchCarry,
+  UiShellChrome,
+  UiShellLayout,
+  UiShellMode,
+  UiShellResolution,
+  UiShellSpec,
+} from "@/plugins/uiShells";
 // A composed shell's modes (dependency-free; the switcher components are on `@/viewer-core/layout`).
 export {
   activeShellMode,
@@ -469,7 +650,8 @@ export {
   shellModesVersion,
   subscribeShellModes,
 } from "@/layout/shellModes";
-export type { ShellMode, ShellModeBadge } from "@/layout/shellModes";
+export type { CoreModeToolbarId, ShellMode, ShellModeBadge } from "@/layout/shellModes";
+export { CORE_MODE_TOOLBAR_IDS } from "@/layout/shellModes";
 export { SHELL_MODE_PARAM, setShellModeBadge, shellModeBadge } from "@/layout/shellModes";
 export type { PanelOverride } from "@/layout/registry";
 export type { FixedSize, GroupArrangement } from "@/layout/splitTree";
@@ -477,10 +659,54 @@ export type { FixedSize, GroupArrangement } from "@/layout/splitTree";
 export { commandChord, getCommand, listCommands, matchCommand, registerCommand, runCommand, unregisterCommand } from "@/layout/commands";
 export type { CommandSpec, RegisteredCommand } from "@/layout/commands";
 // Core's own commands, by id (registered for every composed shell), for a shell's menus.
-export { CORE_COMMAND_IDS, themeCommandId, uiShellCommandId, workspaceCommandId } from "@/layout/coreCommandIds";
-export type { CoreCommandId } from "@/layout/coreCommandIds";
+export { CAMERA_VIEWS, CORE_COMMAND_IDS, cameraViewCommandId, themeCommandId, uiShellCommandId, workspaceCommandId } from "@/layout/coreCommandIds";
+export type { CameraView, CoreCommandId } from "@/layout/coreCommandIds";
 // The built-in Desktop UI (a composed shell core registers next to the classic one).
-export { DESKTOP_UI_SHELL_ID, desktopUiShellSpec } from "@/layout/desktop/desktopShell";
+export { DESKTOP_RAIL_TOOLS, DESKTOP_UI_SHELL_ID, desktopUiShellSpec } from "@/layout/desktop/desktopShell";
+// The marking menu's and the tool rail's rules (dependency-free; the components are on `@/viewer-core/layout`).
+export {
+  MARKING_DEAD_ZONE_PX,
+  MARKING_DIRECTIONS,
+  MARKING_HOLD_MS,
+  MARKING_MENU_MAX_SECTORS,
+  MARKING_MOVE_TOLERANCE_PX,
+  MARKING_RADIUS_PX,
+  MARKING_VIEWS_SUBMENU,
+  MarkingGesture,
+  defaultMarkingMenuItems,
+  defaultMarkingMenuMore,
+  directionOf,
+  markingGestureOptions,
+  markingMenuAvailability,
+  resolveMarkingMenu,
+  sectorAt,
+  sectorOffset,
+  stepSelection,
+} from "@/layout/markingMenuModel";
+export type {
+  MarkingDirection,
+  MarkingGestureOptions,
+  MarkingMenuConfig,
+  MarkingMenuContext,
+  MarkingMenuGesture,
+  MarkingMenuItemDef,
+  MarkingRelease,
+  MarkingSubmenu,
+} from "@/layout/markingMenuModel";
+export {
+  RAIL_SEPARATOR,
+  addRailTool,
+  dedupeRail,
+  isRailSeparator,
+  migrateRailPrefs,
+  moveRailTool,
+  railConfig,
+  railIsDefault,
+  railTools,
+  removeRailTool,
+  tidyRail,
+} from "@/layout/toolRailModel";
+export type { RailPrefs, ToolRailConfig } from "@/layout/toolRailModel";
 export { VIEWPORT_ANCHORS, registerViewportOverlay, unregisterViewportOverlay } from "@/layout/viewportOverlays";
 export type { ViewportAnchor, ViewportOverlaySpec } from "@/layout/viewportOverlays";
 // Shortcuts a shell or plugin adds; core's own keys are reserved (dependency-free).

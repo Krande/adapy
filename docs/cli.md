@@ -551,6 +551,76 @@ ada desktop --no-window          # the viewer only; open the printed URL in a br
 `--timing`
 :   Print how long the viewer took to start and stop.
 
+`--dev`
+:   For working on adapy itself (a source checkout, Windows only for now;
+    `pixi run desktop` does this and builds what it needs). The viewer runs
+    under `uvicorn --reload` (Python edits under `src/ada` restart it), the
+    frontend runs under Vite with hot module reload, and the window opens on
+    Vite, which proxies `/api`, `/config.js` and `/healthz` to the viewer. The
+    shell is not reloaded. Vite listens on the viewer port + 500 unless
+    `--dev-port N` says otherwise.
+
+`--frontend-url URL`
+:   Implies `--dev`, but opens an already running Vite dev server (loopback
+    `http` only) instead of starting one. Start it with
+    `ADA_DESKTOP_BACKEND=http://127.0.0.1:PORT/` and
+    `--config vite.config.desktop.ts`.
+
+### Connecting to a hosted server
+
+`ada desktop` can open a hosted (for example on-premise) deployment instead of
+the local viewer, to use its storage, conversions, jobs and sign-in. No local
+viewer is started; the window loads the server's own URL, so the page runs on
+the server's origin and its normal sign-in works unchanged.
+
+```bash
+ada desktop --server https://studio.example.com
+ada desktop servers add work https://studio.example.com
+ada desktop --server work
+ada desktop servers list
+ada desktop servers remove work
+```
+
+`--server URL|NAME`
+:   The deployment to open: an `https` URL, or the name of a saved server.
+    Default: `$ADA_DESKTOP_SERVER`. The origin the window will trust is printed
+    first. `FILE` and the local-viewer flags (`--port`, `--data`, `--static`,
+    `--zip`, `--viewer`) cannot be combined with it. With `--dev` it means
+    `--backend`.
+
+`--local`
+:   Start the local viewer even though `$ADA_DESKTOP_SERVER` is set.
+
+`--insecure`
+:   Accept plain `http` for a server on a non-loopback host (lab setups only;
+    sign-in tokens then cross the network unencrypted). https is required
+    otherwise.
+
+`--auth-origin ORIGIN`
+:   An extra identity-provider origin the window may sign in at. The provider
+    the server advertises (`/api/config`) is allowed automatically; add the
+    others a federated sign-in passes through. Repeatable; `servers add` saves
+    them with the profile.
+
+`servers list | add NAME URL | remove NAME`
+:   Manage saved servers, kept in `%APPDATA%\ada\desktop\servers.json` on
+    Windows (`$XDG_CONFIG_HOME/ada/desktop/servers.json` on Linux).
+
+`--backend URL|NAME`
+:   Implies `--dev`, against a hosted server (a URL or a saved name) instead of
+    a local viewer (source checkout, Windows; `pixi run desktop-backend NAME`).
+    Vite serves the local frontend with hot reload on
+    `http://localhost:PORT` (the `--dev` port, viewer port + 500, fixed per
+    user; `--dev-port N` overrides) and proxies `/api` (websockets included),
+    `/config.js` and `/healthz` to the server. The command prints
+    `Register this redirect URI for the app's SPA platform:
+    http://localhost:PORT/auth/callback`; register it once in the server's
+    identity provider. `--dev --server NAME` is the same; a plain `--dev`
+    stays local. `pixi run desktop-server NAME` just opens the server.
+
+See `src/desktop/README.md` for the security model (which origins may be shown
+and which one is granted native events) and the sign-in details.
+
 ## `ada viewers`
 
 List the installed viewer bundles. adapy's own viewer carries no plugins; they

@@ -7,6 +7,11 @@ import React, {Suspense, useSyncExternalStore} from "react";
 import ErrorBoundary from "@/components/common/ErrorBoundary";
 import ColorLegend from "@/components/viewer/ColorLegend";
 
+import {hasEmbeddedDoc, useCellBuilderStore} from "@/state/cellBuilderStore";
+
+import {ColorByLegend} from "./ColorByLegend";
+import {CellBuilderOverlays} from "./CellBuilderOverlays";
+import {NumberLabels} from "./NumberLabels";
 import {PanelMount} from "./LayoutHost";
 import type {RegisteredPanel} from "./panel";
 import {
@@ -33,15 +38,30 @@ export interface ViewportOverlayPlacement {
   legend?: ViewportAnchor;
   /** Where plugin panels that name the `overlay` dock stack. */
   pluginPanels?: ViewportAnchor;
+  /** Where the legend of a colour-by core's colour legend does not draw (the models, a registered source) goes. */
+  colorByLegend?: ViewportAnchor;
+  /** Draw core's number labels (node and element ids of a loaded FEA result) over the view. */
+  labels?: boolean;
+  /** Mount the procedural builder's canvas menus and gizmo HUD while a model is open. */
+  builder?: boolean;
+}
+
+/** The builder's canvas menus and gizmo HUD, while a procedural model is open. */
+function BuilderOverlays() {
+  const loaded = useCellBuilderStore((s) => s.active !== null || hasEmbeddedDoc(s));
+  return loaded ? <CellBuilderOverlays /> : null;
 }
 
 export function ViewportOverlays({placement, pluginPanels}: {placement: ViewportOverlayPlacement; pluginPanels: readonly RegisteredPanel[]}) {
   useSyncExternalStore(subscribeViewportOverlays, viewportOverlaysVersion, viewportOverlaysVersion);
   return (
     <div className="pointer-events-none absolute inset-0 z-[4]" data-viewport-overlays="">
+      {placement.labels && <NumberLabels />}
+      {placement.builder && <BuilderOverlays />}
       {VIEWPORT_ANCHORS.map((anchor) => {
         const items: React.ReactNode[] = [];
         if (placement.legend === anchor) items.push(<ColorLegend key="core:legend" />);
+        if (placement.colorByLegend === anchor) items.push(<ColorByLegend key="core:color-by-legend" />);
         if (placement.pluginPanels === anchor) {
           for (const p of pluginPanels) {
             items.push(

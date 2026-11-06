@@ -131,8 +131,53 @@ export { OverlayPortal, TransformedHost, useInTransformedHost } from "@/componen
 // ---------------------------------------------------------------------------
 export { LayoutHost, PanelMount, lazyPanelBody, useLayout, usePanelStates, zonePanels } from "@/layout/LayoutHost";
 export { PanelToggles } from "@/layout/PanelToggles";
-export { CommandPaletteHost, MenuBar, closeCommandPalette, offeredMenuItems, openCommandPalette } from "@/layout/CommandPalette";
+export {
+  customisablePanels,
+  customisablePanelsRequired,
+  setCustomisablePanels,
+  useCustomisablePanels,
+  useCustomisablePanelsRequired,
+} from "@/layout/customisable";
+export {
+  COMMAND_PALETTE_COMMAND,
+  COMMAND_PALETTE_SHORTCUT,
+  CommandPaletteHost,
+  CorePaletteHost,
+  MenuBar,
+  closeCommandPalette,
+  offeredMenuItems,
+  openCommandPalette,
+  paletteConfig,
+} from "@/layout/CommandPalette";
 export type { MenuBarProps, MenuDef, MenuItemDef } from "@/layout/CommandPalette";
+// The marking menu over the 3D view (a composed layout mounts its host) and core's tool rail (`chrome.rail: {tools}`).
+export {
+  MARKING_MENU_SHORTCUT,
+  MarkingMenuHost,
+  MarkingMenuView,
+  clampMarkingCentre,
+  isViewTarget,
+  markingSlots,
+  moreSlots,
+} from "@/layout/MarkingMenu";
+export type { MarkingMenuViewProps, MarkingSlot } from "@/layout/MarkingMenu";
+export { markingMenuMounted, openMarkingMenu, servedMarkingMenu, setMarkingMenuOn, useServedMarkingMenu } from "@/layout/markingMenuState";
+export type { ServedMarkingMenu } from "@/layout/markingMenuState";
+export { ToolRail, ToolRailCustomiseDialog, ToolRailCustomiseHost } from "@/layout/ToolRail";
+export type { ToolRailProps } from "@/layout/ToolRail";
+export {
+  activeRail,
+  closeRailCustomise,
+  openRailCustomise,
+  railList,
+  resetRail,
+  saveRail,
+  savedRail,
+  useRailCustomiseOpen,
+  useRailList,
+} from "@/layout/toolRailState";
+// Core's commands' icons, and the initials drawn for a command without one.
+export { CORE_COMMAND_ICONS, CommandGlyph, commandInitials } from "@/layout/commandIcons";
 export {
   deleteWorkspace,
   listWorkspaces,
@@ -145,6 +190,9 @@ export { COMPACT_GROUP_PX } from "@/layout/presets/groupCompact";
 export { desktopMenus, menuCommandIds } from "@/layout/desktop/desktopMenus";
 export type { DesktopMenuInputs } from "@/layout/desktop/desktopMenus";
 export { openShortcutsDialog } from "@/components/options/ShortcutsModal";
+// Core's About and Export dialogs (what `core:about` / `core:export-*` open); a composed layout mounts their host.
+export { closeCoreDialog, openCoreDialog } from "@/layout/coreDialogs";
+export type { CoreDialogRequest, ExportScope } from "@/layout/coreDialogs";
 // Multi-window dashboards: this page's window bus, the windows open, moving panels between them.
 export {
   REOPEN_WINDOWS_COMMAND,
@@ -197,7 +245,10 @@ export {
   sceneActions,
   useSceneActions,
 } from "@/layout/sceneActions";
-export type { RowSelectMode, SceneActions } from "@/layout/sceneActions";
+export type { BoxPatch, GroupKey, RowSelectMode, SceneActions } from "@/layout/sceneActions";
+// The Scene panel in a pop-out window.
+export { SCENE_INFO_GROUP_CAP, SCENE_INFO_TOPIC } from "@/layout/sceneInfoMirror";
+export type { MirroredGroup, SceneInfoSnapshot } from "@/layout/sceneInfoMirror";
 // The scene tree's mirror topic (`core:scene-tree`): the main window's source, a pop-out's sink.
 export { SCENE_TREE_TOPIC, coreSceneTreeSink, coreSceneTreeSource } from "@/layout/sceneTreeMirrorCore";
 export { useSceneMirrorStore } from "@/state/sceneMirrorStore";
@@ -207,6 +258,20 @@ export type { GridOps, GridViewProps } from "@/layout/presets/classicGrid";
 export { default as PopoutPage, POPOUT_ZONE } from "@/layout/PopoutPage";
 export { ShellModeSwitcher, ShellModeToolbar, useShellMode } from "@/layout/ShellModeSwitcher";
 export type { ShellModeSwitcherProps } from "@/layout/ShellModeSwitcher";
+// Core's mode toolbars: a mode names them (`UiShellMode.toolbars`) or a shell mounts them itself.
+export {
+  CommandButton,
+  CORE_MODE_TOOLBARS,
+  CoreModeToolbars,
+  ColorByToolbar,
+  BuilderToolbar,
+  PlaybackToolbar,
+  RepresentationToolbar,
+  SectionToolbar,
+} from "@/layout/ModeToolbars";
+export type { CommandButtonProps } from "@/layout/ModeToolbars";
+export { NumberLabels, LABEL_CAP, LABEL_SCAN_CAP } from "@/layout/NumberLabels";
+export { ColorByLegend } from "@/layout/ColorByLegend";
 export type { PanelTogglesProps } from "@/layout/PanelToggles";
 export type { LayoutContextValue, LayoutHostProps } from "@/layout/LayoutHost";
 export { DefaultWindowChrome, FloatLayer } from "@/layout/FloatLayer";

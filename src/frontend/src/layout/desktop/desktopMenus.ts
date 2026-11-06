@@ -4,7 +4,14 @@
 // viewer, say) is left out by `MenuBar`. Pure, so it is tested without a DOM.
 
 import type { MenuDef, MenuItemDef } from "../CommandPalette";
-import { CORE_COMMAND_IDS as C, themeCommandId, uiShellCommandId, workspaceCommandId } from "../coreCommandIds";
+import {
+  CAMERA_VIEWS,
+  CORE_COMMAND_IDS as C,
+  cameraViewCommandId,
+  themeCommandId,
+  uiShellCommandId,
+  workspaceCommandId,
+} from "../coreCommandIds";
 import { CORE_PANEL_IDS as P } from "../corePanelIds";
 
 const panel = (id: string) => `panel:${id}`;
@@ -27,7 +34,18 @@ export function desktopMenus({ modes, workspaces, shells, themes }: DesktopMenuI
   const menus: MenuDef[] = [
     {
       label: "File",
-      items: [C.uploadFile, panel(P.storage), panel(P.convert), SEP, panel(P.options)],
+      items: [
+        C.openFile,
+        C.uploadFile,
+        SEP,
+        C.exportSelection,
+        C.exportModel,
+        SEP,
+        panel(P.storage),
+        panel(P.convert),
+        SEP,
+        panel(P.options),
+      ],
     },
     {
       label: "Edit",
@@ -35,6 +53,8 @@ export function desktopMenus({ modes, workspaces, shells, themes }: DesktopMenuI
         C.undo,
         C.redo,
         SEP,
+        C.selectAll,
+        C.invertSelection,
         C.clearSelection,
         C.copyNames,
         C.groupSelection,
@@ -60,17 +80,36 @@ export function desktopMenus({ modes, workspaces, shells, themes }: DesktopMenuI
           ],
         },
         SEP,
-        { label: "Camera", items: [C.fitAll, C.fitSelection, C.resetCamera] },
-        { label: "Display", items: [C.edges, C.stats, C.gallery] },
+        { label: "Camera", items: [C.fitAll, C.fitSelection, C.resetCamera, SEP, ...CAMERA_VIEWS.map(cameraViewCommandId)] },
+        {
+          label: "Display",
+          items: [C.edges, C.feaToggleResultColors, C.feaToggleElementEdges, C.feaToggleUndeformed, SEP, C.stats, C.gallery, SEP, C.toggleMarkingMenu],
+        },
+        { label: "Labels and colours", items: [C.labelsNodes, C.labelsElements, SEP, C.colorByNext, C.colorByModel, C.colorByReset] },
+        { label: "Section", items: [C.sectionX, C.sectionY, C.sectionZ, SEP, C.sectionToggle, C.sectionFlip, C.sectionClear] },
+        { label: "Results", items: [C.playPause, C.stopResults, C.stepBack, C.stepForward] },
+        // The loaded result's sets and properties (rows in the tree too); greyed, with the reason, without one.
+        {
+          label: "FEA sets",
+          items: [C.feaIsolateSets, C.feaIsolateSelectionSets, C.feaClearIsolation, SEP, C.feaToggleContextWireframe],
+        },
         { label: "Theme", items: themes.map(themeCommandId) },
         { label: "User interface", items: shells.map((s) => uiShellCommandId(s.id)) },
         SEP,
         C.commandPalette,
+        C.markingMenu,
         C.fullscreen,
       ],
     },
   ];
   if (modes.length) menus.push({ label: "Modes", items: modes.map((m) => `mode:${m.id}`) });
+  // The builder's commands, once the shell has a mode for it; greyed, with the reason, until a model is open.
+  if (modes.some((m) => m.id === "build")) {
+    menus.push({
+      label: "Build",
+      items: [C.builderUndo, C.builderRedo, SEP, C.builderCompile, C.builderRecompile, C.builderCompileBrowser, SEP, C.builderCommit, C.builderClose, SEP, panel(P.cellbuilder)],
+    });
+  }
   menus.push(
     {
       label: "Window",
@@ -80,6 +119,7 @@ export function desktopMenus({ modes, workspaces, shells, themes }: DesktopMenuI
         SEP,
         C.resetLayout,
         C.resetAllLayouts,
+        C.customiseRail,
         SEP,
         {
           label: "Workspaces",
@@ -89,7 +129,7 @@ export function desktopMenus({ modes, workspaces, shells, themes }: DesktopMenuI
     },
     {
       label: "Help",
-      items: [C.shortcuts, SEP, panel(P.serverInfo), panel(P.wsStatus)],
+      items: [C.shortcuts, SEP, panel(P.serverInfo), panel(P.wsStatus), SEP, C.about],
     },
   );
   return menus;

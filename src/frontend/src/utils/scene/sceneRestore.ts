@@ -27,6 +27,7 @@ import {beginBulkLoad, captureLoadingView, endBulkLoad} from "@/utils/scene/load
 import {applyRecordedView, captureView} from "@/utils/scene/sceneViewRestore";
 import {useViewerHistoryStore} from "@/state/viewerHistoryStore";
 import {beginOperation, type Operation} from "@/services/operationTracking";
+import {loadedByShellSwitch} from "@/plugins/uiShells";
 
 /** The bulk-load session's project name: it saves no loading view, so the name is only a label. */
 const RESTORE_SESSION = "scene-restore";
@@ -241,7 +242,10 @@ export async function restoreScene(skip: ReadonlySet<string> = new Set()): Promi
     try {
         const scope = currentScope();
         const rec = readSceneRecord(scope);
-        if (!useSceneRestoreStore.getState().enabled) {
+        // A UI-shell switch that reloaded the page is not a reload the user asked
+        // for: its page gets the previous page's scene back even with the setting off.
+        const wanted = () => useSceneRestoreStore.getState().enabled || loadedByShellSwitch();
+        if (!wanted()) {
             writeSceneRecord(scope, EMPTY_SCENE_RECORD);
             return;
         }
@@ -272,7 +276,7 @@ export async function restoreScene(skip: ReadonlySet<string> = new Set()): Promi
         const session = beginBulkLoad(scope, RESTORE_SESSION, {view: rec.camera ?? null, save: false});
         try {
             for (const m of plan) {
-                if (generation !== restoreGeneration || currentScope() !== scope || !useSceneRestoreStore.getState().enabled) break;
+                if (generation !== restoreGeneration || currentScope() !== scope || !wanted()) break;
                 const name = recordedSourceName(m);
                 op.stage(`${progress.done + 1} of ${progress.total}: ${(m.kind === "asset" && m.label) || name}`);
                 let ok = useModelState.getState().loadedSourceNames.has(name);

@@ -9,6 +9,9 @@ import {makePluginContext} from "@/plugins/context";
 import {useViewerStores} from "@/state/AdaViewerContext";
 import {usePluginTheme} from "@/state/themeStore";
 
+import {CoreModeToolbars} from "./ModeToolbars";
+import {modeAvailable, modeRequirementsVersion, subscribeModeAvailability} from "./modeRequirements";
+
 import {
   activeShellMode,
   listShellModes,
@@ -19,10 +22,11 @@ import {
   type ShellMode,
 } from "./shellModes";
 
-/** The modes, the active one and the switch, re-rendering on change. */
+/** The modes on offer (those whose `requires` holds), the active one and the switch, re-rendering on change. */
 export function useShellMode(): {modes: readonly ShellMode[]; active: string | null; setMode: (id: string) => boolean} {
   useSyncExternalStore(subscribeShellModes, shellModesVersion, shellModesVersion);
-  return {modes: listShellModes(), active: activeShellMode(), setMode: setShellMode};
+  useSyncExternalStore(subscribeModeAvailability, modeRequirementsVersion, modeRequirementsVersion);
+  return {modes: listShellModes().filter(modeAvailable), active: activeShellMode(), setMode: setShellMode};
 }
 
 export interface ShellModeSwitcherProps {
@@ -77,17 +81,27 @@ export function ShellModeSwitcher({buttonClass = DEFAULT_BUTTON, className = "fl
   );
 }
 
-/** The active mode's own controls, when a plugin's mode has them; a throw disables that plugin. */
+/** The active mode's own controls: the core toolbars it names (`toolbars`), then its `toolbar`; a throw disables that plugin. */
 export function ShellModeToolbar() {
   const {modes, active} = useShellMode();
   const stores = useViewerStores();
   const theme = usePluginTheme();
   const mode = modes.find((m) => m.id === active);
-  if (!mode?.toolbar || !mode.pluginId) return null;
-  try {
-    return <>{mode.toolbar(makePluginContext(mode.pluginId, stores, theme))}</>;
-  } catch (err) {
-    disablePlugin(mode.pluginId, `mode "${mode.id}" toolbar threw: ${String(err)}`);
-    return null;
+  if (!mode) return null;
+  let own: React.ReactNode = null;
+  if (mode.toolbar && mode.pluginId) {
+    try {
+      own = mode.toolbar(makePluginContext(mode.pluginId, stores, theme));
+    } catch (err) {
+      disablePlugin(mode.pluginId, `mode "${mode.id}" toolbar threw: ${String(err)}`);
+    }
   }
+  const core = mode.toolbars?.length ? <CoreModeToolbars ids={mode.toolbars} /> : null;
+  if (!core && !own) return null;
+  return (
+    <>
+      {core}
+      {own}
+    </>
+  );
 }

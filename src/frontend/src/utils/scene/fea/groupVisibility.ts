@@ -18,9 +18,11 @@ import * as THREE from "three";
 import {requestRender} from "@/state/perfStore";
 import {getViewerRuntime} from "@/state/viewerRuntime";
 import {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
-import {syncFeaOverlayVisibility} from "@/utils/scene/handlers/load_fea_streaming";
 
 import {applyDummyMassVisibility} from "./dummyMassVisibility";
+// The streaming loader's own module, not the loader: the rule lives there, and the loader drags in
+// its workers.
+import {syncFeaOverlayVisibility} from "./streaming/visibility";
 import {complementRanges} from "./feaSets";
 import {setResultLineSegmentsIsolation} from "./resultLineSegments";
 import {followEdgeVisibility, setHiddenEdgesGhosted, syncFeaEdgeVisibility} from "./streaming/edgeVisibility";
@@ -104,6 +106,30 @@ export function applyFeaGroupVisibility(memberIds: Iterable<string>, wireframeRe
     // Whether a beam's grey edge is drawn at all belongs to the rule that also decides
     // between the section solid and the coloured line. Forcing it visible here
     // re-created the double-drawn beam every time you isolated something.
+    syncFeaOverlayVisibility();
+    requestRender();
+}
+
+/** Everything an isolation of `memberIds` sets apart from the hidden ranges: the ghosted edges
+ *  of the rest (`wireframeRest`), the beams drawn as lines, the dummy-mass beams, the beam
+ *  overlays. What undo and redo re-apply -- the history puts the hidden ranges back itself --
+ *  and what flipping "rest as wireframe" changes. Empty: no isolation. */
+export function applyFeaIsolationOverlays(memberIds: Iterable<string>, wireframeRest: boolean): void {
+    const meshes = batchedMeshes();
+    const keep = memberIds instanceof Set ? (memberIds as Set<string>) : new Set(memberIds);
+    const matches =
+        keep.size > 0 &&
+        meshes.some((m) => {
+            for (const id of m.drawRanges.keys()) if (keep.has(id)) return true;
+            return false;
+        });
+    // As `applyFeaGroupVisibility`: isolating when some mesh draws a range outside the set.
+    const isolating = matches && meshes.some((m) => complementRanges(m.drawRanges.keys(), keep).length > 0);
+    followEdgeVisibility();
+    setHiddenEdgesGhosted(matches && wireframeRest);
+    for (const m of meshes) setResultLineSegmentsIsolation(m, isolating ? keep : null);
+    syncFeaEdgeVisibility();
+    applyDummyMassVisibility(isolating ? keep : null);
     syncFeaOverlayVisibility();
     requestRender();
 }

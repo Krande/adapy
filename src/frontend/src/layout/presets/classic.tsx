@@ -27,10 +27,7 @@ import CanvasWrapper from "@/components/viewer/CanvasWrapper";
 import {SceneMenuHost} from "@/components/tree_view/SceneTreeMenu";
 import NodeEditorComponent from "@/components/node_editor/NodeEditorComponent";
 import ErrorBoundary from "@/components/common/ErrorBoundary";
-import CellBuilderContextMenu from "@/components/viewer/CellBuilderContextMenu";
-import CellBuilderPortMenu from "@/components/viewer/CellBuilderPortMenu";
-import CellBuilderInsertMenu from "@/components/viewer/CellBuilderInsertMenu";
-import CellBuilderGizmoHud from "@/components/viewer/CellBuilderGizmoHud";
+import {CellBuilderOverlays} from "../CellBuilderOverlays";
 import {WebsocketStatusMenu} from "@/components/WebsocketStatusMenu";
 import {ViewerWindow, VIEWER_PANEL_TITLE, viewerPanelExternal} from "@/components/ViewerWindow";
 import {navBtnClass} from "@/components/navButton";
@@ -50,7 +47,8 @@ import {panelBodyAttrsFor} from "@/components/ui/panelChrome";
 import {CLASSIC_PANEL_COMPONENTS, CLASSIC_PANEL_CONTENTS} from "../classicBodies";
 import {CORE_PANEL_IDS, CORE_PANEL_OWNER, corePanelEnv, registerCorePanels} from "../corePanels";
 import {FloatLayer, type WindowChrome} from "../FloatLayer";
-import {CLASSIC_PRESET_ID, CLASSIC_ZONES, customisablePanelsOn, type LayoutDoc, type LayoutPreset} from "../layout";
+import {CLASSIC_PRESET_ID, CLASSIC_ZONES, type LayoutDoc, type LayoutPreset} from "../layout";
+import {customisablePanels} from "../customisable";
 import {LayoutHost, PanelMount, usePanelStates, useLayout, zonePanels} from "../LayoutHost";
 import {layoutStore} from "../layoutStore";
 import {viewerLayoutPersistence} from "../viewerPersistence";
@@ -81,6 +79,7 @@ import {
   canFloat,
   classicCover,
   classicOverlays,
+  classicShellId,
   classicToastAnchor,
   isOverlayPanel,
   leaveContext,
@@ -170,6 +169,7 @@ function ClassicToolbar({nodeEditorOnly}: {nodeEditorOnly: boolean}) {
       {before.map(button)}
       <PluginTopBarButtons navBtnClass={(active) => navBtnClass(active)} />
       {after.map(button)}
+      {/* No palette button: Ctrl+K opens it, and the shortcuts dialog lists it. */}
       {customisable && <MinimisedTray />}
     </div>
   );
@@ -200,15 +200,7 @@ const COLUMN_WRAP: Readonly<Record<PanelId, React.ComponentType<{children: React
   [CORE_PANEL_IDS.scene]: SceneBoundary,
 };
 
-/** The cellbuilder's canvas menus and gizmo HUD, mounted beside its panel while a model is loaded. */
-export const CellBuilderOverlays: React.FC = () => (
-  <>
-    <CellBuilderContextMenu />
-    <CellBuilderPortMenu />
-    <CellBuilderInsertMenu />
-    <CellBuilderGizmoHud />
-  </>
-);
+export {CellBuilderOverlays};
 
 const NO_ACTIONS: readonly PanelAction[] = [];
 
@@ -430,16 +422,22 @@ function ClassicFrame() {
   // A composed shell's starting panels; the host's controller is installed by now.
   // On load and on entering a mode of a composed shell: its plugin panels placed, its starting panels opened.
   const ctx = useClassicContext();
+  const shellId = classicShellId();
   const lastCtx = React.useRef(ctx);
-  // The prefs are loaded by now (the root waits for them): saved arrangements of an older shell version first.
-  React.useEffect(() => upgradeShellDocs(), []);
+  const lastShell = React.useRef(shellId);
+  // The prefs are loaded by now (the root waits for them): saved arrangements of an older shell version first,
+  // and again for the shell an in-place switch brings in.
+  React.useEffect(() => upgradeShellDocs(), [shellId]);
   React.useEffect(() => {
-    // Leaving a mode takes its placed panels with it.
-    if (lastCtx.current !== ctx) leaveContext(lastCtx.current, hide, isPanelOpen);
+    // Leaving a mode takes its placed panels with it. Not leaving a whole
+    // shell (an in-place switch): what is open stays open, at its place in
+    // the shell switched to.
+    if (lastCtx.current !== ctx && lastShell.current === shellId) leaveContext(lastCtx.current, hide, isPanelOpen);
     lastCtx.current = ctx;
+    lastShell.current = shellId;
     adoptDockedPanels();
     openStartingPanels(reveal);
-  }, [ctx]);
+  }, [ctx, shellId]);
   // Plugin panels in a group or window of their own leave their region hosts.
   React.useEffect(() => setPlacedElsewhere(placedElsewhere(doc, customisable, narrow)), [doc, customisable, narrow]);
   React.useEffect(() => () => setPlacedElsewhere([]), []);
@@ -577,7 +575,7 @@ export const classicPreset: LayoutPreset = {
   zones: [...CLASSIC_ZONE_DEFS],
   defaults: classicDefaults,
   // One in-viewer window at a time, as always, unless the user customises panels.
-  exclusiveGroups: (prefs) => !customisablePanelsOn(prefs),
+  exclusiveGroups: (prefs) => !customisablePanels(prefs),
   frame: () => Promise.resolve({default: ClassicFrame}),
 };
 

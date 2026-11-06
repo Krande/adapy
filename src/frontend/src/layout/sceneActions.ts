@@ -53,6 +53,47 @@ export interface SceneActions {
     fitRows(rows: readonly TreeNodeData[]): void;
     /** Unload every model (the tree's "Remove all"). */
     clearScene(): Promise<void>;
+    /** Isolate the loaded FEA result's rows `ids` (element sets, property values): replace the
+     *  isolation, add to it, or take them out of it. */
+    feaIsolate(ids: readonly string[], mode?: "replace" | "add" | "remove"): void;
+    /** Isolate the element sets whose name holds `text`. */
+    feaIsolateMatching(text: string): void;
+    /** Show the whole FEA model again. */
+    feaClearIsolation(): void;
+    /** Draw what the FEA isolation hides as a wireframe, or not. */
+    feaToggleContext(): void;
+    /** Hide (show) the elements of these FEA rows. */
+    feaHideRows(ids: readonly string[]): void;
+    feaShowRows(ids: readonly string[]): void;
+    /** Show or hide a loaded model (it stays loaded). */
+    setModelVisible(source: string, visible: boolean): void;
+    /** Unload these models (by their source names). */
+    unloadModels(sources: readonly string[]): void;
+    /** Select a group a loaded model carries (its members); null clears the selection. */
+    selectGroup(group: GroupKey | null): void;
+    /** Show or hide a selection box, or change what it selects. */
+    updateBox(id: string, patch: BoxPatch): void;
+    removeBox(id: string): void;
+    /** Make a box the active one and select what it selects. */
+    activateBox(id: string): void;
+    clearBoxes(): void;
+    /** A box around the selection. */
+    boxAroundSelection(): void;
+    /** Run a related action (`@/utils/systems/relatedActions`, by its key) for the model row `row`. */
+    runRelated(row: TreeNodeData, key: string): void;
+}
+
+/** A group a loaded model carries, named as the Groups list names it. */
+export interface GroupKey {
+    source?: string | null;
+    name: string;
+    parent_name: string;
+}
+
+/** What a pop-out may change of a selection box. */
+export interface BoxPatch {
+    visible?: boolean;
+    mode?: "full" | "partial";
 }
 
 /** The core commands a pop-out may run in the main window (`core:run-command`). */
@@ -78,6 +119,21 @@ export const SCENE_ACTION_COMMANDS = {
     isolateRows: "core:isolate-rows",
     fitRows: "core:fit-rows",
     clearScene: "core:clear-scene",
+    feaIsolate: "core:fea-isolate",
+    feaIsolateMatching: "core:fea-isolate-matching",
+    feaClearIsolation: "core:fea-clear",
+    feaToggleContext: "core:fea-context",
+    feaHideRows: "core:fea-hide-rows",
+    feaShowRows: "core:fea-show-rows",
+    setModelVisible: "core:model-visible",
+    unloadModels: "core:unload-models",
+    selectGroup: "core:select-group",
+    updateBox: "core:box-update",
+    removeBox: "core:box-remove",
+    activateBox: "core:box-activate",
+    clearBoxes: "core:box-clear",
+    boxAroundSelection: "core:box-around-selection",
+    runRelated: "core:run-related",
 } as const;
 
 /** Is this page a window without the scene, whose scene panels act through the main window. */
@@ -88,6 +144,7 @@ export function isMirroredWindow(): boolean {
 const coreRun = (id: string) => void import("./coreCommands").then((m) => m.runCoreCommandAction(id));
 const treeActions = () => import("@/utils/tree_view/sceneTreeActions");
 const treeSelect = () => import("@/utils/tree_view/treeSelectionActions");
+const feaActions = () => import("@/utils/scene/fea/feaIsolation");
 
 /** The actions, run on this window's scene; and a selection of rows made in another window (shown in this one's tree too). */
 export const localSceneActions: SceneActions & {selectRowsFromElsewhere(rows: readonly TreeNodeData[], mode: RowSelectMode): void} = {
@@ -115,6 +172,22 @@ export const localSceneActions: SceneActions & {selectRowsFromElsewhere(rows: re
     isolateRows: (rows) => void treeActions().then((m) => m.isolateRows(rows)),
     fitRows: (rows) => void treeSelect().then((m) => m.fitRows(rows)),
     clearScene: () => import("@/utils/scene/handlers/clear_scene").then((m) => m.clearScene()),
+    feaIsolate: (ids, mode = "replace") => void feaActions().then((m) => m.isolateFeaRows(ids, mode)),
+    feaIsolateMatching: (text) => void feaActions().then((m) => m.isolateFeaSetsMatching(text)),
+    feaClearIsolation: () => void feaActions().then((m) => m.clearFeaIsolation()),
+    feaToggleContext: () => void feaActions().then((m) => m.toggleFeaContextWireframe()),
+    feaHideRows: (ids) => void feaActions().then((m) => m.hideFeaRows(ids)),
+    feaShowRows: (ids) => void feaActions().then((m) => m.showFeaRows(ids)),
+    setModelVisible: (source, visible) =>
+        void import("./sceneInfoActions").then((m) => m.setModelVisible(source, visible)),
+    unloadModels: (sources) => void import("./sceneInfoActions").then((m) => m.unloadModels(sources)),
+    selectGroup: (group) => void import("./sceneInfoActions").then((m) => m.selectGroupByKey(group)),
+    updateBox: (id, patch) => void import("./sceneInfoActions").then((m) => m.updateBox(id, patch)),
+    removeBox: (id) => void import("./sceneInfoActions").then((m) => m.removeBox(id)),
+    activateBox: (id) => void import("./sceneInfoActions").then((m) => m.activateBox(id)),
+    clearBoxes: () => void import("./sceneInfoActions").then((m) => m.clearBoxes()),
+    boxAroundSelection: () => void import("./sceneInfoActions").then((m) => m.boxAroundSelection()),
+    runRelated: (row, key) => void import("./sceneInfoActions").then((m) => m.runRelated(row, key)),
 };
 
 const ids = (rows: readonly TreeNodeData[]) => rows.map((r) => String(r.id));
@@ -140,6 +213,21 @@ export function remoteSceneActions(bus: WindowBus = windowBus()): SceneActions {
         isolateRows: (rows) => send(SCENE_ACTION_COMMANDS.isolateRows, {ids: ids(rows)}),
         fitRows: (rows) => send(SCENE_ACTION_COMMANDS.fitRows, {ids: ids(rows)}),
         clearScene: async () => send(SCENE_ACTION_COMMANDS.clearScene),
+        feaIsolate: (rowIds, mode = "replace") => send(SCENE_ACTION_COMMANDS.feaIsolate, {ids: [...rowIds], mode}),
+        feaIsolateMatching: (text) => send(SCENE_ACTION_COMMANDS.feaIsolateMatching, {text}),
+        feaClearIsolation: () => send(SCENE_ACTION_COMMANDS.feaClearIsolation),
+        feaToggleContext: () => send(SCENE_ACTION_COMMANDS.feaToggleContext),
+        feaHideRows: (rowIds) => send(SCENE_ACTION_COMMANDS.feaHideRows, {ids: [...rowIds]}),
+        feaShowRows: (rowIds) => send(SCENE_ACTION_COMMANDS.feaShowRows, {ids: [...rowIds]}),
+        setModelVisible: (source, visible) => send(SCENE_ACTION_COMMANDS.setModelVisible, {source, visible}),
+        unloadModels: (sources) => send(SCENE_ACTION_COMMANDS.unloadModels, {sources: [...sources]}),
+        selectGroup: (group) => send(SCENE_ACTION_COMMANDS.selectGroup, {group}),
+        updateBox: (id, patch) => send(SCENE_ACTION_COMMANDS.updateBox, {id, patch}),
+        removeBox: (id) => send(SCENE_ACTION_COMMANDS.removeBox, {id}),
+        activateBox: (id) => send(SCENE_ACTION_COMMANDS.activateBox, {id}),
+        clearBoxes: () => send(SCENE_ACTION_COMMANDS.clearBoxes),
+        boxAroundSelection: () => send(SCENE_ACTION_COMMANDS.boxAroundSelection),
+        runRelated: (row, key) => send(SCENE_ACTION_COMMANDS.runRelated, {ids: [String(row.id)], key}),
     };
 }
 
@@ -219,6 +307,69 @@ export function registerSceneActionCommands(rowsById: (ids: readonly string[]) =
     rowsCommand(C.isolateRows, "isolateRows");
     rowsCommand(C.fitRows, "fitRows");
     registerMirrorCommand({id: C.clearScene, run: () => void a.clearScene().catch((err) => console.error("remove all failed", err))});
+    // The FEA rows' actions: ids of FEA rows (not of a model's tree), which the action checks.
+    registerMirrorCommand<{ids: string[]; mode?: string}>({
+        id: C.feaIsolate,
+        run: (args) => {
+            const mode = args?.mode === "add" || args?.mode === "remove" ? args.mode : "replace";
+            a.feaIsolate(argIds(args), mode);
+        },
+    });
+    registerMirrorCommand<{text: string}>({
+        id: C.feaIsolateMatching,
+        run: (args) => {
+            if (typeof args?.text === "string") a.feaIsolateMatching(args.text.slice(0, 500));
+        },
+    });
+    registerMirrorCommand({id: C.feaClearIsolation, run: () => a.feaClearIsolation()});
+    registerMirrorCommand({id: C.feaToggleContext, run: () => a.feaToggleContext()});
+    registerMirrorCommand<{ids: string[]}>({id: C.feaHideRows, run: (args) => a.feaHideRows(argIds(args))});
+    registerMirrorCommand<{ids: string[]}>({id: C.feaShowRows, run: (args) => a.feaShowRows(argIds(args))});
+    // The Scene panel's actions: models, groups and selection boxes, named by source, group key and box id.
+    registerMirrorCommand<{source?: unknown; visible?: unknown}>({
+        id: C.setModelVisible,
+        run: (args) => {
+            if (typeof args?.source === "string" && typeof args.visible === "boolean") a.setModelVisible(args.source, args.visible);
+        },
+    });
+    registerMirrorCommand<{sources?: unknown}>({
+        id: C.unloadModels,
+        run: (args) => {
+            const sources = Array.isArray(args?.sources) ? args.sources.filter((s): s is string => typeof s === "string") : [];
+            if (sources.length) a.unloadModels(sources.slice(0, 1000));
+        },
+    });
+    registerMirrorCommand<{group?: unknown}>({
+        id: C.selectGroup,
+        run: (args) => {
+            const g = args?.group as GroupKey | null | undefined;
+            if (g === null) a.selectGroup(null);
+            else if (g && typeof g.name === "string" && typeof g.parent_name === "string" && (g.source == null || typeof g.source === "string")) {
+                a.selectGroup({source: g.source ?? null, name: g.name, parent_name: g.parent_name});
+            }
+        },
+    });
+    registerMirrorCommand<{id?: unknown; patch?: BoxPatch}>({
+        id: C.updateBox,
+        run: (args) => {
+            if (typeof args?.id !== "string") return;
+            const patch: BoxPatch = {};
+            if (typeof args.patch?.visible === "boolean") patch.visible = args.patch.visible;
+            if (args.patch?.mode === "full" || args.patch?.mode === "partial") patch.mode = args.patch.mode;
+            a.updateBox(args.id, patch);
+        },
+    });
+    registerMirrorCommand<{id?: unknown}>({id: C.removeBox, run: (args) => void (typeof args?.id === "string" && a.removeBox(args.id))});
+    registerMirrorCommand<{id?: unknown}>({id: C.activateBox, run: (args) => void (typeof args?.id === "string" && a.activateBox(args.id))});
+    registerMirrorCommand({id: C.clearBoxes, run: () => a.clearBoxes()});
+    registerMirrorCommand({id: C.boxAroundSelection, run: () => a.boxAroundSelection()});
+    registerMirrorCommand<{ids: string[]; key?: unknown}>({
+        id: C.runRelated,
+        run: (args) => {
+            const row = rowsById(argIds(args, 1))[0];
+            if (row && typeof args?.key === "string") a.runRelated(row, args.key);
+        },
+    });
 }
 
 /** Forget the registration -- tests only (with `resetMirror`). */
