@@ -77,6 +77,13 @@ export interface UiShellLayout {
   version?: number;
   /** A saved arrangement made under `from` (undefined: before versions), brought up to date; null starts it over. */
   migrate?: (doc: LayoutDoc, from: number | undefined) => LayoutDoc | null;
+  /**
+   * "Customisable panels" (floating, docking, the split grid) in this shell.
+   * "required" (the default): always on, whatever the user set elsewhere, and
+   * the Options toggle is disabled; a docked layout needs it. "optional": the
+   * user's own setting for this shell (each shell keeps its own).
+   */
+  customisablePanels?: "required" | "optional";
 }
 
 /** One of a composed shell's modes. */

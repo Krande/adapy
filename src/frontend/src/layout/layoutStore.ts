@@ -35,7 +35,8 @@ export interface LayoutStoreState {
    */
   setStartingDoc(preset: PresetId, context: string | undefined, make: (() => LayoutDoc) | null): void;
   setActivePreset(preset: PresetId | undefined): void;
-  setCustomisablePanels(on: boolean): void;
+  /** The "Customisable panels" setting of UI shell `shell` (core's own UI by default). */
+  setCustomisablePanels(on: boolean, shell?: string): void;
   /** Pin or unpin a panel in a composed shell (by shell id). */
   setPinned(shell: string, panel: string, pinned: boolean): void;
   /** Forget a saved document: the next read starts from the preset's (or shell's) starting one. */
@@ -59,7 +60,13 @@ export function migrateLayoutPrefs(raw: unknown): LayoutPrefs {
   if (r.v !== LAYOUT_PREFS_VERSION || !r.docs || typeof r.docs !== "object") return emptyLayoutPrefs();
   const prefs: LayoutPrefs = { v: LAYOUT_PREFS_VERSION, docs: { ...r.docs } };
   if (typeof r.activePreset === "string") prefs.activePreset = r.activePreset;
-  if (typeof r.customisablePanels === "boolean") prefs.customisablePanels = r.customisablePanels;
+  // "Customisable panels" is per UI shell; the one setting of before is core's own UI's.
+  const byShell: Record<string, boolean> = {};
+  if (r.customisablePanelsByShell && typeof r.customisablePanelsByShell === "object") {
+    for (const [shell, on] of Object.entries(r.customisablePanelsByShell)) if (typeof on === "boolean") byShell[shell] = on;
+  }
+  if (typeof r.customisablePanels === "boolean" && !("core" in byShell)) byShell.core = r.customisablePanels;
+  if (Object.keys(byShell).length) prefs.customisablePanelsByShell = byShell;
   if (r.pinned && typeof r.pinned === "object") {
     const pinned: Record<string, string[]> = {};
     for (const [shell, ids] of Object.entries(r.pinned)) {
@@ -125,8 +132,13 @@ export function createLayoutStore(): StoreApi<LayoutStoreState> {
         else delete prefs.activePreset;
         setPrefs(prefs);
       },
-      setCustomisablePanels(on) {
-        setPrefs({ ...get().prefs, customisablePanels: on });
+      setCustomisablePanels(on, shell = "core") {
+        const { customisablePanels: _legacy, ...prefs } = get().prefs;
+        const byShell = { ...prefs.customisablePanelsByShell };
+        // The setting of before was core's own UI's: it moves there with the first change.
+        if (typeof _legacy === "boolean" && !("core" in byShell)) byShell.core = _legacy;
+        byShell[shell] = on;
+        setPrefs({ ...prefs, customisablePanelsByShell: byShell });
       },
       removeDoc(preset, context) {
         const key = layoutDocKey(preset, context);

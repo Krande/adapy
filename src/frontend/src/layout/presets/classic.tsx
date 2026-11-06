@@ -50,7 +50,8 @@ import {panelBodyAttrsFor} from "@/components/ui/panelChrome";
 import {CLASSIC_PANEL_COMPONENTS, CLASSIC_PANEL_CONTENTS} from "../classicBodies";
 import {CORE_PANEL_IDS, CORE_PANEL_OWNER, corePanelEnv, registerCorePanels} from "../corePanels";
 import {FloatLayer, type WindowChrome} from "../FloatLayer";
-import {CLASSIC_PRESET_ID, CLASSIC_ZONES, customisablePanelsOn, type LayoutDoc, type LayoutPreset} from "../layout";
+import {CLASSIC_PRESET_ID, CLASSIC_ZONES, type LayoutDoc, type LayoutPreset} from "../layout";
+import {customisablePanels} from "../customisable";
 import {LayoutHost, PanelMount, usePanelStates, useLayout, zonePanels} from "../LayoutHost";
 import {layoutStore} from "../layoutStore";
 import {viewerLayoutPersistence} from "../viewerPersistence";
@@ -600,7 +601,7 @@ export const classicPreset: LayoutPreset = {
   zones: [...CLASSIC_ZONE_DEFS],
   defaults: classicDefaults,
   // One in-viewer window at a time, as always, unless the user customises panels.
-  exclusiveGroups: (prefs) => !customisablePanelsOn(prefs),
+  exclusiveGroups: (prefs) => !customisablePanels(prefs),
   frame: () => Promise.resolve({default: ClassicFrame}),
 };
 

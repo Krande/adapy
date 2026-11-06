@@ -148,8 +148,17 @@ export interface LayoutPrefs {
   v: number;
   /** A preset a user once selected. Kept for older saved prefs; core renders the classic preset whatever it says. */
   activePreset?: PresetId;
-  /** Undock / re-dock affordances in the classic preset. Absent: on (`customisablePanelsOn`). */
+  /**
+   * Before 1.14: the one "Customisable panels" setting for every UI. Read as core's
+   * own UI's (`customisablePanelsByShell.core`) and moved there on load.
+   */
   customisablePanels?: boolean;
+  /**
+   * Undock / re-dock affordances, by UI shell id: what the user chose in each UI
+   * whose shell lets them choose (core's own; a composed shell requires them).
+   * Absent for a shell: on (`customisablePanelsOn`).
+   */
+  customisablePanelsByShell?: Record<string, boolean>;
   /** Documents by `layoutDocKey`. */
   docs: Record<string, LayoutDoc>;
   /** A composed shell's pinned panels, by shell id: they stay open and placed across its modes. */
@@ -158,9 +167,18 @@ export interface LayoutPrefs {
   workspaces?: Record<string, Record<string, Record<string, LayoutDoc>>>;
 }
 
-/** Are customisable panels on: unless the user turned them off. */
-export function customisablePanelsOn(prefs: Pick<LayoutPrefs, "customisablePanels">): boolean {
-  return prefs.customisablePanels !== false;
+/**
+ * The user's "Customisable panels" setting in UI shell `shell` (core's own UI by
+ * default): on unless they turned it off there. Whether a shell lets them choose
+ * at all is `customisablePanels()` (`./customisable`), which every reader goes through.
+ */
+export function customisablePanelsOn(
+  prefs: Pick<LayoutPrefs, "customisablePanels" | "customisablePanelsByShell">,
+  shell: string = "core",
+): boolean {
+  const own = prefs.customisablePanelsByShell?.[shell];
+  if (typeof own === "boolean") return own;
+  return shell === "core" ? prefs.customisablePanels !== false : true;
 }
 
 /**

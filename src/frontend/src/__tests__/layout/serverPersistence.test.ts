@@ -105,10 +105,10 @@ test("the layout store hydrates from the server and saves its changes there", as
   const p = serverLayoutPersistence(server, { debounceMs: 10_000 });
   const store = createLayoutStore();
   await store.getState().hydrate(p);
-  assert.equal(store.getState().prefs.customisablePanels, true);
+  assert.equal(store.getState().prefs.customisablePanelsByShell?.core, true, "the setting of before is core's own UI's");
   store.getState().setCustomisablePanels(false);
   store.getState().setActivePreset("docked");
   await p.flush();
   assert.deepEqual(server.puts.length, 1);
-  assert.deepEqual(server.value, prefs({ customisablePanels: false, activePreset: "docked" }));
+  assert.deepEqual(server.value, prefs({ customisablePanelsByShell: { core: false }, activePreset: "docked" }));
 });

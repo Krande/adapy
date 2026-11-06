@@ -107,6 +107,6 @@ test("the store saves the setting and the floats through the local backend", asy
 
   const again = createLayoutStore();
   await again.getState().hydrate(localLayoutPersistence(storage));
-  assert.equal(again.getState().prefs.customisablePanels, true);
+  assert.equal(again.getState().prefs.customisablePanelsByShell?.core, true);
   assert.deepEqual(again.getState().doc("p", ZONES).floats.a, { ...R, z: 1 });
 });

@@ -132,6 +132,13 @@ export { OverlayPortal, TransformedHost, useInTransformedHost } from "@/componen
 export { LayoutHost, PanelMount, lazyPanelBody, useLayout, usePanelStates, zonePanels } from "@/layout/LayoutHost";
 export { PanelToggles } from "@/layout/PanelToggles";
 export {
+  customisablePanels,
+  customisablePanelsRequired,
+  setCustomisablePanels,
+  useCustomisablePanels,
+  useCustomisablePanelsRequired,
+} from "@/layout/customisable";
+export {
   COMMAND_PALETTE_COMMAND,
   COMMAND_PALETTE_SHORTCUT,
   CommandPaletteHost,

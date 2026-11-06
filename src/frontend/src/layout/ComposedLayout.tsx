@@ -142,6 +142,7 @@ export function installShell(spec: UiShellSpec | null): () => void {
       toastAnchor: spec.chrome?.toastAnchor,
       version: spec.layout?.version,
       migrate: spec.layout?.migrate,
+      customisablePanels: spec.layout?.customisablePanels,
     },
     listShellModes().map((m) => m.id),
   );

@@ -439,6 +439,18 @@
 //          Behaviour change: a composed shell no longer mounts a palette of its
 //          own, and the palette is on unless a shell turns it off. "Reset every
 //          mode's layout" is greyed, with the reason, in a UI without modes.
+//          "Customisable panels" is per UI shell (`LayoutPrefs.customisablePanelsByShell`;
+//          the one setting of before, `LayoutPrefs.customisablePanels`, is moved to
+//          core's own UI's on load) and REQUIRED by a composed shell
+//          (`UiShellLayout.customisablePanels`: "required", the default, or
+//          "optional"): always on there, the Options toggle disabled with the
+//          reason. Every reader asks one selector, on `@/viewer-core/layout`:
+//          `customisablePanels`, `customisablePanelsRequired`,
+//          `setCustomisablePanels`, `useCustomisablePanels`,
+//          `useCustomisablePanelsRequired`; `LayoutStoreState.setCustomisablePanels`
+//          takes the shell id. Behaviour change: turning the setting off in core's
+//          UI no longer breaks the Desktop UI's docked layout, and is kept
+//          for core's UI across a switch.
 export const VIEWER_CORE_API_VERSION = "1.14.0";
 
 // ---------------------------------------------------------------------------
