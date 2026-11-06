@@ -10,7 +10,7 @@ import type React from "react";
 import type { PanelId } from "./panel";
 import { listPanels } from "./registry";
 import { activeShellMode, listShellModes, setShellMode } from "./shellModes";
-import { registerShortcut, unregisterShortcut, type ShortcutKeys } from "./shortcuts";
+import { coreShortcutKeys, registerShortcut, unregisterShortcut, type ShortcutKeys } from "./shortcuts";
 
 export interface CommandSpec {
   /** Unique, e.g. `"my-shell:file.open"`. A later registration under the same id replaces it. */
@@ -22,9 +22,14 @@ export interface CommandSpec {
   /** Also a shortcut (core's own keys are refused, see `RESERVED_SHORTCUTS`). */
   keys?: ShortcutKeys;
   /**
-   * A chord shown beside the command in the palette and the menus, bound to
-   * nothing: for a key core already handles itself (`RESERVED_SHORTCUTS`), which
-   * `keys` would refuse. Ignored when `keys` is given.
+   * The id of a core shortcut (`core:...`, see `CORE_SHORTCUTS`) that does what this command does:
+   * its chord is shown beside the command, read from the registry, so the menu, the dialog and the
+   * binding share one definition. Binds nothing itself. Ignored when `keys` is given.
+   */
+  shortcut?: string;
+  /**
+   * A display-only chord, bound to nothing, for a key handled outside the registry. Prefer `shortcut`.
+   * Ignored when `keys` or a known `shortcut` is given.
    */
   chordLabel?: string;
   run(): void;
@@ -73,9 +78,9 @@ export function unregisterCommand(id: string): void {
   changed();
 }
 
-/** The chord to show beside a command: its `keys`, else its display-only `chordLabel`. */
-export function commandChord(c: Pick<CommandSpec, "keys" | "chordLabel">): string | undefined {
-  return c.keys || c.chordLabel || undefined;
+/** The chord to show beside a command: its `keys`, else its core `shortcut`'s, else its display-only `chordLabel`. */
+export function commandChord(c: Pick<CommandSpec, "keys" | "chordLabel" | "shortcut">): string | undefined {
+  return c.keys || (c.shortcut ? coreShortcutKeys(c.shortcut) : undefined) || c.chordLabel || undefined;
 }
 
 /** Core's commands: one per panel with a title (show or hide it) and one per mode of the active shell. */

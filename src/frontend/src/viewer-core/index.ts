@@ -159,6 +159,14 @@
 //          toast `ConversionProgress` with `isClaimed` (loads a host reports
 //          elsewhere). The node editor's toolbar actions `request_list_of_nodes`
 //          and `start_new_node_editor`.
+//          Core's own keys in the shortcut registry: `CORE_SHORTCUTS` /
+//          `CORE_SHORTCUT_GROUPS` (every global viewer key as a `core:` entry; the
+//          keys a widget keeps for itself are marked `local`), listed by
+//          `listShortcuts`, with `RESERVED_SHORTCUTS` derived from them;
+//          `CommandSpec.shortcut` (a command shows the chord of the core shortcut
+//          it names, in place of a hand-written `chordLabel`), `coreShortcutKeys`,
+//          `installShortcutDispatcher` (the one shared keydown listener) and
+//          `RegisteredShortcut.local`. Additive.
 //          The shared `CollapsibleSection` (its `"section"` and `"caret"`
 //          looks), on `@/viewer-core/layout`. Additive.
 //          Rearranging panels. On the root: `PanelAction.menu` (`PanelMenuItem`),
@@ -464,12 +472,16 @@ export type { ViewportAnchor, ViewportOverlaySpec } from "@/layout/viewportOverl
 // Shortcuts a shell or plugin adds; core's own keys are reserved (dependency-free).
 export {
   RESERVED_SHORTCUTS,
+  coreShortcutKeys,
   listShortcuts,
   parseShortcut,
   registerShortcut,
   unregisterShortcut,
 } from "@/layout/shortcuts";
 export type { RegisteredShortcut, ShortcutKeys, ShortcutSpec } from "@/layout/shortcuts";
+export { CORE_SHORTCUTS, CORE_SHORTCUT_GROUPS } from "@/layout/coreShortcutTable";
+export type { CoreShortcutDef } from "@/layout/coreShortcutTable";
+export { installShortcutDispatcher } from "@/layout/shortcutDispatch";
 // A panel in a browser window of its own (dependency-free).
 export {
   POPOUT_PARAM,

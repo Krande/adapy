@@ -3,7 +3,7 @@
 // wraps an action core already has -- the viewer's keys (Shift+H, Shift+A,
 // Ctrl+Z, ...), the Options panel's toggles, the layout's workspaces -- and adds
 // no behaviour of its own. Chords core already handles are shown with
-// `chordLabel` (binding them again would be refused, see `RESERVED_SHORTCUTS`).
+// `shortcut`, which names the registry entry (`./coreShortcutTable`) that binds the key, so the\n// chord shown is the real one.
 //
 // The scene-side actions are imported when run, so registering the commands
 // costs no scene code.
@@ -74,7 +74,7 @@ export function coreCommandSpecs(): CommandSpec[] {
       id: ID.undo,
       label: "Undo",
       group: "Edit",
-      chordLabel: "Ctrl+Z",
+      shortcut: "core:undo",
       disabledReason: () => builderOwnsHistory() ?? (useViewerHistoryStore.getState().past.length ? null : "Nothing to undo"),
       run: () => void import("@/utils/scene/viewerHistory").then((m) => m.undoViewerAction()),
     },
@@ -82,7 +82,7 @@ export function coreCommandSpecs(): CommandSpec[] {
       id: ID.redo,
       label: "Redo",
       group: "Edit",
-      chordLabel: "Ctrl+Y",
+      shortcut: "core:redo",
       disabledReason: () => builderOwnsHistory() ?? (useViewerHistoryStore.getState().future.length ? null : "Nothing to redo"),
       run: () => void import("@/utils/scene/viewerHistory").then((m) => m.redoViewerAction()),
     },
@@ -104,7 +104,7 @@ export function coreCommandSpecs(): CommandSpec[] {
       id: ID.copyNames,
       label: "Copy names",
       group: "Edit",
-      chordLabel: "Shift+C",
+      shortcut: "core:copy-names",
       disabledReason: nothingSelected,
       run: () =>
         void import("@/utils/clipboard/copySelectionNames").then((m) => m.copySelectionNames(useSelectedObjectStore.getState().selectedObjects)),
@@ -113,7 +113,7 @@ export function coreCommandSpecs(): CommandSpec[] {
       id: ID.groupSelection,
       label: "Save selection as group…",
       group: "Edit",
-      chordLabel: "Shift+G",
+      shortcut: "core:group-selection",
       disabledReason: nothingSelected,
       run: () => void import("@/utils/groups/groupShortcut").then((m) => m.groupSelectionFromKeyboard()),
     },
@@ -121,7 +121,7 @@ export function coreCommandSpecs(): CommandSpec[] {
       id: ID.hideSelected,
       label: "Hide selected",
       group: "Edit",
-      chordLabel: "Shift+H",
+      shortcut: "core:hide-selected",
       disabledReason: nothingSelected,
       run: () => void visibility().then((m) => m.hideSelectedRanges()),
     },
@@ -129,7 +129,7 @@ export function coreCommandSpecs(): CommandSpec[] {
       id: ID.hideOthers,
       label: "Hide others",
       group: "Edit",
-      chordLabel: "Shift+I",
+      shortcut: "core:hide-others",
       disabledReason: nothingSelected,
       run: () => void visibility().then((m) => m.hideUnselectedRanges()),
     },
@@ -137,7 +137,7 @@ export function coreCommandSpecs(): CommandSpec[] {
       id: ID.showAll,
       label: "Show all",
       group: "Edit",
-      chordLabel: "Shift+U",
+      shortcut: "core:show-all",
       run: () => void visibility().then((m) => m.unhideAllRanges()),
     },
     // View
@@ -145,7 +145,7 @@ export function coreCommandSpecs(): CommandSpec[] {
       id: ID.fitAll,
       label: "Fit all",
       group: "View",
-      chordLabel: "Shift+A",
+      shortcut: "core:fit-all",
       disabledReason: noScene,
       run: () =>
         void camera().then((m) => {
@@ -158,7 +158,7 @@ export function coreCommandSpecs(): CommandSpec[] {
       id: ID.fitSelection,
       label: "Fit selection",
       group: "View",
-      chordLabel: "Shift+F",
+      shortcut: "core:fit-selection",
       disabledReason: () => noScene() ?? nothingSelected(),
       run: () =>
         void camera().then((m) => {
@@ -204,7 +204,7 @@ export function coreCommandSpecs(): CommandSpec[] {
       id: ID.gallery,
       label: "Gallery mode",
       group: "View",
-      chordLabel: "Shift+W",
+      shortcut: "core:toggle-gallery",
       checked: () => useGalleryStore.getState().enabled,
       run: () => useGalleryStore.getState().toggle(),
     },

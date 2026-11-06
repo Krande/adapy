@@ -231,8 +231,23 @@ the chrome it draws in the slots.
 | | `bodyPalette` | Tailwind palette variables (`--color-gray-800`, `--color-blue-600`, ...) redefined inside core's panel bodies only (elements marked `data-ada-panel-body`), so every core body takes the shell's colours without a copy; or a function of the user's theme. Also on the canvas-less pages. A core body drawn outside a panel (a dialog, a flyout) is wrapped in `<PanelBodyPalette>` (`@/viewer-core/layout`; `panelId` adds that panel's own palette) to take it. |
 | | group header | In a group narrower than `COMPACT_GROUP_PX` (340 px) the header's actions fold into one "More actions" menu; close stays in the bar. Nothing to configure. |
 | | `chrome.toastAnchor` | The corner core's progress toast sits in. |
-| Keys | `registerShortcut`, `registerCommand({keys})` | Chords other than core's own (`RESERVED_SHORTCUTS`). |
-| | `registerCommand({chordLabel})` | A chord shown beside the command in the palette and menus, bound to nothing: for a key core already handles (`keys` would refuse it). Ignored when `keys` is given. |
+| Keys | `registerShortcut`, `registerCommand({keys})` | Chords other than core's own (`RESERVED_SHORTCUTS`, derived from the registry, see below). A refused chord is warned about and ignored. |
+| | `registerCommand({shortcut})` | The id of a core shortcut (`core:fit-all`, ...): the command shows that entry's chord in the palette and menus. Binds nothing itself; ignored when `keys` is given. Core's own commands name their keys this way. |
+| | `registerCommand({chordLabel})` | A display-only chord for a key handled outside the registry. Prefer `shortcut`. |
+
+Core's own keys live in the same registry as yours. `CORE_SHORTCUTS` (ids under `core:`) lists every
+one; `listShortcuts()` returns them first, then registered ones and non-core panels' toggles, and the
+shortcuts dialog draws exactly that list, grouped (`CORE_SHORTCUT_GROUPS`). `RESERVED_SHORTCUTS` is the
+chords of the entries plugins may not take. One keydown listener (`installShortcutDispatcher`, shared by
+the layout and a mounted viewer, so a key never fires twice) runs the dispatched entries; it ignores keys
+typed into an input, textarea, select or editable element and keys a widget already handled.
+
+Two kinds of core entry. *Dispatched* ones (Shift+H / I / G / U / F / A / Q / W / P / R / T / C and
+Shift+Arrows, Ctrl+Z / Y / Shift+Z / C, Shift+Enter in the procedural builder) run in the registry's
+listener, bound by the mounted viewer. *Local* ones (`local: true`) are keys a widget keeps because it needs
+its own state: the gallery strip's arrows and PageUp / PageDown, the procedural builder's tool keys and
+numeric entry, a tree's Esc, the panel-zone keys F6 / Shift+F6 and Esc on a floating window. They are
+listed in the dialog and (F6, Esc) reserved, but never dispatched. Rebinding a core key is not offered.
 | Menus | `MenuDef.items` | Command ids, separators, actions of the menu's own, or a submenu `{label, items}` (nesting). Right arrow opens a submenu, Left closes it, Escape closes the menu; a submenu with nothing offered is left out. |
 
 Layout state helpers on `@/viewer-core/layout`: `resetArrangement`, `saveWorkspace`,
@@ -436,8 +451,8 @@ leaves stranded):
 core's own (`CORE_COMMAND_IDS` on `@/viewer-core`, with `themeCommandId`,
 `uiShellCommandId`, `workspaceCommandId`), registered for **every** composed
 shell, so another shell's menus can name them too. Each wraps an action core
-already has: the viewer's keys (shown with `chordLabel`: Ctrl+Z, Shift+H,
-Shift+A, ...), the Options panel's toggles, the theme presets, the switcher,
+already has: the viewer's keys (each names its registry entry with `shortcut`, so
+the chord shown is the real one: Ctrl+Z, Shift+H, Shift+A, ...), the Options panel's toggles, the theme presets, the switcher,
 `openNewWindow`, `resetArrangement` and the workspaces, and the shortcuts dialog
 (`openShortcutsDialog`; a composed layout mounts its host). A command greys
 itself with a reason where the key would do nothing (nothing selected, nothing

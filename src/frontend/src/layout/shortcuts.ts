@@ -1,15 +1,20 @@
-// Keyboard shortcuts a shell or a plugin adds, and the panel shortcuts of
-// panels that are not core's (`PanelSpec.shortcut`), dispatched by one listener
-// the layout mounts (`./ShortcutKeys`) and listed in the shortcuts dialog.
+// Keyboard shortcuts: core's own (`./coreShortcutTable`), the ones a shell or a
+// plugin adds, and the panel shortcuts of panels that are not core's
+// (`PanelSpec.shortcut`). One registry, so the keys are bound, listed in the
+// shortcuts dialog (`listShortcuts`), shown beside a command (`coreShortcutKeys`)
+// and checked for conflicts from the same entries. The listener that dispatches
+// them is `./shortcutDispatch`.
 //
-// Core's own keys stay where they are handled (the viewer's key handler, the
-// trees, the cell builder) and are RESERVED here: a registration that names one
-// is refused with a warning, so nothing silently takes a key users know.
+// Core's entries are always present (they are data); a viewer gives them their
+// handlers while it is mounted (`bindCoreShortcuts`). A registration that names a
+// chord core handles is refused with a warning, so nothing silently takes a key
+// users know.
 //
 // Dependency-free, so the facade root can export it.
 
 import type { PanelId } from "./panel";
 import { listPanels } from "./registry";
+import { CORE_SHORTCUTS } from "./coreShortcutTable";
 
 /** A chord in the shared vocabulary: modifiers then the key, `+`-joined (`"Shift+K"`, `"Ctrl+Alt+M"`). */
 export type ShortcutKeys = string;
@@ -22,13 +27,22 @@ export interface ShortcutSpec {
   label: string;
   /** The dialog's group. Default: "Shell and plugins". */
   group?: string;
-  run(): void;
-  /** Live only while this holds. */
-  when?(): boolean;
+  /** Return `false` when the press was not handled after all: its default is then left alone. */
+  run(): void | boolean;
+  /** Live only while this holds (given the key event when there is one). */
+  when?(e?: ShortcutKeyEvent): boolean;
+  /** Also fire on auto-repeat (a held key). Default: only the first press. */
+  repeat?: boolean;
+  /** Leave the browser's default for the key alone once handled. Default: it is prevented. */
+  keepDefault?: boolean;
 }
 
 export interface RegisteredShortcut extends ShortcutSpec {
   owner: string;
+  /** A key a widget handles itself (core's local keys): listed, never dispatched. */
+  local?: boolean;
+  /** Listed only while this holds (core's panel keys). */
+  requires?: "customisable-panels";
 }
 
 interface Chord {
@@ -49,22 +63,70 @@ export function parseShortcut(keys: ShortcutKeys): Chord | null {
 
 const chordKey = (c: Chord) => `${c.ctrl ? "c" : ""}${c.alt ? "a" : ""}${c.shift ? "s" : ""}+${c.key}`;
 
-/** The chords core handles itself (the shortcuts dialog's global, gallery and cell builder lists). */
-export const RESERVED_SHORTCUTS: readonly ShortcutKeys[] = [
-  ..."HIGUFAQWPRTC".split("").map((k) => `Shift+${k}`),
-  "Shift+Enter",
-  "Shift+ArrowUp",
-  "Shift+ArrowDown",
-  "Shift+ArrowLeft",
-  "Shift+ArrowRight",
-  "Ctrl+C",
-  "Ctrl+Z",
-  "Ctrl+Y",
-  "Ctrl+Shift+Z",
-  "F6",
-  "Shift+F6",
-  "Escape",
-];
+/** What a viewer does for a dispatched core shortcut. */
+export interface CoreShortcutHandler {
+  run(): void | boolean;
+  when?(e?: ShortcutKeyEvent): boolean;
+}
+
+/** Core's entries as the registry holds them: always listed, live once a viewer has bound handlers. */
+const _core = new Map<string, RegisteredShortcut>();
+const _handlers = new Map<string, CoreShortcutHandler[]>();
+
+for (const def of CORE_SHORTCUTS) {
+  const handlers = () => _handlers.get(def.id) ?? [];
+  _core.set(def.id, {
+    id: def.id,
+    keys: def.keys,
+    label: def.label,
+    group: def.group,
+    owner: "core",
+    local: def.local,
+    requires: def.requires,
+    repeat: true,
+    keepDefault: def.keepDefault,
+    // Every viewer bound (a page may hold several, each scoped) gets its say.
+    when: (e) => !def.local && handlers().some((h) => !h.when || h.when(e)),
+    run: () => {
+      let handled = false;
+      for (const h of handlers()) {
+        if (h.when && !h.when()) continue;
+        if (h.run() !== false) handled = true;
+      }
+      return handled;
+    },
+  });
+}
+
+/** Give core's dispatched shortcuts their handlers (by id); returns the undo. Called by a mounted viewer. */
+export function bindCoreShortcuts(handlers: Readonly<Record<string, CoreShortcutHandler>>): () => void {
+  const bound: [string, CoreShortcutHandler][] = [];
+  for (const [id, h] of Object.entries(handlers)) {
+    const def = _core.get(id);
+    if (!def || def.local) {
+      console.warn(`[layout] "${id}" is not a dispatched core shortcut; ignored`);
+      continue;
+    }
+    _handlers.set(id, [...(_handlers.get(id) ?? []), h]);
+    bound.push([id, h]);
+  }
+  return () => {
+    for (const [id, h] of bound) {
+      const rest = (_handlers.get(id) ?? []).filter((x) => x !== h);
+      if (rest.length) _handlers.set(id, rest);
+      else _handlers.delete(id);
+    }
+  };
+}
+
+/** The chord of core shortcut `id` (what a command with `shortcut: id` shows), if there is one. */
+export function coreShortcutKeys(id: string): ShortcutKeys | undefined {
+  return _core.get(id)?.keys;
+}
+
+/** The chords plugins are refused: core's dispatched keys, and its local keys that nothing else may take. */
+const reservedEntries = CORE_SHORTCUTS.filter((d) => d.reserves ?? !d.local);
+export const RESERVED_SHORTCUTS: readonly ShortcutKeys[] = [...new Set(reservedEntries.map((d) => d.keys))];
 const reserved = new Set(RESERVED_SHORTCUTS.map((k) => chordKey(parseShortcut(k)!)));
 
 const _shortcuts = new Map<string, RegisteredShortcut>();
@@ -95,10 +157,10 @@ export function unregisterShortcut(id: string): void {
   _shortcuts.delete(id);
 }
 
-/** Registered shortcuts, then non-core panels' `shortcut`s (as "Show or hide <title>"). */
+/** Core's shortcuts, then registered ones, then non-core panels' `shortcut`s (as "Show or hide <title>"). */
 export function listShortcuts(toggle?: (id: PanelId) => void): RegisteredShortcut[] {
-  const out = [..._shortcuts.values()];
-  const taken = new Set(out.map((s) => chordKey(parseShortcut(s.keys)!)));
+  const out = [..._core.values(), ..._shortcuts.values()];
+  const taken = new Set(out.filter((s) => !s.local).map((s) => chordKey(parseShortcut(s.keys)!)));
   for (const p of listPanels()) {
     if (p.owner === "core" || !p.shortcut) continue;
     const chord = parseShortcut(p.shortcut);
@@ -122,20 +184,22 @@ export interface ShortcutKeyEvent {
   ctrlKey: boolean;
   metaKey: boolean;
   altKey: boolean;
+  target?: EventTarget | null;
 }
 
-/** The shortcut a key press asks for, if any (and live). */
+/** The shortcut a key press asks for, if any (and live). Local entries are never matched. */
 export function matchShortcut(e: ShortcutKeyEvent, list: readonly RegisteredShortcut[]): RegisteredShortcut | null {
   const pressed = chordKey({ key: e.key.toLowerCase(), shift: e.shiftKey, ctrl: e.ctrlKey || e.metaKey, alt: e.altKey });
   for (const s of list) {
-    if (chordKey(parseShortcut(s.keys)!) !== pressed) continue;
-    if (s.when && !s.when()) continue;
+    if (s.local || chordKey(parseShortcut(s.keys)!) !== pressed) continue;
+    if (s.when && !s.when(e)) continue;
     return s;
   }
   return null;
 }
 
-/** Clear the registry -- unit tests only. */
+/** Clear the registered shortcuts (not core's own) and core's bound handlers -- unit tests only. */
 export function resetShortcuts(): void {
   _shortcuts.clear();
+  _handlers.clear();
 }

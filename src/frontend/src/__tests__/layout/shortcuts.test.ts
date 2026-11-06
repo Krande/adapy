@@ -30,7 +30,7 @@ test("a chord parses into its key and modifiers; Cmd is Ctrl", () => {
 test("a registered shortcut matches its chord only, and only while live", () => {
   let live = true;
   let ran = 0;
-  assert.equal(registerShortcut({ id: "x", keys: "Shift+K", label: "Do X", run: () => ran++, when: () => live }, "shell"), true);
+  assert.equal(registerShortcut({ id: "x", keys: "Shift+K", label: "Do X", run: () => void ran++, when: () => live }, "shell"), true);
   const list = listShortcuts();
   assert.equal(matchShortcut(press("K", { shift: true }), list)?.id, "x", "Shift gives the upper-case key");
   assert.equal(matchShortcut(press("k"), list), null);
@@ -46,7 +46,7 @@ test("core's own keys and a taken chord are refused; the same id replaces its ow
   assert.equal(registerShortcut({ id: "a", keys: "Shift+K", label: "A", run() {} }, "p"), true);
   assert.equal(registerShortcut({ id: "b", keys: "shift+k", label: "B", run() {} }, "p"), false);
   assert.equal(registerShortcut({ id: "a", keys: "Shift+L", label: "A2", run() {} }, "p"), true);
-  assert.deepEqual(listShortcuts().map((s) => [s.id, s.keys]), [["a", "Shift+L"]]);
+  assert.deepEqual(listShortcuts().filter((s) => s.owner !== "core").map((s) => [s.id, s.keys]), [["a", "Shift+L"]]);
 });
 
 test("a non-core panel's shortcut toggles it; core's panels keep their own handlers", () => {
@@ -55,8 +55,8 @@ test("a non-core panel's shortcut toggles it; core's panels keep their own handl
   registerPanel({ id: "core:x", title: "X", body, shortcut: "Shift+X" }, "core");
   const toggled: string[] = [];
   const list = listShortcuts((id) => toggled.push(id));
-  assert.deepEqual(list.map((s) => s.id), ["panel:p:one"], "a reserved chord and core's panels are left out");
+  assert.deepEqual(list.filter((s) => s.owner !== "core").map((s) => s.id), ["panel:p:one"], "a reserved chord and core's panels are left out");
   matchShortcut(press("O", { shift: true }), list)!.run();
   assert.deepEqual(toggled, ["p:one"]);
-  assert.equal(list[0].label, "Show or hide One");
+  assert.equal(list.find((s) => s.id === "panel:p:one")!.label, "Show or hide One");
 });
