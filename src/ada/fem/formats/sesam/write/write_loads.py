@@ -269,6 +269,10 @@ def load_str(load: Load, lid, ndofs: NodeDofs | None = None) -> str:
         out = load_line(load, lid)
         if out == "":
             return ""
+    elif load.type == Load.TYPES.TRACTION:
+        out = load_traction(load, lid)
+        if out == "":
+            return ""
     elif load.type == Load.TYPES.TEMPERATURE:
         out = load_temperature(load, lid)
         if out == "":
@@ -626,6 +630,47 @@ def load_pressure(load: Load, load_id: int) -> str:
             )
     for why, ids in sorted(refused.items()):
         rep.omitted(STAGE, "Load", load.name, why, elements=sorted(ids, key=int)[:10], n_elements=len(ids))
+    return out
+
+
+#: BEUSLO's LOTYP for a surface load by components: three global components per node, GeniE's form of a
+#: ``component2d_constant`` (``genie_loads_all_kinds_T1.FEM``, LC_comp: ``BEUSLO 14 2 0 0 / ELNO 12 0 2`` and
+#: ``fx fy fz`` at each of the four nodes).
+TRACTION_LOTYP = 2
+
+
+def load_traction(load, load_id: int) -> str:
+    """A surface traction (:class:`~ada.fem.LoadSurfaceTraction`) as one BEUSLO per shell element of its surface:
+    LOTYP 2, NDOF three per node, the traction's global components at each node, as GeniE writes it. Solids and
+    anything but a shell are refused by name."""
+    from ada.fem.shapes.definitions import ShellShapes
+
+    rep = report()
+    groups = _pressure_groups(_pressure_region(load))
+    if groups is None:
+        rep.omitted(STAGE, "Load", load.name, "a traction on a node-based surface has no BEUSLO form")
+        return ""
+    out, refused = "", []
+    for members, side in groups:
+        resolved = _pressure_side_and_sign(side)
+        for el in sorted(members, key=lambda e: e.id):
+            if not isinstance(getattr(el, "type", None), ShellShapes) or resolved is None:
+                refused.append(str(getattr(el, "id", el)))
+                continue
+            beuslo_side, _ = resolved
+            values = [c for _ in el.nodes for c in load.traction]
+            out += write_ff(
+                "BEUSLO",
+                [
+                    (load_id, TRACTION_LOTYP, 0, PRESSURE_LAYER),
+                    (el.id, len(values), PRESSURE_INTNO, beuslo_side),
+                    *_four_per_line(values),
+                ],
+            )
+    if refused:
+        rep.omitted(
+            STAGE, "Load", load.name, "a traction on an element that is not a shell face", elements=refused[:10]
+        )
     return out
 
 

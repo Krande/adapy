@@ -28,8 +28,9 @@ class LoadTypes:
     PRESSURE = "pressure"
     LINE = "line"
     TEMPERATURE = "temperature"
+    TRACTION = "traction"
 
-    all = [GRAVITY, ACC, ACC_ROT, FORCE, FORCE_SET, MASS, PRESSURE, LINE, TEMPERATURE]
+    all = [GRAVITY, ACC, ACC_ROT, FORCE, FORCE_SET, MASS, PRESSURE, LINE, TEMPERATURE, TRACTION]
 
 
 class Load(FemBase):
@@ -262,6 +263,27 @@ class LoadPressure(Load):
     @property
     def distribution(self) -> str:
         return self._distribution
+
+
+class LoadSurfaceTraction(Load):
+    """A surface traction: a force per unit area ``traction`` (global components, any direction -- in the surface's
+    plane, across it or both) on the faces of ``surface`` (a ``Surface``, or an element set of shells).
+
+    Sesam: BEUSLO with LOTYP 2, three components per node (GeniE's own form of a ``component2d_constant`` surface
+    load). Code_Aster: ``FORCE_COQUE`` FX/FY/FZ on shells. Abaqus: ``*Dsload TRVEC``.
+    """
+
+    def __init__(self, name: str, traction, surface, amplitude: Amplitude | None = None):
+        t = tuple(float(c) for c in traction)
+        if len(t) != 3:
+            raise ValueError(f"LoadSurfaceTraction {name!r}: a traction has three components")
+        super().__init__(name, LoadTypes.TRACTION, float(np.linalg.norm(t)), amplitude=amplitude)
+        self.traction = t
+        self._surface = surface
+
+    @property
+    def surface(self):
+        return self._surface
 
 
 class LoadGravity(Load):

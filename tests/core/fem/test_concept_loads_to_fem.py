@@ -30,9 +30,9 @@ from ada.fem.formats import conversion_report
 STAGE = "concept to fem"
 FILES = pathlib.Path(__file__).resolve().parents[3] / "files" / "fem_files" / "sesam"
 
-#: The load cases whose loads the GeniE XML reader refuses (each reported there): a component traction. adapy writes
-#: them as empty load cases.
-REFUSED_BY_READER = {"LC_comp"}
+#: The load cases whose loads the GeniE XML reader refuses (each reported there). adapy writes them as empty load
+#: cases. (LC_comp, a component traction, is read now: BEUSLO LOTYP 2.)
+REFUSED_BY_READER: set = set()
 
 #: GeniE's own resultant per load case (summed force, moment of the BNLOADs about their node), read off
 #: ``genie_loads_all_kinds_T1.FEM``. adapy's deck must give the same.
@@ -54,6 +54,8 @@ GENIE_RESULTANTS = {
     # 1000 Pa over a 2 x 0.5 m polygon wound +z: eight half-covered 0.5 m elements at 500 Pa, along +z.
     "LC_poly": ((0, 0, 1000), (0, 0, 0)),
     "LC_grav": ((0, 0, 0), (0, 0, 0)),
+    # (100, 0, -1000) Pa by components (LOTYP 2) on the front of the 4 x 1 m plate
+    "LC_comp": ((400, 0, -4000), (0, 0, 0)),
 }
 
 
@@ -117,6 +119,11 @@ def load_records(fem_path) -> dict[str, dict[tuple, tuple]]:
             if b < a:
                 a, b, q = b, a, q[3:] + q[:3]
             out[names[int(v[0])]][("BELLO2", a, b)] = q
+        elif name == "BEUSLO" and int(v[1]) == 2:
+            # by components: three per node, compared as given (and the element side)
+            xs = [coord[k] for k in elnodes[int(v[4])]]
+            comps = _round(v[8 : 8 + int(v[5])])
+            out[names[int(v[0])]][("BEUSLO", _key(np.mean(xs, axis=0)))] = (comps, int(v[1]), int(v[7]))
         elif name == "BEUSLO":
             xs = [coord[k] for k in elnodes[int(v[4])]]
             normal = _shell_normal(xs)
@@ -159,6 +166,11 @@ def resultants(fem_path) -> dict[str, tuple[tuple, tuple]]:
                 length = np.linalg.norm(b - a)
             q = np.asarray(v[9:15], dtype=float)
             force[int(v[0])] += 0.5 * (q[:3] + q[3:]) * length
+        elif name == "BEUSLO" and int(v[1]) == 2:
+            # by components: the traction times the element's area (_shell_normal's length)
+            xs = [coord[k] for k in elnodes[int(v[4])]]
+            per_node = np.asarray(v[8 : 8 + int(v[5])], dtype=float).reshape(-1, 3)
+            force[int(v[0])] += per_node.mean(axis=0) * np.linalg.norm(_shell_normal(xs))
         elif name == "BEUSLO":
             xs = [coord[k] for k in elnodes[int(v[4])]]
             force[int(v[0])] += np.mean(v[8 : 8 + int(v[5])]) * _shell_normal(xs)

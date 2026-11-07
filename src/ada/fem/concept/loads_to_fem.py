@@ -451,6 +451,11 @@ class _Converter:
         surface = self.fem.add_surface(
             Surface(self._name(f"{base}_surf"), Surface.TYPES.ELEMENT, sets, el_face_index=sides, parent=self.fem)
         )
+        if load.traction is not None:
+            # a traction by components: the same faces, its components turned with the part into global axes
+            from ada.fem import LoadSurfaceTraction
+
+            return [LoadSurfaceTraction(base, tuple(_vec(owner, load.traction)), surface)]
         pressure, gradient = _global_pressure(owner, load)
         return [LoadPressure(base, pressure, surface, gradient=gradient)]
 

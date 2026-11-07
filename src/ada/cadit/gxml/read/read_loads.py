@@ -53,8 +53,11 @@ the Sesam records GeniE meshed them into are the oracle for every reading below)
   reader read (:mod:`.read_bcs`, run first); one on a support that was refused, or on a rigid
   link, is refused with it.
 
-Refused by name: a non-identity ``coordinate_system``; component surface loads
-(``component2d_constant``); rotation fields;
+A **surface traction by components** (``component2d_constant``) on a plate side is read as a
+:class:`LoadConceptSurface` with a ``traction`` (GeniE meshed it as BEUSLO LOTYP 2, the components at every node:
+``genie_loads_all_kinds_T1.FEM``, LC_comp).
+
+Refused by name: a non-identity ``coordinate_system``; a traction over a polygon footprint; rotation fields;
 equipment loads; and every element, footprint or intensity kind not named above.
 """
 
@@ -268,6 +271,17 @@ def _explicit_load(el: ET.Element, geometry: _Geometry):
         q1, q2 = _line_intensity(intensity)
         start, end = _line_footprint(footprint, geometry)
         return LoadConceptLine(name, start, end, q1, q2, system=system)
+    if el.tag == "surface_load" and intensity.tag == "component2d_constant":
+        # a traction by components (GeniE: BEUSLO LOTYP 2, three components per node; genie_loads_all_kinds LC_comp)
+        values = intensity.findall("intensity")
+        if len(values) != 1:
+            raise _Refused(intensity.tag, f"expected one intensity, found {len(values)}")
+        _check_attributes(values[0], {"fx", "fy", "fz"}, intensity.tag)
+        traction = _xyz(values[0], ("fx", "fy", "fz"))
+        if footprint.tag == "footprint_polygon":
+            raise _Refused(intensity.tag, "a traction over a polygon footprint; only a whole plate side is read")
+        plate, side = _surface_footprint(footprint, geometry)
+        return LoadConceptSurface(name, plate_ref=plate, side=side, system=system, traction=traction)
     if el.tag == "surface_load":
         pressure, gradient = _surface_intensity(intensity)
         if footprint.tag == "footprint_polygon":
@@ -359,9 +373,7 @@ def _line_intensity(intensity: ET.Element):
     raise _Refused(intensity.tag, "no concept line load holds this kind of line intensity")
 
 
-_SURFACE_REFUSALS = {
-    "component2d_constant": "a surface traction by components; LoadConceptSurface holds a normal pressure only",
-}
+_SURFACE_REFUSALS: dict[str, str] = {}
 
 
 def _surface_intensity(intensity: ET.Element) -> tuple[float, tuple[float, float, float] | None]:

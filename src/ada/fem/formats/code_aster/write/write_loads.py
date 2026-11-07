@@ -31,6 +31,7 @@ def write_load(load: Load, amplitude_written: bool = False) -> str:
         Load.TYPES.LINE: line_load_str,
         Load.TYPES.FORCE: point_load_str,
         Load.TYPES.ACC_ROT: rotation_load_str,
+        Load.TYPES.TRACTION: traction_load_str,
     }
 
     load_str_writer = load_str_map.get(load.type, None)
@@ -90,6 +91,34 @@ def rotation_load_str(load: Load) -> str:
     group = "" if load.fem_set is None else f", GROUP_MA='{load.fem_set.name}'"
     return f"""{concept_name(load, "load")} = AFFE_CHAR_MECA(
     MODELE=model, ROTATION=_F(VITESSE={load.angular_velocity!r}, AXE=({axis}), CENTRE=({centre}){group})
+)"""
+
+
+def traction_load_str(load: Load) -> str:
+    """A surface traction (:class:`~ada.fem.LoadSurfaceTraction`) as ``FORCE_COQUE`` FX/FY/FZ, a force per unit area in
+    global components (U4.44.01), on each shell element set of its surface. A traction on solids is refused by name."""
+    from ada.fem.shapes.definitions import ShellShapes
+    from ada.fem.surfaces import pressure_elsets
+
+    try:
+        groups = pressure_elsets(load.surface)
+    except ValueError as e:
+        raise UnsupportedLoadType(f"traction {load.name!r}: {e}") from e
+    rows = []
+    comps = ", ".join(f"{c}={float(v)!r}" for c, v in zip(("FX", "FY", "FZ"), load.traction))
+    for fem_set, _ in groups:
+        if not all(isinstance(getattr(el, "type", None), ShellShapes) for el in fem_set.members):
+            raise UnsupportedLoadType(
+                f"code_aster writer: traction {load.name!r} on {fem_set.name!r}, which is not all shells; FORCE_COQUE "
+                "loads shells"
+            )
+        rows.append(f"        _F(GROUP_MA='{fem_set.name}', {comps}),")
+    body = "\n".join(rows)
+    return f"""{concept_name(load, "load")} = AFFE_CHAR_MECA(
+    MODELE=model,
+    FORCE_COQUE=(
+{body}
+    ),
 )"""
 
 

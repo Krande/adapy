@@ -54,10 +54,9 @@ ALL_KINDS_RESULTANTS = {
     "LC_poly": (0.0, 0.0, 1000.0),
 }
 
-#: The load cases whose one load is refused, and the construct it is refused under.
-ALL_KINDS_REFUSED = {
-    "LC_comp": "component2d_constant",
-}
+#: The load cases whose one load is refused, and the construct it is refused under. (LC_comp, a traction by
+#: components, is read now.)
+ALL_KINDS_REFUSED: dict[str, str] = {}
 
 
 def _read(example_files, tmp_path, fixture):
@@ -394,3 +393,13 @@ def test_a_varying_pressure_is_read_as_its_linear_field(all_kinds, case):
     assert load.plate_ref.name == "Pl1" and load.side == "front"
     assert load.pressure == pytest.approx(1000.0) and load.pressure_gradient == pytest.approx((500.0, 0.0, 0.0))
     assert load.pressure_at((4.0, 3.5, 0.0)) == pytest.approx(3000.0)
+
+
+def test_a_traction_by_components_is_read_as_one(all_kinds):
+    """``component2d_constant`` on Pl1's front: a LoadConceptSurface with the traction (100, 0, -1000) and no
+    pressure (GeniE meshed it as BEUSLO LOTYP 2 with those components at every node)."""
+    part, _ = all_kinds
+    (load,) = part.concept_fem.loads.load_cases["LC_comp"].loads
+    assert isinstance(load, LoadConceptSurface)
+    assert load.traction == (100.0, 0.0, -1000.0) and load.pressure is None
+    assert load.plate_ref.name == "Pl1" and load.side == "front"

@@ -15,6 +15,7 @@ def load_str(load: Load) -> str:
         Load.TYPES.PRESSURE: pressure_load_str,
         Load.TYPES.LINE: line_load_str,
         Load.TYPES.ACC_ROT: rotation_load_str,
+        Load.TYPES.TRACTION: traction_load_str,
     }
     load_str_func = load_map.get(load.type, None)
 
@@ -33,6 +34,22 @@ def acceleration_field_str(load: Load) -> str:
     kind = "Gravity" if load.type == Load.TYPES.GRAVITY else "Acceleration"
     return render_block(
         "Dload", (), [f", GRAV, {format_number(load.magnitude)}, {dof_str}"], [f"Name: {load.name}   Type: {kind}"]
+    )
+
+
+def traction_load_str(load: Load) -> str:
+    """A surface traction (:class:`~ada.fem.LoadSurfaceTraction`): ``*Dsload TRVEC`` on its surface, the traction's
+    magnitude and its global direction (a general surface traction, Abaqus Analysis User's Guide 34.4.3)."""
+    import numpy as np
+
+    t = np.asarray(load.traction, dtype=float)
+    mag = float(np.linalg.norm(t))
+    if mag == 0.0:
+        return ""
+    d = ", ".join(format_number(float(c)) for c in t / mag)
+    target = get_instance_name(load.surface, True)
+    return render_block(
+        "Dsload", (), [f"{target}, TRVEC, {format_number(mag)}, {d}"], [f"Name: {load.name}   Type: Traction"]
     )
 
 

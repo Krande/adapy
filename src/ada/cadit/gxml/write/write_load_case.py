@@ -227,7 +227,7 @@ def add_loads(root: ET.Element, part: Part) -> None:
                 from ada.fem.concept.loads_to_fem import _global_pressure
 
                 # positions are written in global axes, so is a varying pressure's field
-                pressure, gradient = _global_pressure(part_, load)
+                pressure, gradient = (None, None) if load.traction is not None else _global_pressure(part_, load)
                 if load.plate_ref:
                     add_surface_load_plate(
                         global_elem,
@@ -238,6 +238,7 @@ def add_loads(root: ET.Element, part: Part) -> None:
                         side=load.side,
                         system=load.system,
                         gradient=gradient,
+                        traction=load.traction,
                     )
                 else:
 

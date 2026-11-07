@@ -122,11 +122,19 @@ class LoadConceptSurface:
     side: Literal["front", "back"] = "front"
     system: Literal["local", "global"] = "local"
     pressure_gradient: tuple[float, float, float] | None = None
+    #: A traction instead of a normal pressure: a force per unit area by components (fx, fy, fz) in the load's
+    #: axes (GeniE's ``component2d_constant``). ``pressure`` is then not used.
+    traction: tuple[float, float, float] | None = None
     parent: LoadConceptCase = field(init=False, repr=False)
 
     def __post_init__(self):
         if self.plate_ref is None and self.points is None:
             raise ValueError("Either plate_ref or points must be provided for LoadConceptSurface.")
+        if self.traction is not None:
+            t = tuple(float(c) for c in self.traction)
+            if len(t) != 3:
+                raise ValueError("traction must have three components")
+            self.traction = t
         if self.pressure_gradient is not None:
             g = tuple(float(c) for c in self.pressure_gradient)
             if len(g) != 3:

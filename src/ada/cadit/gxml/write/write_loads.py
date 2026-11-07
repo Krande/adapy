@@ -216,9 +216,11 @@ def add_surface_load_plate(
     side: Literal["front", "back"] = "front",
     system: Literal["local", "global"] = "local",
     gradient=None,
+    traction=None,
 ) -> ET.Element:
     """
-    Adds a <surface_load> that references a plate.
+    Adds a <surface_load> that references a plate. ``traction`` (fx, fy, fz): a traction by components instead of a
+    pressure, GeniE's ``component2d_constant``.
 
     Args:
         global_elem (ET.Element): The <global> element.
@@ -250,6 +252,11 @@ def add_surface_load_plate(
     footprint = ET.SubElement(surface_load, "footprint")
     ET.SubElement(footprint, "footprint_plate", {"plate_ref": plate_ref, "side": side})
 
+    if traction is not None:
+        intensity = ET.SubElement(surface_load, "intensity")
+        comp = ET.SubElement(intensity, "component2d_constant", {"intensity_system": system, "position_system": system})
+        ET.SubElement(comp, "intensity", {k: str(float(v)) for k, v in zip(("fx", "fy", "fz"), traction)})
+        return surface_load
     _add_pressure_intensity(surface_load, pressure, gradient, system)
     return surface_load
 
