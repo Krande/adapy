@@ -262,18 +262,39 @@ def pressure_load_str(load: Load) -> str:
     except ValueError as e:
         raise UnsupportedLoadType(f"pressure load {load.name!r} has no Calculix *DLOAD form: {e}") from e
 
+    from ada.fem.shapes.definitions import SolidShapes
+
     data = []
     for fem_set, side in groups:
-        for el in fem_set.members:
-            el_type = getattr(el, "type", None)
-            if el_type is None or not isinstance(el_type, ShellShapes):
+        types = {getattr(el, "type", None) for el in fem_set.members}
+        if types and all(isinstance(t, SolidShapes) for t in types):
+            # a solid face: ccx numbers a solid's faces as Abaqus does (P1..P6 for C3D8, the same faces as S1..S6;
+            # CalculiX manual 6.2), and a solid surface's side is its Abaqus face ("S3", or the reader's 0-based
+            # int); a positive pressure pushes into the face, as in Abaqus
+            face = _solid_face(side)
+            if face is None:
                 raise UnsupportedLoadType(
-                    f"pressure load {load.name!r} acts on a {el_type} element; Calculix *DLOAD numbers a "
-                    f"solid's faces individually and this writer only establishes the shell case"
+                    f"pressure load {load.name!r} on solids names no face ({side!r}); *DLOAD P<n> needs one"
                 )
+            data.append(f"{fem_set.name}, P{face}, {float(load.magnitude)}")
+            continue
+        if not all(isinstance(t, ShellShapes) for t in types):
+            raise UnsupportedLoadType(
+                f"pressure load {load.name!r} acts on {sorted(map(str, types))}; *DLOAD loads shells or solid faces"
+            )
         data.append(f"{fem_set.name}, {PRESSURE_LABEL}, {_pressure_sign(side) * load.magnitude}")
 
     return "** Name: {0}   Type: Pressure\n*Dload{1}\n{2}".format(load.name, _amplitude_param(load), "\n".join(data))
+
+
+def _solid_face(side) -> int | None:
+    """The 1-based Abaqus face number a solid surface's side names: ``"S3"`` -> 3, the reader's 0-based ``2`` -> 3."""
+    if isinstance(side, (int, float)) and not isinstance(side, bool):
+        return int(side) + 1
+    s = str(side).strip().upper()
+    if s.startswith("S") and s[1:].isdigit():
+        return int(s[1:])
+    return None
 
 
 def line_load_str(load: LoadLine, deck: DeckContext) -> str:

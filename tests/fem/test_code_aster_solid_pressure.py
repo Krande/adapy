@@ -19,6 +19,7 @@ import pytest
 
 import ada
 from ada.fem import Bc, Elem, FemSection, FemSet, LoadPressure, StepImplicitStatic
+from ada.fem.outputs import FieldOutput
 from ada.fem.shapes.definitions import SolidShapes
 from ada.fem.surfaces import get_surface_from_nodes_on_solid_elements
 from ada.materials.metals import CarbonSteel
@@ -112,6 +113,13 @@ def _case_fields(res):
     return out
 
 
+#: what each solver's results file holds: Sestra's SIN single precision, CalculiX's .frd six significant digits
+#: (1.23456E-05), Code_Aster's MED doubles -- as a share of the settlement, and of the reaction sum
+_DIGITS = {"code_aster": 1e-12, "sesam": 1e-6, "calculix": 1e-5}
+_SUM_REL = {"code_aster": 1e-9, "sesam": 1e-6, "calculix": 1e-5}
+
+_U_RF = FieldOutput("u_rf", nodal=["U", "RF"])
+
 _COLUMNS = [
     pytest.param(SolidShapes.HEX8, (1, 1, 1), id="one_element"),
     pytest.param(SolidShapes.HEX8, (2, 3, 4), id="2x3x4"),
@@ -121,7 +129,7 @@ _COLUMNS = [
 ]
 
 
-@pytest.mark.parametrize("solver", ["code_aster", "sesam"])
+@pytest.mark.parametrize("solver", ["code_aster", "sesam", "calculix"])
 @pytest.mark.parametrize("shape, mesh", _COLUMNS)
 def test_a_column_pressed_on_its_top_face_settles_by_pL_over_E(tmp_path, require_solver, shape, mesh, solver):
     """On Sestra this is the check of the solid side tables (solid_sides): the top face named by its Abaqus number has
@@ -138,6 +146,7 @@ def test_a_column_pressed_on_its_top_face_settles_by_pL_over_E(tmp_path, require
     fem.add_bc(Bc("bxy", fem.add_set(FemSet("c0", [nodes[0, 0, 0]], "nset")), [1, 2]))
     fem.add_bc(Bc("by", fem.add_set(FemSet("c1", [nodes[nx, 0, 0]], "nset")), [2]))
     step = a.fem.add_step(StepImplicitStatic("press"))
+    step.add_field_output(_U_RF)  # CalculiX writes only what is asked for, and the default is U alone
     step.add_load(LoadPressure("p_top", pressure, _face_surface(p, "top", top)))
 
     res = a.to_fem("col", solver, scratch_dir=tmp_path, overwrite=True, execute=True, lazy=True)
@@ -146,14 +155,14 @@ def test_a_column_pressed_on_its_top_face_settles_by_pL_over_E(tmp_path, require
         x, y, z = n.p
         # the exact uniaxial field: w = -p z / E, u = nu p x / E, v = nu p y / E
         want = (NU * pressure * x / E, NU * pressure * y / E, -pressure * z / E)
-        # Sestra's SIN holds single precision: 1e-6 of the settlement there, 1e-12 in Code_Aster's MED
-        tol = (1e-6 if solver == "sesam" else 1e-12) * pressure / E * L
+        tol = _DIGITS[solver] * pressure / E * L
         assert u[int(n.id)] == pytest.approx(want, abs=tol), (int(n.id), tuple(n.p))
-    rel = 1e-6 if solver == "sesam" else 1e-9
-    assert sum(r[2] for r in reac.values()) == pytest.approx(pressure * a_ * b_, rel=rel)
+    rel = _SUM_REL[solver]
+    # over the supported nodes: CalculiX's FORC is the internal force at every node, the loaded ones' included
+    assert sum(reac[int(n.id)][2] for n in bottom) == pytest.approx(pressure * a_ * b_, rel=rel)
 
 
-@pytest.mark.parametrize("solver", ["code_aster", "sesam"])
+@pytest.mark.parametrize("solver", ["code_aster", "sesam", "calculix"])
 @pytest.mark.parametrize("shape", [*(s for s in _CELL_SPLIT), *_QUADRATIC], ids=lambda s: s.value.lower())
 def test_a_column_read_back_from_its_sesam_deck_still_settles_by_pL_over_E(tmp_path, require_solver, shape, solver):
     """The column written to a Sesam deck and read back (``ada.from_fem``): its BEUSLO records come back as the faces
@@ -173,20 +182,19 @@ def test_a_column_read_back_from_its_sesam_deck_still_settles_by_pL_over_E(tmp_p
 
     back = ada.from_fem(next((tmp_path / "deck").glob("*T1.FEM")))
     # A Sesam deck asks for no output, so its read step has none (read_loads.READ_STEP_NAME); Sestra writes every
-    # field regardless, Code_Aster only those asked for. Ask for the default fields, as on a step made in adapy.
+    # field regardless, Code_Aster and CalculiX only those asked for.
     for part in back.get_all_parts_in_assembly(include_self=True):
         for step in part.fem.steps:
-            step.add_field_output(step.get_default_output_variables()[1])
+            step.add_field_output(_U_RF)
     res = back.to_fem("col", solver, scratch_dir=tmp_path, overwrite=True, execute=True, lazy=True)
     u, reac = _case_fields(res)
     xyz = {int(n.id): n.p for part in back.get_all_parts_in_assembly(include_self=True) for n in part.fem.nodes}
-    tol = (1e-6 if solver == "sesam" else 1e-12) * pressure / E * L
+    tol = _DIGITS[solver] * pressure / E * L
     for nid, (x, y, z) in xyz.items():
         want = (NU * pressure * x / E, NU * pressure * y / E, -pressure * z / E)
         assert u[nid] == pytest.approx(want, abs=tol), (nid, (x, y, z))
-    assert sum(r[2] for r in reac.values()) == pytest.approx(
-        pressure * a_ * b_, rel=1e-6 if solver == "sesam" else 1e-9
-    )
+    held = [nid for nid, (x, y, z) in xyz.items() if abs(z) < 1e-9]
+    assert sum(reac[nid][2] for nid in held) == pytest.approx(pressure * a_ * b_, rel=_SUM_REL[solver])
 
 
 def test_a_varying_pressure_on_a_solid_side_balances_its_force_and_first_moment(tmp_path, require_solver):
