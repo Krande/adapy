@@ -896,6 +896,28 @@ def test_a_case_two_parts_hold_is_converted_once(tmp_path):
     assert resultants(deck)["LC_S1"][0] == (0.0, 0.0, -2000.0)
 
 
+@pytest.mark.parametrize("combined", ["S1", "S2"])
+def test_a_combination_of_either_same_named_case_combines_the_merged_case(tmp_path, combined):
+    """A combination may name the case of the part converted first or last; either way it combines the one merged
+    ``LC`` (both loads), not only the loads of the part it names."""
+    from ada.fem.concept.loads import (
+        LoadConceptCaseCombination,
+        LoadConceptCaseFactored,
+    )
+
+    a = _placed_parts(gather=False)
+    for p in a.get_all_subparts():
+        lcs = p.concept_fem.loads.load_cases
+        lcs["LC"] = lcs.pop(f"LC_{p.name}")
+        lcs["LC"].name = "LC"
+    named = a.get_part(combined)
+    named.concept_fem.loads.add_load_case_combination(
+        LoadConceptCaseCombination("LCC", [LoadConceptCaseFactored(named.concept_fem.loads.load_cases["LC"], 2.0)])
+    )
+    deck, _ = _mesh_and_write_assembly(a, tmp_path)
+    assert resultants(deck)["LCC"][0] == (0.0, 0.0, -8000.0)
+
+
 def test_same_named_cases_of_several_parts_are_one_load_case_as_in_the_genie_xml(tmp_path):
     """S1 and S2 each have a case ``LC``. The GeniE XML writer merges them into one case; the FE conversion made two
     load cases of one name, of which the step kept the second, and S1's load was reported as in no load case and not

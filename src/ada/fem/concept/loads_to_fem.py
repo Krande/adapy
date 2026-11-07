@@ -158,7 +158,7 @@ def add_load_concepts_to_fem(part: Part, fem: FEM, tol: float = 1e-4) -> None:
             report().note(
                 STAGE,
                 "LoadConceptCase",
-                lc.name,
+                f"{lc.name} ({holder.name})",
                 "load cases of this name in several parts are written as one load case holding the loads of each, "
                 "as the GeniE XML writer merges them",
                 part=holder.name,
@@ -167,6 +167,9 @@ def add_load_concepts_to_fem(part: Part, fem: FEM, tol: float = 1e-4) -> None:
         converted.setdefault(owner.name, []).append(lc.name)
         if holder is not owner:
             held_by.setdefault(holder.name, []).append(lc.name)
+    # Every case of a merged name refers to its one FE load case, whichever part's case a combination names.
+    for _holder, lc in held:
+        fe_loads[id(lc)] = step.load_cases[lc.name].loads
     for name, fe_case in step.load_cases.items():
         if not fe_case.loads and not any(conv.settles(lc) for lc in cases if lc.name == name):
             # Sestra V11.3-00 makes no result case of it and says nothing: the user's model, 10 TDLOAD with three
