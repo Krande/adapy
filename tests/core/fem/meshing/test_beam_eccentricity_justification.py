@@ -80,8 +80,11 @@ def test_symmetric_section_flush_top_hangs_by_half_its_height():
     _assert_all_eccentric(fem, np.array([0.0, 0.0, -bm.section.h / 2]))
 
 
-def test_beam_on_its_neutral_axis_has_no_eccentricity():
-    bm = ada.Beam("st", (1.0, 0, 0), (1.0, 1.0, 0), "IPE300", up=(0, 0, 1))
+@pytest.mark.parametrize("section", ["IPE300", "HP160x8", "TG600x300x20x32"])
+def test_beam_with_no_offset_and_no_justification_has_no_eccentricity(section):
+    # An angle or a T is drawn off its nodal line even here (from the top of the leg / mid-height), but with
+    # neither an offset nor a justification the FE keeps the beam on its nodes, as every deck ever read it.
+    bm = ada.Beam("st", (1.0, 0, 0), (1.0, 1.0, 0), section, up=(0, 0, 1))
     fem = _panel(bm).to_fem_obj(0.25, bm_repr="line", pl_repr="shell")
     lines = _line_elems(fem)
     assert lines and all(el.eccentricity is None for el in lines)

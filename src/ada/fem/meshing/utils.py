@@ -238,7 +238,16 @@ def add_beam_ecc_to_elements(beam: Beam, elements: list[Elem]) -> None:
     is the proof: a beam written to a Sesam deck and read back keeps the ``e1``/``e2``
     it was built with.
     """
+    from ada.api.beams.justification import Justification
     from ada.fem.elements import Eccentricity, EccPoint
+
+    # A beam with neither offsets nor a justification is on its axis. (An angle or a T is
+    # drawn from the top of its leg / its mid-height, so ``curve_offset_global`` would give
+    # it the shift to its centroid even here; the FE keeps the long-standing reading that
+    # no offset means no eccentricity, and a Sesam deck of such beams round-trips without
+    # growing a GECCEN.)
+    if beam.e1 is None and beam.e2 is None and beam.justification in (Justification.NA, Justification.UNSET):
+        return
 
     # A missing end means "no offset there", which is what the geometry path assumes
     # too (``curve_offset_local`` zero-fills it), so the interpolation runs to zero.
