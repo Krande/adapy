@@ -179,3 +179,89 @@ def test_charges_that_give_a_simple_keyword_different_values_are_not_merged(monk
     merged = static_lin.merged_charge_str("m", [Fake(a), Fake(a.replace("'a'", "'c'"))])
     assert merged.count("VERI_NORM") == 1
     assert static_lin.merged_charge_str("m", [Fake(a), Fake(b)]) is None
+
+
+def _med_groups(med) -> set[str]:
+    import h5py
+
+    with h5py.File(med) as f:
+        root = f["FAS"][next(iter(f["FAS"]))]["ELEME"]
+        return {bytes(r).rstrip(b"\0").decode().strip() for g in root.values() for r in g["GRO/NOM"][()]}
+
+
+def test_every_net_pressure_group_the_deck_names_is_in_the_mesh(tmp_path):
+    """The deck's net-pressure groups and the mesh's come from two passes over the same loads: pinned equal over
+    several cases, combinations, a general step and a pressure naming its set twice."""
+    from ada.fem import LoadPressure, StepImplicitStatic, Surface
+
+    a, p = panel(
+        {
+            "LC1": [(0, 50e3)],
+            "LC3": [(0, 30e3), (1, 20e3)],
+            "LC4": [(1, -20e3)],
+            "C13": {"LC1": 1.0, "LC3": 1.0},
+            "C134": {"LC1": 1.0, "LC3": 1.0, "LC4": 1.0},
+            "C33": {"LC3": 2.0, "LC1": 0.5},
+        }
+    )
+    plate1 = [el for el in p.fem.elements.shell if max(n.x for n in el.nodes) <= 2 + 1e-6]
+    fs = p.fem.add_set(FemSet("pl1_els", plate1, FemSet.TYPES.ELSET))
+    surf = p.fem.add_surface(Surface("twice", Surface.TYPES.ELEMENT, [fs, fs], el_face_index=[1, -1], parent=p.fem))
+    step = a.fem.add_step(StepImplicitStatic("general"))
+    step.add_load(LoadPressure("g_twice", 1000.0, surf))
+    step.add_load(
+        LoadPressure(
+            "g_once",
+            500.0,
+            p.fem.add_surface(Surface("once", Surface.TYPES.ELEMENT, fs, el_face_index=1, parent=p.fem)),
+        )
+    )
+    comm, _, folder = write(a, tmp_path)
+    named = set(re.findall(r"GROUP_MA='(P[0-9a-f]{8}_\d+)'", comm))
+    assert len(named) >= 4
+    assert named <= _med_groups(folder / "d.med")
+    assert not [n for n in p.fem.elsets if re.fullmatch(r"P[0-9a-f]{8}_\d+", n)]
+
+
+def test_a_group_name_the_mesh_already_has_is_refused_and_nothing_is_left_behind(tmp_path):
+    from ada.fem.exceptions.model_definition import UnsupportedLoadType
+    from ada.fem.formats.code_aster.write.write_loads import (
+        add_pressure_groups,
+        net_pressure_groups,
+    )
+    from ada.fem.formats.code_aster.write.write_steps import all_steps
+
+    a, p = panel({"LC1": [(0, 50e3)], "LC3": [(0, 30e3), (1, 20e3)], "C13": {"LC1": 1.0, "LC3": 1.0}})
+    steps = all_steps(a)
+    (lc,) = [lc for st in steps for lc in st.load_cases.values() if lc.name == "C13"]
+    groups = net_pressure_groups([ld for ld in lc.loads if ld.type == ld.TYPES.PRESSURE])
+    assert len(groups) == 2
+    taken = groups[-1][1]  # the later group: the earlier one would have been added first
+    p.fem.add_set(FemSet(taken, groups[-1][2], FemSet.TYPES.ELSET))
+    before = set(p.fem.elsets)
+    with pytest.raises(UnsupportedLoadType, match=taken):
+        add_pressure_groups(steps, p.fem)
+    assert set(p.fem.elsets) == before
+    with pytest.raises(UnsupportedLoadType, match=taken):
+        a.to_fem("d", "code_aster", scratch_dir=tmp_path, overwrite=True)
+    assert set(p.fem.elsets) == before
+
+
+def test_a_failure_while_adding_the_groups_takes_the_added_ones_off(monkeypatch):
+    from ada.fem.formats.code_aster.write.write_loads import add_pressure_groups
+    from ada.fem.formats.code_aster.write.write_steps import all_steps
+
+    a, p = panel({"LC1": [(0, 50e3)], "LC3": [(0, 30e3), (1, 20e3)], "C13": {"LC1": 1.0, "LC3": 1.0}})
+    before = set(p.fem.elsets)
+    add, calls = p.fem.sets.add, []
+
+    def failing(fs, *args, **kwargs):
+        calls.append(fs.name)
+        if len(calls) == 2:
+            raise RuntimeError("disk full")
+        return add(fs, *args, **kwargs)
+
+    monkeypatch.setattr(p.fem.sets, "add", failing)
+    with pytest.raises(RuntimeError):
+        add_pressure_groups(all_steps(a), p.fem)
+    assert len(calls) == 2 and set(p.fem.elsets) == before

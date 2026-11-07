@@ -259,10 +259,15 @@ def pressure_groups_of_steps(steps) -> list[list[LoadPressure]]:
 def add_pressure_groups(steps: list[Step], fem: FEM) -> list[FemSet]:
     """Add to ``fem`` the mesh groups of the net pressures (:func:`net_pressure_groups`) of every list of pressures the
     deck may write into one charge (:func:`pressure_groups_of_steps`) whose element sets overlap, so they reach the
-    MED file; returns them, for the caller to remove once the deck is written."""
+    MED file; returns them, for the caller to remove once the deck is written.
+
+    All or nothing: every group is worked out, and a name the mesh already has refused, before any is added; a
+    failure while adding takes the ones added off again. (The caller removes them only once this returns.)
+    The deck names the same groups (:func:`pressure_items`), from the same loads by the same function.
+    """
     from ada.fem import FemSet
 
-    added: dict[str, FemSet] = {}
+    wanted: dict[str, list] = {}
     for loads in pressure_groups_of_steps(steps):
         try:
             if not pressures_overlap(loads):
@@ -271,14 +276,22 @@ def add_pressure_groups(steps: list[Step], fem: FEM) -> list[FemSet]:
         except UnsupportedLoadType:
             continue  # refused where the load is written
         for _, name, members, _ in groups:
-            if name in added:
+            if name in wanted:
                 continue
             if name in fem.elsets:
                 raise UnsupportedLoadType(
                     f"pressure loads {[ld.name for ld in loads]}: the mesh already has a group named {name!r}"
                 )
-            added[name] = fem.sets.add(FemSet(name, members, FemSet.TYPES.ELSET, parent=fem))
-    return list(added.values())
+            wanted[name] = members
+    added: list[FemSet] = []
+    try:
+        for name, members in wanted.items():
+            added.append(fem.sets.add(FemSet(name, members, FemSet.TYPES.ELSET, parent=fem)))
+    except BaseException:
+        for fs in added:
+            fem.sets.remove(fs)
+        raise
+    return added
 
 
 def _pressure_items(rows) -> list[tuple[str, str]]:
