@@ -39,6 +39,47 @@ def result_names(steps) -> list[str]:
     return names
 
 
+def case_shell_pressures(steps, part: Part) -> dict[str, dict[int, dict[int, float]]]:
+    """``{result concept: {order number: {element id: p}}}``: the net pressure on each shell element (the sum of every
+    pressure of the case on it) in each case of each linear static step, positive along the element's normal from its
+    node order -- Sesam's sign, as a SIN's ``BEUSLO`` gives it (``FORCE_COQUE``'s ``PRES`` is the other way round,
+    :data:`.write_loads.PRESSURE_SIGN`).
+
+    What the ``.rmed`` reader gives as ``ResultCases.pressures``, through the sidecar: the pressures are input, which
+    the ``.rmed`` does not hold. Cases are numbered as the step writes them (:func:`.steps.static_lin.step_cases`):
+    case ``k`` is order number ``k``. A step solved nonlinearly (``STAT_NON_LINE``, whose order numbers are its
+    increments) is left out, as is a step whose pressures the writer refuses.
+    """
+    from ada.fem.exceptions.model_definition import UnsupportedLoadType
+    from ada.fem.formats import conversion_report
+    from ada.fem.formats.carried_loads import general_step_loads
+
+    from .steps.static_lin import step_cases
+    from .write_constraints import step_charges
+    from .write_loads import STAGE, net_shell_pressures
+
+    cables = any(fs.is_cable for fs in part.fem.sections.lines)
+    out: dict[str, dict[int, dict[int, float]]] = {}
+    with conversion_report.collect():  # the step writers report what they find; this only reads the cases
+        applied = general_step_loads(steps, STAGE)
+        for step, result in zip(steps, result_names(steps)):
+            if not result or cables or (step.nl_geom is True and len(step.load_cases) == 0):
+                continue
+            try:
+                cases = step_cases(step, applied.get(id(step)) or [], step_charges(part, step).bcs)
+                table = {}
+                for k, (_, loads) in enumerate(cases, start=1):
+                    pressures = [ld for ld in loads if ld.type == ld.TYPES.PRESSURE]
+                    if pressures:
+                        net = net_shell_pressures(pressures)
+                        table[k] = {el_id: -pres for (_, el_id), (_, pres) in sorted(net.items())}
+            except UnsupportedLoadType:
+                continue  # refused, by name, where the deck is written
+            if table:
+                out[result] = table
+    return out
+
+
 def steps_str(steps, part: Part) -> str:
     """Every step, each static one into its own result (:func:`result_names`).
 

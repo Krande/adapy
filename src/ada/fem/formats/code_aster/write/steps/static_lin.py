@@ -77,9 +77,11 @@ def _distributed(load: Load) -> bool:
 _SINGLE_VALUED = frozenset({"PESANTEUR", "ROTATION"})
 
 
-def _charge_keywords(load_str: str) -> list[tuple[str, list[str]]]:
-    """The keywords of a load's ``AFFE_CHAR_MECA`` (as :func:`write_load` writes it) and the source of each of their
-    ``_F(...)`` items, ``MODELE`` left out; None when the string is not one such assignment."""
+def _charge_keywords(load_str: str) -> list[tuple[str, list[str] | str]]:
+    """The keywords of a load's ``AFFE_CHAR_MECA`` (as :func:`write_load` writes it), ``MODELE`` left out: a factor
+    keyword (``FORCE_COQUE=(_F(...), ...)``) with the source of each of its ``_F(...)`` items, a simple keyword
+    (``VERI_NORM='NON'``) with the source of its value as a string; None when the string is not one such
+    assignment."""
     import ast
 
     tree = ast.parse(load_str)
@@ -92,7 +94,13 @@ def _charge_keywords(load_str: str) -> list[tuple[str, list[str]]]:
     for kw in call.keywords:
         if kw.arg == "MODELE":
             continue
-        items = kw.value.elts if isinstance(kw.value, (ast.Tuple, ast.List)) else [kw.value]
+        if isinstance(kw.value, (ast.Tuple, ast.List)):
+            items = kw.value.elts
+        elif isinstance(kw.value, ast.Call) and getattr(kw.value.func, "id", None) == "_F":
+            items = [kw.value]
+        else:
+            out.append((kw.arg, ast.get_source_segment(load_str, kw.value)))
+            continue
         out.append((kw.arg, [ast.get_source_segment(load_str, it) for it in items]))
     return out
 
@@ -130,31 +138,68 @@ def merged_charge_str(name: str, loads, fem=None) -> str | None:
     case of several distributed loads is solved over this one charge instead. Measured: merging a case's point loads
     too, two of them on one node, left one of them out (tests/fem/test_code_aster_case_stresses.py: 22.6 kN of
     23.6 kN at the root).
+
+    A simple keyword of the charges (``VERI_NORM='NON'``, which each pressure's charge carries) is written once, and
+    two charges giving it different values are not merged. It was read as an item acting on the whole model, so no
+    two pressures ever shared a charge and a case of two -- -50 kPa on one plate and -20 kPa on another -- got no
+    stresses on a model with beams. The pressures of ``loads`` whose element sets overlap (two pressures on one
+    plate: a combination of two cases loading it) are written as the net pressure on each element
+    (:func:`..write_loads.pressure_items`), over the groups the writer adds for them
+    (:func:`..write_loads.add_pressure_groups`): so they add, as their own charges do.
     """
+    from ..write_loads import (
+        MEMBRANE_PRESSURE,
+        SHELL_PRESSURE,
+        pressure_items,
+        pressures_overlap,
+    )
+
     merged: dict[str, list[str]] = {}
+    simple: dict[str, str] = {}
     seen: dict[str, set] = {}
+
+    def add(key, items) -> bool:
+        if key in _SINGLE_VALUED and key in merged:
+            return False
+        if fem is not None:
+            mine = set()
+            for item in items:
+                entities = _item_entities(item, fem)
+                if entities is None:
+                    return False
+                mine |= entities
+            if mine & seen.get(key, set()) or ("ALL" in mine and key in seen):
+                return False
+            seen.setdefault(key, set()).update(mine)
+        merged.setdefault(key, []).extend(items)
+        return True
+
+    pressures = [ld for ld in loads if ld.type == ld.TYPES.PRESSURE]
+    netted = fem is not None and len(pressures) > 1 and pressures_overlap(pressures)
     for ld in loads:
         keywords = _charge_keywords(write_load(ld))
         if keywords is None:
             return None
         for key, items in keywords:
-            if key in _SINGLE_VALUED and key in merged:
-                return None
-            if fem is not None:
-                mine = set()
-                for item in items:
-                    entities = _item_entities(item, fem)
-                    if entities is None:
-                        return None
-                    mine |= entities
-                if mine & seen.get(key, set()) or ("ALL" in mine and key in seen):
+            if isinstance(items, str):
+                if simple.setdefault(key, items) != items:
                     return None
-                seen.setdefault(key, set()).update(mine)
-            merged.setdefault(key, []).extend(items)
+            elif netted and ld.type == ld.TYPES.PRESSURE and key in (SHELL_PRESSURE, MEMBRANE_PRESSURE):
+                continue  # the pressures' net items, below
+            elif not add(key, items):
+                return None
+    if netted:
+        by_key: dict[str, list[str]] = {}
+        for key, item in pressure_items(pressures):
+            by_key.setdefault(key, []).append(item)
+        for key, items in by_key.items():
+            if not add(key, items):
+                return None
+    head = "".join(f"    {key}={value},\n" for key, value in simple.items())
     body = "".join(
         f"    {key}=(\n" + "".join(f"        {item},\n" for item in items) + "    ),\n" for key, items in merged.items()
     )
-    return f"{name} = AFFE_CHAR_MECA(\n    MODELE=model,\n{body})"
+    return f"{name} = AFFE_CHAR_MECA(\n    MODELE=model,\n{head}{body})"
 
 
 def _case_charges(result: str, cases, fem) -> tuple[list[list[str]], list[str]]:

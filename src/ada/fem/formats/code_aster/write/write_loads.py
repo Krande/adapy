@@ -120,6 +120,182 @@ def _pressure_sign(side) -> float:
     )
 
 
+#: The ``AFFE_CHAR_MECA`` keyword of a pressure on a shell, and on a membrane (which has no ``FORCE_COQUE``).
+SHELL_PRESSURE, MEMBRANE_PRESSURE = "FORCE_COQUE", "PRES_REP"
+
+
+def pressure_rows(load: LoadPressure) -> list[tuple[str, FemSet, float]]:
+    """``(keyword, element set, PRES)`` for each element set a uniform shell pressure acts on: what
+    :func:`pressure_load_str` writes, one ``_F(GROUP_MA=..., PRES=...)`` each. Raises what that refuses."""
+    from ada.fem.shapes.definitions import ShellShapes
+    from ada.fem.surfaces import pressure_elsets
+
+    distribution = getattr(load, "distribution", None)
+    if distribution is not None and distribution != LoadPressure.P_DIST_TYPES.UNIFORM:
+        raise UnsupportedLoadType(
+            f'a "{distribution}" pressure is not a pressure intensity; Code_Aster FORCE_COQUE takes one'
+        )
+
+    surface = getattr(load, "surface", None)
+    region = load.fem_set if surface is None else surface
+    if region is None:
+        raise UnsupportedLoadType(f"pressure load {load.name!r} names neither a surface nor an element set")
+    try:
+        groups = pressure_elsets(region)
+    except ValueError as e:
+        raise UnsupportedLoadType(f"pressure load {load.name!r} has no Code_Aster FORCE_COQUE form: {e}") from e
+
+    rows = []
+    for fem_set, side in groups:
+        membranes = 0
+        for el in fem_set.members:
+            el_type = getattr(el, "type", None)
+            if el_type is None or not isinstance(el_type, ShellShapes):
+                raise UnsupportedLoadType(
+                    f"pressure load {load.name!r} acts on a {el_type} element; FORCE_COQUE is a shell load "
+                    f"and the solid form (PRES_REP) is not established here"
+                )
+            fem_sec = getattr(el, "fem_sec", None)
+            membranes += fem_sec is not None and fem_sec.is_membrane
+        pres = _pressure_sign(side) * load.magnitude
+        if membranes == 0:
+            rows.append((SHELL_PRESSURE, fem_set, pres))
+        elif membranes == len(fem_set.members):
+            # MEMBRANE has no FORCE_COQUE; its pressure is PRES_REP, the face pressure, the same way round.
+            rows.append((MEMBRANE_PRESSURE, fem_set, pres))
+        else:
+            raise UnsupportedLoadType(
+                f"pressure load {load.name!r} acts on element set {fem_set.name!r} of both membranes and shells, "
+                "which Code_Aster loads with different keywords (PRES_REP, FORCE_COQUE); split the set"
+            )
+    return rows
+
+
+def pressures_overlap(loads) -> bool:
+    """Whether an element is loaded by two rows of the pressures ``loads`` (:func:`pressure_rows`): two loads on it,
+    or one load naming it twice (two of its sets, or both of its faces).
+
+    One charge does not add two ``FORCE_COQUE`` (or ``PRES_REP``) items on one cell: the later replaces the earlier
+    (U4.44.01, "règle de surcharge"), where two charges add. Measured, Code_Aster 18.1.7: two -50 kPa pressures on one
+    plate written into one charge loaded it with -50 kPa, half of what the two charges apply.
+    """
+    seen: set[tuple[str, int]] = set()
+    for load in loads:
+        for keyword, fem_set, _ in pressure_rows(load):
+            ids = {(keyword, int(el.id)) for el in fem_set.members}
+            if ids & seen or len(ids) < len(fem_set.members):
+                return True
+            seen |= ids
+    return False
+
+
+def net_shell_pressures(loads) -> dict[tuple[str, int], tuple[object, float]]:
+    """``{(keyword, element id): (element, PRES)}``: the sum of every row of the pressures ``loads`` on each element,
+    as ``PRES`` on its positive face (:data:`PRESSURE_SIGN`: a pressure ``p`` on the negative face is ``-p`` on the
+    positive one, the same load). What the loads apply as separate charges, which add."""
+    net: dict[tuple[str, int], tuple[object, float]] = {}
+    for load in loads:
+        for keyword, fem_set, pres in pressure_rows(load):
+            for el in fem_set.members:
+                key = (keyword, int(el.id))
+                net[key] = (el, net.get(key, (el, 0.0))[1] + float(pres))
+    return net
+
+
+def net_pressure_groups(loads) -> list[tuple[str, str, list, float]]:
+    """``(keyword, group name, elements, PRES)``, one per keyword and distinct net pressure of the pressures ``loads``
+    (:func:`net_shell_pressures`), elements whose pressures cancel left out: the pressures as one charge loads them,
+    where their own element sets overlap (:func:`pressures_overlap`).
+
+    The groups are mesh groups of their own (:func:`add_pressure_groups`), named as a line load's are
+    (:func:`_line_load_groups`): ``P`` and a hash of the loads' names and a counter, deterministic and at most 24
+    characters.
+    """
+    net = net_shell_pressures(loads)
+    scale = max((abs(p) for _, p in net.values()), default=0.0)
+    by_value: dict[tuple[str, float], list] = {}
+    for key in sorted(net):
+        el, pres = net[key]
+        if abs(pres) <= 1e-12 * scale:
+            continue
+        by_value.setdefault((key[0], pres), []).append(el)
+    prefix = "P" + hashlib.sha1("\0".join(ld.name for ld in loads).encode("utf-8")).hexdigest()[:8]
+    return [
+        (keyword, f"{prefix}_{i}", members, pres) for i, ((keyword, pres), members) in enumerate(by_value.items(), 1)
+    ]
+
+
+def pressure_groups_of_steps(steps) -> list[list[LoadPressure]]:
+    """The lists of pressures the deck may write into one charge: each pressure of ``steps`` on its own
+    (:func:`pressure_load_str`), each load case's (``steps.static_lin.merged_charge_str``), and each general static
+    step's own and carried ones."""
+    from ada.fem.formats import conversion_report
+    from ada.fem.formats.carried_loads import general_step_loads
+
+    def pressures(loads) -> list:
+        out, seen = [], set()
+        for ld in loads or []:
+            if ld.type == Load.TYPES.PRESSURE and id(ld) not in seen:
+                seen.add(id(ld))
+                out.append(ld)
+        return out
+
+    with conversion_report.collect():  # the step writers report what they find; this only looks ahead
+        carried = general_step_loads(steps, STAGE)
+    out = []
+    for step in steps:
+        cases = getattr(step, "load_cases", None) or {}
+        lists = [step.loads] + [lc.loads for lc in cases.values()]
+        if id(step) in carried:
+            lists.append(carried[id(step)])
+        for loads in lists:
+            group = pressures(loads)
+            out.extend([ld] for ld in group)
+            if len(group) > 1:
+                out.append(group)
+    return out
+
+
+def add_pressure_groups(steps: list[Step], fem: FEM) -> list[FemSet]:
+    """Add to ``fem`` the mesh groups of the net pressures (:func:`net_pressure_groups`) of every list of pressures the
+    deck may write into one charge (:func:`pressure_groups_of_steps`) whose element sets overlap, so they reach the
+    MED file; returns them, for the caller to remove once the deck is written."""
+    from ada.fem import FemSet
+
+    added: dict[str, FemSet] = {}
+    for loads in pressure_groups_of_steps(steps):
+        try:
+            if not pressures_overlap(loads):
+                continue
+            groups = net_pressure_groups(loads)
+        except UnsupportedLoadType:
+            continue  # refused where the load is written
+        for _, name, members, _ in groups:
+            if name in added:
+                continue
+            if name in fem.elsets:
+                raise UnsupportedLoadType(f"pressure loads {[ld.name for ld in loads]}: the mesh already has a group named {name!r}")
+            added[name] = fem.sets.add(FemSet(name, members, FemSet.TYPES.ELSET, parent=fem))
+    return list(added.values())
+
+
+def _pressure_items(rows) -> list[tuple[str, str]]:
+    """``(keyword, _F(...))`` of ``(keyword, group name, PRES)`` rows."""
+    return [(keyword, f"_F(GROUP_MA='{name}', PRES={pres})") for keyword, name, pres in rows]
+
+
+def pressure_items(loads) -> list[tuple[str, str]]:
+    """``(keyword, item)`` of every ``FORCE_COQUE`` / ``PRES_REP`` item the pressures ``loads`` are written with in
+    one charge: their own element sets, or where those overlap (:func:`pressures_overlap`) the net pressure on each
+    element, over the groups :func:`add_pressure_groups` adds -- so that one charge loads the model as the loads
+    do, each applied in full."""
+    if pressures_overlap(loads):
+        rows = [(keyword, name, pres) for keyword, name, _, pres in net_pressure_groups(loads)]
+    else:
+        rows = [(keyword, fem_set.name, pres) for load in loads for keyword, fem_set, pres in pressure_rows(load)]
+    return _pressure_items(rows)
+
+
 def pressure_load_str(load: LoadPressure) -> str:
     """A uniform pressure on shell elements as ``FORCE_COQUE``, over the element sets it acts on.
 
@@ -141,48 +317,13 @@ def pressure_load_str(load: LoadPressure) -> str:
     node-based surface or a bare element id (a mesh group is named, not an element), and a pressure
     on anything but a shell -- ``PRES_REP`` is the 3D counterpart and which face of a solid a given
     surface side means is not established here.
+
+    A load whose element sets overlap (two of its sets, or both faces of one) is written as the net pressure on each
+    element (:func:`pressure_items`): in one charge an element's later item replaces its earlier one.
     """
-    from ada.fem.shapes.definitions import ShellShapes
-    from ada.fem.surfaces import pressure_elsets
-
-    distribution = getattr(load, "distribution", None)
-    if distribution is not None and distribution != LoadPressure.P_DIST_TYPES.UNIFORM:
-        raise UnsupportedLoadType(
-            f'a "{distribution}" pressure is not a pressure intensity; Code_Aster FORCE_COQUE takes one'
-        )
-
-    surface = getattr(load, "surface", None)
-    region = load.fem_set if surface is None else surface
-    if region is None:
-        raise UnsupportedLoadType(f"pressure load {load.name!r} names neither a surface nor an element set")
-    try:
-        groups = pressure_elsets(region)
-    except ValueError as e:
-        raise UnsupportedLoadType(f"pressure load {load.name!r} has no Code_Aster FORCE_COQUE form: {e}") from e
-
-    rows, membrane_rows = [], []
-    for fem_set, side in groups:
-        membranes = 0
-        for el in fem_set.members:
-            el_type = getattr(el, "type", None)
-            if el_type is None or not isinstance(el_type, ShellShapes):
-                raise UnsupportedLoadType(
-                    f"pressure load {load.name!r} acts on a {el_type} element; FORCE_COQUE is a shell load "
-                    f"and the solid form (PRES_REP) is not established here"
-                )
-            fem_sec = getattr(el, "fem_sec", None)
-            membranes += fem_sec is not None and fem_sec.is_membrane
-        pres = _pressure_sign(side) * load.magnitude
-        if membranes == 0:
-            rows.append(f"        _F(GROUP_MA='{fem_set.name}', PRES={pres}),")
-        elif membranes == len(fem_set.members):
-            # MEMBRANE has no FORCE_COQUE; its pressure is PRES_REP, the face pressure, the same way round.
-            membrane_rows.append(f"        _F(GROUP_MA='{fem_set.name}', PRES={pres}),")
-        else:
-            raise UnsupportedLoadType(
-                f"pressure load {load.name!r} acts on element set {fem_set.name!r} of both membranes and shells, "
-                "which Code_Aster loads with different keywords (PRES_REP, FORCE_COQUE); split the set"
-            )
+    items = pressure_items([load])
+    rows = [f"        {item}," for keyword, item in items if keyword == SHELL_PRESSURE]
+    membrane_rows = [f"        {item}," for keyword, item in items if keyword == MEMBRANE_PRESSURE]
 
     # VERI_NORM='NON' because the group loaded here is the shell model itself, not a skin. The
     # default 'OUI' runs Code_Aster's boundary-orientation check, which wants the named cells to be

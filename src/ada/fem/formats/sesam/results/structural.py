@@ -302,8 +302,17 @@ def read_load_case_map(sin) -> tuple[dict[int, int], dict[int, tuple[tuple[int, 
 
 def read_shell_pressures(sin, numbering: Numbering) -> dict[int, dict[int, float]]:
     """BEUSLO: the mean signed shell pressure ``{load case: {element: p}}`` (``-case`` the imaginary part of a
-    phased one), positive along the element's local z (Sesam's sign)."""
+    phased one), positive along the element's local z (Sesam's sign).
+
+    The records of one element and load case add: an element carries every element load of its case (two pressures
+    on one plate in a case, as a combination of two cases loading it is written). The last record used to replace
+    the others, so a plate under 50 and 30 kPa in one case read back 30 kPa."""
     out: dict[int, dict[int, float]] = {}
+
+    def add(case: int, element: int, values: list[float]) -> None:
+        table = out.setdefault(case, {})
+        table[element] = table.get(element, 0.0) + float(np.mean(values))
+
     for rec in _records(sin, "BEUSLO"):
         if len(rec) < 9:
             continue
@@ -313,11 +322,11 @@ def read_shell_pressures(sin, numbering: Numbering) -> dict[int, dict[int, float
         values = [float(x) for x in rec[8 : 8 + n_values]]
         if not values:
             continue
-        out.setdefault(case, {})[element] = float(np.mean(values))
+        add(case, element, values)
         if case > 0 and int(rec[2]) != 0 and int(rec[5]) > 0:
             imaginary = [float(x) for x in rec[8 + n_values : 8 + 2 * n_values]]
             if len(imaginary) == n_values:
-                out.setdefault(-case, {})[element] = float(np.mean(imaginary))
+                add(-case, element, imaginary)
     return out
 
 

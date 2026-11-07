@@ -23,12 +23,12 @@ from .write_constraints import (
     ref_points_group,
     step_bcs,
 )
-from .write_loads import add_line_load_groups
+from .write_loads import add_line_load_groups, add_pressure_groups
 from .write_masses import mass_model_str, point_masses
 from .write_materials import materials_str
 from .write_med import med_elements, med_nodes
 from .write_sections import create_sections_str, has_shear_deformation
-from .write_steps import all_steps, steps_str
+from .write_steps import all_steps, case_shell_pressures, steps_str
 
 if TYPE_CHECKING:
     from ada.api.spatial import Assembly, Part
@@ -62,6 +62,8 @@ def to_fem(assembly: Assembly, name, analysis_dir, metadata=None, model_data_onl
     # they exist for this deck only and are taken off the model again once it is written.
     line_load_groups = add_line_load_groups(all_steps(assembly), p.fem)
     try:
+        # So are the net pressures of pressures that load one element twice in one charge (write_loads.pressure_items).
+        line_load_groups += add_pressure_groups(all_steps(assembly), p.fem)
         # Code Aster's MED reader drops any GROUP_MA/GROUP_NO name >24 chars
         # at LIRE_MAILLAGE time (MED_7 alarm — bibcxx/IOManager/MedToAsterReader.cxx).
         # Mutate every FemSet name to a deterministic short id BEFORE we
@@ -85,7 +87,12 @@ def to_fem(assembly: Assembly, name, analysis_dir, metadata=None, model_data_onl
         # AND to resolve CAD↔FEA linkage. The .med format has no section
         # / orientation / lineage on its own, so this is the only way to
         # feed the streaming bake without re-parsing the .comm.
-        dump_beams_sidecar(assembly, (analysis_dir / name).with_suffix(".adapy_fem.json"))
+        # With the cases' shell pressures (input data the .rmed does not hold), for a structural check reading them.
+        dump_beams_sidecar(
+            assembly,
+            (analysis_dir / name).with_suffix(".adapy_fem.json"),
+            shell_pressures=case_shell_pressures(all_steps(assembly), p),
+        )
 
         if model_data_only:
             return

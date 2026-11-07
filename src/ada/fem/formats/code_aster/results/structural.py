@@ -8,7 +8,8 @@ wrote beside the run and what Code_Aster wrote:
   and the element groups, named back through ``<name>.name_map.json``;
 * the sidecar ``<name>.adapy_fem.json`` (``..write.beams_sidecar``, schema 6): the beams' sections, local z,
   materials and member names, the shell sections' elements, thickness, material and reference vector, the
-  materials' E / nu / f_y, and the restrained nodes;
+  materials' E / nu / f_y, and the restrained nodes; from schema 7 each case's shell pressures (input data,
+  which the ``.rmed`` does not hold), given as ``cases.pressures`` in the SIN reader's layout and sign;
 * the command file ``<name>.comm``: the load-case names;
 * the results ``<name>.rmed``: ``DEPL``, ``REAC_NODA`` and the element forces ``EFGE_ELNO``.
 
@@ -262,6 +263,7 @@ def open_rmed_result(path: str | os.PathLike):
         stored=stored,
         loader=_Loader(rmed, cells, thickness, frames, beam_of),
         names={s: case_names.get(s, f"case_{s}") for s in stored},
+        pressures=_shell_pressures(side, depl, stored),
     )
     return FEAResult(
         rmed.stem,
@@ -273,6 +275,26 @@ def open_rmed_result(path: str | os.PathLike):
         cases=cases,
         analysis_kind="static",
     )
+
+
+def _shell_pressures(side: dict, depl: str | None, stored: list[int]) -> dict[int, dict[int, float]]:
+    """``{order number: {element: p}}``: the shell pressures of the result read (``depl``, its displacement field) by
+    case, from the sidecar (``shell_pressures``, v7, ``..write.write_steps.case_shell_pressures``) -- the net
+    pressure on each element, positive along its normal, as the SIN reader gives BEUSLO's. Empty for a sidecar
+    without them (an older one, or a model without pressures)."""
+    by_result = side.get("shell_pressures") or {}
+    if not by_result or depl is None:
+        return {}
+    # The field is the result concept padded to 8 characters with "_" and the field's name (``result__DEPL``).
+    concept = depl[: -len("DEPL")].rstrip("_") if len(depl) > len("DEPL") else None
+    cases = by_result.get(concept) if concept else (next(iter(by_result.values())) if len(by_result) == 1 else None)
+    if not cases:
+        return {}
+    out = {int(k): {int(e): float(p) for e, p in table.items()} for k, table in cases.items()}
+    if len(stored) == 1 and set(out) == {1} and stored != [1]:
+        # A step without load cases is one case: its order number is whatever the solver gave it.
+        out = {stored[0]: out[1]}
+    return {k: v for k, v in out.items() if k in set(stored)}
 
 
 def _field(f: h5py.File, suffix: str) -> str | None:
