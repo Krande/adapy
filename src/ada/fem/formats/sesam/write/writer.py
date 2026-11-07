@@ -114,7 +114,7 @@ def to_fem(assembly, name, analysis_dir=None, metadata=None, model_data_only=Fal
     from .write_sections import sections_str
     from .write_springs import property_records
     from .write_springs import spring_matnos as spring_matnos_for
-    from .write_steps import report_steps, write_sestra_inp, written_step
+    from .write_steps import report_steps, write_sestra_inp, written_step, written_steps
 
     if metadata is None:
         metadata = dict()
@@ -192,6 +192,9 @@ def to_fem(assembly, name, analysis_dir=None, metadata=None, model_data_only=Fal
     # report. A velocity BC used to be written as a clamp, and a BC on an assembly-level
     # reference point fixed whichever part node shared its id.
     held_bcs = [SimpleNamespace(bcs=[bc for bc in fem.bcs if bc_is_held(bc, part.fem)]) for fem in fems]
+    # The first step's own BCs hold in every written step (write_steps.written_steps): with the model's.
+    if step is not None and len(step.bcs) > 0:
+        held_bcs.append(SimpleNamespace(bcs=[bc for bc in step.bcs.values() if bc_is_held(bc, part.fem)]))
     # A support in a rotated frame: in global axes where its frame is global axes in another order, else its nodes
     # are transformed (BNDOF / BNTRCOS) and everything at them written in their frame -- see node_frames. The
     # BNTRCOS numbers follow the GUNIVECs', which the SIF asks to keep apart.
@@ -228,7 +231,7 @@ def to_fem(assembly, name, analysis_dir=None, metadata=None, model_data_only=Fal
         d.write("".join(r.to_str() for r in lin_deps))
         d.write(hinges_str(part.fem))
         d.writelines(elem_gen(part.fem, thick_map, spring_matnos, ndofs))
-        d.write(step_loads_str(step, ndofs, untagged, by_case))
+        d.write(step_loads_str(step, ndofs, untagged, by_case, following=written_steps(steps)[1:]))
         d.write("IEND                0.00            0.00            0.00            0.00\n")
 
     if rounding.count:

@@ -47,6 +47,29 @@ def written_step(steps: Sequence[Step]) -> Step | None:
     return steps[0] if steps else None
 
 
+def written_steps(steps: Sequence[Step]) -> list[Step]:
+    """The steps a Sesam conversion writes: the first (:func:`written_step`), and when it is static every static step
+    after it up to the first that is not, or that has boundary conditions of its own -- each becomes load cases of the
+    one deck (``write_loads.step_loads_str``).
+
+    Sestra solves every load case of a deck with the same supports and one analysis (``sestra.inp``), so a static step
+    joins only when it would be solved with the supports the earlier ones are: a step's own ``Bc`` holds from that
+    step on, and in BNBCD it would hold in the earlier cases too. The first step's own boundary conditions hold in
+    every step after it, so they are written with the model's. An eigenvalue or dynamic step is another analysis.
+    """
+    first = written_step(steps)
+    if first is None:
+        return []
+    out = [first]
+    if first.type != Step.TYPES.STATIC:
+        return out
+    for step in steps[1:]:
+        if step.type != Step.TYPES.STATIC or len(step.bcs) > 0:
+            break
+        out.append(step)
+    return out
+
+
 def report_steps(steps: Sequence[Step], sestra_inp_written: bool, model_data_only: bool = False) -> None:
     """Name every step in the report: a Sesam FEM file holds no analysis steps at all.
 
@@ -54,20 +77,29 @@ def report_steps(steps: Sequence[Step], sestra_inp_written: bool, model_data_onl
     static or eigenvalue step a Sestra control file -- and this says what of it is not; the
     rest are left out whole, loads and boundary conditions with them.
     """
+    from .not_held import HELD_BC_TYPES
+
     rep = report()
     first = written_step(steps)
+    written = written_steps(steps)
     for step in steps:
         for name in step.interactions:
             rep.omitted(STAGE, "Interaction", name, "a Sesam file has no contact", step=step.name)
-        if step is not first:
+        if all(step is not w for w in written):
             rep.omitted(
                 STAGE,
                 "Step",
                 step.name,
-                "a Sesam file holds one load set; only the first step is written",
+                "a Sesam file holds one analysis with one set of supports; the static steps from the first are "
+                "written as its load cases up to one that is not static or has boundary conditions of its own, and "
+                "this one is not among them",
                 n_loads=len(step.loads),
                 n_bcs=len(step.bcs),
             )
+            continue
+        if step is not first:
+            if step.nl_geom:
+                rep.approximated(STAGE, "Step", step.name, "Sestra is linear; geometric nonlinearity is not written")
             continue
 
         if sestra_inp_written:
@@ -100,6 +132,7 @@ def report_steps(steps: Sequence[Step], sestra_inp_written: bool, model_data_onl
         if n_out:
             rep.omitted(STAGE, "Step", step.name, "output requests have no Sesam form", n_outputs=n_out)
         for bc in step.bcs.values():
-            # BNBCD is the model's, not a load case's. A step BC written there would hold in
-            # every analysis of the superelement, not just this one.
-            rep.omitted(STAGE, "Bc", bc.name, "a step's boundary condition; BNBCD is not per step", step=step.name)
+            # The first step's own BCs hold in it and every step after it: in BNBCD, with the model's (writer.to_fem).
+            if str(bc.type).lower() in HELD_BC_TYPES:
+                continue
+            rep.omitted(STAGE, "Bc", bc.name, "a step's boundary condition BNBCD cannot hold", step=step.name)

@@ -52,8 +52,11 @@ def steps_str(steps, part: Part) -> str:
     from .write_loads import STAGE
 
     applied = general_step_loads(steps, STAGE)
+    # ``# Step <name>: <result>`` names each static step's result for the reader (results.structural.comm_step_names).
     return "\n".join(
-        create_step_str(step, part, result, applied.get(id(step))) for step, result in zip(steps, result_names(steps))
+        (f"# Step {step.name}: {result}\n" if result else "")
+        + create_step_str(step, part, result, applied.get(id(step)))
+        for step, result in zip(steps, result_names(steps))
     )
 
 

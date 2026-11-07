@@ -470,7 +470,11 @@ def get_loads(bulk_str: str, fem: FEM, unread: dict[str, int] | None = None) -> 
     """
     report_unread_load_records(bulk_str, unread)
     records = list(beuslo_records(bulk_str, fem))
-    if not records:
+    # A settlement read back (BNDISPL, ``read_constraints.get_bcs``) acts in its load case: that case is opened in
+    # the step too, so a writer has a case to put its value in -- the Abaqus writer could otherwise only hold it at
+    # zero. Cases in deck order.
+    settled = [bc.metadata.get(SESAM_LOAD_CASE) for bc in fem.bcs if (bc.metadata or {}).get(SESAM_LOAD_CASE)]
+    if not records and not settled:
         return None
 
     names = load_case_names(bulk_str)
@@ -501,6 +505,13 @@ def get_loads(bulk_str: str, fem: FEM, unread: dict[str, int] | None = None) -> 
             name = f"{lc_name}_pressure" if len(groups) == 1 else f"{lc_name}_pressure{i}"
             loads.append(LoadPressure(name, magnitude, surface))
         step.add_loadcase(LoadCase(lc_name, None, loads=loads))
+    order = {name: llc for llc, name in names.items()}
+    for lc_name in sorted(dict.fromkeys(settled), key=lambda n: order.get(n, 10**9)):
+        if lc_name not in step.load_cases:
+            step.add_loadcase(LoadCase(lc_name, None, loads=[]))
+    if not records:
+        # cases in deck order: the BEUSLO cases above already are
+        step._load_cases = dict(sorted(step.load_cases.items(), key=lambda kv: order.get(kv[0], 10**9)))
     return step
 
 

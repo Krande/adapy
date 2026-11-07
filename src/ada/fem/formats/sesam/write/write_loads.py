@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Sequence
 
 import numpy as np
 
@@ -46,8 +46,16 @@ def step_loads_str(
     ndofs: NodeDofs | None = None,
     prescribed: dict[int, dict[int, float]] | None = None,
     prescribed_cases: dict[str, dict[int, dict[int, float]]] | None = None,
+    following: Sequence[Step] = (),
 ) -> str:
     """The load block of one step: its load cases, or all its loads as one case ``LC1``.
+
+    ``following`` are further static steps written into the same deck (``write_steps.written_steps``): each a load
+    case of its own after ``step``'s, named after the step, or its own load cases. A general step's case holds the
+    loads it is solved for -- its own and those carried from the general steps before it, as adapy's steps follow
+    Abaqus (:func:`ada.fem.formats.carried_loads.general_step_loads`, which the Code_Aster and CalculiX writers use
+    too) -- so each Sestra result case is that step's state. With more than one step a general step's case is named
+    after the step, not ``LC1``.
 
     ``to_fem`` passes the part FEM's dof counts even when the step lives on the assembly,
     because that is where the nodes a load names actually live.
@@ -67,7 +75,10 @@ def step_loads_str(
 
     prescribed = prescribed or {}
     prescribed_cases = prescribed_cases or {}
-    if step is not None and len(step.load_cases.keys()) > 0:
+    steps = ([] if step is None else [step]) + list(following)
+    if len(steps) > 1:
+        cases = _multi_step_cases(steps)
+    elif step is not None and len(step.load_cases.keys()) > 0:
         # A load case may hold no load of its own -- a settlement case of a GeniE model -- and still be a case.
         cases = [(lc.name, lc.loads or []) for lc in step.load_cases.values()]
         _report_loads_outside_cases(step)
@@ -78,7 +89,7 @@ def step_loads_str(
     names = {name for name, _ in cases}
     cases += [(name, []) for name in prescribed_cases if name not in names]
 
-    numbers = case_numbers(step, [name for name, _ in cases])
+    numbers = case_numbers(steps or step, [name for name, _ in cases])
     out_str = ""
     for i, (lc_name, loads) in enumerate(cases):
         lid = numbers[lc_name]
@@ -104,7 +115,40 @@ def step_loads_str(
     return out_str
 
 
-def case_numbers(step: Step | None, names: list[str]) -> dict[str, int]:
+def _multi_step_cases(steps: Sequence[Step]) -> list[tuple[str, list]]:
+    """``[(case name, loads)]`` of several static steps in one deck: a step of load cases gives its cases, a general
+    step one case named after it, holding its own loads and those it carries (see :func:`step_loads_str`). A name
+    met twice (a step named like another step's load case) is suffixed, and reported."""
+    from ada.fem.formats.carried_loads import general_step_loads
+
+    applied = general_step_loads(list(steps), STAGE)
+    out: list[tuple[str, list]] = []
+    taken: set[str] = set()
+    for st in steps:
+        if len(st.load_cases) > 0:
+            _report_loads_outside_cases(st)
+            named = [(lc.name, lc.loads or []) for lc in st.load_cases.values()]
+        else:
+            named = [(st.name, applied.get(id(st), list(st.loads)))]
+        for name, loads in named:
+            unique, k = name, 2
+            while unique in taken:
+                unique, k = f"{name}_{k}", k + 1
+            if unique != name:
+                report().note(
+                    STAGE,
+                    "TDLOAD",
+                    name,
+                    "a load case name another step's case has; written suffixed",
+                    written_as=unique,
+                    step=st.name,
+                )
+            taken.add(unique)
+            out.append((unique, loads))
+    return out
+
+
+def case_numbers(step: Step | Sequence[Step] | None, names: list[str]) -> dict[str, int]:
     """``{case name: LLC}`` -- the number each load case is written under, which is the result case id Sestra gives
     its results.
 
@@ -116,10 +160,11 @@ def case_numbers(step: Step | None, names: list[str]) -> dict[str, int]:
     clash is reported by name.
     """
     given: dict[str, int] = {}
-    if step is not None:
-        for lc in step.load_cases.values():
+    steps = [] if step is None else list(step) if isinstance(step, (list, tuple)) else [step]
+    for st in steps:
+        for lc in st.load_cases.values():
             number = (lc.metadata or {}).get(LOAD_CASE_NUMBER)
-            if lc.name in names and number is not None:
+            if lc.name in names and number is not None and lc.name not in given:
                 given[lc.name] = int(number)
     by_number: dict[int, list[str]] = {}
     for name, number in given.items():
@@ -130,7 +175,7 @@ def case_numbers(step: Step | None, names: list[str]) -> dict[str, int]:
         report().note(
             STAGE,
             "TDLOAD",
-            step.name,
+            steps[0].name,
             "the load cases' numbers are not one distinct positive number each, so the cases are numbered 1..n in "
             "order and Sestra's result case ids are not the numbers given",
             shared=shared,

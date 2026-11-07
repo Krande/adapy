@@ -467,8 +467,8 @@ def test_a_front_pressure_pushes_into_the_plates_normal_side_whatever_the_elemen
 
 def test_the_steps_of_several_meshed_parts_reach_the_writer_which_names_what_it_cannot_hold(tmp_path):
     """A single-part writer gets the parts merged into one, and the merge keeps each part's concept-load step (on the
-    merged part's FEM, re-keyed). Sesam holds one load set per file: it writes the first and names the second, with
-    its loads -- nothing is dropped by the merge without a word."""
+    merged part's FEM, re-keyed). Sesam writes both static steps as load cases of the one deck -- nothing is dropped
+    by the merge, and no step is left out."""
     from ada.fem.concept.loads import LoadConceptCase, LoadConceptPoint
 
     parts = []
@@ -486,8 +486,9 @@ def test_the_steps_of_several_meshed_parts_reach_the_writer_which_names_what_it_
         a.to_fem("two", "sesam", scratch_dir=tmp_path, overwrite=True)
     steps = [f for f in report.findings if f.keyword == "Step" and f.subject == "concept_loads"]
     assert not [f for f in steps if f.stage != "sesam writer"]  # the merge loses no step
-    (unwritten,) = [f for f in steps if f.kind == "omitted" and "only the first step is written" in f.reason]
-    assert unwritten.details == {"n_loads": 1, "n_bcs": 0}
+    assert not [f for f in steps if f.kind == "omitted" and "is not among them" in f.reason]
+    lines = next((tmp_path / "two").glob("*T1.FEM")).read_text().splitlines()
+    assert sorted(lines[i + 1].strip() for i, ln in enumerate(lines) if ln.startswith("TDLOAD")) == ["LC1", "LC2"]
 
 
 @pytest.mark.parametrize("fmt", ["usfos"])
