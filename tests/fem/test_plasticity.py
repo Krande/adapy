@@ -74,3 +74,42 @@ def test_a_bar_pulled_past_yield_carries_the_hardening_curves_stress(tmp_path, r
     ids = {int(n.id) for n in bottom}
     rz = sum(row[3] for row in v if int(row[0]) in ids)
     assert -rz == pytest.approx(_sigma(strain) * A_ * B_, rel=1e-6)
+
+
+def _shell_strip(d: float):
+    """A DKT strip 1 x 0.2 m, 10 mm, held along x at x = 0 (and in y at one node), flat (dz, rotations held), its
+    far edge pulled along x by ``d``: uniaxial plane stress, free to contract sideways."""
+    mat = ada.Material("pl_sh", CarbonSteel("S355", E=E, v=0.3))
+    mat.model.plasticity_model = PlasticityModel(sig_p=[SY, SY + H * 0.05], eps_p=[0.0, 0.05])
+    t, b = 0.01, 0.2
+    pl = ada.Plate("strip", [(0, 0), (L, 0), (L, b), (0, b)], t, mat=mat)
+    p = ada.Part("S") / pl
+    p.fem = p.to_fem_obj(0.1, use_quads=True)
+    fem = p.fem
+    a_side = [n for n in fem.nodes if abs(n.x) < 1e-9]
+    b_side = [n for n in fem.nodes if abs(n.x - L) < 1e-9]
+    fem.add_bc(Bc("ax", fem.add_set(FemSet("a_side", a_side, "nset")), [1]))
+    (a0,) = [n for n in a_side if abs(n.y) < 1e-9]
+    fem.add_bc(Bc("ay", fem.add_set(FemSet("a0", [a0], "nset")), [2]))
+    fem.add_bc(Bc("flat", fem.add_set(FemSet("all", list(fem.nodes), "nset")), [3, 4, 5, 6]))
+    a = ada.Assembly("a") / p
+    step = a.fem.add_step(StepImplicitStatic("pull", init_incr=0.1, total_time=1.0, max_incr=0.1))
+    step.add_bc(Bc("pull", fem.add_set(FemSet("b_side", b_side, "nset")), [1], magnitudes=[d]))
+    return a, a_side, t * b
+
+
+@pytest.mark.parametrize("strain", [0.001, 0.004, 0.02], ids=["elastic", "just_past_yield", "far_past_yield"])
+def test_a_shell_strip_pulled_past_yield_carries_the_hardening_curves_stress(tmp_path, require_solver, strain):
+    """The same uniaxial closed form on first-order shells (DKT), plastic through 5 layers: a shell of a plastic
+    material used to be solved elastic (reported)."""
+    import numpy as np
+
+    require_solver("code_aster")
+    a, a_side, area = _shell_strip(strain * L)
+    res = a.to_fem("plsh", "code_aster", scratch_dir=tmp_path, overwrite=True, execute=True)
+    last = max(r.step for r in res.results if "REAC_NODA" in r.name)
+    reac = next(r for r in res.results if "REAC_NODA" in r.name and r.step == last)
+    v = np.asarray(reac.values, float)
+    ids = {int(n.id) for n in a_side}
+    rx = sum(row[1] for row in v if int(row[0]) in ids)
+    assert -rx == pytest.approx(_sigma(strain) * area, rel=1e-6)

@@ -35,7 +35,15 @@ def create_sections_str(
 
     if len(shells) > 0:
         mat_assign_str_, shell_sections_str = [
-            "".join(x) for x in zip(*[write_shell_section(sh, large_rotations) for sh in shells])
+            "".join(x)
+            for x in zip(
+                *[
+                    write_shell_section(
+                        sh, large_rotations, PLASTIC_SHELL_LAYERS if has_plastic_shells(fem_sections) else 1
+                    )
+                    for sh in shells
+                ]
+            )
         ]
         mat_assign_str += mat_assign_str_
         shell_sections_str = f"\n        COQUE=(\n{shell_sections_str}\n        ),"
@@ -118,7 +126,33 @@ material = AFFE_MATERIAU(
 COQUE_3D_LARGE_ROTATION_DRZ = 1.0e-3
 
 
-def write_shell_section(fem_sec: FemSection, large_rotations: bool = False) -> tuple[str, str]:
+#: The layers through a first-order shell's thickness (``COQUE_NCOU``) in a model with a plastic shell: plasticity is
+#: integrated layer by layer, and one layer would yield its whole thickness at once. Every first-order shell of such a
+#: model has them, so the stresses' middle layer (:func:`shell_mid_layer`) is the same for all.
+PLASTIC_SHELL_LAYERS = 5
+
+
+def has_plastic_shells(fem_sections) -> bool:
+    """Whether a first-order bending shell's material has a hardening curve (write_materials.traction_curve)."""
+    from ada.fem.shapes.definitions import ShellShapes
+
+    from .write_materials import traction_curve
+
+    first = (ShellShapes.QUAD, ShellShapes.TRI)
+    return any(
+        not fs.is_membrane
+        and traction_curve(fs.material) is not None
+        and all(getattr(el, "type", None) in first for el in fs.elset.members)
+        for fs in fem_sections.shells
+    )
+
+
+def shell_mid_layer(fem_sections) -> int:
+    """The layer (``NUME_COUCHE``) whose ``MOY`` level is a first-order shell's mid-surface."""
+    return (PLASTIC_SHELL_LAYERS + 1) // 2 if has_plastic_shells(fem_sections) else 1
+
+
+def write_shell_section(fem_sec: FemSection, large_rotations: bool = False, layers: int = 1) -> tuple[str, str]:
     """A bending shell: ``COQUE`` with its thickness and reference vector; on second-order elements (COQUE_3D) in a
     model with an nlgeom step, the larger ``COEF_RIGI_DRZ`` large rotations need (:data:`COQUE_3D_LARGE_ROTATION_DRZ`).
     """
@@ -135,6 +169,8 @@ def write_shell_section(fem_sec: FemSection, large_rotations: bool = False) -> t
     drz = ""
     if large_rotations and second_order:
         drz = f"\n                COEF_RIGI_DRZ={COQUE_3D_LARGE_ROTATION_DRZ!r},"
+    if layers > 1 and not second_order:
+        drz += f"\n                COQUE_NCOU={layers},"
     sec_str = f"""            _F(
                 GROUP_MA=("{sec_name}"),
                 EPAIS={fem_sec.thickness},

@@ -92,20 +92,29 @@ def large_displacement_groups(part: Part, report: bool = False) -> list[str]:
 def plastic_groups(part: Part, report: bool = False) -> list[str]:
     """The element groups of the solid sections whose material has a hardening curve -- solved with von Mises
     plasticity (``VMIS_ISOT_TRAC``) in a general static step, as an Abaqus general step solves a ``*Plastic``
-    material whatever its ``nlgeom``. A plastic shell or beam needs Code_Aster's layered or multi-fibre sections,
-    which this writer does not make: it stays elastic, reported (``report``)."""
+    material whatever its ``nlgeom``. First-order shells (DKT) too, integrated on layers through the thickness
+    (write_sections.PLASTIC_SHELL_LAYERS). A plastic beam needs multi-fibre sections and a second-order shell is
+    COQUE_3D, which this writer does not make plastic: they stay elastic, reported (``report``)."""
     from ada.fem.formats import conversion_report
 
     from ..write_loads import STAGE
     from ..write_materials import traction_curve
 
+    from ada.fem.shapes.definitions import ShellShapes
+
+    first = (ShellShapes.QUAD, ShellShapes.TRI)
     out = []
     sections = part.fem.sections
-    for fs in sections.solids:
+    layered = [
+        fs
+        for fs in sections.shells
+        if not fs.is_membrane and all(getattr(el, "type", None) in first for el in fs.elset.members)
+    ]
+    for fs in [*sections.solids, *layered]:
         if traction_curve(fs.material) is not None:
             out.append(fs.elset.name)
     if report:
-        for fs in [*sections.shells, *sections.lines]:
+        for fs in [*[sh for sh in sections.shells if sh not in layered], *sections.lines]:
             if traction_curve(fs.material) is not None:
                 conversion_report.current().approximated(
                     STAGE,
@@ -212,8 +221,14 @@ class StatNonLin:
         plastic = plastic_groups(self.part)
         if plastic:
             # von Mises plasticity with isotropic hardening along the material's TRACTION curve (U4.51.11)
-            defo = "GDEF_LOG" if nl_geom else "PETIT"  # large strains with plasticity in an nlgeom step
-            out += f'_F(RELATION="VMIS_ISOT_TRAC", DEFORMATION="{defo}", GROUP_MA={_group_tuple(plastic)}),'
+            solid_names = {fs.elset.name for fs in sections.solids}
+            for groups, defo in (
+                # large strains with plasticity in an nlgeom step (a solid); DKT is small-rotation anyway
+                ([g for g in plastic if g in solid_names], "GDEF_LOG" if nl_geom else "PETIT"),
+                ([g for g in plastic if g not in solid_names], "PETIT"),
+            ):
+                if groups:
+                    out += f'_F(RELATION="VMIS_ISOT_TRAC", DEFORMATION="{defo}", GROUP_MA={_group_tuple(groups)}),'
         return out
 
     @property
@@ -281,7 +296,11 @@ class PostCalc:
         special = _special_groups(self.part)
         others = [fs for fs in sections if not _is_special(fs)]
         shells = [fs.elset.name for fs in sections.shells if not fs.is_membrane]
-        restrict = (lambda groups: f"\n    GROUP_MA={_group_tuple(groups)},") if special else (lambda groups: "")
+
+        # always on the section groups: a coupling's reference points (DIS_TR) and the discretes compute no strains
+        # either (<CALCUL_37>, MECA_DIS_TR_N on EPSP_ELGA, measured 18.1)
+        def restrict(groups):
+            return f"\n    GROUP_MA={_group_tuple(groups)},"
 
         out = f"""
 {name} = CALC_CHAMP(reuse={name}, RESULTAT={name}, FORCE=("REAC_NODA",))"""
@@ -342,6 +361,9 @@ class PostCalc:
             return out
 
         groups = restrict(shells)
+        from ..write_sections import shell_mid_layer
+
+        mid = shell_mid_layer(sections)  # the mid-surface's layer: 3 of 5 on a model with plastic shells
         return (
             out
             + f"""
@@ -350,7 +372,7 @@ stress = POST_CHAMP(
     EXTR_COQUE=_F(
         NIVE_COUCHE='MOY',
         NOM_CHAM=('SIGM_ELNO', ),
-        NUME_COUCHE=1
+        NUME_COUCHE={mid}
     ),{groups}
     RESULTAT={name}
 )
@@ -365,7 +387,7 @@ strain = POST_CHAMP(
     EXTR_COQUE=_F(
         NIVE_COUCHE='MOY',
     NOM_CHAM=('EPSI_ELNO', ),
-    NUME_COUCHE=1),{groups}
+    NUME_COUCHE={mid}),{groups}
     RESULTAT={name}
 )
 
@@ -373,7 +395,7 @@ strainP = POST_CHAMP(
     EXTR_COQUE=_F(
         NIVE_COUCHE='MOY',
     NOM_CHAM=('EPSP_ELNO', ),
-    NUME_COUCHE=1),{groups}
+    NUME_COUCHE={mid}),{groups}
     RESULTAT={name}
 )"""
         )
