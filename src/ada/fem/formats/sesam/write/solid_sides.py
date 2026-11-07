@@ -80,6 +80,28 @@ def side_code(shape, side: int) -> int:
     return 10 ** (n - side)
 
 
+def side_of_code(shape, code: int) -> int | None:
+    """The 1-based side a BEUSLO ``SIDE`` digit pattern names (:func:`side_code`'s inverse), or None when ``shape``
+    has no side table or ``code`` is not one loaded side of it."""
+    table = SESAM_SOLID_SIDES.get(shape)
+    if table is None:
+        return None
+    n = len(table)
+    return next((side for side in range(1, n + 1) if side_code(shape, side) == code), None)
+
+
+def abaqus_face(el, side: int) -> int | None:
+    """The 0-based Abaqus face of solid ``el`` that is its Sesam ``side`` -- :func:`sesam_side` run backwards, so a
+    face read back is the one the writer wrote -- or None when no face is."""
+    from ada.fem.shapes.solids import solid_abaqus_faces
+
+    for face in range(len(solid_abaqus_faces.get(el.type, ()))):
+        found = sesam_side(el, face)
+        if found is not None and found[0] == side:
+            return face
+    return None
+
+
 def sesam_side(el, abaqus_side) -> tuple[int, list] | None:
     """``(Sesam side number, its nodes in RLOAD order)`` of the face of solid ``el`` that ``abaqus_side`` names
     (an Abaqus face, ``"S3"`` or the reader's 0-based int), or None when the element type has no side table or the

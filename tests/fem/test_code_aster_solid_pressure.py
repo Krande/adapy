@@ -153,6 +153,42 @@ def test_a_column_pressed_on_its_top_face_settles_by_pL_over_E(tmp_path, require
     assert sum(r[2] for r in reac.values()) == pytest.approx(pressure * a_ * b_, rel=rel)
 
 
+@pytest.mark.parametrize("solver", ["code_aster", "sesam"])
+@pytest.mark.parametrize("shape", [*(s for s in _CELL_SPLIT), *_QUADRATIC], ids=lambda s: s.value.lower())
+def test_a_column_read_back_from_its_sesam_deck_still_settles_by_pL_over_E(tmp_path, require_solver, shape, solver):
+    """The column written to a Sesam deck and read back (``ada.from_fem``): its BEUSLO records come back as the faces
+    they were written from, so the read model solves to the same exact field -- a reader that lost the solid sides
+    or flipped one would leave the column unloaded or pulled."""
+    require_solver(solver)
+    nx, ny, nz = 2, 2, 2
+    a_, b_, L, pressure = 0.5, 0.8, 2.0, 1.0e7
+    a, p, nodes = _block(nx, ny, nz, a_, b_, L, shape=shape)
+    fem = p.fem
+    fem.add_bc(Bc("bz", fem.add_set(FemSet("bottom", [n for n in fem.nodes if abs(n.p[2]) < 1e-9], "nset")), [3]))
+    fem.add_bc(Bc("bxy", fem.add_set(FemSet("c0", [nodes[0, 0, 0]], "nset")), [1, 2]))
+    fem.add_bc(Bc("by", fem.add_set(FemSet("c1", [nodes[nx, 0, 0]], "nset")), [2]))
+    top = [n for n in fem.nodes if abs(n.p[2] - L) < 1e-9]
+    a.fem.add_step(StepImplicitStatic("press")).add_load(LoadPressure("p_top", pressure, _face_surface(p, "top", top)))
+    a.to_fem("deck", "sesam", scratch_dir=tmp_path, overwrite=True)
+
+    back = ada.from_fem(next((tmp_path / "deck").glob("*T1.FEM")))
+    # A Sesam deck asks for no output, so its read step has none (read_loads.READ_STEP_NAME); Sestra writes every
+    # field regardless, Code_Aster only those asked for. Ask for the default fields, as on a step made in adapy.
+    for part in back.get_all_parts_in_assembly(include_self=True):
+        for step in part.fem.steps:
+            step.add_field_output(step.get_default_output_variables()[1])
+    res = back.to_fem("col", solver, scratch_dir=tmp_path, overwrite=True, execute=True, lazy=True)
+    u, reac = _case_fields(res)
+    xyz = {int(n.id): n.p for part in back.get_all_parts_in_assembly(include_self=True) for n in part.fem.nodes}
+    tol = (1e-6 if solver == "sesam" else 1e-12) * pressure / E * L
+    for nid, (x, y, z) in xyz.items():
+        want = (NU * pressure * x / E, NU * pressure * y / E, -pressure * z / E)
+        assert u[nid] == pytest.approx(want, abs=tol), (nid, (x, y, z))
+    assert sum(r[2] for r in reac.values()) == pytest.approx(
+        pressure * a_ * b_, rel=1e-6 if solver == "sesam" else 1e-9
+    )
+
+
 def test_a_varying_pressure_on_a_solid_side_balances_its_force_and_first_moment(tmp_path, require_solver):
     """``p = 1e5 + 5e4 x`` on the y = 0 face of a 4 x 0.4 x 0.5 m cantilever fixed at x = 0: the y reactions sum to
     ``b_L (p0 L + g L^2 / 2)`` -- the face is 4 m long and 0.5 m high -- and their x-moment centre is the field's
