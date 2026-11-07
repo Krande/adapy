@@ -112,6 +112,10 @@ def create_comm_str(assembly: Assembly, part: Part) -> str:
     mat_str = materials_str(assembly)
     ref_group = ref_points_group(part)
     masses = point_masses(part)
+    from .write_temperature import temperature_field_str, temperature_loads
+
+    temp_loads = temperature_loads(all_steps(assembly))
+    _, temp_varc = temperature_field_str(part, temp_loads)
     sections_str = create_sections_str(
         part.fem.sections,
         has_ref_points=len(couplings) > 0,
@@ -120,6 +124,7 @@ def create_comm_str(assembly: Assembly, part: Part) -> str:
         masses=masses,
         timoshenko=part.fem.options.CODE_ASTER.use_timoshenko_beams,
         large_rotations=any(st.type == "static" and st.nl_geom is True for st in all_steps(assembly)),
+        varc=temp_varc,
     )
     # The part's and the assembly's, each once. ``bcs += assembly.fem.bcs`` on ``part.fem.bcs`` extended the part's own
     # list with the assembly's on every write.
@@ -223,11 +228,13 @@ def create_comm_str(assembly: Assembly, part: Part) -> str:
         input_mesh = output_mesh
         model_type_str += create_ref_points_model_str(ref_group)
 
+    # the temperature field on the mesh the model is built on (write_temperature)
+    temp_defs, _ = temperature_field_str(part, temp_loads, input_mesh)
     comm_str = main_comm_str.format(
         section_sets=section_sets,
         input_mesh=input_mesh,
         model_type_str=model_type_str,
-        materials_str=mat_str,
+        materials_str=temp_defs + mat_str,
         sections_str=sections_str,
         bc_str=bc_str,
         step_str=step_str,

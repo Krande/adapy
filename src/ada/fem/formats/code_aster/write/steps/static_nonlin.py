@@ -398,7 +398,11 @@ def step_static_nonlin_str(step: StepImplicitStatic, part: Part, result: str = "
     from ..write_constraints import step_charges
     from ..write_loads import STAGE
 
-    loads = list(applied) + [ld for ld in step.loads if all(ld is not c for c in applied)]
+    from ..write_temperature import is_temperature, mechanical
+
+    every = list(applied) + [ld for ld in step.loads if all(ld is not c for c in applied)]
+    thermal = any(is_temperature(ld) for ld in every)
+    loads = mechanical(every)
     load_str = "\n".join(list(map(write_load, loads)))
     supports = step_charges(part, step)
     bcs = supports.bcs
@@ -407,7 +411,7 @@ def step_static_nonlin_str(step: StepImplicitStatic, part: Part, result: str = "
     if any(v != 0.0 for v in values.values()):
         prescribed = f"{result}_pd"
         load_str += "\n" + prescribed_charge_str(prescribed, values, bcs)
-    if len(loads) == 0 and not prescribed:
+    if len(loads) == 0 and not prescribed and not thermal:
         raise NoLoadsApplied(f"No loads are applied in step '{step}'")
 
     from ada.fem.formats import conversion_report

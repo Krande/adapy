@@ -269,6 +269,10 @@ def load_str(load: Load, lid, ndofs: NodeDofs | None = None) -> str:
         out = load_line(load, lid)
         if out == "":
             return ""
+    elif load.type == Load.TYPES.TEMPERATURE:
+        out = load_temperature(load, lid)
+        if out == "":
+            return ""
     elif load.type == Load.TYPES.ACC_ROT and _is_rotation(load):
         # on part of the model (fem_set) too: per node, on BNACCLO (load_rotation)
         out = load_rotation(load, lid, ndofs)
@@ -294,6 +298,44 @@ def load_gravity(load: Load, load_id: int) -> str:
         "BGRAV",
         [(load_id, 0, 0, 0), _acceleration(load)],
     )
+
+
+def load_temperature(load, load_id: int) -> str:
+    """A temperature load (:class:`~ada.fem.LoadTemperature`) as one ``BEISTE`` per element ("element with initial
+    strain due to thermal expansion", SIF 7.2.3): ``LLC LOTYP=1 0 TOP=0`` then ``ELNO NNOD INTNO=0`` and the
+    temperature difference to the reference at each of its nodes -- the material's MISOSEL ``ALPHA`` makes it a
+    strain. Sestra takes thermal loads on all elements "except first- and second-order solids" (Sestra UM 2.7.5): a
+    load reaching solids is left out there, reported by name.
+    """
+    from ada.fem.shapes.definitions import SolidShapes
+
+    rep = report()
+    fem = _deck_fems[-1] if _deck_fems else None
+    if fem is None:
+        rep.omitted(STAGE, "Load", load.name, "a temperature load with no deck to find its elements in")
+        return ""
+    els = load.elements(fem)
+    solids = [el for el in els if isinstance(el.type, SolidShapes)]
+    if solids:
+        rep.omitted(
+            STAGE,
+            "Load",
+            load.name,
+            "a temperature load on solid elements; Sestra takes thermal loads on beams and shells only (UM 2.7.5)",
+            n_elements=len(solids),
+        )
+    out = ""
+    dt = float(load.delta)
+    for el in sorted((el for el in els if not isinstance(el.type, SolidShapes)), key=lambda e: e.id):
+        nnod = len(el.nodes)
+        values = [dt] * nnod
+        out += write_ff("BEISTE", [(load_id, 1, 0, 0), (el.id, nnod, 0, values[0]), *_rows4(values[1:])])
+    return out
+
+
+def _rows4(values: list) -> list[tuple]:
+    """``values`` four fields to a line."""
+    return [tuple(values[i : i + 4]) for i in range(0, len(values), 4)]
 
 
 def _is_rotation(load) -> bool:

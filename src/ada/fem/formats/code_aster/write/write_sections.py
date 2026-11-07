@@ -14,6 +14,7 @@ def create_sections_str(
     masses=(),
     timoshenko: bool = False,
     large_rotations: bool = False,
+    varc: str = "",
 ) -> str:
     """``masses``: the point masses (:func:`.write_masses.point_masses`), given their ``DISCRET`` here.
     ``timoshenko``: beams with shear areas carry their shear coefficients (``POU_D_T``, :func:`write_beam_section`)."""
@@ -89,7 +90,7 @@ material = AFFE_MATERIAU(
     MODELE=model,
     AFFE=(
 {mat_assign_str}
-    )
+    ),{varc}
 )
 
 # Shell elements:

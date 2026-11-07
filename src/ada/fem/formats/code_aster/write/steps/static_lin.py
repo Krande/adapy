@@ -245,14 +245,17 @@ def step_static_lin_str(step: StepImplicitStatic, part: Part, result: str = "res
 
     supports = step_charges(part, step)
     bcs = supports.bcs
-    cases = step_cases(step, applied, bcs)
+    from ..write_temperature import is_temperature, mechanical
+
+    thermal = any(is_temperature(ld) for ld in [*applied, *step.loads])
+    cases = [(name, mechanical(lds)) for name, lds in step_cases(step, applied, bcs)]
     loads = _distinct([ld for _, case_loads in cases for ld in case_loads])
     if len(step.load_cases) == 0:
         values = [case_values(bcs, {step.name}, STAGE, step=step.name)]
     else:
         values = [case_values(bcs, {name}, STAGE, step=step.name, load_case=name) for name, _ in cases]
     settled = any(v != 0.0 for case in values for v in case.values())
-    if len(loads) == 0 and not settled:
+    if len(loads) == 0 and not settled and not thermal:
         raise NoLoadsApplied(f"No loads are applied in step '{step}'")
 
     charges = supports.names

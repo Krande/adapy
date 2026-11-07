@@ -46,7 +46,9 @@ def step_buckle_str(step: StepBuckling, part: Part, result: str = "buckle") -> s
         raise NoBoundaryConditionsApplied(f"buckling step {step.name!r}: no boundary condition")
     if len(step.loads) == 0:
         raise NoLoadsApplied(f"buckling step {step.name!r}: no reference load")
-    load_strs = [write_load(ld) for ld in step.loads]
+    from ..write_temperature import mechanical
+
+    load_strs = [write_load(ld) for ld in mechanical(step.loads)]
     load_names = [m.group(1) for s in load_strs for m in [_BOUND.search(s)] if m]
     sec = "\n    CARA_ELEM=element," if has_cara_elem(part) else ""
     excit = "".join(f"_F(CHARGE={n})," for n in [*supports.names, *load_names])

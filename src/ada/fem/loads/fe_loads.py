@@ -27,8 +27,9 @@ class LoadTypes:
     MASS = "mass"
     PRESSURE = "pressure"
     LINE = "line"
+    TEMPERATURE = "temperature"
 
-    all = [GRAVITY, ACC, ACC_ROT, FORCE, FORCE_SET, MASS, PRESSURE, LINE]
+    all = [GRAVITY, ACC, ACC_ROT, FORCE, FORCE_SET, MASS, PRESSURE, LINE, TEMPERATURE]
 
 
 class Load(FemBase):
@@ -327,6 +328,48 @@ class LoadRotation(Load):
         d = np.asarray(x, dtype=float) - o
         r = d - (d @ e) * e
         return rho * (self.angular_velocity**2 * r + self.angular_acceleration * np.cross(e, d))
+
+
+class LoadTemperature(Load):
+    """A uniform temperature ``temperature`` on the nodes of ``fem_set`` (a node set, or an element set's nodes), or
+    on the whole model: a thermal strain ``alpha (temperature - reference)`` in the elements there, ``alpha`` the
+    material's thermal expansion coefficient (``Metal.alpha``).
+
+    Code_Aster: a temperature field in the material field (``AFFE_VARC TEMP``, ``VALE_REF = reference``) -- the
+    model's, not a step's. Sestra: ``BEISTE`` per element, the temperature difference to the reference at its nodes
+    (SIF 7.2.3); Sestra takes it on beams and shells, not on solids.
+    """
+
+    def __init__(self, name: str, temperature: float, fem_set: FemSet | None = None, reference: float = 0.0):
+        super().__init__(name, Load.TYPES.TEMPERATURE, magnitude=float(temperature), fem_set=fem_set)
+        self.reference = float(reference)
+
+    @property
+    def temperature(self) -> float:
+        return float(self.magnitude)
+
+    @property
+    def delta(self) -> float:
+        """The temperature difference to the reference, which the thermal strain is ``alpha`` times."""
+        return self.temperature - self.reference
+
+    def elements(self, fem) -> list:
+        """The elements the temperature acts in: an element set's members, the elements all of whose nodes are in a
+        node set, or every element of ``fem``."""
+        fs = self.fem_set
+        from ada.fem.shapes.definitions import MassTypes, SpringTypes
+
+        els = [
+            el
+            for el in fem.elements
+            if not isinstance(el.type, (MassTypes, SpringTypes)) and getattr(el, "fem_sec", None) is not None
+        ]
+        if fs is None:
+            return els
+        if fs.type == "elset":
+            return list(fs.members)
+        ids = {int(n.id) for n in fs.members}
+        return [el for el in els if all(int(n.id) in ids for n in el.nodes)]
 
 
 class LoadPoint(Load):

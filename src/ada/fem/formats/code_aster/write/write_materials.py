@@ -24,7 +24,14 @@ def materials_str(assembly: Assembly) -> str:
         for fs in p.fem.sections.solids
         if fs.material is not None
     }
-    return "\n".join([material_str(mat, plastic=mat.name in solid_mats) for mat in all_mat_unique.values()])
+    # the thermal expansion where a temperature load acts (write_temperature): ALPHA with the TEMP command variable
+    from .write_steps import all_steps
+    from .write_temperature import temperature_loads
+
+    thermal = bool(temperature_loads(all_steps(assembly)))
+    return "\n".join(
+        [material_str(mat, plastic=mat.name in solid_mats, thermal=thermal) for mat in all_mat_unique.values()]
+    )
 
 
 def traction_curve(material: Material) -> list[tuple[float, float]] | None:
@@ -42,7 +49,7 @@ def traction_curve(material: Material) -> list[tuple[float, float]] | None:
     return [(float(s) / model.E + float(e), float(s)) for s, e in zip(pm.sig_p, pm.eps_p)]
 
 
-def material_str(material: Material, plastic: bool = True) -> str:
+def material_str(material: Material, plastic: bool = True, thermal: bool = False) -> str:
     """``DEFI_MATERIAU``: ``ELAS``, and a ``TRACTION`` curve (:func:`traction_curve`) for a material with plasticity
     when ``plastic`` (it is a solid's), which a step's ``RELATION='VMIS_ISOT_TRAC'`` uses (``steps.static_nonlin``)."""
     from ada.core.utils import NewLine
@@ -62,9 +69,10 @@ def material_str(material: Material, plastic: bool = True) -> str:
     else:
         logger.debug(f"No plasticity is defined for material {material.name}")
 
+    alpha = f", ALPHA={float(model.alpha)!r}" if thermal and model.alpha is not None else ""
     return f"""{nl_mat}
 
 {name} = DEFI_MATERIAU(
-    ELAS=_F(E={model.E}, NU={model.v}, RHO={model.rho}){mat_nl_in},
+    ELAS=_F(E={model.E}, NU={model.v}, RHO={model.rho}{alpha}){mat_nl_in},
 )
 """
