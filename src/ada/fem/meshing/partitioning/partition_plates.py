@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from ada.config import Config, logger
 from ada.core.clash_check import (
+    BeamMidspanIndex,
     PlateConnections,
     filter_away_beams_along_plate_edges,
     find_beams_connected_to_plate,
@@ -110,10 +111,12 @@ def split_plates_by_beams(gmsh_session: GmshSession):
     logger.info("Running 'split_plates_by_beams' partitioning function")
 
     plates = [obj for obj in gmsh_session.model_map.keys() if type(obj) is Plate]
+    # Built once for all plates: rebuilding it per plate made this quadratic in the size of the model.
+    beam_index = BeamMidspanIndex(beams)
     for pl in plates:
         pl_gmsh_obj = gmsh_session.model_map[pl]
         int_bm_map = dict()
-        all_contained_beams = find_beams_connected_to_plate(pl, beams)
+        all_contained_beams = find_beams_connected_to_plate(pl, beams, index=beam_index)
         inside_beams = filter_away_beams_along_plate_edges(pl, all_contained_beams)
         if len(inside_beams) == 0:
             continue

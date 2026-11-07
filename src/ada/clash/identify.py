@@ -264,11 +264,12 @@ def _plate_beam_pass(part, options: ClashOptions, *, beams, plates) -> list[_Fou
     """Beams landing on a plate. Reaches the CAD backend for distances."""
     if not plates or not options.include_plate_joints:
         return []
-    from ada.core.clash_check import find_beams_connected_to_plate
+    from ada.core.clash_check import BeamMidspanIndex, find_beams_connected_to_plate
 
     out = []
+    index = BeamMidspanIndex(beams)
     for plate in plates:
-        for beam in find_beams_connected_to_plate(plate, beams):
+        for beam in find_beams_connected_to_plate(plate, beams, index=index):
             out.append(
                 _Found(
                     members=[plate, beam],
@@ -364,11 +365,12 @@ def _plate_type():
 def _plate_passes(part, beams, plates, outcome: IdentifyOutcome) -> None:
     """The two plate passes. Kept apart from the beam pass because they need the CAD backend and
     it does not -- a deployment without one still gets beam joints rather than nothing."""
-    from ada.core.clash_check import find_beams_connected_to_plate
+    from ada.core.clash_check import BeamMidspanIndex, find_beams_connected_to_plate
 
     try:
+        index = BeamMidspanIndex(beams)
         for plate in plates:
-            attached = find_beams_connected_to_plate(plate, beams)
+            attached = find_beams_connected_to_plate(plate, beams, index=index)
             for beam in attached:
                 outcome.joints.append(
                     _Found(
