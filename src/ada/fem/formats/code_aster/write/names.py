@@ -44,6 +44,8 @@ RESERVED = frozenset(
         "material",
         "element",
         "nl_mat",
+        # the placeholder material of a model of discretes alone (write_sections)
+        "mat_disc",
         # the element groups the model is assigned over
         "bm_sets",
         "bm_t_sets",

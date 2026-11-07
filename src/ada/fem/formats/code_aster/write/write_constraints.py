@@ -140,8 +140,10 @@ def has_cara_elem(part: Part) -> bool:
     fem = part.fem
     if len(fem.sections.lines) > 0 or len(fem.sections.shells) > 0 or len(get_couplings(part)) > 0:
         return True
-    # A point mass is a DIS_T element whose mass is an element characteristic (write_masses).
-    return any(m.type == m.TYPES.MASS and m.elset is not None for m in fem.elements.masses)
+    # A mass of any kind and a spring are discrete elements whose matrices are element characteristics (write_masses).
+    return len(fem.springs) > 0 or any(
+        (m.type == m.TYPES.NONSTRU and m.fem_set is not None) or m.elset is not None for m in fem.elements.masses
+    )
 
 
 def ref_points_group(part: Part) -> str:

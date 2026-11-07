@@ -81,8 +81,17 @@ def to_fem(assembly: Assembly, name, analysis_dir, metadata=None, model_data_onl
         from .write_skins import pressure_skins
 
         skins = pressure_skins(all_steps(assembly), p.fem)
+        # Springs need element groups and non-structural masses point cells of their own (write_masses): made the
+        # same way, after the skin cells, and kept off the model too.
+        from .write_masses import deck as discretes_deck
+        from .write_masses import discrete_cells
+        from .write_skins import Skins
+
+        last_id = max([int(p.fem.elements.max_el_id) if len(p.fem.elements) else 0] + [el.id for el in skins.elements])
+        discretes = discrete_cells(p.fem, last_id + 1, {fs.name for fs in skins.sets})
+        cells = Skins(elements=skins.elements + discretes.elements, sets=skins.sets + discretes.sets)
         filename = (analysis_dir / name).with_suffix(".med")
-        write_to_med(name, p, filename, skins)
+        write_to_med(name, p, filename, cells)
 
         dump_name_map(name_map, (analysis_dir / name).with_suffix(".name_map.json"))
 
@@ -96,7 +105,12 @@ def to_fem(assembly: Assembly, name, analysis_dir, metadata=None, model_data_onl
         if model_data_only:
             return
 
-        with open((analysis_dir / name).with_suffix(".comm"), "w") as f, concept_names.deck(), skins_deck(skins):
+        with (
+            open((analysis_dir / name).with_suffix(".comm"), "w") as f,
+            concept_names.deck(),
+            skins_deck(skins),
+            discretes_deck(discretes),
+        ):
             f.write(create_comm_str(assembly, p))
 
     finally:

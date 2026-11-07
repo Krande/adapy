@@ -19,7 +19,7 @@ def create_sections_str(
     """``masses``: the point masses (:func:`.write_masses.point_masses`), given their ``DISCRET`` here.
     ``timoshenko``: beams with shear areas carry their shear coefficients (``POU_D_T``, :func:`write_beam_section`)."""
     from .write_constraints import REF_POINTS_GROUP, create_ref_points_discrete_items
-    from .write_masses import mass_discrete_str
+    from .write_masses import mass_discrete_str, mass_rep_str
 
     mat_assign_str = ""
     section_materials = ""
@@ -78,6 +78,16 @@ def create_sections_str(
     discrete_str = ""
     if discrete_items:
         discrete_str = "\n        DISCRET=(\n" + "\n".join(discrete_items) + "\n        ),"
+    # non-structural masses spread over their regions' point cells (write_masses)
+    mass_rep = mass_rep_str(list(masses)) if masses else ""
+    if mass_rep:
+        discrete_str += "\n        MASS_REP=(\n" + mass_rep + "\n        ),"
+
+    if not mat_assign_str.strip() and masses:
+        # A model of discretes alone has no material to assign, and AFFE_MATERIAU takes no empty AFFE ("Exactly one
+        # argument of ('AFFE', 'CHAM_MATER') is required"): a placeholder on every cell, which a discrete never reads.
+        section_materials += "\nmat_disc = DEFI_MATERIAU(ELAS=_F(E=1.0, NU=0.0, RHO=0.0))\n"
+        mat_assign_str = "        _F(TOUT='OUI', MATER=mat_disc),"
 
     sec_str = ""
     if len(fem_sections.lines) > 0 or len(fem_sections.shells) > 0 or discrete_items:

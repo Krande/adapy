@@ -11,10 +11,15 @@ if TYPE_CHECKING:
 def step_eig_str(step: StepEigen, part: Part) -> str:
     from ..write_constraints import has_cara_elem, step_charges
 
+    from ada.fem.shapes.definitions import SpringTypes
+
     supports = step_charges(part, step)
     charges = supports.names
-    if len(charges) == 0:
-        raise NotImplementedError("An eigenfrequency analysis needs at least one boundary condition")
+    grounded = any(s.type == SpringTypes.SPRING1 for s in part.fem.springs.values())
+    if len(charges) == 0 and not grounded:
+        raise NotImplementedError(
+            "An eigenfrequency analysis needs at least one boundary condition or a grounded spring (SPRING1)"
+        )
 
     eig_map = dict(sorensen="SORENSEN", lanczos="TRI_DIAG")
     eig_type = step.metadata.get("eig_method", "sorensen")
@@ -42,14 +47,14 @@ modes_0 = PROJ_CHAMP(
     # `ASSEMBLAGE`'s CHARGE takes a tuple of mechanical loads, so every charge goes in: the one of all
     # supports (overlapping node sets are held once there -- two charges holding one dof stop at
     # <ASSEMBLA_26>), the prescribed dofs at zero and the couplings.
-    charge_str = ", ".join(charges)
+    # A model held by grounded springs alone has no charge, and ASSEMBLAGE takes none.
+    charge_str = f"\n    CHARGE=({', '.join(charges)},)," if charges else ""
     return f"""
 {supports.definitions}
 #modal analysis
 ASSEMBLAGE(
     MODELE=model,
-    CHAM_MATER=material,{sec_str}
-    CHARGE=({charge_str},),
+    CHAM_MATER=material,{sec_str}{charge_str}
     NUME_DDL=CO('dofs_eig'),
     MATR_ASSE = (
         _F(MATRICE=CO('stiff'), OPTION ='RIGI_MECA',),

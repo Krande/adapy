@@ -9,6 +9,9 @@ from ada.fem.shapes.definitions import (
 
 ada_to_med_format = {
     MassTypes.MASS: "PO1",
+    # a rotary inertia is a point cell too (DIS_TR, write_masses); a NONSTRUCTURAL mass is no cell at all: it is
+    # spread over its region's nodes by MASS_REP, on point cells write_masses makes (write_med leaves it out)
+    MassTypes.ROTARYI: "PO1",
     SpringTypes.SPRING1: "PO1",
     SpringTypes.SPRING2: "SE2",
     LineShapes.LINE: "SE2",
