@@ -673,7 +673,7 @@ def load_traction(load, load_id: int) -> str:
                 "BEUSLO",
                 [
                     (load_id, TRACTION_LOTYP, 0, PRESSURE_LAYER),
-                    (el.id, len(values), PRESSURE_INTNO, beuslo_side),
+                    (internal(el.id), len(values), PRESSURE_INTNO, beuslo_side),
                     *_four_per_line(values),
                 ],
             )
