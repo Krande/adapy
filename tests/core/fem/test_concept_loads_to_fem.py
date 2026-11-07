@@ -30,9 +30,9 @@ from ada.fem.formats import conversion_report
 STAGE = "concept to fem"
 FILES = pathlib.Path(__file__).resolve().parents[3] / "files" / "fem_files" / "sesam"
 
-#: The load cases whose loads the GeniE XML reader refuses (each reported there): a varying pressure (two kinds), a
-#: component traction. adapy writes them as empty load cases.
-REFUSED_BY_READER = {"LC_press_3pt", "LC_press_lin", "LC_comp"}
+#: The load cases whose loads the GeniE XML reader refuses (each reported there): a component traction. adapy writes
+#: them as empty load cases.
+REFUSED_BY_READER = {"LC_comp"}
 
 #: GeniE's own resultant per load case (summed force, moment of the BNLOADs about their node), read off
 #: ``genie_loads_all_kinds_T1.FEM``. adapy's deck must give the same.
@@ -48,6 +48,9 @@ GENIE_RESULTANTS = {
     "LC_ll_plate_edge": ((0, 0, -500), (0, 0, 0)),
     "LC_press_u": ((0, 0, -4000), (0, 0, 0)),
     "LC_press_back": ((0, 0, 4000), (0, 0, 0)),
+    # 1000 + 500 x Pa on the front of the 4 x 1 m plate, twice (three points; a linear function): 2000 Pa on average
+    "LC_press_3pt": ((0, 0, -8000), (0, 0, 0)),
+    "LC_press_lin": ((0, 0, -8000), (0, 0, 0)),
     # 1000 Pa over a 2 x 0.5 m polygon wound +z: eight half-covered 0.5 m elements at 500 Pa, along +z.
     "LC_poly": ((0, 0, 1000), (0, 0, 0)),
     "LC_grav": ((0, 0, 0), (0, 0, 0)),
@@ -188,6 +191,37 @@ def test_each_load_case_is_genies_records_node_by_node(all_kinds):
         assert adapy[case] == genie[case], case
     for case in sorted(REFUSED_BY_READER):
         assert len(genie[case]) > 0 and adapy[case] == {}, case
+
+
+def _beuslo_by_node(fem_path) -> dict[str, dict[tuple, float]]:
+    """``{load case: {node position: pressure}}`` of every BEUSLO, signed as a push along +z of the element."""
+    recs = _records(fem_path)
+    coord, elnodes, names = {}, {}, {}
+    for name, v in recs:
+        if name == "GCOORD":
+            coord[int(v[0])] = np.asarray(v[1:4], dtype=float)
+        elif name == "GELMNT1":
+            elnodes[int(v[0])] = [int(x) for x in v[4:]]
+        elif name == "TDLOAD":
+            names[int(v[1])] = v[-1]
+    out = collections.defaultdict(dict)
+    for name, v in recs:
+        if name == "BEUSLO":
+            ns = elnodes[int(v[4])]
+            nz = float(np.sign(_shell_normal([coord[k] for k in ns])[2]))
+            for k, value in zip(ns, v[8 : 8 + int(v[5])]):
+                out[names[int(v[0])]][_key(coord[k])] = round(nz * float(value), 3) + 0.0
+    return dict(out)
+
+
+@pytest.mark.parametrize("case", ["LC_press_3pt", "LC_press_lin"])
+def test_a_varying_pressure_is_genies_value_at_every_node(all_kinds, case):
+    """GeniE wrote 1000 + 500 x at each node of every element (BEUSLO, one intensity per node), not an element
+    average: the deck must carry the same field node for node."""
+    _, _, deck, _ = all_kinds
+    genie, adapy = _beuslo_by_node(FILES / "genie_loads_all_kinds_T1.FEM")[case], _beuslo_by_node(deck)[case]
+    assert adapy == genie
+    assert {round(-1000 - 500 * x, 3) + 0.0 for (x, _, _), _ in genie.items()} == set(genie.values())
 
 
 def test_each_load_case_has_genies_resultant(all_kinds):

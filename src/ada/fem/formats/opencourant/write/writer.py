@@ -530,6 +530,10 @@ class _StarterDeck:
             if isinstance(load, LoadPressure):
                 if load.distribution != LoadPressure.P_DIST_TYPES.UNIFORM:
                     raise NotImplementedError(f"pressure {load.name!r}: only a uniform pressure is supported")
+                if load.gradient is not None:
+                    raise NotImplementedError(
+                        f"pressure {load.name!r} varies over the model; only a uniform one is written"
+                    )
                 sid = self._pressure_segments(load.surface)
                 self.blocks.append(
                     "\n".join(

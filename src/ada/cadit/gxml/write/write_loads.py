@@ -166,6 +166,7 @@ def add_surface_load_polygon(
     points: list,
     pressure: float,
     system: Literal["local", "global"] = "local",
+    gradient=None,
 ) -> ET.Element:
     """
     Adds a <surface_load> with a direct polygon footprint.
@@ -202,13 +203,7 @@ def add_surface_load_polygon(
     for p in points:
         ET.SubElement(points_elem, "point", {"x": str(p[0]), "y": str(p[1]), "z": str(p[2])})
 
-    # Add intensity
-    intensity = ET.SubElement(surface_load, "intensity")
-    pressure_elem = ET.SubElement(
-        intensity, "pressure2d_constant", {"intensity_system": system, "position_system": system}
-    )
-    ET.SubElement(pressure_elem, "intensity", {"pressure": str(pressure)})
-
+    _add_pressure_intensity(surface_load, pressure, gradient, system)
     return surface_load
 
 
@@ -220,6 +215,7 @@ def add_surface_load_plate(
     pressure: float,
     side: Literal["front", "back"] = "front",
     system: Literal["local", "global"] = "local",
+    gradient=None,
 ) -> ET.Element:
     """
     Adds a <surface_load> that references a plate.
@@ -254,13 +250,7 @@ def add_surface_load_plate(
     footprint = ET.SubElement(surface_load, "footprint")
     ET.SubElement(footprint, "footprint_plate", {"plate_ref": plate_ref, "side": side})
 
-    # Add intensity
-    intensity = ET.SubElement(surface_load, "intensity")
-    pressure_elem = ET.SubElement(
-        intensity, "pressure2d_constant", {"intensity_system": system, "position_system": system}
-    )
-    ET.SubElement(pressure_elem, "intensity", {"pressure": str(pressure)})
-
+    _add_pressure_intensity(surface_load, pressure, gradient, system)
     return surface_load
 
 
@@ -336,3 +326,18 @@ def add_acceleration_field_load(
         )
 
     return gravity_elem
+
+
+def _add_pressure_intensity(surface_load: ET.Element, pressure: float, gradient, system: str) -> None:
+    """A uniform pressure as ``pressure2d_constant``; one with a ``gradient`` (``p = pressure + gradient . x``) as
+    ``pressure2d_linear_function``, k1..k3 the gradient and k4 the constant -- what the reader reads back."""
+    intensity = ET.SubElement(surface_load, "intensity")
+    attrs = {"intensity_system": system, "position_system": system}
+    if gradient is None:
+        pressure_elem = ET.SubElement(intensity, "pressure2d_constant", attrs)
+        ET.SubElement(pressure_elem, "intensity", {"pressure": str(pressure)})
+        return
+    func = ET.SubElement(intensity, "pressure2d_linear_function", attrs)
+    for key, value in zip(("k1", "k2", "k3"), gradient):
+        ET.SubElement(func, key, {"value": str(float(value)), "unit": "length"})
+    ET.SubElement(func, "k4", {"value": str(float(pressure))})

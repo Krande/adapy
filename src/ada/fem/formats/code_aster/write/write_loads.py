@@ -121,7 +121,8 @@ def _pressure_sign(side) -> float:
 
 
 def pressure_load_str(load: LoadPressure) -> str:
-    """A uniform pressure on shell elements as ``FORCE_COQUE``, over the element sets it acts on.
+    """A uniform pressure on shell elements as ``FORCE_COQUE``, over the element sets it acts on; a varying one (a
+    ``gradient``) as the same keyword of ``AFFE_CHAR_MECA_F`` with a ``FORMULE`` of the geometry.
 
     Two things here were wrong before and are worth naming, because a deck carrying either analysed:
 
@@ -160,6 +161,12 @@ def pressure_load_str(load: LoadPressure) -> str:
     except ValueError as e:
         raise UnsupportedLoadType(f"pressure load {load.name!r} has no Code_Aster FORCE_COQUE form: {e}") from e
 
+    # A varying pressure (``LoadPressure.gradient``) is a function of the geometry: AFFE_CHAR_MECA_F with a FORMULE
+    # of X, Y, Z per sign, evaluated by Code_Aster at the element's own points, as Sestra integrates BEUSLO's nodal
+    # values. Its PRES is the same way round as the uniform one's.
+    gradient = getattr(load, "gradient", None)
+    name = concept_name(load, "load")
+    formulas: dict[float, str] = {}
     rows, membrane_rows = [], []
     for fem_set, side in groups:
         membranes = 0
@@ -172,7 +179,8 @@ def pressure_load_str(load: LoadPressure) -> str:
                 )
             fem_sec = getattr(el, "fem_sec", None)
             membranes += fem_sec is not None and fem_sec.is_membrane
-        pres = _pressure_sign(side) * load.magnitude
+        sign = _pressure_sign(side)
+        pres = sign * load.magnitude if gradient is None else _pressure_formula(name, sign, formulas)
         if membranes == 0:
             rows.append(f"        _F(GROUP_MA='{fem_set.name}', PRES={pres}),")
         elif membranes == len(fem_set.members):
@@ -196,9 +204,21 @@ def pressure_load_str(load: LoadPressure) -> str:
         keywords += "\n    FORCE_COQUE=(\n{0}\n    ),".format("\n".join(rows))
     if membrane_rows:
         keywords += "\n    PRES_REP=(\n{0}\n    ),".format("\n".join(membrane_rows))
-    return "{0} = AFFE_CHAR_MECA(\n    MODELE=model,\n    VERI_NORM='NON',{1}\n)".format(
-        concept_name(load, "load"), keywords
+    if gradient is None:
+        return "{0} = AFFE_CHAR_MECA(\n    MODELE=model,\n    VERI_NORM='NON',{1}\n)".format(name, keywords)
+    c, (gx, gy, gz) = float(load.magnitude), gradient
+    defs = "".join(
+        f"{fname} = FORMULE(VALE='{sign!r}*({c!r} + {gx!r}*X + {gy!r}*Y + {gz!r}*Z)', NOM_PARA=('X', 'Y', 'Z'))\n"
+        for sign, fname in formulas.items()
     )
+    return "{0}{1} = AFFE_CHAR_MECA_F(\n    MODELE=model,\n    VERI_NORM='NON',{2}\n)".format(defs, name, keywords)
+
+
+def _pressure_formula(name: str, sign: float, formulas: dict[float, str]) -> str:
+    """The name of the FORMULE of the load's pressure times ``sign`` (one per sign, made on first use)."""
+    if sign not in formulas:
+        formulas[sign] = f"{name}_{'p' if sign > 0 else 'n'}"
+    return formulas[sign]
 
 
 #: The conversion report's stage for this writer.

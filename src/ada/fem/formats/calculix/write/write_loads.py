@@ -214,6 +214,10 @@ def pressure_load_str(load: Load) -> str:
     distribution = getattr(load, "distribution", None)
     if distribution is not None and distribution != LoadPressure.P_DIST_TYPES.UNIFORM:
         raise UnsupportedLoadType(f'a "{distribution}" pressure is not a pressure intensity; Calculix *DLOAD takes one')
+    if getattr(load, "gradient", None) is not None:
+        raise UnsupportedLoadType(
+            f"pressure load {load.name!r} varies over the model; Calculix *DLOAD P takes one value"
+        )
 
     region = _pressure_region(load)
     if region is None:

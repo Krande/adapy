@@ -63,6 +63,11 @@ def pressure_load_str(load: LoadPressure) -> str:
     instance_name = get_instance_name(load.surface, True)
     if load.distribution == LoadPressure.P_DIST_TYPES.TOTAL_FORCE:
         raise UnsupportedLoadType("Total Force calculation is not yet supported for Abaqus")
+    if getattr(load, "gradient", None) is not None:
+        # *Dsload P is one magnitude; a varying one needs a user subroutine (PNU / DLOAD), not written here.
+        raise UnsupportedLoadType(
+            f"pressure load {load.name!r} varies over the model; Abaqus *Dsload P takes one value"
+        )
     data = [f"{instance_name}, P, {format_number(load.magnitude)}"]
     return render_block("Dsload", (), data, [f"Name: {load.name}   Type: Pressure"])
 

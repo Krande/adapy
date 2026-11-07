@@ -426,13 +426,19 @@ def load_pressure(load: Load, load_id: int) -> str:
                 refused.setdefault(why, []).append(str(el.id))
                 continue
             beuslo_side, sign = resolved
-            intensity = sign * float(load.magnitude)
+            # One intensity per node: a varying pressure's own value there (GeniE's LC_press_lin and
+            # LC_press_3pt, 1000 + 500 x, were written that way), the one value of a uniform one.
+            pressure_at = getattr(load, "pressure_at", None)
+            if pressure_at is None or getattr(load, "gradient", None) is None:
+                intensities = tuple([sign * float(load.magnitude)] * len(el.nodes))
+            else:
+                intensities = tuple(sign * pressure_at(n.p) for n in el.nodes)
             out += write_ff(
                 "BEUSLO",
                 [
                     (load_id, PRESSURE_LOTYP, 0, PRESSURE_LAYER),
                     (el.id, len(el.nodes), PRESSURE_INTNO, beuslo_side),
-                    tuple([intensity] * len(el.nodes)),
+                    intensities,
                 ],
             )
     for why, ids in sorted(refused.items()):

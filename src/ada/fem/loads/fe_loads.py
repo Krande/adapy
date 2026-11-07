@@ -232,11 +232,29 @@ class LoadPressure(Load):
         surface: Surface,
         distribution=P_DIST_TYPES.UNIFORM,
         amplitude: Amplitude | None = None,
+        gradient: Iterable[float] | None = None,
     ):
-        """``amplitude`` scales ``magnitude`` over the step's time (None: the full magnitude throughout)."""
+        """``amplitude`` scales ``magnitude`` over the step's time (None: the full magnitude throughout).
+
+        ``gradient`` (global axes, pressure per unit length) makes the pressure vary linearly over the model:
+        ``p(x) = magnitude + gradient . x`` at a global point ``x``, so ``magnitude`` is then the pressure at the
+        global origin. ``None`` (or all zero): uniform."""
         super(LoadPressure, self).__init__(name, LoadTypes.PRESSURE, magnitude, amplitude=amplitude)
         self._surface = surface
         self._distribution = distribution
+        g = None if gradient is None else tuple(float(c) for c in gradient)
+        self._gradient = None if g is None or g == (0.0, 0.0, 0.0) else g
+
+    @property
+    def gradient(self) -> tuple[float, float, float] | None:
+        """The pressure's gradient in global axes, or None for a uniform pressure."""
+        return self._gradient
+
+    def pressure_at(self, point) -> float:
+        """The pressure at the global ``point``."""
+        if self._gradient is None:
+            return float(self.magnitude)
+        return float(self.magnitude) + float(sum(g * float(c) for g, c in zip(self._gradient, point)))
 
     @property
     def surface(self) -> Surface:

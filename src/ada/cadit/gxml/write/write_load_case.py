@@ -224,15 +224,20 @@ def add_loads(root: ET.Element, part: Part) -> None:
                 position = to_global(load.position)
                 add_point_load(global_elem, lc_elem, load.name, position, load.force, load.moment, load.system)
             elif isinstance(load, LoadConceptSurface):
+                from ada.fem.concept.loads_to_fem import _global_pressure
+
+                # positions are written in global axes, so is a varying pressure's field
+                pressure, gradient = _global_pressure(part_, load)
                 if load.plate_ref:
                     add_surface_load_plate(
                         global_elem,
                         lc_elem,
                         name=load.name,
                         plate_ref=load.plate_ref.name,
-                        pressure=load.pressure,
+                        pressure=pressure,
                         side=load.side,
                         system=load.system,
+                        gradient=gradient,
                     )
                 else:
 
@@ -242,8 +247,9 @@ def add_loads(root: ET.Element, part: Part) -> None:
                         lc_elem,
                         name=load.name,
                         points=points,
-                        pressure=load.pressure,
+                        pressure=pressure,
                         system=load.system,
+                        gradient=gradient,
                     )
             elif isinstance(load, LoadConceptAccelerationField):
                 add_acceleration_field_load(

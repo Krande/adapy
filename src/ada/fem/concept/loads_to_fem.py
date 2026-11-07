@@ -22,6 +22,8 @@ case in ``tests/core/fem/test_concept_loads_to_fem.py``:
   the face that is the named side of the *plate*: ``front`` is the face on the plate's normal and a positive
   pressure pushes into it (GeniE: 1000 Pa front on a +z plate gave Fz = -4000 on 4 m2). An element wound against
   the plate's normal takes it on its own negative face.
+* a varying pressure (``LoadConceptSurface.pressure_gradient``) -> the same, with the linear field carried in global
+  axes on the :class:`~ada.fem.LoadPressure` (``gradient``); GeniE wrote its value at every element node.
 * :class:`LoadConceptSurface` over a polygon (no plate) -> a :class:`~ada.fem.LoadPressure` on the shell elements in
   the polygon's plane, each with the pressure times the fraction of its area the polygon covers (GeniE: BEUSLO of
   500 Pa on the eight elements a 1000 Pa rectangle half-covers), along the polygon's own normal.
@@ -202,7 +204,7 @@ class _Converter:
         if isinstance(load, LoadConceptSurface):
             if load.plate_ref is None:
                 return self.polygon(load, lc, owner, subject)
-            return self.surface(load, lc, subject)
+            return self.surface(load, lc, owner, subject)
         if isinstance(load, LoadConceptAccelerationField):
             return self.acceleration(load, lc, subject)
         report().omitted(STAGE, type(load).__name__, subject, "no FE load is made of this kind of concept load")
@@ -385,7 +387,7 @@ class _Converter:
 
     # --- surface ------------------------------------------------------------------------------------------------
 
-    def surface(self, load: LoadConceptSurface, lc: LoadConceptCase, subject: str) -> list[Load]:
+    def surface(self, load: LoadConceptSurface, lc: LoadConceptCase, owner: Part, subject: str) -> list[Load]:
         from ada.fem import FemSet, LoadPressure, Surface
         from ada.fem.shapes.definitions import ShellShapes
 
@@ -449,7 +451,8 @@ class _Converter:
         surface = self.fem.add_surface(
             Surface(self._name(f"{base}_surf"), Surface.TYPES.ELEMENT, sets, el_face_index=sides, parent=self.fem)
         )
-        return [LoadPressure(base, float(load.pressure), surface)]
+        pressure, gradient = _global_pressure(owner, load)
+        return [LoadPressure(base, pressure, surface, gradient=gradient)]
 
     # --- polygon pressure ---------------------------------------------------------------------------------------
 
@@ -470,7 +473,7 @@ class _Converter:
         if load.side not in ("front", "back"):
             report().omitted(STAGE, "LoadConceptSurface", subject, f"side {load.side!r} is neither front nor back")
             return []
-        if load.pressure is None or float(load.pressure) == 0.0:
+        if load.pressure is None or (float(load.pressure) == 0.0 and load.pressure_gradient is None):
             return []
         pts = np.asarray(to_global_points(owner, np.asarray(load.points, dtype=float)), dtype=float).reshape(-1, 3)
         frame = _polygon_frame(pts)
@@ -527,6 +530,7 @@ class _Converter:
                 area=poly_area,
             )
 
+        pressure, gradient = _global_pressure(owner, load)
         base = f"{lc.name}_{load.name}"
         out = []
         for i, ((side, frac), members) in enumerate(sorted(groups.items(), key=lambda kv: (-kv[0][1], kv[0][0]))):
@@ -539,7 +543,9 @@ class _Converter:
                     self._name(f"{tag}_surf"), Surface.TYPES.ELEMENT, [fem_set], el_face_index=[side], parent=self.fem
                 )
             )
-            out.append(LoadPressure(tag, float(load.pressure) * frac, surface))
+            out.append(
+                LoadPressure(tag, pressure * frac, surface, gradient=None if gradient is None else gradient * frac)
+            )
         return out
 
     # --- acceleration -------------------------------------------------------------------------------------------
@@ -635,8 +641,21 @@ def _scaled(fe: Load, factor: float, name: str) -> Load:
     if isinstance(fe, LoadLine):
         return fe.scaled(factor, name)
     if isinstance(fe, LoadPressure):
-        return LoadPressure(name, factor * float(fe.magnitude), fe.surface, fe.distribution)
+        gradient = None if fe.gradient is None else [factor * g for g in fe.gradient]
+        return LoadPressure(name, factor * float(fe.magnitude), fe.surface, fe.distribution, gradient=gradient)
     return Load(name, fe.type, factor * float(fe.magnitude), fem_set=fe.fem_set, dof=list(fe.dof))
+
+
+def _global_pressure(owner: Part, load: LoadConceptSurface) -> tuple[float, np.ndarray | None]:
+    """``(pressure at the global origin, global gradient)`` of a concept pressure given in ``owner``'s axes.
+
+    ``p = c + g . x`` with ``x = R^T (X - t)`` in the global ``X``: the gradient turns with the part (``R g``) and
+    the constant takes the part's offset, ``c - (R g) . t``."""
+    if load.pressure_gradient is None:
+        return float(load.pressure), None
+    g = _vec(owner, load.pressure_gradient)
+    t = np.asarray(to_global_points(owner, np.zeros(3)), dtype=float).reshape(3)
+    return float(load.pressure) - float(g @ t), g
 
 
 def _vec(owner: Part, v) -> np.ndarray:
