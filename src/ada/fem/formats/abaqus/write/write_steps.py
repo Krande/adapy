@@ -112,8 +112,11 @@ def load_case_step_str(step: StepImplicitStatic, app_str: str = "**") -> str:
         if id(load) not in in_cases:
             rep.omitted(STAGE, "Load", load.name, "a load of a step with load cases, in none of them", step=step.name)
 
+    from ada.fem.frames import in_global_axes_or_refuse
+
     model_bcs = list(step.parent.get_all_bcs()) if getattr(step.parent, "parent", None) is not None else []
-    step_bcs = [bc_str(bc, True) for bc in step.bcs.values()]
+    model_bcs = in_global_axes_or_refuse(model_bcs, "abaqus")
+    step_bcs = [bc_str(bc, True) for bc in in_global_axes_or_refuse(step.bcs.values(), "abaqus")]
     cases = []
     for lc in step.load_cases.values():
         body = step_bcs + [prescribed_in_case_str(step, lc.name, model_bcs)]
@@ -170,16 +173,18 @@ def interactions_str(step: _step_types):
 
 
 def all_bc_str(step: _step_types):
+    # The model's prescribed displacements go into the steps: Abaqus takes no nonzero *Boundary in model data.
+    from ada.fem.frames import in_global_axes_or_refuse
+
     from .write_bc import bc_str, prescribed_in_step_str
 
-    # The model's prescribed displacements go into the steps: Abaqus takes no nonzero *Boundary in model data.
     model_bcs = list(step.parent.get_all_bcs()) if getattr(step.parent, "parent", None) is not None else []
-    settled = prescribed_in_step_str(step, model_bcs)
+    settled = prescribed_in_step_str(step, in_global_axes_or_refuse(model_bcs, "abaqus"))
     if len(step.bcs) == 0:
         return settled or "** No BCs"
 
     bcstr = ""
-    for bcid, bc_ in step.bcs.items():
+    for bc_ in in_global_axes_or_refuse(step.bcs.values(), "abaqus"):
         bcstr += "\n" if "\n" not in bcstr[-2:] != "" else ""
         bcstr += bc_str(bc_, True)
 

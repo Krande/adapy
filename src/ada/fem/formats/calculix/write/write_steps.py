@@ -83,10 +83,11 @@ def _bcs_str(step: Step, deck: DeckContext, cases: set[str] | None = None) -> st
     in Abaqus), then -- for a static step standing for the load case names ``cases`` -- the model's prescribed
     displacements (:func:`prescribed_str`)."""
     from ada.fem.formats.prescribed import settlements
+    from ada.fem.frames import in_global_axes_or_refuse
 
     from .writer import bc_str, refuse_on_u1
 
-    own = list(step.bcs.values())
+    own = in_global_axes_or_refuse(step.bcs.values(), "calculix")
     refused = refuse_on_u1(deck.part, deck.u1_elements, own) if own else frozenset()
     blocks = []
     for bc in own:

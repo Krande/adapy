@@ -5,6 +5,13 @@
   and the root moment about y is ``-F_z L``: statically determinate, so exact whatever the beam's stiffness. A load
   turned the inverse way (``Load.forces_global`` until this) shows as ``x' = (0.6, 0, -0.8)``.
 
+* **A beam on an inclined roller.** Pinned at x = 0, on a roller at x = L whose track slopes at ``theta = 30``
+  degrees in the x-z plane: the roller is a ``Bc`` holding dz' (and dy) in the frame ``x' = (cos, 0, sin)`` along the
+  track. A load P down at mid-span. Statics: the roller pushes along the track's normal ``n = (-sin, 0, cos)`` with
+  ``P / (2 cos)``, so ``R_x = -P tan / 2`` at the roller and ``+P tan / 2`` at the pin, ``R_z = P / 2`` at each; the
+  beam carries ``N = P tan / 2`` in compression, and the roller end slides along its track by ``N L / (E A cos)``,
+  exactly, with no component along ``n``. A roller written in global axes (dz held) gives ``R_x = 0``.
+
 Each case runs on every solver installed, and skips on one that is not (Sestra needs a DNV licence).
 """
 
@@ -91,3 +98,42 @@ def test_calculix_writes_the_tilted_load_in_global_components(tmp_path):
     rows = {int(m[0]): float(m[1]) for m in re.findall(r"^tip,\s*(\d),\s*(\S+)$", inp, re.M)}
     assert rows == {1: pytest.approx(0.6 * F), 3: pytest.approx(0.8 * F)}
 
+
+THETA = np.radians(30.0)
+
+
+def _roller():
+    a, p = _beam(mesh=0.25)
+    fem = p.fem
+    (left,) = _nodes_at(fem, 0.0)
+    (right,) = _nodes_at(fem, L)
+    (mid,) = _nodes_at(fem, L / 2)
+    fem.add_bc(Bc("pin", fem.add_set(FemSet("pin", [left], "nset")), [1, 2, 3, 4]))
+    track = Csys("track", coords=[(np.cos(THETA), 0.0, np.sin(THETA)), (0.0, 1.0, 0.0)], parent=fem)
+    fem.add_bc(Bc("roller", fem.add_set(FemSet("roller", [right], "nset")), [2, 3], csys=track))
+    step = a.fem.add_step(StepImplicitStatic("roller"))
+    step.add_load(LoadPoint("p", -F, fem.add_set(FemSet("mid", [mid], "nset")), 3))
+    return a, p, left, right
+
+
+@pytest.mark.parametrize("solver", SOLVERS)
+def test_a_beam_on_an_inclined_roller_is_pushed_along_the_track_normal(tmp_path, require_solver, solver):
+    require_solver(solver)
+    a, p, left, right = _roller()
+    res = a.to_fem("roller", solver, scratch_dir=tmp_path, overwrite=True, execute=True, lazy=True)
+    u, reac = _case_fields(res)
+    rel = 1e-5 if solver == "sesam" else 1e-9
+    tan = np.tan(THETA)
+    rr, rl = reac[int(right.id)], reac[int(left.id)]
+    assert rr["U3"] == pytest.approx(F / 2, rel=rel)
+    assert rr["U1"] == pytest.approx(-F * tan / 2, rel=rel)
+    assert rl["U3"] == pytest.approx(F / 2, rel=rel)
+    assert rl["U1"] == pytest.approx(F * tan / 2, rel=rel)
+
+    bm = next(iter(a.get_all_physical_objects(by_type=ada.Beam)))
+    ea = bm.material.model.E * bm.section.properties.Ax
+    slide = (F * tan / 2) * L / (ea * np.cos(THETA))  # along -x' (the compressed beam shortens)
+    ur = np.array([u[int(right.id)][c] for c in ("U1", "U2", "U3")])
+    n = np.array([-np.sin(THETA), 0.0, np.cos(THETA)])
+    assert abs(ur @ n) < 1e-6 * slide
+    assert ur @ np.array([np.cos(THETA), 0.0, np.sin(THETA)]) == pytest.approx(-slide, rel=1e-6)

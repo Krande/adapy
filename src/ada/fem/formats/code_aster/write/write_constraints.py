@@ -36,11 +36,18 @@ def get_couplings(part: Part) -> list[Constraint]:
 
 
 def model_bcs(part: Part) -> list:
-    """The boundary conditions of the part's FEM and of its assembly's, each once."""
+    """The boundary conditions of the part's FEM and of its assembly's, each once; one in a rotated frame that is
+    global axes in another order as the global one it is (:func:`ada.fem.frames.in_global_axes`)."""
     out = []
     for fem in _fems(part):
         out += [bc for bc in fem.bcs if all(bc is not b for b in out)]
-    return out
+    return _in_global_axes(out)
+
+
+def _in_global_axes(bcs: list) -> list:
+    from ada.fem.frames import in_global_axes
+
+    return [in_global_axes(bc) or bc for bc in bcs]
 
 
 def step_bcs(part: Part, step) -> list:
@@ -60,7 +67,7 @@ def step_bcs(part: Part, step) -> list:
     if step is None:
         return out
     for st in all_steps(part.get_assembly()):
-        out += [bc for bc in st.bcs.values() if all(bc is not b for b in out)]
+        out += _in_global_axes([bc for bc in st.bcs.values() if all(bc is not b for b in out)])
         if st is step:
             break
     return out

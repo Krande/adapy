@@ -97,6 +97,8 @@ def to_fem(assembly, name, analysis_dir=None, metadata=None, model_data_only=Fal
       retain only *some* of their DOFs comes back widened to all of them, with a warning
       naming the affected nodes, because a node set cannot carry a per-DOF pattern.
     """
+    from .node_frames import deck as frames_deck
+    from .node_frames import node_frames
     from .not_held import STAGE, bc_is_held, report, report_not_held
     from .write_bcs import (
         bnbcd_str,
@@ -190,6 +192,11 @@ def to_fem(assembly, name, analysis_dir=None, metadata=None, model_data_only=Fal
     # report. A velocity BC used to be written as a clamp, and a BC on an assembly-level
     # reference point fixed whichever part node shared its id.
     held_bcs = [SimpleNamespace(bcs=[bc for bc in fem.bcs if bc_is_held(bc, part.fem)]) for fem in fems]
+    # A support in a rotated frame: in global axes where its frame is global axes in another order, else its nodes
+    # are transformed (BNDOF / BNTRCOS) and everything at them written in their frame -- see node_frames. The
+    # BNTRCOS numbers follow the GUNIVECs', which the SIF asks to keep apart.
+    univec = univec_str(part.fem)
+    frames, held_bcs = node_frames(held_bcs, lin_deps, part.fem, first_transno=univec.count("GUNIVEC") + 1)
     # A BC with a magnitude is a settlement, not a support: BNBCD gets FIX code 2 on those dofs
     # and BNDISPL (in the load block, which is where Sesam keeps a prescribed displacement)
     # carries the value. Both cards or neither -- see write_bcs.bndispl_str.
@@ -202,13 +209,14 @@ def to_fem(assembly, name, analysis_dir=None, metadata=None, model_data_only=Fal
     # A spring's stiffness record takes a MATNO, numbered on from the materials'.
     spring_matnos = spring_matnos_for(part.fem.springs.values(), max((m.id for m in materials), default=0) + 1)
 
-    with open(inp_file_path, "w") as d, track_rounding() as rounding:
+    with open(inp_file_path, "w") as d, track_rounding() as rounding, frames_deck(frames):
         d.write(top_level_fem_str.format(date_str=date_str, clock_str=clock_str, user=user, seltyp=float(seltyp)))
         d.write(units)
         d.write(materials_str(materials))
         d.write("".join(property_records(sp, spring_matnos[sp.id]) for sp in part.fem.springs.values()))
         d.write(sections_str(part.fem, thick_map))
-        d.write(univec_str(part.fem))
+        d.write(univec)
+        d.write(frames.bntrcos_str())
         d.write(eccen_str(part.fem))
         d.writelines(nodes_gen(part.fem, ndofs))
         d.write(mass_str(part.fem, ndofs))
@@ -216,6 +224,7 @@ def to_fem(assembly, name, analysis_dir=None, metadata=None, model_data_only=Fal
         d.write(sets_str(_SetsOf(part.fem, assembly.fem), unwritten_elements=unwritten_element_ids(part.fem, ndofs)))
         d.write(equation_names_str(*fems))
         d.write(bnbcd_str(held_bcs, lin_deps, retained, ndofs, prescribed))
+        d.write(frames.bndof_str(ndofs))
         d.write("".join(r.to_str() for r in lin_deps))
         d.write(hinges_str(part.fem))
         d.writelines(elem_gen(part.fem, thick_map, spring_matnos, ndofs))

@@ -496,7 +496,8 @@ def load_force(load: Load, load_id: int, ndofs: NodeDofs | None = None) -> str:
     """One BNLOAD per node of the load's node set.
 
     Written in global axes: a load given in a local coordinate system is rotated into the
-    global one (:func:`_global_forces`). The writer used to write its local components as
+    global one (:func:`_global_forces`) -- and at a node a skewed support transformed
+    (``node_frames``), into that node's frame, which BNLOAD is then in. The writer used to write its local components as
     though they were global, and only on the set's first node.
 
     BNLOAD's NDOF has to match the node's GNODE, so a 3-dof node — one touched only by
@@ -509,13 +510,18 @@ def load_force(load: Load, load_id: int, ndofs: NodeDofs | None = None) -> str:
     if ndofs is None:
         ndofs = ALL_SIX_DOF
 
+    from .node_frames import current as node_frames
+
     lotype = 0
     complx = 0  # Assumed no phase shift
-    forces = _global_forces(load)
+    global_forces = _global_forces(load)
+    frames = node_frames()
     out = ""
     for node in load.fem_set.members:
         node_no = node.id
         ndof = ndofs.ndof(node_no)
+        # at a node in a rotated frame (a skewed support's, node_frames) BNLOAD is in that frame
+        forces = frames.to_local(node_no, global_forces)
         moments = [dof for dof in (4, 5, 6) if dof > ndof and forces[dof - 1] != 0.0]
         if moments:
             raise ValueError(

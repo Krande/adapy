@@ -360,7 +360,9 @@ class _StarterDeck:
         bcs = list(self.fem.bcs) + list(self.afem.bcs)
         for step in self.afem.steps + self.fem.steps:
             bcs += list(step.bcs.values())
-        return bcs
+        from ada.fem.frames import in_global_axes_or_refuse
+
+        return in_global_axes_or_refuse(bcs, "opencourant")
 
     def _boundary_conditions(self):
         for bc in self._all_bcs():

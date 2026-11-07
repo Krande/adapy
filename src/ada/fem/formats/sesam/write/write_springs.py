@@ -79,6 +79,10 @@ def property_records(spring: Spring, matno: int) -> str:
     """The stiffness record and the TDELEM that names the spring."""
     k6 = np.asarray(spring.stiff, dtype=float)
     if spring.type == SpringTypes.SPRING1:
+        from .node_frames import current as node_frames
+
+        # at a node in a rotated frame (a skewed support's) MGSPRNG is in that frame, as GeniE writes it
+        k6 = node_frames().stiffness_to_local(spring.nodes[0].id, k6)
         n = k6.shape[0]
         out = write_ff("MGSPRNG", _rows(_lower_by_columns(k6), (matno, n)))
     else:

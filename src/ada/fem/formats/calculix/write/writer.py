@@ -44,7 +44,9 @@ def to_fem(assembly: Assembly, name, analysis_dir, metadata=None, model_data_onl
 
     p = get_fem_model_from_assembly(assembly)
     steps = all_steps(assembly)
-    bcs = list(p.fem.bcs) + list(assembly.fem.bcs)
+    from ada.fem.frames import in_global_axes_or_refuse
+
+    bcs = in_global_axes_or_refuse(list(p.fem.bcs) + list(assembly.fem.bcs), "calculix")
     check_conflicting_bcs(bcs, steps)
     deck = DeckContext.of(p, steps, bcs)
 
