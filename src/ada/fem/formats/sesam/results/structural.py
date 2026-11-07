@@ -350,7 +350,9 @@ def read_shell_pressures(sin, numbering: Numbering) -> dict[int, dict[int, float
             if len(imaginary) == n_values:
                 add(-case, element, imaginary)
     for lotyp, n in sorted(skipped.items()):
-        logger.warning(f"{n} BEUSLO record(s) of LOTYP {lotyp} are no shell pressure (LOTYP 1); left out of the pressures")
+        logger.warning(
+            f"{n} BEUSLO record(s) of LOTYP {lotyp} are no shell pressure (LOTYP 1); left out of the pressures"
+        )
     return out
 
 
