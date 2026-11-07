@@ -884,3 +884,33 @@ def test_a_point_load_at_a_rigid_link_master_is_named_as_on_a_reference_node(tmp
     (f,) = [f for f in report.findings if f.subject == "PL1 in load case LC"]
     assert f.kind == "omitted" and "reference node" in f.reason and f.details["nodes"] == [master.id]
     assert fem.steps[0].load_cases["LC"].loads == []
+
+
+def test_a_polygon_traction_gives_its_whole_force_whatever_the_mesh(tmp_path):
+    """The L-shaped 1.5 m2 footprint with a traction (100, -50, 200) N/m2 by components: each covered element takes
+    the traction times its covered share (GeniE's smear, as for a pressure), so the total is the traction times the
+    area on any mesh, and the winding and side do not turn it."""
+    from ada.fem import LoadSurfaceTraction
+    from ada.fem.concept.loads import LoadConceptSurface
+
+    pts = [(0.3, 0.1, 0), (2.3, 0.1, 0), (2.3, 0.6, 0), (1.3, 0.6, 0), (1.3, 0.85, 0), (0.3, 0.85, 0)]
+    area = 2.0 * 0.5 + 1.0 * 0.25
+    t = (100.0, -50.0, 200.0)
+    for k, (points, side) in enumerate(((pts, "front"), (pts[::-1], "back"))):
+        for use_quads in (True, False):
+            a, p, _ = _plate_part(
+                f"pt{k}{int(use_quads)}", LoadConceptSurface("S", points=points, traction=t, side=side)
+            )
+            p.fem = p.to_fem_obj(0.5, use_quads=use_quads)
+            (step,) = p.fem.steps
+            total = np.zeros(3)
+            for lc in step.load_cases.values():
+                for ld in lc.loads:
+                    assert isinstance(ld, LoadSurfaceTraction)
+                    for fem_set in ld.surface.fem_set:
+                        for el in fem_set.members:
+                            xs = np.array([n.p for n in el.nodes], dtype=float)
+                            tri = [xs[[0, i, i + 1]] for i in range(1, len(xs) - 1)]
+                            el_area = sum(0.5 * np.linalg.norm(np.cross(c[1] - c[0], c[2] - c[0])) for c in tri)
+                            total += np.asarray(ld.traction) * el_area
+            assert total == pytest.approx(np.asarray(t) * area, abs=1e-6)

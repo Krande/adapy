@@ -294,3 +294,61 @@ def test_the_face_cells_written_for_a_solid_pressure_point_out_of_it(tmp_path):
         c = np.array([by_id[int(i)] for i in q])
         normal = np.cross(c[2] - c[0], c[3] - c[1])
         assert np.allclose(c[:, 2], 1.0) and normal[2] > 0  # on the top face, pointing up: out of the block
+
+
+@pytest.mark.parametrize("solver", ["code_aster", "calculix"])
+@pytest.mark.parametrize("shape", [SolidShapes.HEX8, SolidShapes.TETRA10], ids=lambda s: s.value.lower())
+def test_a_traction_on_a_solid_face_settles_as_its_pressure_and_balances_its_resultant(
+    tmp_path, require_solver, shape, solver
+):
+    """A traction (0, 0, -p) on the column's top face is the pressure p there: the same exact uniaxial field. A
+    traction with shear components on a block fixed at its base: the base reacts exactly ``-t a b``."""
+    from ada.fem import LoadSurfaceTraction
+
+    require_solver(solver)
+    nx, ny, nz = 2, 2, 2
+    a_, b_, L, pressure = 0.5, 0.8, 2.0, 1.0e7
+    for general in (False, True):
+        a, p, nodes = _block(nx, ny, nz, a_, b_, L, shape=shape)
+        fem = p.fem
+        bottom = [n for n in fem.nodes if abs(n.p[2]) < 1e-9]
+        top = [n for n in fem.nodes if abs(n.p[2] - L) < 1e-9]
+        if general:
+            fem.add_bc(Bc("base", fem.add_set(FemSet("bottom", bottom, "nset")), [1, 2, 3]))
+            t = (2.0e6, -1.0e6, -pressure)
+        else:
+            fem.add_bc(Bc("bz", fem.add_set(FemSet("bottom", bottom, "nset")), [3]))
+            fem.add_bc(Bc("bxy", fem.add_set(FemSet("c0", [nodes[0, 0, 0]], "nset")), [1, 2]))
+            fem.add_bc(Bc("by", fem.add_set(FemSet("c1", [nodes[nx, 0, 0]], "nset")), [2]))
+            t = (0.0, 0.0, -pressure)
+        step = a.fem.add_step(StepImplicitStatic("pull"))
+        step.add_field_output(_U_RF)
+        step.add_load(LoadSurfaceTraction("t_top", t, _face_surface(p, "top", top)))
+        res = a.to_fem(f"tr{int(general)}", solver, scratch_dir=tmp_path, overwrite=True, execute=True, lazy=True)
+        u, reac = _case_fields(res)
+        total = [sum(reac[int(n.id)][i] for n in bottom) for i in range(3)]
+        assert total == pytest.approx([-c * a_ * b_ for c in t], rel=_SUM_REL[solver], abs=1e-6 * pressure * a_ * b_)
+        if not general:
+            tol = _DIGITS[solver] * pressure / E * L
+            for n in fem.nodes:
+                x, y, z = n.p
+                want = (NU * pressure * x / E, NU * pressure * y / E, -pressure * z / E)
+                assert u[int(n.id)] == pytest.approx(want, abs=tol), (int(n.id), tuple(n.p))
+
+
+def test_a_traction_on_solid_faces_reaches_the_code_aster_deck_as_force_face(tmp_path):
+    """No solver: FORCE_FACE with the traction's components on the face cells made for it (as PRES_REP's are)."""
+    from ada.fem import LoadSurfaceTraction
+
+    a, p, nodes = _block(2, 2, 1, 1.0, 1.0, 1.0)
+    fem = p.fem
+    top = [n for (i, j, k), n in nodes.items() if k == 1]
+    fem.add_bc(
+        Bc("bz", fem.add_set(FemSet("bottom", [n for (i, j, k), n in nodes.items() if k == 0], "nset")), [1, 2, 3])
+    )
+    step = a.fem.add_step(StepImplicitStatic("pull"))
+    step.add_load(LoadSurfaceTraction("t_top", (10.0, 0.0, -1000.0), _face_surface(p, "top", top)))
+    a.to_fem("deck", "code_aster", scratch_dir=tmp_path, overwrite=True)
+    comm = (tmp_path / "deck" / "deck.comm").read_text()
+    assert "FORCE_FACE=(\n        _F(GROUP_MA='sk1', FX=10.0, FY=0.0, FZ=-1000.0)," in comm
+    assert "FORCE_COQUE" not in comm

@@ -96,9 +96,13 @@ def rotation_load_str(load: Load) -> str:
 
 def traction_load_str(load: Load) -> str:
     """A surface traction (:class:`~ada.fem.LoadSurfaceTraction`) as ``FORCE_COQUE`` FX/FY/FZ, a force per unit area in
-    global components (U4.44.01), on each shell element set of its surface. A traction on solids is refused by name."""
+    global components (U4.44.01), on each shell element set of its surface; on solid faces, ``FORCE_FACE`` on the face
+    cells the writer makes for it (:mod:`.write_skins`). A set mixing the two, or a solid side naming no face, is
+    refused by name."""
     from ada.fem.shapes.definitions import ShellShapes
     from ada.fem.surfaces import pressure_elsets
+
+    from .write_skins import current as current_skins
 
     try:
         groups = pressure_elsets(load.surface)
@@ -106,19 +110,24 @@ def traction_load_str(load: Load) -> str:
         raise UnsupportedLoadType(f"traction {load.name!r}: {e}") from e
     rows = []
     comps = ", ".join(f"{c}={float(v)!r}" for c, v in zip(("FX", "FY", "FZ"), load.traction))
-    for fem_set, _ in groups:
+    skins = current_skins()
+    skin = skins.group(load)
+    for fem_set, side in groups:
+        if skin is not None and skins.covers(load, fem_set, side):
+            continue
         if not all(isinstance(getattr(el, "type", None), ShellShapes) for el in fem_set.members):
             raise UnsupportedLoadType(
-                f"code_aster writer: traction {load.name!r} on {fem_set.name!r}, which is not all shells; FORCE_COQUE "
-                "loads shells"
+                f"code_aster writer: traction {load.name!r} on {fem_set.name!r}, which is neither all shells "
+                "(FORCE_COQUE) nor solid faces (FORCE_FACE)"
             )
         rows.append(f"        _F(GROUP_MA='{fem_set.name}', {comps}),")
-    body = "\n".join(rows)
+    keywords = ""
+    if rows:
+        keywords += "\n    FORCE_COQUE=(\n{0}\n    ),".format("\n".join(rows))
+    if skin is not None:
+        keywords += f"\n    FORCE_FACE=(\n        _F(GROUP_MA='{skin.name}', {comps}),\n    ),"
     return f"""{concept_name(load, "load")} = AFFE_CHAR_MECA(
-    MODELE=model,
-    FORCE_COQUE=(
-{body}
-    ),
+    MODELE=model,{keywords}
 )"""
 
 

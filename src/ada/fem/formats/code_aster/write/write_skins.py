@@ -1,4 +1,4 @@
-"""Skin cells for a pressure on solid elements: the faces it acts on, as 2D cells of the MED mesh.
+"""Skin cells for a pressure or a traction on solid elements: the faces it acts on, as 2D cells of the MED mesh.
 
 Code_Aster loads a solid's face with ``PRES_REP`` on *face* cells (U4.44.01): a mesh group of TRIA3 / QUAD4 /
 TRIA6 / QUAD8 cells lying on the solid's skin, assigned the solid's own modelisation so they become its boundary
@@ -87,20 +87,26 @@ def _outward(nodes: list, element: Elem) -> list:
 
 
 def pressure_skins(steps, fem: FEM) -> Skins:
-    """The face cells of every pressure on solid elements in ``steps``.
+    """The face cells of every pressure and surface traction on solid elements in ``steps``, their load cases'
+    included (a traction's are loaded by ``FORCE_FACE``, its components per unit area, which no winding turns).
 
     A pressure whose surface also names shells is left to the shell path (``FORCE_COQUE``), which refuses the
     mixture; a solid side that names no face (a blank Abaqus side: the element's free faces) is refused there too.
     """
-    from ada.fem import Elem, FemSet, LoadPressure
+    from ada.fem import Elem, FemSet, LoadPressure, LoadSurfaceTraction
     from ada.fem.shapes.definitions import SolidShapes
     from ada.fem.surfaces import pressure_elsets, side_node_indices
 
     skins = Skins()
     next_id = int(fem.elements.max_el_id) + 1 if len(fem.elements) else 1
     for step in steps:
-        for load in step.loads:
-            if not isinstance(load, LoadPressure) or load.surface is None or id(load) in skins.by_load:
+        loads = list(step.loads) + [ld for lc in step.load_cases.values() for ld in (lc.loads or [])]
+        for load in loads:
+            if (
+                not isinstance(load, (LoadPressure, LoadSurfaceTraction))
+                or load.surface is None
+                or id(load) in skins.by_load
+            ):
                 continue
             try:
                 groups = pressure_elsets(load.surface)

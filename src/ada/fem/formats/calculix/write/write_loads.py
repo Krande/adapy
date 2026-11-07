@@ -34,7 +34,57 @@ def load_str(load: Load, deck: DeckContext) -> str:
         return rotation_load_str(load, deck)
     if load.type == Load.TYPES.TEMPERATURE:
         return temperature_load_str(load, deck)
+    if load.type == Load.TYPES.TRACTION:
+        return traction_load_str(load)
     raise UnsupportedLoadType(f'calculix writer: load {load.name!r} of type "{load.type}" has no Calculix form')
+
+
+def traction_load_str(load) -> str:
+    """A surface traction (:class:`~ada.fem.LoadSurfaceTraction`) as the consistent nodal forces of the faces it acts
+    on (*CLOAD; :func:`ada.fem.face_loads.face_weights`): CalculiX's *DLOAD has a normal pressure only. A shell is its
+    own face; a solid's face is the one its surface side names. Exact for the element, as a line load's forces are."""
+    from ada.fem.face_loads import face_weights
+    from ada.fem.formats import conversion_report
+    from ada.fem.shapes.definitions import ShellShapes, SolidShapes
+    from ada.fem.surfaces import pressure_elsets, side_node_indices
+
+    try:
+        groups = pressure_elsets(load.surface)
+    except ValueError as e:
+        raise UnsupportedLoadType(f"calculix writer: traction {load.name!r}: {e}") from e
+    t = np.asarray(load.traction, dtype=float)
+    forces: dict[int, np.ndarray] = {}
+    for fem_set, side in groups:
+        for el in fem_set.members:
+            if isinstance(el.type, ShellShapes):
+                face = list(el.nodes)
+            elif isinstance(el.type, SolidShapes):
+                try:
+                    face = [el.nodes[i] for i in side_node_indices(el.type, side)]
+                except (ValueError, TypeError) as e:
+                    raise UnsupportedLoadType(
+                        f"calculix writer: traction {load.name!r} on solid {el.id} names no face ({side!r})"
+                    ) from e
+            else:
+                raise UnsupportedLoadType(
+                    f"calculix writer: traction {load.name!r} on {el.type} element {el.id}; it loads shells and solid "
+                    "faces"
+                )
+            for node, w in zip(face, face_weights([n.p for n in face])):
+                forces.setdefault(int(node.id), np.zeros(3))
+                forces[int(node.id)] += w * t
+    rows = [(nid, dof + 1, float(f[dof])) for nid, f in sorted(forces.items()) for dof in range(3) if f[dof] != 0.0]
+    conversion_report.current().note(
+        STAGE,
+        "LoadSurfaceTraction",
+        load.name,
+        "a surface traction is written as the consistent nodal forces of the faces it acts on (*CLOAD): CalculiX's "
+        "*DLOAD has a normal pressure only",
+        n_nodes=len(forces),
+    )
+    return "** Name: {0}   Type: Traction as nodal loads\n*Cload{1}\n{2}".format(
+        load.name, _amplitude_param(load), _cload_lines(rows)
+    )
 
 
 def temperature_reference(steps) -> float | None:

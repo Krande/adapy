@@ -471,6 +471,10 @@ class _Converter:
         the polygon's own normal (right-hand rule on its points): a positive 1000 Pa on a polygon wound
         counter-clockwise seen from +z gave +1000 N in z on elements whose normal is +z -- the opposite sense of a
         plate's ``front`` pressure, which pushes into the plate. ``side="back"`` reverses it.
+
+        A traction by components (``load.traction``) is smeared the same way: each covered element takes the traction
+        times its covered share, so its total force is the traction times the polygon's area. It is in global
+        components (turned with the part), so the side and the winding say nothing about its sense.
         """
         from ada.fem import FemSet, LoadPressure, Surface
         from ada.fem.shapes.definitions import ShellShapes
@@ -478,7 +482,11 @@ class _Converter:
         if load.side not in ("front", "back"):
             report().omitted(STAGE, "LoadConceptSurface", subject, f"side {load.side!r} is neither front nor back")
             return []
-        if load.pressure is None or (float(load.pressure) == 0.0 and load.pressure_gradient is None):
+        traction = None if load.traction is None else np.asarray(_vec(owner, load.traction), dtype=float)
+        if traction is not None:
+            if not np.any(traction):
+                return []
+        elif load.pressure is None or (float(load.pressure) == 0.0 and load.pressure_gradient is None):
             return []
         pts = np.asarray(to_global_points(owner, np.asarray(load.points, dtype=float)), dtype=float).reshape(-1, 3)
         frame = _polygon_frame(pts)
@@ -521,7 +529,7 @@ class _Converter:
                 STAGE,
                 "LoadConceptSurface",
                 subject,
-                "a pressure over a polygon that covers no shell element in its plane, so it acts on nothing",
+                "a load over a polygon that covers no shell element in its plane, so it acts on nothing",
             )
             return []
         poly_area = abs(_shoelace(poly2d))
@@ -530,12 +538,13 @@ class _Converter:
                 STAGE,
                 "LoadConceptSurface",
                 subject,
-                "part of the polygon lies over no shell element in its plane; that part's pressure acts on nothing",
+                "part of the polygon lies over no shell element in its plane; that part's load acts on nothing",
                 not_covered=poly_area - covered,
                 area=poly_area,
             )
 
-        pressure, gradient = _global_pressure(owner, load)
+        if traction is None:
+            pressure, gradient = _global_pressure(owner, load)
         base = f"{lc.name}_{load.name}"
         out = []
         for i, ((side, frac), members) in enumerate(sorted(groups.items(), key=lambda kv: (-kv[0][1], kv[0][0]))):
@@ -548,6 +557,11 @@ class _Converter:
                     self._name(f"{tag}_surf"), Surface.TYPES.ELEMENT, [fem_set], el_face_index=[side], parent=self.fem
                 )
             )
+            if traction is not None:
+                from ada.fem import LoadSurfaceTraction
+
+                out.append(LoadSurfaceTraction(tag, tuple(float(c) for c in traction * frac), surface))
+                continue
             out.append(
                 LoadPressure(tag, pressure * frac, surface, gradient=None if gradient is None else gradient * frac)
             )
