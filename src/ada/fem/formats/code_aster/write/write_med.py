@@ -31,17 +31,42 @@ def _mass_or_spring_attach_id(el) -> int:
     return int(el.nodes[0].id)
 
 
+def cell_node_ids(el) -> list[int]:
+    """The node ids of ``el``'s MED cell: one for a point mass or grounded spring, two for a two-node spring, the
+    element's own in MED order otherwise."""
+    el_type = getattr(el, "type", None)
+    if el_type == shape_def.SpringTypes.SPRING2:
+        nodes = list(getattr(el, "nodes", None) or el.members)
+        return [int(nodes[0].id), int(nodes[-1].id)]
+    if isinstance(el_type, (shape_def.MassTypes, shape_def.SpringTypes)):
+        return [_mass_or_spring_attach_id(el)]
+    # MED orders SEG3 (end, end, mid) where native is (end, mid, end); every other shape MED carries matches native.
+    return [int(n.id) for n in CODE_ASTER_ORDER.nodes_to_format(el_type, list(el.nodes))]
+
+
 def element_groups(part: Part, extra=()) -> list[tuple[object, list]]:
     """``[(element type, elements)]`` of the part's mesh plus ``extra`` cells (a solid pressure's skin,
-    :mod:`.write_skins`), by type in one order: the cells and the family table must agree on it."""
+    :mod:`.write_skins`; the point cells of :mod:`.write_masses`), one group per MED cell type in one order: the cells
+    and the family table must agree on it. The type named is the group's first; a group holds every adapy type of its
+    MED type -- a point mass and a grounded spring are both ``PO1``, a beam and a two-node spring both ``SE2``, and a
+    MED file holds one block per type ("med_type ... is already defined" when they came as two).
+
+    A NONSTRUCTURAL mass is no cell: it is spread over its region (write_masses, MASS_REP)."""
     # The container's own grouping (an array-backed container groups its own way), with the extra cells merged in.
-    groups = [(t, list(g)) for t, g in part.fem.elements.group_by_type()]
-    if not extra:
-        return groups
-    by_type = dict(groups)
-    for el in extra:
-        by_type.setdefault(el.type, []).append(el)
-    return sorted(by_type.items(), key=lambda kv: kv[0])
+    groups = [(t, list(g)) for t, g in part.fem.elements.group_by_type() if t != shape_def.MassTypes.NONSTRUCTURAL]
+    if extra:
+        by_type = dict(groups)
+        for el in extra:
+            by_type.setdefault(el.type, []).append(el)
+        groups = sorted(by_type.items(), key=lambda kv: kv[0])
+    merged: dict[str, tuple[object, list]] = {}
+    for el_type, elements in groups:
+        key = ada_to_med_type(el_type)
+        if key in merged:
+            merged[key][1].extend(elements)
+        else:
+            merged[key] = (el_type, list(elements))
+    return list(merged.values())
 
 
 def med_elements(
@@ -53,32 +78,18 @@ def med_elements(
     **NOD** requires 'CGT' and 'NBR' attrs
     """
 
-    def get_node_ids_from_element(el_):
-        # MED orders SEG3 (end, end, mid) where native is (end, mid, end); every
-        # other shape MED carries matches native and passes through untouched.
-        return [int(n.id) for n in CODE_ASTER_ORDER.nodes_to_format(el_.type, list(el_.nodes))]
-
     elements_group = time_step.create_group("MAI")
     elements_group.attrs.create("CGT", 1)
 
     for group, elements in element_groups(part, extra_elements):
         med_type = ada_to_med_type(group)
         elements = list(elements)
-        if isinstance(group, (shape_def.MassTypes, shape_def.SpringTypes)):
-            # Point-mass / spring elements attach to a single node. The
-            # ``Mass`` / ``Spring`` subclasses expose that node via
-            # ``.members`` (populated when ``fem_set`` is assigned post-
-            # construction — :attr:`Mass.fem_set.setter` writes
-            # ``_members`` but leaves ``_nodes`` at whatever was passed
-            # at construction time, which is ``None`` for the common
-            # ``Mass(name, None, mass)`` flow). Cross-format readers
-            # (e.g. Sesam → ada) emit MASS-typed elements as plain
-            # ``Elem`` instances that only carry ``.nodes``. Read both
-            # so either origin works without forcing one shape to copy
-            # to the other.
-            cells = np.array([_mass_or_spring_attach_id(el) for el in elements])
-        else:
-            cells = np.array(list(map(get_node_ids_from_element, elements)))
+        # Per element: a group may hold several adapy types of one MED type (element_groups). A point mass or
+        # grounded spring attaches to one node, read from ``.members`` (a Mass / Spring) or ``.nodes`` (the plain Elem
+        # a cross-format reader makes) by _mass_or_spring_attach_id.
+        cells = np.array([cell_node_ids(el) for el in elements])
+        if cells.ndim == 2 and cells.shape[1] == 1:
+            cells = cells[:, 0]
 
         if med_type in elements_group:
             raise ValueError(f"med_type {med_type} is already defined. rewrite is needed.")

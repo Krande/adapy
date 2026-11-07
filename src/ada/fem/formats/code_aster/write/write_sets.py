@@ -3,7 +3,6 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from ada.config import logger
-from ada.fem.shapes import definitions as shape_def
 
 from ..common import ada_to_med_type
 from .helper_utils import resolve_ids_in_multiple
@@ -49,11 +48,14 @@ def _add_cell_sets(cells_group, part: "Part", families, extra_elements=(), extra
     cell_ids_by_group: dict = {}
     from .write_med import element_groups
 
+    group_of_type: dict = {}  # a group holds every adapy type of its MED type (write_med.element_groups)
     for group, elements in element_groups(part, extra_elements):
         elements_list = list(elements)
         groups.append(group)
         elements_by_group[group] = elements_list
         cell_ids_by_group[group] = {el.id: i for i, el in enumerate(elements_list)}
+        for el in elements_list:
+            group_of_type.setdefault(el.type, group)
 
     # Per-group sparse assignment: ``index_in_group → tag_int``. Built
     # by a single walk over res_data members instead of a nested
@@ -61,12 +63,13 @@ def _add_cell_sets(cells_group, part: "Part", families, extra_elements=(), extra
     pending: dict = {g: [] for g in groups}  # list[tuple[index, tag]]
     for t, mem in res_data.items():
         for el in mem:
-            cmap = cell_ids_by_group.get(el.type)
+            group = group_of_type.get(el.type)
+            cmap = cell_ids_by_group.get(group)
             if cmap is None:
                 continue
             idx = cmap.get(el.id)
             if idx is not None:
-                pending[el.type].append((idx, t))
+                pending[group].append((idx, t))
 
     for group in groups:
         elements_list = elements_by_group[group]
@@ -74,23 +77,11 @@ def _add_cell_sets(cells_group, part: "Part", families, extra_elements=(), extra
         for idx, t in pending[group]:
             cell_data[idx] = t
 
-        if isinstance(group, (shape_def.MassTypes, shape_def.SpringTypes)):
-            # Mirror the ``.members`` → ``.nodes`` fallback in
-            # :mod:`write_med` — Mass/Spring proper subclasses populate
-            # ``.members`` via ``fem_set`` assignment; cross-format
-            # readers emit plain ``Elem`` instances that only carry
-            # ``.nodes``. Single helper handles both.
-            from .write_med import _mass_or_spring_attach_id
-
-            cells = np.array([_mass_or_spring_attach_id(el) for el in elements_list])
-        else:
-            cells = np.array(list(map(get_node_ids_from_element, elements_list)))
-
         med_type = ada_to_med_type(group)
         med_cells = cells_group.get(med_type)
         family = med_cells.create_dataset("FAM", data=cell_data)
         family.attrs.create("CGT", 1)
-        family.attrs.create("NBR", len(cells))
+        family.attrs.create("NBR", len(elements_list))
 
     _write_families(element, tags)
 
