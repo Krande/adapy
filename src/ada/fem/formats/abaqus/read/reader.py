@@ -151,7 +151,16 @@ def _read_fem(fem_file, fem_name=None) -> tuple[Assembly, str, int]:
         try:
             assembly.fem.constraints.update(get_constraints_from_inp(ass_sets, assembly.fem))
         except KeyError as e:
-            logger.error(e)
+            # reported, not logged: one name the reader cannot resolve costs the assembly every constraint it holds
+            from ada.fem.formats import conversion_report
+
+            conversion_report.current().omitted(
+                "abaqus reader",
+                "Constraint",
+                "assembly",
+                "the assembly's constraints are not read: one names a set or surface the reader cannot find",
+                name=str(e),
+            )
 
         assembly.fem.bcs += get_bcs_from_bulk(props_str, assembly.fem)
         _add_keeping_ids(assembly.fem, get_mass_from_bulk(ass_sets, assembly.fem))
@@ -170,15 +179,17 @@ def _surface_or_set(name: str, fem: FEM):
     """A *Shell to Solid Coupling operand: a surface, per the Keywords Guide -- or, where the
     deck has no surface of that name, the node/element set adapy's own writer has always put
     there. (That writer output is not valid Abaqus; reading it back still must not fail.)"""
+    # a lookup by instance (``Part-1.edge``) raises ValueError where a bare name raises KeyError: either is "not this
+    # kind", and the next kind is tried
     try:
         return get_set_from_assembly(name, fem, "surface")
-    except KeyError:
+    except (KeyError, ValueError):
         for kind in ("nset", "elset"):
             try:
                 return get_set_from_assembly(name, fem, kind)
-            except KeyError:
+            except (KeyError, ValueError):
                 continue
-        raise
+        raise KeyError(name)
 
 
 def by_name(mapping, name: str):

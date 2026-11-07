@@ -89,15 +89,6 @@ def bldep_records(fem: FEM, ndofs: NodeDofs | None = None) -> list[BldepRecord]:
             _report_coupling(constraint, new, ndofs)
         elif constraint.type == constraint.TYPES.SHELL2SOLID:
             new = shell2solid_records(constraint)
-            if new:
-                rep.approximated(
-                    STAGE,
-                    "Constraint",
-                    constraint.name,
-                    "shell-to-solid coupling written as rigid links to the nearest shell node, "
-                    "stiffer than a distributing coupling",
-                    n_links=len(new),
-                )
         elif constraint.type == constraint.TYPES.TIE:
             new = tie_records(constraint, ndofs)
         elif constraint.type == constraint.TYPES.EQUATION:
@@ -368,7 +359,48 @@ def write_coupling(constraint: Constraint, ndofs: NodeDofs | None = None) -> str
 
 
 def shell2solid_records(constraint: Constraint) -> list[BldepRecord]:
-    """Shell-to-solid coupling as BLDEP linear dependencies.
+    """Shell-to-solid coupling as BLDEP linear dependencies (:mod:`ada.fem.shell_to_solid`): each shell edge node's six
+    dofs on the solid face's nodes -- its translations the solid's at the node, its rotations those of the shell's
+    normal fibre through the solid -- the kinematics Code_Aster's ``COQUE_MASSIF`` writes. A node of both sides is left
+    as it is (it is joined already).
+
+    Where that cannot be made -- a solid side with no faces to project onto (a node set), a shell edge with no shell
+    elements or no single thickness -- the old form remains, reported as approximated:
+    """
+    from ada.fem.shell_to_solid import edge_relations
+
+    relations, why = edge_relations(constraint)
+    if relations:
+        records = []
+        for rel in relations:
+            if int(rel.node.id) in rel.masters:
+                continue
+            by_master: dict[int, list] = {}
+            for (mid, d, e), beta in sorted(rel.terms.items()):
+                by_master.setdefault(mid, []).append((d, e, float(beta)))
+            for mid, terms in by_master.items():
+                # every record of the node declares its six dofs dependent (NDDOF 6): a master that moves only some of
+                # them (one at the fibre's end turns it but does not carry it) adds zero terms for the rest
+                have = {d for d, _, _ in terms}
+                terms += [(d, 1, 0.0) for d in range(1, 7) if d not in have]
+                records.append(BldepRecord(int(rel.node.id), mid, tuple(sorted(terms))))
+        return records
+    records = _nearest_shell2solid_records(constraint)
+    if records:
+        report().approximated(
+            STAGE,
+            "Constraint",
+            constraint.name,
+            "shell-to-solid coupling written as rigid links to the nearest shell node, stiffer than the coupling: "
+            "the joint's kinematics need the solid side's faces and the shell's elements at the edge",
+            why=why,
+            n_links=len(records),
+        )
+    return records
+
+
+def _nearest_shell2solid_records(constraint: Constraint) -> list[BldepRecord]:
+    """Shell-to-solid coupling as rigid links to the nearest shell node.
 
     Each solid-face node depends on the nearest shell-edge node through the rigid link
     :func:`_bldep` writes, which is what gives the solid nodes -- carrying no rotational

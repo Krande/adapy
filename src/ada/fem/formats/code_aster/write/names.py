@@ -100,6 +100,8 @@ RESERVED_PATTERNS = (
     # multi-fibre beams' fibres and behaviours (write_fibres)
     re.compile(r"mf_geom"),
     re.compile(r"mf_compor\d+"),
+    # a shell-to-solid coupling's normal field (write_constraints.create_link_str)
+    re.compile(r"lk_\w+_nrm"),
     re.compile(r"(?:dyn|result)\d*_(?:li|f\d+)"),
 )
 

@@ -26,7 +26,7 @@ def get_couplings(part: Part) -> list[Constraint]:
     couplings = []
     for fem in _fems(part):
         for con in fem.constraints.values():
-            if con.type in (Constraint.TYPES.TIE, Constraint.TYPES.EQUATION):
+            if con.type in (Constraint.TYPES.TIE, Constraint.TYPES.EQUATION, Constraint.TYPES.SHELL2SOLID):
                 continue  # get_links
             if con.type not in (Constraint.TYPES.COUPLING, Constraint.TYPES.RIGID_BODY):
                 from ada.fem.formats import conversion_report
@@ -45,11 +45,13 @@ def get_couplings(part: Part) -> list[Constraint]:
 
 
 def get_links(part: Part) -> list[Constraint]:
-    """The ties (``LIAISON_MAIL``) and equations (``LIAISON_DDL``) of the model, each once (:func:`create_link_str`)."""
+    """The ties and shell-to-solid couplings (``LIAISON_MAIL``) and equations (``LIAISON_DDL``) of the model, each once
+    (:func:`create_link_str`)."""
+    kinds = (Constraint.TYPES.TIE, Constraint.TYPES.EQUATION, Constraint.TYPES.SHELL2SOLID)
     out = []
     for fem in _fems(part):
         for con in fem.constraints.values():
-            if con.type in (Constraint.TYPES.TIE, Constraint.TYPES.EQUATION) and con not in out:
+            if con.type in kinds and con not in out:
                 out.append(con)
     return out
 
@@ -293,11 +295,33 @@ def add_link_node_groups(part: Part) -> list:
     from ada.fem.surfaces import surface_nodes
 
     t = 0
+    from ada.fem.shell_to_solid import edge_joint
+    from ada.fem.surfaces import surface_facets
+
+    def new_set(prefix, members, kind):
+        nonlocal t
+        t += 1
+        while f"{prefix}{t}" in taken:
+            t += 1
+        return part.fem.sets.add(FemSet(f"{prefix}{t}", list(members), kind))
+
     for con in get_links(part):
         if con.type == Constraint.TYPES.EQUATION:
             for nodes, _, _ in _equation_rows(con) or []:
                 for node in nodes:
                     one_node(node)
+            continue
+        if con.type == Constraint.TYPES.SHELL2SOLID:
+            # the edge nodes (eliminated), the solid cells of the face, the shell cells at the edge (their normals)
+            joint = edge_joint(con)
+            solids = {id(f.element): f.element for f in surface_facets(con.s_set) if f.element is not None}
+            if joint.why is None and solids:
+                groups[("s2s", con.name)] = (
+                    new_set("s2e", joint.nodes, FemSet.TYPES.NSET),
+                    new_set("s2m", solids.values(), FemSet.TYPES.ELSET),
+                    new_set("s2c", joint.shells, FemSet.TYPES.ELSET),
+                    joint.thickness,
+                )
             continue
         nodes = surface_nodes(con.s_set)
         if nodes:
@@ -306,7 +330,10 @@ def add_link_node_groups(part: Part) -> list:
                 t += 1
             groups[("tie", con.name)] = part.fem.sets.add(FemSet(f"tie{t}", list(nodes), FemSet.TYPES.NSET))
     _LINK_GROUPS.append(groups)
-    return list(groups.values())
+    out = []
+    for g in groups.values():
+        out += list(g[:3]) if isinstance(g, tuple) else [g]
+    return out
 
 
 def remove_link_node_groups(part: Part, added: list) -> None:
@@ -353,6 +380,25 @@ def create_link_str(con: Constraint) -> str:
     MODELE=model,
     LIAISON_DDL=(
 {body}
+    ),
+)"""
+    if con.type == Constraint.TYPES.SHELL2SOLID:
+        made = groups.get(("s2s", con.name))
+        if made is None:
+            from ada.fem.shell_to_solid import edge_joint
+
+            why = edge_joint(con).why or "its solid side has no faces (a node set or node surface)"
+            rep.omitted("code_aster writer", "Constraint", con.name, f"a shell-to-solid coupling: {why}")
+            return ""
+        edge, solid, shells, h = made
+        # COQUE_MASSIF (U4.44.01 5.13.3): the edge nodes' six dofs from the solid -- translations at the node, rotations
+        # of the shell's normal fibre from the solid at its ends +-h/2 along the shell's normal (ada.fem.shell_to_solid)
+        return f"""{name}_nrm = CREA_CHAMP(TYPE_CHAM='NOEU_GEOM_R', OPERATION='NORMALE', MODELE=model, GROUP_MA='{shells.name}')
+{name} = AFFE_CHAR_MECA(
+    MODELE=model,
+    LIAISON_MAIL=_F(
+        GROUP_MA_MAIT='{solid.name}', GROUP_NO_ESCL='{edge.name}', TYPE_RACCORD='COQUE_MASSIF', EPAIS={float(h)!r},
+        CHAM_NORMALE={name}_nrm,
     ),
 )"""
     main, kind = _tie_main_groups(con)
