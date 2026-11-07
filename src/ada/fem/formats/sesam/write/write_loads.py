@@ -420,7 +420,7 @@ def load_pressure(load: Load, load_id: int) -> str:
                     [
                         (load_id, PRESSURE_LOTYP, 0, PRESSURE_LAYER),
                         (el.id, len(nodes), PRESSURE_INTNO, side_code(el.type, number)),
-                        tuple(_pressure_value(load, n) for n in nodes),
+                        *_four_per_line([_pressure_value(load, n) for n in nodes]),
                     ],
                 )
                 continue
@@ -441,12 +441,20 @@ def load_pressure(load: Load, load_id: int) -> str:
                 [
                     (load_id, PRESSURE_LOTYP, 0, PRESSURE_LAYER),
                     (el.id, len(el.nodes), PRESSURE_INTNO, beuslo_side),
-                    intensities,
+                    *_four_per_line(intensities),
                 ],
             )
     for why, ids in sorted(refused.items()):
         rep.omitted(STAGE, "Load", load.name, why, elements=sorted(ids, key=int)[:10], n_elements=len(ids))
     return out
+
+
+def _four_per_line(values) -> list[tuple]:
+    """``values`` as record lines of four fields, the most a Sesam line holds. A longer line is read short: Sestra
+    refused a 6- and an 8-node side's intensities written on one line ("BEUSLO card is too short for dof count given
+    in NDOF field")."""
+    values = list(values)
+    return [tuple(values[i : i + 4]) for i in range(0, len(values), 4)]
 
 
 def _pressure_value(load: Load, node) -> float:

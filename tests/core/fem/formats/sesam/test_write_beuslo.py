@@ -26,14 +26,22 @@ Q = 1000.0
 
 
 def _records(out: str) -> list[list[list[float]]]:
-    """Each BEUSLO record as its three rows of numbers, in the order written."""
+    """Each BEUSLO record as its three rows of numbers, in the order written: the head, the element line and the
+    intensities, which run on over continuation lines of four fields each -- the most a Sesam line holds (Sestra
+    read a longer one short: "BEUSLO card is too short for dof count given in NDOF field")."""
     lines = out.splitlines()
     recs = []
     for i, line in enumerate(lines):
         if not line.startswith("BEUSLO"):
             continue
-        rows = [[float(x) for x in line.split()[1:]]]
-        rows += [[float(x) for x in lines[i + 1].split()], [float(x) for x in lines[i + 2].split()]]
+        body = [line.split()[1:]]
+        for cont in lines[i + 1 :]:
+            if not cont.startswith(" "):
+                break
+            body.append(cont.split())
+        assert all(len(fields) <= 4 for fields in body), body
+        rows = [[float(x) for x in body[0]], [float(x) for x in body[1]]]
+        rows.append([float(x) for fields in body[2:] for x in fields])
         recs.append(rows)
     return recs
 
