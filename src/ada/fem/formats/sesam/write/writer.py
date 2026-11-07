@@ -107,7 +107,7 @@ def to_fem(assembly, name, analysis_dir=None, metadata=None, model_data_only=Fal
         retained_dofs,
     )
     from .write_constraints import bldep_records
-    from .element_numbers import ElementNumbers, deck_element_ids
+    from .element_numbers import ElementNumbers, NodeNumbers, deck_element_ids, nodes_deck
     from .element_numbers import deck as numbers_deck
     from .write_elements import elem_gen, unwritten_element_ids
     from .write_loads import deck_fem, step_loads_str
@@ -227,6 +227,8 @@ def to_fem(assembly, name, analysis_dir=None, metadata=None, model_data_only=Fal
     # Internal element numbers 1..n, the model's ids kept as the external ones (element_numbers): every record that
     # names an element is written inside this, so all of them agree with GELMNT1.
     numbers = ElementNumbers(deck_element_ids(part.fem, ndofs, with_springs=bool(spring_matnos)))
+    # and node numbers 1..n the same way, over the nodes GNODE writes
+    node_numbers = NodeNumbers(_nodes_as_arrays(part.fem)[0].tolist())
 
     with (
         open(inp_file_path, "w") as d,
@@ -234,6 +236,7 @@ def to_fem(assembly, name, analysis_dir=None, metadata=None, model_data_only=Fal
         frames_deck(frames),
         deck_fem(part.fem),
         numbers_deck(numbers),
+        nodes_deck(node_numbers),
     ):
         d.write(top_level_fem_str.format(date_str=date_str, clock_str=clock_str, user=user, seltyp=float(seltyp)))
         d.write(units)
@@ -562,12 +565,17 @@ def nodes_gen(fem: FEM, ndofs: NodeDofs | None = None) -> Iterator[str]:
             'Doubly defined node id "{}". TODO: Make necessary code updates'.format(int(node_ids[dupes[0]]))
         )
 
+    from .element_numbers import nodes as internal_nodes
+
     per_node = ndofs.ndof_many(node_ids)
-    for nid, ndof in zip(node_ids, per_node):
+    # NODEX the model's id, NODENO the deck's internal number (element_numbers.NodeNumbers), which GCOORD and every
+    # other record names the node by
+    internal = internal_nodes(node_ids)
+    for nid, nodeno, ndof in zip(node_ids, internal, per_node):
         ndof = int(ndof)
-        yield write_ff("GNODE", [(int(nid), int(nid), ndof, odof_for(ndof))])
-    for nid, p in zip(node_ids, coords):
-        yield write_ff("GCOORD", [(int(nid), p[0], p[1], p[2])])
+        yield write_ff("GNODE", [(int(nid), nodeno, ndof, odof_for(ndof))])
+    for nodeno, p in zip(internal, coords):
+        yield write_ff("GCOORD", [(nodeno, p[0], p[1], p[2])])
 
 
 def nodes_str(fem: FEM, ndofs: NodeDofs | None = None) -> str:

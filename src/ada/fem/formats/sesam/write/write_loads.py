@@ -18,6 +18,7 @@ from ada.fem.steps import Step
 
 from .not_held import STAGE, report
 from .element_numbers import internal
+from .element_numbers import node as internal_node
 from .write_utils import write_ff
 
 if TYPE_CHECKING:
@@ -430,7 +431,9 @@ def load_rotation(load, load_id: int, ndofs: NodeDofs | None = None) -> str:
                 continue
             ndof = ndofs.ndof(node.id)
             values = frames.to_local(node.id, [*acc, 0.0, 0.0, 0.0])[:ndof]
-            out += write_ff("BNACCLO", [(load_id, 1, 0, 0), (node.id, ndof, *values[:2]), tuple(values[2:ndof])])
+            out += write_ff(
+                "BNACCLO", [(load_id, 1, 0, 0), (internal_node(node.id), ndof, *values[:2]), tuple(values[2:ndof])]
+            )
     if alpha != 0.0 and not per_node_alpha:
         point = tuple(float(c) for c in o)
         vec = -alpha * e
@@ -772,7 +775,7 @@ def load_force(load: Load, load_id: int, ndofs: NodeDofs | None = None) -> str:
                 f"which has {ndof} dofs (NDOF={ndof}). A node attached only to solid elements has no "
                 "rotational dofs for a moment to act on."
             )
-        real_loads_1 = tuple([node_no, ndof] + forces[:2])
+        real_loads_1 = tuple([internal_node(node_no), ndof] + forces[:2])
         real_loads_2 = tuple(forces[2:ndof])
         out += write_ff(
             "BNLOAD",

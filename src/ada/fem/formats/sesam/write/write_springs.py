@@ -25,6 +25,7 @@ import numpy as np
 from ada.fem.shapes.definitions import SpringTypes
 
 from .element_numbers import internal
+from .element_numbers import nodes as internal_nodes
 from .write_utils import write_ff
 
 if TYPE_CHECKING:
@@ -70,7 +71,7 @@ def _rows(values: list, head: tuple) -> list[tuple]:
 def element_records(spring: Spring, matno: int) -> tuple[str, str]:
     """The spring's GELMNT1 and GELREF1."""
     eltyp = GROUND_SPRING if spring.type == SpringTypes.SPRING1 else TWO_NODE_SPRING
-    nodes = tuple(n.id for n in spring.nodes)
+    nodes = tuple(internal_nodes([n.id for n in spring.nodes]))
     gelmnt = write_ff("GELMNT1", [(spring.id, internal(spring.id), eltyp, 0), nodes])
     gelref = write_ff("GELREF1", [(internal(spring.id), matno, 0, 0), (0, 0, 0, 0), (0, 0, 0, 0)])
     return gelmnt, gelref

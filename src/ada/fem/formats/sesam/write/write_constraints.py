@@ -51,7 +51,10 @@ class BldepRecord:
         return tuple(sorted({m for _, m, _ in self.terms}))
 
     def to_str(self) -> str:
-        rows = [(self.slave, self.master, len(self.slave_dofs), len(self.terms))]
+        from .element_numbers import node as internal_node
+
+        # by internal node numbers (element_numbers); slave and master stay the model's ids everywhere else
+        rows = [(internal_node(self.slave), internal_node(self.master), len(self.slave_dofs), len(self.terms))]
         rows += [(s, m, beta, 0.0) for s, m, beta in self.terms]
         return write_ff("BLDEP", rows)
 

@@ -1,4 +1,4 @@
-"""Sestra solves a model whose element ids are not 1..n, and its results come back under the model's ids.
+"""Sestra solves a model whose element and node ids are not 1..n, and its results come back under the model's ids.
 
 Sestra wants internal element numbers 1..n ("Internal element ids must be contiguous in the range [1, number of
 elements]"); the writer numbers them so and keeps the model's ids as the external ones (write/element_numbers). A
@@ -28,8 +28,11 @@ def test_a_plate_numbered_with_gaps_is_solved_and_read_back_under_its_own_ids(tm
     for i, el in enumerate(shells):
         el.id = 100 + 3 * i + (i % 2)
     fem.elements.renumber(renumber_map={e.id: e.id for e in fem.elements})
+    # the nodes too: from 1000, every seventh ("NodeManager::Verified: invalid node id (internal number 1000)")
+    fem.nodes.renumber(renumber_map={n.id: 1000 + 7 * i for i, n in enumerate(sorted(fem.nodes, key=lambda n: n.id))})
     ids = {int(e.id) for e in shells}
-    fem.add_bc(Bc("fix", fem.add_set(FemSet("edge", [n for n in fem.nodes if n.x < 1e-9], "nset")), [1, 2, 3, 4, 5, 6]))
+    edge = [n for n in fem.nodes if n.x < 1e-9]
+    fem.add_bc(Bc("fix", fem.add_set(FemSet("edge", edge, "nset")), [1, 2, 3, 4, 5, 6]))
     every = fem.add_set(FemSet("all_shells", shells, "elset"))
     surf = fem.add_surface(Surface("top", Surface.TYPES.ELEMENT, every, el_face_index=1))
     pressure = 1000.0
@@ -41,5 +44,8 @@ def test_a_plate_numbered_with_gaps_is_solved_and_read_back_under_its_own_ids(tm
     by_role = {getattr(f.role, "value", f.role): f for f in fields}
     reactions = np.asarray(by_role["nodal_reaction"].values, float)
     assert abs(reactions[:, 3].sum()) == pytest.approx(pressure * 2.0 * 1.0, rel=1e-5)
+    # and they act on the supported nodes, under the model's node ids
+    reacting = {int(r[0]) for r in reactions if np.any(np.abs(r[1:]) > 1e-9)}
+    assert reacting and reacting <= {int(n.id) for n in edge}
     stressed = {int(r[0]) for r in np.asarray(by_role["shell_stress"].values, float)}
     assert stressed == ids, "the SIN's element results, under the model's element ids"

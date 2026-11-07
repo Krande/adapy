@@ -96,6 +96,37 @@ def test_every_record_that_names_an_element_uses_its_internal_number(tmp_path):
     assert tuple(sorted(of[int(e.id)] for e in two.members)) in members
 
 
+def test_nodes_are_numbered_1_to_n_and_come_back_under_their_ids(tmp_path):
+    """Node ids from 1000, every seventh: GNODE NODENO 1..n, GCOORD, GELMNT1's connectivity, BNBCD, BNLOAD and a node
+    set by the internal numbers; read back, the ids, the node set and the load's node are the model's."""
+    from ada.fem import Load
+
+    a, fem, shells, _ = _plate()
+    fem.nodes.renumber(renumber_map={n.id: 1000 + 7 * i for i, n in enumerate(sorted(fem.nodes, key=lambda n: n.id))})
+    far = max(fem.nodes, key=lambda n: (n.x, n.y))
+    loaded = fem.add_set(FemSet("far", [far], "nset"))
+    a.fem.steps[0].add_load(Load("pull", Load.TYPES.FORCE, 50.0, dof=3, fem_set=loaded))
+    a.to_fem("deck", "sesam", scratch_dir=tmp_path, overwrite=True)
+    text = next((tmp_path / "deck").glob("*T1.FEM")).read_text()
+
+    gnode = _records(text, "GNODE")
+    of = {int(r[0]): int(r[1]) for r in gnode}
+    assert sorted(of.values()) == list(range(1, len(gnode) + 1)) and min(of) == 1000
+    assert {int(r[0]) for r in _records(text, "GCOORD")} == set(of.values())
+    assert {int(r[4]) for r in _records(text, "BNLOAD")} == {of[int(far.id)]}
+    corner_nodes = {of[int(n.id)] for el in shells for n in el.nodes}
+    connectivity = {int(x) for r in _records(text, "GELMNT1") if int(r[2]) in (24, 25, 26, 28) for x in r[4:]}
+    assert corner_nodes <= connectivity and max(connectivity) <= len(gnode)
+
+    b = ada.from_fem(next((tmp_path / "deck").glob("*T1.FEM")))
+    (part,) = [q for q in b.get_all_parts_in_assembly() if len(q.fem.elements)]
+    assert {int(n.id) for n in part.fem.nodes} == {int(n.id) for n in fem.nodes}
+    assert [int(n.id) for n in part.fem.nsets["far"].members] == [int(far.id)]
+    assert sorted(int(n.id) for n in part.fem.nsets["edge"].members) == sorted(
+        int(n.id) for n in fem.nsets["edge"].members
+    )
+
+
 def test_read_back_the_model_ids_and_sets_come_back(tmp_path):
     a, fem, shells, two = _plate()
     a.to_fem("deck", "sesam", scratch_dir=tmp_path, overwrite=True)

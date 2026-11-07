@@ -4,6 +4,8 @@ from typing import TYPE_CHECKING
 
 from ada.config import logger
 from ada.fem.formats.sesam.write.element_numbers import internal
+from ada.fem.formats.sesam.write.element_numbers import node as internal_node
+from ada.fem.formats.sesam.write.element_numbers import nodes as internal_nodes
 from ada.fem.formats.sesam.write.write_utils import write_ff
 from ada.fem.shapes.definitions import ConnectorTypes
 
@@ -125,7 +127,9 @@ def equation_names_str(*fems) -> str:
             continue
         width = max(len(c) for c in kept)
         # No name (NLNAM = 0), only the comment lines.
-        out += write_ff("TDNODE", [(4, nid, 0, 100 * len(kept) + width)] + [(c.ljust(width),) for c in kept])
+        out += write_ff(
+            "TDNODE", [(4, internal_node(nid), 0, 100 * len(kept) + width)] + [(c.ljust(width),) for c in kept]
+        )
     return out
 
 
@@ -156,7 +160,7 @@ def _set_str(fs: FemSet, members: list, i: int, comments: list[str]) -> str:
         mem_ids = [internal(mem.id) for mem in members]
     else:
         istype = 1
-        mem_ids = [mem.id for mem in members]
+        mem_ids = internal_nodes([mem.id for mem in members])  # a node set's too
 
     start = 0
     card_idx = 0

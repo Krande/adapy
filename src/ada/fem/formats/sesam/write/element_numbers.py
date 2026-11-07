@@ -1,4 +1,4 @@
-"""A deck's internal element numbers: 1..n in id order, every element keeping its own id as the external number.
+"""A deck's internal element and node numbers: 1..n in id order, each keeping its own id as the external number.
 
 A Sesam deck numbers every element twice (GELMNT1 ``ELNOX ELNO``): the external number is the one people read, the
 internal one is what every other record refers to the element by -- GELREF1, BEUSLO, BEISTE, BELOAD1 / BELLO2,
@@ -58,6 +58,40 @@ def deck(numbers: ElementNumbers) -> Iterator[ElementNumbers]:
 def internal(el_id) -> int:
     """The internal number of ``el_id`` in the deck being written (the id itself outside one)."""
     return _current[-1].internal(el_id) if _current else int(el_id)
+
+
+class NodeNumbers(ElementNumbers):
+    """The same for nodes (GNODE ``NODEX NODENO``): every record that names a node -- GCOORD, GELMNT1's connectivity,
+    BNBCD, BNDISPL, BLDEP, BNDOF, BNLOAD, BNMASS, BNACCLO, GSETMEMB node sets, TDNODE -- names it by its internal
+    number, which Sestra wants 1..n too ("NodeManager::Verified: invalid node id (internal number 1000)")."""
+
+    def many(self, node_ids) -> list[int]:
+        """``internal`` of each of ``node_ids`` (an id sequence or array)."""
+        if self._map is None:
+            return [int(i) for i in node_ids]
+        return [self._map.get(int(i), int(i)) for i in node_ids]
+
+
+_current_nodes: list[NodeNumbers] = []
+
+
+@contextlib.contextmanager
+def nodes_deck(numbers: NodeNumbers) -> Iterator[NodeNumbers]:
+    _current_nodes.append(numbers)
+    try:
+        yield numbers
+    finally:
+        _current_nodes.pop()
+
+
+def node(node_id) -> int:
+    """The internal number of node ``node_id`` in the deck being written (the id itself outside one)."""
+    return _current_nodes[-1].internal(node_id) if _current_nodes else int(node_id)
+
+
+def nodes(node_ids) -> list[int]:
+    """:func:`node` of each of ``node_ids``."""
+    return _current_nodes[-1].many(node_ids) if _current_nodes else [int(i) for i in node_ids]
 
 
 def deck_element_ids(fem: FEM, ndofs=None, with_springs: bool = True) -> list[int]:

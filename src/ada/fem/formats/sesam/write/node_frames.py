@@ -33,6 +33,7 @@ import numpy as np
 
 from ada.fem.frames import COSINE_TOL, bc_axes, in_global_axes, local_conditions
 
+from .element_numbers import node as internal_node
 from .write_utils import write_ff
 
 if TYPE_CHECKING:
@@ -87,7 +88,7 @@ class NodeFrames:
         for nid in sorted(self.axes):
             t = self.transno(nid)
             rotations = ndofs is None or ndofs.ndof(nid) > 3
-            out += write_ff("BNDOF", [(nid, t, t if rotations else 0)])
+            out += write_ff("BNDOF", [(internal_node(nid), t, t if rotations else 0)])
         return out
 
 

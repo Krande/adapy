@@ -37,6 +37,7 @@ from typing import TYPE_CHECKING, Iterable, Sequence
 
 from ada.config import logger
 
+from .element_numbers import node as internal_node
 from .write_utils import write_ff
 
 if TYPE_CHECKING:
@@ -393,7 +394,7 @@ def bndispl_str(prescribed: dict[int, dict[int, float]], ndofs: NodeDofs | None 
         vals = [prescribed[nid].get(dof, 0.0) for dof in range(1, ndof + 1)]
         out += write_ff(
             "BNDISPL",
-            [(lid, DTYPE_DISPLACEMENT, 0, 0), (nid, ndof) + tuple(vals[:2]), tuple(vals[2:ndof])],
+            [(lid, DTYPE_DISPLACEMENT, 0, 0), (internal_node(nid), ndof) + tuple(vals[:2]), tuple(vals[2:ndof])],
         )
     return out
 
@@ -538,5 +539,5 @@ def bnbcd_str(
         # NDOF codes, no more: a 3-dof node's record is "3" followed by three codes.
         # Padding it out to six would declare rotations the node does not have, which is
         # exactly the inconsistency GNODE's NDOF is being fixed for.
-        out_str += write_ff("BNBCD", [(nid, ndof, c[0], c[1]), tuple(c[2:ndof])])
+        out_str += write_ff("BNBCD", [(internal_node(nid), ndof, c[0], c[1]), tuple(c[2:ndof])])
     return out_str

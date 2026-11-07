@@ -209,16 +209,20 @@ def test_a_step_load_names_the_merged_set_and_ids():
 
 
 def _bnload_nodes(fem_file: pathlib.Path) -> list[int]:
-    """The node number (5th field) of every ``BNLOAD`` record of a Sesam deck."""
-    records, current = [], None
+    """The node (5th field) of every ``BNLOAD`` record of a Sesam deck, as its external number: BNLOAD names a node by
+    its internal number, which GNODE (``NODEX NODENO``) maps back."""
+    records, current, external = [], None, {}
     for line in fem_file.read_text().splitlines():
+        if line.startswith("GNODE"):
+            nodex, nodeno = (int(float(v)) for v in line[8:].split()[:2])
+            external[nodeno] = nodex
         if line[:8].strip():
             current = [] if line.startswith("BNLOAD") else None
             if current is not None:
                 records.append(current)
         if current is not None:
             current.extend(float(v) for v in line[8:].split())
-    return [int(r[4]) for r in records]
+    return [external[int(r[4])] for r in records]
 
 
 def test_a_sesam_deck_puts_the_part_b_load_on_part_b_s_node(tmp_path):

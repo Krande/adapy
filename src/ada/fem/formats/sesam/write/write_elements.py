@@ -12,7 +12,7 @@ from ada.fem.shapes.definitions import (
 
 from ..common import sesam_el_map
 from ..node_order import SESAM_ORDER
-from .element_numbers import internal
+from .element_numbers import internal, nodes
 from .not_held import STAGE, report
 from .write_springs import element_records
 from .write_utils import write_ff
@@ -224,8 +224,11 @@ def elem_gen(fem: FEM, thick_map, spring_matnos: dict | None = None, ndofs=None)
             yield spring_records[el.id][0]
             continue
         elno = internal(el.id)
+        # NODIN: the nodes by their internal numbers (element_numbers.nodes)
         if el.id in mass_ids:
-            yield write_ff("GELMNT1", [(el.id, elno, points.eltyp(el), 0)] + _chunk_nodal_data(points.node_ids(el)))
+            yield write_ff(
+                "GELMNT1", [(el.id, elno, points.eltyp(el), 0)] + _chunk_nodal_data(nodes(points.node_ids(el)))
+            )
             continue
         ids = by_block.get(el.type)
         row = getattr(el, "_row", None)
@@ -233,7 +236,7 @@ def elem_gen(fem: FEM, thick_map, spring_matnos: dict | None = None, ndofs=None)
             nids = ids[row].tolist()
         else:
             nids = [n.id for n in SESAM_ORDER.nodes_to_format(el.type, list(el.nodes))]
-        yield write_ff("GELMNT1", [(el.id, elno, eltype_2_sesam(el.type), 0)] + _chunk_nodal_data(nids))
+        yield write_ff("GELMNT1", [(el.id, elno, eltype_2_sesam(el.type), 0)] + _chunk_nodal_data(nodes(nids)))
     for el in writable:
         if el.id in spring_records and is_spring(el):
             yield spring_records[el.id][1]
