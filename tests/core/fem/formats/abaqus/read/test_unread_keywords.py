@@ -62,8 +62,8 @@ def test_unread_keywords_are_reported_once_each_and_read_ones_are_not(tmp_path):
         + "*Amplitude, name=ramp\n0., 0., 1., 1.\n"
         + "*Constraint Controls, print=yes\n"
         "*Step, name=load\n*Static\n1., 1.\n"
-        "*Temperature\n3, 20.\n"
-        "*Temperature\n5, 20.\n"
+        "*Cflux\n3, 11, 20.\n"
+        "*Cflux\n5, 11, 20.\n"
         "*Cload\n3, 3, -1.\n"
         "*Node Print\nU,\n"
         "*End Step\n"
@@ -72,17 +72,17 @@ def test_unread_keywords_are_reported_once_each_and_read_ones_are_not(tmp_path):
 
     # what the reader reads is never reported
     read = ("*NODE", "*ELEMENT", "*NSET", "*MATERIAL", "*ELASTIC", "*DENSITY", "*SOLID SECTION")
-    for kw in (*read, "*AMPLITUDE", "*STEP", "*STATIC", "*CLOAD"):
+    for kw in (*read, "*AMPLITUDE", "*STEP", "*STATIC", "*CLOAD", "*TEMPERATURE"):
         assert kw not in found, kw
 
     # model data with no handler: reported, so the model is not quietly missing it
     assert found["*IMPERFECTION"].kind == "omitted"
 
     # counted per keyword, not per block, with where to look
-    temp = found["*TEMPERATURE"]
+    temp = found["*CFLUX"]
     assert temp.kind == "omitted" and temp.count == 2
     assert temp.details["blocks"] == 2
-    assert temp.details["first_line"] == deck.splitlines().index("*Temperature") + 1
+    assert temp.details["first_line"] == deck.splitlines().index("*Cflux") + 1
 
     # changes nothing in the model: a note, which does not fail --strict
     assert found["*HEADING"].kind == "note"

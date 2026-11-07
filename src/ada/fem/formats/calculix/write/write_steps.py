@@ -52,8 +52,10 @@ def _outputs_str(step: Step, deck: DeckContext | None = None) -> tuple[str, str]
     nodal = []
     elem = []
     for fi in step.field_outputs:
-        nodal += fi.nodal
-        elem += fi.element
+        # each variable once: ccx takes at most 16 entries on a line, and two requests (a read deck's default and one
+        # added to it) named the same six element variables twice and three times
+        nodal += [v for v in fi.nodal if v not in nodal]
+        elem += [v for v in fi.element if v not in elem]
     nodal_str = "*node file\n" + ", ".join(nodal) if len(nodal) > 0 else "** No nodal output"
     if deck is not None and "RF" in nodal and step.type in (Step.TYPES.STATIC, Step.TYPES.DYNAMIC):
         nodal_str = reaction_totals_str(deck) + nodal_str

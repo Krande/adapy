@@ -71,7 +71,7 @@ def to_fem(assembly: Assembly, name, analysis_dir, metadata=None, model_data_onl
 
         # Assembly Level information
         u1_materials = {el.fem_sec.material.name for el in p.fem.elements.lines if el.id in deck.u1_elements}
-        f.write("\n".join([material_str(mat, mat.name in u1_materials) for mat in p.materials]) + "\n")
+        f.write("\n".join([material_str(mat, mat.name in u1_materials) for mat in deck_materials(p)]) + "\n")
         f.write(constraints_str(p, assembly) + "\n")
         ampl = amplitudes_str([p.fem, assembly.fem])
         if ampl:
@@ -80,11 +80,14 @@ def to_fem(assembly: Assembly, name, analysis_dir, metadata=None, model_data_onl
         if deck.temperature_reference is not None:
             from .write_loads import ccx_number
 
-            if TEMPERATURE_NSET in p.fem.nsets:
-                raise ValueError(f"calculix writer: the model already has a node set named {TEMPERATURE_NSET!r}")
-            newline = NewLine(15)
-            ids = " ".join(f"{n.id}," + next(newline) for n in p.fem.nodes).rstrip()[:-1]
-            f.write(f"*Nset, nset={TEMPERATURE_NSET}\n {ids}\n")
+            have = p.fem.nsets.get(TEMPERATURE_NSET)
+            if have is None:
+                newline = NewLine(15)
+                ids = " ".join(f"{n.id}," + next(newline) for n in p.fem.nodes).rstrip()[:-1]
+                f.write(f"*Nset, nset={TEMPERATURE_NSET}\n {ids}\n")
+            elif {id(n) for n in have.members} != {id(n) for n in p.fem.nodes}:
+                # one read back from a deck this writer wrote is every node, and is written with the model's sets
+                raise ValueError(f"calculix writer: the model has a node set {TEMPERATURE_NSET!r} of some nodes only")
             ref = ccx_number(deck.temperature_reference)
             f.write(f"*Initial conditions, type=temperature\n {TEMPERATURE_NSET}, {ref}\n")
         # A model with no analysis step is still a deck worth writing -- it simply has no
@@ -97,6 +100,18 @@ def to_fem(assembly: Assembly, name, analysis_dir, metadata=None, model_data_onl
             f.write("** No steps\n")
 
     logger.info(f'Created a Calculix input deck at "{analysis_dir}"')
+
+
+def deck_materials(part) -> list:
+    """The part's materials and every one its sections name, once each by name: a model read from a flat deck holds
+    its materials on the assembly, and its sections named them in a deck that then had none ("*SHELL SECTION:
+    nonexistent material", ccx 2.23)."""
+    out, seen = [], set()
+    for mat in [*part.materials, *(sec.material for sec in part.fem.sections if sec.material is not None)]:
+        if mat.name not in seen:
+            seen.add(mat.name)
+            out.append(mat)
+    return out
 
 
 def amplitudes_str(fems) -> str:

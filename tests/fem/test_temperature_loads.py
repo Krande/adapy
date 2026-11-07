@@ -217,3 +217,26 @@ def test_a_heated_solid_block_grows_by_alpha_dt_and_held_pushes_with_e_alpha_dt(
         else:
             for n in fem.nodes:
                 assert u[int(n.id)] == pytest.approx(m.alpha * DT * np.asarray(n.p), abs=rel * m.alpha * DT * h)
+
+
+@pytest.mark.parametrize("deck", ["abaqus", "calculix"])
+def test_a_temperature_read_back_from_a_deck_solves_to_the_same_field(tmp_path, require_solver, deck):
+    """The strip written to an Abaqus or CalculiX deck and read back (``ada.from_fem``): its *Temperature and the
+    nodes' initial temperature come back as the load and its reference, so the read model, solved in CalculiX,
+    still grows by alpha dT L -- a reader that dropped them would leave it unloaded."""
+    from ada.fem.loads import LoadTemperature as LT
+
+    require_solver("calculix")
+    asm, _, _, _, alpha = _strip(both_ends=False)
+    asm.to_fem("deck", deck, scratch_dir=tmp_path, overwrite=True)
+    back = ada.from_fem(next((tmp_path / "deck").glob("*.inp")))
+    loads = [ld for p in back.get_all_parts_in_assembly(include_self=True) for st in p.fem.steps for ld in st.loads]
+    (temp,) = [ld for ld in loads if isinstance(ld, LT)]
+    assert (temp.temperature, temp.reference, temp.fem_set) == (REF + DT, REF, None)
+    for part in back.get_all_parts_in_assembly(include_self=True):
+        for step in part.fem.steps:
+            step.add_field_output(FieldOutput("u_rf", nodal=["U", "RF"]))
+    res = back.to_fem("again", "calculix", scratch_dir=tmp_path, overwrite=True, execute=True, lazy=True)
+    u, _ = _fields(res)
+    far = _at_x(res, L)
+    assert far and all(u[i][0] == pytest.approx(alpha * DT * L, rel=1e-5) for i in far)
