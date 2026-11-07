@@ -508,10 +508,13 @@ class SifReader:
         first_cosine_i = cards.BNTRCOS.get_indices_from_names(["c11"])
         matrices: dict[int, np.ndarray] = {}
         for row in transform_rows:
-            # BNTRCOS stores c11,c21,c31,c12,... (columns of C). The
-            # interface equation is global = C @ local.
-            matrix = np.asarray(row[first_cosine_i : first_cosine_i + 9], dtype=float).reshape(3, 3, order="F")
-            matrices[int(row[transform_id_i])] = matrix
+            # BNTRCOS stores c11,c21,c31,c12,... (columns of C), and C takes global to local: "r0 = C r where r0
+            # refers to the local co-ordinate system and r to the global" (SIF 7.2.25) -- its rows are the local
+            # axes, as GeniE writes them (genie_supports_frames_T1.FEM: a support with x' = (0.6, 0, 0.8) has that
+            # as the first row). So local to global is C^T. This read C itself as local to global, which turned
+            # every result at a transformed node by the inverse rotation.
+            c = np.asarray(row[first_cosine_i : first_cosine_i + 9], dtype=float).reshape(3, 3, order="F")
+            matrices[int(row[transform_id_i])] = c.T
 
         node_rows = self._other.get(cards.BNDOF.name, []) or []
         node_i, translation_i, rotation_i = cards.BNDOF.get_indices_from_names(["nodeno", "transd", "transr"])

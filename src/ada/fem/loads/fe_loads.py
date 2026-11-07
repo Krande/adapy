@@ -124,18 +124,16 @@ class Load(FemBase):
         dofs = [0.0 if x is None else float(x) for x in self.dof]
         if self.csys is None:
             return [x * self.magnitude for x in dofs]
-        else:
-            csys = self.csys
-            if csys.coords is None:
-                logger.error("Calculating global forces without COORDS is not yet supported")
-                return None
-
-            from ada.core.vector_transforms import rotation_matrix_csys_rotate
-
-            destination_csys = [(1, 0, 0), (0, 1, 0)]
-            rmat = rotation_matrix_csys_rotate(csys.coords, destination_csys)
-            res = np.concatenate([np.dot(rmat, np.array(dofs[:3])), np.dot(rmat, np.array(dofs[3:]))])
-            return [x * self.magnitude for x in res]
+        # The rows of ``axes`` are the local axes in global components, so ``f_global = axes.T @ f_local``. This
+        # used to compose two quaternions instead, which turned a force along a local x that is global y into one
+        # along *minus* global y (and local x = global z into global y): every rotated point load reached
+        # Code_Aster and CalculiX the wrong way.
+        axes = self.csys.axes()
+        if axes is None:
+            logger.error("Calculating global forces needs a rectangular system given by coordinates")
+            return None
+        res = np.concatenate([axes.T @ np.array(dofs[:3]), axes.T @ np.array(dofs[3:])])
+        return [float(x) * self.magnitude for x in res]
 
     @property
     def amplitude(self):

@@ -247,34 +247,15 @@ def load_gravity(load: Load, load_id: int) -> str:
 
 
 def _local_axes(csys) -> np.ndarray | None:
-    """The rows of the local x, y, z unit vectors in global axes, for a rectangular system
-    given by coordinates -- the first a point on the local x axis, the second one in the
-    local x-y plane, as Abaqus' ``*Transform`` and ``*Orientation`` define them. ``None``
-    for any other kind of system.
-    """
-    if str(csys.system).upper() != "RECTANGULAR" or str(csys.definition).upper() != "COORDINATES":
-        return None
-    if csys.coords is None or len(csys.coords) < 2:
-        return None
-    a, b = (np.asarray(v, dtype=float) for v in csys.coords[:2])
-    x = a / np.linalg.norm(a)
-    z = np.cross(a, b)
-    z = z / np.linalg.norm(z)
-    return np.array([x, np.cross(z, x), z])
+    """The rows of the local x, y, z unit vectors in global axes (:meth:`ada.fem.common.Csys.axes`), ``None`` for a
+    system that is not rectangular or not given by coordinates."""
+    return csys.axes()
 
 
 def _global_forces(load: Load) -> list[float]:
-    """The load's six components in global axes.
-
-    ``Load.forces_global`` applies the inverse rotation -- a force along local x of a system
-    whose x axis is global y came out along *minus* global y -- so the rotation is done
-    here: ``f_global = R^T f_local`` with ``R``'s rows the local axes.
-    """
-    forces = [float(f) for f in load.forces]
-    if load.csys is None:
-        return forces
-    rt = _local_axes(load.csys).T
-    return [float(v) for v in np.concatenate([rt @ forces[:3], rt @ forces[3:6]])]
+    """The load's six components in global axes (``Load.forces_global``: ``f_global = R^T f_local`` with ``R``'s rows
+    the local axes)."""
+    return [float(f) for f in load.forces_global]
 
 
 #: BEUSLO's LOTYP for a surface pressure: one intensity per element node, normal to the
