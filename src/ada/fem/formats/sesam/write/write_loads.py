@@ -17,6 +17,7 @@ from ada.fem.shell_sides import (
 from ada.fem.steps import Step
 
 from .not_held import STAGE, report
+from .element_numbers import internal
 from .write_utils import write_ff
 
 if TYPE_CHECKING:
@@ -333,7 +334,7 @@ def load_temperature(load, load_id: int) -> str:
     for el in sorted((el for el in els if not isinstance(el.type, SolidShapes)), key=lambda e: e.id):
         nnod = len(el.nodes)
         values = [dt] * nnod
-        out += write_ff("BEISTE", [(load_id, 1, 0, 0), (el.id, nnod, 0, values[0]), *_rows4(values[1:])])
+        out += write_ff("BEISTE", [(load_id, 1, 0, 0), (internal(el.id), nnod, 0, values[0]), *_rows4(values[1:])])
     return out
 
 
@@ -603,7 +604,7 @@ def load_pressure(load: Load, load_id: int) -> str:
                     "BEUSLO",
                     [
                         (load_id, PRESSURE_LOTYP, 0, PRESSURE_LAYER),
-                        (el.id, len(nodes), PRESSURE_INTNO, side_code(el.type, number)),
+                        (internal(el.id), len(nodes), PRESSURE_INTNO, side_code(el.type, number)),
                         *_four_per_line([_pressure_value(load, n) for n in nodes]),
                     ],
                 )
@@ -624,7 +625,7 @@ def load_pressure(load: Load, load_id: int) -> str:
                 "BEUSLO",
                 [
                     (load_id, PRESSURE_LOTYP, 0, PRESSURE_LAYER),
-                    (el.id, len(el.nodes), PRESSURE_INTNO, beuslo_side),
+                    (internal(el.id), len(el.nodes), PRESSURE_INTNO, beuslo_side),
                     *_four_per_line(intensities),
                 ],
             )
@@ -813,7 +814,7 @@ def load_line(load, load_id: int) -> str:
                 continue
             out += write_ff(
                 "BELOAD1",
-                [(load_id, LINE_LOTYP, 0, LINE_OPT_GLOBAL), (el.id, seg.l1, seg.l2, 6), (0, *q[:3]), q[3:]],
+                [(load_id, LINE_LOTYP, 0, LINE_OPT_GLOBAL), (internal(el.id), seg.l1, seg.l2, 6), (0, *q[:3]), q[3:]],
             )
         else:
             if el.type not in (ShellShapes.TRI, ShellShapes.QUAD) or seg.l1 != 0.0 or seg.l2 != 0.0:
@@ -823,7 +824,7 @@ def load_line(load, load_id: int) -> str:
                 continue
             out += write_ff(
                 "BELLO2",
-                [(load_id, EDGE_LOTYP, 0, 0), (el.id, 6, 0, seg.edge), (0, *q[:3]), q[3:]],
+                [(load_id, EDGE_LOTYP, 0, 0), (internal(el.id), 6, 0, seg.edge), (0, *q[:3]), q[3:]],
             )
     for why, ids in sorted(refused.items()):
         rep.omitted(STAGE, "Load", load.name, why, elements=sorted(ids, key=int)[:10], n_elements=len(ids))

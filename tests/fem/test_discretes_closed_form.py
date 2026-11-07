@@ -128,7 +128,7 @@ def test_a_cantilever_on_a_rotational_spring_deflects_by_its_bending_plus_its_ro
     (tip,) = [n for n in fem.nodes if abs(n.x - L) < 1e-9]
     # translations and the other rotations held; the turn about z resisted by the spring alone
     fem.add_bc(Bc("root", fem.add_set(FemSet("root", [root], "nset")), [1, 2, 3, 4, 5]))
-    big = 1.0e12  # (Sestra wants element ids 1..n: the spring takes the next one)
+    big = 1.0e12  # the spring numbered apart (10000 of 13): the Sesam deck renumbers it internally (element_numbers)
     fem.add_spring(
         Spring(
             "hinge",

@@ -12,6 +12,7 @@ from ada.fem.shapes.definitions import (
 
 from ..common import sesam_el_map
 from ..node_order import SESAM_ORDER
+from .element_numbers import internal
 from .not_held import STAGE, report
 from .write_springs import element_records
 from .write_utils import write_ff
@@ -209,18 +210,22 @@ def elem_gen(fem: FEM, thick_map, spring_matnos: dict | None = None, ndofs=None)
         raise ValueError(f'Doubly defined element id "{dupes[0]}"')  # mirrors nodes_gen
     spring_records = {sp.id: element_records(sp, spring_matnos[sp.id]) for sp in springs}
 
-    _warn_if_not_contiguous(el_ids, n_skipped)
+    # On the internal numbers written: 1..n under writer.to_fem's numbering (element_numbers), the ids themselves
+    # when the block is written on its own -- where a gap is still one.
+    _warn_if_not_contiguous([internal(i) for i in el_ids], n_skipped)
 
     # Yield record by record so the caller can stream: accumulating into one string
     # re-grew a deck-sized buffer per element, and held the whole element block in
     # memory on top of the mesh.
     by_block = _sesam_ordered_ids(fem)
+    # ELNOX the model's id, ELNO the deck's internal number, 1..n in this order (element_numbers)
     for el in writable:
         if el.id in spring_records and is_spring(el):
             yield spring_records[el.id][0]
             continue
+        elno = internal(el.id)
         if el.id in mass_ids:
-            yield write_ff("GELMNT1", [(el.id, el.id, points.eltyp(el), 0)] + _chunk_nodal_data(points.node_ids(el)))
+            yield write_ff("GELMNT1", [(el.id, elno, points.eltyp(el), 0)] + _chunk_nodal_data(points.node_ids(el)))
             continue
         ids = by_block.get(el.type)
         row = getattr(el, "_row", None)
@@ -228,7 +233,7 @@ def elem_gen(fem: FEM, thick_map, spring_matnos: dict | None = None, ndofs=None)
             nids = ids[row].tolist()
         else:
             nids = [n.id for n in SESAM_ORDER.nodes_to_format(el.type, list(el.nodes))]
-        yield write_ff("GELMNT1", [(el.id, el.id, eltype_2_sesam(el.type), 0)] + _chunk_nodal_data(nids))
+        yield write_ff("GELMNT1", [(el.id, elno, eltype_2_sesam(el.type), 0)] + _chunk_nodal_data(nids))
     for el in writable:
         if el.id in spring_records and is_spring(el):
             yield spring_records[el.id][1]
@@ -271,7 +276,7 @@ def write_elem(el: Elem, thick_map) -> str:
 
     fem_sec = el.fem_sec
     if fem_sec is None:  # see partition_elements
-        return write_ff("GELREF1", [(el.id, 0, 0, 0), (0, 0, 0, 0), (0, 0, 0, 0)])
+        return write_ff("GELREF1", [(internal(el.id), 0, 0, 0), (0, 0, 0, 0), (0, 0, 0, 0)])
     if fem_sec.type == ElemType.LINE:
         sec_id = fem_sec.section.id
     elif fem_sec.type == ElemType.SHELL:
@@ -332,7 +337,7 @@ def write_elem(el: Elem, thick_map) -> str:
     return write_ff(
         "GELREF1",
         [
-            (el.id, el.fem_sec.material.id, 0, 0),
+            (internal(el.id), el.fem_sec.material.id, 0, 0),
             (0, 0, 0, 0),
         ]
         + last_tuples,

@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from ada.config import logger
+from ada.fem.formats.sesam.write.element_numbers import internal
 from ada.fem.formats.sesam.write.write_utils import write_ff
 from ada.fem.shapes.definitions import ConnectorTypes
 
@@ -149,11 +150,13 @@ def _set_str(fs: FemSet, members: list, i: int, comments: list[str]) -> str:
         rows += [(c.ljust(width),) for c in kept]
     out_str += write_ff("TDSETNAM", rows)
     nfield = len(members) + 5
-    mem_ids = [mem.id for mem in members]
     if fs.type == "elset":
         istype = 2
+        # an element set names its elements by their internal numbers (element_numbers)
+        mem_ids = [internal(mem.id) for mem in members]
     else:
         istype = 1
+        mem_ids = [mem.id for mem in members]
 
     start = 0
     card_idx = 0
