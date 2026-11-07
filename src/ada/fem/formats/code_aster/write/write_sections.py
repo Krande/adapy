@@ -15,6 +15,7 @@ def create_sections_str(
     timoshenko: bool = False,
     large_rotations: bool = False,
     varc: str = "",
+    fibre_beams=(),
 ) -> str:
     """``masses``: the point masses (:func:`.write_masses.point_masses`), given their ``DISCRET`` here.
     ``timoshenko``: beams with shear areas carry their shear coefficients (``POU_D_T``, :func:`write_beam_section`)."""
@@ -64,6 +65,14 @@ def create_sections_str(
         beam_sections_str = f"\n        POUTRE=(\n{beam_sections_str}\n        ),"
         beam_sections_str += f"\n        ORIENTATION=(\n{orientations_str}\n        ),"
 
+    compor_str = ""
+    if fibre_beams:
+        from .write_fibres import affe_compor_str, cara_elem_str, geom_fibre_str
+
+        section_materials += "\n" + geom_fibre_str(list(fibre_beams))
+        beam_sections_str += cara_elem_str(list(fibre_beams))
+        compor_str = affe_compor_str(list(fibre_beams))
+
     if len(trusses) > 0:
         mat_assign_str_, truss_str = ["".join(x) for x in zip(*[write_truss_section(tr) for tr in trusses])]
         mat_assign_str += mat_assign_str_
@@ -108,7 +117,7 @@ material = AFFE_MATERIAU(
     MODELE=model,
     AFFE=(
 {mat_assign_str}
-    ),{varc}
+    ),{compor_str}{varc}
 )
 
 # Shell elements:

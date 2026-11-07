@@ -93,8 +93,9 @@ def plastic_groups(part: Part, report: bool = False) -> list[str]:
     """The element groups of the solid sections whose material has a hardening curve -- solved with von Mises
     plasticity (``VMIS_ISOT_TRAC``) in a general static step, as an Abaqus general step solves a ``*Plastic``
     material whatever its ``nlgeom``. Bending shells too, integrated on layers through the thickness
-    (write_sections.PLASTIC_SHELL_LAYERS), first-order (DKT) and second-order (COQUE_3D) alike. A plastic beam
-    needs multi-fibre sections, which this writer does not make: it stays elastic, reported (``report``)."""
+    (write_sections.PLASTIC_SHELL_LAYERS), first-order (DKT) and second-order (COQUE_3D) alike; and beams, as
+    multi-fibre beams (write_fibres) -- except in large rotations or as Timoshenko beams, which stay elastic,
+    reported (``report``)."""
     from ada.fem.formats import conversion_report
     from ada.fem.shapes.definitions import ShellShapes
 
@@ -112,15 +113,20 @@ def plastic_groups(part: Part, report: bool = False) -> list[str]:
     for fs in [*sections.solids, *layered]:
         if traction_curve(fs.material) is not None:
             out.append(fs.elset.name)
+    from ..write_fibres import fibre_beams
+
+    fibred = fibre_beams(part)
+    out += [fs.elset.name for fs in fibred]
     if report:
-        for fs in [*[sh for sh in sections.shells if sh not in layered], *sections.lines]:
+        lines = [fs for fs in sections.lines if all(fs is not f for f in fibred)]
+        for fs in [*[sh for sh in sections.shells if sh not in layered], *lines]:
             if traction_curve(fs.material) is not None:
                 conversion_report.current().approximated(
                     STAGE,
                     "FemSection",
                     fs.name,
-                    "a beam (or a shell of mixed element orders) of a plastic material is solved elastic: Code_Aster's "
-                    "plasticity of beams needs multi-fibre sections, which this writer does not make",
+                    "a beam (or a shell of mixed element orders) of a plastic material is solved elastic: a beam in large "
+                    "rotations (POU_D_T_GD) or a Timoshenko beam has no multi-fibre form here (write_fibres)",
                     material=fs.material.name,
                 )
     return out
@@ -218,6 +224,13 @@ class StatNonLin:
         if cables:
             out += f'_F(RELATION="CABLE", DEFORMATION="GROT_GDEP", GROUP_MA={_group_tuple(cables)}),'
         plastic = plastic_groups(self.part)
+        from ..write_fibres import fibre_beams
+
+        fibre_groups = {fs.elset.name for fs in fibre_beams(self.part)}
+        if fibre_groups:
+            # the fibres' own behaviours (DEFI_COMPOR, given in the material field): small strains only (U3.11.07)
+            out += f'_F(RELATION="MULTIFIBRE", DEFORMATION="PETIT", GROUP_MA={_group_tuple(sorted(fibre_groups))}),'
+        plastic = [g for g in plastic if g not in fibre_groups]
         if plastic:
             # von Mises plasticity with isotropic hardening along the material's TRACTION curve (U4.51.11)
             solid_names = {fs.elset.name for fs in sections.solids}

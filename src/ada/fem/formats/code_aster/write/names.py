@@ -97,6 +97,9 @@ RESERVED_PATTERNS = (
     re.compile(r"(?:buckle|result)\d*_(?:s|sg|ge|ke|nu|k|g|t)"),
     # an implicit dynamic step's result, its time list and load multipliers (steps.dynamic)
     re.compile(r"dyn\d*"),
+    # multi-fibre beams' fibres and behaviours (write_fibres)
+    re.compile(r"mf_geom"),
+    re.compile(r"mf_compor\d+"),
     re.compile(r"(?:dyn|result)\d*_(?:li|f\d+)"),
 )
 

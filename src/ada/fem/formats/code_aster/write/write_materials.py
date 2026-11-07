@@ -35,6 +35,12 @@ def materials_str(assembly: Assembly) -> str:
         ]
         if fs.material is not None
     }
+    # and multi-fibre beams' (write_fibres): POU_D_EM integrates the curve on each fibre
+    from .write_fibres import fibre_beams
+
+    solid_mats |= {
+        fs.material.name for p in assembly.get_all_parts_in_assembly(True) if p.fem is not None for fs in fibre_beams(p)
+    }
     # the thermal expansion where a temperature load acts (write_temperature): ALPHA with the TEMP command variable
     from .write_steps import all_steps
     from .write_temperature import temperature_loads

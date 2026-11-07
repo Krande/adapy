@@ -135,6 +135,7 @@ def create_comm_str(assembly: Assembly, part: Part) -> str:
     mat_str = materials_str(assembly)
     ref_group = ref_points_group(part)
     masses = point_masses(part)
+    from .write_fibres import fibre_beams
     from .write_temperature import temperature_field_str, temperature_loads
 
     temp_loads = temperature_loads(all_steps(assembly))
@@ -148,6 +149,7 @@ def create_comm_str(assembly: Assembly, part: Part) -> str:
         timoshenko=part.fem.options.CODE_ASTER.use_timoshenko_beams or _gd_beams(part),
         large_rotations=any(st.type == "static" and st.nl_geom is True for st in all_steps(assembly)),
         varc=temp_varc,
+        fibre_beams=fibre_beams(part),
     )
     # The part's and the assembly's, each once. ``bcs += assembly.fem.bcs`` on ``part.fem.bcs`` extended the part's own
     # list with the assembly's on every write.
@@ -178,9 +180,15 @@ def create_comm_str(assembly: Assembly, part: Part) -> str:
 
     # a model of nlgeom static steps only: its beams in large rotations, POU_D_T_GD (steps.static_nonlin)
     gd = large_rotation_beams(part)
+    from .write_fibres import fibre_beams as _fibre_beams
+
+    # plastic beams: multi-fibre POU_D_EM (write_fibres)
+    fibred = {id(fs) for fs in _fibre_beams(part)}
+    plain = [fs for fs in beams if id(fs) not in fibred]
     for group, el_formula, members in (
-        ("bm_sets", "POU_D_E", [] if gd else [fs for fs in beams if not (timoshenko and has_shear_deformation(fs))]),
-        ("bm_t_sets", "POU_D_T", [] if gd else [fs for fs in beams if timoshenko and has_shear_deformation(fs)]),
+        ("bm_sets", "POU_D_E", [] if gd else [fs for fs in plain if not (timoshenko and has_shear_deformation(fs))]),
+        ("bm_t_sets", "POU_D_T", [] if gd else [fs for fs in plain if timoshenko and has_shear_deformation(fs)]),
+        ("bm_em_sets", "POU_D_EM", [fs for fs in beams if id(fs) in fibred]),
         ("bm_gd_sets", "POU_D_T_GD", beams if gd else []),
         ("tr_sets", "BARRE", [fs for fs in lines if fs.is_axial_only and not fs.is_cable]),
         ("cb_sets", "CABLE", [fs for fs in lines if fs.is_cable]),
