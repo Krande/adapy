@@ -179,7 +179,7 @@ def write(part, input_mesh, output_mesh: str = "default_bound", *, elset="kwonly
 def test_every_name_the_writer_binds_itself_is_reserved():
     bound = _bound_by_the_writer()
     # the scan sees what it is meant to see
-    assert {"mesh", "model", "material", "element", "result", "supports", "stiff", "Traction", "sh_sets"} <= set(bound)
+    assert {"mesh", "model", "material", "element", "result", "supports", "stiff", "sh_sets", "timeInst"} <= set(bound)
     # ... and the names a step makes up as it is written
     assert {
         "result1",

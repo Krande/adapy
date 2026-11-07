@@ -13,6 +13,35 @@ if TYPE_CHECKING:
     from ada.api.spatial import Part
 
 
+def plastic_groups(part: Part, report: bool = False) -> list[str]:
+    """The element groups of the solid sections whose material has a hardening curve -- solved with von Mises
+    plasticity (``VMIS_ISOT_TRAC``) in a general static step, as an Abaqus general step solves a ``*Plastic``
+    material whatever its ``nlgeom``. A plastic shell or beam needs Code_Aster's layered or multi-fibre sections,
+    which this writer does not make: it stays elastic, reported (``report``)."""
+    from ada.fem.formats import conversion_report
+
+    from ..write_loads import STAGE
+    from ..write_materials import traction_curve
+
+    out = []
+    sections = part.fem.sections
+    for fs in sections.solids:
+        if traction_curve(fs.material) is not None:
+            out.append(fs.elset.name)
+    if report:
+        for fs in [*sections.shells, *sections.lines]:
+            if traction_curve(fs.material) is not None:
+                conversion_report.current().approximated(
+                    STAGE,
+                    "FemSection",
+                    fs.name,
+                    "a shell or beam of a plastic material is solved elastic: Code_Aster's plasticity of shells and "
+                    "beams needs layered or multi-fibre sections, which this writer does not make",
+                    material=fs.material.name,
+                )
+    return out
+
+
 @dataclass
 class StatNonLin:
     name: str
@@ -68,6 +97,10 @@ class StatNonLin:
         cables = [fs.elset.name for fs in sections.lines if fs.is_cable]
         if cables:
             out += f'_F(RELATION="CABLE", DEFORMATION="GROT_GDEP", GROUP_MA={_group_tuple(cables)}),'
+        plastic = plastic_groups(self.part)
+        if plastic:
+            # von Mises plasticity with isotropic hardening along the material's TRACTION curve (U4.51.11)
+            out += f'_F(RELATION="VMIS_ISOT_TRAC", DEFORMATION="PETIT", GROUP_MA={_group_tuple(plastic)}),'
         return out
 
     @property
@@ -132,7 +165,8 @@ class PostCalc:
         shells = [fs.elset.name for fs in sections.shells if not fs.is_membrane]
         restrict = (lambda groups: f"\n    GROUP_MA={_group_tuple(groups)},") if special else (lambda groups: "")
 
-        out = ""
+        out = f"""
+{name} = CALC_CHAMP(reuse={name}, RESULTAT={name}, FORCE=("REAC_NODA",))"""
         if others:
             contrainte_fields = ["SIGM_ELNO"]
             if any(not fs.is_membrane for fs in sections.shells) or any(not fs.is_axial_only for fs in sections.lines):
@@ -231,12 +265,14 @@ class ImprResu:
         # EFGE (element forces) only makes sense for shell and beam elements, not for 3D solid elements
         from .fields import stress_fields
 
+        # The reactions too (PostCalc computes REAC_NODA): a nonlinear step printed none, so its support forces --
+        # what an equilibrium check or a closed form reads -- were not in the results at all.
         if "EFGE_ELNO" in stress_fields(self.part):
-            result_nom_cham = '("DEPL", "EFGE_ELNO", "EFGE_NOEU")'
-            result_nom_cham_med = self.med("DISP", "GEN_FORCES_ELEM", "GEN_FORCES_NODES")
+            result_nom_cham = '("DEPL", "REAC_NODA", "EFGE_ELNO", "EFGE_NOEU")'
+            result_nom_cham_med = self.med("DISP", "REAC_NODA", "GEN_FORCES_ELEM", "GEN_FORCES_NODES")
         else:
-            result_nom_cham = '("DEPL",)'
-            result_nom_cham_med = self.med("DISP")
+            result_nom_cham = '("DEPL", "REAC_NODA")'
+            result_nom_cham_med = self.med("DISP", "REAC_NODA")
         special = ""
         if _special_groups(self.part):
             # The axial forces of trusses and cables and the in-plane forces per unit width of membranes.
@@ -283,16 +319,25 @@ def step_static_nonlin_str(step: StepImplicitStatic, part: Part, result: str = "
 
     from ada.fem.formats import conversion_report
 
+    if step.nl_geom is not True:
+        conversion_report.current().note(
+            STAGE,
+            "STAT_NON_LINE",
+            step.name,
+            "a general static step of a plastic material is solved with STAT_NON_LINE, von Mises plasticity along "
+            "the material's curve (VMIS_ISOT_TRAC), small strains",
+        )
     # Measured (tests/fem: two nlgeom steps, a 4 m strip whose tip deflects 0.55 and 1.66 m): the linear closed form
     # to 1e-10 -- DEFORMATION='PETIT' is small displacements, and RELATION defaults to 'ELAS'.
-    conversion_report.current().approximated(
-        STAGE,
-        "STAT_NON_LINE",
-        step.name,
-        "a geometrically nonlinear step is solved with small displacements (DEFORMATION='PETIT') and an elastic "
-        "material (RELATION 'ELAS', the default; a TRACTION curve is written but not used): the answer is the linear "
-        "one",
-    )
+    if step.nl_geom is True:
+        conversion_report.current().approximated(
+            STAGE,
+            "STAT_NON_LINE",
+            step.name,
+            "a geometrically nonlinear step is solved with small displacements (DEFORMATION='PETIT'): its "
+            "displacements are the small-displacement ones",
+        )
+    plastic_groups(part, report=True)
     stat_non_line = StatNonLin(result, part, loads, prescribed, step)
     stat_non_line_str = stat_non_line.write()
     post_calc = PostCalc(stat_non_line, part)
