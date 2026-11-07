@@ -46,17 +46,24 @@ def _beam(dofs):
     return asm, mid, master, P * L**3 / (48 * e * props.Iy)
 
 
+@pytest.mark.parametrize("solver", ["code_aster", "sesam"])
 @pytest.mark.parametrize("dofs", [[1, 2, 3], [2, 3]], ids=["translations", "dy_dz_only"])
-def test_a_translation_link_makes_the_beam_simply_supported(tmp_path, require_solver, dofs):
-    require_solver("code_aster")
+def test_a_translation_link_makes_the_beam_simply_supported(tmp_path, require_solver, dofs, solver):
+    """Sesam: BLDEP with the declared translations' terms only (GeniE's own form for a free slave translation).
+    Sestra's beams have shear deformation, so its midspan deflection adds ``P L / (4 G As_z)``."""
+    require_solver(solver)
     asm, mid, master, want = _beam(dofs)
-    res = asm.to_fem("link", "code_aster", scratch_dir=tmp_path, overwrite=True, execute=True)
-    disp = next(np.asarray(r.values, float) for r in res.results if "DEPL" in r.name)
-    reac = next(np.asarray(r.values, float) for r in res.results if "REAC_NODA" in r.name)
-    (row,) = [r for r in disp if int(r[0]) == int(mid.id)]
+    res = asm.to_fem("link", solver, scratch_dir=tmp_path, overwrite=True, execute=True, lazy=True)
+    ((_, fields),) = res.case_fields("nodal_displacement", "nodal_reaction").items()
+    by = {getattr(f.role, "value", f.role): np.asarray(f.values, float) for f in fields}
+    (row,) = [r for r in by["nodal_displacement"] if int(r[0]) == int(mid.id)]
+    if solver == "sesam":
+        bm = next(iter(asm.get_all_physical_objects(by_type=ada.Beam)))
+        g = bm.material.model.E / (2 * (1 + bm.material.model.v))
+        want += P * L / (4 * g * bm.section.properties.Sharz)
     assert -row[3] == pytest.approx(want, rel=1e-3)
-    # the link's reaction is where its equations act, on the ends; the whole of it is P
-    assert np.nansum(reac[:, 3]) == pytest.approx(P, rel=1e-6)
+    # the link's reaction is where its equations act; the whole of it is P
+    assert np.nansum(by["nodal_reaction"][:, 3]) == pytest.approx(P, rel=1e-5)
 
 
 def test_a_rigid_link_in_all_dofs_is_still_liaison_solide(tmp_path):

@@ -200,8 +200,8 @@ def _report_coupling(constraint: Constraint, records: list[BldepRecord], ndofs: 
     What is written is the rigid-body motion of each slave's translations (dofs 1-3), and the
     slave rotations it holds (a rigid body all three, a kinematic coupling those of dofs 4-6 it
     names) equal to the master's wherever both nodes have rotations. A slave rotation is left
-    free only where the slave has it and the master has none. One naming fewer than all three
-    translations gets all three. An undeclared dof list on a hand-built coupling is its
+    free only where the slave has it and the master has none. A coupling naming fewer than all
+    three translations links only those (GeniE's free slave translation). An undeclared dof list on a hand-built coupling is its
     constructor default, not a statement, and is taken to mean the translations.
     """
     if not records:
@@ -239,15 +239,6 @@ def _report_coupling(constraint: Constraint, records: list[BldepRecord], ndofs: 
             "slave rotations are left free where the master has none to follow",
             dofs=rot,
             n_slaves=len(left_free),
-        )
-    missing = sorted({1, 2, 3} - declared)
-    if missing:
-        rep.approximated(
-            STAGE,
-            "Constraint",
-            constraint.name,
-            "all three slave translations are made dependent, not only the declared ones",
-            undeclared_dofs=missing,
         )
 
 
@@ -346,11 +337,15 @@ def coupling_records(constraint: Constraint, ndofs: NodeDofs | None = None) -> l
     master = masters[0]
 
     if constraint.type == constraint.TYPES.RIGID_BODY:
-        rotations = (4, 5, 6)
+        rotations, translations = (4, 5, 6), {1, 2, 3}
     elif constraint.dofs_declared:
-        rotations = tuple(sorted(set(expand_dofs(constraint.dofs)) & {4, 5, 6}))
+        declared = set(expand_dofs(constraint.dofs))
+        rotations = tuple(sorted(declared & {4, 5, 6}))
+        # only the declared translations: a GeniE rigid link with a free slave translation (Srl_sdx, slave_dx="free")
+        # is BLDEP without that dof -- 6 terms, BNBCD 0 on it (genie_supports_frames_T1.FEM)
+        translations = declared & {1, 2, 3}
     else:
-        rotations = ()
+        rotations, translations = (), {1, 2, 3}
     if ndofs.ndof(master.id) < 6:
         rotations = ()
 
@@ -359,6 +354,8 @@ def coupling_records(constraint: Constraint, ndofs: NodeDofs | None = None) -> l
         if node.id == master.id:
             continue  # the reference node can't depend on itself
         record = _bldep(master, node)
+        if translations != {1, 2, 3}:
+            record = BldepRecord(record.slave, record.master, tuple(t for t in record.terms if t[0] in translations))
         if rotations and ndofs.ndof(node.id) >= 6:
             record = BldepRecord(record.slave, record.master, record.terms + tuple((d, d, 1.0) for d in rotations))
         records.append(record)

@@ -37,11 +37,6 @@ STAGE = "concept to fem"
 DIFFERENT = {
     "genie_supports_frames.xml": {
         **dict.fromkeys([(0, 1, 0), (4, 0, 0), (4, 1, 0)], "plate corner: two curves, GeniE keeps one"),
-        **dict.fromkeys(
-            [(x, y, 0) for x in (1, 1.5, 2) for y in (12.5, 13)],
-            "Srl_sdx's slaves: its dx is free, and the Sesam BLDEP writer still writes all three translations (9 "
-            "terms against GeniE's 6); the coupling itself holds dy, dz only (Code_Aster writes that)",
-        ),
     },
     "genie_supports_all_kinds.xml": {
         **dict.fromkeys([(0.5 * i, 11, 0) for i in range(9)], "Sc_local: refused by the reader"),
