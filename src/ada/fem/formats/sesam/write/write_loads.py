@@ -388,13 +388,17 @@ def load_pressure(load: Load, load_id: int) -> str:
     0.1733333333. So BEUSLO's own load integration *is* the consistent load vector, and the
     summed reaction is 2000.0 N against ``q L b`` = 2000 exactly.
 
-    What is refused rather than approximated, each by name: a pressure on beams, solids, point
-    masses or springs (BEUSLO's SIDE numbering for a solid face is not established here, and the
-    others have no surface at all), on a node-based surface (BEUSLO names an element and a side),
+    A pressure on a solid face is the element side with the same nodes in Sesam's own side
+    numbering (:mod:`.solid_sides`, from the Sesam Input Interface File description).
+
+    What is refused rather than approximated, each by name: a pressure on beams, point masses or
+    springs (no surface at all), on a node-based surface (BEUSLO names an element and a side),
     on an element with no Sesam element type, and a ``LoadPressure`` whose magnitude is a total
     force rather than a pressure.
     """
-    from ada.fem.shapes.definitions import ShellShapes
+    from ada.fem.shapes.definitions import ShellShapes, SolidShapes
+
+    from .solid_sides import sesam_side, side_code
 
     rep = report()
     region = _pressure_region(load)
@@ -421,6 +425,24 @@ def load_pressure(load: Load, load_id: int) -> str:
         # Sorted by element id: a set is a list and a surface may name several, and the deck
         # must not depend on which order they came out of the model.
         for el in sorted(members, key=lambda e: e.id):
+            if isinstance(getattr(el, "type", None), SolidShapes):
+                # A solid face: its Sesam side number as a SIDE digit pattern, one intensity per node of
+                # the side in the side's own order, positive into the element (solid_sides).
+                found = sesam_side(el, side)
+                if found is None:
+                    why = f"a pressure on a {el.type} element whose side {side!r} names no Sesam element side"
+                    refused.setdefault(why, []).append(str(el.id))
+                    continue
+                number, nodes = found
+                out += write_ff(
+                    "BEUSLO",
+                    [
+                        (load_id, PRESSURE_LOTYP, 0, PRESSURE_LAYER),
+                        (el.id, len(nodes), PRESSURE_INTNO, side_code(el.type, number)),
+                        tuple(_pressure_value(load, n) for n in nodes),
+                    ],
+                )
+                continue
             why = _pressure_refusal(el, resolved, ShellShapes)
             if why is not None:
                 refused.setdefault(why, []).append(str(el.id))
@@ -444,6 +466,13 @@ def load_pressure(load: Load, load_id: int) -> str:
     for why, ids in sorted(refused.items()):
         rep.omitted(STAGE, "Load", load.name, why, elements=sorted(ids, key=int)[:10], n_elements=len(ids))
     return out
+
+
+def _pressure_value(load: Load, node) -> float:
+    """The load's pressure at ``node``: its field's value there if it varies, else its magnitude."""
+    if getattr(load, "gradient", None) is not None:
+        return load.pressure_at(node.p)
+    return float(load.magnitude)
 
 
 def _pressure_groups(region):
@@ -474,10 +503,7 @@ def _pressure_refusal(el, resolved, shell_shapes) -> str | None:
         # crashed on: ``el.type`` used to raise AttributeError here and lose the whole deck.
         return "a pressure on a node; BEUSLO names an element and a side"
     if not isinstance(el_type, shell_shapes):
-        return (
-            f"a pressure on a {el_type} element has no BEUSLO form; BEUSLO is a shell surface load "
-            "(the Sesam SIDE numbering of a solid face is not established here)"
-        )
+        return f"a pressure on a {el_type} element has no BEUSLO form; BEUSLO loads shell and solid faces"
     if el_type not in sesam_reverse:
         return f"a pressure on a {el_type} element, which has no Sesam element type and is not in the deck"
     if resolved is None:

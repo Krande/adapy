@@ -1,4 +1,4 @@
-"""A pressure on solid elements, solved by Code_Aster against closed forms.
+"""A pressure on solid elements, solved by Code_Aster (and Sestra, where installed) against closed forms.
 
 Code_Aster loads a solid face with ``PRES_REP`` on face cells of the mesh, which adapy's model has none of; the writer
 adds one per loaded face, oriented out of the solid (``ada.fem.formats.code_aster.write.write_skins``). Two checks with
@@ -61,9 +61,24 @@ def _field(res, key):
     return next(np.asarray(r.values, float) for r in res.results if key in r.name)
 
 
+def _case_fields(res):
+    """``(displacement, reaction)`` as ``{node id: (x, y, z)}``, read the same for every solver (``FieldRole``)."""
+    ((_, fields),) = res.case_fields("nodal_displacement", "nodal_reaction").items()
+    out = []
+    for role in ("nodal_displacement", "nodal_reaction"):
+        (f,) = [f for f in fields if getattr(f.role, "value", f.role) == role]
+        v = np.asarray(f.values, float)
+        cols = [1 + list(f.components).index(c) for c in ("U1", "U2", "U3")]
+        out.append({int(r[0]): r[cols] for r in v})
+    return out
+
+
+@pytest.mark.parametrize("solver", ["code_aster", "sesam"])
 @pytest.mark.parametrize("mesh", [(1, 1, 1), (2, 3, 4)], ids=["one_element", "2x3x4"])
-def test_a_column_pressed_on_its_top_face_settles_by_pL_over_E(tmp_path, require_solver, mesh):
-    require_solver("code_aster")
+def test_a_column_pressed_on_its_top_face_settles_by_pL_over_E(tmp_path, require_solver, mesh, solver):
+    """On Sestra this is the check of the solid side tables (solid_sides): the top face named by its Abaqus number has
+    to reach Sestra as the side with those nodes, pushing into the element, or the field is wrong."""
+    require_solver(solver)
     nx, ny, nz = mesh
     a_, b_, L, pressure = 0.5, 0.8, 2.0, 1.0e7
     a, p, nodes = _block(nx, ny, nz, a_, b_, L)
@@ -76,15 +91,17 @@ def test_a_column_pressed_on_its_top_face_settles_by_pL_over_E(tmp_path, require
     step = a.fem.add_step(StepImplicitStatic("press"))
     step.add_load(LoadPressure("p_top", pressure, _face_surface(p, "top", top)))
 
-    res = a.to_fem("col", "code_aster", scratch_dir=tmp_path, overwrite=True, execute=True)
-    u = {int(r[0]): r[1:4] for r in _field(res, "DEPL")}
+    res = a.to_fem("col", solver, scratch_dir=tmp_path, overwrite=True, execute=True, lazy=True)
+    u, reac = _case_fields(res)
     for (i, j, k), n in nodes.items():
         x, y, z = n.p
         # the exact uniaxial field: w = -p z / E, u = nu p x / E, v = nu p y / E
         want = (NU * pressure * x / E, NU * pressure * y / E, -pressure * z / E)
-        assert u[int(n.id)] == pytest.approx(want, abs=1e-12 * pressure / E * L + 1e-15), (i, j, k)
-    reac = _field(res, "REAC_NODA")
-    assert np.nansum(reac[:, 3]) == pytest.approx(pressure * a_ * b_, rel=1e-9)
+        # Sestra's SIN holds single precision: 1e-6 of the settlement there, 1e-12 in Code_Aster's MED
+        tol = (1e-6 if solver == "sesam" else 1e-12) * pressure / E * L
+        assert u[int(n.id)] == pytest.approx(want, abs=tol), (i, j, k)
+    rel = 1e-6 if solver == "sesam" else 1e-9
+    assert sum(r[2] for r in reac.values()) == pytest.approx(pressure * a_ * b_, rel=rel)
 
 
 def test_a_varying_pressure_on_a_solid_side_balances_its_force_and_first_moment(tmp_path, require_solver):
@@ -113,6 +130,25 @@ def test_a_varying_pressure_on_a_solid_side_balances_its_force_and_first_moment(
     m_reac += np.nansum(reac[:, 6]) if reac.shape[1] > 6 else 0.0
     centroid = (p0 * L**2 / 2 + g * L**3 / 3) / (p0 * L + g * L**2 / 2)
     assert -m_reac == pytest.approx(total * centroid, rel=1e-6)
+
+
+def test_a_solid_face_pressure_reaches_the_sesam_deck_as_its_side(tmp_path):
+    """No solver: the top face of a HEX8 (Abaqus S2, nodes 5-8-7-6) is LHEX side 1 (5 6 7 8): SIDE 100000, four
+    intensities, positive (into the element)."""
+    a, p, nodes = _block(1, 1, 1, 1.0, 1.0, 1.0)
+    fem = p.fem
+    top = [n for (i, j, k), n in nodes.items() if k == 1]
+    fem.add_bc(
+        Bc("bz", fem.add_set(FemSet("bottom", [n for (i, j, k), n in nodes.items() if k == 0], "nset")), [1, 2, 3])
+    )
+    step = a.fem.add_step(StepImplicitStatic("press"))
+    step.add_load(LoadPressure("p_top", 1000.0, _face_surface(p, "top", top)))
+    a.to_fem("deck", "sesam", scratch_dir=tmp_path, overwrite=True)
+    deck = next((tmp_path / "deck").glob("*T1.FEM")).read_text().splitlines()
+    (i,) = [k for k, line in enumerate(deck) if line.startswith("BEUSLO")]
+    elno, ndof, intno, side = (float(x) for x in deck[i + 1].split())
+    assert (ndof, intno, side) == (4.0, 0.0, 100000.0)
+    assert [float(x) for x in deck[i + 2].split()] == [1000.0] * 4
 
 
 def test_the_face_cells_written_for_a_solid_pressure_point_out_of_it(tmp_path):
