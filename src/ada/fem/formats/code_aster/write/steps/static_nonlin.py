@@ -13,6 +13,65 @@ if TYPE_CHECKING:
     from ada.api.spatial import Part
 
 
+def _second_order_shell_groups(part: Part) -> list[str]:
+    """The element groups of the bending shells on second-order elements (COQUE_3D)."""
+    from ada.fem.shapes.definitions import ShellShapes
+
+    second = (ShellShapes.QUAD8, ShellShapes.TRI6)
+    return [
+        fs.elset.name
+        for fs in part.fem.sections.shells
+        if not fs.is_membrane
+        and fs.elset.members
+        and all(getattr(el, "type", None) in second for el in fs.elset.members)
+    ]
+
+
+def large_displacement_groups(part: Part, report: bool = False) -> list[str]:
+    """The element groups solved with large displacements and rotations in an nlgeom step: the second-order bending
+    shells (COQUE_3D, ``GROT_GDEP``) and the solids (``GREEN_LAGRANGE``).
+
+    The rest stays small-displacement, reported (``report``). U2.02.01's table gives large displacements *and large
+    rotations* to COQUE_3D only; DKT takes GROT_GDEP "with low rotations" -- and measured (18.1), a DKT strip under
+    GROT_GDEP whose in-plane rotation was free never converged (Newton's relative residual stuck at ~0.04, the step cut
+    to 1e-12), with a negative COEF_RIGI_DRZ refused in nonlinear ("pas possible actuellement") and a larger positive
+    one no better. Beams: POU_D_E has no large-rotation form. Membranes and cables have relations of their own.
+    """
+    from ada.fem.formats import conversion_report
+    from ada.fem.shapes.definitions import ShellShapes
+
+    from ..write_loads import STAGE
+
+    first_order = (ShellShapes.QUAD, ShellShapes.TRI)
+    sections = part.fem.sections
+    shells = [fs for fs in sections.shells if not fs.is_membrane]
+    dkt = [fs for fs in shells if any(getattr(el, "type", None) in first_order for el in fs.elset.members)]
+    out = [fs.elset.name for fs in shells if fs not in dkt]
+    out += [fs.elset.name for fs in sections.solids]
+    if report:
+        rep = conversion_report.current()
+        if dkt:
+            rep.approximated(
+                STAGE,
+                "FemSection",
+                ", ".join(sorted(fs.name for fs in dkt)[:5]),
+                "a first-order shell (DKT) in a geometrically nonlinear step is solved with small displacements: "
+                "Code_Aster gives large rotations to COQUE_3D only; mesh the shells second-order for them",
+                n_sections=len(dkt),
+            )
+        beams = [fs.name for fs in sections.lines if not fs.is_cable and not fs.is_axial_only]
+        if beams:
+            rep.approximated(
+                STAGE,
+                "FemSection",
+                ", ".join(sorted(beams)[:5]),
+                "a beam in a geometrically nonlinear step is solved with small displacements: Code_Aster's POU_D_E "
+                "has no large-rotation form",
+                n_sections=len(beams),
+            )
+    return out
+
+
 def plastic_groups(part: Part, report: bool = False) -> list[str]:
     """The element groups of the solid sections whose material has a hardening curve -- solved with von Mises
     plasticity (``VMIS_ISOT_TRAC``) in a general static step, as an Abaqus general step solves a ``*Plastic``
@@ -89,6 +148,17 @@ class StatNonLin:
         out = '_F(DEFORMATION="PETIT", TOUT="OUI"),'
         sections = self.part.fem.sections
         nl_geom = self.step is not None and self.step.nl_geom is True
+        large = large_displacement_groups(self.part) if nl_geom else []
+        solids = {fs.elset.name for fs in sections.solids}
+        shells_large = [g for g in large if g not in solids]
+        solids_large = [g for g in large if g in solids]
+        if shells_large:
+            # large displacements and rotations, small strains: COQUE_3D's GROT_GDEP (U2.02.01)
+            out += f'_F(DEFORMATION="GROT_GDEP", GROUP_MA={_group_tuple(shells_large)}),'
+        if solids_large:
+            # a solid takes large displacements as GREEN_LAGRANGE: GROT_GDEP on one stops at <COMPOR5_22> ("Ce n'est
+            # pas possible. Vous pouvez essayer avec le modèle de déformation GREEN_LAGRANGE", measured, 18.1)
+            out += f'_F(DEFORMATION="GREEN_LAGRANGE", GROUP_MA={_group_tuple(solids_large)}),'
         membranes = [fs.elset.name for fs in sections.shells if fs.is_membrane]
         if nl_geom and membranes:
             # A membrane in GROT_GDEP takes a hyperelastic relation only (<MEMBRANE_3>, measured, 18.1.7);
@@ -100,7 +170,8 @@ class StatNonLin:
         plastic = plastic_groups(self.part)
         if plastic:
             # von Mises plasticity with isotropic hardening along the material's TRACTION curve (U4.51.11)
-            out += f'_F(RELATION="VMIS_ISOT_TRAC", DEFORMATION="PETIT", GROUP_MA={_group_tuple(plastic)}),'
+            defo = "GDEF_LOG" if nl_geom else "PETIT"  # large strains with plasticity in an nlgeom step
+            out += f'_F(RELATION="VMIS_ISOT_TRAC", DEFORMATION="{defo}", GROUP_MA={_group_tuple(plastic)}),'
         return out
 
     @property
@@ -112,6 +183,10 @@ class StatNonLin:
         sections = self.part.fem.sections
         if any(fs.is_membrane for fs in sections.shells) or any(fs.is_cable for fs in sections.lines):
             return 50
+        if self.step is not None and self.step.nl_geom is True and large_displacement_groups(self.part):
+            # large rotations: measured, 18.1, a COQUE_3D strip rolled up by an end moment took 4-7 iterations per
+            # increment and, held to 8, cut its increments down to 1e-3 of the step near the end
+            return 20
         return 8
 
     def write(self):
@@ -167,6 +242,19 @@ class PostCalc:
 
         out = f"""
 {name} = CALC_CHAMP(reuse={name}, RESULTAT={name}, FORCE=("REAC_NODA",))"""
+        # COQUE_3D (second-order shells) computes no strains: "Le TYPE_ELEMENT MEC3QU9H ne sait pas encore calculer
+        # l'option EPSP_ELGA" (<CALCUL_37>, measured, 18.1) -- their stresses and section forces only.
+        second = _second_order_shell_groups(self.part)
+        if second:
+            out += f"""
+{name} = CALC_CHAMP(
+    reuse={name}, RESULTAT={name},
+    CONTRAINTE=("SIGM_ELNO", "EFGE_ELNO", "EFGE_NOEU"),
+    GROUP_MA={_group_tuple(second)},
+)"""
+            others = [fs for fs in others if fs.elset.name not in second]
+            shells = [g for g in shells if g not in second]
+            restrict = lambda groups: f"\n    GROUP_MA={_group_tuple(groups)},"  # noqa: E731
         if others:
             contrainte_fields = ["SIGM_ELNO"]
             if any(not fs.is_membrane for fs in sections.shells) or any(not fs.is_axial_only for fs in sections.lines):
@@ -185,6 +273,8 @@ class PostCalc:
     CONTRAINTE=("SIEF_ELNO",),
     GROUP_MA={_group_tuple(special)},
 )"""
+        if not others:
+            return out
         if len(sections.solids) > 0 or not shells:
             # The layer extraction is a shell's: a model of solids, or of beams, trusses, cables and membranes only,
             # has no layers to extract.
@@ -244,6 +334,9 @@ class ImprResu:
     def post_calc_include(self):
         if len(self.part.fem.sections.solids) > 0 or not _has_bending_shells(self.part):
             return ""
+        second = set(_second_order_shell_groups(self.part))
+        if all(fs.elset.name in second for fs in self.part.fem.sections.shells if not fs.is_membrane):
+            return ""  # COQUE_3D only: no layers extracted (PostCalc), so no ``stress`` to print
 
         return f"""_F(
             NOM_CHAM=("SIGM_ELNO", "SIGM_NOEU"),
@@ -330,13 +423,7 @@ def step_static_nonlin_str(step: StepImplicitStatic, part: Part, result: str = "
     # Measured (tests/fem: two nlgeom steps, a 4 m strip whose tip deflects 0.55 and 1.66 m): the linear closed form
     # to 1e-10 -- DEFORMATION='PETIT' is small displacements, and RELATION defaults to 'ELAS'.
     if step.nl_geom is True:
-        conversion_report.current().approximated(
-            STAGE,
-            "STAT_NON_LINE",
-            step.name,
-            "a geometrically nonlinear step is solved with small displacements (DEFORMATION='PETIT'): its "
-            "displacements are the small-displacement ones",
-        )
+        large_displacement_groups(part, report=True)
     plastic_groups(part, report=True)
     stat_non_line = StatNonLin(result, part, loads, prescribed, step)
     stat_non_line_str = stat_non_line.write()

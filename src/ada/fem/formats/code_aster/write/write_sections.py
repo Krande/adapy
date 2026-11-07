@@ -13,6 +13,7 @@ def create_sections_str(
     membrane_large_strain: bool = False,
     masses=(),
     timoshenko: bool = False,
+    large_rotations: bool = False,
 ) -> str:
     """``masses``: the point masses (:func:`.write_masses.point_masses`), given their ``DISCRET`` here.
     ``timoshenko``: beams with shear areas carry their shear coefficients (``POU_D_T``, :func:`write_beam_section`)."""
@@ -32,7 +33,9 @@ def create_sections_str(
     cables = [li for li in fem_sections.lines if li.is_cable]
 
     if len(shells) > 0:
-        mat_assign_str_, shell_sections_str = ["".join(x) for x in zip(*[write_shell_section(sh) for sh in shells])]
+        mat_assign_str_, shell_sections_str = [
+            "".join(x) for x in zip(*[write_shell_section(sh, large_rotations) for sh in shells])
+        ]
         mat_assign_str += mat_assign_str_
         shell_sections_str = f"\n        COQUE=(\n{shell_sections_str}\n        ),"
 
@@ -97,16 +100,34 @@ material = AFFE_MATERIAU(
 """
 
 
-def write_shell_section(fem_sec: FemSection) -> tuple[str, str]:
+#: ``COEF_RIGI_DRZ`` of a second-order shell (COQUE_3D) in a model with a geometrically nonlinear step. U2.02.01 on
+#: SSNV138 (a cantilever plate in large rotations under a moment, COQUE_3D): "It is necessary to increase the value of
+#: COEF_RIGI_DRZ (10E-5 by default) to 0.001 in order to be able to increase the value of the rotation angle that can
+#: be reached"; on SSNV141, "values of this coefficient up to 10^-3 remain legal".
+COQUE_3D_LARGE_ROTATION_DRZ = 1.0e-3
+
+
+def write_shell_section(fem_sec: FemSection, large_rotations: bool = False) -> tuple[str, str]:
+    """A bending shell: ``COQUE`` with its thickness and reference vector; on second-order elements (COQUE_3D) in a
+    model with an nlgeom step, the larger ``COEF_RIGI_DRZ`` large rotations need (:data:`COQUE_3D_LARGE_ROTATION_DRZ`).
+    """
+    from ada.fem.shapes.definitions import ShellShapes
+
     mat_name = concept_name(fem_sec.material, "material")
     sec_name = fem_sec.elset.name
     #
     local_vec = str(tuple(float(c) for c in fem_sec.local_y))
     mat_ = f'		_F(MATER=({mat_name},), GROUP_MA="{sec_name}"),\n'
+    second_order = all(
+        getattr(el, "type", None) in (ShellShapes.QUAD8, ShellShapes.TRI6) for el in fem_sec.elset.members
+    )
+    drz = ""
+    if large_rotations and second_order:
+        drz = f"\n                COEF_RIGI_DRZ={COQUE_3D_LARGE_ROTATION_DRZ!r},"
     sec_str = f"""            _F(
                 GROUP_MA=("{sec_name}"),
                 EPAIS={fem_sec.thickness},
-                VECTEUR={local_vec},
+                VECTEUR={local_vec},{drz}
             ),
 """
     return mat_, sec_str

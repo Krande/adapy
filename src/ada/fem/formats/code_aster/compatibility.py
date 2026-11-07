@@ -36,12 +36,8 @@ def check_compatibility(assembly: Assembly):
             if el.type == ElemType.LINE_SHAPES.LINE3:
                 raise IncompatibleElements("2nd order beam elements are currently not supported in Code Aster")
 
-        for el in p.fem.elements.shell:
-            if el.type in (ElemType.SHELL_SHAPES.QUAD8, ElemType.SHELL_SHAPES.TRI6) and has_nonlin:
-                raise IncompatibleElements(
-                    "The default 2nd order shell elements are currently not supported in "
-                    "Code Aster when running the analysis using nonlinear materials"
-                )
+        # Second-order shells (COQUE_3D on QUAD9/TRIA7 cells) take a geometrically nonlinear step: large
+        # displacements and rotations are COQUE_3D's (GROT_GDEP, steps.static_nonlin.large_displacement_groups).
 
 
 def check_reduced_integration(p: Part):

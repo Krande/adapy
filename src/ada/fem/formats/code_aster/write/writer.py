@@ -119,6 +119,7 @@ def create_comm_str(assembly: Assembly, part: Part) -> str:
         membrane_large_strain=membranes_large_strain(part, all_steps(assembly)),
         masses=masses,
         timoshenko=part.fem.options.CODE_ASTER.use_timoshenko_beams,
+        large_rotations=any(st.type == "static" and st.nl_geom is True for st in all_steps(assembly)),
     )
     # The part's and the assembly's, each once. ``bcs += assembly.fem.bcs`` on ``part.fem.bcs`` extended the part's own
     # list with the assembly's on every write.
