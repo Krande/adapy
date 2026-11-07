@@ -166,17 +166,23 @@ def nautical_matrix(a: float, b: float, g: float) -> np.ndarray:
 
 def in_global_axes_or_refuse(bcs, writer: str) -> list:
     """``bcs`` in global axes, for a writer that writes no rotated frame (Abaqus, CalculiX, OpenCourant): a frame that
-    maps onto the global axes is written as the global support it is, one that mixes them raises by name -- a
-    support left out, or written along the wrong axes, is a different structure."""
-    from ada.fem.exceptions.model_definition import UnsupportedFeature
+    maps onto the global axes is written as the global support it is; one that mixes them is left out and reported
+    by name (``omitted``) -- never written along the wrong axes, and never failing the rest of the deck (a GeniE
+    model with one sloped support curve has every other support to write)."""
+    from ada.fem.formats import conversion_report
 
     out = []
     for bc in bcs:
         g = in_global_axes(bc)
         if g is None:
-            raise UnsupportedFeature(
-                f"{writer} writer: support {bc.name!r} holds dofs in a rotated frame that mixes the global axes "
-                f"({bc.csys.name!r}); this writer writes supports in global axes only (Sesam and Code_Aster take it)"
+            conversion_report.current().omitted(
+                f"{writer} writer",
+                "Bc",
+                bc.name,
+                "a support in a rotated frame that mixes the global axes; this writer writes supports in global axes "
+                "only (the Sesam and Code_Aster writers take it), so it is not written",
+                csys=bc.csys.name,
             )
+            continue
         out.append(g)
     return out

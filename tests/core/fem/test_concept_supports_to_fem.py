@@ -4,7 +4,9 @@ Each GeniE fixture (``files/fem_files/sesam/genie_supports_*.xml``, GeniE V8.13-
 ``from_genie_xml``, meshed by adapy at GeniE's 0.5 m and written as a Sesam deck; its support records are compared
 by node position with the ``T1.FEM`` GeniE itself meshed the same model into (``*_T1.FEM``, beside it):
 
-* BNBCD codes, in global axes through GeniE's BNTRCOS where it gave a node one;
+* BNBCD codes, in global axes through GeniE's BNTRCOS where it gave a node one -- and, in a frame that mixes the
+  global axes (Sp_local's 45 degrees, Sc_slope's 3-4-5 slope, Sp_presc_rot), as the projector onto the directions
+  each code holds, which both decks then state through a BNTRCOS of their own;
 * the MGSPRNG diagonal of each spring to ground (GSPR, element type 18);
 * BLDEP: each linked node's master and number of terms (9 translations only, 12 with rotations);
 * BNDISPL: the values per load case, by the case's name.
@@ -30,7 +32,6 @@ from ada.fem.formats import conversion_report
 
 STAGE = "concept to fem"
 
-_SLOPE = [(8.0 + 0.3 * i, 0.0, 0.4 * i) for i in range(11)]
 
 #: Where adapy's deck differs from GeniE's, and why. Positions rounded as ``_key`` rounds.
 DIFFERENT = {
@@ -39,11 +40,8 @@ DIFFERENT = {
         **dict.fromkeys(
             [(x, y, 0) for x in (1, 1.5, 2) for y in (12.5, 13)] + [(2, 13, 1)], "Srl_sdx: refused by the reader"
         ),
-        (4, 7, 0): "Sp_presc_rot: refused by the reader",
-        **dict.fromkeys(_SLOPE, "Sc_slope: refused by the reader"),
     },
     "genie_supports_all_kinds.xml": {
-        (0, 8, 0): "Sp_local: refused by the reader",
         **dict.fromkeys([(0.5 * i, 11, 0) for i in range(9)], "Sc_local: refused by the reader"),
         (4, 16, 0): "Sp_dep: a dependent dof, refused",
     },
@@ -107,7 +105,14 @@ def supports(fem_path) -> dict:
     def to_global(node, values6):
         f = frame(node)
         if not np.allclose(np.abs(f).max(axis=1), 1.0, atol=1e-6):
-            return ("rotated frame", tuple(values6))
+            # a frame that mixes the global axes: per code, the projector onto the directions holding it, which is
+            # the same whichever frame (or sign of an axis) a deck states them in
+            out = []
+            for group in (values6[:3], values6[3:6]):
+                for code in sorted(set(group) - {0}):
+                    rows = f[[i for i, c in enumerate(group) if c == code]]
+                    out.append((code, tuple(round(float(x), 6) + 0.0 for x in (rows.T @ rows).ravel())))
+            return ("rotated frame", tuple(out))
         return tuple(_on_axes(f, list(values6[:3])) + _on_axes(f, list(values6[3:6])))
 
     out = collections.defaultdict(dict)
@@ -271,9 +276,18 @@ def test_a_prescribed_dof_is_held_and_valued_per_load_case(decks):
         pytest.skip("another fixture")
     from ada.fem.constraints import BC_LOAD_CASE
 
-    bcs = {bc.name: bc for bc in part.fem.bcs if bc.name.startswith("Sp_presc")}
+    bcs = {
+        bc.name: bc for bc in part.fem.bcs if bc.name.startswith("Sp_presc") and not bc.name.startswith("Sp_presc_rot")
+    }
     assert sorted(bcs) == ["Sp_presc", "Sp_presc_LC1", "Sp_presc_LC2"]
     assert bcs["Sp_presc"].dofs == [1, 2, 3, 6] and set(bcs["Sp_presc"].magnitudes) == {None}
     assert (bcs["Sp_presc_LC1"].dofs, bcs["Sp_presc_LC1"].magnitudes) == ([1, 3, 6], [-0.003, 0.0, 0.0])
     assert (bcs["Sp_presc_LC2"].dofs, bcs["Sp_presc_LC2"].magnitudes) == ([1, 3, 6], [0.005, -0.01, 0.001])
     assert [bcs[n].metadata[BC_LOAD_CASE] for n in ("Sp_presc_LC1", "Sp_presc_LC2")] == ["LC1", "LC2"]
+
+    # Sp_presc_rot, in x' = y: its LC2 value is along x', and stays there (the Bc's csys), as GeniE's BNDISPL does
+    rot = {bc.name: bc for bc in part.fem.bcs if bc.name.startswith("Sp_presc_rot")}
+    assert sorted(rot) == ["Sp_presc_rot", "Sp_presc_rot_LC2"]
+    assert (rot["Sp_presc_rot_LC2"].dofs, rot["Sp_presc_rot_LC2"].magnitudes) == ([1], [0.02])
+    for bc in rot.values():
+        assert np.allclose(bc.csys.axes()[0], (0.0, 1.0, 0.0))

@@ -15,7 +15,6 @@ import pytest
 import ada
 from ada.fem import Bc, FemSet, LoadPoint, Spring, StepImplicitStatic
 from ada.fem.common import Csys
-from ada.fem.exceptions.model_definition import UnsupportedFeature
 from ada.fem.formats import conversion_report
 from ada.materials.metals import CarbonSteel
 
@@ -148,11 +147,15 @@ def test_code_aster_writes_a_mapped_frame_as_ddl_impo(tmp_path):
 
 
 @pytest.mark.parametrize("fmt", ["abaqus", "calculix"])
-def test_global_axes_writers_map_a_turned_frame_and_refuse_a_skewed_one(tmp_path, fmt):
+def test_global_axes_writers_map_a_turned_frame_and_leave_out_a_skewed_one(tmp_path, fmt):
     a, _ = _model(TURNED, dofs=(1,))
     a.to_fem("d", fmt, scratch_dir=tmp_path, overwrite=True)
     inp = next((tmp_path / "d").glob("*.inp")).read_text().replace("P.roller", "roller")
     assert re.search(r"^ (\w+\.)?roller, 2(, 2)?$", inp, re.M)  # dx' = dy
     a, _ = _model(TRACK)
-    with pytest.raises(UnsupportedFeature, match="rotated frame"):
+    with conversion_report.collect() as rep:
         a.to_fem("e", fmt, scratch_dir=tmp_path, overwrite=True)
+    inp = next((tmp_path / "e").glob("*.inp")).read_text().replace("P.roller", "roller")
+    assert not re.search(r"^ (\w+\.)?roller, ", inp, re.M)  # left out, not written along global axes
+    found = [f for f in rep._findings if f.subject == "roller"]
+    assert found and all(f.kind == "omitted" and "rotated frame" in f.reason for f in found)

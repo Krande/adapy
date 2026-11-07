@@ -137,3 +137,43 @@ def test_a_beam_on_an_inclined_roller_is_pushed_along_the_track_normal(tmp_path,
     n = np.array([-np.sin(THETA), 0.0, np.cos(THETA)])
     assert abs(ur @ n) < 1e-6 * slide
     assert ur @ np.array([np.cos(THETA), 0.0, np.sin(THETA)]) == pytest.approx(-slide, rel=1e-6)
+
+
+def _concept_roller():
+    """The inclined roller as concept supports (GeniE's ``support_point`` with a ``local_system``), meshed by adapy."""
+    from ada import ConstraintConceptDofType as Dof
+    from ada import ConstraintConceptPoint
+
+    mat = ada.Material("S355", CarbonSteel("S355"))
+    bm = ada.Beam("bm", (0, 0, 0), (L, 0, 0), "IPE300", mat)
+    p = ada.Part("P") / bm
+    c = p.concept_fem.constraints
+    pin = [Dof(d, "fixed") for d in ("dx", "dy", "dz", "rx")] + [Dof(d, "free") for d in ("ry", "rz")]
+    c.add_point_constraint(ConstraintConceptPoint("pin", (0, 0, 0), pin))
+    track = ((np.cos(THETA), 0.0, np.sin(THETA)), (0.0, 1.0, 0.0), (-np.sin(THETA), 0.0, np.cos(THETA)))
+    roller = [Dof("dy", "fixed"), Dof("dz", "fixed")] + [Dof(d, "free") for d in ("dx", "rx", "ry", "rz")]
+    c.add_point_constraint(ConstraintConceptPoint("roller", (L, 0, 0), roller, local_system=track))
+    p.fem = p.to_fem_obj(0.25, "line")
+    a = ada.Assembly("A") / p
+    (left,) = _nodes_at(p.fem, 0.0)
+    (right,) = _nodes_at(p.fem, L)
+    (mid,) = _nodes_at(p.fem, L / 2)
+    step = a.fem.add_step(StepImplicitStatic("roller"))
+    step.add_load(LoadPoint("p", -F, p.fem.add_set(FemSet("mid", [mid], "nset")), 3))
+    return a, p, left, right
+
+
+@pytest.mark.parametrize("solver", SOLVERS)
+def test_a_concept_support_in_a_tilted_frame_solves_as_the_fe_roller(tmp_path, require_solver, solver):
+    """The roller given as a concept support with a ``local_system``: the same reactions as the FE ``Bc``'s."""
+    require_solver(solver)
+    a, p, left, right = _concept_roller()
+    (bc,) = [b for b in p.fem.bcs if b.name == "roller"]
+    assert bc.csys is not None and list(bc.dofs) == [2, 3]
+    res = a.to_fem("croller", solver, scratch_dir=tmp_path, overwrite=True, execute=True, lazy=True)
+    _, reac = _case_fields(res)
+    rel = 1e-5 if solver == "sesam" else 1e-9
+    tan = np.tan(THETA)
+    assert reac[int(right.id)]["U3"] == pytest.approx(F / 2, rel=rel)
+    assert reac[int(right.id)]["U1"] == pytest.approx(-F * tan / 2, rel=rel)
+    assert reac[int(left.id)]["U1"] == pytest.approx(F * tan / 2, rel=rel)
