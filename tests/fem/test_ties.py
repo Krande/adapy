@@ -10,6 +10,7 @@ surface tie passes the constant-stress patch test there; on a 3 x 3 over the 2 x
 upper block floating (no solve); one tying to the nearest node, off by up to half an element, puts a kink in it.
 
 Code_Aster: ``LIAISON_MAIL`` (TYPE_RACCORD='MASSIF'); Sestra: BLDEP over the main facet (``write_constraints``).
+CalculiX refuses a tie by name: its ``*TIE`` looped without end on this column (calculix.write.write_constraints).
 """
 
 from __future__ import annotations
@@ -91,6 +92,7 @@ def test_a_tied_column_of_unmatched_meshes_settles_as_one_block(tmp_path, requir
     (f,) = [f for f in fields if getattr(f.role, "value", f.role) == "nodal_displacement"]
     u = {int(r[0]): r[1:4] for r in np.asarray(f.values, float)}
     p = 1.0e7
+    # ccx's .frd and Sestra's SIN hold about six digits
     tol = (1e-9 if solver == "code_aster" else 1e-5) * p / E * 2 * H
     for n in fem.nodes:
         x, y, z = n.p
@@ -107,3 +109,48 @@ def test_the_code_aster_deck_ties_with_liaison_mail_and_an_equation_with_liaison
     comm = (tmp_path / "d" / "d.comm").read_text()
     assert "LIAISON_MAIL=_F(GROUP_MA_MAIT=(" in comm and "TYPE_RACCORD='MASSIF'" in comm
     assert "DDL=('DZ', 'DZ'), COEF_MULT=(1.0, -1.0), COEF_IMPO=0.0)" in comm
+
+
+def _twin_cantilevers(tied: bool):
+    from ada.fem import LoadPoint
+
+    mat = ada.Material("S355", CarbonSteel("S355"))
+    beams = [ada.Beam(f"b{k}", (0, k, 0), (4, k, 0), "IPE300", mat, up=(0, 0, 1)) for k in (0, 1)]
+    p = ada.Part("P")
+    for b in beams:
+        p.add_beam(b)
+    p.fem = p.to_fem_obj(0.5, "line")
+    fem = p.fem
+    roots = [n for n in fem.nodes if abs(n.x) < 1e-9]
+    tips = sorted((n for n in fem.nodes if abs(n.x - 4) < 1e-9), key=lambda n: n.y)
+    fem.add_bc(Bc("fix", fem.add_set(FemSet("roots", roots, "nset")), [1, 2, 3, 4, 5, 6]))
+    if tied:
+        pair = fem.add_set(FemSet("tips", tips, "nset"))
+        terms = [(tips[0], 3, 1.0), (tips[1], 3, -1.0)]
+        fem.add_constraint(
+            Constraint("same_dz", Constraint.TYPES.EQUATION, pair, pair, equation_terms=terms, parent=fem)
+        )
+    a = ada.Assembly("a") / p
+    step = a.fem.add_step(StepImplicitStatic("press"))
+    step.add_field_output(FieldOutput("u_rf", nodal=["U", "RF"]))
+    step.add_load(LoadPoint("p", -1.0e4, fem.add_set(FemSet("load_at", [tips[0]], "nset")), 3))
+    return a, tips
+
+
+@pytest.mark.parametrize("solver", ["code_aster", "calculix", "sesam"])
+def test_an_equation_tying_two_cantilever_tips_halves_the_loaded_ones_deflection(tmp_path, require_solver, solver):
+    """``dz_1 - dz_2 = 0`` between the tips of two equal cantilevers, one loaded: they share the load, so each tip
+    deflects half the loaded one's alone -- whatever the beam theory (exact by linearity)."""
+    require_solver(solver)
+    out = []
+    for tied in (False, True):
+        a, tips = _twin_cantilevers(tied)
+        res = a.to_fem(f"eq{int(tied)}", solver, scratch_dir=tmp_path, overwrite=True, execute=True, lazy=True)
+        ((_, fields),) = res.case_fields("nodal_displacement").items()
+        (f,) = [f for f in fields if getattr(f.role, "value", f.role) == "nodal_displacement"]
+        u = {int(r[0]): r[3] for r in np.asarray(f.values, float)}
+        out.append([u[int(n.id)] for n in tips])
+    (alone, other), (t0, t1) = out
+    rel = 1e-9 if solver == "code_aster" else 1e-5
+    assert abs(other) < 1e-12 + rel * abs(alone)
+    assert t0 == pytest.approx(alone / 2, rel=rel) and t1 == pytest.approx(alone / 2, rel=rel)

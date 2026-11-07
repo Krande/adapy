@@ -28,6 +28,16 @@ def constraints_str(part: Part, assembly: Assembly) -> str:
 def constraint_str(constraint: Constraint) -> str:
     if constraint.type == Constraint.TYPES.COUPLING:
         return _coupling(constraint)
+    if constraint.type == Constraint.TYPES.TIE:
+        # *TIE was tried and is not written: ccx 2.23 on a column of two solid blocks tied with a node surface (or a
+        # face surface) to the main faces looped without end in its MPC cascade ("*WARNING in cascade: zero
+        # coefficient on the dependent side of an equation", 5 GB of it in 15 s, measured) -- matching meshes or not
+        raise IncompatibleElements(
+            f'Calculix writer: tie "{constraint.name}" is not written: ccx 2.23 loops without end on a tie\'s MPCs '
+            "(measured); the Sesam and Code_Aster writers take it"
+        )
+    if constraint.type == Constraint.TYPES.EQUATION:
+        return _equation(constraint)
     raise IncompatibleElements(
         f'Calculix writer: constraint "{constraint.name}" is of type {constraint.type}, which it cannot write yet. '
         "Writing the deck without it would describe a different model."
@@ -70,6 +80,29 @@ def _coupling(constraint: Constraint) -> str:
             *dof_lines,
         ]
     )
+
+
+def _equation(constraint: Constraint) -> str:
+    """An equation ``sum A_i u(n_i, d_i) = 0`` as ``*EQUATION`` (CalculiX 2.23 manual 7.40): the number of terms,
+    then ``node, dof, coefficient`` four terms to a line; a term naming a node set stands for each of its nodes in
+    turn, the i-th equation taking the i-th node of every set (as in Abaqus)."""
+    from ada.fem import FemSet
+
+    terms = constraint.equation_terms or ()
+    columns = [list(ref.members) if isinstance(ref, FemSet) else [ref] for ref, _, _ in terms]
+    lengths = {len(c) for c in columns if len(c) != 1}
+    if len(terms) < 2 or len(lengths) > 1:
+        raise IncompatibleElements(
+            f'Calculix writer: equation "{constraint.name}" has fewer than two terms, or node sets of unequal length'
+        )
+    n_eq = lengths.pop() if lengths else 1
+    out = [f"** Equation {constraint.name}"]
+    for i in range(n_eq):
+        row = [(c[i] if len(c) > 1 else c[0], int(dof), float(coef)) for c, (_, dof, coef) in zip(columns, terms)]
+        out += ["*EQUATION", str(len(row))]
+        for k in range(0, len(row), 4):
+            out.append(", ".join(f"{int(n.id)}, {d}, {c!r}" for n, d, c in row[k : k + 4]))
+    return "\n".join(out)
 
 
 def _on_shell(node) -> bool:
