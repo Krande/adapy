@@ -92,6 +92,9 @@ RESERVED_PATTERNS = (
     # a buckling step's modes and what leads to them (steps.buckle)
     re.compile(r"buckle\d*"),
     re.compile(r"(?:buckle|result)\d*_(?:s|sg|ge|ke|nu|k|g|t)"),
+    # an implicit dynamic step's result, its time list and load multipliers (steps.dynamic)
+    re.compile(r"dyn\d*"),
+    re.compile(r"(?:dyn|result)\d*_(?:li|f\d+)"),
 )
 
 

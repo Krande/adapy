@@ -32,6 +32,11 @@ def result_names(steps) -> list[str]:
         if step.type == StepEigen.TYPES.STATIC:
             n += 1
             names.append("result" if n == 1 else f"result{n}")
+        elif step.type == StepEigen.TYPES.DYNAMIC:
+            # an implicit dynamic step's time history (steps.dynamic)
+            d = sum(1 for nm in names if nm.startswith("dyn")) + 1
+            names.append("dyn" if d == 1 else f"dyn{d}")
+            continue
         elif step.type == StepEigen.TYPES.BUCKLING:
             # a buckling step's modes: ``buckle``, ``buckle2``, ... (steps.buckle)
             b += 1
@@ -73,6 +78,8 @@ def create_step_str(
         return static.step_static_str(step, part, result, loads or [])
     if step.type == st.BUCKLING:
         return buckle.step_buckle_str(step, part, result or "buckle")
+    if step.type == st.DYNAMIC:
+        return dynamic.step_dynamic_str(step, part, result or "dyn")
     step_map = {st.EIGEN: eigen.step_eig_str, st.DYNAMIC: dynamic.step_dynamic_str}
 
     step_writer = step_map.get(step.type, None)

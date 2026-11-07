@@ -21,7 +21,9 @@ if TYPE_CHECKING:
     from ada.fem.steps import Step
 
 
-def write_load(load: Load) -> str:
+def write_load(load: Load, amplitude_written: bool = False) -> str:
+    """One load's ``AFFE_CHAR_MECA``. ``amplitude_written``: the caller applies the load's amplitude itself (a dynamic
+    step's FONC_MULT), so it is not reported as left out."""
     load_str_map = {
         Load.TYPES.GRAVITY: gravity_load_str,
         Load.TYPES.ACC: gravity_load_str,
@@ -36,7 +38,7 @@ def write_load(load: Load) -> str:
     if load_str_writer is None:
         raise UnsupportedLoadType(f'code_aster writer: load {load.name!r} of type "{load.type}" has no Code_Aster form')
 
-    if getattr(load, "amplitude", None) is not None:
+    if getattr(load, "amplitude", None) is not None and not amplitude_written:
         from ada.fem.formats import conversion_report
 
         conversion_report.current().omitted(
