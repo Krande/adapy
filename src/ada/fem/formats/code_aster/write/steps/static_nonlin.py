@@ -13,6 +13,22 @@ if TYPE_CHECKING:
     from ada.api.spatial import Part
 
 
+def large_rotation_beams(part: Part) -> bool:
+    """Whether the model's beams are POU_D_T_GD, Timoshenko beams in large displacements and rotations (U3.11.05):
+    when its steps are all geometrically nonlinear static ones. The element is the model's, not a step's, and
+    POU_D_T_GD takes GROT_GDEP only (with ELAS_POUTRE_GR), so a model whose steps mix it with a linear, eigen,
+    buckling or dynamic step keeps POU_D_E (and its nlgeom steps their small displacements, reported)."""
+    from ..write_steps import all_steps
+
+    steps = all_steps(part.get_assembly())
+    beams = [fs for fs in part.fem.sections.lines if not fs.is_axial_only]
+    return bool(beams) and bool(steps) and all(st.type == "static" and st.nl_geom is True for st in steps)
+
+
+def _beam_groups(part: Part) -> list[str]:
+    return [fs.elset.name for fs in part.fem.sections.lines if not fs.is_axial_only]
+
+
 def _second_order_shell_groups(part: Part) -> list[str]:
     """The element groups of the bending shells on second-order elements (COQUE_3D)."""
     from ada.fem.shapes.definitions import ShellShapes
@@ -60,13 +76,14 @@ def large_displacement_groups(part: Part, report: bool = False) -> list[str]:
                 n_sections=len(dkt),
             )
         beams = [fs.name for fs in sections.lines if not fs.is_cable and not fs.is_axial_only]
-        if beams:
+        if beams and not large_rotation_beams(part):
             rep.approximated(
                 STAGE,
                 "FemSection",
                 ", ".join(sorted(beams)[:5]),
-                "a beam in a geometrically nonlinear step is solved with small displacements: Code_Aster's POU_D_E "
-                "has no large-rotation form",
+                "a beam in a geometrically nonlinear step is solved with small displacements: its model has steps "
+                "that are not all nlgeom static ones, so it keeps POU_D_E (POU_D_T_GD, the large-rotation beam, takes "
+                "nothing but GROT_GDEP)",
                 n_sections=len(beams),
             )
     return out
@@ -177,6 +194,9 @@ class StatNonLin:
         if shells_large:
             # large displacements and rotations, small strains: COQUE_3D's GROT_GDEP (U2.02.01)
             out += f'_F(DEFORMATION="GROT_GDEP", GROUP_MA={_group_tuple(shells_large)}),'
+        if nl_geom and large_rotation_beams(self.part):
+            # POU_D_T_GD: its own relation, GROT_GDEP only (U3.11.05)
+            out += f'_F(RELATION="ELAS_POUTRE_GR", DEFORMATION="GROT_GDEP", GROUP_MA={_group_tuple(_beam_groups(self.part))}),'
         if solids_large:
             # a solid takes large displacements as GREEN_LAGRANGE: GROT_GDEP on one stops at <COMPOR5_22> ("Ce n'est
             # pas possible. Vous pouvez essayer avec le modèle de déformation GREEN_LAGRANGE", measured, 18.1)
@@ -270,7 +290,12 @@ class PostCalc:
         # POU_D_E beams compute no strains either (<CALCUL_37>: EPSI_ELGA on MECA_POU_D_E, measured, 18.1): their
         # section forces only
         beams = [fs.elset.name for fs in sections.lines if not fs.is_axial_only and not _is_special(fs)]
-        if beams:
+        gd = large_rotation_beams(self.part)
+        if beams and gd:
+            # POU_D_T_GD computes no EFGE_ELNO ("Erreur de programmation", te0185, <DVP_1>, measured 18.1): its
+            # displacements and reactions only
+            others = [fs for fs in others if fs.elset.name not in beams]
+        elif beams:
             out += f"""
 {name} = CALC_CHAMP(
     reuse={name}, RESULTAT={name},
@@ -396,7 +421,7 @@ class ImprResu:
 
         # The reactions too (PostCalc computes REAC_NODA): a nonlinear step printed none, so its support forces --
         # what an equilibrium check or a closed form reads -- were not in the results at all.
-        if "EFGE_ELNO" in stress_fields(self.part):
+        if "EFGE_ELNO" in stress_fields(self.part) and not large_rotation_beams(self.part):
             result_nom_cham = '("DEPL", "REAC_NODA", "EFGE_ELNO", "EFGE_NOEU")'
             result_nom_cham_med = self.med("DISP", "REAC_NODA", "GEN_FORCES_ELEM", "GEN_FORCES_NODES")
         else:

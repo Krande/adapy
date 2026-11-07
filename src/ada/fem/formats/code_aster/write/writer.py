@@ -145,7 +145,7 @@ def create_comm_str(assembly: Assembly, part: Part) -> str:
         ref_points_group=ref_group,
         membrane_large_strain=membranes_large_strain(part, all_steps(assembly)),
         masses=masses,
-        timoshenko=part.fem.options.CODE_ASTER.use_timoshenko_beams,
+        timoshenko=part.fem.options.CODE_ASTER.use_timoshenko_beams or _gd_beams(part),
         large_rotations=any(st.type == "static" and st.nl_geom is True for st in all_steps(assembly)),
         varc=temp_varc,
     )
@@ -174,9 +174,14 @@ def create_comm_str(assembly: Assembly, part: Part) -> str:
     # U3.11.06).
     beams = [fs for fs in lines if not fs.is_axial_only]
     timoshenko = part.fem.options.CODE_ASTER.use_timoshenko_beams
+    from .steps.static_nonlin import large_rotation_beams
+
+    # a model of nlgeom static steps only: its beams in large rotations, POU_D_T_GD (steps.static_nonlin)
+    gd = large_rotation_beams(part)
     for group, el_formula, members in (
-        ("bm_sets", "POU_D_E", [fs for fs in beams if not (timoshenko and has_shear_deformation(fs))]),
-        ("bm_t_sets", "POU_D_T", [fs for fs in beams if timoshenko and has_shear_deformation(fs)]),
+        ("bm_sets", "POU_D_E", [] if gd else [fs for fs in beams if not (timoshenko and has_shear_deformation(fs))]),
+        ("bm_t_sets", "POU_D_T", [] if gd else [fs for fs in beams if timoshenko and has_shear_deformation(fs)]),
+        ("bm_gd_sets", "POU_D_T_GD", beams if gd else []),
         ("tr_sets", "BARRE", [fs for fs in lines if fs.is_axial_only and not fs.is_cable]),
         ("cb_sets", "CABLE", [fs for fs in lines if fs.is_cable]),
     ):
@@ -264,6 +269,12 @@ def create_comm_str(assembly: Assembly, part: Part) -> str:
     )
 
     return comm_str
+
+
+def _gd_beams(part: Part) -> bool:
+    from .steps.static_nonlin import large_rotation_beams
+
+    return large_rotation_beams(part)
 
 
 def membranes_large_strain(part: Part, steps) -> bool:

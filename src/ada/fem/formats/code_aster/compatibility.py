@@ -15,6 +15,12 @@ if TYPE_CHECKING:
 SUB_INTEGRATED_SOLIDS = (SolidShapes.HEX8, SolidShapes.HEX20, SolidShapes.TETRA10)
 
 
+def _gd_beams(assembly: Assembly) -> bool:
+    """Whether the beams are POU_D_T_GD (all steps nlgeom static: write.steps.static_nonlin.large_rotation_beams)."""
+    steps = [st for st in assembly.fem.get_all_steps()]
+    return bool(steps) and all(st.type == "static" and st.nl_geom is True for st in steps)
+
+
 def check_compatibility(assembly: Assembly):
     p = get_fem_model_from_assembly(assembly)
     step = assembly.fem.steps[0] if len(assembly.fem.steps) > 0 else None
@@ -27,7 +33,7 @@ def check_compatibility(assembly: Assembly):
         for el in p.fem.elements.lines:
             if el.fem_sec is not None and el.fem_sec.is_axial_only:
                 continue  # a truss (BARRE) or cable (CABLE) takes a nonlinear analysis; only the beams do not
-            if has_nonlin:
+            if has_nonlin and not _gd_beams(assembly):
                 raise IncompatibleElements(
                     "The standard Euler/Timoshenko beams in Code Aster do not support nonlinear"
                     " material assignment. todo: add option to auto-assign beams linear"

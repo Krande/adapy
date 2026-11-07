@@ -67,3 +67,35 @@ def test_an_end_moment_rolls_the_strip_into_a_circular_arc(tmp_path, require_sol
     for n in tip:
         assert n.x + u[int(n.id)][0] == pytest.approx(x_tip, rel=1e-4)
         assert abs(u[int(n.id)][2]) == pytest.approx(z_tip, rel=1e-4)
+
+
+def _beam_elastica():
+    mat = ada.Material("S355", CarbonSteel("S355"))
+    bm = ada.Beam("bm", (0, 0, 0), (L, 0, 0), "IPE300", mat)
+    p = ada.Part("B") / bm
+    p.fem = bm.to_fem_obj(0.1, "line")
+    fem = p.fem
+    (root,) = [n for n in fem.nodes if abs(n.x) < 1e-9]
+    (tip,) = [n for n in fem.nodes if abs(n.x - L) < 1e-9]
+    fem.add_bc(Bc("root", fem.add_set(FemSet("root", [root], "nset")), [1, 2, 3, 4, 5, 6]))
+    ei = mat.model.E * bm.section.properties.Iy
+    m = THETA * ei / L
+    a = ada.Assembly("A") / p
+    step = a.fem.add_step(StepImplicitStatic("bend", nl_geom=True, init_incr=0.05, total_time=1.0, max_incr=0.05))
+    step.add_load(LoadPoint("m", -m, fem.add_set(FemSet("tip", [tip], "nset")), 5))
+    return a, tip, m / ei
+
+
+def test_an_end_moment_rolls_a_beam_into_a_circular_arc(tmp_path, require_solver):
+    """The beam version (Code_Aster's SSNL103A): an IPE300 cantilever bent about its strong axis by an end moment
+    through 1 rad, on POU_D_T_GD (Timoshenko, large displacements and rotations; a model of nlgeom static steps
+    only). Pure bending, so no shear: the arc's closed form exactly. POU_D_E, which a beam used to be, has no
+    large-rotation form (and an nlgeom model with beams was refused)."""
+    require_solver("code_aster")
+    a, tip, k = _beam_elastica()
+    res = a.to_fem("barc", "code_aster", scratch_dir=tmp_path, overwrite=True, execute=True)
+    last = max(f.step for f in res.results if f.name.split("[")[0] == "DISP")
+    (disp,) = [f for f in res.results if f.name.split("[")[0] == "DISP" and f.step == last]
+    u = {int(r[0]): np.asarray(r[1:4]) for r in np.asarray(disp.values)}
+    assert tip.x + u[int(tip.id)][0] == pytest.approx(np.sin(THETA) / k, rel=1e-4)
+    assert abs(u[int(tip.id)][2]) == pytest.approx((1 - np.cos(THETA)) / k, rel=1e-4)

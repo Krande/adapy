@@ -49,6 +49,7 @@ RESERVED = frozenset(
         # the element groups the model is assigned over
         "bm_sets",
         "bm_t_sets",
+        "bm_gd_sets",
         "tr_sets",
         "cb_sets",
         "mb_sets",
