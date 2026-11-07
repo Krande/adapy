@@ -206,6 +206,7 @@ def step_str(step: StepEigen | StepImplicitStatic, deck: DeckContext, loads=None
     step_type_map = {
         Step.TYPES.STATIC: static_step,
         Step.TYPES.EIGEN: eigen_step,
+        Step.TYPES.BUCKLING: buckle_step,
         Step.TYPES.DYNAMIC: dynamic_step,
     }
 
@@ -213,6 +214,13 @@ def step_str(step: StepEigen | StepImplicitStatic, deck: DeckContext, loads=None
     if step_str_writer is None:
         raise ValueError(f'Currently unsupported Step Type "{step.type}"')
 
+    if step.type == Step.TYPES.BUCKLING and deck.u1_elements:
+        from ada.fem.exceptions.model_definition import UnsupportedLoadType
+
+        raise UnsupportedLoadType(
+            f"calculix writer: buckling step {step.name!r} on a model with U1 beams (every 2-node beam of a general "
+            f"section); ccx's U1 has no geometric stiffness ('*ERROR in e_c3d_u1: no buckling', measured)"
+        )
     step_type_str = step_str_writer(step)
     return f"""**
 ** STEP: {step.name}
@@ -264,6 +272,15 @@ def dynamic_step(step: StepImplicitDynamic) -> str:
     return f"""*Step, nlgeom={bool2text(step.nl_geom)}, inc={step.total_incr}
 *Dynamic{params}
  {step.init_incr}, {step.total_time}, {step.min_incr}, {step.max_incr}"""
+
+
+def buckle_step(step) -> str:
+    """A linear buckling step (:class:`~ada.fem.StepBuckling`) as ``*BUCKLE``: the step's loads are the reference
+    load, the first line the number of factors wanted (CalculiX 2.23 manual 7.11). ccx prints the factors to the .dat
+    (``results.structural.read_buckling_factors``) and writes the modes to the .frd."""
+    return f"""*Step
+*Buckle
+ {step.num_modes}"""
 
 
 def eigen_step(step: StepEigen):

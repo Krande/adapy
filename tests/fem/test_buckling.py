@@ -87,3 +87,51 @@ def test_the_decks_hold_the_buckling_step(tmp_path):
     assert eiga[20:25].strip() == "12."
     deck = next((tmp_path / "s").glob("*T1.FEM")).read_text()
     assert "TDLOAD" in deck and "BNLOAD" in deck
+
+
+def _strip(n_modes=3):
+    """A 2 m x 0.2 m x 10 mm strip, nu = 0, pinned at both ends and pressed along its length by a unit force: it
+    buckles out of its plane at ``n^2 pi^2 E (b t^3 / 12) / L^2``, exact for nu = 0 (no anticlastic stiffening)."""
+    lng, b, t = 2.0, 0.2, 0.01
+    mat = ada.Material("S355", CarbonSteel("S355", v=0.0))
+    p = ada.Part("P") / ada.Plate("strip", [(0, 0), (lng, 0), (lng, b), (0, b)], t, mat=mat)
+    p.fem = p.to_fem_obj(0.05, use_quads=True)
+    fem = p.fem
+    e0 = [n for n in fem.nodes if abs(n.x) < 1e-9]
+    e1 = sorted((n for n in fem.nodes if abs(n.x - lng) < 1e-9), key=lambda n: n.y)
+    fem.add_bc(Bc("e0", fem.add_set(FemSet("e0", e0, "nset")), [1, 3]))
+    fem.add_bc(Bc("e1", fem.add_set(FemSet("e1", e1, "nset")), [3]))
+    (c,) = [n for n in e0 if abs(n.y) < 1e-9]
+    fem.add_bc(Bc("c", fem.add_set(FemSet("c", [c], "nset")), [2]))
+    a = ada.Assembly("A") / p
+    step = a.fem.add_step(StepBuckling("buckle", num_modes=n_modes))
+    for k, n in enumerate(e1):
+        share = (0.5 if k in (0, len(e1) - 1) else 1.0) / (len(e1) - 1)  # a uniform edge load, consistent
+        step.add_load(LoadPoint(f"p{n.id}", -share, fem.add_set(FemSet(f"l{n.id}", [n], "nset")), 1))
+    return a, np.pi**2 * mat.model.E * b * t**3 / 12 / lng**2
+
+
+@pytest.mark.parametrize("solver", ["code_aster", "calculix", "sesam"])
+def test_a_pinned_strip_buckles_at_n2_eulers_load(tmp_path, require_solver, solver):
+    """The shell check, and CalculiX's (its 2-node beams are U1, which take no buckling). Measured, 0.05 m quads:
+    Code_Aster (DKT) 1 + 5.1e-4, 2.1e-3, 4.6e-3; CalculiX (S4, a C3D8I layer) 4.6e-4, 1.8e-3, 4.1e-3 -- the mesh's
+    error, growing as n^2 here."""
+    require_solver(solver)
+    a, euler = _strip()
+    factors = a.to_fem("strip", solver, scratch_dir=tmp_path, overwrite=True, execute=True).buckling_factors
+    assert factors is not None and len(factors) >= 3, factors
+    for n, f in enumerate(sorted(abs(x) for x in factors)[:3], start=1):
+        assert f == pytest.approx(n**2 * euler, rel=6e-4 * n**2), (n, factors)
+
+
+def test_calculix_writes_buckle_and_refuses_it_on_u1_beams(tmp_path):
+    """No solver: the strip's step is *BUCKLE asking for its modes; the IPE column's 2-node beams are U1, which ccx
+    stops on ("no buckling"), so that deck is refused by name."""
+    from ada.fem.exceptions.model_definition import UnsupportedLoadType
+
+    a, _ = _strip(n_modes=3)
+    a.to_fem("s", "calculix", scratch_dir=tmp_path, overwrite=True)
+    assert "*Step\n*Buckle\n 3\n" in (tmp_path / "s" / "s.inp").read_text()
+    a, *_ = _column()
+    with pytest.raises(UnsupportedLoadType, match="U1"):
+        a.to_fem("c", "calculix", scratch_dir=tmp_path, overwrite=True)
