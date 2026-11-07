@@ -85,3 +85,46 @@ def test_the_decks_hold_the_temperature(tmp_path):
     assert len(beiste) == 8  # 4 m at 0.5 m
     elno, nnod, intno, t1 = (float(x) for x in lines[beiste[0] + 1].split())
     assert (nnod, intno, t1, float(lines[beiste[0] + 2].split()[0])) == (2.0, 0.0, DT, DT)
+
+
+def _strip(both_ends: bool):
+    mat = ada.Material("S355", CarbonSteel("S355", v=0.0))
+    t, b = 0.01, 0.5
+    pl = ada.Plate("strip", [(0, 0), (L, 0), (L, b), (0, b)], t, mat=mat)
+    p = ada.Part("P") / pl
+    p.fem = p.to_fem_obj(0.25, use_quads=True)
+    fem = p.fem
+    a_side = [n for n in fem.nodes if abs(n.x) < 1e-9]
+    b_side = [n for n in fem.nodes if abs(n.x - L) < 1e-9]
+    fem.add_bc(Bc("a", fem.add_set(FemSet("a", a_side, "nset")), [1]))
+    (a0,) = [n for n in a_side if abs(n.y) < 1e-9]
+    fem.add_bc(Bc("a0", fem.add_set(FemSet("a0", [a0], "nset")), [2]))
+    fem.add_bc(Bc("flat", fem.add_set(FemSet("all", list(fem.nodes), "nset")), [3, 4, 5, 6]))
+    if both_ends:
+        fem.add_bc(Bc("b", fem.add_set(FemSet("b", b_side, "nset")), [1]))
+    asm = ada.Assembly("A") / p
+    step = asm.fem.add_step(StepImplicitStatic("heat"))
+    step.add_load(LoadTemperature("warm", REF + DT, reference=REF))
+    return asm, a_side, b_side, mat.model.E * t * b * mat.model.alpha * DT, mat.model.alpha
+
+
+@pytest.mark.parametrize("solver", ["code_aster", "sesam"])
+def test_a_shell_strip_held_at_both_ends_pushes_with_e_t_b_alpha_dt(tmp_path, require_solver, solver):
+    """The strip in its plane (nu = 0): held along x at both ends it carries -E alpha dT, its ends react E t b alpha
+    dT; the shell's temperature through its thickness (Code_Aster TEMP_MIL/INF/SUP) uniform."""
+    require_solver(solver)
+    asm, a_side, b_side, force, _ = _strip(both_ends=True)
+    _, reac = _fields(asm.to_fem("sheld", solver, scratch_dir=tmp_path, overwrite=True, execute=True, lazy=True))
+    rel = 1e-5 if solver == "sesam" else 1e-9
+    assert sum(reac[int(n.id)][0] for n in a_side) == pytest.approx(force, rel=rel)
+    assert sum(reac[int(n.id)][0] for n in b_side) == pytest.approx(-force, rel=rel)
+
+
+@pytest.mark.parametrize("solver", ["code_aster", "sesam"])
+def test_a_free_shell_strip_grows_by_alpha_dt_l(tmp_path, require_solver, solver):
+    require_solver(solver)
+    asm, _, b_side, _, alpha = _strip(both_ends=False)
+    u, _ = _fields(asm.to_fem("sfree", solver, scratch_dir=tmp_path, overwrite=True, execute=True, lazy=True))
+    rel = 1e-5 if solver == "sesam" else 1e-9
+    for n in b_side:
+        assert u[int(n.id)][0] == pytest.approx(alpha * DT * L, rel=rel)

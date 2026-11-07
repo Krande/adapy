@@ -10,8 +10,8 @@ model's, not a step's. So:
 * the steps that carry temperature loads must all carry the same ones, and every load one reference: otherwise a step
   would be solved with another step's temperature, refused by name;
 * a temperature load is not a charge, so it is kept out of the steps' ``EXCIT`` (:func:`mechanical`);
-* shells are refused by name: a DKT takes its temperature through the thickness (``TEMP_INF/MIL/SUP``), which this does
-  not write.
+* on a model with shells the field also holds the shells' ``TEMP_MIL``, ``TEMP_INF`` and ``TEMP_SUP`` (a uniform
+  temperature: all three the same).
 """
 
 from __future__ import annotations
@@ -59,19 +59,23 @@ def temperature_field_str(part: Part, loads, mesh: str = "mesh") -> tuple[str, s
     """``(definitions, AFFE_VARC item)`` of the model's temperature loads; empty strings for none."""
     if not loads:
         return "", ""
-    if any(not fs.is_membrane for fs in part.fem.sections.shells):
-        raise UnsupportedLoadType(
-            "code_aster writer: a temperature load on a model with shells; a Code_Aster shell takes its temperature "
-            "through the thickness (TEMP_INF/MIL/SUP), which this writer does not write"
-        )
+    # A shell takes its temperature through the thickness, TEMP_MIL / TEMP_INF / TEMP_SUP (mid-plane, the faces on
+    # the normal's negative and positive side); a uniform temperature is the same on all three. A field holding them
+    # beside TEMP serves beams, solids and shells alike.
+    shells = any(not fs.is_membrane for fs in part.fem.sections.shells)
+    cmps = "('TEMP', 'TEMP_MIL', 'TEMP_INF', 'TEMP_SUP')" if shells else "'TEMP'"
+
+    def vale(t: float) -> str:
+        return f"({t!r}, {t!r}, {t!r}, {t!r})" if shells else repr(t)
+
     ref = loads[0].reference
-    rows = [f"_F(TOUT='OUI', NOM_CMP='TEMP', VALE={ref!r}),"]
+    rows = [f"_F(TOUT='OUI', NOM_CMP={cmps}, VALE={vale(ref)}),"]
     for ld in loads:
         fs = ld.fem_set
         where = (
             "TOUT='OUI'" if fs is None else (f"GROUP_NO='{fs.name}'" if fs.type == "nset" else f"GROUP_MA='{fs.name}'")
         )
-        rows.append(f"_F({where}, NOM_CMP='TEMP', VALE={ld.temperature!r}),  # {ld.name}")
+        rows.append(f"_F({where}, NOM_CMP={cmps}, VALE={vale(ld.temperature)}),  # {ld.name}")
     body = "\n        ".join(rows)
     definitions = f"""{FIELD} = CREA_CHAMP(
     TYPE_CHAM='NOEU_TEMP_R',
