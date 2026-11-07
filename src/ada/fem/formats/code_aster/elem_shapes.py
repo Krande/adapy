@@ -27,7 +27,8 @@ ada_to_med_format = {
     SolidShapes.PYRAMID5: "PY5",
     # "pyramid13": "P13",
     SolidShapes.WEDGE: "PE6",
-    # "wedge15": "P15",
+    # native order: MEDCoupling's edges of NORM_PENTA15 put mid-side nodes 7-15 where adapy's do (node_order)
+    SolidShapes.WEDGE15: "P15",
 }
 
 # MED Geometry Type Codes (GEO attribute in HDF5)
