@@ -69,7 +69,8 @@ def _concept_kind(root):
 
 CASES = {
     "beam end": ("genie_loads_all_kinds.xml", _beam_end, ("omitted", "end1/end2")),
-    "hinge property": ("genie_loads_all_kinds.xml", _hinges, ("omitted", "hinges")),
+    # a hinge of no kind: read_hinges names it, and its beams read fully connected
+    "hinge property": ("genie_loads_all_kinds.xml", _hinges, ("omitted", "hinge")),
     "material kind": ("genie_loads_all_kinds.xml", _material_kind, ("omitted", "anisotropic_material")),
     "set member": ("genie_loads_all_kinds.xml", _set_member, ("omitted", "set")),
     "concept kind": ("genie_loads_all_kinds.xml", _concept_kind, ("omitted", "stiffened_panel")),
@@ -91,7 +92,8 @@ def test_the_untouched_fixture_names_none_of_them(example_files, tmp_path):
 
 
 def test_a_nonzero_corrosion_addition_on_a_plate_side_is_named(example_files, tmp_path):
-    """curved_plates.xml's plates have cThk10 on their back; a zero addition (cThk00) is not named."""
+    """curved_plates.xml's plates have cThk10 on their back; a zero addition (cThk00) is not named. A note, not an
+    omission: GeniE's own mesh keeps the gross thickness (tests/fem/test_genie_gxml_hinges.py), as this reads it."""
 
     def corrode(root):
         adds = _props(root).find("corrosion_additions")
@@ -101,8 +103,9 @@ def test_a_nonzero_corrosion_addition_on_a_plate_side_is_named(example_files, tm
             next(c for c in adds if c.get("name") == "cThk10").set("addition", "0.001")
 
     _, findings = _read(example_files, tmp_path, "curved_plates.xml", corrode)
-    assert ("omitted", "corrosion_addition_ref") in findings
-    assert ("omitted", "corrosion_additions") in findings
+    assert ("note", "corrosion_addition_ref") in findings
+    assert ("omitted", "corrosion_addition_ref") not in findings
+    assert ("omitted", "corrosion_additions") not in findings
 
 
 def test_a_beam_whose_material_is_not_read_is_left_out_by_name(example_files, tmp_path):

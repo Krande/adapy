@@ -26,8 +26,11 @@ def iter_beams_from_xml(xml_path):
     p = Part("tmp")
     p._sections = get_sections(xml_root, p)
     p._materials = get_materials(xml_root, p)
+    from .read_hinges import get_hinges
+
+    hinges = get_hinges(xml_root)
     for bm_el in all_beams:
-        yield from el_to_beam(bm_el, p)
+        yield from el_to_beam(bm_el, p, hinges=hinges)
 
 
 def apply_mass_density_factors(root, p: Part):

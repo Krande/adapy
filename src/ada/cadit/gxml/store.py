@@ -57,14 +57,17 @@ class GxmlStore:
         yield from self.iter_plates_from_xml()
 
     def iter_beams_from_xml(self):
+        from .read.read_hinges import get_hinges
+
         p = self.p
         resolver = self.sat_factory.get_named_edge_curve
+        hinges = get_hinges(self.xml_root)
 
         for bm in self.xml_root.iterfind(".//straight_beam"):
-            yield from el_to_beam(bm, p)
+            yield from el_to_beam(bm, p, hinges=hinges)
 
         for curved_bm in self.xml_root.iterfind(".//curved_beam"):
-            yield from el_to_beam(curved_bm, p, edge_curve_resolver=resolver)
+            yield from el_to_beam(curved_bm, p, edge_curve_resolver=resolver, hinges=hinges)
 
     def iter_plate_shell_elem(self):
         for fp in self.xml_root.iterfind(".//flat_plate"):

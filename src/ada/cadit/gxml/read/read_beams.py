@@ -13,11 +13,17 @@ from ada.sections.categories import BaseTypes
 
 
 def get_beams(xml_root: ET.Element, parent: Part) -> Beams:
+    from .read_hinges import get_hinges
+
     all_beams = xml_root.findall(".//straight_beam") + xml_root.findall(".//curved_beam")
-    return Beams(chain.from_iterable([el_to_beam(bm_el, parent) for bm_el in all_beams]), parent)
+    hinges = get_hinges(xml_root)
+    return Beams(chain.from_iterable([el_to_beam(bm_el, parent, hinges=hinges) for bm_el in all_beams]), parent)
 
 
-def el_to_beam(bm_el: ET.Element, parent: Part, edge_curve_resolver=None) -> List[Beam]:
+def el_to_beam(bm_el: ET.Element, parent: Part, edge_curve_resolver=None, hinges=None) -> List[Beam]:
+    """``hinges``: the file's hinge library (``read_hinges.get_hinges``), for the beam's end hinges."""
+    from .read_hinges import apply_end_hinges
+
     name = bm_el.attrib["name"]
     xv, yv, zv = get_curve_orientation(bm_el)
     segs = []
@@ -40,6 +46,7 @@ def el_to_beam(bm_el: ET.Element, parent: Part, edge_curve_resolver=None) -> Lis
 
     if len(segs) > 0:
         apply_offsets_and_alignments(name, bm_el, segs)
+        apply_end_hinges(bm_el, segs, hinges)
     else:
         logger.warning(f"No segments found for beam {name}")
 
