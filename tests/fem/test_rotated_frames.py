@@ -50,10 +50,10 @@ def _case_fields(res):
     for role in ("nodal_displacement", "nodal_reaction"):
         (f,) = [f for f in fields if getattr(f.role, "value", f.role) == role]
         v = np.asarray(f.values, float)
-        comps = list(f.components)
-        names = [c for c in ("U1", "U2", "U3", "U4", "U5", "U6") if c in comps]  # U4-U6 the rotations / moments
-        cols = [1 + comps.index(c) for c in names]
-        out.append({int(r[0]): dict(zip(names, r[cols])) for r in v})
+        # By the role's column layout, [id, x, y, z, rx, ry, rz], not the labels: those are each format's own
+        # (Code_Aster U1..U6, a SIN's reactions X-FORCE..RZ-MOMENT). U4-U6 the rotations / moments.
+        names = ("U1", "U2", "U3", "U4", "U5", "U6")[: v.shape[1] - 1]
+        out.append({int(r[0]): dict(zip(names, r[1 : 1 + len(names)])) for r in v})
     return out
 
 
