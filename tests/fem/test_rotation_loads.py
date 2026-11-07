@@ -68,10 +68,17 @@ def test_a_spinning_bar_is_pulled_out_by_its_centrifugal_force(tmp_path, require
 
 
 @pytest.mark.parametrize("solver", ["sesam"])
-def test_a_spun_up_bar_is_pushed_along_the_turn(tmp_path, require_solver, solver):
+@pytest.mark.parametrize("on_a_set", [False, True], ids=["whole_model", "on_a_set"])
+def test_a_spun_up_bar_is_pushed_along_the_turn(tmp_path, require_solver, solver, on_a_set):
+    """The whole model's angular acceleration is one BRIGAC; on a set it is one BNACCLO per node, ``-a e x d``. Here
+    the set is every node, so both must give the same closed form -- which measures the per-node convention."""
     require_solver(solver)
     a = 5.0
     asm, root, _, rho_a, _, _ = _bar(a=a)
+    if on_a_set:
+        fem = asm.get_part("P").fem
+        ((load,),) = [st.loads for st in asm.fem.steps]
+        load.fem_set = fem.add_set(FemSet("every_node", list(fem.nodes), "nset"))
     _, reac = _fields(asm.to_fem("spinup", solver, scratch_dir=tmp_path, overwrite=True, execute=True, lazy=True))
     r = reac[int(root.id)]
     assert r[1] == pytest.approx(-rho_a * a * L**2 / 2, rel=1e-5)
