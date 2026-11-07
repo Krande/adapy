@@ -283,6 +283,9 @@ class ConstraintConceptRigidLink:
     dof_constraints: list[ConstraintConceptDofType]
     rotation_dependent: bool = True
     include_all_edges: bool = True
+    #: The slave translations the link ties (GeniE's ``slave_dx|dy|dz="dependent"``); a free one is left out of the
+    #: slaves' linear dependencies (GeniE: BLDEP without that dof).
+    slave_translations: tuple = ("dx", "dy", "dz")
     parent: ConstraintConcepts = field(init=False, repr=False)
 
     def __post_init__(self):

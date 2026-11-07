@@ -225,7 +225,7 @@ def test_rigid_link_options_are_read(frames):
     IncludeOnlyNodesOfSupports, written include_all_edges="false"."""
     _, part, _ = frames
     links = part.concept_fem.constraints.rigid_links
-    assert sorted(links) == ["Srl_frame", "Srl_only", "Srl_rot"]
+    assert sorted(links) == ["Srl_frame", "Srl_only", "Srl_rot", "Srl_sdx"]
     assert (links["Srl_rot"].rotation_dependent, links["Srl_rot"].include_all_edges) == (True, True)
     assert (links["Srl_only"].rotation_dependent, links["Srl_only"].include_all_edges) == (False, False)
     assert (links["Srl_frame"].rotation_dependent, links["Srl_frame"].include_all_edges) == (False, True)
@@ -247,18 +247,18 @@ def test_one_support_prescribed_in_two_load_cases(frames):
     assert (pd_a.name, pd_a.support, pd_a.translation, pd_a.rotation) == ("PD_a", sp, (0.005, 0, -0.01), (0, 0, 0.001))
 
 
-def test_the_frames_fixture_refuses_only_the_free_slave_link(frames):
+def test_the_frames_fixture_refuses_nothing(frames):
     """Sc_slope (dx' alone along a 3-4-5 slope) and Sp_presc_rot (its LC2 value along x' = y) are read in their
-    frames; Srl_sdx (slave_dx="free": BLDEP left dx out) is still refused."""
+    frames; Srl_sdx (slave_dx="free": GeniE's BLDEP left dx out) is read with its slave translations dy, dz."""
     _, part, report = frames
-    assert _findings(report) == {"Srl_sdx": [("support_rigid_link", 1)]}
+    assert _findings(report) == {}
     c = part.concept_fem.constraints
     slope = c.curve_constraints["Sc_slope"]
     assert np.allclose(slope.local_system, ((0.6, 0, 0.8), (0, 1, 0), (-0.8, 0, 0.6)), atol=1e-9)
     assert _dofs(slope)["dx"] == "fixed"
     rot = c.point_constraints["Sp_presc_rot"]
     assert np.allclose(rot.local_system[0], (0, 1, 0), atol=1e-9) and _dofs(rot)["dx"] == "prescribed"
-    assert "Srl_sdx" not in c.rigid_links
+    assert c.rigid_links["Srl_sdx"].slave_translations == ("dy", "dz")
     assert sorted(ld.name for ld in part.concept_fem.loads.load_cases["LC2"].loads) == ["PD_a", "PD_rot"]
 
 
@@ -358,8 +358,8 @@ def test_a_construct_without_a_concept_field_is_refused_by_name(example_files, t
     _, part, report = _read(_edit(example_files, tmp_path, "genie_supports_frames.xml", edit))
     findings = _findings(report)
     assert findings.pop(name) == [(keyword, 1)]
-    # the fixture's own refusal, and nothing else
-    assert sorted(findings) == ["Srl_sdx"]
+    # and nothing else
+    assert sorted(findings) == []
     c = part.concept_fem.constraints
     assert name not in {**c.point_constraints, **c.curve_constraints, **c.rigid_links}
 

@@ -34,13 +34,14 @@ below):
   6 nodes GeniE linked are the ones inside them, whatever ``local_system_origin`` says: GeniE
   writes the box centre there and adapy the master point). The slave translations are linked
   unless ``slave_dx|dy|dz="free"`` (BLDEP then leaves that DOF out); the slave rotations only with
-  ``slave_rx|ry|rz="dependent"`` (absent: a 9-term BLDEP, translations only; present: 12 terms).
+  ``slave_rx|ry|rz="dependent"`` (absent: a 9-term BLDEP, translations only; present: 12 terms). A free slave
+  translation is left out of ``slave_translations`` (Srl_sdx, ``slave_dx="free"``: GeniE's BLDEP left dx out).
   GeniE's importer also takes ``rotation_dependent="true"`` (adapy's writer) and exports it back
   as ``slave_r*="dependent"``. ``include_all_edges="false"`` is GeniE's
   ``IncludeOnlyNodesOfSupports``; it is carried as written.
 
 Refused by name: a rigid link in a frame that does not map onto global axes; a guide-oriented curve whose stored frame is not the guide frame; a curve that is
-not one straight segment; a rigid link with a free slave translation, some but not all slave
+not one straight segment; a rigid link with some but not all slave
 rotations dependent, or a rotated footprint box; anything this reader has no field for.
 """
 
@@ -178,14 +179,15 @@ def _support_rigid_link(el: ET.Element) -> ConstraintConceptRigidLink:
     slave_attrs = {f"slave_{d}" for d in _DOFS}
     _check_attributes(el, {"name", "include_all_edges", "rotation_dependent"} | slave_attrs)
 
+    translations = []
     for dof in _DOFS[:3]:
         value = el.get(f"slave_{dof}", "dependent")
-        if value != "dependent":
+        if value not in ("dependent", "free"):
             raise _Refused(
-                "support_rigid_link",
-                "a slave translation that is not linked; ConstraintConceptRigidLink links all three",
-                **{f"slave_{dof}": value},
+                "support_rigid_link", "a slave translation neither dependent nor free", **{f"slave_{dof}": value}
             )
+        if value == "dependent":
+            translations.append(dof)
     rotations = [el.get(f"slave_{dof}") for dof in _DOFS[3:]]
     if rotations == [None] * 3:
         rotation_dependent = None
@@ -235,6 +237,7 @@ def _support_rigid_link(el: ET.Element) -> ConstraintConceptRigidLink:
         _rigid_link_dofs(el, _frame(el)),
         rotation_dependent=bool(rotation_dependent),
         include_all_edges=_bool(el.get("include_all_edges"), "include_all_edges"),
+        slave_translations=tuple(translations),
     )
 
 

@@ -147,6 +147,7 @@ def add_support_rigid_link(
     dof_constraints: list[ConstraintConceptDofType],
     include_all_edges: bool = True,
     rotation_dependent: bool = True,
+    slave_translations=("dx", "dy", "dz"),
 ):
     """
     Adds a <support_rigid_link> element with boundary conditions and footprint box region.
@@ -159,6 +160,8 @@ def add_support_rigid_link(
             "name": name,
             "include_all_edges": str(include_all_edges).lower(),
             "rotation_dependent": str(rotation_dependent).lower(),
+            # a free slave translation, as GeniE writes one (slave_dx="free")
+            **{f"slave_{d}": "free" for d in ("dx", "dy", "dz") if d not in slave_translations},
         },
     )
 
@@ -247,4 +250,5 @@ def add_concept_constraints(root: ET.Element, part: Part) -> None:
             # left at the function's defaults, every rigid link was written rotation dependent.
             include_all_edges=rigid_link.include_all_edges,
             rotation_dependent=rigid_link.rotation_dependent,
+            slave_translations=rigid_link.slave_translations,
         )

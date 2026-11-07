@@ -189,13 +189,94 @@ def create_ref_points_discrete_str(group: str = REF_POINTS_GROUP) -> str:
         ),"""
 
 
+#: ``{node id: one-node FemSet}`` of the nodes of the partial couplings, while one deck is written (writer.to_fem).
+_LINK_GROUPS: list[dict] = []
+
+_DOF_NAMES = ("DX", "DY", "DZ", "DRX", "DRY", "DRZ")
+
+
+def is_partial(con: Constraint) -> bool:
+    return con.dofs is not None and sorted(int(d) for d in con.dofs) != [1, 2, 3, 4, 5, 6]
+
+
+def add_link_node_groups(part: Part) -> list:
+    """One-node node groups (``lk1``, ``lk2``, ...) of every node of a partial coupling: ``LIAISON_DDL`` names its
+    nodes by groups of one. Added to the part's FEM for this deck only (and taken off again by the writer)."""
+    from ada.fem import FemSet
+
+    groups: dict[int, FemSet] = {}
+    taken = {fs.name for fem in _fems(part) for fs in fem.sets}
+    k = 0
+    for con in get_couplings(part):
+        if not is_partial(con):
+            continue
+        for node in [*con.m_set.members, *con.s_set.members]:
+            if int(node.id) in groups:
+                continue
+            k += 1
+            while f"lk{k}" in taken:
+                k += 1
+            groups[int(node.id)] = part.fem.sets.add(FemSet(f"lk{k}", [node], FemSet.TYPES.NSET))
+    _LINK_GROUPS.append(groups)
+    return list(groups.values())
+
+
+def remove_link_node_groups(part: Part, added: list) -> None:
+    for fs in added:
+        part.fem.sets.remove(fs)
+    if _LINK_GROUPS:
+        _LINK_GROUPS.pop()
+
+
 def create_coupling_str(con: Constraint) -> str:
-    if con.dofs is not None and sorted(con.dofs) != [1, 2, 3, 4, 5, 6]:
-        logger.warning(
-            f'Coupling "{con.name}" couples dofs {con.dofs}. Code_Aster writes it as a rigid link in all dofs'
-        )
-    return f"""{concept_name(con, "coupling")} = AFFE_CHAR_MECA(
+    """A coupling: ``LIAISON_SOLIDE`` (a rigid link in all six dofs), or -- for one in some dofs only, a GeniE rigid
+    link of the translations, or of some of them -- the rigid link's own kinematics in those dofs as one
+    ``LIAISON_DDL`` per dependent node and dof: ``u_s = u_m + theta_m x (x_s - x_m)`` for a translation, ``theta_s =
+    theta_m`` for a rotation.
+
+    It used to be ``LIAISON_SOLIDE`` whatever the dofs, with a log line: a GeniE rigid link of the translations only
+    (BLDEP's 9 terms, the slaves' rotations free) clamped its slaves' rotations too."""
+    import numpy as np
+
+    name = concept_name(con, "coupling")
+    if not is_partial(con):
+        return f"""{name} = AFFE_CHAR_MECA(
     MODELE=model, LIAISON_SOLIDE=_F(GROUP_NO=('{con.m_set.name}', '{con.s_set.name}'))
+)"""
+    groups = _LINK_GROUPS[-1] if _LINK_GROUPS else {}
+    (master,) = con.m_set.members
+    xm = np.asarray(master.p, dtype=float)
+    mg = groups[int(master.id)].name
+    rows = []
+    for s in con.s_set.members:
+        if int(s.id) == int(master.id):
+            continue
+        sg = groups[int(s.id)].name
+        rx, ry, rz = np.asarray(s.p, dtype=float) - xm
+        # u_s,i - u_m,i - (theta_m x r)_i = 0, (theta x r) = (ty rz - tz ry, tz rx - tx rz, tx ry - ty rx)
+        terms = {
+            1: [("DRY", rz), ("DRZ", -ry)],
+            2: [("DRZ", rx), ("DRX", -rz)],
+            3: [("DRX", ry), ("DRY", -rx)],
+        }
+        for d in sorted(int(d) for d in con.dofs):
+            ddl = _DOF_NAMES[d - 1]
+            nodes, dofs, coefs = [sg, mg], [ddl, ddl], [1.0, -1.0]
+            for rot, c in terms.get(d, []):
+                if abs(c) > 0.0:
+                    nodes.append(mg)
+                    dofs.append(rot)
+                    coefs.append(-float(c))
+            rows.append(
+                f"        _F(GROUP_NO=({', '.join(repr(g) for g in nodes)}), DDL=({', '.join(repr(x) for x in dofs)}), "
+                f"COEF_MULT=({', '.join(repr(c) for c in coefs)}), COEF_IMPO=0.0),"
+            )
+    body = "\n".join(rows)
+    return f"""{name} = AFFE_CHAR_MECA(
+    MODELE=model,
+    LIAISON_DDL=(
+{body}
+    ),
 )"""
 
 

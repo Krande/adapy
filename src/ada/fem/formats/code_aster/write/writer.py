@@ -61,6 +61,7 @@ def to_fem(assembly: Assembly, name, analysis_dir, metadata=None, model_data_onl
     # A line load is written over mesh groups of its own (Code_Aster names a group, never an element or node);
     # they exist for this deck only and are taken off the model again once it is written.
     line_load_groups = add_line_load_groups(all_steps(assembly), p.fem)
+    link_groups = None
     try:
         # Code Aster's MED reader drops any GROUP_MA/GROUP_NO name >24 chars
         # at LIRE_MAILLAGE time (MED_7 alarm — bibcxx/IOManager/MedToAsterReader.cxx).
@@ -71,6 +72,10 @@ def to_fem(assembly: Assembly, name, analysis_dir, metadata=None, model_data_onl
         # FemSet names when interpreting .rmed results.
         name_map = build_name_map(assembly)
         apply_name_map(assembly, name_map)
+        # a partial coupling's LIAISON_DDL names its nodes by groups of one (write_constraints), for this deck only
+        from .write_constraints import add_link_node_groups
+
+        link_groups = add_link_node_groups(p)
 
         # TODO: Implement support for multiple parts. Need to understand how submeshes in Salome and Code Aster works.
         # for p in filter(lambda x: len(x.fem.elements) != 0, assembly.get_all_parts_in_assembly(True)):
@@ -116,6 +121,10 @@ def to_fem(assembly: Assembly, name, analysis_dir, metadata=None, model_data_onl
     finally:
         for fs in line_load_groups:
             p.fem.sets.remove(fs)
+        if link_groups is not None:
+            from .write_constraints import remove_link_node_groups
+
+            remove_link_node_groups(p, link_groups)
 
     logger.info(f'Created a Code_Aster input deck at "{analysis_dir}"')
 

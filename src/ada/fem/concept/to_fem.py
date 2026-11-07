@@ -298,7 +298,8 @@ def _add_rigid_link(fem: FEM, rl: ConstraintConceptRigidLink, tol: float, held: 
     master = existing[0] if len(existing) > 0 else fem.nodes.add(Node(master_pos))
     m_set = FemSet(f"{rl.name}_master", [master], FemSet.TYPES.NSET)
     s_set = FemSet(f"{rl.name}_dependents", dependents, FemSet.TYPES.NSET)
-    dofs = [1, 2, 3, 4, 5, 6] if rl.rotation_dependent else [1, 2, 3]
+    translations = [i + 1 for i, d in enumerate(("dx", "dy", "dz")) if d in rl.slave_translations]
+    dofs = translations + ([4, 5, 6] if rl.rotation_dependent else [])
     fem.add_constraint(Constraint(rl.name, Constraint.TYPES.COUPLING, m_set, s_set, dofs=dofs))
 
     _add_support(fem, f"{rl.name}_support", rl.dof_constraints, [master], held)
