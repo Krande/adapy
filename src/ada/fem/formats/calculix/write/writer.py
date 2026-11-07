@@ -57,9 +57,12 @@ def to_fem(assembly: Assembly, name, analysis_dir, metadata=None, model_data_onl
         # Part level information
         f.write(nodes_str(p.fem.nodes) + "\n")
         f.write(elements_str(p.fem.elements, report_locking=len(steps) > 0).strip() + "\n")
-        point_masses = masses_str(p.fem)
+        point_masses, next_id = masses_str(p.fem)
         if point_masses:
             f.write(point_masses + "\n")
+        point_springs = springs_str(p.fem, next_id)
+        if point_springs:
+            f.write(point_springs + "\n")
         if deck.u1_elements:
             f.write("*USER ELEMENT,TYPE=U1,NODES=2,INTEGRATION POINTS=2,MAXDOF=6\n")
         f.write(elsets_str(p.fem.elsets) + "\n")
@@ -105,7 +108,7 @@ def to_fem(assembly: Assembly, name, analysis_dir, metadata=None, model_data_onl
     logger.info(f'Created a Calculix input deck at "{analysis_dir}"')
 
 
-def masses_str(fem) -> str:
+def masses_str(fem) -> tuple[str, int]:
     """The point masses as ccx's mass elements: ``*ELEMENT, TYPE=MASS`` on each node, ``*MASS`` on their element set
     (CalculiX 2.23 manual 6.2.40, 7.75). The first node's element takes the mass's own id, so the mass's element set
     (``<name>_set``) names an element of the deck; the others take ids past the model's. ccx's mass element is
@@ -116,11 +119,11 @@ def masses_str(fem) -> str:
 
     from .write_loads import ccx_number
 
-    masses = [el for el in fem.elements if isinstance(el, Mass)]
-    if not masses:
-        return ""
     taken = {int(el.id) for el in fem.elements if el.id is not None}
     next_id = max(taken, default=0) + 1
+    masses = [el for el in fem.elements if isinstance(el, Mass)]
+    if not masses:
+        return "", next_id
     rows, blocks = [], []
     for m in masses:
         members = [n for n in (m.members or []) if hasattr(n, "id")]
@@ -154,8 +157,58 @@ def masses_str(fem) -> str:
         listed = " ".join(f"{i}," + next(newline) for i in ids).rstrip()[:-1]
         blocks.append(f"*Elset, elset={elset}\n {listed}\n*Mass, elset={elset}\n {ccx_number(float(m.mass))}")
     if not rows:
-        return ""
-    return "*Element, type=MASS\n" + "\n".join(rows) + "\n" + "\n".join(blocks)
+        return "", next_id
+    return "*Element, type=MASS\n" + "\n".join(rows) + "\n" + "\n".join(blocks), next_id
+
+
+def springs_str(fem, next_id: int) -> str:
+    """The springs as ccx's spring elements (CalculiX 2.23 manual 6.2.38, 7.115 *SPRING): a grounded spring
+    (``SPRING1``) one ``SPRING1`` element per translational stiffness on its diagonal, a two-node one (``SPRING2``) one
+    ``SPRING2`` between the nodes' like dofs, each in an element set of its own with ``*SPRING`` giving the dof and the
+    stiffness; ids from ``next_id`` on. ccx's springs act on the translations, one dof each: a spring with a rotational
+    or a coupling term is refused by name, never written short of them (the writer used to leave every spring out with
+    a log line)."""
+    import numpy as np
+
+    from ada.fem.formats import conversion_report
+
+    from .write_loads import ccx_number
+
+    out = []
+    for spring in sorted(fem.springs.values(), key=lambda s: s.id):
+        k = np.atleast_2d(np.asarray(spring.stiff, dtype=float))
+        n1, n2 = spring._n1, spring._n2
+        n = k.shape[0]
+        off = k - np.diag(np.diag(k))
+        rotational = n > 3 and np.any(np.abs(np.diag(k)[3:]) > 0.0)
+        if k.shape[0] != k.shape[1] or n not in (3, 6) or np.any(np.abs(off) > 0.0) or rotational:
+            conversion_report.current().omitted(
+                STAGE,
+                "Spring",
+                spring.name,
+                "ccx's spring elements act on the translations, one dof each: a spring with a rotational stiffness or "
+                "a coupling term has no CalculiX form",
+            )
+            continue
+        two_node = n2 is not None and n2 is not n1 and int(n2.id) != int(n1.id)
+        for dof in range(3):
+            stiffness = float(k[dof, dof])
+            if stiffness == 0.0:
+                continue
+            eid = next_id
+            next_id += 1
+            elset = f"ADA_SPRING_{spring.name}_{dof + 1}"[:80]
+            if two_node:
+                out.append(
+                    f"*Element, type=SPRING2, elset={elset}\n {eid}, {int(n1.id)}, {int(n2.id)}\n"
+                    f"*Spring, elset={elset}\n {dof + 1}, {dof + 1}\n {ccx_number(stiffness)}"
+                )
+            else:
+                out.append(
+                    f"*Element, type=SPRING1, elset={elset}\n {eid}, {int(n1.id)}\n"
+                    f"*Spring, elset={elset}\n {dof + 1}\n {ccx_number(stiffness)}"
+                )
+    return "\n".join(out)
 
 
 def deck_materials(part) -> list:

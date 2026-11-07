@@ -104,12 +104,16 @@ def test_code_aster_writes_the_spring_as_a_point_cell(tmp_path):
     assert "SE2" in cell_types, "the beam should still be there"
 
 
-def test_calculix_reports_the_spring_it_drops(tmp_path, warnings_visible):
-    """Calculix has no element row for a spring, and no FemSection to size one from —
-    `el_type_sub` dereferenced `fem_sec.parent` and raised."""
-    _model(True).to_fem("cx", "calculix", scratch_dir=tmp_path, overwrite=True)
+def test_calculix_reports_the_spring_it_drops(tmp_path):
+    """CalculiX writes a translational spring as SPRING1 elements (writer.springs_str); this one has rotational
+    stiffness, which ccx's springs do not take, so it is refused by name in the conversion report -- it used to be
+    dropped with a log line (and before that, `el_type_sub` dereferenced `fem_sec.parent` and raised)."""
+    from ada.fem.formats import conversion_report
 
-    assert "SpringTypes.SPRING1=1" in warnings_visible.text
+    with conversion_report.collect() as rep:
+        _model(True).to_fem("cx", "calculix", scratch_dir=tmp_path, overwrite=True)
+    (f,) = [f for f in rep.findings if f.keyword == "Spring"]
+    assert f.kind == "omitted" and "rotational" in f.reason
 
 
 def test_sesam_reads_the_spring_back(tmp_path):

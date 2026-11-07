@@ -161,7 +161,16 @@ def create_comm_str(assembly: Assembly, part: Part) -> str:
     every = step_bcs(part, steps[-1]) if steps else bcs
     check_overlaps(every, prescribed_dofs(every))
     supports = [supports_str(bcs, prescribed), prescribed_at_zero_str(bcs)]
-    bc_str = "\n".join([s for s in supports if s] + [create_coupling_str(con) for con in couplings])
+    from .write_constraints import _WRITTEN_LINKS, create_link_str, get_links
+
+    _WRITTEN_LINKS.clear()
+    links = []
+    for con in get_links(part):
+        text = create_link_str(con)
+        if text:
+            _WRITTEN_LINKS.append(con)
+            links.append(text)
+    bc_str = "\n".join([s for s in supports if s] + [create_coupling_str(con) for con in couplings] + links)
     step_str = steps_str(steps, part)
 
     type_tmpl_str = "_F(GROUP_MA={elset_str}, PHENOMENE='MECANIQUE', MODELISATION='{el_formula}',),"

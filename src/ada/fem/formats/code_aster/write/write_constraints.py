@@ -11,7 +11,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from ada.config import logger
 from ada.fem import Constraint
 
 from .names import concept_name
@@ -27,12 +26,76 @@ def get_couplings(part: Part) -> list[Constraint]:
     couplings = []
     for fem in _fems(part):
         for con in fem.constraints.values():
+            if con.type in (Constraint.TYPES.TIE, Constraint.TYPES.EQUATION):
+                continue  # get_links
             if con.type not in (Constraint.TYPES.COUPLING, Constraint.TYPES.RIGID_BODY):
-                logger.warning(f'Constraint "{con.name}" of type "{con.type}" is not written to Code_Aster')
+                from ada.fem.formats import conversion_report
+
+                # reported, not logged: a constraint left out changes the model without a word
+                conversion_report.current().omitted(
+                    "code_aster writer",
+                    "Constraint",
+                    con.name,
+                    f'a "{con.type}" constraint has no Code_Aster form here',
+                )
                 continue
             if con not in couplings:
                 couplings.append(con)
     return couplings
+
+
+def get_links(part: Part) -> list[Constraint]:
+    """The ties (``LIAISON_MAIL``) and equations (``LIAISON_DDL``) of the model, each once (:func:`create_link_str`)."""
+    out = []
+    for fem in _fems(part):
+        for con in fem.constraints.values():
+            if con.type in (Constraint.TYPES.TIE, Constraint.TYPES.EQUATION) and con not in out:
+                out.append(con)
+    return out
+
+
+def _equation_rows(con: Constraint) -> list[tuple[list, list, list]] | None:
+    """``[(nodes, dofs, coefficients)]``, one per equation: a term naming a node set stands for each of its nodes in
+    turn (the i-th equation takes the i-th node of every set, as in Abaqus), so the sets must be equally long."""
+    from ada.fem import FemSet
+
+    terms = con.equation_terms or ()
+    columns = [list(ref.members) if isinstance(ref, FemSet) else [ref] for ref, _, _ in terms]
+    lengths = {len(c) for c in columns if len(c) != 1}
+    if len(terms) < 2 or len(lengths) > 1:
+        return None
+    n_eq = lengths.pop() if lengths else 1
+    return [
+        (
+            [c[i] if len(c) > 1 else c[0] for c in columns],
+            [int(dof) for _, dof, _ in terms],
+            [float(coef) for _, _, coef in terms],
+        )
+        for i in range(n_eq)
+    ]
+
+
+def _tie_main_groups(con: Constraint) -> tuple[list[str], str | None]:
+    """The element groups of a tie's main surface and its kind (``"MASSIF"``, ``"COQUE"``), or ``([], why)``."""
+    from ada.fem import FemSet
+    from ada.fem.shapes.definitions import ShellShapes, SolidShapes
+    from ada.fem.surfaces import Surface
+
+    m = con.m_set
+    if isinstance(m, Surface):
+        if m.type != Surface.TYPES.ELEMENT:
+            return [], "its main surface is a node surface; LIAISON_MAIL projects onto cells"
+        sets = list(m.fem_set) if isinstance(m.fem_set, (list, tuple)) else [m.fem_set]
+    elif isinstance(m, FemSet) and m.type == FemSet.TYPES.ELSET:
+        sets = [m]
+    else:
+        return [], "its main side is a node set; LIAISON_MAIL projects onto cells"
+    types = {type(getattr(el, "type", None)) for fs in sets for el in fs.members}
+    if types == {SolidShapes}:
+        return [fs.name for fs in sets], "MASSIF"
+    if types == {ShellShapes}:
+        return [fs.name for fs in sets], "COQUE"
+    return [], "its main surface mixes solids and shells, or is neither (COQUE_MASSIF needs the normals and thickness)"
 
 
 def model_bcs(part: Part) -> list:
@@ -127,6 +190,7 @@ def step_charges(part: Part, step=None) -> StepCharges:
     if zero:
         names.append(zero_name)
     names += [concept_name(con, "coupling") for con in get_couplings(part)]
+    names += [concept_name(con, "link") for con in get_links(part) if con in _WRITTEN_LINKS]
     return StepCharges(names, zero_name if zero else None, "\n".join(definitions), bcs)
 
 
@@ -189,6 +253,9 @@ def create_ref_points_discrete_str(group: str = REF_POINTS_GROUP) -> str:
         ),"""
 
 
+#: The ties and equations a deck has an AFFE_CHAR_MECA for (create_link_str wrote one); the steps name only those.
+_WRITTEN_LINKS: list = []
+
 #: ``{node id: one-node FemSet}`` of the nodes of the partial couplings, while one deck is written (writer.to_fem).
 _LINK_GROUPS: list[dict] = []
 
@@ -207,16 +274,37 @@ def add_link_node_groups(part: Part) -> list:
     groups: dict[int, FemSet] = {}
     taken = {fs.name for fem in _fems(part) for fs in fem.sets}
     k = 0
+
+    def one_node(node):
+        nonlocal k
+        if int(node.id) in groups:
+            return
+        k += 1
+        while f"lk{k}" in taken:
+            k += 1
+        groups[int(node.id)] = part.fem.sets.add(FemSet(f"lk{k}", [node], FemSet.TYPES.NSET))
+
     for con in get_couplings(part):
         if not is_partial(con):
             continue
         for node in [*con.m_set.members, *con.s_set.members]:
-            if int(node.id) in groups:
-                continue
-            k += 1
-            while f"lk{k}" in taken:
-                k += 1
-            groups[int(node.id)] = part.fem.sets.add(FemSet(f"lk{k}", [node], FemSet.TYPES.NSET))
+            one_node(node)
+    # an equation's nodes (LIAISON_DDL), and a tie's secondary nodes as one group (LIAISON_MAIL's GROUP_NO_ESCL)
+    from ada.fem.surfaces import surface_nodes
+
+    t = 0
+    for con in get_links(part):
+        if con.type == Constraint.TYPES.EQUATION:
+            for nodes, _, _ in _equation_rows(con) or []:
+                for node in nodes:
+                    one_node(node)
+            continue
+        nodes = surface_nodes(con.s_set)
+        if nodes:
+            t += 1
+            while f"tie{t}" in taken:
+                t += 1
+            groups[("tie", con.name)] = part.fem.sets.add(FemSet(f"tie{t}", list(nodes), FemSet.TYPES.NSET))
     _LINK_GROUPS.append(groups)
     return list(groups.values())
 
@@ -226,6 +314,62 @@ def remove_link_node_groups(part: Part, added: list) -> None:
         part.fem.sets.remove(fs)
     if _LINK_GROUPS:
         _LINK_GROUPS.pop()
+
+
+def create_link_str(con: Constraint) -> str:
+    """A tie or an equation as its ``AFFE_CHAR_MECA``, or ``""`` when it has none here (reported by name).
+
+    * A tie (Abaqus ``*Tie``; ``m_set`` main, ``s_set`` secondary): ``LIAISON_MAIL`` (U4.44.01 5.13), each secondary
+      node held to its projection on the main surface's cells -- the main elements themselves, the solid cells next
+      to the face for a solid (``TYPE_RACCORD='MASSIF'``, the translations) or the shells (``'COQUE'``, the six dofs,
+      the translations alone with ``no_rotation``); the position tolerance as ``DISTANCE_MAX``. The interpolation
+      over the facet is Abaqus's tie term for term, as the Sesam writer's BLDEP is.
+    * An equation (``sum A_i u(n_i, d_i) = 0``): one ``LIAISON_DDL`` per node tuple, its nodes by groups of one.
+    """
+    from ada.fem.formats import conversion_report
+
+    name = concept_name(con, "link")
+    groups = _LINK_GROUPS[-1] if _LINK_GROUPS else {}
+    rep = conversion_report.current()
+    if con.type == Constraint.TYPES.EQUATION:
+        rows = _equation_rows(con)
+        if not rows:
+            rep.omitted(
+                "code_aster writer",
+                "Constraint",
+                con.name,
+                "an equation of fewer than two terms, or of node sets that differ in length",
+            )
+            return ""
+        out = []
+        for nodes, dofs, coefs in rows:
+            out.append(
+                f"        _F(GROUP_NO=({', '.join(repr(groups[int(n.id)].name) for n in nodes)}), "
+                f"DDL=({', '.join(repr(_DOF_NAMES[d - 1]) for d in dofs)}), "
+                f"COEF_MULT=({', '.join(repr(c) for c in coefs)}), COEF_IMPO=0.0),"
+            )
+        body = "\n".join(out)
+        return f"""{name} = AFFE_CHAR_MECA(
+    MODELE=model,
+    LIAISON_DDL=(
+{body}
+    ),
+)"""
+    main, kind = _tie_main_groups(con)
+    slave = groups.get(("tie", con.name))
+    if not main or slave is None:
+        rep.omitted("code_aster writer", "*TIE", con.name, kind if not main else "its secondary surface has no nodes")
+        return ""
+    extra = ""
+    if kind == "COQUE" and bool(con.metadata.get("no_rotation", False)):
+        extra += ", DDL=('DX', 'DY', 'DZ')"
+    if con.pos_tol is not None:
+        extra += f", DISTANCE_MAX={float(con.pos_tol)!r}"
+    mait = ", ".join(repr(g) for g in main)
+    return f"""{name} = AFFE_CHAR_MECA(
+    MODELE=model,
+    LIAISON_MAIL=_F(GROUP_MA_MAIT=({mait},), GROUP_NO_ESCL='{slave.name}', TYPE_RACCORD='{kind}'{extra}),
+)"""
 
 
 def create_coupling_str(con: Constraint) -> str:

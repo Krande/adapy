@@ -468,11 +468,11 @@ def bnbcd_str(
             continue
         for bc in fem.bcs:
             if bc.fem_set.type != "nset":
-                logger.warning(
-                    "sesam writer: boundary condition %s is applied to element set %s. BNBCD is "
-                    "nodal, so it is skipped.",
-                    bc.name,
-                    bc.fem_set.name,
+                from ada.fem.formats import conversion_report
+
+                # reported, not logged: a support left out changes the model without a word
+                conversion_report.current().omitted(
+                    "sesam writer", "Bc", bc.name, "a support on an element set; BNBCD is nodal", elset=bc.fem_set.name
                 )
                 continue
             fixed_dofs = _fixed_dofs(bc)

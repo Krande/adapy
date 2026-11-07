@@ -20,11 +20,11 @@ def elements_str(fem_elements: FemElements, report_locking: bool = True) -> str:
     unsectioned = 0
     for (el_type, fem_sec), elements in groupby(fem_elements, key=attrgetter("type", "fem_sec")):
         if shape_def.is_structural(el_type) is False:
-            # Connectors, masses and springs have no *ELEMENT row in a Calculix deck and
-            # no FemSection to size one from — el_type_sub dereferences fem_sec.parent
-            # and raises AttributeError on all three. Only connectors were skipped
-            # before, so a mass read off a Sesam deck took the writer down with it.
-            skipped[str(el_type)] = skipped.get(str(el_type), 0) + sum(1 for _ in elements)
+            # Masses and springs are written as ccx's own point elements (writer.masses_str / springs_str), with
+            # element types of their own; a connector has no CalculiX form and is reported.
+            n = sum(1 for _ in elements)
+            if not isinstance(el_type, (shape_def.MassTypes, shape_def.SpringTypes)):
+                skipped[str(el_type)] = skipped.get(str(el_type), 0) + n
             continue
         if fem_sec is None:
             # A mesh-only deck -- an Abaqus .inp whose elements carry no *SOLID SECTION,
@@ -38,12 +38,12 @@ def elements_str(fem_elements: FemElements, report_locking: bool = True) -> str:
         el_str += elwriter(el_type, fem_sec, elements, report_locking)
 
     if skipped:
-        logger.warning(
-            "calculix writer: skipping %d element(s) Calculix has no element row for: %s. "
-            "The rest of the deck is unaffected.",
-            sum(skipped.values()),
-            ", ".join(f"{k}={v}" for k, v in sorted(skipped.items())),
-        )
+        from ada.fem.formats import conversion_report
+
+        for kind, n in sorted(skipped.items()):
+            conversion_report.current().omitted(
+                "calculix writer", "Element", kind, "an element CalculiX has no element row for", n_elements=n
+            )
     if unsectioned:
         logger.warning(
             "calculix writer: skipping %d element(s) with no FemSection -- Calculix takes its "
