@@ -1714,6 +1714,54 @@ class SinFile:
             self, block, where_first_word=where_first_word, where_second_word=where_second_word
         )
 
+    def iter_keyed_records(self, name: str, key: tuple[int, ...]) -> Iterator[tuple[float, ...]]:
+        """:meth:`iter_records`, with the records a keyed table chains behind each slot.
+
+        Sestra stores a two-dimensional table (BEUSLO: load case x element) with one pointer slot per key, and a
+        second record of the same key -- two pressures on one element in one load case -- behind the first: the
+        word three before a record's first data field (``wp - 3``) is the pointer of the next record of its key, 0
+        for none. Measured on a Sestra V11.3 SIN with 400 and 600 Pa on every element of one case: 512 slots, each
+        holding the 400 Pa record and chaining the 600 Pa one, whose own link is 0. :meth:`iter_records` yields the
+        slots only.
+
+        Followed only in a table of two or more dimensions (a one-dimensional table, as adapy's SIN writer makes,
+        has its records back to back and that word is the previous record's), and only to a record whose ``key``
+        words (data indices) equal the slot's, so a word that is not a link is never read as one.
+        """
+        block = self.type_blocks.get(name)
+        if block is None:
+            return
+        if block.ndim < 2:
+            yield from self.iter_records(name)
+            return
+        src = self.source
+        file_end = src.size()
+
+        def record(wp: int) -> tuple[float, ...] | None:
+            if wp <= 0 or wp * 4 > file_end:
+                return None
+            n_data = int(src.f32((wp - 1) * 4)) - 1
+            if n_data <= 0 or (wp + n_data) * 4 > file_end:
+                return None
+            return struct.unpack(f"<{n_data}f", src.read(wp * 4, n_data * 4))
+
+        for word_ptr in block.pointer_table:
+            wp = int(word_ptr)
+            head = record(wp) if wp else None
+            if head is None:
+                continue
+            yield head
+            seen = {wp}
+            while wp >= 3:
+                (wp,) = struct.unpack("<i", src.read((wp - 3) * 4, 4))
+                if wp in seen:
+                    break
+                seen.add(wp)
+                nxt = record(wp)
+                if nxt is None or any(k >= len(nxt) or nxt[k] != head[k] for k in key):
+                    break
+                yield nxt
+
     def _iter_block_records(
         self,
         block: TypeBlock | None,

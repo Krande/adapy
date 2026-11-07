@@ -304,17 +304,39 @@ def read_shell_pressures(sin, numbering: Numbering) -> dict[int, dict[int, float
     """BEUSLO: the mean signed shell pressure ``{load case: {element: p}}`` (``-case`` the imaginary part of a
     phased one), positive along the element's local z (Sesam's sign).
 
-    The records of one element and load case add: an element carries every element load of its case (two pressures
-    on one plate in a case, as a combination of two cases loading it is written). The last record used to replace
-    the others, so a plate under 50 and 30 kPa in one case read back 30 kPa."""
+    The records of one element and load case add, whatever their SIDE or LAYER: an element carries every element
+    load of its case (two pressures on one plate in a case, as a combination of two cases loading it is written).
+    Measured, Sestra V11.3: two BEUSLO records of 400 and 600 Pa on every element of the strip in one case gave the
+    reaction of 1000 Pa and the mid-span deflection of one 1000 Pa record (``tests/fem/test_sesam_pressure_load.py``).
+    SIDE and LAYER do not change what Sestra applies -- it computes a BEUSLO in the element's mid-plane and returns
+    the identical result for SIDE 1, 2 and 3, and ignores LAYER -- the intensity's sign carries the direction
+    (:mod:`ada.fem.formats.sesam.write.write_loads`). The last record used to replace the others, so a plate under
+    50 and 30 kPa in one case read back 30 kPa; and a Sestra SIN keeps the second record of an element and case
+    chained behind the first, which the reader did not follow, so the same plate read back 50 kPa
+    (:meth:`~.sin_reader.SinFile.iter_keyed_records`).
+
+    Only LOTYP 1 records are pressures: a LOTYP 2 record is a traction vector, three components per node (GeniE
+    writes those, e.g. ``files/fem_files/sesam/genie_loads_all_kinds_T1.FEM``), whose mean is no pressure; it is
+    left out and logged, as the deck reader refuses it (``sesam.read.read_loads``)."""
+    from ada.config import logger
+
     out: dict[int, dict[int, float]] = {}
+    skipped: dict[int, int] = {}
 
     def add(case: int, element: int, values: list[float]) -> None:
         table = out.setdefault(case, {})
         table[element] = table.get(element, 0.0) + float(np.mean(values))
 
-    for rec in _records(sin, "BEUSLO"):
+    keyed = getattr(sin, "iter_keyed_records", None)
+    # Sestra keeps a second record of one element and case behind the first (sin_reader.iter_keyed_records):
+    # key LLC (data word 0) and ELNO (data word 4).
+    records = keyed("BEUSLO", (0, 4)) if keyed is not None and "BEUSLO" in _blocks(sin) else _records(sin, "BEUSLO")
+    for rec in records:
         if len(rec) < 9:
+            continue
+        lotyp = int(round(rec[1]))
+        if lotyp != 1:
+            skipped[lotyp] = skipped.get(lotyp, 0) + 1
             continue
         case = int(rec[0])
         element = numbering.shown_element(int(rec[4]))
@@ -327,6 +349,8 @@ def read_shell_pressures(sin, numbering: Numbering) -> dict[int, dict[int, float
             imaginary = [float(x) for x in rec[8 + n_values : 8 + 2 * n_values]]
             if len(imaginary) == n_values:
                 add(-case, element, imaginary)
+    for lotyp, n in sorted(skipped.items()):
+        logger.warning(f"{n} BEUSLO record(s) of LOTYP {lotyp} are no shell pressure (LOTYP 1); left out of the pressures")
     return out
 
 
