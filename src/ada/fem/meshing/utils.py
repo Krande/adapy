@@ -318,7 +318,7 @@ def get_nodes_from_gmsh(model: gmsh.model, fem: FEM) -> list[Node]:
 def get_elements_from_entity(model: gmsh.model, ent, fem: FEM, dim) -> list[Elem]:
     elem_types, elem_tags, elem_node_tags = model.mesh.getElements(dim, ent)
     elements = []
-    el_tags = []
+    el_tags = set()
     for k, element_list in enumerate(elem_tags):
         el_name, _, _, numv, _, _ = model.mesh.getElementProperties(elem_types[k])
         if el_name == "Point":
@@ -327,7 +327,7 @@ def get_elements_from_entity(model: gmsh.model, ent, fem: FEM, dim) -> list[Elem
         for j, eltag in enumerate(element_list):
             if eltag in el_tags:
                 continue
-            el_tags.append(eltag)
+            el_tags.add(eltag)
             nodes = []
             for i in range(numv):
                 idtag = numv * j + i
@@ -433,16 +433,26 @@ def add_point(model: gmsh.model, p):
     return point
 
 
-def check_entities_exist(entity_list, gmsh_model: gmsh.model):
+def occ_entity_set(gmsh_model: gmsh.model) -> set[tuple[int, int]]:
+    """Every ``(dim, tag)`` of the OCC model, from one ``getEntities`` call."""
+    return {(int(dim), int(tag)) for dim, tag in gmsh_model.occ.getEntities(-1)}
+
+
+def check_entities_exist(entity_list, gmsh_model: gmsh.model, existing: set[tuple[int, int]] | None = None):
+    """Split ``entity_list`` into the entities that exist in the OCC model and those that do not.
+
+    ``existing`` is the model's entity set (:func:`occ_entity_set`); a caller checking many lists passes it, so the
+    model is listed once instead of once per list -- listing it per object is what made checking every object of a
+    large model quadratic.
+    """
     existing_entities = []
     non_existing_entities = []
 
-    # Get all existing entities grouped by dimension
-    existing_entities_by_dim = {dim: gmsh_model.occ.getEntities(dim) for dim in range(4)}
+    if existing is None:
+        existing = occ_entity_set(gmsh_model)
 
     for dim, tag in entity_list:
-        # Check if the entity exists in the list for its dimension
-        if (dim, tag) in existing_entities_by_dim.get(dim, []):
+        if (dim, tag) in existing:
             existing_entities.append((dim, tag))
         else:
             non_existing_entities.append((dim, tag))
