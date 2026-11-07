@@ -9,7 +9,7 @@ from ..utils import LocalExecute
 
 
 def run_calculix(
-    inp_path, cpus=2, gpus=None, run_ext=False, metadata=None, execute=True, exit_on_complete=True, run_in_shell=False
+    inp_path, cpus=2, gpus=None, run_ext=False, metadata=None, execute=True, exit_on_complete=True, run_in_shell=False, timeout=None
 ):
     inp_path = pathlib.Path(inp_path)
 
@@ -21,6 +21,7 @@ def run_calculix(
         metadata=metadata,
         auto_execute=execute,
         run_in_shell=run_in_shell,
+        timeout=timeout,
     )
     out = ccx.run(exit_on_complete=exit_on_complete)
     if isinstance(out, subprocess.CompletedProcess):

@@ -18,11 +18,13 @@ def run_sesam(
     execute=True,
     exit_on_complete=True,
     run_in_shell=False,
+    timeout=None,
 ):
     logger.info("sestra runs on single core only. changing cpus=1")
     cpus = 1
     ses_exe = SesamExecute(
-        inp_path, cpus=cpus, run_ext=run_ext, metadata=metadata, auto_execute=execute, run_in_shell=run_in_shell
+        inp_path, cpus=cpus, run_ext=run_ext, metadata=metadata, auto_execute=execute, run_in_shell=run_in_shell,
+        timeout=timeout,
     )
 
     out = ses_exe.run(exit_on_complete)

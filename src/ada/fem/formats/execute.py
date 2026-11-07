@@ -8,8 +8,25 @@ from ada.fem.formats.utils import default_fem_inp_path
 
 
 def execute_fem(
-    name, fem_format, scratch_dir, cpus, gpus, run_ext, metadata, execute, exit_on_complete, run_in_shell
+    name,
+    fem_format,
+    scratch_dir,
+    cpus,
+    gpus,
+    run_ext,
+    metadata,
+    execute,
+    exit_on_complete,
+    run_in_shell,
+    timeout: float | None = None,
 ) -> CompletedProcess | None:
+    """Run the analysis ``name`` in ``scratch_dir`` with the format's executor.
+
+    ``timeout``: the seconds the solver may run; when exceeded, or on Ctrl-C or any other exception while it runs,
+    its whole process tree is killed and the exception (:class:`subprocess.TimeoutExpired` for the timeout) raised
+    (:func:`ada.fem.formats.utils.run_process`). None, the default, waits as long as it runs. Passed to the executor
+    only when given, so an executor without the keyword still runs without one.
+    """
     fem_inp_files = default_fem_inp_path(name, scratch_dir)
     exe_func = get_fem_executable().get(fem_format, None)
     inp_path = fem_inp_files.get(fem_format, None)
@@ -26,6 +43,7 @@ def execute_fem(
     if isinstance(inp_path, str):
         inp_path = pathlib.Path(inp_path)
 
+    kwargs = {} if timeout is None else {"timeout": timeout}
     out = exe_func(
         inp_path=inp_path,
         cpus=cpus,
@@ -35,6 +53,7 @@ def execute_fem(
         execute=execute,
         exit_on_complete=exit_on_complete,
         run_in_shell=run_in_shell,
+        **kwargs,
     )
 
     if out is None:

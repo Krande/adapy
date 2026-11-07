@@ -645,7 +645,7 @@ class FEAResult:
         For the result ``Assembly.to_fem`` returned, which knows the model and the deck. Not run yet: the deck
         ``to_fem`` wrote is run. Run already: nothing is done, unless ``overwrite`` -- then the model is written
         again and run again, as it is now. ``options`` replace ``to_fem``'s execution options for this run
-        (``cpus``, ``gpus``, ``run_ext``, ``exit_on_complete``, ``run_in_shell``).
+        (``cpus``, ``gpus``, ``run_ext``, ``exit_on_complete``, ``run_in_shell``, ``timeout``).
         """
         if self.job is None:
             raise ValueError(f"{self.name}: no analysis to execute; this result was read from a file")

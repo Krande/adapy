@@ -9,7 +9,7 @@ import sys
 
 from ada.config import logger
 
-from ..utils import LocalExecute, get_exe_path
+from ..utils import LocalExecute, get_exe_path, run_process
 
 #: Executable names in the ``opencourant`` conda package (linux-64, gfortran build).
 STARTER_EXE = "starter_linux64_gf"
@@ -17,7 +17,7 @@ ENGINE_EXE = "engine_linux64_gf"
 
 
 def run_opencourant(
-    inp_path, cpus=2, gpus=None, run_ext=False, metadata=None, execute=True, exit_on_complete=True, run_in_shell=False
+    inp_path, cpus=2, gpus=None, run_ext=False, metadata=None, execute=True, exit_on_complete=True, run_in_shell=False, timeout=None
 ):
     """``inp_path`` is the starter deck ``<name>_0000.rad`` (the engine deck sits beside it)."""
     exe = OpenCourantExecute(
@@ -28,6 +28,7 @@ def run_opencourant(
         metadata=metadata,
         auto_execute=execute,
         run_in_shell=run_in_shell,
+        timeout=timeout,
     )
     return exe.run(exit_on_complete=exit_on_complete)
 
@@ -67,18 +68,18 @@ class OpenCourantExecute(LocalExecute):
         cwd = self.analysis_dir
         env = self._env(starter)
         preexec = _raise_stack_limit if sys.platform.startswith("linux") else None
-        props = dict(cwd=cwd, env=env, capture_output=True, text=True, errors="replace", preexec_fn=preexec)
+        props = dict(cwd=cwd, env=env, text=True, errors="replace", preexec_fn=preexec, timeout=self.timeout)
 
         print(80 * "-")
         print(f'Starting OpenCourant simulation "{name}" using {self._cpus} threads')
-        st = subprocess.run([str(starter), "-i", f"{name}_0000.rad", "-np", "1"], **props)
+        st = run_process([str(starter), "-i", f"{name}_0000.rad", "-np", "1"], **props)
         (pathlib.Path(cwd) / "starter.log").write_text(st.stdout + st.stderr)
         if st.returncode != 0 or "ERROR TERMINATION" in st.stdout or "INPUT ERROR" in st.stdout:
             logger.error(f"OpenCourant starter failed, see {name}_0000.out")
             print(80 * "-")
             return st
 
-        en = subprocess.run([str(engine), "-i", f"{name}_0001.rad", "-nt", str(self._cpus)], **props)
+        en = run_process([str(engine), "-i", f"{name}_0001.rad", "-nt", str(self._cpus)], **props)
         (pathlib.Path(cwd) / "engine.log").write_text(en.stdout + en.stderr)
         if "NORMAL TERMINATION" not in en.stdout:
             logger.error(f"OpenCourant engine did not terminate normally, see {name}_0001.out")

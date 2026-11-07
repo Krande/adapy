@@ -1,3 +1,4 @@
+import math
 import os
 import pathlib
 import re
@@ -25,6 +26,7 @@ def run_code_aster(
     return_bat_str=False,
     exit_on_complete=True,
     run_in_shell=False,
+    timeout: float | None = None,
 ):
     """
     :param inp_path: Path to input file folder(s)
@@ -36,6 +38,9 @@ def run_code_aster(
     :param return_bat_str:
     :param exit_on_complete:
     :param run_in_shell:
+    :param timeout: Seconds Code_Aster may run (None: no limit but its own ``time_limit``). On the timeout, Ctrl-C or
+        any other exception while it runs, its whole process tree is killed and the exception raised
+        (:class:`subprocess.TimeoutExpired` for the timeout).
     """
 
     name = pathlib.Path(inp_path).stem
@@ -45,6 +50,7 @@ def run_code_aster(
         run_ext=run_ext,
         metadata=metadata,
         auto_execute=execute,
+        timeout=timeout,
     )
     # Declare the modal-mass table output only when the .comm emits it
     # (eigen steps write IMPR_TABLE(... UNITE=81 ...)); avoids declaring a
@@ -52,7 +58,7 @@ def run_code_aster(
     comm_path = pathlib.Path(inp_path).with_suffix(".comm")
     emits_modal_mass = comm_path.exists() and "UNITE=81" in comm_path.read_text(encoding="utf-8", errors="ignore")
     with open(inp_path, "w") as f:
-        f.write(write_export_file(name, cpus, emits_modal_mass=emits_modal_mass))
+        f.write(write_export_file(name, cpus, emits_modal_mass=emits_modal_mass, time_limit=timeout))
 
     out = ca.run(exit_on_complete=exit_on_complete)
     if isinstance(out, subprocess.CompletedProcess):
@@ -154,10 +160,13 @@ class CodeAsterExecute(LocalExecute):
         return out
 
 
-def write_export_file(name: str, cpus: int, emits_modal_mass: bool = False):
+def write_export_file(name: str, cpus: int, emits_modal_mass: bool = False, time_limit: float | None = None):
+    """The ``.export`` file of a run. ``time_limit``: Code_Aster's own limit in seconds (``P time_limit``), 900 when
+    not given; a run given a longer ``timeout`` gets that, so Code_Aster does not stop it first."""
+    limit = 900 if time_limit is None else max(900, int(math.ceil(time_limit)))
     export_str = f"""P actions make_etude
 P memory_limit 1274
-P time_limit 900
+P time_limit {limit}
 P version stable
 P mpi_nbcpu 1
 P mode interactif

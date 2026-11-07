@@ -71,6 +71,7 @@ class FemJob:
             True,
             run_options.get("exit_on_complete", True),
             run_options.get("run_in_shell", False),
+            timeout=run_options.get("timeout"),
         )
         return self.read(executed=True)
 
@@ -254,6 +255,7 @@ class Assembly(Part):
         report_file: str | os.PathLike | None = None,
         formulations=None,
         lazy: bool = False,
+        timeout: float | None = None,
     ) -> FEAResult:
         """
         Create a FEM input file deck for executing fem analysis in a specified FEM format.
@@ -302,6 +304,9 @@ class Assembly(Part):
             the format has no form for, and what it approximated -- to this path as a JSON
             conversion report (``ada.fem.formats.conversion_report``). Always written, also when
             nothing was lost.
+        :param timeout: Seconds the solver may run (None, the default: no limit). On the timeout, Ctrl-C or any
+            other exception while it runs, its whole process tree is killed and the exception raised
+            (``subprocess.TimeoutExpired`` for the timeout), so no solver is left running.
         :param formulations: How to choose each element's type in the target format, ahead of the
             element's own source formulation and the writer's defaults: a mapping (keyed by the
             source ``Formulation``, a ``(family, name)`` pair, a bare source type name, or the
@@ -346,6 +351,7 @@ class Assembly(Part):
                 report_file=report_file,
                 formulations=formulations,
                 lazy=lazy,
+                timeout=timeout,
             ),
         )
 
@@ -390,7 +396,7 @@ class Assembly(Part):
             return job.read(executed=False)
 
         execute_fem(
-            name, fem_format, scratch_dir, cpus, gpus, run_ext, metadata, execute, exit_on_complete, run_in_shell
+            name, fem_format, scratch_dir, cpus, gpus, run_ext, metadata, execute, exit_on_complete, run_in_shell, timeout=timeout
         )
 
         if res_path.exists() is False and return_fea_results:

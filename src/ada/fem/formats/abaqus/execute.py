@@ -24,6 +24,7 @@ def run_abaqus(
     execute=True,
     exit_on_complete=True,
     run_in_shell=False,
+    timeout=None,
 ):
     run_cmd = None
     custom_bat_str = None
@@ -54,7 +55,8 @@ def run_abaqus(
             custom_bat_str += f" GPUS={gpus}"
 
     aba_exe = AbaqusExecute(
-        inp_path, cpus=cpus, run_ext=run_ext, metadata=metadata, auto_execute=execute, run_in_shell=run_in_shell
+        inp_path, cpus=cpus, run_ext=run_ext, metadata=metadata, auto_execute=execute, run_in_shell=run_in_shell,
+        timeout=timeout,
     )
     out = aba_exe.run(exit_on_complete, run_cmd=run_cmd, bat_start_str=custom_bat_str)
 
