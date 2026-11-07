@@ -311,9 +311,14 @@ def code_aster_to_sin(
     comm = pathlib.Path(comm) if comm is not None else rmed.with_suffix(".comm")
     sin = pathlib.Path(sin) if sin is not None else rmed.with_name(f"{rmed.stem}R1.SIN")
 
+    from ..write.write_eccentricity import load_ref_of
+
     records = read_deck_records(deck)
     node_int, elements, gelref, thickness, vectors, deck_coords = _deck_maps(records)
     shell_vectors = comm_shell_vectors(comm)
+    # An eccentric beam is written on offset nodes the Sesam deck does not have (its GECCEN keeps the mesh nodes):
+    # the sidecar beside the deck maps them back, so the MED cell is found in the deck by the nodes it shares.
+    ref_of = load_ref_of(comm)
 
     with h5py.File(rmed, "r") as f:
         mesh = _read_mesh(f)
@@ -373,7 +378,7 @@ def code_aster_to_sin(
     by_nodes = _deck_elements_by_nodes(elements, node_int)
     ext_of = {v: k for k, v in node_int.items()}
     _write_shells(out, mesh, efge, by_nodes, gelref, thickness, shell_vectors, ext_of, cases)
-    _write_beams(out, mesh, efge, by_nodes, gelref, vectors, ext_of, cases)
+    _write_beams(out, mesh, efge, by_nodes, gelref, vectors, ext_of, cases, ref_of)
 
     write_sin(out, sin)
     logger.info(f"Wrote the Code_Aster results of {rmed.name} as a Sesam SIN: {sin}")
@@ -471,7 +476,12 @@ def _write_shells(out, mesh, efge, by_nodes, gelref, thickness, shell_vectors, e
         logger.warning(f"{unmatched} shell cell(s) of the MED file are no element of the Sesam deck: not written")
 
 
-def _write_beams(out, mesh, efge, by_nodes, gelref, vectors, ext_of, cases) -> None:
+def _write_beams(
+    out, mesh, efge, by_nodes, gelref, vectors, ext_of, cases, ref_of: dict[int, int] | None = None
+) -> None:
+    """``ref_of``: offset node -> mesh node of the eccentric beams (:mod:`..write.write_eccentricity`); the deck has
+    the beam on the mesh nodes, the MED file on the offset ones, and its result points are on the offset ones (the
+    axis), as Sestra's are for a GECCEN beam."""
     comps, steps = efge[BEAS]
     ids_conn = mesh.cells.get(_MED_TYPE[BEAS])
     if ids_conn is None or not steps:
@@ -480,14 +490,16 @@ def _write_beams(out, mesh, efge, by_nodes, gelref, vectors, ext_of, cases) -> N
     order = list(BEAM_SIGNS)
     ci = [comps.index(BEAM_SIGNS[k][0]) for k in order]
     signs = np.array([BEAM_SIGNS[k][1] for k in order])
+    ref_of = ref_of or {}
     any_written, reversed_, unmatched = False, 0, 0
     for row, (med_id, nodes) in enumerate(zip(ids, conn)):
-        ge = _match(by_nodes, BEAS, nodes)
+        mesh_nodes = [ref_of.get(int(n), int(n)) for n in nodes]
+        ge = _match(by_nodes, BEAS, mesh_nodes)
         if ge is None:
             unmatched += 1
             continue
         deck_nodes = _deck_nodes(ge, ext_of)
-        if deck_nodes[0] != int(nodes[0]):
+        if deck_nodes[0] != mesh_nodes[0]:
             reversed_ += 1
             continue
         internal = int(ge[1])

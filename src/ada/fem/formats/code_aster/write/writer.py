@@ -23,6 +23,12 @@ from .write_constraints import (
     ref_points_group,
     step_bcs,
 )
+from .write_eccentricity import (
+    EccentricMesh,
+    ecc_links_str,
+    ecc_sidecar_path,
+    eccentric_mesh,
+)
 from .write_loads import add_line_load_groups, add_pressure_groups
 from .write_masses import mass_model_str, point_masses
 from .write_materials import materials_str
@@ -77,8 +83,16 @@ def to_fem(assembly: Assembly, name, analysis_dir, metadata=None, model_data_onl
         # TODO: Implement support for multiple parts. Need to understand how submeshes in Salome and Code Aster works.
         # for p in filter(lambda x: len(x.fem.elements) != 0, assembly.get_all_parts_in_assembly(True)):
 
+        # The eccentric beams' offset nodes and rigid links (write_eccentricity): in the MED file and the .comm,
+        # not in the model; the sidecar maps the offset nodes back for the SIN conversion.
+        ecc = eccentric_mesh(p)
         filename = (analysis_dir / name).with_suffix(".med")
-        write_to_med(name, p, filename)
+        write_to_med(name, p, filename, ecc)
+        sidecar = ecc_sidecar_path(analysis_dir / name)
+        if ecc is not None:
+            ecc.dump(sidecar)
+        elif sidecar.exists():
+            sidecar.unlink()
 
         dump_name_map(name_map, (analysis_dir / name).with_suffix(".name_map.json"))
 
@@ -98,7 +112,7 @@ def to_fem(assembly: Assembly, name, analysis_dir, metadata=None, model_data_onl
             return
 
         with open((analysis_dir / name).with_suffix(".comm"), "w") as f, concept_names.deck():
-            f.write(create_comm_str(assembly, p))
+            f.write(create_comm_str(assembly, p, ecc))
 
     finally:
         for fs in line_load_groups:
@@ -107,8 +121,14 @@ def to_fem(assembly: Assembly, name, analysis_dir, metadata=None, model_data_onl
     logger.info(f'Created a Code_Aster input deck at "{analysis_dir}"')
 
 
-def create_comm_str(assembly: Assembly, part: Part) -> str:
-    """Create COMM file input str"""
+def create_comm_str(assembly: Assembly, part: Part, ecc: EccentricMesh | None = None) -> str:
+    """Create COMM file input str
+
+    ``ecc``: the eccentric beams' offset nodes and links (:func:`.write_eccentricity.eccentric_mesh`); computed here
+    when not given, so a caller that wrote the MED file hands over the one the MED file was written with.
+    """
+    if ecc is None:
+        ecc = eccentric_mesh(part)
     couplings = get_couplings(part)
     mat_str = materials_str(assembly)
     ref_group = ref_points_group(part)
@@ -131,7 +151,8 @@ def create_comm_str(assembly: Assembly, part: Part) -> str:
     every = step_bcs(part, steps[-1]) if steps else bcs
     check_overlaps(every, prescribed_dofs(every))
     supports = [supports_str(bcs, prescribed), prescribed_at_zero_str(bcs)]
-    bc_str = "\n".join([s for s in supports if s] + [create_coupling_str(con) for con in couplings])
+    links = [ecc_links_str(ecc)] if ecc is not None else []
+    bc_str = "\n".join([s for s in supports if s] + [create_coupling_str(con) for con in couplings] + links)
     step_str = steps_str(steps, part)
 
     type_tmpl_str = "_F(GROUP_MA={elset_str}, PHENOMENE='MECANIQUE', MODELISATION='{el_formula}',),"
@@ -248,8 +269,11 @@ def membranes_large_strain(part: Part, steps) -> bool:
     return len(nonlinear) > 0
 
 
-def write_to_med(name, part: Part, filename):
-    """Custom Method for writing a part directly based on meshio"""
+def write_to_med(name, part: Part, filename, ecc: EccentricMesh | None = None):
+    """Custom Method for writing a part directly based on meshio
+
+    ``ecc``: the eccentric beams' offset nodes (:mod:`.write_eccentricity`), written into the mesh.
+    """
 
     with h5py.File(filename, "w") as f:
         mesh_name = name if name is not None else part.fem.name
@@ -274,11 +298,11 @@ def write_to_med(name, part: Part, filename):
         # TODO: Evaluate if this can be avoided using a smarter algorithm
         part.fem.sets.add_references()
 
-        # Nodes and node sets
-        med_nodes(part, time_step, profile, families)
+        # Nodes and node sets (plus the eccentric beams' offset nodes and link groups)
+        med_nodes(part, time_step, profile, families, ecc)
 
         # Elements (mailles in French) and element sets
-        med_elements(part, time_step, profile, families)
+        med_elements(part, time_step, profile, families, ecc)
 
 
 def _write_mesh_presets(f, mesh_name):
