@@ -995,8 +995,17 @@ class Sif2Mesh:
         except Exception as e:  # noqa: BLE001 - the modal mass is an extra; the result stands without it
             logger.info("Unable to read modal load factors from %s. Error: %s", sif_file, e)
             return
-        if factors:
-            result.eigen_mode_data = add_modal_mass(result.get_eig_summary(), factors)
+        if not factors:
+            return
+        summary = result.get_eig_summary()
+        if not summary.modes:
+            # The streamed SIN read converts a header with no fields yet (sin_field_stream._open_part), whose summary
+            # is empty: built on it, the modal mass hid every frequency (get_eig_summary returned the empty one).
+            # The LIS the fields are stamped from is the same frequencies.
+            summary = read_lis_eigen_data(sif_file)
+            if summary is None or not summary.modes:
+                return
+        result.eigen_mode_data = add_modal_mass(summary, factors)
 
     def get_sif_mesh(self) -> Mesh:
         from ada.fem.formats.sesam.node_order import SESAM_ORDER
