@@ -92,23 +92,22 @@ def large_displacement_groups(part: Part, report: bool = False) -> list[str]:
 def plastic_groups(part: Part, report: bool = False) -> list[str]:
     """The element groups of the solid sections whose material has a hardening curve -- solved with von Mises
     plasticity (``VMIS_ISOT_TRAC``) in a general static step, as an Abaqus general step solves a ``*Plastic``
-    material whatever its ``nlgeom``. First-order shells (DKT) too, integrated on layers through the thickness
-    (write_sections.PLASTIC_SHELL_LAYERS). A plastic beam needs multi-fibre sections and a second-order shell is
-    COQUE_3D, which this writer does not make plastic: they stay elastic, reported (``report``)."""
+    material whatever its ``nlgeom``. Bending shells too, integrated on layers through the thickness
+    (write_sections.PLASTIC_SHELL_LAYERS), first-order (DKT) and second-order (COQUE_3D) alike. A plastic beam
+    needs multi-fibre sections, which this writer does not make: it stays elastic, reported (``report``)."""
     from ada.fem.formats import conversion_report
+    from ada.fem.shapes.definitions import ShellShapes
 
     from ..write_loads import STAGE
     from ..write_materials import traction_curve
 
-    from ada.fem.shapes.definitions import ShellShapes
-
-    first = (ShellShapes.QUAD, ShellShapes.TRI)
+    bending = (ShellShapes.QUAD, ShellShapes.TRI, ShellShapes.QUAD8, ShellShapes.TRI6)
     out = []
     sections = part.fem.sections
     layered = [
         fs
         for fs in sections.shells
-        if not fs.is_membrane and all(getattr(el, "type", None) in first for el in fs.elset.members)
+        if not fs.is_membrane and all(getattr(el, "type", None) in bending for el in fs.elset.members)
     ]
     for fs in [*sections.solids, *layered]:
         if traction_curve(fs.material) is not None:
@@ -120,8 +119,8 @@ def plastic_groups(part: Part, report: bool = False) -> list[str]:
                     STAGE,
                     "FemSection",
                     fs.name,
-                    "a shell or beam of a plastic material is solved elastic: Code_Aster's plasticity of shells and "
-                    "beams needs layered or multi-fibre sections, which this writer does not make",
+                    "a beam (or a shell of mixed element orders) of a plastic material is solved elastic: Code_Aster's "
+                    "plasticity of beams needs multi-fibre sections, which this writer does not make",
                     material=fs.material.name,
                 )
     return out
@@ -222,10 +221,15 @@ class StatNonLin:
         if plastic:
             # von Mises plasticity with isotropic hardening along the material's TRACTION curve (U4.51.11)
             solid_names = {fs.elset.name for fs in sections.solids}
+            shells_large_set = set(shells_large)
             for groups, defo in (
-                # large strains with plasticity in an nlgeom step (a solid); DKT is small-rotation anyway
+                # large strains with plasticity in an nlgeom step (a solid)
                 ([g for g in plastic if g in solid_names], "GDEF_LOG" if nl_geom else "PETIT"),
-                ([g for g in plastic if g not in solid_names], "PETIT"),
+                # a COQUE_3D in an nlgeom step keeps its large rotations: later entries override earlier ones for a
+                # group, so its plastic entry is GROT_GDEP too, not PETIT over the elastic GROT_GDEP above
+                ([g for g in plastic if g not in solid_names and g in shells_large_set], "GROT_GDEP"),
+                # DKT: small displacements anyway (large_displacement_groups)
+                ([g for g in plastic if g not in solid_names and g not in shells_large_set], "PETIT"),
             ):
                 if groups:
                     out += f'_F(RELATION="VMIS_ISOT_TRAC", DEFORMATION="{defo}", GROUP_MA={_group_tuple(groups)}),'
@@ -480,7 +484,6 @@ def step_static_nonlin_str(step: StepImplicitStatic, part: Part, result: str = "
     from ..write_bc import prescribed_charge_str
     from ..write_constraints import step_charges
     from ..write_loads import STAGE
-
     from ..write_temperature import is_temperature, mechanical
 
     every = list(applied) + [ld for ld in step.loads if all(ld is not c for c in applied)]

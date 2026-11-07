@@ -126,29 +126,29 @@ material = AFFE_MATERIAU(
 COQUE_3D_LARGE_ROTATION_DRZ = 1.0e-3
 
 
-#: The layers through a first-order shell's thickness (``COQUE_NCOU``) in a model with a plastic shell: plasticity is
-#: integrated layer by layer, and one layer would yield its whole thickness at once. Every first-order shell of such a
-#: model has them, so the stresses' middle layer (:func:`shell_mid_layer`) is the same for all.
+#: The layers through a bending shell's thickness (``COQUE_NCOU``, DKT and COQUE_3D) in a model with a plastic shell:
+#: plasticity is integrated layer by layer, and one layer would yield its whole thickness at once. Every bending shell
+#: of such a model has them, so the stresses' middle layer (:func:`shell_mid_layer`) is the same for all.
 PLASTIC_SHELL_LAYERS = 5
 
 
 def has_plastic_shells(fem_sections) -> bool:
-    """Whether a first-order bending shell's material has a hardening curve (write_materials.traction_curve)."""
+    """Whether a bending shell's material has a hardening curve (write_materials.traction_curve)."""
     from ada.fem.shapes.definitions import ShellShapes
 
     from .write_materials import traction_curve
 
-    first = (ShellShapes.QUAD, ShellShapes.TRI)
+    bending = (ShellShapes.QUAD, ShellShapes.TRI, ShellShapes.QUAD8, ShellShapes.TRI6)
     return any(
         not fs.is_membrane
         and traction_curve(fs.material) is not None
-        and all(getattr(el, "type", None) in first for el in fs.elset.members)
+        and all(getattr(el, "type", None) in bending for el in fs.elset.members)
         for fs in fem_sections.shells
     )
 
 
 def shell_mid_layer(fem_sections) -> int:
-    """The layer (``NUME_COUCHE``) whose ``MOY`` level is a first-order shell's mid-surface."""
+    """The layer (``NUME_COUCHE``) whose ``MOY`` level is a bending shell's mid-surface."""
     return (PLASTIC_SHELL_LAYERS + 1) // 2 if has_plastic_shells(fem_sections) else 1
 
 
@@ -169,7 +169,7 @@ def write_shell_section(fem_sec: FemSection, large_rotations: bool = False, laye
     drz = ""
     if large_rotations and second_order:
         drz = f"\n                COEF_RIGI_DRZ={COQUE_3D_LARGE_ROTATION_DRZ!r},"
-    if layers > 1 and not second_order:
+    if layers > 1:
         drz += f"\n                COQUE_NCOU={layers},"
     sec_str = f"""            _F(
                 GROUP_MA=("{sec_name}"),

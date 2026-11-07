@@ -20,17 +20,17 @@ def materials_str(assembly: Assembly) -> str:
     # any relation but ELAS, so a plastic material of a beam in a linear step failed the run.
     from ada.fem.shapes.definitions import ShellShapes
 
-    first = (ShellShapes.QUAD, ShellShapes.TRI)
+    bending = (ShellShapes.QUAD, ShellShapes.TRI, ShellShapes.QUAD8, ShellShapes.TRI6)
     solid_mats = {
         fs.material.name
         for p in assembly.get_all_parts_in_assembly(True)
         for fs in [
             *p.fem.sections.solids,
-            # first-order bending shells take plasticity too, on layers (write_sections.PLASTIC_SHELL_LAYERS)
+            # bending shells take plasticity too, on layers (write_sections.PLASTIC_SHELL_LAYERS), DKT and COQUE_3D
             *[
                 sh
                 for sh in p.fem.sections.shells
-                if not sh.is_membrane and all(getattr(el, "type", None) in first for el in sh.elset.members)
+                if not sh.is_membrane and all(getattr(el, "type", None) in bending for el in sh.elset.members)
             ],
         ]
         if fs.material is not None

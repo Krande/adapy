@@ -76,7 +76,7 @@ def test_a_bar_pulled_past_yield_carries_the_hardening_curves_stress(tmp_path, r
     assert -rz == pytest.approx(_sigma(strain) * A_ * B_, rel=1e-6)
 
 
-def _shell_strip(d: float):
+def _shell_strip(d: float, order: int = 1, nl_geom: bool = False):
     """A DKT strip 1 x 0.2 m, 10 mm, held along x at x = 0 (and in y at one node), flat (dz, rotations held), its
     far edge pulled along x by ``d``: uniaxial plane stress, free to contract sideways."""
     mat = ada.Material("pl_sh", CarbonSteel("S355", E=E, v=0.3))
@@ -84,7 +84,9 @@ def _shell_strip(d: float):
     t, b = 0.01, 0.2
     pl = ada.Plate("strip", [(0, 0), (L, 0), (L, b), (0, b)], t, mat=mat)
     p = ada.Part("S") / pl
-    p.fem = p.to_fem_obj(0.1, use_quads=True)
+    from ada.fem.meshing import GmshOptions
+
+    p.fem = p.to_fem_obj(0.1, use_quads=True, options=GmshOptions(Mesh_ElementOrder=order))
     fem = p.fem
     a_side = [n for n in fem.nodes if abs(n.x) < 1e-9]
     b_side = [n for n in fem.nodes if abs(n.x - L) < 1e-9]
@@ -93,19 +95,20 @@ def _shell_strip(d: float):
     fem.add_bc(Bc("ay", fem.add_set(FemSet("a0", [a0], "nset")), [2]))
     fem.add_bc(Bc("flat", fem.add_set(FemSet("all", list(fem.nodes), "nset")), [3, 4, 5, 6]))
     a = ada.Assembly("a") / p
-    step = a.fem.add_step(StepImplicitStatic("pull", init_incr=0.1, total_time=1.0, max_incr=0.1))
+    step = a.fem.add_step(StepImplicitStatic("pull", init_incr=0.1, total_time=1.0, max_incr=0.1, nl_geom=nl_geom))
     step.add_bc(Bc("pull", fem.add_set(FemSet("b_side", b_side, "nset")), [1], magnitudes=[d]))
     return a, a_side, t * b
 
 
+@pytest.mark.parametrize("order", [1, 2], ids=["dkt", "coque_3d"])
 @pytest.mark.parametrize("strain", [0.001, 0.004, 0.02], ids=["elastic", "just_past_yield", "far_past_yield"])
-def test_a_shell_strip_pulled_past_yield_carries_the_hardening_curves_stress(tmp_path, require_solver, strain):
-    """The same uniaxial closed form on first-order shells (DKT), plastic through 5 layers: a shell of a plastic
-    material used to be solved elastic (reported)."""
+def test_a_shell_strip_pulled_past_yield_carries_the_hardening_curves_stress(tmp_path, require_solver, strain, order):
+    """The same uniaxial closed form on shells, plastic through 5 layers: first-order (DKT) and second-order
+    (COQUE_3D). A shell of a plastic material used to be solved elastic (reported), and a second-order one still was."""
     import numpy as np
 
     require_solver("code_aster")
-    a, a_side, area = _shell_strip(strain * L)
+    a, a_side, area = _shell_strip(strain * L, order)
     res = a.to_fem("plsh", "code_aster", scratch_dir=tmp_path, overwrite=True, execute=True)
     last = max(r.step for r in res.results if "REAC_NODA" in r.name)
     reac = next(r for r in res.results if "REAC_NODA" in r.name and r.step == last)
@@ -113,3 +116,27 @@ def test_a_shell_strip_pulled_past_yield_carries_the_hardening_curves_stress(tmp
     ids = {int(n.id) for n in a_side}
     rx = sum(row[1] for row in v if int(row[0]) in ids)
     assert -rx == pytest.approx(_sigma(strain) * area, rel=1e-6)
+
+
+def test_a_plastic_second_order_shell_keeps_its_large_rotations_in_an_nlgeom_step(tmp_path, require_solver):
+    """A plastic COQUE_3D in an nlgeom step: its plastic entry is GROT_GDEP too -- an entry later in COMPORTEMENT
+    overrides an earlier one for the same group, and a PETIT one after the elastic GROT_GDEP made it small-rotation
+    without a word. Solved past yield it converges, the root carrying the curve's stress to within the strain
+    measure's difference: GROT_GDEP's reaction is nominal, its stress the second Piola-Kirchhoff one, about (1 + eps)
+    apart (measured, 18.1: +4.2e-3 at eps = 4e-3)."""
+    import numpy as np
+
+    strain = 0.004
+    a, a_side, area = _shell_strip(strain * L, order=2, nl_geom=True)
+    a.to_fem("deck", "code_aster", scratch_dir=tmp_path, overwrite=True)
+    comm = (tmp_path / "deck" / "deck.comm").read_text()
+    assert 'RELATION="VMIS_ISOT_TRAC", DEFORMATION="GROT_GDEP"' in comm
+    assert 'RELATION="VMIS_ISOT_TRAC", DEFORMATION="PETIT"' not in comm
+
+    require_solver("code_aster")
+    res = a.to_fem("plnl", "code_aster", scratch_dir=tmp_path, overwrite=True, execute=True)
+    last = max(r.step for r in res.results if "REAC_NODA" in r.name)
+    reac = next(r for r in res.results if "REAC_NODA" in r.name and r.step == last)
+    v = np.asarray(reac.values, float)
+    rx = sum(row[1] for row in v if int(row[0]) in {int(n.id) for n in a_side})
+    assert -rx == pytest.approx(_sigma(strain) * area, rel=2 * strain)
