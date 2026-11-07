@@ -31,8 +31,8 @@ STAGE = "concept to fem"
 FILES = pathlib.Path(__file__).resolve().parents[3] / "files" / "fem_files" / "sesam"
 
 #: The load cases whose loads the GeniE XML reader refuses (each reported there): a varying pressure (two kinds), a
-#: component traction, a polygon pressure. adapy writes them as empty load cases.
-REFUSED_BY_READER = {"LC_press_3pt", "LC_press_lin", "LC_comp", "LC_poly"}
+#: component traction. adapy writes them as empty load cases.
+REFUSED_BY_READER = {"LC_press_3pt", "LC_press_lin", "LC_comp"}
 
 #: GeniE's own resultant per load case (summed force, moment of the BNLOADs about their node), read off
 #: ``genie_loads_all_kinds_T1.FEM``. adapy's deck must give the same.
@@ -48,6 +48,8 @@ GENIE_RESULTANTS = {
     "LC_ll_plate_edge": ((0, 0, -500), (0, 0, 0)),
     "LC_press_u": ((0, 0, -4000), (0, 0, 0)),
     "LC_press_back": ((0, 0, 4000), (0, 0, 0)),
+    # 1000 Pa over a 2 x 0.5 m polygon wound +z: eight half-covered 0.5 m elements at 500 Pa, along +z.
+    "LC_poly": ((0, 0, 1000), (0, 0, 0)),
     "LC_grav": ((0, 0, 0), (0, 0, 0)),
 }
 
@@ -470,6 +472,91 @@ def test_a_writer_of_the_assembly_steps_only_names_the_part_step_it_leaves_out(t
         a.to_fem("one", fmt, scratch_dir=tmp_path, overwrite=True)
     (lost,) = [f for f in report.findings if f.keyword == "Step" and f.subject == "concept_loads"]
     assert (lost.kind, lost.stage, lost.details) == ("omitted", f"{fmt} writer", {"part": "p", "n_loads": 1})
+
+
+# --- polygon pressure: GeniE's covered-share smear, on any mesh ----------------------------------------------------
+
+
+def _polygon_deck(tmp_path, points, side="front", use_quads=True, fmt="sesam"):
+    from ada.fem.concept.loads import LoadConceptSurface
+
+    a, p, pl = _plate_part("pp", LoadConceptSurface("S", points=points, pressure=1000.0, side=side))
+    if fmt == "code_aster":  # Code_Aster writes no deck without a support
+        from ada.fem.concept.constraints import ConstraintConceptPoint
+
+        p.concept_fem.constraints.add_point_constraint(ConstraintConceptPoint("fix", (0, 0, 0), []))
+    with conversion_report.collect() as report:
+        p.fem = p.to_fem_obj(0.5, use_quads=use_quads)
+        a.to_fem("d", fmt, scratch_dir=tmp_path, overwrite=True)
+    return a, p, report
+
+
+def _pressure_resultant(p) -> np.ndarray:
+    """The summed force of the FE pressures the converter made: p * element area along the face pushed into."""
+    from ada.fem import LoadPressure
+
+    total = np.zeros(3)
+    (step,) = p.fem.steps
+    for lc in step.load_cases.values():
+        for ld in lc.loads:
+            assert isinstance(ld, LoadPressure)
+            for fem_set, side in zip(ld.surface.fem_set, ld.surface.el_face_index):
+                for el in fem_set.members:
+                    xs = np.array([n.p for n in el.nodes], dtype=float)
+                    n = 0.5 * (
+                        np.cross(xs[2] - xs[0], xs[3] - xs[1])
+                        if len(xs) == 4
+                        else np.cross(xs[1] - xs[0], xs[2] - xs[0])
+                    )
+                    # a pressure on the positive face pushes against the element normal
+                    total += -side * float(ld.magnitude) * n
+    return total
+
+
+@pytest.mark.parametrize("use_quads", [True, False], ids=["quads", "triangles"])
+def test_a_polygon_pressure_gives_its_whole_force_whatever_the_mesh(tmp_path, use_quads):
+    """An L-shaped (non-convex) footprint of 1.5 m2 cutting across elements, counter-clockwise seen from +z: 1500 N
+    along +z on quads and on triangles alike (GeniE's rule: each element takes the pressure times its covered
+    share, so the force does not depend on where the mesh lines are)."""
+    pts = [(0.3, 0.1, 0), (2.3, 0.1, 0), (2.3, 0.6, 0), (1.3, 0.6, 0), (1.3, 0.85, 0), (0.3, 0.85, 0)]
+    area = 2.0 * 0.5 + 1.0 * 0.25
+    _, p, report = _polygon_deck(tmp_path, pts, use_quads=use_quads)
+    assert _pressure_resultant(p) == pytest.approx((0, 0, 1000.0 * area), abs=1e-6)
+    assert "S in load case LC" not in _found(report)
+
+
+def test_a_polygon_pressure_on_its_back_side_and_wound_the_other_way_reverses(tmp_path):
+    pts = [(1, 0.25, 0), (3, 0.25, 0), (3, 0.75, 0), (1, 0.75, 0)]
+    _, p, _ = _polygon_deck(tmp_path / "back", pts, side="back")
+    assert _pressure_resultant(p) == pytest.approx((0, 0, -1000.0), abs=1e-6)
+    _, p, _ = _polygon_deck(tmp_path / "cw", pts[::-1])
+    assert _pressure_resultant(p) == pytest.approx((0, 0, -1000.0), abs=1e-6)
+
+
+def test_a_polygon_partly_off_the_plate_loads_what_it_covers_and_names_the_rest(tmp_path):
+    """Half of a 1 m2 square hangs off the plate's x = 4 edge: 500 N is written, the 0.5 m2 over nothing named."""
+    pts = [(3.5, 0, 0), (4.5, 0, 0), (4.5, 1, 0), (3.5, 1, 0)]
+    _, p, report = _polygon_deck(tmp_path, pts)
+    assert _pressure_resultant(p) == pytest.approx((0, 0, 500.0), abs=1e-6)
+    (f,) = [f for f in report.findings if f.subject == "S in load case LC"]
+    assert f.kind == "omitted" and f.details["not_covered"] == pytest.approx(0.5)
+
+
+def test_a_polygon_out_of_the_plates_plane_acts_on_nothing_and_is_named(tmp_path):
+    pts = [(1, 0.25, 0.5), (3, 0.25, 0.5), (3, 0.75, 0.5), (1, 0.75, 0.5)]
+    _, p, report = _polygon_deck(tmp_path, pts)
+    assert _found(report)["S in load case LC"] == [("omitted", "LoadConceptSurface")]
+    assert _pressure_resultant(p) == pytest.approx((0, 0, 0))
+
+
+def test_a_polygon_pressure_reaches_the_code_aster_deck_as_shell_pressures(tmp_path):
+    """Partly covered elements take a smaller pressure of their own: one FORCE_COQUE row per covered share."""
+    pts = [(1, 0.25, 0), (3, 0.25, 0), (3, 0.75, 0), (1, 0.75, 0)]
+    _, p, report = _polygon_deck(tmp_path, pts, fmt="code_aster")
+    comm = (tmp_path / "d" / "d.comm").read_text()
+    assert "FORCE_COQUE" in comm and "NOM_CAS='LC'" in comm
+    assert [f for f in report.findings if f.keyword in ("LoadPressure", "LoadConceptSurface")] == []
+    assert _pressure_resultant(p) == pytest.approx((0, 0, 1000.0), abs=1e-6)
 
 
 @pytest.mark.parametrize("fmt", ["calculix", "code_aster"])

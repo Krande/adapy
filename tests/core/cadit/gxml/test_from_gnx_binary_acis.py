@@ -146,7 +146,9 @@ def test_loads_supports_and_masses_survive_the_binary_body(genie93):
     assert len(part.concept_fem.constraints.point_constraints) == 1
     assert len(part.masses) == 1
     pressures = [ld for lc in loads.load_cases.values() for ld in lc.loads if hasattr(ld, "plate_ref")]
-    assert pressures and all(ld.plate_ref is not None for ld in pressures)
+    # every surface load names its plate, except the polygon pressure, which has its points instead
+    assert pressures and all((ld.plate_ref is not None) != (ld.points is not None) for ld in pressures)
+    assert [ld.name for ld in pressures if ld.plate_ref is None] == ["SL_poly"]
 
 
 def test_every_entry_point_reads_the_binary_body(genie93, tmp_path):

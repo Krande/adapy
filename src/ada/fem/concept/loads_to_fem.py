@@ -22,13 +22,16 @@ case in ``tests/core/fem/test_concept_loads_to_fem.py``:
   the face that is the named side of the *plate*: ``front`` is the face on the plate's normal and a positive
   pressure pushes into it (GeniE: 1000 Pa front on a +z plate gave Fz = -4000 on 4 m2). An element wound against
   the plate's normal takes it on its own negative face.
+* :class:`LoadConceptSurface` over a polygon (no plate) -> a :class:`~ada.fem.LoadPressure` on the shell elements in
+  the polygon's plane, each with the pressure times the fraction of its area the polygon covers (GeniE: BEUSLO of
+  500 Pa on the eight elements a 1000 Pa rectangle half-covers), along the polygon's own normal.
 * :class:`LoadConceptAccelerationField` with self-weight -> a gravity load of that acceleration (GeniE: BGRAV).
 * a :class:`LoadConceptCaseCombination` -> one more FE load case holding each of its cases' loads (and settlements)
   times its factor and the global scale factor: exact for the linear analysis both formats run. A support prescribed
   in several of its cases gets one value per dof, the factored sum. GeniE writes no record for a combination;
   Sestra solves this one as a case of its own.
 
-Whatever does not become an FE load -- a polygon pressure, a rotational field, an acceleration without self-weight,
+Whatever does not become an FE load -- a rotational field, an acceleration without self-weight,
 a line partly over nothing, a point with no node -- is a named finding in :mod:`ada.fem.formats.conversion_report`
 under :data:`STAGE`, as is a part whose concept loads reach a writer without having been converted at all.
 """
@@ -197,6 +200,8 @@ class _Converter:
         if isinstance(load, LoadConceptLine):
             return self.line(load, lc, owner, subject)
         if isinstance(load, LoadConceptSurface):
+            if load.plate_ref is None:
+                return self.polygon(load, lc, owner, subject)
             return self.surface(load, lc, subject)
         if isinstance(load, LoadConceptAccelerationField):
             return self.acceleration(load, lc, subject)
@@ -385,15 +390,6 @@ class _Converter:
         from ada.fem.shapes.definitions import ShellShapes
 
         plate = load.plate_ref
-        if plate is None:
-            report().omitted(
-                STAGE,
-                "LoadConceptSurface",
-                subject,
-                "a pressure over a polygon, which loads whatever elements it covers; GeniE smears it over whole "
-                "elements, so its own result depends on the mesh; not written",
-            )
-            return []
         if load.side not in ("front", "back"):
             report().omitted(STAGE, "LoadConceptSurface", subject, f"side {load.side!r} is neither front nor back")
             return []
@@ -454,6 +450,97 @@ class _Converter:
             Surface(self._name(f"{base}_surf"), Surface.TYPES.ELEMENT, sets, el_face_index=sides, parent=self.fem)
         )
         return [LoadPressure(base, float(load.pressure), surface)]
+
+    # --- polygon pressure ---------------------------------------------------------------------------------------
+
+    def polygon(self, load: LoadConceptSurface, lc: LoadConceptCase, owner: Part, subject: str) -> list[Load]:
+        """A pressure over a polygon footprint, on the shell elements in the polygon's plane that it covers.
+
+        GeniE's rule, read off ``genie_loads_all_kinds_T1.FEM`` (``LC_poly``: 1000 Pa over a 2 x 0.5 m rectangle
+        across two rows of 0.5 m elements): each element the polygon covers gets a uniform pressure of the
+        polygon's pressure times the fraction of the element's area it covers (eight BEUSLO of 500 Pa), so the
+        total force is exact on any mesh and the footprint needs no matching mesh lines. The pressure acts along
+        the polygon's own normal (right-hand rule on its points): a positive 1000 Pa on a polygon wound
+        counter-clockwise seen from +z gave +1000 N in z on elements whose normal is +z -- the opposite sense of a
+        plate's ``front`` pressure, which pushes into the plate. ``side="back"`` reverses it.
+        """
+        from ada.fem import FemSet, LoadPressure, Surface
+        from ada.fem.shapes.definitions import ShellShapes
+
+        if load.side not in ("front", "back"):
+            report().omitted(STAGE, "LoadConceptSurface", subject, f"side {load.side!r} is neither front nor back")
+            return []
+        if load.pressure is None or float(load.pressure) == 0.0:
+            return []
+        pts = np.asarray(to_global_points(owner, np.asarray(load.points, dtype=float)), dtype=float).reshape(-1, 3)
+        frame = _polygon_frame(pts)
+        if frame is None:
+            report().omitted(
+                STAGE, "LoadConceptSurface", subject, "its polygon has no area (fewer than 3 points, or collinear)"
+            )
+            return []
+        origin, u, v, normal = frame
+        poly2d = np.column_stack(((pts - origin) @ u, (pts - origin) @ v))
+        span = float(np.ptp(poly2d, axis=0).max())
+        plane_tol = self.tol + 1e-9 * span
+        lo, hi = poly2d.min(axis=0) - plane_tol, poly2d.max(axis=0) + plane_tol
+
+        # GeniE smears over whole elements: per element, the share of its own area the polygon covers.
+        want = -1.0 if load.side == "front" else 1.0
+        groups: dict[tuple[int, float], list] = {}
+        covered = 0.0
+        for el in sorted((e for e in self.fem.elements if isinstance(e.type, ShellShapes)), key=lambda e: e.id):
+            corners = np.array([n.p for n in el.nodes[: _n_corners(el)]], dtype=float)
+            rel = corners - origin
+            if np.any(np.abs(rel @ normal) > plane_tol):
+                continue
+            e2d = np.column_stack((rel @ u, rel @ v))
+            if np.any(e2d.max(axis=0) < lo) or np.any(e2d.min(axis=0) > hi):
+                continue
+            area = abs(_shoelace(e2d))
+            if area <= 0.0:
+                continue
+            part_area = abs(_shoelace(_clip_convex(poly2d, e2d)))
+            frac = min(part_area / area, 1.0)
+            if frac <= 1e-9:
+                continue
+            covered += part_area
+            side = 1 if float(np.dot(_shell_normal(el), normal)) * want > 0 else -1
+            groups.setdefault((side, round(frac, 9)), []).append(el)
+
+        if not groups:
+            report().omitted(
+                STAGE,
+                "LoadConceptSurface",
+                subject,
+                "a pressure over a polygon that covers no shell element in its plane, so it acts on nothing",
+            )
+            return []
+        poly_area = abs(_shoelace(poly2d))
+        if poly_area - covered > 1e-6 * poly_area:
+            report().omitted(
+                STAGE,
+                "LoadConceptSurface",
+                subject,
+                "part of the polygon lies over no shell element in its plane; that part's pressure acts on nothing",
+                not_covered=poly_area - covered,
+                area=poly_area,
+            )
+
+        base = f"{lc.name}_{load.name}"
+        out = []
+        for i, ((side, frac), members) in enumerate(sorted(groups.items(), key=lambda kv: (-kv[0][1], kv[0][0]))):
+            tag = f"{base}_{i + 1}" if len(groups) > 1 else base
+            fem_set = self.fem.add_set(
+                FemSet(self._name(f"{tag}_{'pos' if side == 1 else 'neg'}"), members, FemSet.TYPES.ELSET)
+            )
+            surface = self.fem.add_surface(
+                Surface(
+                    self._name(f"{tag}_surf"), Surface.TYPES.ELEMENT, [fem_set], el_face_index=[side], parent=self.fem
+                )
+            )
+            out.append(LoadPressure(tag, float(load.pressure) * frac, surface))
+        return out
 
     # --- acceleration -------------------------------------------------------------------------------------------
 
@@ -563,6 +650,79 @@ def _shell_normal(el: Elem) -> np.ndarray:
     if len(p) >= 4 and el.type.name.startswith("QUAD"):
         return np.cross(p[2] - p[0], p[3] - p[1])
     return np.cross(p[1] - p[0], p[2] - p[0])
+
+
+def _n_corners(el: Elem) -> int:
+    """Corner nodes of a shell element (mid-side nodes of a 6/8-node shell come after them)."""
+    return 4 if el.type.name.startswith("QUAD") else 3
+
+
+def _polygon_frame(pts: np.ndarray):
+    """(origin, u, v, unit normal) of a planar polygon, the normal by the right-hand rule on its point order
+    (Newell's method, so a non-convex polygon gets its own winding); None if it has no area."""
+    if len(pts) < 3:
+        return None
+    nxt = np.roll(pts, -1, axis=0)
+    n = np.array(
+        [
+            np.sum((pts[:, 1] - nxt[:, 1]) * (pts[:, 2] + nxt[:, 2])),
+            np.sum((pts[:, 2] - nxt[:, 2]) * (pts[:, 0] + nxt[:, 0])),
+            np.sum((pts[:, 0] - nxt[:, 0]) * (pts[:, 1] + nxt[:, 1])),
+        ]
+    )
+    size = np.linalg.norm(n)
+    if size <= 1e-12 * max(1.0, float(np.ptp(pts, axis=0).max()) ** 2):
+        return None
+    n = n / size
+    u = pts[1] - pts[0]
+    u = u - np.dot(u, n) * n
+    if np.linalg.norm(u) <= 1e-12:
+        u = np.cross(n, (1.0, 0.0, 0.0) if abs(n[0]) < 0.9 else (0.0, 1.0, 0.0))
+    u = u / np.linalg.norm(u)
+    return pts[0], u, np.cross(n, u), n
+
+
+def _shoelace(p: np.ndarray) -> float:
+    """Signed area of a 2D polygon (counter-clockwise positive); 0 for fewer than 3 points."""
+    if len(p) < 3:
+        return 0.0
+    x, y = p[:, 0], p[:, 1]
+    return 0.5 * float(np.dot(x, np.roll(y, -1)) - np.dot(y, np.roll(x, -1)))
+
+
+def _clip_convex(subject: np.ndarray, clip: np.ndarray) -> np.ndarray:
+    """Sutherland-Hodgman: ``subject`` (any simple polygon) clipped to the convex polygon ``clip``. The result's
+    area is the area of their intersection (a non-convex subject may come back with zero-width bridges, which add
+    no area)."""
+    if _shoelace(clip) < 0:
+        clip = clip[::-1]
+    out = [np.asarray(q, dtype=float) for q in subject]
+    for i in range(len(clip)):
+        a, b = clip[i], clip[(i + 1) % len(clip)]
+        edge = b - a
+
+        def inside(q, a=a, edge=edge):
+            return edge[0] * (q[1] - a[1]) - edge[1] * (q[0] - a[0]) >= -1e-12
+
+        def cross(p1, p2, a=a, edge=edge):
+            d = p2 - p1
+            den = edge[0] * d[1] - edge[1] * d[0]
+            t = (edge[0] * (a[1] - p1[1]) - edge[1] * (a[0] - p1[0])) / den if den else 0.0
+            return p1 + t * d
+
+        src, out = out, []
+        if not src:
+            break
+        prev = src[-1]
+        for cur in src:
+            if inside(cur):
+                if not inside(prev):
+                    out.append(cross(prev, cur))
+                out.append(cur)
+            elif inside(prev):
+                out.append(cross(prev, cur))
+            prev = cur
+    return np.array(out).reshape(-1, 2)
 
 
 def _union_length(intervals: list[tuple[float, float]]) -> float:

@@ -47,6 +47,8 @@ ALL_KINDS_RESULTANTS = {
     "LC_ll_plate_edge": (0.0, 0.0, -500.0),
     "LC_press_u": (0.0, 0.0, -4000.0),
     "LC_press_back": (0.0, 0.0, 4000.0),
+    # 1000 Pa over the 2 x 0.5 m polygon, along its own (+z) normal: GeniE meshed it as +1000 N
+    "LC_poly": (0.0, 0.0, 1000.0),
 }
 
 #: The load cases whose one load is refused, and the construct it is refused under.
@@ -54,7 +56,6 @@ ALL_KINDS_REFUSED = {
     "LC_press_3pt": "pressure2d_3point_varying",
     "LC_press_lin": "pressure2d_linear_function",
     "LC_comp": "component2d_constant",
-    "LC_poly": "footprint_polygon",
 }
 
 
@@ -84,6 +85,12 @@ def _resultant(lc) -> tuple[np.ndarray, np.ndarray]:
         elif isinstance(load, LoadConceptLine):
             length = np.linalg.norm(np.asarray(load.end_point, float) - np.asarray(load.start_point, float))
             force += length * (np.asarray(load.intensity_start) + np.asarray(load.intensity_end)) / 2
+        elif isinstance(load, LoadConceptSurface) and load.plate_ref is None:
+            # a polygon pressure acts along the polygon's own normal (right-hand rule on its points)
+            pts = np.asarray(load.points, float)
+            area_vec = 0.5 * sum(np.cross(pts[i], pts[(i + 1) % len(pts)]) for i in range(len(pts)))
+            sign = 1.0 if load.side == "front" else -1.0
+            force += sign * load.pressure * area_vec
         elif isinstance(load, LoadConceptSurface):
             # a pressure pushes into the side it is on: -n on the front face, +n on the back
             normal = np.asarray(load.plate_ref.normal, float)
@@ -325,7 +332,9 @@ def _dump(part) -> dict:
                 load.system,
             )
         if isinstance(load, LoadConceptSurface):
-            return ("surface", load.name, load.plate_ref.name, load.points, load.pressure, load.side, load.system)
+            plate = load.plate_ref.name if load.plate_ref is not None else None
+            points = [_p(q) for q in load.points] if load.points is not None else None
+            return ("surface", load.name, plate, points, load.pressure, load.side, load.system)
         if isinstance(load, LoadConceptAccelerationField):
             return ("acc", load.name, load.acceleration, load.include_self_weight, load.rotational_field)
         raise TypeError(type(load))

@@ -39,6 +39,9 @@ the Sesam records GeniE meshed them into are the oracle for every reading below)
 * **Front and back.** ``footprint_plate side="front"`` with 1000 Pa on a plate whose normal is +z
   gave Fz = -4000 on 4 m2 (a front pressure pushes into the front face), ``side="back"`` +4000.
   ``LoadConceptSurface`` carries the side as written, against the plate's own normal.
+* **Polygon pressures.** A ``footprint_polygon`` is read as a ``LoadConceptSurface`` with its points and
+  no plate; GeniE meshed it onto the elements it covers, each with the pressure times its covered share,
+  along the polygon's own normal (:meth:`ada.fem.concept.loads_to_fem._Converter.polygon`).
 * **Prescribed displacements.** A ``prescribed_displacement`` names a support point
   (``footprint_support_point``) and gives a ``displacement_constant``; GeniE V8.13 meshed it into
   one BNDISPL per load case at that support's node (-0.01 in dz for ``translation dz="-0.01"``).
@@ -48,8 +51,7 @@ the Sesam records GeniE meshed them into are the oracle for every reading below)
 
 Refused by name: a non-identity ``coordinate_system``; varying pressures
 (``pressure2d_3point_varying``, ``pressure2d_linear_function``); component surface loads
-(``component2d_constant``); polygon pressures (``footprint_polygon`` -- GeniE smears it over whole
-elements along the polygon's normal, so its own result depends on the mesh); rotation fields;
+(``component2d_constant``); rotation fields;
 equipment loads; and every element, footprint or intensity kind not named above.
 """
 
@@ -263,6 +265,8 @@ def _explicit_load(el: ET.Element, geometry: _Geometry):
         return LoadConceptLine(name, start, end, q1, q2, system=system)
     if el.tag == "surface_load":
         pressure = _surface_intensity(intensity)
+        if footprint.tag == "footprint_polygon":
+            return LoadConceptSurface(name, points=_polygon_points(footprint), pressure=pressure, system=system)
         plate, side = _surface_footprint(footprint, geometry)
         return LoadConceptSurface(name, plate_ref=plate, pressure=pressure, side=side, system=system)
     raise _Refused(el.tag, "no concept load class holds this kind of explicit load")
@@ -402,13 +406,15 @@ def _surface_footprint(footprint: ET.Element, geometry: _Geometry):
         if side not in ("front", "back") or len(footprint) != 0:
             raise _Refused(footprint.tag, f"a plate footprint on side {side!r} with {len(footprint)} sub-elements")
         return geometry.plate(footprint.get("plate_ref"), footprint.tag), side
-    if footprint.tag == "footprint_polygon":
-        raise _Refused(
-            footprint.tag,
-            "a polygon pressure; GeniE smears it over whole elements along the polygon's normal, so what it "
-            "loads depends on the mesh; it is not read",
-        )
     raise _Refused(footprint.tag, "no concept surface load holds this kind of surface footprint")
+
+
+def _polygon_points(footprint: ET.Element) -> list[tuple[float, float, float]]:
+    """The corner points of a ``footprint_polygon``, in order (their winding is the pressure's direction)."""
+    points = footprint.find("points")
+    if points is None or len(footprint) != 1 or len(points) < 3 or any(p.tag != "point" for p in points):
+        raise _Refused(footprint.tag, "expected one <points> with three or more <point>")
+    return [_xyz(p) for p in points]
 
 
 def _prescribed_displacement(name: str, footprint: ET.Element, intensity: ET.Element, geometry: _Geometry):
