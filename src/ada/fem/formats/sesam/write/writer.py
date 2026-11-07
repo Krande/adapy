@@ -114,7 +114,13 @@ def to_fem(assembly, name, analysis_dir=None, metadata=None, model_data_only=Fal
     from .write_sections import sections_str
     from .write_springs import property_records
     from .write_springs import spring_matnos as spring_matnos_for
-    from .write_steps import report_steps, write_sestra_inp, written_step, written_steps
+    from .write_steps import (
+        free_dofs_lower_bound,
+        report_steps,
+        write_sestra_inp,
+        written_step,
+        written_steps,
+    )
 
     if metadata is None:
         metadata = dict()
@@ -178,7 +184,7 @@ def to_fem(assembly, name, analysis_dir=None, metadata=None, model_data_only=Fal
     )
     if sestra_inp:
         with open(analysis_dir / "sestra.inp", "w") as f:
-            f.write(write_sestra_inp(name, step, supnr=seltyp))
+            f.write(write_sestra_inp(name, step, supnr=seltyp, free_dofs=free_dofs_lower_bound(part.fem)))
     report_steps(steps, sestra_inp, model_data_only=model_data_only)
     report_not_held(fems, materials, written=part.fem)
 

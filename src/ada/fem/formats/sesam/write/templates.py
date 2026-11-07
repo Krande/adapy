@@ -121,8 +121,8 @@ COMM
 COMM  RTRA
 RETR    3.
 COMM
-COMM  ENR                                                              SHIFT
-EIGA   {modes}.                                                         {shift}
+COMM  ENR                                                                SHIFT
+{eiga}
 COMM
 COMM  SELT
 IDTY   {supnr}.

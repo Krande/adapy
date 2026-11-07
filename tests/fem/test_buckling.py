@@ -51,6 +51,19 @@ def test_a_pinned_column_buckles_at_eulers_load(tmp_path, require_solver, solver
     # the positive factor is the multiplier of the reference load (a compression here): no sign to undo
     assert all(f > 0 for f in factors[:4]), factors
     g = mat.model.E / (2 * (1 + mat.model.v))
+    if solver == "sesam":
+        # Sestra's beam (BEAS) is shear-deformable and its geometric stiffness has no torsional term: the factors
+        # are the flexural Timoshenko loads P / (1 + P / (G As)) -- weak axis (Iz, shear area SHARY) n = 1, 2, 3,
+        # then the strong axis (Iy, SHARZ) n = 1. Measured, Sestra 11.3-01: 1 + 3.4e-6, 5.3e-5, 2.6e-4 (the mesh's
+        # error, growing as n^4), 8.4e-5.
+        def timoshenko(n, inertia, shear_area):
+            p = n**2 * np.pi**2 * mat.model.E * inertia / L**2
+            return p / (1 + p / (g * shear_area))
+
+        weak, strong = (props.Iz, props.Shary), (props.Iy, props.Sharz)
+        want = sorted([timoshenko(1, *weak), timoshenko(2, *weak), timoshenko(3, *weak), timoshenko(1, *strong)])
+        assert got == pytest.approx(want, rel=1e-3)
+        return
     torsion = g * props.Ix * props.Ax / (props.Iy + props.Iz)
     assert got == pytest.approx([euler, torsion, torsion, 4 * euler], rel=1e-3)
 
@@ -68,6 +81,9 @@ def test_the_decks_hold_the_buckling_step(tmp_path):
     (cmas,) = [ln for ln in inp if ln.startswith("CMAS")]
     assert cmas.split()[7] == "1."  # LBCK
     (eiga,) = [ln for ln in inp if ln.startswith("EIGA")]
-    assert eiga.split()[1] == "3." and 0 < float(eiga.split()[-1]) < 1
+    # Sestra's fixed columns: ENR in 6-10, SHIFT in 71-80. A shift straddling 61-80 was read as EHIGH and SHIFT 1.
+    assert eiga[5:10].strip() == "3." and eiga[60:70].strip() == "" and float(eiga[70:80]) > 0
+    # NLVEC (21-25) four Lanczos vectors a mode: Sestra's default two gave an unconverged 4th factor (write_steps)
+    assert eiga[20:25].strip() == "12."
     deck = next((tmp_path / "s").glob("*T1.FEM")).read_text()
     assert "TDLOAD" in deck and "BNLOAD" in deck

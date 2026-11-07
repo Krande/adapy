@@ -14,9 +14,11 @@ from .templates import (
     sestra_static_inp_str,
 )
 
-#: The EIGA shift of a buckling run: "positive and smaller than the smallest eigenvalue" (Sestra UM, CMAS LBCK). The
-#: stability factor of a sensible reference load is well above it.
-BUCKLING_SHIFT = 1.0e-3
+#: The EIGA shift of a buckling run: positive (Sestra UM, CMAS LBCK); Sestra returns the ENR stability factors nearest
+#: it, so one below it is found too. Measured, Sestra 11.3-01, the pinned IPE300 column (factors ~3.5e5): a shift of
+#: 1e-3 put its first factor 2.0e-4 off the Timoshenko closed form, any shift from 1 to 3e5 3.4e-6 -- the mesh's own
+#: error. 1.0, Sestra's own default for buckling (its log reads "shift = 1.000000" when none is read).
+BUCKLING_SHIFT = 1.0
 
 
 def _sestra_writers() -> dict:
@@ -27,9 +29,10 @@ def _sestra_writers() -> dict:
     }
 
 
-def write_sestra_inp(name, step: StepEigen | StepImplicitStatic, supnr: int = 1):
+def write_sestra_inp(name, step: StepEigen | StepImplicitStatic, supnr: int = 1, free_dofs: int | None = None):
     """The Sestra control file for ``step``, analysing super element ``supnr`` (ITOP) -- the
-    number the deck is written as, or Sestra would look for another super element."""
+    number the deck is written as, or Sestra would look for another super element. ``free_dofs``: a lower bound on
+    the deck's free dofs, which caps a buckling run's Lanczos basis (:func:`buckling_nlvec`)."""
     step_str_writer = _sestra_writers().get(step.type, None)
     if step_str_writer is None:
         raise ValueError(f'Step type "{step.type}" is not supported yet for Ada-Sestra ')
@@ -39,7 +42,19 @@ def write_sestra_inp(name, step: StepEigen | StepImplicitStatic, supnr: int = 1)
     clock_str = now.strftime("%H:%M:%S")
     user = get_current_user()
     head_str = sestra_header_inp_str.format(date_str=date_str, clock_str=clock_str, user=user)
+    if step.type == Step.TYPES.BUCKLING:
+        return head_str + step_str_writer(name, step, supnr, free_dofs=free_dofs)
     return head_str + step_str_writer(name, step, supnr)
+
+
+def free_dofs_lower_bound(fem) -> int:
+    """At least the deck's free dofs: three per node (a solid's node has three, others six), less every dof a BC
+    names at each of its nodes."""
+    fixed = 0
+    for bc in fem.bcs:
+        members = getattr(getattr(bc, "fem_set", None), "members", None) or []
+        fixed += len(bc.dofs or ()) * len(members)
+    return max(0, 3 * len(fem.nodes) - fixed)
 
 
 def write_sestra_eig_str(name: str, step: StepEigen, supnr: int = 1):
@@ -50,8 +65,33 @@ def write_sestra_static_str(name: str, step: StepImplicitStatic, supnr: int = 1)
     return sestra_static_inp_str.format(name=name, supnr=supnr)
 
 
-def write_sestra_buckle_str(name: str, step, supnr: int = 1):
-    return sestra_buckle_inp_str.format(name=name, supnr=supnr, modes=step.num_modes, shift=f"{BUCKLING_SHIFT:g}")
+def eiga_line(modes: int, shift: float, nlvec: int | None = None) -> str:
+    """The EIGA command on Sestra's fixed columns (UM 11.3.1, EIGA): ENR in 6-10, NLVEC in 21-25, SHIFT in 71-80, all
+    right-aligned. A shift written across 67-71, as this once was, is read as EHIGH ``0.00`` and SHIFT ``1`` (Sestra's
+    log: "shift = 1.000000"). ``nlvec`` None leaves Sestra's default, 2 ENR."""
+    enr, shift_text = f"{int(modes)}.", f"{shift:g}"
+    nl = "" if nlvec is None else f"{int(nlvec)}."
+    if len(enr) > 5 or len(nl) > 5 or len(shift_text) > 10:
+        raise ValueError(f"EIGA: {modes} modes, {nlvec} vectors or shift {shift} does not fit its field")
+    return f"{'EIGA':<5}{enr:>5}{'':10}{nl:>5}{'':45}{shift_text:>10}"
+
+
+#: The Lanczos basis of a buckling run, in eigenpairs asked for. Measured, Sestra 11.3-01, the pinned IPE300 column
+#: asking for 4: Sestra's default 2 ENR returned a 4th factor 6.75 % off (an unconverged Ritz value, though the log said
+#: "converged after 1 iterations"); 3 ENR and more all four within the mesh's own error.
+BUCKLING_LANCZOS_PER_MODE = 4
+
+
+def buckling_nlvec(modes: int, free_dofs: int | None) -> int | None:
+    """NLVEC for ``modes`` stability factors: ``BUCKLING_LANCZOS_PER_MODE`` vectors each, or None (Sestra's default) when
+    that may exceed the free dofs, which Sestra stops on ("terminates with an error if NLVEC > n")."""
+    nlvec = BUCKLING_LANCZOS_PER_MODE * int(modes)
+    return nlvec if free_dofs is not None and nlvec <= free_dofs else None
+
+
+def write_sestra_buckle_str(name: str, step, supnr: int = 1, free_dofs: int | None = None):
+    eiga = eiga_line(step.num_modes, BUCKLING_SHIFT, buckling_nlvec(step.num_modes, free_dofs))
+    return sestra_buckle_inp_str.format(name=name, supnr=supnr, eiga=eiga)
 
 
 def written_step(steps: Sequence[Step]) -> Step | None:
