@@ -16,6 +16,7 @@ def load_str(load: Load) -> str:
         Load.TYPES.LINE: line_load_str,
         Load.TYPES.ACC_ROT: rotation_load_str,
         Load.TYPES.TRACTION: traction_load_str,
+        Load.TYPES.TEMPERATURE: temperature_load_str,
     }
     load_str_func = load_map.get(load.type, None)
 
@@ -23,6 +24,69 @@ def load_str(load: Load) -> str:
         raise ValueError("Unsupported load type", load.type)
 
     return load_str_func(load)
+
+
+#: The conversion report's stage for this writer.
+STAGE = "abaqus writer"
+
+
+def _node_lines(fem, node_ids, value: str) -> list[str]:
+    """``<instance>.<node>, value`` per node (the bare node at assembly level), the form *Temperature and *Initial
+    Conditions take node by node."""
+    from ada import Assembly
+
+    owner = fem.parent
+    prefix = "" if isinstance(owner, Assembly) else f"{fem.instance_name}."
+    return [f" {prefix}{nid}, {value}" for nid in node_ids]
+
+
+def _model_fems(load: Load) -> list:
+    step = load.parent
+    assembly = step.parent.parent if step is not None and step.parent is not None else None
+    if assembly is None:
+        raise UnsupportedLoadType(f"{STAGE}: temperature load {load.name!r} is in no assembly's step")
+    return [p.fem for p in assembly.get_all_parts_in_assembly(include_self=True) if p.fem is not None]
+
+
+def temperature_load_str(load: Load) -> str:
+    """A uniform temperature (:class:`~ada.fem.LoadTemperature`) as ``*Temperature`` on the nodes of the elements it
+    acts in (every node of the model when it has no set); the reference is the nodes' initial temperature
+    (:func:`temperature_initial_conditions_str`). Abaqus's thermal strain is ``alpha (T - T0)`` with ``*Expansion``."""
+    value = format_number(load.temperature)
+    if load.fem_set is not None:
+        fems = [load.fem_set.parent]
+    else:
+        fems = _model_fems(load)
+    lines = []
+    for fem in fems:
+        nodes = sorted({int(n.id) for el in load.elements(fem) for n in el.nodes})
+        lines += _node_lines(fem, nodes, value)
+    return render_block("Temperature", [], lines, [f"Name: {load.name}   Type: Temperature"])
+
+
+def temperature_initial_conditions_str(assembly, steps) -> str:
+    """``*Initial Conditions, type=TEMPERATURE`` at the reference of the deck's temperature loads on every node of the
+    model (model data), or "" when it has none. A fluid cavity's reference node keeps the temperature its cavity
+    gives it (write_cavities)."""
+    from ada.fem.formats.carried_loads import temperature_reference
+
+    from .write_cavities import all_cavities
+
+    ref = temperature_reference(steps, STAGE)
+    if ref is None:
+        return ""
+    cavity_nodes = {id(c.ref_node) for c in all_cavities(assembly)}
+    lines = []
+    for p in assembly.get_all_parts_in_assembly(include_self=True):
+        if p.fem is None:
+            continue
+        ids = sorted(int(n.id) for n in p.fem.nodes if id(n) not in cavity_nodes)
+        lines += _node_lines(p.fem, ids, format_number(ref))
+    if not lines:
+        return ""
+    return render_block(
+        "Initial Conditions", [("type", "TEMPERATURE")], lines, ["The reference of the temperature loads"]
+    )
 
 
 def acceleration_field_str(load: Load) -> str:

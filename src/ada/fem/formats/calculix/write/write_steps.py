@@ -36,6 +36,12 @@ def steps_str(steps: list[Step], deck: DeckContext) -> str:
     return "\n".join(out)
 
 
+def _temperature_reset(deck: DeckContext) -> str:
+    """``*TEMPERATURE, OP=NEW`` -- every node back to its initial temperature, the reference -- in a deck with
+    temperature loads, so a step's temperature does not carry into the next unless the next one has it too."""
+    return "*Temperature, OP=NEW\n" if deck.temperature_reference is not None else ""
+
+
 def _loads_str(loads, deck: DeckContext) -> str:
     from .write_loads import load_str
 
@@ -169,7 +175,7 @@ def load_case_step_str(step: StepImplicitStatic, lc, deck: DeckContext) -> str:
 **
 *Cload, OP=NEW
 *Dload, OP=NEW
-{_loads_str(lc.loads or [], deck)}
+{_temperature_reset(deck)}{_loads_str(lc.loads or [], deck)}
 **
 ** OUTPUT REQUESTS
 **
@@ -185,7 +191,7 @@ def step_str(step: StepEigen | StepImplicitStatic, deck: DeckContext, loads=None
     if loads is None:
         lstr = _loads_str(step.loads, deck)
     else:
-        lstr = "*Cload, OP=NEW\n*Dload, OP=NEW\n" + _loads_str(loads, deck)
+        lstr = "*Cload, OP=NEW\n*Dload, OP=NEW\n" + _temperature_reset(deck) + _loads_str(loads, deck)
 
     int_str = (
         "\n".join([interactions_str(interact) for interact in step.interactions.values()])

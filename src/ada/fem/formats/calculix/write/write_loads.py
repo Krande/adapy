@@ -32,7 +32,35 @@ def load_str(load: Load, deck: DeckContext) -> str:
         return point_load_str(load)
     if load.type == Load.TYPES.ACC_ROT:
         return rotation_load_str(load, deck)
+    if load.type == Load.TYPES.TEMPERATURE:
+        return temperature_load_str(load, deck)
     raise UnsupportedLoadType(f'calculix writer: load {load.name!r} of type "{load.type}" has no Calculix form')
+
+
+def temperature_reference(steps) -> float | None:
+    from ada.fem.formats.carried_loads import temperature_reference as shared
+
+    return shared(steps, STAGE)
+
+
+def temperature_load_str(load: Load, deck: DeckContext) -> str:
+    """A uniform temperature (:class:`~ada.fem.LoadTemperature`) as ``*TEMPERATURE`` on its nodes (the writer's set of
+    every node, :data:`.writer.TEMPERATURE_NSET`, for the whole model); the initial conditions hold the reference (:func:`temperature_reference`).
+    U1 beams are linear elastic with no thermal strain (CalculiX 2.23 manual 6.2.46), so a temperature reaching one is
+    refused by name rather than left without effect."""
+    fem = deck.part.fem
+    els = load.elements(fem)
+    if any(el.id in deck.u1_elements for el in els):
+        raise UnsupportedLoadType(
+            f"calculix writer: temperature load {load.name!r} reaches U1 beams, which take no thermal strain"
+        )
+    t = ccx_number(load.temperature)
+    if load.fem_set is None:
+        from .writer import TEMPERATURE_NSET
+
+        return f"*Temperature\n {TEMPERATURE_NSET}, {t}"
+    nodes = sorted({int(n.id) for el in els for n in el.nodes})
+    return "*Temperature\n" + "\n".join(f" {nid}, {t}" for nid in nodes)
 
 
 def rotation_load_str(load: Load, deck: DeckContext) -> str:

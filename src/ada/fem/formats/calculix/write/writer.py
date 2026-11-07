@@ -77,6 +77,16 @@ def to_fem(assembly: Assembly, name, analysis_dir, metadata=None, model_data_onl
         if ampl:
             f.write(ampl + "\n")
         f.write("\n".join([bc_str(x) for x in bcs]) + "\n")
+        if deck.temperature_reference is not None:
+            from .write_loads import ccx_number
+
+            if TEMPERATURE_NSET in p.fem.nsets:
+                raise ValueError(f"calculix writer: the model already has a node set named {TEMPERATURE_NSET!r}")
+            newline = NewLine(15)
+            ids = " ".join(f"{n.id}," + next(newline) for n in p.fem.nodes).rstrip()[:-1]
+            f.write(f"*Nset, nset={TEMPERATURE_NSET}\n {ids}\n")
+            ref = ccx_number(deck.temperature_reference)
+            f.write(f"*Initial conditions, type=temperature\n {TEMPERATURE_NSET}, {ref}\n")
         # A model with no analysis step is still a deck worth writing -- it simply has no
         # *STEP block. ``ada convert --to calculix`` produces exactly that (a conversion
         # carries geometry and mesh, not an analysis), and the abaqus writer already guards
@@ -166,6 +176,11 @@ def check_conflicting_bcs(bcs, steps) -> None:
 GRAV_ELSET = "ADA_GRAV"
 
 
+#: The node set of every node the initial temperature is given on, in a deck with temperature loads: ccx 2.23 has no
+#: NALL defined while it reads model data ("node set NALL has not yet been defined", measured).
+TEMPERATURE_NSET = "ADA_TALL"
+
+
 @dataclass
 class DeckContext:
     """What the step writers need to know about the model the deck is written from."""
@@ -178,6 +193,9 @@ class DeckContext:
     bcs: tuple = ()
     #: The prescribed dofs ``(set, dof)`` on nodes of U1 beams, held at zero instead (:func:`refuse_on_u1`).
     refused: frozenset = frozenset()
+    #: The initial temperature of every node when the deck has temperature loads, else None
+    #: (:func:`.write_loads.temperature_reference`).
+    temperature_reference: float | None = None
 
     @staticmethod
     def of(part: Part, steps, bcs=()) -> DeckContext:
@@ -206,7 +224,11 @@ class DeckContext:
                 newline = NewLine(15)
                 ids = " ".join(f"{el.id}," + next(newline) for el in members).rstrip()[:-1]
                 grav_str = f"*Elset, elset={GRAV_ELSET}\n {ids}"
-        return DeckContext(part, u1, grav, grav_str, tuple(bcs), refuse_on_u1(part, u1, bcs))
+        from .write_loads import temperature_reference
+
+        return DeckContext(
+            part, u1, grav, grav_str, tuple(bcs), refuse_on_u1(part, u1, bcs), temperature_reference(steps)
+        )
 
 
 def refuse_on_u1(part: Part, u1_elements: frozenset, bcs) -> frozenset:
@@ -497,11 +519,14 @@ def material_str(material, elastic_only: bool = False):
 
     d_str = ""
     if alpha is not None and beta is not None:
-        d_str = "\n*Damping, alpha={alpha}, beta={beta}".format(alpha=material.model.alpha, beta=material.model.beta)
+        # the Rayleigh pair from the metadata; this wrote the material's thermal expansion as the mass factor
+        d_str = f"\n*Damping, alpha={alpha}, beta={beta}"
 
+    # *Expansion is the thermal expansion coefficient, alpha; it was written from zeta, the material's damping, as the
+    # Abaqus writer once did too
     exp_str = ""
-    if material.model.zeta is not None and material.model.zeta != 0.0:
-        exp_str = "\n*Expansion\n {zeta}".format(zeta=material.model.zeta)
+    if material.model.alpha is not None and material.model.alpha != 0.0:
+        exp_str = f"\n*Expansion\n {material.model.alpha}"
 
     return f"""*Material, name={material.name}
 *Elastic
