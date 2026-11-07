@@ -57,8 +57,14 @@ def free_dofs_lower_bound(fem) -> int:
     return max(0, 3 * len(fem.nodes) - fixed)
 
 
+#: A free-vibration run's EIGA shift, in Hz: the ENR eigenpairs nearest it, so 0 gives the lowest (Sestra's default).
+EIGEN_SHIFT = 0.0
+
+
 def write_sestra_eig_str(name: str, step: StepEigen, supnr: int = 1):
-    return sestra_eig_inp_str.format(name=name, modes=step.num_eigen_modes, supnr=supnr)
+    # On EIGA's own columns (eiga_line). The template's "0." used to land in EHIGH (61-70) with SHIFT blank: the same
+    # zero by luck, and an ENR of three digits ran into the next field.
+    return sestra_eig_inp_str.format(name=name, eiga=eiga_line(step.num_eigen_modes, EIGEN_SHIFT), supnr=supnr)
 
 
 def write_sestra_static_str(name: str, step: StepImplicitStatic, supnr: int = 1):
