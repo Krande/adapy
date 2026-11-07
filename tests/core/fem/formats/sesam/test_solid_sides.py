@@ -9,7 +9,11 @@ import pytest
 
 import ada
 from ada.fem import Elem
-from ada.fem.formats.sesam.write.solid_sides import SESAM_SOLID_SIDES, sesam_side, side_code
+from ada.fem.formats.sesam.write.solid_sides import (
+    SESAM_SOLID_SIDES,
+    sesam_side,
+    side_code,
+)
 from ada.fem.shapes.definitions import SolidShapes
 from ada.fem.shapes.solids import solid_abaqus_faces
 

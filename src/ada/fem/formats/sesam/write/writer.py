@@ -97,6 +97,9 @@ def to_fem(assembly, name, analysis_dir=None, metadata=None, model_data_only=Fal
       retain only *some* of their DOFs comes back widened to all of them, with a warning
       naming the affected nodes, because a node set cannot carry a per-DOF pattern.
     """
+    from .element_numbers import ElementNumbers, NodeNumbers
+    from .element_numbers import deck as numbers_deck
+    from .element_numbers import deck_element_ids, nodes_deck
     from .node_frames import deck as frames_deck
     from .node_frames import node_frames
     from .not_held import STAGE, bc_is_held, report, report_not_held
@@ -107,8 +110,6 @@ def to_fem(assembly, name, analysis_dir=None, metadata=None, model_data_only=Fal
         retained_dofs,
     )
     from .write_constraints import bldep_records
-    from .element_numbers import ElementNumbers, NodeNumbers, deck_element_ids, nodes_deck
-    from .element_numbers import deck as numbers_deck
     from .write_elements import elem_gen, unwritten_element_ids
     from .write_loads import deck_fem, step_loads_str
     from .write_masses import mass_str

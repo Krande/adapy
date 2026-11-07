@@ -9,9 +9,9 @@ if TYPE_CHECKING:
 
 
 def step_eig_str(step: StepEigen, part: Part) -> str:
-    from ..write_constraints import has_cara_elem, step_charges
-
     from ada.fem.shapes.definitions import SpringTypes
+
+    from ..write_constraints import has_cara_elem, step_charges
 
     supports = step_charges(part, step)
     charges = supports.names

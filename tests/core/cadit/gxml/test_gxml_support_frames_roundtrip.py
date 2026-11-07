@@ -5,8 +5,9 @@ from __future__ import annotations
 import numpy as np
 
 import ada
-from ada import ConstraintConceptCurve, ConstraintConceptPoint
+from ada import ConstraintConceptCurve
 from ada import ConstraintConceptDofType as Dof
+from ada import ConstraintConceptPoint
 from ada.materials.metals import CarbonSteel
 
 R = np.sqrt(0.5)

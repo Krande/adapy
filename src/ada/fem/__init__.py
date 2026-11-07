@@ -13,12 +13,12 @@ from .loads import (
     Load,
     LoadCase,
     LoadGravity,
-    LoadRotation,
-    LoadSurfaceTraction,
-    LoadTemperature,
     LoadLine,
     LoadPoint,
     LoadPressure,
+    LoadRotation,
+    LoadSurfaceTraction,
+    LoadTemperature,
 )
 from .outputs import FieldOutput, HistOutput
 from .sections import ConnectorSection, FemSection

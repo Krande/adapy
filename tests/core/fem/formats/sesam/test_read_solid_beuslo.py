@@ -4,15 +4,21 @@ face, the same magnitude, and writes out as the same record. Every face of every
 from __future__ import annotations
 
 import pytest
-from .test_solid_sides import _element
 
 import ada
 from ada.fem import Bc, FemSection, FemSet, LoadPressure, StepImplicitStatic, Surface
 from ada.fem.formats import conversion_report
 from ada.fem.formats.sesam.read.read_loads import READ_STEP_NAME
-from ada.fem.formats.sesam.write.solid_sides import SESAM_SOLID_SIDES, abaqus_face, sesam_side, side_of_code
+from ada.fem.formats.sesam.write.solid_sides import (
+    SESAM_SOLID_SIDES,
+    abaqus_face,
+    sesam_side,
+    side_of_code,
+)
 from ada.fem.shapes.solids import solid_abaqus_faces
 from ada.materials.metals import CarbonSteel
+
+from .test_solid_sides import _element
 
 SHAPES = sorted(SESAM_SOLID_SIDES, key=str)
 

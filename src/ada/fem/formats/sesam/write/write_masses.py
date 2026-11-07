@@ -5,8 +5,8 @@ from typing import TYPE_CHECKING
 from ada import FEM
 from ada.fem.shapes.definitions import MassTypes
 
-from .not_held import STAGE, report
 from .element_numbers import node as internal_node
+from .not_held import STAGE, report
 from .write_utils import write_ff
 
 if TYPE_CHECKING:

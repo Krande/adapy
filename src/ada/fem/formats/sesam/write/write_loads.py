@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import contextlib
-
 from typing import TYPE_CHECKING, Sequence
 
 import numpy as np
@@ -16,9 +15,9 @@ from ada.fem.shell_sides import (
 )
 from ada.fem.steps import Step
 
-from .not_held import STAGE, report
 from .element_numbers import internal
 from .element_numbers import node as internal_node
+from .not_held import STAGE, report
 from .write_utils import write_ff
 
 if TYPE_CHECKING:
