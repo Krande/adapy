@@ -145,20 +145,38 @@ def add_load_concepts_to_fem(part: Part, fem: FEM, tol: float = 1e-4) -> None:
     for holder, lc in held:
         owner = _owner(lc, part)
         loads = [fe for load in lc.loads for fe in conv.load(load, lc, _load_owner(load, lc, part))]
+        same = step.load_cases.get(lc.name)
+        if same is None:
+            step.add_loadcase(LoadCase(lc.name, None, loads=loads, metadata={LOAD_CASE_NUMBER: lc.fem_loadcase_number}))
+        else:
+            # Same-named cases of several parts are one load case, as the GeniE XML writer merges them
+            # (LoadConcepts.get_global_load_concepts). A second LoadCase of the name replaced the first in the step,
+            # whose loads were then reported as in no load case and not written.
+            same.loads.extend(loads)
+            step.add_loadcase(same)
+            loads = same.loads
+            report().note(
+                STAGE,
+                "LoadConceptCase",
+                lc.name,
+                "load cases of this name in several parts are written as one load case holding the loads of each, "
+                "as the GeniE XML writer merges them",
+                part=holder.name,
+            )
         fe_loads[id(lc)] = loads
-        if not loads and not conv.settles(lc):
+        converted.setdefault(owner.name, []).append(lc.name)
+        if holder is not owner:
+            held_by.setdefault(holder.name, []).append(lc.name)
+    for name, fe_case in step.load_cases.items():
+        if not fe_case.loads and not any(conv.settles(lc) for lc in cases if lc.name == name):
             # Sestra V11.3-00 makes no result case of it and says nothing: the user's model, 10 TDLOAD with three
             # empty, gave 7 result cases (FEM load case ids 1, 3, 4, 5, 8, 9, 10).
             report().note(
                 STAGE,
                 "LoadConceptCase",
-                lc.name,
+                name,
                 "a load case with no load in it is written empty; Sestra makes no result case of an empty load case",
             )
-        step.add_loadcase(LoadCase(lc.name, None, loads=loads, metadata={LOAD_CASE_NUMBER: lc.fem_loadcase_number}))
-        converted.setdefault(owner.name, []).append(lc.name)
-        if holder is not owner:
-            held_by.setdefault(holder.name, []).append(lc.name)
 
     for owner, lcc in combinations:
         loads = conv.combination(lcc, fe_loads)

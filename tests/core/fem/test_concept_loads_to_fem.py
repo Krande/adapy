@@ -894,3 +894,39 @@ def test_a_case_two_parts_hold_is_converted_once(tmp_path):
     deck, report = _mesh_and_write_assembly(a, tmp_path)
     assert _omitted_cases(report) == []
     assert resultants(deck)["LC_S1"][0] == (0.0, 0.0, -2000.0)
+
+
+def test_same_named_cases_of_several_parts_are_one_load_case_as_in_the_genie_xml(tmp_path):
+    """S1 and S2 each have a case ``LC``. The GeniE XML writer merges them into one case; the FE conversion made two
+    load cases of one name, of which the step kept the second, and S1's load was reported as in no load case and not
+    written. Now ``LC`` holds both, and a combination of S2's ``LC`` is a combination of that case, as in the XML."""
+    from ada.fem.concept.loads import (
+        LoadConceptCaseCombination,
+        LoadConceptCaseFactored,
+    )
+
+    a = _placed_parts(gather=False)
+    for p in a.get_all_subparts():
+        lcs = p.concept_fem.loads.load_cases
+        lcs["LC"] = lcs.pop(f"LC_{p.name}")
+        lcs["LC"].name = "LC"
+    s2 = a.get_part("S2")
+    s2.concept_fem.loads.add_load_case_combination(
+        LoadConceptCaseCombination("LCC", [LoadConceptCaseFactored(s2.concept_fem.loads.load_cases["LC"], 2.0)])
+    )
+    (tmp_path / "direct").mkdir(), (tmp_path / "xml").mkdir()
+    deck, report = _mesh_and_write_assembly(a, tmp_path / "direct")
+    assert not [f for f in report.findings if f.kind == "omitted" and f.keyword != "Step"]
+    records = load_records(deck)
+    assert sorted(k for k in records["LC"] if k[0] == "BNLOAD") == [
+        ("BNLOAD", (1.0, 20.0, 5.0)),
+        ("BNLOAD", (11.0, 0.0, 0.0)),
+    ]
+    assert resultants(deck)["LC"][0] == (0.0, 0.0, -4000.0)
+    assert resultants(deck)["LCC"][0] == (0.0, 0.0, -8000.0)
+
+    xml = tmp_path / "xml" / "same.xml"
+    a.to_genie_xml(xml)
+    via_xml, _ = _mesh_and_write_assembly(ada.from_genie_xml(xml), tmp_path / "xml")
+    assert load_records(via_xml)["LC"] == records["LC"]
+    assert resultants(via_xml)["LCC"] == resultants(deck)["LCC"]
