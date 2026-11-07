@@ -3,6 +3,7 @@ from .fe_loads import (
     Load,
     LoadCase,
     LoadGravity,
+    LoadRotation,
     LoadLine,
     LoadPoint,
     LoadPressure,
@@ -12,6 +13,7 @@ from .fe_loads import (
 __all__ = [
     "Load",
     "LoadGravity",
+    "LoadRotation",
     "LoadLine",
     "LineLoadSegment",
     "LoadPoint",

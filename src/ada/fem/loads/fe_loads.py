@@ -269,6 +269,66 @@ class LoadGravity(Load):
         super(LoadGravity, self).__init__(name, Load.TYPES.GRAVITY, acceleration, amplitude=amplitude)
 
 
+class LoadRotation(Load):
+    """A rotating frame's loads on the whole model (or on ``fem_set``): an angular velocity ``angular_velocity``
+    (rad/s) and an angular acceleration ``angular_acceleration`` (rad/s^2) about the axis ``axis`` through ``origin``.
+
+    The body forces, per unit volume of density ``rho`` at ``x`` (``r`` its distance vector from the axis):
+
+    * centrifugal, ``rho w^2 r``, outward -- Abaqus ``*Dload CENTRIF`` (``w^2``), Code_Aster ``ROTATION``
+      (``VITESSE = w``), Sesam ``BRIGVE`` (the angular velocity, from which Sestra takes the centrifugal force);
+    * from the angular acceleration ``a``, ``rho a e x (x - origin)`` -- the field's own force, as a gravity field's
+      is ``rho g``: Abaqus ``*Dload ROTA`` (``a``), Sesam ``BRIGAC``. Code_Aster has no keyword for it.
+
+    The sense of rotation is ``axis``'s, by the right-hand rule.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        origin,
+        axis,
+        angular_velocity: float = 0.0,
+        angular_acceleration: float = 0.0,
+        fem_set: FemSet | None = None,
+        amplitude: Amplitude | None = None,
+    ):
+        a = np.asarray(axis, dtype=float)
+        norm = float(np.linalg.norm(a))
+        if norm == 0.0:
+            raise ValueError(f"LoadRotation {name!r}: the axis has no direction")
+        super().__init__(
+            name,
+            Load.TYPES.ACC_ROT,
+            magnitude=float(angular_velocity),
+            fem_set=fem_set,
+            amplitude=amplitude,
+            accr_origin=tuple(float(x) for x in origin),
+            accr_rot_axis=tuple(float(x) for x in a / norm),
+        )
+        self.angular_acceleration = float(angular_acceleration)
+
+    @property
+    def origin(self) -> tuple[float, float, float]:
+        return self.acc_rot_origin
+
+    @property
+    def axis(self) -> tuple[float, float, float]:
+        """The unit axis."""
+        return self.acc_rot_axis
+
+    @property
+    def angular_velocity(self) -> float:
+        return float(self.magnitude)
+
+    def body_force(self, x, rho: float) -> np.ndarray:
+        """The force per unit volume at ``x`` (see the class docstring)."""
+        e, o = np.asarray(self.axis), np.asarray(self.origin)
+        d = np.asarray(x, dtype=float) - o
+        r = d - (d @ e) * e
+        return rho * (self.angular_velocity**2 * r + self.angular_acceleration * np.cross(e, d))
+
+
 class LoadPoint(Load):
     def __init__(self, name, magnitude, fem_set, dof, amplitude=None, follower_force=True, csys=None):
         super(LoadPoint, self).__init__(

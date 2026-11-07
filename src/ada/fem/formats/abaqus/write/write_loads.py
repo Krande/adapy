@@ -14,6 +14,7 @@ def load_str(load: Load) -> str:
         Load.TYPES.FORCE: force_load_str,
         Load.TYPES.PRESSURE: pressure_load_str,
         Load.TYPES.LINE: line_load_str,
+        Load.TYPES.ACC_ROT: rotation_load_str,
     }
     load_str_func = load_map.get(load.type, None)
 
@@ -33,6 +34,40 @@ def acceleration_field_str(load: Load) -> str:
     return render_block(
         "Dload", (), [f", GRAV, {format_number(load.magnitude)}, {dof_str}"], [f"Name: {load.name}   Type: {kind}"]
     )
+
+
+def rotation_load_str(load: Load) -> str:
+    """A rotating frame (:class:`~ada.fem.LoadRotation`): ``*Dload CENTRIF`` with ``w^2`` and ``*Dload ROTA`` with
+    the angular acceleration, each with a point on the axis and its direction; on the load's element set, or on the
+    whole model (a blank set, as ``GRAV`` is written)."""
+    from ada.fem.loads import LoadRotation
+
+    if not isinstance(load, LoadRotation):
+        raise UnsupportedLoadType(
+            f"abaqus writer: load {load.name!r} of type acc_rot is not a LoadRotation; no axis given"
+        )
+    target = "" if load.fem_set is None else get_instance_name(load.fem_set, True)
+    where = ", ".join(format_number(float(c)) for c in (*load.origin, *load.axis))
+    lines = []
+    if load.angular_velocity != 0.0:
+        lines.append(
+            render_block(
+                "Dload",
+                (),
+                [f"{target}, CENTRIF, {format_number(load.angular_velocity**2)}, {where}"],
+                [f"Name: {load.name}   Type: Rotational body force"],
+            )
+        )
+    if load.angular_acceleration != 0.0:
+        lines.append(
+            render_block(
+                "Dload",
+                (),
+                [f"{target}, ROTA, {format_number(load.angular_acceleration)}, {where}"],
+                [f"Name: {load.name}   Type: Rotary acceleration"],
+            )
+        )
+    return "\n".join(lines)
 
 
 def force_load_str(load: Load) -> str:

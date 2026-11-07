@@ -28,6 +28,7 @@ def write_load(load: Load) -> str:
         Load.TYPES.PRESSURE: pressure_load_str,
         Load.TYPES.LINE: line_load_str,
         Load.TYPES.FORCE: point_load_str,
+        Load.TYPES.ACC_ROT: rotation_load_str,
     }
 
     load_str_writer = load_str_map.get(load.type, None)
@@ -62,6 +63,31 @@ def gravity_load_str(load: Load) -> str:
         group = f", GROUP_MA='{load.fem_set.name}'"
     return f"""{concept_name(load, "load")} = AFFE_CHAR_MECA(
     MODELE=model, PESANTEUR=_F(DIRECTION=({direction}), GRAVITE={magnitude!r}{group})
+)"""
+
+
+def rotation_load_str(load: Load) -> str:
+    """A rotating frame (:class:`~ada.fem.LoadRotation`) as ``ROTATION``: its angular velocity ``VITESSE`` (rad/s)
+    about ``AXE`` through ``CENTRE``, the centrifugal force (U4.44.01). Code_Aster has no keyword for an angular
+    acceleration's force, so a load with one is refused by name."""
+    from ada.fem.loads import LoadRotation
+
+    if not isinstance(load, LoadRotation):
+        raise UnsupportedLoadType(
+            f"code_aster writer: load {load.name!r} of type acc_rot is not a LoadRotation; no axis given"
+        )
+    if float(getattr(load, "angular_acceleration", 0.0)) != 0.0:
+        raise UnsupportedLoadType(
+            f"code_aster writer: rotation load {load.name!r} has an angular acceleration; ROTATION takes an angular "
+            "velocity only"
+        )
+    if load.angular_velocity == 0.0:
+        raise UnsupportedLoadType(f"code_aster writer: rotation load {load.name!r} has no angular velocity")
+    axis = ", ".join(repr(float(c)) for c in load.axis)
+    centre = ", ".join(repr(float(c)) for c in load.origin)
+    group = "" if load.fem_set is None else f", GROUP_MA='{load.fem_set.name}'"
+    return f"""{concept_name(load, "load")} = AFFE_CHAR_MECA(
+    MODELE=model, ROTATION=_F(VITESSE={load.angular_velocity!r}, AXE=({axis}), CENTRE=({centre}){group})
 )"""
 
 

@@ -267,6 +267,13 @@ def load_str(load: Load, lid, ndofs: NodeDofs | None = None) -> str:
         out = load_line(load, lid)
         if out == "":
             return ""
+    elif load.type == Load.TYPES.ACC_ROT and _is_rotation(load):
+        if load.fem_set is not None:
+            rep.omitted(
+                STAGE, "Load", load.name, "a rotation load on part of the model; BRIGVE/BRIGAC act on all of it"
+            )
+            return ""
+        out = load_rotation(load, lid)
     else:
         rep.omitted(STAGE, "Load", load.name, f'a "{load.type}" load is not written by the Sesam writer')
         return ""
@@ -289,6 +296,37 @@ def load_gravity(load: Load, load_id: int) -> str:
         "BGRAV",
         [(load_id, 0, 0, 0), _acceleration(load)],
     )
+
+
+def _is_rotation(load) -> bool:
+    """A ``LoadRotation``: a bare ``Load`` of type ``acc_rot`` says no axis or origin, and is left out (reported)."""
+    from ada.fem.loads import LoadRotation
+
+    return isinstance(load, LoadRotation)
+
+
+def load_rotation(load, load_id: int) -> str:
+    """A rotating frame (:class:`~ada.fem.LoadRotation`) as Sestra's rigid-body motion of the whole model (``ModelNode
+    0``): ``BRIGVE`` for the angular velocity, from which Sestra takes the centrifugal forces ("the rotational part of
+    the velocity yields centrifugal forces of inertia"), and ``BRIGAC`` for the angular acceleration, "an acceleration
+    of a point in a rigid body ... used for calculation of forces of inertia" (SIF 7.2.28, 7.2.30): the point on the
+    axis, then six components, translations zero, the angular ones ``w e`` / ``a e``.
+
+    BRIGAC gives the *body's* acceleration and Sestra the inertia force against it, ``-rho a``, while
+    ``LoadRotation``'s angular acceleration is its field's own force, ``+rho a e x (x - origin)`` (as Abaqus' ROTA and
+    a gravity field's ``rho g``): so it is written with the opposite sign. That sign is the SIF's wording, to be
+    measured in Sestra (``tests/fem/test_rotation_loads.py``).
+    """
+    e = np.asarray(load.axis, dtype=float)
+    point = tuple(float(c) for c in load.origin)
+    out = ""
+    for card, vec in (("BRIGVE", load.angular_velocity * e), ("BRIGAC", -load.angular_acceleration * e)):
+        if not np.any(vec):
+            continue
+        out += write_ff(
+            card, [(load_id, 0, 0, 0), (*point, 0), (0.0, 0.0, 0.0, float(vec[0])), (float(vec[1]), float(vec[2]))]
+        )
+    return out
 
 
 def _local_axes(csys) -> np.ndarray | None:

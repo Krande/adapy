@@ -30,7 +30,42 @@ def load_str(load: Load, deck: DeckContext) -> str:
         return line_load_str(load, deck)
     if load.type == Load.TYPES.FORCE:
         return point_load_str(load)
+    if load.type == Load.TYPES.ACC_ROT:
+        return rotation_load_str(load, deck)
     raise UnsupportedLoadType(f'calculix writer: load {load.name!r} of type "{load.type}" has no Calculix form')
+
+
+def rotation_load_str(load: Load, deck: DeckContext) -> str:
+    """A rotating frame (:class:`~ada.fem.LoadRotation`) as ``*DLOAD CENTRIF``: ``w^2``, a point on the axis and its
+    direction (CalculiX 2.23 manual, 7.36). CalculiX has no rotary-acceleration load, and its ``U1`` beams take no
+    body force ("no body forces", as for GRAV), so a load with an angular acceleration, or one that reaches U1 beams,
+    is refused by name."""
+    from ada.fem import FemSet
+    from ada.fem.loads import LoadRotation
+
+    if not isinstance(load, LoadRotation):
+        raise UnsupportedLoadType(
+            f"calculix writer: load {load.name!r} of type acc_rot is not a LoadRotation; no axis given"
+        )
+
+    if load.angular_acceleration != 0.0:
+        raise UnsupportedLoadType(
+            f"calculix writer: rotation load {load.name!r} has an angular acceleration; *DLOAD has CENTRIF only"
+        )
+    if load.fem_set is not None:
+        if load.fem_set.type != FemSet.TYPES.ELSET:
+            raise UnsupportedLoadType(
+                f"calculix writer: rotation load {load.name!r} is on a node set; CENTRIF takes elements"
+            )
+        members, target = load.fem_set.members, load.fem_set.name
+    else:
+        members, target = deck.part.fem.elements.lines, deck.grav_elset
+    if any(el.id in deck.u1_elements for el in members):
+        raise UnsupportedLoadType(
+            f"calculix writer: rotation load {load.name!r} reaches U1 beams, which take no body force in CalculiX"
+        )
+    where = ", ".join(ccx_number(float(c)) for c in (*load.origin, *load.axis))
+    return f"*Dload{_amplitude_param(load)}\n{target}, CENTRIF, {ccx_number(load.angular_velocity**2)}, {where}"
 
 
 def _amplitude_param(load: Load) -> str:
