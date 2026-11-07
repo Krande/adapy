@@ -274,7 +274,9 @@ def add_pressure_groups(steps: list[Step], fem: FEM) -> list[FemSet]:
             if name in added:
                 continue
             if name in fem.elsets:
-                raise UnsupportedLoadType(f"pressure loads {[ld.name for ld in loads]}: the mesh already has a group named {name!r}")
+                raise UnsupportedLoadType(
+                    f"pressure loads {[ld.name for ld in loads]}: the mesh already has a group named {name!r}"
+                )
             added[name] = fem.sets.add(FemSet(name, members, FemSet.TYPES.ELSET, parent=fem))
     return list(added.values())
 

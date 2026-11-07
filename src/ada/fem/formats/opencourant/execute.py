@@ -17,7 +17,15 @@ ENGINE_EXE = "engine_linux64_gf"
 
 
 def run_opencourant(
-    inp_path, cpus=2, gpus=None, run_ext=False, metadata=None, execute=True, exit_on_complete=True, run_in_shell=False, timeout=None
+    inp_path,
+    cpus=2,
+    gpus=None,
+    run_ext=False,
+    metadata=None,
+    execute=True,
+    exit_on_complete=True,
+    run_in_shell=False,
+    timeout=None,
 ):
     """``inp_path`` is the starter deck ``<name>_0000.rad`` (the engine deck sits beside it)."""
     exe = OpenCourantExecute(

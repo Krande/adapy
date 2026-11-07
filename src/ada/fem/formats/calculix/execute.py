@@ -9,7 +9,15 @@ from ..utils import LocalExecute
 
 
 def run_calculix(
-    inp_path, cpus=2, gpus=None, run_ext=False, metadata=None, execute=True, exit_on_complete=True, run_in_shell=False, timeout=None
+    inp_path,
+    cpus=2,
+    gpus=None,
+    run_ext=False,
+    metadata=None,
+    execute=True,
+    exit_on_complete=True,
+    run_in_shell=False,
+    timeout=None,
 ):
     inp_path = pathlib.Path(inp_path)
 

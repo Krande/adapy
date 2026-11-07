@@ -26,9 +26,9 @@ import sys
 import pytest
 
 from ada.config import Config
+from ada.fem.formats import utils
 from ada.fem.formats.abaqus.execute import AbaqusExecute
 from ada.fem.formats.calculix.execute import CalculixExecute
-from ada.fem.formats import utils
 from ada.fem.formats.utils import LocalExecute
 
 windows_only = pytest.mark.skipif(sys.platform != "win32", reason="the launch scripts are written on Windows only")

@@ -396,7 +396,17 @@ class Assembly(Part):
             return job.read(executed=False)
 
         execute_fem(
-            name, fem_format, scratch_dir, cpus, gpus, run_ext, metadata, execute, exit_on_complete, run_in_shell, timeout=timeout
+            name,
+            fem_format,
+            scratch_dir,
+            cpus,
+            gpus,
+            run_ext,
+            metadata,
+            execute,
+            exit_on_complete,
+            run_in_shell,
+            timeout=timeout,
         )
 
         if res_path.exists() is False and return_fea_results:
