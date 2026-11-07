@@ -56,6 +56,7 @@ def abaqus_step_str(step: _step_types):
         st.EIGEN: eigenfrequency_str,
         st.STEADY_STATE: steady_state_response_str,
         st.COMPLEX_EIG: complex_eig_str,
+        st.BUCKLING: buckle_str,
     }
     # By class first: StepEigenComplex inherits StepEigen.__init__, which gives it the EIGEN type,
     # so dispatching on the type wrote every complex-frequency step as a plain *Frequency.
@@ -254,6 +255,15 @@ def eigenfrequency_str(step: StepEigen):
     return render_keyword(
         "Step", [("name", step.name), ("nlgeom", "NO"), ("perturbation", None)], (), _step_banner(step)
     ) + render_keyword("Frequency", frequency_params, [f"{step.num_eigen_modes}, , , , ,"])
+
+
+def buckle_str(step) -> str:
+    """A linear buckling step (:class:`~ada.fem.StepBuckling`): a ``*Buckle`` perturbation step asking for its number
+    of eigenvalues, the step's loads the reference load (Abaqus Analysis User's Guide, "Eigenvalue buckling
+    prediction"); Lanczos is Abaqus' default for it."""
+    return render_keyword(
+        "Step", [("name", step.name), ("nlgeom", "NO"), ("perturbation", None)], (), _step_banner(step)
+    ) + render_keyword("Buckle", [], [f"{step.num_modes}, , , ,"])
 
 
 def _step_banner(step: _step_types) -> list[str]:

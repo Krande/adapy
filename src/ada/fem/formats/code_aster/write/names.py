@@ -90,6 +90,9 @@ RESERVED_PATTERNS = (
     re.compile(r"result\d*_(?:pd|t|f\d+|p\d+|g\d+|c\d+|sup|inf)"),
     re.compile(r"supports_\d+"),
     re.compile(r"prescribed_zero_\d+"),
+    # a buckling step's modes and what leads to them (steps.buckle)
+    re.compile(r"buckle\d*"),
+    re.compile(r"(?:buckle|result)\d*_(?:s|sg|ge|ke|nu|k|g|t)"),
 )
 
 

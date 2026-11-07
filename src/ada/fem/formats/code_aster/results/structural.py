@@ -293,6 +293,7 @@ def open_rmed_result(path: str | os.PathLike):
         step_name_map=dict(cases.names),
         cases=cases,
         analysis_kind="static",
+        buckling_factors=read_buckling_factors(rmed),
     )
 
 
@@ -312,9 +313,14 @@ def comm_step_names(comm: pathlib.Path) -> dict[str, str]:
 def _result_prefixes(f: h5py.File) -> list[str]:
     """The MED field-name prefixes of the result concepts holding a DEPL (the concept name padded to 8 characters:
     ``result__``, ``result2_``), in step order."""
-    pres = [n[: -len("DEPL")] for n in f["CHA"] if n.endswith("DEPL") and len(n) == 8 + len("DEPL")]
+    # the static steps' (``result``, ``result2``, ...): a buckling step's modes (``buckle__DEPL``) are not a case
+    pres = [
+        n[: -len("DEPL")]
+        for n in f["CHA"]
+        if n.endswith("DEPL") and len(n) == 8 + len("DEPL") and n.startswith("result")
+    ]
     if not pres:
-        pres = [n[: -len("DEPL")] for n in f["CHA"] if n.endswith("DEPL")]
+        pres = [n[: -len("DEPL")] for n in f["CHA"] if n.endswith("DEPL") and not n.startswith("buckle")]
 
     def order(pre: str):
         stem = pre.rstrip("_")
@@ -327,6 +333,12 @@ def _result_prefixes(f: h5py.File) -> list[str]:
 def _field_of(f: h5py.File, prefix: str, suffix: str) -> str | None:
     name = prefix + suffix
     return name if name in f["CHA"] else None
+
+
+def read_buckling_factors(rmed):
+    from .read_rmed_results import read_buckling_factors as read
+
+    return read(rmed)
 
 
 def _field(f: h5py.File, suffix: str) -> str | None:

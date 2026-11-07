@@ -7,11 +7,24 @@ from ada.core.utils import get_current_user
 from ada.fem.steps import Step, StepEigen, StepImplicitStatic
 
 from .not_held import STAGE, report
-from .templates import sestra_eig_inp_str, sestra_header_inp_str, sestra_static_inp_str
+from .templates import (
+    sestra_buckle_inp_str,
+    sestra_eig_inp_str,
+    sestra_header_inp_str,
+    sestra_static_inp_str,
+)
+
+#: The EIGA shift of a buckling run: "positive and smaller than the smallest eigenvalue" (Sestra UM, CMAS LBCK). The
+#: stability factor of a sensible reference load is well above it.
+BUCKLING_SHIFT = 1.0e-3
 
 
 def _sestra_writers() -> dict:
-    return {Step.TYPES.EIGEN: write_sestra_eig_str, Step.TYPES.STATIC: write_sestra_static_str}
+    return {
+        Step.TYPES.EIGEN: write_sestra_eig_str,
+        Step.TYPES.STATIC: write_sestra_static_str,
+        Step.TYPES.BUCKLING: write_sestra_buckle_str,
+    }
 
 
 def write_sestra_inp(name, step: StepEigen | StepImplicitStatic, supnr: int = 1):
@@ -35,6 +48,10 @@ def write_sestra_eig_str(name: str, step: StepEigen, supnr: int = 1):
 
 def write_sestra_static_str(name: str, step: StepImplicitStatic, supnr: int = 1):
     return sestra_static_inp_str.format(name=name, supnr=supnr)
+
+
+def write_sestra_buckle_str(name: str, step, supnr: int = 1):
+    return sestra_buckle_inp_str.format(name=name, supnr=supnr, modes=step.num_modes, shift=f"{BUCKLING_SHIFT:g}")
 
 
 def written_step(steps: Sequence[Step]) -> Step | None:

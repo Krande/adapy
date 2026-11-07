@@ -171,7 +171,11 @@ def to_fem(assembly, name, analysis_dir=None, metadata=None, model_data_only=Fal
     steps = list(assembly.fem.steps) + ([] if assembly.fem is part.fem else list(part.fem.steps))
     step = written_step(steps)
     # ``model_data_only``: the FEM file alone, no Sestra control file beside it.
-    sestra_inp = not model_data_only and step is not None and step.type in (step.TYPES.EIGEN, step.TYPES.STATIC)
+    sestra_inp = (
+        not model_data_only
+        and step is not None
+        and step.type in (step.TYPES.EIGEN, step.TYPES.STATIC, step.TYPES.BUCKLING)
+    )
     if sestra_inp:
         with open(analysis_dir / "sestra.inp", "w") as f:
             f.write(write_sestra_inp(name, step, supnr=seltyp))
