@@ -24,6 +24,14 @@ conversion (:mod:`..results.to_sin`), which finds a MED beam in the Sesam deck b
 The reference node has to carry rotations (a shell's or a beam's node; a solid's has none), which is where an
 eccentric beam sits in practice. A truss (``BARRE``) is tied in its translations only: it has no rotations to tie.
 
+Only the line elements move to the offset nodes. A point mass or a spring on one of those nodes (``Mass``,
+``Spring``: ``POI1`` cells, :mod:`.write_masses`) stays on the **mesh node**: it is defined on the node, the point
+where the plate and the beam meet, not on the beam, and that is where the model's every other writer (Sesam, Abaqus)
+and a Sesam deck with a GECCEN put it too. A mass meant to sit on the beam's axis belongs on a node placed there
+(``FEM.nodes.add`` + ``add_mass``) and tied by a coupling, as it would in any FE program. The rigid link carries the
+node's inertia to the beam either way; in a modal step the difference is the lever arm ``e`` of a point mass that
+was never said to be on the axis.
+
 Measured (Code_Aster 18.1.7, Sestra V11.3-01, the same adapy mesh): a 7.8 x 3.9 m simply supported panel, 6 mm plate,
 HP160x8 stiffeners at 0.65 m and TG600x300x20x32 girders on the long edges under 50 kPa -- see ``PR.md`` /
 ``tests/fem/test_code_aster_eccentric_beams.py`` for the numbers.

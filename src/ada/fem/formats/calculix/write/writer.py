@@ -16,7 +16,10 @@ from ada.fem.formats.abaqus.write.write_sections import (
     shell_section_str,
     solid_section_str,
 )
-from ada.fem.formats.utils import get_fem_model_from_assembly
+from ada.fem.formats.utils import (
+    get_fem_model_from_assembly,
+    report_dropped_eccentricities,
+)
 from ada.fem.steps import StepExplicit
 
 from ..compatibility import check_compatibility
@@ -43,6 +46,9 @@ def to_fem(assembly: Assembly, name, analysis_dir, metadata=None, model_data_onl
     inp_file = (analysis_dir / name).with_suffix(".inp")
 
     p = get_fem_model_from_assembly(assembly)
+    # An eccentric beam (a stiffener flush on its plate) is written on its nodes: OFFSET1/2 would cover rectangles,
+    # boxes and pipes only, and is not written.
+    report_dropped_eccentricities([p.fem], STAGE)
     steps = all_steps(assembly)
     bcs = list(p.fem.bcs) + list(assembly.fem.bcs)
     check_conflicting_bcs(bcs, steps)

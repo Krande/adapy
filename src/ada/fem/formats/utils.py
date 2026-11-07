@@ -722,6 +722,37 @@ def convert_part_shell_elements_to_plates(p: Part) -> Plates:
     return Plates(build_plates_from_entries(entries, p), parent=p)
 
 
+def report_dropped_eccentricities(fems, stage: str) -> int:
+    """Report, per FEM, the beam elements whose ``Elem.eccentricity`` the writer of ``stage`` puts on their nodes.
+
+    Sesam (GECCEN) and Code_Aster (offset nodes and rigid links, ``code_aster.write.write_eccentricity``) write an
+    eccentric beam where its neutral axis is; Abaqus (``*CENTROID`` is not written) and CalculiX (``OFFSET1``/``2``
+    cover rectangles, boxes and pipes only) do not, and solve the beam in the plane of the nodes it shares with its
+    plate -- a stiffened panel then deflects several times what the eccentric model gives. One ``omitted`` finding
+    per FEM, counting the elements, so a conversion report says how much of the model it concerns. Returns the count.
+    """
+    from ada.fem.formats import conversion_report
+
+    total = 0
+    for fem in fems:
+        n = sum(
+            1 for el in fem.elements.lines_ecc if el.eccentricity.end1 is not None or el.eccentricity.end2 is not None
+        )
+        if n == 0:
+            continue
+        total += n
+        conversion_report.current().omitted(
+            stage,
+            "Element",
+            fem.name,
+            f"{n} beam element(s) carry an eccentricity (a stiffener flush on its plate, an offset girder); this "
+            "writer has no form for it and puts them on their nodes, so they bend about the nodal line, not their "
+            "own axis. Sesam and Code_Aster write the offset",
+            count=n,
+        )
+    return total
+
+
 def convert_part_elem_bm_to_beams(p: Part) -> Beams:
     return Beams([line_elem_to_beam(bm, p) for bm in p.fem.elements.lines], parent=p)
 

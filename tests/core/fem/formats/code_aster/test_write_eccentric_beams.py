@@ -110,6 +110,23 @@ def test_eccentric_beam_is_written_on_offset_nodes_tied_by_rigid_links(tmp_path)
     assert f"_F(CHARGE={ECC_LINKS})" in excit and "_F(CHARGE=supports)" in excit
 
 
+def test_a_point_mass_on_an_eccentric_beams_node_stays_on_the_mesh_node(tmp_path):
+    """A mass is defined on the node -- where the plate and the beam meet -- not on the beam, so its POI1 cell keeps
+    the mesh node while the beam's SEG2 cells move to the offset nodes (the rigid link carries it to the beam)."""
+    from ada.fem import Mass
+
+    a, p, bm = _model(flush=True)
+    (mid,) = [n for n in p.fem.nodes if abs(n.x - 1.0) < 1e-9 and abs(n.y - 0.5) < 1e-9]
+    p.fem.add_mass(Mass("m", p.fem.add_set(FemSet("m_set", [mid], FemSet.TYPES.NSET)), 100.0))
+    a.to_fem("ecc", "code_aster", scratch_dir=tmp_path, overwrite=True)
+    with h5py.File(tmp_path / "ecc" / "ecc.med", "r") as f:
+        step = next(iter(f["ENS_MAA"]["ecc"].values()))
+        po1 = np.asarray(step["MAI"]["PO1"]["NOD"])
+        seg2 = np.asarray(step["MAI"]["SE2"]["NOD"])
+    assert po1.tolist() == [int(mid.id)]
+    assert int(mid.id) not in seg2.tolist() and seg2.min() > int(p.fem.nodes.max_nid)
+
+
 def test_beam_on_its_axis_gets_no_links_and_no_sidecar(tmp_path):
     p, bm, comm, med, sidecar = _write(tmp_path, flush=False)
     assert ECC_LINKS not in comm
