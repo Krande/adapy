@@ -349,6 +349,14 @@ def seg_to_beam(name: str, seg: ET.Element, parent: Part, prev_bm: Beam, zv, edg
     if material_ref is None:
         raise ValueError(f"Material not found for beam '{name}'. Please check your xml file")
 
+    if material_ref not in parent.materials.name_map:
+        # its material was not read (a kind read_materials has no model for, reported there)
+        from ada.fem.formats import conversion_report
+
+        conversion_report.current().omitted(
+            "genie xml reader", "straight_segment", name, "its material was not read", material=material_ref
+        )
+        return None
     mat = parent.materials.get_by_name(material_ref)
     mdf = seg.attrib.get("mass_density_factor_ref", None)
     if mdf is not None:

@@ -163,5 +163,10 @@ class GxmlStore:
 
         apply_mass_density_factors(self.xml_root, p)
 
+        # everything no reader above looks at, named (unread.py)
+        from .read.unread import report_unread
+
+        report_unread(self.xml_root)
+
         logger.info(f"Finished importing Genie XML (beams={all_beams}, plates={all_plates}, joints={all_joints})")
         return p
