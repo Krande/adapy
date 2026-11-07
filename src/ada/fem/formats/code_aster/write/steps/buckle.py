@@ -6,7 +6,9 @@ The procedure of U2.08.04 section 1, for one reference load:
 2. its stress field (``CREA_CHAMP``, ``ELGA_SIEF_R``), and from it the geometric stiffness ``RIGI_GEOM``
    (``CALC_MATR_ELEM``);
 3. the material stiffness ``RIGI_MECA`` with the supports, both numbered and assembled on one ``NUME_DDL``;
-4. ``CALC_MODES(TYPE_RESU='MODE_FLAMB', OPTION='PLUS_PETITE')``: the ``num_modes`` critical load factors of the
+4. ``CALC_MODES(TYPE_RESU='MODE_FLAMB', OPTION='PLUS_PETITE')``, its Sorensen subspace ``4 num_modes`` (at least 20):
+   Code_Aster's default ``2 num_modes`` found 3 of 4 modes on win-64 (<ALGELINE5_49>, the windows agent), and Sestra's
+   2-ENR Lanczos basis got the 4th 6.75 % off. The ``num_modes`` critical load factors of the
    smallest magnitude, ``(K + mu K_g) x = 0`` -- U2.08.04: "it is the critical load factor mu and not lambda that is
    stored in the result concept".
 
@@ -75,7 +77,7 @@ def step_buckle_str(step: StepBuckling, part: Part, result: str = "buckle") -> s
     TYPE_RESU='MODE_FLAMB',
     OPTION='PLUS_PETITE',
     CALC_CHAR_CRIT=_F(NMAX_CHAR_CRIT={step.num_modes}),
-    SOLVEUR_MODAL=_F(METHODE='SORENSEN'),
+    SOLVEUR_MODAL=_F(METHODE='SORENSEN', DIM_SOUS_ESPACE={max(4 * step.num_modes, 20)}),
     VERI_MODE=_F(STOP_ERREUR='NON'),
 )
 IMPR_RESU(RESU=_F(RESULTAT={result}), UNITE=80)
