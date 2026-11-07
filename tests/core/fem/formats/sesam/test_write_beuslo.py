@@ -26,14 +26,22 @@ Q = 1000.0
 
 
 def _records(out: str) -> list[list[list[float]]]:
-    """Each BEUSLO record as its three rows of numbers, in the order written."""
+    """Each BEUSLO record as its three rows of numbers, in the order written: the head, the element line and the
+    intensities, which run on over continuation lines of four fields each -- the most a Sesam line holds (Sestra
+    read a longer one short: "BEUSLO card is too short for dof count given in NDOF field")."""
     lines = out.splitlines()
     recs = []
     for i, line in enumerate(lines):
         if not line.startswith("BEUSLO"):
             continue
-        rows = [[float(x) for x in line.split()[1:]]]
-        rows += [[float(x) for x in lines[i + 1].split()], [float(x) for x in lines[i + 2].split()]]
+        body = [line.split()[1:]]
+        for cont in lines[i + 1 :]:
+            if not cont.startswith(" "):
+                break
+            body.append(cont.split())
+        assert all(len(fields) <= 4 for fields in body), body
+        rows = [[float(x) for x in body[0]], [float(x) for x in body[1]]]
+        rows.append([float(x) for fields in body[2:] for x in fields])
         recs.append(rows)
     return recs
 
@@ -158,13 +166,13 @@ def test_a_pressure_on_beams_is_refused_by_name():
     assert out == "", "no BEUSLO for a beam"
     findings = [f for f in rep.findings if f.subject == "q"]
     assert len(findings) == 1, findings
-    assert "BEUSLO is a shell surface load" in findings[0].reason
+    assert "has no BEUSLO form" in findings[0].reason
     assert findings[0].details["n_elements"] == 2
 
 
-def test_a_pressure_on_solids_is_refused_by_name():
-    """BEUSLO's SIDE numbering for a solid face is not established here, so it is refused
-    rather than written with a guessed face."""
+def test_a_pressure_on_solids_naming_no_face_is_refused_by_name():
+    """A bare element set of solids names no face (a blank side is the elements' free faces,
+    which depend on their neighbours), so it is refused rather than written on a guessed side."""
     nodes = [ada.Node((i % 2, (i // 2) % 2, i // 4), i + 1) for i in range(8)]
     fem = ada.FEM("MyFem", nodes=ada.api.containers.Nodes(nodes))
     hexes = [Elem(1, nodes, SolidShapes.HEX8)]
@@ -174,7 +182,7 @@ def test_a_pressure_on_solids_is_refused_by_name():
     with conversion_report.collect() as rep:
         out = load_pressure(_elset_pressure(fem, hexes), 1)
     assert out == ""
-    assert any("shell surface load" in f.reason for f in rep.findings if f.subject == "q")
+    assert any("names no Sesam element side" in f.reason for f in rep.findings if f.subject == "q")
 
 
 def test_a_pressure_on_a_node_set_is_refused_by_name():
@@ -236,7 +244,7 @@ def test_a_mixed_set_writes_the_shells_and_refuses_the_rest_by_name():
     with conversion_report.collect() as rep:
         out = load_pressure(_elset_pressure(fem, shells + [beam]), 1)
     assert [rec[1][0] for rec in _records(out)] == [1.0, 2.0]
-    assert any("shell surface load" in f.reason for f in rep.findings if f.subject == "q")
+    assert any("has no BEUSLO form" in f.reason for f in rep.findings if f.subject == "q")
 
 
 def test_the_step_writes_tdload_then_the_beuslo_block():

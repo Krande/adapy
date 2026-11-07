@@ -24,6 +24,8 @@ import numpy as np
 
 from ada.fem.shapes.definitions import SpringTypes
 
+from .element_numbers import internal
+from .element_numbers import nodes as internal_nodes
 from .write_utils import write_ff
 
 if TYPE_CHECKING:
@@ -69,9 +71,9 @@ def _rows(values: list, head: tuple) -> list[tuple]:
 def element_records(spring: Spring, matno: int) -> tuple[str, str]:
     """The spring's GELMNT1 and GELREF1."""
     eltyp = GROUND_SPRING if spring.type == SpringTypes.SPRING1 else TWO_NODE_SPRING
-    nodes = tuple(n.id for n in spring.nodes)
-    gelmnt = write_ff("GELMNT1", [(spring.id, spring.id, eltyp, 0), nodes])
-    gelref = write_ff("GELREF1", [(spring.id, matno, 0, 0), (0, 0, 0, 0), (0, 0, 0, 0)])
+    nodes = tuple(internal_nodes([n.id for n in spring.nodes]))
+    gelmnt = write_ff("GELMNT1", [(spring.id, internal(spring.id), eltyp, 0), nodes])
+    gelref = write_ff("GELREF1", [(internal(spring.id), matno, 0, 0), (0, 0, 0, 0), (0, 0, 0, 0)])
     return gelmnt, gelref
 
 
@@ -79,6 +81,10 @@ def property_records(spring: Spring, matno: int) -> str:
     """The stiffness record and the TDELEM that names the spring."""
     k6 = np.asarray(spring.stiff, dtype=float)
     if spring.type == SpringTypes.SPRING1:
+        from .node_frames import current as node_frames
+
+        # at a node in a rotated frame (a skewed support's) MGSPRNG is in that frame, as GeniE writes it
+        k6 = node_frames().stiffness_to_local(spring.nodes[0].id, k6)
         n = k6.shape[0]
         out = write_ff("MGSPRNG", _rows(_lower_by_columns(k6), (matno, n)))
     else:
@@ -86,5 +92,5 @@ def property_records(spring: Spring, matno: int) -> str:
         k = two_node_matrix(k6)
         out = write_ff("MSHGLSP", _rows(_lower_by_columns(k), (matno, GENERAL_SPRING, n, n)))
     name, comment = spring.name, f"{NSET_COMMENT}{spring.fem_set.name}"
-    out += write_ff("TDELEM", [(4, spring.id, 100 + len(name), 100 + len(comment)), (name,), (comment,)])
+    out += write_ff("TDELEM", [(4, internal(spring.id), 100 + len(name), 100 + len(comment)), (name,), (comment,)])
     return out

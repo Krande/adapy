@@ -30,6 +30,8 @@ RAW_ROLES = {
     "STRESS": FieldRole.SHELL_STRESS,
     "FORCES": FieldRole.BEAM_FORCES,
     "RVNODDIS": FieldRole.NODAL_DISPLACEMENT,
+    # RVNODREA expanded to every node, [node, X-FORCE .. RZ-MOMENT] in model axes (read_sif.get_nodal_reactions)
+    "REACTION-FORCE": FieldRole.NODAL_REACTION,
 }
 _FIELD_OF_ROLE = {role: name for name, role in RAW_ROLES.items()}
 
@@ -340,6 +342,20 @@ def read_calculation_types(sin) -> dict[int, int]:
     return {int(round(r[0])): int(round(r[3])) for r in _records(sin, "RDRESREF") if len(r) >= 5}
 
 
+#: RDRESREF's ICALTY of a linearized buckling mode (Sestra 11.3-01, CMAS LBCK = 1: every mode's record carries 9).
+ICALTY_BUCKLING = 9
+
+
+def read_buckling_factors(sin) -> list[float] | None:
+    """A linearized buckling run's stability factors, smallest first, or None when the SIN holds no buckling mode.
+
+    Sestra writes one RDRESREF per mode, ICALTY 9, and the mode's eigenvalue last: the factor the reference load (the
+    deck's load case) is multiplied by to buckle the structure, as SESTRA.LIS prints it under "critical load levels"
+    and as Code_Aster's CHAR_CRIT is (``FEAResult.buckling_factors``). Single precision, as every SIN value is."""
+    factors = [float(r[-1]) for r in _records(sin, "RDRESREF") if len(r) >= 9 and int(round(r[3])) == ICALTY_BUCKLING]
+    return sorted(factors, key=abs) if factors else None
+
+
 def element_thickness(mesh: Any, thickness_by_geono: Mapping[int, float]) -> dict[int, float]:
     """``{shell element: thickness}`` through ``elem_data``'s geono column."""
     from ada.fem.shapes.definitions import ShellShapes
@@ -390,6 +406,7 @@ def open_sin_result(path: str | os.PathLike, *, super_element: Any = None):
         mesh.restrained_nodes = read_restrained_nodes(sin, numbering)
         _add_bar_sections(mesh, bars, sin)
 
+        buckling = read_buckling_factors(sin)
         stored = sorted(read_sin.stored_result_cases(sin))
         load_case_of, _irregular = read_load_case_map(sin)
         cases = ResultCases(
@@ -413,6 +430,7 @@ def open_sin_result(path: str | os.PathLike, *, super_element: Any = None):
         step_name_map=dict(cases.names),
         cases=cases,
         analysis_kind="static",
+        buckling_factors=buckling,
     )
 
 

@@ -107,17 +107,45 @@ class LoadConceptLine:
 
 @dataclass
 class LoadConceptSurface:
+    """A normal pressure on a plate (``plate_ref``) or over a polygon footprint (``points``).
+
+    ``pressure_gradient`` (per unit length, in the load's position axes) makes the pressure vary linearly:
+    ``p(x) = pressure + pressure_gradient . x``, so ``pressure`` is then its value at the origin of those axes.
+    GeniE's ``pressure2d_linear_function`` is exactly that (k1..k3 the gradient, k4 the constant); its
+    ``pressure2d_3point_varying`` is read as the linear field through its three values. ``None``: uniform.
+    """
+
     name: str
     plate_ref: Plate = None
     points: list[Iterable] = None
     pressure: float = None
     side: Literal["front", "back"] = "front"
     system: Literal["local", "global"] = "local"
+    pressure_gradient: tuple[float, float, float] | None = None
+    #: A traction instead of a normal pressure: a force per unit area by components (fx, fy, fz) in the load's
+    #: axes (GeniE's ``component2d_constant``). ``pressure`` is then not used.
+    traction: tuple[float, float, float] | None = None
     parent: LoadConceptCase = field(init=False, repr=False)
 
     def __post_init__(self):
         if self.plate_ref is None and self.points is None:
             raise ValueError("Either plate_ref or points must be provided for LoadConceptSurface.")
+        if self.traction is not None:
+            t = tuple(float(c) for c in self.traction)
+            if len(t) != 3:
+                raise ValueError("traction must have three components")
+            self.traction = t
+        if self.pressure_gradient is not None:
+            g = tuple(float(c) for c in self.pressure_gradient)
+            if len(g) != 3:
+                raise ValueError("pressure_gradient must have three components")
+            self.pressure_gradient = None if g == (0.0, 0.0, 0.0) else g
+
+    def pressure_at(self, position) -> float:
+        """The pressure at ``position`` (in the load's position axes)."""
+        if self.pressure_gradient is None:
+            return float(self.pressure)
+        return float(self.pressure) + float(sum(g * float(c) for g, c in zip(self.pressure_gradient, position)))
 
 
 @dataclass

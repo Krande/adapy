@@ -56,6 +56,7 @@ def abaqus_step_str(step: _step_types):
         st.EIGEN: eigenfrequency_str,
         st.STEADY_STATE: steady_state_response_str,
         st.COMPLEX_EIG: complex_eig_str,
+        st.BUCKLING: buckle_str,
     }
     # By class first: StepEigenComplex inherits StepEigen.__init__, which gives it the EIGEN type,
     # so dispatching on the type wrote every complex-frequency step as a plain *Frequency.
@@ -112,8 +113,11 @@ def load_case_step_str(step: StepImplicitStatic, app_str: str = "**") -> str:
         if id(load) not in in_cases:
             rep.omitted(STAGE, "Load", load.name, "a load of a step with load cases, in none of them", step=step.name)
 
+    from ada.fem.frames import in_global_axes_or_refuse
+
     model_bcs = list(step.parent.get_all_bcs()) if getattr(step.parent, "parent", None) is not None else []
-    step_bcs = [bc_str(bc, True) for bc in step.bcs.values()]
+    model_bcs = in_global_axes_or_refuse(model_bcs, "abaqus")
+    step_bcs = [bc_str(bc, True) for bc in in_global_axes_or_refuse(step.bcs.values(), "abaqus")]
     cases = []
     for lc in step.load_cases.values():
         body = step_bcs + [prescribed_in_case_str(step, lc.name, model_bcs)]
@@ -170,16 +174,18 @@ def interactions_str(step: _step_types):
 
 
 def all_bc_str(step: _step_types):
+    # The model's prescribed displacements go into the steps: Abaqus takes no nonzero *Boundary in model data.
+    from ada.fem.frames import in_global_axes_or_refuse
+
     from .write_bc import bc_str, prescribed_in_step_str
 
-    # The model's prescribed displacements go into the steps: Abaqus takes no nonzero *Boundary in model data.
     model_bcs = list(step.parent.get_all_bcs()) if getattr(step.parent, "parent", None) is not None else []
-    settled = prescribed_in_step_str(step, model_bcs)
+    settled = prescribed_in_step_str(step, in_global_axes_or_refuse(model_bcs, "abaqus"))
     if len(step.bcs) == 0:
         return settled or "** No BCs"
 
     bcstr = ""
-    for bcid, bc_ in step.bcs.items():
+    for bc_ in in_global_axes_or_refuse(step.bcs.values(), "abaqus"):
         bcstr += "\n" if "\n" not in bcstr[-2:] != "" else ""
         bcstr += bc_str(bc_, True)
 
@@ -249,6 +255,15 @@ def eigenfrequency_str(step: StepEigen):
     return render_keyword(
         "Step", [("name", step.name), ("nlgeom", "NO"), ("perturbation", None)], (), _step_banner(step)
     ) + render_keyword("Frequency", frequency_params, [f"{step.num_eigen_modes}, , , , ,"])
+
+
+def buckle_str(step) -> str:
+    """A linear buckling step (:class:`~ada.fem.StepBuckling`): a ``*Buckle`` perturbation step asking for its number
+    of eigenvalues, the step's loads the reference load (Abaqus Analysis User's Guide, "Eigenvalue buckling
+    prediction"); Lanczos is Abaqus' default for it."""
+    return render_keyword(
+        "Step", [("name", step.name), ("nlgeom", "NO"), ("perturbation", None)], (), _step_banner(step)
+    ) + render_keyword("Buckle", [], [f"{step.num_modes}, , , ,"])
 
 
 def _step_banner(step: _step_types) -> list[str]:

@@ -44,16 +44,19 @@ RESERVED = frozenset(
         "material",
         "element",
         "nl_mat",
-        "Traction",
+        # the placeholder material of a model of discretes alone (write_sections)
+        "mat_disc",
         # the element groups the model is assigned over
         "bm_sets",
         "bm_t_sets",
+        "bm_gd_sets",
         "tr_sets",
         "cb_sets",
         "mb_sets",
         "sh_sets",
         "sh_2nd_order_sets",
         "so_sets",
+        "sk_sets",
         # a Bc's dof dictionary
         "dofs",
         # results and post-processing
@@ -89,6 +92,17 @@ RESERVED_PATTERNS = (
     re.compile(r"result\d*_(?:pd|t|f\d+|p\d+|g\d+|c\d+|sup|inf)"),
     re.compile(r"supports_\d+"),
     re.compile(r"prescribed_zero_\d+"),
+    # a buckling step's modes and what leads to them (steps.buckle)
+    re.compile(r"buckle\d*"),
+    re.compile(r"(?:buckle|result)\d*_(?:s|sg|ge|ke|nu|k|g|t)"),
+    # an implicit dynamic step's result, its time list and load multipliers (steps.dynamic)
+    re.compile(r"dyn\d*"),
+    # multi-fibre beams' fibres and behaviours (write_fibres)
+    re.compile(r"mf_geom"),
+    re.compile(r"mf_compor\d+"),
+    # a shell-to-solid coupling's normal field (write_constraints.create_link_str)
+    re.compile(r"lk_\w+_nrm"),
+    re.compile(r"(?:dyn|result)\d*_(?:li|f\d+)"),
 )
 
 
@@ -100,7 +114,15 @@ def is_reserved(name: str) -> bool:
 #: The prefix of each kind of concept a user object becomes. None of the deck's own names starts with
 #: ``ld_``, ``cp_``, ``mt_``, ``mm_`` (a membrane section's material) or ``mc_`` (a cable section's); ``bc_step``
 #: does, and is in :data:`RESERVED`.
-PREFIX = {"load": "ld_", "bc": "bc_", "coupling": "cp_", "material": "mt_", "membrane": "mm_", "cable": "mc_"}
+PREFIX = {
+    "load": "ld_",
+    "bc": "bc_",
+    "coupling": "cp_",
+    "link": "lk_",
+    "material": "mt_",
+    "membrane": "mm_",
+    "cable": "mc_",
+}
 
 _current: contextvars.ContextVar["ConceptNames | None"] = contextvars.ContextVar("code_aster_concepts", default=None)
 

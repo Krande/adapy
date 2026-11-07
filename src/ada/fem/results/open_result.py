@@ -34,9 +34,16 @@ def _open_rmed(path, **options):
     return open_rmed_result(path, **options)
 
 
+def _open_frd(path, **options):
+    from ada.fem.formats.calculix.results.structural import open_frd_result
+
+    return open_frd_result(path, **options)
+
+
 def _builtin() -> None:
     _OPENERS.setdefault(".sin", _open_sin)
     _OPENERS.setdefault(".rmed", _open_rmed)
+    _OPENERS.setdefault(".frd", _open_frd)
 
 
 def open_result(path: str | os.PathLike, **options: Any):

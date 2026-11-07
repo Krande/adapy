@@ -500,10 +500,14 @@ class ArrayElements(FemElements):
             el._el_id = int(self._store.blocks[ctype].el_ids[row])
         # The store only knows about its blocks, so the overflow elements (Mass, Spring,
         # Connector) have to be renumbered alongside them or they keep pre-renumber ids
-        # while every set member around them moves on. Mass is excluded for the same
-        # reason FemElements._renumber_from_map excludes it: mass ids follow the node
-        # renumbering, not the element map.
-        overflow = [el for el in self._overflow if isinstance(el, Mass) is False]
+        # while every set member around them moves on. With a map, a mass is renumbered when
+        # the map names it -- a mass *element* (GELMNT1), numbered like the rest -- and keeps
+        # its id when not (a nodal BNMASS mass, given one past every internal number), as in
+        # FemElements._renumber_from_map. Without one, masses keep theirs.
+        if renumber_map is not None:
+            overflow = [el for el in self._overflow if isinstance(el, Mass) is False or el.id in renumber_map]
+        else:
+            overflow = [el for el in self._overflow if isinstance(el, Mass) is False]
         if renumber_map is not None:
             for el in overflow:
                 # An id absent from the map keeps what it has, matching

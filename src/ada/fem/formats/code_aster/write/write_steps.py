@@ -7,7 +7,7 @@ from ada.fem import StepEigen, StepImplicitStatic
 if TYPE_CHECKING:
     from ada.api.spatial import Assembly, Part
 
-from .steps import dynamic, eigen, static
+from .steps import buckle, dynamic, eigen, static
 
 
 def all_steps(assembly: Assembly) -> list:
@@ -27,11 +27,20 @@ def result_names(steps) -> list[str]:
     ``result3``, ... for the next. Every step was written into ``result``, so a second step overwrote the first in the
     deck and in the MED file. Eight characters at most: the MED field name is the concept name padded to 8 plus the
     field's (``result__DEPL``)."""
-    names, n = [], 0
+    names, n, b = [], 0, 0
     for step in steps:
         if step.type == StepEigen.TYPES.STATIC:
             n += 1
             names.append("result" if n == 1 else f"result{n}")
+        elif step.type == StepEigen.TYPES.DYNAMIC:
+            # an implicit dynamic step's time history (steps.dynamic)
+            d = sum(1 for nm in names if nm.startswith("dyn")) + 1
+            names.append("dyn" if d == 1 else f"dyn{d}")
+            continue
+        elif step.type == StepEigen.TYPES.BUCKLING:
+            # a buckling step's modes: ``buckle``, ``buckle2``, ... (steps.buckle)
+            b += 1
+            names.append("buckle" if b == 1 else f"buckle{b}")
         else:
             names.append("")
     if n > 99:
@@ -52,8 +61,11 @@ def steps_str(steps, part: Part) -> str:
     from .write_loads import STAGE
 
     applied = general_step_loads(steps, STAGE)
+    # ``# Step <name>: <result>`` names each static step's result for the reader (results.structural.comm_step_names).
     return "\n".join(
-        create_step_str(step, part, result, applied.get(id(step))) for step, result in zip(steps, result_names(steps))
+        (f"# Step {step.name}: {result}\n" if result else "")
+        + create_step_str(step, part, result, applied.get(id(step)))
+        for step, result in zip(steps, result_names(steps))
     )
 
 
@@ -64,6 +76,10 @@ def create_step_str(
     st = StepEigen.TYPES
     if step.type == st.STATIC:
         return static.step_static_str(step, part, result, loads or [])
+    if step.type == st.BUCKLING:
+        return buckle.step_buckle_str(step, part, result or "buckle")
+    if step.type == st.DYNAMIC:
+        return dynamic.step_dynamic_str(step, part, result or "dyn")
     step_map = {st.EIGEN: eigen.step_eig_str, st.DYNAMIC: dynamic.step_dynamic_str}
 
     step_writer = step_map.get(step.type, None)

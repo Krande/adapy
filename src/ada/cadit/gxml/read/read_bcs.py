@@ -14,10 +14,12 @@ below):
 
 * **Frames.** The six ``<boundary_condition>`` codes are in the support's ``<local_system>``: a
   point with ``x' = (0, 1, 0)`` and dx fixed gave BNBCD 1 at dof 1 with a BNTRCOS of ``x' = y``.
-  The concept classes hold global DOFs only, so a rotated support is converted when the rotation
-  maps the codes exactly onto global axes (a 90 degree turn, or e.g. dz alone under a turn about
-  z) and refused otherwise (a 45 degree turn holding dx' only). A prescribed DOF in a rotated
-  frame is refused too: its value, in a load case, is in that frame.
+  A rotated support is converted to global DOFs when the rotation maps the codes exactly onto
+  global axes (a 90 degree turn, or e.g. dz alone under a turn about z), and kept in its frame
+  otherwise -- the concept's ``local_system`` (a 45 degree turn holding dx' only, a curve along a
+  3-4-5 slope, a prescribed DOF whose value is along a turned axis), which reaches the FE model as
+  a ``Bc`` with a ``csys`` (:mod:`ada.fem.frames`). A rigid link's master in such a frame is still
+  refused: its slaves' linear dependencies are in global axes.
 * **Curves.** A curve with ``<line_orientation><constant_local_system_line_orientation/>`` is in
   its ``<local_system>`` (measured with the identity and with ``x' = y``). Without
   ``<line_orientation>`` it has GeniE's default ("guide") orientation: ``x'`` along the curve,
@@ -32,14 +34,14 @@ below):
   6 nodes GeniE linked are the ones inside them, whatever ``local_system_origin`` says: GeniE
   writes the box centre there and adapy the master point). The slave translations are linked
   unless ``slave_dx|dy|dz="free"`` (BLDEP then leaves that DOF out); the slave rotations only with
-  ``slave_rx|ry|rz="dependent"`` (absent: a 9-term BLDEP, translations only; present: 12 terms).
+  ``slave_rx|ry|rz="dependent"`` (absent: a 9-term BLDEP, translations only; present: 12 terms). A free slave
+  translation is left out of ``slave_translations`` (Srl_sdx, ``slave_dx="free"``: GeniE's BLDEP left dx out).
   GeniE's importer also takes ``rotation_dependent="true"`` (adapy's writer) and exports it back
   as ``slave_r*="dependent"``. ``include_all_edges="false"`` is GeniE's
   ``IncludeOnlyNodesOfSupports``; it is carried as written.
 
-Refused by name: a non-identity frame that does not map onto global axes; a rotated frame with a
-prescribed DOF; a guide-oriented curve whose stored frame is not the guide frame; a curve that is
-not one straight segment; a rigid link with a free slave translation, some but not all slave
+Refused by name: a rigid link in a frame that does not map onto global axes; a guide-oriented curve whose stored frame is not the guide frame; a curve that is
+not one straight segment; a rigid link with some but not all slave
 rotations dependent, or a rotated footprint box; anything this reader has no field for.
 """
 
@@ -142,7 +144,8 @@ def _support_point(el: ET.Element) -> ConstraintConceptPoint:
     geometry = _one(el, "geometry")
     _check_children(geometry, {"position"})
     position = _xyz(_one(geometry, "position"))
-    return ConstraintConceptPoint(el.get("name"), position, _global_dofs(el, _frame(el)))
+    dofs, frame = _dofs_and_frame(el, _frame(el))
+    return ConstraintConceptPoint(el.get("name"), position, dofs, local_system=frame)
 
 
 def _support_curve(el: ET.Element, edge_curve_resolver) -> ConstraintConceptCurve:
@@ -167,7 +170,8 @@ def _support_curve(el: ET.Element, edge_curve_resolver) -> ConstraintConceptCurv
                 local_system=frame.tolist(),
                 guide_frame=guide.tolist(),
             )
-    return ConstraintConceptCurve(el.get("name"), start, end, _global_dofs(el, frame))
+    dofs, local_system = _dofs_and_frame(el, frame)
+    return ConstraintConceptCurve(el.get("name"), start, end, dofs, local_system=local_system)
 
 
 def _support_rigid_link(el: ET.Element) -> ConstraintConceptRigidLink:
@@ -175,14 +179,15 @@ def _support_rigid_link(el: ET.Element) -> ConstraintConceptRigidLink:
     slave_attrs = {f"slave_{d}" for d in _DOFS}
     _check_attributes(el, {"name", "include_all_edges", "rotation_dependent"} | slave_attrs)
 
+    translations = []
     for dof in _DOFS[:3]:
         value = el.get(f"slave_{dof}", "dependent")
-        if value != "dependent":
+        if value not in ("dependent", "free"):
             raise _Refused(
-                "support_rigid_link",
-                "a slave translation that is not linked; ConstraintConceptRigidLink links all three",
-                **{f"slave_{dof}": value},
+                "support_rigid_link", "a slave translation neither dependent nor free", **{f"slave_{dof}": value}
             )
+        if value == "dependent":
+            translations.append(dof)
     rotations = [el.get(f"slave_{dof}") for dof in _DOFS[3:]]
     if rotations == [None] * 3:
         rotation_dependent = None
@@ -229,9 +234,10 @@ def _support_rigid_link(el: ET.Element) -> ConstraintConceptRigidLink:
         el.get("name"),
         _xyz(_one(el, "position")),
         RigidLinkRegion(lower, upper),
-        _global_dofs(el, _frame(el)),
+        _rigid_link_dofs(el, _frame(el)),
         rotation_dependent=bool(rotation_dependent),
         include_all_edges=_bool(el.get("include_all_edges"), "include_all_edges"),
+        slave_translations=tuple(translations),
     )
 
 
@@ -305,7 +311,30 @@ def _frame(el: ET.Element) -> np.ndarray:
     return frame
 
 
+def _dofs_and_frame(el: ET.Element, frame: np.ndarray) -> tuple[list[ConstraintConceptDofType], tuple | None]:
+    """The support's dofs in global axes where its frame maps onto them, else in its frame and the frame: ``(dofs,
+    local_system)``, ``local_system`` None for global axes."""
+    try:
+        return _global_dofs(el, frame), None
+    except _Refused:
+        local = _local_dofs(el)
+        return [ConstraintConceptDofType(dof, *local[dof]) for dof in _DOFS], tuple(map(tuple, frame.tolist()))
+
+
+def _rigid_link_dofs(el: ET.Element, frame: np.ndarray) -> list[ConstraintConceptDofType]:
+    try:
+        return _global_dofs(el, frame)
+    except _Refused as r:
+        raise _Refused(
+            "local_system",
+            "a rigid link whose frame does not map onto global axes: its slaves' linear dependencies are in global "
+            "axes, so its master cannot be transformed (BNDOF); it is not read",
+            **r.details,
+        )
+
+
 def _global_dofs(el: ET.Element, frame: np.ndarray) -> list[ConstraintConceptDofType]:
+    """The dofs in global axes; refused (raises) when the frame does not map them onto global axes."""
     local = _local_dofs(el)
     if np.allclose(frame, np.eye(3), atol=_COSINE_TOL):
         return [ConstraintConceptDofType(dof, *local[dof]) for dof in _DOFS]
@@ -313,8 +342,7 @@ def _global_dofs(el: ET.Element, frame: np.ndarray) -> list[ConstraintConceptDof
     if any(c == "prescribed" for c, _ in local.values()):
         raise _Refused(
             "local_system",
-            "a prescribed dof in a rotated local system; its value in a load case is in that frame and the "
-            "concept classes hold global dofs only",
+            "a prescribed dof in a rotated local system; its value in a load case is in that frame",
             local_system=frame.tolist(),
         )
     converted = {}

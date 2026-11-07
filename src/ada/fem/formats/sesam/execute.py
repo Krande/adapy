@@ -59,6 +59,7 @@ def check_sestra_run(run_dir: str | os.PathLike) -> None:
     mlg = mlg_path.read_text(encoding="utf-8", errors="replace") if mlg_path.exists() else None
     lis = lis_path.read_text(encoding="utf-8", errors="replace") if lis_path.exists() else None
     if (mlg is not None and _SUCCESS_MLG in mlg) or (lis is not None and _SUCCESS_LIS in lis):
+        _check_cases_reached_sestra(run_dir, mlg)
         return
     if mlg is None and lis is None:
         raise FEASolveFailed(
@@ -73,6 +74,33 @@ def check_sestra_run(run_dir: str | os.PathLike) -> None:
         message,
         codes=["execution_failed"],
     )
+
+
+#: SESTRA.MLG's count of the load cases it solved: ``Number of load cases: 0`` (V11.3-01).
+_MLG_CASES = re.compile(r"Number of load cases:\s*(\d+)")
+
+
+def _check_cases_reached_sestra(run_dir: pathlib.Path, mlg: str | None) -> None:
+    """Raise when the deck has load cases (TDLOAD) and Sestra solved none: it then warns "No load is specified" and
+    still ends "successful" -- measured, Sestra 11.3-01, with a load written as a record it does not take (BRIGVE).
+    """
+    from ada.fem.exceptions.fea_execution import FEASolveFailed
+
+    if mlg is None:
+        return
+    counts = [int(m) for m in _MLG_CASES.findall(mlg)]
+    if not counts or any(counts):
+        return
+    decks = list(run_dir.glob("*T*.FEM"))
+    if any("TDLOAD" in p.read_text(encoding="utf-8", errors="replace") for p in decks):
+        raise FEASolveFailed(
+            "sestra",
+            "no_load_cases",
+            run_dir / "SESTRA.MLG",
+            "the deck names load cases (TDLOAD) and Sestra solved none ('Number of load cases: 0'): its loads are "
+            "records Sestra does not take",
+            codes=["no_load_cases"],
+        )
 
 
 def _mlg_errors(mlg: str) -> list[str]:

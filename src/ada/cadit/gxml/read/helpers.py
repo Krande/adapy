@@ -26,8 +26,11 @@ def iter_beams_from_xml(xml_path):
     p = Part("tmp")
     p._sections = get_sections(xml_root, p)
     p._materials = get_materials(xml_root, p)
+    from .read_hinges import get_hinges
+
+    hinges = get_hinges(xml_root)
     for bm_el in all_beams:
-        yield from el_to_beam(bm_el, p)
+        yield from el_to_beam(bm_el, p, hinges=hinges)
 
 
 def apply_mass_density_factors(root, p: Part):
@@ -244,6 +247,18 @@ def yield_plate_elems_to_plate(
     of a GeniE ``<hole>``, which GeniE keeps in the plate's sheet and cuts out when it meshes.
     """
     base_name = plate_elem.attrib["name"]
+    if plate_elem.attrib["material_ref"] not in parent.materials.name_map:
+        # its material was not read (a kind read_materials has no model for, reported there)
+        from ada.fem.formats import conversion_report
+
+        conversion_report.current().omitted(
+            "genie xml reader",
+            plate_elem.tag,
+            base_name,
+            "its material was not read",
+            material=plate_elem.attrib["material_ref"],
+        )
+        return
     mat = parent.materials.get_by_name(plate_elem.attrib["material_ref"])
     t = thick_map.get(plate_elem.attrib.get("thickness_ref"))
     if flat_fallback_d is None:

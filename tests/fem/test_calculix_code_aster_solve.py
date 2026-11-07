@@ -1126,8 +1126,9 @@ def test_two_nlgeom_steps_are_both_solved_and_read(require_solver, tmp_path):
     as the whole answer. Now the second step's fields are ``result2_DISP`` etc.
 
     The answers are the *linear* closed form -- measured 0.5546666667195 and 1.664000000159 m, +9.53e-11 -- although
-    the tip deflects 0.55 and 1.66 m on 4 m: the step is ``STAT_NON_LINE`` with ``DEFORMATION='PETIT'`` (small displacements)
-    and the default elastic ``RELATION``. That is reported ``approximated`` for each step.
+    the tip deflects 0.55 and 1.66 m on 4 m: the strip is first-order shells (DKT), which Code_Aster takes with small
+    displacements only (large rotations are COQUE_3D's, U2.02.01; ``tests/fem/test_large_displacements.py``). That is
+    reported ``approximated``, once for the section.
     """
     from ada.fem.formats import conversion_report
 
@@ -1164,9 +1165,8 @@ def test_two_nlgeom_steps_are_both_solved_and_read(require_solver, tmp_path):
         u = {int(row[0]): row[1:] for row in np.asarray(last.values)}
         for n in tip:
             assert -u[n][2] == pytest.approx(q * L**3 / (3 * d), rel=2e-10)
-    (finding,) = [f for f in report.of_kind("approximated") if f.keyword == "STAT_NON_LINE"]
-    assert sorted([finding.subject, *finding.other_subjects]) == ["nl1", "nl2"]
-    assert "DEFORMATION='PETIT'" in finding.reason
+    (finding,) = [f for f in report.of_kind("approximated") if f.keyword == "FemSection"]
+    assert "small displacements" in finding.reason and "COQUE_3D" in finding.reason
 
 
 @pytest.mark.parametrize("quads", [True, False], ids=["quad8", "tri6"])

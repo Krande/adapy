@@ -120,6 +120,28 @@ class Csys(FemBase):
     def coords(self, value):
         self._coords = value
 
+    def axes(self):
+        """The local x, y, z unit vectors as the rows of a 3 x 3 array in global components, or None for a system
+        this cannot tell (not rectangular, or given by nodes).
+
+        The coordinates are Abaqus' ``*Transform`` / ``*Orientation`` pair: the first a point on the local x axis,
+        the second one in the local x-y plane. The rows are the matrix ``C`` of Sesam's BNTRCOS
+        (``r_local = C r_global``), so a vector's global components are ``C.T @ local``.
+        """
+        import numpy as np
+
+        if str(self.system).upper() != CsysSystems.RECTANGULAR:
+            return None
+        if str(self.definition).upper() != CsysDefs.COORDINATES:
+            return None
+        if self.coords is None or len(self.coords) < 2:
+            return None
+        a, b = (np.asarray(v, dtype=float) for v in self.coords[:2])
+        x = a / np.linalg.norm(a)
+        z = np.cross(a, b)
+        z = z / np.linalg.norm(z)
+        return np.array([x, np.cross(z, x), z])
+
     def __repr__(self):
         content_map = dict(COORDINATES=self.coords, NODES=self.nodes)
         return f'Csys("{self.name}", "{self.definition}", {content_map[self.definition]})'

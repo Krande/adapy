@@ -47,7 +47,9 @@ def read_rmed_file(rmed_file: str | pathlib.Path) -> FEAResult:
     # participation factors (global axes) the writer dumped next to the
     # .rmed, so they surface through FEAResult.get_eig_summary.
     eigen_mode_data = None
-    if "eigen" in (mr.field_kinds or {}).values():
+    with h5py.File(rmed_file, "r") as f:
+        has_modes = "CHA/modes___DEPL" in f
+    if "eigen" in (mr.field_kinds or {}).values() and has_modes:
         from ada.fem.formats.code_aster.results.results import get_eigen_data
 
         eigen_mode_data = get_eigen_data(rmed_file)
@@ -62,9 +64,33 @@ def read_rmed_file(rmed_file: str | pathlib.Path) -> FEAResult:
         results_file_path=rmed_file,
         software_version=software_version,
         eigen_mode_data=eigen_mode_data,
+        buckling_factors=read_buckling_factors(rmed_file),
         analysis_kind=result_kind((mr.field_kinds or {}).values()),
         step_name_map=load_case_names(rmed_file, mr.results),
     )
+
+
+def read_buckling_factors(rmed_file: pathlib.Path) -> list[float] | None:
+    """A buckling step's critical load factors, ``CHAR_CRIT`` by ``NUME_MODE``, from the table the writer prints next
+    to the ``.rmed`` (``<name>.buckling.csv``, write/steps/buckle.py); None without one."""
+    csv_path = pathlib.Path(rmed_file).with_suffix(".buckling.csv")
+    if not csv_path.is_file():
+        return None
+    header, rows = None, []
+    for raw in csv_path.read_text(encoding="utf-8", errors="ignore").splitlines():
+        cells = [c.strip() for c in raw.split(",")]
+        if header is None:
+            if "NUME_MODE" in cells and "CHAR_CRIT" in cells:
+                header = cells
+            continue
+        if len(cells) < len(header):
+            continue
+        row = dict(zip(header, cells))
+        try:
+            rows.append((int(float(row["NUME_MODE"])), float(row["CHAR_CRIT"])))
+        except (KeyError, ValueError):
+            continue
+    return [v for _, v in sorted(rows)] or None
 
 
 def load_case_names(rmed_file: pathlib.Path, results) -> dict[int, str] | None:

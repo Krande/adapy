@@ -18,6 +18,11 @@ in ``tests/core/fem/test_concept_supports_to_fem.py``:
 * ``dependent`` -> refused: GeniE writes BNBCD 3 with no BLDEP behind it, and an adapy FEM makes a dof dependent
   only through a constraint that says on what.
 
+A support with a ``local_system`` (GeniE's rotated ``<local_system>``) holds its dofs in that frame, turned with
+its part into global axes: its ``Bc``s get the frame as their ``csys`` (:mod:`ada.fem.frames`; GeniE: BNDOF /
+BNTRCOS on the nodes), a prescribed value is along its own local axis, and a spring's diagonal stiffness in the frame
+becomes ``T^T K T`` in global axes.
+
 A rigid link's slaves are the mesh nodes inside its footprint, linked in translation (GeniE: a 9-term BLDEP) or,
 ``rotation_dependent``, in rotation too (12 terms). With ``include_all_edges=False`` GeniE V8.13-02 linked no node
 and meshed no support at all -- measured on eight such links, over a whole plate, a whole plate edge, a whole
@@ -104,17 +109,19 @@ def add_constraint_concepts_to_fem(
         if len(found) > 0 and len(nodes) == 0:
             continue
 
+        frame = _frame(pc.parent.parent_fem.parent_part, pc.local_system)
         if at_beam_end:
-            _add_section_support(fem, pc.name, pc.dof_constraints, nodes, pos, held, cases)
+            _add_section_support(fem, pc.name, pc.dof_constraints, nodes, pos, held, cases, frame)
         else:
-            _add_support(fem, pc.name, pc.dof_constraints, nodes, held, cases)
+            _add_support(fem, pc.name, pc.dof_constraints, nodes, held, cases, frame=frame)
 
     for cc in concepts.curve_constraints.values():
         found = _nodes_on_segment(fem, cc, tol)
         nodes = _without_beam_end_nodes(cc.name, found, claimed_by)
         if len(found) > 0 and len(nodes) == 0:
             continue
-        _add_support(fem, cc.name, cc.dof_constraints, nodes, held, curve=cc)
+        frame = _frame(cc.parent.parent_fem.parent_part, cc.local_system)
+        _add_support(fem, cc.name, cc.dof_constraints, nodes, held, curve=cc, frame=frame)
 
     for rl in concepts.rigid_links.values():
         _add_rigid_link(fem, rl, tol, held)
@@ -129,6 +136,24 @@ def add_constraint_concepts_to_fem(
                 "its support point is not converted with this FEM, so the value has no node to act on",
                 support=pd.support.name,
             )
+
+
+def _frame(part, local_system) -> np.ndarray | None:
+    """A support's frame in global axes (its rows turned with the part), or None for global axes."""
+    from ada.api.transforms import to_global_vectors
+
+    if local_system is None:
+        return None
+    rows = np.asarray(to_global_vectors(part, np.asarray(local_system, dtype=float)), dtype=float)
+    return None if np.allclose(rows, np.eye(3), atol=1e-9) else rows
+
+
+def _csys(fem: FEM, name: str, frame: np.ndarray | None):
+    from ada.fem.common import Csys
+
+    if frame is None:
+        return None
+    return Csys(f"{name}_frame", coords=[tuple(frame[0]), tuple(frame[1])], parent=fem)
 
 
 def _settlements_by_support(load_cases: Iterable[LoadConceptCase]) -> dict[int, list]:
@@ -273,7 +298,8 @@ def _add_rigid_link(fem: FEM, rl: ConstraintConceptRigidLink, tol: float, held: 
     master = existing[0] if len(existing) > 0 else fem.nodes.add(Node(master_pos))
     m_set = FemSet(f"{rl.name}_master", [master], FemSet.TYPES.NSET)
     s_set = FemSet(f"{rl.name}_dependents", dependents, FemSet.TYPES.NSET)
-    dofs = [1, 2, 3, 4, 5, 6] if rl.rotation_dependent else [1, 2, 3]
+    translations = [i + 1 for i, d in enumerate(("dx", "dy", "dz")) if d in rl.slave_translations]
+    dofs = translations + ([4, 5, 6] if rl.rotation_dependent else [])
     fem.add_constraint(Constraint(rl.name, Constraint.TYPES.COUPLING, m_set, s_set, dofs=dofs))
 
     _add_support(fem, f"{rl.name}_support", rl.dof_constraints, [master], held)
@@ -287,6 +313,7 @@ def _add_section_support(
     ref_pos: np.ndarray,
     held: _HeldNodes,
     settlements=(),
+    frame: np.ndarray | None = None,
 ) -> bool:
     """A support of a beam end, given the nodes of its cross-section.
 
@@ -300,7 +327,7 @@ def _add_section_support(
     from ada.fem import Constraint, FemSet
 
     if len(nodes) <= 1:
-        return _add_support(fem, name, dof_constraints, nodes, held, settlements)
+        return _add_support(fem, name, dof_constraints, nodes, held, settlements, frame=frame)
 
     if not _acts(dof_constraints):
         logger.info(f'Constraint "{name}" holds no dof. Skipping')
@@ -313,7 +340,7 @@ def _add_section_support(
     s_set = FemSet(f"{name}_sec", nodes, FemSet.TYPES.NSET)
     fem.add_constraint(Constraint(f"{name}_cpl", Constraint.TYPES.COUPLING, m_set, s_set, dofs=[1, 2, 3, 4, 5, 6]))
 
-    return _add_support(fem, name, dof_constraints, [ref], held, settlements)
+    return _add_support(fem, name, dof_constraints, [ref], held, settlements, frame=frame)
 
 
 def _acts(dof_constraints: list[ConstraintConceptDofType]) -> bool:
@@ -329,9 +356,11 @@ def _add_support(
     held: _HeldNodes,
     settlements=(),
     curve: ConstraintConceptCurve | None = None,
+    frame: np.ndarray | None = None,
 ) -> bool:
     """One support's dofs on its nodes, kind by kind (see the module docstring). ``settlements`` are its
-    ``(load case, prescribed displacement)`` pairs; a ``curve`` makes its spring stiffness per unit length."""
+    ``(load case, prescribed displacement)`` pairs; a ``curve`` makes its spring stiffness per unit length; ``frame``
+    (rows the local axes, global components) is the frame the dofs are in."""
     from ada.fem import Bc, FemSet
 
     if not _acts(dof_constraints):
@@ -346,7 +375,11 @@ def _add_support(
     for dc in dof_constraints:
         by_kind.setdefault(dc.constraint_type, []).append(dc)
 
-    held.claim(name, tuple((dc.dof, dc.constraint_type, dc.spring_stiffness) for dc in dof_constraints), nodes)
+    signature = tuple((dc.dof, dc.constraint_type, dc.spring_stiffness) for dc in dof_constraints)
+    if frame is not None:
+        signature += (tuple(np.round(frame, 9).ravel()),)
+    held.claim(name, signature, nodes)
+    csys = _csys(fem, name, frame)
 
     solid_only = all(_is_solid_only(n) for n in nodes)
     if solid_only:
@@ -365,14 +398,14 @@ def _add_support(
     held_dofs = sorted(dofs_of("fixed") + prescribed)
     if held_dofs:
         fem_set = fem.add_set(FemSet(f"{name}_set", nodes, FemSet.TYPES.NSET))
-        fem.add_bc(Bc(name, fem_set, held_dofs))
+        fem.add_bc(Bc(name, fem_set, held_dofs, csys=csys))
         if prescribed:
-            _add_settlements(fem, name, fem_set, prescribed, settlements)
+            _add_settlements(fem, name, fem_set, prescribed, settlements, csys)
         added = True
 
     springs = [dc for dc in by_kind.get("spring", []) if not (solid_only and _DOF_MAP[dc.dof] > 3)]
     if springs:
-        added = _add_springs(fem, name, springs, nodes, curve) or added
+        added = _add_springs(fem, name, springs, nodes, curve, frame) or added
 
     if "super" in by_kind:
         added = _add_super(fem, name, by_kind["super"], nodes) or added
@@ -388,8 +421,9 @@ def _add_support(
     return added
 
 
-def _add_settlements(fem: FEM, name: str, fem_set, dofs: list[int], settlements) -> None:
-    """One ``Bc`` per load case, holding the case's values on the prescribed ``dofs`` and the case's name."""
+def _add_settlements(fem: FEM, name: str, fem_set, dofs: list[int], settlements, csys=None) -> None:
+    """One ``Bc`` per load case, holding the case's values on the prescribed ``dofs`` and the case's name; in the
+    support's frame ``csys`` (GeniE gives a prescribed value in the support's own axes)."""
     from ada.fem import Bc
     from ada.fem.constraints import BC_LOAD_CASE
 
@@ -421,13 +455,17 @@ def _add_settlements(fem: FEM, name: str, fem_set, dofs: list[int], settlements)
                 list(dofs),
                 magnitudes=[values[d - 1] for d in dofs],
                 metadata={BC_LOAD_CASE: case.name},
+                csys=csys,
             )
         )
 
 
-def _add_springs(fem: FEM, name: str, springs: list[ConstraintConceptDofType], nodes: list[Node], curve) -> bool:
+def _add_springs(
+    fem: FEM, name: str, springs: list[ConstraintConceptDofType], nodes: list[Node], curve, frame=None
+) -> bool:
     """A spring to ground on each node, diagonal: each spring dof's stiffness, times the node's tributary length
-    along the curve for a curve support."""
+    along the curve for a curve support. In a ``frame`` (rows the local axes) the diagonal is the frame's, and the
+    stiffness in global axes ``T^T K T`` with ``T = diag(frame, frame)``."""
     from ada.fem import FemSet, Spring
 
     if curve is not None:
@@ -453,6 +491,10 @@ def _add_springs(fem: FEM, name: str, springs: list[ConstraintConceptDofType], n
         for dc in springs:
             i = _DOF_MAP[dc.dof] - 1
             stiff[i, i] = float(dc.spring_stiffness) * factor
+        if frame is not None:
+            t = np.zeros((6, 6))
+            t[:3, :3] = t[3:, 3:] = frame
+            stiff = t.T @ stiff @ t
         sp_name = f"{name}_spring_{node.id}"
         fem_set = FemSet(f"{sp_name}_set", [node], FemSet.TYPES.NSET)
         fem.add_spring(Spring(sp_name, next_id, "SPRING1", fem_set=fem_set, stiff=stiff, parent=fem))

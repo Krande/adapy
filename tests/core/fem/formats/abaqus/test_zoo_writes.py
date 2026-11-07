@@ -40,8 +40,8 @@ CALCULIX_GAPS = {
     "sets_empty": (ValueError, "the Calculix set writer raises on an empty set (Abaqus logs and drops it)"),
     # The Calculix writer used to drop every constraint; it now writes kinematic couplings and refuses the rest
     # rather than describing a different model.
-    "constraints": (IncompatibleElements, "the Calculix writer has no *Tie, and no coupling on shell nodes"),
-    "constraints_equation": (IncompatibleElements, "the Calculix writer has no *Equation"),
+    # *Equation is written; a *Tie is refused (ccx 2.23 loops without end on its MPCs, write_constraints).
+    "constraints": (IncompatibleElements, "the Calculix writer refuses a *Tie, and a coupling on shell nodes"),
     "constraints_assembly_level": (IncompatibleElements, "a coupling the Calculix writer cannot take"),
 }
 

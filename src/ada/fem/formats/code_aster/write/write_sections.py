@@ -13,11 +13,14 @@ def create_sections_str(
     membrane_large_strain: bool = False,
     masses=(),
     timoshenko: bool = False,
+    large_rotations: bool = False,
+    varc: str = "",
+    fibre_beams=(),
 ) -> str:
     """``masses``: the point masses (:func:`.write_masses.point_masses`), given their ``DISCRET`` here.
     ``timoshenko``: beams with shear areas carry their shear coefficients (``POU_D_T``, :func:`write_beam_section`)."""
     from .write_constraints import REF_POINTS_GROUP, create_ref_points_discrete_items
-    from .write_masses import mass_discrete_str
+    from .write_masses import mass_discrete_str, mass_rep_str
 
     mat_assign_str = ""
     section_materials = ""
@@ -32,7 +35,17 @@ def create_sections_str(
     cables = [li for li in fem_sections.lines if li.is_cable]
 
     if len(shells) > 0:
-        mat_assign_str_, shell_sections_str = ["".join(x) for x in zip(*[write_shell_section(sh) for sh in shells])]
+        mat_assign_str_, shell_sections_str = [
+            "".join(x)
+            for x in zip(
+                *[
+                    write_shell_section(
+                        sh, large_rotations, PLASTIC_SHELL_LAYERS if has_plastic_shells(fem_sections) else 1
+                    )
+                    for sh in shells
+                ]
+            )
+        ]
         mat_assign_str += mat_assign_str_
         shell_sections_str = f"\n        COQUE=(\n{shell_sections_str}\n        ),"
 
@@ -51,6 +64,14 @@ def create_sections_str(
         mat_assign_str += mat_assign_str_
         beam_sections_str = f"\n        POUTRE=(\n{beam_sections_str}\n        ),"
         beam_sections_str += f"\n        ORIENTATION=(\n{orientations_str}\n        ),"
+
+    compor_str = ""
+    if fibre_beams:
+        from .write_fibres import affe_compor_str, cara_elem_str, geom_fibre_str
+
+        section_materials += "\n" + geom_fibre_str(list(fibre_beams))
+        beam_sections_str += cara_elem_str(list(fibre_beams))
+        compor_str = affe_compor_str(list(fibre_beams))
 
     if len(trusses) > 0:
         mat_assign_str_, truss_str = ["".join(x) for x in zip(*[write_truss_section(tr) for tr in trusses])]
@@ -74,6 +95,16 @@ def create_sections_str(
     discrete_str = ""
     if discrete_items:
         discrete_str = "\n        DISCRET=(\n" + "\n".join(discrete_items) + "\n        ),"
+    # non-structural masses spread over their regions' point cells (write_masses)
+    mass_rep = mass_rep_str(list(masses)) if masses else ""
+    if mass_rep:
+        discrete_str += "\n        MASS_REP=(\n" + mass_rep + "\n        ),"
+
+    if not mat_assign_str.strip() and masses:
+        # A model of discretes alone has no material to assign, and AFFE_MATERIAU takes no empty AFFE ("Exactly one
+        # argument of ('AFFE', 'CHAM_MATER') is required"): a placeholder on every cell, which a discrete never reads.
+        section_materials += "\nmat_disc = DEFI_MATERIAU(ELAS=_F(E=1.0, NU=0.0, RHO=0.0))\n"
+        mat_assign_str = "        _F(TOUT='OUI', MATER=mat_disc),"
 
     sec_str = ""
     if len(fem_sections.lines) > 0 or len(fem_sections.shells) > 0 or discrete_items:
@@ -86,7 +117,7 @@ material = AFFE_MATERIAU(
     MODELE=model,
     AFFE=(
 {mat_assign_str}
-    )
+    ),{compor_str}{varc}
 )
 
 # Shell elements:
@@ -97,16 +128,62 @@ material = AFFE_MATERIAU(
 """
 
 
-def write_shell_section(fem_sec: FemSection) -> tuple[str, str]:
+#: ``COEF_RIGI_DRZ`` of a second-order shell (COQUE_3D) in a model with a geometrically nonlinear step. U2.02.01 on
+#: SSNV138 (a cantilever plate in large rotations under a moment, COQUE_3D): "It is necessary to increase the value of
+#: COEF_RIGI_DRZ (10E-5 by default) to 0.001 in order to be able to increase the value of the rotation angle that can
+#: be reached"; on SSNV141, "values of this coefficient up to 10^-3 remain legal".
+COQUE_3D_LARGE_ROTATION_DRZ = 1.0e-3
+
+
+#: The layers through a bending shell's thickness (``COQUE_NCOU``, DKT and COQUE_3D) in a model with a plastic shell:
+#: plasticity is integrated layer by layer, and one layer would yield its whole thickness at once. Every bending shell
+#: of such a model has them, so the stresses' middle layer (:func:`shell_mid_layer`) is the same for all.
+PLASTIC_SHELL_LAYERS = 5
+
+
+def has_plastic_shells(fem_sections) -> bool:
+    """Whether a bending shell's material has a hardening curve (write_materials.traction_curve)."""
+    from ada.fem.shapes.definitions import ShellShapes
+
+    from .write_materials import traction_curve
+
+    bending = (ShellShapes.QUAD, ShellShapes.TRI, ShellShapes.QUAD8, ShellShapes.TRI6)
+    return any(
+        not fs.is_membrane
+        and traction_curve(fs.material) is not None
+        and all(getattr(el, "type", None) in bending for el in fs.elset.members)
+        for fs in fem_sections.shells
+    )
+
+
+def shell_mid_layer(fem_sections) -> int:
+    """The layer (``NUME_COUCHE``) whose ``MOY`` level is a bending shell's mid-surface."""
+    return (PLASTIC_SHELL_LAYERS + 1) // 2 if has_plastic_shells(fem_sections) else 1
+
+
+def write_shell_section(fem_sec: FemSection, large_rotations: bool = False, layers: int = 1) -> tuple[str, str]:
+    """A bending shell: ``COQUE`` with its thickness and reference vector; on second-order elements (COQUE_3D) in a
+    model with an nlgeom step, the larger ``COEF_RIGI_DRZ`` large rotations need (:data:`COQUE_3D_LARGE_ROTATION_DRZ`).
+    """
+    from ada.fem.shapes.definitions import ShellShapes
+
     mat_name = concept_name(fem_sec.material, "material")
     sec_name = fem_sec.elset.name
     #
     local_vec = str(tuple(float(c) for c in fem_sec.local_y))
     mat_ = f'		_F(MATER=({mat_name},), GROUP_MA="{sec_name}"),\n'
+    second_order = all(
+        getattr(el, "type", None) in (ShellShapes.QUAD8, ShellShapes.TRI6) for el in fem_sec.elset.members
+    )
+    drz = ""
+    if large_rotations and second_order:
+        drz = f"\n                COEF_RIGI_DRZ={COQUE_3D_LARGE_ROTATION_DRZ!r},"
+    if layers > 1:
+        drz += f"\n                COQUE_NCOU={layers},"
     sec_str = f"""            _F(
                 GROUP_MA=("{sec_name}"),
                 EPAIS={fem_sec.thickness},
-                VECTEUR={local_vec},
+                VECTEUR={local_vec},{drz}
             ),
 """
     return mat_, sec_str

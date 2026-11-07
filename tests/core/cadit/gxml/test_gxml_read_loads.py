@@ -47,15 +47,16 @@ ALL_KINDS_RESULTANTS = {
     "LC_ll_plate_edge": (0.0, 0.0, -500.0),
     "LC_press_u": (0.0, 0.0, -4000.0),
     "LC_press_back": (0.0, 0.0, 4000.0),
+    # 1000 + 500 x Pa on the front of the 4 x 1 m plate (x 0..4): 2000 Pa on average over 4 m2
+    "LC_press_3pt": (0.0, 0.0, -8000.0),
+    "LC_press_lin": (0.0, 0.0, -8000.0),
+    # 1000 Pa over the 2 x 0.5 m polygon, along its own (+z) normal: GeniE meshed it as +1000 N
+    "LC_poly": (0.0, 0.0, 1000.0),
 }
 
-#: The load cases whose one load is refused, and the construct it is refused under.
-ALL_KINDS_REFUSED = {
-    "LC_press_3pt": "pressure2d_3point_varying",
-    "LC_press_lin": "pressure2d_linear_function",
-    "LC_comp": "component2d_constant",
-    "LC_poly": "footprint_polygon",
-}
+#: The load cases whose one load is refused, and the construct it is refused under. (LC_comp, a traction by
+#: components, is read now.)
+ALL_KINDS_REFUSED: dict[str, str] = {}
 
 
 def _read(example_files, tmp_path, fixture):
@@ -84,11 +85,19 @@ def _resultant(lc) -> tuple[np.ndarray, np.ndarray]:
         elif isinstance(load, LoadConceptLine):
             length = np.linalg.norm(np.asarray(load.end_point, float) - np.asarray(load.start_point, float))
             force += length * (np.asarray(load.intensity_start) + np.asarray(load.intensity_end)) / 2
+        elif isinstance(load, LoadConceptSurface) and load.plate_ref is None:
+            # a polygon pressure acts along the polygon's own normal (right-hand rule on its points)
+            pts = np.asarray(load.points, float)
+            area_vec = 0.5 * sum(np.cross(pts[i], pts[(i + 1) % len(pts)]) for i in range(len(pts)))
+            sign = 1.0 if load.side == "front" else -1.0
+            force += sign * load.pressure * area_vec
         elif isinstance(load, LoadConceptSurface):
             # a pressure pushes into the side it is on: -n on the front face, +n on the back
             normal = np.asarray(load.plate_ref.normal, float)
             sign = -1.0 if load.side == "front" else 1.0
-            force += sign * load.pressure * load.plate_ref.poly.get_area() * normal
+            # a linear field's mean over a plate is its value at the plate's centroid (the plates here are flat)
+            centroid = np.asarray(load.plate_ref.bbox().volume_cog, float)
+            force += sign * load.pressure_at(centroid) * load.plate_ref.poly.get_area() * normal
         elif not isinstance(load, LoadConceptAccelerationField):
             raise TypeError(type(load))
     return force, moment
@@ -325,7 +334,9 @@ def _dump(part) -> dict:
                 load.system,
             )
         if isinstance(load, LoadConceptSurface):
-            return ("surface", load.name, load.plate_ref.name, load.points, load.pressure, load.side, load.system)
+            plate = load.plate_ref.name if load.plate_ref is not None else None
+            points = [_p(q) for q in load.points] if load.points is not None else None
+            return ("surface", load.name, plate, points, load.pressure, load.side, load.system)
         if isinstance(load, LoadConceptAccelerationField):
             return ("acc", load.name, load.acceleration, load.include_self_weight, load.rotational_field)
         raise TypeError(type(load))
@@ -371,3 +382,24 @@ def test_round_trip_through_the_genie_writer(example_files, tmp_path, fixture):
     assert _dump(again) == first
     # the refused loads were never in the model, so nothing is left to refuse the second time
     assert _findings(report) == {}
+
+
+@pytest.mark.parametrize("case", ["LC_press_3pt", "LC_press_lin"])
+def test_a_varying_pressure_is_read_as_its_linear_field(all_kinds, case):
+    """Three values at (0,3), (4,3), (0,4) of 1000, 3000, 1000 and k1 = 500, k4 = 1000 are the same field,
+    p = 1000 + 500 x, which is what GeniE meshed both into."""
+    part, _ = all_kinds
+    (load,) = part.concept_fem.loads.load_cases[case].loads
+    assert load.plate_ref.name == "Pl1" and load.side == "front"
+    assert load.pressure == pytest.approx(1000.0) and load.pressure_gradient == pytest.approx((500.0, 0.0, 0.0))
+    assert load.pressure_at((4.0, 3.5, 0.0)) == pytest.approx(3000.0)
+
+
+def test_a_traction_by_components_is_read_as_one(all_kinds):
+    """``component2d_constant`` on Pl1's front: a LoadConceptSurface with the traction (100, 0, -1000) and no
+    pressure (GeniE meshed it as BEUSLO LOTYP 2 with those components at every node)."""
+    part, _ = all_kinds
+    (load,) = part.concept_fem.loads.load_cases["LC_comp"].loads
+    assert isinstance(load, LoadConceptSurface)
+    assert load.traction == (100.0, 0.0, -1000.0) and load.pressure is None
+    assert load.plate_ref.name == "Pl1" and load.side == "front"

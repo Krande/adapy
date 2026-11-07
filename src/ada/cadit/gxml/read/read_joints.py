@@ -106,9 +106,20 @@ def get_joint(type_tag: ET.Element, con: Connections, part: Part) -> Union[None,
     return GenieJoint(name, chords, braces, con)
 
 
+def _joint_or_none(type_tag, con, part):
+    """A joint, or None reported by name when its members do not meet at one central node (it used to stop the read)."""
+    try:
+        return get_joint(type_tag, con, part)
+    except NotImplementedError as e:
+        from ada.fem.formats import conversion_report
+
+        conversion_report.current().omitted("genie xml reader", "frame_joint", type_tag.attrib.get("name"), str(e))
+        return None
+
+
 def get_joints(xml_root, part: Part) -> Connections:
     con = Connections(parent=part)
-    joints = (get_joint(type_tag, con, part) for type_tag in xml_root.findall(".//frame_joint"))
+    joints = (_joint_or_none(type_tag, con, part) for type_tag in xml_root.findall(".//frame_joint"))
     con.connections = filter_joints(joints)
     return con
 

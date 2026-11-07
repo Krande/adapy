@@ -43,9 +43,11 @@ def resolve_ids_in_multiple(tags, tags_data, is_elem):
         fin_data[t] = []
         seen_ids[t] = set()
         for mem in memb:
-            refs = [x for x in mem.refs if type(x) is FemSet]
-            if len(refs) > 1:
-                names = [r.name for r in refs]
+            # Each set once: a member's refs can name one set twice (references are added again before a MED write),
+            # and a family naming a group twice puts its cells in that group twice -- which Code_Aster's MASS_REP
+            # refuses ("La maille ... est présente au moins 2 fois").
+            names = list(dict.fromkeys(x.name for x in mem.refs if type(x) is FemSet))
+            if len(names) > 1:
                 key = tuple(names)
                 new_int = rmap.get(key)
                 if new_int is None:

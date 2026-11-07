@@ -46,5 +46,7 @@ def test_isotropic_point_mass(tmp_path):
 
 
 def test_anisotropic_point_mass(tmp_path):
+    """The upper triangle column by column (m11, m12, m22, m13, m23, m33). Written row by row, (1, 0, 0, 2, 0, 3) was
+    read as m22 = 0 and an x-z coupling of 2 (solved: tests/fem/test_discretes_closed_form.py)."""
     comm = _comm(tmp_path, [1.0, 2.0, 3.0])
-    assert "CARA='M_T_N', VALE=(1.0, 0.0, 0.0, 2.0, 0.0, 3.0)" in comm
+    assert "CARA='M_T_N', VALE=(1.0, 0.0, 2.0, 0.0, 0.0, 3.0)" in comm
