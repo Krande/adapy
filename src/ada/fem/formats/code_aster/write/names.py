@@ -54,6 +54,7 @@ RESERVED = frozenset(
         "sh_sets",
         "sh_2nd_order_sets",
         "so_sets",
+        "sk_sets",
         # a Bc's dof dictionary
         "dofs",
         # results and post-processing

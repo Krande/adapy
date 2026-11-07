@@ -31,7 +31,22 @@ def _mass_or_spring_attach_id(el) -> int:
     return int(el.nodes[0].id)
 
 
-def med_elements(part: Part, time_step: h5py.Group, profile: str, families: h5py.Group):
+def element_groups(part: Part, extra=()) -> list[tuple[object, list]]:
+    """``[(element type, elements)]`` of the part's mesh plus ``extra`` cells (a solid pressure's skin,
+    :mod:`.write_skins`), by type in one order: the cells and the family table must agree on it."""
+    # The container's own grouping (an array-backed container groups its own way), with the extra cells merged in.
+    groups = [(t, list(g)) for t, g in part.fem.elements.group_by_type()]
+    if not extra:
+        return groups
+    by_type = dict(groups)
+    for el in extra:
+        by_type.setdefault(el.type, []).append(el)
+    return sorted(by_type.items(), key=lambda kv: kv[0])
+
+
+def med_elements(
+    part: Part, time_step: h5py.Group, profile: str, families: h5py.Group, extra_elements=(), extra_sets=()
+):
     """
     Add the following ['FAM', 'NOD', 'NUM'] to the 'MAI' group
 
@@ -46,7 +61,7 @@ def med_elements(part: Part, time_step: h5py.Group, profile: str, families: h5py
     elements_group = time_step.create_group("MAI")
     elements_group.attrs.create("CGT", 1)
 
-    for group, elements in part.fem.elements.group_by_type():
+    for group, elements in element_groups(part, extra_elements):
         med_type = ada_to_med_type(group)
         elements = list(elements)
         if isinstance(group, (shape_def.MassTypes, shape_def.SpringTypes)):
@@ -87,8 +102,8 @@ def med_elements(part: Part, time_step: h5py.Group, profile: str, families: h5py
         num.attrs.create("NBR", len(cells))
 
     # Add Element sets
-    if len(part.fem.elsets.keys()) > 0:
-        _add_cell_sets(elements_group, part, families)
+    if len(part.fem.elsets.keys()) > 0 or extra_sets:
+        _add_cell_sets(elements_group, part, families, extra_elements, extra_sets)
 
 
 def med_nodes(part: "Part", time_step, profile, families):

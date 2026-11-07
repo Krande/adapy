@@ -75,8 +75,14 @@ def to_fem(assembly: Assembly, name, analysis_dir, metadata=None, model_data_onl
         # TODO: Implement support for multiple parts. Need to understand how submeshes in Salome and Code Aster works.
         # for p in filter(lambda x: len(x.fem.elements) != 0, assembly.get_all_parts_in_assembly(True)):
 
+        # A pressure on solid elements loads face cells of its own (write_skins); made after the names are
+        # shortened, named short themselves, and kept off the model.
+        from .write_skins import deck as skins_deck
+        from .write_skins import pressure_skins
+
+        skins = pressure_skins(all_steps(assembly), p.fem)
         filename = (analysis_dir / name).with_suffix(".med")
-        write_to_med(name, p, filename)
+        write_to_med(name, p, filename, skins)
 
         dump_name_map(name_map, (analysis_dir / name).with_suffix(".name_map.json"))
 
@@ -90,7 +96,7 @@ def to_fem(assembly: Assembly, name, analysis_dir, metadata=None, model_data_onl
         if model_data_only:
             return
 
-        with open((analysis_dir / name).with_suffix(".comm"), "w") as f, concept_names.deck():
+        with open((analysis_dir / name).with_suffix(".comm"), "w") as f, concept_names.deck(), skins_deck(skins):
             f.write(create_comm_str(assembly, p))
 
     finally:
@@ -202,6 +208,13 @@ def create_comm_str(assembly: Assembly, part: Part) -> str:
         # has already refused the cells it doesn't cover).
         so_formula = "3D_SI" if part.fem.options.CODE_ASTER.use_reduced_integration else "3D"
         model_type_str += type_tmpl_str.format(elset_str="so_sets", el_formula=so_formula)
+        from .write_skins import current as current_skins
+
+        skin_sets = current_skins().sets
+        if skin_sets:
+            # The face cells a solid pressure acts on (write_skins), as the solids' boundary elements.
+            section_sets += "sk_sets = ({0},)\n".format(",".join(f"'{fs.name}'" for fs in skin_sets))
+            model_type_str += type_tmpl_str.format(elset_str="sk_sets", el_formula=so_formula)
 
     if len(couplings) > 0:
         output_mesh = "mesh_ref"
@@ -241,7 +254,7 @@ def membranes_large_strain(part: Part, steps) -> bool:
     return len(nonlinear) > 0
 
 
-def write_to_med(name, part: Part, filename):
+def write_to_med(name, part: Part, filename, skins=None):
     """Custom Method for writing a part directly based on meshio"""
 
     with h5py.File(filename, "w") as f:
@@ -271,7 +284,10 @@ def write_to_med(name, part: Part, filename):
         med_nodes(part, time_step, profile, families)
 
         # Elements (mailles in French) and element sets
-        med_elements(part, time_step, profile, families)
+        if skins is None:
+            med_elements(part, time_step, profile, families)
+        else:
+            med_elements(part, time_step, profile, families, skins.elements, skins.sets)
 
 
 def _write_mesh_presets(f, mesh_name):

@@ -16,7 +16,7 @@ def get_node_ids_from_element(el_):
     return [int(n.id - 1) for n in el_.nodes]
 
 
-def _add_cell_sets(cells_group, part: "Part", families):
+def _add_cell_sets(cells_group, part: "Part", families, extra_elements=(), extra_sets=()):
     """
 
     :param cells_group:
@@ -30,7 +30,7 @@ def _add_cell_sets(cells_group, part: "Part", families):
     tags_data = dict()
 
     cell_id_current = cell_id_num
-    for cell_set in part.fem.elsets.values():
+    for cell_set in [*part.fem.elsets.values(), *extra_sets]:
         tags[cell_id_current] = [cell_set.name]
         tags_data[cell_id_current] = cell_set.members
         cell_id_current -= 1
@@ -47,7 +47,9 @@ def _add_cell_sets(cells_group, part: "Part", families):
     groups: list = []
     elements_by_group: dict = {}
     cell_ids_by_group: dict = {}
-    for group, elements in part.fem.elements.group_by_type():
+    from .write_med import element_groups
+
+    for group, elements in element_groups(part, extra_elements):
         elements_list = list(elements)
         groups.append(group)
         elements_by_group[group] = elements_list

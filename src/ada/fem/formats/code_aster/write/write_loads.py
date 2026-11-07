@@ -140,8 +140,10 @@ def pressure_load_str(load: LoadPressure) -> str:
 
     Refused by name rather than approximated: a total-force magnitude (``PRES`` is an intensity), a
     node-based surface or a bare element id (a mesh group is named, not an element), and a pressure
-    on anything but a shell -- ``PRES_REP`` is the 3D counterpart and which face of a solid a given
-    surface side means is not established here.
+    on anything but a shell or a solid face.
+
+    A pressure on solid elements is ``PRES_REP`` on face cells the writer adds to the mesh for it
+    (:mod:`.write_skins`), one per loaded face, oriented out of the solid.
     """
     from ada.fem.shapes.definitions import ShellShapes
     from ada.fem.surfaces import pressure_elsets
@@ -168,14 +170,25 @@ def pressure_load_str(load: LoadPressure) -> str:
     name = concept_name(load, "load")
     formulas: dict[float, str] = {}
     rows, membrane_rows = [], []
+    from .write_skins import current as current_skins
+
+    solid_rows = []
+    skin = current_skins().group(load)
+    if skin is not None:
+        # A pressure on solid faces: PRES_REP on the face cells made for it, whose normals point out of the solid --
+        # PRES_REP pushes against the cell normal, so a positive pressure pushes into the solid.
+        pres = load.magnitude if gradient is None else _pressure_formula(name, 1.0, formulas)
+        solid_rows.append(f"        _F(GROUP_MA='{skin.name}', PRES={pres}),")
     for fem_set, side in groups:
+        if current_skins().covers(load, fem_set, side):
+            continue
         membranes = 0
         for el in fem_set.members:
             el_type = getattr(el, "type", None)
             if el_type is None or not isinstance(el_type, ShellShapes):
                 raise UnsupportedLoadType(
-                    f"pressure load {load.name!r} acts on a {el_type} element; FORCE_COQUE is a shell load "
-                    f"and the solid form (PRES_REP) is not established here"
+                    f"pressure load {load.name!r} acts on a {el_type} element of set {fem_set.name!r} that has no "
+                    "face cells for PRES_REP: the set mixes solids with other elements, or its side names no face"
                 )
             fem_sec = getattr(el, "fem_sec", None)
             membranes += fem_sec is not None and fem_sec.is_membrane
@@ -202,8 +215,8 @@ def pressure_load_str(load: LoadPressure) -> str:
     keywords = ""
     if rows:
         keywords += "\n    FORCE_COQUE=(\n{0}\n    ),".format("\n".join(rows))
-    if membrane_rows:
-        keywords += "\n    PRES_REP=(\n{0}\n    ),".format("\n".join(membrane_rows))
+    if membrane_rows or solid_rows:
+        keywords += "\n    PRES_REP=(\n{0}\n    ),".format("\n".join(membrane_rows + solid_rows))
     if gradient is None:
         return "{0} = AFFE_CHAR_MECA(\n    MODELE=model,\n    VERI_NORM='NON',{1}\n)".format(name, keywords)
     c, (gx, gy, gz) = float(load.magnitude), gradient
