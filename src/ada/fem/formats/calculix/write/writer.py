@@ -57,6 +57,9 @@ def to_fem(assembly: Assembly, name, analysis_dir, metadata=None, model_data_onl
         # Part level information
         f.write(nodes_str(p.fem.nodes) + "\n")
         f.write(elements_str(p.fem.elements, report_locking=len(steps) > 0).strip() + "\n")
+        point_masses = masses_str(p.fem)
+        if point_masses:
+            f.write(point_masses + "\n")
         if deck.u1_elements:
             f.write("*USER ELEMENT,TYPE=U1,NODES=2,INTEGRATION POINTS=2,MAXDOF=6\n")
         f.write(elsets_str(p.fem.elsets) + "\n")
@@ -100,6 +103,59 @@ def to_fem(assembly: Assembly, name, analysis_dir, metadata=None, model_data_onl
             f.write("** No steps\n")
 
     logger.info(f'Created a Calculix input deck at "{analysis_dir}"')
+
+
+def masses_str(fem) -> str:
+    """The point masses as ccx's mass elements: ``*ELEMENT, TYPE=MASS`` on each node, ``*MASS`` on their element set
+    (CalculiX 2.23 manual 6.2.40, 7.75). The first node's element takes the mass's own id, so the mass's element set
+    (``<name>_set``) names an element of the deck; the others take ids past the model's. ccx's mass element is
+    isotropic and translational only: an anisotropic mass, a rotary inertia or a non-structural mass is refused by
+    name, never left out without a word (as the writer used to, with a log line)."""
+    from ada.fem.elements import Mass
+    from ada.fem.formats import conversion_report
+
+    from .write_loads import ccx_number
+
+    masses = [el for el in fem.elements if isinstance(el, Mass)]
+    if not masses:
+        return ""
+    taken = {int(el.id) for el in fem.elements if el.id is not None}
+    next_id = max(taken, default=0) + 1
+    rows, blocks = [], []
+    for m in masses:
+        members = [n for n in (m.members or []) if hasattr(n, "id")]
+        iso = m.type == Mass.TYPES.MASS and m.point_mass_type in (None, Mass.PTYPES.ISOTROPIC)
+        if not iso or not members:
+            conversion_report.current().omitted(
+                STAGE,
+                "Mass",
+                m.name,
+                (
+                    "ccx's mass element is isotropic and translational only; an anisotropic mass, a rotary inertia or a "
+                    "non-structural mass has no CalculiX form"
+                    if members
+                    else "a mass on no node"
+                ),
+                type=str(m.type),
+                ptype=str(m.point_mass_type),
+            )
+            continue
+        ids = []
+        for k, node in enumerate(members):
+            if k == 0 and m.id is not None:
+                eid = int(m.id)
+            else:
+                eid = next_id
+                next_id += 1
+            ids.append(eid)
+            rows.append(f" {eid}, {int(node.id)}")
+        elset = f"ADA_MASS_{m.name}"[:80]
+        newline = NewLine(15)
+        listed = " ".join(f"{i}," + next(newline) for i in ids).rstrip()[:-1]
+        blocks.append(f"*Elset, elset={elset}\n {listed}\n*Mass, elset={elset}\n {ccx_number(float(m.mass))}")
+    if not rows:
+        return ""
+    return "*Element, type=MASS\n" + "\n".join(rows) + "\n" + "\n".join(blocks)
 
 
 def deck_materials(part) -> list:

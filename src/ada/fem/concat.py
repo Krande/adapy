@@ -260,11 +260,12 @@ def single_part_assembly(assembly: "Assembly", id_offsets: "dict[str, tuple[int,
     itself (Sesam's superelement prefixes) gets those ids, with every set, mass, eccentricity
     and hinge re-keyed to them.
 
-    Returns ``assembly`` itself when at most one part has nodes."""
+    Returns ``assembly`` itself when at most one part has nodes and the assembly's own FEM holds no point mass or
+    spring (:func:`carries_elements`): one part with those is merged too, so they reach the one part written."""
     from ada import Assembly
 
     parts = _fem_parts(assembly)
-    if len(parts) <= 1:
+    if not parts or (len(parts) == 1 and not carries_elements(assembly)):
         return assembly
     write_assembly = Assembly(assembly.name, units=assembly.units)
     merged_part, top_steps = _merge(assembly, parts, top_fem=write_assembly.fem, id_offsets=id_offsets)
@@ -541,9 +542,17 @@ def _merge(assembly: "Part", parts: "list[Part]", top_fem, id_offsets=None) -> "
         merged_sets.append(ns)
         return ns
 
+    carried_ids = {id(e) for p in carriers for e in _carried_elems(p.fem)}
+
+    def _of_carried(s: FemSet) -> bool:
+        # a carrier's element set of its carried masses and springs (a mass's own "<name>_set"): made below, from the
+        # carried copies, once they are in the merged FEM
+        return s.type == SetTypes.ELSET and bool(s.members) and all(id(m) in carried_ids for m in s.members)
+
     for p in parts + carriers:
         for s in p.fem.sets:
-            _remap_set(p, s)
+            if not (id(p) not in merged_ids and _of_carried(s)):
+                _remap_set(p, s)
 
     def _node_off_for(node) -> int:
         owner = part_of_fem.get(id(getattr(node, "parent", None)))
@@ -581,6 +590,58 @@ def _merge(assembly: "Part", parts: "list[Part]", top_fem, id_offsets=None) -> "
             ns.parent = merged
             target = merged.elements._packed_specials if is_packed else merged.elements._overflow
             target.append(ns)
+
+    # A carrier's point masses and springs (an assembly-level mass on a part's node): no row of their own, their
+    # nodes the parts', each re-keyed by its own part's offset. Their ids, the carrier's, may be taken in the merged
+    # numbering; a taken one moves past the largest, said.
+    taken_eids = set(used_eids)
+    next_eid = max(taken_eids, default=0) + 1
+    copy_of: dict[int, object] = {}
+    for p in carriers:
+        for el in _carried_elems(p.fem):
+            ns = copy.copy(el)
+            if el.id is not None:
+                if int(el.id) in taken_eids:
+                    conversion_report.current().approximated(
+                        _STAGE,
+                        type(el).__name__,
+                        el.name,
+                        "its element id is another's in the merged FEM; renumbered",
+                        id=int(el.id),
+                        new_id=next_eid,
+                    )
+                    ns._el_id = next_eid
+                    next_eid += 1
+                taken_eids.add(int(ns.id))
+            for attr in ("_nodes", "_members"):
+                seq = getattr(el, attr, None)
+                if seq:
+                    setattr(ns, attr, [_merged_node(n, store, _node_off_for(n)) for n in seq])
+            for attr in ("_n1", "_n2"):
+                node = getattr(el, attr, None)
+                if node is not None:
+                    setattr(ns, attr, _merged_node(node, store, _node_off_for(node)))
+            md = getattr(el, "_metadata", None)
+            if isinstance(md, dict):
+                ns._metadata = dict(md)
+            fs = getattr(el, "_fem_set", None)
+            if fs is not None and not _of_carried(fs):
+                ns._fem_set = _remap_set(p, fs)
+            ns.parent = merged
+            merged.elements._overflow.append(ns)
+            copy_of[id(el)] = ns
+    for p in carriers:
+        for s in p.fem.sets:
+            if _of_carried(s):
+                ns_set = FemSet(s.name, [copy_of[id(m)] for m in s.members], SetTypes.ELSET, parent=merged)
+                set_map[id(s)] = ns_set
+                merged_sets.append(ns_set)
+                taken_set_names.add((ns_set.type, ns_set.name.lower()))
+        for el in _carried_elems(p.fem):
+            for attr in ("_fem_set", "_elset"):
+                fs = getattr(el, attr, None)
+                if fs is not None and id(fs) in set_map:
+                    setattr(copy_of[id(el)], attr, set_map[id(fs)])
 
     # Sections: shallow copy, re-point the copy's elset to the merged set + carry the material
     # (copied once and re-pointed so the source sections stay intact).
@@ -924,6 +985,22 @@ def _put_once(container: dict, name: str, obj, label: str, part) -> None:
     container[name] = obj
 
 
+def _carried_elems(fem) -> list:
+    """A carrier's elements the merge carries: its point masses and springs."""
+    from ada.fem.elements import Mass
+    from ada.fem.formats.sesam.write.write_elements import is_spring
+
+    return [e for e in fem.elements if isinstance(e, Mass) or is_spring(e)]
+
+
+def carries_elements(assembly) -> bool:
+    """Whether ``assembly``'s own FEM, with no nodes of its own, holds point masses or springs on its parts' nodes --
+    which a single-part writer, writing the one part's FEM, would leave out unless merged (:func:`single_part_assembly`).
+    """
+    fem = assembly.fem
+    return fem is not None and len(fem.nodes) == 0 and bool(_carried_elems(fem))
+
+
 def _refuse_what_the_merge_does_not_carry(p, *, is_carrier: bool) -> None:
     """Data a merge would otherwise drop without a word."""
     fem = p.fem
@@ -936,10 +1013,13 @@ def _refuse_what_the_merge_does_not_carry(p, *, is_carrier: bool) -> None:
         dropped += [f"interaction {n!r}" for n in fem.interactions]
     if fem.fluid_cavities:
         dropped += [f"fluid cavity {n!r}" for n in fem.fluid_cavities]
-    if is_carrier and (len(fem.elements) > 0 or fem.masses):
-        # Elements (point masses, springs) on a part with no nodes of its own: they name other
-        # parts' nodes, which the element merge does not re-key.
-        dropped.append(f"{len(fem.elements)} element(s) and {len(fem.masses)} mass(es) on other parts' nodes")
+    if is_carrier:
+        # Point masses and springs on a part with no nodes of its own are carried, re-keyed onto the parts' nodes
+        # (_carried_elems); any other element there (a beam or shell on other parts' nodes) is not.
+        carried = {id(e) for e in _carried_elems(fem)}
+        other = [e for e in fem.elements if id(e) not in carried]
+        if other:
+            dropped.append(f"{len(other)} element(s) other than point masses and springs on other parts' nodes")
     if dropped:
         raise DoesNotSupportMultiPart(
             f"{p.name!r} holds {', '.join(dropped)}, which merging the model into one part does not carry"

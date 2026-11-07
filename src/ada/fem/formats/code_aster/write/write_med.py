@@ -54,6 +54,13 @@ def element_groups(part: Part, extra=()) -> list[tuple[object, list]]:
     A NONSTRUCTURAL mass is no cell: it is spread over its region (write_masses, MASS_REP)."""
     # The container's own grouping (an array-backed container groups its own way), with the extra cells merged in.
     groups = [(t, list(g)) for t, g in part.fem.elements.group_by_type() if t != shape_def.MassTypes.NONSTRUCTURAL]
+    # An array-backed container groups its block rows only; a mass or spring with no row of its own (its ``_overflow``:
+    # where a merge puts an assembly-level mass, and the readers theirs) is a cell too, or the group naming it is
+    # missing from the mesh ("le GROUP_MA ... ne fait pas partie du maillage", measured)
+    overflow = [
+        el for el in getattr(part.fem.elements, "_overflow", ()) if el.type != shape_def.MassTypes.NONSTRUCTURAL
+    ]
+    extra = [*extra, *overflow]
     if extra:
         by_type = dict(groups)
         for el in extra:
