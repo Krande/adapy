@@ -118,6 +118,13 @@ def test_a_pinned_strip_buckles_at_n2_eulers_load(tmp_path, require_solver, solv
     error, growing as n^2 here."""
     require_solver(solver)
     a, euler = _strip()
+    if solver == "sesam":
+        # Sestra's FQUS has a drilling dof (rotation about the normal, CMAS CSING 1e-8 stiffness), and in a buckling run
+        # it gives spurious stability factors near zero that hide the physical ones: measured, Sestra 11.3-01, factors
+        # of 1e-4 to 1e-2 Euler's that moved with the shift and CSING. Held -- for a strip flat in xy it is rz, which
+        # no buckling mode uses -- the three are 1 + 5.1e-4, 2.06e-3, 4.63e-3, Code_Aster's DKT errors.
+        (part,) = [p for p in a.get_all_parts_in_assembly() if len(p.fem.elements)]
+        part.fem.add_bc(Bc("drill", part.fem.add_set(FemSet("all_nodes", list(part.fem.nodes), "nset")), [6]))
     factors = a.to_fem("strip", solver, scratch_dir=tmp_path, overwrite=True, execute=True).buckling_factors
     assert factors is not None and len(factors) >= 3, factors
     for n, f in enumerate(sorted(abs(x) for x in factors)[:3], start=1):

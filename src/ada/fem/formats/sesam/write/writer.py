@@ -188,6 +188,8 @@ def to_fem(assembly, name, analysis_dir=None, metadata=None, model_data_only=Fal
         with open(analysis_dir / "sestra.inp", "w") as f:
             f.write(write_sestra_inp(name, step, supnr=seltyp, free_dofs=free_dofs_lower_bound(part.fem)))
     report_steps(steps, sestra_inp, model_data_only=model_data_only)
+    if sestra_inp and step.type == step.TYPES.BUCKLING:
+        report_shell_drilling_in_buckling(part.fem)
     report_not_held(fems, materials, written=part.fem)
 
     # One derivation of the per-node dof count, shared by every record that declares an
@@ -539,6 +541,32 @@ def _nodes_as_arrays(fem: FEM) -> tuple[np.ndarray, np.ndarray]:
 
     order = np.argsort(node_ids, kind="stable")
     return node_ids[order], coords[order]
+
+
+def report_shell_drilling_in_buckling(fem: FEM) -> None:
+    """Say it when a linearized buckling run has flat shells (FQUS/FTRS) whose drilling dof is free somewhere.
+
+    Measured, Sestra 11.3-01 (tests/fem/test_buckling.py, the pinned strip): their drilling dof -- the rotation about
+    the normal, stiffened only by CMAS CSING (1e-8) -- gives spurious stability factors near zero that hide the
+    physical ones (1e-4 to 1e-2 Euler's, moving with the shift and with CSING). Held, the strip's three factors were
+    Euler's to 5e-4..5e-3, as Code_Aster's. Holding it is the model's call -- on a folded or curved shell the drilling
+    dof is coupled, and holding it would be wrong -- so this says so rather than doing it."""
+    from ada.fem.shapes.definitions import ShellShapes
+
+    from .not_held import STAGE, report
+
+    shells = [el for el in fem.elements if el.type in (ShellShapes.QUAD, ShellShapes.TRI)]
+    if not shells:
+        return
+    report().note(
+        STAGE,
+        "Step",
+        "buckling",
+        "Sestra's first-order shells (FQUS/FTRS) have a weakly stiffened drilling dof that gives spurious stability "
+        "factors near zero in a linearized buckling run unless it is held; on a flat plate it can be held with no "
+        "effect on the modes (measured: the factors are then Euler's)",
+        n_shells=len(shells),
+    )
 
 
 def nodes_gen(fem: FEM, ndofs: NodeDofs | None = None) -> Iterator[str]:
