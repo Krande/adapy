@@ -120,6 +120,50 @@ def test_a_deduplicated_finding_keeps_the_first_subject_and_remembers_more():
     assert finding.other_subjects[0] == "s1"
 
 
+def test_a_deduplicated_finding_keeps_each_subject_with_its_own_count_and_details():
+    """The merged finding keeps the first subject's details only; ``occurrences`` keeps each subject's, so a reader
+    can tell which value belongs to which. The old fields are unchanged."""
+    with collect() as report:
+        current().omitted("concept to fem", "LoadConceptCase", "LC1 of part A", "not converted", part="A")
+        current().omitted("concept to fem", "LoadConceptCase", "LC2 of part B", "not converted", part="B", owner="C")
+        current().omitted("concept to fem", "LoadConceptCase", "LC2 of part B", "not converted", part="B")
+
+    (finding,) = report.findings
+    assert (finding.subject, finding.other_subjects, finding.count) == ("LC1 of part A", ["LC2 of part B"], 3)
+    assert finding.details == {"part": "A", "owner": "C"}  # as before: first value per key, whoever it was of
+    assert finding.occurrences == [
+        {"subject": "LC1 of part A", "count": 1, "details": {"part": "A"}},
+        {"subject": "LC2 of part B", "count": 2, "details": {"part": "B", "owner": "C"}},
+    ]
+    out = finding.to_dict()
+    assert {"kind", "stage", "keyword", "subject", "reason", "count", "other_subjects", "details"} <= set(out)
+    assert out["occurrences"] == finding.occurrences
+
+    # a finding of one subject writes no occurrences: its JSON is what it was
+    with collect() as single:
+        current().omitted("sesam writer", "SPRING", "s0", "no Sesam representation", n=1)
+    assert "occurrences" not in single.findings[0].to_dict()
+
+    # absorbing another report merges the subjects' counts and details
+    with collect() as outer:
+        current().omitted("concept to fem", "LoadConceptCase", "LC2 of part B", "not converted", part="B")
+        outer.absorb(report)
+    (merged,) = outer.findings
+    assert merged.count == 4
+    assert [(o["subject"], o["count"]) for o in merged.occurrences] == [("LC2 of part B", 3), ("LC1 of part A", 1)]
+
+
+def test_occurrences_are_capped_but_the_count_is_exact():
+    with collect() as report:
+        for i in range(conversion_report.MAX_OCCURRENCES + 5):
+            current().omitted("sesam writer", "SPRING", f"s{i}", "no Sesam representation", i=i)
+
+    (finding,) = report.findings
+    assert finding.count == conversion_report.MAX_OCCURRENCES + 5
+    assert len(finding.occurrences) == conversion_report.MAX_OCCURRENCES
+    assert finding.occurrences[7] == {"subject": "s7", "count": 1, "details": {"i": 7}}
+
+
 def test_findings_differing_only_by_reason_stay_separate():
     with collect() as report:
         current().omitted("sesam writer", "*TIE", "t1", "no master nodes")
