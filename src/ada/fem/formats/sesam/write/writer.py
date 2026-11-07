@@ -108,7 +108,7 @@ def to_fem(assembly, name, analysis_dir=None, metadata=None, model_data_only=Fal
     )
     from .write_constraints import bldep_records
     from .write_elements import elem_gen, unwritten_element_ids
-    from .write_loads import step_loads_str
+    from .write_loads import deck_fem, step_loads_str
     from .write_masses import mass_str
     from .write_point_elements import point_elements_str
     from .write_sections import sections_str
@@ -212,7 +212,7 @@ def to_fem(assembly, name, analysis_dir=None, metadata=None, model_data_only=Fal
     # A spring's stiffness record takes a MATNO, numbered on from the materials'.
     spring_matnos = spring_matnos_for(part.fem.springs.values(), max((m.id for m in materials), default=0) + 1)
 
-    with open(inp_file_path, "w") as d, track_rounding() as rounding, frames_deck(frames):
+    with open(inp_file_path, "w") as d, track_rounding() as rounding, frames_deck(frames), deck_fem(part.fem):
         d.write(top_level_fem_str.format(date_str=date_str, clock_str=clock_str, user=user, seltyp=float(seltyp)))
         d.write(units)
         d.write(materials_str(materials))

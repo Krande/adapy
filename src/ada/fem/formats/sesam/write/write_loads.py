@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import contextlib
+
 from typing import TYPE_CHECKING, Sequence
 
 import numpy as np
@@ -305,26 +307,83 @@ def _is_rotation(load) -> bool:
     return isinstance(load, LoadRotation)
 
 
-def load_rotation(load, load_id: int) -> str:
-    """A rotating frame (:class:`~ada.fem.LoadRotation`) as Sestra's rigid-body motion of the whole model (``ModelNode
-    0``): ``BRIGVE`` for the angular velocity, from which Sestra takes the centrifugal forces ("the rotational part of
-    the velocity yields centrifugal forces of inertia"), and ``BRIGAC`` for the angular acceleration, "an acceleration
-    of a point in a rigid body ... used for calculation of forces of inertia" (SIF 7.2.28, 7.2.30): the point on the
-    axis, then six components, translations zero, the angular ones ``w e`` / ``a e``.
+#: The FEM whose nodes the deck writes, while one deck is written (``writer.to_fem``): a rotation load is an inertia
+#: load per node (:func:`load_rotation`).
+_deck_fems: list = []
 
-    BRIGAC gives the *body's* acceleration and Sestra the inertia force against it, ``-rho a``, while
-    ``LoadRotation``'s angular acceleration is its field's own force, ``+rho a e x (x - origin)`` (as Abaqus' ROTA and
-    a gravity field's ``rho g``): so it is written with the opposite sign. That sign is the SIF's wording, to be
-    measured in Sestra (``tests/fem/test_rotation_loads.py``).
+
+@contextlib.contextmanager
+def deck_fem(fem):
+    _deck_fems.append(fem)
+    try:
+        yield fem
+    finally:
+        _deck_fems.pop()
+
+
+def _rotation_nodes(load) -> list:
+    """The nodes a rotation load acts on: those of its element (or node) set, or every node of the deck."""
+    fs = load.fem_set
+    if fs is None:
+        return list(_deck_fems[-1].nodes) if _deck_fems else []
+    if fs.type == "nset":
+        return list(fs.members)
+    seen, out = set(), []
+    for el in fs.members:
+        for n in el.nodes:
+            if n.id not in seen:
+                seen.add(n.id)
+                out.append(n)
+    return out
+
+
+def load_rotation(load, load_id: int, ndofs: NodeDofs | None = None) -> str:
+    """A rotating frame (:class:`~ada.fem.LoadRotation`) as Sestra's inertia loads, measured with Sestra 11.3-01
+    (``tests/fem/test_rotation_loads.py``):
+
+    * The angular velocity is one ``BNACCLO`` per node ("general inertia load", BNLOAD's layout, ``LOTYP = 1``)
+      holding the *body's* centripetal acceleration ``-w^2 r`` (``r`` the node's offset from the axis, normal to it),
+      from which Sestra takes the inertia force ``+m w^2 r``: written ``+w^2 r`` instead, the reactions and the tip
+      stretch came out exactly reversed. ``BRIGVE`` (rigid-body velocity) is not a Sestra load type (Sestra 11.3 UM
+      2.7.5): written that way, as this did at first, the case had no load ("No load is specified") and Sestra still
+      reported success.
+    * The angular acceleration of the whole model is ``BRIGAC`` (SIF 7.2.28), the point on the axis and the angular
+      components ``-a e``: again the body's acceleration, Sestra applying ``-m a`` (measured: the spun-up bar's
+      reactions as the closed form). On part of the model (``fem_set``) it goes per node too, ``-a e x (x - o)``,
+      in the same measured convention.
+
+    A node's record carries the node's own NDOF (3 for a node of solids only), and at a node in a rotated frame
+    (``node_frames``) its components are in that frame.
     """
+    from .node_frames import current as node_frames
+    from .writer import ALL_SIX_DOF
+
+    if ndofs is None:
+        ndofs = ALL_SIX_DOF
     e = np.asarray(load.axis, dtype=float)
-    point = tuple(float(c) for c in load.origin)
+    o = np.asarray(load.origin, dtype=float)
+    w2, alpha = load.angular_velocity**2, load.angular_acceleration
+    per_node_alpha = alpha != 0.0 and load.fem_set is not None
+    frames = node_frames()
     out = ""
-    for card, vec in (("BRIGVE", load.angular_velocity * e), ("BRIGAC", -load.angular_acceleration * e)):
-        if not np.any(vec):
-            continue
+    if w2 != 0.0 or per_node_alpha:
+        for node in sorted(_rotation_nodes(load), key=lambda n: n.id):
+            d = np.asarray(node.p, dtype=float) - o
+            acc = np.zeros(3)
+            if w2 != 0.0:
+                acc -= w2 * (d - (d @ e) * e)
+            if per_node_alpha:
+                acc -= alpha * np.cross(e, d)
+            if not np.any(acc):
+                continue
+            ndof = ndofs.ndof(node.id)
+            values = frames.to_local(node.id, [*acc, 0.0, 0.0, 0.0])[:ndof]
+            out += write_ff("BNACCLO", [(load_id, 1, 0, 0), (node.id, ndof, *values[:2]), tuple(values[2:ndof])])
+    if alpha != 0.0 and not per_node_alpha:
+        point = tuple(float(c) for c in o)
+        vec = -alpha * e
         out += write_ff(
-            card, [(load_id, 0, 0, 0), (*point, 0), (0.0, 0.0, 0.0, float(vec[0])), (float(vec[1]), float(vec[2]))]
+            "BRIGAC", [(load_id, 0, 0, 0), (*point, 0), (0.0, 0.0, 0.0, float(vec[0])), (float(vec[1]), float(vec[2]))]
         )
     return out
 

@@ -2,6 +2,10 @@
 
 A bar along x, clamped at its root on the axis of rotation z, density ``rho``, area ``A``:
 
+Sestra takes the angular velocity as one BNACCLO per node (the body's centripetal acceleration) and the angular
+acceleration as BRIGAC -- both signs measured in Sestra 11.3-01 (the windows agent; BRIGVE, which this wrote first,
+is not a Sestra load type).
+
 * **Spinning** at ``w``: the centrifugal force per length ``rho A w^2 x`` pulls it outward. The root holds back
   ``R_x = -rho A w^2 L^2 / 2``, exact, and the tip stretches by ``rho w^2 L^3 / (3 E)`` (``N(x) = rho A w^2 (L^2 -
   x^2) / 2``), exact at the nodes of a two-node bar under the consistent load.
@@ -90,8 +94,15 @@ def test_the_decks_hold_the_rotation(tmp_path):
     assert "\n, ROTA, 2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0\n" in inp
     asm.to_fem("s", "sesam", scratch_dir=tmp_path, overwrite=True)
     lines = next((tmp_path / "s").glob("*T1.FEM")).read_text().splitlines()
-    (i,) = [k for k, ln in enumerate(lines) if ln.startswith("BRIGVE")]
-    assert [float(x) for x in lines[i + 2].split()][3] == 0.0 and float(lines[i + 3].split()[1]) == 3.0
+    # the body's centripetal acceleration -w^2 x along x, one BNACCLO per node (Sestra takes no BRIGVE)
+    assert not [ln for ln in lines if ln.startswith("BRIGVE")]
+    acc = {}
+    for k, ln in enumerate(lines):
+        if ln.startswith("BNACCLO"):
+            nid, ndof, a1, a2 = (float(x) for x in lines[k + 1].split())
+            acc[int(nid)] = a1
+    xs = {int(n.id): n.x for n in asm.get_part("P").fem.nodes}
+    assert acc and all(a == pytest.approx(-9.0 * xs[nid], abs=1e-9) for nid, a in acc.items())
     (j,) = [k for k, ln in enumerate(lines) if ln.startswith("BRIGAC")]
     assert float(lines[j + 3].split()[1]) == -2.0
     asm2, *_ = _bar(w=3.0)
