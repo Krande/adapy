@@ -305,9 +305,16 @@ def load_gravity(load: Load, load_id: int) -> str:
     )
 
 
+#: BEISTE's TOP. Sestra 11.3-01 refuses 0 ("The BEISTE card option TOP is given a value outside the parameter range
+#: {1,2}"); 1 and 2 gave the same, exact, answers for one temperature per node -- the beam held and free
+#: (tests/fem/test_temperature_loads.py) and a free 2 x 1 m shell plate heated by 50 K: alpha dT expansion in-plane,
+#: no bending. What 2 selects otherwise is not measured.
+BEISTE_TOP = 1
+
+
 def load_temperature(load, load_id: int) -> str:
     """A temperature load (:class:`~ada.fem.LoadTemperature`) as one ``BEISTE`` per element ("element with initial
-    strain due to thermal expansion", SIF 7.2.3): ``LLC LOTYP=1 0 TOP=0`` then ``ELNO NNOD INTNO=0`` and the
+    strain due to thermal expansion", SIF 7.2.3): ``LLC LOTYP=1 0 TOP`` (:data:`BEISTE_TOP`) then ``ELNO NNOD INTNO=0`` and the
     temperature difference to the reference at each of its nodes -- the material's MISOSEL ``ALPHA`` makes it a
     strain. Sestra takes thermal loads on all elements "except first- and second-order solids" (Sestra UM 2.7.5): a
     load reaching solids is left out there, reported by name.
@@ -334,7 +341,9 @@ def load_temperature(load, load_id: int) -> str:
     for el in sorted((el for el in els if not isinstance(el.type, SolidShapes)), key=lambda e: e.id):
         nnod = len(el.nodes)
         values = [dt] * nnod
-        out += write_ff("BEISTE", [(load_id, 1, 0, 0), (internal(el.id), nnod, 0, values[0]), *_rows4(values[1:])])
+        out += write_ff(
+            "BEISTE", [(load_id, 1, 0, BEISTE_TOP), (internal(el.id), nnod, 0, values[0]), *_rows4(values[1:])]
+        )
     return out
 
 
