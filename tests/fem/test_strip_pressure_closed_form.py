@@ -100,10 +100,11 @@ def test_the_strip_deflects_as_the_closed_form_says(tmp_path, require_solver, so
     xyz = {int(n.id): np.asarray(n.p, float) for n in part.fem.nodes}
 
     pressure, lo, hi = CASES[load_kind]
+    # the roles' layout, [node, x, y, z, rx, ry, rz]; the component labels are each format's own
     u = np.asarray(disp.values, float)
-    uz = 1 + list(disp.components).index("U3")
+    uz = 3
     r = np.asarray(reac.values, float)
-    rz = 1 + list(reac.components).index("U3")
+    rz = 3
 
     # the support lines' reactions: a statically determinate beam, so exact for any consistent load
     gx, gw = np.polynomial.legendre.leggauss(8)

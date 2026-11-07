@@ -30,6 +30,8 @@ RAW_ROLES = {
     "STRESS": FieldRole.SHELL_STRESS,
     "FORCES": FieldRole.BEAM_FORCES,
     "RVNODDIS": FieldRole.NODAL_DISPLACEMENT,
+    # RVNODREA expanded to every node, [node, X-FORCE .. RZ-MOMENT] in model axes (read_sif.get_nodal_reactions)
+    "REACTION-FORCE": FieldRole.NODAL_REACTION,
 }
 _FIELD_OF_ROLE = {role: name for name, role in RAW_ROLES.items()}
 
