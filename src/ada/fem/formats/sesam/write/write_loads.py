@@ -271,7 +271,7 @@ def load_str(load: Load, lid, ndofs: NodeDofs | None = None) -> str:
             return ""
     elif load.type == Load.TYPES.ACC_ROT and _is_rotation(load):
         # on part of the model (fem_set) too: per node, on BNACCLO (load_rotation)
-        out = load_rotation(load, lid)
+        out = load_rotation(load, lid, ndofs)
     else:
         rep.omitted(STAGE, "Load", load.name, f'a "{load.type}" load is not written by the Sesam writer')
         return ""
