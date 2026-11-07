@@ -138,8 +138,30 @@ class StatNonLin:
         return out
 
     def loads_str(self):
-        # Every load of the step; only the first used to be applied.
-        return "".join(f"_F(CHARGE={concept_name(ld, 'load')}, FONC_MULT=bc_step)," for ld in self.loads)
+        # Every load of the step; only the first used to be applied. A load with an amplitude takes it as its
+        # multiplier (amplitude_functions_str), the rest the step's ramp.
+        out = ""
+        for k, ld in enumerate(self.loads, start=1):
+            mult = f"{self.name}_a{k}" if getattr(ld, "amplitude", None) is not None else "bc_step"
+            out += f"_F(CHARGE={concept_name(ld, 'load')}, FONC_MULT={mult}),"
+        return out
+
+    def amplitude_functions_str(self) -> str:
+        """A ``DEFI_FONCTION`` of the instant per load with an amplitude: the amplitude's (time, value) points with
+        the step time mapped onto this step's instants 0 .. 1 (``timeReel``), held at its ends -- Abaqus' step-time
+        amplitude, so the step's last instant is the load at its amplitude's value at the step's end."""
+        total = float(self.step.total_time) if self.step is not None and self.step.total_time else 1.0
+        out = []
+        for k, ld in enumerate(self.loads, start=1):
+            amp = getattr(ld, "amplitude", None)
+            if amp is None:
+                continue
+            values = ", ".join(f"{float(x) / total!r}, {float(y)!r}" for x, y in zip(amp.x, amp.y))
+            out.append(
+                f"{self.name}_a{k} = DEFI_FONCTION(\n    NOM_PARA='INST', VALE=({values}), PROL_GAUCHE='CONSTANT', "
+                f"PROL_DROITE='CONSTANT'\n)"
+            )
+        return "\n".join(out)
 
     def comportement_str(self) -> str:
         """Small strains everywhere, but for the cables (``RELATION='CABLE'``, which Code_Aster solves with large
@@ -190,7 +212,8 @@ class StatNonLin:
         return 8
 
     def write(self):
-        return f"""{self.name} = STAT_NON_LINE(
+        return f"""{self.amplitude_functions_str()}
+{self.name} = STAT_NON_LINE(
     MODELE=model,
     CHAM_MATER=material,{self.sec_str}
     COMPORTEMENT=({self.comportement_str()}),
@@ -244,7 +267,20 @@ class PostCalc:
 {name} = CALC_CHAMP(reuse={name}, RESULTAT={name}, FORCE=("REAC_NODA",))"""
         # COQUE_3D (second-order shells) computes no strains: "Le TYPE_ELEMENT MEC3QU9H ne sait pas encore calculer
         # l'option EPSP_ELGA" (<CALCUL_37>, measured, 18.1) -- their stresses and section forces only.
+        # POU_D_E beams compute no strains either (<CALCUL_37>: EPSI_ELGA on MECA_POU_D_E, measured, 18.1): their
+        # section forces only
+        beams = [fs.elset.name for fs in sections.lines if not fs.is_axial_only and not _is_special(fs)]
+        if beams:
+            out += f"""
+{name} = CALC_CHAMP(
+    reuse={name}, RESULTAT={name},
+    CONTRAINTE=("EFGE_ELNO", "EFGE_NOEU"),
+    GROUP_MA={_group_tuple(beams)},
+)"""
+            others = [fs for fs in others if fs.elset.name not in beams]
         second = _second_order_shell_groups(self.part)
+        if beams and not second:
+            restrict = lambda groups: f"\n    GROUP_MA={_group_tuple(groups)},"  # noqa: E731
         if second:
             out += f"""
 {name} = CALC_CHAMP(
@@ -403,7 +439,8 @@ def step_static_nonlin_str(step: StepImplicitStatic, part: Part, result: str = "
     every = list(applied) + [ld for ld in step.loads if all(ld is not c for c in applied)]
     thermal = any(is_temperature(ld) for ld in every)
     loads = mechanical(every)
-    load_str = "\n".join(list(map(write_load, loads)))
+    # the amplitudes are this step's FONC_MULT (StatNonLin.amplitude_functions_str), not left out
+    load_str = "\n".join(write_load(ld, amplitude_written=True) for ld in loads)
     supports = step_charges(part, step)
     bcs = supports.bcs
     values = case_values(bcs, {step.name}, STAGE, step=step.name)
