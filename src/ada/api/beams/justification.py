@@ -286,11 +286,31 @@ class OffsetHelper:
         off1 = abs_vec_to_local_components(off1_abs)
         off2 = abs_vec_to_local_components(off2_abs)
 
-        # --- geometric centroid adjustments (these are LOCAL y/z tweaks) ---
-        # Only ANGULAR / TPROFILE actually consume the geometric centroid; every
-        # other section type (incl. GENERAL, whose Cgy/Cgz are frequently
-        # undefined in Sesam GBEAMG records) gets no centroid tweak, so don't
-        # demand a centroid it never uses.
+        add_local = self.centroid_shift_local()
+
+        off1 = off1 + add_local
+        off2 = off2 + add_local
+
+        is_varying = not vectors_are_close(off1, off2)
+        avg = 0.5 * (off1 + off2)
+
+        return CurveOffsetResult(
+            end1=(float(off1[0]), float(off1[1]), float(off1[2])),
+            end2=(float(off2[0]), float(off2[1]), float(off2[2])),
+            avg=(float(avg[0]), float(avg[1]), float(avg[2])),
+            is_varying=bool(is_varying),
+        )
+
+    def centroid_shift_local(self) -> np.ndarray:
+        """The local ``(x, y, up)`` shift from the point a section's ``e``/justification places to its centroid.
+
+        Only ANGULAR and TPROFILE consume the geometric centroid: their outlines are drawn from the top of the leg
+        (ANGULAR) and from mid-height (TPROFILE), so the neutral axis sits ``Cgz - h`` / ``Cgz - h/2`` along ``up``
+        from the point the offset places. Every other section type (incl. GENERAL, whose Cgy/Cgz are frequently
+        undefined in Sesam GBEAMG records) is drawn about its centroid and gets no shift, so don't demand a centroid
+        it never uses. :meth:`curve_offset_local` adds this to the offsets; ``line_elem_to_beam`` takes it off a
+        FE eccentricity (node to neutral axis) on the way back to a concept ``e1``/``e2``.
+        """
         p = self.beam.section.properties
         sec_type = self.beam.section.type
         h = float(self.beam.section.h) if self.beam.section.h is not None else None
@@ -315,20 +335,25 @@ class OffsetHelper:
             dz = 0.0
             dy = 0.0
 
-        add_local = np.array([0.0, dy, dz], dtype=float)
+        return np.array([0.0, dy, dz], dtype=float)
 
-        off1 = off1 + add_local
-        off2 = off2 + add_local
+    def curve_offset_global(self) -> tuple[np.ndarray, np.ndarray]:
+        """The offsets of :meth:`curve_offset_local` as global vectors: from the beam's nodal line to its neutral
+        axis at end 1 and at end 2, in the absolute system the mesh nodes are in (the placement rotation applied).
 
-        is_varying = not vectors_are_close(off1, off2)
-        avg = 0.5 * (off1 + off2)
+        This is the eccentricity a FE program wants for a beam element meshed on the nodal line (Sesam's GECCEN,
+        GeniE's curve offset): zero for a beam on its own axis, ``-e`` for one placed by ``e1``/``e2``, and for one
+        placed by a flush justification the vector from the flush line to the centroid.
+        """
+        axes = self._local_axes_in_absolute()
+        x_abs, y_abs, up_abs = (np.asarray(v, dtype=float) for v in axes)
+        data = self.curve_offset_local(axes=axes)
 
-        return CurveOffsetResult(
-            end1=(float(off1[0]), float(off1[1]), float(off1[2])),
-            end2=(float(off2[0]), float(off2[1]), float(off2[2])),
-            avg=(float(avg[0]), float(avg[1]), float(avg[2])),
-            is_varying=bool(is_varying),
-        )
+        def to_abs(off) -> np.ndarray:
+            ox, oy, oz = (float(v) for v in off)
+            return ox * x_abs + oy * y_abs + oz * up_abs
+
+        return to_abs(data.end1), to_abs(data.end2)
 
     def _offset_endpoints_abs(self) -> tuple[np.ndarray, np.ndarray]:
         """Absolute, offset-adjusted beam endpoints ``(start, end)``.

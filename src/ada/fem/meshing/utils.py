@@ -203,13 +203,22 @@ def get_bm_sections(model: gmsh.model, beam: Beam, gmsh_data, fem: FEM):
 
 
 def add_beam_ecc_to_elements(beam: Beam, elements: list[Elem]) -> None:
-    """Carry ``Beam.e1`` / ``Beam.e2`` onto the line elements, interpolated along the beam.
+    """Carry the beam's offset from its nodal line onto the line elements, interpolated along the beam.
 
     The line mesh is built on the beam's *nodal* line -- ``Beam.line_occ`` makes its
     wire from ``n1.p``/``n2.p`` and ignores the eccentricities -- so without this the
     offsets are simply dropped on the way into the FEM, and every downstream writer
     has nothing to write. That is why the Sesam writer never emitted a GECCEN record:
     not because it chose not to, but because no element ever carried one.
+
+    The offset is the one the geometry is drawn with, :meth:`OffsetHelper.curve_offset_global`:
+    from ``Beam.e1``/``e2`` when they are set, else from the beam's justification (a
+    stiffener placed ``"flush top"`` on its plate, hanging below the nodal line), and for
+    an angle or a T the shift from the drawn outline to the centroid on top. It used to
+    read ``e1``/``e2`` alone, so a stiffened panel whose stiffeners and girders were
+    placed flush by justification -- the way a deck generator or a GeniE import places
+    them -- was meshed with every profile's neutral axis in the plate: a simply supported
+    panel deflected 4.2 times what Sestra gives for the eccentric model.
 
     Every element node gets an offset, not only the beam's two end nodes. A beam
     offset is a property of the whole member -- the same ``e1``/``e2`` a CAD program
@@ -231,14 +240,13 @@ def add_beam_ecc_to_elements(beam: Beam, elements: list[Elem]) -> None:
     """
     from ada.fem.elements import Eccentricity, EccPoint
 
-    if beam.e1 is None and beam.e2 is None:
-        return
-
     # A missing end means "no offset there", which is what the geometry path assumes
     # too (``curve_offset_local`` zero-fills it), so the interpolation runs to zero.
-    # The offsets and nodal line are in the beam's local system, the element nodes are global
-    e1 = -to_global_vectors(beam, beam.e1) if beam.e1 is not None else np.zeros(3)
-    e2 = -to_global_vectors(beam, beam.e2) if beam.e2 is not None else np.zeros(3)
+    # The offsets come out in the absolute system the element nodes are in.
+    e1, e2 = beam.offset_helper.curve_offset_global()
+    if not np.any(np.abs(e1) > 1e-12) and not np.any(np.abs(e2) > 1e-12):
+        return
+
     p1, p2 = to_global_points(beam, [beam.n1.p, beam.n2.p])
     axis = p2 - p1
     length_sq = float(np.dot(axis, axis))

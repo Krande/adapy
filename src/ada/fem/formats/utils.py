@@ -10,6 +10,8 @@ import sys
 from contextlib import contextmanager
 from typing import TYPE_CHECKING
 
+import numpy as np
+
 from ada.api.containers import Beams, Plates
 from ada.config import Config, logger
 from ada.fem import Elem
@@ -756,7 +758,7 @@ def line_elem_to_beam(elem: Elem, parent: Part, prefix="bm") -> Beam:
     if elem.fem_sec.section.type == "GENBEAM":
         logger.error(f"Beam elem {elem.id}  uses a GENBEAM which might not represent an actual cross section")
 
-    return Beam(
+    beam = Beam(
         f"{prefix}{elem.id}",
         n1,
         n2,
@@ -767,6 +769,21 @@ def line_elem_to_beam(elem: Elem, parent: Part, prefix="bm") -> Beam:
         e2=e2,
         parent=parent,
     )
+    if e1 is not None or e2 is not None:
+        # A FE eccentricity runs from the node to the NEUTRAL AXIS. For an angle or a T the concept offset is
+        # measured to the drawn outline instead, and ``curve_offset_local`` adds the shift to the centroid
+        # (``OffsetHelper.centroid_shift_local``) on top of ``-e``; so that shift comes off here, or the beam
+        # would come back ``Cgz - h`` further out than the deck had it and go out again with twice the shift.
+        shift = beam.offset_helper.centroid_shift_local()
+        if np.any(shift != 0.0):
+            x, y, z = beam.offset_helper._local_axes_in_absolute()
+            shift_abs = shift[0] * np.asarray(x, dtype=float) + shift[1] * np.asarray(y, dtype=float)
+            shift_abs = shift_abs + shift[2] * np.asarray(z, dtype=float)
+            if e1 is not None:
+                beam.e1 = tuple(float(v) for v in np.asarray(e1, dtype=float) + shift_abs)
+            if e2 is not None:
+                beam.e2 = tuple(float(v) for v in np.asarray(e2, dtype=float) + shift_abs)
+    return beam
 
 
 def convert_part_objects(p: Part, skip_plates, skip_beams, merge=False, reconstruct_surfaces=False):
