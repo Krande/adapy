@@ -59,7 +59,9 @@ REFUSED_AT = {
     "genie_supports_frames.xml": {
         "points": [(0, 0, 0), (4, 0, 0), (0, 1, 0), (4, 1, 0)],  # Pl1's corners
         "lines": [],
-        "boxes": [((0, 12, -0.1), (2, 13, 1))],  # Srl_sdx's linked nodes and its master
+        # Srl_sdx, the rigid link with its slave dx free, is written as GeniE meshes it since BLDEP carries only a
+        # coupling's declared translations
+        "boxes": [],
     },
 }
 
@@ -69,6 +71,10 @@ NOW_COMPARED = {
     "genie_supports_all_kinds.xml": [(0, 8, 0)],  # Sp_local, 45 degrees
     "genie_supports_frames.xml": [(4, 7, 0), (8, 0, 0), (11, 0, 4)],  # Sp_presc_rot; Sc_slope's ends
 }
+
+#: Regions once excluded whose records are now compared: Srl_sdx's linked nodes and master (BLDEP of the declared
+#: translations only, the slave's dx left free).
+NOW_COMPARED_BOXES = {"genie_supports_frames.xml": [((0, 12, -0.1), (2, 13, 1))]}
 
 MESH_JS = """Md = MeshDensity(0.5 m);
 Md.setDefault();
@@ -226,6 +232,10 @@ def test_genie_meshes_adapys_supports_into_the_same_records(both_decks):
     assert len(kept_genie) > 30
     for p in NOW_COMPARED[fixture]:
         assert _key(p) in kept_genie and kept_genie[_key(p)] == kept_adapy.get(_key(p)), p
+    for box in NOW_COMPARED_BOXES.get(fixture, []):
+        inside = {k: v for k, v in kept_genie.items() if _excluded(k, {"points": [], "lines": [], "boxes": [box]})}
+        assert any("BLDEP" in v for v in inside.values()), box
+        assert all(kept_adapy.get(k) == v for k, v in inside.items()), box
 
 
 def test_the_refused_supports_are_where_the_comparison_leaves_out(both_decks):
