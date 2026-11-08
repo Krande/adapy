@@ -261,9 +261,11 @@ def _legend_spec(manifest: dict, blob_url: str, step_idx: int, max_magnitude: fl
 # shorter draws them at full size, a smaller one shrinks them in proportion, down to `_POSTER_MIN_SCALE`.
 _POSTER_FULL_OVERLAY_PX = 1000
 _POSTER_MIN_SCALE = 0.55
-# Below this short side, the orientation gizmo is left out: at a readable legend scale it would cover
-# as much of the model as the legend does, and a mode shape reads without it.
+# Below this short side, the orientation gizmo is drawn compact (Studio's is 150 CSS px across, with
+# 10 px bubbles and labels): at the poster's scale it then sits in the corner beside the model, its
+# axis labels still legible, instead of reaching into it.
 _POSTER_GIZMO_MIN_PX = 600
+_POSTER_COMPACT_GIZMO = {"size": 110, "bubble": 12, "font_px": 12}
 
 
 def _overlay_spec(size: tuple[int, int], legend: dict | None) -> dict:
@@ -271,9 +273,7 @@ def _overlay_spec(size: tuple[int, int], legend: dict | None) -> dict:
     so on a small one they do not cover the model (#499)."""
     short = min(size)
     scale = min(1.0, max(_POSTER_MIN_SCALE, short / _POSTER_FULL_OVERLAY_PX))
-    spec: dict = {"scale": scale}
-    if short >= _POSTER_GIZMO_MIN_PX:
-        spec["gizmo"] = True
+    spec: dict = {"scale": scale, "gizmo": True if short >= _POSTER_GIZMO_MIN_PX else dict(_POSTER_COMPACT_GIZMO)}
     if legend is not None:
         spec["legend"] = legend
     return spec
@@ -331,7 +331,7 @@ def render_fea_mode_from_bundle(
 
     `overlay` draws Ada Studio's colour legend (with `apply_colormap`)
     and orientation gizmo over the poster, scaled to its size (a small
-    poster has a smaller legend and no gizmo) -- with the adacpp backend;
+    poster has a smaller legend and a compact gizmo) -- with the adacpp backend;
     chromium posters have neither.
 
     `case_dir` must contain `fea.mesh.glb`, `fea.manifest.json`, and

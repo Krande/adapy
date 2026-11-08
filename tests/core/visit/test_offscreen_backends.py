@@ -129,11 +129,11 @@ def test_shared_adacpp_renderer_resizes_and_drops_the_previous_overlay(tmp_path)
     assert not plain[-60:, -60:, 3].any()
 
 
-def test_a_small_poster_shrinks_its_legend_and_leaves_out_the_gizmo():
+def test_a_small_poster_shrinks_its_legend_and_gizmo():
     """#499: Studio's full-size legend and gizmo covered the model on a 640 x 480 report poster."""
     legend = {"header": ["U"], "ticks": [1.0, 0.0]}
     small = _overlay_spec((640, 480), legend)
-    assert small["legend"] is legend and "gizmo" not in small
+    assert small["legend"] is legend and small["gizmo"]["size"] < 150
     assert 0.5 <= small["scale"] < 0.6
     big = _overlay_spec((1920, 1080), None)
     assert big == {"scale": 1.0, "gizmo": True}
