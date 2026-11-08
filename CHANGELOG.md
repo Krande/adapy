@@ -2,6 +2,13 @@
 
 
 
+## v0.137.1 (2026-11-08)
+
+### Fix
+
+* fix(docs): replace dead Code Aster links with current official and conda-forge sources (#504) ([`7f94be2`](https://github.com/Krande/adapy/commit/7f94be23cf30805478941db0197691b4d59c837d))
+
+
 ## v0.137.0 (2026-11-06)
 
 ### Feature
