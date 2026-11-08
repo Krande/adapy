@@ -20,14 +20,27 @@ _WELD_DECIMALS = 4
 
 
 def feature_edge_pairs(
-    vertices: np.ndarray, faces: np.ndarray, angle_deg: float = FEATURE_EDGE_ANGLE_DEG
+    vertices: np.ndarray,
+    faces: np.ndarray,
+    angle_deg: float = FEATURE_EDGE_ANGLE_DEG,
+    face_groups: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """``(welded vertices, (n, 2) vertex pairs)`` of a triangle mesh's feature edges."""
+    """``(welded vertices, (n, 2) vertex pairs)`` of a triangle mesh's feature edges.
+
+    ``face_groups`` (one id per face) welds vertices only within a group, so each group's edges are
+    found on its own -- the viewer's rule for FEA beam solids, per element: a section's outline shows
+    at every element end, and two elements' coplanar sides do not merge into one face.
+    """
     vertices = np.asarray(vertices, dtype=np.float64)
     faces = np.asarray(faces, dtype=np.int64).reshape(-1, 3)
     if len(faces) == 0:
         return vertices, np.zeros((0, 2), dtype=np.int64)
-    _, first, inverse = np.unique(np.round(vertices, _WELD_DECIMALS), axis=0, return_index=True, return_inverse=True)
+    key = np.round(vertices, _WELD_DECIMALS)
+    if face_groups is not None:
+        group_of_vertex = np.zeros(len(vertices), dtype=np.float64)
+        group_of_vertex[faces.reshape(-1)] = np.repeat(np.asarray(face_groups, dtype=np.float64), 3)
+        key = np.column_stack([group_of_vertex, key])
+    _, first, inverse = np.unique(key, axis=0, return_index=True, return_inverse=True)
     welded = vertices[first]
     f = inverse.reshape(-1)[faces]
     # drop triangles a weld collapsed

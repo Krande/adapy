@@ -235,6 +235,38 @@ def _beam_solids_geometry(case_dir: Path, manifest: dict, values, components, no
     return flat
 
 
+# The viewer's fold angle for beam-solid edges (frontend beamSolidFeatureEdges.ts): a 12-facet round
+# section folds by exactly 30 degrees and stays smooth, a rectangular corner does not.
+_BEAM_SOLID_EDGE_ANGLE_DEG = 31.0
+
+
+def _beam_solid_edges(case_dir: Path, manifest: dict, solids):
+    """The deformed beam solids' element edges as an uncoloured line overlay (drawn 1 px, like the
+    shell / solid element edges), found per element as the viewer does: each element's outline at
+    its ends plus its section's corners along it. None when there are none."""
+    import struct
+
+    import numpy as np
+    from trimesh.path.entities import Line
+    from trimesh.path.path import Path3D
+
+    from ada.visit.rendering.feature_edges import feature_edge_pairs
+
+    groups = np.zeros(len(solids.faces), dtype=np.int64)
+    url = (manifest.get("mesh") or {}).get("beam_solids_elements_url")
+    if url and (case_dir / url).is_file():
+        raw = (case_dir / url).read_bytes()
+        if raw[:4] == b"AFEM" and len(raw) >= 16:
+            n = struct.unpack_from("<I", raw, 8)[0]
+            entries = np.frombuffer(raw, dtype="<u4", count=n * 3, offset=16).reshape(-1, 3)
+            for k, (_label, start, count) in enumerate(entries):
+                groups[start : start + count] = k + 1
+    verts, pairs = feature_edge_pairs(solids.vertices, solids.faces, _BEAM_SOLID_EDGE_ANGLE_DEG, groups)
+    if not len(pairs):
+        return None
+    return Path3D(entities=[Line(points=p.tolist()) for p in pairs], vertices=verts.astype(np.float32))
+
+
 # The poster palette (`_abaqus_rgba`), blue -> cyan -> green -> yellow -> red.
 _POSTER_STOPS = ((0.0, 0.0, 1.0), (0.0, 1.0, 1.0), (0.0, 1.0, 0.0), (1.0, 1.0, 0.0), (1.0, 0.0, 0.0))
 
@@ -436,6 +468,9 @@ def render_fea_mode_from_bundle(
         )
         if solids is not None:
             scene.add_geometry(solids, geom_name="beam_solids")
+            outline = _beam_solid_edges(case_dir, manifest, solids)
+            if outline is not None:
+                scene.add_geometry(outline, geom_name="beam_solid_edges")
             # A beam model's mesh is its node points; under the solids they only show through
             # as a dotted line along the web.
             if isinstance(mesh, trimesh.PointCloud):

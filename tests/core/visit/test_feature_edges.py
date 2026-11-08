@@ -40,3 +40,16 @@ def test_the_edges_ride_along_in_the_glb_as_uncoloured_lines(tmp_path):
     lines = [g for g in scene.geometry.values() if isinstance(g, trimesh.path.Path3D)]
     # read back as GL_LINES: two vertices per segment
     assert len(lines) == 1 and len(lines[0].vertices) == 2 * 12
+
+
+def test_grouped_faces_keep_each_element_outline():
+    """Two boxes end to end (beam-solid elements): grouped, each keeps its 12 edges, so the joint
+    between them shows; ungrouped, they weld into one bar and the shared end faces are interior."""
+    a, b = trimesh.creation.box(), trimesh.creation.box()
+    b.apply_translation([1.0, 0.0, 0.0])
+    va, fa = _soup(a)
+    vb, fb = _soup(b)
+    v = np.vstack([va, vb])
+    f = np.vstack([fa, fb + len(va)])
+    groups = np.repeat([1, 2], [len(fa), len(fb)])
+    assert len(feature_edge_pairs(v, f, face_groups=groups)[1]) == 24
