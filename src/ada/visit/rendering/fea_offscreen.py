@@ -257,6 +257,28 @@ def _legend_spec(manifest: dict, blob_url: str, step_idx: int, max_magnitude: fl
     return {"header": header, "gradient": [list(c) for c in _POSTER_STOPS], "ticks": ticks}
 
 
+# Ada Studio sizes its legend and gizmo for a full-window viewport; a poster this short (in pixels) or
+# shorter draws them at full size, a smaller one shrinks them in proportion, down to `_POSTER_MIN_SCALE`.
+_POSTER_FULL_OVERLAY_PX = 1000
+_POSTER_MIN_SCALE = 0.55
+# Below this short side, the orientation gizmo is left out: at a readable legend scale it would cover
+# as much of the model as the legend does, and a mode shape reads without it.
+_POSTER_GIZMO_MIN_PX = 600
+
+
+def _overlay_spec(size: tuple[int, int], legend: dict | None) -> dict:
+    """The overlay for a poster of ``size`` (width, height): the legend and gizmo scaled to the poster,
+    so on a small one they do not cover the model (#499)."""
+    short = min(size)
+    scale = min(1.0, max(_POSTER_MIN_SCALE, short / _POSTER_FULL_OVERLAY_PX))
+    spec: dict = {"scale": scale}
+    if short >= _POSTER_GIZMO_MIN_PX:
+        spec["gizmo"] = True
+    if legend is not None:
+        spec["legend"] = legend
+    return spec
+
+
 def _abaqus_rgba(magnitudes):
     """Per-vertex RGBA uint8 from displacement magnitudes, using the
     same blue→cyan→green→yellow→red palette the embed uses in
@@ -308,7 +330,8 @@ def render_fea_mode_from_bundle(
     artefact bundle (the layout `bake_artefacts` writes).
 
     `overlay` draws Ada Studio's colour legend (with `apply_colormap`)
-    and orientation gizmo over the poster -- with the adacpp backend;
+    and orientation gizmo over the poster, scaled to its size (a small
+    poster has a smaller legend and no gizmo) -- with the adacpp backend;
     chromium posters have neither.
 
     `case_dir` must contain `fea.mesh.glb`, `fea.manifest.json`, and
@@ -468,9 +491,10 @@ def render_fea_mode_from_bundle(
         scene.export(file_obj=str(out_glb), file_type="glb")
         spec = None
         if overlay:
-            spec = {"gizmo": True}
+            legend = None
             if apply_colormap:
-                spec["legend"] = _legend_spec(manifest, blob_url, step_idx, float(np.linalg.norm(delta, axis=1).max()))
+                legend = _legend_spec(manifest, blob_url, step_idx, float(np.linalg.norm(delta, axis=1).max()))
+            spec = _overlay_spec(size, legend)
         return glb_to_image(out_glb, backend=backend, preset=preset, size=size, overlay=spec)
 
 
