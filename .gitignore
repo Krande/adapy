@@ -4,6 +4,7 @@
 /build/
 dist/
 dist-embed/
+dist-embed-webgpu/
 *.pyc
 docs/_build/
 # Zensical site and the notebook pages scripts/docs/docs_notebooks.py generates

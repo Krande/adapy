@@ -1,0 +1,4 @@
+{
+  "extends": "./tsconfig.json",
+  "include": ["embed-webgpu/**/*.ts", "embed/index.d.ts"]
+}
