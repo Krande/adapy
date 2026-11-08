@@ -160,11 +160,18 @@ COPY scripts/docs/docs_notebooks.py ./scripts/docs/
 COPY examples/penetration_detail.py ./examples/
 COPY examples/mesh_overrides.py ./examples/
 
-# Runs fea-doc (FEA verification report bundle into docs/_static/fea-report/),
-# the notebooks and then zensical into site/, via the `depends-on` chain in
-# pixi.toml. The rattler cache mount covers a solve fea-doc / docs might trigger.
+# Runs fea-doc (FEA verification report bundle into docs/_static/fea-report/), then the report
+# as DOCX / ODT / PDF into docs/_static/fea-report-files/ (the FEA verification page's download
+# links), then the notebooks and zensical into site/. The exports come after fea-doc, from its
+# assets; like the GitHub Pages workflow, a failed export leaves a dead download link but does not
+# stop the site. The rattler cache mount covers a solve these tasks might trigger.
 RUN --mount=type=cache,target=/root/.cache/rattler,sharing=locked \
-    pixi run --environment docs docs
+    pixi run --environment docs fea-doc \
+    && for fmt in docx odt pdf; do \
+         pixi run --environment docs fea-doc-$fmt \
+           || echo "WARNING: fea-doc-$fmt failed: the report's ${fmt} download link will be dead"; \
+       done \
+    && pixi run --environment docs docs-site
 
 FROM nginxinc/nginx-unprivileged:1.27-alpine
 ARG IMAGE_TAG
