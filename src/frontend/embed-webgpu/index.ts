@@ -18,6 +18,8 @@ import {InstanceFlag, Topology} from "../src/viewport/adacpp/types";
 import type {FeaManifest, FeaManifestField} from "../src/services/viewerApi";
 import {showFallback, Viewer} from "./viewer";
 
+export {FALLBACK_CLASS} from "./viewer";
+
 export {webGpuUnavailableReason} from "./renderer";
 
 export interface MountViewerOptions {

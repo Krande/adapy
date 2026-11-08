@@ -74,3 +74,7 @@ export declare function mountFeaArtefactViewer(
 
 /** Why this browser cannot show the 3D view (no WebGPU), or null. */
 export declare function webGpuUnavailableReason(): string | null
+
+/** Without WebGPU (or when a model fails to load) a figure shows its poster, or a note, as an element
+ *  with this class (and the reason in `data-reason`) instead of a canvas. */
+export declare const FALLBACK_CLASS: "ada-viewer-fallback"

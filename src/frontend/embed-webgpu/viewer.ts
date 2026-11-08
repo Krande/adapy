@@ -19,11 +19,17 @@ export interface FallbackOptions {
     caption?: string;
 }
 
+/** The class of the poster / note shown instead of the 3D view, so a host (or a test) can tell the
+ *  figure mounted in its fallback state; the reason is in its `data-reason`. */
+export const FALLBACK_CLASS = "ada-viewer-fallback";
+
 /** Show the poster (or a note) in `element` instead of the 3D view. */
 export function showFallback(element: HTMLElement, opts: FallbackOptions, reason: string): void {
     element.innerHTML = "";
     if (opts.posterUrl) {
         const img = document.createElement("img");
+        img.className = FALLBACK_CLASS;
+        img.dataset.reason = reason;
         img.src = opts.posterUrl;
         img.alt = opts.caption || "3D figure";
         img.title = `3D view unavailable: ${reason}`;
@@ -32,6 +38,8 @@ export function showFallback(element: HTMLElement, opts: FallbackOptions, reason
         return;
     }
     const note = document.createElement("div");
+    note.className = FALLBACK_CLASS;
+    note.dataset.reason = reason;
     note.style.cssText =
         "display:flex;align-items:center;justify-content:center;width:100%;min-height:200px;" +
         "color:#64748b;font:13px system-ui;text-align:center;padding:1em;";
