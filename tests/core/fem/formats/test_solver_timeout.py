@@ -44,7 +44,10 @@ def _alive(pid: int) -> bool:
     try:
         return pathlib.Path(f"/proc/{pid}/stat").read_text().split()[2] != "Z"
     except OSError:
-        return True
+        pass
+    # no /proc (macOS): ask ps for the process state
+    state = subprocess.run(["ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True).stdout.strip()
+    return bool(state) and not state.startswith("Z")
 
 
 def _wait_for(path: pathlib.Path, seconds: float = 30.0) -> int:
@@ -115,6 +118,7 @@ def test_without_a_timeout_the_run_is_waited_for_as_before(tmp_path):
     assert out.returncode == 0 and out.stdout.strip() == "done"
 
 
+@pytest.mark.skipif(sys.platform == "darwin", reason="running a solver locally is not implemented on macOS (run_macOS)")
 def test_to_fem_passes_the_timeout_to_code_aster_and_kills_it(tmp_path, monkeypatch):
     """``Assembly.to_fem(..., "code_aster", execute=True, timeout=...)`` with a stand-in for ``run_aster`` that never
     finishes, started the way ``CodeAsterExecute.run`` starts it (``_run_local``): the timeout is raised, and neither

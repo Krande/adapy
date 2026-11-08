@@ -110,6 +110,10 @@ def run_process(cmd, timeout: float | None = None, **kwargs) -> subprocess.Compl
         raise subprocess.TimeoutExpired(proc.args, timeout, output=stdout, stderr=stderr) from None
     except BaseException:
         kill_process_tree(proc)
+        try:  # reap it, so no zombie is left behind until this Python exits
+            proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            pass
         raise
     finally:
         for pipe in (proc.stdout, proc.stderr):
@@ -446,7 +450,8 @@ echo ON\ncall {run_cmd}"""
 
 
 def run_linux(exe, run_cmd):
-    return run_tool(exe, run_cmd.split(), "Linux")
+    # A command given as a list is already split (and may hold paths with spaces).
+    return run_tool(exe, run_cmd if isinstance(run_cmd, (list, tuple)) else run_cmd.split(), "Linux")
 
 
 def run_tool(exe: LocalExecute, run_cmd, platform):
