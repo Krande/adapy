@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 
 from ada.config import Config
 from ada.fem.conversion_utils import convert_ecc_to_mpc, convert_hinges_2_couplings
+from ada.fem.formats.utils import report_unwritten_beam_ecc
 
 from .write_cavities import fluid_cavities_str
 from .write_constraints import constraints_str
@@ -30,6 +31,13 @@ def write_all_parts(assembly: Assembly, analysis_dir):
 
         if Config().fem_convert_options_ecc_to_mpc is True:
             convert_ecc_to_mpc(part.fem)
+        else:
+            report_unwritten_beam_ecc(
+                part.fem,
+                "abaqus writer",
+                "a beam end offset is not written: fem_convert_options_ecc_to_mpc is off, and an *MPC BEAM tie "
+                "is how the INP writer holds it, so the member sits on its node line",
+            )
 
         write_part_bulk(part, analysis_dir)
 
