@@ -79,6 +79,7 @@ def glb_to_image(
     size: tuple[int, int] = (640, 480),
     overlay: dict | None = None,
     edges: bool = False,
+    line_color: tuple[float, float, float, float] | None = None,
 ) -> "Image":
     """Render ``glb_path`` with ``backend``, framed by the embed's camera ``preset`` (keys: PRESET_KEYS).
 
@@ -87,6 +88,8 @@ def glb_to_image(
     ``edges``: draw the model's feature edges as Ada Studio's viewer does (boundary edges and
     edges between faces meeting at over 30 degrees, black; see ``feature_edges``). For CAD models;
     an FEA bundle's poster draws its own element edges.
+    ``line_color``: sRGB RGBA of every uncoloured line (edges, wireframes); None = the adacpp
+    renderer's default dark grey. Drawn by the adacpp backend only.
     """
     resolved = resolve_backend(backend)
     if resolved == "chromium":
@@ -98,6 +101,8 @@ def glb_to_image(
     from ada.visit.rendering.adacpp_offscreen import glb_to_image as render_adacpp
 
     kwargs = {k: v for k, v in (preset or {}).items() if k in PRESET_KEYS}
+    if line_color is not None:
+        kwargs["line_color"] = tuple(line_color)
     if not edges:
         return render_adacpp(glb_path, size=size, overlay=overlay, **kwargs)
     import tempfile

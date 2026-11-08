@@ -235,6 +235,10 @@ def _beam_solids_geometry(case_dir: Path, manifest: dict, values, components, no
     return flat
 
 
+# Element edges (and beam-solid outlines) in the viewer's colour: white over the result, as the
+# reference postprocessor draws mesh lines (frontend utils/scene/fea/edgeColors.ts FEA_EDGE_COLOR).
+FEA_EDGE_RGBA = (1.0, 1.0, 1.0, 1.0)
+
 # The viewer's fold angle for beam-solid edges (frontend beamSolidFeatureEdges.ts): a 12-facet round
 # section folds by exactly 30 degrees and stays smooth, a rectangular corner does not.
 _BEAM_SOLID_EDGE_ANGLE_DEG = 31.0
@@ -530,7 +534,7 @@ def render_fea_mode_from_bundle(
             if apply_colormap:
                 legend = _legend_spec(manifest, blob_url, step_idx, float(np.linalg.norm(delta, axis=1).max()))
             spec = _overlay_spec(size, legend)
-        return glb_to_image(out_glb, backend=backend, preset=preset, size=size, overlay=spec)
+        return glb_to_image(out_glb, backend=backend, preset=preset, size=size, overlay=spec, line_color=FEA_EDGE_RGBA)
 
 
 def render_fea_mode(
