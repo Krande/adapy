@@ -12,10 +12,13 @@ import {parseMeshElements} from "../src/services/feaMeshElements";
 import {beamSolidFeatureEdges} from "../src/utils/scene/fea/beamSolidFeatureEdges";
 import {beamSolidDisplacement} from "../src/utils/scene/fea/beamSolidWarp";
 import {abaqus} from "../src/utils/scene/fea/colormaps";
-import {pickModeEntry} from "../src/utils/scene/fea/feaModePick";
+import {listDisplacementFields} from "../src/utils/scene/fea/feaModePick";
 import {translationOffsets, warpValue} from "../src/utils/scene/fea/warpComponents";
-import {InstanceFlag, Topology} from "../src/viewport/adacpp/types";
+import {InstanceFlag, SegmentFlag, Topology} from "../src/viewport/adacpp/types";
+import type {RawPick} from "../src/viewport/adacpp/types";
 import type {FeaManifest, FeaManifestField} from "../src/services/viewerApi";
+import {glbJson, matchGeometries, objectPath, replayBatches} from "./glbObjects";
+import {fmtNum, hint, ICONS, infoTable, Toolbar} from "./toolbar";
 import {showFallback, Viewer} from "./viewer";
 
 export {FALLBACK_CLASS} from "./viewer";
@@ -97,7 +100,91 @@ export function mountViewer(element: HTMLElement, opts: MountViewerOptions): Mou
         if (!loaded.geometries.length) throw new Error("the model has nothing to draw");
         viewer.onReframe = () => viewer.frame(loaded.bounds, opts.camera);
         viewer.frame(loaded.bounds, opts.camera);
+        addCadToolbar(viewer, opts.modelBytes, loaded);
     });
+}
+
+/** Ada Studio's selection colour (blue), packed RGBA8. */
+const SELECTED = (0 | (0 << 8) | (255 << 16) | (255 << 24)) >>> 0;
+
+/** Object info (tap an object: its name, its parents, the point) and scene info for a CAD figure. */
+function addCadToolbar(viewer: Viewer, bytes: Uint8Array, loaded: ReturnType<Viewer["loadGlb"]>) {
+    const json = glbJson(bytes);
+    const records = json ? replayBatches(json) : [];
+    const names = matchGeometries(records, loaded.geometries, (g) => viewer.renderer.segmentCount(g));
+    const ids = new Set<string>();
+    for (const segs of names.values()) for (const s of segs) if (s?.id) ids.add(s.id);
+    const triangles = countTriangles(json);
+    const [x0, y0, z0, x1, y1, z1] = loaded.bounds;
+
+    let picked: {pick: RawPick; label: string[]; id?: string} | null = null;
+    let lit: {instance: number; count: number} | null = null;
+    const toolbar = new Toolbar(viewer.host);
+    toolbar.add("info", {
+        title: "Object info",
+        icon: ICONS.info,
+        render: (body) => {
+            if (!picked) return void body.append(hint("Tap a part of the model."));
+            const w = picked.pick.world;
+            const rows: [string, string][] = [];
+            if (picked.label.length) rows.push(["Name", picked.label[picked.label.length - 1]]);
+            if (picked.label.length > 1) rows.push(["In", picked.label.slice(0, -1).join(" / ")]);
+            if (picked.id) rows.push(["Id", picked.id]);
+            rows.push(["Point", w.map(fmtNum).join(", ")]);
+            body.append(infoTable(rows));
+        },
+    });
+    toolbar.add("scene", {
+        title: "Scene info",
+        icon: ICONS.scene,
+        render: (body) => {
+            const rows: [string, string][] = [];
+            if (ids.size) rows.push(["Objects", String(ids.size)]);
+            if (triangles) rows.push(["Triangles", triangles.toLocaleString("en")]);
+            rows.push(["Size", [x1 - x0, y1 - y0, z1 - z0].map(fmtNum).join(" × ")]);
+            if (loaded.featureEdges) rows.push(["Edges", loaded.featureEdges.toLocaleString("en")]);
+            rows.push(["Renderer", "WebGPU"]);
+            body.append(infoTable(rows));
+        },
+    });
+
+    viewer.onTap = async (cx, cy) => {
+        const r = await viewer.pick(cx, cy);
+        if (lit) {
+            viewer.setSegmentStates(lit.instance, new Uint32Array(lit.count * 2));
+            lit = null;
+        }
+        if (!r) {
+            picked = null;
+        } else {
+            const seg = names.get(r.instance)?.[r.segment] ?? null;
+            const label = seg?.id ? objectPath(json, seg.id) : seg?.node ? [seg.node] : [];
+            picked = {pick: r, label: label.length || !seg?.id ? label : [seg.id], id: seg?.id};
+            const segs = names.get(r.instance);
+            if (seg && segs) {
+                const states = new Uint32Array(segs.length * 2);
+                states[r.segment * 2] = SELECTED;
+                states[r.segment * 2 + 1] = SegmentFlag.Matte;
+                viewer.setSegmentStates(r.instance, states);
+                lit = {instance: r.instance, count: segs.length};
+            }
+            toolbar.toggle("info", true);
+        }
+        toolbar.refresh("info");
+    };
+}
+
+/** Triangles in a GLB's triangle primitives, from its accessor counts. */
+function countTriangles(json: ReturnType<typeof glbJson>): number {
+    let n = 0;
+    for (const m of json?.meshes ?? []) {
+        for (const p of m.primitives ?? []) {
+            if ((p.mode ?? 4) !== 4) continue;
+            const acc = p.indices !== undefined ? p.indices : p.attributes?.POSITION;
+            n += Math.floor((json.accessors?.[acc]?.count ?? 0) / 3);
+        }
+    }
+    return n;
 }
 
 interface MorphInstance {
@@ -112,40 +199,73 @@ interface MorphInstance {
     surface?: boolean;
 }
 
+/** One mode of the bundle: a displacement field and a step in it. */
+interface ModeEntry {
+    field: FeaManifestField;
+    stepIndex: number;
+    label: string;
+}
+
+/** Every mode, in the order `modeIndex` counts them (feaModePick.pickModeEntry's order). */
+function listModes(manifest: FeaManifest): ModeEntry[] {
+    const out: ModeEntry[] = [];
+    for (const field of listDisplacementFields(manifest)) {
+        const n = Math.max(1, field.n_steps | 0);
+        for (let i = 0; i < n; i++) {
+            const st = (field.steps || []).find((x) => x.i === i) ?? (field.steps || [])[i];
+            const name = st?.name ? ` (${st.name})` : "";
+            out.push({field, stepIndex: i, label: st ? `${out.length + 1}: ${st.label}${name}` : `Mode ${out.length + 1}`});
+        }
+    }
+    return out;
+}
+
 /** A mode shape from an FEA artefact bundle (mesh GLB + field blobs + edge sidecars) as a 3D figure. */
 export function mountFeaArtefactViewer(element: HTMLElement, opts: MountFeaArtefactViewerOptions): MountedViewer {
     return mount(element, opts, async (viewer) => {
         const manifest = opts.manifest as FeaManifest;
+        const modes = listModes(manifest);
+        if (!modes.length) throw new Error("the bundle has no displacement field");
+        let modeIndex = Math.min(Math.max(0, (opts.modeIndex ?? 0) | 0), modes.length - 1);
+        const blobs = new Map<string, Promise<ReturnType<typeof parseFieldBlob>>>();
+        const blobOf = (field: FeaManifestField) => {
+            const url = field.blob!.url;
+            if (!blobs.has(url)) blobs.set(url, opts.fetcher(url).then(parseFieldBlob));
+            return blobs.get(url)!;
+        };
         const mesh = new Uint8Array(await opts.fetcher(manifest.mesh.url));
-        const entry = pickModeEntry(manifest, Math.max(0, (opts.modeIndex ?? 0) | 0));
-        if (!entry?.field.blob) throw new Error("the bundle has no displacement field");
-        const field = entry.field;
-        const blob = parseFieldBlob(await opts.fetcher(field.blob!.url));
-        const step = blob.steps[Math.min(entry.stepIndex, blob.steps.length - 1)];
-
         const loaded = viewer.loadGlb(mesh, {keepPositions: true, doubleSided: true, pointSize: 4});
         const main = loaded.geometries.find((g) => !g.featureEdges);
         if (!main?.positions) throw new Error("the FEA mesh has nothing to draw");
         const n = main.vertexCount;
-        if (n !== blob.header.n_points) {
-            throw new Error(`mesh has ${n} vertices, the displacement field ${blob.header.n_points}`);
-        }
 
-        // The mode: displacement per vertex (a relative morph), coloured by its magnitude.
-        const nc = blob.header.n_components;
-        const axes = translationOffsets(field);
-        const disp = new Float32Array(n * 3);
-        const mag = new Float32Array(n);
-        let maxMag = 0;
-        for (let v = 0; v < n; v++) {
-            const dx = warpValue(step, v * nc, axes[0]), dy = warpValue(step, v * nc, axes[1]), dz = warpValue(step, v * nc, axes[2]);
-            disp.set([dx, dy, dz], v * 3);
-            mag[v] = Math.hypot(dx, dy, dz);
-            if (mag[v] > maxMag) maxMag = mag[v];
-        }
-        const colors = packColors(mag, maxMag);
-        viewer.heap([disp], ([p]) => viewer.renderer.updateMorph(main.geometry, p, n));
-        viewer.heap([colors], ([p]) => viewer.renderer.updateColors(main.geometry, p, n));
+        /** A mode's displacement per vertex, its magnitude, peak and colours. */
+        const modeData = async (i: number) => {
+            const entry = modes[i];
+            if (!entry.field.blob) throw new Error(`mode ${i + 1} has no field data`);
+            const blob = await blobOf(entry.field);
+            if (n !== blob.header.n_points) {
+                throw new Error(`mesh has ${n} vertices, the displacement field ${blob.header.n_points}`);
+            }
+            const step = blob.steps[Math.min(entry.stepIndex, blob.steps.length - 1)];
+            const nc = blob.header.n_components;
+            const axes = translationOffsets(entry.field);
+            const disp = new Float32Array(n * 3);
+            const mag = new Float32Array(n);
+            let maxMag = 0;
+            for (let v = 0; v < n; v++) {
+                const dx = warpValue(step, v * nc, axes[0]), dy = warpValue(step, v * nc, axes[1]), dz = warpValue(step, v * nc, axes[2]);
+                disp[v * 3] = dx;
+                disp[v * 3 + 1] = dy;
+                disp[v * 3 + 2] = dz;
+                mag[v] = Math.hypot(dx, dy, dz);
+                if (mag[v] > maxMag) maxMag = mag[v];
+            }
+            return {entry, step, disp, mag, maxMag, colors: packColors(mag, maxMag)};
+        };
+        let mode = await modeData(modeIndex);
+        viewer.heap([mode.disp], ([p]) => viewer.renderer.updateMorph(main.geometry, p, n));
+        viewer.heap([mode.colors], ([p]) => viewer.renderer.updateColors(main.geometry, p, n));
 
         const morphing: MorphInstance[] = [];
         const tris = main.topology === Topology.Triangles;
@@ -159,22 +279,25 @@ export function mountFeaArtefactViewer(element: HTMLElement, opts: MountFeaArtef
 
         // Element edges and beam members, on the mesh's vertices and its morph.
         const lineEdges = manifest.mesh.line_edges_url ? parseMeshEdges(await opts.fetcher(manifest.mesh.line_edges_url)) : null;
-        const addLines = (pairs: Uint32Array, withColors: boolean): number =>
-            viewer.heap([main.positions!, withColors ? colors : null, disp, pairs], ([pos, col, mor, idx]) => {
-                const g = viewer.renderer.addGeometry(Topology.Lines, pos, n, 0, col, mor, idx, pairs.length, 0, 0, 0);
-                return viewer.renderer.addInstance(g);
+        const addLines = (pairs: Uint32Array, withColors: boolean): {geometry: number; instance: number} =>
+            viewer.heap([main.positions!, withColors ? mode.colors : null, mode.disp, pairs], ([pos, col, mor, idx]) => {
+                const geometry = viewer.renderer.addGeometry(Topology.Lines, pos, n, 0, col, mor, idx, pairs.length, 0, 0, 0);
+                return {geometry, instance: viewer.renderer.addInstance(geometry)};
             });
+        let edges: {geometry: number; instance: number} | null = null;
         if (manifest.mesh.edges_url) {
             let pairs = parseMeshEdges(await opts.fetcher(manifest.mesh.edges_url));
             if (lineEdges && lineEdges.length) pairs = withoutPairs(pairs, lineEdges);
             if (pairs.length) {
+                edges = addLines(pairs, false);
                 const [r, g, b] = FEA_EDGE_COLOR;
-                morphing.push({instance: addLines(pairs, false), r, g, b, flags: InstanceFlag.Unlit | InstanceFlag.MorphRelative, lineWidth: 1});
+                morphing.push({instance: edges.instance, r, g, b, flags: InstanceFlag.Unlit | InstanceFlag.MorphRelative, lineWidth: 1});
             }
         }
-        const members: MorphInstance | null = lineEdges && lineEdges.length
+        const memberLines = lineEdges && lineEdges.length ? addLines(lineEdges, true) : null;
+        const members: MorphInstance | null = memberLines
             ? {
-                instance: addLines(lineEdges, true), r: 1, g: 1, b: 1,
+                instance: memberLines.instance, r: 1, g: 1, b: 1,
                 flags: InstanceFlag.VertexColors | InstanceFlag.Unlit | InstanceFlag.MorphRelative, lineWidth: MEMBER_WIDTH,
             }
             : null;
@@ -182,53 +305,211 @@ export function mountFeaArtefactViewer(element: HTMLElement, opts: MountFeaArtef
 
         // Beam solids: each beam's section, warped by its nodes' displacement and rotation (a torsion
         // mode twists), coloured by its own displacement, with its element edges -- the posters' look.
-        const solids = await loadBeamSolids(viewer, manifest, opts.fetcher, field, step, main.positions);
-        let solidPeak = 0;
-        if (solids) {
-            morphing.push(...solids.instances);
-            solidPeak = solids.peak;
-        }
+        const solids = await loadBeamSolids(viewer, manifest, opts.fetcher, main.positions);
+        let solidPeak = solids ? solids.apply(mode.entry.field, mode.step) : 0;
+        if (solids) morphing.push(...solids.instances);
+        let solidsOn = !!opts.beamSolids;
         const showSolids = (on: boolean) => {
             if (!solids) return;
             for (const mi of solids.instances) mi.flags = on ? mi.flags & ~InstanceFlag.Hidden : mi.flags | InstanceFlag.Hidden;
             if (members) members.flags = on ? members.flags | InstanceFlag.Hidden : members.flags & ~InstanceFlag.Hidden;
         };
-        showSolids(!!opts.beamSolids);
+        showSolids(solidsOn);
 
-        const setInfluence = (influence: number) =>
+        // The drawn deformation: the animation's phase times the reader's scale.
+        let phase = 1, scale = 1;
+        const applyInstances = () =>
             viewer.heap([IDENTITY], ([m]) => {
                 for (const mi of morphing) {
                     viewer.renderer.setInstance(
-                        mi.instance, m, mi.r, mi.g, mi.b, 1, mi.flags, influence,
+                        mi.instance, m, mi.r, mi.g, mi.b, 1, mi.flags, phase * scale,
                         mi.surface ? 1 : 0, 1, !!mi.surface, mi.lineWidth, 0, 0,
                     );
                 }
             });
-        setInfluence(1);
+        applyInstances();
 
         // Frame the deformed model: the undeformed bounds grown by the largest displacement.
         const b = solids ? unionBounds(loaded.bounds, solids.bounds) : loaded.bounds;
-        const grow = Math.max(maxMag, solidPeak);
+        const grow = Math.max(mode.maxMag, solidPeak);
         const framed: [number, number, number, number, number, number] = [
             b[0] - grow, b[1] - grow, b[2] - grow, b[3] + grow, b[4] + grow, b[5] + grow,
         ];
         viewer.onReframe = () => viewer.frame(framed, opts.camera);
         viewer.frame(framed, opts.camera);
 
-        addLegend(viewer.host, field, entry.stepIndex, maxMag);
-        let influence = 1;
-        const drive = (v: number) => {
-            influence = v;
-            setInfluence(v);
-        };
-        addPlayButton(viewer, drive);
+        const legend = addLegend(viewer.host);
+        legend.update(mode.entry.field, mode.entry.stepIndex, mode.maxMag);
+        addPlayButton(viewer, (v) => {
+            phase = v;
+            applyInstances();
+        });
         if (solids) {
-            addToggle(viewer, !!opts.beamSolids, (on) => {
+            addToggle(viewer, solidsOn, (on) => {
+                solidsOn = on;
                 showSolids(on);
-                setInfluence(influence);
+                applyInstances();
                 viewer.invalidate();
             });
         }
+
+        const toolbar = new Toolbar(viewer.host);
+        let picked: {node: number; label?: number; solid: boolean; mag: number; d: [number, number, number]; p: [number, number, number]} | null = null;
+        let nodeLabels: number[] | null | undefined = manifest.mesh.node_labels ?? undefined;
+        const unitOf = (field: FeaManifestField) => {
+            const comps = field.components || [];
+            return comps.map((c, i) => (["X", "DX", "U1"].includes(c.toUpperCase()) ? field.component_units?.[i] : undefined)).find(Boolean) ?? "";
+        };
+
+        let switching: Promise<void> = Promise.resolve();
+        const setMode = (i: number) => {
+            switching = switching.then(async () => {
+                if (i === modeIndex) return;
+                const next = await modeData(i);
+                modeIndex = i;
+                mode = next;
+                viewer.heap([mode.disp], ([p]) => {
+                    viewer.renderer.updateMorph(main.geometry, p, n);
+                    if (edges) viewer.renderer.updateMorph(edges.geometry, p, n);
+                    if (memberLines) viewer.renderer.updateMorph(memberLines.geometry, p, n);
+                });
+                viewer.heap([mode.colors], ([p]) => {
+                    viewer.renderer.updateColors(main.geometry, p, n);
+                    if (memberLines) viewer.renderer.updateColors(memberLines.geometry, p, n);
+                });
+                if (solids) solidPeak = solids.apply(mode.entry.field, mode.step);
+                applyInstances();
+                legend.update(mode.entry.field, mode.entry.stepIndex, mode.maxMag);
+                picked = null;
+                toolbar.refresh("info");
+                toolbar.refresh("scene");
+                viewer.invalidate();
+            }).catch((err) => console.error("[ada-viewer-webgpu] switching mode:", err));
+        };
+
+        toolbar.add("info", {
+            title: "Object info",
+            icon: ICONS.info,
+            render: (body) => {
+                if (!picked) return void body.append(hint("Tap the model for a node's displacement."));
+                const unit = unitOf(mode.entry.field);
+                const u = unit ? ` ${unit}` : "";
+                const rows: [string, string][] = [];
+                if (picked.solid) rows.push(["Beam solid", "point on the section"]);
+                else rows.push(["Node", picked.label !== undefined ? String(picked.label) : `#${picked.node}`]);
+                rows.push(["Position", picked.p.map(fmtNum).join(", ")]);
+                rows.push(["Displacement", picked.d.map(fmtNum).join(", ") + u]);
+                rows.push(["Magnitude", fmtNum(picked.mag) + u]);
+                rows.push(["Mode", modes[modeIndex].label]);
+                body.append(infoTable(rows));
+            },
+        });
+        toolbar.add("scene", {
+            title: "Scene info",
+            icon: ICONS.scene,
+            render: (body) => {
+                const rows: [string, string][] = [
+                    ["Nodes", (manifest.mesh.n_points ?? n).toLocaleString("en")],
+                    ["Elements", (manifest.mesh.n_elements ?? manifest.mesh.n_cells ?? 0).toLocaleString("en")],
+                    ["Modes", String(modes.length)],
+                    ["Showing", modes[modeIndex].label],
+                    ["Peak", fmtNum(mode.maxMag) + (unitOf(mode.entry.field) ? ` ${unitOf(mode.entry.field)}` : "")],
+                ];
+                if (solids) rows.push(["Beams", solidsOn ? "solid sections" : "lines"]);
+                rows.push(["Renderer", "WebGPU"]);
+                body.append(infoTable(rows));
+            },
+        });
+        toolbar.add("sim", {
+            title: "Simulation controls",
+            icon: ICONS.sim,
+            render: (body) => {
+                const row = (label: string, el: HTMLElement) => {
+                    const d = document.createElement("label");
+                    d.style.cssText = "display:flex;align-items:center;gap:6px;margin:3px 0;";
+                    d.append(label, el);
+                    body.append(d);
+                };
+                if (modes.length > 1) {
+                    const sel = document.createElement("select");
+                    sel.style.cssText = "font:11px system-ui;max-width:200px;";
+                    modes.forEach((m, i) => sel.add(new Option(m.label, String(i), false, i === modeIndex)));
+                    sel.addEventListener("change", () => setMode(Number(sel.value)));
+                    row("Mode", sel);
+                }
+                const range = document.createElement("input");
+                range.type = "range";
+                range.min = "0";
+                range.max = "5";
+                range.step = "0.1";
+                range.value = String(scale);
+                range.style.cssText = "width:120px;";
+                const out = document.createElement("span");
+                out.textContent = `${scale.toFixed(1)}×`;
+                range.addEventListener("input", () => {
+                    scale = Number(range.value);
+                    out.textContent = `${scale.toFixed(1)}×`;
+                    applyInstances();
+                    viewer.invalidate();
+                });
+                row("Scale", range);
+                range.after(out);
+            },
+        });
+
+        viewer.onTap = async (cx, cy) => {
+            const r = await viewer.pick(cx, cy);
+            picked = null as typeof picked; // (widened: `describe` below sets it)
+            if (r) {
+                const k = phase * scale;
+                const nearest = (pos: Float32Array, d: Float32Array, cands: number[]) => {
+                    let best = -1, bd = Infinity;
+                    for (const v of cands) {
+                        if (v < 0 || v * 3 + 2 >= pos.length) continue;
+                        const dd = Math.hypot(
+                            pos[v * 3] + d[v * 3] * k - r.world[0],
+                            pos[v * 3 + 1] + d[v * 3 + 1] * k - r.world[1],
+                            pos[v * 3 + 2] + d[v * 3 + 2] * k - r.world[2],
+                        );
+                        if (dd < bd) [best, bd] = [v, dd];
+                    }
+                    return best;
+                };
+                const describe = (pos: Float32Array, d: Float32Array, v: number, solid: boolean) => {
+                    const dv: [number, number, number] = [d[v * 3], d[v * 3 + 1], d[v * 3 + 2]];
+                    picked = {
+                        node: v, solid, d: dv, mag: Math.hypot(...dv),
+                        p: [pos[v * 3], pos[v * 3 + 1], pos[v * 3 + 2]],
+                    };
+                };
+                const t = r.triangle;
+                if (r.instance === main.instance && main.indices && tris) {
+                    const v = nearest(main.positions!, mode.disp, [main.indices[t * 3], main.indices[t * 3 + 1], main.indices[t * 3 + 2]]);
+                    if (v >= 0) describe(main.positions!, mode.disp, v, false);
+                } else if (memberLines && r.instance === memberLines.instance && lineEdges) {
+                    const v = nearest(main.positions!, mode.disp, [lineEdges[t * 2], lineEdges[t * 2 + 1]]);
+                    if (v >= 0) describe(main.positions!, mode.disp, v, false);
+                } else if (solids && r.instance === solids.instances[0].instance && solids.indices) {
+                    const ix = solids.indices;
+                    const v = nearest(solids.base, solids.disp, [ix[t * 3], ix[t * 3 + 1], ix[t * 3 + 2]]);
+                    if (v >= 0) describe(solids.base, solids.disp, v, true);
+                }
+                if (picked && !picked.solid) {
+                    if (nodeLabels === undefined && manifest.mesh.node_labels_url) {
+                        try {
+                            const buf = await opts.fetcher(manifest.mesh.node_labels_url);
+                            nodeLabels = JSON.parse(new TextDecoder().decode(buf)) as number[];
+                        } catch {
+                            nodeLabels = null;
+                        }
+                    }
+                    const lab = nodeLabels?.[picked.node];
+                    if (typeof lab === "number") picked.label = lab;
+                }
+                if (picked) toolbar.toggle("info", true);
+            }
+            toolbar.refresh("info");
+        };
     });
 }
 
@@ -256,27 +537,31 @@ function withoutPairs(pairs: Uint32Array, drop: Uint32Array): Uint32Array {
     return Uint32Array.from(out);
 }
 
-/** The colour legend, as the posters (and Studio's ColorLegend) draw it. */
-function addLegend(host: HTMLElement, field: FeaManifestField, stepIndex: number, maxMag: number) {
-    const path = (field.group_path || []).join(" / ") || field.name_canonical || "Displacement";
-    const comps = field.components || [];
-    const unit = comps.map((c, i) => (["X", "DX", "U1"].includes(c.toUpperCase()) ? field.component_units?.[i] : undefined)).find(Boolean);
-    const step = (field.steps || []).find((s) => s.i === stepIndex) ?? (field.steps || [])[stepIndex];
+/** The colour legend, as the posters (and Studio's ColorLegend) draw it; `update` redraws it. */
+function addLegend(host: HTMLElement) {
     const box = document.createElement("div");
     box.style.cssText =
         "position:absolute;top:8px;right:8px;background:rgba(30,41,59,0.92);color:#e2e8f0;border-radius:6px;" +
         "padding:6px 8px;font:10px/1.3 system-ui;pointer-events:none;max-width:45%;";
-    const lines = [`<b>${esc(path)}</b>`, unit ? `Magnitude [${esc(unit)}]` : "Magnitude"];
-    if (step) lines.push(`Case: ${esc(String(step.label ?? stepIndex))}`);
-    const ticks = Array.from({length: 7}, (_, i) => maxMag - (i * maxMag) / 6);
-    box.innerHTML =
-        lines.join("<br>") +
-        `<div style="display:flex;gap:6px;margin-top:4px;height:96px">` +
-        `<div style="width:10px;border-radius:2px;background:linear-gradient(to bottom,#f00,#ff0,#0f0,#0ff,#00f)"></div>` +
-        `<div style="display:flex;flex-direction:column;justify-content:space-between">` +
-        ticks.map((t) => `<span>${fmt(t)}</span>`).join("") +
-        `</div></div>`;
     host.appendChild(box);
+    return {
+        update(field: FeaManifestField, stepIndex: number, maxMag: number) {
+            const path = (field.group_path || []).join(" / ") || field.name_canonical || "Displacement";
+            const comps = field.components || [];
+            const unit = comps.map((c, i) => (["X", "DX", "U1"].includes(c.toUpperCase()) ? field.component_units?.[i] : undefined)).find(Boolean);
+            const step = (field.steps || []).find((s) => s.i === stepIndex) ?? (field.steps || [])[stepIndex];
+            const lines = [`<b>${esc(path)}</b>`, unit ? `Magnitude [${esc(unit)}]` : "Magnitude"];
+            if (step) lines.push(`Case: ${esc(String(step.label ?? stepIndex))}`);
+            const ticks = Array.from({length: 7}, (_, i) => maxMag - (i * maxMag) / 6);
+            box.innerHTML =
+                lines.join("<br>") +
+                `<div style="display:flex;gap:6px;margin-top:4px;height:96px">` +
+                `<div style="width:10px;border-radius:2px;background:linear-gradient(to bottom,#f00,#ff0,#0f0,#0ff,#00f)"></div>` +
+                `<div style="display:flex;flex-direction:column;justify-content:space-between">` +
+                ticks.map((t) => `<span>${fmt(t)}</span>`).join("") +
+                `</div></div>`;
+        },
+    };
 }
 
 function addPlayButton(viewer: Viewer, setInfluence: (v: number) => void) {
@@ -323,8 +608,12 @@ function esc(s: string): string {
 interface BeamSolids {
     instances: MorphInstance[];
     bounds: [number, number, number, number, number, number];
-    /** The largest displacement of a solid vertex (for framing). */
-    peak: number;
+    /** The solid's undeformed vertices, its index buffer and the current displacement (for picking). */
+    base: Float32Array;
+    indices: Uint32Array | undefined;
+    disp: Float32Array;
+    /** Warp the solids to a mode (displacement, rotation, colours); returns the largest displacement. */
+    apply: (field: FeaManifestField, step: Float32Array) => number;
 }
 
 /** The bundle's beam solids added to the scene, or null when it has none or they do not fit their
@@ -333,8 +622,6 @@ async function loadBeamSolids(
     viewer: Viewer,
     manifest: FeaManifest,
     fetcher: FeaArtefactFetcher,
-    field: FeaManifestField,
-    step: Float32Array,
     nodePositions: Float32Array,
 ): Promise<BeamSolids | null> {
     const glbUrl = manifest.mesh.beam_solids_url, warpUrl = manifest.mesh.beam_solids_warp_url;
@@ -351,26 +638,16 @@ async function loadBeamSolids(
     }
     const part = parts[0];
     const base = part.positions!;
-    const disp = beamSolidDisplacement(warp, base, field, step, nodePositions);
     const n = warp.n_verts;
-    const mag = new Float32Array(n);
-    let peak = 0;
-    for (let v = 0; v < n; v++) {
-        mag[v] = Math.hypot(disp[v * 3], disp[v * 3 + 1], disp[v * 3 + 2]);
-        if (mag[v] > peak) peak = mag[v];
-    }
-    // Coloured by the solid's own displacement (translation and twist), as the viewer does: the
-    // nodes' colours would be round-off noise in a torsion mode.
-    const colors = packColors(mag, peak);
-    viewer.heap([disp], ([p]) => viewer.renderer.updateMorph(part.geometry, p, n));
-    viewer.heap([colors], ([p]) => viewer.renderer.updateColors(part.geometry, p, n));
     const instances: MorphInstance[] = [{
         instance: part.instance, r: 1, g: 1, b: 1,
         flags: InstanceFlag.VertexColors | InstanceFlag.MorphRelative | InstanceFlag.DoubleSided | InstanceFlag.DepthBack,
         lineWidth: 1, surface: true,
     }];
+    const out: BeamSolids = {instances, bounds: loaded.bounds, base, indices: part.indices, disp: new Float32Array(n * 3), apply: () => 0};
 
     // Element edges, per element as the viewer finds them, on the solid's vertices and morph.
+    let edgeGeometry = 0;
     const index = part.indices;
     if (index && index.length) {
         let ranges: [number, number][] = [[0, index.length]];
@@ -384,14 +661,34 @@ async function loadBeamSolids(
         }
         const pairs = beamSolidFeatureEdges(base, index, ranges);
         if (pairs.length) {
-            const inst = viewer.heap([base, disp, pairs], ([pos, mor, idx]) =>
-                viewer.renderer.addInstance(viewer.renderer.addGeometry(Topology.Lines, pos, n, 0, 0, mor, idx, pairs.length, 0, 0, 0)),
-            );
+            const inst = viewer.heap([base, out.disp, pairs], ([pos, mor, idx]) => {
+                edgeGeometry = viewer.renderer.addGeometry(Topology.Lines, pos, n, 0, 0, mor, idx, pairs.length, 0, 0, 0);
+                return viewer.renderer.addInstance(edgeGeometry);
+            });
             const [r, g, b] = FEA_EDGE_COLOR;
             instances.push({instance: inst, r, g, b, flags: InstanceFlag.Unlit | InstanceFlag.MorphRelative, lineWidth: 1});
         }
     }
-    return {instances, bounds: loaded.bounds, peak};
+    out.apply = (field, step) => {
+        const disp = beamSolidDisplacement(warp, base, field, step, nodePositions);
+        const mag = new Float32Array(n);
+        let peak = 0;
+        for (let v = 0; v < n; v++) {
+            mag[v] = Math.hypot(disp[v * 3], disp[v * 3 + 1], disp[v * 3 + 2]);
+            if (mag[v] > peak) peak = mag[v];
+        }
+        // Coloured by the solid's own displacement (translation and twist), as the viewer does: the
+        // nodes' colours would be round-off noise in a torsion mode.
+        const colors = packColors(mag, peak);
+        viewer.heap([disp], ([p]) => {
+            viewer.renderer.updateMorph(part.geometry, p, n);
+            if (edgeGeometry) viewer.renderer.updateMorph(edgeGeometry, p, n);
+        });
+        viewer.heap([colors], ([p]) => viewer.renderer.updateColors(part.geometry, p, n));
+        out.disp = disp;
+        return peak;
+    };
+    return out;
 }
 
 function unionBounds(

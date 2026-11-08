@@ -2,7 +2,7 @@
 // driven by pointer / wheel / touch, and a frame rendered only when something changed. When WebGPU or
 // the renderer is unavailable, or loading fails, the figure shows its poster instead.
 import type {CameraPreset} from "../embed/index.d";
-import type {AdacppModule, LoadGlbOptions, LoadedGlb, WebRendererApi} from "../src/viewport/adacpp/types";
+import type {AdacppModule, LoadGlbOptions, LoadedGlb, RawPick, WebRendererApi} from "../src/viewport/adacpp/types";
 import {type Bounds, OrbitCamera} from "./camera";
 import {createRenderer, type GpuContext, webGpuUnavailableReason, withBytes, withHeap} from "./renderer";
 
@@ -69,6 +69,8 @@ export class Viewer {
     private readonly resizeObserver: ResizeObserver;
     private readonly cleanups: (() => void)[] = [];
     private readonly matPtr: {view: number; proj: number} = {view: 0, proj: 0};
+    /** A tap (no drag) at a client position: the mount picks there. */
+    onTap: ((clientX: number, clientY: number) => void) | null = null;
     /** Called before each frame (an animation drives the model from here); return true to keep going. */
     onFrame: ((t: number) => boolean) | null = null;
 
@@ -164,6 +166,8 @@ export class Viewer {
         const el = this.host;
         const pointers = new Map<number, {x: number; y: number}>();
         let lastPinch = 0;
+        // A tap: one pointer, released within a few pixels of where it went down.
+        let tap: {id: number; x: number; y: number} | null = null;
         const on = <K extends keyof HTMLElementEventMap>(type: K, fn: (e: HTMLElementEventMap[K]) => void, opts?: AddEventListenerOptions) => {
             el.addEventListener(type, fn as EventListener, opts);
             this.cleanups.push(() => el.removeEventListener(type, fn as EventListener, opts));
@@ -172,11 +176,13 @@ export class Viewer {
             el.setPointerCapture(e.pointerId);
             pointers.set(e.pointerId, {x: e.clientX, y: e.clientY});
             lastPinch = 0;
+            tap = pointers.size === 1 && e.button === 0 ? {id: e.pointerId, x: e.clientX, y: e.clientY} : null;
         });
         on("pointermove", (e) => {
             const prev = pointers.get(e.pointerId);
             if (!prev) return;
             const dx = e.clientX - prev.x, dy = e.clientY - prev.y;
+            if (tap && Math.hypot(e.clientX - tap.x, e.clientY - tap.y) > 6) tap = null;
             pointers.set(e.pointerId, {x: e.clientX, y: e.clientY});
             const h = el.clientHeight;
             if (pointers.size >= 2) {
@@ -196,8 +202,16 @@ export class Viewer {
             pointers.delete(e.pointerId);
             lastPinch = 0;
         };
-        on("pointerup", up);
-        on("pointercancel", up);
+        on("pointerup", (e) => {
+            const t = tap;
+            tap = null;
+            up(e);
+            if (t && t.id === e.pointerId) this.onTap?.(e.clientX, e.clientY);
+        });
+        on("pointercancel", (e) => {
+            tap = null;
+            up(e);
+        });
         on("contextmenu", (e) => e.preventDefault());
         on("wheel", (e) => {
             e.preventDefault();
@@ -208,6 +222,30 @@ export class Viewer {
             // back to the preset framing
             this.onReframe?.();
         });
+    }
+
+    /** GPU pick at a client (CSS px) position, in the frame last drawn; null for a miss. */
+    pick(clientX: number, clientY: number): Promise<RawPick | null> {
+        if (!this.ctx) return Promise.resolve(null);
+        const rect = this.canvas.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) return Promise.resolve(null);
+        const x = Math.floor(((clientX - rect.left) / rect.width) * this.canvas.width);
+        const y = Math.floor(((clientY - rect.top) / rect.height) * this.canvas.height);
+        if (x < 0 || y < 0 || x >= this.canvas.width || y >= this.canvas.height) return Promise.resolve(null);
+        return new Promise((resolve) => {
+            try {
+                this.renderer.pick(x, y, this.canvas.width, this.canvas.height, (r) => resolve(r.hit ? r : null));
+            } catch (err) {
+                console.warn("[ada-viewer-webgpu] pick failed:", err);
+                resolve(null);
+            }
+        });
+    }
+
+    /** Per-segment colour overrides on an instance: `states` is (packed RGBA8 colour, SegmentFlag) pairs. */
+    setSegmentStates(instance: number, states: Uint32Array): void {
+        this.heap([states], ([p]) => this.renderer.setSegmentStates(instance, p, states.length / 2));
+        this.invalidate();
     }
 
     /** Set by the mount: re-frame the model (double-click). */
