@@ -57,7 +57,7 @@ ASSEMBLAGE(
     ),
 )
 # Using Subspace Iteration method ('SORENSEN' AND 'PLUS_PETITE')
-# See https://www.code-aster.org/V2/UPLOAD/DOC/Formations/01-modal-analysis.pdf for more information
+# See https://code-aster.org/en/learning for more information
 #
 
 modes = CALC_MODES(
