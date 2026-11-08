@@ -56,7 +56,10 @@ export async function createRenderer(canvas: HTMLCanvasElement): Promise<GpuCont
     if (!gpu) throw new Error("this browser has no WebGPU");
     // Each step says which one failed: the reason is shown on the poster (and is all a reader on a
     // phone has to go on).
-    const adapter = await step("WebGPU adapter request", () => gpu.requestAdapter({powerPreference: "high-performance"}));
+    // Some drivers offer nothing for an explicit preference: ask again without one.
+    const adapter = await step("WebGPU adapter request", async () =>
+        (await gpu.requestAdapter({powerPreference: "high-performance"})) ?? (await gpu.requestAdapter()),
+    );
     if (!adapter) throw new Error("this browser has WebGPU but gave no adapter (GPU blocklisted or disabled?)");
     const device = await step("WebGPU device request", () =>
         adapter.requestDevice({
