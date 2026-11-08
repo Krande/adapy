@@ -3,7 +3,7 @@
 Generated with _adapy_ v${ versions.adapy }.
 
 This report describes the main verification work of the simulation results produced by the
-Open Source Finite Element (FE) solvers [Code Aster](https://www.code-aster.org/spip.php?rubrique2)
+Open Source Finite Element (FE) solvers [Code Aster](https://code-aster.org/en)
 and [Calculix](http://www.dhondt.de/).
 
 
