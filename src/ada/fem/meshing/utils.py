@@ -203,7 +203,11 @@ def get_bm_sections(model: gmsh.model, beam: Beam, gmsh_data, fem: FEM):
 
 
 def add_beam_ecc_to_elements(beam: Beam, elements: list[Elem]) -> None:
-    """Carry ``Beam.e1`` / ``Beam.e2`` onto the line elements, interpolated along the beam.
+    """Carry a beam's offset onto the line elements, interpolated along the beam.
+
+    The offset is ``Beam.e1`` / ``Beam.e2`` and the beam's flush alignment
+    (``Beam.justification``, or the GeniE ``aligned_curve_offset`` it was read from), measured
+    -- as GeniE does -- from the node to the section **centroid**.
 
     The line mesh is built on the beam's *nodal* line -- ``Beam.line_occ`` makes its
     wire from ``n1.p``/``n2.p`` and ignores the eccentricities -- so without this the
@@ -228,17 +232,41 @@ def add_beam_ecc_to_elements(beam: Beam, elements: list[Elem]) -> None:
     deck is read into concepts. ``tests/core/fem/formats/sesam/test_write_geccen.py``
     is the proof: a beam written to a Sesam deck and read back keeps the ``e1``/``e2``
     it was built with.
-    """
-    from ada.fem.elements import Eccentricity, EccPoint
 
-    if beam.e1 is None and beam.e2 is None:
+    Centroid: ``e1``/``e2`` move the section's *profile origin*, while a file's offset
+    runs to the *centroid* -- and for an angle (origin at the web top) or a T (origin
+    mid-height) the two differ. ``curve_offset_local`` is ``-e`` plus that difference
+    (``Cgz - h`` for an angle, ``Cgz - h/2`` for a T), so it is the vector a file holds.
+    A beam that states no offset at all has its centroid on the node line, as in GeniE,
+    and gets no eccentricity.
+    """
+    from ada.api.beams.justification import Justification
+    from ada.fem.elements import Eccentricity, EccPoint
+    from ada.fem.formats import conversion_report
+
+    helper = beam.offset_helper
+    data = helper.centroid_offset_local()
+    if data is None:
+        if beam.justification == Justification.TOS:
+            # TOS has two readings in the helpers (``resolve_justification`` and
+            # ``curve_offset_local`` carry opposite signs for it), so it is not guessed at.
+            conversion_report.current().omitted(
+                "beam eccentricity",
+                "Beam.justification",
+                beam.name,
+                "top-of-steel justification is not turned into an eccentricity; the beam is meshed on its nodal line",
+            )
         return
 
-    # A missing end means "no offset there", which is what the geometry path assumes
-    # too (``curve_offset_local`` zero-fills it), so the interpolation runs to zero.
-    # The offsets and nodal line are in the beam's local system, the element nodes are global
-    e1 = -to_global_vectors(beam, beam.e1) if beam.e1 is not None else np.zeros(3)
-    e2 = -to_global_vectors(beam, beam.e2) if beam.e2 is not None else np.zeros(3)
+    # ``centroid_offset_local`` is in the beam's own (x, y, up) basis; the offsets and nodal line
+    # are in the beam's local system, the element nodes are global
+    xv, yv, up = (np.asarray(v, dtype=float) for v in (beam.xvec, beam.yvec, beam.up))
+
+    def to_vector(comp) -> np.ndarray:
+        return to_global_vectors(beam, comp[0] * xv + comp[1] * yv + comp[2] * up)
+
+    e1 = to_vector(data.end1)
+    e2 = to_vector(data.end2)
     p1, p2 = to_global_points(beam, [beam.n1.p, beam.n2.p])
     axis = p2 - p1
     length_sq = float(np.dot(axis, axis))
