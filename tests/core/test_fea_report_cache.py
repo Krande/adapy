@@ -7,6 +7,8 @@ from pathlib import Path
 import pytest
 
 _SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "docs" / "fea_report_cached.py"
+if not _SCRIPT.is_file():
+    pytest.skip("scripts/ is not shipped with the installed package's tests", allow_module_level=True)
 _spec = importlib.util.spec_from_file_location("fea_report_cached", _SCRIPT)
 frc = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(frc)
