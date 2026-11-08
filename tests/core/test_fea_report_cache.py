@@ -85,6 +85,7 @@ def test_any_input_change_rebuilds(repo, tmp_path, paradoc_dir, rel):
 def test_paradoc_code_is_an_input_its_frontend_is_not(repo, tmp_path, paradoc_dir):
     before = frc.report_key(repo, paradoc_dir)
     (paradoc_dir / frc._FRONTEND_ZIP).write_bytes(b"zip-2")
+    (paradoc_dir / "OVERLAY").write_text("paradoc abc1234 + adapy embed overlay")
     assert frc.report_key(repo, paradoc_dir) == before
     (paradoc_dir / "__init__.py").write_text("v = 2")
     assert frc.report_key(repo, paradoc_dir) != before

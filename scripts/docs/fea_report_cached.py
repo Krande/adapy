@@ -35,6 +35,8 @@ INPUTS = ("pixi.lock", "pixi.toml", "pyproject.toml", "scripts/docs/fea_report_c
 #: Build products that sit among the inputs.
 _SKIP_DIRS = {"__pycache__", "_assets", "temp", ".paradoc-cache"}
 _FRONTEND_ZIP = "frontend/resources/frontend.zip"
+#: In paradoc's directory but not code: the frontend, and the overlay's note of which commit it came from.
+_PARADOC_NON_INPUTS = {_FRONTEND_ZIP, "OVERLAY"}
 
 _CONFIG_RE = re.compile(
     r"<head[^>]*>(<script>\(function\(\)\{var c=window\.__PARADOC_CONFIG__=.*?</script>)", re.DOTALL
@@ -58,7 +60,7 @@ def report_key(repo: Path, paradoc_dir: Path) -> str:
     trees = [(rel, repo / rel) for rel in INPUTS] + [("<paradoc>", paradoc_dir)]
     for label, root in trees:
         for f in _files(root):
-            if label == "<paradoc>" and f.relative_to(root).as_posix() == _FRONTEND_ZIP:
+            if label == "<paradoc>" and f.relative_to(root).as_posix() in _PARADOC_NON_INPUTS:
                 continue
             rel = f.relative_to(root).as_posix() if root.is_dir() else ""
             h.update(f"{label}/{rel}\0".encode())
