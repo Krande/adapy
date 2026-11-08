@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 #
 # Zensical docs site for adapy. Build stage runs the ``docs`` pixi env:
-# the FEA verification report bundle (``fea-doc`` task →
+# the FEA verification report bundle (scripts/docs/fea_report_cached.py →
 # ``docs/_static/fea-report/``), the executed notebooks
 # (``docs-notebooks``, scripts/docs/docs_notebooks.py) and ``zensical build``
 # (mkdocstrings imports ``ada`` from src/); runtime stage serves ``site/``
@@ -213,17 +213,17 @@ RUN if [ -d /overlay/paradoc ]; then \
       && echo "overlay: $(cat "$dest/OVERLAY")"; \
     fi
 
-# Runs fea-doc (FEA verification report bundle into docs/_static/fea-report/), then the report
-# as DOCX / ODT / PDF into docs/_static/fea-report-files/ (the FEA verification page's download
-# links), then the notebooks and zensical into site/. The exports come after fea-doc, from its
-# assets; like the GitHub Pages workflow, a failed export leaves a dead download link but does not
-# stop the site. The rattler cache mount covers a solve these tasks might trigger.
+# The FEA verification report (docs/_static/fea-report/) and its DOCX / ODT / PDF exports
+# (docs/_static/fea-report-files/), then the notebooks and zensical into site/. The report is kept
+# in a cache mount under a hash of its inputs and reused while they are unchanged, with the current
+# viewer frontend (scripts/docs/fea_report_cached.py). Where the mount does not persist it is simply
+# built. A failed export leaves a dead download link but does not stop the site. The rattler cache
+# mount covers a solve these tasks might trigger.
+COPY scripts/docs/fea_report_cached.py ./scripts/docs/
 RUN --mount=type=cache,target=/root/.cache/rattler,sharing=locked \
-    pixi run --environment docs fea-doc \
-    && for fmt in docx odt pdf; do \
-         pixi run --environment docs fea-doc-$fmt \
-           || echo "WARNING: fea-doc-$fmt failed: the report's ${fmt} download link will be dead"; \
-       done \
+    --mount=type=cache,id=adapy-fea-report,target=/cache/fea-report,sharing=locked \
+    pixi run --environment docs python scripts/docs/fea_report_cached.py --cache /cache/fea-report \
+        --frontend-zip /overlay/paradoc/frontend/resources/frontend.zip \
     && pixi run --environment docs docs-site
 
 FROM nginxinc/nginx-unprivileged:1.27-alpine
