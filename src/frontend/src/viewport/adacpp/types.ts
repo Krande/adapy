@@ -42,6 +42,8 @@ export interface LoadedGlbGeometry {
     vertexColors: boolean;
     featureEdges: boolean;
     positions?: Float32Array;
+    /** Its index buffer (into `positions`), with keepPositions. */
+    indices?: Uint32Array;
 }
 
 export interface LoadedGlb {

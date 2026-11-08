@@ -5,8 +5,12 @@
 //
 // Same entry points and options as the three.js embed (embed/index.d.ts), plus `posterUrl`.
 import type {CameraPreset, FeaArtefactFetcher, MountedViewer} from "../embed/index.d";
+import {parseBeamSolidsWarp} from "../src/services/feaBeamSolidsWarp";
 import {parseFieldBlob} from "../src/services/feaFieldBlob";
 import {parseMeshEdges} from "../src/services/feaMeshEdges";
+import {parseMeshElements} from "../src/services/feaMeshElements";
+import {beamSolidFeatureEdges} from "../src/utils/scene/fea/beamSolidFeatureEdges";
+import {beamSolidDisplacement} from "../src/utils/scene/fea/beamSolidWarp";
 import {abaqus} from "../src/utils/scene/fea/colormaps";
 import {pickModeEntry} from "../src/utils/scene/fea/feaModePick";
 import {translationOffsets, warpValue} from "../src/utils/scene/fea/warpComponents";
@@ -37,7 +41,8 @@ export interface MountFeaArtefactViewerOptions {
     showControls?: boolean;
     /** 0-based mode index to render (default 0). */
     modeIndex?: number;
-    /** Accepted for the three.js embed's API; beams draw as lines here. */
+    /** Start with beam elements drawn as their solid sections, as the posters draw them (default
+     *  false: lines). Only matters for a bundle with beam solids; a button switches. */
     beamSolids?: boolean;
     onReady?: () => void;
     onError?: (err: Error) => void;
@@ -165,12 +170,28 @@ export function mountFeaArtefactViewer(element: HTMLElement, opts: MountFeaArtef
                 morphing.push({instance: addLines(pairs, false), r, g, b, flags: InstanceFlag.Unlit | InstanceFlag.MorphRelative, lineWidth: 1});
             }
         }
-        if (lineEdges && lineEdges.length) {
-            morphing.push({
+        const members: MorphInstance | null = lineEdges && lineEdges.length
+            ? {
                 instance: addLines(lineEdges, true), r: 1, g: 1, b: 1,
                 flags: InstanceFlag.VertexColors | InstanceFlag.Unlit | InstanceFlag.MorphRelative, lineWidth: MEMBER_WIDTH,
-            });
+            }
+            : null;
+        if (members) morphing.push(members);
+
+        // Beam solids: each beam's section, warped by its nodes' displacement and rotation (a torsion
+        // mode twists), coloured by its own displacement, with its element edges -- the posters' look.
+        const solids = await loadBeamSolids(viewer, manifest, opts.fetcher, field, step, main.positions);
+        let solidPeak = 0;
+        if (solids) {
+            morphing.push(...solids.instances);
+            solidPeak = solids.peak;
         }
+        const showSolids = (on: boolean) => {
+            if (!solids) return;
+            for (const mi of solids.instances) mi.flags = on ? mi.flags & ~InstanceFlag.Hidden : mi.flags | InstanceFlag.Hidden;
+            if (members) members.flags = on ? members.flags | InstanceFlag.Hidden : members.flags & ~InstanceFlag.Hidden;
+        };
+        showSolids(!!opts.beamSolids);
 
         const setInfluence = (influence: number) =>
             viewer.heap([IDENTITY], ([m]) => {
@@ -184,15 +205,28 @@ export function mountFeaArtefactViewer(element: HTMLElement, opts: MountFeaArtef
         setInfluence(1);
 
         // Frame the deformed model: the undeformed bounds grown by the largest displacement.
-        const b = loaded.bounds;
+        const b = solids ? unionBounds(loaded.bounds, solids.bounds) : loaded.bounds;
+        const grow = Math.max(maxMag, solidPeak);
         const framed: [number, number, number, number, number, number] = [
-            b[0] - maxMag, b[1] - maxMag, b[2] - maxMag, b[3] + maxMag, b[4] + maxMag, b[5] + maxMag,
+            b[0] - grow, b[1] - grow, b[2] - grow, b[3] + grow, b[4] + grow, b[5] + grow,
         ];
         viewer.onReframe = () => viewer.frame(framed, opts.camera);
         viewer.frame(framed, opts.camera);
 
         addLegend(viewer.host, field, entry.stepIndex, maxMag);
-        addPlayButton(viewer, setInfluence);
+        let influence = 1;
+        const drive = (v: number) => {
+            influence = v;
+            setInfluence(v);
+        };
+        addPlayButton(viewer, drive);
+        if (solids) {
+            addToggle(viewer, !!opts.beamSolids, (on) => {
+                showSolids(on);
+                setInfluence(influence);
+                viewer.invalidate();
+            });
+        }
     });
 }
 
@@ -282,4 +316,111 @@ function fmt(v: number): string {
 
 function esc(s: string): string {
     return s.replace(/[&<>"]/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"})[c]!);
+}
+
+interface BeamSolids {
+    instances: MorphInstance[];
+    bounds: [number, number, number, number, number, number];
+    /** The largest displacement of a solid vertex (for framing). */
+    peak: number;
+}
+
+/** The bundle's beam solids added to the scene, or null when it has none or they do not fit their
+ *  warp map (the model then draws its beams as lines). */
+async function loadBeamSolids(
+    viewer: Viewer,
+    manifest: FeaManifest,
+    fetcher: FeaArtefactFetcher,
+    field: FeaManifestField,
+    step: Float32Array,
+    nodePositions: Float32Array,
+): Promise<BeamSolids | null> {
+    const glbUrl = manifest.mesh.beam_solids_url, warpUrl = manifest.mesh.beam_solids_warp_url;
+    if (!glbUrl || !warpUrl) return null;
+    const [glb, warpBuf] = await Promise.all([fetcher(glbUrl), fetcher(warpUrl)]);
+    const warp = parseBeamSolidsWarp(warpBuf);
+    const loaded = viewer.loadGlb(new Uint8Array(glb), {keepPositions: true, doubleSided: true});
+    const parts = loaded.geometries.filter((g) => !g.featureEdges && g.topology === Topology.Triangles && g.positions);
+    const total = parts.reduce((n, g) => n + g.vertexCount, 0);
+    if (parts.length !== 1 || total !== warp.n_verts) {
+        console.warn(`[ada-viewer-webgpu] beam solids: ${total} vertices in ${parts.length} parts, a warp map for ${warp.n_verts}; beams as lines`);
+        for (const g of loaded.geometries) viewer.renderer.removeInstance(g.instance);
+        return null;
+    }
+    const part = parts[0];
+    const base = part.positions!;
+    const disp = beamSolidDisplacement(warp, base, field, step, nodePositions);
+    const n = warp.n_verts;
+    const mag = new Float32Array(n);
+    let peak = 0;
+    for (let v = 0; v < n; v++) {
+        mag[v] = Math.hypot(disp[v * 3], disp[v * 3 + 1], disp[v * 3 + 2]);
+        if (mag[v] > peak) peak = mag[v];
+    }
+    // Coloured by the solid's own displacement (translation and twist), as the viewer does: the
+    // nodes' colours would be round-off noise in a torsion mode.
+    const colors = packColors(mag, peak);
+    viewer.heap([disp], ([p]) => viewer.renderer.updateMorph(part.geometry, p, n));
+    viewer.heap([colors], ([p]) => viewer.renderer.updateColors(part.geometry, p, n));
+    const instances: MorphInstance[] = [{
+        instance: part.instance, r: 1, g: 1, b: 1,
+        flags: InstanceFlag.VertexColors | InstanceFlag.MorphRelative | InstanceFlag.DoubleSided | InstanceFlag.DepthBack,
+        lineWidth: 1, surface: true,
+    }];
+
+    // Element edges, per element as the viewer finds them, on the solid's vertices and morph.
+    const index = part.indices;
+    if (index && index.length) {
+        let ranges: [number, number][] = [[0, index.length]];
+        const elementsUrl = manifest.mesh.beam_solids_elements_url;
+        if (elementsUrl) {
+            try {
+                ranges = parseMeshElements(await fetcher(elementsUrl)).map((e) => [e.triStart * 3, e.triCount * 3]);
+            } catch (err) {
+                console.warn("[ada-viewer-webgpu] beam-solid element ranges:", err);
+            }
+        }
+        const pairs = beamSolidFeatureEdges(base, index, ranges);
+        if (pairs.length) {
+            const inst = viewer.heap([base, disp, pairs], ([pos, mor, idx]) =>
+                viewer.renderer.addInstance(viewer.renderer.addGeometry(Topology.Lines, pos, n, 0, 0, mor, idx, pairs.length, 0, 0, 0)),
+            );
+            const [r, g, b] = FEA_EDGE_COLOR;
+            instances.push({instance: inst, r, g, b, flags: InstanceFlag.Unlit | InstanceFlag.MorphRelative, lineWidth: 1});
+        }
+    }
+    return {instances, bounds: loaded.bounds, peak};
+}
+
+function unionBounds(
+    a: [number, number, number, number, number, number],
+    b: [number, number, number, number, number, number],
+): [number, number, number, number, number, number] {
+    return [
+        Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.min(a[2], b[2]),
+        Math.max(a[3], b[3]), Math.max(a[4], b[4]), Math.max(a[5], b[5]),
+    ];
+}
+
+/** Beams as solids / as lines. */
+function addToggle(viewer: Viewer, initial: boolean, onChange: (solids: boolean) => void) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    let on = initial;
+    const label = () => {
+        btn.textContent = on ? "Solids" : "Lines";
+        btn.title = on ? "Beams drawn as their sections: click for lines" : "Beams drawn as lines: click for their sections";
+    };
+    label();
+    btn.style.cssText =
+        "position:absolute;left:44px;bottom:8px;height:28px;padding:0 10px;border-radius:14px;border:1px solid #cbd5e1;" +
+        "background:#fff;color:#334155;font:12px system-ui;cursor:pointer;";
+    btn.addEventListener("pointerdown", (e) => e.stopPropagation());
+    btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        on = !on;
+        label();
+        onChange(on);
+    });
+    viewer.host.appendChild(btn);
 }
