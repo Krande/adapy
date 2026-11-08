@@ -30,3 +30,14 @@ test("orbiting keeps the target in the middle of the view", () => {
     const [x, y] = project(cam.matrices(1), [0.5, 0.5, 0.5]);
     assert.ok(Math.abs(x) < 1e-5 && Math.abs(y) < 1e-5);
 });
+
+test("dragging right moves the model's near side right", () => {
+    const cam = new OrbitCamera();
+    cam.frame([-1, -1, -1, 1, 1, 1], undefined, 1);
+    const eye = cam.eye();
+    const len = Math.hypot(eye[0], eye[1]);
+    const near: [number, number, number] = [eye[0] / len, eye[1] / len, 0]; // towards the camera
+    const before = project(cam.matrices(1), near)[0];
+    cam.orbit(20, 0, 500);
+    assert.ok(project(cam.matrices(1), near)[0] > before);
+});

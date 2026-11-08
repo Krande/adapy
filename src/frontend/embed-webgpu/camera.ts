@@ -72,7 +72,7 @@ export class OrbitCamera {
 
     orbit(dxPx: number, dyPx: number, heightPx: number) {
         const k = Math.PI / Math.max(heightPx, 1);
-        this.azimuth -= dxPx * k;
+        this.azimuth += dxPx * k; // the model's near side follows the pointer
         this.elevation = Math.min(Math.PI / 2 - 1e-3, Math.max(-Math.PI / 2 + 1e-3, this.elevation + dyPx * k));
     }
 
