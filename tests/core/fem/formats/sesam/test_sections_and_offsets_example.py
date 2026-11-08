@@ -67,7 +67,17 @@ def test_deck_has_one_section_per_type_and_the_expected_offsets(example, deck):
             if np.any(vec):
                 distinct.add(tuple(np.round(vec, 10)))
     assert len(distinct) == 7
-    assert records["GECCEN"] == len(distinct)
+    # A GECCEN runs from the node to the section CENTROID (issue #419), so an angle and a T, whose profile
+    # origin is not on their centroid, carry ``-e`` plus a correction of their own and cannot share a record
+    # with the sections drawn on their centroid. One set of seven per distinct correction.
+    from ada.api.beams.justification import section_centroid_offset_local
+
+    corrections = {
+        round(float(section_centroid_offset_local(ada.Section(name, from_str=name), strict=False)[2]), 9)
+        for name in example.SECTIONS
+    }
+    assert len(corrections) == 3  # centred, the angle's and the T's
+    assert records["GECCEN"] == len(distinct) * len(corrections)
 
 
 def _record_counts(text: str) -> dict[str, int]:
