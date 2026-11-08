@@ -78,11 +78,15 @@ def glb_to_image(
     preset: dict | None = None,
     size: tuple[int, int] = (640, 480),
     overlay: dict | None = None,
+    edges: bool = False,
 ) -> "Image":
     """Render ``glb_path`` with ``backend``, framed by the embed's camera ``preset`` (keys: PRESET_KEYS).
 
     ``overlay``: Ada Studio's orientation gizmo / colour legend over the image (adacpp's overlay spec,
     see ``adacpp_offscreen.glb_to_image``); drawn by the adacpp backend only.
+    ``edges``: draw the model's feature edges as Ada Studio's viewer does (boundary edges and
+    edges between faces meeting at over 30 degrees, black; see ``feature_edges``). For CAD models;
+    an FEA bundle's poster draws its own element edges.
     """
     resolved = resolve_backend(backend)
     if resolved == "chromium":
@@ -94,4 +98,12 @@ def glb_to_image(
     from ada.visit.rendering.adacpp_offscreen import glb_to_image as render_adacpp
 
     kwargs = {k: v for k, v in (preset or {}).items() if k in PRESET_KEYS}
-    return render_adacpp(glb_path, size=size, overlay=overlay, **kwargs)
+    if not edges:
+        return render_adacpp(glb_path, size=size, overlay=overlay, **kwargs)
+    import tempfile
+
+    from ada.visit.rendering.feature_edges import glb_with_feature_edges
+
+    with tempfile.TemporaryDirectory(prefix="ada_edges_") as tmp:
+        with_edges = glb_with_feature_edges(glb_path, Path(tmp) / "with_edges.glb")
+        return render_adacpp(with_edges, size=size, overlay=overlay, **kwargs)

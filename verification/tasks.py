@@ -370,7 +370,8 @@ def postprocess(results: list) -> list:
 
 
 def _render_poster(glb: pathlib.Path, regen: bool) -> None:
-    """Render ``glb``'s static poster beside it, the only view the DOCX / PDF exports have.
+    """Render ``glb``'s static poster beside it, the only view the DOCX / PDF exports have, with the
+    feature edges Ada Studio draws over the model.
 
     A failed render is logged; no renderer at all raises (``OffscreenUnavailableError``).
     """
@@ -380,7 +381,7 @@ def _render_poster(glb: pathlib.Path, regen: bool) -> None:
     if png.is_file() and not regen:
         return
     try:
-        glb_to_image(glb).save(str(png))
+        glb_to_image(glb, edges=True).save(str(png))
     except OffscreenUnavailableError:
         raise
     except Exception as exc:  # noqa: BLE001
