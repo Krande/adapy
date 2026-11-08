@@ -2,6 +2,13 @@
 
 
 
+## v0.137.2 (2026-11-08)
+
+### Fix
+
+* fix(fem): carry beam justification into FEM eccentricities (GeniE flush alignment) (#505) ([`d181393`](https://github.com/Krande/adapy/commit/d1813933235c6acae5dd330e2aea30a3cb58cf23))
+
+
 ## v0.137.1 (2026-11-08)
 
 ### Fix
