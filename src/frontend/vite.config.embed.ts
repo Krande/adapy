@@ -102,9 +102,41 @@ function inlineCssAtRuntime(): Plugin {
     };
 }
 
+// The embed inlines every dynamic import (`inlineDynamicImports`: paradoc wants one file), so the
+// lazy chunks the full app only loads on demand would all land in it: the classic shell (`@/app`)
+// and its panels (admin, storage, asset search, convert -- loaded by the panel catalogue), and the
+// MP4 animation export (mediabunny). The embed opens none of them; this resolves those dynamic
+// imports to an empty module instead. Static imports are untouched (a missing export there would
+// fail the build), and the stub is inert: evaluating it does nothing, a loader that gets it finds
+// no default export.
+const EMBED_STUB = '\0ada-embed-stub';
+function stubAppOnlyDynamicImports(): Plugin {
+    const fromImporter = [/src\/layout\/corePanels\.ts$/, /src\/layout\/classicBodies\.ts$/];
+    const target = [/animationExport\/exportAnimation$/];
+    return {
+        name: 'stub-app-only-dynamic-imports',
+        resolveDynamicImport(specifier, importer) {
+            if (typeof specifier !== 'string' || !importer) return null;
+            if (fromImporter.some((r) => r.test(importer)) || target.some((r) => r.test(specifier))) return EMBED_STUB;
+            return null;
+        },
+        load(id) {
+            return id === EMBED_STUB ? 'export default undefined;\n' : null;
+        },
+    };
+}
+
 export default defineConfig({
     publicDir: false,
-    plugins: [react(), inlineCssAtRuntime(), versionInjectPlugin(), adapyPluginsResolver()],
+    plugins: [react(), inlineCssAtRuntime(), versionInjectPlugin(), adapyPluginsResolver(), stubAppOnlyDynamicImports()],
+    define: {
+        // Library mode leaves `process.env.NODE_ENV` alone, so React shipped its development
+        // build (react-dom.development: ~0.8 MB against ~0.13 MB) and its dev-only checks.
+        'process.env.NODE_ENV': JSON.stringify('production'),
+        // src/runtime/embedBuild.ts: embed-only UI choices, e.g. no MP4 export button (its
+        // encoder is stubbed above).
+        __ADA_EMBED__: 'true',
+    },
     resolve: {
         // Array form so the exact-match pyodide stub is checked BEFORE the
         // broad "@" prefix alias. The embed never runs an in-browser Pyodide
