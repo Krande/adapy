@@ -54,31 +54,48 @@ let serial = 0;
 export async function createRenderer(canvas: HTMLCanvasElement): Promise<GpuContext> {
     const gpu = (navigator as Navigator & {gpu?: GpuLike}).gpu;
     if (!gpu) throw new Error("this browser has no WebGPU");
-    const adapter = await gpu.requestAdapter({powerPreference: "high-performance"});
-    if (!adapter) throw new Error("no WebGPU adapter available");
-    const device = await adapter.requestDevice({
-        label: "ada-viewer-webgpu",
-        requiredLimits: {
-            maxStorageBufferBindingSize: adapter.limits.maxStorageBufferBindingSize,
-            maxBufferSize: adapter.limits.maxBufferSize,
-        },
-    });
+    // Each step says which one failed: the reason is shown on the poster (and is all a reader on a
+    // phone has to go on).
+    const adapter = await step("WebGPU adapter request", () => gpu.requestAdapter({powerPreference: "high-performance"}));
+    if (!adapter) throw new Error("this browser has WebGPU but gave no adapter (GPU blocklisted or disabled?)");
+    const device = await step("WebGPU device request", () =>
+        adapter.requestDevice({
+            label: "ada-viewer-webgpu",
+            requiredLimits: {
+                maxStorageBufferBindingSize: adapter.limits.maxStorageBufferBindingSize,
+                maxBufferSize: adapter.limits.maxBufferSize,
+            },
+        }),
+    );
     device.onuncapturederror = (ev) => console.error("[ada-viewer-webgpu]", ev.error.message);
-    const {factory, compiled} = await loadFactory();
+    const {factory, compiled} = await step("loading the renderer", loadFactory);
+    // A failed instantiation never settles the factory's promise: race it, so the figure falls back.
+    let instantiateFailed: (err: unknown) => void = () => {};
+    const failed = new Promise<never>((_, reject) => (instantiateFailed = reject));
     const instantiateWasm = (
         imports: WebAssembly.Imports,
         receive: (instance: WebAssembly.Instance, module: WebAssembly.Module) => void,
     ) => {
-        void WebAssembly.instantiate(compiled, imports).then(
-            (instance) => receive(instance, compiled),
-            (err) => console.error("[ada-viewer-webgpu] instantiating the renderer failed:", err),
-        );
+        void WebAssembly.instantiate(compiled, imports).then((instance) => receive(instance, compiled), instantiateFailed);
         return {};
     };
-    const module = await factory({instantiateWasm, preinitializedWebGPUDevice: device});
+    const module = await step("starting the renderer", () =>
+        Promise.race([factory({instantiateWasm, preinitializedWebGPUDevice: device}), failed]),
+    );
     if (!canvas.id) canvas.id = `ada-viewer-webgpu-${++serial}`;
-    const renderer = new module.WebRenderer(`#${canvas.id}`, gpu.getPreferredCanvasFormat());
+    const renderer = await step("creating the canvas renderer", async () =>
+        new module.WebRenderer(`#${canvas.id}`, gpu.getPreferredCanvasFormat()),
+    );
     return {module, renderer, device};
+}
+
+/** `fn`, its failure prefixed with what was being done. */
+async function step<T>(what: string, fn: () => Promise<T>): Promise<T> {
+    try {
+        return await fn();
+    } catch (err) {
+        throw new Error(`${what} failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
 }
 
 /** Copy typed arrays into the module heap, run `fn` with their pointers (0 for null), free them. */

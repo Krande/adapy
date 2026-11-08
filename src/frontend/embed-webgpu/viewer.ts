@@ -27,14 +27,25 @@ export const FALLBACK_CLASS = "ada-viewer-fallback";
 export function showFallback(element: HTMLElement, opts: FallbackOptions, reason: string): void {
     element.innerHTML = "";
     if (opts.posterUrl) {
+        // The poster, with the reason on it: without it the fallback looks exactly like the static
+        // figure, and a reader (on a phone, no tooltip) cannot tell the 3D view did not start.
+        const wrap = document.createElement("div");
+        wrap.className = FALLBACK_CLASS;
+        wrap.dataset.reason = reason;
+        wrap.style.cssText = "position:relative;width:100%;";
         const img = document.createElement("img");
-        img.className = FALLBACK_CLASS;
-        img.dataset.reason = reason;
         img.src = opts.posterUrl;
         img.alt = opts.caption || "3D figure";
         img.title = `3D view unavailable: ${reason}`;
         img.style.cssText = "display:block;max-width:100%;height:auto;margin:auto;";
-        element.appendChild(img);
+        const note = document.createElement("div");
+        note.textContent = `3D view unavailable: ${reason}`;
+        note.style.cssText =
+            "position:absolute;left:6px;bottom:6px;right:6px;width:fit-content;max-width:calc(100% - 12px);" +
+            "background:rgba(30,41,59,0.85);color:#f8fafc;font:11px/1.3 system-ui;padding:3px 7px;" +
+            "border-radius:4px;pointer-events:none;";
+        wrap.append(img, note);
+        element.appendChild(wrap);
         return;
     }
     const note = document.createElement("div");
