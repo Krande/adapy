@@ -142,12 +142,15 @@ export interface GpuDeviceLike {
     destroy(): void;
 }
 export interface GpuAdapterLike {
-    readonly limits: {maxStorageBufferBindingSize: number; maxBufferSize: number};
+    readonly limits: {maxStorageBufferBindingSize: number; maxBufferSize: number} & Record<string, number>;
     readonly info?: GpuAdapterInfoLike;
     requestDevice(desc: {label?: string; requiredLimits?: Record<string, number>}): Promise<GpuDeviceLike>;
 }
 export interface GpuLike {
-    requestAdapter(opts?: {powerPreference?: "low-power" | "high-performance"}): Promise<GpuAdapterLike | null>;
+    requestAdapter(opts?: {
+        powerPreference?: "low-power" | "high-performance";
+        featureLevel?: "core" | "compatibility";
+    }): Promise<GpuAdapterLike | null>;
     getPreferredCanvasFormat(): string;
 }
 

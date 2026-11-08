@@ -3,7 +3,7 @@
 // embed stays one file that works from file:// and inside paradoc's single-file report.
 import inline from "virtual:adacpp-render-inline";
 
-import type {AdacppModule, GpuDeviceLike, GpuLike, WebRendererApi} from "../src/viewport/adacpp/types";
+import type {AdacppModule, GpuAdapterLike, GpuDeviceLike, GpuLike, WebRendererApi} from "../src/viewport/adacpp/types";
 
 function decodeBase64(b64: string): Uint8Array {
     const bin = atob(b64);
@@ -45,6 +45,29 @@ export interface GpuContext {
     module: AdacppModule;
     renderer: WebRendererApi;
     device: GpuDeviceLike;
+    /** On a compatibility-mode device: `fn` gets the GPU errors (past ones too), which mean the figure
+     *  cannot draw. Elsewhere they are only logged. */
+    onFatalError: (fn: (message: string) => void) => void;
+}
+
+/** Compatibility mode defaults these to low values (or 0), so a device must ask for what it has. */
+const COMPAT_LIMITS = [
+    "maxStorageBuffersPerShaderStage",
+    "maxStorageBuffersInVertexStage",
+    "maxStorageBuffersInFragmentStage",
+    "maxStorageTexturesPerShaderStage",
+    "maxStorageTexturesInFragmentStage",
+    "maxStorageTexturesInVertexStage",
+    "maxStorageBufferBindingSize",
+    "maxBufferSize",
+] as const;
+
+/** The GPU to use, and whether it is a compatibility-mode one: some drivers offer nothing for an
+ *  explicit preference, and a browser that will not offer WebGPU on Vulkan may still offer it on GLES. */
+async function requestGpuAdapter(gpu: GpuLike): Promise<{adapter: GpuAdapterLike | null; compat: boolean}> {
+    const core = (await gpu.requestAdapter({powerPreference: "high-performance"})) ?? (await gpu.requestAdapter());
+    if (core) return {adapter: core, compat: false};
+    return {adapter: await gpu.requestAdapter({featureLevel: "compatibility"}), compat: true};
 }
 
 let serial = 0;
@@ -56,21 +79,29 @@ export async function createRenderer(canvas: HTMLCanvasElement): Promise<GpuCont
     if (!gpu) throw new Error("this browser has no WebGPU");
     // Each step says which one failed: the reason is shown on the poster (and is all a reader on a
     // phone has to go on).
-    // Some drivers offer nothing for an explicit preference: ask again without one.
-    const adapter = await step("WebGPU adapter request", async () =>
-        (await gpu.requestAdapter({powerPreference: "high-performance"})) ?? (await gpu.requestAdapter()),
+    const {adapter, compat} = await step("WebGPU adapter request", () => requestGpuAdapter(gpu));
+    if (!adapter) throw new Error("this browser has WebGPU but gave no adapter, compatibility mode included (GPU blocklisted or disabled?)");
+    const requiredLimits: Record<string, number> = {
+        maxStorageBufferBindingSize: adapter.limits.maxStorageBufferBindingSize,
+        maxBufferSize: adapter.limits.maxBufferSize,
+    };
+    if (compat) {
+        for (const k of COMPAT_LIMITS) if (k in adapter.limits) requiredLimits[k] = adapter.limits[k];
+        if ("maxStorageBuffersInVertexStage" in adapter.limits && adapter.limits.maxStorageBuffersInVertexStage < 1) {
+            throw new Error("WebGPU compatibility mode here has no storage buffers in vertex shaders, which the renderer needs");
+        }
+    }
+    const device = await step(compat ? "WebGPU compatibility device request" : "WebGPU device request", () =>
+        adapter.requestDevice({label: "ada-viewer-webgpu", requiredLimits}),
     );
-    if (!adapter) throw new Error("this browser has WebGPU but gave no adapter (GPU blocklisted or disabled?)");
-    const device = await step("WebGPU device request", () =>
-        adapter.requestDevice({
-            label: "ada-viewer-webgpu",
-            requiredLimits: {
-                maxStorageBufferBindingSize: adapter.limits.maxStorageBufferBindingSize,
-                maxBufferSize: adapter.limits.maxBufferSize,
-            },
-        }),
-    );
-    device.onuncapturederror = (ev) => console.error("[ada-viewer-webgpu]", ev.error.message);
+    const earlyErrors: string[] = [];
+    let fatal: ((message: string) => void) | null = null;
+    device.onuncapturederror = (ev) => {
+        console.error("[ada-viewer-webgpu]", ev.error.message);
+        if (!compat) return;
+        if (fatal) fatal(ev.error.message);
+        else earlyErrors.push(ev.error.message);
+    };
     const {factory, compiled} = await step("loading the renderer", loadFactory);
     // A failed instantiation never settles the factory's promise: race it, so the figure falls back.
     let instantiateFailed: (err: unknown) => void = () => {};
@@ -89,7 +120,11 @@ export async function createRenderer(canvas: HTMLCanvasElement): Promise<GpuCont
     const renderer = await step("creating the canvas renderer", async () =>
         new module.WebRenderer(`#${canvas.id}`, gpu.getPreferredCanvasFormat()),
     );
-    return {module, renderer, device};
+    const onFatalError = (fn: (message: string) => void) => {
+        fatal = fn;
+        for (const m of earlyErrors.splice(0)) fn(m);
+    };
+    return {module, renderer, device, onFatalError};
 }
 
 /** `fn`, its failure prefixed with what was being done. */

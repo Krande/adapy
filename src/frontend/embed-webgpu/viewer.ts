@@ -69,6 +69,8 @@ export class Viewer {
     private readonly resizeObserver: ResizeObserver;
     private readonly cleanups: (() => void)[] = [];
     private readonly matPtr: {view: number; proj: number} = {view: 0, proj: 0};
+    /** The GPU cannot draw this figure (a compatibility-mode device reported an error). */
+    onGpuFailure: ((message: string) => void) | null = null;
     /** A tap (no drag) at a client position: the mount picks there. */
     onTap: ((clientX: number, clientY: number) => void) | null = null;
     /** Called before each frame (an animation drives the model from here); return true to keep going. */
@@ -104,6 +106,7 @@ export class Viewer {
             this.release();
             throw new Error("disposed");
         }
+        this.ctx.onFatalError((m) => this.onGpuFailure?.(m));
         const [r, g, b] = BACKGROUND;
         this.ctx.renderer.setBackground(r, g, b);
         this.matPtr.view = this.ctx.module._malloc(64);

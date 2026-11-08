@@ -68,17 +68,22 @@ function mount(
 ): MountedViewer {
     const viewer = new Viewer(element);
     let disposed = false;
+    let fellBack = false;
+    const fallBack = (e: Error) => {
+        if (disposed || fellBack) return;
+        fellBack = true;
+        viewer.dispose();
+        showFallback(element, opts, e.message);
+        opts.onError?.(e);
+    };
+    viewer.onGpuFailure = (m) => fallBack(new Error(`WebGPU compatibility mode failed: ${m.split("\n")[0]}`));
     (async () => {
         try {
             await viewer.start();
             await build(viewer);
-            if (!disposed) opts.onReady?.();
+            if (!disposed && !fellBack) opts.onReady?.();
         } catch (err) {
-            if (disposed) return;
-            const e = err instanceof Error ? err : new Error(String(err));
-            viewer.dispose();
-            showFallback(element, opts, e.message);
-            opts.onError?.(e);
+            fallBack(err instanceof Error ? err : new Error(String(err)));
         }
     })();
     return {
