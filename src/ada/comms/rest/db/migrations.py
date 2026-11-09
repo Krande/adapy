@@ -20,6 +20,8 @@ async def _apply_migrations(pool: asyncpg.Pool) -> None:
     The lock is held only during apply; competing replicas wait, then
     discover the migrations are already applied and become a no-op.
     """
+    # Applied migrations are keyed by file stem, so a file must never be renamed: it would run again on every deployed
+    # database. Numbers are unique (tests/core/tools/test_migration_numbers_unique.py); 027 is a historical exception.
     files = sorted(
         p for p in importlib.resources.files("ada.comms.rest.migrations").iterdir() if p.name.endswith(".sql")
     )

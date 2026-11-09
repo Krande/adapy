@@ -26,7 +26,8 @@ the docs page (docs/cli.md).
 
 Exit codes: 0 success; 2 for anything wrong with the invocation — an argparse
 error, a ``CliUsageError`` raised by an implementation, or a bare command with
-nothing to act on; 1 (via an uncaught exception) when the work itself failed.
+nothing to act on; 1 when the operation failed or was refused, returned by a command or via an uncaught exception;
+3 when ``convert --strict`` found an omission or a suspect finding.
 A bare ``ada`` or ``ada <group>`` prints that parser's *full* help rather than a
 one-line usage, but it prints it to stderr and still exits 2, because a wrong
 invocation must not look like success to a script.

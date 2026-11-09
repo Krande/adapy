@@ -1042,7 +1042,7 @@ def cmd_wasm_sweep(args: argparse.Namespace) -> int:
             "       pixi run -e frontend ada audit wasm-sweep ...",
             file=sys.stderr,
         )
-        return 2
+        return 1
     driver = _resolve_driver(args)
     driver_dir = os.path.dirname(driver)
     if not os.path.isdir(os.path.join(driver_dir, "node_modules", "pyodide")):
@@ -1051,7 +1051,7 @@ def cmd_wasm_sweep(args: argparse.Namespace) -> int:
             f"       (cd {driver_dir} && pixi run -e frontend npm install)",
             file=sys.stderr,
         )
-        return 2
+        return 1
 
     # Absolute: the driver subprocess runs with cwd=driver_dir, so wheel paths
     # relative to the sweep's cwd would not resolve there.
