@@ -10,13 +10,16 @@ import sys
 from contextlib import contextmanager
 from typing import TYPE_CHECKING
 
+import numpy as np
+
 from ada.api.containers import Beams, Plates
 from ada.config import Config, logger
 from ada.fem import Elem
+from ada.fem.conversion_utils import centroid_shift_global
 from ada.fem.exceptions import FEASolverNotInstalled
 
 if TYPE_CHECKING:
-    from ada import Assembly, Beam, Part, Plate
+    from ada import FEM, Assembly, Beam, Part, Plate
     from ada.fem.formats.general import FEATypes
 
 
@@ -705,7 +708,7 @@ def line_elem_to_beam(elem: Elem, parent: Part, prefix="bm") -> Beam:
     if elem.fem_sec.section.type == "GENBEAM":
         logger.error(f"Beam elem {elem.id}  uses a GENBEAM which might not represent an actual cross section")
 
-    return Beam(
+    bm = Beam(
         f"{prefix}{elem.id}",
         n1,
         n2,
@@ -716,6 +719,19 @@ def line_elem_to_beam(elem: Elem, parent: Part, prefix="bm") -> Beam:
         e2=e2,
         parent=parent,
     )
+    # The offset in a file runs to the section CENTROID; Beam.e1/e2 move the profile ORIGIN, and the
+    # geometry path adds the centroid's place against the origin back on top of ``-e``
+    # (``curve_offset_local``). For an angle or a T that is not zero, so the file's offset becomes
+    # ``e = centroid_shift - ecc``; without it a beam written with an HP's GECCEN read back
+    # (and was drawn) one centroid-to-origin distance away from where the file put it.
+    if e1 is not None or e2 is not None:
+        shift = centroid_shift_global(elem)
+        if np.any(shift):
+            if e1 is not None:
+                bm.e1 = tuple(float(v) for v in shift + np.asarray(e1))
+            if e2 is not None:
+                bm.e2 = tuple(float(v) for v in shift + np.asarray(e2))
+    return bm
 
 
 def convert_part_objects(p: Part, skip_plates, skip_beams, merge=False, reconstruct_surfaces=False):
@@ -794,3 +810,26 @@ def default_fem_inp_path(name, scratch_dir=None, analysis_dir=None):
         FEATypes.USFOS: base_path.with_suffix(".raf"),
         FEATypes.OPENCOURANT: base_path.parent / f"{name}_0000.rad",
     }
+
+
+#: What every finding about an offset beam a writer cannot hold is filed under.
+BEAM_ECC_KEYWORD = "Beam eccentricity"
+
+
+def report_unwritten_beam_ecc(fem: FEM, stage: str, why: str) -> int:
+    """Record, once per construct, the beam end offsets a writer has no way to write.
+
+    A beam that GeniE places flush against its plate (or that carries an explicit ``e1``/``e2``) reaches
+    the FEM as an eccentricity on its line elements. A target that has nowhere to put one -- CalculiX's
+    and Code_Aster's beam elements sit on the node line -- would otherwise write the member on that line
+    without a word, and the model is too soft (issue #419: 1.557 mm against 2.840 mm in Abaqus).
+    Returns how many elements carried one.
+    """
+    from ada.fem.formats import conversion_report
+
+    report = conversion_report.current()
+    n = 0
+    for el in fem.elements.lines_ecc:
+        n += 1
+        report.omitted(stage, BEAM_ECC_KEYWORD, str(el.id), why)
+    return n

@@ -16,7 +16,7 @@ from ada.fem.formats.abaqus.write.write_sections import (
     shell_section_str,
     solid_section_str,
 )
-from ada.fem.formats.utils import get_fem_model_from_assembly
+from ada.fem.formats.utils import get_fem_model_from_assembly, report_unwritten_beam_ecc
 from ada.fem.steps import StepExplicit
 
 from ..compatibility import check_compatibility
@@ -31,6 +31,12 @@ if TYPE_CHECKING:
     from ada.fem import Interaction, Surface
 
 
+CCX_ECC_WHY = (
+    "a beam end offset (a flush stiffener, or an explicit e1/e2) is not written: CalculiX has no beam "
+    "section offset and the deck has no MPC for it, so the member sits on its node line"
+)
+
+
 def to_fem(assembly: Assembly, name, analysis_dir, metadata=None, model_data_only=False):
     """Write a Calculix input file stack"""
 
@@ -39,6 +45,7 @@ def to_fem(assembly: Assembly, name, analysis_dir, metadata=None, model_data_onl
     check_compatibility(assembly)
     refuse_fluid_cavities(assembly, "calculix")
     report_unwritten_pretension(assembly)
+    report_unwritten_beam_ecc(get_fem_model_from_assembly(assembly).fem, "calculix writer", CCX_ECC_WHY)
 
     inp_file = (analysis_dir / name).with_suffix(".inp")
 

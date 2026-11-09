@@ -7,7 +7,7 @@ import numpy as np
 
 from ada.config import logger
 from ada.fem.formats.prescribed import prescribed_dofs
-from ada.fem.formats.utils import get_fem_model_from_assembly
+from ada.fem.formats.utils import get_fem_model_from_assembly, report_unwritten_beam_ecc
 from ada.fem.utils import is_quad8_shell_elem, is_tri6_shell_elem
 
 from ..compatibility import check_compatibility
@@ -55,6 +55,12 @@ def to_fem(assembly: Assembly, name, analysis_dir, metadata=None, model_data_onl
         from ada.fem.formats.sesam.write.writer import to_fem as to_sesam_deck
 
         to_sesam_deck(assembly, name, analysis_dir, metadata={}, model_data_only=True)
+    report_unwritten_beam_ecc(
+        p.fem,
+        "code_aster writer",
+        "a beam end offset (a flush stiffener, or an explicit e1/e2) is not written: the deck has no "
+        "beam offset (no ORIENTATION/AFFE_CARA_ELEM keyword for one), so the member sits on its node line",
+    )
     # Prepare model for
     shorten_material_names(assembly)
 
