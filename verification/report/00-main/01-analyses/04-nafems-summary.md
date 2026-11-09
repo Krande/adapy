@@ -41,6 +41,11 @@ through-thickness stress, so the solution is the plane-stress one.
 
 ${ nafems.le1 }{tbl:index:no}
 
+σyy over the plan at the finest mesh, the quantity the benchmark is judged on. All solvers share one
+colour scale, and D is marked with each solver's own value.
+
+${ nafems.le1_contour }
+
 Displacement at the finest mesh, deformed, from each solver. The interactive view shows the same
 result in 3D.
 
@@ -61,6 +66,11 @@ at D, -5.38 MPa.
 ${ nafems.le10_geometry }
 
 ${ nafems.le10 }{tbl:index:no}
+
+σyy on the upper face at the finest mesh, the quantity the benchmark is judged on. All solvers share
+one colour scale, and D is marked with each solver's own value.
+
+${ nafems.le10_contour }
 
 Displacement at the finest mesh, deformed, from each solver. The interactive view shows the same
 result in 3D.

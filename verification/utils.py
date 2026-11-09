@@ -491,6 +491,7 @@ class NafemsResult(FeaCaseResult):
     divisions: int = None
     n_elements: int = None
     stress_yy: float = None
+    plane: dict = None  # {"x", "y", "syy"} on the plane through D, at the density the report shows as figures
 
     def _extra_payload(self) -> dict:
         return {
@@ -498,6 +499,7 @@ class NafemsResult(FeaCaseResult):
             "divisions": self.divisions,
             "n_elements": self.n_elements,
             "stress_yy": self.stress_yy,
+            "plane": self.plane,
         }
 
     def _hydrate_extras(self, payload: dict) -> None:
@@ -505,6 +507,7 @@ class NafemsResult(FeaCaseResult):
         self.divisions = payload["divisions"]
         self.n_elements = payload["n_elements"]
         self.stress_yy = payload["stress_yy"]
+        self.plane = payload.get("plane")
 
 
 def create_nafems_df(results, target_pa: float) -> "pd.DataFrame | None":
@@ -529,6 +532,83 @@ def create_nafems_df(results, target_pa: float) -> "pd.DataFrame | None":
         record["target [MPa]"] = target_pa / 1e6
         records.append(record)
     return pd.DataFrame.from_records(records)
+
+
+def create_nafems_contour(results, title: str):
+    """``sigma_yy`` [MPa] over the plan, one panel per solver on one colour scale, with point D marked.
+
+    Interpolated onto a regular grid to draw it, and cut back to the region between the two ellipses so nothing is
+    painted across the hole. The value printed at D is the solver's own, not the interpolation's. None without data.
+    """
+    import numpy as np
+    import plotly.graph_objects as go
+    from plotly.subplots import make_subplots
+    from scipy.interpolate import griddata
+
+    panels = sorted(
+        (r for r in results if r.plane and r.stress_yy is not None),
+        key=lambda r: short_name_map.get(r.fem_format, r.fem_format),
+    )
+    if not panels:
+        return None
+    x = np.linspace(0.0, 3.25, 261)
+    y = np.linspace(0.0, 2.75, 221)
+    grid_x, grid_y = np.meshgrid(x, y)
+    between = ((grid_x / 2.0) ** 2 + grid_y**2 >= 1.0) & ((grid_x / 3.25) ** 2 + (grid_y / 2.75) ** 2 <= 1.0)
+
+    labels = [short_name_map.get(r.fem_format, r.fem_format) for r in panels]
+    fields = []
+    for res in panels:
+        points = np.column_stack([res.plane["x"], res.plane["y"]])
+        z = griddata(points, np.asarray(res.plane["syy"]) / 1e6, (grid_x, grid_y), method="linear")
+        fields.append(np.round(np.where(between, z, np.nan), 3))
+    # Explicit and symmetric, so that white is zero in every panel: red is tension and blue compression.
+    limit = float(max(np.nanmax(np.abs(z)) for z in fields))
+    levels = dict(start=-limit, end=limit, size=limit / 12.0)
+
+    fig = make_subplots(rows=1, cols=len(panels), subplot_titles=labels, horizontal_spacing=0.06)
+    for col, (res, field) in enumerate(zip(panels, fields), start=1):
+        fig.add_trace(
+            go.Contour(
+                x=x,
+                y=y,
+                z=field,
+                coloraxis="coloraxis",
+                autocontour=False,
+                contours=levels,
+                line_width=0.5,
+                hovertemplate="x %{x:.2f} m<br>y %{y:.2f} m<br>σyy %{z:.2f} MPa<extra></extra>",
+            ),
+            row=1,
+            col=col,
+        )
+        value = res.stress_yy / 1e6
+        fig.add_trace(
+            go.Scatter(
+                x=[2.0],
+                y=[0.0],
+                mode="markers+text",
+                marker=dict(color="black", size=9, symbol="x"),
+                text=[f"D: {value:.2f}"],
+                textposition="top right",
+                textfont=dict(color="black"),
+                showlegend=False,
+                hovertemplate=f"D: {value:.3f} MPa<extra></extra>",
+                cliponaxis=False,
+            ),
+            row=1,
+            col=col,
+        )
+        anchor = "x" if col == 1 else f"x{col}"
+        fig.update_yaxes(scaleanchor=anchor, scaleratio=1, title_text="y [m]" if col == 1 else None, row=1, col=col)
+        fig.update_xaxes(title_text="x [m]", row=1, col=col)
+    fig.update_layout(
+        title=title,
+        coloraxis=dict(colorscale="RdBu_r", cmin=-limit, cmax=limit, colorbar=dict(title="σyy [MPa]")),
+        plot_bgcolor="white",
+        margin=dict(l=50, r=20, t=70, b=50),
+    )
+    return fig
 
 
 #: A mode counts as bending in a direction only if at least this share of the beam's effective mass

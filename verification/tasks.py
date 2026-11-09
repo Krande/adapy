@@ -76,6 +76,7 @@ from ada.api.fem_benchmarks import (  # noqa: E402
     nafems_case_name,
     run_nafems_le,
     stress_yy_at,
+    stress_yy_on_plane,
 )
 from ada.api.fem_tasks import (  # noqa: E402
     PLATE_PART_NAME,
@@ -1159,10 +1160,13 @@ def nafems_run(a: ada.Assembly, *, solver: str):
         return None
     try:
         stress = stress_yy_at(result, axes["point_d"])
+        plane = (
+            stress_yy_on_plane(result, axes["point_d"][2]) if axes["divisions"] == _NAFEMS_FIGURE_DIVISIONS else None
+        )
     except Exception as exc:  # noqa: BLE001
         logger.warning(f"{name}: could not sample the stress at D: {exc}")
         return None
-    result._nafems_case = {"name": name, "solver": solver, "stress_yy": stress, **axes}
+    result._nafems_case = {"name": name, "solver": solver, "stress_yy": stress, "plane": plane, **axes}
     return result
 
 
@@ -1181,6 +1185,7 @@ def nafems_postprocess(results: list) -> list:
             divisions=case.get("divisions"),
             n_elements=case.get("n_elements"),
             stress_yy=case.get("stress_yy"),
+            plane=case.get("plane"),
         )
         wrapper.name = wrapper.safe_name
         if wrapper.divisions == _NAFEMS_FIGURE_DIVISIONS:
@@ -1222,3 +1227,25 @@ def nafems_fea_outputs(results: list) -> list:
     """FEA bundles at the finest mesh, for the benchmark page's figures."""
     at_density = [r for r in results if r.divisions == _NAFEMS_FIGURE_DIVISIONS]
     return _bundle_outcomes(at_density, "nafems_", _NAFEMS_ASSETS_DIR, _NAFEMS_CACHE_DIR)
+
+
+@task(parent=nafems_postprocess)
+def nafems_stress_plots(results: list) -> list:
+    """Sigma_yy contours, the quantity the benchmarks are judged on, at the finest mesh."""
+    out: list = []
+    for name, case in sorted(NAFEMS_CASES.items()):
+        at_density = [r for r in results if r.case == name and r.divisions == _NAFEMS_FIGURE_DIVISIONS]
+        fig = ru.create_nafems_contour(at_density, f"NAFEMS {name}: σyy, target at D {case.target_pa / 1e6:g} MPa")
+        if fig is None:
+            logger.info(f"no stress field for {name}, skipping contour")
+            continue
+        out.append(
+            PlotOutcome(
+                key=f"nafems_{name}_syy",
+                fig=fig,
+                caption=f"NAFEMS {name}: σyy at the finest mesh, by solver.",
+                width=max(520, 440 * len(at_density)),
+                height=470,
+            )
+        )
+    return out

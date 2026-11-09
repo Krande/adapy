@@ -211,12 +211,11 @@ def nafems_case_name(fem_format: str | FEA, case: str, divisions: int) -> str:
 _SYY_COMPONENTS = ("SYY", "SIYY", "S22")
 
 
-def stress_yy_at(result, point: Sequence[float], tolerance: float = 1e-6) -> float:
-    """``sigma_yy`` in pascals at the node at ``point``, from nodal stresses or from element-node stresses.
+def stress_yy_nodes(result):
+    """``(coords, sigma_yy)`` for every node, from nodal stresses or from element-node stresses, in pascals.
 
-    Element-node stresses are averaged over the elements sharing the node, which is what a solver's own nodal stress is.
-    By position and not by id, because each solver renumbers. Integration-point fields are not accepted: they are not at
-    the node, and the benchmark's target is.
+    Element-node stresses are averaged over the elements sharing a node, which is what a solver's own nodal stress is. A
+    node with no value is NaN. Integration-point fields are not accepted, because they are not at the nodes.
     """
     import numpy as np
 
@@ -225,10 +224,6 @@ def stress_yy_at(result, point: Sequence[float], tolerance: float = 1e-6) -> flo
     if hasattr(result, "to_fea_result"):
         result = result.to_fea_result()
     coords = np.asarray(result.mesh.nodes.coords, dtype=float)
-    distance = np.linalg.norm(coords - np.asarray(point, dtype=float), axis=1)
-    index = int(np.argmin(distance))
-    if distance[index] > tolerance:
-        raise ValueError(f"no node at {tuple(point)}; the closest is {distance[index]!r} away")
 
     def column(field) -> int | None:
         return next((i for i, c in enumerate(field.components) if c.upper() in _SYY_COMPONENTS), None)
@@ -237,25 +232,47 @@ def stress_yy_at(result, point: Sequence[float], tolerance: float = 1e-6) -> flo
     nodal = [f for f in fields if isinstance(f, NodalFieldData)]
     if nodal:
         # The last one: a reader that keeps the step's base state lists it first.
-        return float(np.asarray(nodal[-1].values, dtype=float)[index][column(nodal[-1]) + 1])
+        return coords, np.asarray(nodal[-1].values, dtype=float)[:, column(nodal[-1]) + 1]
 
-    node_id = result.mesh.nodes.identifiers[index]
+    index_of = {int(node): i for i, node in enumerate(result.mesh.nodes.identifiers)}
     for field in sorted((f for f in fields if isinstance(f, ElementFieldData)), key=lambda f: "SIGM" not in f.name):
         values = np.asarray(field.values, dtype=float)
-        found: list[float] = []
+        total, count = np.zeros(len(coords)), np.zeros(len(coords), dtype=int)
         offset = 0
         for group in result.mesh.elements:
             refs = np.asarray(group.node_refs)
-            if values.ndim != 3 or refs.shape[1] != values.shape[1]:
-                offset += len(refs)
-                continue
-            target = index if group.node_refs_are_indices else node_id
-            for element, position in zip(*np.nonzero(refs == target)):
-                found.append(float(values[offset + element, position, column(field)]))
+            if values.ndim == 3 and refs.shape[1] == values.shape[1]:
+                for element, row in enumerate(refs):
+                    for position, ref in enumerate(row):
+                        node = int(ref) if group.node_refs_are_indices else index_of[int(ref)]
+                        total[node] += values[offset + element, position, column(field)]
+                        count[node] += 1
             offset += len(refs)
-        if found:
-            return sum(found) / len(found)
+        if count.any():
+            with np.errstate(invalid="ignore"):
+                return coords, np.where(count > 0, total / count, np.nan)
     raise ValueError(f"no nodal or element-node sigma_yy among {[(f.name, f.components) for f in result.results]}")
+
+
+def stress_yy_at(result, point: Sequence[float], tolerance: float = 1e-6) -> float:
+    """``sigma_yy`` in pascals at the node at ``point``, found by position because each solver renumbers."""
+    import numpy as np
+
+    coords, values = stress_yy_nodes(result)
+    distance = np.linalg.norm(coords - np.asarray(point, dtype=float), axis=1)
+    index = int(np.argmin(distance))
+    if distance[index] > tolerance:
+        raise ValueError(f"no node at {tuple(point)}; the closest is {distance[index]!r} away")
+    return float(values[index])
+
+
+def stress_yy_on_plane(result, z: float, tolerance: float = 1e-6) -> dict[str, list[float]]:
+    """``{"x", "y", "syy"}`` for the nodes in the plane at height ``z``, small enough to keep with a cached result."""
+    import numpy as np
+
+    coords, values = stress_yy_nodes(result)
+    keep = (np.abs(coords[:, 2] - z) < tolerance) & np.isfinite(values)
+    return {"x": coords[keep, 0].tolist(), "y": coords[keep, 1].tolist(), "syy": values[keep].tolist()}
 
 
 #: ``beta_n L`` of a clamped-free Euler-Bernoulli beam, the first roots of ``cos x cosh x = -1``.

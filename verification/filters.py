@@ -486,6 +486,14 @@ class Nafems(Filter):
         )
 
     @attr
+    def le1_contour(self) -> FigureView:
+        return FigureView(plot_key="nafems_LE1_syy", caption="NAFEMS LE1: σyy over the plan, by solver.")
+
+    @attr
+    def le10_contour(self) -> FigureView:
+        return FigureView(plot_key="nafems_LE10_syy", caption="NAFEMS LE10: σyy on the upper face, by solver.")
+
+    @attr
     def le1(self) -> TableView:
         return TableView(table_key="nafems_LE1")
 

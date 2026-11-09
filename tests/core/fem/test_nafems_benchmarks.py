@@ -18,6 +18,8 @@ from ada.api.fem_benchmarks import (
     mesh_nafems_le,
     nafems_case_name,
     stress_yy_at,
+    stress_yy_nodes,
+    stress_yy_on_plane,
 )
 from ada.api.fem_tasks import design_cantilever
 from ada.fem.results.field_data import ElementFieldData, NodalFieldData
@@ -206,3 +208,47 @@ def test_the_design_is_the_benchmarks_full_thickness_and_outline(case, thickness
     assert plate.t == pytest.approx(thickness)
     xs = [p.x for p in plate.poly.points2d] if hasattr(plate.poly, "points2d") else []
     assert xs and max(xs) == pytest.approx(3.25) and min(xs) == pytest.approx(0.0, abs=1e-9)
+
+
+def test_nodal_stress_on_a_plane_keeps_only_that_plane():
+    field = NodalFieldData("STRESS", 1, ["SYY"], np.array([[10, 1.0], [20, 2.0], [30, 3.0]]))
+    mesh = _mesh([[10]])
+    mesh.nodes.coords = np.array([[0.0, 0, 0.3], [2.0, 0, 0.0], [3.0, 1, 0.3]])
+    assert stress_yy_on_plane(SimpleNamespace(mesh=mesh, results=[field]), 0.3) == {
+        "x": [0.0, 3.0],
+        "y": [0.0, 1.0],
+        "syy": [1.0, 3.0],
+    }
+
+
+def test_element_stress_maps_through_indices_too():
+    values = np.array([[[0.0, 1.0], [0.0, 3.0]], [[0.0, 5.0], [0.0, 9.0]]])
+    field = ElementFieldData("result__SIGM_ELNO", 0, ["SIXX", "SIYY"], values)
+    _, syy = stress_yy_nodes(SimpleNamespace(mesh=_mesh([[0, 1], [1, 2]], as_indices=True), results=[field]))
+    assert syy.tolist() == [1.0, 4.0, 9.0]
+
+
+def test_contour_has_a_panel_per_solver_and_leaves_the_hole_empty(report_utils):
+    pytest.importorskip("scipy")
+    pytest.importorskip("plotly")
+    ang = np.linspace(0, np.pi / 2, 25)
+    x = np.concatenate([s * np.cos(ang) for s in (2.0, 2.6, 3.25)])
+    y = np.concatenate([s * np.sin(ang) for s in (1.0, 1.9, 2.75)])
+    plane = {"x": x.tolist(), "y": y.tolist(), "syy": (x * 1e6).tolist()}
+    results = [SimpleNamespace(plane=plane, stress_yy=92e6, fem_format=f) for f in ("calculix", "code_aster")]
+    fig = report_utils.create_nafems_contour(results, "t")
+    contours = [t for t in fig.data if t.type == "contour"]
+    assert len(contours) == 2 and {a.text for a in fig.layout.annotations} == {"ccx", "ca"}
+    z, xs, ys = np.asarray(contours[0].z, float), contours[0].x, contours[0].y
+    assert np.isnan(z[0, 0])  # the centre of the ellipse, inside the hole
+    assert np.isfinite(z[np.argmin(np.abs(ys - 0.5)), np.argmin(np.abs(xs - 2.5))])
+    assert [t.text[0] for t in fig.data if t.type == "scatter"] == ["D: 92.00", "D: 92.00"]
+    axis = fig.layout.coloraxis
+    assert axis.cmin == -axis.cmax and contours[0].contours.start == axis.cmin  # white is zero
+
+
+def test_contour_needs_data(report_utils):
+    pytest.importorskip("scipy")
+    pytest.importorskip("plotly")
+    empty = SimpleNamespace(plane=None, stress_yy=None, fem_format="calculix")
+    assert report_utils.create_nafems_contour([empty], "t") is None
