@@ -11,7 +11,7 @@ import pytest
 from ada.config import Config, ConfigError
 from ada.fem.formats import utils
 from ada.fem.formats.abaqus.versions import get_abaqus_exe
-from ada.fem.formats.general import get_available_software
+from ada.fem.formats.general import FEATypes, get_available_software
 from ada.fem.formats.sesam.sesam_exe_locator import get_sestra_default_exe_path
 
 
@@ -143,3 +143,18 @@ def test_path_comes_after_the_old_variables(tmp_path, monkeypatch):
 def test_a_solver_nowhere_raises_from_get_exe_path():
     with pytest.raises(FileNotFoundError, match="No Path to Executable"):
         utils.get_exe_path("abaqus")
+
+
+def test_enum_names_and_aliases_resolve(tmp_path):
+    """A launcher passes the format as an enum, and the map from it can give the same enum back as the alias."""
+    abaqus = exe(tmp_path, "abaqus")
+    write_config(tmp_path, f'[fea]\nfem_exe_paths = {{ abaqus = "{abaqus.as_posix()}" }}\n')
+    assert utils.get_exe_path(FEATypes.ABAQUS, aliases=(FEATypes.ABAQUS,)) == abaqus
+
+
+def test_enum_aliases_reach_the_deprecated_variables(tmp_path, monkeypatch):
+    old = exe(tmp_path, "old")
+    monkeypatch.setenv("ADA_ABAQUS_EXE", str(old))
+    with pytest.warns(DeprecationWarning):
+        assert utils.get_exe_path(FEATypes.ABAQUS, aliases=(FEATypes.ABAQUS,)) == old
+

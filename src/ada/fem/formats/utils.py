@@ -319,8 +319,8 @@ def resolve_solver_exe(
     A path from ``Config`` is returned even if nothing is there, so that a mistyped path can be reported and not
     quietly replaced by another installation.
     """
-    first = getattr(name, "value", name)
-    names = tuple(dict.fromkeys([first, *aliases]))
+    names = tuple(dict.fromkeys(getattr(n, "value", n) for n in (name, *aliases)))  # callers pass FEATypes as well
+    first = names[0]
     table = Config().fea_fem_exe_paths
     for candidate in names:
         if table.get(candidate) is not None:
