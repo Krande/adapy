@@ -2,6 +2,15 @@
 
 
 
+## v0.139.6 (2026-11-09)
+
+### Fix
+
+* fix(cli): document the exit-code contract and correct three exit codes (#521)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`d1743fa`](https://github.com/Krande/adapy/commit/d1743fa0165595f5624284dbe2d9cfda70eaed58))
+
+
 ## v0.139.5 (2026-11-09)
 
 ### Fix
