@@ -132,6 +132,8 @@ export const DESKTOP_RESULTS_GRID: GridNode = desktopGrid(false);
  */
 export const DESKTOP_RAIL_TOOLS: readonly string[] = [
   CORE_COMMAND_IDS.openFile,
+  // Storage, docked with the tree in every mode (a mode without a group for it would float it).
+  `panel:${CORE_PANEL_IDS.storage}`,
   RAIL_SEPARATOR,
   CORE_COMMAND_IDS.fitAll,
   CORE_COMMAND_IDS.fitSelection,
