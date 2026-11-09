@@ -2,6 +2,15 @@
 
 
 
+## v0.138.6 (2026-11-09)
+
+### Fix
+
+* fix: require Python 3.11 and reject a viewer bundle without the WebGPU renderer (#511)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`c6d3b13`](https://github.com/Krande/adapy/commit/c6d3b134f323517a34dd2534b92b16c0c1b67e5f))
+
+
 ## v0.138.5 (2026-11-09)
 
 ### Fix
