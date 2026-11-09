@@ -602,7 +602,7 @@ pytest-benchmark = "*"
 pytest-asyncio = "*"
 pytest-timeout = "*"
 pytest-cov = "*"
-paradoc = ">=0.11.0"
+paradoc = ">=0.12.0"
 python-dotenv = "*"
 watchdog = "*"
 
