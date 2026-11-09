@@ -55,8 +55,3 @@ med_geometry_type = {
     "PE6": 306,  # Pentahedron/Wedge with 6 nodes
     "P15": 315,  # Pentahedron with 15 nodes
 }
-
-med_reduced_map = {
-    "QU4": "QU4S",
-    "QU8": "QU8S",
-}

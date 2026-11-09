@@ -401,6 +401,8 @@ class CcxSecTypes:
     GENERAL = "GENERAL"
     BOX = "BOX"
     PIPE = "PIPE"
+    RECT = "RECT"
+    CIRC = "CIRC"
 
 
 #: The Timoshenko shear coefficient written on every ``U1`` section: large enough that the element is
@@ -418,7 +420,7 @@ U1_SHEAR_COEFFICIENT = 1.0e8
 
 
 def beam_str(fem_sec: FemSection, report: bool = True):
-    """The ``*BEAM SECTION`` of a beam element set: ``SECTION=GENERAL`` on ``U1``, ``BOX`` or ``PIPE`` on ``B32R``.
+    """The ``*BEAM SECTION`` of a beam element set: ``SECTION=GENERAL`` on ``U1``, the outline on ``B32R``.
 
     A ``U1`` section is ``A, I11, I12, I22, kappa`` and a direction, where -- measured, ccx 2.23, an IPE300 4 m simply
     supported under 1 kN at mid-span -- the first inertia carries bending *along* the direction given: with
@@ -457,6 +459,24 @@ def beam_str(fem_sec: FemSection, report: bool = True):
                 torsion_constant=fem_sec.section.properties.Ix,
             )
             return f"{top_line}\n{head}BOX\n{data}\n {n1}"
+        outline = get_section_str(fem_sec)
+        if outline in (CcxSecTypes.RECT, CcxSecTypes.CIRC):
+            # As for BOX, the torsion is the expanded bricks'. Measured, ccx 2.23, a 4 m cantilever in eight B32R
+            # elements under 100 N m: FB100x10 5.6 % stiffer in torsion than G J, CIRC50 2.4 % softer. Bending is
+            # within 3 % of Euler-Bernoulli about both axes.
+            conversion_report.current().approximated(
+                STAGE,
+                "*BEAM SECTION",
+                fem_sec.elset.name,
+                f"a {outline} section on B32R takes its torsional stiffness from the expanded C3D20R bricks, not the "
+                "section's torsion constant; measured within 6 % of G J",
+                section=sec.name,
+                torsion_constant=sec.properties.Ix,
+            )
+        if outline == CcxSecTypes.RECT:  # the thickness along local 1 (y), then along local 2 (z)
+            return f"{top_line}\n{head}RECT\n{sec.w_top}, {sec.h}\n {n1}"
+        if outline == CcxSecTypes.CIRC:  # the diameters along local 1 and 2, CalculiX allowing an ellipse
+            return f"{top_line}\n{head}CIRC\n{2 * sec.r}, {2 * sec.r}\n {n1}"
         return f"{top_line}\n{head}PIPE\n{sec.r}, {sec.wt}\n {n1}"
 
     gp = eval_general_properties(fem_sec.section)
@@ -532,6 +552,10 @@ def get_section_str(fem_sec: FemSection):
         return CcxSecTypes.BOX
     elif sec_type == BaseTypes.TUBULAR:
         return CcxSecTypes.PIPE
+    elif sec_type == BaseTypes.FLATBAR:
+        return CcxSecTypes.RECT
+    elif sec_type == BaseTypes.CIRCULAR:
+        return CcxSecTypes.CIRC
     return CcxSecTypes.GENERAL
 
 
