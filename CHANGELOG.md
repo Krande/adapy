@@ -2,6 +2,15 @@
 
 
 
+## v0.138.7 (2026-11-09)
+
+### Fix
+
+* fix: refuse FEM formats with no writer and export missing API names (#513)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`65af708`](https://github.com/Krande/adapy/commit/65af708e2df3ddcbc8858d28475a30ff069c5524))
+
+
 ## v0.138.6 (2026-11-09)
 
 ### Fix
