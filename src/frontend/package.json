@@ -1,6 +1,6 @@
 {
   "name": "ada-py-viewer",
-  "version": "0.138.7",
+  "version": "0.139.0",
   "type": "module",
   "overrides": {
     "qs": ">=6.15.2",
@@ -30,7 +30,6 @@
     "@types/react-dom": "19.1.5",
     "@types/three": "0.176.0",
     "@vitejs/plugin-react": "4.3.4",
-    "@xyflow/react": "12.4.4",
     "archiver": "6.0.2",
     "camera-controls": "2.10.1",
     "comlink": "4.4.2",

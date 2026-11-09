@@ -46,7 +46,7 @@ export const CLASSIC_ZONES = {
   menuColumn: "classic.menu-column",
   /** The single in-viewer window (admin / convert, one at a time). */
   window: "classic.window",
-  /** Free floating windows (attribute search, node editor). */
+  /** Free floating windows (attribute search). */
   float: "classic.float",
   /** HUDs anchored to the canvas. */
   overlay: "classic.overlay",
@@ -160,6 +160,13 @@ export interface LayoutPrefs {
    * Absent for a shell: on (`customisablePanelsOn`).
    */
   customisablePanelsByShell?: Record<string, boolean>;
+  /**
+   * The user's keyboard shortcuts that differ from the defaults: shortcut id -> chord, or null for "no key".
+   * Not per shell: a person's keys follow them across UIs. An id nothing registers is ignored (`./shortcuts`).
+   */
+  keyOverrides?: Record<string, string | null>;
+  /** UI freeze (lock the arrangement) on or off, by UI shell id, where the user chose (`./uiFreeze`). Absent: the shell's default. */
+  uiFreezeByShell?: Record<string, boolean>;
   /** Documents by `layoutDocKey`. */
   docs: Record<string, LayoutDoc>;
   /** A composed shell's pinned panels, by shell id: they stay open and placed across its modes. */

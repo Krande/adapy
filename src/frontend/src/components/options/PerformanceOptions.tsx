@@ -207,6 +207,7 @@ const PerformanceOptions: React.FC = () => {
                 </div>
                 <input
                     type="range"
+                    data-option="pixel-ratio"
                     min={0.5}
                     max={2.0}
                     step={0.25}

@@ -2,6 +2,15 @@
 
 
 
+## v0.139.0 (2026-11-09)
+
+### Feature
+
+* feat(viewer): more generic UI in core, editable shortcuts, UI freeze, and remove the node editor (#512)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`8b75af1`](https://github.com/Krande/adapy/commit/8b75af1234988feb41175e8af2e431cdc46379fc))
+
+
 ## v0.138.7 (2026-11-09)
 
 ### Fix

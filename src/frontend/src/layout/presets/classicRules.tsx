@@ -8,10 +8,9 @@ import React from "react";
 import AttributeSearchIcon from "@/components/icons/AttributeSearchIcon";
 import CellBuilderIcon from "@/components/icons/CellBuilderIcon";
 import ComponentIcon from "@/components/icons/ComponentIcon";
-import GraphIcon from "@/components/icons/GraphIcon";
 import InfoIcon from "@/components/icons/InfoIcon";
 import SceneIcon from "@/components/icons/SceneIcon";
-import ServerIcon from "@/components/icons/ServerIcon";
+import StorageIcon from "@/components/icons/StorageIcon";
 import ToggleControlsIcon from "@/components/icons/AnimationControlToggle";
 import TreeViewIcon from "@/components/icons/TreeViewIcon";
 import {SEARCH_WINDOW_TITLE} from "@/state/searchWindowStore";
@@ -98,8 +97,7 @@ export const CLASSIC_TOOLBAR: Readonly<Record<PanelId, ToolbarRecipe>> = {
     ariaLabel: (open) => (open ? "Hide selection tree" : "Show selection tree"),
     content: <TreeViewIcon />,
   },
-  [CORE_PANEL_IDS.nodeEditor]: {title: () => "Toggle node editor", content: <GraphIcon />},
-  [CORE_PANEL_IDS.storage]: {title: () => "Storage", content: <ServerIcon />},
+  [CORE_PANEL_IDS.storage]: {title: () => "Storage", content: <StorageIcon />},
   [CORE_PANEL_IDS.attributeSearch]: {
     title: () => SEARCH_WINDOW_TITLE,
     ariaLabel: () => SEARCH_WINDOW_TITLE,

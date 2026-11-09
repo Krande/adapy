@@ -53,7 +53,6 @@ const panelActions = await import("@/layout/panelActions");
 const { toggle, reveal, hide } = await import("@/layout/reveal");
 const { useOptionsStore } = await import("@/state/optionsStore");
 const { useTreeViewStore } = await import("@/state/treeViewStore");
-const { useNodeEditorStore } = await import("@/state/useNodeEditorStore");
 const { useServerInfoStore } = await import("@/state/serverInfoStore");
 const { useSearchWindowStore } = await import("@/state/searchWindowStore");
 const { useObjectInfoStore } = await import("@/state/objectInfoStore");
@@ -72,7 +71,6 @@ function flags(): Record<string, unknown> {
   return {
     isOptionsVisible: useOptionsStore.getState().isOptionsVisible,
     isTreeCollapsed: useTreeViewStore.getState().isTreeCollapsed,
-    isNodeEditorVisible: useNodeEditorStore.getState().isNodeEditorVisible,
     showServerInfoBox: useServerInfoStore.getState().showServerInfoBox,
     searchWindowOpen: useSearchWindowStore.getState().open,
     show_info_box: useObjectInfoStore.getState().show_info_box,
@@ -91,7 +89,6 @@ function flags(): Record<string, unknown> {
 function resetFlags(): void {
   useOptionsStore.setState({ isOptionsVisible: false });
   useTreeViewStore.setState({ isTreeCollapsed: true });
-  useNodeEditorStore.setState({ isNodeEditorVisible: false });
   useServerInfoStore.setState({ showServerInfoBox: false });
   useSearchWindowStore.setState({ open: false });
   useObjectInfoStore.setState({ show_info_box: false });
@@ -127,15 +124,6 @@ const MENU_TOGGLES: Array<{ pressed: string; id: string; flag: string; onClick: 
     onClick: () => {
       const { isTreeCollapsed, setIsTreeCollapsed } = useTreeViewStore.getState();
       setIsTreeCollapsed(!isTreeCollapsed);
-    },
-  },
-  {
-    pressed: "isNodeEditorVisible",
-    id: CORE_PANEL_IDS.nodeEditor,
-    flag: "isNodeEditorVisible",
-    onClick: () => {
-      const { isNodeEditorVisible, setIsNodeEditorVisible } = useNodeEditorStore.getState();
-      setIsNodeEditorVisible(!isNodeEditorVisible);
     },
   },
   {
@@ -365,14 +353,6 @@ test("availability follows the conditions the classic top bar gates on", () => {
   useAnimationStore.setState({ hasAnimation: true });
   assert.ok(ids({ restMode: true }).includes(CORE_PANEL_IDS.simulation));
   useAnimationStore.setState({ hasAnimation: false });
-
-  // The node-editor-only page hides every toggle but the node editor's own gate.
-  useNodeEditorStore.setState({ use_node_editor_only: true });
-  const ne = ids({ restMode: true });
-  for (const id of [CORE_PANEL_IDS.options, CORE_PANEL_IDS.tree, CORE_PANEL_IDS.objectInfo, CORE_PANEL_IDS.scene]) {
-    assert.ok(!ne.includes(id), id);
-  }
-  useNodeEditorStore.setState({ use_node_editor_only: false });
 });
 
 test("panelActions registers the catalogue on first use", () => {

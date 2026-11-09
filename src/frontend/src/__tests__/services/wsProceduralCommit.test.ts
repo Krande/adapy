@@ -5,14 +5,14 @@ import * as flatbuffers from "flatbuffers";
 // SAVE_PROCEDURAL_MODEL (ws/REST parity plan, step 3): `WSProceduralModelCapability.commitModel`
 // is the first websocket verb that actually sends bytes and awaits a correlated reply, rather than
 // reading something the GLB already carried. These pin its three outcomes against a fake
-// transport, the same shape `requestListOfNodes.test.ts` uses for the reference verb conversion:
+// transport, the same shape an earlier verb test used for the reference conversion:
 //   - a normal SERVER_REPLY resolves with the new hash,
 //   - an ERROR reply with code 409 becomes a typed `ProceduralCommitConflictError`,
 //   - a disconnected socket (`canEdit` false) never sends anything and throws
 //     `CapabilityUnavailableError` instead of surfacing a raw transport failure.
 //
 // `WSProceduralModelCapability` deliberately never statically imports `@/utils/comms` (see its
-// module comment), so — unlike `requestListOfNodes.test.ts` — this file does not need to stub
+// module comment), so — unlike that test — this file does not need to stub
 // `window`/`sessionStorage` before importing it.
 
 import { CommandType } from "@/flatbuffers/commands/command-type";

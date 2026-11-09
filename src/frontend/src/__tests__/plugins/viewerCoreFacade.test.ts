@@ -137,6 +137,7 @@ test("the root entry point re-exports only the dependency-free leaves", () => {
     "@/layout/viewportOverlays",
     "@/layout/markingMenuModel",
     "@/layout/toolRailModel",
+  "@/layout/statusItems",
   ];
   const specs = importSpecifiers(readFileSync(join(facadeDir, "index.ts"), "utf8"));
   const offenders = specs.filter((s) => !DEP_FREE_LEAVES.includes(s));
@@ -168,11 +169,8 @@ test("the layout entry publishes every split core panel's content", () => {
     "FeaTableBody",
     "CellBuilderBody",
     "ComponentControlsBody",
-    "NodeEditorBody",
     "TreeBody",
     "SceneTreeBody",
-    "request_list_of_nodes",
-    "start_new_node_editor",
     "AttributeSearchBody",
     "ConvertBody",
     "ServerInfoBody",

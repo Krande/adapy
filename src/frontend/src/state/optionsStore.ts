@@ -14,8 +14,7 @@ export type OptionsState = {
     hideTessellationEdges: boolean;
     lockTranslation: boolean;
     enableWebsocket: boolean;
-    enableNodeEditor: boolean;
-    pointSize: number;
+      pointSize: number;
     pointSizeAbsolute: boolean;
     useGpuPointPicking: boolean;
     // Fit the camera to the whole model after each load (zoom-to-all). Default ON so a
@@ -46,8 +45,7 @@ export type OptionsState = {
     setHideTessellationEdges: (value: boolean) => void;
     setLockTranslation: (value: boolean) => void;
     setEnableWebsocket: (value: boolean) => void;
-    setEnableNodeEditor: (value: boolean) => void;
-    setPointSize: (value: number) => void;
+      setPointSize: (value: number) => void;
     setPointSizeAbsolute: (value: boolean) => void;
     setUseGpuPointPicking: (value: boolean) => void;
     setAutoFit: (value: boolean) => void;
@@ -65,7 +63,6 @@ export const useOptionsStore = create<OptionsState>((set) => ({
     hideTessellationEdges: true,
     lockTranslation: false,
     enableWebsocket: true,
-    enableNodeEditor: false,
     pointSize: 0.01,
     pointSizeAbsolute: true,
     useGpuPointPicking: true,
@@ -82,7 +79,6 @@ export const useOptionsStore = create<OptionsState>((set) => ({
     setHideTessellationEdges: (v) => set({hideTessellationEdges: v}),
     setLockTranslation: (v) => set({lockTranslation: v}),
     setEnableWebsocket: (v) => set({enableWebsocket: v}),
-    setEnableNodeEditor: (v) => set({enableNodeEditor: v}),
     setPointSize: (v) => set({pointSize: v}),
     setPointSizeAbsolute: (v) => set({pointSizeAbsolute: v}),
     setUseGpuPointPicking: (v) => set({useGpuPointPicking: v}),

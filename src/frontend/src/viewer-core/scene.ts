@@ -74,6 +74,8 @@ export type {
     ElementComponentValue,
     ElementValueScope,
 } from "@/utils/scene/fea/elementValues";
+export { loadElementValueTable, valueLabelText } from "@/utils/scene/fea/elementValueTable";
+export type { ElementValueTable } from "@/utils/scene/fea/elementValueTable";
 export { selectedResultRange, selectedResultUnit } from "@/utils/scene/fea/resultUnits";
 // Isolating part of a streamed result by named set or by element id: the pure
 // arithmetic over the manifest's groups, and the one function that turns a

@@ -9,6 +9,7 @@ import {makePluginContext} from "@/plugins/context";
 import {useViewerStores} from "@/state/AdaViewerContext";
 import {usePluginTheme} from "@/state/themeStore";
 
+import {ModeToolbarRegion} from "./ModeToolbarRegion";
 import {CoreModeToolbars} from "./ModeToolbars";
 import {modeAvailable, modeRequirementsVersion, subscribeModeAvailability} from "./modeRequirements";
 
@@ -82,12 +83,17 @@ export function ShellModeSwitcher({buttonClass = DEFAULT_BUTTON, className = "fl
 }
 
 /** The active mode's own controls: the core toolbars it names (`toolbars`), then its `toolbar`; a throw disables that plugin. */
-export function ShellModeToolbar() {
+/**
+ * The active mode's toolbars: the core toolbars its `toolbars` name, then its own `toolbar`. By default in
+ * a region core owns (`ModeToolbarRegion`): it fills the room beside it, left-aligned, and clips behind a "»"
+ * menu rather than push its neighbours. `region={false}` draws the bare toolbars, for a shell that lays them out itself.
+ */
+export function ShellModeToolbar({region = true}: {region?: boolean}) {
   const {modes, active} = useShellMode();
   const stores = useViewerStores();
   const theme = usePluginTheme();
   const mode = modes.find((m) => m.id === active);
-  if (!mode) return null;
+  if (!mode) return region ? <ModeToolbarRegion /> : null;
   let own: React.ReactNode = null;
   if (mode.toolbar && mode.pluginId) {
     try {
@@ -97,11 +103,12 @@ export function ShellModeToolbar() {
     }
   }
   const core = mode.toolbars?.length ? <CoreModeToolbars ids={mode.toolbars} /> : null;
-  if (!core && !own) return null;
-  return (
+  if (!core && !own) return region ? <ModeToolbarRegion /> : null;
+  const content = (
     <>
       {core}
       {own}
     </>
   );
+  return region ? <ModeToolbarRegion>{content}</ModeToolbarRegion> : content;
 }

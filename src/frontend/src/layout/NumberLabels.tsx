@@ -2,7 +2,9 @@
 // result, as HTML in screen space (`utils/scene/fea/numberLabels` decides which
 // are worth drawing). Mounted by the viewport overlay layer when a shell asks for
 // it (`UiShellSpec.chrome.overlays.labels`), or mounted by a shell over its own
-// view. The toggles are core commands (`core:labels-nodes`, `core:labels-elements`).
+// view. The toggles are core commands (`core:labels-nodes`, `core:labels-elements`,
+// `core:labels-values`: each element labelled with its value of the shown result or of a
+// property, `useLabelsStore.valueField`).
 //
 // A pass costs a bounded scan of the mesh, and runs only when something it
 // depends on changed (camera, view size, selection, deformation, toggles), at
@@ -16,6 +18,7 @@ import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
 import {getViewerRuntime} from "@/state/viewerRuntime";
 import {collectLabels, type ScreenLabel} from "@/utils/scene/fea/numberLabels";
 import {loadNodeLabelTable} from "@/utils/scene/fea/nodeLabelTable";
+import {loadElementValueTable, type ElementValueTable} from "@/utils/scene/fea/elementValueTable";
 
 /** The most labels on screen, and the most elements examined per pass. */
 export const LABEL_CAP = 400;
@@ -26,11 +29,33 @@ const MIN_INTERVAL_MS = 60;
 export function NumberLabels() {
     const nodes = useLabelsStore((s) => s.nodes);
     const elements = useLabelsStore((s) => s.elements);
+    const values = useLabelsStore((s) => s.values);
+    const valueField = useLabelsStore((s) => s.valueField);
+    // What the shown result is, so the value labels follow a change of field, step, layer or reduction.
+    const shown = useFeaAnimationStore((s) => `${s.fieldName}|${s.stepIndex}|${s.layer}|${s.ipReduction}|${s.reduction}`);
     const sessionActive = useFeaAnimationStore((s) => s.sessionActive);
     const manifest = useFeaAnimationStore((s) => s.manifest);
     const [labels, setLabels] = React.useState<ScreenLabel[]>([]);
     const table = React.useRef<number[] | null>(null);
     const [tableFor, setTableFor] = React.useState<unknown>(null);
+    const valueTable = React.useRef<ElementValueTable | null>(null);
+    const [valuesFor, setValuesFor] = React.useState<unknown>(null);
+
+    // The per-element values to label with, fetched once per (field, step, layer, reduction).
+    React.useEffect(() => {
+        valueTable.current = null;
+        setValuesFor(null);
+        if (!values || !sessionActive) return;
+        let live = true;
+        void loadElementValueTable(valueField).then((t) => {
+            if (!live) return;
+            valueTable.current = t;
+            setValuesFor(t ?? "none");
+        });
+        return () => {
+            live = false;
+        };
+    }, [values, valueField, sessionActive, manifest, shown]);
 
     // The solver node ids, fetched once per result.
     React.useEffect(() => {
@@ -48,7 +73,7 @@ export function NumberLabels() {
     }, [nodes, sessionActive, manifest]);
 
     React.useEffect(() => {
-        if ((!nodes && !elements) || !sessionActive) {
+        if ((!nodes && !elements && !values) || !sessionActive) {
             setLabels([]);
             return;
         }
@@ -78,6 +103,7 @@ export function NumberLabels() {
                 fea.stepIndex,
                 selected ? `${selected.size}:${[...selected].slice(0, 8).join(",")}` : "-",
                 tableFor ? "t" : "-",
+                valuesFor ? "v" : "-",
             ].join("|");
             if (next === sig) return;
             sig = next;
@@ -87,6 +113,8 @@ export function NumberLabels() {
                 collectLabels(mesh, camera, {
                     nodes,
                     elements,
+                    values,
+                    valueText: valueTable.current ? (n) => valueTable.current?.text(n) : undefined,
                     cap: LABEL_CAP,
                     scanCap: LABEL_SCAN_CAP,
                     selected,
@@ -98,7 +126,7 @@ export function NumberLabels() {
         };
         raf = requestAnimationFrame(tick);
         return () => cancelAnimationFrame(raf);
-    }, [nodes, elements, sessionActive, tableFor]);
+    }, [nodes, elements, values, sessionActive, tableFor, valuesFor]);
 
     if (!labels.length) return null;
     return (
@@ -109,7 +137,11 @@ export function NumberLabels() {
                     data-label-kind={l.kind}
                     className={
                         "absolute -translate-x-1/2 -translate-y-1/2 whitespace-nowrap rounded-sm px-0.5 font-mono text-[10px] leading-tight " +
-                        (l.kind === "node" ? "bg-sky-900/80 text-sky-100" : "bg-amber-900/80 text-amber-100")
+                        (l.kind === "node"
+                            ? "bg-sky-900/80 text-sky-100"
+                            : l.kind === "value"
+                              ? "bg-emerald-900/80 text-emerald-100"
+                              : "bg-amber-900/80 text-amber-100")
                     }
                     style={{left: l.x, top: l.y}}
                 >

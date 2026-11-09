@@ -313,6 +313,18 @@ export interface FeaEnvelope {
   scalar_range: FeaScalarRange;
 }
 
+/** The totals of a result's model, and its super-elements. */
+export interface FeaModelInfo {
+  n_nodes: number;
+  n_elements: number;
+  super_elements: {
+    index: number;
+    name: string;
+    n_nodes: number | null;
+    n_elements: number | null;
+  }[];
+}
+
 export interface FeaManifest {
   version: number;
   /** A running bake's partial manifest (mesh first): the mesh and the fields
@@ -327,6 +339,9 @@ export interface FeaManifest {
    * and re-bakes older trees; the frontend never needs to read it. */
   bake_version?: number;
   src: string;
+  /** What the model is made of: totals and the super-element breakdown (written by the result bake). A per-super-element
+   *  count is null where a deck has several and the format does not carry the element-to-super-element association. */
+  model_info?: FeaModelInfo;
   mesh: {
     url: string;
     n_points: number;

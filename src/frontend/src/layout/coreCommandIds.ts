@@ -47,6 +47,8 @@ export const CORE_COMMAND_IDS = {
   about: "core:about",
   newWindow: "core:new-window",
   resetLayout: "core:reset-layout",
+  /** Lock the panel arrangement (UI freeze): checked while frozen; offered where the shell does not opt out (`UiShellChrome.uiFreeze`). */
+  toggleUiFreeze: "core:toggle-ui-freeze",
   resetAllLayouts: "core:reset-all-layouts",
   saveWorkspace: "core:save-workspace",
   deleteWorkspace: "core:delete-workspace",
@@ -99,6 +101,36 @@ export const CORE_COMMAND_IDS = {
   builderCompileBrowser: "core:builder-compile-browser",
   builderCommit: "core:builder-commit",
   builderClose: "core:builder-close",
+  /** Start a procedural model: asks for a name, creates it in the active scope's storage and opens it (a server with procedural storage). */
+  builderNew: "core:builder-new",
+  /** Walk the scene tree from the selection: its parent level, its first child, the previous / next sibling (Shift+arrows). */
+  selectParent: "core:select-parent",
+  selectChild: "core:select-child",
+  selectPrevSibling: "core:select-prev-sibling",
+  selectNextSibling: "core:select-next-sibling",
+  /** The loaded result's view: the colour legend, the FE-model (FEM concepts) tab, the result data dock, beams as sections, warping by the displacement. */
+  colorLegend: "core:color-legend",
+  femConcepts: "core:fem-concepts",
+  dataDock: "core:data-dock",
+  beamSections: "core:beam-sections",
+  warp: "core:warp",
+  /** Label every element in view with its value of the shown property or result (or of the property `useLabelsStore.valueField` names). */
+  labelsValues: "core:labels-values",
+  /** The procedural builder's placement tools: add a cell, a loft member, an opening or a piece of equipment (the last two take the type picked last). */
+  builderAddCell: "core:builder-add-cell",
+  builderAddLoft: "core:builder-add-loft",
+  builderAddOpening: "core:builder-add-opening",
+  builderAddEquipment: "core:builder-add-equipment",
+  /** The builder's gizmos (G, R, S): translate, rotate (equipment), resize (cell). Pressing the active one puts it away. */
+  builderTranslate: "core:builder-translate",
+  builderRotate: "core:builder-rotate",
+  builderResize: "core:builder-resize",
+  /** What the builder shows: the editable topology, the compiled simulation model, the detail model; the result over the topology; beside it. */
+  builderRepTopology: "core:builder-rep-topology",
+  builderRepSimulation: "core:builder-rep-simulation",
+  builderRepDetail: "core:builder-rep-detail",
+  builderSuperimpose: "core:builder-superimpose",
+  builderSideBySide: "core:builder-side-by-side",
 } as const;
 
 export type CoreCommandId = (typeof CORE_COMMAND_IDS)[keyof typeof CORE_COMMAND_IDS];

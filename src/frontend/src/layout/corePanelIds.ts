@@ -9,7 +9,6 @@ export const CORE_PANEL_OWNER = "core";
 export const CORE_PANEL_IDS = {
   options: "core:options",
   tree: "core:tree",
-  nodeEditor: "core:node-editor",
   storage: "core:storage",
   serverInfo: "core:server-info",
   attributeSearch: "core:attribute-search",
@@ -20,6 +19,8 @@ export const CORE_PANEL_IDS = {
   feaTable: "core:fea-table",
   componentControls: "core:component-controls",
   cellbuilder: "core:cellbuilder",
+  /** The procedural model's cells, lofts, openings and equipment, as a list of their own. */
+  componentList: "core:component-list",
   equipmentAdmin: "core:equipment-admin",
   systemAdmin: "core:system-admin",
   admin: "core:admin",

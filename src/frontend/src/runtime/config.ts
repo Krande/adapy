@@ -39,7 +39,7 @@ export interface ConversionOption {
 //
 //   - /config.js (REST mode)        : COMMS_MODE, API_BASE, CONVERT_ENABLED
 //   - embedded index.html           : WEBSOCKET_ID, WEBSOCKET_PORT, B64GLTF,
-//                                     NODE_EDITOR_ONLY, DEACTIVATE_WS,
+//                                     DEACTIVATE_WS,
 //                                     UNIQUE_VERSION_ID, TARGET_INSTANCE_ID
 //
 // Read everything through `runtime.*` so we can change the source of
@@ -124,7 +124,6 @@ declare global {
         // sha (build-time, embed-script.cjs). Shown in the Options panel.
         ADAPY_VERSION?: string;
         FRONTEND_SHA?: string;
-        NODE_EDITOR_ONLY?: boolean;
         DEACTIVATE_WS?: boolean;
         B64GLTF?: string;
     }
@@ -215,7 +214,6 @@ export const runtime = {
     uniqueVersionId: (): number => Number(w().UNIQUE_VERSION_ID ?? 0),
     adapyVersion: (): string => (w().ADAPY_VERSION || "").trim(),
     frontendSha: (): string => (w().FRONTEND_SHA || "").trim(),
-    nodeEditorOnly: (): boolean => Boolean(w().NODE_EDITOR_ONLY),
 
     // True when this tab was opened as a local file (assembly.show()'s plain
     // file:// path). Every `file:` document is its own unique browser origin, so

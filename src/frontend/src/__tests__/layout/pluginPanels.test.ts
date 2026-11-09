@@ -60,7 +60,7 @@ test("every accepted slot is registered under its namespaced id, owned by the pl
 });
 
 test("a skipped plugin registers no panels", () => {
-  registerPlugin({ id: "future", coreApiRange: ">=2.0", panels: [{ id: "p", region: "top-panel", render }] });
+  registerPlugin({ id: "future", coreApiRange: ">=3.0", panels: [{ id: "p", region: "top-panel", render }] });
   registerPlugin({ id: "", panels: [{ id: "p", region: "top-panel", render }] });
   assert.deepEqual(listPanels(), []);
 });

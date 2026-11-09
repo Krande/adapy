@@ -14,7 +14,6 @@ class CustomHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
         *args,
         unique_id,
         ws_port,
-        node_editor_only=False,
         target_instance=None,
         directory=None,
         embed_trimesh_scene=None,
@@ -27,7 +26,6 @@ class CustomHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
     ):
         self.unique_id = unique_id
         self.ws_port = ws_port  # Use the actual WebSocket port
-        self.node_editor_only = node_editor_only
         self.target_instance = target_instance
         self.embed_trimesh_scene = embed_trimesh_scene
         self.embed_base64_glb = embed_base64_glb
@@ -47,7 +45,6 @@ class CustomHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
                     embed_trimesh_scene=self.embed_trimesh_scene,
                     embed_base64_glb=self.embed_base64_glb,
                     force_ws=self.force_ws,
-                    node_editor_only=self.node_editor_only,
                     target_instance=self.target_instance,
                 )
                 # Send response
@@ -67,7 +64,6 @@ def start_serving(
     ws_port=8765,
     unique_id=None,
     target_instance=None,
-    node_editor_only=False,
     non_blocking=False,
     auto_open=False,
     embed_trimesh_scene=None,
@@ -86,7 +82,6 @@ def start_serving(
         CustomHTTPRequestHandler,
         ws_port=ws_port,
         unique_id=unique_id,
-        node_editor_only=node_editor_only,
         target_instance=target_instance,
         directory=str(web_dir),
         embed_trimesh_scene=embed_trimesh_scene,

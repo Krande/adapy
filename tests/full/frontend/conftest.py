@@ -169,9 +169,7 @@ def http_server(ws_server) -> MockHttpServer:
     # Generate a unique ID or obtain it from your application logic
     unique_id: int = 88442233
 
-    server, server_thread = start_serving(
-        web_port=0, ws_port=ws_server.port, unique_id=unique_id, node_editor_only=False, non_blocking=True
-    )
+    server, server_thread = start_serving(web_port=0, ws_port=ws_server.port, unique_id=unique_id, non_blocking=True)
     port = server.server_address[1]
     try:
         yield MockHttpServer("localhost", port)

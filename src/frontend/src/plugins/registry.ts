@@ -124,7 +124,17 @@ import { isPlacedElsewhere } from "@/layout/placedElsewhere";
 //            `core:builder-*` commands;
 //          - the mirror topics `core:fea-controls`, `core:fea-table` and `core:scene-info`,
 //            `feaControlActions`, and the new `SceneActions` (models, groups, selection boxes, related).
-export const PLUGIN_API_VERSION = "1.15.0";
+// 1.16.0 — kept in step with viewer-core 1.16.0. The node editor was removed (its panel,
+//          `enableNodeEditor`, its exports on `@/viewer-core*`). Otherwise additive: core commands for the tree
+//          (`core:select-parent` / `-child` / `-prev-sibling` / `-next-sibling`), the result view
+//          (`core:color-legend`, `core:fem-concepts`, `core:data-dock`, `core:beam-sections`,
+//          `core:warp`, `core:labels-values`) and the builder (`core:builder-new`, placement, gizmos,
+//          views); `UiShellChrome.statusItems` (core's status bar, composed); the `core:component-list`
+//          panel; property value labels; the Options "compute" section; the split button, status bar,
+//          page header, glyphs, `PositionedMenu` and `ModalFrame` on `@/viewer-core/layout`, and
+//          `@/viewer-core/theme`; `CommandSpec.keywords`, `core:option.*` commands for every Options
+//          setting, and user-editable keyboard shortcuts (a `keys` is a default the user may override).
+export const PLUGIN_API_VERSION = "1.16.0";
 
 // The named mount regions core exposes in Phase 1. Deliberately small
 // (`fem-sidebar` covers the FEM simulation panel, `top-panel` the menu bar,

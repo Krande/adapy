@@ -11,12 +11,15 @@ import type { PanelId } from "./panel";
 import { listPanels } from "./registry";
 import { activeShellMode, listShellModes, setShellMode } from "./shellModes";
 import { modeAvailable } from "./modeRequirements";
-import { coreShortcutKeys, registerShortcut, unregisterShortcut, type ShortcutKeys } from "./shortcuts";
+import { isPanelOpen, toggle as togglePanel } from "./reveal";
+import { coreShortcutKeys, registerShortcut, registerShortcutSource, shortcutOverrides, unregisterShortcut, type ShortcutKeys } from "./shortcuts";
 
 export interface CommandSpec {
   /** Unique, e.g. `"my-shell:file.open"`. A later registration under the same id replaces it. */
   id: string;
   label: string;
+  /** Extra words the palette finds the command by ("spacemouse", "3dconnexion"): matched beside the label, the group and the id. */
+  keywords?: readonly string[];
   /** Where the palette lists it, and the menu a shell may put it in. Default "Commands". */
   group?: string;
   icon?: React.FC;
@@ -178,3 +181,42 @@ export function resetCommands(): void {
   _commands.clear();
   changed();
 }
+
+/**
+ * Ranks command `c` for a palette query: lower is better, null when it does not match.
+ * The query is split on spaces and every word must match: the label (as a prefix, a substring or
+ * its letters in order, `matchCommand`), or else as a substring of the group, the keywords or the
+ * id. Case-insensitive; an empty query matches everything.
+ */
+export function commandRank(query: string, c: {id: string; label: string; group?: string; keywords?: readonly string[]}): number | null {
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  if (!words.length) return 0;
+  const hay = [c.group ?? "", ...(c.keywords ?? []), c.id].join(" ").toLowerCase();
+  let total = 0;
+  for (const w of words) {
+    const inLabel = matchCommand(w, c.label);
+    const inHay = hay.includes(w) ? 2 : null;
+    const best = inLabel === null ? inHay : inHay === null ? inLabel : Math.min(inLabel, inHay);
+    if (best === null) return null;
+    total += best;
+  }
+  return total / words.length;
+}
+
+// A key the user bound to a command that had none (`cmd:<command id>` in the overrides) is a shortcut
+// from then on: this is where it comes from. It runs the command as the palette does.
+registerShortcutSource(() => {
+  const out: import("./shortcuts").RegisteredShortcut[] = [];
+  for (const [sid, chord] of Object.entries(shortcutOverrides())) {
+    if (chord === null || !sid.startsWith("cmd:")) continue;
+    const id = sid.slice(4);
+    const own = _commands.get(id);
+    if (own) {
+      out.push({ id: sid, keys: chord, label: own.label, group: own.group, owner: own.owner, run: () => runCommand(id), when: own.when });
+      continue;
+    }
+    const core = coreCommands(togglePanel, isPanelOpen).find((c) => c.id === id);
+    if (core) out.push({ id: sid, keys: chord, label: core.label, group: core.group, owner: core.owner, run: () => core.run(), when: core.when });
+  }
+  return out;
+});
