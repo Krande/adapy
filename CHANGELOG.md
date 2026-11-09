@@ -2,6 +2,15 @@
 
 
 
+## v0.139.5 (2026-11-09)
+
+### Fix
+
+* fix(calculix): write three-node circular and flat-bar beams (#520)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`2c5c1b9`](https://github.com/Krande/adapy/commit/2c5c1b9bae0b3689e5ee5ad2e725a34b3800bc80))
+
+
 ## v0.139.4 (2026-11-09)
 
 ### Chore
