@@ -65,7 +65,7 @@ export function register(): void {
   registerPlugin({
     id: "demo",
     version: "0.1.0",
-    coreApiRange: ">=1.0 <2.0",
+    coreApiRange: ">=1.0 <3.0",
     schemaVersion: 1,
     // Whole-plugin gate: dormant unless explicitly enabled.
     activationPredicate: () => isDemoEnabled(),

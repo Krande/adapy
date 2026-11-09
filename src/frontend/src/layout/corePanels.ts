@@ -39,7 +39,6 @@ import { SEARCH_WINDOW_TITLE, useSearchWindowStore } from "@/state/searchWindowS
 import { useServerInfoStore } from "@/state/serverInfoStore";
 import { useTableNavStore } from "@/state/tableNavStore";
 import { useTreeViewStore } from "@/state/treeViewStore";
-import { useNodeEditorStore } from "@/state/useNodeEditorStore";
 import { useViewerPanelStore, type ViewerPanel } from "@/state/viewerPanelStore";
 import { useWebsocketStatusStore } from "@/state/websocketStatusStore";
 import {
@@ -50,7 +49,6 @@ import {
 import AttributeSearchIcon from "@/components/icons/AttributeSearchIcon";
 import CellBuilderIcon from "@/components/icons/CellBuilderIcon";
 import ComponentIcon from "@/components/icons/ComponentIcon";
-import GraphIcon from "@/components/icons/GraphIcon";
 import InfoIcon from "@/components/icons/InfoIcon";
 import SceneIcon from "@/components/icons/SceneIcon";
 import ServerIcon from "@/components/icons/ServerIcon";
@@ -93,7 +91,6 @@ const classic = (p: PanelPlacement) => ({ [CLASSIC_PRESET_ID]: p });
 const column = (order: number) => classic({ zone: CLASSIC_ZONES.menuColumn, order });
 
 // The conditions the classic UI gates its buttons and panels on, as plain reads.
-const nodeEditorOnly = () => useNodeEditorStore.getState().use_node_editor_only;
 const proceduralActive = () => {
   const s = useCellBuilderStore.getState();
   return s.active !== null || hasEmbeddedDoc(s);
@@ -135,13 +132,11 @@ export function corePanelSpecs(): PanelSpec[] {
       shortcut: "Shift+Q",
       body: classicBody(CORE_PANEL_IDS.options),
       content: classicContent(CORE_PANEL_IDS.options),
-      watch: watchStores(useNodeEditorStore),
       binding: bindStoreFlag(
         useOptionsStore,
         (s) => s.isOptionsVisible,
         (open, s) => s.setIsOptionsVisible(open),
       ),
-      available: () => !nodeEditorOnly(),
       placement: column(10),
       toolbar: { order: 10 },
     },
@@ -153,37 +148,17 @@ export function corePanelSpecs(): PanelSpec[] {
       shortcut: "Shift+T",
       body: classicBody(CORE_PANEL_IDS.tree),
       content: classicContent(CORE_PANEL_IDS.tree),
-      watch: watchStores(useNodeEditorStore),
       binding: bindStoreFlag(
         useTreeViewStore,
         (s) => !s.isTreeCollapsed,
         (open, s) => s.setIsTreeCollapsed(!open),
       ),
-      available: () => !nodeEditorOnly(),
       // Kept mounted once opened, as the classic drawer is: reopening must not rebuild the tree.
       // In a pop-out window it shows the main window's tree (`core:scene-tree`) and acts there.
       capabilities: { stackable: false, keepAlive: true, mirrored: true },
       constraints: { requiresViewerProvider: true },
       placement: classic({ zone: CLASSIC_ZONES.tree, order: 10 }),
       toolbar: { order: 20 },
-    },
-    {
-      id: CORE_PANEL_IDS.nodeEditor,
-      title: "Node editor",
-      icon: GraphIcon,
-      hint: "Toggle node editor",
-      body: classicBody(CORE_PANEL_IDS.nodeEditor),
-      content: classicContent(CORE_PANEL_IDS.nodeEditor),
-      watch: watchStores(useNodeEditorStore, useOptionsStore),
-      binding: bindStoreFlag(
-        useNodeEditorStore,
-        (s) => s.isNodeEditorVisible,
-        (open, s) => s.setIsNodeEditorVisible(open),
-      ),
-      available: () => !nodeEditorOnly() && useOptionsStore.getState().enableNodeEditor,
-      capabilities: { keepAlive: true, stackable: false },
-      placement: classic({ zone: CLASSIC_ZONES.float, order: 20 }),
-      toolbar: { order: 30 },
     },
     {
       id: CORE_PANEL_IDS.storage,
@@ -225,13 +200,12 @@ export function corePanelSpecs(): PanelSpec[] {
       hint: SEARCH_WINDOW_TITLE,
       body: classicBody(CORE_PANEL_IDS.attributeSearch),
       content: classicContent(CORE_PANEL_IDS.attributeSearch),
-      watch: watchStores(useNodeEditorStore),
       binding: bindStoreFlag(
         useSearchWindowStore,
         (s) => s.open,
         (open, s) => (open ? s.show() : s.hide()),
       ),
-      available: (env) => env.restMode !== false && !nodeEditorOnly(),
+      available: (env) => env.restMode !== false,
       constraints: { requiresRest: true },
       placement: classic({ zone: CLASSIC_ZONES.float, order: 10 }),
       toolbar: { order: 50 },
@@ -243,7 +217,6 @@ export function corePanelSpecs(): PanelSpec[] {
       hint: "Toggle object info",
       body: classicBody(CORE_PANEL_IDS.objectInfo),
       content: classicContent(CORE_PANEL_IDS.objectInfo),
-      watch: watchStores(useNodeEditorStore),
       binding: bindStoreFlag(
         useObjectInfoStore,
         (s) => s.show_info_box,
@@ -252,7 +225,6 @@ export function corePanelSpecs(): PanelSpec[] {
           if (s.show_info_box !== open) s.toggle();
         },
       ),
-      available: () => !nodeEditorOnly(),
       // In a pop-out window it shows the main window's selection (`windowMirrorCore`).
       capabilities: { mirrored: true },
       placement: column(30),
@@ -265,13 +237,11 @@ export function corePanelSpecs(): PanelSpec[] {
       hint: "Toggle scene info",
       body: classicBody(CORE_PANEL_IDS.scene),
       content: classicContent(CORE_PANEL_IDS.scene),
-      watch: watchStores(useNodeEditorStore),
       binding: bindStoreFlag(
         useSceneInfoStore,
         (s) => s.show_scene_info_box,
         (open, s) => s.setShowSceneInfoBox(open),
       ),
-      available: () => !nodeEditorOnly(),
       // In a pop-out window: the Model tab -- loaded models, take-off, groups, selection boxes
       // (`core:scene-info`); the tabs that act on the scene stay in the main window.
       capabilities: { mirrored: true },
@@ -337,13 +307,13 @@ export function corePanelSpecs(): PanelSpec[] {
       hint: "Toggle connection-component panel",
       body: classicBody(CORE_PANEL_IDS.componentControls),
       content: classicContent(CORE_PANEL_IDS.componentControls),
-      watch: watchStores(useNodeEditorStore, useComponentSpecsStore),
+      watch: watchStores(useComponentSpecsStore),
       binding: bindStoreFlag(
         useComponentControlsStore,
         (s) => s.isVisible,
         (open, s) => s.setIsVisible(open),
       ),
-      available: () => !nodeEditorOnly() && useComponentSpecsStore.getState().hasSpecs,
+      available: () => useComponentSpecsStore.getState().hasSpecs,
       placement: column(70),
       toolbar: { order: 90 },
     },
@@ -355,7 +325,7 @@ export function corePanelSpecs(): PanelSpec[] {
       body: classicBody(CORE_PANEL_IDS.cellbuilder),
       content: classicContent(CORE_PANEL_IDS.cellbuilder),
       watch: (cb) => {
-        const stores = watchStores(useNodeEditorStore, useCellBuilderStore)(cb);
+        const stores = watchStores(useCellBuilderStore)(cb);
         const modes = subscribeShellModes(cb);
         return () => {
           stores();
@@ -368,7 +338,7 @@ export function corePanelSpecs(): PanelSpec[] {
         (open, s) => s.setPanelVisible(open),
       ),
       // Also while the shell's Build mode is up with no model: the panel is where one is started.
-      available: () => !nodeEditorOnly() && (proceduralActive() || activeShellMode() === "build"),
+      available: () => (proceduralActive() || activeShellMode() === "build"),
       constraints: { requiresCanvas: true },
       placement: column(80),
       toolbar: { order: 100 },
@@ -382,13 +352,13 @@ export function corePanelSpecs(): PanelSpec[] {
       hint: "Toggle the procedural component list",
       body: classicBody(CORE_PANEL_IDS.componentList),
       content: classicContent(CORE_PANEL_IDS.componentList),
-      watch: watchStores(useNodeEditorStore, useCellBuilderStore),
+      watch: watchStores(useCellBuilderStore),
       binding: bindStoreFlag(
         useCellBuilderStore,
         (s) => s.componentListVisible,
         (open, s) => s.setComponentListVisible(open),
       ),
-      available: () => !nodeEditorOnly() && proceduralActive(),
+      available: () => proceduralActive(),
       constraints: { requiresCanvas: true },
       placement: column(85),
     },

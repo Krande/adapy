@@ -92,7 +92,7 @@ export function register(): void {
   registerPlugin({
     id: "ui-alt",
     version: "0.3.0",
-    coreApiRange: ">=1.13 <2.0",
+    coreApiRange: ">=1.13 <3.0",
     schemaVersion: 1,
     uiShells: [
       {

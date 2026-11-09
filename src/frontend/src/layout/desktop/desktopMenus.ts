@@ -78,7 +78,6 @@ export function desktopMenus({ modes, workspaces, shells, themes }: DesktopMenuI
             panel(P.componentControls),
             panel(P.cellbuilder),
             panel(P.componentList),
-            panel(P.nodeEditor),
           ],
         },
         SEP,

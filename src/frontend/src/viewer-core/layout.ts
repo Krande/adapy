@@ -50,10 +50,6 @@ export {
 } from "@/components/viewer/CellBuilderPanel";
 export type { CellBuilderBodyProps, CellBuilderPanelState, CellBuilderTab } from "@/components/viewer/CellBuilderPanel";
 export { ComponentControlsBody } from "@/components/component_view/ComponentControls";
-export { default as NodeEditorBody } from "@/components/node_editor/NodeEditorBody";
-// The node editor's toolbar actions, for a host that draws that toolbar itself.
-export { request_list_of_nodes } from "@/utils/node_editor/handlers/request_list_of_nodes";
-export { start_new_node_editor } from "@/utils/node_editor/handlers/start_new_node_editor";
 export { default as TreeBody } from "@/components/asset_browser/AssetBrowser";
 export type { TreeBodyProps } from "@/components/asset_browser/AssetBrowser";
 export { default as SceneTreeBody } from "@/components/tree_view/TreeViewComponent";

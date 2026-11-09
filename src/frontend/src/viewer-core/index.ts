@@ -157,8 +157,7 @@
 //          `excludeDockedTabs`: a dock named in `dock` or as `region`) and
 //          `AnimationControls`. `ConvertBodyProps` (`inViewer`), and the progress
 //          toast `ConversionProgress` with `isClaimed` (loads a host reports
-//          elsewhere). The node editor's toolbar actions `request_list_of_nodes`
-//          and `start_new_node_editor`.
+//          elsewhere). (The node editor's actions were removed in 2.0.0.)
 //          Core's own keys in the shortcut registry: `CORE_SHORTCUTS` /
 //          `CORE_SHORTCUT_GROUPS` (every global viewer key as a `core:` entry; the
 //          keys a widget keeps for itself are marked `local`), listed by
@@ -395,7 +394,7 @@
 //          toggles): open, close and ask through `reveal` / `hide` / `toggle` /
 //          `isPanelOpen` with the panel's id, which the layout controls.
 //          The in-viewer admin / convert window, the attribute search's and the
-//          node editor's windows are `TransformedHost`s, so the fixed overlays
+//          other float windows are `TransformedHost`s, so the fixed overlays
 //          inside them (`OverlayPortal`) open over the page.
 //   1.14.0 Core commands for what the Desktop UI's menus lacked, on the root's
 //          `CORE_COMMAND_IDS`: `openFile` (File -> Open…: GLB / glTF from disk
@@ -609,7 +608,7 @@
 //          without the `/app` barrel's `window` reads.
 //          - The Desktop UI's Build mode is always offered (`UiShellMode.requires`
 //          stays an option for other shells); its panel starts a model when none is open.
-export const VIEWER_CORE_API_VERSION = "1.16.0";
+export const VIEWER_CORE_API_VERSION = "2.0.0";
 
 // ---------------------------------------------------------------------------
 // Plugin declaration. `registerPlugin` is how a package announces itself —

@@ -51,7 +51,7 @@ export interface PanelCapabilities {
   popout: boolean;
   /** Its host may resize it. Default true. */
   resizable: boolean;
-  /** Stay mounted while hidden (expensive bodies: the node editor, a data table). Default false. */
+  /** Stay mounted while hidden (expensive bodies: a data table). Default false. */
   keepAlive: boolean;
   /** It may share a zone by vertical stacking (false for trees and tables). Default true. */
   stackable: boolean;

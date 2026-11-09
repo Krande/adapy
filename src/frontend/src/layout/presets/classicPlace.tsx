@@ -1,8 +1,8 @@
 // Where a panel shows in the classic preset, and the moves between places.
 //
 // Every core panel has a HOME, the place the classic UI has always given it: the
-// panel column, the left tree track, or a window of its own (the node editor,
-// the attribute search, the admin / convert window). With "Customisable panels"
+// panel column, the left tree track, or a window of its own (the attribute search,
+// the admin / convert window). With "Customisable panels"
 // on, a panel with frameless content may also show in a window of the layout
 // (`floats`; for a panel at home in a window, its own window is that) or in a
 // group of the split grid around the viewport (`grid`, `../splitTree`). The

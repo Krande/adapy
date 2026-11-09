@@ -9,7 +9,6 @@ export const CORE_PANEL_OWNER = "core";
 export const CORE_PANEL_IDS = {
   options: "core:options",
   tree: "core:tree",
-  nodeEditor: "core:node-editor",
   storage: "core:storage",
   serverInfo: "core:server-info",
   attributeSearch: "core:attribute-search",

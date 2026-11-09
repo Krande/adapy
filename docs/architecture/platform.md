@@ -150,7 +150,7 @@ flowchart LR
     H --> C1["update_scene · update_server"]
     H --> C2["list / view / delete_file_object"]
     H --> C3["run_procedure · list_procedures<br/>load / save_procedural_model"]
-    H --> C4["mesh_info_callback · shutdown_server<br/>start_local_app · start_separate_node_editor"]
+    H --> C4["mesh_info_callback · shutdown_server<br/>start_local_app"]
     WEB["web/serve.py<br/>serves the SPA, injects WS port"] --> FE
 
     click SRV href "https://github.com/Krande/adapy/blob/main/src/ada/comms/wsock/server.py" "WebSocketAsyncServer"

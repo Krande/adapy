@@ -46,7 +46,7 @@ export const CLASSIC_ZONES = {
   menuColumn: "classic.menu-column",
   /** The single in-viewer window (admin / convert, one at a time). */
   window: "classic.window",
-  /** Free floating windows (attribute search, node editor). */
+  /** Free floating windows (attribute search). */
   float: "classic.float",
   /** HUDs anchored to the canvas. */
   overlay: "classic.overlay",

@@ -70,7 +70,6 @@ import { useMeStore as g_useMeStore } from "./meStore"
 import { useMeshPanelStore as g_useMeshPanelStore } from "./meshPanelStore"
 import { useModelSessionStore as g_useModelSessionStore } from "./modelSession"
 import { useModelState as g_useModelState } from "./modelState"
-import { useNodeEditorStore as g_useNodeEditorStore } from "./useNodeEditorStore"
 import { useObjectInfoStore as g_useObjectInfoStore } from "./objectInfoStore"
 import { useOverlayStore as g_useOverlayStore } from "./overlayStore"
 import { useOptionsStore as g_useOptionsStore } from "./optionsStore"
@@ -155,7 +154,6 @@ export interface AdaViewerStores {
     useMeshPanelStore: typeof g_useMeshPanelStore
     useModelSessionStore: typeof g_useModelSessionStore
     useModelState: typeof g_useModelState
-    useNodeEditorStore: typeof g_useNodeEditorStore
     useObjectInfoStore: typeof g_useObjectInfoStore
     useOverlayStore: typeof g_useOverlayStore
     useOptionsStore: typeof g_useOptionsStore
@@ -222,7 +220,6 @@ export const SINGLETON_VIEWER_STORES: AdaViewerStores = {
     useMeshPanelStore: g_useMeshPanelStore,
     useModelSessionStore: g_useModelSessionStore,
     useModelState: g_useModelState,
-    useNodeEditorStore: g_useNodeEditorStore,
     useObjectInfoStore: g_useObjectInfoStore,
     useOverlayStore: g_useOverlayStore,
     useOptionsStore: g_useOptionsStore,

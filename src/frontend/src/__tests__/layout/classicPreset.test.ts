@@ -67,7 +67,6 @@ test("the recipes' tooltips and accessible names are the classic top bar's", () 
       title: ["Show selection tree (Shift+T)", "Hide selection tree (Shift+T)"],
       aria: ["Show selection tree", "Hide selection tree"],
     },
-    [CORE_PANEL_IDS.nodeEditor]: { title: ["Toggle node editor", "Toggle node editor"] },
     [CORE_PANEL_IDS.storage]: { title: ["Storage", "Storage"] },
     [CORE_PANEL_IDS.attributeSearch]: { title: [SEARCH_WINDOW_TITLE, SEARCH_WINDOW_TITLE], aria: [SEARCH_WINDOW_TITLE, SEARCH_WINDOW_TITLE] },
     [CORE_PANEL_IDS.objectInfo]: { title: ["Toggle object info", "Toggle object info"] },
@@ -181,7 +180,6 @@ test("split panels offer their frameless content", () => {
     CORE_PANEL_IDS.simulation,
     CORE_PANEL_IDS.cellbuilder,
     CORE_PANEL_IDS.componentControls,
-    CORE_PANEL_IDS.nodeEditor,
     CORE_PANEL_IDS.tree,
   ]) {
     assert.equal(typeof getPanel(id)!.content, "function", `${id}.content`);
