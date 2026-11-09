@@ -163,7 +163,7 @@ const ChordCapture: React.FC<{ row: KeyRow; onAssign: (keys: string) => void }> 
         onAssign(chord);
       }}
     >
-      {capturing ? <span className="text-xs text-blue-200">Press keysâ€¦</span> : row.keys ? <KeyCombo keys={keyTokens(row.keys)} /> : <span className="text-xs text-gray-500">none</span>}
+      {capturing ? <span className="text-xs text-blue-200">Press keys…</span> : row.keys ? <KeyCombo keys={keyTokens(row.keys)} /> : <span className="text-xs text-gray-500">none</span>}
     </button>
   );
 };
@@ -211,7 +211,7 @@ const ShortcutsDialog: React.FC<{ onClose: () => void }> = ({ onClose }) => {
               Reset all
             </button>
             <button type="button" className="shrink-0 text-gray-300 hover:text-white text-xl leading-none px-2" onClick={onClose} aria-label="Close" title="Close (Esc)">
-              Ã—
+              ×
             </button>
           </div>
           <div className="border-b border-gray-800 px-4 py-2">

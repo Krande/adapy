@@ -39,6 +39,7 @@
 // is displayed" contract intact.
 
 import { useColorStore } from "@/state/colorLegendStore";
+import { scheduleShownRangeRepaint } from "./streaming/shownRangeRepaint";
 import { useFeaAnimationStore } from "@/state/feaAnimationStore";
 import {
   RESULTS_OWNER,
@@ -160,6 +161,8 @@ export function notifyActiveModeSceneColor(mode: SceneColorMode | null): void {
   if (active === RESULTS_OWNER) return;
   const popped = store.pop(snapshot());
   if (popped?.below.view) restore(popped.below.view);
+  // What was isolated, hidden or revealed under the mode was not repainted (`shownRangeRepaint`): do it now.
+  scheduleShownRangeRepaint();
 }
 
 /**
