@@ -16,8 +16,8 @@ import {desktopMenus} from "./desktopMenus";
 import {DESKTOP_BAR} from "./desktopShell";
 
 const MODE_BUTTON = (active: boolean) =>
-  "inline-flex h-6 items-center rounded-sm px-2 text-xs transition-colors " +
-  (active ? "bg-[var(--ada-tab-active-bg,#374151)] text-[var(--ada-tab-active-text,#ffffff)]" : "text-[var(--ada-tab-text,#d1d5db)] hover:bg-white/10");
+  "inline-flex h-6 items-center rounded-sm px-2 text-xs font-medium transition-colors " +
+  (active ? "bg-[var(--ada-accent,#3b82f6)] text-white" : "text-[var(--ada-tab-text,#d1d5db)] hover:bg-white/10");
 
 const PLUGIN_BUTTON = (active: boolean) =>
   "inline-flex h-7 w-7 items-center justify-center rounded-sm transition-colors " +
@@ -41,7 +41,7 @@ const DesktopHeader: React.FC = () => {
       </div>
       {/* One row: the menus, the mode switcher at a fixed place, the mode's toolbars in the room left (left-aligned,
           clipped behind "»"), then the plugins' buttons and the palette pinned right. */}
-      <ShellModeSwitcher buttonClass={MODE_BUTTON} className="mx-6 flex shrink-0 items-center gap-1" />
+      <ShellModeSwitcher buttonClass={MODE_BUTTON} className="mx-6 flex shrink-0 items-center gap-0.5 rounded-md border border-[var(--ada-window-border,#374151)] bg-white/5 p-0.5" />
       <ShellModeToolbar />
       <div className="flex shrink-0 items-center gap-1">
         <PluginTopBarButtons navBtnClass={PLUGIN_BUTTON} />
