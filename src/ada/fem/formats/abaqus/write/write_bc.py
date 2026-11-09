@@ -55,7 +55,9 @@ def boundary_conditions_str(assembly: "Assembly"):
     """
     held: set[tuple[str, object]] = set()
     blocks = []
-    for bc in assembly.fem.get_all_bcs():
+    from ada.fem.frames import in_global_axes_or_refuse
+
+    for bc in in_global_axes_or_refuse(assembly.fem.get_all_bcs(), "abaqus"):
         skip = {d for d in bc.dofs if (bc.fem_set.name, d) in held} if is_settlement(bc) else set()
         if bc.type in _DISPLACEMENT_TYPES:
             held.update((bc.fem_set.name, d) for d in bc.dofs)

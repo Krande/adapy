@@ -12,7 +12,7 @@ file does, so Sesam -> Abaqus reports nothing omitted and changes nothing.
 The zoo is the Abaqus one, read from a written deck first, so the Sesam writer sees what a
 real Abaqus conversion hands it.
 
-On top of the canonical form's rules (R1-R20), the view has three of its own:
+On top of the canonical form's rules (R1-R20), the view has rules of its own (S1-S4 below; S4 in ``sesam_view``):
 
 S1  Numbers are compared to 9 significant digits. A Sesam file's data fields are FORTRAN
     ``E16.8`` (manual 2.1 and 9, "four 16character data fields (4E16.8)"): 9 significant
@@ -98,6 +98,16 @@ def sesam_view(c: dict) -> dict:
     model["elements"] = {k: {f: v for f, v in e.items() if f != "type"} for k, e in model["elements"].items()}
     model["constraints"] = {k: _terms_by_node_id(con) for k, con in model["constraints"].items()}
     bcs = {k.split(".", 1)[-1]: _restraint_as_dofs(v) for k, v in c["bcs"].items()}
+    # S4: the first step's own BCs hold in every step the deck writes, so Sesam writes them with the model's
+    # (BNBCD; a settlement's value in the step's load case) and they read back as the model's.
+    owners = sorted(c["parts"], key=lambda k: k != "<assembly>")  # the assembly's steps come first
+    first = next((st for k in owners for st in c["parts"][k].get("steps", {}).values()), None)
+    if first is not None and first.get("type") == "StepImplicitStatic":
+        for k, v in first.get("bcs", {}).items():
+            bcs.setdefault(k.split(".", 1)[-1], _restraint_as_dofs(v))
+        # and a settlement's value is where each format keeps it -- Sesam a BNDISPL of its load case, Abaqus a step's
+        # *Boundary over a model-data hold -- compared by test_settlements_per_load_case; here, which dofs are held
+        bcs = {k: {**v, "dofs": {d: None for d in v["dofs"]}} for k, v in bcs.items()}
     materials = {k: {f: m[f] for f in MATERIAL_FIELDS} for k, m in c["materials"].items()}
     return _e16_8({"model": model, "materials": materials, "bcs": bcs})
 

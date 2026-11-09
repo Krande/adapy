@@ -508,10 +508,13 @@ class SifReader:
         first_cosine_i = cards.BNTRCOS.get_indices_from_names(["c11"])
         matrices: dict[int, np.ndarray] = {}
         for row in transform_rows:
-            # BNTRCOS stores c11,c21,c31,c12,... (columns of C). The
-            # interface equation is global = C @ local.
-            matrix = np.asarray(row[first_cosine_i : first_cosine_i + 9], dtype=float).reshape(3, 3, order="F")
-            matrices[int(row[transform_id_i])] = matrix
+            # BNTRCOS stores c11,c21,c31,c12,... (columns of C), and C takes global to local: "r0 = C r where r0
+            # refers to the local co-ordinate system and r to the global" (SIF 7.2.25) -- its rows are the local
+            # axes, as GeniE writes them (genie_supports_frames_T1.FEM: a support with x' = (0.6, 0, 0.8) has that
+            # as the first row). So local to global is C^T. This read C itself as local to global, which turned
+            # every result at a transformed node by the inverse rotation.
+            c = np.asarray(row[first_cosine_i : first_cosine_i + 9], dtype=float).reshape(3, 3, order="F")
+            matrices[int(row[transform_id_i])] = c.T
 
         node_rows = self._other.get(cards.BNDOF.name, []) or []
         node_i, translation_i, rotation_i = cards.BNDOF.get_indices_from_names(["nodeno", "transd", "transr"])
@@ -992,8 +995,17 @@ class Sif2Mesh:
         except Exception as e:  # noqa: BLE001 - the modal mass is an extra; the result stands without it
             logger.info("Unable to read modal load factors from %s. Error: %s", sif_file, e)
             return
-        if factors:
-            result.eigen_mode_data = add_modal_mass(result.get_eig_summary(), factors)
+        if not factors:
+            return
+        summary = result.get_eig_summary()
+        if not summary.modes:
+            # The streamed SIN read converts a header with no fields yet (sin_field_stream._open_part), whose summary
+            # is empty: built on it, the modal mass hid every frequency (get_eig_summary returned the empty one).
+            # The LIS the fields are stamped from is the same frequencies.
+            summary = read_lis_eigen_data(sif_file)
+            if summary is None or not summary.modes:
+                return
+        result.eigen_mode_data = add_modal_mass(summary, factors)
 
     def get_sif_mesh(self) -> Mesh:
         from ada.fem.formats.sesam.node_order import SESAM_ORDER

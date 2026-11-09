@@ -208,7 +208,9 @@ def write_to_fem(
         report_unconverted_concept_loads(assembly)
         write_assembly = assembly
         fem_parts = [p for p in assembly.get_all_parts_in_assembly(include_self=True) if len(p.fem.nodes) > 0]
-        if len(fem_parts) > 1 and fem_format not in _WRITES_ASSEMBLIES:
+        from ada.fem.concat import carries_elements
+
+        if (len(fem_parts) > 1 or carries_elements(assembly)) and fem_format not in _WRITES_ASSEMBLIES:
             from ada.fem.concat import single_part_assembly
 
             # The merge keeps the parts' steps, on the merged part's FEM (single_part_assembly).

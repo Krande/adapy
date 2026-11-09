@@ -27,8 +27,10 @@ class LoadTypes:
     MASS = "mass"
     PRESSURE = "pressure"
     LINE = "line"
+    TEMPERATURE = "temperature"
+    TRACTION = "traction"
 
-    all = [GRAVITY, ACC, ACC_ROT, FORCE, FORCE_SET, MASS, PRESSURE, LINE]
+    all = [GRAVITY, ACC, ACC_ROT, FORCE, FORCE_SET, MASS, PRESSURE, LINE, TEMPERATURE, TRACTION]
 
 
 class Load(FemBase):
@@ -124,18 +126,16 @@ class Load(FemBase):
         dofs = [0.0 if x is None else float(x) for x in self.dof]
         if self.csys is None:
             return [x * self.magnitude for x in dofs]
-        else:
-            csys = self.csys
-            if csys.coords is None:
-                logger.error("Calculating global forces without COORDS is not yet supported")
-                return None
-
-            from ada.core.vector_transforms import rotation_matrix_csys_rotate
-
-            destination_csys = [(1, 0, 0), (0, 1, 0)]
-            rmat = rotation_matrix_csys_rotate(csys.coords, destination_csys)
-            res = np.concatenate([np.dot(rmat, np.array(dofs[:3])), np.dot(rmat, np.array(dofs[3:]))])
-            return [x * self.magnitude for x in res]
+        # The rows of ``axes`` are the local axes in global components, so ``f_global = axes.T @ f_local``. This
+        # used to compose two quaternions instead, which turned a force along a local x that is global y into one
+        # along *minus* global y (and local x = global z into global y): every rotated point load reached
+        # Code_Aster and CalculiX the wrong way.
+        axes = self.csys.axes()
+        if axes is None:
+            logger.error("Calculating global forces needs a rectangular system given by coordinates")
+            return None
+        res = np.concatenate([axes.T @ np.array(dofs[:3]), axes.T @ np.array(dofs[3:])])
+        return [float(x) * self.magnitude for x in res]
 
     @property
     def amplitude(self):
@@ -232,11 +232,29 @@ class LoadPressure(Load):
         surface: Surface,
         distribution=P_DIST_TYPES.UNIFORM,
         amplitude: Amplitude | None = None,
+        gradient: Iterable[float] | None = None,
     ):
-        """``amplitude`` scales ``magnitude`` over the step's time (None: the full magnitude throughout)."""
+        """``amplitude`` scales ``magnitude`` over the step's time (None: the full magnitude throughout).
+
+        ``gradient`` (global axes, pressure per unit length) makes the pressure vary linearly over the model:
+        ``p(x) = magnitude + gradient . x`` at a global point ``x``, so ``magnitude`` is then the pressure at the
+        global origin. ``None`` (or all zero): uniform."""
         super(LoadPressure, self).__init__(name, LoadTypes.PRESSURE, magnitude, amplitude=amplitude)
         self._surface = surface
         self._distribution = distribution
+        g = None if gradient is None else tuple(float(c) for c in gradient)
+        self._gradient = None if g is None or g == (0.0, 0.0, 0.0) else g
+
+    @property
+    def gradient(self) -> tuple[float, float, float] | None:
+        """The pressure's gradient in global axes, or None for a uniform pressure."""
+        return self._gradient
+
+    def pressure_at(self, point) -> float:
+        """The pressure at the global ``point``."""
+        if self._gradient is None:
+            return float(self.magnitude)
+        return float(self.magnitude) + float(sum(g * float(c) for g, c in zip(self._gradient, point)))
 
     @property
     def surface(self) -> Surface:
@@ -247,10 +265,133 @@ class LoadPressure(Load):
         return self._distribution
 
 
+class LoadSurfaceTraction(Load):
+    """A surface traction: a force per unit area ``traction`` (global components, any direction -- in the surface's
+    plane, across it or both) on the faces of ``surface`` (a ``Surface``, or an element set of shells).
+
+    Sesam: BEUSLO with LOTYP 2, three components per node (GeniE's own form of a ``component2d_constant`` surface
+    load). Code_Aster: ``FORCE_COQUE`` FX/FY/FZ on shells. Abaqus: ``*Dsload TRVEC``.
+    """
+
+    def __init__(self, name: str, traction, surface, amplitude: Amplitude | None = None):
+        t = tuple(float(c) for c in traction)
+        if len(t) != 3:
+            raise ValueError(f"LoadSurfaceTraction {name!r}: a traction has three components")
+        super().__init__(name, LoadTypes.TRACTION, float(np.linalg.norm(t)), amplitude=amplitude)
+        self.traction = t
+        self._surface = surface
+
+    @property
+    def surface(self):
+        return self._surface
+
+
 class LoadGravity(Load):
     def __init__(self, name, acceleration=-9.81, amplitude: Amplitude | None = None):
         """``amplitude`` scales ``acceleration`` over the step's time (None: the full acceleration throughout)."""
         super(LoadGravity, self).__init__(name, Load.TYPES.GRAVITY, acceleration, amplitude=amplitude)
+
+
+class LoadRotation(Load):
+    """A rotating frame's loads on the whole model (or on ``fem_set``): an angular velocity ``angular_velocity``
+    (rad/s) and an angular acceleration ``angular_acceleration`` (rad/s^2) about the axis ``axis`` through ``origin``.
+
+    The body forces, per unit volume of density ``rho`` at ``x`` (``r`` its distance vector from the axis):
+
+    * centrifugal, ``rho w^2 r``, outward -- Abaqus ``*Dload CENTRIF`` (``w^2``), Code_Aster ``ROTATION``
+      (``VITESSE = w``), Sesam ``BRIGVE`` (the angular velocity, from which Sestra takes the centrifugal force);
+    * from the angular acceleration ``a``, ``rho a e x (x - origin)`` -- the field's own force, as a gravity field's
+      is ``rho g``: Abaqus ``*Dload ROTA`` (``a``), Sesam ``BRIGAC``. Code_Aster has no keyword for it.
+
+    The sense of rotation is ``axis``'s, by the right-hand rule.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        origin,
+        axis,
+        angular_velocity: float = 0.0,
+        angular_acceleration: float = 0.0,
+        fem_set: FemSet | None = None,
+        amplitude: Amplitude | None = None,
+    ):
+        a = np.asarray(axis, dtype=float)
+        norm = float(np.linalg.norm(a))
+        if norm == 0.0:
+            raise ValueError(f"LoadRotation {name!r}: the axis has no direction")
+        super().__init__(
+            name,
+            Load.TYPES.ACC_ROT,
+            magnitude=float(angular_velocity),
+            fem_set=fem_set,
+            amplitude=amplitude,
+            accr_origin=tuple(float(x) for x in origin),
+            accr_rot_axis=tuple(float(x) for x in a / norm),
+        )
+        self.angular_acceleration = float(angular_acceleration)
+
+    @property
+    def origin(self) -> tuple[float, float, float]:
+        return self.acc_rot_origin
+
+    @property
+    def axis(self) -> tuple[float, float, float]:
+        """The unit axis."""
+        return self.acc_rot_axis
+
+    @property
+    def angular_velocity(self) -> float:
+        return float(self.magnitude)
+
+    def body_force(self, x, rho: float) -> np.ndarray:
+        """The force per unit volume at ``x`` (see the class docstring)."""
+        e, o = np.asarray(self.axis), np.asarray(self.origin)
+        d = np.asarray(x, dtype=float) - o
+        r = d - (d @ e) * e
+        return rho * (self.angular_velocity**2 * r + self.angular_acceleration * np.cross(e, d))
+
+
+class LoadTemperature(Load):
+    """A uniform temperature ``temperature`` on the nodes of ``fem_set`` (a node set, or an element set's nodes), or
+    on the whole model: a thermal strain ``alpha (temperature - reference)`` in the elements there, ``alpha`` the
+    material's thermal expansion coefficient (``Metal.alpha``).
+
+    Code_Aster: a temperature field in the material field (``AFFE_VARC TEMP``, ``VALE_REF = reference``) -- the
+    model's, not a step's. Sestra: ``BEISTE`` per element, the temperature difference to the reference at its nodes
+    (SIF 7.2.3); Sestra takes it on beams and shells, not on solids.
+    """
+
+    def __init__(self, name: str, temperature: float, fem_set: FemSet | None = None, reference: float = 0.0):
+        super().__init__(name, Load.TYPES.TEMPERATURE, magnitude=float(temperature), fem_set=fem_set)
+        self.reference = float(reference)
+
+    @property
+    def temperature(self) -> float:
+        return float(self.magnitude)
+
+    @property
+    def delta(self) -> float:
+        """The temperature difference to the reference, which the thermal strain is ``alpha`` times."""
+        return self.temperature - self.reference
+
+    def elements(self, fem) -> list:
+        """The elements the temperature acts in: an element set's members, the elements all of whose nodes are in a
+        node set, or every element of ``fem``."""
+        fs = self.fem_set
+        from ada.fem.shapes.definitions import MassTypes, SpringTypes
+
+        els = [
+            el
+            for el in fem.elements
+            if not isinstance(el.type, (MassTypes, SpringTypes)) and getattr(el, "fem_sec", None) is not None
+        ]
+        if fs is None:
+            return els
+        if fs.type == "elset":
+            return list(fs.members)
+        ids = {int(n.id) for n in fs.members}
+        return [el for el in els if all(int(n.id) in ids for n in el.nodes)]
 
 
 class LoadPoint(Load):

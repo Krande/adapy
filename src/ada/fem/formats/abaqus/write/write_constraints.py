@@ -129,8 +129,10 @@ def _mpc(constraint, on_assembly_level: bool):
 
 
 def _shell2solid(constraint, on_assembly_level: bool):
-    mname = constraint.m_set.name
-    sname = constraint.s_set.name
+    # by instance at assembly level, as every other constraint names its sides: a bare part set name there names
+    # nothing ("'edge'", the reader's KeyError, measured)
+    mname = get_instance_name(constraint.m_set, on_assembly_level)
+    sname = get_instance_name(constraint.s_set, on_assembly_level)
     params = [("constraint name", constraint.name)]
     if constraint.influence_distance is not None:
         params.append(("influence distance", format_number(constraint.influence_distance)))

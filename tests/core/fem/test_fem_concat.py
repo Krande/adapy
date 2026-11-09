@@ -204,21 +204,25 @@ def test_a_step_load_names_the_merged_set_and_ids():
     assert load.parent is step and step.parent is wa.fem
     # the user's step is untouched
     (src_load,) = a.fem.steps[0].loads
-    assert src_load.fem_set is a.get_part("PartB").fem.nsets["tip"]
+    assert src_load.fem_set is _named(a, "PartB").fem.nsets["tip"]
     assert src_load.parent is a.fem.steps[0]
 
 
 def _bnload_nodes(fem_file: pathlib.Path) -> list[int]:
-    """The node number (5th field) of every ``BNLOAD`` record of a Sesam deck."""
-    records, current = [], None
+    """The node (5th field) of every ``BNLOAD`` record of a Sesam deck, as its external number: BNLOAD names a node by
+    its internal number, which GNODE (``NODEX NODENO``) maps back."""
+    records, current, external = [], None, {}
     for line in fem_file.read_text().splitlines():
+        if line.startswith("GNODE"):
+            nodex, nodeno = (int(float(v)) for v in line[8:].split()[:2])
+            external[nodeno] = nodex
         if line[:8].strip():
             current = [] if line.startswith("BNLOAD") else None
             if current is not None:
                 records.append(current)
         if current is not None:
             current.extend(float(v) for v in line[8:].split())
-    return [int(r[4]) for r in records]
+    return [external[int(r[4])] for r in records]
 
 
 def test_a_sesam_deck_puts_the_part_b_load_on_part_b_s_node(tmp_path):
@@ -365,6 +369,11 @@ def _contact(a: ada.Assembly) -> Interaction:
     )
 
 
+def _named(a, name):
+    (p,) = [p for p in a.get_all_subparts(include_self=True) if p.name == name]
+    return p
+
+
 def _mass_on_a_part_with_no_nodes() -> ada.Assembly:
     """PartB inside a part "Mid" that has no nodes of its own and holds a point mass on PartB's tip."""
     a = ada.Assembly("A")
@@ -395,11 +404,30 @@ def test_what_the_merge_does_not_carry_is_refused_by_name(what):
         single_part_assembly(a)
 
 
-def test_an_element_on_a_part_with_no_nodes_is_refused_by_name():
+def test_a_point_mass_on_a_part_with_no_nodes_is_carried_onto_its_parts_nodes():
+    """A point mass held on a part with no nodes of its own, on PartB's tip: carried into the merged FEM, its nodes
+    re-keyed by PartB's shift (it used to be refused; an assembly-level mass on a part's node is the common case)."""
     a = _mass_on_a_part_with_no_nodes()
-    with pytest.raises(
-        DoesNotSupportMultiPart, match=r"'Mid' holds 1 element\(s\) and 0 mass\(es\) on other parts' nodes"
-    ):
+    tip = sorted(int(n.id) for n in _named(a, "PartB").fem.nsets["tip"].members)
+    merged = _merged_part(single_part_assembly(a))
+    (m1,) = [m for m in merged.fem.elements.masses if m.name == "m1"]
+    assert sorted(int(n.id) for n in m1.members) == [i + NODE_SHIFT for i in tip]
+    assert float(m1.mass) == 10.0
+    # the user's mass is untouched
+    (orig,) = list(_named(a, "Mid").fem.elements.masses)
+    assert sorted(int(n.id) for n in orig.members) == tip
+
+
+def test_another_element_on_a_part_with_no_nodes_is_refused_by_name():
+    """A beam (not a point mass or a spring) on a part with no nodes of its own names other parts' nodes, which the
+    merge does not re-key: refused by name."""
+    from ada.fem import Elem
+    from ada.fem.shapes.definitions import LineShapes
+
+    a = _mass_on_a_part_with_no_nodes()
+    tip = list(_named(a, "PartB").fem.nsets["tip"].members)
+    _named(a, "Mid").fem.elements.add(Elem(900, tip[:2], LineShapes.LINE))
+    with pytest.raises(DoesNotSupportMultiPart, match=r"'Mid' holds 1 element\(s\) other than point masses"):
         single_part_assembly(a)
 
 

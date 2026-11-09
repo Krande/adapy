@@ -250,12 +250,15 @@ def get_bcs(bulk_str, fem: FEM) -> List[Bc]:
         for nd in (grab_bc(m, fem, retained, constrained) for m in cards.re_bnbcd.finditer(bulk_str))
         if nd is not None
     ]
-    bcs = group_bcs(fem, prescribed_magnitudes(records, bulk_str))
+    # At a transformed node (BNDOF) the codes and values are in its frame: the Bc gets that frame as its csys.
+    from .node_frames import node_frames
+
+    bcs = group_bcs(fem, prescribed_magnitudes(records, bulk_str), node_frames(bulk_str))
     add_supernode_set(fem, retained)
     return bcs
 
 
-def group_bcs(fem: FEM, fixed: list[tuple[Node, tuple, tuple, str | None]]) -> List[Bc]:
+def group_bcs(fem: FEM, fixed: list[tuple[Node, tuple, tuple, str | None]], frames: dict | None = None) -> List[Bc]:
     """``Bc`` objects for ``(node, constrained dofs, magnitudes, load case)``, one per named node
     set where the deck has one.
 
@@ -270,9 +273,16 @@ def group_bcs(fem: FEM, fixed: list[tuple[Node, tuple, tuple, str | None]]) -> L
     from (``read_loads.SESAM_LOAD_CASE``): one ``Bc`` carries one magnitude per DOF, so two
     nodes settling by different amounts cannot share one however alike their DOFs are.
     """
+    # ``frames``: ``{node id: (TRANSNO, C)}`` of the transformed nodes (BNDOF); their codes are in that frame, so the
+    # frame is part of the pattern and the Bc takes it as its csys.
+    from .node_frames import csys_of
+
+    frames = frames or {}
+    csys_cache: dict = {}
     by_pattern: dict[tuple, list[Node]] = {}
     for node, dofs, magnitudes, load_case in fixed:
-        by_pattern.setdefault((dofs, magnitudes, load_case), []).append(node)
+        transno = frames[node.id][0] if node.id in frames else 0
+        by_pattern.setdefault((dofs, magnitudes, load_case, transno), []).append(node)
     # A node prescribed in several load cases carries one pattern per case.
     patterns_of: dict[int, set] = {}
     for key, nodes in by_pattern.items():
@@ -284,7 +294,8 @@ def group_bcs(fem: FEM, fixed: list[tuple[Node, tuple, tuple, str | None]]) -> L
     # Sesam has no name for a boundary condition, so it takes its set's name.
     taken = {b.name for b in fem.bcs}
     for pattern, nodes in by_pattern.items():
-        dofs, magnitudes, load_case = pattern
+        dofs, magnitudes, load_case, transno = pattern
+        csys = csys_of(csys_cache, fem, transno, frames[nodes[0].id][1]) if transno else None
         ids = {n.id for n in nodes}
         candidates = [fs for fs in nsets if all(pattern in patterns_of.get(mid, ()) for mid in fs.member_ids)]
         exact = [fs for fs in candidates if set(fs.member_ids) == ids]
@@ -300,7 +311,7 @@ def group_bcs(fem: FEM, fixed: list[tuple[Node, tuple, tuple, str | None]]) -> L
         for fs in chosen:
             name = fs.name if fs.name not in taken else f"{fs.name}_bc{len(taken)}"
             taken.add(name)
-            bc = _bc(name, fs, dofs, magnitudes, load_case, fem)
+            bc = _bc(name, fs, dofs, magnitudes, load_case, fem, csys)
             for m in fs.members:
                 m.bc = m.bc if getattr(m, "bc", None) is not None and m.bc in bcs else bc
             bcs.append(bc)
@@ -312,19 +323,19 @@ def group_bcs(fem: FEM, fixed: list[tuple[Node, tuple, tuple, str | None]]) -> L
             fem_set = existing if existing is not None else fem.sets.add(FemSet(f"bc{node.id}_set", [node], "nset"))
             name = f"bc{node.id}" if f"bc{node.id}" not in taken else f"bc{node.id}_{load_case}"
             taken.add(name)
-            bc = _bc(name, fem_set, dofs, magnitudes, load_case, fem)
+            bc = _bc(name, fem_set, dofs, magnitudes, load_case, fem, csys)
             node.bc = node.bc if getattr(node, "bc", None) is not None and node.bc in bcs else bc
             bcs.append(bc)
     return bcs
 
 
-def _bc(name: str, fem_set: FemSet, dofs: tuple, magnitudes: tuple, load_case: str | None, fem: FEM) -> Bc:
+def _bc(name: str, fem_set: FemSet, dofs: tuple, magnitudes: tuple, load_case: str | None, fem: FEM, csys=None) -> Bc:
     """One ``Bc``, with the load case a prescribed displacement came from in its metadata.
 
     ``magnitudes`` is all ``None`` for an ordinary support, which is what ``Bc`` fills in when
     given none at all, so nothing changes for a deck with no BNDISPL record.
     """
-    bc = Bc(name, fem_set, list(dofs), magnitudes=list(magnitudes), parent=fem)
+    bc = Bc(name, fem_set, list(dofs), magnitudes=list(magnitudes), parent=fem, csys=csys)
     if load_case is not None:
         bc.metadata[SESAM_LOAD_CASE] = load_case
     return bc

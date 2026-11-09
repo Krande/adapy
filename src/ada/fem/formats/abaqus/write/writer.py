@@ -121,6 +121,11 @@ def to_fem(
         initial_conditions = model_initial_conditions_str(assembly)
         if initial_conditions:
             d.write("\n" + initial_conditions + "\n")
+        from .write_loads import temperature_initial_conditions_str
+
+        temperatures = temperature_initial_conditions_str(assembly, abaqus_steps(assembly))
+        if temperatures:
+            d.write("\n" + temperatures + "\n")
 
     # Materials data
     with open(core_dir / "materials.inp", "w") as d:

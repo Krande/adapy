@@ -378,7 +378,29 @@ def to_fea_result_obj(ccx_results: CcxResultModel, frd_file) -> FEAResult:
         software_version=software_version,
         eigen_mode_data=eigen_mode_data,
         analysis_kind=frd_analysis_kind(ccx_results.analysis_types),
+        buckling_factors=read_buckling_factors(frd_file.with_suffix(".dat")),
     )
+
+
+def read_buckling_factors(dat_file: pathlib.Path) -> list[float] | None:
+    """The critical load factors of a ``*BUCKLE`` step, in mode order, from the .dat beside the .frd, or None when it
+    has none. ccx 2.23 prints them under ``B U C K L I N G   F A C T O R   O U T P U T`` as ``mode  factor`` rows
+    (``1   0.8639923E+04``); the factor multiplies the step's load, as Code_Aster's CHAR_CRIT and Sestra's do."""
+    if not dat_file.is_file():
+        return None
+    lines = dat_file.read_text(errors="replace").splitlines()
+    out = None
+    for i, line in enumerate(lines):
+        if "B U C K L I N G   F A C T O R" not in line:
+            continue
+        out = []  # the last block is the step's (ccx prints one per *BUCKLE step)
+        for row in lines[i + 1 :]:
+            fields = row.split()
+            if len(fields) == 2 and fields[0].isdigit():
+                out.append(float(fields[1]))
+            elif out and row.strip():
+                break
+    return out
 
 
 #: A ``*BEAM SECTION`` with a geometric profile (not ``SECTION=GENERAL``): the only kind a deck's

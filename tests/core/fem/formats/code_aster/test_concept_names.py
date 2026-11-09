@@ -38,6 +38,14 @@ _NAME_CONSTANTS = {"PRESCRIBED_AT_ZERO", "SUPPORTS"}
 _RESULT = "result2"
 
 
+def _elastic(a):
+    """The cantilever's S420 carries a DNV hardening curve, which makes a general static step nonlinear (plastic
+    shells, as Abaqus solves them); these tests are about names, on the linear deck: elastic."""
+    for mat in a.get_all_materials():
+        mat.model.plasticity_model = None
+    return a
+
+
 def _identifier(node) -> str | None:
     if isinstance(node, ast.Constant) and isinstance(node.value, str) and re.fullmatch(r"[A-Za-z_]\w*", node.value):
         return node.value
@@ -179,7 +187,7 @@ def write(part, input_mesh, output_mesh: str = "default_bound", *, elset="kwonly
 def test_every_name_the_writer_binds_itself_is_reserved():
     bound = _bound_by_the_writer()
     # the scan sees what it is meant to see
-    assert {"mesh", "model", "material", "element", "result", "supports", "stiff", "Traction", "sh_sets"} <= set(bound)
+    assert {"mesh", "model", "material", "element", "result", "supports", "stiff", "sh_sets", "timeInst"} <= set(bound)
     # ... and the names a step makes up as it is written
     assert {
         "result1",
@@ -232,7 +240,7 @@ def test_a_material_is_one_concept_per_name():
 
 
 def _cantilever_comm(tmp_path, load_name="grav", bc_name=None, material_name=None) -> str:
-    a = design_cantilever()
+    a = _elastic(design_cantilever())
     a = mesh_cantilever(a, geom_repr="shell", elem_order=1, use_hex_quad=True, reduced_integration=False, mesh_size=0.2)
     p = a.get_part("MyPart")
     if bc_name is not None:
@@ -284,7 +292,7 @@ def test_a_load_name_that_is_no_identifier_gives_a_command_file_python_reads(tmp
 def test_writing_a_deck_leaves_the_part_s_bcs_as_they_were(tmp_path):
     """The writer joined the assembly's Bcs to the part's with ``+=`` on the part's own list: every
     write appended them to the user's model once more."""
-    a = design_cantilever()
+    a = _elastic(design_cantilever())
     a = mesh_cantilever(a, geom_repr="shell", elem_order=1, use_hex_quad=True, reduced_integration=False, mesh_size=0.2)
     p = a.get_part("MyPart")
     tip = [n for n in p.fem.nodes][:1]
@@ -303,7 +311,7 @@ def test_a_part_bc_and_an_assembly_bc_of_one_name_are_two_supports(tmp_path):
     """Two Bcs named "Fixed" (one on the part, one on the assembly) were one concept: the second
     definition replaced the first and the support it stood for was gone from the solve. Each is now a
     row of the one ``supports`` charge."""
-    a = design_cantilever()
+    a = _elastic(design_cantilever())
     a = mesh_cantilever(a, geom_repr="shell", elem_order=1, use_hex_quad=True, reduced_integration=False, mesh_size=0.2)
     p = a.get_part("MyPart")
     (part_bc,) = p.fem.bcs

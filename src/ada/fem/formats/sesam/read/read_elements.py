@@ -307,7 +307,17 @@ def get_springs(bulk_str, fem: FEM, spring_elem: dict) -> list[Spring]:
             return None
         return build(matno, stiff + 0.0, two_node=True)
 
-    springs = [find_mgspring(m) for m in cards.re_mgsprng.finditer(bulk_str)]
+    from .node_frames import node_frames, stiffness_to_global
+
+    frames = node_frames(bulk_str)
+
+    def in_global_axes(sp):
+        # at a transformed node (BNDOF) MGSPRNG is in the node's frame, as GeniE writes it
+        if sp is not None and str(sp.type).upper() == "SPRING1" and sp.nodes[0].id in frames:
+            sp._stiff = stiffness_to_global(frames[sp.nodes[0].id][1], np.asarray(sp.stiff, dtype=float))
+        return sp
+
+    springs = [in_global_axes(find_mgspring(m)) for m in cards.re_mgsprng.finditer(bulk_str)]
     springs += [find_mshglsp(m) for m in cards.re_mshglsp.finditer(bulk_str)]
     return [sp for sp in springs if sp is not None]
 

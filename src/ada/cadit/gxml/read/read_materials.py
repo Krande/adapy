@@ -11,9 +11,23 @@ if TYPE_CHECKING:
     import xml.etree.ElementTree as ET
 
 
+STAGE = "genie xml reader"
+
+
+def _report():
+    from ada.fem.formats import conversion_report
+
+    return conversion_report.current()
+
+
 def get_materials(xml_root, parent) -> Materials:
-    all_mats = xml_root.findall(".//material")
-    materials = [interpret_material(mat_el.attrib["name"], mat_el[0], parent) for mat_el in all_mats]
+    """Every material of a kind this reader holds; one of any other kind is left out by name (it used to stop the
+    whole read with ``ValueError: Missing property ...``)."""
+    materials = []
+    for mat_el in xml_root.findall(".//material"):
+        mat = interpret_material(mat_el.attrib["name"], mat_el[0], parent) if len(mat_el) else None
+        if mat is not None:
+            materials.append(mat)
     return Materials(materials, parent)
 
 
@@ -23,7 +37,10 @@ def interpret_material(name, mat_prop, parent: Part):
     )
     mat_interpreter = mat_prop_map.get(mat_prop.tag, None)
     if mat_interpreter is None:
-        raise ValueError(f"Missing property {mat_prop.tag}")
+        _report().omitted(
+            STAGE, mat_prop.tag, name, "a material kind this reader has no model for; the elements using it lose it"
+        )
+        return None
 
     return mat_interpreter(name, mat_prop, parent)
 
@@ -33,6 +50,7 @@ def isotropic_linear_material(name, mat_prop: ET.Element, parent: Part) -> Mater
     rho = mat_prop.attrib.get("density")
     if rho is None or rho == "":
         logger.warning(f"Missing density for material {name}. Defaulting to steel density")
+        _report().approximated(STAGE, "isotropic_linear_material", name, "no density given; read as steel's 7850 kg/m3")
         rho = 7850  # Default to steel density
     rho = float(rho)
 
@@ -40,6 +58,7 @@ def isotropic_linear_material(name, mat_prop: ET.Element, parent: Part) -> Mater
     damping = mat_prop.attrib.get("damping")
     if damping is None or damping == "":
         logger.warning(f"Missing damping for material {name}. Defaulting to 3%")
+        _report().approximated(STAGE, "isotropic_linear_material", name, "no damping given; read as 3 %")
         damping = 0.03  # Default to 3% damping
 
     damping = float(damping)

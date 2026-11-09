@@ -21,8 +21,9 @@ class _StepTypes:
     STEADY_STATE = "steady_state"
     DYNAMIC = "dynamic"
     EXPLICIT = "explicit"
+    BUCKLING = "buckling"
 
-    all = [STATIC, EIGEN, STEADY_STATE, DYNAMIC, COMPLEX_EIG, EXPLICIT]
+    all = [STATIC, EIGEN, STEADY_STATE, DYNAMIC, COMPLEX_EIG, EXPLICIT, BUCKLING]
 
 
 class _DynStepType:
@@ -343,6 +344,27 @@ class StepEigen(Step):
     def num_eigen_modes(self):
         """Number of requested Eigen modes"""
         return self._num_eigen_modes
+
+
+class StepBuckling(Step):
+    """A linear (Euler) buckling analysis: the step's loads are the reference load, and the result is the
+    ``num_modes`` smallest critical load factors -- the factors the reference load is multiplied by to buckle the
+    structure -- and their buckling modes.
+
+    Code_Aster: a linear static solve of the reference load, its geometric stiffness (``RIGI_GEOM``) and
+    ``CALC_MODES(TYPE_RESU='MODE_FLAMB')`` (U2.08.04). Abaqus: a ``*Buckle`` perturbation step. Sestra: the deck's
+    load case and ``LBCK = 1`` (Sestra UM 2.1.7).
+    """
+
+    def __init__(self, name, num_modes: int = 1, **kwargs):
+        super().__init__(name, Step.TYPES.BUCKLING, **kwargs)
+        if int(num_modes) < 1:
+            raise ValueError(f"StepBuckling {name!r}: at least one mode")
+        self._num_modes = int(num_modes)
+
+    @property
+    def num_modes(self) -> int:
+        return self._num_modes
 
 
 class StepEigenComplex(StepEigen):

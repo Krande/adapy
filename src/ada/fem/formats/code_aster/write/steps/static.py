@@ -35,7 +35,22 @@ def step_static_str(step: StepImplicitStatic, part: Part, result: str = "result"
             STAGE, "Step", step.name, "a step of load cases is solved linearly, case by case; nlgeom is not written"
         )
         return step_static_lin_str(step, part, result)
+    from .static_nonlin import plastic_groups
+
     if step.nl_geom is True:
         return step_static_nonlin_str(step, part, result, applied)
-    else:
-        return step_static_lin_str(step, part, result, applied)
+    if len(step.load_cases) == 0 and any(getattr(ld, "amplitude", None) is not None for ld in [*applied, *step.loads]):
+        # a load's amplitude over the step is STAT_NON_LINE's FONC_MULT (elastic and small displacements: the linear
+        # answer at every instant, the last one the step's end)
+        conversion_report.current().note(
+            STAGE, "Step", step.name, "a static step with load amplitudes is solved over its instants (STAT_NON_LINE)"
+        )
+        return step_static_nonlin_str(step, part, result, applied)
+    if len(step.load_cases) == 0 and plastic_groups(part):
+        # a general step of a plastic material is nonlinear whatever its nlgeom, as in Abaqus
+        return step_static_nonlin_str(step, part, result, applied)
+    if plastic_groups(part):
+        conversion_report.current().approximated(
+            STAGE, "Step", step.name, "a step of load cases is solved linearly, case by case; plasticity is not used"
+        )
+    return step_static_lin_str(step, part, result, applied)

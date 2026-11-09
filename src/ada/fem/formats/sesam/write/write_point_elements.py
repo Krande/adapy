@@ -19,6 +19,7 @@ import numpy as np
 
 from ada.fem.shapes.definitions import MassTypes
 
+from .element_numbers import internal
 from .write_utils import write_ff
 
 if TYPE_CHECKING:
@@ -104,7 +105,7 @@ def first_free_matno(fem: FEM) -> int:
 
 
 def gelref_str(el, matno: int) -> str:
-    return write_ff("GELREF1", [(el.id, matno, 0, 0), (0, 0, 0, 0), (0, 0, 0, 0)])
+    return write_ff("GELREF1", [(internal(el.id), matno, 0, 0), (0, 0, 0, 0), (0, 0, 0, 0)])
 
 
 def point_elements_str(fem: FEM, ndofs: NodeDofs | None = None) -> str:
@@ -117,7 +118,7 @@ def point_elements_str(fem: FEM, ndofs: NodeDofs | None = None) -> str:
     out = ""
     for el in point_elements(fem, ndofs):
         if el.name:
-            out += write_ff("TDELEM", [(4, el.id, 100 + len(el.name), 0), (el.name,)])
+            out += write_ff("TDELEM", [(4, internal(el.id), 100 + len(el.name), 0), (el.name,)])
         out += _matrix_card("MGMASS", numbers[el.id], mass_matrix(el), ndofs.ndof(node_ids(el)[0]), el)
     return out
 

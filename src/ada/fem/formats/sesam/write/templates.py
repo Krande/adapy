@@ -45,8 +45,8 @@ COMM
 COMM  RTRA
 RETR    3.
 COMM
-COMM  ENR                                                              SHIFT
-EIGA   {modes}.                                                         0.
+COMM  ENR                                                                SHIFT
+{eiga}
 COMM
 COMM  SELT
 IDTY    1.
@@ -82,6 +82,47 @@ RSEL    1.   0.   0.   0.   0.   0.   1.   0.
 COMM
 COMM  RTRA
 RETR    3.
+COMM
+COMM  SELT
+IDTY   {supnr}.
+COMM
+COMM  IMAS IDAM ISST
+DYMA    1.   0.   0.
+Z"""
+
+#: Linear buckling (Sestra UM 10.17.2, 2.1.7 and CMAS LBCK): a static analysis of the deck's last load case, then the
+#: eigenproblem K v = lambda Kg v, its smallest eigenvalue the stability factor. "An EIGA command must be present and a
+#: nonzero shift must be given. The shift should be positive and smaller than the smallest eigenvalue."
+sestra_buckle_inp_str = """
+COMM  CHCK ANTP MSUM MOLO STIF RTOP LBCK      PILE CSING     SINGM
+CMAS    0.   1.   1.   0.   0.   0.   1.        0.
+COMM
+COMM            ORDR                          CACH MFRWORK
+SOLM              0.                            0.        0.
+COMM
+COMM                 WCOR THCK
+ELOP                   1.   0.
+COMM
+COMM  ITYP
+ITOP   {supnr}.
+COMM
+COMM  PREFIX
+INAM  {name}
+COMM
+COMM  PREFIX FORMAT
+LNAM  {name} UNFORMATTED
+COMM
+COMM  PREFIX FORMAT
+RNAM  {name} NORSAM
+COMM
+COMM  SEL1 SEL2 SEL3 SEL4 SEL5 SEL6 SEL7 SEL8
+RSEL    1.   0.   0.   0.   0.   0.   1.   0.
+COMM
+COMM  RTRA
+RETR    3.
+COMM
+COMM  ENR                                                                SHIFT
+{eiga}
 COMM
 COMM  SELT
 IDTY   {supnr}.

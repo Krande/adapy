@@ -5,14 +5,61 @@
 # pyproject.toml or the docs Dockerfile — the CI workflow builds this
 # instead of Dockerfile.docs. It FROMs the prebuilt `docs-env` base (the
 # apt GUI/Vulkan closure + solved `docs` pixi env, published by the full
-# build as `<docs-image>:branch-<ref>-env`) and re-runs only fea-doc, the
+# build as `<docs-image>:branch-<ref>-env`) and re-runs only the FEA report, the
 # notebooks and zensical, skipping the ~140s apt install and the ~500 MB env solve.
 #
 # DOCS_ENV_IMAGE is that base ref; the workflow falls back to the full
 # Dockerfile.docs when it doesn't exist yet (first build on a branch) or
 # when an env/Dockerfile input changed. The builder stage below mirrors
 # Dockerfile.docs's builder stage exactly — keep them in sync.
+# Global: FROM lines below use it.
 ARG DOCS_ENV_IMAGE
+
+# ---- Report-viewer overlay (opt-in: --build-arg VIEWER_OVERLAY=1) ----------------------------------
+# The FEA report's 3D figures are paradoc's vendored copy of adapy's WebGPU embed. Without the overlay
+# they are whatever the locked conda-forge paradoc shipped; with it, the embed is built from THIS adapy
+# source (and adacpp's renderer from ADACPP_RENDER_REF), vendored into paradoc at PARADOC_REF, and that
+# paradoc replaces the env's -- an embed or paradoc change reaches the report in one docs build, not
+# after a paradoc release and a conda-forge round. Off (the default) both stages are no-ops.
+FROM emscripten/emsdk:6.0.11 AS overlay-render
+ARG VIEWER_OVERLAY=0
+# Keep in step with Dockerfile.viewer's ADACPP_RENDER_REF.
+ARG ADACPP_RENDER_REF=1d4e05b8072767ff815c92a018220f8ecc3fd1bc
+ARG ADACPP_GIT_URL=https://github.com/Krande/adacpp.git
+RUN mkdir -p /out && if [ "$VIEWER_OVERLAY" = "1" ]; then \
+      git init -q /src && cd /src \
+      && git remote add origin "$ADACPP_GIT_URL" \
+      && git fetch -q --depth 1 origin "$ADACPP_RENDER_REF" \
+      && git checkout -q FETCH_HEAD \
+      && bash tools/build_render_wasm.sh /out \
+      && git rev-parse HEAD > /out/adacpp_render.ref; \
+    fi
+
+FROM node:20 AS overlay-paradoc
+ARG VIEWER_OVERLAY=0
+ARG PARADOC_REF=main
+ARG PARADOC_GIT_URL=https://github.com/Krande/paradoc.git
+WORKDIR /build/adapy-frontend
+COPY src/frontend/package.json src/frontend/package-lock.json ./
+RUN if [ "$VIEWER_OVERLAY" = "1" ]; then npm ci; fi
+COPY src/frontend/ ./
+COPY --from=overlay-render /out/ /render/
+# /out/paradoc: the paradoc package (its frontend.zip rebuilt around this embed), or nothing.
+RUN mkdir -p /out && if [ "$VIEWER_OVERLAY" = "1" ]; then \
+      ADACPP_RENDER_DIR=/render npm run build:embed-webgpu \
+      && git init -q /paradoc && cd /paradoc \
+      && git remote add origin "$PARADOC_GIT_URL" \
+      && git fetch -q --depth 1 origin "$PARADOC_REF" \
+      && git checkout -q FETCH_HEAD \
+      && cp /build/adapy-frontend/dist-embed-webgpu/index.js /build/adapy-frontend/dist-embed-webgpu/index.d.ts \
+            src/frontend/vendor/ada-viewer/ \
+      && printf 'adapy: docs build overlay\nadacpp renderer: %s\n' "$(cat /render/adacpp_render.ref)" \
+            > src/frontend/vendor/ada-viewer/SOURCE \
+      && cd src/frontend && npm ci && npm run build:standalone \
+      && cp -r /paradoc/src/paradoc /out/paradoc \
+      && echo "paradoc $(git -C /paradoc rev-parse --short HEAD) + adapy embed overlay" > /out/paradoc/OVERLAY; \
+    fi
+
 FROM ${DOCS_ENV_IMAGE} AS builder
 ARG ADA_DOCS_RELEASE=""
 ARG ADA_DOCS_DATE=""
@@ -31,8 +78,26 @@ COPY scripts/docs/docs_notebooks.py ./scripts/docs/
 COPY examples/penetration_detail.py ./examples/
 COPY examples/mesh_overrides.py ./examples/
 
+# The report-viewer overlay (VIEWER_OVERLAY=1): its paradoc over the env's, before fea-doc runs.
+COPY --from=overlay-paradoc /out/ /overlay/
+RUN if [ -d /overlay/paradoc ]; then \
+      dest="$(pixi run --environment docs python -c 'import os, paradoc; print(os.path.dirname(paradoc.__file__))')" \
+      && rm -rf "$dest" && cp -r /overlay/paradoc "$dest" \
+      && echo "overlay: $(cat "$dest/OVERLAY")"; \
+    fi
+
+# The FEA verification report (docs/_static/fea-report/) and its DOCX / ODT / PDF exports
+# (docs/_static/fea-report-files/), then the notebooks and zensical into site/. The report is kept
+# in a cache mount under a hash of its inputs and reused while they are unchanged, with the current
+# viewer frontend (scripts/docs/fea_report_cached.py). Where the mount does not persist it is simply
+# built. A failed export leaves a dead download link but does not stop the site. The rattler cache
+# mount covers a solve these tasks might trigger.
+COPY scripts/docs/fea_report_cached.py ./scripts/docs/
 RUN --mount=type=cache,target=/root/.cache/rattler,sharing=locked \
-    pixi run --environment docs docs
+    --mount=type=cache,id=adapy-fea-report,target=/cache/fea-report,sharing=locked \
+    pixi run --environment docs python scripts/docs/fea_report_cached.py --cache /cache/fea-report \
+        --frontend-zip /overlay/paradoc/frontend/resources/frontend.zip \
+    && pixi run --environment docs docs-site
 
 FROM nginxinc/nginx-unprivileged:1.27-alpine
 ARG IMAGE_TAG

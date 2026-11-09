@@ -316,13 +316,19 @@ def _overwrite_dir(analysis_dir):
     from send2trash import send2trash
 
     logger.info("Removing old files before copying new")
-    try:
-        if Config().general_safe_deletion is True:
+    if Config().general_safe_deletion is True:
+        try:
             send2trash(analysis_dir)
-        else:
-            shutil.rmtree(analysis_dir)
-    except BaseException as e:
-        logger.warning(f"Failed to delete due to '{e}'")
+        except Exception as e:
+            # Analyses run side by side race to create the trash folder (send2trash's makedirs fails
+            # with "File exists"); delete the old run outright rather than keep it.
+            logger.warning(f"Could not move {analysis_dir} to the trash ({e}); deleting it")
+    if analysis_dir.exists():
+        shutil.rmtree(analysis_dir, ignore_errors=True)
+    if analysis_dir.exists():
+        # A solver reading the old run's files (Code_Aster appends to an existing result file and then
+        # fails on a field already in it) is worse than stopping here.
+        raise IOError(f"Could not remove the previous analysis in {analysis_dir}")
 
     os.makedirs(analysis_dir, exist_ok=True)
 

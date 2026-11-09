@@ -235,6 +235,42 @@ def _beam_solids_geometry(case_dir: Path, manifest: dict, values, components, no
     return flat
 
 
+# Element edges (and beam-solid outlines) in the viewer's colour: white over the result, as the
+# reference postprocessor draws mesh lines (frontend utils/scene/fea/edgeColors.ts FEA_EDGE_COLOR).
+FEA_EDGE_RGBA = (1.0, 1.0, 1.0, 1.0)
+
+# The viewer's fold angle for beam-solid edges (frontend beamSolidFeatureEdges.ts): a 12-facet round
+# section folds by exactly 30 degrees and stays smooth, a rectangular corner does not.
+_BEAM_SOLID_EDGE_ANGLE_DEG = 31.0
+
+
+def _beam_solid_edges(case_dir: Path, manifest: dict, solids):
+    """The deformed beam solids' element edges as an uncoloured line overlay (drawn 1 px, like the
+    shell / solid element edges), found per element as the viewer does: each element's outline at
+    its ends plus its section's corners along it. None when there are none."""
+    import struct
+
+    import numpy as np
+    from trimesh.path.entities import Line
+    from trimesh.path.path import Path3D
+
+    from ada.visit.rendering.feature_edges import feature_edge_pairs
+
+    groups = np.zeros(len(solids.faces), dtype=np.int64)
+    url = (manifest.get("mesh") or {}).get("beam_solids_elements_url")
+    if url and (case_dir / url).is_file():
+        raw = (case_dir / url).read_bytes()
+        if raw[:4] == b"AFEM" and len(raw) >= 16:
+            n = struct.unpack_from("<I", raw, 8)[0]
+            entries = np.frombuffer(raw, dtype="<u4", count=n * 3, offset=16).reshape(-1, 3)
+            for k, (_label, start, count) in enumerate(entries):
+                groups[start : start + count] = k + 1
+    verts, pairs = feature_edge_pairs(solids.vertices, solids.faces, _BEAM_SOLID_EDGE_ANGLE_DEG, groups)
+    if not len(pairs):
+        return None
+    return Path3D(entities=[Line(points=p.tolist()) for p in pairs], vertices=verts.astype(np.float32))
+
+
 # The poster palette (`_abaqus_rgba`), blue -> cyan -> green -> yellow -> red.
 _POSTER_STOPS = ((0.0, 0.0, 1.0), (0.0, 1.0, 1.0), (0.0, 1.0, 0.0), (1.0, 1.0, 0.0), (1.0, 0.0, 0.0))
 
@@ -255,6 +291,28 @@ def _legend_spec(manifest: dict, blob_url: str, step_idx: int, max_magnitude: fl
         header.append(f"Case: {step.get('label', step_idx)}")
     ticks = [max_magnitude - i * max_magnitude / 6 for i in range(7)]
     return {"header": header, "gradient": [list(c) for c in _POSTER_STOPS], "ticks": ticks}
+
+
+# Ada Studio sizes its legend and gizmo for a full-window viewport; a poster this short (in pixels) or
+# shorter draws them at full size, a smaller one shrinks them in proportion, down to `_POSTER_MIN_SCALE`.
+_POSTER_FULL_OVERLAY_PX = 1000
+_POSTER_MIN_SCALE = 0.55
+# Below this short side, the orientation gizmo is drawn compact (Studio's is 150 CSS px across, with
+# 10 px bubbles and labels): at the poster's scale it then sits in the corner beside the model, its
+# axis labels still legible, instead of reaching into it.
+_POSTER_GIZMO_MIN_PX = 600
+_POSTER_COMPACT_GIZMO = {"size": 110, "bubble": 12, "font_px": 12}
+
+
+def _overlay_spec(size: tuple[int, int], legend: dict | None) -> dict:
+    """The overlay for a poster of ``size`` (width, height): the legend and gizmo scaled to the poster,
+    so on a small one they do not cover the model (#499)."""
+    short = min(size)
+    scale = min(1.0, max(_POSTER_MIN_SCALE, short / _POSTER_FULL_OVERLAY_PX))
+    spec: dict = {"scale": scale, "gizmo": True if short >= _POSTER_GIZMO_MIN_PX else dict(_POSTER_COMPACT_GIZMO)}
+    if legend is not None:
+        spec["legend"] = legend
+    return spec
 
 
 def _abaqus_rgba(magnitudes):
@@ -308,7 +366,8 @@ def render_fea_mode_from_bundle(
     artefact bundle (the layout `bake_artefacts` writes).
 
     `overlay` draws Ada Studio's colour legend (with `apply_colormap`)
-    and orientation gizmo over the poster -- with the adacpp backend;
+    and orientation gizmo over the poster, scaled to its size (a small
+    poster has a smaller legend and a compact gizmo) -- with the adacpp backend;
     chromium posters have neither.
 
     `case_dir` must contain `fea.mesh.glb`, `fea.manifest.json`, and
@@ -413,6 +472,9 @@ def render_fea_mode_from_bundle(
         )
         if solids is not None:
             scene.add_geometry(solids, geom_name="beam_solids")
+            outline = _beam_solid_edges(case_dir, manifest, solids)
+            if outline is not None:
+                scene.add_geometry(outline, geom_name="beam_solid_edges")
             # A beam model's mesh is its node points; under the solids they only show through
             # as a dotted line along the web.
             if isinstance(mesh, trimesh.PointCloud):
@@ -468,10 +530,11 @@ def render_fea_mode_from_bundle(
         scene.export(file_obj=str(out_glb), file_type="glb")
         spec = None
         if overlay:
-            spec = {"gizmo": True}
+            legend = None
             if apply_colormap:
-                spec["legend"] = _legend_spec(manifest, blob_url, step_idx, float(np.linalg.norm(delta, axis=1).max()))
-        return glb_to_image(out_glb, backend=backend, preset=preset, size=size, overlay=spec)
+                legend = _legend_spec(manifest, blob_url, step_idx, float(np.linalg.norm(delta, axis=1).max()))
+            spec = _overlay_spec(size, legend)
+        return glb_to_image(out_glb, backend=backend, preset=preset, size=size, overlay=spec, line_color=FEA_EDGE_RGBA)
 
 
 def render_fea_mode(

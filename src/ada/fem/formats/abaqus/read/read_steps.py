@@ -52,6 +52,7 @@ HISTORY_KEYWORDS = frozenset(
         "CLOAD",
         "DLOAD",
         "DSLOAD",
+        "TEMPERATURE",
         "OUTPUT",
         "NODE OUTPUT",
         "ELEMENT OUTPUT",
@@ -336,6 +337,83 @@ def _amplitude(name: str | None, assembly: Assembly):
     return name
 
 
+def _node_by_label(ref: str, assembly: Assembly):
+    """``(fem, node)`` of a node label (``3`` or ``Part-1.3``)."""
+    *prefix, label = ref.split(".")
+    for part in assembly.get_all_parts_in_assembly(include_self=True):
+        fem = part.fem
+        if prefix and prefix[0].lower() != (fem.instance_name or fem.name).lower():
+            continue
+        try:
+            return fem, fem.nodes.from_id(int(label))
+        except ValueError:
+            continue
+    raise KeyError(f"no node labelled {ref!r}")
+
+
+def _temperatures(blocks: list[KeywordBlock], step, assembly: Assembly):
+    """``*Temperature`` blocks as :class:`~ada.fem.LoadTemperature`, one per block and value: on the whole model
+    when its nodes are every node of the model (the writers' form for a load with no set, and CalculiX's node set
+    of every node), else on a node set of its nodes. The reference is the nodes' initial temperature
+    (``*Initial Conditions, type=TEMPERATURE``, :data:`INITIAL_TEMPERATURE`); a block with no lines (CalculiX's
+    ``OP=NEW`` reset) is no load."""
+    from ada.fem import FemSet
+    from ada.fem.formats import conversion_report
+    from ada.fem.loads import LoadTemperature
+
+    reference = float(assembly.fem.metadata.get(INITIAL_TEMPERATURE, 0.0))
+    every = {
+        id(n) for p in assembly.get_all_parts_in_assembly(include_self=True) if p.fem is not None for n in p.fem.nodes
+    }
+    out = []
+    for i, block in enumerate(blocks):
+        validate(block)
+        name, _ = _load_name(block, f"temperature{i + 1}")
+        by_value: dict[float, list] = {}
+        for line in block.data_lines:
+            fields = [f.strip() for f in line.split(",")]
+            if len(fields) < 2 or not fields[1]:
+                continue
+            if len(fields) > 2 and any(f and float(f) != 0.0 for f in fields[2:]):
+                conversion_report.current().approximated(
+                    "abaqus reader",
+                    "*TEMPERATURE",
+                    f"{step.name}: {line.strip()}",
+                    "a temperature gradient through a beam or shell is not read; the mid-surface value is",
+                )
+            ref = fields[0]
+            if ref.split(".")[-1].isdigit():
+                members = [_node_by_label(ref, assembly)]
+            else:
+                fs = _set(ref, assembly, "nset")
+                members = [(fs.parent, n) for n in fs.members]
+            by_value.setdefault(float(fields[1]), []).extend(members)
+        for k, (value, members) in enumerate(by_value.items()):
+            load_name = name if len(by_value) == 1 else f"{name}_{k + 1}"
+            nodes = {id(n): (fem, n) for fem, n in members}
+            if set(nodes) == every:
+                out.append(LoadTemperature(load_name, value, reference=reference))
+                continue
+            fems = {id(fem): fem for fem, _ in nodes.values()}
+            if len(fems) > 1:
+                conversion_report.current().omitted(
+                    "abaqus reader",
+                    "*TEMPERATURE",
+                    f"{step.name}: {load_name}",
+                    "a temperature on nodes of several instances; a LoadTemperature's node set is in one",
+                )
+                continue
+            (fem,) = fems.values()
+            fs = fem.add_set(FemSet(f"{load_name}_nodes", [n for _, n in nodes.values()], "nset", parent=fem))
+            out.append(LoadTemperature(load_name, value, fs, reference=reference))
+    return out
+
+
+#: ``assembly.fem.metadata`` key of the deck's initial temperature (``*Initial Conditions, type=TEMPERATURE``), the
+#: reference the temperature loads read with.
+INITIAL_TEMPERATURE = "initial_temperature"
+
+
 def _node_label_set(ref: str, assembly: Assembly):
     """A node label where a node set may stand (``3`` or ``Part-1.3``), as a one-node set named
     after it: loads and outputs refer to sets. Written back, it is an ``*Nset`` of that node."""
@@ -413,9 +491,10 @@ def _cloads(blocks: list[KeywordBlock], assembly: Assembly):
 def _read_loads(blocks: list[KeywordBlock], step, assembly: Assembly) -> None:
     from ada.fem.loads import Load, LoadGravity, LoadPressure
 
-    mark_read("CLOAD", "DLOAD", "DSLOAD")
+    mark_read("CLOAD", "DLOAD", "DSLOAD", "TEMPERATURE")
     in_load_case = False
     cloads = []
+    temperatures = []
     for block in blocks:
         if block.keyword == "LOAD CASE":
             in_load_case = True  # a steady-state step's unit load, not one of its loads
@@ -423,6 +502,8 @@ def _read_loads(blocks: list[KeywordBlock], step, assembly: Assembly) -> None:
             in_load_case = False
         elif block.keyword == "CLOAD" and not in_load_case:
             cloads.append(block)
+        elif block.keyword == "TEMPERATURE" and not in_load_case:
+            temperatures.append(block)
         elif block.keyword == "DLOAD":
             validate(block)
             name, kind = _load_name(block, "gravity")
@@ -456,6 +537,8 @@ def _read_loads(blocks: list[KeywordBlock], step, assembly: Assembly) -> None:
                 surface = _set(fields[0], assembly, "surface")
                 step.add_load(LoadPressure(name, float(fields[2]), surface))
     for load in _cloads(cloads, assembly):
+        step.add_load(load)
+    for load in _temperatures(temperatures, step, assembly):
         step.add_load(load)
 
 

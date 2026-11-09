@@ -126,6 +126,24 @@ class ConstraintConceptDofType:
         return dofs
 
 
+def _local_system(value) -> tuple | None:
+    """A support's frame as three unit rows ``(x', y', z')`` in its parent's axes, or None for the parent's own
+    axes; checked orthonormal and right-handed."""
+    import numpy as np
+
+    if value is None:
+        return None
+    rows = np.asarray(value, dtype=float)
+    if rows.shape != (3, 3):
+        raise ValueError(f"a local system is three vectors x', y', z'; got shape {rows.shape}")
+    rows = rows / np.linalg.norm(rows, axis=1)[:, None]
+    if not np.allclose(rows @ rows.T, np.eye(3), atol=1e-6) or np.linalg.det(rows) < 0:
+        raise ValueError("a local system has to be a right-handed orthonormal frame")
+    if np.allclose(rows, np.eye(3), atol=1e-9):
+        return None
+    return tuple(tuple(float(x) for x in r) for r in rows)
+
+
 def _constraint_dof_type_resolver(dof_constraints: list[ConstraintConceptDofType]) -> list[ConstraintConceptDofType]:
     user_dofs = {x.dof for x in dof_constraints}
     for missing_dof in _DOF_ORDER:
@@ -145,6 +163,9 @@ class ConstraintConceptPoint:
     name: str
     position: Point | Iterable
     dof_constraints: list[ConstraintConceptDofType]
+    #: The frame the dofs are in, rows ``x', y', z'`` in the part's axes (GeniE's ``<local_system>``); None: the
+    #: part's own axes. A roller on a slope holds dz' alone.
+    local_system: tuple | None = None
     parent: ConstraintConcepts = field(init=False, repr=False)
 
     def __post_init__(self):
@@ -152,6 +173,7 @@ class ConstraintConceptPoint:
 
         if not isinstance(self.position, Point):
             self.position = Point(*self.position)
+        self.local_system = _local_system(self.local_system)
 
         # fill in all dof_constraints not explicitly defined with "fixed
         self.dof_constraints = _constraint_dof_type_resolver(self.dof_constraints)
@@ -206,10 +228,14 @@ class ConstraintConceptCurve:
     start_pos: Iterable | Point
     end_pos: Iterable | Point
     dof_constraints: list[ConstraintConceptDofType]
+    #: The frame the dofs are in, as :attr:`ConstraintConceptPoint.local_system`.
+    local_system: tuple | None = None
     parent: ConstraintConcepts = field(init=False, repr=False)
 
     def __post_init__(self):
         from ada import Point
+
+        self.local_system = _local_system(self.local_system)
 
         if not isinstance(self.start_pos, Point):
             self.start_pos = Point(*self.start_pos)
@@ -257,6 +283,9 @@ class ConstraintConceptRigidLink:
     dof_constraints: list[ConstraintConceptDofType]
     rotation_dependent: bool = True
     include_all_edges: bool = True
+    #: The slave translations the link ties (GeniE's ``slave_dx|dy|dz="dependent"``); a free one is left out of the
+    #: slaves' linear dependencies (GeniE: BLDEP without that dof).
+    slave_translations: tuple = ("dx", "dy", "dz")
     parent: ConstraintConcepts = field(init=False, repr=False)
 
     def __post_init__(self):

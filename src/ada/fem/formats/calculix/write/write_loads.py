@@ -30,7 +30,120 @@ def load_str(load: Load, deck: DeckContext) -> str:
         return line_load_str(load, deck)
     if load.type == Load.TYPES.FORCE:
         return point_load_str(load)
+    if load.type == Load.TYPES.ACC_ROT:
+        return rotation_load_str(load, deck)
+    if load.type == Load.TYPES.TEMPERATURE:
+        return temperature_load_str(load, deck)
+    if load.type == Load.TYPES.TRACTION:
+        return traction_load_str(load)
     raise UnsupportedLoadType(f'calculix writer: load {load.name!r} of type "{load.type}" has no Calculix form')
+
+
+def traction_load_str(load) -> str:
+    """A surface traction (:class:`~ada.fem.LoadSurfaceTraction`) as the consistent nodal forces of the faces it acts
+    on (*CLOAD; :func:`ada.fem.face_loads.face_weights`): CalculiX's *DLOAD has a normal pressure only. A shell is its
+    own face; a solid's face is the one its surface side names. Exact for the element, as a line load's forces are."""
+    from ada.fem.face_loads import face_weights
+    from ada.fem.formats import conversion_report
+    from ada.fem.shapes.definitions import ShellShapes, SolidShapes
+    from ada.fem.surfaces import pressure_elsets, side_node_indices
+
+    try:
+        groups = pressure_elsets(load.surface)
+    except ValueError as e:
+        raise UnsupportedLoadType(f"calculix writer: traction {load.name!r}: {e}") from e
+    t = np.asarray(load.traction, dtype=float)
+    forces: dict[int, np.ndarray] = {}
+    for fem_set, side in groups:
+        for el in fem_set.members:
+            if isinstance(el.type, ShellShapes):
+                face = list(el.nodes)
+            elif isinstance(el.type, SolidShapes):
+                try:
+                    face = [el.nodes[i] for i in side_node_indices(el.type, side)]
+                except (ValueError, TypeError) as e:
+                    raise UnsupportedLoadType(
+                        f"calculix writer: traction {load.name!r} on solid {el.id} names no face ({side!r})"
+                    ) from e
+            else:
+                raise UnsupportedLoadType(
+                    f"calculix writer: traction {load.name!r} on {el.type} element {el.id}; it loads shells and solid "
+                    "faces"
+                )
+            for node, w in zip(face, face_weights([n.p for n in face])):
+                forces.setdefault(int(node.id), np.zeros(3))
+                forces[int(node.id)] += w * t
+    rows = [(nid, dof + 1, float(f[dof])) for nid, f in sorted(forces.items()) for dof in range(3) if f[dof] != 0.0]
+    conversion_report.current().note(
+        STAGE,
+        "LoadSurfaceTraction",
+        load.name,
+        "a surface traction is written as the consistent nodal forces of the faces it acts on (*CLOAD): CalculiX's "
+        "*DLOAD has a normal pressure only",
+        n_nodes=len(forces),
+    )
+    return "** Name: {0}   Type: Traction as nodal loads\n*Cload{1}\n{2}".format(
+        load.name, _amplitude_param(load), _cload_lines(rows)
+    )
+
+
+def temperature_reference(steps) -> float | None:
+    from ada.fem.formats.carried_loads import temperature_reference as shared
+
+    return shared(steps, STAGE)
+
+
+def temperature_load_str(load: Load, deck: DeckContext) -> str:
+    """A uniform temperature (:class:`~ada.fem.LoadTemperature`) as ``*TEMPERATURE`` on its nodes (the writer's set of
+    every node, :data:`.writer.TEMPERATURE_NSET`, for the whole model); the initial conditions hold the reference (:func:`temperature_reference`).
+    U1 beams are linear elastic with no thermal strain (CalculiX 2.23 manual 6.2.46), so a temperature reaching one is
+    refused by name rather than left without effect."""
+    fem = deck.part.fem
+    els = load.elements(fem)
+    if any(el.id in deck.u1_elements for el in els):
+        raise UnsupportedLoadType(
+            f"calculix writer: temperature load {load.name!r} reaches U1 beams, which take no thermal strain"
+        )
+    t = ccx_number(load.temperature)
+    if load.fem_set is None:
+        from .writer import TEMPERATURE_NSET
+
+        return f"*Temperature\n {TEMPERATURE_NSET}, {t}"
+    nodes = sorted({int(n.id) for el in els for n in el.nodes})
+    return "*Temperature\n" + "\n".join(f" {nid}, {t}" for nid in nodes)
+
+
+def rotation_load_str(load: Load, deck: DeckContext) -> str:
+    """A rotating frame (:class:`~ada.fem.LoadRotation`) as ``*DLOAD CENTRIF``: ``w^2``, a point on the axis and its
+    direction (CalculiX 2.23 manual, 7.36). CalculiX has no rotary-acceleration load, and its ``U1`` beams take no
+    body force ("no body forces", as for GRAV), so a load with an angular acceleration, or one that reaches U1 beams,
+    is refused by name."""
+    from ada.fem import FemSet
+    from ada.fem.loads import LoadRotation
+
+    if not isinstance(load, LoadRotation):
+        raise UnsupportedLoadType(
+            f"calculix writer: load {load.name!r} of type acc_rot is not a LoadRotation; no axis given"
+        )
+
+    if load.angular_acceleration != 0.0:
+        raise UnsupportedLoadType(
+            f"calculix writer: rotation load {load.name!r} has an angular acceleration; *DLOAD has CENTRIF only"
+        )
+    if load.fem_set is not None:
+        if load.fem_set.type != FemSet.TYPES.ELSET:
+            raise UnsupportedLoadType(
+                f"calculix writer: rotation load {load.name!r} is on a node set; CENTRIF takes elements"
+            )
+        members, target = load.fem_set.members, load.fem_set.name
+    else:
+        members, target = deck.part.fem.elements.lines, deck.grav_elset
+    if any(el.id in deck.u1_elements for el in members):
+        raise UnsupportedLoadType(
+            f"calculix writer: rotation load {load.name!r} reaches U1 beams, which take no body force in CalculiX"
+        )
+    where = ", ".join(ccx_number(float(c)) for c in (*load.origin, *load.axis))
+    return f"*Dload{_amplitude_param(load)}\n{target}, CENTRIF, {ccx_number(load.angular_velocity**2)}, {where}"
 
 
 def _amplitude_param(load: Load) -> str:
@@ -214,6 +327,10 @@ def pressure_load_str(load: Load) -> str:
     distribution = getattr(load, "distribution", None)
     if distribution is not None and distribution != LoadPressure.P_DIST_TYPES.UNIFORM:
         raise UnsupportedLoadType(f'a "{distribution}" pressure is not a pressure intensity; Calculix *DLOAD takes one')
+    if getattr(load, "gradient", None) is not None:
+        raise UnsupportedLoadType(
+            f"pressure load {load.name!r} varies over the model; Calculix *DLOAD P takes one value"
+        )
 
     region = _pressure_region(load)
     if region is None:
@@ -223,18 +340,39 @@ def pressure_load_str(load: Load) -> str:
     except ValueError as e:
         raise UnsupportedLoadType(f"pressure load {load.name!r} has no Calculix *DLOAD form: {e}") from e
 
+    from ada.fem.shapes.definitions import SolidShapes
+
     data = []
     for fem_set, side in groups:
-        for el in fem_set.members:
-            el_type = getattr(el, "type", None)
-            if el_type is None or not isinstance(el_type, ShellShapes):
+        types = {getattr(el, "type", None) for el in fem_set.members}
+        if types and all(isinstance(t, SolidShapes) for t in types):
+            # a solid face: ccx numbers a solid's faces as Abaqus does (P1..P6 for C3D8, the same faces as S1..S6;
+            # CalculiX manual 6.2), and a solid surface's side is its Abaqus face ("S3", or the reader's 0-based
+            # int); a positive pressure pushes into the face, as in Abaqus
+            face = _solid_face(side)
+            if face is None:
                 raise UnsupportedLoadType(
-                    f"pressure load {load.name!r} acts on a {el_type} element; Calculix *DLOAD numbers a "
-                    f"solid's faces individually and this writer only establishes the shell case"
+                    f"pressure load {load.name!r} on solids names no face ({side!r}); *DLOAD P<n> needs one"
                 )
+            data.append(f"{fem_set.name}, P{face}, {float(load.magnitude)}")
+            continue
+        if not all(isinstance(t, ShellShapes) for t in types):
+            raise UnsupportedLoadType(
+                f"pressure load {load.name!r} acts on {sorted(map(str, types))}; *DLOAD loads shells or solid faces"
+            )
         data.append(f"{fem_set.name}, {PRESSURE_LABEL}, {_pressure_sign(side) * load.magnitude}")
 
     return "** Name: {0}   Type: Pressure\n*Dload{1}\n{2}".format(load.name, _amplitude_param(load), "\n".join(data))
+
+
+def _solid_face(side) -> int | None:
+    """The 1-based Abaqus face number a solid surface's side names: ``"S3"`` -> 3, the reader's 0-based ``2`` -> 3."""
+    if isinstance(side, (int, float)) and not isinstance(side, bool):
+        return int(side) + 1
+    s = str(side).strip().upper()
+    if s.startswith("S") and s[1:].isdigit():
+        return int(s[1:])
+    return None
 
 
 def line_load_str(load: LoadLine, deck: DeckContext) -> str:

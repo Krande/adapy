@@ -360,7 +360,9 @@ class _StarterDeck:
         bcs = list(self.fem.bcs) + list(self.afem.bcs)
         for step in self.afem.steps + self.fem.steps:
             bcs += list(step.bcs.values())
-        return bcs
+        from ada.fem.frames import in_global_axes_or_refuse
+
+        return in_global_axes_or_refuse(bcs, "opencourant")
 
     def _boundary_conditions(self):
         for bc in self._all_bcs():
@@ -530,6 +532,10 @@ class _StarterDeck:
             if isinstance(load, LoadPressure):
                 if load.distribution != LoadPressure.P_DIST_TYPES.UNIFORM:
                     raise NotImplementedError(f"pressure {load.name!r}: only a uniform pressure is supported")
+                if load.gradient is not None:
+                    raise NotImplementedError(
+                        f"pressure {load.name!r} varies over the model; only a uniform one is written"
+                    )
                 sid = self._pressure_segments(load.surface)
                 self.blocks.append(
                     "\n".join(

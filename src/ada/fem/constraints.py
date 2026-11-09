@@ -119,11 +119,18 @@ class Bc(FemBase):
         init_condition=None,
         metadata=None,
         parent=None,
+        csys: "Csys" = None,
     ):
-        """dofs should be a list with integers from 1-6"""
+        """dofs should be a list with integers from 1-6.
+
+        ``csys``: the rectangular system the ``dofs`` and ``magnitudes`` are in (dof 1 along its local x, 4 about
+        it, ...), for a support on a skewed face -- a roller on a slope holds dz' alone. None: global axes. See
+        :mod:`ada.fem.frames` for how each writer takes it.
+        """
         super().__init__(name, metadata, parent)
         self._fem_set = fem_set
         fem_set.refs.append(self)
+        self._csys = csys
 
         self._dofs = dofs if isinstance(dofs, (list, tuple)) else [dofs]
         if magnitudes is None:
@@ -173,8 +180,14 @@ class Bc(FemBase):
     def amplitude(self) -> "Amplitude":
         return self._amplitude
 
+    @property
+    def csys(self) -> "Csys | None":
+        """The system ``dofs`` and ``magnitudes`` are in; None for global axes."""
+        return getattr(self, "_csys", None)
+
     def __repr__(self):
-        return f'Bc("{self.name}", type="{self.type}", dofs={self.dofs}, fem_set="{self.fem_set.name}")'
+        frame = "" if self.csys is None else f', csys="{self.csys.name}"'
+        return f'Bc("{self.name}", type="{self.type}", dofs={self.dofs}, fem_set="{self.fem_set.name}"{frame})'
 
 
 class Constraint(FemBase):

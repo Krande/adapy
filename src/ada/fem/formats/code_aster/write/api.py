@@ -181,7 +181,7 @@ def assign_forces(a: Assembly, model: CA.Model) -> CA.MechanicalLoadReal:
     for fem in assembly_fem_iterator(a):
         for load in fem.get_all_loads():
             imposed_loads = {
-                FORCE_DOF_MAP[x]: force for x, force in enumerate(load.forces, start=1) if float(force) != 0.0
+                FORCE_DOF_MAP[x]: force for x, force in enumerate(load.forces_global, start=1) if float(force) != 0.0
             }
             ca_load = _F(GROUP_NO=load.fem_set.name, **imposed_loads)
             nodal_loads.append(ca_load)

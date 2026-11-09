@@ -94,7 +94,11 @@ def preset_camera(
         offset = np.array([d * math.cos(el) * math.sin(az), d * math.sin(el), d * math.cos(el) * math.cos(az)])
         up = np.array([0.0, 1.0, 0.0])
     eye = center + offset
-    near, far = max(d / 1000.0, 1e-3), d * 100.0
+    # Near / far hug the model's bounding sphere (as adacpp's frame_bounds does): depth precision is
+    # spent on the model. The old d/1000 .. 100 d range (1e5 : 1) left too little of it at the model's
+    # distance, and a hidden edge just under a thin flange broke through the face above it as dashes.
+    near = max(d - radius * 1.5, d * 1e-3, 1e-4)
+    far = d + radius * 1.5
 
     # three.js Matrix4.lookAt + camera.up fixed at world vertical (what controls.setLookAt keeps).
     f = center - eye

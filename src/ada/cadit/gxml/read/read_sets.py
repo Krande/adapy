@@ -28,6 +28,14 @@ def get_concept(xml_el: ET.Element, part: Part) -> Beam | Plate:
         result = part.plates.from_name(ref)
 
     if result is None:
+        from ada.fem.formats import conversion_report
+
         logger.debug(f'Currently only Beams are supported. Unable to find group member "{ref}"')
+        conversion_report.current().omitted(
+            "genie xml reader",
+            "set",
+            ref,
+            "a set member that is not a beam or plate this reader read; not in the group",
+        )
 
     return result

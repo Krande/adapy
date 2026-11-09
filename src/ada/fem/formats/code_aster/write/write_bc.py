@@ -14,6 +14,11 @@ support an ``_F`` of one charge solves, reactions 2000 N = q A to 4e-16), so eve
 :data:`SUPPORTS`: each node is held in the union of the dofs its supports hold, all at zero. A prescribed dof sharing
 a node with another support or another settlement cannot be merged -- one value would have to win -- and is refused
 by name (:func:`check_overlaps`).
+
+A support in a rotated frame (``Bc.csys``, :mod:`ada.fem.frames`) whose frame is global axes in another order reaches
+here as the global support it is (:func:`.write_constraints.model_bcs`); one in a frame that mixes them is a
+``LIAISON_OBLIQUE`` row of the same charge, its dofs along the axes ``ANGL_NAUT`` turns to (U4.44.01;
+:func:`ada.fem.frames.nautical_angles`).
 """
 
 from __future__ import annotations
@@ -49,24 +54,47 @@ def held_dofs(bc: Bc, prescribed) -> list[int]:
     return [d for d in range(1, top + 1) if d in bc.dofs and (bc.fem_set.name, d) not in prescribed]
 
 
+def _angles(bc) -> str | None:
+    """``(a, b, g)``, the ``ANGL_NAUT`` of a support in a frame that mixes the global axes, else None."""
+    from ada.fem.frames import bc_axes, nautical_angles
+
+    axes = bc_axes(bc)
+    if axes is None:
+        return None
+    return "({:.12g}, {:.12g}, {:.12g})".format(*(a + 0.0 for a in nautical_angles(axes)))
+
+
+def _charge(name: str, ddl: list[str], oblique: list[str]) -> str:
+    if not ddl and not oblique:
+        return ""
+    keywords = ""
+    for keyword, rows in (("DDL_IMPO", ddl), ("LIAISON_OBLIQUE", oblique)):
+        if rows:
+            body = "\n".join(rows)
+            keywords += f"""
+    {keyword}=(
+{body}
+    ),"""
+    return f"""{name} = AFFE_CHAR_MECA(
+    MODELE=model,{keywords}
+)"""
+
+
 def supports_str(bcs, prescribed=frozenset(), name: str = SUPPORTS) -> str:
     """The :data:`SUPPORTS` charge (or one named ``name``): one ``DDL_IMPO`` row per support, every dof it holds at 0
-    (see the module docstring); empty when no support holds anything."""
-    rows = []
+    (see the module docstring), a ``LIAISON_OBLIQUE`` row for one in a rotated frame; empty when no support holds
+    anything."""
+    ddl, oblique = [], []
     for bc in bcs:
         dofs = held_dofs(bc, prescribed)
         if dofs:
             held = ", ".join(f"{_DOF_NAMES[d - 1]}=0.0" for d in dofs)
-            rows.append(f'        _F(GROUP_NO="{bc.fem_set.name}", {held}),  # {bc.name}')
-    if not rows:
-        return ""
-    body = "\n".join(rows)
-    return f"""{name} = AFFE_CHAR_MECA(
-    MODELE=model,
-    DDL_IMPO=(
-{body}
-    ),
-)"""
+            angles = _angles(bc)
+            if angles is None:
+                ddl.append(f'        _F(GROUP_NO="{bc.fem_set.name}", {held}),  # {bc.name}')
+            else:
+                oblique.append(f'        _F(GROUP_NO="{bc.fem_set.name}", ANGL_NAUT={angles}, {held}),  # {bc.name}')
+    return _charge(name, ddl, oblique)
 
 
 def check_overlaps(bcs, prescribed, writer: str = "code_aster") -> None:
@@ -121,18 +149,20 @@ def prescribed_at_zero_str(bcs) -> str:
 def prescribed_charge_str(name: str, values: dict, bcs) -> str:
     """A ``DDL_IMPO`` charge ``name`` giving each prescribed dof ``(set, dof)`` its value in ``values``. A set on
     solid elements takes no rotation (as :func:`held_dofs`)."""
+    from ada.fem.formats.prescribed import settlements
+
     sets = {bc.fem_set.name: bc.fem_set for bc in bcs}
+    frames = {bc.fem_set.name: _angles(bc) for bc in settlements(bcs)}
     by_set: dict[str, list[str]] = {}
     for (set_name, dof), value in values.items():
         if dof > 3 and _is_solid(sets[set_name]):
             continue
         by_set.setdefault(set_name, []).append(f"{_DOF_NAMES[dof - 1]}={float(value)!r}")
-    if not by_set:
-        return ""
-    rows = "\n".join(f'        _F(GROUP_NO="{s}", {", ".join(v)}),' for s, v in by_set.items())
-    return f"""{name} = AFFE_CHAR_MECA(
-    MODELE=model,
-    DDL_IMPO=(
-{rows}
-    ),
-)"""
+    ddl, oblique = [], []
+    for s, v in by_set.items():
+        angles = frames.get(s)
+        if angles is None:
+            ddl.append(f'        _F(GROUP_NO="{s}", {", ".join(v)}),')
+        else:
+            oblique.append(f'        _F(GROUP_NO="{s}", ANGL_NAUT={angles}, {", ".join(v)}),')
+    return _charge(name, ddl, oblique)

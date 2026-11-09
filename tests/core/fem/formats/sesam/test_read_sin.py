@@ -281,11 +281,13 @@ def test_nodal_transform_records_map_local_vectors_to_model_coordinates():
         get_nodal_results,
     )
 
-    # Local x -> model y and local y -> model -x. BNTRCOS stores matrix
-    # columns in record order, not row-major order.
+    # Local x -> model y and local y -> model -x: the local-to-model matrix's columns are the local axes. BNTRCOS
+    # holds C = its transpose (r_local = C r_model, rows the local axes; SIF 7.2.25), column by column.
     rotation = np.array([[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]])
+    c = rotation.T
+    assert np.allclose(c[0], [0.0, 1.0, 0.0])  # the first row of C is local x in model axes
     reader = SifReader(iter(()))
-    reader._other["BNTRCOS"] = [[7.0, *rotation.reshape(-1, order="F")]]
+    reader._other["BNTRCOS"] = [[7.0, *c.reshape(-1, order="F")]]
     reader._other["BNDOF"] = [[10.0, 7.0, 7.0]]
     transforms = reader.get_nodal_transforms()
 

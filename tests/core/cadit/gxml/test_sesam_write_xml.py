@@ -737,8 +737,11 @@ def test_basic_hinges(tmp_path):
 
     xml_root = ET.fromstring(xml_str)
 
-    flexible_hinges = xml_root.findall(".//flexible_hinge")
-    assert len(flexible_hinges) == 2, "Should have 2 flexible hinges"
+    # fixed and free dofs only: GeniE's own connectivity_hinge (BELFIX OPT 3), not a flexible one (write_hinges)
+    hinges = {h.get("name"): h for h in xml_root.iter("hinge")}
+    assert set(hinges) == {"fixed", "pinned"} and not xml_root.findall(".//flexible_hinge")
+    flags = {name: [c.get("f") for c in h.iter("connectivity")] for name, h in hinges.items()}
+    assert flags == {"fixed": ["1"] * 6, "pinned": ["1", "1", "1", "0", "0", "0"]}
 
     # Do not add these in prod
     # os.startfile(dest)

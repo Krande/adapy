@@ -195,7 +195,10 @@ def test_a_combination_prescribes_its_cases_factored_sum_once(frames_combined):
     from ada.fem.constraints import BC_LOAD_CASE
 
     for case, values in COMBINED.items():
-        (bc,) = [b for b in part.fem.bcs if (b.metadata or {}).get(BC_LOAD_CASE) == case]
+        # Sp_presc's; Sp_presc_rot (x' = y, read in its frame) has a combination Bc of its own
+        (bc,) = [
+            b for b in part.fem.bcs if (b.metadata or {}).get(BC_LOAD_CASE) == case and b.name == f"Sp_presc_{case}"
+        ]
         assert (bc.name, bc.dofs) == (f"Sp_presc_{case}", [1, 3, 6])
         assert bc.magnitudes == pytest.approx(values, rel=1e-12)
 

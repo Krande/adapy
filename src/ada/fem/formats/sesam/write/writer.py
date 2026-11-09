@@ -97,6 +97,11 @@ def to_fem(assembly, name, analysis_dir=None, metadata=None, model_data_only=Fal
       retain only *some* of their DOFs comes back widened to all of them, with a warning
       naming the affected nodes, because a node set cannot carry a per-DOF pattern.
     """
+    from .element_numbers import ElementNumbers, NodeNumbers
+    from .element_numbers import deck as numbers_deck
+    from .element_numbers import deck_element_ids, nodes_deck
+    from .node_frames import deck as frames_deck
+    from .node_frames import node_frames
     from .not_held import STAGE, bc_is_held, report, report_not_held
     from .write_bcs import (
         bnbcd_str,
@@ -106,13 +111,19 @@ def to_fem(assembly, name, analysis_dir=None, metadata=None, model_data_only=Fal
     )
     from .write_constraints import bldep_records
     from .write_elements import elem_gen, unwritten_element_ids
-    from .write_loads import step_loads_str
+    from .write_loads import deck_fem, step_loads_str
     from .write_masses import mass_str
     from .write_point_elements import point_elements_str
     from .write_sections import sections_str
     from .write_springs import property_records
     from .write_springs import spring_matnos as spring_matnos_for
-    from .write_steps import report_steps, write_sestra_inp, written_step
+    from .write_steps import (
+        free_dofs_lower_bound,
+        report_steps,
+        write_sestra_inp,
+        written_step,
+        written_steps,
+    )
 
     if metadata is None:
         metadata = dict()
@@ -169,11 +180,17 @@ def to_fem(assembly, name, analysis_dir=None, metadata=None, model_data_only=Fal
     steps = list(assembly.fem.steps) + ([] if assembly.fem is part.fem else list(part.fem.steps))
     step = written_step(steps)
     # ``model_data_only``: the FEM file alone, no Sestra control file beside it.
-    sestra_inp = not model_data_only and step is not None and step.type in (step.TYPES.EIGEN, step.TYPES.STATIC)
+    sestra_inp = (
+        not model_data_only
+        and step is not None
+        and step.type in (step.TYPES.EIGEN, step.TYPES.STATIC, step.TYPES.BUCKLING)
+    )
     if sestra_inp:
         with open(analysis_dir / "sestra.inp", "w") as f:
-            f.write(write_sestra_inp(name, step, supnr=seltyp))
+            f.write(write_sestra_inp(name, step, supnr=seltyp, free_dofs=free_dofs_lower_bound(part.fem)))
     report_steps(steps, sestra_inp, model_data_only=model_data_only)
+    if sestra_inp and step.type == step.TYPES.BUCKLING:
+        report_shell_drilling_in_buckling(part.fem)
     report_not_held(fems, materials, written=part.fem)
 
     # One derivation of the per-node dof count, shared by every record that declares an
@@ -190,6 +207,14 @@ def to_fem(assembly, name, analysis_dir=None, metadata=None, model_data_only=Fal
     # report. A velocity BC used to be written as a clamp, and a BC on an assembly-level
     # reference point fixed whichever part node shared its id.
     held_bcs = [SimpleNamespace(bcs=[bc for bc in fem.bcs if bc_is_held(bc, part.fem)]) for fem in fems]
+    # The first step's own BCs hold in every written step (write_steps.written_steps): with the model's.
+    if step is not None and len(step.bcs) > 0:
+        held_bcs.append(SimpleNamespace(bcs=[bc for bc in step.bcs.values() if bc_is_held(bc, part.fem)]))
+    # A support in a rotated frame: in global axes where its frame is global axes in another order, else its nodes
+    # are transformed (BNDOF / BNTRCOS) and everything at them written in their frame -- see node_frames. The
+    # BNTRCOS numbers follow the GUNIVECs', which the SIF asks to keep apart.
+    univec = univec_str(part.fem)
+    frames, held_bcs = node_frames(held_bcs, lin_deps, part.fem, first_transno=univec.count("GUNIVEC") + 1)
     # A BC with a magnitude is a settlement, not a support: BNBCD gets FIX code 2 on those dofs
     # and BNDISPL (in the load block, which is where Sesam keeps a prescribed displacement)
     # carries the value. Both cards or neither -- see write_bcs.bndispl_str.
@@ -202,13 +227,27 @@ def to_fem(assembly, name, analysis_dir=None, metadata=None, model_data_only=Fal
     # A spring's stiffness record takes a MATNO, numbered on from the materials'.
     spring_matnos = spring_matnos_for(part.fem.springs.values(), max((m.id for m in materials), default=0) + 1)
 
-    with open(inp_file_path, "w") as d, track_rounding() as rounding:
+    # Internal element numbers 1..n, the model's ids kept as the external ones (element_numbers): every record that
+    # names an element is written inside this, so all of them agree with GELMNT1.
+    numbers = ElementNumbers(deck_element_ids(part.fem, ndofs, with_springs=bool(spring_matnos)))
+    # and node numbers 1..n the same way, over the nodes GNODE writes
+    node_numbers = NodeNumbers(_nodes_as_arrays(part.fem)[0].tolist())
+
+    with (
+        open(inp_file_path, "w") as d,
+        track_rounding() as rounding,
+        frames_deck(frames),
+        deck_fem(part.fem),
+        numbers_deck(numbers),
+        nodes_deck(node_numbers),
+    ):
         d.write(top_level_fem_str.format(date_str=date_str, clock_str=clock_str, user=user, seltyp=float(seltyp)))
         d.write(units)
         d.write(materials_str(materials))
         d.write("".join(property_records(sp, spring_matnos[sp.id]) for sp in part.fem.springs.values()))
         d.write(sections_str(part.fem, thick_map))
-        d.write(univec_str(part.fem))
+        d.write(univec)
+        d.write(frames.bntrcos_str())
         d.write(eccen_str(part.fem))
         d.writelines(nodes_gen(part.fem, ndofs))
         d.write(mass_str(part.fem, ndofs))
@@ -216,10 +255,11 @@ def to_fem(assembly, name, analysis_dir=None, metadata=None, model_data_only=Fal
         d.write(sets_str(_SetsOf(part.fem, assembly.fem), unwritten_elements=unwritten_element_ids(part.fem, ndofs)))
         d.write(equation_names_str(*fems))
         d.write(bnbcd_str(held_bcs, lin_deps, retained, ndofs, prescribed))
+        d.write(frames.bndof_str(ndofs))
         d.write("".join(r.to_str() for r in lin_deps))
         d.write(hinges_str(part.fem))
         d.writelines(elem_gen(part.fem, thick_map, spring_matnos, ndofs))
-        d.write(step_loads_str(step, ndofs, untagged, by_case))
+        d.write(step_loads_str(step, ndofs, untagged, by_case, following=written_steps(steps)[1:]))
         d.write("IEND                0.00            0.00            0.00            0.00\n")
 
     if rounding.count:
@@ -504,6 +544,32 @@ def _nodes_as_arrays(fem: FEM) -> tuple[np.ndarray, np.ndarray]:
     return node_ids[order], coords[order]
 
 
+def report_shell_drilling_in_buckling(fem: FEM) -> None:
+    """Say it when a linearized buckling run has flat shells (FQUS/FTRS) whose drilling dof is free somewhere.
+
+    Measured, Sestra 11.3-01 (tests/fem/test_buckling.py, the pinned strip): their drilling dof -- the rotation about
+    the normal, stiffened only by CMAS CSING (1e-8) -- gives spurious stability factors near zero that hide the
+    physical ones (1e-4 to 1e-2 Euler's, moving with the shift and with CSING). Held, the strip's three factors were
+    Euler's to 5e-4..5e-3, as Code_Aster's. Holding it is the model's call -- on a folded or curved shell the drilling
+    dof is coupled, and holding it would be wrong -- so this says so rather than doing it."""
+    from ada.fem.shapes.definitions import ShellShapes
+
+    from .not_held import STAGE, report
+
+    shells = [el for el in fem.elements if el.type in (ShellShapes.QUAD, ShellShapes.TRI)]
+    if not shells:
+        return
+    report().note(
+        STAGE,
+        "Step",
+        "buckling",
+        "Sestra's first-order shells (FQUS/FTRS) have a weakly stiffened drilling dof that gives spurious stability "
+        "factors near zero in a linearized buckling run unless it is held; on a flat plate it can be held with no "
+        "effect on the modes (measured: the factors are then Euler's)",
+        n_shells=len(shells),
+    )
+
+
 def nodes_gen(fem: FEM, ndofs: NodeDofs | None = None) -> Iterator[str]:
     """Yield the GNODE + GCOORD records one at a time so the caller can stream them
     straight to file instead of holding a deck-sized string in memory.
@@ -528,12 +594,17 @@ def nodes_gen(fem: FEM, ndofs: NodeDofs | None = None) -> Iterator[str]:
             'Doubly defined node id "{}". TODO: Make necessary code updates'.format(int(node_ids[dupes[0]]))
         )
 
+    from .element_numbers import nodes as internal_nodes
+
     per_node = ndofs.ndof_many(node_ids)
-    for nid, ndof in zip(node_ids, per_node):
+    # NODEX the model's id, NODENO the deck's internal number (element_numbers.NodeNumbers), which GCOORD and every
+    # other record names the node by
+    internal = internal_nodes(node_ids)
+    for nid, nodeno, ndof in zip(node_ids, internal, per_node):
         ndof = int(ndof)
-        yield write_ff("GNODE", [(int(nid), int(nid), ndof, odof_for(ndof))])
-    for nid, p in zip(node_ids, coords):
-        yield write_ff("GCOORD", [(int(nid), p[0], p[1], p[2])])
+        yield write_ff("GNODE", [(int(nid), nodeno, ndof, odof_for(ndof))])
+    for nodeno, p in zip(internal, coords):
+        yield write_ff("GCOORD", [(nodeno, p[0], p[1], p[2])])
 
 
 def nodes_str(fem: FEM, ndofs: NodeDofs | None = None) -> str:

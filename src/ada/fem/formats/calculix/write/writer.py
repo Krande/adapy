@@ -51,7 +51,9 @@ def to_fem(assembly: Assembly, name, analysis_dir, metadata=None, model_data_onl
 
     p = get_fem_model_from_assembly(assembly)
     steps = all_steps(assembly)
-    bcs = list(p.fem.bcs) + list(assembly.fem.bcs)
+    from ada.fem.frames import in_global_axes_or_refuse
+
+    bcs = in_global_axes_or_refuse(list(p.fem.bcs) + list(assembly.fem.bcs), "calculix")
     check_conflicting_bcs(bcs, steps)
     deck = DeckContext.of(p, steps, bcs)
 
@@ -62,6 +64,12 @@ def to_fem(assembly: Assembly, name, analysis_dir, metadata=None, model_data_onl
         # Part level information
         f.write(nodes_str(p.fem.nodes) + "\n")
         f.write(elements_str(p.fem.elements, report_locking=len(steps) > 0).strip() + "\n")
+        point_masses, next_id = masses_str(p.fem)
+        if point_masses:
+            f.write(point_masses + "\n")
+        point_springs = springs_str(p.fem, next_id)
+        if point_springs:
+            f.write(point_springs + "\n")
         if deck.u1_elements:
             f.write("*USER ELEMENT,TYPE=U1,NODES=2,INTEGRATION POINTS=2,MAXDOF=6\n")
         f.write(elsets_str(p.fem.elsets) + "\n")
@@ -76,12 +84,25 @@ def to_fem(assembly: Assembly, name, analysis_dir, metadata=None, model_data_onl
 
         # Assembly Level information
         u1_materials = {el.fem_sec.material.name for el in p.fem.elements.lines if el.id in deck.u1_elements}
-        f.write("\n".join([material_str(mat, mat.name in u1_materials) for mat in p.materials]) + "\n")
+        f.write("\n".join([material_str(mat, mat.name in u1_materials) for mat in deck_materials(p)]) + "\n")
         f.write(constraints_str(p, assembly) + "\n")
         ampl = amplitudes_str([p.fem, assembly.fem])
         if ampl:
             f.write(ampl + "\n")
         f.write("\n".join([bc_str(x) for x in bcs]) + "\n")
+        if deck.temperature_reference is not None:
+            from .write_loads import ccx_number
+
+            have = p.fem.nsets.get(TEMPERATURE_NSET)
+            if have is None:
+                newline = NewLine(15)
+                ids = " ".join(f"{n.id}," + next(newline) for n in p.fem.nodes).rstrip()[:-1]
+                f.write(f"*Nset, nset={TEMPERATURE_NSET}\n {ids}\n")
+            elif {id(n) for n in have.members} != {id(n) for n in p.fem.nodes}:
+                # one read back from a deck this writer wrote is every node, and is written with the model's sets
+                raise ValueError(f"calculix writer: the model has a node set {TEMPERATURE_NSET!r} of some nodes only")
+            ref = ccx_number(deck.temperature_reference)
+            f.write(f"*Initial conditions, type=temperature\n {TEMPERATURE_NSET}, {ref}\n")
         # A model with no analysis step is still a deck worth writing -- it simply has no
         # *STEP block. ``ada convert --to calculix`` produces exactly that (a conversion
         # carries geometry and mesh, not an analysis), and the abaqus writer already guards
@@ -92,6 +113,121 @@ def to_fem(assembly: Assembly, name, analysis_dir, metadata=None, model_data_onl
             f.write("** No steps\n")
 
     logger.info(f'Created a Calculix input deck at "{analysis_dir}"')
+
+
+def masses_str(fem) -> tuple[str, int]:
+    """The point masses as ccx's mass elements: ``*ELEMENT, TYPE=MASS`` on each node, ``*MASS`` on their element set
+    (CalculiX 2.23 manual 6.2.40, 7.75). The first node's element takes the mass's own id, so the mass's element set
+    (``<name>_set``) names an element of the deck; the others take ids past the model's. ccx's mass element is
+    isotropic and translational only: an anisotropic mass, a rotary inertia or a non-structural mass is refused by
+    name, never left out without a word (as the writer used to, with a log line)."""
+    from ada.fem.elements import Mass
+    from ada.fem.formats import conversion_report
+
+    from .write_loads import ccx_number
+
+    taken = {int(el.id) for el in fem.elements if el.id is not None}
+    next_id = max(taken, default=0) + 1
+    masses = [el for el in fem.elements if isinstance(el, Mass)]
+    if not masses:
+        return "", next_id
+    rows, blocks = [], []
+    for m in masses:
+        members = [n for n in (m.members or []) if hasattr(n, "id")]
+        iso = m.type == Mass.TYPES.MASS and m.point_mass_type in (None, Mass.PTYPES.ISOTROPIC)
+        if not iso or not members:
+            conversion_report.current().omitted(
+                STAGE,
+                "Mass",
+                m.name,
+                (
+                    "ccx's mass element is isotropic and translational only; an anisotropic mass, a rotary inertia or a "
+                    "non-structural mass has no CalculiX form"
+                    if members
+                    else "a mass on no node"
+                ),
+                type=str(m.type),
+                ptype=str(m.point_mass_type),
+            )
+            continue
+        ids = []
+        for k, node in enumerate(members):
+            if k == 0 and m.id is not None:
+                eid = int(m.id)
+            else:
+                eid = next_id
+                next_id += 1
+            ids.append(eid)
+            rows.append(f" {eid}, {int(node.id)}")
+        elset = f"ADA_MASS_{m.name}"[:80]
+        newline = NewLine(15)
+        listed = " ".join(f"{i}," + next(newline) for i in ids).rstrip()[:-1]
+        blocks.append(f"*Elset, elset={elset}\n {listed}\n*Mass, elset={elset}\n {ccx_number(float(m.mass))}")
+    if not rows:
+        return "", next_id
+    return "*Element, type=MASS\n" + "\n".join(rows) + "\n" + "\n".join(blocks), next_id
+
+
+def springs_str(fem, next_id: int) -> str:
+    """The springs as ccx's spring elements (CalculiX 2.23 manual 6.2.38, 7.115 *SPRING): a grounded spring
+    (``SPRING1``) one ``SPRING1`` element per translational stiffness on its diagonal, a two-node one (``SPRING2``) one
+    ``SPRING2`` between the nodes' like dofs, each in an element set of its own with ``*SPRING`` giving the dof and the
+    stiffness; ids from ``next_id`` on. ccx's springs act on the translations, one dof each: a spring with a rotational
+    or a coupling term is refused by name, never written short of them (the writer used to leave every spring out with
+    a log line)."""
+    import numpy as np
+
+    from ada.fem.formats import conversion_report
+
+    from .write_loads import ccx_number
+
+    out = []
+    for spring in sorted(fem.springs.values(), key=lambda s: s.id):
+        k = np.atleast_2d(np.asarray(spring.stiff, dtype=float))
+        n1, n2 = spring._n1, spring._n2
+        n = k.shape[0]
+        off = k - np.diag(np.diag(k))
+        rotational = n > 3 and np.any(np.abs(np.diag(k)[3:]) > 0.0)
+        if k.shape[0] != k.shape[1] or n not in (3, 6) or np.any(np.abs(off) > 0.0) or rotational:
+            conversion_report.current().omitted(
+                STAGE,
+                "Spring",
+                spring.name,
+                "ccx's spring elements act on the translations, one dof each: a spring with a rotational stiffness or "
+                "a coupling term has no CalculiX form",
+            )
+            continue
+        two_node = n2 is not None and n2 is not n1 and int(n2.id) != int(n1.id)
+        for dof in range(3):
+            stiffness = float(k[dof, dof])
+            if stiffness == 0.0:
+                continue
+            eid = next_id
+            next_id += 1
+            elset = f"ADA_SPRING_{spring.name}_{dof + 1}"[:80]
+            if two_node:
+                out.append(
+                    f"*Element, type=SPRING2, elset={elset}\n {eid}, {int(n1.id)}, {int(n2.id)}\n"
+                    f"*Spring, elset={elset}\n {dof + 1}, {dof + 1}\n {ccx_number(stiffness)}"
+                )
+            else:
+                out.append(
+                    f"*Element, type=SPRING1, elset={elset}\n {eid}, {int(n1.id)}\n"
+                    f"*Spring, elset={elset}\n {dof + 1}\n {ccx_number(stiffness)}"
+                )
+    return "\n".join(out)
+
+
+def deck_materials(part) -> list:
+    """The part's materials and every one its sections name, once each by name: a model read from a flat deck holds
+    its materials on the assembly, and its sections named them in a deck that then had none ("*SHELL SECTION:
+    nonexistent material", ccx 2.23)."""
+    out, seen = [], set()
+    for mat in [*part.materials, *(sec.material for sec in part.fem.sections if sec.material is not None)]:
+        if mat.name not in seen:
+            seen.add(mat.name)
+            out.append(mat)
+    return out
 
 
 def amplitudes_str(fems) -> str:
@@ -171,6 +307,11 @@ def check_conflicting_bcs(bcs, steps) -> None:
 GRAV_ELSET = "ADA_GRAV"
 
 
+#: The node set of every node the initial temperature is given on, in a deck with temperature loads: ccx 2.23 has no
+#: NALL defined while it reads model data ("node set NALL has not yet been defined", measured).
+TEMPERATURE_NSET = "ADA_TALL"
+
+
 @dataclass
 class DeckContext:
     """What the step writers need to know about the model the deck is written from."""
@@ -183,6 +324,9 @@ class DeckContext:
     bcs: tuple = ()
     #: The prescribed dofs ``(set, dof)`` on nodes of U1 beams, held at zero instead (:func:`refuse_on_u1`).
     refused: frozenset = frozenset()
+    #: The initial temperature of every node when the deck has temperature loads, else None
+    #: (:func:`.write_loads.temperature_reference`).
+    temperature_reference: float | None = None
 
     @staticmethod
     def of(part: Part, steps, bcs=()) -> DeckContext:
@@ -211,7 +355,11 @@ class DeckContext:
                 newline = NewLine(15)
                 ids = " ".join(f"{el.id}," + next(newline) for el in members).rstrip()[:-1]
                 grav_str = f"*Elset, elset={GRAV_ELSET}\n {ids}"
-        return DeckContext(part, u1, grav, grav_str, tuple(bcs), refuse_on_u1(part, u1, bcs))
+        from .write_loads import temperature_reference
+
+        return DeckContext(
+            part, u1, grav, grav_str, tuple(bcs), refuse_on_u1(part, u1, bcs), temperature_reference(steps)
+        )
 
 
 def refuse_on_u1(part: Part, u1_elements: frozenset, bcs) -> frozenset:
@@ -502,11 +650,14 @@ def material_str(material, elastic_only: bool = False):
 
     d_str = ""
     if alpha is not None and beta is not None:
-        d_str = "\n*Damping, alpha={alpha}, beta={beta}".format(alpha=material.model.alpha, beta=material.model.beta)
+        # the Rayleigh pair from the metadata; this wrote the material's thermal expansion as the mass factor
+        d_str = f"\n*Damping, alpha={alpha}, beta={beta}"
 
+    # *Expansion is the thermal expansion coefficient, alpha; it was written from zeta, the material's damping, as the
+    # Abaqus writer once did too
     exp_str = ""
-    if material.model.zeta is not None and material.model.zeta != 0.0:
-        exp_str = "\n*Expansion\n {zeta}".format(zeta=material.model.zeta)
+    if material.model.alpha is not None and material.model.alpha != 0.0:
+        exp_str = f"\n*Expansion\n {material.model.alpha}"
 
     return f"""*Material, name={material.name}
 *Elastic
