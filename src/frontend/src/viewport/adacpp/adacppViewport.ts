@@ -1,7 +1,7 @@
 // The experimental adacpp WebGPU renderer as a drop-in for the main viewport draw.
 //
-// three.js stays the scene graph: loading, the tree, selection, picking (GpuMeshPicker renders through
-// the WebGLRenderer into its own target), controls and the orientation gizmo are unchanged. Each frame
+// three.js stays the scene graph: loading, the tree, selection, controls and the orientation gizmo are
+// unchanged. Picking goes through viewport/picking.ts, which asks this renderer while it draws. Each frame
 // this mirrors what three.js would have drawn into the adacpp renderer (wasm, /wasm/adacpp_render.js)
 // and draws it on a WebGPU canvas layered over the hidden WebGL one. The renderer itself lives in
 // adacpp (src/render). Sprites (canvas-textured labels, markers, icons) are the exception: the renderer

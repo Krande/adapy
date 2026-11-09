@@ -8,6 +8,15 @@
 
 * The node editor was removed (migration note). Gone: the `core:node-editor` panel, the Enable Node Editor option, `window.NODE_EDITOR_ONLY` and the `node_editor_only` argument of `start_serving` / `get_html_with_injected_data`, the start-new-node-editor command (`CommandType` value 14 is retired, not reused), the node editor handlers and store, and the `NodeEditorBody`, `request_list_of_nodes` and `start_new_node_editor` exports of `@/viewer-core/layout`. Viewer core and plugin API versions are now 2.0.0: plugins with a `coreApiRange` ending `<2.0` need `<3.0`. Procedures (`LIST_PROCEDURES`, `RUN_PROCEDURE`, client `list_procedures` / `run_procedure`) are kept. Saved layouts naming the panel still load.
 
+## v0.138.5 (2026-11-09)
+
+### Fix
+
+* fix: keep to_ifc&#39;s native writer off ifcopenshell.validate and accept any PathLike in from_fem (#510)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`112d36b`](https://github.com/Krande/adapy/commit/112d36b3a3f26b71f2a1930614478c4231ed2a98))
+
+
 ## v0.138.4 (2026-11-09)
 
 ### Fix

@@ -329,7 +329,7 @@ def _from_fem(
     cad_config,
 ) -> Assembly:
     a = Assembly(units=source_units, cad_config=cad_config)
-    if isinstance(fem_file, str) or issubclass(type(fem_file), pathlib.Path):
+    if isinstance(fem_file, (str, os.PathLike)):
         a.read_fem(fem_file, fem_format, name, fem_converter=fem_converter)
     elif isinstance(fem_file, list):
         for i, f in enumerate(fem_file):
@@ -337,7 +337,7 @@ def _from_fem(
             name_in = name if name is None else name[i]
             a.read_fem(f, fem_format_in, name_in, fem_converter=fem_converter)
     else:
-        raise ValueError(f'fem_file must be either string or list. Passed type was "{type(fem_file)}"')
+        raise ValueError(f'fem_file must be a path or a list of paths. Passed type was "{type(fem_file)}"')
 
     if create_concept_objects:
         a.create_objects_from_fem(skip_beams=convert_skip_beams, skip_plates=convert_skip_plates)

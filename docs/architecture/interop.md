@@ -98,11 +98,11 @@ sequenceDiagram
     A->>S: load_ifc_content_from_file
     S->>A: IfcReader → Beam / Plate / Shape / Pipe …
     U->>A: edit objects
-    U->>A: to_ifc(path, writer=…)
+    U->>A: to_ifc(path, …)
     alt default
         A->>S: sync() → IfcWriter (per-object ChangeAction tracking)
         S->>F: save_to_file
-    else writer="stream"
+    else streaming=True
         A->>W: stream_assembly_to_ifc (bounded memory)
         W->>F: write
     else writer="native"
