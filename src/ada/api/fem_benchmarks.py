@@ -91,6 +91,23 @@ def _dofs(case: NafemsCase, i: int, j: int, k: int, radial: int, around: int, la
     return tuple(sorted(held))
 
 
+def design_nafems_le(case: str | NafemsCase, segments: int = 48) -> ada.Assembly:
+    """The benchmark's geometry as an ``ada.Plate``, at its full thickness, for showing what the model is.
+
+    Each ellipse is drawn with ``segments`` straight sides. The analysis uses the exact curves (:func:`mesh_nafems_le`).
+    """
+    from ada.materials.metals import CarbonSteel
+
+    case = NAFEMS_CASES[case] if isinstance(case, str) else case
+    angles = [(math.pi / 2) * i / segments for i in range(segments + 1)]
+    inner = [(2.0 * math.cos(a), math.sin(a)) for a in angles]
+    outer = [(3.25 * math.cos(a), 2.75 * math.sin(a)) for a in angles]
+    thickness = 2 * case.height if case is LE1 else case.height  # LE1 is modelled over half its thickness
+    material = ada.Material("NafemsSteel", CarbonSteel("S355", E=NAFEMS_E, v=NAFEMS_NU))
+    plate = ada.Plate(case.name, [*inner, *reversed(outer)], thickness, mat=material)
+    return ada.Assembly("NafemsSite") / (ada.Part(NAFEMS_PART_NAME) / plate)
+
+
 def mesh_nafems_le(case: str | NafemsCase, divisions: int) -> ada.Assembly:
     """The benchmark as a model: ``divisions`` elements radially, twice that around the quarter ellipse.
 

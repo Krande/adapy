@@ -14,6 +14,7 @@ from ada.api.fem_benchmarks import (
     NAFEMS_PART_NAME,
     NAFEMS_SURFACE_NAME,
     cantilever_bending_frequencies,
+    design_nafems_le,
     mesh_nafems_le,
     nafems_case_name,
     stress_yy_at,
@@ -197,3 +198,11 @@ def test_bending_table_drops_modes_nobody_captured_and_marks_gaps(report_utils):
     df = report_utils.create_bending_deviation_df(results, "line", 2, {"Y": [12.0, 80.0], "Z": [50.0, 330.0]})
     assert list(df["Mode"]) == ["Y1", "Y2", "Z1"]  # no solver has Z2
     assert df.set_index("Mode").loc["Y2", "ses"] == "–" and df.set_index("Mode").loc["Y1", "aba"] == 0.0
+
+
+@pytest.mark.parametrize("case, thickness", [("LE1", 0.1), ("LE10", 0.6)])
+def test_the_design_is_the_benchmarks_full_thickness_and_outline(case, thickness):
+    plate = next(iter(design_nafems_le(case).get_part(NAFEMS_PART_NAME).get_all_physical_objects()))
+    assert plate.t == pytest.approx(thickness)
+    xs = [p.x for p in plate.poly.points2d] if hasattr(plate.poly, "points2d") else []
+    assert xs and max(xs) == pytest.approx(3.25) and min(xs) == pytest.approx(0.0, abs=1e-9)

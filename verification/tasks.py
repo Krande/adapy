@@ -71,6 +71,7 @@ import ada  # noqa: E402
 from ada.api.fem_benchmarks import (  # noqa: E402
     NAFEMS_CASES,
     cantilever_bending_frequencies,
+    design_nafems_le,
     mesh_nafems_le,
     nafems_case_name,
     run_nafems_le,
@@ -1028,17 +1029,21 @@ def plate_eig_tables(results: list) -> list:
 
 
 def _plate_bundle_outcomes(cases: list, prefix: str) -> list:
-    """Bake the live plate cases into `_assets/plate/` and register what is on disk.
+    return _bundle_outcomes(cases, prefix, _PLATE_ASSETS_DIR, _PLATE_CACHE_DIR)
+
+
+def _bundle_outcomes(cases: list, prefix: str, assets_dir: pathlib.Path, cache_dir: pathlib.Path) -> list:
+    """Bake the live cases into ``assets_dir`` and register what is on disk.
 
     The shape `fea_outputs` has for the cantilever: fresh bakes of this build's cases (`_cases_to_bake`),
     then the cache-only cases (Abaqus, Sestra) restored from the bundles committed in `.cache-plate/`,
     then whatever bundles an earlier build left.
     """
-    fresh = bake_fea_bundles(_cases_to_bake(cases), out_dir=_PLATE_ASSETS_DIR)
+    fresh = bake_fea_bundles(_cases_to_bake(cases), out_dir=assets_dir)
     assets_by_name: dict = {**fresh}
-    restored = restore_fea_bundles(_PLATE_CACHE_DIR, _PLATE_ASSETS_DIR, skip_keys=set(fresh), prefix=prefix)
+    restored = restore_fea_bundles(cache_dir, assets_dir, skip_keys=set(fresh), prefix=prefix)
     skip = set(fresh) | {a.key for a in restored}
-    for a in [*restored, *collect_fea_bundles(_PLATE_ASSETS_DIR, skip_keys=skip)]:
+    for a in [*restored, *collect_fea_bundles(assets_dir, skip_keys=skip)]:
         if a.key.startswith(prefix):
             assets_by_name.setdefault(a.key, a)
 
@@ -1077,11 +1082,49 @@ def plate_static_fea_outputs(results: list) -> list:
 #: Radial divisions. Twice that go around the ellipse and, for LE10, the same through the thickness.
 _NAFEMS_DIVISIONS = [2, 4, 8]
 
+#: The density the report shows as figures. The tables carry the convergence.
+_NAFEMS_FIGURE_DIVISIONS = 8
+
 _NAFEMS_SCRATCH_DIR = _THIS_DIR / "temp" / "nafems"
+_NAFEMS_ASSETS_DIR = _ASSETS_DIR / "nafems"
 
 #: Beside `.cache` and not in it, for the reason given at `_PLATE_CACHE_DIR`.
 _NAFEMS_CACHE_DIR = _THIS_DIR / ".cache-nafems"
 _NAFEMS_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+
+@task(fanout={"case": sorted(NAFEMS_CASES)})
+def nafems_glb(*, case: str):
+    """The geometry as a GLB and a poster, one per benchmark, for the model description."""
+    dest = _NAFEMS_ASSETS_DIR / f"{case}.glb"
+    regen = os.environ.get("ADAPY_VERIFICATION_REGEN_ASSETS", "0") == "1"
+    if regen or not dest.exists():
+        try:
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            design_nafems_le(case).to_gltf(dest)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"NAFEMS {case} GLB generation failed: {exc}")
+            return None
+    if not dest.is_file():
+        return None
+    _render_poster(dest, regen)
+    metadata: dict = {}
+    png_path = dest.with_suffix(".png")
+    if png_path.is_file():
+        metadata["image_path"] = str(png_path.relative_to(_THIS_DIR))
+    return ThreeDOutcome(
+        row=ThreeDData(
+            key=f"nafems_{case}_geom",
+            glb_path=str(dest.relative_to(_THIS_DIR)),
+            format="glb",
+            camera_pos="iso_3",
+            caption=f"NAFEMS {case} geometry.",
+            sha256=hashlib.sha256(dest.read_bytes()).hexdigest(),
+            size=dest.stat().st_size,
+            source_type="cad_model_file",
+            metadata=metadata,
+        )
+    )
 
 
 @task(fanout={"case": sorted(NAFEMS_CASES), "divisions": _NAFEMS_DIVISIONS})
@@ -1140,6 +1183,8 @@ def nafems_postprocess(results: list) -> list:
             stress_yy=case.get("stress_yy"),
         )
         wrapper.name = wrapper.safe_name
+        if wrapper.divisions == _NAFEMS_FIGURE_DIVISIONS:
+            _snapshot_raw_data(wrapper, _NAFEMS_CACHE_DIR)  # a licensed solver's figures are committed with its numbers
         try:
             wrapper.save_to_json(_NAFEMS_CACHE_DIR / f"{wrapper.name}.json")
         except Exception as exc:  # noqa: BLE001
@@ -1170,3 +1215,10 @@ def nafems_tables(results: list) -> list:
             )
         )
     return out
+
+
+@task(parent=nafems_postprocess)
+def nafems_fea_outputs(results: list) -> list:
+    """FEA bundles at the finest mesh, for the benchmark page's figures."""
+    at_density = [r for r in results if r.divisions == _NAFEMS_FIGURE_DIVISIONS]
+    return _bundle_outcomes(at_density, "nafems_", _NAFEMS_ASSETS_DIR, _NAFEMS_CACHE_DIR)

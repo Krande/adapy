@@ -468,6 +468,24 @@ class Nafems(Filter):
         return ", ".join(sorted({c.kwargs["solver"] for c in self._live_cells()})) or "none on this machine"
 
     @attr
+    def le1_geometry(self) -> ThreeDView:
+        return ThreeDView(
+            glb_key="nafems_LE1_geom",
+            caption="NAFEMS LE1 geometry.",
+            camera_preset="iso_3",
+            image_path=_poster("nafems/LE1.png"),
+        )
+
+    @attr
+    def le10_geometry(self) -> ThreeDView:
+        return ThreeDView(
+            glb_key="nafems_LE10_geom",
+            caption="NAFEMS LE10 geometry.",
+            camera_preset="iso_3",
+            image_path=_poster("nafems/LE10.png"),
+        )
+
+    @attr
     def le1(self) -> TableView:
         return TableView(table_key="nafems_LE1")
 
@@ -550,6 +568,7 @@ class FeaModesCompare(BaseFigureSource):
             "`plate_static`. Case names are `<prefix>_<solver>_<configuration>`."
         ),
     )
+    heading_level: int = Field(3, description="Markdown level of each configuration's heading.")
     analysis: Literal["eigen", "static"] = Field("eigen", description="`static` drops the per-mode heading.")
     assets_dir: str = Field(
         "_assets",
@@ -772,6 +791,8 @@ def _split_case_name(case_name: str, prefix: str) -> tuple[str, str] | None:
 
 def _config_label(config: str) -> str:
     """``shell_o1_hqTrue_riFalse`` -> ``Shell, 1st order, QUAD``; unknown tokens pass through."""
+    if config[:1] == "n" and config[1:].isdigit():  # a benchmark's mesh density
+        return f"Results at {config[1:]} radial divisions"
     tokens = config.split("_")
     geom = tokens[0].lower()
     parts = [geom.capitalize()]
@@ -843,6 +864,7 @@ class FeaModesCompareFilter(FigureSourceFilter):
                     analysis=spec.analysis,
                     beam_solids=spec.beam_solids,
                     case_prefix=spec.case_prefix,
+                    heading_level=spec.heading_level,
                 )
             )
         return entries
@@ -855,8 +877,9 @@ class FeaModesCompareFilter(FigureSourceFilter):
         analysis: str,
         beam_solids: bool = False,
         case_prefix: str = "",
+        heading_level: int = 3,
     ) -> list:
-        entries: list = [MarkdownChunk(text=f"\n### {_config_label(config)}\n")]
+        entries: list = [MarkdownChunk(text=f"\n{'#' * heading_level} {_config_label(config)}\n")]
 
         loaded: dict[str, FeaDocAssets] = {}
         unavailable: list[str] = []
