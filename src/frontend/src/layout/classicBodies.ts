@@ -33,6 +33,7 @@ import SimulationControls, { SimulationBody } from "@/components/simulation/Simu
 import SimulationDataInfoPanel from "@/components/simulation/SimulationDataInfoPanel";
 import ComponentControls, { ComponentControlsBody } from "@/components/component_view/ComponentControls";
 import CellBuilderPanel, { CellBuilderBody } from "@/components/viewer/CellBuilderPanel";
+import { ComponentListBody, ComponentListPanel } from "@/components/viewer/cellbuilder/panel/ComponentList";
 
 import { CORE_PANEL_IDS } from "./corePanels";
 import type { PanelId, PanelProps } from "./panel";
@@ -79,6 +80,7 @@ export const CLASSIC_PANEL_COMPONENTS: Readonly<Record<PanelId, React.ComponentT
   [CORE_PANEL_IDS.feaTable]: asBody(SimulationDataInfoPanel),
   [CORE_PANEL_IDS.componentControls]: asBody(ComponentControls),
   [CORE_PANEL_IDS.cellbuilder]: asBody(CellBuilderPanel),
+  [CORE_PANEL_IDS.componentList]: asBody(ComponentListPanel),
 };
 
 /** Each core panel's content without its classic frame. */
@@ -94,6 +96,7 @@ export const CLASSIC_PANEL_CONTENTS: Readonly<Record<PanelId, React.ComponentTyp
   [CORE_PANEL_IDS.feaTable]: withOptions(SimulationDataInfoPanel),
   [CORE_PANEL_IDS.componentControls]: withOptions(ComponentControlsBody),
   [CORE_PANEL_IDS.cellbuilder]: withOptions(CellBuilderBody),
+  [CORE_PANEL_IDS.componentList]: asBody(ComponentListBody),
 };
 
 type Loader = () => Promise<React.ComponentType<PanelProps>>;

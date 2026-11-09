@@ -8,7 +8,10 @@
 //   section         section planes: one per axis, on / off, flip, the offset slider, remove
 //   representation  edges, an FEA result's undeformed outline, element edges and colours, node / element number labels
 //   colorBy         colour the scene by a property (an FEA section / material / thickness, the models), and reset
-//   build           the procedural builder: model name and revision, undo / redo, compile, commit, close
+//   build           the procedural builder: model name and revision, undo / redo, compile, commit, close,
+//                   and the tools: placement (cell, loft, opening and equipment with their type pickers),
+//                   the move / rotate / resize gizmos, the view (topology / simulation / detail, result over
+//                   or beside the topology); each part is a component of its own too
 //
 // Core has no scene-wide wireframe, transparency or annotation (measure, label,
 // markup) tools to put in a toolbar; there is no group for them.
@@ -23,6 +26,7 @@ import {useSectionStore} from "@/state/sectionStore";
 import {hasEmbeddedDoc, useCellBuilderStore} from "@/state/cellBuilderStore";
 import {useColorByStore} from "@/state/colorByStore";
 import {useLabelsStore} from "@/state/labelsStore";
+import {typePickerItems} from "@/utils/cellbuilder/ports";
 import {
   applyColorBy,
   colorBySources,
@@ -33,67 +37,18 @@ import {
 import {setResultScale, setResultStep} from "@/utils/scene/fea/playbackActions";
 
 import {CORE_COMMAND_IDS as ID} from "./coreCommandIds";
-import {CORE_COMMAND_ICONS, PauseIcon, PlayIcon} from "./commandIcons";
-import {commandsVersion, getCommand, runCommand, subscribeCommands} from "./commands";
+import {PauseIcon, PlayIcon} from "./commandIcons";
+import {CommandButton, type CommandButtonProps} from "./CommandButton";
+import {SplitButton, type SplitButtonItem} from "./SplitButton";
 import {workingPlane} from "./coreCommands";
 import {CORE_MODE_TOOLBAR_IDS, type CoreModeToolbarId} from "./shellModes";
 
+export {CommandButton};
+export type {CommandButtonProps};
+
 const BAR = "flex items-center gap-0.5 text-xs";
-const BUTTON =
-  "inline-flex h-6 min-w-6 items-center justify-center rounded-sm px-1 transition-colors disabled:opacity-40 " +
-  "hover:enabled:bg-white/10";
-const BUTTON_ON = "bg-[var(--ada-tab-active-bg,#374151)] text-[var(--ada-tab-active-text,#ffffff)]";
 const FIELD = "h-6 rounded-sm bg-white px-1 text-black";
 const DIVIDER = <span aria-hidden="true" className="mx-1 h-4 w-px bg-white/20" />;
-
-/** Re-render when a command is registered or replaced. */
-function useCommandsVersion(): void {
-  React.useSyncExternalStore(subscribeCommands, commandsVersion, commandsVersion);
-}
-
-export interface CommandButtonProps {
-  /** A registered command's id. */
-  id: string;
-  /** Overrides the command's label as the tooltip and the accessible name. */
-  label?: string;
-  /** Overrides the command's icon (a toggle that swaps icons). */
-  icon?: React.FC;
-  /** Overrides the command's ticked state. */
-  pressed?: boolean;
-  /** Text after the icon. */
-  children?: React.ReactNode;
-}
-
-/**
- * A button that runs a command: its icon, label and tooltip from the command,
- * greyed (with the reason as the tooltip) while it cannot run, pressed while it
- * is checked. Nothing when the command is not offered. Its state is read at
- * render; the caller re-renders it when the state it shows changes.
- */
-export function CommandButton({id, label, icon, pressed, children}: CommandButtonProps) {
-  useCommandsVersion();
-  const c = getCommand(id);
-  if (!c || (c.when && !c.when())) return null;
-  const reason = c.disabledReason?.() ?? null;
-  const checked = pressed ?? c.checked?.();
-  const Icon = icon ?? c.icon ?? CORE_COMMAND_ICONS[id];
-  const name = label ?? c.label;
-  return (
-    <button
-      type="button"
-      className={`${BUTTON} ${checked ? BUTTON_ON : ""}`}
-      title={reason ? `${name} (${reason})` : name}
-      aria-label={name}
-      aria-pressed={checked === undefined ? undefined : checked}
-      disabled={!!reason}
-      data-command={id}
-      onClick={() => void runCommand(id)}
-    >
-      {Icon && <Icon />}
-      {children}
-    </button>
-  );
-}
 
 /** Play / pause, stop, step back and forward, the step slider, the period and the deformation scale of a result. */
 export function PlaybackToolbar({className = BAR}: {className?: string}) {
@@ -217,8 +172,8 @@ export function SectionToolbar({className = BAR}: {className?: string}) {
 export function RepresentationToolbar({className = BAR}: {className?: string}) {
   // Re-render when any of what the buttons show changes.
   useOptionsStore((s) => s.showEdges);
-  useFeaAnimationStore((s) => `${s.sessionActive}${s.showUndeformed}${s.elementEdgesVisible}${s.resultColorsVisible}`);
-  useLabelsStore((s) => `${s.nodes}${s.elements}`);
+  useFeaAnimationStore((s) => `${s.sessionActive}${s.showUndeformed}${s.elementEdgesVisible}${s.resultColorsVisible}${s.warpEnabled}`);
+  useLabelsStore((s) => `${s.nodes}${s.elements}${s.values}`);
   return (
     <div className={className} role="group" aria-label="Representation" data-mode-toolbar="representation">
       <CommandButton id={ID.edges} />
@@ -227,9 +182,11 @@ export function RepresentationToolbar({className = BAR}: {className?: string}) {
       <CommandButton id={ID.feaToggleResultColors} />
       <CommandButton id={ID.feaToggleElementEdges} />
       <CommandButton id={ID.feaToggleUndeformed} />
+      <CommandButton id={ID.warp} />
       {DIVIDER}
       <CommandButton id={ID.labelsNodes} />
       <CommandButton id={ID.labelsElements} />
+      <CommandButton id={ID.labelsValues} />
     </div>
   );
 }
@@ -269,19 +226,125 @@ export function ColorByToolbar({className = BAR}: {className?: string}) {
   );
 }
 
+/** Re-render when anything the builder's buttons show changes (the model, history, compile, the tools, the view). */
+function useBuilderKey(): void {
+  useCellBuilderStore(
+    (s) =>
+      `${s.active?.name ?? ""}|${s.active?.revision ?? ""}|${s.dirty}|${s.past.length}|${s.future.length}|${s.compileJob?.status ?? ""}|${s.committing}` +
+      `|${s.mode}|${s.gizmoMode}|${s.repMode}|${s.superimpose}|${s.sideBySide}|${s.selection?.cellId ?? ""}` +
+      `|${s.openingTypes.length}|${s.equipmentTypes.length}|${s.selectedOpeningType ?? ""}|${s.selectedEquipmentType ?? ""}|${Object.keys(s.cells).length}`,
+  );
+}
+
+/** The label of the type `slug` among `types`, null when none is picked (or the pick is gone from the list). */
+function pickedTypeLabel(types: {slug: string; name: string; origin: string}[], slug: string | null): string | null {
+  return typePickerItems(types).find((t) => t.slug === slug)?.label ?? null;
+}
+
+/**
+ * Placement: add a cell, a loft member, an opening or a piece of equipment. The last two are split
+ * buttons: the caret picks the type, the main half places the type picked last (and opens the picker
+ * while none is picked yet). Equipment's picker also seats a piece onto or into an existing cell.
+ */
+export function BuilderPlacementTools() {
+  useBuilderKey();
+  const s = useCellBuilderStore.getState();
+  const hasCells = Object.values(s.cells).some((c) => c.kind === "cell");
+  const opening: SplitButtonItem[] = s.openingTypes.length
+    ? typePickerItems(s.openingTypes).map((t) => ({
+        key: t.key,
+        label: t.label,
+        onClick: () => {
+          s.setSelectedOpeningType(t.slug);
+          s.setMode("add-opening");
+        },
+      }))
+    : [{key: "none", label: "No opening types", disabled: true, onClick: () => {}}];
+  const equipment: SplitButtonItem[] = [
+    ...(s.equipmentTypes.length
+      ? typePickerItems(s.equipmentTypes).map((t) => ({
+          key: t.key,
+          label: t.label,
+          title: "Place this type at the cursor",
+          onClick: () => {
+            s.setSelectedEquipmentType(t.slug);
+            s.setMode("add-equipment");
+          },
+        }))
+      : [{key: "none", label: "No equipment types", disabled: true, onClick: () => {}}]),
+    {
+      key: "insert",
+      label: "Insert onto/into cell…",
+      separatorBefore: true,
+      disabled: !hasCells || s.equipmentTypes.length === 0,
+      title: hasCells ? "Seat the picked type on a cell's floor or roof, centred on its footprint" : "Add a cell first",
+      onClick: () => {
+        // The insert flow builds the picked type; the first when none is picked yet.
+        if (!s.selectedEquipmentType && s.equipmentTypes[0]) s.setSelectedEquipmentType(s.equipmentTypes[0].slug);
+        s.openInsertMenu(240, 120, null);
+      },
+    },
+  ];
+  return (
+    <div className={BAR} role="group" aria-label="Place" data-builder-tools="place">
+      <CommandButton id={ID.builderAddCell} />
+      <CommandButton id={ID.builderAddLoft} />
+      <SplitButton
+        id={ID.builderAddOpening}
+        items={opening}
+        chosen={pickedTypeLabel(s.openingTypes, s.selectedOpeningType)}
+        menuHeader={<span className="font-medium text-gray-200">Opening type</span>}
+      />
+      <SplitButton
+        id={ID.builderAddEquipment}
+        items={equipment}
+        chosen={pickedTypeLabel(s.equipmentTypes, s.selectedEquipmentType)}
+        menuHeader={<span className="font-medium text-gray-200">Equipment type</span>}
+      />
+    </div>
+  );
+}
+
+/** The move, rotate and resize gizmos on the selected component (the G, R and S keys). */
+export function BuilderGizmoTools() {
+  useBuilderKey();
+  return (
+    <div className={BAR} role="group" aria-label="Gizmos" data-builder-tools="gizmo">
+      <CommandButton id={ID.builderTranslate} />
+      <CommandButton id={ID.builderRotate} />
+      <CommandButton id={ID.builderResize} />
+    </div>
+  );
+}
+
+/** What the builder shows: the topology, the simulation or the detail model; the result over or beside the topology. */
+export function BuilderViewTools() {
+  useBuilderKey();
+  return (
+    <div className={BAR} role="group" aria-label="Model view" data-builder-tools="view">
+      <CommandButton id={ID.builderRepTopology}>
+        <span className="ml-1">Topology</span>
+      </CommandButton>
+      <CommandButton id={ID.builderRepSimulation}>
+        <span className="ml-1">Sim</span>
+      </CommandButton>
+      <CommandButton id={ID.builderRepDetail}>
+        <span className="ml-1">Detail</span>
+      </CommandButton>
+      <CommandButton id={ID.builderSuperimpose} />
+      <CommandButton id={ID.builderSideBySide} />
+    </div>
+  );
+}
+
 /**
  * The procedural builder: which model is open and whether it has unsaved changes, undo / redo, compile
  * (on the server, forced, in the browser), commit, and closing the model. Each button is a core command,
  * greyed with its reason when the model is read-only, the connection cannot compile, or there is nothing to do.
  */
 export function BuilderToolbar({className = BAR}: {className?: string}) {
-  // Re-render when any of what the buttons and the status show changes.
-  const status = useCellBuilderStore(
-    (s) =>
-      `${s.active?.name ?? ""}|${s.active?.revision ?? ""}|${s.dirty}|${s.past.length}|${s.future.length}|${s.compileJob?.status ?? ""}|${s.committing}`,
-  );
+  useBuilderKey();
   const s = useCellBuilderStore.getState();
-  void status;
   const loaded = s.active !== null || hasEmbeddedDoc(s);
   return (
     <div className={className} role="group" aria-label="Procedural builder" data-mode-toolbar="build">
@@ -293,6 +356,9 @@ export function BuilderToolbar({className = BAR}: {className?: string}) {
           unsaved
         </span>
       )}
+      <CommandButton id={ID.builderNew}>
+        {!loaded && <span className="ml-1">New model</span>}
+      </CommandButton>
       <CommandButton id={ID.builderUndo} />
       <CommandButton id={ID.builderRedo} />
       {DIVIDER}
@@ -305,6 +371,16 @@ export function BuilderToolbar({className = BAR}: {className?: string}) {
       </CommandButton>
       {DIVIDER}
       <CommandButton id={ID.builderClose} />
+      {loaded && (
+        <>
+          {DIVIDER}
+          <BuilderPlacementTools />
+          {DIVIDER}
+          <BuilderGizmoTools />
+          {DIVIDER}
+          <BuilderViewTools />
+        </>
+      )}
     </div>
   );
 }

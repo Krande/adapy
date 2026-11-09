@@ -168,7 +168,9 @@ test("a mode names core toolbars; ShellModeToolbar draws them in order, skipping
   assert.ok(out.indexOf('data-mode-toolbar="section"') < out.indexOf('data-mode-toolbar="playback"'));
   assert.doesNotMatch(out, /representation/);
   M.setShellMode("b");
-  assert.equal(html(React.createElement(ShellModeToolbar)), "");
+  // No toolbars: the region stays (it holds the room), with nothing in it; bare, nothing at all.
+  assert.doesNotMatch(html(React.createElement(ShellModeToolbar)), /data-mode-toolbar="/);
+  assert.equal(html(React.createElement(ShellModeToolbar, { region: false })), "");
   M.setShellModes([]);
   C.resetCommands();
 });
@@ -182,7 +184,7 @@ test("the Desktop UI's modes name core toolbars that exist", () => {
 });
 
 test("the facade publishes the toolbars, and the API version moved with them", () => {
-  assert.equal(V.VIEWER_CORE_API_VERSION, "1.15.0");
+  assert.equal(V.VIEWER_CORE_API_VERSION, "1.16.0");
   assert.deepEqual([...V.CORE_MODE_TOOLBAR_IDS], ["playback", "section", "representation", "colorBy", "build"]);
   // The layout entry imports every panel (and their styles), so its exports are read from the source.
   const facade = readFileSync(new URL("../../viewer-core/layout.ts", import.meta.url), "utf8");

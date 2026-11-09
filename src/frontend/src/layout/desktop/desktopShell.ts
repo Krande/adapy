@@ -15,6 +15,7 @@
 import { CORE_COMMAND_IDS, cameraViewCommandId } from "../coreCommandIds";
 import { CORE_PANEL_IDS } from "../corePanelIds";
 import { RAIL_SEPARATOR } from "../toolRailModel";
+import { SHELL_BAR } from "../statusItems";
 import type { GridNode } from "../splitTree";
 import { getUiShell, registerUiShell, type UiShellSpec } from "@/plugins/uiShells";
 
@@ -22,9 +23,7 @@ import { getUiShell, registerUiShell, type UiShellSpec } from "@/plugins/uiShell
 export const DESKTOP_UI_SHELL_ID = "desktop";
 
 /** The menu bar's and the status bar's look: core's window tokens, the classic colours where unset. */
-export const DESKTOP_BAR =
-  "flex shrink-0 items-center gap-2 border-[var(--ada-window-border,#374151)] bg-[var(--ada-window-header-bg,#1f2937)] " +
-  "text-[var(--ada-window-header-text,#f3f4f6)]";
+export const DESKTOP_BAR = SHELL_BAR;
 
 /** The owner the shell registers under: core. */
 const OWNER = "core";
@@ -43,7 +42,7 @@ export const DESKTOP_GROUPS = {
   bottom: "bottom",
 } as const;
 
-const { tree, storage, objectInfo, scene, simulation, feaTable, cellbuilder, equipmentAdmin, systemAdmin } = CORE_PANEL_IDS;
+const { tree, storage, objectInfo, scene, simulation, feaTable, cellbuilder, componentList, equipmentAdmin, systemAdmin } = CORE_PANEL_IDS;
 
 /** The view and the results dock under it; collapsed to a strip of icons in the Model mode. */
 function centre(bottomCollapsed: boolean): GridNode {
@@ -115,7 +114,7 @@ export const DESKTOP_BUILD_GRID: GridNode = {
       fixed: RIGHT,
       children: [
         { kind: "group", id: DESKTOP_GROUPS.rightTop, panels: [objectInfo], active: objectInfo },
-        { kind: "group", id: DESKTOP_GROUPS.rightBottom, panels: [scene, equipmentAdmin, systemAdmin], active: scene, arrangement: "auto" },
+        { kind: "group", id: DESKTOP_GROUPS.rightBottom, panels: [scene, componentList, equipmentAdmin, systemAdmin], active: scene, arrangement: "auto" },
       ],
     },
   ],
@@ -145,8 +144,14 @@ export const DESKTOP_RAIL_TOOLS: readonly string[] = [
   RAIL_SEPARATOR,
   CORE_COMMAND_IDS.selectAll,
   CORE_COMMAND_IDS.clearSelection,
+  CORE_COMMAND_IDS.selectParent,
+  CORE_COMMAND_IDS.selectChild,
+  CORE_COMMAND_IDS.selectPrevSibling,
+  CORE_COMMAND_IDS.selectNextSibling,
   RAIL_SEPARATOR,
   CORE_COMMAND_IDS.edges,
+  CORE_COMMAND_IDS.colorLegend,
+  CORE_COMMAND_IDS.dataDock,
   CORE_COMMAND_IDS.feaClearIsolation,
   RAIL_SEPARATOR,
   CORE_COMMAND_IDS.undo,
@@ -189,13 +194,12 @@ export function desktopUiShellSpec(): UiShellSpec {
           grid: DESKTOP_BUILD_GRID,
           open: [cellbuilder, objectInfo, scene],
           toolbars: ["build", "section"],
-          // Offered once a procedural model is open (from storage, or read off the loaded scene).
-          requires: "builder",
+          // Always offered: Build is where a model is started or opened, so its commands grey with their reasons until one is open.
         },
       ],
       defaultMode: "model",
       // Raise when the arrangements above change, so saved ones start over.
-      version: 2,
+      version: 3,
     },
     panels: {
       // In the Build mode the toolbar carries undo / redo, compile and commit, so the panel leaves out its footer and undo / redo.
@@ -203,7 +207,8 @@ export function desktopUiShellSpec(): UiShellSpec {
     },
     chrome: {
       header: () => import("./DesktopHeader"),
-      footer: () => import("./DesktopFooter"),
+      // Core's status bar, composed from core's items and one of its own (`StatusBar`).
+      statusItems: ["connection", "models", "selection", "mode", "compile", "undo", "version", { id: "ui", text: "Desktop UI", muted: true, end: true }],
       pageHeader: () => import("./DesktopPageHeader"),
       rail: { tools: DESKTOP_RAIL_TOOLS },
       // Core's wheel (hold the right button over the view, or Shift+E); on unless the user turns it off.

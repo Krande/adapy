@@ -59,6 +59,7 @@ export function desktopMenus({ modes, workspaces, shells, themes }: DesktopMenuI
         C.copyNames,
         C.groupSelection,
         SEP,
+        { label: "Navigate", items: [C.selectParent, C.selectChild, C.selectPrevSibling, C.selectNextSibling] },
         { label: "Visibility", items: [C.hideSelected, C.hideOthers, C.showAll] },
       ],
     },
@@ -76,6 +77,7 @@ export function desktopMenus({ modes, workspaces, shells, themes }: DesktopMenuI
             panel(P.simulation),
             panel(P.componentControls),
             panel(P.cellbuilder),
+            panel(P.componentList),
             panel(P.nodeEditor),
           ],
         },
@@ -83,11 +85,11 @@ export function desktopMenus({ modes, workspaces, shells, themes }: DesktopMenuI
         { label: "Camera", items: [C.fitAll, C.fitSelection, C.resetCamera, SEP, ...CAMERA_VIEWS.map(cameraViewCommandId)] },
         {
           label: "Display",
-          items: [C.edges, C.feaToggleResultColors, C.feaToggleElementEdges, C.feaToggleUndeformed, SEP, C.stats, C.gallery, SEP, C.toggleMarkingMenu],
+          items: [C.edges, C.feaToggleResultColors, C.feaToggleElementEdges, C.feaToggleUndeformed, C.warp, C.beamSections, SEP, C.stats, C.gallery, SEP, C.toggleMarkingMenu],
         },
-        { label: "Labels and colours", items: [C.labelsNodes, C.labelsElements, SEP, C.colorByNext, C.colorByModel, C.colorByReset] },
+        { label: "Labels and colours", items: [C.labelsNodes, C.labelsElements, C.labelsValues, SEP, C.colorByNext, C.colorByModel, C.colorByReset] },
         { label: "Section", items: [C.sectionX, C.sectionY, C.sectionZ, SEP, C.sectionToggle, C.sectionFlip, C.sectionClear] },
-        { label: "Results", items: [C.playPause, C.stopResults, C.stepBack, C.stepForward] },
+        { label: "Results", items: [C.playPause, C.stopResults, C.stepBack, C.stepForward, SEP, C.colorLegend, C.femConcepts, C.dataDock] },
         // The loaded result's sets and properties (rows in the tree too); greyed, with the reason, without one.
         {
           label: "FEA sets",
@@ -96,6 +98,7 @@ export function desktopMenus({ modes, workspaces, shells, themes }: DesktopMenuI
         { label: "Theme", items: themes.map(themeCommandId) },
         { label: "User interface", items: shells.map((s) => uiShellCommandId(s.id)) },
         SEP,
+        C.toggleUiFreeze,
         C.commandPalette,
         C.markingMenu,
         C.fullscreen,
@@ -107,7 +110,7 @@ export function desktopMenus({ modes, workspaces, shells, themes }: DesktopMenuI
   if (modes.some((m) => m.id === "build")) {
     menus.push({
       label: "Build",
-      items: [C.builderUndo, C.builderRedo, SEP, C.builderCompile, C.builderRecompile, C.builderCompileBrowser, SEP, C.builderCommit, C.builderClose, SEP, panel(P.cellbuilder)],
+      items: [C.builderNew, SEP, C.builderUndo, C.builderRedo, SEP, C.builderAddCell, C.builderAddLoft, C.builderAddOpening, C.builderAddEquipment, SEP, C.builderTranslate, C.builderRotate, C.builderResize, SEP, C.builderRepTopology, C.builderRepSimulation, C.builderRepDetail, C.builderSuperimpose, C.builderSideBySide, SEP, C.builderCompile, C.builderRecompile, C.builderCompileBrowser, SEP, C.builderCommit, C.builderClose, SEP, panel(P.cellbuilder), panel(P.componentList)],
     });
   }
   menus.push(
@@ -119,6 +122,7 @@ export function desktopMenus({ modes, workspaces, shells, themes }: DesktopMenuI
         SEP,
         C.resetLayout,
         C.resetAllLayouts,
+        C.toggleUiFreeze,
         C.customiseRail,
         SEP,
         {

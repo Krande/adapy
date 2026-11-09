@@ -14,6 +14,7 @@ import {typePickerItems} from "@/utils/cellbuilder/ports";
 import {Section, btn, describeToolState, inputCls} from "./chrome";
 import {CompileSettingsSection} from "./CompileSettingsSection";
 import {GroupsSection} from "./GroupsSection";
+import {ComponentList} from "./ComponentList";
 
 export const BuildTab: React.FC<{
   equipBtnRef: React.RefObject<HTMLButtonElement | null>;
@@ -324,75 +325,7 @@ export const BuildTab: React.FC<{
           // expand it when you want to browse/select from the list.
           defaultOpen={false}
         >
-          <div className="max-h-56 overflow-y-auto flex flex-col gap-1">
-            {Object.values(s.cells).length === 0 && (
-              <p className="italic text-gray-400">
-                No cells yet — use + Cell to start, or open a template from the
-                storage “＋ New from template” menu.
-              </p>
-            )}
-            {Object.values(s.cells).map((c) => (
-              <div
-                key={c.id}
-                className={
-                  "flex items-center gap-1 border-b border-gray-600/40 pb-0.5 cursor-pointer rounded-sm px-0.5 " +
-                  (s.selection?.cellId === c.id
-                    ? "bg-blue-900/40"
-                    : "hover:bg-gray-700/40")
-                }
-                onClick={() => s.setSelection({ kind: "cell", cellId: c.id })}
-              >
-                <span
-                  className="inline-block w-2 h-2 rounded-sm shrink-0"
-                  style={{
-                    background:
-                      c.kind === "cell"
-                        ? "#3b82f6"
-                        : c.kind === "loft"
-                          ? "#14b8a6"
-                          : "#f97316",
-                  }}
-                />
-                <span
-                  className="truncate"
-                  title={`${c.origin.map((v) => v.toFixed(2))} / ${c.size.map((v) => v.toFixed(2))}`}
-                >
-                  {c.name}
-                </span>
-                {c.kind === "equipment" && (
-                  <span className="text-gray-400">
-                    {c.equipmentType ?? "generic"}
-                  </span>
-                )}
-                {c.kind === "opening" && (
-                  <select
-                    className="bg-gray-700 text-gray-100 text-[11px] rounded-sm px-1"
-                    value={c.subtype ?? "door"}
-                    onClick={(e) => e.stopPropagation()}
-                    onChange={(e) =>
-                      s.updateCell(c.id, {
-                        subtype: e.target.value as "door" | "window",
-                      })
-                    }
-                    title="door: jambs + lintel + threshold (cut to floor); window: jambs + head + sill (punched at its height)"
-                  >
-                    <option value="door">door</option>
-                    <option value="window">window</option>
-                  </select>
-                )}
-                <button
-                  className="ml-auto px-1 rounded-sm hover:bg-gray-500/40"
-                  title="Delete"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    s.removeCell(c.id);
-                  }}
-                >
-                  🗑
-                </button>
-              </div>
-            ))}
-          </div>
+          <ComponentList />
         </Section>
       )}
 

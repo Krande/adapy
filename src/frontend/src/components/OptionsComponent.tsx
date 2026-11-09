@@ -5,6 +5,7 @@ import {useIsNarrow} from "@/utils/useIsMobile";
 import {runtime} from "@/runtime/config";
 import {CORE_PANEL_IDS, hide} from "@/layout/panelActions";
 import PointSizeOptions from "./options/PointSizeOptions";
+import ComputeOptions from "./options/ComputeOptions";
 import DisplayOptions from "./options/DisplayOptions";
 import LayoutOptions from "./options/LayoutOptions";
 import ExperimentalOptions from "./options/ExperimentalOptions";
@@ -44,6 +45,7 @@ export type OptionsSectionId =
     | "session"
     | "theme"
     | "performance"
+    | "compute"
     | "spacemouse"
     | "conversion"
     | "shortcuts";
@@ -62,6 +64,7 @@ const DEFAULT_SECTIONS: readonly OptionsSectionId[] = [
     "session",
     "theme",
     "performance",
+    "compute",
     "spacemouse",
     "conversion",
     "shortcuts",
@@ -127,6 +130,11 @@ export function OptionsBody({sections: picked, hiddenSections}: OptionsBodyProps
         performance: (
             <Section title="Performance">
                 <PerformanceOptions/>
+            </Section>
+        ),
+        compute: (
+            <Section title="Calculations">
+                <ComputeOptions/>
             </Section>
         ),
         spacemouse: (

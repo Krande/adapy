@@ -26,6 +26,10 @@ export { STORAGE_MODIFIED_MIN_PX, StorageBody } from "@/components/storage/Stora
 export type { StorageBodyProps } from "@/components/storage/StorageBrowser";
 export { OptionsBody } from "@/components/OptionsComponent";
 export type { OptionsBodyProps, OptionsSectionId } from "@/components/OptionsComponent";
+// The calculation options (cores, memory, mode: `useComputeStore`), also the Options panel's "compute" section.
+export { default as ComputeOptionsBody } from "@/components/options/ComputeOptions";
+// The procedural model's cells, lofts, openings and equipment as a list (the `core:component-list` panel's content).
+export { ComponentList, ComponentListBody } from "@/components/viewer/cellbuilder/panel/ComponentList";
 export type { SceneTreeRowOptions } from "@/components/tree_view/CustomNode";
 export {
   AnimationControls,
@@ -65,6 +69,45 @@ export { ServerInfoBody } from "@/components/server_info/ServerInfoBox";
 export { WebsocketStatusBody } from "@/components/WebsocketStatusMenu";
 
 // ---------------------------------------------------------------------------
+// Core's glyphs: the icon set core draws its panels, toolbars and tree with (plain components, no
+// props needed), so a shell uses the same marks instead of copying them. Not the command icons
+// (`CORE_COMMAND_ICONS`, below), which are keyed by command id.
+// ---------------------------------------------------------------------------
+export { default as ToggleControlsIcon } from "@/components/icons/AnimationControlToggle";
+export { default as AttributeSearchIcon } from "@/components/icons/AttributeSearchIcon";
+export { default as CellBuilderIcon } from "@/components/icons/CellBuilderIcon";
+export { default as ChevronRightIcon } from "@/components/icons/ChevronRightIcon";
+export { default as ComponentIcon } from "@/components/icons/ComponentIcon";
+export { default as CopyIcon } from "@/components/icons/CopyIcon";
+export { default as DeformScaleIcon } from "@/components/icons/DeformScaleIcon";
+export { default as DocumentIcon } from "@/components/icons/DocumentIcon";
+export { default as EquipmentCatalogIcon } from "@/components/icons/EquipmentCatalogIcon";
+export { default as ExpandIcon } from "@/components/icons/ExpandIcon";
+export { default as ExportAnimationIcon } from "@/components/icons/ExportAnimationIcon";
+export { default as FEMDataPanelIcon } from "@/components/icons/FEMDataPanelIcon";
+export { default as FileTypeIcon } from "@/components/icons/FileTypeIcon";
+export { default as FolderClosedIcon } from "@/components/icons/FolderClosedIcon";
+export { default as FolderOpenIcon } from "@/components/icons/FolderOpenIcon";
+export { default as GearIcon } from "@/components/icons/GearIcon";
+export { default as GraphIcon } from "@/components/icons/GraphIcon";
+export { default as GroupIcon } from "@/components/icons/GroupIcon";
+export { default as InfoIcon } from "@/components/icons/InfoIcon";
+export { default as PlayPauseIcon } from "@/components/icons/PlayPauseIcon";
+export { default as PlusIcon } from "@/components/icons/PlusIcon";
+export { default as PopOutIcon } from "@/components/icons/PopOutIcon";
+export { default as ProceduralModelIcon } from "@/components/icons/ProceduralModelIcon";
+export { default as ProcedureIcon } from "@/components/icons/ProcedureIcon";
+export { default as ReloadIcon } from "@/components/icons/ReloadIcon";
+export { default as SceneIcon } from "@/components/icons/SceneIcon";
+export { default as ServerIcon } from "@/components/icons/ServerIcon";
+export { default as StopIcon } from "@/components/icons/StopIcon";
+export { default as SystemCatalogIcon } from "@/components/icons/SystemCatalogIcon";
+export { default as TreeViewIcon } from "@/components/icons/TreeViewIcon";
+export { default as UploadIcon } from "@/components/icons/UploadIcon";
+export { default as ViewIcon } from "@/components/icons/ViewIcon";
+export { default as ViewOffIcon } from "@/components/icons/ViewOffIcon";
+
+// ---------------------------------------------------------------------------
 // Panel chrome, shared by core's panels and available to a shell's.
 // ---------------------------------------------------------------------------
 export {
@@ -85,6 +128,12 @@ export {
   windowHeaderClass,
 } from "@/components/ui/panelChrome";
 export type { PanelCardVariant } from "@/components/ui/panelChrome";
+// The popup menu core's menus use (anchored to a button's rect or a point, dismissed by a click outside) and the modal card
+// of its dialogs (title, body, a row of buttons; Escape closes).
+export { PositionedMenu } from "@/components/common/PositionedMenu";
+export type { KebabMenuItem, MenuAnchor } from "@/components/common/PositionedMenu";
+export { ModalButton, ModalFrame } from "@/components/ui/ModalFrame";
+export type { ModalFrameProps } from "@/components/ui/ModalFrame";
 // Core bodies drawn outside a panel (a dialog, a flyout) take the shell's body palette under this.
 export { PanelBodyPalette } from "@/components/ui/PanelBodyPalette";
 export type { PanelBodyPaletteProps } from "@/components/ui/PanelBodyPalette";
@@ -190,6 +239,9 @@ export { COMPACT_GROUP_PX } from "@/layout/presets/groupCompact";
 export { desktopMenus, menuCommandIds } from "@/layout/desktop/desktopMenus";
 export type { DesktopMenuInputs } from "@/layout/desktop/desktopMenus";
 export { openShortcutsDialog } from "@/components/options/ShortcutsModal";
+// UI freeze: lock the served UI's panel arrangement (`core:toggle-ui-freeze`, `UiShellChrome.uiFreeze`).
+export { setUiFrozen, uiFreezeOffered, uiFrozen, uiFreezeOn, useUiFreezeOffered, useUiFrozen } from "@/layout/uiFreeze";
+export type { UiFreezeOption } from "@/layout/uiFreeze";
 // Core's About and Export dialogs (what `core:about` / `core:export-*` open); a composed layout mounts their host.
 export { closeCoreDialog, openCoreDialog } from "@/layout/coreDialogs";
 export type { CoreDialogRequest, ExportScope } from "@/layout/coreDialogs";
@@ -264,12 +316,26 @@ export {
   CORE_MODE_TOOLBARS,
   CoreModeToolbars,
   ColorByToolbar,
+  BuilderGizmoTools,
+  BuilderPlacementTools,
   BuilderToolbar,
+  BuilderViewTools,
   PlaybackToolbar,
   RepresentationToolbar,
   SectionToolbar,
 } from "@/layout/ModeToolbars";
 export type { CommandButtonProps } from "@/layout/ModeToolbars";
+export { COMMAND_BUTTON, COMMAND_BUTTON_ON } from "@/layout/CommandButton";
+// A split button: an action and a picker on a caret, over a command.
+export { SplitButton, splitButtonState } from "@/layout/SplitButton";
+export type { SplitButtonItem, SplitButtonProps, SplitButtonState } from "@/layout/SplitButton";
+// The status bar and the page header the Desktop UI draws, for a shell that composes them (`UiShellChrome.statusItems`, `pageHeader`).
+export { CORE_STATUS_ITEMS, StatusBar, StatusItem, compileLabel, connectionLabel, resolveStatusItems } from "@/layout/StatusBar";
+export type { StatusBarProps } from "@/layout/StatusBar";
+export { PageHeader } from "@/layout/PageHeader";
+export type { PageHeaderProps } from "@/layout/PageHeader";
+// The result view's actions outside the Simulation panel (what `core:color-legend`, `core:fem-concepts` and `core:data-dock` run).
+export { openFemConcepts, toggleColorLegend, toggleDataTable } from "@/layout/resultViewActions";
 export { NumberLabels, LABEL_CAP, LABEL_SCAN_CAP } from "@/layout/NumberLabels";
 export { ColorByLegend } from "@/layout/ColorByLegend";
 export type { PanelTogglesProps } from "@/layout/PanelToggles";

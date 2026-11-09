@@ -160,6 +160,8 @@ export interface LayoutPrefs {
    * Absent for a shell: on (`customisablePanelsOn`).
    */
   customisablePanelsByShell?: Record<string, boolean>;
+  /** UI freeze (lock the arrangement) on or off, by UI shell id, where the user chose (`./uiFreeze`). Absent: the shell's default. */
+  uiFreezeByShell?: Record<string, boolean>;
   /** Documents by `layoutDocKey`. */
   docs: Record<string, LayoutDoc>;
   /** A composed shell's pinned panels, by shell id: they stay open and placed across its modes. */

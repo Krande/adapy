@@ -71,6 +71,42 @@ export function elementLabelNumber(label: string): number | null {
     return m ? Number(m[1]) : null;
 }
 
+/**
+ * The field and step to read for slot `stepIndex` of `baseField`: the case's own blobs for a
+ * combination slot (the ones the colouring read), the stored step (clamped) otherwise, with the
+ * field's detail sidecar (the labels to find an element by) resolved on a split bake. Null where
+ * the case or the sidecar cannot be had. Shared by every reader of a result's per-element values.
+ */
+export async function resolveFieldSlot(
+    manifest: NonNullable<ReturnType<typeof useFeaAnimationStore.getState>["manifest"]>,
+    sourceName: string,
+    baseField: FeaManifestField,
+    stepIndex: number,
+    urlScope: ReturnType<typeof feaSourceScope>,
+    fetcher: Parameters<typeof withFieldDetail>[1],
+    cacheKey: Parameters<typeof withFieldDetail>[2],
+): Promise<{field: FeaManifestField; step: number} | null> {
+    let field = baseField;
+    let step: number;
+    const ref = slotRef(manifest, baseField, stepIndex);
+    if (isCaseRef(ref)) {
+        const resolution = peekCase(manifest, sourceName, ref.case)
+            ?? (await resolveCase(manifest, {scope: urlScope, sourceKey: sourceName}, ref.case).catch(() => null));
+        const caseView = resolution ? caseFieldView(baseField, resolution.overlay, resolution.relPrefix) : null;
+        if (!caseView) return null;
+        field = caseView;
+        step = 0;
+    } else {
+        step = Math.min(ref.stored, Math.max(0, (baseField.n_steps ?? 1) - 1));
+    }
+    try {
+        field = await withFieldDetail(field, fetcher, cacheKey);
+    } catch {
+        return null;
+    }
+    return {field, step};
+}
+
 /** The bucket holding this element, and its index within it. */
 function locate(
     field: FeaManifestField,
@@ -125,28 +161,9 @@ export async function feaValuesForElement(
     const out: ElementFieldValues[] = [];
     await Promise.all(
         wanted.map(async (baseField) => {
-            // A combination slot reads the case's own blobs (feaStepRef), the
-            // ones the colouring read; a stored slot its index, clamped as before.
-            let field = baseField;
-            let step: number;
-            const ref = slotRef(manifest, baseField, stepIndex);
-            if (isCaseRef(ref)) {
-                const resolution = peekCase(manifest, sourceName, ref.case)
-                    ?? (await resolveCase(manifest, {scope: urlScope, sourceKey: sourceName}, ref.case).catch(() => null));
-                const caseView = resolution ? caseFieldView(baseField, resolution.overlay, resolution.relPrefix) : null;
-                if (!caseView) return;
-                field = caseView;
-                step = 0;
-            } else {
-                step = Math.min(ref.stored, Math.max(0, (baseField.n_steps ?? 1) - 1));
-            }
-            // The labels to find the element by: the field's detail sidecar on a
-            // split bake (cached, and shared with the colouring that fetched it).
-            try {
-                field = await withFieldDetail(field, fetcher, cacheKey);
-            } catch {
-                return;
-            }
+            const slot = await resolveFieldSlot(manifest, sourceName, baseField, stepIndex, urlScope, fetcher, cacheKey);
+            if (!slot) return;
+            const {field, step} = slot;
             const found = locate(field, elementId);
             if (!found) return;
             const {bucket, index} = found;

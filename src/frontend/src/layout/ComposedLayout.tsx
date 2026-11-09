@@ -163,6 +163,7 @@ export function installShell(spec: UiShellSpec | null, baseline?: ShellRegistrat
       version: spec.layout?.version,
       migrate: spec.layout?.migrate,
       customisablePanels: spec.layout?.customisablePanels,
+      uiFreeze: spec.chrome?.uiFreeze,
     },
     listShellModes().map((m) => m.id),
   );
@@ -275,6 +276,9 @@ function useModeEffects(shellId: string | null): void {
   }, [shellId]);
 }
 
+/** The status bar loads when a shell composes one (`UiShellChrome.statusItems`). */
+const StatusBar = React.lazy(() => import("./StatusBar"));
+
 /**
  * Core's layout dressed as shell `spec`, or as core's own UI for null. An
  * in-place switch hands in another `spec` (`UiShellHost`, `CoreShellRoot`):
@@ -289,6 +293,8 @@ export default function ComposedLayout({spec, children}: {spec: UiShellSpec | nu
   const lazyOf = (load?: () => Promise<{default: React.ComponentType}>) => (load ? React.lazy(load) : null);
   const Header = React.useMemo(() => lazyOf(spec?.chrome?.header), [spec]);
   const Footer = React.useMemo(() => lazyOf(spec?.chrome?.footer), [spec]);
+  // Without a footer of its own, the shell's `statusItems` are core's status bar.
+  const statusItems = spec?.chrome?.footer ? undefined : spec?.chrome?.statusItems;
   // `chrome.rail`: core's tool rail (`{tools}`), or a component of the shell's own.
   const railSlot = spec?.chrome?.rail;
   const Rail = React.useMemo(() => lazyOf(typeof railSlot === "function" ? railSlot : undefined), [railSlot]);
@@ -309,7 +315,11 @@ export default function ComposedLayout({spec, children}: {spec: UiShellSpec | nu
         <div className="relative h-full min-w-0 flex-1">{children ?? <LayoutRoot />}</div>
       </div>
       {slot(Footer)}
-
+      {statusItems && (
+        <Suspense fallback={null}>
+          <StatusBar items={statusItems} />
+        </Suspense>
+      )}
       {/* The marking menu over the 3D view, where the served UI has it on (nothing otherwise). */}
       <MarkingMenuHost />
       {/* Core's rail's customise dialog (Window -> Customise tool rail…, the rail's own button). */}

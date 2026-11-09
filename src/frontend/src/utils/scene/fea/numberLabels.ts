@@ -21,7 +21,7 @@ import * as THREE from "three";
 
 import {vertexWorldPosition} from "./goToNode";
 
-export type LabelKind = "node" | "element";
+export type LabelKind = "node" | "element" | "value";
 
 export interface ScreenLabel {
     /** Stable across passes while the same entity is labelled. */
@@ -36,6 +36,13 @@ export interface ScreenLabel {
 export interface LabelOptions {
     nodes: boolean;
     elements: boolean;
+    /**
+     * Label each element with its value (`valueText`) rather than its number: the shown result or a
+     * model property. Picked and thinned like the numbers: same selection, same screen grid.
+     */
+    values?: boolean;
+    /** An element's value as text from its number; undefined = no label for that element. */
+    valueText?: (elementNumber: number) => string | undefined;
     /** The most labels returned. */
     cap: number;
     /** The most elements examined in one pass. */
@@ -109,7 +116,8 @@ function candidates(mesh: MeshLike, keys: readonly string[], opts: LabelOptions)
             const v = index.getX(j);
             if (!verts.includes(v)) verts.push(v);
         }
-        if (opts.elements) {
+        const valueText = opts.values ? opts.valueText?.(Number(elementText(key))) : undefined;
+        if (opts.elements || valueText !== undefined) {
             sum.set(0, 0, 0);
             let n = 0;
             for (const v of verts) {
@@ -118,7 +126,11 @@ function candidates(mesh: MeshLike, keys: readonly string[], opts: LabelOptions)
                 sum.add(p);
                 n++;
             }
-            if (n) out.push({key: `e:${key}`, kind: "element", text: elementText(key), pos: sum.clone().multiplyScalar(1 / n)});
+            if (n) {
+                const pos = sum.clone().multiplyScalar(1 / n);
+                if (valueText !== undefined) out.push({key: `v:${key}`, kind: "value", text: valueText, pos});
+                else out.push({key: `e:${key}`, kind: "element", text: elementText(key), pos});
+            }
         }
         if (opts.nodes) {
             for (const v of verts) {
@@ -134,7 +146,7 @@ function candidates(mesh: MeshLike, keys: readonly string[], opts: LabelOptions)
 
 /** The labels for `mesh` seen from `camera`. */
 export function collectLabels(mesh: THREE.Mesh | null, camera: THREE.Camera | null, opts: LabelOptions): ScreenLabel[] {
-    if (!mesh || !camera || (!opts.nodes && !opts.elements) || opts.width <= 0 || opts.height <= 0) return [];
+    if (!mesh || !camera || (!opts.nodes && !opts.elements && !opts.values) || opts.width <= 0 || opts.height <= 0) return [];
     const m = mesh as MeshLike;
     const keys = pickElements(m, opts.selected, opts.scanCap);
     if (!keys.length) return [];
@@ -143,8 +155,9 @@ export function collectLabels(mesh: THREE.Mesh | null, camera: THREE.Camera | nu
     const taken = new Set<string>();
     const out: ScreenLabel[] = [];
     const v = new THREE.Vector3();
-    // Elements first, so where both are on, an element's number wins its cell over a node's.
-    const cands = candidates(m, keys, opts).sort((a, b) => Number(a.kind === "node") - Number(b.kind === "node"));
+    // Values, then element numbers, then nodes: where several are on, the earlier wins the cell.
+    const rank = (k: LabelKind) => (k === "value" ? 0 : k === "element" ? 1 : 2);
+    const cands = candidates(m, keys, opts).sort((a, b) => rank(a.kind) - rank(b.kind));
     for (const c of cands) {
         v.copy(c.pos).project(camera);
         if (!(v.z >= -1 && v.z <= 1) || Math.abs(v.x) > 1 || Math.abs(v.y) > 1) continue;
