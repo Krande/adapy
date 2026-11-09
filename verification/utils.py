@@ -476,3 +476,112 @@ def create_plate_eig_df(results, closed_form: list) -> "pd.DataFrame | None":
         record["closed form"] = closed_form[i]
         records.append(record)
     return _closed_form_last(pd.DataFrame.from_records(records), "Mode")
+
+
+# ---------------------------------------------------------------------------------------------
+# The NAFEMS benchmarks, and the cantilever's bending modes against a closed form
+# ---------------------------------------------------------------------------------------------
+
+
+@dataclass
+class NafemsResult(FeaCaseResult):
+    """One benchmark run: the stress at point D, and the mesh density that gave it."""
+
+    case: str = None
+    divisions: int = None
+    n_elements: int = None
+    stress_yy: float = None
+
+    def _extra_payload(self) -> dict:
+        return {
+            "case": self.case,
+            "divisions": self.divisions,
+            "n_elements": self.n_elements,
+            "stress_yy": self.stress_yy,
+        }
+
+    def _hydrate_extras(self, payload: dict) -> None:
+        self.case = payload["case"]
+        self.divisions = payload["divisions"]
+        self.n_elements = payload["n_elements"]
+        self.stress_yy = payload["stress_yy"]
+
+
+def create_nafems_df(results, target_pa: float) -> "pd.DataFrame | None":
+    """Rows are mesh densities. Each solver gets its stress in MPa and its deviation from the target in %."""
+    rows: dict = {}
+    for res in results:
+        if res.stress_yy is None:
+            continue
+        rows.setdefault((res.divisions, res.n_elements), {})[
+            short_name_map.get(res.fem_format, res.fem_format)
+        ] = res.stress_yy
+    if not rows:
+        return None
+    solvers = sorted({solver for row in rows.values() for solver in row})
+    records = []
+    for (divisions, n_elements), row in sorted(rows.items()):
+        record: dict = {"Divisions": divisions, "Elements": n_elements}
+        for solver in solvers:
+            value = row.get(solver)
+            record[f"{solver} [MPa]"] = None if value is None else round(value / 1e6, 3)
+            record[f"{solver} Δ [%]"] = None if value is None else round((value - target_pa) / target_pa * 100.0, 2)
+        record["target [MPa]"] = target_pa / 1e6
+        records.append(record)
+    return pd.DataFrame.from_records(records)
+
+
+#: A mode counts as bending in a direction only if at least this share of the beam's effective mass
+#: moves that way, relative to its largest. It keeps out torsion and local web modes.
+_BENDING_MEFF_FLOOR = 1e-3
+
+
+def bending_modes(modes: list, direction: str, count: int) -> list[float]:
+    """The frequencies of the first ``count`` modes moving mainly in ``direction``, in order.
+
+    By shape and not by index, because a torsion mode falls between the bending modes, and in a different place in each
+    representation. Empty when a solver reported no effective masses.
+    """
+    key = f"ef{direction.lower()}"
+    if not modes or all(getattr(m, key, None) is None for m in modes):
+        return []
+    largest = max(max(abs(m.efx or 0.0), abs(m.efy or 0.0), abs(m.efz or 0.0)) for m in modes)
+
+    def is_bending(m) -> bool:
+        share = abs(getattr(m, key) or 0.0)
+        return share >= largest * _BENDING_MEFF_FLOOR and share == max(
+            abs(m.efx or 0.0), abs(m.efy or 0.0), abs(m.efz or 0.0)
+        )
+
+    return [m.f_hz for m in sorted(modes, key=lambda m: m.f_hz) if is_bending(m)][:count]
+
+
+def create_bending_deviation_df(results, geom_repr: str, el_order: int, closed_form: dict) -> "pd.DataFrame | None":
+    """Rows are bending modes, the closed form in Hz first, then each case's deviation from it in %."""
+    columns: dict[str, dict[str, float]] = {}
+    for res in results:
+        if res.metadata["geo"] != geom_repr or res.metadata["elo"] != el_order or res.eig_data is None:
+            continue
+        hq, reduced = res.metadata["hexquad"], res.metadata.get("reduced_integration", False)
+        tag = ""
+        if geom_repr == "solid":
+            tag = "_HEX" if hq else "_TET"
+        elif geom_repr == "shell":
+            tag = "_QUAD" if hq else "_TRI"
+        label = f"{short_name_map[res.fem_format]}{tag}{'R' if reduced else ''}"
+        for direction, references in closed_form.items():
+            found = bending_modes(res.eig_data.modes, direction, len(references))
+            for n, (value, reference) in enumerate(zip(found, references), start=1):
+                columns.setdefault(label, {})[f"{direction}{n}"] = round((value - reference) / reference * 100.0, 2)
+    if not columns:
+        return None
+    records = []
+    for direction, references in closed_form.items():
+        for n, reference in enumerate(references, start=1):
+            key = f"{direction}{n}"
+            measured = {c: columns[c].get(key) for c in sorted(columns)}
+            # A mode none of these cases captured (11 modes don't reach it) has nothing to compare.
+            if any(v is not None for v in measured.values()):
+                shown = {c: "–" if v is None else v for c, v in measured.items()}
+                records.append({"Mode": key, "closed form [Hz]": round(reference, 3), **shown})
+    return pd.DataFrame.from_records(records) if records else None

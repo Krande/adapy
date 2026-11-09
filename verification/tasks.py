@@ -68,6 +68,14 @@ from paradoc.tasks import (  # noqa: E402
 )
 
 import ada  # noqa: E402
+from ada.api.fem_benchmarks import (  # noqa: E402
+    NAFEMS_CASES,
+    cantilever_bending_frequencies,
+    mesh_nafems_le,
+    nafems_case_name,
+    run_nafems_le,
+    stress_yy_at,
+)
 from ada.api.fem_tasks import (  # noqa: E402
     PLATE_PART_NAME,
     PLATE_STRIP_LENGTH,
@@ -453,6 +461,35 @@ def eig_tables(results: list) -> list:
                 caption=caption,
                 show_index=False,
                 default_sort=("Mode", True),
+            )
+        )
+    return out
+
+
+#: The representations compared with the Euler-Bernoulli bending modes: the second-order ones, whose
+#: discretisation error is small enough for the gap to be about the theory.
+_BENDING_SPECS = [("line", "Line"), ("shell", "Shell"), ("solid", "Solid")]
+
+
+@task(parent=postprocess)
+def eig_closed_form_tables(results: list) -> list:
+    """The bending modes against Euler-Bernoulli, matched by the direction each mode moves in."""
+    closed_form = cantilever_bending_frequencies()
+    out: list = []
+    for geo, label in _BENDING_SPECS:
+        df = ru.create_bending_deviation_df(results, geo, 2, closed_form)
+        if df is None or df.empty:
+            logger.info(f"no bending modes for {geo}, skipping table")
+            continue
+        out.append(
+            TableOutcome(
+                key=f"eig_bending_{geo}_o2",
+                df=df,
+                caption=(
+                    f"{label}, 2nd order: bending frequencies against Euler-Bernoulli. Each solver column is the "
+                    "deviation in %. Y modes bend about the weak axis, Z about the strong axis."
+                ),
+                show_index=False,
             )
         )
     return out
@@ -1027,3 +1064,109 @@ def plate_static_fea_outputs(results: list) -> list:
     """
     at_seed = [r for r in results if getattr(r, "mesh_size", None) == _PLATE_EIG_MESH_SIZE]
     return _plate_bundle_outcomes(at_seed, "plate_static_")
+
+
+# ---------------------------------------------------------------------------------------------
+# The NAFEMS benchmarks: solids against published targets
+# ---------------------------------------------------------------------------------------------
+#
+# The cantilever and the plate are checked against formulas this report derives. LE1 and LE10 are
+# checked against values someone else published, which is the point of having them. They are also
+# the only cases reaching solid-element pressure records.
+
+#: Radial divisions. Twice that go around the ellipse and, for LE10, the same through the thickness.
+_NAFEMS_DIVISIONS = [2, 4, 8]
+
+_NAFEMS_SCRATCH_DIR = _THIS_DIR / "temp" / "nafems"
+
+#: Beside `.cache` and not in it, for the reason given at `_PLATE_CACHE_DIR`.
+_NAFEMS_CACHE_DIR = _THIS_DIR / ".cache-nafems"
+_NAFEMS_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+
+@task(fanout={"case": sorted(NAFEMS_CASES), "divisions": _NAFEMS_DIVISIONS})
+def nafems_mesh(*, case: str, divisions: int) -> ada.Assembly:
+    """The benchmark model at one mesh density."""
+    return mesh_nafems_le(case, divisions)
+
+
+def _nafems_skip(**kw: object) -> bool:
+    return _licensed_skip(kw["solver"])
+
+
+@task(
+    parent=nafems_mesh,
+    fanout={"solver": ["abaqus", "calculix", "code_aster", "sesam"]},
+    skip_if=_nafems_skip,
+    **_CONCURRENCY,
+)
+def nafems_run(a: ada.Assembly, *, solver: str):
+    """Solve one benchmark and keep the stress at point D. A cell that can't run logs and yields nothing."""
+    axes = a.metadata["nafems"]
+    name = nafems_case_name(solver, axes["case"], axes["divisions"])
+    try:
+        result = run_nafems_le(copy.deepcopy(a), fem_format=solver, scratch_dir=_NAFEMS_SCRATCH_DIR, name=name)
+    except FEASolverNotInstalled as exc:
+        logger.warning(f"{name}: solver {solver!r} not installed: {exc}")
+        return None
+    except Exception as exc:  # noqa: BLE001 - one bad cell must not lose the report
+        logger.warning(f"{name}: {type(exc).__name__}: {exc}", exc_info=True)
+        return None
+    if result is None:
+        return None
+    try:
+        stress = stress_yy_at(result, axes["point_d"])
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"{name}: could not sample the stress at D: {exc}")
+        return None
+    result._nafems_case = {"name": name, "solver": solver, "stress_yy": stress, **axes}
+    return result
+
+
+@task(consumes=nafems_run)
+def nafems_postprocess(results: list) -> list:
+    """What ran on this machine, then the cached cases for the solvers it doesn't have."""
+    out: list = []
+    for r in results:
+        case = getattr(r, "_nafems_case", {})
+        wrapper = ru.NafemsResult(
+            name=case.get("name", "nafems"),
+            fem_format=r.softwares[0] if getattr(r, "softwares", None) else case.get("solver", "unknown"),
+            results=r,
+            metadata={"elo": 2},
+            case=case.get("case"),
+            divisions=case.get("divisions"),
+            n_elements=case.get("n_elements"),
+            stress_yy=case.get("stress_yy"),
+        )
+        wrapper.name = wrapper.safe_name
+        try:
+            wrapper.save_to_json(_NAFEMS_CACHE_DIR / f"{wrapper.name}.json")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"could not cache {wrapper.name}: {exc}")
+        out.append(wrapper)
+
+    live = {r.name for r in out}
+    out.extend(walk_cached_case_results(ru.NafemsResult, _NAFEMS_CACHE_DIR, skip_names=live))
+    logger.info(f"nafems_postprocess: {len(out)} case(s) (live + cached)")
+    return out
+
+
+@task(parent=nafems_postprocess)
+def nafems_tables(results: list) -> list:
+    """One table per benchmark: the stress at D by solver and mesh, against the published target."""
+    out: list = []
+    for name, case in sorted(NAFEMS_CASES.items()):
+        df = ru.create_nafems_df([r for r in results if r.case == name], case.target_pa)
+        if df is None or df.empty:
+            logger.info(f"no results for {name}, skipping table")
+            continue
+        out.append(
+            TableOutcome(
+                key=f"nafems_{name}",
+                df=df,
+                caption=f"NAFEMS {name}, {case.title.lower()}: sigma_yy at point D [MPa] and its deviation from the target [%].",
+                show_index=False,
+            )
+        )
+    return out

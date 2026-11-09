@@ -285,6 +285,18 @@ class Eig(Filter):
         return TableView(table_key="eig_compare_line_o2")
 
     @attr
+    def bending_line(self) -> TableView:
+        return TableView(table_key="eig_bending_line_o2")
+
+    @attr
+    def bending_shell(self) -> TableView:
+        return TableView(table_key="eig_bending_shell_o2")
+
+    @attr
+    def bending_solid(self) -> TableView:
+        return TableView(table_key="eig_bending_solid_o2")
+
+    @attr
     def eff_mass_summary(self) -> TableView:
         # Per-case effective modal mass [kg] summed over the captured
         # modes (global X/Y/Z); registered by the eff_mass_table task.
@@ -436,6 +448,34 @@ class Plate(Filter):
         )
 
 
+class Nafems(Filter):
+    """The NAFEMS benchmarks. Task-bound to ``nafems_run``, so the scalars report what ran on this machine."""
+
+    def __init__(self, *, name: str, task=None):
+        super().__init__(name=name, task=task)
+
+    def _live_cells(self) -> list:
+        if self.task is None:
+            return []
+        return [c for c in self.task.cells() if self.task._runner.result_for(c) is not None]
+
+    @attr
+    def num_cases(self) -> int:
+        return len(self._live_cells())
+
+    @attr
+    def solvers(self) -> str:
+        return ", ".join(sorted({c.kwargs["solver"] for c in self._live_cells()})) or "none on this machine"
+
+    @attr
+    def le1(self) -> TableView:
+        return TableView(table_key="nafems_LE1")
+
+    @attr
+    def le10(self) -> TableView:
+        return TableView(table_key="nafems_LE10")
+
+
 # ---------------------------------------------------------------------
 # Module-level instances. paradoc.filters.discover_filters picks these
 # up from `verification/filters.py`; OneDoc binds the TaskHandles when
@@ -453,6 +493,7 @@ from paradoc.tasks import TaskHandle  # noqa: E402 — module-level instances ne
 beam = Beam(name="beam", task=TaskHandle.unbound("design"))
 eig = Eig(name="eig", task=TaskHandle.unbound("run_eig"))
 plate = Plate(name="plate", task=TaskHandle.unbound("plate_run_static"))
+nafems = Nafems(name="nafems", task=TaskHandle.unbound("nafems_run"))
 
 
 # `SolverCase` lived here until step 5 of the FEA-docs generalisation
