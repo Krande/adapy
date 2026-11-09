@@ -157,7 +157,7 @@
 //          `excludeDockedTabs`: a dock named in `dock` or as `region`) and
 //          `AnimationControls`. `ConvertBodyProps` (`inViewer`), and the progress
 //          toast `ConversionProgress` with `isClaimed` (loads a host reports
-//          elsewhere). (The node editor's actions were removed in 2.0.0.)
+//          elsewhere). (The node editor's actions were removed in 1.16.0.)
 //          Core's own keys in the shortcut registry: `CORE_SHORTCUTS` /
 //          `CORE_SHORTCUT_GROUPS` (every global viewer key as a `core:` entry; the
 //          keys a widget keeps for itself are marked `local`), listed by
@@ -561,9 +561,9 @@
 //          `core:unload-models`, `core:select-group`, `core:box-*`,
 //          `core:run-related`). On `@/viewer-core/scene`: the topics and their
 //          snapshot types, `tableRowIndices`.
-//   2.0.0  Generic shell features moved into core, so an alternative UI shell
-//          carries none of them (additive), and the node editor removed (breaking: see the
-//          last item). Ships with PLUGIN_API_VERSION 2.0.0.
+//   1.16.0 Generic shell features moved into core, so an alternative UI shell
+//          carries none of them (additive), and the node editor removed (see the
+//          last item; a minor version because no plugin used its exports, and a major one would turn off every plugin ranged `<2.0`). Ships with PLUGIN_API_VERSION 1.16.0.
 //          - Tree navigation and result view commands. `CORE_COMMAND_IDS`:
 //          `selectParent`, `selectChild`, `selectPrevSibling`, `selectNextSibling`
 //          (Shift+arrows, over the tree actions), and `colorLegend`, `femConcepts`
@@ -608,7 +608,7 @@
 //          without the `/app` barrel's `window` reads.
 //          - The Desktop UI's Build mode is always offered (`UiShellMode.requires`
 //          stays an option for other shells); its panel starts a model when none is open.
-export const VIEWER_CORE_API_VERSION = "2.0.0";
+export const VIEWER_CORE_API_VERSION = "1.16.0";
 
 // ---------------------------------------------------------------------------
 // Plugin declaration. `registerPlugin` is how a package announces itself —
