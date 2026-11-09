@@ -5,6 +5,7 @@ fetch cadence and the round-robin cursor.
 from __future__ import annotations
 
 import os
+import time
 
 from ada.config import logger
 
@@ -343,6 +344,39 @@ IDLE_WAIT_SECONDS = 1.0
 # comes back at once, and the only way to wait the full timeout is a pool whose messages are all
 # being run by other workers (a work-queue stream counts those until they are acked).
 CANDIDATE_FETCH_TIMEOUT = 0.5
+
+# How long after the stream could not be asked which pools hold messages before it is asked again.
+# A failed ask is not a lasting verdict: ``JobQueue.pending_pools`` answers None for a credential
+# that lacks the permission and for a moment the bus did not reply alike, and a worker that took
+# the second for the first walked its pools one at a time until it was restarted. At this cadence
+# a credential that can never ask costs one refused request a minute.
+PENDING_PROBE_RETRY_SECONDS = 60.0
+
+
+class _PendingProbe:
+    """Whether to ask the stream which pools hold messages this round, and what its answers changed.
+
+    Asked every round while the stream answers; after a failed ask, once per ``retry_after``.
+    Holds no connection: the clock is injected and the answers are handed in.
+    """
+
+    def __init__(self, retry_after: float = PENDING_PROBE_RETRY_SECONDS, clock=time.monotonic) -> None:
+        self._retry_after = retry_after
+        self._clock = clock
+        self._retry_at: float | None = None  # None while the stream is answering
+
+    def due(self) -> bool:
+        return self._retry_at is None or self._clock() >= self._retry_at
+
+    def record(self, pending: dict[str, int] | None) -> str | None:
+        """Note an answer. ``"lost"`` or ``"restored"`` when it changed things, else None."""
+        if pending is None:
+            lost = self._retry_at is None
+            self._retry_at = self._clock() + self._retry_after
+            return "lost" if lost else None
+        restored = self._retry_at is not None
+        self._retry_at = None
+        return "restored" if restored else None
 
 
 def _fetch_plan(
