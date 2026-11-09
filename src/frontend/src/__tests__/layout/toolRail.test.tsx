@@ -157,10 +157,10 @@ test("the Desktop UI's rail names only core's commands, and its menus open the c
   assert.deepEqual(cfg.tools, D.DESKTOP_RAIL_TOOLS);
   registerCoreCommands();
   try {
-    // A panel's command (`panel:<id>`) is core's too, listed with the panel's own icon.
-    const find = (id: string) => C.getCommand(id) ?? C.listCommands().find((c) => c.id === id);
-    for (const id of cfg.tools) if (!R.isRailSeparator(id)) assert.ok(find(id), `${id} is a core command`);
-    for (const id of cfg.tools) if (!R.isRailSeparator(id)) assert.ok(find(id)!.icon || C.getCommand(id)?.icon, `${id} has an icon`);
+    // A panel's command (`panel:<id>`) is core's too, listed only where the panel is offered (Storage: a server), with its own icon.
+    const plain = cfg.tools.filter((id) => !R.isRailSeparator(id) && !id.startsWith("panel:"));
+    for (const id of plain) assert.ok(C.getCommand(id), `${id} is a core command`);
+    for (const id of plain) assert.ok(C.getCommand(id)!.icon, `${id} has an icon`);
     assert.deepEqual(R.tidyRail(cfg.tools), [...cfg.tools], "already tidy");
     const ids = menuCommandIds(desktopMenus({ modes: [], workspaces: [], shells: [], themes: [] }));
     for (const id of [ID.customiseRail, ID.markingMenu, ID.toggleMarkingMenu]) assert.ok(ids.includes(id), id);
