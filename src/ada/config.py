@@ -2,13 +2,25 @@ import json
 import logging
 import os
 import pathlib
+import tempfile
 from typing import Any, Dict, List, NamedTuple, Optional, Type, Union
 
 _filename = "ada_config.toml"
 _env_prefix = "ADA_"
 _env_config_file = "CONFIG_FILE"
-_cwd = os.getcwd()
-_tmp_dir = pathlib.Path(_cwd) / "temp"
+
+
+def _working_dir() -> pathlib.Path:
+    """The working directory, or the system temp directory if it no longer exists."""
+    try:
+        return pathlib.Path.cwd()
+    except FileNotFoundError:
+        return pathlib.Path(tempfile.gettempdir())
+
+
+# Fixed when this module is imported, as is the Config singleton that `import ada` creates, so a
+# later chdir moves neither. To place these elsewhere, set ADA_GENERAL_TEMP_DIR and friends.
+_tmp_dir = _working_dir() / "temp"
 _home_dir = pathlib.Path.home() / "ADA"
 
 
@@ -292,8 +304,6 @@ class Config:
             ],
         ),
     ]
-    _config_dirs = [_cwd]
-    _config_files = [os.path.join(d, _filename) for d in _config_dirs]
 
     _instances: Dict[Optional[str], "Config"] = {}
 
@@ -319,17 +329,13 @@ class Config:
 
     @classmethod
     def find_file(cls, deployment_config: str = None):
-        env_file_name = f"{_env_prefix}{_env_config_file}"
-        config_file_env = os.getenv(env_file_name)
-        deployment_config_files = []
-        for f in (deployment_config, config_file_env):
-            if f and os.path.isfile(f):
-                deployment_config_files.append(f)
+        """The one file to load, or None: ADA_CONFIG_FILE, then deployment_config, then ./ada_config.toml.
 
-        # In order, get configuration from:
-        # _site_dir, _user_dir, deployment_config, config_file_env
-        for f in cls._config_files + deployment_config_files:
-            if os.path.isfile(f):
+        The first of those that exists wins. The files are not merged.
+        """
+        config_file_env = os.getenv(f"{_env_prefix}{_env_config_file}")
+        for f in (config_file_env, deployment_config, str(_working_dir() / _filename)):
+            if f and os.path.isfile(f):
                 return f
 
     def reload_config(self):
@@ -344,16 +350,12 @@ class Config:
         self._trigger_update_config()
 
     def init(self, path: str) -> None:
-        """Load configurations from various places.
-
-        Order of importance for configuration is:
-        host < user profile < deployment < configuration file from env var < value from
-        env var
+        """Load the configuration. Later sources override earlier ones: defaults, the file, ADA_* variables.
 
         Parameters
         ----------
-        deployment_config : str, optional
-            The configuration stored at deployment level
+        path : str
+            The file chosen by `find_file`, or an empty string when there is none
         """
 
         self.config: Dict[str, Any] = {}
