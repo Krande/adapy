@@ -2,6 +2,18 @@
 
 
 
+## v0.138.2 (2026-11-09)
+
+### Fix
+
+* fix(fem): concept loads by their own part, Code_Aster pressures and eccentric beams, faster meshing (#503)
+
+Signed-off-by: dependabot[bot] &lt;support@github.com&gt;
+Co-authored-by: Claude Opus 5.5 (1M context) &lt;noreply@anthropic.com&gt;
+Co-authored-by: krande &lt;kristoffer_andersen@outlook.com&gt;
+Co-authored-by: dependabot[bot] &lt;49699333+dependabot[bot]@users.noreply.github.com&gt; ([`9856a00`](https://github.com/Krande/adapy/commit/9856a0045f5be0175e03d9da61bd16690afe145d))
+
+
 ## v0.138.1 (2026-11-09)
 
 ### Fix
