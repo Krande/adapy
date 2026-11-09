@@ -14,12 +14,12 @@ const SpaceMouseConnectChip: React.FC = () => {
     const [dismissed, setDismissed] = useState(false);
 
     if (!enabled || dismissed || !isWebHidSupported()) return null;
-    if (connection !== "disconnected" && connection !== "error") return null;
+    if (connection !== "disconnected" && connection !== "error" && connection !== "noAxes") return null;
 
     return (
         <div
             className="pointer-events-auto absolute left-1/2 top-2 z-20 flex -translate-x-1/2 items-center gap-1 rounded-md border border-gray-600 bg-gray-900/85 px-2 py-1 text-xs text-gray-100 shadow-lg backdrop-blur-sm"
-            title={error ?? undefined}
+            title={error ?? "Push the cap once and the browser may list it without asking"}
         >
             <button
                 type="button"
@@ -29,6 +29,8 @@ const SpaceMouseConnectChip: React.FC = () => {
                 Connect SpaceMouse…
             </button>
             {connection === "error" && <span className="text-red-300">Could not connect</span>}
+            {connection === "noAxes" && <span className="text-amber-300">No axes exposed</span>}
+            {connection === "disconnected" && <span className="text-gray-300">or push the cap once</span>}
             <button
                 type="button"
                 className="px-1 text-gray-400 hover:text-gray-100"
