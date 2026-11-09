@@ -137,14 +137,18 @@ def test_every_node_of_a_split_flush_beam_carries_the_offset():
     assert all(v[2] == pytest.approx(-0.1354302, abs=1e-6) for pair in vectors for v in pair)
 
 
-def test_top_of_steel_is_reported_not_dropped():
-    """TOS is not turned into an eccentricity (its sign is unsettled between the helpers), so it
-    has to say so."""
+@pytest.mark.parametrize("section", sorted(GENIE))
+def test_top_of_steel_is_meshed_as_flush_top(section):
+    """Top of steel is the top of the profile on the node line (E3D's CTOP): GeniE's flush_top. It used to be
+    reported and meshed on the node line, because ``curve_offset_local`` and ``resolve_justification`` gave it
+    opposite signs."""
     with conversion_report.collect() as report:
-        _, p = _model(_beam("IPE300", justification=Justification.TOS))
+        _, p = _model(_beam(section, justification=Justification.TOS))
 
-    assert _ecc_vectors(p) == []
-    assert [f for f in report.findings if f.kind == "omitted" and f.keyword == "Beam.justification"]
+    ((e1, e2),) = _ecc_vectors(p)
+    for vec in (e1, e2):
+        assert vec[2] == pytest.approx(GENIE[section]["flush_top"], abs=1e-6)
+    assert not [f for f in report.findings if f.kind == "omitted" and f.keyword == "Beam.justification"]
 
 
 # ---- the Sesam deck -----------------------------------------------------------------------
@@ -222,6 +226,32 @@ def test_abaqus_needs_no_mpc_for_a_flush_top_angle(tmp_path):
     a.to_fem("m", fem_format="abaqus", scratch_dir=tmp_path, overwrite=True, write_input_files_only=True)
 
     assert _mpc_node_positions(p) == []
+
+
+# ---- the GeniE XML writer ----------------------------------------------------------------------
+
+
+def _curve_offset(beam: ada.Beam):
+    import xml.etree.ElementTree as ET
+
+    from ada.cadit.gxml.write.write_beams import add_curve_offset
+
+    el = ET.Element("straight_beam")
+    add_curve_offset(beam, el)
+    (child,) = list(el.find("curve_offset"))
+    return child
+
+
+@pytest.mark.parametrize("section", sorted(GENIE))
+def test_the_xml_writer_writes_no_offset_for_a_beam_with_none(section):
+    """GeniE puts the centroid of a beam with no curve offset on its node line; the writer used to write an HP back
+    with a -0.1354 constant offset (its origin on the node line)."""
+    assert _curve_offset(_beam(section)).tag == "reparameterized_beam_curve_offset"
+
+
+def test_the_xml_writer_writes_top_of_steel_as_flush_top():
+    off = _curve_offset(_beam("HP220x10", justification=Justification.TOS))
+    assert (off.tag, off.get("alignment")) == ("aligned_curve_offset", "flush_top")
 
 
 def test_a_writer_without_beam_offsets_reports_them_omitted(tmp_path):

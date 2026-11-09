@@ -353,7 +353,8 @@ class TestCurveOffset:
         [
             (Justification.NA, "reparameterized_beam_curve_offset"),
             (Justification.UNSET, "reparameterized_beam_curve_offset"),
-            (Justification.TOS, "constant_curve_offset"),
+            # top of steel is flush top (GeniE has no TOS of its own)
+            (Justification.TOS, "aligned_curve_offset"),
             (Justification.FLUSH_TOP, "aligned_curve_offset"),
             (Justification.FLUSH_BOTTOM, "aligned_curve_offset"),
         ],

@@ -6,7 +6,23 @@
 
 ### Breaking
 
-* The node editor was removed (migration note). Gone: the `core:node-editor` panel, the Enable Node Editor option, `window.NODE_EDITOR_ONLY` and the `node_editor_only` argument of `start_serving` / `get_html_with_injected_data`, the start-new-node-editor command (`CommandType` value 14 is retired, not reused), the node editor handlers and store, and the `NodeEditorBody`, `request_list_of_nodes` and `start_new_node_editor` exports of `@/viewer-core/layout`. Viewer core and plugin API versions are now 1.16.0; a plugin that imported those exports must drop them. Procedures (`LIST_PROCEDURES`, `RUN_PROCEDURE`, client `list_procedures` / `run_procedure`) are kept. Saved layouts naming the panel still load.
+* The node editor was removed (migration note). Gone: the `core:node-editor` panel, the Enable Node Editor option, `window.NODE_EDITOR_ONLY` and the `node_editor_only` argument of `start_serving` / `get_html_with_injected_data`, the start-new-node-editor command (`CommandType` value 14 is retired, not reused), the node editor handlers and store, and the `NodeEditorBody`, `request_list_of_nodes` and `start_new_node_editor` exports of `@/viewer-core/layout`. Viewer core and plugin API versions are now 2.0.0: plugins with a `coreApiRange` ending `<2.0` need `<3.0`. Procedures (`LIST_PROCEDURES`, `RUN_PROCEDURE`, client `list_procedures` / `run_procedure`) are kept. Saved layouts naming the panel still load.
+
+## v0.138.4 (2026-11-09)
+
+### Fix
+
+* fix: refuse unknown FEM formats by name, share one step2glb error, drop dead code (#509)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`ee0b995`](https://github.com/Krande/adapy/commit/ee0b99570abe0711d428543eb469d2e34ec240bd))
+
+
+## v0.138.3 (2026-11-09)
+
+### Fix
+
+* fix(fem): a beam with no offset has its centroid on the node line; top of steel is flush top (#508) ([`989459a`](https://github.com/Krande/adapy/commit/989459ab6ff91795896e83c0f4eeef5391f05931))
+
 
 ## v0.138.2 (2026-11-09)
 

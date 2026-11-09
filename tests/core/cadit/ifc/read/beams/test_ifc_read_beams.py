@@ -34,9 +34,16 @@ def test_read_standard_case_beams(example_files, tmp_path):
     assert _world(bm_a2, bm_a2.n1.p) == (0.0, 1.5, 0.11)
     assert _world(bm_a2, bm_a2.n2.p) == (2.0, 1.5, 0.11)
 
+    # B-1 is a T (IfcTShapeProfileDef, positioned at mid-height as adapy's T origin is). Its extrusion runs from
+    # (-0.0149, -0.0387, 1.5976) to (2.9249, 0.2043, 2.1436) in world coordinates; a beam read with no offset has its
+    # CENTROID on its node line, so the nodes are that line moved Cgz - h/2 along the beam's up (the solid is drawn
+    # where the file has it either way).
     bm_b1: ada.Beam = p.get_by_name("B-1")
-    assert _world(bm_b1, bm_b1.n1.p) == pytest.approx((-0.0149, -0.0387, 1.5976), abs=1e-3)
-    assert _world(bm_b1, bm_b1.n2.p) == pytest.approx((2.9249, 0.2043, 2.1436), abs=1e-3)
+    shift = bm_b1.section.properties.Cgz - bm_b1.section.h / 2
+    up_world = bm_b1.placement.get_matrix4x4()[:3, :3] @ np.asarray(bm_b1.up, dtype=float)
+    for pt, extruded in ((bm_b1.n1.p, (-0.0149, -0.0387, 1.5976)), (bm_b1.n2.p, (2.9249, 0.2043, 2.1436))):
+        expected = np.asarray(extruded) + shift * up_world
+        assert _world(bm_b1, pt) == pytest.approx(tuple(expected), abs=1e-3)
 
 
 def test_read_extruded_solid_beams(example_files):

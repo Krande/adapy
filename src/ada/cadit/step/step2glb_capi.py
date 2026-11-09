@@ -36,7 +36,7 @@ _BUNDLED = Path(__file__).with_name("_lib") / "libstep2glb_capi.so"
 
 
 class Step2GlbUnavailable(RuntimeError):
-    """Raised when the step2glb shared library cannot be located or loaded."""
+    """Raised when step2glb, as the shared library or the binary, cannot be located or loaded."""
 
 
 def _candidate_paths() -> list[Path]:

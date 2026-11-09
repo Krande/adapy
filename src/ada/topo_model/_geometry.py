@@ -274,7 +274,14 @@ def reinforced_wall(
         p1 = [lo[0], lo[1], z0]
         p2 = [lo[0], lo[1], z1]
         p1[run_axis] = p2[run_axis] = s
-        stiffeners.append(ada.Beam(f"{name}_stf_{i:02d}", tuple(p1), tuple(p2), stiffener_sec, up=tuple(up)))
+        # Flush top: the profile's top on the plate line, the whole profile on its -up side. This relied on a beam
+        # with no offset having its profile ORIGIN on the node line; a beam with no offset now has its centroid
+        # there (as GeniE), which would put an HP across the plate.
+        stiffeners.append(
+            ada.Beam(
+                f"{name}_stf_{i:02d}", tuple(p1), tuple(p2), stiffener_sec, up=tuple(up), justification="flush top"
+            )
+        )
 
     return ada.Part(name) / [plate, *stiffeners]
 

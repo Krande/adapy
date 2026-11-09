@@ -122,6 +122,38 @@ def test_a_beam_whose_material_is_not_read_is_left_out_by_name(example_files, tm
     assert len(list(a.get_all_physical_objects(by_type=ada.Beam))) > 0
 
 
+def _aligned(**attrib):
+    """Give the first straight beam an ``aligned_curve_offset`` with ``attrib`` besides its alignment."""
+
+    def edit(root):
+        bm = next(root.iter("straight_beam"))
+        co = bm.find("curve_offset")
+        if co is None:
+            co = ET.SubElement(bm, "curve_offset")
+        for child in list(co):
+            co.remove(child)
+        ET.SubElement(co, "aligned_curve_offset", {"alignment": "flush_top", **attrib})
+
+    return edit
+
+
+@pytest.mark.parametrize(
+    "attrib", [{"constant_value": "0.05"}, {"constant_value": "0", "shiftLocalY": "0.1"}], ids=["constant", "shift"]
+)
+def test_an_aligned_offset_with_more_than_its_alignment_is_named(example_files, tmp_path, attrib):
+    """The reader places an aligned beam by its alignment alone; a nonzero constant_value or a shiftLocalY would move
+    it where the model read does not put it, so it is named rather than dropped without a word."""
+    a, findings = _read(example_files, tmp_path, "genie_loads_all_kinds.xml", _aligned(**attrib))
+    assert ("omitted", "aligned_curve_offset") in findings
+    assert len(list(a.get_all_physical_objects(by_type=ada.Beam))) > 0
+
+
+def test_an_aligned_offset_of_its_alignment_alone_is_not_named(example_files, tmp_path):
+    """``constant_value="0"`` is what the writer and GeniE's own exports carry: nothing unread."""
+    _, findings = _read(example_files, tmp_path, "genie_loads_all_kinds.xml", _aligned(constant_value="0"))
+    assert ("omitted", "aligned_curve_offset") not in findings
+
+
 def test_a_point_mass_that_is_not_one_scalar_is_named(example_files, tmp_path):
     def tensor_mass(root):
         st = ET.SubElement(root.find("./model/structure_domain/structures"), "structure")
