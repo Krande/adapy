@@ -2,6 +2,15 @@
 
 
 
+## v0.138.5 (2026-11-09)
+
+### Fix
+
+* fix: keep to_ifc&#39;s native writer off ifcopenshell.validate and accept any PathLike in from_fem (#510)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`112d36b`](https://github.com/Krande/adapy/commit/112d36b3a3f26b71f2a1930614478c4231ed2a98))
+
+
 ## v0.138.4 (2026-11-09)
 
 ### Fix

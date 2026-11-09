@@ -3,9 +3,9 @@ name: Review Pull Request
 # Thin wrapper: the logic lives in the `deputy` package
 # (https://github.com/Krande/deputy), which is unit-tested locally rather than
 # debugged by pushing commits and reading Actions logs. This workflow installs
-# deputy and runs pr-review, which checks the PR (conventional title + exactly
-# one release-* label), computes the next version for information, and
-# posts/updates a single sticky comment.
+# deputy and runs pr-review, which checks the PR (conventional title + one
+# release-* label; a PR with none gets default_label from deputy.toml), computes
+# the next version for information, and posts/updates a single sticky comment.
 #
 # Config lives in deputy.toml at the repo root.
 #
