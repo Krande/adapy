@@ -28,6 +28,7 @@ from ada.api.nodes import Node
 from ada.api.piping import Pipe, PipeSegElbow, PipeSegStraight
 from ada.api.plates import Plate, PlateCurved, Surface, SurfaceCurved
 from ada.api.primitives import (
+    BoolHalfSpace,
     PrimBox,
     PrimCone,
     PrimCyl,
@@ -37,9 +38,7 @@ from ada.api.primitives import (
     PrimSweep,
     Shape,
 )
-from ada.api.primitives.bool_half_space import BoolHalfSpace
-from ada.api.spatial import Assembly, Part
-from ada.api.spatial.equipment import Equipment
+from ada.api.spatial import Assembly, Equipment, Part
 from ada.api.systems import (
     CableSystem,
     DuctSystem,
@@ -48,10 +47,10 @@ from ada.api.systems import (
     Port,
     PortDirection,
     System,
+    SystemModel,
     SystemSegment,
     Voltage,
 )
-from ada.api.systems.model import SystemModel
 from ada.api.transforms import Instance, Placement, Transform
 from ada.api.user import User
 from ada.api.walls import Wall

@@ -309,13 +309,8 @@ jobs:
           working-directory: src/frontend
           run: npm test
 
-        # Non-blocking for now: main carries 7 pre-existing `tsc --noEmit` errors (6 in
-        # src/__tests__/state/companionModel.store.test.ts, 1 in src/services/externalModels.ts).
-        # Until those are fixed this step reports but cannot fail the job; drop the
-        # continue-on-error once the count is 0 so it becomes a real gate.
-        - name: Typecheck frontend (non-blocking, 7 pre-existing errors on main)
+        - name: Typecheck frontend
           if: steps.scope.outputs.run == 'true'
-          continue-on-error: true
           working-directory: src/frontend
           run: npx tsc --noEmit -p tsconfig.json
 

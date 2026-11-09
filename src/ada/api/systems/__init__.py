@@ -12,6 +12,7 @@ from .base import (
     system_type_specs,
 )
 from .categories import PortCategory, Voltage
+from .model import SystemModel
 from .ports import Port, PortDirection
 from .segments import SystemSegment
 from .validation import (
@@ -26,6 +27,7 @@ from .validation import (
 
 __all__ = [
     "SYSTEM_KINDS",
+    "SystemModel",
     "CableSystem",
     "DuctSystem",
     "ElectricalSystem",
