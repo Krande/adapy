@@ -329,7 +329,10 @@ class Assembly(Part):
         from ada.fem.formats.utils import default_fem_res_path
 
         if isinstance(fem_format, str):
-            fem_format = FEATypes.from_str(fem_format)
+            requested = fem_format
+            fem_format = FEATypes.from_str(requested)
+            if fem_format is None:
+                raise ValueError(f'Unknown FEM format "{requested}". Expected one of {[x.value for x in FEATypes]}')
 
         scratch_dir = Config().fea_scratch_dir if scratch_dir is None else pathlib.Path(scratch_dir)
         job = FemJob(

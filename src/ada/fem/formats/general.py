@@ -143,18 +143,6 @@ def get_fem_converters(fem_file, fem_format: str | FEATypes, fem_converter: str 
     return fem_importer, fem_exporter
 
 
-def export_fem(assembly, name, analysis_dir, fem_format, fem_converter, metadata):
-    _, fem_exporter = get_fem_converters("", fem_format, fem_converter)
-    metadata = dict() if metadata is None else metadata
-    metadata["fem_format"] = fem_format
-    try:
-        fem_exporter(assembly, name, analysis_dir, metadata)
-        return True
-    except IOError as e:
-        logger.error(e)
-        return False
-
-
 #: Formats whose writer writes a multi-part assembly as one (parts, instances, assembly-level
 #: data), so the model is handed over as it is rather than merged into one part first.
 _WRITES_ASSEMBLIES = frozenset({FEATypes.ABAQUS})
@@ -175,7 +163,7 @@ def write_to_fem(
     metadata: dict,
     make_zip_file,
     model_data_only=False,
-):
+) -> None:
     from ada.fem.formats.utils import default_fem_res_path, folder_prep, should_convert
 
     fem_res_files = default_fem_res_path(name, scratch_dir=scratch_dir)
@@ -184,7 +172,6 @@ def write_to_fem(
     metadata = dict() if metadata is None else metadata
     metadata["fem_format"] = fem_format.value
 
-    out = None
     if should_convert(res_path, overwrite):
         analysis_dir = folder_prep(scratch_dir, name, overwrite)
         _, fem_exporter = get_fem_converters("", fem_format, fem_converter)
@@ -230,9 +217,8 @@ def write_to_fem(
     else:
         logger.warning(f'Result file "{res_path}" already exists.\nUse "overwrite=True" if you wish to overwrite')
 
-    if out is None and res_path is None:
+    if res_path is None:
         logger.info("No Result file is created")
-        return None
 
 
 #: Name length above which some FEM software truncates or rejects a name.
@@ -275,24 +261,6 @@ def report_long_fem_names(assembly: Assembly, max_examples: int = 3) -> list[str
             f"software truncates or rejects: {examples}{more}"
         )
     return long_names
-
-
-def _report_part_steps_not_merged(fem_parts, fem_format) -> None:
-    """The merge into one part carries the assembly's steps only: a part FEM's step -- the step its concept load
-    cases became in ``Part.to_fem_obj`` -- and its loads do not reach the writer."""
-    from ada.fem.formats import conversion_report
-
-    for p in fem_parts:
-        for step in p.fem.steps:
-            conversion_report.current().omitted(
-                f"{fem_format.value} writer",
-                "Step",
-                step.name,
-                "a step of one of several meshed parts; merging the parts into one keeps the assembly's steps only, "
-                "so this step and its loads are not written",
-                part=p.name,
-                n_loads=len(step.loads),
-            )
 
 
 def _report_part_steps_not_written(fem_parts, fem_format) -> None:

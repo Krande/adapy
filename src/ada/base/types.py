@@ -6,6 +6,7 @@ from enum import Enum
 class BaseEnum(Enum):
     @classmethod
     def from_str(cls, value: str):
+        """The member with this value, or None when there is none; callers use that to probe, so it does not raise."""
         if isinstance(value, cls):
             return value
         key_map = {x.value.lower(): x for x in cls}

@@ -203,12 +203,7 @@ def discover_plugins() -> list[str]:
     from importlib.metadata import entry_points
 
     run: list[str] = []
-    try:
-        eps = entry_points(group=PLUGIN_ENTRY_POINT_GROUP)
-    except TypeError:
-        # Python <3.10 compat: entry_points() takes no kwargs there.
-        eps = entry_points().get(PLUGIN_ENTRY_POINT_GROUP, [])  # type: ignore[attr-defined]
-    for ep in eps:
+    for ep in entry_points(group=PLUGIN_ENTRY_POINT_GROUP):
         try:
             register = ep.load()
             register()
