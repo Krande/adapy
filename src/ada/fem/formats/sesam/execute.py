@@ -132,14 +132,10 @@ class SesamExecute(LocalExecute):
         from ada.fem.formats.general import fem_solver_map
 
         solver_exe_name = fem_solver_map.get(fea_software, fea_software)
-        exe_path = None
-        for exe_test in [fea_software, solver_exe_name]:
-            try:
-                exe_path = get_exe_path(exe_test)
-            except FileNotFoundError:
-                continue
-            if exe_path is not None:
-                break
+        try:
+            exe_path = get_exe_path(fea_software, aliases=(solver_exe_name,))
+        except FileNotFoundError:
+            exe_path = None
         if exe_path is None:
             from ada.fem.formats.sesam.sesam_exe_locator import (
                 get_sestra_default_exe_path,

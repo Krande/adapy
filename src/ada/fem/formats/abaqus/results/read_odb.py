@@ -11,7 +11,7 @@ Built-in exporters, in order of preference:
     ``my-exporter {odb} {sqlite}``. Available when the variable is set.
 ``abaqus-python``
     ``aba_io.py`` under ``abaqus python`` (Abaqus 2024+). Available when the Abaqus executable
-    (``$ADA_ABAQUS_EXE``, default ``abaqus``) is on PATH.
+    (``[fea] fem_exe_paths.abaqus``, or ``abaqus`` on PATH) can be found.
 
 ``$ADA_ODB_EXPORTER`` (or the ``exporter`` argument) picks one by name; otherwise the first
 available one runs. Packages can add exporters by calling :func:`register_odb_exporter`, or from an
@@ -23,7 +23,6 @@ from __future__ import annotations
 import os
 import pathlib
 import shlex
-import shutil
 import sqlite3
 import subprocess
 import warnings
@@ -102,7 +101,7 @@ def get_odb_exporter(name: str | None = None) -> OdbExporter:
         if exporter.is_available():
             return exporter
     raise FileNotFoundError(
-        "no ODB -> SQLite exporter available: put Abaqus on PATH (or set ADA_ABAQUS_EXE), set "
+        "no ODB -> SQLite exporter available: put Abaqus on PATH (or set [fea] fem_exe_paths.abaqus), set "
         f"{ODB_EXPORT_CMD_ENV}, or register one with register_odb_exporter"
     )
 
@@ -126,7 +125,10 @@ def _command_export(odb_path: pathlib.Path, sqlite_path: pathlib.Path) -> None:
 
 
 def _abaqus_exe() -> str | None:
-    return shutil.which(os.getenv("ADA_ABAQUS_EXE", "abaqus"))
+    from ada.fem.formats.utils import resolve_solver_exe
+
+    found = resolve_solver_exe("abaqus")
+    return str(found) if found is not None and found.exists() else None
 
 
 def _abaqus_python_export(odb_path: pathlib.Path, sqlite_path: pathlib.Path) -> None:
@@ -134,7 +136,7 @@ def _abaqus_python_export(odb_path: pathlib.Path, sqlite_path: pathlib.Path) -> 
 
     exe = _abaqus_exe()
     if exe is None:
-        raise FileNotFoundError('Abaqus executable not found (on PATH as "abaqus", or set ADA_ABAQUS_EXE)')
+        raise FileNotFoundError('Abaqus executable not found (on PATH as "abaqus", or set [fea] fem_exe_paths.abaqus)')
     cmd = [exe, "python", str(ABA_IO), str(odb_path), str(sqlite_path), str(SCHEMA_PATH)]
     res = subprocess.run(cmd, cwd=sqlite_path.parent, capture_output=True, text=True)
     if res.returncode != 0:

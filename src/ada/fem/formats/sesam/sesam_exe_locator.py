@@ -101,10 +101,11 @@ def get_genie_runtime_default_exe_path() -> str | None:
 
 
 def get_sestra_default_exe_path() -> str | None:
-    sestra_exe_env_var = os.getenv("ADA_SESTRA_EXE")
-    if sestra_exe_env_var:
-        return sestra_exe_env_var
-    return _get_default_exe_path("Sestra")
+    """Sestra through the shared lookup, with the version manager's default as its last step."""
+    from ada.fem.formats.utils import resolve_solver_exe
+
+    found = resolve_solver_exe("sestra", aliases=("sesam",), default=lambda: _get_default_exe_path("Sestra"))
+    return str(found) if found is not None else None
 
 
 def get_prepost_default_exe_path() -> str | None:
@@ -142,7 +143,7 @@ def get_sestra_version(exe_path: str | None = None) -> str:
     if exe_path is None:
         exe_path = get_sestra_default_exe_path()
     if exe_path is None:
-        raise FileNotFoundError("ADA_SESTRA_EXE is unset and no default install found")
+        raise FileNotFoundError("[fea] fem_exe_paths.sestra is unset and no default install found")
     match = _SESTRA_VERSION_RE.search(exe_path)
     if match is None:
         raise ValueError(f"could not parse sestra version from path: {exe_path!r}")
