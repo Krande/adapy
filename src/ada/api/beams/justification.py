@@ -54,10 +54,9 @@ def resolve_justification(beam: "Beam", just: Justification) -> Optional["Direct
     if just == Justification.NA:
         return Direction(0, 0, 0)
 
+    # Top of steel is the top of the profile on the node line: flush top (an angle's origin, a T's flange top).
     if just == Justification.TOS:
-        if beam.section.h is None:
-            return Direction(0, 0, 0)
-        return beam.up * (beam.section.h / 2.0)
+        just = Justification.FLUSH_TOP
 
     if just in (Justification.CUSTOM, Justification.UNSET):
         return None
@@ -287,6 +286,18 @@ class OffsetHelper:
                 just = Justification.FLUSH_TOP
             elif alignment_str == "flush_bottom":
                 just = Justification.FLUSH_BOTTOM
+            # Top of steel is flush top: the top of the profile on the node line (``resolve_justification``). This
+            # was -h/2 * up, which put the BOTTOM of the steel on the node line.
+            if just == Justification.TOS:
+                just = Justification.FLUSH_TOP
+
+            if just in (Justification.NA, Justification.UNSET):
+                # No offset stated: the section CENTROID is on the node line -- what "neutral axis" says, what GeniE
+                # does (no GECCEN, and a beam with no curve offset drawn on its centroid) and what the Sesam writer
+                # carries. This was the profile ORIGIN on the node line, so an angle or a T with no offset was drawn,
+                # tied (Abaqus) and written back to GeniE (-0.1354 for an HP220x10) one centroid shift off it.
+                zero = (0.0, 0.0, 0.0)
+                return CurveOffsetResult(end1=zero, end2=zero, avg=zero, is_varying=False)
 
             if just in (Justification.FLUSH_TOP, Justification.FLUSH_BOTTOM):
                 flush_factor = 1.0 if just == Justification.FLUSH_TOP else -1.0
@@ -310,20 +321,6 @@ class OffsetHelper:
 
                 e1_abs = np.array(e_abs, dtype=float)
                 e2_abs = np.array(e_abs, dtype=float)
-            # todo below elifs not tested yet
-            elif just in (Justification.NA, Justification.UNSET):
-                e_abs = zv_abs * 0.0
-                e1_abs = np.array(e_abs, dtype=float)
-                e2_abs = np.array(e_abs, dtype=float)
-            elif just == Justification.TOS:
-                if self.beam.section.h is None:
-                    e_abs = zv_abs * 0.0
-                    e1_abs = np.array(e_abs, dtype=float)
-                    e2_abs = np.array(e_abs, dtype=float)
-                else:
-                    e_abs = zv_abs * (-self.beam.section.h / 2.0)
-                    e1_abs = np.array(e_abs, dtype=float)
-                    e2_abs = np.array(e_abs, dtype=float)
             elif just in (Justification.CUSTOM):
                 e1_abs = np.array(zv_abs * (-self.beam.e1), dtype=float)
                 e2_abs = np.array(zv_abs * (-self.beam.e2), dtype=float)
@@ -363,7 +360,7 @@ class OffsetHelper:
         """
         if self.beam.e1 is not None or self.beam.e2 is not None:
             return True
-        if self.beam.justification in (Justification.FLUSH_TOP, Justification.FLUSH_BOTTOM):
+        if self.beam.justification in (Justification.FLUSH_TOP, Justification.FLUSH_BOTTOM, Justification.TOS):
             return True
         md = getattr(self.beam, "metadata", None) or {}
         return md.get("aligned_curve_offset_alignment") in ("flush_top", "flush_bottom")

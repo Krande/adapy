@@ -139,11 +139,12 @@ def add_curve_offset(beam: Beam, straight_beam: ET.Element) -> None:
         lvo = ET.SubElement(curve_offset, "linear_varying_curve_offset", {"use_local_system": "true"})
         ET.SubElement(lvo, "offset_end1", {"x": f"{ox1:.12g}", "y": f"{oy1:.12g}", "z": f"{oz1:.12g}"})
         ET.SubElement(lvo, "offset_end2", {"x": f"{ox2:.12g}", "y": f"{oy2:.12g}", "z": f"{oz2:.12g}"})
-    elif beam.justification in (Justification.FLUSH_TOP, Justification.FLUSH_BOTTOM):
+    elif beam.justification in (Justification.FLUSH_TOP, Justification.FLUSH_BOTTOM, Justification.TOS):
         # Flush is semantic — let Genie re-derive the numbers from the section,
         # as its own exports do. Checked before the zero-offset case below:
-        # flush is meaningful even when the resolved offset is zero.
-        alignment = "flush_top" if beam.justification == Justification.FLUSH_TOP else "flush_bottom"
+        # flush is meaningful even when the resolved offset is zero. Top of steel
+        # is flush top (``resolve_justification``).
+        alignment = "flush_bottom" if beam.justification == Justification.FLUSH_BOTTOM else "flush_top"
         ET.SubElement(curve_offset, "aligned_curve_offset", {"alignment": alignment, "constant_value": "0"})
     elif ox1 == oy1 == oz1 == 0:
         # No offset to state. The default rule, named explicitly.
