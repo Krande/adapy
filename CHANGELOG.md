@@ -2,6 +2,15 @@
 
 
 
+## v0.139.3 (2026-11-09)
+
+### Fix
+
+* fix(config): honour ADA_CONFIG_FILE and survive a deleted working directory (#516)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`3cda057`](https://github.com/Krande/adapy/commit/3cda05729657d271da33d655856f66d8fddf1c45))
+
+
 ## v0.139.2 (2026-11-09)
 
 ### Fix
