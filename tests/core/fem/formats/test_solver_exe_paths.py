@@ -157,4 +157,3 @@ def test_enum_aliases_reach_the_deprecated_variables(tmp_path, monkeypatch):
     monkeypatch.setenv("ADA_ABAQUS_EXE", str(old))
     with pytest.warns(DeprecationWarning):
         assert utils.get_exe_path(FEATypes.ABAQUS, aliases=(FEATypes.ABAQUS,)) == old
-
