@@ -96,6 +96,9 @@ def cmd_delete(args: argparse.Namespace) -> int:
 
     base_url, token, scope = _config(args)
     keys = [k.strip().lstrip("/") for k in (args.keys or []) if k.strip()]
+    if not keys and not args.prefix:
+        print("nothing to delete (give one or more keys and/or --prefix)", file=sys.stderr)
+        return 2
     with httpx.Client(timeout=120) as client:
         if args.prefix:
             resp = client.get(f"{base_url}/api/scopes/{scope}/files", headers=_auth(token))
