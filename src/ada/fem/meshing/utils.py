@@ -245,21 +245,11 @@ def add_beam_ecc_to_elements(beam: Beam, elements: list[Elem]) -> None:
     (``Cgz - h`` for an angle, ``Cgz - h/2`` for a T), so it is the vector a file holds.
     A beam that states no offset at all has its centroid on the node line, as in GeniE,
     and gets no eccentricity, so a Sesam deck of such beams round-trips without growing a GECCEN.
+    Top of steel is flush top.
     """
-    from ada.api.beams.justification import Justification
     from ada.fem.elements import Eccentricity, EccPoint
-    from ada.fem.formats import conversion_report
 
     if not beam.offset_helper.has_offset_intent():
-        if beam.justification == Justification.TOS:
-            # TOS has two readings in the helpers (``resolve_justification`` and
-            # ``curve_offset_local`` carry opposite signs for it), so it is not guessed at.
-            conversion_report.current().omitted(
-                "beam eccentricity",
-                "Beam.justification",
-                beam.name,
-                "top-of-steel justification is not turned into an eccentricity; the beam is meshed on its nodal line",
-            )
         return
 
     # global vectors, in the system the element nodes are in

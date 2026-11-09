@@ -85,6 +85,16 @@ def import_straight_beam(ifc_elem, axis, name, sec, mat, ifc_store: IfcStore) ->
     ref_dir = unit_vector(body.position.ref_direction)
     p1 = body.position.location
     local_y = calc_yvec(ref_dir, extrude_dir)
+    # The extrusion is placed at the profile's ORIGIN. A beam read here states no offset, so its centroid is on its
+    # node line (OffsetHelper.curve_offset_local): for an angle or a T, whose origin is not its centroid, the node line
+    # is the origin moved by the centroid's place against it. The solid is drawn where the file has it either way;
+    # taking the origin as the node line put the members' axes (and the joints a clash check finds) one centroid shift
+    # off the file's own Axis representation.
+    from ada.api.beams.justification import section_centroid_offset_local
+
+    shift = float(section_centroid_offset_local(sec, strict=False)[2])
+    if shift != 0.0:
+        p1 = np.asarray(p1, dtype=float) + shift * np.asarray(local_y, dtype=float)
     p2 = p1 + extrude_dir * body.depth
 
     common = dict(

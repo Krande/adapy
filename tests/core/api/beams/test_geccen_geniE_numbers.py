@@ -86,15 +86,37 @@ def test_a_circular_section_can_be_flush():
     assert data.end1[2] == pytest.approx(-bm.section.r)
 
 
-@pytest.mark.parametrize("section, expected", [("HP220x10", -0.1354302), ("TG300x500x20x32", 0.0963596)])
-def test_na_on_an_angle_or_t_keeps_its_origin_on_the_node_line(section, expected):
-    """The issue reads the non-zero NA value of an L or T as a bug (GeniE has 0). It is not changed.
+@pytest.mark.parametrize("section", sorted(GENIE_FLUSH_Z))
+@pytest.mark.parametrize("just", [Justification.NA, Justification.UNSET])
+def test_a_beam_with_no_offset_has_its_centroid_on_the_node_line(section, just):
+    """GeniE draws a beam with no curve offset (or ``no_flush``) on its centroid and writes no GECCEN; so does
+    adapy now, for an angle and a T too. ``curve_offset_local`` (node to centroid) used to be the shift that put
+    the profile *origin* on the node line (-0.1354302 for the HP, +0.0963596 for the T), so the geometry, the Abaqus
+    deck and the GeniE XML writer placed such a beam one centroid shift off where GeniE has it (#419)."""
+    bm = _beam(section, just)
+    data = bm.offset_helper.curve_offset_local()
 
-    ``curve_offset_local`` is the GeniE-referenced offset (to the centroid) that puts the profile
-    *origin* on the node line, which is what adapy's geometry, its Abaqus deck and its GeniE XML
-    writer all do for a beam with no offset. What the Sesam path does with such a beam is a separate
-    matter (it writes no GECCEN, like GeniE); see ``test_beam_ecc_from_justification``.
-    """
-    data = _beam(section, Justification.NA).offset_helper.curve_offset_local()
+    assert data.end1 == data.end2 == (0.0, 0.0, 0.0)
+    # its COG is on the node line
+    assert np.allclose(np.asarray(bm.get_cog(), dtype=float), (2.0, 0.0, 0.0), atol=1e-9)
+    # and the drawn profile's origin is placed so that its centroid is too
+    from ada.api.beams.geom_beams import straight_beam_frame
+    from ada.api.beams.justification import section_centroid_offset_local
 
-    assert data.end1[2] == pytest.approx(expected, abs=1e-6)
+    dz = float(section_centroid_offset_local(bm.section)[2])
+    assert straight_beam_frame(bm).origin[2] == pytest.approx(-dz, abs=1e-9)
+
+
+@pytest.mark.parametrize("section", sorted(GENIE_FLUSH_Z))
+def test_top_of_steel_is_flush_top(section):
+    """Top of steel is the top of the profile on the node line: E3D's CTOP, ``resolve_justification``, and GeniE's
+    flush_top numbers. ``curve_offset_local`` had the opposite sign for it (+0.15 on an IPE300: the bottom of the
+    steel on the node line), which is why the mesher used to report TOS rather than guess."""
+    tos = _beam(section, Justification.TOS)
+    data = tos.offset_helper.curve_offset_local()
+    for end in (data.end1, data.end2):
+        assert end[2] == pytest.approx(GENIE_FLUSH_Z[section][0], abs=1e-6)
+    assert np.allclose(
+        np.asarray(resolve_justification(tos, Justification.TOS), dtype=float),
+        np.asarray(resolve_justification(tos, Justification.FLUSH_TOP), dtype=float),
+    )

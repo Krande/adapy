@@ -75,8 +75,10 @@ def test_get_offset_from_justification_tos(simple_beam: Beam):
     data = simple_beam.offset_helper.curve_offset_local()
     (ox1, oy1, oz1) = data.end1
     (ox2, oy2, oz2) = data.end2
-    # For IPE300, height should be 0.3m, so offset should be 0.15m in up direction
-    expected_offset = simple_beam.up * simple_beam.section.h / 2
+    # Top of steel is the top of the profile on the node line (E3D's CTOP, ``resolve_justification``, the
+    # ``e = up * h/2`` that get_justification calls TOS): the curve offset runs from the node DOWN to the centroid,
+    # 0.15 m for an IPE300. This expected +0.15 m, which put the bottom of the steel on the node line.
+    expected_offset = -simple_beam.up * simple_beam.section.h / 2
     assert np.allclose([ox1, oy1, oz1], [expected_offset.x, expected_offset.y, expected_offset.z])
     assert np.allclose([ox2, oy2, oz2], [expected_offset.x, expected_offset.y, expected_offset.z])
 
