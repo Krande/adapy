@@ -10,6 +10,7 @@
 // beam-solid mesh, and what the last paint recorded with `notePaintedShown`.
 
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
+import {RESULTS_OWNER, useSceneColorOwnerStore} from "@/state/sceneColorOwnerStore";
 import {useVisibilityStore} from "@/state/visibilityStore";
 import {feaSession} from "./session";
 
@@ -60,6 +61,11 @@ export function scheduleShownRangeRepaint(): void {
     timer = setTimeout(() => {
         timer = null;
         if (paintedKey === null || paintedKey === drawnKey()) return;
+        // A mode that owns the scene colouring keeps the field suspended: a repaint would put the
+        // result colours and the legend back under it. Isolation only changes what is visible. The
+        // painted key is left alone, so the repaint is still due, and `notifyActiveModeSceneColor`
+        // asks for it when the owner is popped.
+        if (useSceneColorOwnerStore.getState().activeOwner() !== RESULTS_OWNER) return;
         if (measure && sameRange(measure(), paintedRange)) {
             paintedKey = drawnKey();
             return;
