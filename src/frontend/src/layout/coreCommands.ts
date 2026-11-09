@@ -30,6 +30,12 @@ import {useViewerHistoryStore} from "@/state/viewerHistoryStore";
 import {getViewerRuntime} from "@/state/viewerRuntime";
 import {loadedSourceGroups, useModelState} from "@/state/modelState";
 import {useColorByStore} from "@/state/colorByStore";
+import {useColorStore} from "@/state/colorLegendStore";
+import {useFemConceptsStore} from "@/state/femConceptsStore";
+import {useTableNavStore} from "@/state/tableNavStore";
+import {feModelLoaded, hasFemConcepts} from "@/components/simulation/simPanelTabs";
+import {beamSolidsToggleState} from "@/utils/scene/fea/streaming/beamSolidsToggle";
+import {feaControlActions} from "@/utils/scene/fea/feaControls";
 import {useLabelsStore} from "@/state/labelsStore";
 import {anyShownRange} from "@/utils/mesh_select/selectionSets";
 import {playbackAvailable} from "@/utils/scene/fea/playbackActions";
@@ -49,12 +55,15 @@ import {openCoreDialog} from "./coreDialogs";
 import {registerCommand, unregisterCommand, type CommandSpec} from "./commands";
 import {layoutStore} from "./layoutStore";
 import {listShellModes} from "./shellModes";
+import {registerOptionCommands} from "./optionCommands";
+import {setUiFrozen, uiFreezeOffered, uiFrozen} from "./uiFreeze";
 import {builderLoaded} from "./modeRequirements";
 import {deleteWorkspace, listWorkspaces, loadWorkspace, resetArrangement, saveWorkspace} from "./presets/classicPlace";
 import {openNewWindow, thisWindowId, windowBus} from "./windows";
 import {MAIN_WINDOW_ID} from "./windowBus";
 import {sceneActions} from "./sceneActions";
 import {CORE_COMMAND_ICONS} from "./commandIcons";
+import {openFemConcepts, toggleColorLegend, toggleDataTable} from "./resultViewActions";
 import {markingMenuMounted, openMarkingMenu, servedMarkingMenu, setMarkingMenuOn} from "./markingMenuState";
 import {activeRail, openRailCustomise} from "./toolRailState";
 import {FEA_ELEMENT_SETS_ID, FEA_SETS_ROOT_ID, elementSetFromRowId} from "@/utils/scene/fea/feaTreeRows";
@@ -112,6 +121,59 @@ const nothingSelected = () => (selectionCount() === 0 ? "Nothing selected" : nul
 const builderOwnsHistory = () => (useCellBuilderStore.getState().active !== null ? "The procedural builder has its own undo" : null);
 
 const noBuilderModel = () => (builderLoaded() ? null : "No procedural model is open");
+
+type BuilderState = ReturnType<typeof useCellBuilderStore.getState>;
+type GizmoKind = "translate" | "rotate" | "resize";
+
+/** The kind of the selected builder component, or null with none. */
+function selectedComponentKind(s: BuilderState): "cell" | "equipment" | "loft" | "opening" | null {
+  return s.selection ? (s.cells[s.selection.cellId]?.kind ?? null) : null;
+}
+
+/** Which components a gizmo works on (the G / R / S keys): rotate is for equipment, resize for cells. */
+const GIZMO_TARGETS: Readonly<Record<GizmoKind, {kinds: readonly string[]; need: string}>> = {
+  translate: {kinds: ["cell", "equipment", "loft", "opening"], need: "Select a cell or equipment to move"},
+  rotate: {kinds: ["equipment"], need: "Select equipment to rotate"},
+  resize: {kinds: ["cell"], need: "Select a cell to resize"},
+};
+
+/** One builder gizmo: pressing it brings it up on the selection, pressing it again puts it away. */
+function builderGizmo(id: string, label: string, kind: GizmoKind): CommandSpec {
+  return {
+    id,
+    label,
+    group: "Build",
+    shortcut: id,
+    checked: () => useCellBuilderStore.getState().gizmoMode === kind,
+    disabledReason: () => {
+      const s = useCellBuilderStore.getState();
+      const target = GIZMO_TARGETS[kind];
+      const k = selectedComponentKind(s);
+      return builderReadOnly() ?? (k && target.kinds.includes(k) ? null : target.need);
+    },
+    run: () => {
+      const s = useCellBuilderStore.getState();
+      s.setGizmoMode(s.gizmoMode === kind ? "none" : kind);
+    },
+  };
+}
+
+/** One of the builder's three views of the model (topology, simulation, detail). */
+function builderRep(id: string, label: string, mode: BuilderState["repMode"]): CommandSpec {
+  return {
+    id,
+    label,
+    group: "Build",
+    checked: () => useCellBuilderStore.getState().repMode === mode,
+    disabledReason: noBuilderModel,
+    run: () => void useCellBuilderStore.getState().setRepMode(mode),
+  };
+}
+
+/** The type placed by "add opening" / "add equipment": the one picked last, else the first on offer. */
+function placementType(picked: string | null, types: readonly {slug: string}[]): string | null {
+  return picked && types.some((t) => t.slug === picked) ? picked : (types[0]?.slug ?? null);
+}
 /** Editing, compiling and committing need a model opened from storage, on a connection that can edit it. */
 const builderReadOnly = () =>
   noBuilderModel() ??
@@ -164,6 +226,7 @@ export function coreCommandSpecs(): CommandSpec[] {
   const selection = () => import("@/utils/scene/selectionCommands");
   const playback = () => import("@/utils/scene/fea/playbackActions");
   const colorBy = () => import("@/utils/scene/colorBy");
+  const navigation = () => import("@/utils/tree_view/treeNavigation");
   const specs: CommandSpec[] = [
     // File
     {
@@ -241,6 +304,39 @@ export function coreCommandSpecs(): CommandSpec[] {
           useObjectInfoStore.getState().setSelectedNodeId(null);
           requestRender();
         }),
+    },
+    // Walk the scene tree from the selection (Shift+arrows; the tree's own level navigation).
+    {
+      id: ID.selectParent,
+      label: "Select parent",
+      group: "Edit",
+      shortcut: "core:select-parent",
+      disabledReason: nothingSelected,
+      run: () => sceneActions().selectParent(),
+    },
+    {
+      id: ID.selectChild,
+      label: "Select first child",
+      group: "Edit",
+      shortcut: "core:select-child",
+      disabledReason: nothingSelected,
+      run: () => void navigation().then((m) => m.selectChildLevel()),
+    },
+    {
+      id: ID.selectPrevSibling,
+      label: "Select previous sibling",
+      group: "Edit",
+      shortcut: "core:select-prev-sibling",
+      disabledReason: nothingSelected,
+      run: () => void navigation().then((m) => m.selectSibling(-1)),
+    },
+    {
+      id: ID.selectNextSibling,
+      label: "Select next sibling",
+      group: "Edit",
+      shortcut: "core:select-next-sibling",
+      disabledReason: nothingSelected,
+      run: () => void navigation().then((m) => m.selectSibling(1)),
     },
     {
       id: ID.copyNames,
@@ -430,6 +526,14 @@ export function coreCommandSpecs(): CommandSpec[] {
     },
     {id: ID.resetLayout, label: "Reset layout", group: "Window", run: () => resetArrangement()},
     {
+      id: ID.toggleUiFreeze,
+      label: "Freeze layout",
+      group: "Window",
+      when: uiFreezeOffered,
+      checked: () => uiFrozen(),
+      run: () => setUiFrozen(!uiFrozen()),
+    },
+    {
       id: ID.resetAllLayouts,
       label: "Reset every mode's layout",
       group: "Window",
@@ -568,6 +672,58 @@ export function coreCommandSpecs(): CommandSpec[] {
     feaViewToggle(ID.feaToggleUndeformed, "Undeformed outline", (s) => s.showUndeformed, (s) => s.setShowUndeformed),
     feaViewToggle(ID.feaToggleElementEdges, "Element edges", (s) => s.elementEdgesVisible, (s) => s.setElementEdgesVisible),
     feaViewToggle(ID.feaToggleResultColors, "Result colours", (s) => s.resultColorsVisible, (s) => s.setResultColorsVisible),
+    // The loaded result's view: the same state and actions as the Simulation panel's controls.
+    {
+      id: ID.colorLegend,
+      label: "Colour legend",
+      group: "Results",
+      checked: () => useColorStore.getState().showLegend,
+      disabledReason: () =>
+        useFeaAnimationStore.getState().sessionActive || useColorByStore.getState().activeId !== null ? null : "No result is loaded",
+      run: () => toggleColorLegend(),
+    },
+    {
+      id: ID.femConcepts,
+      label: "FE model (FEM concepts)",
+      group: "Results",
+      disabledReason: () =>
+        feModelLoaded({manifest: useFeaAnimationStore.getState().manifest, femHasConcepts: hasFemConcepts(useFemConceptsStore.getState())})
+          ? null
+          : "No FE model is loaded",
+      run: () => openFemConcepts(),
+    },
+    {
+      id: ID.dataDock,
+      label: "Result data table",
+      group: "Results",
+      checked: () => useTableNavStore.getState().isPanelOpen,
+      disabledReason: () => (useFeaAnimationStore.getState().sessionActive ? null : "No result is loaded"),
+      run: () => toggleDataTable(),
+    },
+    {
+      id: ID.beamSections,
+      label: "Beams as sections",
+      group: "Results",
+      checked: () => {
+        const s = useFeaAnimationStore.getState();
+        return beamSolidsToggleState(s.manifest, s.beamSolidsUnavailable).enabled && s.beamSolidsVisible;
+      },
+      disabledReason: () => {
+        const s = useFeaAnimationStore.getState();
+        if (!s.sessionActive) return "No result is loaded";
+        const t = beamSolidsToggleState(s.manifest, s.beamSolidsUnavailable);
+        return t.enabled ? null : t.offered ? t.title : "This result has no beam sections";
+      },
+      run: () => feaControlActions().setBeamSolids(!useFeaAnimationStore.getState().beamSolidsVisible),
+    },
+    {
+      id: ID.warp,
+      label: "Warp by displacement",
+      group: "Results",
+      checked: () => useFeaAnimationStore.getState().warpEnabled,
+      disabledReason: () => (useFeaAnimationStore.getState().sessionActive ? null : "No result is loaded"),
+      run: () => feaControlActions().setWarp(!useFeaAnimationStore.getState().warpEnabled),
+    },
     // Number labels (node and element ids of a loaded FEA result)
     {
       id: ID.labelsNodes,
@@ -584,6 +740,14 @@ export function coreCommandSpecs(): CommandSpec[] {
       checked: () => useLabelsStore.getState().elements,
       disabledReason: () => (useFeaAnimationStore.getState().sessionActive ? null : "No result is loaded"),
       run: () => useLabelsStore.getState().setElements(!useLabelsStore.getState().elements),
+    },
+    {
+      id: ID.labelsValues,
+      label: "Property values",
+      group: "View",
+      checked: () => useLabelsStore.getState().values,
+      disabledReason: () => (useFeaAnimationStore.getState().sessionActive ? null : "No result is loaded"),
+      run: () => useLabelsStore.getState().setValues(!useLabelsStore.getState().values),
     },
     // Colour by property
     {
@@ -614,6 +778,13 @@ export function coreCommandSpecs(): CommandSpec[] {
       run: () => void colorBy().then((m) => m.resetColorBy()),
     },
     // The procedural builder (the Build mode's toolbar)
+    {
+      id: ID.builderNew,
+      label: "New procedural model…",
+      group: "Build",
+      disabledReason: () => (capabilities.procedural.canEdit ? null : "This connection cannot edit procedural models"),
+      run: () => void import("@/utils/cellbuilder/newModel").then((m) => m.createAndOpenProceduralModel()),
+    },
     {
       id: ID.builderUndo,
       label: "Undo build step",
@@ -665,6 +836,82 @@ export function coreCommandSpecs(): CommandSpec[] {
       group: "Build",
       disabledReason: () => (useCellBuilderStore.getState().active ? null : "No procedural model is open"),
       run: () => useCellBuilderStore.getState().close(),
+    },
+    // Placement: the tools that put a component in the model (a second press puts the tool away).
+    {
+      id: ID.builderAddCell,
+      label: "Add cell",
+      group: "Build",
+      checked: () => useCellBuilderStore.getState().mode === "add-cell",
+      disabledReason: builderReadOnly,
+      run: () => {
+        const s = useCellBuilderStore.getState();
+        s.setMode(s.mode === "add-cell" ? "idle" : "add-cell");
+      },
+    },
+    {
+      id: ID.builderAddLoft,
+      label: "Add loft",
+      group: "Build",
+      disabledReason: builderReadOnly,
+      run: () => useCellBuilderStore.getState().addLoftMember(),
+    },
+    {
+      id: ID.builderAddOpening,
+      label: "Add opening",
+      group: "Build",
+      checked: () => useCellBuilderStore.getState().mode === "add-opening",
+      disabledReason: () => builderReadOnly() ?? (useCellBuilderStore.getState().openingTypes.length ? null : "No opening types"),
+      run: () => {
+        const s = useCellBuilderStore.getState();
+        if (s.mode === "add-opening") return s.setMode("idle");
+        const slug = placementType(s.selectedOpeningType, s.openingTypes);
+        if (slug) {
+          s.setSelectedOpeningType(slug);
+          s.setMode("add-opening");
+        }
+      },
+    },
+    {
+      id: ID.builderAddEquipment,
+      label: "Add equipment",
+      group: "Build",
+      checked: () => useCellBuilderStore.getState().mode === "add-equipment",
+      disabledReason: () => builderReadOnly() ?? (useCellBuilderStore.getState().equipmentTypes.length ? null : "No equipment types"),
+      run: () => {
+        const s = useCellBuilderStore.getState();
+        if (s.mode === "add-equipment") return s.setMode("idle");
+        const slug = placementType(s.selectedEquipmentType, s.equipmentTypes);
+        if (slug) {
+          s.setSelectedEquipmentType(slug);
+          s.setMode("add-equipment");
+        }
+      },
+    },
+    // Gizmos on the selected component, as the G / R / S keys.
+    builderGizmo(ID.builderTranslate, "Move gizmo", "translate"),
+    builderGizmo(ID.builderRotate, "Rotate gizmo", "rotate"),
+    builderGizmo(ID.builderResize, "Resize gizmo", "resize"),
+    // What the builder shows.
+    builderRep(ID.builderRepTopology, "Topology view", "topology"),
+    builderRep(ID.builderRepSimulation, "Simulation view", "simulation"),
+    builderRep(ID.builderRepDetail, "Detail view", "detail"),
+    {
+      id: ID.builderSuperimpose,
+      label: "Result over topology",
+      group: "Build",
+      checked: () => useCellBuilderStore.getState().superimpose,
+      disabledReason: () =>
+        noBuilderModel() ?? (useCellBuilderStore.getState().repMode === "topology" ? "Needs the simulation or the detail view" : null),
+      run: () => void useCellBuilderStore.getState().setSuperimpose(!useCellBuilderStore.getState().superimpose),
+    },
+    {
+      id: ID.builderSideBySide,
+      label: "Result beside topology",
+      group: "Build",
+      checked: () => useCellBuilderStore.getState().sideBySide,
+      disabledReason: noBuilderModel,
+      run: () => useCellBuilderStore.getState().setSideBySide(!useCellBuilderStore.getState().sideBySide),
     },
   ];
   for (const [id, preset] of Object.entries(THEME_PRESETS)) {
@@ -728,6 +975,7 @@ let unsubscribe: (() => void) | null = null;
 /** Register core's commands (idempotent; a later call re-registers them, e.g. after the shell list changed). */
 export function registerCoreCommands(): void {
   for (const spec of coreCommandSpecs()) registerCommand(spec, OWNER);
+  registerOptionCommands();
   syncWorkspaceCommands();
   unsubscribe ??= layoutStore.subscribe((s, prev) => {
     if (s.prefs.workspaces !== prev.prefs.workspaces) syncWorkspaceCommands();

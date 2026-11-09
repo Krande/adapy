@@ -14,6 +14,7 @@ import {
   commandsVersion,
   getCommand,
   listCommands,
+  commandRank,
   matchCommand,
   registerCommand,
   runCommand,
@@ -136,7 +137,7 @@ function CommandPalette({onClose}: {onClose(): void}) {
   const hits = useMemo(
     () =>
       all
-        .map((c) => ({c, rank: matchCommand(query, `${c.group ?? ""} ${c.label}`) ?? matchCommand(query, c.label)}))
+        .map((c) => ({c, rank: commandRank(query, c)}))
         .filter((x): x is {c: RegisteredCommand; rank: number} => x.rank !== null)
         .sort((a, b) => a.rank - b.rank || a.c.label.localeCompare(b.c.label))
         .slice(0, 50)

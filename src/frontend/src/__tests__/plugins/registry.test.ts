@@ -100,7 +100,7 @@ test("ignores a duplicate id (first-writer-wins)", () => {
 });
 
 test("skips a plugin whose coreApiRange excludes this core", () => {
-  registerPlugin({ id: "future", coreApiRange: ">=2.0" });
+  registerPlugin({ id: "future", coreApiRange: ">=3.0" });
   assert.equal(getRegisteredPlugins().length, 0);
   registerPlugin({ id: "ok", coreApiRange: ">=1.0 <2.0" });
   assert.equal(getRegisteredPlugins().length, 1);

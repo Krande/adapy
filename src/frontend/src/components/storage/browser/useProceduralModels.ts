@@ -18,6 +18,7 @@ import {
 } from "@/utils/scene/handlers/model_translate";
 import {writeToClipboard} from "@/utils/clipboard/copySelectionNames";
 import {alertDialog, confirmDialog, errorText, promptDialog} from "@/plugins/dialogs";
+import {createAndOpenProceduralModel} from "@/utils/cellbuilder/newModel";
 import {buildProceduralMenuItems} from "../storageMenuItems";
 import type {FolderPicker} from "./useUploads";
 
@@ -250,23 +251,7 @@ export function useProceduralModels(p: {
         }
     };
 
-    const createProceduralModel = async () => {
-        const name = await promptDialog({
-            title: "New procedural model",
-            label: "Name for the new procedural model",
-            confirmLabel: "Create",
-        });
-        if (!name || !name.trim()) return;
-        try {
-            const detail = await viewerApi.createProceduralModel(scopeKey, name.trim());
-            // Listed before it opens, so the panel never shows it as unsaved.
-            await refreshProceduralModels();
-            const store = useCellBuilderStore.getState();
-            store.open(detail.id, detail.name, detail.revision, detail.doc);
-        } catch (e) {
-            void alertDialog({title: "Failed to create procedural model", body: errorText(e), tone: "danger"});
-        }
-    };
+    const createProceduralModel = async () => void (await createAndOpenProceduralModel(scopeKey, refreshProceduralModels));
 
     // Instantiate a new model from a template: commit the template's document
     // verbatim (so loft members / systems survive untouched — the cellbuilder's

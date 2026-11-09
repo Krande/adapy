@@ -40,7 +40,6 @@ export default defineConfig({
                 manualChunks: {
                     three: ['three', 'camera-controls', 'urdf-loader'],
                     react: ['react', 'react-dom'],
-                    flow: ['@xyflow/react'],
                 },
             },
         },

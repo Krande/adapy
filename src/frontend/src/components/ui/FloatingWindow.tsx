@@ -4,7 +4,7 @@
 // screen is hostile.
 //
 // One implementation for every window core floats. The in-viewer admin /
-// convert window, the attribute search window and the node editor each wrapped
+// convert window, the attribute search window and others each wrapped
 // `react-rnd` themselves, with their own copy of the mobile switch; they now
 // pass what differs as props:
 //

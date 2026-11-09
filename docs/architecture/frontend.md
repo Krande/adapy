@@ -72,7 +72,7 @@ flowchart TB
 ```
 
 Main libraries: three.js, camera-controls, zustand, Comlink, Dexie, flatbuffers,
-meshoptimizer, react-arborist (trees) and `@xyflow/react` (node editor). Styling uses
+meshoptimizer, react-arborist (trees). Styling uses
 Tailwind 4. Plugins live in npm workspaces under `packages/plugins/*`, and
 `npm run gen:plugins` generates `registry.generated.ts`.
 

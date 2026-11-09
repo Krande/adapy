@@ -22,8 +22,6 @@ import React from "react";
 import OptionsComponent, { OptionsBody } from "@/components/OptionsComponent";
 import ResizableTreeView from "@/components/tree_view/ResizableTreeView";
 import AssetBrowser, { AssetBrowserTabs, assetsTabAvailable } from "@/components/asset_browser/AssetBrowser";
-import NodeEditorComponent from "@/components/node_editor/NodeEditorComponent";
-import NodeEditorBody from "@/components/node_editor/NodeEditorBody";
 import ServerInfoBox, { ServerInfoBody } from "@/components/server_info/ServerInfoBox";
 import ObjectInfoBox, { ObjectInfoBody } from "@/components/info_box_selected_object/ObjectInfoBoxComponent";
 import SceneInfoBox from "@/components/info_box_scene/SceneInfoBox";
@@ -33,6 +31,7 @@ import SimulationControls, { SimulationBody } from "@/components/simulation/Simu
 import SimulationDataInfoPanel from "@/components/simulation/SimulationDataInfoPanel";
 import ComponentControls, { ComponentControlsBody } from "@/components/component_view/ComponentControls";
 import CellBuilderPanel, { CellBuilderBody } from "@/components/viewer/CellBuilderPanel";
+import { ComponentListBody, ComponentListPanel } from "@/components/viewer/cellbuilder/panel/ComponentList";
 
 import { CORE_PANEL_IDS } from "./corePanels";
 import type { PanelId, PanelProps } from "./panel";
@@ -70,7 +69,6 @@ const embedded = (c: React.ComponentType<{ embedded?: boolean }>) =>
 export const CLASSIC_PANEL_COMPONENTS: Readonly<Record<PanelId, React.ComponentType<PanelProps>>> = {
   [CORE_PANEL_IDS.options]: asBody(OptionsComponent),
   [CORE_PANEL_IDS.tree]: asBody(ResizableTreeView),
-  [CORE_PANEL_IDS.nodeEditor]: asBody(NodeEditorComponent),
   [CORE_PANEL_IDS.serverInfo]: asBody(ServerInfoBox),
   [CORE_PANEL_IDS.objectInfo]: asBody(ObjectInfoBox),
   [CORE_PANEL_IDS.scene]: asBody(SceneInfoBox),
@@ -79,13 +77,13 @@ export const CLASSIC_PANEL_COMPONENTS: Readonly<Record<PanelId, React.ComponentT
   [CORE_PANEL_IDS.feaTable]: asBody(SimulationDataInfoPanel),
   [CORE_PANEL_IDS.componentControls]: asBody(ComponentControls),
   [CORE_PANEL_IDS.cellbuilder]: asBody(CellBuilderPanel),
+  [CORE_PANEL_IDS.componentList]: asBody(ComponentListPanel),
 };
 
 /** Each core panel's content without its classic frame. */
 export const CLASSIC_PANEL_CONTENTS: Readonly<Record<PanelId, React.ComponentType<PanelProps>>> = {
   [CORE_PANEL_IDS.options]: withOptions(OptionsBody),
   [CORE_PANEL_IDS.tree]: asBody(SelectionTreeContent),
-  [CORE_PANEL_IDS.nodeEditor]: withOptions(NodeEditorBody),
   [CORE_PANEL_IDS.serverInfo]: withOptions(ServerInfoBody),
   [CORE_PANEL_IDS.objectInfo]: withOptions(ObjectInfoBody),
   [CORE_PANEL_IDS.scene]: withOptions(SceneBody),
@@ -94,6 +92,7 @@ export const CLASSIC_PANEL_CONTENTS: Readonly<Record<PanelId, React.ComponentTyp
   [CORE_PANEL_IDS.feaTable]: withOptions(SimulationDataInfoPanel),
   [CORE_PANEL_IDS.componentControls]: withOptions(ComponentControlsBody),
   [CORE_PANEL_IDS.cellbuilder]: withOptions(CellBuilderBody),
+  [CORE_PANEL_IDS.componentList]: asBody(ComponentListBody),
 };
 
 type Loader = () => Promise<React.ComponentType<PanelProps>>;

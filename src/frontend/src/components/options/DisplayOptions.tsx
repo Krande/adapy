@@ -2,6 +2,7 @@ import React from "react";
 import {useOptionsStore} from "@/state/optionsStore";
 import {useColorStore} from "@/state/colorLegendStore";
 import {useModelState} from "@/state/modelState";
+import {toggleColorLegend} from "@/layout/resultViewActions";
 import {refreshEdgeOverlays} from "@/utils/scene/refreshEdgeOverlays";
 
 const Toggle: React.FC<{
@@ -21,12 +22,11 @@ const DisplayOptions: React.FC = () => {
         showMeshStats, setShowMeshStats,
         hideTessellationEdges, setHideTessellationEdges,
         lockTranslation, setLockTranslation,
-        enableNodeEditor, setEnableNodeEditor,
         enableWebsocket, setEnableWebsocket,
         autoFit, setAutoFit,
         autoConvertOnUpload, setAutoConvertOnUpload,
     } = useOptionsStore();
-    const {showLegend, setShowLegend} = useColorStore();
+    const {showLegend} = useColorStore();
     const {zIsUp, setZIsUp, defaultOrbitController, setDefaultOrbitController} = useModelState();
 
     return (
@@ -34,7 +34,7 @@ const DisplayOptions: React.FC = () => {
             {/* "Show Stats" moved to the top of the Performance
                 section — it's a perf-diagnosis toggle, not a display
                 preference. */}
-            <Toggle checked={showLegend} onChange={() => setShowLegend(!showLegend)}>Show Color Legend</Toggle>
+            <Toggle checked={showLegend} onChange={toggleColorLegend}>Show Color Legend</Toggle>
             <Toggle
                 checked={showEdges}
                 onChange={() => {
@@ -86,7 +86,6 @@ const DisplayOptions: React.FC = () => {
             </label>
             <Toggle checked={autoFit} onChange={() => setAutoFit(!autoFit)}>Auto Fit to View</Toggle>
             <Toggle checked={lockTranslation} onChange={() => setLockTranslation(!lockTranslation)}>Lock Translation</Toggle>
-            <Toggle checked={enableNodeEditor} onChange={() => setEnableNodeEditor(!enableNodeEditor)}>Enable Node Editor</Toggle>
             <Toggle checked={enableWebsocket} onChange={() => setEnableWebsocket(!enableWebsocket)}>Enable Websocket</Toggle>
             <Toggle checked={zIsUp} onChange={() => setZIsUp(!zIsUp)}>Z is UP</Toggle>
             <Toggle checked={defaultOrbitController} onChange={() => setDefaultOrbitController(!defaultOrbitController)}>

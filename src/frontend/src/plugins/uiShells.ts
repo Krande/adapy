@@ -30,6 +30,7 @@ import type { PanelOverride } from "@/layout/registry";
 import type { CoreModeToolbarId } from "@/layout/shellModes";
 import type { GridNode } from "@/layout/splitTree";
 import type { ViewportAnchor } from "@/layout/viewportOverlays";
+import type { StatusItemSpec } from "@/layout/statusItems";
 import type { AdaPluginContext, PluginTheme } from "./registry";
 
 /** The built-in shell id — the stock Ada Studio UI. Always registered. */
@@ -134,8 +135,15 @@ export interface UiShellMode {
 export interface UiShellChrome {
   /** Drawn full width above the layout: the shell's own menu bar. Lazy. */
   header?: () => Promise<{ default: React.ComponentType }>;
-  /** Drawn full width below the layout: a status bar. Lazy. */
+  /** Drawn full width below the layout: a status bar of the shell's own. Lazy. Wins over `statusItems`. */
   footer?: () => Promise<{ default: React.ComponentType }>;
+  /**
+   * Core's status bar, composed: what to draw below the layout, in order. Core's items by id
+   * (`"connection"`, `"models"`, `"selection"`, `"mode"`, `"undo"`, `"compile"`, `"version"`) and items
+   * of the shell's own (`StatusBarItem`: text, or an element that reads what it likes); items marked
+   * `end` sit at the right end. Absent, or `footer` given: no bar from core.
+   */
+  statusItems?: readonly StatusItemSpec[];
   /**
    * Drawn down the left of the layout, between header and footer, outside the
    * docks: a tool rail. Either core's (`{tools}`: command ids, `RAIL_SEPARATOR`
@@ -176,6 +184,13 @@ export interface UiShellChrome {
    * to the viewer. Lazy.
    */
   pageHeader?: () => Promise<{ default: React.ComponentType<{ title: string; backHref: string }> }>;
+  /**
+   * "UI freeze": the user may lock the panel arrangement (`core:toggle-ui-freeze`, View menu, Options),
+   * which takes the docking controls out of the headers, stops tab dragging and drops, and keeps tabs,
+   * dividers, close and reopen working. `false`: the shell does not offer it. `"default-on"`: it starts
+   * frozen, until the user chooses. Absent: offered, starting unfrozen.
+   */
+  uiFreeze?: boolean | "default-on";
   /** Core's top bar of panel toggles over the viewport. Default true. */
   toolbar?: boolean;
   /**

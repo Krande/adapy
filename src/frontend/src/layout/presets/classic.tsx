@@ -13,7 +13,7 @@
 //   classic.menu-column  the stacked panels, in placement order, each its own
 //                        card (`frame: "own"`), with the plugin `top-panel`
 //                        region at its slot
-//   classic.float        the node editor and the attribute search
+//   classic.float        the attribute search
 //   classic.window       the in-viewer admin / convert window
 //
 // Visibility is each panel's binding, and the mount rules (`classicRules`)
@@ -25,20 +25,16 @@ import React, {Suspense} from "react";
 
 import CanvasWrapper from "@/components/viewer/CanvasWrapper";
 import {SceneMenuHost} from "@/components/tree_view/SceneTreeMenu";
-import NodeEditorComponent from "@/components/node_editor/NodeEditorComponent";
 import ErrorBoundary from "@/components/common/ErrorBoundary";
 import {CellBuilderOverlays} from "../CellBuilderOverlays";
 import {WebsocketStatusMenu} from "@/components/WebsocketStatusMenu";
 import {ViewerWindow, VIEWER_PANEL_TITLE, viewerPanelExternal} from "@/components/ViewerWindow";
 import {navBtnClass} from "@/components/navButton";
-import ReloadIcon from "@/components/icons/ReloadIcon";
 import {PluginPanelRegion, PluginTopBarButtons} from "@/plugins";
 import {hasEmbeddedDoc, useCellBuilderStore} from "@/state/cellBuilderStore";
 import {useObjectInfoStore} from "@/state/objectInfoStore";
 import {useTreeViewStore} from "@/state/treeViewStore";
-import {useNodeEditorStore} from "@/state/useNodeEditorStore";
 import {useViewerPanelStore, type ViewerPanel} from "@/state/viewerPanelStore";
-import {request_list_of_nodes} from "@/utils/node_editor/handlers/request_list_of_nodes";
 import {useIsWide} from "@/utils/useIsMobile";
 
 import {PanelHeaderActionsProvider} from "@/components/ui/PanelFrame";
@@ -142,7 +138,7 @@ export function ToolbarButton({
   );
 }
 
-function ClassicToolbar({nodeEditorOnly}: {nodeEditorOnly: boolean}) {
+function ClassicToolbar() {
   const {env} = useLayout();
   const customisable = useCustomisablePanels();
   // Core's buttons; plugin buttons are drawn by their own host at their slot,
@@ -157,15 +153,6 @@ function ClassicToolbar({nodeEditorOnly}: {nodeEditorOnly: boolean}) {
       className={"flex flex-row items-center gap-2 px-2 max-w-full overflow-x-auto pointer-events-auto"}
       {...(customisable ? {[ZONE_ATTR]: "toolbar"} : {})}
     >
-      {nodeEditorOnly && (
-        <button
-          className={"flex relative bg-blue-700 hover:bg-blue-700/50 text-white p-1 rounded-sm transition-colors"}
-          onClick={() => void request_list_of_nodes().catch((err) => console.error("Failed to reload nodes:", err))}
-          title="Reload nodes"
-        >
-          <ReloadIcon />
-        </button>
-      )}
       {before.map(button)}
       <PluginTopBarButtons navBtnClass={(active) => navBtnClass(active)} />
       {after.map(button)}
@@ -282,7 +269,6 @@ function ClassicColumn({proceduralActive}: {proceduralActive: boolean}) {
  * above it.
  */
 function ClassicMenu({viewport}: {viewport: Rect | null}) {
-  const nodeEditorOnly = useNodeEditorStore((s) => s.use_node_editor_only);
   const isTreeCollapsed = useTreeViewStore((s) => s.isTreeCollapsed);
   const treeViewWidth = useTreeViewStore((s) => s.treeViewWidth);
   const isWide = useIsWide();
@@ -300,7 +286,7 @@ function ClassicMenu({viewport}: {viewport: Rect | null}) {
         className="absolute left-0 top-0 z-10 py-2 gap-2 flex flex-col pointer-events-none transition-[padding] duration-150"
         style={top > 0 ? {paddingLeft: `${menuShiftPx}px`, paddingTop: `${top + 8}px`} : {paddingLeft: `${menuShiftPx}px`}}
       >
-        {classicToolbarShown() && <ClassicToolbar nodeEditorOnly={!!nodeEditorOnly} />}
+        {classicToolbarShown() && <ClassicToolbar />}
         <ClassicColumn proceduralActive={proceduralActive} />
       </div>
     </div>
@@ -411,7 +397,6 @@ function ViewportCover({panelId}: {panelId: PanelId}) {
 /** The classic frame: tree, top bar and column, viewport and windows, its zones filled from the registry. */
 function ClassicFrame() {
   const {preset, env} = useLayout();
-  const nodeEditorOnly = useNodeEditorStore((s) => s.use_node_editor_only);
   const mount = useMountRule();
   const customisable = useCustomisablePanels();
   const narrow = useIsNarrow();
@@ -457,7 +442,7 @@ function ClassicFrame() {
   // The split grid: the docked panels that are open, around the viewport.
   const frameRef = React.useRef<HTMLDivElement>(null);
   const viewportRef = React.useRef<HTMLDivElement>(null);
-  const gridOn = customisable && !narrow && !nodeEditorOnly;
+  const gridOn = customisable && !narrow;
   const docked = gridOn ? gridPanels(gridOf(doc)).map((id) => getPanel(id)).filter((p): p is RegisteredPanel => !!p && canDock(p)) : [];
   const states = usePanelStates(docked, env);
   const proceduralActive = useProceduralActive();
@@ -520,16 +505,16 @@ function ClassicFrame() {
               : undefined
         }
       >
-        {nodeEditorOnly ? <NodeEditorComponent /> : <CanvasWrapper legend={!overlays?.legend} />}
+        <CanvasWrapper legend={!overlays?.legend} />
         {/* A composed shell's HUDs over the view, at their anchors. */}
-        {overlays && !nodeEditorOnly && (
+        {overlays && (
           <ViewportOverlays placement={overlays} pluginPanels={overlayPanels.filter((p) => overlayStates.get(p.id)?.open)} />
         )}
         {/* A mode's page over the view; the canvas stays mounted under it. */}
         {cover && <ViewportCover panelId={cover} />}
       </div>
 
-      {/* Windows: the node editor in the tree, the attribute search in its own portal. */}
+      {/* Windows: the attribute search in its own portal. */}
       <FloatLayer
         zone={CLASSIC_ZONES.float}
         mount={mount}

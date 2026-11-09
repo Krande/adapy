@@ -1,6 +1,7 @@
 import React, {useSyncExternalStore} from "react";
 
 import {setCustomisablePanels, useCustomisablePanels, useCustomisablePanelsRequired} from "@/layout/customisable";
+import {setUiFrozen, useUiFreezeOffered, useUiFrozen} from "@/layout/uiFreeze";
 import {setMarkingMenuOn, useServedMarkingMenu} from "@/layout/markingMenuState";
 import {activeUiShellId, activeUiShellVersion, getUiShell, subscribeActiveUiShell} from "@/plugins/uiShells";
 
@@ -12,6 +13,8 @@ const LayoutOptions: React.FC<{className?: string}> = ({className}) => {
     const required = useCustomisablePanelsRequired();
     const label = getUiShell(activeUiShellId())?.label ?? "this";
     const marking = useServedMarkingMenu();
+    const frozen = useUiFrozen();
+    const freezeOffered = useUiFreezeOffered();
     return (
         <div className={`space-y-3 ${className ?? ""}`}>
             <label className={`flex items-start space-x-2 ${required ? "opacity-60" : ""}`} title={required ? `Always on in the ${label} UI` : undefined}>
@@ -36,6 +39,23 @@ const LayoutOptions: React.FC<{className?: string}> = ({className}) => {
                     )}
                 </span>
             </label>
+            {freezeOffered && (
+                <label className="flex items-start space-x-2">
+                    <input
+                        type="checkbox"
+                        className="mt-1"
+                        checked={frozen}
+                        data-testid="ui-freeze"
+                        onChange={() => setUiFrozen(!frozen)}
+                    />
+                    <span className="leading-tight">
+                        Freeze layout
+                        <span className="block text-xs text-gray-400">
+                            Lock the arrangement: panels stay where they are (no floating, docking, moving or dragging). Tabs, dividers, close and reopen still work.
+                        </span>
+                    </span>
+                </label>
+            )}
             {marking.available && (
                 <label className="flex items-start space-x-2">
                     <input

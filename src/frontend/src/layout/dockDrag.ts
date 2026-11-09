@@ -19,6 +19,7 @@
 import { createStore } from "zustand/vanilla";
 
 import type { PanelId, ZoneId } from "./panel";
+import { uiFrozen } from "./uiFreeze";
 
 /** On a drop target: the zone a drop there docks into. */
 export const DROP_ATTR = "data-layout-drop";
@@ -127,6 +128,8 @@ const asTarget = (t: ZoneId | DropTarget | null): DropTarget | null => (typeof t
 
 /** The pointer moved while `panel`'s window is dragged. */
 export function moveDockDrag(panel: PanelId, x: number, y: number, hit: Hit = hitTest): void {
+  // A frozen layout (`./uiFreeze`) has no drop targets.
+  if (uiFrozen()) return;
   const s = dockDragStore.getState();
   if (s.panel !== panel) {
     // The targets render on the first move; they can be hit from the next.
@@ -143,7 +146,7 @@ export function moveDockDrag(panel: PanelId, x: number, y: number, hit: Hit = hi
 /** The drag ended: where the window was dropped, if anywhere. */
 export function endDockDragAt(x: number, y: number, hit: Hit = hitTest): DropTarget | null {
   const was = dockDragStore.getState().panel;
-  const target = was ? asTarget(hit(x, y)) : null;
+  const target = was && !uiFrozen() ? asTarget(hit(x, y)) : null;
   dockDragStore.setState({ panel: null, over: null, index: null, edge: null });
   return target;
 }

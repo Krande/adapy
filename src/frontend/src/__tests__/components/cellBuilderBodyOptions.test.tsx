@@ -63,7 +63,7 @@ test("emptyState replaces the panel while no model is open", () => {
     setServerState(useCellBuilderStore, { active: null });
     try {
         assert.equal(render({ emptyState: empty }), '<p id="empty">Nothing open</p>');
-        assert.match(render(), /role="tablist"/, "without it the empty panel renders, as before");
+        assert.match(render(), /data-builder-no-model/, "without it the panel offers a way to start a model");
     } finally {
         setServerState(useCellBuilderStore, { active: { modelId: "m-1", name: "Model A", revision: 2 } });
     }

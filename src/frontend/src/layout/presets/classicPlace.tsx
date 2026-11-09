@@ -1,8 +1,8 @@
 // Where a panel shows in the classic preset, and the moves between places.
 //
 // Every core panel has a HOME, the place the classic UI has always given it: the
-// panel column, the left tree track, or a window of its own (the node editor,
-// the attribute search, the admin / convert window). With "Customisable panels"
+// panel column, the left tree track, or a window of its own (the attribute search,
+// the admin / convert window). With "Customisable panels"
 // on, a panel with frameless content may also show in a window of the layout
 // (`floats`; for a panel at home in a window, its own window is that) or in a
 // group of the split grid around the viewport (`grid`, `../splitTree`). The
@@ -22,6 +22,7 @@ import type {DropTarget} from "../dockDrag";
 import {CORE_PANEL_OWNER} from "../corePanelIds";
 import {CLASSIC_PRESET_ID, CLASSIC_ZONES, DOCKED_PRESET_ID, layoutDocKey, type LayoutDoc} from "../layout";
 import {setCustomisableShell, useCustomisablePanels as useServedCustomisablePanels} from "../customisable";
+import {setUiFreezeShell} from "../uiFreeze";
 import {layoutStore} from "../layoutStore";
 import type {PanelAction, PanelId, PanelMenuItem, RegisteredPanel} from "../panel";
 import {
@@ -96,6 +97,8 @@ export interface ClassicShell extends ClassicArrangement {
   version?: number;
   /** Customisable panels: always on ("required", the default), or the user's setting for this shell. */
   customisablePanels?: "required" | "optional";
+  /** UI freeze (`./uiFreeze`): `false` leaves it out, `"default-on"` starts frozen. Default offered, off. */
+  uiFreeze?: boolean | "default-on";
   migrate?: (doc: LayoutDoc, from: number | undefined) => LayoutDoc | null;
 }
 
@@ -153,6 +156,7 @@ export function setClassicShell(next: ClassicShell | null, modeIds: readonly str
   shell = next;
   shellContexts = ["default"];
   setCustomisableShell(next?.id ?? null, next?.customisablePanels !== "optional");
+  setUiFreezeShell(next?.id ?? null, next?.uiFreeze);
   if (!next) return;
   const contexts = modeIds.length ? modeIds.map((m) => [contextOf(next.id, m), m] as const) : [[next.id, null] as const];
   shellContexts = contexts.map(([ctx]) => ctx);

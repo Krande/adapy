@@ -21,11 +21,8 @@ import React, {useEffect, useMemo, useRef, useState, useSyncExternalStore} from 
 import {useAnimationStore} from "@/state/animationStore";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {useTableNavStore} from "@/state/tableNavStore";
-import {toggle} from "@/layout/panelActions";
 
-/** The result data table, opened and closed as the panel it is (`core:fea-table`). */
-// In a pop-out window the table is a section of the Simulation panel there (its flag is this window's own); the panel's own placement is the main window's.
-const toggleDataTable = (): void => (isMirroredWindow() ? useTableNavStore.getState().togglePanel() : void toggle(CORE_PANEL_IDS.feaTable));
+import {toggleDataTable} from "@/layout/resultViewActions";
 import {edgeFadeSnapshot, subscribeEdgeFade, useFeaControlActions} from "@/utils/scene/fea/feaControls";
 import {isMirroredWindow} from "@/layout/sceneActions";
 

@@ -17,6 +17,7 @@ import {SystemsCatalogTab} from "./cellbuilder/panel/SystemsCatalogTab";
 import {ViewTab} from "./cellbuilder/panel/ViewTab";
 import {ToolsTab} from "./cellbuilder/panel/ToolsTab";
 import {PanelFooter} from "./cellbuilder/panel/PanelFooter";
+import {NoModel} from "./cellbuilder/panel/NoModel";
 
 // The procedural-modelling context panel: add cells / typed equipment, list the
 // boxes, edit systems, commit to postgres (revision-tracked) and compile via
@@ -131,7 +132,7 @@ export const CellBuilderContent: React.FC<{state: CellBuilderPanelState} & CellB
   const offered = offeredTabs(tabs, s.selectedDetailing !== "none");
   const shown = shownTab(tab, offered);
 
-  if (emptyState !== undefined && s.active === null && !hasEmbeddedDoc(s)) return <>{emptyState}</>;
+  if (s.active === null && !hasEmbeddedDoc(s)) return emptyState !== undefined ? <>{emptyState}</> : <NoModel />;
 
   return (
     <>
