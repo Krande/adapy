@@ -2,6 +2,15 @@
 
 
 
+## v0.138.1 (2026-11-09)
+
+### Fix
+
+* fix: require paradoc 0.12 for the report&#39;s 3D view (#507)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`458ca14`](https://github.com/Krande/adapy/commit/458ca141bccf37b2765e79a2586a2f62cb93043a))
+
+
 ## v0.138.0 (2026-11-09)
 
 ### Feature
