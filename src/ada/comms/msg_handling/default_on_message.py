@@ -24,7 +24,6 @@ from ada.comms.msg_handling.run_procedure import run_procedure
 from ada.comms.msg_handling.save_procedural_model import save_procedural_model
 from ada.comms.msg_handling.shutdown_server import shutdown_server_func
 from ada.comms.msg_handling.start_local_app import start_local_app
-from ada.comms.msg_handling.start_separate_node_editor import start_separate_node_editor
 from ada.comms.msg_handling.update_scene import update_scene
 from ada.comms.msg_handling.update_server import update_server
 from ada.comms.msg_handling.view_file_object import view_file_object
@@ -57,8 +56,6 @@ def default_on_message(server: WebSocketAsyncServer, client: ConnectedClient, me
             view_file_object(server, client, message.server.get_file_object_by_name, request_message=message)
         elif message.command_type == CommandTypeDC.DELETE_FILE_OBJECT:
             delete_file_object(server, client, message)
-        elif message.command_type == CommandTypeDC.START_NEW_NODE_EDITOR:
-            start_separate_node_editor(server, client, message)
         elif message.command_type == CommandTypeDC.START_FILE_IN_LOCAL_APP:
             start_local_app(server, client, message)
         elif message.command_type == CommandTypeDC.LIST_WEB_CLIENTS:

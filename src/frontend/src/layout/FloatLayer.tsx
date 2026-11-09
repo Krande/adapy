@@ -1,7 +1,7 @@
 // A float zone: the open panels of one floating-window zone of the active preset.
 //
 // One host for every window a preset floats. A panel that draws its own window
-// (`frame: "own"`, e.g. the classic node editor) is mounted as it is. A panel
+// (`frame: "own"`, e.g. the attribute search) is mounted as it is. A panel
 // whose frame is the host's (`frame: "host"`) is put in a window: the preset's
 // window chrome for that panel when it has one (the classic in-viewer window
 // keeps its title bar and "open in a dedicated tab"), else a `FloatingWindow`

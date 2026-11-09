@@ -149,7 +149,7 @@ test("the plugin API advertises at least 1.6.0", async () => {
   // registers into nothing and its collections silently never appear -- the mismatch a minor
   // bump exists to turn into one log line.
   const { PLUGIN_API_VERSION, _versionSatisfies } = await import("@/plugins/registry");
-  assert.equal(_versionSatisfies(PLUGIN_API_VERSION, ">=1.6.0 <2.0"), true);
+  assert.equal(_versionSatisfies(PLUGIN_API_VERSION, ">=1.6.0 <3.0"), true);
 });
 
 test("a client that answers attributes live is asked, and is given the covering subject", async () => {

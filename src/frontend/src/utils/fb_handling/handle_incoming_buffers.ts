@@ -6,8 +6,6 @@ import {reply_ping} from './reply_ping';
 import {update_scene_from_message} from '../scene/handlers/update_scene_from_message';
 import {open_fea_source_from_message} from '../scene/handlers/open_fea_source_from_message';
 import {receive_mesh_info_reply} from '../mesh_select/handlers/receive_mesh_info_reply';
-import {update_nodes} from '../node_editor/handlers/update_nodes';
-import {handle_finished_procedure} from '../node_editor/handlers/handle_finished_procedure';
 import {receive_list_of_files_from_server} from '../server_info/handlers/receive_list_of_files_from_server';
 import {useWebsocketStatusStore} from '@/state/websocketStatusStore';
 
@@ -25,7 +23,6 @@ export async function handleFlatbufferMessage(buffer: ArrayBuffer): Promise<void
 
             case CommandType.UPDATE_SCENE:
                 await update_scene_from_message(message);
-                await update_nodes(message);
                 break;
 
             case CommandType.MESH_INFO_REPLY:
@@ -60,19 +57,12 @@ export async function handleFlatbufferMessage(buffer: ArrayBuffer): Promise<void
                 const replyTo = message.serverReply()?.replyTo();
                 console.log(replyTo);
                 switch (replyTo) {
-                    case CommandType.LIST_PROCEDURES:
-                        await update_nodes(message);
-                        break;
                     case CommandType.MESH_INFO_CALLBACK:
                         await receive_mesh_info_reply(message);
                         break;
                     case CommandType.VIEW_FILE_OBJECT:
                         console.log('VIEW_FILE_OBJECT Server Reply message received');
                         await update_scene_from_message(message);
-                        break;
-                    case CommandType.RUN_PROCEDURE:
-                        console.log('RUN_PROCEDURE Server Reply message received');
-                        await handle_finished_procedure(message);
                         break;
                     case CommandType.LIST_FILE_OBJECTS:
                         await receive_list_of_files_from_server(message);

@@ -190,7 +190,7 @@ import { CORE_PANEL_IDS, registerPlugin } from "@/viewer-core";
 registerPlugin({
   id: "my-ui",
   version: "1.0.0",
-  coreApiRange: ">=1.13 <2.0", // composed shells need plugin API 1.13
+  coreApiRange: ">=1.13 <3.0", // composed shells need plugin API 1.13
   uiShells: [
     {
       id: "my-ui",
@@ -870,7 +870,7 @@ export function register(): void {
   registerPlugin({
     id: "my-ui",
     version: "1.0.0",
-    coreApiRange: ">=1.0 <2.0",
+    coreApiRange: ">=1.0 <3.0",
     uiShells: [
       {
         id: "my-ui",

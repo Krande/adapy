@@ -36,20 +36,20 @@ afterEach(() => {
 
 const html = (el: React.ReactElement) => renderToStaticMarkup(el);
 
-test("a fixed first rect is the node editor's uncontrolled window", () => {
+test("a fixed first rect is an uncontrolled window", () => {
     const legacy = (
         <Rnd
             default={{x: 100, y: 100, width: 800, height: 600}}
             bounds="window"
             style={{zIndex: 1000, background: "white", border: "1px solid #ccc"}}
-            dragHandleClassName="node-editor-drag-handle"
+            dragHandleClassName="fixed-window-drag-handle"
         >
             <p>graph</p>
         </Rnd>
     );
     const shared = (
         <FloatingWindow
-            dragHandleClassName="node-editor-drag-handle"
+            dragHandleClassName="fixed-window-drag-handle"
             zIndex={1000}
             initialRect={{x: 100, y: 100, width: 800, height: 600}}
             style={{background: "white", border: "1px solid #ccc"}}

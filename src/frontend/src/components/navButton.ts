@@ -9,7 +9,7 @@
 //
 // Mobile (<md): fixed 40x40 inline-flex box so every entry takes the
 // same horizontal slot — keeps the row inside a 360px viewport even
-// at the busiest combo (options + tree + node-editor + storage + info
+// at the busiest combo (options + tree + storage + info
 // + scene + animation + ws status). The 24px SVG icons centre via
 // flex; the lone ☰ text glyph keeps its size with font-bold.
 //
@@ -24,8 +24,8 @@
 // takes an explicit ``hidden`` boolean and folds in Tailwind's
 // ``!hidden`` (display: none !important) when set — that way the
 // HTML ``hidden`` attribute doesn't have to fight ``inline-flex``
-// and the simulation-controls / node-editor toggles stay properly
-// gated on their ``hasAnimation``/``feaSessionActive``/``enableNodeEditor``
+// and the simulation-controls toggle stays properly
+// gated on their ``hasAnimation``/``feaSessionActive``
 // state.
 //
 // Hover styles are gated with ``pointer-fine:`` (mouse-only) instead

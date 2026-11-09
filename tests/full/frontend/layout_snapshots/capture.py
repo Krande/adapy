@@ -70,14 +70,6 @@ def open_storage_and_model(page, model):
     )
 
 
-def node_editor(page):
-    click(page, 'button[title="Toggle options drawer"]')
-    page.get_by_text("Scene config", exact=True).first.click()
-    page.get_by_text("Enable Node Editor", exact=True).first.click()
-    click(page, 'button[title="Toggle options drawer"]')
-    click(page, 'button[title="Toggle node editor"]')
-
-
 def build_states(model):
     """state -> (action, viewport, query suffix, ready selector)"""
     states = {
@@ -99,7 +91,6 @@ def build_states(model):
             TOP_READY,
         ),
         "admin_window": (lambda p: (p.mouse.click(900, 500), p.keyboard.press("Shift+P")), DESKTOP, "", TOP_READY),
-        "node_editor": (node_editor, DESKTOP, "", TOP_READY),
         # The Simulation panel as a follower window; it has no canvas or top bar.
         "sim_window": (None, DESKTOP, "&simfollow=probe&panel=none", 'span:text("Simulation")'),
         "mobile_scene": (lambda p: click(p, 'button[aria-label="Toggle scene info"]'), PHONE, "", TOP_READY),

@@ -81,7 +81,7 @@ async def test_front_multiple_connections(ws_server):
         # Viewer 1
         unique_id = 1
         server, server_thread = start_serving(
-            web_port=0, ws_port=ws_server.port, unique_id=unique_id, node_editor_only=False, non_blocking=True
+            web_port=0, ws_port=ws_server.port, unique_id=unique_id, non_blocking=True
         )
         port = server.server_address[1]
         web_ports.append(port)
@@ -104,7 +104,7 @@ async def test_front_multiple_connections(ws_server):
         # Viewer 2
         unique_id = 2
         server, server_thread = start_serving(
-            web_port=0, ws_port=ws_server.port, unique_id=unique_id, node_editor_only=False, non_blocking=True
+            web_port=0, ws_port=ws_server.port, unique_id=unique_id, non_blocking=True
         )
         port = server.server_address[1]
         web_ports.append(port)
@@ -125,7 +125,7 @@ async def test_front_multiple_connections(ws_server):
         # # Viewer 3
         # unique_id = 3
         # server, server_thread = start_serving(
-        #     web_port=0, ws_port=ws_server.port, unique_id=unique_id, node_editor_only=False, non_blocking=True
+        #     web_port=0, ws_port=ws_server.port, unique_id=unique_id, non_blocking=True
         # )
         # port = server.server_address[1]
         # web_ports.append(port)
@@ -140,7 +140,7 @@ async def test_front_multiple_connections(ws_server):
         # # Viewer 4
         # unique_id = 4
         # server, server_thread = start_serving(
-        #     web_port=0, ws_port=ws_server.port, unique_id=unique_id, node_editor_only=False, non_blocking=True
+        #     web_port=0, ws_port=ws_server.port, unique_id=unique_id, non_blocking=True
         # )
         # port = server.server_address[1]
         # web_ports.append(port)

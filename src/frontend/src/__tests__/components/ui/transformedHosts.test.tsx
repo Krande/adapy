@@ -4,7 +4,7 @@ import React from "react";
 import {renderToStaticMarkup} from "react-dom/server";
 
 // The windows that move by a transform (the in-viewer admin / convert window, the
-// attribute search, the node editor, a float layer's default window) mark their
+// attribute search, a float layer's default window) mark their
 // content as a `TransformedHost`, so the fixed overlays inside it (`OverlayPortal`:
 // the admin panel's dialogs and menus) portal out to the page.
 

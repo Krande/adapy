@@ -110,7 +110,6 @@ class RendererReact:
         embed_trimesh_scene: trimesh.Scene | None = None,
         embed_base64_glb: str = None,
         force_ws: bool = False,
-        node_editor_only=False,
         target_instance=None,
         gltf_buffer_postprocessor=None,
         gltf_tree_postprocessor=None,
@@ -125,8 +124,6 @@ class RendererReact:
             html_inject_str += f"<script>window.WEBSOCKET_ID = {target_id};</script>\n"
         if ws_port is not None:
             html_inject_str += f"<script>window.WEBSOCKET_PORT = {ws_port};</script>"
-        if node_editor_only:
-            html_inject_str += "\n<script>window.NODE_EDITOR_ONLY = true;</script>"
         if target_instance is not None:
             html_inject_str += f"\n<script>window.TARGET_INSTANCE_ID = {target_instance};</script>"
 

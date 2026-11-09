@@ -90,7 +90,6 @@ test("every core panel has a home, and every one with a home may dock", () => {
   assert.deepEqual(homeless, [CORE_PANEL_IDS.feaTable], "the data table is the Simulation panel's section");
   for (const p of core) if (P.homeOf(p)) assert.ok(P.canDock(p), `${p.id} may dock`);
   assert.equal(P.homeOf(getPanel(CORE_PANEL_IDS.tree)!), "tree");
-  assert.equal(P.homeOf(getPanel(CORE_PANEL_IDS.nodeEditor)!), "window");
   assert.equal(P.homeOf(getPanel(CORE_PANEL_IDS.admin)!), "window");
   assert.ok(P.canFloat(getPanel(CORE_PANEL_IDS.simulation)!), "Simulation floats in the layout's window");
   assert.ok(!P.canFloat(getPanel(CORE_PANEL_IDS.attributeSearch)!), "a panel at home in a window floats in that one");
