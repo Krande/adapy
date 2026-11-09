@@ -2,6 +2,15 @@
 
 
 
+## v0.138.0 (2026-11-09)
+
+### Feature
+
+* feat: solver parity for Sestra, Code_Aster and CalculiX decks (#502)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`05a19d4`](https://github.com/Krande/adapy/commit/05a19d4e9bcb6fe32b2e54dc6d7ee2fed76e8915))
+
+
 ## v0.137.2 (2026-11-08)
 
 ### Fix
