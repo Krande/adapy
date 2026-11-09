@@ -98,3 +98,18 @@ def test_audit_default_is_at_or_above_the_refusal_floor():
     m = _CONCRETE_PIN.search(ADACPP_DEFAULT_IMAGE)
     assert m, f"ADACPP_DEFAULT_IMAGE must carry a concrete version, got {ADACPP_DEFAULT_IMAGE!r}"
     assert tuple(int(p) for p in m.group(1).split(".")) >= ADACPP_MIN_VERSION
+
+
+_RENDER_REF_DOCKERFILES = ("Dockerfile.viewer", "Dockerfile.docs", "Dockerfile.docs-fast")
+_RENDER_REF = re.compile(r"^ARG ADACPP_RENDER_REF=(\S+)$", re.MULTILINE)
+
+
+@_needs_repo
+def test_every_dockerfile_builds_the_same_renderer():
+    """Report figures and the viewer use the renderer from different images: a drifted pin makes them disagree."""
+    pins = {
+        name: _RENDER_REF.findall((_REPO / "deploy" / name).read_text(encoding="utf-8"))
+        for name in _RENDER_REF_DOCKERFILES
+    }
+    assert all(len(found) == 1 for found in pins.values()), f"expected one ARG ADACPP_RENDER_REF in each: {pins}"
+    assert len({found[0] for found in pins.values()}) == 1, f"ADACPP_RENDER_REF differs between Dockerfiles: {pins}"

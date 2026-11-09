@@ -459,8 +459,10 @@ class Assembly(Part):
         streaming=False,
         merge_strategy=None,
         writer: Literal["ifcopenshell", "native"] | None = None,
-    ) -> ifcopenshell.file:
-        import ifcopenshell.validate
+    ) -> ifcopenshell.file | None:
+        """Write the assembly to IFC. Returns the IFC file object, or None from the streaming and native writers."""
+        if validate:
+            import ifcopenshell.validate
 
         if destination is None or file_obj_only is True:
             destination = "object"
