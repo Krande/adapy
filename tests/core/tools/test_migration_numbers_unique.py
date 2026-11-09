@@ -6,7 +6,10 @@ import re
 from collections import defaultdict
 from pathlib import Path
 
-MIGRATIONS = Path(__file__).resolve().parents[3] / "src" / "ada" / "comms" / "rest" / "migrations"
+import ada
+
+# Beside the ada package, so that this reads the same files from a checkout and from an installed package.
+MIGRATIONS = Path(ada.__file__).parent / "comms" / "rest" / "migrations"
 HISTORICAL_PAIR = {"027_audit_log_failure_key.sql", "027_audit_started_at.sql"}
 
 
