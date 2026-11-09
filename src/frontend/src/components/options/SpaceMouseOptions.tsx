@@ -1,10 +1,11 @@
 import React from "react";
 import {type SpaceMouseButtonAction, useSpaceMouseStore} from "@/state/spaceMouseStore";
-import {isWebHidSupported, requestSpaceMouse} from "@/utils/spacemouse/spaceMouseDevice";
+import {isSpaceMouseSupported, isWebHidSupported, requestSpaceMouse} from "@/utils/spacemouse/spaceMouseDevice";
 
 // The 3D mouse (SpaceMouse) section of Options: the on/off switch, the connect
 // button, and the tuning that only matters once it is on. Off by default, and
-// off means the browser is never asked for the device.
+// off means the browser is never asked for the device. The device is read over
+// WebHID where the browser has it, and over the Gamepad API (no prompt) beside it.
 
 // In the store's axis order. Roll is offered only while it is enabled: with the
 // view kept level it moves nothing, and inverting it would do nothing either.
@@ -19,21 +20,29 @@ const BUTTON_ACTIONS: {value: SpaceMouseButtonAction; label: string}[] = [
 const STATUS_TEXT: Record<string, string> = {
     off: "Off",
     unsupported: "Not supported in this browser",
-    disconnected: "No device connected",
+    disconnected: "No device yet",
+    noAxes: "Device found, but no axes are exposed",
     connecting: "Connecting…",
     connected: "Connected",
     error: "Could not connect",
 };
 
+const SOURCE_TEXT: Record<string, string> = {
+    native: "native reader",
+    webhid: "WebHID",
+    gamepad: "Gamepad API",
+};
+
 const SpaceMouseOptions: React.FC = () => {
     const s = useSpaceMouseStore();
-    const supported = isWebHidSupported();
+    const supported = isSpaceMouseSupported();
+    const hasWebHid = isWebHidSupported();
 
     return (
         <div className="space-y-2">
             <label
                 className="flex items-start space-x-2"
-                title={supported ? undefined : "Needs WebHID: use Chrome, Edge or another Chromium-based browser"}
+                title={supported ? undefined : "Needs WebHID or the Gamepad API: use Chrome or Edge"}
             >
                 <input
                     type="checkbox"
@@ -46,8 +55,8 @@ const SpaceMouseOptions: React.FC = () => {
                     Enable 3D mouse (SpaceMouse)
                     <span className="block text-xs text-gray-400">
                         {supported
-                            ? "Navigate with a 3Dconnexion 6-DoF device through WebHID; no driver needed."
-                            : "Needs WebHID, which this browser does not have: use Chrome, Edge or another Chromium-based browser."}
+                            ? "Navigate with a 3Dconnexion 6-DoF device. Read over WebHID or the browser's Gamepad API; no driver needed."
+                            : "Needs WebHID or the Gamepad API, which this browser does not have: use Chrome or Edge."}
                     </span>
                 </span>
             </label>
@@ -59,7 +68,13 @@ const SpaceMouseOptions: React.FC = () => {
                         <span data-testid="spacemouse-status">
                             {STATUS_TEXT[s.connection] ?? s.connection}
                             {s.deviceName && s.connection !== "disconnected" ? ` — ${s.deviceName}` : ""}
+                            {s.connection === "connected" && s.source ? ` (${SOURCE_TEXT[s.source]})` : ""}
                         </span>
+                        {s.connection === "disconnected" && (
+                            <span className="block text-gray-400" data-testid="spacemouse-push-hint">
+                                Push the cap once to activate it: the browser shows a gamepad to a page only after it has moved there.
+                            </span>
+                        )}
                         {s.error && <span className="block text-red-300">{s.error}</span>}
                     </div>
                     {s.connection === "connected" && /receiver/i.test(s.deviceName ?? "") && (
@@ -68,13 +83,16 @@ const SpaceMouseOptions: React.FC = () => {
                             pick the cabled device under “Use another device…”.
                         </div>
                     )}
-                    <button
-                        type="button"
-                        className="bg-blue-700 hover:bg-blue-600 text-white text-xs font-semibold py-1 px-2 rounded-sm"
-                        onClick={() => void requestSpaceMouse()}
-                    >
-                        {s.connection === "connected" ? "Use another device…" : "Connect SpaceMouse…"}
-                    </button>
+                    {hasWebHid && (
+                        <button
+                            type="button"
+                            className="bg-blue-700 hover:bg-blue-600 text-white text-xs font-semibold py-1 px-2 rounded-sm"
+                            title="Ask the browser for the device over WebHID: reads the device directly, with better precision"
+                            onClick={() => void requestSpaceMouse()}
+                        >
+                            {s.connection === "connected" && s.source !== "gamepad" ? "Use another device…" : "Connect SpaceMouse…"}
+                        </button>
+                    )}
 
                     <label className="flex items-center gap-2 text-xs">
                         <span className="w-20">Sensitivity</span>

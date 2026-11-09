@@ -1,5 +1,13 @@
-// The browser half of the 3D-mouse input: WebHID device handling, and the
-// per-frame step the viewer's render loop calls.
+// The browser half of the 3D-mouse input: WebHID device handling, the Gamepad
+// API source beside it, and the per-frame step the viewer's render loop calls.
+//
+// SOURCES, in order: the desktop app's native reader (it shows up as a WebHID
+// device, see src/desktop/src/spacemouse_shim.js), then a WebHID device the site
+// may already use, then the Gamepad API (`navigator.getGamepads`, ./gamepadSource),
+// which needs no permission and no exclusive access. Only one drives the axes at a
+// time: an opened WebHID device wins and the Gamepad source stands by, resuming when
+// the device goes away or could not be opened (the vendor driver holding it, say).
+// The "Connect SpaceMouse" chooser stays as the explicit upgrade.
 //
 // LIFECYCLE follows the Options toggle (`useSpaceMouseStore.enabled`), through
 // `bindSpaceMouseToOptions`, which the canvas calls on mount:
@@ -38,7 +46,7 @@ import {OrbitControls} from "three/examples/jsm/controls/OrbitControls";
 
 import {getViewerRuntime} from "@/state/viewerRuntime";
 import {requestRender} from "@/state/perfStore";
-import {type SpaceMouseButtonAction, useSpaceMouseStore} from "@/state/spaceMouseStore";
+import {type SpaceMouseButtonAction, type SpaceMouseSource, useSpaceMouseStore} from "@/state/spaceMouseStore";
 import {fitAllView, fitSelectionView} from "@/components/viewer/sceneHelpers/setupCameraControlsHandlers";
 import {
     applyInputReport,
@@ -55,6 +63,8 @@ import {
     takePressedButtons,
 } from "./hidReport";
 import {followAutoEnable} from "./autoEnable";
+import {shouldSwallowWheel} from "./gamepadInput";
+import {createGamepadSource, type GamepadSource} from "./gamepadSource";
 import {applyObjectModeMotion, DEFAULT_RATES, rolledUp} from "./navigation";
 import {createOneEuro, resetOneEuro, stepOneEuro} from "./smoothing";
 import type {InputWindow} from "@/utils/scene/renderInputSummary";
@@ -114,6 +124,16 @@ function getHid(): Hid | null {
 /** WebHID is Chromium-only (Chrome, Edge, Opera) and secure-context only. */
 export function isWebHidSupported(): boolean {
     return getHid() !== null;
+}
+
+/** The Gamepad API is in every current browser (it is what lists the device without a prompt). */
+export function isGamepadSupported(): boolean {
+    return typeof navigator !== "undefined" && typeof (navigator as {getGamepads?: unknown}).getGamepads === "function";
+}
+
+/** Either transport is there, so the option can be offered. */
+export function isSpaceMouseSupported(): boolean {
+    return isWebHidSupported() || isGamepadSupported();
 }
 
 // ---- input state (hot path: mutated in place, never reallocated) -----------
@@ -214,8 +234,10 @@ export function tickSpaceMouse(frameDelta: number, camera: THREE.PerspectiveCame
     // A rolled view stays rolled whatever moved it (a mouse orbit, a fit), before the
     // controls' update re-aims the camera against `camera.up`.
     if (rollAngle !== 0 && getViewerRuntime().controls.current === controls) applyRoll(camera, controls, levelUp);
-    if (!active) return;
     const now = performance.now();
+    // The Gamepad source reads once per frame; it does nothing while off or while a WebHID device drives.
+    if (pad && pad.poll(now)) active = true;
+    if (!active) return;
     const settings = useSpaceMouseStore.getState();
     const fresh = now - axis.lastMotionAt <= STALE_MS || now <= holdUntil;
     const frameDt = frameDelta < MAX_DT ? frameDelta : MAX_DT;
@@ -309,6 +331,13 @@ function pageFocused(): boolean {
     return typeof document === "undefined" || document.hasFocus();
 }
 
+/** Buttons that went down: the same two actions whichever source they came from. */
+function runPressed(pressed: number): void {
+    const s = useSpaceMouseStore.getState();
+    if (pressed & 1) runButton(s.button1);
+    if (pressed & 2) runButton(s.button2);
+}
+
 function onInputReport(event: Event): void {
     if (!pageFocused()) return;
     const e = event as HidInputReportEvent;
@@ -327,9 +356,7 @@ function onInputReport(event: Event): void {
     } else if (kind === REPORT_BUTTONS) {
         const pressed = takePressedButtons(axis);
         if (pressed === 0) return;
-        const s = useSpaceMouseStore.getState();
-        if (pressed & 1) runButton(s.button1);
-        if (pressed & 2) runButton(s.button2);
+        runPressed(pressed);
     }
 }
 
@@ -343,9 +370,6 @@ function onInputReport(event: Event): void {
 // therefore swallowed before they reach the canvas; a real wheel turn while
 // holding the cap is not a thing anyone does.
 
-/** Wheel events this soon after a motion report with the cap off rest are the driver's. */
-const WHEEL_GUARD_MS = 150;
-
 function capDeflected(): boolean {
     const r = axis.raw;
     for (let i = 0; i < 6; i++) if (r[i] !== 0) return true;
@@ -357,8 +381,14 @@ function onWheel(event: WheelEvent): void {
     const t = event.target;
     if (!(t instanceof HTMLCanvasElement || (t instanceof Element && t.hasAttribute(VIEWPORT_INPUT_ATTR)))) return;
     if (probe) probe.wheels++;
-    if (!device) return;
-    if (performance.now() - axis.lastMotionAt > WHEEL_GUARD_MS || !capDeflected()) return;
+    const now = performance.now();
+    if (!device) {
+        // The Gamepad source drives: look at the pad right now, so a wheel event the driver sent
+        // alongside the first motion is judged against it, not against the last frame.
+        if (!pad?.driving()) return;
+        pad.poll(now);
+    }
+    if (!shouldSwallowWheel(true, now, axis.lastMotionAt, capDeflected())) return;
     event.preventDefault();
     event.stopImmediatePropagation();
     if (devStats) devStats.wheelsSwallowed++;
@@ -375,6 +405,13 @@ function onBlur(): void {
 // ---- device handling ------------------------------------------------------
 
 let device: HidDevice | null = null;
+/** The Gamepad-API source; made on first use, null where the browser has no `getGamepads`. */
+let pad: GamepadSource | null = null;
+/** Why the last WebHID open failed, shown only while nothing else is driving. */
+let hidError: string | null = null;
+let hidErrorLabel: string | null = null;
+/** A WebHID `open()` is in flight. */
+let opening = false;
 let listening = false;
 /** Bumped by every enable/disable, so an `open()` that resolves after the
  *  toggle went off closes the device instead of adopting it. */
@@ -386,6 +423,57 @@ function setConnection(...args: Parameters<ReturnType<typeof useSpaceMouseStore.
 
 function deviceLabel(d: HidDevice): string {
     return d.productName || "3D mouse";
+}
+
+/** The desktop shell's injected `navigator.hid` names its one device "(native)". */
+function sourceOf(d: HidDevice): SpaceMouseSource {
+    return /\(native\)/i.test(d.productName ?? "") ? "native" : "webhid";
+}
+
+function makePad(): GamepadSource | null {
+    if (!isGamepadSupported() || typeof window === "undefined") return null;
+    return createGamepadSource({
+        axis,
+        getGamepads: () => {
+            try {
+                return (navigator as unknown as {getGamepads(): ArrayLike<never>}).getGamepads();
+            } catch {
+                return null; // a permissions policy
+            }
+        },
+        target: window,
+        doc: typeof document !== "undefined" ? document : null,
+        // The browser sends no event when a pad moves: the idle poll found it, so wake the loop.
+        onWake: () => {
+            active = true;
+            requestRender();
+        },
+        onButtons: runPressed,
+        onStatus: refreshStatus,
+        isFocused: pageFocused,
+    });
+}
+
+const NO_AXES_TEXT =
+    "The browser lists this device as a gamepad but exposes no axes for it. Use “Connect SpaceMouse…” instead (Chrome or Edge).";
+
+/** Derive the status the Options panel and the connect chip show from what is open. */
+function refreshStatus(): void {
+    if (!listening || opening) return;
+    if (device) {
+        setConnection("connected", deviceLabel(device), null, sourceOf(device));
+        return;
+    }
+    const ps = pad?.status();
+    if (ps?.kind === "active") {
+        setConnection("connected", ps.name, null, "gamepad");
+    } else if (ps?.kind === "noAxes") {
+        setConnection("noAxes", ps.name, NO_AXES_TEXT);
+    } else if (hidError) {
+        setConnection("error", hidErrorLabel, hidError);
+    } else {
+        setConnection(getHid() || pad ? "disconnected" : "unsupported");
+    }
 }
 
 /** A wireless receiver rather than the device on its cable. A receiver's
@@ -416,27 +504,36 @@ function errorText(err: unknown): string {
 }
 
 async function openDevice(d: HidDevice, gen: number): Promise<void> {
+    opening = true;
     setConnection("connecting", deviceLabel(d));
     try {
         if (!d.opened) await d.open();
     } catch (err) {
+        opening = false;
         if (gen !== generation) return;
-        setConnection(
-            "error",
-            deviceLabel(d),
+        // Not a dead end: the Gamepad source keeps running (and takes over the status once it
+        // reads the cap), so this only shows while nothing else is driving.
+        hidError =
             `Could not open ${deviceLabel(d)} (${errorText(err)}). Another program may hold it: ` +
-                "on Windows, quit the 3DxWare driver (3DxService) and connect again.",
-        );
+            "on Windows, quit the 3DxWare driver (3DxService) and connect again." +
+            (pad ? " Or push the cap once to use the browser's Gamepad API instead." : "");
+        hidErrorLabel = deviceLabel(d);
+        refreshStatus();
         return;
     }
+    opening = false;
     if (gen !== generation) {
         void d.close().catch(() => undefined);
         return;
     }
     if (device && device !== d) releaseDevice();
     device = d;
+    hidError = null;
     d.addEventListener("inputreport", onInputReport);
-    setConnection("connected", deviceLabel(d));
+    // An opened WebHID device wins: nothing else writes the axes while it is there.
+    resetAxes(axis);
+    pad?.setSuspended(true);
+    refreshStatus();
 }
 
 function releaseDevice(): void {
@@ -444,6 +541,7 @@ function releaseDevice(): void {
     resetAxes(axis);
     const d = device;
     device = null;
+    pad?.setSuspended(false);
     if (!d) return;
     d.removeEventListener("inputreport", onInputReport);
     void d.close().catch(() => undefined);
@@ -464,42 +562,58 @@ function onDisconnect(event: Event): void {
     device = null;
     endGesture();
     resetAxes(axis);
-    setConnection("disconnected");
+    // The Gamepad source resumes (if a pad is listed); otherwise nothing is connected.
+    pad?.setSuspended(false);
+    refreshStatus();
 }
 
 async function enable(): Promise<void> {
     const hid = getHid();
-    if (!hid) {
+    pad ??= makePad();
+    if (!hid && !pad) {
         setConnection("unsupported");
         return;
     }
     if (listening) return;
     listening = true;
     const gen = ++generation;
-    hid.addEventListener("connect", onConnect);
-    hid.addEventListener("disconnect", onDisconnect);
+    hidError = null;
+    hidErrorLabel = null;
+    hid?.addEventListener("connect", onConnect);
+    hid?.addEventListener("disconnect", onDisconnect);
     window.addEventListener("wheel", onWheel, WHEEL_OPTS);
     window.addEventListener("blur", onBlur);
-    setConnection("disconnected");
+    refreshStatus();
+    // Looking costs nothing and needs no permission; a pad is listed once the cap has been moved.
+    pad?.start();
+    if (!hid) return;
     try {
         const d = pickDevice(await hid.getDevices());
         if (d && gen === generation) await openDevice(d, gen);
     } catch (err) {
-        if (gen === generation) setConnection("error", null, errorText(err));
+        if (gen === generation) {
+            hidError = errorText(err);
+            hidErrorLabel = null;
+            refreshStatus();
+        }
     }
 }
 
 function disable(): void {
     generation++;
     const hid = getHid();
-    if (listening && hid) {
-        hid.removeEventListener("connect", onConnect);
-        hid.removeEventListener("disconnect", onDisconnect);
+    if (listening) {
+        hid?.removeEventListener("connect", onConnect);
+        hid?.removeEventListener("disconnect", onDisconnect);
         window.removeEventListener("wheel", onWheel, WHEEL_OPTS);
         window.removeEventListener("blur", onBlur);
     }
     listening = false;
+    opening = false;
+    hidError = null;
     releaseDevice();
+    pad?.stop();
+    resetAxes(axis);
     setConnection("off");
 }
 
@@ -592,6 +706,16 @@ function recordReport(p: Probe, prevAt: number, now: number): void {
     if (gap > SLOW_GAP_MS && p.slowGaps.length < MAX_SLOW_GAPS) p.slowGaps.push([prevAt, now]);
 }
 
+function padLabel(): string | null {
+    const ps = pad?.status();
+    return ps && ps.kind !== "none" ? ps.name : null;
+}
+
+function padProductId(): string | null {
+    const ps = pad?.status();
+    return ps && ps.kind !== "none" ? ps.productId.toString(16).padStart(4, "0") : null;
+}
+
 /** Start (or restart) collecting a window. */
 export function startSpaceMouseProbe(): void {
     probe = {gaps: [], slowGaps: [], gestures: 0, staleCuts: 0, hidReports: 0, wheels: 0};
@@ -604,8 +728,8 @@ export function takeSpaceMouseProbe(): InputWindow | null {
     if (!p || !listening) return null;
     return {
         connection: useSpaceMouseStore.getState().connection,
-        device: device ? deviceLabel(device) : null,
-        product_id: device ? device.productId.toString(16).padStart(4, "0") : null,
+        device: device ? deviceLabel(device) : padLabel(),
+        product_id: device ? device.productId.toString(16).padStart(4, "0") : padProductId(),
         hidReports: p.hidReports,
         wheels: p.wheels,
         gaps: p.gaps,
@@ -674,6 +798,8 @@ if (import.meta.env?.DEV && typeof window !== "undefined") {
                 device: device ? {name: deviceLabel(device), productId: device.productId.toString(16), opened: device.opened} : null,
                 connection: useSpaceMouseStore.getState().connection,
                 enabled: useSpaceMouseStore.getState().enabled,
+                source: useSpaceMouseStore.getState().source,
+                pad: pad?.status() ?? null,
                 probing: probe !== null,
                 active,
             };
