@@ -2,6 +2,13 @@
 
 
 
+## v0.139.1 (2026-11-09)
+
+### Fix
+
+* fix(worker): retry asking the stream which pools hold jobs after a failed ask (#514) ([`99c4ba3`](https://github.com/Krande/adapy/commit/99c4ba39fe35d53846bf327bc0d5fe18703105d4))
+
+
 ## v0.139.0 (2026-11-09)
 
 ### Feature
