@@ -11,7 +11,8 @@ import type { PanelId } from "./panel";
 import { listPanels } from "./registry";
 import { activeShellMode, listShellModes, setShellMode } from "./shellModes";
 import { modeAvailable } from "./modeRequirements";
-import { coreShortcutKeys, registerShortcut, unregisterShortcut, type ShortcutKeys } from "./shortcuts";
+import { isPanelOpen, toggle as togglePanel } from "./reveal";
+import { coreShortcutKeys, registerShortcut, registerShortcutSource, shortcutOverrides, unregisterShortcut, type ShortcutKeys } from "./shortcuts";
 
 export interface CommandSpec {
   /** Unique, e.g. `"my-shell:file.open"`. A later registration under the same id replaces it. */
@@ -201,3 +202,21 @@ export function commandRank(query: string, c: {id: string; label: string; group?
   }
   return total / words.length;
 }
+
+// A key the user bound to a command that had none (`cmd:<command id>` in the overrides) is a shortcut
+// from then on: this is where it comes from. It runs the command as the palette does.
+registerShortcutSource(() => {
+  const out: import("./shortcuts").RegisteredShortcut[] = [];
+  for (const [sid, chord] of Object.entries(shortcutOverrides())) {
+    if (chord === null || !sid.startsWith("cmd:")) continue;
+    const id = sid.slice(4);
+    const own = _commands.get(id);
+    if (own) {
+      out.push({ id: sid, keys: chord, label: own.label, group: own.group, owner: own.owner, run: () => runCommand(id), when: own.when });
+      continue;
+    }
+    const core = coreCommands(togglePanel, isPanelOpen).find((c) => c.id === id);
+    if (core) out.push({ id: sid, keys: chord, label: core.label, group: core.group, owner: core.owner, run: () => core.run(), when: core.when });
+  }
+  return out;
+});
