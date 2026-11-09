@@ -52,6 +52,7 @@ import ComponentIcon from "@/components/icons/ComponentIcon";
 import InfoIcon from "@/components/icons/InfoIcon";
 import SceneIcon from "@/components/icons/SceneIcon";
 import ServerIcon from "@/components/icons/ServerIcon";
+import StorageIcon from "@/components/icons/StorageIcon";
 import ToggleControlsIcon from "@/components/icons/AnimationControlToggle";
 import TreeViewIcon from "@/components/icons/TreeViewIcon";
 
@@ -163,7 +164,7 @@ export function corePanelSpecs(): PanelSpec[] {
     {
       id: CORE_PANEL_IDS.storage,
       title: "Storage",
-      icon: ServerIcon,
+      icon: StorageIcon,
       hint: "Storage",
       body: classicBody(CORE_PANEL_IDS.storage),
       content: classicContent(CORE_PANEL_IDS.storage),

@@ -96,6 +96,7 @@ export { default as ProcedureIcon } from "@/components/icons/ProcedureIcon";
 export { default as ReloadIcon } from "@/components/icons/ReloadIcon";
 export { default as SceneIcon } from "@/components/icons/SceneIcon";
 export { default as ServerIcon } from "@/components/icons/ServerIcon";
+export { default as StorageIcon } from "@/components/icons/StorageIcon";
 export { default as StopIcon } from "@/components/icons/StopIcon";
 export { default as SystemCatalogIcon } from "@/components/icons/SystemCatalogIcon";
 export { default as TreeViewIcon } from "@/components/icons/TreeViewIcon";
