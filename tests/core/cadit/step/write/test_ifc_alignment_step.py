@@ -49,7 +49,7 @@ def _count_solids(step_path: pathlib.Path) -> int:
 def _sweep_tris(ifc_path: pathlib.Path) -> int:
     """Triangles the *available* adacpp build produces for the fixture's swept solid.
     0 means this build lacks SweepN / FIXED_REF_SWEPT_SOLID (tag 54) decoding — i.e.
-    the conda ``ada-cpp`` 0.11.0 the CI ``tests-adacpp`` env pins, which predates
+    the conda ``ada-cpp`` 0.11.0 the CI ``tests`` env pins, which predates
     ``dfde659``. The bleeding-edge overlay (``tests-adacpp-dev`` / the deployed
     ``ADACPP_BRANCH`` overlay) and any future release that ships the verb return >0.
     Lets the test distinguish 'build can't sweep' (skip) from 'sweep tessellates but

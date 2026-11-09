@@ -100,6 +100,12 @@ fea-doc-pdf = { cmd ="python -m paradoc.cli_app build verification -p pdf --name
 serve-fea = { cmd = "python -m http.server 8765 --bind 127.0.0.1 --directory docs/_static/fea-report" }
 
 [feature.tests.tasks]
+# The ada-cpp leg of the fem env's `test-all`: the whole non-REST suite on the native backend. Named
+# apart from `test-all` because the fem env carries this feature too, and there that name is the
+# orchestrator that calls this. medcoupling is declared in no environment, so tests/fem/visualization
+# reports as skipped here rather than being excluded.
+test-all-adacpp = { cmd = "pytest tests --ignore=tests/comms/rest --durations=0", depends-on = ["pre-install"], env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+
 # Screenshots of Ada Studio for the docs (docs/screenshots/ada-studio/). Needs the served SPA
 # (`pixi run -e frontend wbuild-serve`) and the viewer-api env, which it starts the server from.
 ui-stories = { cmd = "python scripts/docs/ui_stories.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src", "PYTHONUTF8" = "1" } }
@@ -115,11 +121,10 @@ pre-install = { cmd = "mkdir -p $PIXI_PROJECT_ROOT/.temp && playwright install c
 # THE WHOLE SUITE, and the one to reach for by default.
 #
 # `default-environment` is what makes `pixi run test` work with no -e. The task
-# is defined on the `tests` feature, so four environments carry it (tests,
-# tests-adacpp, tests-adacpp-dev, fem) and pixi would otherwise refuse to guess
-# between them -- it errors listing all four. Naming a default picks one
-# WITHOUT taking the choice away: `pixi run -e tests-adacpp test` still runs the
-# same whole suite on the native backend, which is the point of having four.
+# is defined on the `tests` feature, so three environments carry it (tests,
+# tests-adacpp-dev, fem) and pixi would otherwise refuse to guess between them
+# -- it errors listing all three. Naming a default picks one WITHOUT taking the
+# choice away: `pixi run -e tests test` still runs the same whole suite.
 #
 # fem is the default because it is the only environment with every dependency
 # the suite needs -- fem-deps AND the `tests` feature's playwright, so
@@ -166,8 +171,8 @@ bench-cad-compare = { cmd = "pytest tests/profiling/test_cad_backend_bench.py --
 
 [feature.fem.tasks]
 # Full non-REST suite across BOTH CAD backends, report-both. Orchestrated by
-# scripts/testing/run_test_all.sh: it runs the ada-cpp leg (`pixi run -e tests-adacpp
-# test-all`) and the pythonocc leg (pytest in this fem env) independently —
+# scripts/testing/run_test_all.sh: it runs the ada-cpp leg (`pixi run -e tests
+# test-all-adacpp`) and the pythonocc leg (pytest in this fem env) independently —
 # neither aborts the other — then exits non-zero if either had failures.
 # pyocc runs the entire non-REST suite incl. the playwright frontend e2e
 # tests (fem env now carries the `tests` feature). comms/rest is excluded:
@@ -236,12 +241,7 @@ ifc-validation = { features = ["ifc-validation"], no-default-feature = true }
 tests-core = { features = ["tests-core"], no-default-feature = true }
 test-pyodide = { features = ["test-pyodide"], no-default-feature = true }
 tests = { features = ["tests", "tests-core", "prod", "adacpp-runtime", "desktop"], solve-group = "prod", no-default-feature = true }
-# Historically `tests` with the pythonocc backend swapped for ada-cpp. Since `tests` moved
-# to ada-cpp too (2026-09-21) the two differ only in that this one sets
-# ADAPY_CAD_BACKEND=adacpp explicitly rather than relying on auto-detect. Kept because CI
-# names it; collapsing them is a separate cleanup. Run with: pixi run -e tests-adacpp test
-tests-adacpp = { features = ["adacpp", "tests", "tests-core", "prod", "desktop"], solve-group = "adacpp", no-default-feature = true }
-# Same as tests-adacpp but bridges a bleeding-edge adacpp via PYTHONPATH (../adacpp/build/dist)
+# `tests` with ADAPY_CAD_BACKEND=adacpp set, but bridging a bleeding-edge adacpp via PYTHONPATH (../adacpp/build/dist)
 # instead of the conda-installed ada-cpp — see [feature.adacpp-dev.activation.env]. Assemble the
 # bridge first with `pixi run build-dist` in the adacpp repo. The adacpp-dev feature adds no
 # dependencies, so this reuses the adacpp solve-group (no extra solve).
@@ -495,19 +495,6 @@ PYTHONPATH = "$PIXI_PROJECT_ROOT/src:$PIXI_PROJECT_ROOT/../adacpp/build/dist"
 # site-packages, i.e. the bridge this env exists for quietly doesn't happen.
 [feature.adacpp-dev.target.win-64.activation.env]
 PYTHONPATH = "%PIXI_PROJECT_ROOT%/src;%PIXI_PROJECT_ROOT%/../adacpp/build/dist"
-
-[feature.adacpp.tasks]
-# ada-cpp leg of `test-all`. Runs the whole non-REST suite against the native
-# ada-cpp CAD backend. No longer excludes tests/fem/visualization: that module
-# imports medcoupling and now skips itself rather than aborting collection, so
-# it reports as skipped instead of being invisibly absent. (medcoupling is
-# declared in no environment here, so it skips everywhere -- which the --ignore
-# was concealing.) This task is gated to
-# the tests-adacpp env by feature membership: that env carries `adacpp` but not
-# `fem`, while the fem env carries `fem` but not `adacpp`, so each env resolves
-# `test-all` to exactly one definition (no recursion). The fem-env orchestrator
-# chains into this via `pixi run -e tests-adacpp test-all`.
-test-all = { cmd = "pytest tests --ignore=tests/comms/rest --durations=0", depends-on = ["pre-install"], env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 
 [feature.prod.dependencies]
 python = "3.14.*"
