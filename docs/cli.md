@@ -47,8 +47,8 @@ invocation was fine and the work itself failed. The commands that talk to a
 hosted viewer (`files`, `audit`, `build`) predate this convention and
 return `1` for a request that failed or was declined.
 
-The command groups are `convert`, `view`, `results`, `build`, `files`, `audit`
-and `serve`. The first three run entirely locally; the rest of this page notes
+The command groups are `convert`, `view`, `results`, `build`, `files`, `audit`,
+`serve`, `desktop` and `viewers`. The first three run entirely locally; the rest of this page notes
 where a group talks to a hosted viewer instead.
 
 ## `ada convert`
