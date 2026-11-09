@@ -36,6 +36,7 @@ const PointSizeOptions: React.FC = () => {
                 <span className="w-32">Point Size</span>
                 <input
                     type="range"
+                    data-option="point-size"
                     min={min} max={max} step={step}
                     value={pointSize}
                     onChange={(e) => setPointSize(parseFloat(e.target.value))}

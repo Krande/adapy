@@ -119,8 +119,79 @@ export function bindCoreShortcuts(handlers: Readonly<Record<string, CoreShortcut
   };
 }
 
-/** The chord of core shortcut `id` (what a command with `shortcut: id` shows), if there is one. */
+// ---------------------------------------------------------------------------
+// The user's key overrides: shortcut id -> chord, or null for "no key". Kept in the layout prefs
+// (`LayoutPrefs.keyOverrides`, synced here by `./layoutStore`), applied in ONE place -- `listShortcuts`
+// and `coreShortcutKeys` -- so the dispatcher, the palette's chord labels, tooltips, menus and the
+// shortcuts dialog all read the same effective bindings. With none, every answer is the default.
+// An override for an id nothing registers is ignored. Core's local keys (a widget's own) cannot be moved.
+// ---------------------------------------------------------------------------
+
+export type KeyOverrides = Readonly<Record<string, ShortcutKeys | null>>;
+
+let _overrides: KeyOverrides = {};
+let _bindingsVersion = 0;
+const _bindingListeners = new Set<() => void>();
+const _sources: Array<() => RegisteredShortcut[]> = [];
+
+/** Set the user's overrides (the layout store calls this on every change). */
+export function setShortcutOverrides(next: KeyOverrides | undefined): void {
+  const o = next ?? {};
+  if (o === _overrides) return;
+  _overrides = o;
+  _bindingsVersion++;
+  for (const l of _bindingListeners) l();
+}
+
+export function shortcutOverrides(): KeyOverrides {
+  return _overrides;
+}
+
+/** Tell `cb` when the effective bindings may have changed (an override was set or reset). */
+export function subscribeShortcutBindings(cb: () => void): () => void {
+  _bindingListeners.add(cb);
+  return () => void _bindingListeners.delete(cb);
+}
+
+export function shortcutBindingsVersion(): number {
+  return _bindingsVersion;
+}
+
+/**
+ * Entries that exist only because the user bound a key to something that had none (a command
+ * without a default chord). `./commands` supplies them. Returns the unregister.
+ */
+export function registerShortcutSource(source: () => RegisteredShortcut[]): () => void {
+  _sources.push(source);
+  return () => {
+    const at = _sources.indexOf(source);
+    if (at >= 0) _sources.splice(at, 1);
+  };
+}
+
+function withOverrides(list: RegisteredShortcut[]): RegisteredShortcut[] {
+  const ids = Object.keys(_overrides);
+  if (ids.length === 0) return list;
+  const out: RegisteredShortcut[] = [];
+  for (const s of list) {
+    const o = _overrides[s.id];
+    if (s.local || o === undefined) out.push(s);
+    else if (o !== null && parseShortcut(o)) out.push({ ...s, keys: o });
+  }
+  return out;
+}
+
+/** The chord of core shortcut `id` (what a command with `shortcut: id` shows), if there is one: the user's, else the default. */
 export function coreShortcutKeys(id: string): ShortcutKeys | undefined {
+  const base = _core.get(id);
+  if (!base) return undefined;
+  const o = _overrides[id];
+  if (o === undefined || base.local) return base.keys;
+  return o === null || !parseShortcut(o) ? undefined : o;
+}
+
+/** The default chord of core shortcut `id`, whatever the user set. */
+export function defaultCoreShortcutKeys(id: string): ShortcutKeys | undefined {
   return _core.get(id)?.keys;
 }
 
@@ -162,8 +233,15 @@ export function shortcutsOwnedBy(owner: string): RegisteredShortcut[] {
   return [..._shortcuts.values()].filter((s) => s.owner === owner);
 }
 
-/** Core's shortcuts, then registered ones, then non-core panels' `shortcut`s (as "Show or hide <title>"). */
+/** Core's shortcuts, then registered ones, then non-core panels' `shortcut`s (as "Show or hide <title>"), with the user's overrides applied. */
 export function listShortcuts(toggle?: (id: PanelId) => void): RegisteredShortcut[] {
+  const base = listDefaultShortcuts(toggle);
+  const extra = _sources.flatMap((s) => s());
+  return withOverrides(extra.length ? [...base, ...extra.filter((e) => !base.some((b) => b.id === e.id))] : base);
+}
+
+/** The same list with every default key, ignoring the user's overrides. */
+export function listDefaultShortcuts(toggle?: (id: PanelId) => void): RegisteredShortcut[] {
   const out = [..._core.values(), ..._shortcuts.values()];
   const taken = new Set(out.filter((s) => !s.local).map((s) => chordKey(parseShortcut(s.keys)!)));
   for (const p of listPanels()) {
@@ -205,6 +283,7 @@ export function matchShortcut(e: ShortcutKeyEvent, list: readonly RegisteredShor
 
 /** Clear the registered shortcuts (not core's own) and core's bound handlers -- unit tests only. */
 export function resetShortcuts(): void {
+  _overrides = {};
   _shortcuts.clear();
   _handlers.clear();
 }

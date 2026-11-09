@@ -764,6 +764,31 @@ the user''s, per shell (`LayoutPrefs.uiFreezeByShell`). A shell sets
 `chrome.uiFreeze: false` to leave it out, or `"default-on"` to start frozen until the
 user chooses. `setUiFrozen`, `uiFrozen`, `useUiFrozen` are on `@/viewer-core/layout`.
 
+**Every setting is a command; every key is the user's.** Each Options setting is a
+palette command from one list (`optionDescriptors()`; ids `core:option.<id>`): toggles
+are checked items, a choice has one command per value ("Renderer: three.js (WebGL)"),
+and a free-form number or colour has an "open in Options" command (`openOption`). The
+3D mouse has "Enable" (which also opens the browser's device chooser: the command runs
+inside the key press or click, nothing awaited first) and "Connect 3D mouse…".
+`CommandSpec.keywords` are extra search words; the palette matches every word of a
+query against the label, group, keywords and id (`commandRank`), case-insensitively
+and partially. A new Options control without a descriptor fails
+`__tests__/layout/optionCommands.test.ts`, so add one in `layout/optionCommands.ts`.
+
+Keyboard shortcuts are editable. `core:shortcuts` (Help -> Keyboard shortcuts) opens an
+editor: every command (core's, `core:option.*`, `panel:<id>`, `mode:<id>`, a shell's and
+plugins') with its chord, searchable with the palette's matcher; click a chord and press
+the new one, Unbind, Reset, Reset all. A chord in use offers Replace or Cancel; chords the
+browser or OS keeps (Ctrl+W, Ctrl+T, Ctrl+N, F5, Alt+F4, ...) and keys the page needs
+(Esc, Tab, Enter) are refused. Core's own keys may be moved (`RESERVED_SHORTCUTS` still
+refuses them to a plugin's `registerShortcut`). A shell's or plugin's `keys` and
+`CommandSpec.shortcut` are **defaults** the user may override. Overrides are the user's,
+not per shell (`LayoutPrefs.keyOverrides`, server-side when hosted), and are applied in
+`listShortcuts` / `coreShortcutKeys`, the one table the dispatcher, the palette, tooltips,
+the tool rail and menus read; with none, it equals `CORE_SHORTCUTS` plus what is
+registered. Keys a widget keeps for itself (the builder's G / R / S, tree navigation, the
+gallery's arrows) are listed as fixed. There are no chord sequences, so none can be captured
+(`chordLabel` is display text only).
 **The header.** `ShellModeToolbar` draws the mode''s toolbars in a region core owns
 (`ModeToolbarRegion`): it takes the room beside the switcher (`flex: 1`, `min-width:
 0`), the toolbars sit left-aligned in it, and when they do not fit they are clipped

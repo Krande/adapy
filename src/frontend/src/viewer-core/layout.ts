@@ -235,6 +235,12 @@ export { COMPACT_GROUP_PX } from "@/layout/presets/groupCompact";
 export { desktopMenus, menuCommandIds } from "@/layout/desktop/desktopMenus";
 export type { DesktopMenuInputs } from "@/layout/desktop/desktopMenus";
 export { openShortcutsDialog } from "@/components/options/ShortcutsModal";
+// The user's keyboard shortcuts: the editor's model (`keyRows`), assigning with conflicts and refusals, resetting.
+export { assignKeys, chordFromEvent, chordHolder, keyRows, normaliseChord, refuseChord, resetAllKeyBindings, setKeyBinding, shortcutIdOf } from "@/layout/keyBindings";
+export type { KeyRow } from "@/layout/keyBindings";
+// Every Options setting as a command (`core:option.<id>`), from one list.
+export { EXISTING_COVERAGE, optionCommandId, optionDescriptors, openOption } from "@/layout/optionCommands";
+export type { OptionDescriptor } from "@/layout/optionCommands";
 // UI freeze: lock the served UI's panel arrangement (`core:toggle-ui-freeze`, `UiShellChrome.uiFreeze`).
 export { setUiFrozen, uiFreezeOffered, uiFrozen, uiFreezeOn, useUiFreezeOffered, useUiFrozen } from "@/layout/uiFreeze";
 export type { UiFreezeOption } from "@/layout/uiFreeze";

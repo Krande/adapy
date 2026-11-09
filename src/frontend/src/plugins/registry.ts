@@ -132,7 +132,8 @@ import { isPlacedElsewhere } from "@/layout/placedElsewhere";
 //          views); `UiShellChrome.statusItems` (core's status bar, composed); the `core:component-list`
 //          panel; property value labels; the Options "compute" section; the split button, status bar,
 //          page header, glyphs, `PositionedMenu` and `ModalFrame` on `@/viewer-core/layout`, and
-//          `@/viewer-core/theme`.
+//          `@/viewer-core/theme`; `CommandSpec.keywords`, `core:option.*` commands for every Options
+//          setting, and user-editable keyboard shortcuts (a `keys` is a default the user may override).
 export const PLUGIN_API_VERSION = "1.16.0";
 
 // The named mount regions core exposes in Phase 1. Deliberately small
