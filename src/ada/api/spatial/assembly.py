@@ -325,14 +325,22 @@ class Assembly(Part):
 
         """
         from ada.fem.formats.execute import execute_fem
-        from ada.fem.formats.general import FEATypes, write_to_fem
+        from ada.fem.formats.general import (
+            FEATypes,
+            get_fem_converters,
+            get_fem_exports,
+            write_to_fem,
+        )
         from ada.fem.formats.utils import default_fem_res_path
 
+        requested = fem_format
         if isinstance(fem_format, str):
-            requested = fem_format
-            fem_format = FEATypes.from_str(requested)
-            if fem_format is None:
-                raise ValueError(f'Unknown FEM format "{requested}". Expected one of {[x.value for x in FEATypes]}')
+            fem_format = FEATypes.from_str(fem_format)
+        if fem_format is None or get_fem_converters("", fem_format, fem_converter)[1] is None:
+            raise ValueError(
+                f'No FEM writer for format "{getattr(requested, "value", requested)}" using "{fem_converter}". '
+                f"Formats with a writer: {[x.value for x in get_fem_exports()]}"
+            )
 
         scratch_dir = Config().fea_scratch_dir if scratch_dir is None else pathlib.Path(scratch_dir)
         job = FemJob(
@@ -362,7 +370,8 @@ class Assembly(Part):
         fem_res_files = default_fem_res_path(name, scratch_dir=scratch_dir)
         res_path = fem_res_files.get(fem_format, None)
 
-        if res_path.exists() and overwrite is False and return_fea_results is True and write_input_files_only is False:
+        has_result = res_path is not None and res_path.exists()  # meshio can write formats with no result file
+        if has_result and overwrite is False and return_fea_results is True and write_input_files_only is False:
             # A failed run can leave a result file (a partial MED file, a .frd header): reused only when the run that
             # wrote it said it finished. Otherwise the model is written and run again, or, not to be run, refused.
             from ada.fem.exceptions.fea_execution import FEASolveFailed
