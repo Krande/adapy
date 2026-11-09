@@ -157,7 +157,7 @@ test("a plugin's mode holds the FEA model undeformed unless it opts in", () => {
   registerPlugin({
     id: "mode-plugin",
     version: "1.0.0",
-    coreApiRange: ">=1.0 <3.0",
+    coreApiRange: ">=1.0 <2.0",
     modes: [
       { id: "plain", label: "Plain" },
       { id: "warps", label: "Warps", showsDeformation: true },
