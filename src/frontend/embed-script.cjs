@@ -75,7 +75,7 @@ if (fs.existsSync(renderJs) && fs.existsSync(renderWasm)) {
     inlinedRenderer = `<script>window.ADACPP_RENDER_INLINE = {js: "${js}", wasm: "${wasm}"};</script>\n`;
     console.log(`WebGPU renderer inlined (${js.length + wasm.length} base64 bytes).`);
 } else {
-    console.warn('WARNING: public/wasm has no adacpp_render.js/.wasm -- the bundle ships without the WebGPU renderer.');
+    console.warn('WARNING: public/wasm has no adacpp_render.js/.wasm -- this bundle has no WebGPU renderer, and CI rejects it if committed. Run `pixi run wasm-adacpp`.');
 }
 
 htmlContent = htmlContent.replace(LINK_TAG_REGEX, () => inlinedStyle);

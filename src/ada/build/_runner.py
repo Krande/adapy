@@ -6,12 +6,8 @@ import logging
 import pathlib
 import subprocess
 import sys
+import tomllib
 from dataclasses import dataclass
-
-try:
-    import tomllib  # Python 3.11+
-except ImportError:  # pragma: no cover
-    import tomli as tomllib  # type: ignore[no-redef]
 
 from ada.build import _FORMAT_BY_SUFFIX, BuildArtefact, BuildContext, _active_context
 

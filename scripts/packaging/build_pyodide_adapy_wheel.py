@@ -112,7 +112,7 @@ def build(outdir: Path) -> Path:
             f"Name: {DIST_NAME}\n"
             f"Version: {VERSION}\n"
             "Summary: adapy (pyodide/WASM pure-python build)\n"
-            "Requires-Python: >=3.10\n"
+            "Requires-Python: >=3.11\n"
         ).encode()
         wheelmeta = (
             "Wheel-Version: 1.0\n"

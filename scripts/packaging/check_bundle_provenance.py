@@ -48,6 +48,11 @@ the real incident no overlay directory was ever committed; the tracked bundle
 was rebuilt around one. Ignoring the overlay is worth doing, but it addresses a
 different mistake.
 
+The bundle must also carry the WebGPU renderer. ``embed-script.cjs`` only warns
+when it is missing, so local builds keep working without docker, and the viewer's
+WebGPU option then always falls back to three.js. This is where that stops, since
+the committed bundle is the one that ships.
+
 Usage:
     python scripts/packaging/check_bundle_provenance.py
     python scripts/packaging/check_bundle_provenance.py --bundle path/to/index.zip -v
@@ -63,6 +68,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 BUNDLE = ROOT / "src" / "ada" / "visit" / "rendering" / "resources" / "index.zip"
+RENDERER_MARKER = b"window.ADACPP_RENDER_INLINE = {js:"
 BASELINE = Path(__file__).resolve().parent / "bundle_provenance_baseline.txt"
 FRONTEND = ROOT / "src" / "frontend"
 
@@ -150,6 +156,12 @@ def find_orphans(wanted: set[str], files: list[Path]) -> set[str]:
     return set(remaining)
 
 
+def has_renderer(bundle: Path) -> bool:
+    """Whether embed-script.cjs inlined the WebGPU renderer: the assignment, not the app reading the global."""
+    with zipfile.ZipFile(bundle) as z:
+        return RENDERER_MARKER in z.read("index.html")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--bundle", type=Path, default=BUNDLE)
@@ -166,6 +178,13 @@ def main() -> int:
 
     if not args.bundle.is_file():
         print(f"error: {args.bundle} not found", file=sys.stderr)
+        return 1
+    if not has_renderer(args.bundle):
+        print(
+            f"FAIL: {args.bundle.name} ships without the WebGPU renderer. Run `pixi run wasm-adacpp` "
+            "(needs docker), then rebuild the bundle with `pixi run wbuild`.",
+            file=sys.stderr,
+        )
         return 1
     if not (FRONTEND / "node_modules").is_dir():
         print(

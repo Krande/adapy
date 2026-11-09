@@ -194,7 +194,7 @@ topo-model-demo = { cmd = "python topo_model_demo.py", env = { "PYTHONPATH" = "$
 npm = { cmd = "npm", cwd = "./src/frontend" }
 winstall = { cmd = "npm install", cwd = "./src/frontend", outputs = ["$PIXI_PROJECT_ROOT/src/frontend/node_modules"] }
 wdev = { cmd = "npm run dev", cwd = "./src/frontend", depends-on = ["winstall", "wasm-adacpp-current"] }
-wbuild = { cmd = "npm run build", cwd = "./src/frontend", depends-on = ["winstall"] }
+wbuild = { cmd = "npm run build", cwd = "./src/frontend", depends-on = ["winstall", "wasm-adacpp-current"] }
 # The code-split SPA the REST API serves (ADA_VIEWER_STATIC_PATH), as Dockerfile.viewer builds it.
 # scripts/docs/ui_stories.py drives it for the Ada Studio docs page.
 wbuild-serve = { cmd = "npm run gen:plugins && npm run build:serve", cwd = "./src/frontend", depends-on = ["winstall"] }
@@ -690,7 +690,7 @@ nkeys = "*"
 
 # Pin the slim API image's python (it has no `prod`, so it would otherwise float to
 # the newest cpython). Pinned to what it currently resolves to (3.14) for a
-# reproducible image; kept separate from the full env's prod-pinned 3.12 to avoid a
+# reproducible image; kept separate from `prod`'s own python pins to avoid a
 # cross-feature python conflict.
 [feature.viewer-slim.dependencies]
 python = "3.14.*"
