@@ -41,7 +41,7 @@ const DesktopHeader: React.FC = () => {
       </div>
       {/* One row: the menus, the mode switcher at a fixed place, the mode's toolbars in the room left (left-aligned,
           clipped behind "»"), then the plugins' buttons and the palette pinned right. */}
-      <ShellModeSwitcher buttonClass={MODE_BUTTON} className="flex shrink-0 items-center gap-0.5" />
+      <ShellModeSwitcher buttonClass={MODE_BUTTON} className="mx-6 flex shrink-0 items-center gap-1" />
       <ShellModeToolbar />
       <div className="flex shrink-0 items-center gap-1">
         <PluginTopBarButtons navBtnClass={PLUGIN_BUTTON} />
