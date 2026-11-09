@@ -40,6 +40,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+from ada.cadit.step.step2glb_capi import Step2GlbUnavailable
 from ada.config import logger
 
 _ENV_BIN = "ADAPY_STEP2GLB_BIN"
@@ -51,10 +52,6 @@ _CHUNK_JSON = 0x4E4F534A
 # Spill the output chunk to disk above this; merged geometry itself stays
 # resident (see module docstring), so this only bounds the final buffer.
 _DEFAULT_MEMORY_THRESHOLD = "1gb"
-
-
-class Step2GlbUnavailable(RuntimeError):
-    """Raised when the step2glb binary cannot be located."""
 
 
 def _resolve_bin() -> Path:
