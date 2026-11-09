@@ -176,9 +176,6 @@ def revision_from_instant(instant: str | _dt.datetime) -> str:
         dt = instant
     else:
         text = str(instant).strip()
-        # fromisoformat handles 'Z' only from 3.11; normalise it for the 3.10 floor.
-        if text.endswith("Z"):
-            text = text[:-1] + "+00:00"
         try:
             dt = _dt.datetime.fromisoformat(text)
         except ValueError as exc:
