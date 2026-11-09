@@ -2,6 +2,15 @@
 
 
 
+## v0.138.4 (2026-11-09)
+
+### Fix
+
+* fix: refuse unknown FEM formats by name, share one step2glb error, drop dead code (#509)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`ee0b995`](https://github.com/Krande/adapy/commit/ee0b99570abe0711d428543eb469d2e34ec240bd))
+
+
 ## v0.138.3 (2026-11-09)
 
 ### Fix
