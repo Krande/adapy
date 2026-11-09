@@ -36,17 +36,19 @@ const DesktopHeader: React.FC = () => {
   const menus = useDesktopMenus();
   return (
     <div className={`${DESKTOP_BAR} h-9 border-b px-1`} data-desktop-header="">
-      <MenuBar menus={menus} />
-      <div className="mx-auto flex items-center gap-2">
-        <ShellModeSwitcher buttonClass={MODE_BUTTON} className="flex items-center gap-0.5" />
-        <ShellModeToolbar />
+      <div className="shrink-0">
+        <MenuBar menus={menus} />
       </div>
-      <div className="flex items-center gap-1">
+      {/* One row: the menus, the mode switcher at a fixed place, the mode's toolbars in the room left (left-aligned,
+          clipped behind "»"), then the plugins' buttons and the palette pinned right. */}
+      <ShellModeSwitcher buttonClass={MODE_BUTTON} className="flex shrink-0 items-center gap-0.5" />
+      <ShellModeToolbar />
+      <div className="flex shrink-0 items-center gap-1">
         <PluginTopBarButtons navBtnClass={PLUGIN_BUTTON} />
       </div>
       <button
         type="button"
-        className="rounded-sm px-2 py-1 text-xs hover:bg-white/10"
+        className="shrink-0 rounded-sm px-2 py-1 text-xs hover:bg-white/10"
         title="Search every command"
         onClick={openCommandPalette}
       >

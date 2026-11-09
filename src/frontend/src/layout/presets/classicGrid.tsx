@@ -71,6 +71,7 @@ import {
   type ShownNode,
   type ShownSplit,
 } from "../splitTree";
+import {useUiFrozen} from "../uiFreeze";
 import {PANEL_ACTIONS_ATTR, ZONE_ATTR, ZONE_PANEL_ATTR} from "../zoneKeys";
 import {compactActions} from "./groupCompact";
 import {
@@ -183,12 +184,15 @@ const ghostStore = createStore<{title: string; x: number; y: number} | null>()((
  */
 function useTabDrag(panel: RegisteredPanel) {
   const ops = useGridOps();
+  const frozen = useUiFrozen();
   const press = useRef<{x: number; y: number; on: boolean} | null>(null);
   const dragged = useRef(false);
   const reset = () => {
     press.current = null;
     ghostStore.setState(null, true);
   };
+  // A frozen layout: a tab only selects.
+  if (frozen) return {};
   return {
     onPointerDown: (e: React.PointerEvent) => {
       if (e.button !== 0) return;
@@ -250,9 +254,10 @@ export function DragGhost() {
 /** Is a panel the grid may take being dragged. */
 function useDraggingDockable(): boolean {
   const ops = useGridOps();
+  const frozen = useUiFrozen();
   return useStore(dockDragStore, (s) => {
     const p = s.panel ? getPanel(s.panel) : undefined;
-    return !!p && ops.accepts(p);
+    return !frozen && !!p && ops.accepts(p);
   });
 }
 
@@ -653,6 +658,7 @@ function GroupTab({
   icons?: boolean;
 }) {
   const drag = useTabDrag(panel);
+  const frozen = useUiFrozen();
   const {update: updateClassic} = useGridOps();
   return (
     <button
@@ -664,7 +670,7 @@ function GroupTab({
       tabIndex={selected ? 0 : -1}
       {...{[GRID_TAB_ATTR]: panel.id, [ZONE_PANEL_ATTR]: panel.id}}
       {...(dragging ? dropAttrs(gridZone(group.id), {[DROP_INDEX_ATTR]: String(index), [DROP_AXIS_ATTR]: "x"}) : {})}
-      className={`relative shrink-0 max-w-[14rem] truncate select-none rounded-sm px-2 py-1 text-xs cursor-grab ${groupTabClass(selected)}`}
+      className={`relative shrink-0 max-w-[14rem] truncate select-none rounded-sm px-2 py-1 text-xs ${frozen ? "" : "cursor-grab"} ${groupTabClass(selected)}`}
       title={panel.title}
       onClick={() => updateClassic((d) => updateGrid(d, (g) => setActiveTab(g, panel.id)))}
       onKeyDown={(e) => {
@@ -808,6 +814,7 @@ function GridGroup({
   const panels = group.panels.map((id) => getPanel(id)).filter((p): p is RegisteredPanel => !!p);
   const active = panels.find((p) => p.id === group.active) ?? panels[0];
   const dragging = useDraggingDockable();
+  const frozen = useUiFrozen();
   const zone = gridZone(group.id);
   const hover = useStore(dockDragStore, (s) => (s.over === zone && s.index !== null ? s.index : null));
   const ops = useGridOps();
@@ -828,7 +835,8 @@ function GridGroup({
   }
   const close = () => ops.close(active.id);
   // Close stays in the bar; in a narrow dock the rest fold into a "more" menu.
-  const actions = compactActions([...ops.panelActions(active, doc, pinned, chrome), ...groupActions(group, chrome, ops)], width, MoreGlyph);
+  // Frozen: none of the rearranging actions (float, move, pin, add, collapse); close stays.
+  const actions = frozen ? [] : compactActions([...ops.panelActions(active, doc, pinned, chrome), ...groupActions(group, chrome, ops)], width, MoreGlyph);
   return (
     <section
       ref={measure}
@@ -914,6 +922,7 @@ function StackedGroup({
 }) {
   const zone = gridZone(group.id);
   const ops = useGridOps();
+  const frozen = useUiFrozen();
   const own = groupActions(group, chrome, ops);
   return (
     <section
@@ -930,7 +939,7 @@ function StackedGroup({
               {tabLabel(p, chrome.tabIcons)}
             </div>
             <div className="flex items-center gap-1" {...{[PANEL_ACTIONS_ATTR]: p.id}}>
-              {compactActions([...ops.panelActions(p, doc, pinned, chrome), ...(i === 0 ? own : [])], width, MoreGlyph).map(actionButton)}
+              {(frozen ? [] : compactActions([...ops.panelActions(p, doc, pinned, chrome), ...(i === 0 ? own : [])], width, MoreGlyph)).map(actionButton)}
               {p.capabilities.closable && (
                 <WindowHeaderButton onClick={() => ops.close(p.id)} title="Close" ariaLabel={`Close ${p.title}`}>
                   <CloseGlyph />

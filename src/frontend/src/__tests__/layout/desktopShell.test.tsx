@@ -25,9 +25,8 @@ const { THEME_PRESETS } = await import("@/state/themeStore");
 const { AdaViewerProvider } = await import("@/state/AdaViewerContext");
 const { UiShellSwitcher } = await import("@/plugins/UiShellSwitcher");
 const DesktopHeader = (await import("@/layout/desktop/DesktopHeader")).default;
-const DesktopFooter = (await import("@/layout/desktop/DesktopFooter")).default;
+const { StatusBar, connectionLabel } = await import("@/layout/StatusBar");
 const DesktopPageHeader = (await import("@/layout/desktop/DesktopPageHeader")).default;
-const { connectionLabel } = await import("@/layout/desktop/DesktopFooter");
 
 registerCorePanels();
 
@@ -128,11 +127,12 @@ test("the menu bar, the status bar and the page header render", () => {
     for (const m of ["File", "Edit", "View", "Modes", "Window", "Help"]) assert.match(head, new RegExp(`>${m}<`));
     assert.match(head, /aria-label="Mode"/, "the mode switcher");
     assert.match(head, /Ctrl\+K/);
-    const foot = html(React.createElement(DesktopFooter));
+    const foot = html(React.createElement(StatusBar, { items: spec.chrome!.statusItems }));
     assert.match(foot, /role="status"/);
     assert.match(foot, /0 models loaded/);
     assert.match(foot, /Nothing selected/);
     assert.match(foot, /Mode: Model/);
+    assert.match(foot, /Desktop UI/, "the shell's own item");
     const page = renderToStaticMarkup(React.createElement(DesktopPageHeader, { title: "Convert files", backHref: "/" }));
     assert.match(page, /href="\/"/);
     assert.match(page, /Convert files/);

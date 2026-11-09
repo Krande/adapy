@@ -20,6 +20,8 @@ export const CORE_PANEL_IDS = {
   feaTable: "core:fea-table",
   componentControls: "core:component-controls",
   cellbuilder: "core:cellbuilder",
+  /** The procedural model's cells, lofts, openings and equipment, as a list of their own. */
+  componentList: "core:component-list",
   equipmentAdmin: "core:equipment-admin",
   systemAdmin: "core:system-admin",
   admin: "core:admin",

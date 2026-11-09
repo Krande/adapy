@@ -562,7 +562,54 @@
 //          `core:unload-models`, `core:select-group`, `core:box-*`,
 //          `core:run-related`). On `@/viewer-core/scene`: the topics and their
 //          snapshot types, `tableRowIndices`.
-export const VIEWER_CORE_API_VERSION = "1.15.0";
+//   2.0.0  Generic shell features moved into core, so an alternative UI shell
+//          carries none of them (additive), and the node editor removed (breaking: see the
+//          last item). Ships with PLUGIN_API_VERSION 2.0.0.
+//          - Tree navigation and result view commands. `CORE_COMMAND_IDS`:
+//          `selectParent`, `selectChild`, `selectPrevSibling`, `selectNextSibling`
+//          (Shift+arrows, over the tree actions), and `colorLegend`, `femConcepts`
+//          (the Simulation panel's FE model tab), `dataDock` (the result data table),
+//          `beamSections`, `warp`, `labelsValues`; all reuse the Simulation panel's state
+//          and actions (`toggleColorLegend`, `openFemConcepts`, `toggleDataTable` on `/layout`).
+//          - Property value labels. `NumberLabels` can label each element with its
+//          value of the shown result or of a property (`useLabelsStore`: `values`,
+//          `valueField`; `LabelKind` gains "value"; `loadElementValueTable` on `/scene`),
+//          bounded and thinned like the numbers; `core:labels-values` and a button in
+//          the `representation` toolbar (which also gains `core:warp`).
+//          - Split button and the fuller Build toolbar. `SplitButton` (an action and a
+//          picker on a caret, over `CommandButton`, which takes `onPress`) and
+//          `splitButtonState`. The `build` toolbar gains placement (`builderAddCell`,
+//          `builderAddLoft`, `builderAddOpening`, `builderAddEquipment`; the last two
+//          are split buttons), the gizmos (`builderTranslate`, `builderRotate`,
+//          `builderResize`, the G / R / S chords) and the view (`builderRepTopology`,
+//          `builderRepSimulation`, `builderRepDetail`, `builderSuperimpose`,
+//          `builderSideBySide`), each also a component (`BuilderPlacementTools`,
+//          `BuilderGizmoTools`, `BuilderViewTools`). `core:builder-new` starts a
+//          procedural model (name, create, open).
+//          - Status bar and page header. `UiShellChrome.statusItems` composes core's
+//          status bar from core's items (`CORE_STATUS_ITEM_IDS`: connection, models,
+//          selection, mode, undo, compile, version) and the shell's own
+//          (`StatusBarItem`); `StatusBar`, `StatusItem`, `CORE_STATUS_ITEMS` and a
+//          generic `PageHeader` (a scope-picker slot) on `/layout`. `SHELL_BAR` is the
+//          bars' look. The Desktop UI uses them.
+//          - `core:component-list`: the builder's "Cells & equipment" list as a panel of
+//          its own (`ComponentListBody`, `CORE_PANEL_IDS.componentList`).
+//          - UI freeze: lock the panel arrangement. `core:toggle-ui-freeze` (checked while
+//          frozen; in the Desktop UI's View and Window menus and in Options) takes the
+//          docking controls (float, dock, move to a window, pin, collapse, "+", the
+//          rearranging "More actions" items) out of the headers, stops tab dragging and
+//          drops, and keeps tabs, dividers, close and reopen. Kept per shell in
+//          `LayoutPrefs.uiFreezeByShell`; `UiShellChrome.uiFreeze` is `false` (not offered)
+//          or `"default-on"`. `setUiFrozen`, `uiFrozen`, `useUiFrozen` on `/layout`.
+//          - Calculation options: `ComputeOptionsBody` and an Options section "compute"
+//          over `useComputeStore`.
+//          - Facade: core's glyphs (`ChevronRightIcon`, ... the icon set),
+//          `PositionedMenu` and `ModalFrame` on `/layout`; `FeaManifest.model_info`
+//          (`FeaModelInfo`) in the viewerApi types; `@/viewer-core/theme`, the theme
+//          without the `/app` barrel's `window` reads.
+//          - The Desktop UI's Build mode is always offered (`UiShellMode.requires`
+//          stays an option for other shells); its panel starts a model when none is open.
+export const VIEWER_CORE_API_VERSION = "1.16.0";
 
 // ---------------------------------------------------------------------------
 // Plugin declaration. `registerPlugin` is how a package announces itself —
@@ -652,6 +699,9 @@ export {
 } from "@/layout/shellModes";
 export type { CoreModeToolbarId, ShellMode, ShellModeBadge } from "@/layout/shellModes";
 export { CORE_MODE_TOOLBAR_IDS } from "@/layout/shellModes";
+// The status bar's model: core's items by id, what an item is, the bars' look (`UiShellChrome.statusItems`). The bar itself is on `/layout`.
+export { CORE_STATUS_ITEM_IDS, SHELL_BAR, isCoreStatusItem } from "@/layout/statusItems";
+export type { CoreStatusItemId, StatusBarItem, StatusItemSpec } from "@/layout/statusItems";
 export { SHELL_MODE_PARAM, setShellModeBadge, shellModeBadge } from "@/layout/shellModes";
 export type { PanelOverride } from "@/layout/registry";
 export type { FixedSize, GroupArrangement } from "@/layout/splitTree";

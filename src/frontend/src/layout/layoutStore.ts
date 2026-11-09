@@ -38,6 +38,8 @@ export interface LayoutStoreState {
   setActivePreset(preset: PresetId | undefined): void;
   /** The "Customisable panels" setting of UI shell `shell` (core's own UI by default). */
   setCustomisablePanels(on: boolean, shell?: string): void;
+  /** Freeze (lock) or unfreeze the layout of UI shell `shell` (core's own UI by default). */
+  setUiFreeze(on: boolean, shell?: string): void;
   /** Pin or unpin a panel in a composed shell (by shell id). */
   setPinned(shell: string, panel: string, pinned: boolean): void;
   /** Forget a saved document: the next read starts from the preset's (or shell's) starting one. */
@@ -72,6 +74,11 @@ export function migrateLayoutPrefs(raw: unknown): LayoutPrefs {
   }
   if (typeof r.customisablePanels === "boolean" && !("core" in byShell)) byShell.core = r.customisablePanels;
   if (Object.keys(byShell).length) prefs.customisablePanelsByShell = byShell;
+  if (r.uiFreezeByShell && typeof r.uiFreezeByShell === "object") {
+    const freeze: Record<string, boolean> = {};
+    for (const [shell, on] of Object.entries(r.uiFreezeByShell)) if (typeof on === "boolean") freeze[shell] = on;
+    if (Object.keys(freeze).length) prefs.uiFreezeByShell = freeze;
+  }
   if (r.pinned && typeof r.pinned === "object") {
     const pinned: Record<string, string[]> = {};
     for (const [shell, ids] of Object.entries(r.pinned)) {
@@ -194,6 +201,11 @@ export function createLayoutStore(): StoreApi<LayoutStoreState> {
         } else if (byShell[shell] === on) return;
         else byShell[shell] = on;
         setPrefs({ ...prefs, markingMenuByShell: byShell });
+      },
+      setUiFreeze(on, shell = "core") {
+        const prefs = get().prefs;
+        if (prefs.uiFreezeByShell?.[shell] === on) return;
+        setPrefs({ ...prefs, uiFreezeByShell: { ...prefs.uiFreezeByShell, [shell]: on } });
       },
       setPinned(shell, panel, pinned) {
         const prefs = get().prefs;

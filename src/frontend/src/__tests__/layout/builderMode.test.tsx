@@ -112,7 +112,7 @@ test("the Desktop UI has a Build mode docking the builder, with its toolbar, men
   const spec = D.desktopUiShellSpec();
   const build = spec.layout!.modes!.find((m) => m.id === "build")!;
   assert.ok(build, "a Build mode");
-  assert.equal(build.requires, "builder");
+  assert.equal(build.requires, undefined, "Build is always offered: it is where a model is started");
   assert.deepEqual(build.toolbars, ["build", "section"]);
   assert.ok(build.open!.includes(CORE_PANEL_IDS.cellbuilder));
   const groups: { id: string; panels: string[]; active?: string }[] = [];
@@ -146,7 +146,7 @@ test("the Build menu names the builder's commands, only where the shell has the 
 
 test("the API version moved with the Build mode", () => {
   const index = readFileSync(new URL("../../viewer-core/index.ts", import.meta.url), "utf8");
-  assert.match(index, /VIEWER_CORE_API_VERSION = "1\.15\.0"/);
+  assert.match(index, /VIEWER_CORE_API_VERSION = "1\.16\.0"/);
   const reg = readFileSync(new URL("../../plugins/registry.ts", import.meta.url), "utf8");
-  assert.match(reg, /PLUGIN_API_VERSION = "1\.15\.0"/);
+  assert.match(reg, /PLUGIN_API_VERSION = "1\.16\.0"/);
 });

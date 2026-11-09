@@ -264,6 +264,115 @@ export const CommitIcon = glyph(
   "Commit",
 );
 export const CloseModelIcon = glyph(<path d="m6 6 12 12M18 6 6 18" />, "CloseModel");
+export const LockIcon = glyph(
+  <>
+    <rect x="5" y="10.5" width="14" height="9.5" rx="1.5" />
+    <path d="M8 10.5V8a4 4 0 0 1 8 0v2.5" />
+  </>,
+  "Lock",
+);
+export const ParentIcon = glyph(<path d="M12 19V5m-5.5 5.5L12 5l5.5 5.5M5 21h14" />, "Parent");
+export const ChildIcon = glyph(<path d="M12 5v14m-5.5-5.5L12 19l5.5-5.5M5 3h14" />, "Child");
+export const PrevSiblingIcon = glyph(<path d="M19 12H5m5.5-5.5L5 12l5.5 5.5M21 5v14" />, "PrevSibling");
+export const NextSiblingIcon = glyph(<path d="M5 12h14m-5.5-5.5L19 12l-5.5 5.5M3 5v14" />, "NextSibling");
+export const LegendIcon = glyph(
+  <>
+    <rect x="5" y="3.5" width="5" height="17" rx="1" />
+    <path d="M13.5 6.5h6M13.5 12h6M13.5 17.5h6" />
+  </>,
+  "Legend",
+);
+export const FemConceptsIcon = glyph(
+  <>
+    <path d="M4 20h16M7 20v-5m10 5v-5" />
+    <path d="M5 15h14M12 4v8m-3-3 3 3 3-3" />
+  </>,
+  "FemConcepts",
+);
+export const DataDockIcon = glyph(
+  <>
+    <rect x="3.5" y="4" width="17" height="16" rx="1.5" />
+    <path d="M3.5 9h17M3.5 14h17M9.5 9v11" />
+  </>,
+  "DataDock",
+);
+export const BeamSectionsIcon = glyph(
+  <>
+    <path d="M3 8h18M3 16h18" />
+    <path d="M9 8v8m6-8v8" strokeWidth="1.2" />
+  </>,
+  "BeamSections",
+);
+export const WarpIcon = glyph(
+  <>
+    <path d="M3 12h18" strokeDasharray="2 2" />
+    <path d="M3 12c4-9 6 9 9 0s5-9 9 0" />
+  </>,
+  "Warp",
+);
+export const ValueLabelsIcon = glyph(
+  <>
+    <rect x="3.5" y="4" width="17" height="16" rx="1.5" />
+    <path d="M8 15 11 9l2 4 2-3" />
+  </>,
+  "ValueLabels",
+);
+export const AddCellIcon = glyph(
+  <>
+    <path d="M12 3 20 7.5v9L12 21l-8-4.5v-9Z" />
+    <path d="M12 9v6M9 12h6" />
+  </>,
+  "AddCell",
+);
+export const AddLoftIcon = glyph(
+  <>
+    <ellipse cx="12" cy="6" rx="5" ry="2" />
+    <ellipse cx="12" cy="18" rx="7" ry="2.5" />
+    <path d="M7 6l-5 12M17 6l5 12" strokeWidth="1.2" />
+  </>,
+  "AddLoft",
+);
+export const AddOpeningIcon = glyph(
+  <>
+    <rect x="3.5" y="3.5" width="17" height="17" rx="1" />
+    <rect x="9" y="9" width="6" height="11.5" />
+  </>,
+  "AddOpening",
+);
+export const AddEquipmentIcon = glyph(
+  <>
+    <rect x="5" y="9" width="14" height="10" rx="1.5" />
+    <path d="M9 9V6h6v3M12 13v3" />
+  </>,
+  "AddEquipment",
+);
+export const TranslateIcon = glyph(<path d="M12 3v18M3 12h18M9 6l3-3 3 3M9 18l3 3 3-3M6 9l-3 3 3 3M18 9l3 3-3 3" />, "Translate");
+export const RotateIcon = glyph(<path d="M20 12a8 8 0 1 1-2.5-5.8M20 4v5h-5" />, "Rotate");
+export const ResizeIcon = glyph(<path d="M5 19 19 5M13 5h6v6M11 19H5v-6" />, "Resize");
+export const TopologyIcon = glyph(<path d="M4 4h16v16H4ZM4 12h16M12 4v16" strokeDasharray="3 2" />, "Topology");
+export const SimulationViewIcon = glyph(<path d="M4 18 9 7l5 8 3-5 3 8M4 20h16" />, "SimulationView");
+export const DetailViewIcon = glyph(
+  <>
+    <circle cx="10.5" cy="10.5" r="6" />
+    <path d="m15 15 5 5M10.5 8v5M8 10.5h5" />
+  </>,
+  "DetailView",
+);
+export const OverlayIcon = glyph(
+  <>
+    <rect x="3.5" y="3.5" width="12" height="12" rx="1" />
+    <rect x="8.5" y="8.5" width="12" height="12" rx="1" />
+  </>,
+  "Overlay",
+);
+export const SideBySideIcon = glyph(
+  <>
+    <rect x="3" y="6" width="8" height="12" rx="1" />
+    <rect x="13" y="6" width="8" height="12" rx="1" />
+  </>,
+  "SideBySide",
+);
+
 /** Core's commands' icons, by command id. */
 export const CORE_COMMAND_ICONS: Readonly<Record<string, React.FC>> = {
   [C.openFile]: OpenIcon,
@@ -332,7 +441,32 @@ export const CORE_COMMAND_ICONS: Readonly<Record<string, React.FC>> = {
   [C.builderCompileBrowser]: CompileIcon,
   [C.builderCommit]: CommitIcon,
   [C.builderClose]: CloseModelIcon,
+  [C.builderNew]: AddCellIcon,
+  [C.toggleUiFreeze]: LockIcon,
+  [C.selectParent]: ParentIcon,
+  [C.selectChild]: ChildIcon,
+  [C.selectPrevSibling]: PrevSiblingIcon,
+  [C.selectNextSibling]: NextSiblingIcon,
+  [C.colorLegend]: LegendIcon,
+  [C.femConcepts]: FemConceptsIcon,
+  [C.dataDock]: DataDockIcon,
+  [C.beamSections]: BeamSectionsIcon,
+  [C.warp]: WarpIcon,
+  [C.labelsValues]: ValueLabelsIcon,
+  [C.builderAddCell]: AddCellIcon,
+  [C.builderAddLoft]: AddLoftIcon,
+  [C.builderAddOpening]: AddOpeningIcon,
+  [C.builderAddEquipment]: AddEquipmentIcon,
+  [C.builderTranslate]: TranslateIcon,
+  [C.builderRotate]: RotateIcon,
+  [C.builderResize]: ResizeIcon,
+  [C.builderRepTopology]: TopologyIcon,
+  [C.builderRepSimulation]: SimulationViewIcon,
+  [C.builderRepDetail]: DetailViewIcon,
+  [C.builderSuperimpose]: OverlayIcon,
+  [C.builderSideBySide]: SideBySideIcon,
 };
+
 
 /** A command's initials, for one without an icon ("Fit selection" -> "FS"). */
 export function commandInitials(label: string): string {

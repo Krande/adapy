@@ -25,6 +25,7 @@ import React, {Suspense, createContext, useContext, useEffect, useLayoutEffect, 
 import {createPortal} from "react-dom";
 
 import type {PanelAction, PanelFrameProps, PanelMenuItem} from "@/layout/panel";
+import {useUiFrozen} from "@/layout/uiFreeze";
 import {PANEL_ACTIONS_ATTR, ZONE_ATTR, ZONE_PANEL_ATTR} from "@/layout/zoneKeys";
 import {
   WINDOW_CARD,
@@ -81,8 +82,13 @@ export const PanelHeaderActionsProvider: React.FC<{actions: readonly PanelAction
 
 /** The host's actions for the panel this header belongs to; none outside a provider. */
 export function usePanelHeaderActions(): readonly PanelAction[] {
-  return useContext(PanelHeaderActionsContext)?.actions ?? [];
+  const actions = useContext(PanelHeaderActionsContext)?.actions ?? NO_ACTIONS;
+  const frozen = useUiFrozen();
+  // A frozen layout (`@/layout/uiFreeze`) offers no rearranging actions.
+  return frozen ? NO_ACTIONS : actions;
 }
+
+const NO_ACTIONS: readonly PanelAction[] = [];
 
 /** The layout host's actions in a panel's own header; nothing when it offers none. */
 export function PanelHeaderActions() {
@@ -446,14 +452,16 @@ export function windowDockAttrs(dock: WindowDock | null): Record<string, string>
 /** The host's actions in a window's own title bar; nothing outside `WindowDockProvider`. */
 export function WindowDockActions() {
   const dock = useWindowDock();
-  if (!dock || dock.actions.length === 0) return null;
+  const frozen = useUiFrozen();
+  if (!dock || frozen || dock.actions.length === 0) return null;
   return <WindowHeaderActions panelId={dock.panelId}>{dock.actions.map(actionButton)}</WindowHeaderActions>;
 }
 
 /** A floating window's card: title bar over a body that may load lazily. */
 export function WindowFrame({title, subtitle, dragHandleClassName, actions, children}: WindowFrameProps) {
   const dock = useWindowDock();
-  const offered = dock && dock.actions.length > 0;
+  const frozen = useUiFrozen();
+  const offered = dock && !frozen && dock.actions.length > 0;
   return (
     <div className={WINDOW_CARD} {...windowDockAttrs(dock)}>
       <div className={windowHeaderClass(dragHandleClassName)}>
@@ -483,7 +491,8 @@ export function WindowFrame({title, subtitle, dragHandleClassName, actions, chil
  * from the host (float, dock to..., close), so the frame has no opinion on them.
  */
 export function PanelFrame({panelId, title, host, actions, onClose, dragHandleClassName, children}: PanelFrameProps) {
-  const buttons = actions.map(actionButton);
+  const frozen = useUiFrozen();
+  const buttons = (frozen ? NO_ACTIONS : actions).map(actionButton);
   const close = onClose && (
     <WindowHeaderButton onClick={onClose} title="Close" ariaLabel="Close panel">
       <CloseGlyph />

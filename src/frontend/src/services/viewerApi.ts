@@ -153,6 +153,7 @@ export type {
   FeaManifestFieldPerType,
   FeaManifestField,
   FeaManifest,
+  FeaModelInfo,
   FeaManifestLineage,
   FeaManifestLineageGroup,
   FeaHistoryRegionKind,

@@ -263,13 +263,13 @@ the chrome it draws in the slots.
 | Area | Option | What it does |
 |---|---|---|
 | Arrangement | `layout.grid`, `open`, `docks` | The starting split grid, the panels opened on load, where dock-naming plugin panels go. |
-| | `layout.modes[]` | Modes, each with its own `grid` / `open` / `docks`, saved arrangement, and `viewportCover` (a panel drawn over the 3D view, a converter say), `ownsSceneColor`, `showsDeformation: false` (a shell's own mode shows the deformed FEA model unless it says false; a **plugin's** mode (`PluginModeSpec`) holds it undeformed unless it opts in with `true`), `toolbar`, `toolbars` (core's own: `playback`, `section`, `representation`, `colorBy`, `build`, see "Core's mode toolbars"), `requires: "builder"` (offered only while a procedural model is open). `?mode=` opens one; `setShellModeBadge` marks one. |
+| | `layout.modes[]` | Modes, each with its own `grid` / `open` / `docks`, saved arrangement, and `viewportCover` (a panel drawn over the 3D view, a converter say), `ownsSceneColor`, `showsDeformation: false` (a shell's own mode shows the deformed FEA model unless it says false; a **plugin's** mode (`PluginModeSpec`) holds it undeformed unless it opts in with `true`), `toolbar`, `toolbars` (core's own: `playback`, `section`, `representation`, `colorBy`, `build`, see "Core's mode toolbars"), `requires: "builder"` (offered only while a procedural model is open; the Desktop UI does not use it). `?mode=` opens one; `setShellModeBadge` marks one. |
 | | `layout.defaultMode` | The mode used when there is no `?mode=` and none stored from an earlier visit (else the first by order). |
 | | `layout.version`, `migrate` | Re-seed or migrate users' saved arrangements when the shell ships new ones. |
 | | `layout.customisablePanels` | `"required"` (default): floating, docking and the split grid are always on in the shell, whatever the user set in another UI, and Options → Theme → Customisable panels shows the toggle on and disabled ("Always on in the … UI"); a docked layout is built on them. `"optional"`: the user's own setting for this shell. The setting is kept per shell (`LayoutPrefs.customisablePanelsByShell`; core's own UI's under `core`, where the single setting of older versions moves), so turning it off in Classic leaves the Desktop UI as designed and comes back on the way back. Read it through `customisablePanels()` / `useCustomisablePanels()`. |
 | Groups (in `grid`) | `fixed: {px, min, max}` | A dock held at a px size, kept on window resize; its divider resizes it in px. On groups and splits. |
 | | `collapsed`, `arrangement` | A strip of panel icons that restores the group; tabs, stacked, or `"auto"` (stacked while there is room). |
-| Chrome | `chrome.header`, `footer`, `rail` | Lazy slots above, below and left of the layout (menu bar, status bar, tool rail). `rail` may instead be core's tool rail as data, `{tools}` (see [The tool rail](#the-tool-rail)). |
+| Chrome | `chrome.header`, `footer`, `statusItems`, `rail`, `uiFreeze` | Lazy slots above, below and left of the layout (menu bar, status bar, tool rail). `statusItems` is core's status bar composed from core's items and the shell's own (see "The status bar and the page header"); `uiFreeze` is `false` (no freeze) or `"default-on"` (see "UI freeze"). `rail` may instead be core's tool rail as data, `{tools}` (see [The tool rail](#the-tool-rail)). |
 | | `chrome.markingMenu: {items, more, gesture} \| false` | Core's marking menu over the 3D view (see [The marking menu](#the-marking-menu)): given, on in the shell; absent or `false`, none. |
 | | `chrome.toolbar` | Core's top bar of panel toggles over the view (default on). |
 | | `chrome.groups` | Group header actions `"add"` / `"collapse"` / `"pin"`, and `tabIcons`. Pinned panels stay placed across modes. |
@@ -696,13 +696,81 @@ that is the only non-FEA source it offers.
 model is open (an editable one opened from storage, or one read off the loaded scene):
 until then it is left out of the switcher, the Modes menu and the palette, and `?mode=`
 or a stored choice that names it falls back to the first mode on offer; if the model is
-closed while the mode is active, the shell switches away. A shell that docks the
+closed while the mode is active, the shell switches away. `requires` is an option for
+other shells; **the Desktop UI does not use it**: its Build mode is always offered,
+because Build is where a model is started or opened. With no model open the `build`
+toolbar's commands are greyed, each with its reason, and `core:builder-new` ("New
+procedural model…": asks for a name, creates the model in the active scope's storage
+and opens it, as the Storage "+" menu does) is the first action, on the toolbar and in
+the Build menu; the docked builder panel shows the same entry. A shell that docks the
 `core:cellbuilder` panel passes `panels: {"core:cellbuilder": {options: {showFooter:
 false, showUndoRedo: false}}}` when its toolbar carries commit, compile and undo (the
 `build` toolbar does), and sets `chrome.overlays.builder` so the canvas menus and the
-gizmo HUD, which the classic UI mounts beside the panel, are drawn over the view. Core
-has no "new model" or "reset parameters" action, so a model is opened from the storage
-panel (or the panel's Local models menu) first.
+gizmo HUD, which the classic UI mounts beside the panel, are drawn over the view.
+
+The `build` toolbar is fuller than compile and commit. **Placement:** `builderAddCell`,
+`builderAddLoft`, and `builderAddOpening` / `builderAddEquipment`, which are split
+buttons (below): the caret picks the type, the main half places the type picked last
+(and opens the picker while none is picked). **Gizmos:** `builderTranslate`,
+`builderRotate` (equipment), `builderResize` (cell), the G / R / S keys; pressing the
+active one puts it away. **View:** `builderRepTopology`, `builderRepSimulation`,
+`builderRepDetail`, and the result over (`builderSuperimpose`) or beside
+(`builderSideBySide`) the topology. Each is a core command and each group a component
+(`BuilderPlacementTools`, `BuilderGizmoTools`, `BuilderViewTools` on
+`@/viewer-core/layout`). The builder's "Cells & equipment" list is also a panel of its
+own, `core:component-list` (`CORE_PANEL_IDS.componentList`, content `ComponentListBody`),
+which a shell can dock apart from the builder.
+
+**Result view commands.** `core:color-legend`, `core:fem-concepts` (the Simulation
+panel's FE model tab), `core:data-dock` (the result data table), `core:beam-sections`
+and `core:warp` are the Simulation panel's own controls as commands, over the same
+state and actions (`toggleColorLegend`, `openFemConcepts`, `toggleDataTable` on
+`@/viewer-core/layout`), greyed with a reason without a result. The tree walk
+(`core:select-parent`, `-child`, `-prev-sibling`, `-next-sibling`) is Shift+arrows as
+commands, for a menu or the rail. **Property value labels:** `core:labels-values`
+labels each element in view with its value of the shown result field, or of the
+property `useLabelsStore.valueField` names, drawn by `NumberLabels` with the same
+bounds and thinning as the numbers (`loadElementValueTable` on `@/viewer-core/scene`
+reads the values the colouring used); it is in the `representation` toolbar.
+
+**The split button.** `SplitButton` (`@/viewer-core/layout`) is an action and a picker
+on a caret over a command: `<SplitButton id={cmd} items={[{key, label, onClick}]}
+chosen={label | null} />`. `chosen` null means "a choice is needed and none is made",
+and the main half then opens the picker; a second press while the tool is armed puts
+it away (`splitButtonState`). `CommandButton` takes `onPress` to run something in place
+of its command.
+
+**The status bar and the page header.** `chrome.statusItems` composes core''s status bar:
+core''s items by id (`CORE_STATUS_ITEM_IDS`: `connection`, `models`, `selection`,
+`mode`, `undo`, `compile`, `version`) and items of the shell''s own
+(`{id, text, muted, end}`, or `content`: an element, drawn inside `StatusItem` to match
+core''s), in order, those marked `end` at the right. A shell that draws its own footer
+mounts `<StatusBar items={...}/>` (and `resolveStatusItems`, `CORE_STATUS_ITEMS`) there.
+`PageHeader` is the title bar over `/convert` and `/admin` with a `scopePicker` slot
+and a `trailing` one; `SHELL_BAR` is the bars'' look. The Desktop UI uses both.
+
+**Calculation options.** The Options panel has a "Calculations" section (`"compute"`
+in `OptionsSectionId`) over `useComputeStore`: how much of the machine to take, a
+worker cap and a memory limit, as a request the worker caps. `ComputeOptionsBody` on
+`@/viewer-core/layout` is the same body for a shell''s own settings page.
+
+**UI freeze.** `core:toggle-ui-freeze` ("Freeze layout", checked while frozen; View
+and Window menus, Options next to "Customisable panels") locks the arrangement:
+the headers of groups and windows lose float, dock, move to a window, pin, collapse,
+"+" add and the rearranging "More actions" items; tabs no longer drag and nothing is a
+drop target. Tabs still switch, dividers still resize, and panels can still be closed
+and opened again from the menus (a reopened panel goes where `reveal()` puts it). It is
+the user''s, per shell (`LayoutPrefs.uiFreezeByShell`). A shell sets
+`chrome.uiFreeze: false` to leave it out, or `"default-on"` to start frozen until the
+user chooses. `setUiFrozen`, `uiFrozen`, `useUiFrozen` are on `@/viewer-core/layout`.
+
+**The header.** `ShellModeToolbar` draws the mode''s toolbars in a region core owns
+(`ModeToolbarRegion`): it takes the room beside the switcher (`flex: 1`, `min-width:
+0`), the toolbars sit left-aligned in it, and when they do not fit they are clipped
+behind a "»" button that opens them in a wrapping popover, so they never push the mode
+switcher. Give the switcher `shrink-0` and put it before the toolbar, as the Desktop
+header does (menu bar, switcher at a fixed place, toolbars, plugins'' buttons, Commands
+pinned right); `region={false}` draws the bare toolbars.
 
 ### The built-in Desktop UI
 
@@ -718,11 +786,11 @@ worked example of a full docked UI (`desktopUiShellSpec()` from `@/viewer-core`)
 
 | Part | What it is |
 |---|---|
-| Header | A menu bar (`MenuBar`) in place of core's top bar (`chrome.toolbar: false`), the mode switcher and toolbar, the plugins' top-bar buttons, a Commands button. |
+| Header | A menu bar (`MenuBar`) in place of core's top bar (`chrome.toolbar: false`), the mode switcher at a fixed place, the mode's toolbars in a region beside it that clips behind "»", the plugins' top-bar buttons, a Commands button pinned right. |
 | Layout | Tree and storage tabbed in a fixed-px left dock; object info over scene info in a fixed-px right column; Simulation and Result data in a fixed-px dock under the view, collapsed to a strip in the Model mode. Group actions add, collapse, pin; tab icons. Plugin panels naming `left` / `right` / `bottom` join those docks. |
-| Modes | Model (default; toolbars: section, representation, colorBy), Results (the results dock open; toolbars: playback, representation, colorBy) and Build (offered once a procedural model is open; the builder with the tree and storage behind it on the left, the selection and the scene with the equipment and system catalogs on the right; toolbars: build, section; a Build menu); plugins' modes follow. |
-| Footer | A status bar: connection, models loaded, selection count, mode, what Undo undoes. |
-| Rail | Core's tool rail (`DESKTOP_RAIL_TOOLS`) on the left edge: Open; Fit all, Fit selection, Reset camera, Isometric view; Hide selected, Hide others, Show all; Select all, Clear selection; Geometry edges, Clear FEA isolation; Undo, Redo. The user's own is kept per shell. |
+| Modes | Model (default; toolbars: section, representation, colorBy), Results (the results dock open; toolbars: playback, representation, colorBy) and Build (always offered; the builder with the tree and storage behind it on the left, the selection and the scene with the equipment and system catalogs on the right; toolbars: build, section; a Build menu); plugins' modes follow. |
+| Footer | Core's status bar from `chrome.statusItems`: connection, models loaded, selection count, mode, procedural compile, what Undo undoes, the version, and a "Desktop UI" item. |
+| Rail | Core's tool rail (`DESKTOP_RAIL_TOOLS`) on the left edge: Open; Fit all, Fit selection, Reset camera, Isometric view; Hide selected, Hide others, Show all; Select all, Clear selection, the tree walk (parent, child, siblings); Geometry edges, Colour legend, Result data table, Clear FEA isolation; Undo, Redo. The user's own is kept per shell. |
 | Marking menu | Core's (`chrome.markingMenu: {}`), on: hold the right button over the view, or Shift+E. |
 | Chrome | Command palette on Ctrl+K, the colour legend at `right-center`, overlay plugin panels at `top-left`, the toast bottom-right, a title bar on `/convert` and `/admin`. |
 | Look | Core's tokens only (`--ada-window-*`, `--ada-tab-*`, the user's panel theme); no colours of its own. |
@@ -734,10 +802,10 @@ leaves stranded):
 | Menu | Items |
 |---|---|
 | File | Open… (Ctrl+O), Upload file… (REST); Export selection…, Export model… (REST); Storage, Convert files; Options |
-| Edit | Undo, Redo; Select all (Ctrl+A), Invert selection, Clear selection, Copy names, Save selection as group…; Visibility ▸ Hide selected, Hide others, Show all |
-| View | Panels ▸ (each panel's toggle); Camera ▸ Fit all, Fit selection, Reset camera, Top / Bottom / Front / Back / Left / Right / Isometric view; Display ▸ Geometry edges, Performance stats, Gallery mode, Marking menu on the right button; FEA sets ▸ Isolate FEA sets…, Isolate the picked element's FEA sets, Clear FEA isolation, Show the rest as wireframe; Theme ▸ (the presets); User interface ▸ (the shells); Command palette, Marking menu (Shift+E), Full screen |
+| Edit | Undo, Redo; Select all (Ctrl+A), Invert selection, Clear selection, Copy names, Save selection as group…; Navigate ▸ Select parent, first child, previous / next sibling; Visibility ▸ Hide selected, Hide others, Show all |
+| View | Panels ▸ (each panel's toggle); Camera ▸ Fit all, Fit selection, Reset camera, Top / Bottom / Front / Back / Left / Right / Isometric view; Display ▸ Geometry edges, result colours, element edges, undeformed outline, warp, beams as sections, Performance stats, Gallery mode, Marking menu on the right button; FEA sets ▸ Isolate FEA sets…, Isolate the picked element's FEA sets, Clear FEA isolation, Show the rest as wireframe; Theme ▸ (the presets); User interface ▸ (the shells); Results ▸ playback, Colour legend, FE model, Result data table; Labels and colours ▸ node, element and property value labels; Freeze layout; Command palette, Marking menu (Shift+E), Full screen |
 | Modes | One per mode |
-| Window | New window, Reopen windows; Reset layout, Reset every mode's layout, Customise tool rail…; Workspaces ▸ Save workspace…, (each saved one), Delete workspace… |
+| Window | New window, Reopen windows; Reset layout, Reset every mode's layout, Freeze layout, Customise tool rail…; Workspaces ▸ Save workspace…, (each saved one), Delete workspace… |
 | Help | Keyboard shortcuts; Server info, Connection; About |
 
 **Core's commands.** The items that are not `panel:` or `mode:` commands are

@@ -49,6 +49,9 @@ export interface ViewStateSlice {
   portsOverlayVisible: boolean;
   /** @deprecated The cellbuilder panel's flag. Ask `isPanelOpen("core:cellbuilder")` (`@/viewer-core`); open and close it with `reveal` / `hide`. */
   panelVisible: boolean;
+  /** Whether the standalone component list panel (`core:component-list`) is open. */
+  componentListVisible: boolean;
+  setComponentListVisible: (v: boolean) => void;
   /** Toggle whether an equipment cell renders as its type's CAD model (vs the
    * placeholder box) in the main viewer. No-op for non-equipment cells. */
   toggleCadPreview: (cellId: string) => void;
@@ -81,6 +84,8 @@ export const createViewStateSlice: CellBuilderSlice<ViewStateSlice> = (set, get)
     hiddenCellIds: [],
     portsOverlayVisible: false,
     panelVisible: false,
+    componentListVisible: false,
+    setComponentListVisible: (componentListVisible) => set({ componentListVisible }),
     toggleCadPreview: (cellId) =>
       set((s) => {
         const cell = s.cells[cellId];

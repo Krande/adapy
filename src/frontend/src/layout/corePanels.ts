@@ -61,6 +61,7 @@ import { bindStoreFlag, watchStores } from "./bindings";
 import { CLASSIC_PRESET_ID, CLASSIC_ZONES } from "./layout";
 import type { PanelBinding, PanelBodyLoader, PanelPlacement, PanelProps, PanelSpec } from "./panel";
 import { getPanel, registerPanel } from "./registry";
+import { activeShellMode, subscribeShellModes } from "./shellModes";
 
 import { CORE_PANEL_IDS, CORE_PANEL_OWNER, type CorePanelId } from "./corePanelIds";
 
@@ -353,16 +354,43 @@ export function corePanelSpecs(): PanelSpec[] {
       hint: "Toggle procedural cellbuilder panel",
       body: classicBody(CORE_PANEL_IDS.cellbuilder),
       content: classicContent(CORE_PANEL_IDS.cellbuilder),
-      watch: watchStores(useNodeEditorStore, useCellBuilderStore),
+      watch: (cb) => {
+        const stores = watchStores(useNodeEditorStore, useCellBuilderStore)(cb);
+        const modes = subscribeShellModes(cb);
+        return () => {
+          stores();
+          modes();
+        };
+      },
       binding: bindStoreFlag(
         useCellBuilderStore,
         (s) => s.panelVisible,
         (open, s) => s.setPanelVisible(open),
       ),
-      available: () => !nodeEditorOnly() && proceduralActive(),
+      // Also while the shell's Build mode is up with no model: the panel is where one is started.
+      available: () => !nodeEditorOnly() && (proceduralActive() || activeShellMode() === "build"),
       constraints: { requiresCanvas: true },
       placement: column(80),
       toolbar: { order: 100 },
+    },
+    {
+      // The builder's "Cells & equipment" list on its own, for a shell that docks it apart from the
+      // builder. Offered with a procedural model; no top-bar button.
+      id: CORE_PANEL_IDS.componentList,
+      title: "Cells & equipment",
+      icon: CellBuilderIcon,
+      hint: "Toggle the procedural component list",
+      body: classicBody(CORE_PANEL_IDS.componentList),
+      content: classicContent(CORE_PANEL_IDS.componentList),
+      watch: watchStores(useNodeEditorStore, useCellBuilderStore),
+      binding: bindStoreFlag(
+        useCellBuilderStore,
+        (s) => s.componentListVisible,
+        (open, s) => s.setComponentListVisible(open),
+      ),
+      available: () => !nodeEditorOnly() && proceduralActive(),
+      constraints: { requiresCanvas: true },
+      placement: column(85),
     },
     {
       // Opened contextually (an equipment's "Edit properties"); no top-bar button.
