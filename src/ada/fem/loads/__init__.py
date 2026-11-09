@@ -6,12 +6,18 @@ from .fe_loads import (
     LoadLine,
     LoadPoint,
     LoadPressure,
+    LoadRotation,
+    LoadSurfaceTraction,
+    LoadTemperature,
     acceleration_vector,
 )
 
 __all__ = [
     "Load",
     "LoadGravity",
+    "LoadRotation",
+    "LoadSurfaceTraction",
+    "LoadTemperature",
     "LoadLine",
     "LineLoadSegment",
     "LoadPoint",

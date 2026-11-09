@@ -36,6 +36,12 @@ positive face, ``+q`` and SIDE 2 on the negative one); this reads that back, so 
 written positive on ``SPOS`` comes back positive on ``SPOS``. The signs are the writer's own
 (:data:`_SIDE_FACE`), not restated here.
 
+On a **solid** BEUSLO loads one side: SIDE is a digit pattern (``100000`` = side 1 of a hexahedron), NDOF that
+side's node count and RLOAD one intensity per side node, positive into the element, which is a solid face pressure's
+own sense. The side is read back to the Abaqus face the writer resolved it from (``write/solid_sides``), so the two
+use one table. Measured: every side table reproduces the exact uniaxial column in Sestra V11.3-01
+(``tests/fem/test_code_aster_solid_pressure.py``).
+
 **BNLOAD and BGRAV** are the two the writer also emits and this still has no card for. They are
 counted and named (:func:`report_unread_load_records`) rather than passed over, because a step
 holding only the pressures of a deck that also has gravity is a wrong answer where an empty
@@ -53,8 +59,10 @@ from ada.fem.constraints import BC_LOAD_CASE
 from ada.fem.formats import conversion_report
 from ada.fem.formats.utils import str_to_int
 from ada.fem.loads import LoadCase, LoadPressure
+from ada.fem.shapes.definitions import SolidShapes
 from ada.fem.steps import StepImplicitStatic
 
+from ..write.solid_sides import SESAM_SOLID_SIDES, abaqus_face, side_of_code
 from ..write.write_bcs import DTYPE_DISPLACEMENT
 from ..write.write_loads import (
     PRESSURE_INTNO,
@@ -279,13 +287,15 @@ class BeusloRecord:
     """One BEUSLO record the reader can hold: its load case, element, face and magnitude.
 
     ``magnitude`` is already the pressure the model meant -- RLOAD with the writer's sign
-    convention undone -- and ``face`` the shell face index an ada ``Surface`` names it by.
+    convention undone -- and ``face`` the face an ada ``Surface`` names it by: the shell face index
+    (``+1`` / ``-1``), or on a ``solid`` the 0-based Abaqus face.
     """
 
     llc: int
     element: Elem
     face: int
     magnitude: float
+    solid: bool = False
 
 
 def beuslo_records(bulk_str: str, fem: FEM) -> Iterator[BeusloRecord]:
@@ -356,6 +366,13 @@ def _beuslo_record(d: dict, llc: int, elno: int, subject: str, fem: FEM, rep) ->
     mean), and the values themselves go in the report.
     """
     side = str_to_int(d["side"])
+    try:
+        solid = fem.elements.from_id(elno)
+    except (ValueError, KeyError):
+        solid = None
+    if solid is not None and isinstance(solid.type, SolidShapes):
+        return _solid_beuslo_record(d, llc, solid, side, subject, rep)
+
     face_sign = _SIDE_FACE.get(side)
     if face_sign is None:
         rep.omitted(
@@ -405,6 +422,50 @@ def _beuslo_record(d: dict, llc: int, elno: int, subject: str, fem: FEM, rep) ->
         )
     # The writer wrote ``sign * magnitude``; ``sign`` is +-1, so multiplying by it again undoes it.
     return BeusloRecord(llc, element, face, sign * sum(intensities) / len(intensities))
+
+
+def _solid_beuslo_record(d: dict, llc: int, element: Elem, side: int, subject: str, rep) -> BeusloRecord | None:
+    """A BEUSLO on a solid's side (``write_loads.load_pressure``'s solid branch, backwards): SIDE a digit pattern
+    naming one side of ``solid_sides.SESAM_SOLID_SIDES``, NDOF that side's node count, one intensity per side node,
+    positive into the element -- the sense of a solid face pressure, so no sign to undo. The face is the Abaqus one
+    the writer resolved the side from. Intensities that differ are read as their mean, reported, as on a shell."""
+    number = side_of_code(element.type, side)
+    face = abaqus_face(element, number) if number is not None else None
+    if face is None:
+        rep.omitted(
+            STAGE,
+            "BEUSLO",
+            subject,
+            f"SIDE {side} names no single side of a {element.type} element (one digit per side, the loaded one 1)",
+            side=side,
+        )
+        return None
+    n_side = len(SESAM_SOLID_SIDES[element.type][number - 1])
+    ndof = str_to_int(d["ndof"])
+    intensities = [float(x) for x in d["rload"].split()[:ndof]]
+    if len(intensities) < ndof or ndof != n_side:
+        rep.omitted(
+            STAGE,
+            "BEUSLO",
+            subject,
+            f"the record declares NDOF {ndof} and carries {len(intensities)} intensities for a side with "
+            f"{n_side} nodes; one intensity per node of the side is what the record means",
+            ndof=ndof,
+            n_intensities=len(intensities),
+            n_nodes=n_side,
+        )
+        return None
+    if len(set(intensities)) > 1:
+        rep.approximated(
+            STAGE,
+            "BEUSLO",
+            subject,
+            "the intensities differ across the side's nodes -- a non-uniform pressure, which one Load magnitude "
+            "cannot hold; their mean is read",
+            intensities=intensities,
+            mean=sum(intensities) / len(intensities),
+        )
+    return BeusloRecord(llc, element, face, sum(intensities) / len(intensities), solid=True)
 
 
 #: Load records the Sesam *writer* emits and this reader has no card for -> the adapy construct
@@ -470,7 +531,11 @@ def get_loads(bulk_str: str, fem: FEM, unread: dict[str, int] | None = None) -> 
     """
     report_unread_load_records(bulk_str, unread)
     records = list(beuslo_records(bulk_str, fem))
-    if not records:
+    # A settlement read back (BNDISPL, ``read_constraints.get_bcs``) acts in its load case: that case is opened in
+    # the step too, so a writer has a case to put its value in -- the Abaqus writer could otherwise only hold it at
+    # zero. Cases in deck order.
+    settled = [bc.metadata.get(SESAM_LOAD_CASE) for bc in fem.bcs if (bc.metadata or {}).get(SESAM_LOAD_CASE)]
+    if not records and not settled:
         return None
 
     names = load_case_names(bulk_str)
@@ -479,15 +544,18 @@ def get_loads(bulk_str: str, fem: FEM, unread: dict[str, int] | None = None) -> 
     step = fem.add_step(StepImplicitStatic(READ_STEP_NAME, use_default_outputs=False))
     for llc in sorted({r.llc for r in records}):
         lc_name = case_name(names, llc)
-        groups: dict[tuple[int, float], list[Elem]] = {}
+        groups: dict[tuple[bool, int, float], list[Elem]] = {}
         for record in (r for r in records if r.llc == llc):
-            groups.setdefault((record.face, record.magnitude), []).append(record.element)
+            groups.setdefault((record.solid, record.face, record.magnitude), []).append(record.element)
         loads = []
         # In the order each group's first record appears in the deck, which is the order the
         # writer emitted the loads in: written back out, the load block comes out unchanged.
-        for i, (face, magnitude) in enumerate(groups, start=1):
-            elements = sorted(groups[(face, magnitude)], key=lambda e: e.id)
-            side = "SPOS" if face == _SIDE_FACE[SIDE_POSITIVE][0] else "SNEG"
+        for i, (solid, face, magnitude) in enumerate(groups, start=1):
+            elements = sorted(groups[(solid, face, magnitude)], key=lambda e: e.id)
+            if solid:
+                side = f"S{face + 1}"  # the Abaqus face, as get_surface_from_nodes_on_solid_elements names it
+            else:
+                side = "SPOS" if face == _SIDE_FACE[SIDE_POSITIVE][0] else "SNEG"
             fem_set = _elset_for(fem, by_members, elements, _unique(f"{lc_name}_{side}", fem.elsets))
             surface = fem.add_surface(
                 Surface(
@@ -501,6 +569,13 @@ def get_loads(bulk_str: str, fem: FEM, unread: dict[str, int] | None = None) -> 
             name = f"{lc_name}_pressure" if len(groups) == 1 else f"{lc_name}_pressure{i}"
             loads.append(LoadPressure(name, magnitude, surface))
         step.add_loadcase(LoadCase(lc_name, None, loads=loads))
+    order = {name: llc for llc, name in names.items()}
+    for lc_name in sorted(dict.fromkeys(settled), key=lambda n: order.get(n, 10**9)):
+        if lc_name not in step.load_cases:
+            step.add_loadcase(LoadCase(lc_name, None, loads=[]))
+    if not records:
+        # cases in deck order: the BEUSLO cases above already are
+        step._load_cases = dict(sorted(step.load_cases.items(), key=lambda kv: order.get(kv[0], 10**9)))
     return step
 
 

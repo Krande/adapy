@@ -1,6 +1,6 @@
 {
   "name": "ada-py-viewer",
-  "version": "0.137.0",
+  "version": "0.138.1",
   "type": "module",
   "overrides": {
     "qs": ">=6.15.2",
@@ -14,6 +14,8 @@
     "build": "vite build --emptyOutDir && node embed-script.cjs",
     "build:serve": "vite build --config vite.config.serve.ts --emptyOutDir",
     "build:embed": "vite build --config vite.config.embed.ts",
+    "build:embed-webgpu": "vite build --config vite.config.embed-webgpu.ts",
+    "typecheck:embed-webgpu": "tsc --noEmit -p tsconfig.embed-webgpu.json",
     "dev": "vite --force",
     "check:seam": "node scripts/check-capability-seam.mjs",
     "pretest": "npm run check:seam",

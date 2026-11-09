@@ -151,7 +151,16 @@ def _read_fem(fem_file, fem_name=None) -> tuple[Assembly, str, int]:
         try:
             assembly.fem.constraints.update(get_constraints_from_inp(ass_sets, assembly.fem))
         except KeyError as e:
-            logger.error(e)
+            # reported, not logged: one name the reader cannot resolve costs the assembly every constraint it holds
+            from ada.fem.formats import conversion_report
+
+            conversion_report.current().omitted(
+                "abaqus reader",
+                "Constraint",
+                "assembly",
+                "the assembly's constraints are not read: one names a set or surface the reader cannot find",
+                name=str(e),
+            )
 
         assembly.fem.bcs += get_bcs_from_bulk(props_str, assembly.fem)
         _add_keeping_ids(assembly.fem, get_mass_from_bulk(ass_sets, assembly.fem))
@@ -170,15 +179,17 @@ def _surface_or_set(name: str, fem: FEM):
     """A *Shell to Solid Coupling operand: a surface, per the Keywords Guide -- or, where the
     deck has no surface of that name, the node/element set adapy's own writer has always put
     there. (That writer output is not valid Abaqus; reading it back still must not fail.)"""
+    # a lookup by instance (``Part-1.edge``) raises ValueError where a bare name raises KeyError: either is "not this
+    # kind", and the next kind is tried
     try:
         return get_set_from_assembly(name, fem, "surface")
-    except KeyError:
+    except (KeyError, ValueError):
         for kind in ("nset", "elset"):
             try:
                 return get_set_from_assembly(name, fem, kind)
-            except KeyError:
+            except (KeyError, ValueError):
                 continue
-        raise
+        raise KeyError(name)
 
 
 def by_name(mapping, name: str):
@@ -482,6 +493,42 @@ def get_nodes_from_inp_arrays(bulk_str):
     return coords, node_ids, nsets
 
 
+def _initial_temperature(assembly: Assembly, block: KeywordBlock) -> None:
+    """The nodes' initial temperature, the reference the step's ``*Temperature`` loads read with
+    (``read_steps._temperatures``). One value per deck: the writers give every node the loads' reference; a deck with
+    several keeps the most common, reported. A fluid cavity's own initial temperature (its reference node) is the
+    cavity's and is not counted."""
+    from collections import Counter
+
+    from ada.fem.formats import conversion_report
+
+    from .read_steps import INITIAL_TEMPERATURE
+
+    comment = comment_property(block, "Fluid cavity")
+    if comment:
+        return
+    values = Counter()
+    for line in block.data_lines:
+        fields = [f.strip() for f in line.split(",")]
+        if len(fields) > 1 and fields[1]:
+            values[float(fields[1])] += 1
+    if not values:
+        return
+    have = assembly.fem.metadata.get(INITIAL_TEMPERATURE)
+    if have is not None:
+        values[float(have)] += 1
+    value, _ = values.most_common(1)[0]
+    if len(values) > 1:
+        conversion_report.current().approximated(
+            "abaqus reader",
+            "*INITIAL CONDITIONS",
+            "TEMPERATURE",
+            "nodes start at different temperatures; the temperature loads read with the most common one as reference",
+            reference=value,
+        )
+    assembly.fem.metadata[INITIAL_TEMPERATURE] = value
+
+
 def get_initial_conditions_from_str(assembly: Assembly, bulk_str: str):
     """
 
@@ -544,6 +591,9 @@ def get_initial_conditions_from_str(assembly: Assembly, bulk_str: str):
     for block in iter_keywords(bulk_str, "INITIAL CONDITIONS"):
         validate(block)
         field_type = block.params.get("TYPE")
+        if field_type is not None and field_type.strip().upper() == "TEMPERATURE":
+            _initial_temperature(assembly, block)
+            continue
         if field_type is None or field_type.upper() not in PreDefTypes.all:
             # adapy models VELOCITY and INITIAL STATE; a deck's geostatic stress, void ratio
             # or pore pressure is read past rather than aborting the import — the same policy

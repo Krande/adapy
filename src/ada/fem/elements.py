@@ -350,9 +350,10 @@ class Connector(Elem):
 
 class Spring(Elem):
     def __init__(self, name, el_id, el_type, stiff, fem_set: "FemSet", metadata=None, parent=None):
+        # Before the base init: it registers the spring on its nodes, whose logging calls __repr__, which reads it
+        self._stiff = stiff
         super(Spring, self).__init__(el_id, fem_set.members, el_type)
         super(Elem, self).__init__(name, metadata, parent)
-        self._stiff = stiff
         self._n1 = fem_set.members[0]
         self._n2 = None
         if len(fem_set.members) > 1:

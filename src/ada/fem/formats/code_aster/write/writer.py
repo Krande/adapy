@@ -61,12 +61,14 @@ def to_fem(assembly: Assembly, name, analysis_dir, metadata=None, model_data_onl
         from ada.fem.formats.sesam.write.writer import to_fem as to_sesam_deck
 
         to_sesam_deck(assembly, name, analysis_dir, metadata={}, model_data_only=True)
+    # Eccentric beams are written on offset nodes tied to their mesh nodes (write_eccentricity), not dropped.
     # Prepare model for
     shorten_material_names(assembly)
 
     # A line load is written over mesh groups of its own (Code_Aster names a group, never an element or node);
     # they exist for this deck only and are taken off the model again once it is written.
     line_load_groups = add_line_load_groups(all_steps(assembly), p.fem)
+    link_groups = None
     try:
         # So are the net pressures of pressures that load one element twice in one charge (write_loads.pressure_items).
         line_load_groups += add_pressure_groups(all_steps(assembly), p.fem)
@@ -79,15 +81,34 @@ def to_fem(assembly: Assembly, name, analysis_dir, metadata=None, model_data_onl
         # FemSet names when interpreting .rmed results.
         name_map = build_name_map(assembly)
         apply_name_map(assembly, name_map)
+        # a partial coupling's LIAISON_DDL names its nodes by groups of one (write_constraints), for this deck only
+        from .write_constraints import add_link_node_groups
+
+        link_groups = add_link_node_groups(p)
 
         # TODO: Implement support for multiple parts. Need to understand how submeshes in Salome and Code Aster works.
         # for p in filter(lambda x: len(x.fem.elements) != 0, assembly.get_all_parts_in_assembly(True)):
 
+        # A pressure on solid elements loads face cells of its own (write_skins); made after the names are
+        # shortened, named short themselves, and kept off the model.
+        from .write_skins import deck as skins_deck
+        from .write_skins import pressure_skins
+
+        skins = pressure_skins(all_steps(assembly), p.fem)
+        # Springs need element groups and non-structural masses point cells of their own (write_masses): made the
+        # same way, after the skin cells, and kept off the model too.
+        from .write_masses import deck as discretes_deck
+        from .write_masses import discrete_cells
+        from .write_skins import Skins
+
+        last_id = max([int(p.fem.elements.max_el_id) if len(p.fem.elements) else 0] + [el.id for el in skins.elements])
+        discretes = discrete_cells(p.fem, last_id + 1, {fs.name for fs in skins.sets})
+        cells = Skins(elements=skins.elements + discretes.elements, sets=skins.sets + discretes.sets)
         # The eccentric beams' offset nodes and rigid links (write_eccentricity): in the MED file and the .comm,
         # not in the model; the sidecar maps the offset nodes back for the SIN conversion.
         ecc = eccentric_mesh(p)
         filename = (analysis_dir / name).with_suffix(".med")
-        write_to_med(name, p, filename, ecc)
+        write_to_med(name, p, filename, cells, ecc)
         sidecar = ecc_sidecar_path(analysis_dir / name)
         if ecc is not None:
             ecc.dump(sidecar)
@@ -111,12 +132,21 @@ def to_fem(assembly: Assembly, name, analysis_dir, metadata=None, model_data_onl
         if model_data_only:
             return
 
-        with open((analysis_dir / name).with_suffix(".comm"), "w") as f, concept_names.deck():
+        with (
+            open((analysis_dir / name).with_suffix(".comm"), "w") as f,
+            concept_names.deck(),
+            skins_deck(skins),
+            discretes_deck(discretes),
+        ):
             f.write(create_comm_str(assembly, p, ecc))
 
     finally:
         for fs in line_load_groups:
             p.fem.sets.remove(fs)
+        if link_groups is not None:
+            from .write_constraints import remove_link_node_groups
+
+            remove_link_node_groups(p, link_groups)
 
     logger.info(f'Created a Code_Aster input deck at "{analysis_dir}"')
 
@@ -133,13 +163,21 @@ def create_comm_str(assembly: Assembly, part: Part, ecc: EccentricMesh | None = 
     mat_str = materials_str(assembly)
     ref_group = ref_points_group(part)
     masses = point_masses(part)
+    from .write_fibres import fibre_beams
+    from .write_temperature import temperature_field_str, temperature_loads
+
+    temp_loads = temperature_loads(all_steps(assembly))
+    _, temp_varc = temperature_field_str(part, temp_loads)
     sections_str = create_sections_str(
         part.fem.sections,
         has_ref_points=len(couplings) > 0,
         ref_points_group=ref_group,
         membrane_large_strain=membranes_large_strain(part, all_steps(assembly)),
         masses=masses,
-        timoshenko=part.fem.options.CODE_ASTER.use_timoshenko_beams,
+        timoshenko=part.fem.options.CODE_ASTER.use_timoshenko_beams or _gd_beams(part),
+        large_rotations=any(st.type == "static" and st.nl_geom is True for st in all_steps(assembly)),
+        varc=temp_varc,
+        fibre_beams=fibre_beams(part),
     )
     # The part's and the assembly's, each once. ``bcs += assembly.fem.bcs`` on ``part.fem.bcs`` extended the part's own
     # list with the assembly's on every write.
@@ -151,7 +189,17 @@ def create_comm_str(assembly: Assembly, part: Part, ecc: EccentricMesh | None = 
     every = step_bcs(part, steps[-1]) if steps else bcs
     check_overlaps(every, prescribed_dofs(every))
     supports = [supports_str(bcs, prescribed), prescribed_at_zero_str(bcs)]
-    links = [ecc_links_str(ecc)] if ecc is not None else []
+    from .write_constraints import _WRITTEN_LINKS, create_link_str, get_links
+
+    _WRITTEN_LINKS.clear()
+    links = []
+    for con in get_links(part):
+        text = create_link_str(con)
+        if text:
+            _WRITTEN_LINKS.append(con)
+            links.append(text)
+    if ecc is not None:
+        links.append(ecc_links_str(ecc))
     bc_str = "\n".join([s for s in supports if s] + [create_coupling_str(con) for con in couplings] + links)
     step_str = steps_str(steps, part)
 
@@ -167,9 +215,20 @@ def create_comm_str(assembly: Assembly, part: Part, ecc: EccentricMesh | None = 
     # U3.11.06).
     beams = [fs for fs in lines if not fs.is_axial_only]
     timoshenko = part.fem.options.CODE_ASTER.use_timoshenko_beams
+    from .steps.static_nonlin import large_rotation_beams
+
+    # a model of nlgeom static steps only: its beams in large rotations, POU_D_T_GD (steps.static_nonlin)
+    gd = large_rotation_beams(part)
+    from .write_fibres import fibre_beams as _fibre_beams
+
+    # plastic beams: multi-fibre POU_D_EM (write_fibres)
+    fibred = {id(fs) for fs in _fibre_beams(part)}
+    plain = [fs for fs in beams if id(fs) not in fibred]
     for group, el_formula, members in (
-        ("bm_sets", "POU_D_E", [fs for fs in beams if not (timoshenko and has_shear_deformation(fs))]),
-        ("bm_t_sets", "POU_D_T", [fs for fs in beams if timoshenko and has_shear_deformation(fs)]),
+        ("bm_sets", "POU_D_E", [] if gd else [fs for fs in plain if not (timoshenko and has_shear_deformation(fs))]),
+        ("bm_t_sets", "POU_D_T", [] if gd else [fs for fs in plain if timoshenko and has_shear_deformation(fs)]),
+        ("bm_em_sets", "POU_D_EM", [fs for fs in beams if id(fs) in fibred]),
+        ("bm_gd_sets", "POU_D_T_GD", beams if gd else []),
         ("tr_sets", "BARRE", [fs for fs in lines if fs.is_axial_only and not fs.is_cable]),
         ("cb_sets", "CABLE", [fs for fs in lines if fs.is_cable]),
     ):
@@ -230,6 +289,13 @@ def create_comm_str(assembly: Assembly, part: Part, ecc: EccentricMesh | None = 
         # has already refused the cells it doesn't cover).
         so_formula = "3D_SI" if part.fem.options.CODE_ASTER.use_reduced_integration else "3D"
         model_type_str += type_tmpl_str.format(elset_str="so_sets", el_formula=so_formula)
+        from .write_skins import current as current_skins
+
+        skin_sets = current_skins().sets
+        if skin_sets:
+            # The face cells a solid pressure acts on (write_skins), as the solids' boundary elements.
+            section_sets += "sk_sets = ({0},)\n".format(",".join(f"'{fs.name}'" for fs in skin_sets))
+            model_type_str += type_tmpl_str.format(elset_str="sk_sets", el_formula=so_formula)
 
     if len(couplings) > 0:
         output_mesh = "mesh_ref"
@@ -237,17 +303,25 @@ def create_comm_str(assembly: Assembly, part: Part, ecc: EccentricMesh | None = 
         input_mesh = output_mesh
         model_type_str += create_ref_points_model_str(ref_group)
 
+    # the temperature field on the mesh the model is built on (write_temperature)
+    temp_defs, _ = temperature_field_str(part, temp_loads, input_mesh)
     comm_str = main_comm_str.format(
         section_sets=section_sets,
         input_mesh=input_mesh,
         model_type_str=model_type_str,
-        materials_str=mat_str,
+        materials_str=temp_defs + mat_str,
         sections_str=sections_str,
         bc_str=bc_str,
         step_str=step_str,
     )
 
     return comm_str
+
+
+def _gd_beams(part: Part) -> bool:
+    from .steps.static_nonlin import large_rotation_beams
+
+    return large_rotation_beams(part)
 
 
 def membranes_large_strain(part: Part, steps) -> bool:
@@ -269,9 +343,10 @@ def membranes_large_strain(part: Part, steps) -> bool:
     return len(nonlinear) > 0
 
 
-def write_to_med(name, part: Part, filename, ecc: EccentricMesh | None = None):
+def write_to_med(name, part: Part, filename, skins=None, ecc: EccentricMesh | None = None):
     """Custom Method for writing a part directly based on meshio
 
+    ``skins``: extra cells and their groups (:mod:`.write_skins`, :mod:`.write_masses`), kept off the model.
     ``ecc``: the eccentric beams' offset nodes (:mod:`.write_eccentricity`), written into the mesh.
     """
 
@@ -302,7 +377,10 @@ def write_to_med(name, part: Part, filename, ecc: EccentricMesh | None = None):
         med_nodes(part, time_step, profile, families, ecc)
 
         # Elements (mailles in French) and element sets
-        med_elements(part, time_step, profile, families, ecc)
+        if skins is None:
+            med_elements(part, time_step, profile, families, ecc=ecc)
+        else:
+            med_elements(part, time_step, profile, families, skins.elements, skins.sets, ecc=ecc)
 
 
 def _write_mesh_presets(f, mesh_name):

@@ -19,9 +19,45 @@ export interface AdacppStats {
     syncMs?: number;
 }
 
+/** loadGlb's options (adacpp glb_scene.h GlbOptions); all optional. Colours are linear RGBA. */
+export interface LoadGlbOptions {
+    yUp?: boolean;
+    lineWidth?: number;
+    memberWidth?: number;
+    pointSize?: number;
+    lineColor?: [number, number, number, number];
+    doubleSided?: boolean;
+    /** Above 0: also draw the viewer's feature edges (boundary + folds over this angle, degrees). */
+    featureEdgeAngleDeg?: number;
+    /** Return each added geometry's world-space positions. */
+    keepPositions?: boolean;
+}
+
+/** One geometry loadGlb added, with its instance. */
+export interface LoadedGlbGeometry {
+    geometry: number;
+    instance: number;
+    topology: number;
+    vertexCount: number;
+    vertexColors: boolean;
+    featureEdges: boolean;
+    positions?: Float32Array;
+    /** Its index buffer (into `positions`), with keepPositions. */
+    indices?: Uint32Array;
+}
+
+export interface LoadedGlb {
+    /** min xyz, max xyz of what was loaded. */
+    bounds: [number, number, number, number, number, number];
+    featureEdges: number;
+    geometries: LoadedGlbGeometry[];
+}
+
 export interface WebRendererApi {
     resize(width: number, height: number): void;
     render(): void;
+    /** A GLB through adacpp's own reader (the one the offscreen posters use); its bytes at `bytes`. */
+    loadGlb(bytes: number, length: number, opts: LoadGlbOptions): LoadedGlb;
     addGeometry(
         topology: number,
         positions: number,
@@ -106,12 +142,15 @@ export interface GpuDeviceLike {
     destroy(): void;
 }
 export interface GpuAdapterLike {
-    readonly limits: {maxStorageBufferBindingSize: number; maxBufferSize: number};
+    readonly limits: {maxStorageBufferBindingSize: number; maxBufferSize: number} & Record<string, number>;
     readonly info?: GpuAdapterInfoLike;
     requestDevice(desc: {label?: string; requiredLimits?: Record<string, number>}): Promise<GpuDeviceLike>;
 }
 export interface GpuLike {
-    requestAdapter(opts?: {powerPreference?: "low-power" | "high-performance"}): Promise<GpuAdapterLike | null>;
+    requestAdapter(opts?: {
+        powerPreference?: "low-power" | "high-performance";
+        featureLevel?: "core" | "compatibility";
+    }): Promise<GpuAdapterLike | null>;
     getPreferredCanvasFormat(): string;
 }
 

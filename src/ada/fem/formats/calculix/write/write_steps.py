@@ -36,6 +36,12 @@ def steps_str(steps: list[Step], deck: DeckContext) -> str:
     return "\n".join(out)
 
 
+def _temperature_reset(deck: DeckContext) -> str:
+    """``*TEMPERATURE, OP=NEW`` -- every node back to its initial temperature, the reference -- in a deck with
+    temperature loads, so a step's temperature does not carry into the next unless the next one has it too."""
+    return "*Temperature, OP=NEW\n" if deck.temperature_reference is not None else ""
+
+
 def _loads_str(loads, deck: DeckContext) -> str:
     from .write_loads import load_str
 
@@ -46,8 +52,10 @@ def _outputs_str(step: Step, deck: DeckContext | None = None) -> tuple[str, str]
     nodal = []
     elem = []
     for fi in step.field_outputs:
-        nodal += fi.nodal
-        elem += fi.element
+        # each variable once: ccx takes at most 16 entries on a line, and two requests (a read deck's default and one
+        # added to it) named the same six element variables twice and three times
+        nodal += [v for v in fi.nodal if v not in nodal]
+        elem += [v for v in fi.element if v not in elem]
     nodal_str = "*node file\n" + ", ".join(nodal) if len(nodal) > 0 else "** No nodal output"
     if deck is not None and "RF" in nodal and step.type in (Step.TYPES.STATIC, Step.TYPES.DYNAMIC):
         nodal_str = reaction_totals_str(deck) + nodal_str
@@ -83,10 +91,11 @@ def _bcs_str(step: Step, deck: DeckContext, cases: set[str] | None = None) -> st
     in Abaqus), then -- for a static step standing for the load case names ``cases`` -- the model's prescribed
     displacements (:func:`prescribed_str`)."""
     from ada.fem.formats.prescribed import settlements
+    from ada.fem.frames import in_global_axes_or_refuse
 
     from .writer import bc_str, refuse_on_u1
 
-    own = list(step.bcs.values())
+    own = in_global_axes_or_refuse(step.bcs.values(), "calculix")
     refused = refuse_on_u1(deck.part, deck.u1_elements, own) if own else frozenset()
     blocks = []
     for bc in own:
@@ -168,7 +177,7 @@ def load_case_step_str(step: StepImplicitStatic, lc, deck: DeckContext) -> str:
 **
 *Cload, OP=NEW
 *Dload, OP=NEW
-{_loads_str(lc.loads or [], deck)}
+{_temperature_reset(deck)}{_loads_str(lc.loads or [], deck)}
 **
 ** OUTPUT REQUESTS
 **
@@ -184,7 +193,7 @@ def step_str(step: StepEigen | StepImplicitStatic, deck: DeckContext, loads=None
     if loads is None:
         lstr = _loads_str(step.loads, deck)
     else:
-        lstr = "*Cload, OP=NEW\n*Dload, OP=NEW\n" + _loads_str(loads, deck)
+        lstr = "*Cload, OP=NEW\n*Dload, OP=NEW\n" + _temperature_reset(deck) + _loads_str(loads, deck)
 
     int_str = (
         "\n".join([interactions_str(interact) for interact in step.interactions.values()])
@@ -197,6 +206,7 @@ def step_str(step: StepEigen | StepImplicitStatic, deck: DeckContext, loads=None
     step_type_map = {
         Step.TYPES.STATIC: static_step,
         Step.TYPES.EIGEN: eigen_step,
+        Step.TYPES.BUCKLING: buckle_step,
         Step.TYPES.DYNAMIC: dynamic_step,
     }
 
@@ -204,6 +214,13 @@ def step_str(step: StepEigen | StepImplicitStatic, deck: DeckContext, loads=None
     if step_str_writer is None:
         raise ValueError(f'Currently unsupported Step Type "{step.type}"')
 
+    if step.type == Step.TYPES.BUCKLING and deck.u1_elements:
+        from ada.fem.exceptions.model_definition import UnsupportedLoadType
+
+        raise UnsupportedLoadType(
+            f"calculix writer: buckling step {step.name!r} on a model with U1 beams (every 2-node beam of a general "
+            f"section); ccx's U1 has no geometric stiffness ('*ERROR in e_c3d_u1: no buckling', measured)"
+        )
     step_type_str = step_str_writer(step)
     return f"""**
 ** STEP: {step.name}
@@ -255,6 +272,15 @@ def dynamic_step(step: StepImplicitDynamic) -> str:
     return f"""*Step, nlgeom={bool2text(step.nl_geom)}, inc={step.total_incr}
 *Dynamic{params}
  {step.init_incr}, {step.total_time}, {step.min_incr}, {step.max_incr}"""
+
+
+def buckle_step(step) -> str:
+    """A linear buckling step (:class:`~ada.fem.StepBuckling`) as ``*BUCKLE``: the step's loads are the reference
+    load, the first line the number of factors wanted (CalculiX 2.23 manual 7.11). ccx prints the factors to the .dat
+    (``results.structural.read_buckling_factors``) and writes the modes to the .frd."""
+    return f"""*Step
+*Buckle
+ {step.num_modes}"""
 
 
 def eigen_step(step: StepEigen):

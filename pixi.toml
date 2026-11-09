@@ -77,6 +77,9 @@ serve = { cmd = "python scripts/docs/docs_serve.py", env = { "PYTHONPATH" = "$PI
 # fea-doc is the deliberate regeneration: the only task that runs Abaqus and Sesam live
 # (ADAPY_VERIFICATION_RUN_LICENSED) and re-commits their snapshots. Every other build replays them.
 fea-doc = { cmd = "python -m paradoc.cli_app build verification --no-cache", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src", "PYTHONUTF8" = "1", "ADAPY_VERIFICATION_REGEN_ASSETS" = "1", "ADAPY_VERIFICATION_RUN_LICENSED" = "1" } }
+# fea-doc for the docs image: the same live run, leaving paradoc's cache for the DOCX / ODT / PDF exports
+# that follow. Run by scripts/docs/fea_report_cached.py.
+fea-doc-build = { cmd = "python -m paradoc.cli_app build verification", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src", "PYTHONUTF8" = "1", "ADAPY_VERIFICATION_REGEN_ASSETS" = "1", "ADAPY_VERIFICATION_RUN_LICENSED" = "1" } }
 # The web report into docs/_static/fea-report (verification/paradoc.toml), reusing paradoc's analysis
 # cache, and skipped outright by pixi while its inputs are unchanged.
 fea-doc-cached = { cmd = "python -m paradoc.cli_app build verification", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src", "PYTHONUTF8" = "1" }, inputs = [
@@ -386,10 +389,11 @@ test-compat = { cmd = "pytest tests -m pyocc --ignore=tests/profiling --ignore=t
 # (adacpp#63, #64, #66, #67); 0.31 for the build against ifcopenshell 0.9 (adacpp#69);
 # 0.33 for the faster, memory-bounded native STEP/IFC->GLB and the IFC reader fix (adacpp#72);
 # 0.35 for `adacpp.fea.sin`, the native SIN reader and compare loops (adacpp#74);
-# 0.36 for `adacpp._render`, the WebGPU renderer every offscreen image is drawn with (adacpp#75).
+# 0.36 for `adacpp._render`, the WebGPU renderer every offscreen image is drawn with (adacpp#75);
+# 0.37 for the renderer's GLB reader with feature edges and its line depth bias (adacpp#77).
 # KEEP IN STEP with ADACPP_BASE_IMAGE in deploy/Dockerfile.viewer: the browser runs the
 # same release's wasm build of this same code.
-ada-cpp = "0.36.*"
+ada-cpp = "0.37.*"
 
 # ada-cpp CAD backend (AdacppBackend) with ADAPY_CAD_BACKEND=adacpp set explicitly --
 # native CPython build of the wasm-capable kernel. Brings its own occt (8.0.1 since the
@@ -471,7 +475,8 @@ ada-cpp = "0.36.*"
 # 0.35 (adacpp#74): `adacpp.fea.sin`, the SIN reader's per-record loops, compare statistics and shell
 # derived-field kernels; byte-identical to the numpy path, which stays for range-streamed sources.
 # 0.36 (adacpp#75): `adacpp._render`, the headless WebGPU renderer posters and thumbnails need.
-ada-cpp = "0.36.*"
+# 0.37 (adacpp#77): the renderer's GLB reader with feature edges, and the line depth bias.
+ada-cpp = "0.37.*"
 
 [feature.adacpp.activation.env]
 ADAPY_CAD_BACKEND = "adacpp"
@@ -597,7 +602,7 @@ pytest-benchmark = "*"
 pytest-asyncio = "*"
 pytest-timeout = "*"
 pytest-cov = "*"
-paradoc = ">=0.9.0"
+paradoc = ">=0.12.0"
 python-dotenv = "*"
 watchdog = "*"
 

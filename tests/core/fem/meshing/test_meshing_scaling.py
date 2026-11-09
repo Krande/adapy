@@ -162,3 +162,63 @@ def test_mesh_is_the_same_with_one_synchronisation(monkeypatch, use_quads):
     monkeypatch.setattr(GmshSession, "add_obj", add_obj_synchronised)
     slow = fingerprint(_stiffened_box(nx=2, ny=1).to_fem_obj(0.5, use_quads=use_quads))
     assert fast == slow
+
+
+def _crossing_part() -> ada.Part:
+    """One deck plate cut by stiffeners in both directions -- every face a split leaves is split again by each crossing
+    stiffener -- with a wall standing on it at mid-span across two of them, and a solid box beside it."""
+    p = ada.Part("X")
+    p.add_plate(ada.Plate.from_3d_points("deck", [(0, 0, 0), (4, 0, 0), (4, 3, 0), (0, 3, 0)], 0.010))
+    for k, x in enumerate((1.0, 2.0, 3.0)):
+        p.add_beam(ada.Beam(f"sy{k}", (x, 0, 0), (x, 3, 0), "IPE200"))
+    for k, y in enumerate((1.0, 2.0)):
+        p.add_beam(ada.Beam(f"sx{k}", (0, y, 0), (4, y, 0), "IPE200"))
+    wall = [(1.5, 0, 0), (1.5, 3, 0), (1.5, 3, 1.5), (1.5, 0, 1.5)]
+    p.add_plate(ada.Plate.from_3d_points("wall", wall, 0.010))
+    p.add_shape(ada.PrimBox("box", (5, 0, 0), (6, 1, 1)))
+    return p
+
+
+def _mesh_fingerprint(fem):
+    elems = sorted((str(e.type), tuple(sorted(tuple(np.round(n.p, 9)) for n in e.nodes))) for e in fem.elements)
+    sets = sorted((s.name, len(s.members)) for s in fem.sets)
+    return len(fem.nodes), elems, sets
+
+
+@pytest.mark.parametrize("use_quads", [False, True])
+def test_repeated_splits_need_no_synchronisation_between_them(monkeypatch, use_quads):
+    """A plate split, then split again where it was split (crossing stiffeners, a wall across them): one
+    synchronisation after all objects are added gives the mesh that synchronising after every added object, and after
+    every ``occ.fragment`` of the partitioning, gives. The fragments work on the OCC kernel and hand the new tags back
+    (``res_map``), so none of them reads gmsh's model, which is what a synchronisation brings up to date."""
+    import gmsh
+
+    from ada.fem.meshing import GmshSession
+
+    fem = _crossing_part().to_fem_obj(0.25, use_quads=use_quads)
+    fast = _mesh_fingerprint(fem)
+
+    # conformal: every beam node is a node of the shells, so each stiffener did split the deck where it lies
+    shell_nodes = {tuple(np.round(n.p, 9)) for el in fem.elements.shell for n in el.nodes}
+    beam_nodes = {tuple(np.round(n.p, 9)) for el in fem.elements.lines for n in el.nodes}
+    assert beam_nodes and beam_nodes <= shell_nodes
+    assert len(list(fem.elements.solids)) > 0
+
+    add_obj = GmshSession.add_obj
+
+    def add_obj_synchronised(self, *args, **kwargs):
+        kwargs["synchronize"] = True
+        return add_obj(self, *args, **kwargs)
+
+    fragment = gmsh.model.occ.fragment
+
+    def fragment_synchronised(*args, **kwargs):
+        out = fragment(*args, **kwargs)
+        gmsh.model.occ.synchronize()
+        return out
+
+    monkeypatch.setattr(GmshSession, "add_obj", add_obj_synchronised)
+    assert _mesh_fingerprint(_crossing_part().to_fem_obj(0.25, use_quads=use_quads)) == fast
+
+    monkeypatch.setattr(gmsh.model.occ, "fragment", fragment_synchronised)
+    assert _mesh_fingerprint(_crossing_part().to_fem_obj(0.25, use_quads=use_quads)) == fast

@@ -115,3 +115,28 @@ def general_step_loads(steps: list[Step], stage: str, types: tuple[str, ...] = (
         out[id(step)] = carried + own
         carried = carried + own
     return out
+
+
+def temperature_reference(steps, writer: str) -> float | None:
+    """The one reference temperature of the steps' temperature loads (:class:`~ada.fem.LoadTemperature`), or None
+    when they have none. For a writer whose thermal strain is ``alpha (T - T0)``, ``T0`` the nodes' initial
+    temperature (Abaqus and CalculiX ``*INITIAL CONDITIONS, TYPE=TEMPERATURE``): a deck has one, so loads that differ
+    in it are refused by name."""
+    from ada.fem import Load
+    from ada.fem.exceptions.model_definition import UnsupportedLoadType
+
+    refs: dict[float, list[str]] = {}
+    for step in steps:
+        loads = list(step.loads) + [ld for lc in step.load_cases.values() for ld in (lc.loads or [])]
+        for ld in loads:
+            if ld.type == Load.TYPES.TEMPERATURE:
+                refs.setdefault(float(getattr(ld, "reference", 0.0)), []).append(ld.name)
+    if not refs:
+        return None
+    if len(refs) > 1:
+        names = ", ".join(n for group in refs.values() for n in group)
+        raise UnsupportedLoadType(
+            f"{writer}: temperature loads with different reference temperatures {sorted(refs)} ({names}); a deck "
+            f"has one initial temperature"
+        )
+    return next(iter(refs))

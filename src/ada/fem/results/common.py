@@ -623,6 +623,9 @@ class FEAResult:
     # Populated by solver readers when available (e.g. Calculix .dat,
     # Code_Aster NORM_MODE table); surfaced through get_eig_summary.
     eigen_mode_data: EigenDataSummary | None = None
+    #: A buckling step's critical load factors, smallest magnitude first: the factors its reference load is
+    #: multiplied by to buckle the structure (Code_Aster's CHAR_CRIT, read from ``<name>.buckling.csv``).
+    buckling_factors: list[float] | None = None
     # What the steps ARE, when the reader knows: "transient" for a time history (explicit
     # dynamics frames -- the viewer opens on the last state and plays through time),
     # "static" / "eigen" otherwise. None leaves the bake's step-value heuristic to decide.

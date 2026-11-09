@@ -1184,6 +1184,10 @@ def attach_sesam_metadata(result: "FEAResult", reader: SinReader, sin: SinFile) 
     # opening the file again.
     result.sesam_case_names = result_case_names(sin)
     result.sesam_result_cases = selectable_result_cases(sin)
+    # A linearized buckling run's stability factors (RDRESREF ICALTY 9), as Code_Aster's CHAR_CRIT are read.
+    from ada.fem.formats.sesam.results.structural import read_buckling_factors
+
+    result.buckling_factors = read_buckling_factors(sin)
 
 
 def _refuse_selected_without_mesh(sin: SinFile) -> None:

@@ -177,18 +177,28 @@ def test_merge_writes_one_file_with_the_top_level_number(translated, tmp_path):
     assert _count(out, "GCOORD") == 2 * 403
     assert _count(out, "GELMNT1") == 2 * 360
 
-    ids = sorted(int(float(m)) for m in re.findall(r"^GCOORD\s+(\S+)", out.read_text(), re.MULTILINE))
+    # the external numbers (GNODE NODEX); GCOORD names a node by its internal one, 1..n (write/element_numbers)
+    ids = sorted(_external_of_internal(out.read_text()).values())
     assert len(set(ids)) == len(ids)
     assert ids[0] == 10_000_001 and ids[-1] == 11_000_403  # type number x 10^6 + the superelement's own id
+
+
+def _external_of_internal(text: str) -> dict[int, int]:
+    """``{internal node number: external}`` from GNODE (``NODEX NODENO NDOF ODOF``)."""
+    return {
+        int(float(m.group(2))): int(float(m.group(1)))
+        for m in re.finditer(r"^GNODE\s+(\S+)\s+(\S+)", text, re.MULTILINE)
+    }
 
 
 def test_merge_translates_the_second_superelement(translated, tmp_path):
     out = tmp_path / "merged.FEM"
     _cmd_convert(_args(translated, out, merge=True))
     text = out.read_text()
+    external = _external_of_internal(text)
     first = re.search(r"^GCOORD\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)", text, re.MULTILINE)
     by_id = {
-        int(float(m.group(1))): tuple(float(g) for g in m.groups()[1:])
+        external[int(float(m.group(1)))]: tuple(float(g) for g in m.groups()[1:])
         for m in re.finditer(r"^GCOORD\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)", text, re.MULTILINE)
     }
     assert first is not None

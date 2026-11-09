@@ -20,8 +20,16 @@ from ada.fem.formats.general import FEATypes
 from ada.fem.formats.utils import default_fem_res_path
 
 
+def _elastic(a):
+    """The cantilever's S420 carries a DNV hardening curve, which makes a general static step nonlinear (plastic
+    shells, as Abaqus solves them); these tests are about names, on the linear deck: elastic."""
+    for mat in a.get_all_materials():
+        mat.model.plasticity_model = None
+    return a
+
+
 def _displacements(tmp_path, name: str, load_name: str, bc_name: str | None) -> np.ndarray:
-    a = design_cantilever()
+    a = _elastic(design_cantilever())
     a = mesh_cantilever(a, geom_repr="shell", elem_order=1, use_hex_quad=True, reduced_integration=False, mesh_size=0.2)
     if bc_name is not None:
         p = a.get_part("MyPart")
@@ -60,7 +68,7 @@ def _coupled_cantilever(tmp_path, name: str, load_name: str, ref_pts_elset: bool
     from ada.api.fem_tasks import BEAM_NAME, PART_NAME
     from ada.base.types import GeomRepr
 
-    a = design_cantilever()
+    a = _elastic(design_cantilever())
     p = a.get_part(PART_NAME)
     bm = next(b for b in p.get_all_physical_objects() if b.name == BEAM_NAME)
     bm.concept_fem.fix_end("n1")

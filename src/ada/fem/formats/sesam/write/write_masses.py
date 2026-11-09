@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 from ada import FEM
 from ada.fem.shapes.definitions import MassTypes
 
+from .element_numbers import node as internal_node
 from .not_held import STAGE, report
 from .write_utils import write_ff
 
@@ -105,7 +106,7 @@ def mass_str(fem: FEM, ndofs: NodeDofs | None = None) -> str:
                     f"node {m.id}, which has {ndof} dofs (NDOF={ndof}). A node attached only to solid "
                     "elements has no rotational dofs to carry it."
                 )
-            data = (tuple([m.id, ndof] + comps[:2]), tuple(comps[2:ndof]))
+            data = (tuple([internal_node(m.id), ndof] + comps[:2]), tuple(comps[2:ndof]))
             out_str += write_ff("BNMASS", data)
     return out_str
 

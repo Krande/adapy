@@ -15,10 +15,11 @@ import numpy as np
 from ada.api.containers import Beams, Plates
 from ada.config import Config, logger
 from ada.fem import Elem
+from ada.fem.conversion_utils import centroid_shift_global
 from ada.fem.exceptions import FEASolverNotInstalled
 
 if TYPE_CHECKING:
-    from ada import Assembly, Beam, Part, Plate
+    from ada import FEM, Assembly, Beam, Part, Plate
     from ada.fem.formats.general import FEATypes
 
 
@@ -377,13 +378,19 @@ def _overwrite_dir(analysis_dir):
     from send2trash import send2trash
 
     logger.info("Removing old files before copying new")
-    try:
-        if Config().general_safe_deletion is True:
+    if Config().general_safe_deletion is True:
+        try:
             send2trash(analysis_dir)
-        else:
-            shutil.rmtree(analysis_dir)
-    except BaseException as e:
-        logger.warning(f"Failed to delete due to '{e}'")
+        except Exception as e:
+            # Analyses run side by side race to create the trash folder (send2trash's makedirs fails
+            # with "File exists"); delete the old run outright rather than keep it.
+            logger.warning(f"Could not move {analysis_dir} to the trash ({e}); deleting it")
+    if analysis_dir.exists():
+        shutil.rmtree(analysis_dir, ignore_errors=True)
+    if analysis_dir.exists():
+        # A solver reading the old run's files (Code_Aster appends to an existing result file and then
+        # fails on a field already in it) is worse than stopping here.
+        raise IOError(f"Could not remove the previous analysis in {analysis_dir}")
 
     os.makedirs(analysis_dir, exist_ok=True)
 
@@ -727,37 +734,6 @@ def convert_part_shell_elements_to_plates(p: Part) -> Plates:
     return Plates(build_plates_from_entries(entries, p), parent=p)
 
 
-def report_dropped_eccentricities(fems, stage: str) -> int:
-    """Report, per FEM, the beam elements whose ``Elem.eccentricity`` the writer of ``stage`` puts on their nodes.
-
-    Sesam (GECCEN) and Code_Aster (offset nodes and rigid links, ``code_aster.write.write_eccentricity``) write an
-    eccentric beam where its neutral axis is; Abaqus (``*CENTROID`` is not written) and CalculiX (``OFFSET1``/``2``
-    cover rectangles, boxes and pipes only) do not, and solve the beam in the plane of the nodes it shares with its
-    plate -- a stiffened panel then deflects several times what the eccentric model gives. One ``omitted`` finding
-    per FEM, counting the elements, so a conversion report says how much of the model it concerns. Returns the count.
-    """
-    from ada.fem.formats import conversion_report
-
-    total = 0
-    for fem in fems:
-        n = sum(
-            1 for el in fem.elements.lines_ecc if el.eccentricity.end1 is not None or el.eccentricity.end2 is not None
-        )
-        if n == 0:
-            continue
-        total += n
-        conversion_report.current().omitted(
-            stage,
-            "Element",
-            fem.name,
-            f"{n} beam element(s) carry an eccentricity (a stiffener flush on its plate, an offset girder); this "
-            "writer has no form for it and puts them on their nodes, so they bend about the nodal line, not their "
-            "own axis. Sesam and Code_Aster write the offset",
-            count=n,
-        )
-    return total
-
-
 def convert_part_elem_bm_to_beams(p: Part) -> Beams:
     return Beams([line_elem_to_beam(bm, p) for bm in p.fem.elements.lines], parent=p)
 
@@ -794,7 +770,7 @@ def line_elem_to_beam(elem: Elem, parent: Part, prefix="bm") -> Beam:
     if elem.fem_sec.section.type == "GENBEAM":
         logger.error(f"Beam elem {elem.id}  uses a GENBEAM which might not represent an actual cross section")
 
-    beam = Beam(
+    bm = Beam(
         f"{prefix}{elem.id}",
         n1,
         n2,
@@ -805,21 +781,19 @@ def line_elem_to_beam(elem: Elem, parent: Part, prefix="bm") -> Beam:
         e2=e2,
         parent=parent,
     )
+    # The offset in a file runs to the section CENTROID; Beam.e1/e2 move the profile ORIGIN, and the
+    # geometry path adds the centroid's place against the origin back on top of ``-e``
+    # (``curve_offset_local``). For an angle or a T that is not zero, so the file's offset becomes
+    # ``e = centroid_shift - ecc``; without it a beam written with an HP's GECCEN read back
+    # (and was drawn) one centroid-to-origin distance away from where the file put it.
     if e1 is not None or e2 is not None:
-        # A FE eccentricity runs from the node to the NEUTRAL AXIS. For an angle or a T the concept offset is
-        # measured to the drawn outline instead, and ``curve_offset_local`` adds the shift to the centroid
-        # (``OffsetHelper.centroid_shift_local``) on top of ``-e``; so that shift comes off here, or the beam
-        # would come back ``Cgz - h`` further out than the deck had it and go out again with twice the shift.
-        shift = beam.offset_helper.centroid_shift_local()
-        if np.any(shift != 0.0):
-            x, y, z = beam.offset_helper._local_axes_in_absolute()
-            shift_abs = shift[0] * np.asarray(x, dtype=float) + shift[1] * np.asarray(y, dtype=float)
-            shift_abs = shift_abs + shift[2] * np.asarray(z, dtype=float)
+        shift = centroid_shift_global(elem)
+        if np.any(shift):
             if e1 is not None:
-                beam.e1 = tuple(float(v) for v in np.asarray(e1, dtype=float) + shift_abs)
+                bm.e1 = tuple(float(v) for v in shift + np.asarray(e1))
             if e2 is not None:
-                beam.e2 = tuple(float(v) for v in np.asarray(e2, dtype=float) + shift_abs)
-    return beam
+                bm.e2 = tuple(float(v) for v in shift + np.asarray(e2))
+    return bm
 
 
 def convert_part_objects(p: Part, skip_plates, skip_beams, merge=False, reconstruct_surfaces=False):
@@ -898,3 +872,26 @@ def default_fem_inp_path(name, scratch_dir=None, analysis_dir=None):
         FEATypes.USFOS: base_path.with_suffix(".raf"),
         FEATypes.OPENCOURANT: base_path.parent / f"{name}_0000.rad",
     }
+
+
+#: What every finding about an offset beam a writer cannot hold is filed under.
+BEAM_ECC_KEYWORD = "Beam eccentricity"
+
+
+def report_unwritten_beam_ecc(fem: FEM, stage: str, why: str) -> int:
+    """Record, once per construct, the beam end offsets a writer has no way to write.
+
+    A beam that GeniE places flush against its plate (or that carries an explicit ``e1``/``e2``) reaches
+    the FEM as an eccentricity on its line elements. A target that has nowhere to put one -- CalculiX's
+    and Code_Aster's beam elements sit on the node line -- would otherwise write the member on that line
+    without a word, and the model is too soft (issue #419: 1.557 mm against 2.840 mm in Abaqus).
+    Returns how many elements carried one.
+    """
+    from ada.fem.formats import conversion_report
+
+    report = conversion_report.current()
+    n = 0
+    for el in fem.elements.lines_ecc:
+        n += 1
+        report.omitted(stage, BEAM_ECC_KEYWORD, str(el.id), why)
+    return n

@@ -53,34 +53,31 @@ def test_deck_has_one_section_per_type_and_the_expected_offsets(example, deck):
     # shells (see the example's docstring for why a beams-only deck will not do).
     assert records["GELREF1"] >= 2 * len(expected)
 
-    # Seven distinct offset vectors across the four variants of a section drawn about
-    # its centroid, and the records are deduplicated, so six of the rows share those
-    # seven: b contributes one (its two ends and its midspan share a vector), c and d
-    # three each (each end, and the interpolated midspan between them), a none. A
-    # GECCEN runs from the node to the NEUTRAL AXIS, and an angle is drawn from the
-    # top of its leg and a T from mid-height, so those two rows carry their shift to
-    # the centroid on top of ``-e`` (``OffsetHelper.curve_offset_global``) and bring
-    # seven vectors each of their own: 21 in all. Their ``a`` variant, with no offset
-    # and no justification, stays on its nodes like everyone else's.
+    # Seven distinct offset vectors across the four variants, and the records are
+    # deduplicated, so all eight rows share those seven: b contributes one (its two
+    # ends and its midspan share a vector), c and d three each (each end, and the
+    # interpolated midspan between them), a none.
     distinct = set()
-    plain = set()
-    for section in example.SECTIONS:
-        for up, e1, e2 in example.VARIANTS.values():
-            if e1 is None and e2 is None:
-                continue
-            bm = ada.Beam("probe", (0, 0, 0), (example.LENGTH, 0, 0), section, up=up, e1=e1, e2=e2)
-            a, b = bm.offset_helper.curve_offset_global()
-            for vec in (a, b, 0.5 * (a + b)):
-                if np.any(np.abs(vec) > 1e-12):
-                    distinct.add(tuple(np.round(vec, 10)))
-            a = np.zeros(3) if e1 is None else -np.asarray(e1, float)
-            b = np.zeros(3) if e2 is None else -np.asarray(e2, float)
-            for vec in (a, b, 0.5 * (a + b)):
-                if np.any(vec):
-                    plain.add(tuple(np.round(vec, 10)))
-    assert len(plain) == 7
-    assert len(distinct) == 21
-    assert records["GECCEN"] == len(distinct)
+    for _up, e1, e2 in example.VARIANTS.values():
+        if e1 is None and e2 is None:
+            continue
+        a = np.zeros(3) if e1 is None else np.asarray(e1, float)
+        b = np.zeros(3) if e2 is None else np.asarray(e2, float)
+        for vec in (a, b, 0.5 * (a + b)):
+            if np.any(vec):
+                distinct.add(tuple(np.round(vec, 10)))
+    assert len(distinct) == 7
+    # A GECCEN runs from the node to the section CENTROID (issue #419), so an angle and a T, whose profile
+    # origin is not on their centroid, carry ``-e`` plus a correction of their own and cannot share a record
+    # with the sections drawn on their centroid. One set of seven per distinct correction.
+    from ada.api.beams.justification import section_centroid_offset_local
+
+    corrections = {
+        round(float(section_centroid_offset_local(ada.Section(name, from_str=name), strict=False)[2]), 9)
+        for name in example.SECTIONS
+    }
+    assert len(corrections) == 3  # centred, the angle's and the T's
+    assert records["GECCEN"] == len(distinct) * len(corrections)
 
 
 def _record_counts(text: str) -> dict[str, int]:

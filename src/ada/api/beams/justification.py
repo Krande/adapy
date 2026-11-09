@@ -116,6 +116,52 @@ def get_justification(beam: Beam) -> Justification:
         return Justification.CUSTOM
 
 
+def section_centroid_offset_local(section, strict: bool = True) -> np.ndarray:
+    """Where the section's centroid sits relative to its profile origin, as local ``(x, y, z)``.
+
+    Only ANGULAR and TPROFILE sections carry a correction: every other type is drawn with its origin
+    on its centroid (an I, a box, a tube) or has no usable centroid (GENERAL, whose Cgy/Cgz are
+    frequently undefined in Sesam GBEAMG records), so those return zero and demand nothing.
+
+    - ANGULAR: the profile hangs below its origin (z in ``[-h, 0]``), so the centroid is ``Cgz - h``.
+    - TPROFILE: the origin is mid-height, so the centroid is ``Cgz - h/2``.
+
+    One of those two lacking ``Cgz`` (or ``h``) raises ValueError when ``strict``. Otherwise -- the
+    FEM paths, which must still write a deck for a section read from a file that never said where its
+    centroid is -- the section is taken as centred, and that is recorded in the conversion report as
+    an approximation rather than left as a silent zero.
+    """
+    sec_type = section.type
+    if sec_type not in (BaseTypes.ANGULAR, BaseTypes.TPROFILE):
+        return np.zeros(3)
+
+    p = section.properties
+    h = float(section.h) if section.h is not None else None
+    problem = None
+    if getattr(p, "Cgz", None) is None:
+        problem = f"missing geometric centroid (Cgz). section.properties: {p}"
+    elif h is None:
+        problem = "requires h to compute the centroid offset."
+    if problem is not None:
+        msg = f"Section '{section.name}', section type: {sec_type} {problem}"
+        if strict:
+            raise ValueError(msg)
+        from ada.fem.formats import conversion_report
+
+        conversion_report.current().approximated(
+            "beam eccentricity",
+            "Section",
+            section.name,
+            "no geometric centroid; the section is taken as centred on its profile origin when an offset is "
+            "carried to the FEM",
+            type=str(sec_type),
+        )
+        return np.zeros(3)
+    cgz = float(p.Cgz)
+    dz = cgz - h if sec_type == BaseTypes.ANGULAR else cgz - h / 2.0
+    return np.array([0.0, 0.0, dz], dtype=float)
+
+
 class CurveOffsetResult(NamedTuple):
     end1: tuple[float, float, float]
     end2: tuple[float, float, float]
@@ -184,7 +230,7 @@ class OffsetHelper:
         # include translation
         return place_abs.transform_array_from_other_place(np.asarray([p]), ident_place, ignore_translation=False)[0]
 
-    def curve_offset_local(self, axes=None) -> CurveOffsetResult:
+    def curve_offset_local(self, axes=None, strict_centroid: bool = True) -> CurveOffsetResult:
         """
         Compute local (x,y,z) curve offsets for Genie / COG, at end1 and end2.
 
@@ -200,6 +246,8 @@ class OffsetHelper:
         - ``axes`` optionally supplies the precomputed (x,y,up) absolute basis
           from _local_axes_in_absolute so the shared COG/length path doesn't
           recompute it here.
+        - ``strict_centroid=False`` takes an ANGULAR/TPROFILE section with no centroid as centred
+          instead of raising (see :func:`section_centroid_offset_local`).
         """
 
         # Absolute axes for the beam's local basis (x, y, up) expressed in global coords
@@ -245,10 +293,14 @@ class OffsetHelper:
 
                 # --- section-specific rules (match Genie semantics) ---
                 if sec0.type == sec0.TYPES.ANGULAR:
+                    # An angle's profile hangs below its origin (z in [-h, 0]), so flush_top is the
+                    # origin on the node line and flush_bottom is the origin h ABOVE it: e = -h * up,
+                    # the same vector ``resolve_justification`` gives. This was +h * up, which put the
+                    # profile 2h below the node and gave an HP220x10 -0.35543 where GeniE has +0.08457.
                     if just == Justification.FLUSH_TOP:
                         e_abs = zv_abs * 0.0
                     else:
-                        e_abs = zv_abs * float(sec0.h)
+                        e_abs = -zv_abs * float(sec0.h)
 
                 elif sec0.type == sec0.TYPES.TUBULAR:
                     e_abs = flush_factor * zv_abs * float(sec0.r)
@@ -286,7 +338,8 @@ class OffsetHelper:
         off1 = abs_vec_to_local_components(off1_abs)
         off2 = abs_vec_to_local_components(off2_abs)
 
-        add_local = self.centroid_shift_local()
+        # --- geometric centroid adjustment: where the centroid sits relative to the profile origin ---
+        add_local = section_centroid_offset_local(self.beam.section, strict=strict_centroid)
 
         off1 = off1 + add_local
         off2 = off2 + add_local
@@ -301,59 +354,51 @@ class OffsetHelper:
             is_varying=bool(is_varying),
         )
 
-    def centroid_shift_local(self) -> np.ndarray:
-        """The local ``(x, y, up)`` shift from the point a section's ``e``/justification places to its centroid.
+    def has_offset_intent(self) -> bool:
+        """Whether the beam says where it sits against its nodes: an explicit ``e1``/``e2``, or a
+        flush alignment (``justification`` or the GeniE ``aligned_curve_offset`` it was read from).
 
-        Only ANGULAR and TPROFILE consume the geometric centroid: their outlines are drawn from the top of the leg
-        (ANGULAR) and from mid-height (TPROFILE), so the neutral axis sits ``Cgz - h`` / ``Cgz - h/2`` along ``up``
-        from the point the offset places. Every other section type (incl. GENERAL, whose Cgy/Cgz are frequently
-        undefined in Sesam GBEAMG records) is drawn about its centroid and gets no shift, so don't demand a centroid
-        it never uses. :meth:`curve_offset_local` adds this to the offsets; ``line_elem_to_beam`` takes it off a
-        FE eccentricity (node to neutral axis) on the way back to a concept ``e1``/``e2``.
+        A beam that says neither has its centroid on the node line, which is what GeniE does and what
+        the Sesam deck has always carried (no GECCEN).
         """
-        p = self.beam.section.properties
-        sec_type = self.beam.section.type
-        h = float(self.beam.section.h) if self.beam.section.h is not None else None
+        if self.beam.e1 is not None or self.beam.e2 is not None:
+            return True
+        if self.beam.justification in (Justification.FLUSH_TOP, Justification.FLUSH_BOTTOM):
+            return True
+        md = getattr(self.beam, "metadata", None) or {}
+        return md.get("aligned_curve_offset_alignment") in ("flush_top", "flush_bottom")
 
-        if sec_type in (BaseTypes.ANGULAR, BaseTypes.TPROFILE):
-            if getattr(p, "Cgz", None) is None:
-                raise ValueError(
-                    f"Section '{self.beam.section.name}', section type: {sec_type} missing "
-                    f"geometric centroid (Cgz). section.properties: {p}"
-                )
-            cgz = float(p.Cgz)
-            if sec_type == BaseTypes.ANGULAR:
-                if h is None:
-                    raise ValueError("ANGULAR requires h to compute flush offset.")
-                dz = cgz - h
-            else:  # TPROFILE
-                if h is None:
-                    raise ValueError("TPROFILE requires h to compute offset.")
-                dz = cgz - h / 2.0
-            dy = 0.0
-        else:
-            dz = 0.0
-            dy = 0.0
+    def centroid_offset_local(self, axes=None) -> CurveOffsetResult | None:
+        """The offset from each end node to the section **centroid**, in the beam's local frame --
+        what a FEM eccentricity (Sesam GECCEN) holds. None when the beam states no offset
+        (:meth:`has_offset_intent`).
 
-        return np.array([0.0, dy, dz], dtype=float)
+        It is :meth:`curve_offset_local` -- ``-e`` plus the centroid's place against the profile
+        origin -- taken in the beam's own, unrotated frame (``axes`` defaults to ``(xvec, yvec, up)``)
+        so the caller can carry it to global coordinates with the beam's placement.
+        """
+        if not self.has_offset_intent():
+            return None
+        if axes is None:
+            axes = (self.beam.xvec, self.beam.yvec, self.beam.up)
+        return self.curve_offset_local(axes=axes, strict_centroid=False)
 
     def curve_offset_global(self) -> tuple[np.ndarray, np.ndarray]:
-        """The offsets of :meth:`curve_offset_local` as global vectors: from the beam's nodal line to its neutral
-        axis at end 1 and at end 2, in the absolute system the mesh nodes are in (the placement rotation applied).
+        """The FEM eccentricity of each end as a global vector: from the end node to the section centroid
+        (:meth:`centroid_offset_local`), in the absolute system the mesh nodes are in (the placement applied).
+        Zero for a beam that states no offset (:meth:`has_offset_intent`). What the mesher puts on the beam's
+        elements (Sesam GECCEN) and the Code_Aster writer its offset nodes on."""
+        from ada.api.transforms import to_global_vectors
 
-        This is the eccentricity a FE program wants for a beam element meshed on the nodal line (Sesam's GECCEN,
-        GeniE's curve offset): zero for a beam on its own axis, ``-e`` for one placed by ``e1``/``e2``, and for one
-        placed by a flush justification the vector from the flush line to the centroid.
-        """
-        axes = self._local_axes_in_absolute()
-        x_abs, y_abs, up_abs = (np.asarray(v, dtype=float) for v in axes)
-        data = self.curve_offset_local(axes=axes)
+        data = self.centroid_offset_local()
+        if data is None:
+            return np.zeros(3), np.zeros(3)
+        xv, yv, up = (np.asarray(v, dtype=float) for v in (self.beam.xvec, self.beam.yvec, self.beam.up))
 
-        def to_abs(off) -> np.ndarray:
-            ox, oy, oz = (float(v) for v in off)
-            return ox * x_abs + oy * y_abs + oz * up_abs
+        def to_vector(comp) -> np.ndarray:
+            return np.asarray(to_global_vectors(self.beam, comp[0] * xv + comp[1] * yv + comp[2] * up), dtype=float)
 
-        return to_abs(data.end1), to_abs(data.end2)
+        return to_vector(data.end1), to_vector(data.end2)
 
     def _offset_endpoints_abs(self) -> tuple[np.ndarray, np.ndarray]:
         """Absolute, offset-adjusted beam endpoints ``(start, end)``.

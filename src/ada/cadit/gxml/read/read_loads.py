@@ -39,6 +39,13 @@ the Sesam records GeniE meshed them into are the oracle for every reading below)
 * **Front and back.** ``footprint_plate side="front"`` with 1000 Pa on a plate whose normal is +z
   gave Fz = -4000 on 4 m2 (a front pressure pushes into the front face), ``side="back"`` +4000.
   ``LoadConceptSurface`` carries the side as written, against the plate's own normal.
+* **Varying pressures.** ``pressure2d_linear_function`` (k1..k4: ``p = k1 x + k2 y + k3 z + k4``) and
+  ``pressure2d_3point_varying`` (the linear field through three values, varying in their plane only) are
+  read as a ``LoadConceptSurface`` with ``pressure`` = the field at the origin and ``pressure_gradient``;
+  GeniE meshed both into the field's own value at every element node (1000 + 500 x).
+* **Polygon pressures.** A ``footprint_polygon`` is read as a ``LoadConceptSurface`` with its points and
+  no plate; GeniE meshed it onto the elements it covers, each with the pressure times its covered share,
+  along the polygon's own normal (:meth:`ada.fem.concept.loads_to_fem._Converter.polygon`).
 * **Prescribed displacements.** A ``prescribed_displacement`` names a support point
   (``footprint_support_point``) and gives a ``displacement_constant``; GeniE V8.13 meshed it into
   one BNDISPL per load case at that support's node (-0.01 in dz for ``translation dz="-0.01"``).
@@ -46,10 +53,11 @@ the Sesam records GeniE meshed them into are the oracle for every reading below)
   reader read (:mod:`.read_bcs`, run first); one on a support that was refused, or on a rigid
   link, is refused with it.
 
-Refused by name: a non-identity ``coordinate_system``; varying pressures
-(``pressure2d_3point_varying``, ``pressure2d_linear_function``); component surface loads
-(``component2d_constant``); polygon pressures (``footprint_polygon`` -- GeniE smears it over whole
-elements along the polygon's normal, so its own result depends on the mesh); rotation fields;
+A **surface traction by components** (``component2d_constant``) on a plate side is read as a
+:class:`LoadConceptSurface` with a ``traction`` (GeniE meshed it as BEUSLO LOTYP 2, the components at every node:
+``genie_loads_all_kinds_T1.FEM``, LC_comp).
+
+Refused by name: a non-identity ``coordinate_system``; a traction over a polygon footprint; rotation fields;
 equipment loads; and every element, footprint or intensity kind not named above.
 """
 
@@ -57,6 +65,8 @@ from __future__ import annotations
 
 import xml.etree.ElementTree as ET
 from typing import TYPE_CHECKING
+
+import numpy as np
 
 from ada.fem.concept.loads import (
     DesignCondition,
@@ -261,10 +271,27 @@ def _explicit_load(el: ET.Element, geometry: _Geometry):
         q1, q2 = _line_intensity(intensity)
         start, end = _line_footprint(footprint, geometry)
         return LoadConceptLine(name, start, end, q1, q2, system=system)
-    if el.tag == "surface_load":
-        pressure = _surface_intensity(intensity)
+    if el.tag == "surface_load" and intensity.tag == "component2d_constant":
+        # a traction by components (GeniE: BEUSLO LOTYP 2, three components per node; genie_loads_all_kinds LC_comp)
+        values = intensity.findall("intensity")
+        if len(values) != 1:
+            raise _Refused(intensity.tag, f"expected one intensity, found {len(values)}")
+        _check_attributes(values[0], {"fx", "fy", "fz"}, intensity.tag)
+        traction = _xyz(values[0], ("fx", "fy", "fz"))
+        if footprint.tag == "footprint_polygon":
+            raise _Refused(intensity.tag, "a traction over a polygon footprint; only a whole plate side is read")
         plate, side = _surface_footprint(footprint, geometry)
-        return LoadConceptSurface(name, plate_ref=plate, pressure=pressure, side=side, system=system)
+        return LoadConceptSurface(name, plate_ref=plate, side=side, system=system, traction=traction)
+    if el.tag == "surface_load":
+        pressure, gradient = _surface_intensity(intensity)
+        if footprint.tag == "footprint_polygon":
+            return LoadConceptSurface(
+                name, points=_polygon_points(footprint), pressure=pressure, system=system, pressure_gradient=gradient
+            )
+        plate, side = _surface_footprint(footprint, geometry)
+        return LoadConceptSurface(
+            name, plate_ref=plate, pressure=pressure, side=side, system=system, pressure_gradient=gradient
+        )
     raise _Refused(el.tag, "no concept load class holds this kind of explicit load")
 
 
@@ -346,22 +373,48 @@ def _line_intensity(intensity: ET.Element):
     raise _Refused(intensity.tag, "no concept line load holds this kind of line intensity")
 
 
-_SURFACE_REFUSALS = {
-    "pressure2d_3point_varying": "a varying pressure; LoadConceptSurface holds a uniform pressure only",
-    "pressure2d_linear_function": "a varying pressure; LoadConceptSurface holds a uniform pressure only",
-    "component2d_constant": "a surface traction by components; LoadConceptSurface holds a normal pressure only",
-}
+_SURFACE_REFUSALS: dict[str, str] = {}
 
 
-def _surface_intensity(intensity: ET.Element) -> float:
-    if intensity.tag != "pressure2d_constant":
-        reason = _SURFACE_REFUSALS.get(intensity.tag, "no concept surface load holds this kind of surface intensity")
-        raise _Refused(intensity.tag, f"{reason}; it is not read")
-    values = intensity.findall("intensity")
-    if len(values) != 1:
-        raise _Refused(intensity.tag, f"expected one intensity, found {len(values)}")
-    _check_attributes(values[0], {"pressure"}, intensity.tag)
-    return float(values[0].get("pressure"))
+def _surface_intensity(intensity: ET.Element) -> tuple[float, tuple[float, float, float] | None]:
+    """``(pressure, gradient)``: the pressure at the origin of the load's position axes and its gradient per unit
+    length there (None: uniform). GeniE meshed both varying kinds into the field's exact value at each element node
+    (``genie_loads_all_kinds_T1.FEM``, LC_press_3pt and LC_press_lin: 1000 + 500 x on every node)."""
+    tag = intensity.tag
+    if tag == "pressure2d_constant":
+        values = intensity.findall("intensity")
+        if len(values) != 1:
+            raise _Refused(tag, f"expected one intensity, found {len(values)}")
+        _check_attributes(values[0], {"pressure"}, tag)
+        return float(values[0].get("pressure")), None
+    if tag == "pressure2d_linear_function":
+        # p = k1 x + k2 y + k3 z + k4
+        ks = {k.tag: k for k in intensity}
+        if sorted(ks) != ["k1", "k2", "k3", "k4"] or len(intensity) != 4:
+            raise _Refused(tag, "expected k1, k2, k3 and k4")
+        for k in ks.values():
+            _check_attributes(k, {"value", "unit"}, tag)
+        return float(ks["k4"].get("value")), tuple(float(ks[k].get("value")) for k in ("k1", "k2", "k3"))
+    if tag == "pressure2d_3point_varying":
+        rows = []
+        for i in (1, 2, 3):
+            el = intensity.find(f"intensity{i}")
+            pos = el.find("position") if el is not None else None
+            if el is None or pos is None or len(el) != 1:
+                raise _Refused(tag, f"expected intensity{i} with one <position>")
+            _check_attributes(el, {"pressure"}, tag)
+            rows.append((np.asarray(_xyz(pos), dtype=float), float(el.get("pressure"))))
+        if len(intensity) != 3:
+            raise _Refused(tag, "expected exactly three intensities")
+        (p1, v1), (p2, v2), (p3, v3) = rows
+        d = np.array([p2 - p1, p3 - p1])
+        if np.linalg.norm(np.cross(d[0], d[1])) <= 1e-12 * max(1.0, float(np.abs(d).max()) ** 2):
+            raise _Refused(tag, "its three positions are collinear, so they span no plane to vary over")
+        # The field in the plane of the three points (no variation across it): the minimum-norm gradient.
+        g = np.linalg.lstsq(d, np.array([v2 - v1, v3 - v1]), rcond=None)[0]
+        return float(v1 - g @ p1), tuple(float(c) for c in g)
+    reason = _SURFACE_REFUSALS.get(tag, "no concept surface load holds this kind of surface intensity")
+    raise _Refused(tag, f"{reason}; it is not read")
 
 
 def _point_footprint(footprint: ET.Element, geometry: _Geometry):
@@ -402,13 +455,15 @@ def _surface_footprint(footprint: ET.Element, geometry: _Geometry):
         if side not in ("front", "back") or len(footprint) != 0:
             raise _Refused(footprint.tag, f"a plate footprint on side {side!r} with {len(footprint)} sub-elements")
         return geometry.plate(footprint.get("plate_ref"), footprint.tag), side
-    if footprint.tag == "footprint_polygon":
-        raise _Refused(
-            footprint.tag,
-            "a polygon pressure; GeniE smears it over whole elements along the polygon's normal, so what it "
-            "loads depends on the mesh; it is not read",
-        )
     raise _Refused(footprint.tag, "no concept surface load holds this kind of surface footprint")
+
+
+def _polygon_points(footprint: ET.Element) -> list[tuple[float, float, float]]:
+    """The corner points of a ``footprint_polygon``, in order (their winding is the pressure's direction)."""
+    points = footprint.find("points")
+    if points is None or len(footprint) != 1 or len(points) < 3 or any(p.tag != "point" for p in points):
+        raise _Refused(footprint.tag, "expected one <points> with three or more <point>")
+    return [_xyz(p) for p in points]
 
 
 def _prescribed_displacement(name: str, footprint: ET.Element, intensity: ET.Element, geometry: _Geometry):

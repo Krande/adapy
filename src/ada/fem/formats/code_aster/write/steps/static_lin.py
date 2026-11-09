@@ -150,6 +150,7 @@ def merged_charge_str(name: str, loads, fem=None) -> str | None:
     from ..write_loads import (
         MEMBRANE_PRESSURE,
         SHELL_PRESSURE,
+        nettable_pressure,
         pressure_items,
         pressures_overlap,
     )
@@ -174,7 +175,9 @@ def merged_charge_str(name: str, loads, fem=None) -> str | None:
         merged.setdefault(key, []).extend(items)
         return True
 
-    pressures = [ld for ld in loads if ld.type == ld.TYPES.PRESSURE]
+    # Only uniform shell pressures are netted; a solid's (its own face cells) or a varying one keeps its items.
+    pressures = [ld for ld in loads if nettable_pressure(ld)] if fem is not None else []
+    netted_ids = {id(ld) for ld in pressures}
     netted = fem is not None and len(pressures) > 1 and pressures_overlap(pressures)
     for ld in loads:
         keywords = _charge_keywords(write_load(ld))
@@ -184,7 +187,7 @@ def merged_charge_str(name: str, loads, fem=None) -> str | None:
             if isinstance(items, str):
                 if simple.setdefault(key, items) != items:
                     return None
-            elif netted and ld.type == ld.TYPES.PRESSURE and key in (SHELL_PRESSURE, MEMBRANE_PRESSURE):
+            elif netted and id(ld) in netted_ids and key in (SHELL_PRESSURE, MEMBRANE_PRESSURE):
                 continue  # the pressures' net items, below
             elif not add(key, items):
                 return None
@@ -290,14 +293,17 @@ def step_static_lin_str(step: StepImplicitStatic, part: Part, result: str = "res
 
     supports = step_charges(part, step)
     bcs = supports.bcs
-    cases = step_cases(step, applied, bcs)
+    from ..write_temperature import is_temperature, mechanical
+
+    thermal = any(is_temperature(ld) for ld in [*applied, *step.loads])
+    cases = [(name, mechanical(lds)) for name, lds in step_cases(step, applied, bcs)]
     loads = _distinct([ld for _, case_loads in cases for ld in case_loads])
     if len(step.load_cases) == 0:
         values = [case_values(bcs, {step.name}, STAGE, step=step.name)]
     else:
         values = [case_values(bcs, {name}, STAGE, step=step.name, load_case=name) for name, _ in cases]
     settled = any(v != 0.0 for case in values for v in case.values())
-    if len(loads) == 0 and not settled:
+    if len(loads) == 0 and not settled and not thermal:
         raise NoLoadsApplied(f"No loads are applied in step '{step}'")
 
     charges = supports.names

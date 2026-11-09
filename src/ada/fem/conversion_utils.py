@@ -9,8 +9,44 @@ if TYPE_CHECKING:
     from ada import FEM, Assembly
 
 
+def centroid_shift_global(elem: Elem) -> np.ndarray:
+    """Where the section's centroid sits relative to its profile origin, as a global vector.
+
+    An eccentricity (Sesam GECCEN, ``EccPoint.ecc_vector``) runs from the node to the section
+    **centroid**, while a beam element's node is the section's *profile origin* in Abaqus. For a
+    section drawn on its centroid (an I, a box, a tube) the two are the same point; for an angle or
+    a T they are not, and the node of the offset member is ``node + ecc - this``.
+
+    Zero for anything that is not a sectioned line element, and for sections with no correction.
+    """
+    from ada.api.beams.justification import section_centroid_offset_local
+
+    fem_sec = elem.fem_sec
+    section = getattr(fem_sec, "section", None)
+    if section is None or len(elem.nodes) < 2:
+        return np.zeros(3)
+    dz = float(section_centroid_offset_local(section, strict=False)[2])
+    if dz == 0.0:
+        return np.zeros(3)
+    xvec = np.asarray(elem.nodes[-1].p, dtype=float) - np.asarray(elem.nodes[0].p, dtype=float)
+    length = float(np.linalg.norm(xvec))
+    if length == 0.0:
+        return np.zeros(3)
+    xvec = xvec / length
+    up = np.asarray(fem_sec.local_z, dtype=float)
+    up = up - float(np.dot(up, xvec)) * xvec
+    norm = float(np.linalg.norm(up))
+    return dz * up / norm if norm > 0.0 else np.zeros(3)
+
+
 def convert_ecc_to_mpc(fem: "FEM"):
-    """Converts beam offsets to MPC constraints"""
+    """Converts beam offsets to MPC constraints.
+
+    The offset is to the section centroid (see :func:`centroid_shift_global`), so the offset node --
+    the section's profile origin -- is placed at ``node + ecc - centroid_shift``.
+
+    A beam whose offset leaves the section origin on its node gets no MPC.
+    """
     from ada import Node
     from ada.core.vector_utils import vector_length
 
@@ -65,16 +101,19 @@ def convert_ecc_to_mpc(fem: "FEM"):
             edited_nodes[n_old.id] = n_new
 
     def build_mpc(elem: Elem):
-        if elem.eccentricity.end1 is not None:
-            n_old = elem.eccentricity.end1.node
-            ecc = elem.eccentricity.end1.ecc_vector
-            i = elem.nodes.index(n_old)
-            build_mpc_for_end(elem, n_old, ecc, i)
-        if elem.eccentricity.end2 is not None:
-            n_old = elem.eccentricity.end2.node
-            ecc = elem.eccentricity.end2.ecc_vector
-            i = elem.nodes.index(n_old)
-            build_mpc_for_end(elem, n_old, ecc, i)
+        # Taken once per element: building the first end moves nodes, which ``centroid_shift_global``
+        # reads the element's axis from.
+        shift = centroid_shift_global(elem)
+        for end in (elem.eccentricity.end1, elem.eccentricity.end2):
+            if end is None:
+                continue
+            n_old = end.node
+            ecc = np.asarray(end.ecc_vector, dtype=float) - shift
+            if float(np.linalg.norm(ecc)) <= tol:
+                # The section origin is already on the node (an angle flush against its plate): a
+                # zero-length MPC would only add a node and a constraint for nothing.
+                continue
+            build_mpc_for_end(elem, n_old, ecc, elem.nodes.index(n_old))
 
     [build_mpc(el) for el in fem.elements.lines_ecc]
 

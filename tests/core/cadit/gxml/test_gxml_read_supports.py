@@ -23,6 +23,7 @@ import pathlib
 import shutil
 import xml.etree.ElementTree as ET
 
+import numpy as np
 import pytest
 
 import ada
@@ -99,7 +100,13 @@ ALL_KINDS_POINTS = {
         {"dx": "fixed", "dy": "fixed", "dz": ("spring", 1e6), "rx": "fixed", "ry": ("spring", 2e5), "rz": "fixed"},
     ),
     "Sp_spring2": ((0, 6, 4), {"dy": ("spring", 2e6)}),
+    # 45 degrees about z, dx' and dz held: in its own frame (local_system), dx' holding no global axis
+    "Sp_local": ((0, 8, 0), {"dx": "fixed", "dz": "fixed"}),
 }
+
+#: The frames the rotated supports are read with (rows x', y', z'); every other support is in global axes.
+R = 0.7071067812
+LOCAL_SYSTEMS = {"Sp_local": ((R, R, 0), (-R, R, 0), (0, 0, 1))}
 
 #: The nodes GeniE put each curve's codes on: the curve's ends, and its dofs.
 ALL_KINDS_CURVES = {
@@ -120,6 +127,9 @@ def test_every_point_support_is_read_with_its_dofs(all_kinds):
     for name, (position, dofs) in ALL_KINDS_POINTS.items():
         assert _p(points[name].position) == pytest.approx(position), name
         assert _dofs(points[name]) == dofs, name
+        want = LOCAL_SYSTEMS.get(name)
+        got = points[name].local_system
+        assert (got is None) if want is None else np.allclose(got, want, atol=1e-9), name
 
 
 def test_a_spring_is_read_with_its_stiffness(all_kinds):
@@ -166,11 +176,13 @@ def test_the_prescribed_displacement_is_read_with_its_value(all_kinds):
     assert pd.parent is lc
 
 
-def test_the_two_rotated_supports_are_refused_once_each(all_kinds):
+def test_only_the_ambiguous_curve_frame_is_refused(all_kinds):
+    """Sp_local's 45 degree frame is read into its local_system; Sc_local, a guide-oriented curve whose stored frame
+    is not the guide frame, is ambiguous and still refused."""
     _, part, report = all_kinds
-    assert _findings(report) == {"Sp_local": [("local_system", 1)], "Sc_local": [("local_system", 1)]}
+    assert _findings(report) == {"Sc_local": [("local_system", 1)]}
     constraints = part.concept_fem.constraints
-    assert "Sp_local" not in constraints.point_constraints
+    assert "Sp_local" in constraints.point_constraints
     assert "Sc_local" not in constraints.curve_constraints
 
 
@@ -213,7 +225,7 @@ def test_rigid_link_options_are_read(frames):
     IncludeOnlyNodesOfSupports, written include_all_edges="false"."""
     _, part, _ = frames
     links = part.concept_fem.constraints.rigid_links
-    assert sorted(links) == ["Srl_frame", "Srl_only", "Srl_rot"]
+    assert sorted(links) == ["Srl_frame", "Srl_only", "Srl_rot", "Srl_sdx"]
     assert (links["Srl_rot"].rotation_dependent, links["Srl_rot"].include_all_edges) == (True, True)
     assert (links["Srl_only"].rotation_dependent, links["Srl_only"].include_all_edges) == (False, False)
     assert (links["Srl_frame"].rotation_dependent, links["Srl_frame"].include_all_edges) == (False, True)
@@ -230,27 +242,24 @@ def test_one_support_prescribed_in_two_load_cases(frames):
         for lc in part.concept_fem.loads.load_cases.values()
     }
     (pd_b,) = loads["LC1"]
-    (pd_a,) = loads["LC2"]
+    (pd_a,) = [ld for ld in loads["LC2"] if ld.support is sp]
     assert (pd_b.name, pd_b.support, pd_b.translation, pd_b.rotation) == ("PD_b", sp, (-0.003, 0, 0), (0, 0, 0))
     assert (pd_a.name, pd_a.support, pd_a.translation, pd_a.rotation) == ("PD_a", sp, (0.005, 0, -0.01), (0, 0, 0.001))
 
 
-def test_the_frames_fixture_refuses_exactly_four_constructs(frames):
+def test_the_frames_fixture_refuses_nothing(frames):
+    """Sc_slope (dx' alone along a 3-4-5 slope) and Sp_presc_rot (its LC2 value along x' = y) are read in their
+    frames; Srl_sdx (slave_dx="free": GeniE's BLDEP left dx out) is read with its slave translations dy, dz."""
     _, part, report = frames
-    assert _findings(report) == {
-        # dx' alone along a 3-4-5 slope holds no global axis
-        "Sc_slope": [("local_system", 1)],
-        # its value in LC2 is along x' = y
-        "Sp_presc_rot": [("local_system", 1)],
-        # slave_dx="free": BLDEP left dx out
-        "Srl_sdx": [("support_rigid_link", 1)],
-        # and the displacement of the refused support with it
-        "PD_rot in load case LC2": [("footprint_support_point", 1)],
-    }
+    assert _findings(report) == {}
     c = part.concept_fem.constraints
-    assert "Sc_slope" not in c.curve_constraints and "Sp_presc_rot" not in c.point_constraints
-    assert "Srl_sdx" not in c.rigid_links
-    assert [ld.name for ld in part.concept_fem.loads.load_cases["LC2"].loads] == ["PD_a"]
+    slope = c.curve_constraints["Sc_slope"]
+    assert np.allclose(slope.local_system, ((0.6, 0, 0.8), (0, 1, 0), (-0.8, 0, 0.6)), atol=1e-9)
+    assert _dofs(slope)["dx"] == "fixed"
+    rot = c.point_constraints["Sp_presc_rot"]
+    assert np.allclose(rot.local_system[0], (0, 1, 0), atol=1e-9) and _dofs(rot)["dx"] == "prescribed"
+    assert c.rigid_links["Srl_sdx"].slave_translations == ("dy", "dz")
+    assert sorted(ld.name for ld in part.concept_fem.loads.load_cases["LC2"].loads) == ["PD_a", "PD_rot"]
 
 
 # --- refusals of constructs the fixtures do not hold -------------------------------------------
@@ -349,8 +358,8 @@ def test_a_construct_without_a_concept_field_is_refused_by_name(example_files, t
     _, part, report = _read(_edit(example_files, tmp_path, "genie_supports_frames.xml", edit))
     findings = _findings(report)
     assert findings.pop(name) == [(keyword, 1)]
-    # the fixture's own four, and nothing else
-    assert sorted(findings) == ["PD_rot in load case LC2", "Sc_slope", "Sp_presc_rot", "Srl_sdx"]
+    # and nothing else
+    assert sorted(findings) == []
     c = part.concept_fem.constraints
     assert name not in {**c.point_constraints, **c.curve_constraints, **c.rigid_links}
 

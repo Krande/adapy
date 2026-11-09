@@ -2,6 +2,38 @@
 
 
 
+## v0.138.1 (2026-11-09)
+
+### Fix
+
+* fix: require paradoc 0.12 for the report&#39;s 3D view (#507)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`458ca14`](https://github.com/Krande/adapy/commit/458ca141bccf37b2765e79a2586a2f62cb93043a))
+
+
+## v0.138.0 (2026-11-09)
+
+### Feature
+
+* feat: solver parity for Sestra, Code_Aster and CalculiX decks (#502)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`05a19d4`](https://github.com/Krande/adapy/commit/05a19d4e9bcb6fe32b2e54dc6d7ee2fed76e8915))
+
+
+## v0.137.2 (2026-11-08)
+
+### Fix
+
+* fix(fem): carry beam justification into FEM eccentricities (GeniE flush alignment) (#505) ([`d181393`](https://github.com/Krande/adapy/commit/d1813933235c6acae5dd330e2aea30a3cb58cf23))
+
+
+## v0.137.1 (2026-11-08)
+
+### Fix
+
+* fix(docs): replace dead Code Aster links with current official and conda-forge sources (#504) ([`7f94be2`](https://github.com/Krande/adapy/commit/7f94be23cf30805478941db0197691b4d59c837d))
+
+
 ## v0.137.0 (2026-11-06)
 
 ### Feature

@@ -203,7 +203,12 @@ def get_bm_sections(model: gmsh.model, beam: Beam, gmsh_data, fem: FEM):
 
 
 def add_beam_ecc_to_elements(beam: Beam, elements: list[Elem]) -> None:
-    """Carry the beam's offset from its nodal line onto the line elements, interpolated along the beam.
+    """Carry a beam's offset onto the line elements, interpolated along the beam.
+
+    The offset is ``Beam.e1`` / ``Beam.e2`` and the beam's flush alignment
+    (``Beam.justification``, or the GeniE ``aligned_curve_offset`` it was read from), measured
+    -- as GeniE does -- from the node to the section **centroid**
+    (:meth:`OffsetHelper.curve_offset_global`).
 
     The line mesh is built on the beam's *nodal* line -- ``Beam.line_occ`` makes its
     wire from ``n1.p``/``n2.p`` and ignores the eccentricities -- so without this the
@@ -211,11 +216,7 @@ def add_beam_ecc_to_elements(beam: Beam, elements: list[Elem]) -> None:
     has nothing to write. That is why the Sesam writer never emitted a GECCEN record:
     not because it chose not to, but because no element ever carried one.
 
-    The offset is the one the geometry is drawn with, :meth:`OffsetHelper.curve_offset_global`:
-    from ``Beam.e1``/``e2`` when they are set, else from the beam's justification (a
-    stiffener placed ``"flush top"`` on its plate, hanging below the nodal line), and for
-    an angle or a T the shift from the drawn outline to the centroid on top. It used to
-    read ``e1``/``e2`` alone, so a stiffened panel whose stiffeners and girders were
+    It used to read ``e1``/``e2`` alone, so a stiffened panel whose stiffeners and girders were
     placed flush by justification -- the way a deck generator or a GeniE import places
     them -- was meshed with every profile's neutral axis in the plate: a simply supported
     panel deflected 4.2 times what Sestra gives for the eccentric model.
@@ -237,25 +238,32 @@ def add_beam_ecc_to_elements(beam: Beam, elements: list[Elem]) -> None:
     deck is read into concepts. ``tests/core/fem/formats/sesam/test_write_geccen.py``
     is the proof: a beam written to a Sesam deck and read back keeps the ``e1``/``e2``
     it was built with.
+
+    Centroid: ``e1``/``e2`` move the section's *profile origin*, while a file's offset
+    runs to the *centroid* -- and for an angle (origin at the web top) or a T (origin
+    mid-height) the two differ. ``curve_offset_local`` is ``-e`` plus that difference
+    (``Cgz - h`` for an angle, ``Cgz - h/2`` for a T), so it is the vector a file holds.
+    A beam that states no offset at all has its centroid on the node line, as in GeniE,
+    and gets no eccentricity, so a Sesam deck of such beams round-trips without growing a GECCEN.
     """
     from ada.api.beams.justification import Justification
     from ada.fem.elements import Eccentricity, EccPoint
+    from ada.fem.formats import conversion_report
 
-    # A beam with neither offsets nor a justification is on its axis. (An angle or a T is
-    # drawn from the top of its leg / its mid-height, so ``curve_offset_global`` would give
-    # it the shift to its centroid even here; the FE keeps the long-standing reading that
-    # no offset means no eccentricity, and a Sesam deck of such beams round-trips without
-    # growing a GECCEN.)
-    if beam.e1 is None and beam.e2 is None and beam.justification in (Justification.NA, Justification.UNSET):
+    if not beam.offset_helper.has_offset_intent():
+        if beam.justification == Justification.TOS:
+            # TOS has two readings in the helpers (``resolve_justification`` and
+            # ``curve_offset_local`` carry opposite signs for it), so it is not guessed at.
+            conversion_report.current().omitted(
+                "beam eccentricity",
+                "Beam.justification",
+                beam.name,
+                "top-of-steel justification is not turned into an eccentricity; the beam is meshed on its nodal line",
+            )
         return
 
-    # A missing end means "no offset there", which is what the geometry path assumes
-    # too (``curve_offset_local`` zero-fills it), so the interpolation runs to zero.
-    # The offsets come out in the absolute system the element nodes are in.
+    # global vectors, in the system the element nodes are in
     e1, e2 = beam.offset_helper.curve_offset_global()
-    if not np.any(np.abs(e1) > 1e-12) and not np.any(np.abs(e2) > 1e-12):
-        return
-
     p1, p2 = to_global_points(beam, [beam.n1.p, beam.n2.p])
     axis = p2 - p1
     length_sq = float(np.dot(axis, axis))

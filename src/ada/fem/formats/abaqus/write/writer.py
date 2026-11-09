@@ -4,10 +4,9 @@ from io import StringIO
 from typing import TYPE_CHECKING
 
 from ada.config import logger
-from ada.fem.formats.utils import report_dropped_eccentricities
 
 from .write_amplitudes import amplitudes_str
-from .write_bc import STAGE, boundary_conditions_str, report_unstepped_settlements
+from .write_bc import boundary_conditions_str, report_unstepped_settlements
 from .write_cavities import (
     fluid_behaviors_str,
     fluid_cavities_str,
@@ -59,8 +58,6 @@ def to_fem(
 
     afem = assembly.fem
     all_fem_parts = [p.fem for p in assembly.get_all_subparts(include_self=True)]
-    # An eccentric beam (a stiffener flush on its plate) is written on its nodes: no *CENTROID yet.
-    report_dropped_eccentricities(all_fem_parts, STAGE)
 
     # Main Input File
     with open(analysis_dir / f"{name}.inp", "w") as d:
@@ -124,6 +121,11 @@ def to_fem(
         initial_conditions = model_initial_conditions_str(assembly)
         if initial_conditions:
             d.write("\n" + initial_conditions + "\n")
+        from .write_loads import temperature_initial_conditions_str
+
+        temperatures = temperature_initial_conditions_str(assembly, abaqus_steps(assembly))
+        if temperatures:
+            d.write("\n" + temperatures + "\n")
 
     # Materials data
     with open(core_dir / "materials.inp", "w") as d:

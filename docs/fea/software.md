@@ -22,8 +22,9 @@ pixi global install "code-aster>=18.1.7"
 
 More information about Code Aster can be found on
 
-* The Code Aster homepage -> [https://www.code-aster.org](https://www.code-aster.org/spip.php?rubrique2)
+* The Code Aster homepage -> [https://code-aster.org/en](https://code-aster.org/en)
 * The Code Aster source code -> [Code Aster Original Source Code](https://gitlab.com/codeaster/src)
+* The Code Aster conda-forge package -> [https://anaconda.org/conda-forge/code-aster](https://anaconda.org/conda-forge/code-aster)
 * Conda-forge feedstock -> [https://github.com/conda-forge/code-aster-feedstock](https://github.com/conda-forge/code-aster-feedstock)
 
 ## Calculix

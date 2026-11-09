@@ -9,6 +9,7 @@ from .helper_utils import include_str, render_block
 from .templates import main_inp_str
 from .write_cavities import model_initial_conditions_str
 from .write_interactions import interact_str
+from .write_loads import temperature_initial_conditions_str
 from .write_predefined_state import predefined_fields_str
 from .write_steps import abaqus_steps, constraint_control, main_step_inp_str
 
@@ -41,6 +42,7 @@ def write_main_inp_str(assembly: Assembly, analysis_dir) -> str:
         interact_str(assembly.fem) != ""
         or predefined_fields_str(assembly.fem) != ""
         or model_initial_conditions_str(assembly) != ""
+        or temperature_initial_conditions_str(assembly, steps) != ""
     ):
         int_str = include_str(f"{incl}\\interactions.inp")
 

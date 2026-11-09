@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+import contextlib
+from typing import TYPE_CHECKING, Sequence
 
 import numpy as np
 
@@ -14,6 +15,8 @@ from ada.fem.shell_sides import (
 )
 from ada.fem.steps import Step
 
+from .element_numbers import internal
+from .element_numbers import node as internal_node
 from .not_held import STAGE, report
 from .write_utils import write_ff
 
@@ -46,8 +49,16 @@ def step_loads_str(
     ndofs: NodeDofs | None = None,
     prescribed: dict[int, dict[int, float]] | None = None,
     prescribed_cases: dict[str, dict[int, dict[int, float]]] | None = None,
+    following: Sequence[Step] = (),
 ) -> str:
     """The load block of one step: its load cases, or all its loads as one case ``LC1``.
+
+    ``following`` are further static steps written into the same deck (``write_steps.written_steps``): each a load
+    case of its own after ``step``'s, named after the step, or its own load cases. A general step's case holds the
+    loads it is solved for -- its own and those carried from the general steps before it, as adapy's steps follow
+    Abaqus (:func:`ada.fem.formats.carried_loads.general_step_loads`, which the Code_Aster and CalculiX writers use
+    too) -- so each Sestra result case is that step's state. With more than one step a general step's case is named
+    after the step, not ``LC1``.
 
     ``to_fem`` passes the part FEM's dof counts even when the step lives on the assembly,
     because that is where the nodes a load names actually live.
@@ -67,7 +78,10 @@ def step_loads_str(
 
     prescribed = prescribed or {}
     prescribed_cases = prescribed_cases or {}
-    if step is not None and len(step.load_cases.keys()) > 0:
+    steps = ([] if step is None else [step]) + list(following)
+    if len(steps) > 1:
+        cases = _multi_step_cases(steps)
+    elif step is not None and len(step.load_cases.keys()) > 0:
         # A load case may hold no load of its own -- a settlement case of a GeniE model -- and still be a case.
         cases = [(lc.name, lc.loads or []) for lc in step.load_cases.values()]
         _report_loads_outside_cases(step)
@@ -78,7 +92,7 @@ def step_loads_str(
     names = {name for name, _ in cases}
     cases += [(name, []) for name in prescribed_cases if name not in names]
 
-    numbers = case_numbers(step, [name for name, _ in cases])
+    numbers = case_numbers(steps or step, [name for name, _ in cases])
     out_str = ""
     for i, (lc_name, loads) in enumerate(cases):
         lid = numbers[lc_name]
@@ -104,7 +118,40 @@ def step_loads_str(
     return out_str
 
 
-def case_numbers(step: Step | None, names: list[str]) -> dict[str, int]:
+def _multi_step_cases(steps: Sequence[Step]) -> list[tuple[str, list]]:
+    """``[(case name, loads)]`` of several static steps in one deck: a step of load cases gives its cases, a general
+    step one case named after it, holding its own loads and those it carries (see :func:`step_loads_str`). A name
+    met twice (a step named like another step's load case) is suffixed, and reported."""
+    from ada.fem.formats.carried_loads import general_step_loads
+
+    applied = general_step_loads(list(steps), STAGE)
+    out: list[tuple[str, list]] = []
+    taken: set[str] = set()
+    for st in steps:
+        if len(st.load_cases) > 0:
+            _report_loads_outside_cases(st)
+            named = [(lc.name, lc.loads or []) for lc in st.load_cases.values()]
+        else:
+            named = [(st.name, applied.get(id(st), list(st.loads)))]
+        for name, loads in named:
+            unique, k = name, 2
+            while unique in taken:
+                unique, k = f"{name}_{k}", k + 1
+            if unique != name:
+                report().note(
+                    STAGE,
+                    "TDLOAD",
+                    name,
+                    "a load case name another step's case has; written suffixed",
+                    written_as=unique,
+                    step=st.name,
+                )
+            taken.add(unique)
+            out.append((unique, loads))
+    return out
+
+
+def case_numbers(step: Step | Sequence[Step] | None, names: list[str]) -> dict[str, int]:
     """``{case name: LLC}`` -- the number each load case is written under, which is the result case id Sestra gives
     its results.
 
@@ -116,10 +163,11 @@ def case_numbers(step: Step | None, names: list[str]) -> dict[str, int]:
     clash is reported by name.
     """
     given: dict[str, int] = {}
-    if step is not None:
-        for lc in step.load_cases.values():
+    steps = [] if step is None else list(step) if isinstance(step, (list, tuple)) else [step]
+    for st in steps:
+        for lc in st.load_cases.values():
             number = (lc.metadata or {}).get(LOAD_CASE_NUMBER)
-            if lc.name in names and number is not None:
+            if lc.name in names and number is not None and lc.name not in given:
                 given[lc.name] = int(number)
     by_number: dict[int, list[str]] = {}
     for name, number in given.items():
@@ -130,7 +178,7 @@ def case_numbers(step: Step | None, names: list[str]) -> dict[str, int]:
         report().note(
             STAGE,
             "TDLOAD",
-            step.name,
+            steps[0].name,
             "the load cases' numbers are not one distinct positive number each, so the cases are numbered 1..n in "
             "order and Sestra's result case ids are not the numbers given",
             shared=shared,
@@ -222,6 +270,17 @@ def load_str(load: Load, lid, ndofs: NodeDofs | None = None) -> str:
         out = load_line(load, lid)
         if out == "":
             return ""
+    elif load.type == Load.TYPES.TRACTION:
+        out = load_traction(load, lid)
+        if out == "":
+            return ""
+    elif load.type == Load.TYPES.TEMPERATURE:
+        out = load_temperature(load, lid)
+        if out == "":
+            return ""
+    elif load.type == Load.TYPES.ACC_ROT and _is_rotation(load):
+        # on part of the model (fem_set) too: per node, on BNACCLO (load_rotation)
+        out = load_rotation(load, lid, ndofs)
     else:
         rep.omitted(STAGE, "Load", load.name, f'a "{load.type}" load is not written by the Sesam writer')
         return ""
@@ -246,35 +305,153 @@ def load_gravity(load: Load, load_id: int) -> str:
     )
 
 
-def _local_axes(csys) -> np.ndarray | None:
-    """The rows of the local x, y, z unit vectors in global axes, for a rectangular system
-    given by coordinates -- the first a point on the local x axis, the second one in the
-    local x-y plane, as Abaqus' ``*Transform`` and ``*Orientation`` define them. ``None``
-    for any other kind of system.
+#: BEISTE's TOP. Sestra 11.3-01 refuses 0 ("The BEISTE card option TOP is given a value outside the parameter range
+#: {1,2}"); 1 and 2 gave the same, exact, answers for one temperature per node -- the beam held and free
+#: (tests/fem/test_temperature_loads.py) and a free 2 x 1 m shell plate heated by 50 K: alpha dT expansion in-plane,
+#: no bending. What 2 selects otherwise is not measured.
+BEISTE_TOP = 1
+
+
+def load_temperature(load, load_id: int) -> str:
+    """A temperature load (:class:`~ada.fem.LoadTemperature`) as one ``BEISTE`` per element ("element with initial
+    strain due to thermal expansion", SIF 7.2.3): ``LLC LOTYP=1 0 TOP`` (:data:`BEISTE_TOP`) then ``ELNO NNOD INTNO=0`` and the
+    temperature difference to the reference at each of its nodes -- the material's MISOSEL ``ALPHA`` makes it a
+    strain. Sestra takes thermal loads on all elements "except first- and second-order solids" (Sestra UM 2.7.5): a
+    load reaching solids is left out there, reported by name.
     """
-    if str(csys.system).upper() != "RECTANGULAR" or str(csys.definition).upper() != "COORDINATES":
-        return None
-    if csys.coords is None or len(csys.coords) < 2:
-        return None
-    a, b = (np.asarray(v, dtype=float) for v in csys.coords[:2])
-    x = a / np.linalg.norm(a)
-    z = np.cross(a, b)
-    z = z / np.linalg.norm(z)
-    return np.array([x, np.cross(z, x), z])
+    from ada.fem.shapes.definitions import SolidShapes
+
+    rep = report()
+    fem = _deck_fems[-1] if _deck_fems else None
+    if fem is None:
+        rep.omitted(STAGE, "Load", load.name, "a temperature load with no deck to find its elements in")
+        return ""
+    els = load.elements(fem)
+    solids = [el for el in els if isinstance(el.type, SolidShapes)]
+    if solids:
+        rep.omitted(
+            STAGE,
+            "Load",
+            load.name,
+            "a temperature load on solid elements; Sestra takes thermal loads on beams and shells only (UM 2.7.5)",
+            n_elements=len(solids),
+        )
+    out = ""
+    dt = float(load.delta)
+    for el in sorted((el for el in els if not isinstance(el.type, SolidShapes)), key=lambda e: e.id):
+        nnod = len(el.nodes)
+        values = [dt] * nnod
+        out += write_ff(
+            "BEISTE", [(load_id, 1, 0, BEISTE_TOP), (internal(el.id), nnod, 0, values[0]), *_rows4(values[1:])]
+        )
+    return out
+
+
+def _rows4(values: list) -> list[tuple]:
+    """``values`` four fields to a line."""
+    return [tuple(values[i : i + 4]) for i in range(0, len(values), 4)]
+
+
+def _is_rotation(load) -> bool:
+    """A ``LoadRotation``: a bare ``Load`` of type ``acc_rot`` says no axis or origin, and is left out (reported)."""
+    from ada.fem.loads import LoadRotation
+
+    return isinstance(load, LoadRotation)
+
+
+#: The FEM whose nodes the deck writes, while one deck is written (``writer.to_fem``): a rotation load is an inertia
+#: load per node (:func:`load_rotation`).
+_deck_fems: list = []
+
+
+@contextlib.contextmanager
+def deck_fem(fem):
+    _deck_fems.append(fem)
+    try:
+        yield fem
+    finally:
+        _deck_fems.pop()
+
+
+def _rotation_nodes(load) -> list:
+    """The nodes a rotation load acts on: those of its element (or node) set, or every node of the deck."""
+    fs = load.fem_set
+    if fs is None:
+        return list(_deck_fems[-1].nodes) if _deck_fems else []
+    if fs.type == "nset":
+        return list(fs.members)
+    seen, out = set(), []
+    for el in fs.members:
+        for n in el.nodes:
+            if n.id not in seen:
+                seen.add(n.id)
+                out.append(n)
+    return out
+
+
+def load_rotation(load, load_id: int, ndofs: NodeDofs | None = None) -> str:
+    """A rotating frame (:class:`~ada.fem.LoadRotation`) as Sestra's inertia loads, measured with Sestra 11.3-01
+    (``tests/fem/test_rotation_loads.py``):
+
+    * The angular velocity is one ``BNACCLO`` per node ("general inertia load", BNLOAD's layout, ``LOTYP = 1``)
+      holding the *body's* centripetal acceleration ``-w^2 r`` (``r`` the node's offset from the axis, normal to it),
+      from which Sestra takes the inertia force ``+m w^2 r``: written ``+w^2 r`` instead, the reactions and the tip
+      stretch came out exactly reversed. ``BRIGVE`` (rigid-body velocity) is not a Sestra load type (Sestra 11.3 UM
+      2.7.5): written that way, as this did at first, the case had no load ("No load is specified") and Sestra still
+      reported success.
+    * The angular acceleration of the whole model is ``BRIGAC`` (SIF 7.2.28), the point on the axis and the angular
+      components ``-a e``: again the body's acceleration, Sestra applying ``-m a`` (measured: the spun-up bar's
+      reactions as the closed form). On part of the model (``fem_set``) it goes per node too, ``-a e x (x - o)``,
+      in the same measured convention.
+
+    A node's record carries the node's own NDOF (3 for a node of solids only), and at a node in a rotated frame
+    (``node_frames``) its components are in that frame.
+    """
+    from .node_frames import current as node_frames
+    from .writer import ALL_SIX_DOF
+
+    if ndofs is None:
+        ndofs = ALL_SIX_DOF
+    e = np.asarray(load.axis, dtype=float)
+    o = np.asarray(load.origin, dtype=float)
+    w2, alpha = load.angular_velocity**2, load.angular_acceleration
+    per_node_alpha = alpha != 0.0 and load.fem_set is not None
+    frames = node_frames()
+    out = ""
+    if w2 != 0.0 or per_node_alpha:
+        for node in sorted(_rotation_nodes(load), key=lambda n: n.id):
+            d = np.asarray(node.p, dtype=float) - o
+            acc = np.zeros(3)
+            if w2 != 0.0:
+                acc -= w2 * (d - (d @ e) * e)
+            if per_node_alpha:
+                acc -= alpha * np.cross(e, d)
+            if not np.any(acc):
+                continue
+            ndof = ndofs.ndof(node.id)
+            values = frames.to_local(node.id, [*acc, 0.0, 0.0, 0.0])[:ndof]
+            out += write_ff(
+                "BNACCLO", [(load_id, 1, 0, 0), (internal_node(node.id), ndof, *values[:2]), tuple(values[2:ndof])]
+            )
+    if alpha != 0.0 and not per_node_alpha:
+        point = tuple(float(c) for c in o)
+        vec = -alpha * e
+        out += write_ff(
+            "BRIGAC", [(load_id, 0, 0, 0), (*point, 0), (0.0, 0.0, 0.0, float(vec[0])), (float(vec[1]), float(vec[2]))]
+        )
+    return out
+
+
+def _local_axes(csys) -> np.ndarray | None:
+    """The rows of the local x, y, z unit vectors in global axes (:meth:`ada.fem.common.Csys.axes`), ``None`` for a
+    system that is not rectangular or not given by coordinates."""
+    return csys.axes()
 
 
 def _global_forces(load: Load) -> list[float]:
-    """The load's six components in global axes.
-
-    ``Load.forces_global`` applies the inverse rotation -- a force along local x of a system
-    whose x axis is global y came out along *minus* global y -- so the rotation is done
-    here: ``f_global = R^T f_local`` with ``R``'s rows the local axes.
-    """
-    forces = [float(f) for f in load.forces]
-    if load.csys is None:
-        return forces
-    rt = _local_axes(load.csys).T
-    return [float(v) for v in np.concatenate([rt @ forces[:3], rt @ forces[3:6]])]
+    """The load's six components in global axes (``Load.forces_global``: ``f_global = R^T f_local`` with ``R``'s rows
+    the local axes)."""
+    return [float(f) for f in load.forces_global]
 
 
 #: BEUSLO's LOTYP for a surface pressure: one intensity per element node, normal to the
@@ -388,13 +565,17 @@ def load_pressure(load: Load, load_id: int) -> str:
     0.1733333333. So BEUSLO's own load integration *is* the consistent load vector, and the
     summed reaction is 2000.0 N against ``q L b`` = 2000 exactly.
 
-    What is refused rather than approximated, each by name: a pressure on beams, solids, point
-    masses or springs (BEUSLO's SIDE numbering for a solid face is not established here, and the
-    others have no surface at all), on a node-based surface (BEUSLO names an element and a side),
+    A pressure on a solid face is the element side with the same nodes in Sesam's own side
+    numbering (:mod:`.solid_sides`, from the Sesam Input Interface File description).
+
+    What is refused rather than approximated, each by name: a pressure on beams, point masses or
+    springs (no surface at all), on a node-based surface (BEUSLO names an element and a side),
     on an element with no Sesam element type, and a ``LoadPressure`` whose magnitude is a total
     force rather than a pressure.
     """
-    from ada.fem.shapes.definitions import ShellShapes
+    from ada.fem.shapes.definitions import ShellShapes, SolidShapes
+
+    from .solid_sides import sesam_side, side_code
 
     rep = report()
     region = _pressure_region(load)
@@ -421,23 +602,103 @@ def load_pressure(load: Load, load_id: int) -> str:
         # Sorted by element id: a set is a list and a surface may name several, and the deck
         # must not depend on which order they came out of the model.
         for el in sorted(members, key=lambda e: e.id):
+            if isinstance(getattr(el, "type", None), SolidShapes):
+                # A solid face: its Sesam side number as a SIDE digit pattern, one intensity per node of
+                # the side in the side's own order, positive into the element (solid_sides).
+                found = sesam_side(el, side)
+                if found is None:
+                    why = f"a pressure on a {el.type} element whose side {side!r} names no Sesam element side"
+                    refused.setdefault(why, []).append(str(el.id))
+                    continue
+                number, nodes = found
+                out += write_ff(
+                    "BEUSLO",
+                    [
+                        (load_id, PRESSURE_LOTYP, 0, PRESSURE_LAYER),
+                        (internal(el.id), len(nodes), PRESSURE_INTNO, side_code(el.type, number)),
+                        *_four_per_line([_pressure_value(load, n) for n in nodes]),
+                    ],
+                )
+                continue
             why = _pressure_refusal(el, resolved, ShellShapes)
             if why is not None:
                 refused.setdefault(why, []).append(str(el.id))
                 continue
             beuslo_side, sign = resolved
-            intensity = sign * float(load.magnitude)
+            # One intensity per node: a varying pressure's own value there (GeniE's LC_press_lin and
+            # LC_press_3pt, 1000 + 500 x, were written that way), the one value of a uniform one.
+            pressure_at = getattr(load, "pressure_at", None)
+            if pressure_at is None or getattr(load, "gradient", None) is None:
+                intensities = tuple([sign * float(load.magnitude)] * len(el.nodes))
+            else:
+                intensities = tuple(sign * pressure_at(n.p) for n in el.nodes)
             out += write_ff(
                 "BEUSLO",
                 [
                     (load_id, PRESSURE_LOTYP, 0, PRESSURE_LAYER),
-                    (el.id, len(el.nodes), PRESSURE_INTNO, beuslo_side),
-                    tuple([intensity] * len(el.nodes)),
+                    (internal(el.id), len(el.nodes), PRESSURE_INTNO, beuslo_side),
+                    *_four_per_line(intensities),
                 ],
             )
     for why, ids in sorted(refused.items()):
         rep.omitted(STAGE, "Load", load.name, why, elements=sorted(ids, key=int)[:10], n_elements=len(ids))
     return out
+
+
+#: BEUSLO's LOTYP for a surface load by components: three global components per node, GeniE's form of a
+#: ``component2d_constant`` (``genie_loads_all_kinds_T1.FEM``, LC_comp: ``BEUSLO 14 2 0 0 / ELNO 12 0 2`` and
+#: ``fx fy fz`` at each of the four nodes).
+TRACTION_LOTYP = 2
+
+
+def load_traction(load, load_id: int) -> str:
+    """A surface traction (:class:`~ada.fem.LoadSurfaceTraction`) as one BEUSLO per shell element of its surface:
+    LOTYP 2, NDOF three per node, the traction's global components at each node, as GeniE writes it. Solids and
+    anything but a shell are refused by name."""
+    from ada.fem.shapes.definitions import ShellShapes
+
+    rep = report()
+    groups = _pressure_groups(_pressure_region(load))
+    if groups is None:
+        rep.omitted(STAGE, "Load", load.name, "a traction on a node-based surface has no BEUSLO form")
+        return ""
+    out, refused = "", []
+    for members, side in groups:
+        resolved = _pressure_side_and_sign(side)
+        for el in sorted(members, key=lambda e: e.id):
+            if not isinstance(getattr(el, "type", None), ShellShapes) or resolved is None:
+                refused.append(str(getattr(el, "id", el)))
+                continue
+            beuslo_side, _ = resolved
+            values = [c for _ in el.nodes for c in load.traction]
+            out += write_ff(
+                "BEUSLO",
+                [
+                    (load_id, TRACTION_LOTYP, 0, PRESSURE_LAYER),
+                    (internal(el.id), len(values), PRESSURE_INTNO, beuslo_side),
+                    *_four_per_line(values),
+                ],
+            )
+    if refused:
+        rep.omitted(
+            STAGE, "Load", load.name, "a traction on an element that is not a shell face", elements=refused[:10]
+        )
+    return out
+
+
+def _four_per_line(values) -> list[tuple]:
+    """``values`` as record lines of four fields, the most a Sesam line holds. A longer line is read short: Sestra
+    refused a 6- and an 8-node side's intensities written on one line ("BEUSLO card is too short for dof count given
+    in NDOF field")."""
+    values = list(values)
+    return [tuple(values[i : i + 4]) for i in range(0, len(values), 4)]
+
+
+def _pressure_value(load: Load, node) -> float:
+    """The load's pressure at ``node``: its field's value there if it varies, else its magnitude."""
+    if getattr(load, "gradient", None) is not None:
+        return load.pressure_at(node.p)
+    return float(load.magnitude)
 
 
 def _pressure_groups(region):
@@ -468,10 +729,7 @@ def _pressure_refusal(el, resolved, shell_shapes) -> str | None:
         # crashed on: ``el.type`` used to raise AttributeError here and lose the whole deck.
         return "a pressure on a node; BEUSLO names an element and a side"
     if not isinstance(el_type, shell_shapes):
-        return (
-            f"a pressure on a {el_type} element has no BEUSLO form; BEUSLO is a shell surface load "
-            "(the Sesam SIDE numbering of a solid face is not established here)"
-        )
+        return f"a pressure on a {el_type} element has no BEUSLO form; BEUSLO loads shell and solid faces"
     if el_type not in sesam_reverse:
         return f"a pressure on a {el_type} element, which has no Sesam element type and is not in the deck"
     if resolved is None:
@@ -483,7 +741,8 @@ def load_force(load: Load, load_id: int, ndofs: NodeDofs | None = None) -> str:
     """One BNLOAD per node of the load's node set.
 
     Written in global axes: a load given in a local coordinate system is rotated into the
-    global one (:func:`_global_forces`). The writer used to write its local components as
+    global one (:func:`_global_forces`) -- and at a node a skewed support transformed
+    (``node_frames``), into that node's frame, which BNLOAD is then in. The writer used to write its local components as
     though they were global, and only on the set's first node.
 
     BNLOAD's NDOF has to match the node's GNODE, so a 3-dof node — one touched only by
@@ -496,13 +755,18 @@ def load_force(load: Load, load_id: int, ndofs: NodeDofs | None = None) -> str:
     if ndofs is None:
         ndofs = ALL_SIX_DOF
 
+    from .node_frames import current as node_frames
+
     lotype = 0
     complx = 0  # Assumed no phase shift
-    forces = _global_forces(load)
+    global_forces = _global_forces(load)
+    frames = node_frames()
     out = ""
     for node in load.fem_set.members:
         node_no = node.id
         ndof = ndofs.ndof(node_no)
+        # at a node in a rotated frame (a skewed support's, node_frames) BNLOAD is in that frame
+        forces = frames.to_local(node_no, global_forces)
         moments = [dof for dof in (4, 5, 6) if dof > ndof and forces[dof - 1] != 0.0]
         if moments:
             raise ValueError(
@@ -510,7 +774,7 @@ def load_force(load: Load, load_id: int, ndofs: NodeDofs | None = None) -> str:
                 f"which has {ndof} dofs (NDOF={ndof}). A node attached only to solid elements has no "
                 "rotational dofs for a moment to act on."
             )
-        real_loads_1 = tuple([node_no, ndof] + forces[:2])
+        real_loads_1 = tuple([internal_node(node_no), ndof] + forces[:2])
         real_loads_2 = tuple(forces[2:ndof])
         out += write_ff(
             "BNLOAD",
@@ -561,7 +825,7 @@ def load_line(load, load_id: int) -> str:
                 continue
             out += write_ff(
                 "BELOAD1",
-                [(load_id, LINE_LOTYP, 0, LINE_OPT_GLOBAL), (el.id, seg.l1, seg.l2, 6), (0, *q[:3]), q[3:]],
+                [(load_id, LINE_LOTYP, 0, LINE_OPT_GLOBAL), (internal(el.id), seg.l1, seg.l2, 6), (0, *q[:3]), q[3:]],
             )
         else:
             if el.type not in (ShellShapes.TRI, ShellShapes.QUAD) or seg.l1 != 0.0 or seg.l2 != 0.0:
@@ -571,7 +835,7 @@ def load_line(load, load_id: int) -> str:
                 continue
             out += write_ff(
                 "BELLO2",
-                [(load_id, EDGE_LOTYP, 0, 0), (el.id, 6, 0, seg.edge), (0, *q[:3]), q[3:]],
+                [(load_id, EDGE_LOTYP, 0, 0), (internal(el.id), 6, 0, seg.edge), (0, *q[:3]), q[3:]],
             )
     for why, ids in sorted(refused.items()):
         rep.omitted(STAGE, "Load", load.name, why, elements=sorted(ids, key=int)[:10], n_elements=len(ids))

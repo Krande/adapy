@@ -7,7 +7,7 @@ from ada.fem import StepEigen, StepImplicitStatic
 if TYPE_CHECKING:
     from ada.api.spatial import Assembly, Part
 
-from .steps import dynamic, eigen, static
+from .steps import buckle, dynamic, eigen, static
 
 
 def all_steps(assembly: Assembly) -> list:
@@ -27,11 +27,20 @@ def result_names(steps) -> list[str]:
     ``result3``, ... for the next. Every step was written into ``result``, so a second step overwrote the first in the
     deck and in the MED file. Eight characters at most: the MED field name is the concept name padded to 8 plus the
     field's (``result__DEPL``)."""
-    names, n = [], 0
+    names, n, b = [], 0, 0
     for step in steps:
         if step.type == StepEigen.TYPES.STATIC:
             n += 1
             names.append("result" if n == 1 else f"result{n}")
+        elif step.type == StepEigen.TYPES.DYNAMIC:
+            # an implicit dynamic step's time history (steps.dynamic)
+            d = sum(1 for nm in names if nm.startswith("dyn")) + 1
+            names.append("dyn" if d == 1 else f"dyn{d}")
+            continue
+        elif step.type == StepEigen.TYPES.BUCKLING:
+            # a buckling step's modes: ``buckle``, ``buckle2``, ... (steps.buckle)
+            b += 1
+            names.append("buckle" if b == 1 else f"buckle{b}")
         else:
             names.append("")
     if n > 99:
@@ -56,21 +65,23 @@ def case_shell_pressures(steps, part: Part) -> dict[str, dict[int, dict[int, flo
 
     from .steps.static_lin import step_cases
     from .write_constraints import step_charges
-    from .write_loads import STAGE, net_shell_pressures
+    from .write_loads import STAGE, net_shell_pressures, nettable_pressure
 
     cables = any(fs.is_cable for fs in part.fem.sections.lines)
     out: dict[str, dict[int, dict[int, float]]] = {}
     with conversion_report.collect():  # the step writers report what they find; this only reads the cases
         applied = general_step_loads(steps, STAGE)
         for step, result in zip(steps, result_names(steps)):
-            if not result or cables or (step.nl_geom is True and len(step.load_cases) == 0):
+            # static steps only: a dynamic (``dyn``) or buckling (``buckle``) step's order numbers are no load cases
+            if not result.startswith("result") or cables or (step.nl_geom is True and len(step.load_cases) == 0):
                 continue
             try:
                 cases = step_cases(step, applied.get(id(step)) or [], step_charges(part, step).bcs)
                 table = {}
                 for k, (_, loads) in enumerate(cases, start=1):
                     pressures = [ld for ld in loads if ld.type == ld.TYPES.PRESSURE]
-                    if pressures:
+                    if pressures and all(nettable_pressure(ld) for ld in pressures):
+                        # a case with a solid or varying pressure has no single value per shell: left out
                         net = net_shell_pressures(pressures)
                         table[k] = {el_id: -pres for (_, el_id), (_, pres) in sorted(net.items())}
             except UnsupportedLoadType:
@@ -93,8 +104,11 @@ def steps_str(steps, part: Part) -> str:
     from .write_loads import STAGE
 
     applied = general_step_loads(steps, STAGE)
+    # ``# Step <name>: <result>`` names each static step's result for the reader (results.structural.comm_step_names).
     return "\n".join(
-        create_step_str(step, part, result, applied.get(id(step))) for step, result in zip(steps, result_names(steps))
+        (f"# Step {step.name}: {result}\n" if result else "")
+        + create_step_str(step, part, result, applied.get(id(step)))
+        for step, result in zip(steps, result_names(steps))
     )
 
 
@@ -105,6 +119,10 @@ def create_step_str(
     st = StepEigen.TYPES
     if step.type == st.STATIC:
         return static.step_static_str(step, part, result, loads or [])
+    if step.type == st.BUCKLING:
+        return buckle.step_buckle_str(step, part, result or "buckle")
+    if step.type == st.DYNAMIC:
+        return dynamic.step_dynamic_str(step, part, result or "dyn")
     step_map = {st.EIGEN: eigen.step_eig_str, st.DYNAMIC: dynamic.step_dynamic_str}
 
     step_writer = step_map.get(step.type, None)

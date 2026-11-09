@@ -25,6 +25,7 @@ from __future__ import annotations
 import json
 import os
 import pathlib
+import re
 from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Any
@@ -255,15 +256,35 @@ def open_rmed_result(path: str | os.PathLike):
     mesh.concept_names = concept_names
     mesh.restrained_nodes = frozenset(int(n) for n in side.get("restrained_nodes", ()))
 
+    # One result concept per static step (``result``, ``result2``, ...; write_steps.result_names), each with its
+    # order numbers. One result: its order numbers are the cases, as before. Several: each (result, order number) is
+    # a case of its own, numbered on, named after its step. Only ``result`` used to be read, the later steps' results
+    # left out without a word.
     with h5py.File(rmed, "r") as f:
-        depl = _field(f, "DEPL")
-        stored = sorted(int(s.attrs["NDT"]) for s in f["CHA"][depl].values()) if depl else []
-    case_names = comm_case_names(rmed.with_suffix(".comm")) or {}
+        prefixes = _result_prefixes(f)
+        pairs = [
+            (pre, ndt)
+            for pre in prefixes
+            for ndt in sorted(int(s.attrs["NDT"]) for s in f["CHA"][pre + "DEPL"].values())
+        ]
+    comm = rmed.with_suffix(".comm")
+    if len(prefixes) <= 1:
+        case_names = comm_case_names(comm) or {}
+        of_case = {ndt: (pre, ndt) for pre, ndt in pairs}
+        names = {ndt: case_names.get(ndt, f"case_{ndt}") for _, ndt in pairs}
+    else:
+        steps = comm_step_names(comm)
+        of_case, names = {}, {}
+        for k, (pre, ndt) in enumerate(pairs, start=1):
+            of_case[k] = (pre, ndt)
+            step = steps.get(pre.rstrip("_"), pre.rstrip("_"))
+            several = sum(1 for p, _ in pairs if p == pre) > 1
+            names[k] = f"{step} {ndt}" if several else step
     cases = ResultCases(
-        stored=stored,
-        loader=_Loader(rmed, cells, thickness, frames, beam_of),
-        names={s: case_names.get(s, f"case_{s}") for s in stored},
-        pressures=_shell_pressures(side, depl, stored),
+        stored=sorted(of_case),
+        loader=_Loader(rmed, cells, thickness, frames, beam_of, of_case),
+        names=names,
+        pressures=_shell_pressures(side, of_case),
     )
     return FEAResult(
         rmed.stem,
@@ -274,27 +295,81 @@ def open_rmed_result(path: str | os.PathLike):
         step_name_map=dict(cases.names),
         cases=cases,
         analysis_kind="static",
+        buckling_factors=read_buckling_factors(rmed),
     )
 
 
-def _shell_pressures(side: dict, depl: str | None, stored: list[int]) -> dict[int, dict[int, float]]:
-    """``{order number: {element: p}}``: the shell pressures of the result read (``depl``, its displacement field) by
-    case, from the sidecar (``shell_pressures``, v7, ``..write.write_steps.case_shell_pressures``) -- the net
-    pressure on each element, positive along its normal, as the SIN reader gives BEUSLO's. Empty for a sidecar
-    without them (an older one, or a model without pressures)."""
+def _shell_pressures(side: dict, of_case: dict[int, tuple[str, int]]) -> dict[int, dict[int, float]]:
+    """``{case: {element: p}}``: the shell pressures of each case read (``of_case``: case -> (MED field prefix, order
+    number), :func:`open_rmed_result`), from the sidecar (``shell_pressures``, v7,
+    ``..write.write_steps.case_shell_pressures``, by result concept and order number) -- the net pressure on each
+    element, positive along its normal, as the SIN reader gives BEUSLO's. Empty for a sidecar without them (an older
+    one, or a model without pressures)."""
     by_result = side.get("shell_pressures") or {}
-    if not by_result or depl is None:
+    if not by_result:
         return {}
-    # The field is the result concept padded to 8 characters with "_" and the field's name (``result__DEPL``).
-    concept = depl[: -len("DEPL")].rstrip("_") if len(depl) > len("DEPL") else None
-    cases = by_result.get(concept) if concept else (next(iter(by_result.values())) if len(by_result) == 1 else None)
-    if not cases:
+    # The field prefix is the result concept padded to 8 characters with "_" (``result__DEPL``).
+    concepts = sorted({pre.rstrip("_") for pre, _ in of_case.values()})
+    out: dict[int, dict[int, float]] = {}
+    for concept in concepts:
+        tables = by_result.get(concept)
+        if tables is None and len(concepts) == 1 and len(by_result) == 1:
+            tables = next(iter(by_result.values()))
+        if not tables:
+            continue
+        tables = {int(k): {int(e): float(p) for e, p in t.items()} for k, t in tables.items()}
+        mine = sorted((case, ndt) for case, (pre, ndt) in of_case.items() if pre.rstrip("_") == concept)
+        if len(mine) == 1 and set(tables) == {1} and mine[0][1] != 1:
+            # A step without load cases is one case: its order number is whatever the solver gave it.
+            tables = {mine[0][1]: tables[1]}
+        for case, ndt in mine:
+            if ndt in tables:
+                out[case] = tables[ndt]
+    return out
+
+
+#: ``# Step <name>: <result>`` -- the comment the writer puts before each static step (write_steps.steps_str).
+_STEP_COMMENT = re.compile(r"^# Step (.*): (result\d*)$", re.M)
+
+
+def comm_step_names(comm: pathlib.Path) -> dict[str, str]:
+    """``{result concept: step name}`` of a command file, from the writer's step comments; {} without them."""
+    if not comm.exists():
         return {}
-    out = {int(k): {int(e): float(p) for e, p in table.items()} for k, table in cases.items()}
-    if len(stored) == 1 and set(out) == {1} and stored != [1]:
-        # A step without load cases is one case: its order number is whatever the solver gave it.
-        out = {stored[0]: out[1]}
-    return {k: v for k, v in out.items() if k in set(stored)}
+    return {
+        res: name.strip() for name, res in _STEP_COMMENT.findall(comm.read_text(encoding="utf-8", errors="replace"))
+    }
+
+
+def _result_prefixes(f: h5py.File) -> list[str]:
+    """The MED field-name prefixes of the result concepts holding a DEPL (the concept name padded to 8 characters:
+    ``result__``, ``result2_``), in step order."""
+    # the static steps' (``result``, ``result2``, ...): a buckling step's modes (``buckle__DEPL``) are not a case
+    pres = [
+        n[: -len("DEPL")]
+        for n in f["CHA"]
+        if n.endswith("DEPL") and len(n) == 8 + len("DEPL") and n.startswith("result")
+    ]
+    if not pres:
+        pres = [n[: -len("DEPL")] for n in f["CHA"] if n.endswith("DEPL") and not n.startswith("buckle")]
+
+    def order(pre: str):
+        stem = pre.rstrip("_")
+        digits = stem[len(stem.rstrip("0123456789")) :]
+        return (int(digits) if digits else 1, pre)
+
+    return sorted(pres, key=order)
+
+
+def _field_of(f: h5py.File, prefix: str, suffix: str) -> str | None:
+    name = prefix + suffix
+    return name if name in f["CHA"] else None
+
+
+def read_buckling_factors(rmed):
+    from .read_rmed_results import read_buckling_factors as read
+
+    return read(rmed)
 
 
 def _field(f: h5py.File, suffix: str) -> str | None:
@@ -318,6 +393,8 @@ class _Loader:
     thickness: dict[int, float]
     frames: dict[int, np.ndarray]
     beam_of: dict[int, dict]
+    #: ``{case: (result field prefix, order number)}``
+    of_case: dict = None
 
     def __call__(self, steps, roles, elements, complex_phase) -> Iterator:
         from ada.fem.results.common import FEAResult, FEATypes
@@ -332,9 +409,13 @@ class _Loader:
             raise ValueError("Code_Aster results hold no complex cases")
         want = set(FieldRole) if roles is None else set(roles)
         with h5py.File(self.rmed, "r") as f:
-            depl, reac, efge = _field(f, "DEPL"), _field(f, "REAC_NODA"), _field(f, "EFGE_ELNO")
-            comps = f["CHA"][efge].attrs["NOM"].decode().split() if efge else []
-            for ndt in steps:
+            for case in steps:
+                pre, ndt = (self.of_case or {}).get(int(case), (None, int(case)))
+                if pre is None:
+                    depl, reac, efge = _field(f, "DEPL"), _field(f, "REAC_NODA"), _field(f, "EFGE_ELNO")
+                else:
+                    depl, reac, efge = (_field_of(f, pre, s) for s in ("DEPL", "REAC_NODA", "EFGE_ELNO"))
+                comps = f["CHA"][efge].attrs["NOM"].decode().split() if efge else []
                 fields = []
                 for role, name, ftype in (
                     (FieldRole.NODAL_DISPLACEMENT, depl, NodalFieldType.DISP),
@@ -382,7 +463,7 @@ class _Loader:
                                 role=FieldRole.BEAM_FORCES,
                             )
                         )
-                yield int(ndt), FEAResult(self.rmed.stem, FEATypes.CODE_ASTER, fields, None)
+                yield int(case), FEAResult(self.rmed.stem, FEATypes.CODE_ASTER, fields, None)
 
     def _shell_rows(self, f, efge, comps, med_type, ndt) -> np.ndarray | None:
         step = _step(f, efge, ndt)

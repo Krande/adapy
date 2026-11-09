@@ -56,9 +56,16 @@ def run_code_aster(
     # (eigen steps write IMPR_TABLE(... UNITE=81 ...)); avoids declaring a
     # result file the run never produces for non-eigen analyses.
     comm_path = pathlib.Path(inp_path).with_suffix(".comm")
-    emits_modal_mass = comm_path.exists() and "UNITE=81" in comm_path.read_text(encoding="utf-8", errors="ignore")
+    comm_text = comm_path.read_text(encoding="utf-8", errors="ignore") if comm_path.exists() else ""
+    emits_modal_mass = "UNITE=81" in comm_text
+    # a buckling step prints its critical load factors to unit 82 (write/steps/buckle.py)
+    emits_buckling = "UNITE=82" in comm_text
     with open(inp_path, "w") as f:
-        f.write(write_export_file(name, cpus, emits_modal_mass=emits_modal_mass, time_limit=timeout))
+        f.write(
+            write_export_file(
+                name, cpus, emits_modal_mass=emits_modal_mass, emits_buckling=emits_buckling, time_limit=timeout
+            )
+        )
 
     out = ca.run(exit_on_complete=exit_on_complete)
     if isinstance(out, subprocess.CompletedProcess):
@@ -160,7 +167,13 @@ class CodeAsterExecute(LocalExecute):
         return out
 
 
-def write_export_file(name: str, cpus: int, emits_modal_mass: bool = False, time_limit: float | None = None):
+def write_export_file(
+    name: str,
+    cpus: int,
+    emits_modal_mass: bool = False,
+    emits_buckling: bool = False,
+    time_limit: float | None = None,
+):
     """The ``.export`` file of a run. ``time_limit``: Code_Aster's own limit in seconds (``P time_limit``), 900 when
     not given; a run given a longer ``timeout`` gets that, so Code_Aster does not stop it first."""
     limit = 900 if time_limit is None else max(900, int(math.ceil(time_limit)))
@@ -181,6 +194,9 @@ F rmed {name}.rmed R 80"""
         # CSV on unit 81 (see write/steps/eigen.py); the reader picks it up
         # next to the .rmed.
         export_str += f"\nF libr {name}.modalmass.csv R 81"
+    if emits_buckling:
+        # a buckling step's critical load factors (write/steps/buckle.py); the reader gives them as buckling_factors
+        export_str += f"\nF libr {name}.buckling.csv R 82"
 
     return export_str
 

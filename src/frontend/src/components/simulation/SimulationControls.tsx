@@ -49,6 +49,7 @@ import StopIcon from "../icons/StopIcon";
 import SimulationDataInfoPanel from "./SimulationDataInfoPanel";
 import FEMDataPanelIcon from "../icons/FEMDataPanelIcon";
 import AnimationExportButton from "./AnimationExportButton";
+import {IS_EMBED_BUILD} from "@/runtime/embedBuild";
 import {FIELD_CONTROL, TRANSPORT_BUTTON, TRANSPORT_BUTTON_ON} from "./controlStyles";
 import DeformScaleIcon from "../icons/DeformScaleIcon";
 import {formatStepTime} from "@/utils/scene/fea/timeHistory";
@@ -832,7 +833,8 @@ const FeaModeControls: React.FC<ControlPanelProps & {display?: ResultControlsOpt
                 >
                     <FEMDataPanelIcon/>
                 </button>
-                {!mirrored && <AnimationExportButton/>}
+                {/* The embed has no MP4 encoder (vite.config.embed.ts stubs it out). */}
+                {!mirrored && !IS_EMBED_BUILD && <AnimationExportButton/>}
                 {!inline && (
                 <button
                     className={`${TRANSPORT_BUTTON} ${showOptions ? TRANSPORT_BUTTON_ON : ""}`}

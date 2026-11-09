@@ -23,9 +23,13 @@ Variants (``e1`` is the offset at the start node, ``e2`` at the end node)::
     c   up = (0, 0,  1)   e1 = (0, 0.2, 0.1)   e2 = (0, -0.2, 0.1)
     d   up = (0, 0, -1)   e1 = (0, 0, 0.15)    e2 = (0.3, 0, 0.15)
 
-Where a beam lands: a Sesam GECCEN vector is added to the node to reach the beam
-end, and ``Beam.e1``/``e2`` are that vector's NEGATION (the geometry path starts its
-offsets from ``-e``), so the solids sit at ``node - e``. ``a`` is the reference. ``b``
+Where a beam lands: a Sesam GECCEN vector is added to the node to reach the section
+CENTROID at the beam end, and ``Beam.e1``/``e2`` are that vector's NEGATION (the geometry
+path starts its offsets from ``-e``), so the solids sit at ``node - e``. For a section
+drawn on its centroid that is all there is to it; an angle (HP) and a T (TG) have their
+profile origin elsewhere, so their GECCEN also holds the centroid's place against it
+(issue #419) -- ``-e`` plus ``Cgz - h`` for the angle, ``Cgz - h/2`` for the T -- and the
+deck carries three sets of offset records rather than one. ``a`` is the reference. ``b``
 lifts the whole beam 0.3 m ABOVE its nodes without tilting it. ``c`` gives the two
 ends opposite Y offsets (-0.2 at the start, +0.2 at the end, both 0.1 below), so the
 beam axis is rotated away from the node line -- if a viewer applies one end's offset

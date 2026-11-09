@@ -105,8 +105,10 @@ class FemElements:
 
     def _renumber_from_map(self, renumber_map):
         for el in sorted(self._elements, key=attrgetter("id")):
-            if isinstance(el, Mass) or el.type == Elem.EL_TYPES.MASS_SHAPES.MASS:
-                # Mass elements are points and have been renumbered during node-renumbering
+            if (isinstance(el, Mass) or el.type == Elem.EL_TYPES.MASS_SHAPES.MASS) and el.id not in renumber_map:
+                # A nodal mass (BNMASS) is given an id of its own past every internal number; a mass *element*
+                # (GELMNT1) is numbered like the rest, and is renumbered with them -- a deck whose internal and
+                # external numbers differ read its mass elements back under the internal ones.
                 continue
             el.id = renumber_map[el.id]
 

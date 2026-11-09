@@ -5,6 +5,7 @@ from ada.config import logger
 from ada.core.utils import Counter, make_name_fem_ready
 from ada.fem import FemSection
 
+from .element_numbers import internal
 from .write_utils import write_ff
 
 shid = Counter(1)
@@ -142,7 +143,7 @@ def create_sconcept_str(fem_sec: FemSection) -> ConceptStructure:
             elids.append(tuple(elid_bulk))
             elid_bulk = []
             i = -1
-        elid_bulk.append(el.id)
+        elid_bulk.append(internal(el.id))  # SCONMESH names elements by their internal number
         i += 1
     if len(elid_bulk) != 0:
         elids.append(tuple(elid_bulk))

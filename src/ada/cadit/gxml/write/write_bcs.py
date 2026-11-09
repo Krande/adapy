@@ -14,6 +14,15 @@ if TYPE_CHECKING:
     from ada import BeamHingeDofType, Part
 
 
+def _global_frame(owner, local_system):
+    """A concept support's frame rows in global components (turned with ``owner``), or None."""
+    if local_system is None:
+        return None
+    from ada.api.transforms import to_global_vectors
+
+    return [tuple(float(x) for x in r) for r in to_global_vectors(owner, local_system)]
+
+
 def add_fem_boundary_conditions(root: ET.Element, part: Part):
     dof_map = {y: x for x, y in dict(dx=1, dy=2, dz=3, rx=4, ry=5, rz=6).items()}
 
@@ -35,7 +44,10 @@ def add_fem_boundary_conditions(root: ET.Element, part: Part):
 
                 bc_stru = ET.SubElement(root, "structure")
                 sup_point = ET.SubElement(bc_stru, "support_point", {"name": name})
-                sup_point.append(add_local_system(X, Y, Z))
+                # a Bc in a rotated frame (Bc.csys) holds its dofs along that frame's axes
+                axes = bc.csys.axes() if bc.csys is not None else None
+                frame = [tuple(float(x) for x in r) for r in axes] if axes is not None else (X, Y, Z)
+                sup_point.append(add_local_system(*frame))
                 geom = ET.SubElement(sup_point, "geometry")
                 ET.SubElement(geom, "position", {"x": str(p.x), "y": str(p.y), "z": str(p.z)})
                 bc_con = ET.SubElement(sup_point, "boundary_conditions")
@@ -72,15 +84,18 @@ def add_support_curve(
     start_pos: tuple,
     end_pos: tuple,
     dof_constraints: list[ConstraintConceptDofType],
+    local_system=None,
 ):
     """
     Adds a <support_curve> element with full boundary conditions using the new <line> syntax.
+
+    ``local_system``: the rows x', y', z' (global components) the dofs are in; None for global axes.
     """
     structure_elem = ET.SubElement(structures_elem, "structure")
     curve_elem = ET.SubElement(structure_elem, "support_curve", {"name": name})
 
     # Add local coordinate system
-    curve_elem.append(add_local_system(X, Y, Z))
+    curve_elem.append(add_local_system(*(local_system if local_system is not None else (X, Y, Z))))
 
     # Geometry with <line> inside <wire>
     geom = ET.SubElement(curve_elem, "geometry")
@@ -100,16 +115,22 @@ def add_support_curve(
 
 
 def add_support_point(
-    structures_elem: ET.Element, name: str, pos: tuple, dof_constraints: list[ConstraintConceptDofType]
+    structures_elem: ET.Element,
+    name: str,
+    pos: tuple,
+    dof_constraints: list[ConstraintConceptDofType],
+    local_system=None,
 ):
     """
     Adds a <support_point> element with full boundary conditions.
+
+    ``local_system``: the rows x', y', z' (global components) the dofs are in; None for global axes.
     """
     structure_elem = ET.SubElement(structures_elem, "structure")
     point_elem = ET.SubElement(structure_elem, "support_point", {"name": name})
 
     # Add local coordinate system
-    point_elem.append(add_local_system(X, Y, Z))
+    point_elem.append(add_local_system(*(local_system if local_system is not None else (X, Y, Z))))
 
     geom = ET.SubElement(point_elem, "geometry")
     ET.SubElement(geom, "position", {"x": str(pos[0]), "y": str(pos[1]), "z": str(pos[2])})
@@ -126,6 +147,7 @@ def add_support_rigid_link(
     dof_constraints: list[ConstraintConceptDofType],
     include_all_edges: bool = True,
     rotation_dependent: bool = True,
+    slave_translations=("dx", "dy", "dz"),
 ):
     """
     Adds a <support_rigid_link> element with boundary conditions and footprint box region.
@@ -138,6 +160,8 @@ def add_support_rigid_link(
             "name": name,
             "include_all_edges": str(include_all_edges).lower(),
             "rotation_dependent": str(rotation_dependent).lower(),
+            # a free slave translation, as GeniE writes one (slave_dx="free")
+            **{f"slave_{d}": "free" for d in ("dx", "dy", "dz") if d not in slave_translations},
         },
     )
 
@@ -193,6 +217,7 @@ def add_concept_constraints(root: ET.Element, part: Part) -> None:
             name=point.name,
             pos=(float(p[0]), float(p[1]), float(p[2])),
             dof_constraints=point.dof_constraints,
+            local_system=_global_frame(owner, getattr(point, "local_system", None)),
         )
     for cname, curve in constraint_concepts.curve_constraints.items():
         pt1, pt2 = to_global_points(curve.parent.parent_fem.parent_part, [curve.start_pos, curve.end_pos])
@@ -202,6 +227,7 @@ def add_concept_constraints(root: ET.Element, part: Part) -> None:
             start_pos=tuple(pt1),
             end_pos=tuple(pt2),
             dof_constraints=curve.dof_constraints,
+            local_system=_global_frame(curve.parent.parent_fem.parent_part, curve.local_system),
         )
 
     for rigid_name, rigid_link in constraint_concepts.rigid_links.items():
@@ -224,4 +250,5 @@ def add_concept_constraints(root: ET.Element, part: Part) -> None:
             # left at the function's defaults, every rigid link was written rotation dependent.
             include_all_edges=rigid_link.include_all_edges,
             rotation_dependent=rigid_link.rotation_dependent,
+            slave_translations=rigid_link.slave_translations,
         )

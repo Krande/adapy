@@ -30,9 +30,9 @@ from ada.fem.formats import conversion_report
 STAGE = "concept to fem"
 FILES = pathlib.Path(__file__).resolve().parents[3] / "files" / "fem_files" / "sesam"
 
-#: The load cases whose loads the GeniE XML reader refuses (each reported there): a varying pressure (two kinds), a
-#: component traction, a polygon pressure. adapy writes them as empty load cases.
-REFUSED_BY_READER = {"LC_press_3pt", "LC_press_lin", "LC_comp", "LC_poly"}
+#: The load cases whose loads the GeniE XML reader refuses (each reported there). adapy writes them as empty load
+#: cases. (LC_comp, a component traction, is read now: BEUSLO LOTYP 2.)
+REFUSED_BY_READER: set = set()
 
 #: GeniE's own resultant per load case (summed force, moment of the BNLOADs about their node), read off
 #: ``genie_loads_all_kinds_T1.FEM``. adapy's deck must give the same.
@@ -48,7 +48,14 @@ GENIE_RESULTANTS = {
     "LC_ll_plate_edge": ((0, 0, -500), (0, 0, 0)),
     "LC_press_u": ((0, 0, -4000), (0, 0, 0)),
     "LC_press_back": ((0, 0, 4000), (0, 0, 0)),
+    # 1000 + 500 x Pa on the front of the 4 x 1 m plate, twice (three points; a linear function): 2000 Pa on average
+    "LC_press_3pt": ((0, 0, -8000), (0, 0, 0)),
+    "LC_press_lin": ((0, 0, -8000), (0, 0, 0)),
+    # 1000 Pa over a 2 x 0.5 m polygon wound +z: eight half-covered 0.5 m elements at 500 Pa, along +z.
+    "LC_poly": ((0, 0, 1000), (0, 0, 0)),
     "LC_grav": ((0, 0, 0), (0, 0, 0)),
+    # (100, 0, -1000) Pa by components (LOTYP 2) on the front of the 4 x 1 m plate
+    "LC_comp": ((400, 0, -4000), (0, 0, 0)),
 }
 
 
@@ -112,6 +119,11 @@ def load_records(fem_path) -> dict[str, dict[tuple, tuple]]:
             if b < a:
                 a, b, q = b, a, q[3:] + q[:3]
             out[names[int(v[0])]][("BELLO2", a, b)] = q
+        elif name == "BEUSLO" and int(v[1]) == 2:
+            # by components: three per node, compared as given (and the element side)
+            xs = [coord[k] for k in elnodes[int(v[4])]]
+            comps = _round(v[8 : 8 + int(v[5])])
+            out[names[int(v[0])]][("BEUSLO", _key(np.mean(xs, axis=0)))] = (comps, int(v[1]), int(v[7]))
         elif name == "BEUSLO":
             xs = [coord[k] for k in elnodes[int(v[4])]]
             normal = _shell_normal(xs)
@@ -154,6 +166,11 @@ def resultants(fem_path) -> dict[str, tuple[tuple, tuple]]:
                 length = np.linalg.norm(b - a)
             q = np.asarray(v[9:15], dtype=float)
             force[int(v[0])] += 0.5 * (q[:3] + q[3:]) * length
+        elif name == "BEUSLO" and int(v[1]) == 2:
+            # by components: the traction times the element's area (_shell_normal's length)
+            xs = [coord[k] for k in elnodes[int(v[4])]]
+            per_node = np.asarray(v[8 : 8 + int(v[5])], dtype=float).reshape(-1, 3)
+            force[int(v[0])] += per_node.mean(axis=0) * np.linalg.norm(_shell_normal(xs))
         elif name == "BEUSLO":
             xs = [coord[k] for k in elnodes[int(v[4])]]
             force[int(v[0])] += np.mean(v[8 : 8 + int(v[5])]) * _shell_normal(xs)
@@ -186,6 +203,37 @@ def test_each_load_case_is_genies_records_node_by_node(all_kinds):
         assert adapy[case] == genie[case], case
     for case in sorted(REFUSED_BY_READER):
         assert len(genie[case]) > 0 and adapy[case] == {}, case
+
+
+def _beuslo_by_node(fem_path) -> dict[str, dict[tuple, float]]:
+    """``{load case: {node position: pressure}}`` of every BEUSLO, signed as a push along +z of the element."""
+    recs = _records(fem_path)
+    coord, elnodes, names = {}, {}, {}
+    for name, v in recs:
+        if name == "GCOORD":
+            coord[int(v[0])] = np.asarray(v[1:4], dtype=float)
+        elif name == "GELMNT1":
+            elnodes[int(v[0])] = [int(x) for x in v[4:]]
+        elif name == "TDLOAD":
+            names[int(v[1])] = v[-1]
+    out = collections.defaultdict(dict)
+    for name, v in recs:
+        if name == "BEUSLO":
+            ns = elnodes[int(v[4])]
+            nz = float(np.sign(_shell_normal([coord[k] for k in ns])[2]))
+            for k, value in zip(ns, v[8 : 8 + int(v[5])]):
+                out[names[int(v[0])]][_key(coord[k])] = round(nz * float(value), 3) + 0.0
+    return dict(out)
+
+
+@pytest.mark.parametrize("case", ["LC_press_3pt", "LC_press_lin"])
+def test_a_varying_pressure_is_genies_value_at_every_node(all_kinds, case):
+    """GeniE wrote 1000 + 500 x at each node of every element (BEUSLO, one intensity per node), not an element
+    average: the deck must carry the same field node for node."""
+    _, _, deck, _ = all_kinds
+    genie, adapy = _beuslo_by_node(FILES / "genie_loads_all_kinds_T1.FEM")[case], _beuslo_by_node(deck)[case]
+    assert adapy == genie
+    assert {round(-1000 - 500 * x, 3) + 0.0 for (x, _, _), _ in genie.items()} == set(genie.values())
 
 
 def test_each_load_case_has_genies_resultant(all_kinds):
@@ -431,8 +479,8 @@ def test_a_front_pressure_pushes_into_the_plates_normal_side_whatever_the_elemen
 
 def test_the_steps_of_several_meshed_parts_reach_the_writer_which_names_what_it_cannot_hold(tmp_path):
     """A single-part writer gets the parts merged into one, and the merge keeps each part's concept-load step (on the
-    merged part's FEM, re-keyed). Sesam holds one load set per file: it writes the first and names the second, with
-    its loads -- nothing is dropped by the merge without a word."""
+    merged part's FEM, re-keyed). Sesam writes both static steps as load cases of the one deck -- nothing is dropped
+    by the merge, and no step is left out."""
     from ada.fem.concept.loads import LoadConceptCase, LoadConceptPoint
 
     parts = []
@@ -450,8 +498,9 @@ def test_the_steps_of_several_meshed_parts_reach_the_writer_which_names_what_it_
         a.to_fem("two", "sesam", scratch_dir=tmp_path, overwrite=True)
     steps = [f for f in report.findings if f.keyword == "Step" and f.subject == "concept_loads"]
     assert not [f for f in steps if f.stage != "sesam writer"]  # the merge loses no step
-    (unwritten,) = [f for f in steps if f.kind == "omitted" and "only the first step is written" in f.reason]
-    assert unwritten.details == {"n_loads": 1, "n_bcs": 0}
+    assert not [f for f in steps if f.kind == "omitted" and "is not among them" in f.reason]
+    lines = next((tmp_path / "two").glob("*T1.FEM")).read_text().splitlines()
+    assert sorted(lines[i + 1].strip() for i, ln in enumerate(lines) if ln.startswith("TDLOAD")) == ["LC1", "LC2"]
 
 
 @pytest.mark.parametrize("fmt", ["usfos"])
@@ -470,6 +519,91 @@ def test_a_writer_of_the_assembly_steps_only_names_the_part_step_it_leaves_out(t
         a.to_fem("one", fmt, scratch_dir=tmp_path, overwrite=True)
     (lost,) = [f for f in report.findings if f.keyword == "Step" and f.subject == "concept_loads"]
     assert (lost.kind, lost.stage, lost.details) == ("omitted", f"{fmt} writer", {"part": "p", "n_loads": 1})
+
+
+# --- polygon pressure: GeniE's covered-share smear, on any mesh ----------------------------------------------------
+
+
+def _polygon_deck(tmp_path, points, side="front", use_quads=True, fmt="sesam"):
+    from ada.fem.concept.loads import LoadConceptSurface
+
+    a, p, pl = _plate_part("pp", LoadConceptSurface("S", points=points, pressure=1000.0, side=side))
+    if fmt == "code_aster":  # Code_Aster writes no deck without a support
+        from ada.fem.concept.constraints import ConstraintConceptPoint
+
+        p.concept_fem.constraints.add_point_constraint(ConstraintConceptPoint("fix", (0, 0, 0), []))
+    with conversion_report.collect() as report:
+        p.fem = p.to_fem_obj(0.5, use_quads=use_quads)
+        a.to_fem("d", fmt, scratch_dir=tmp_path, overwrite=True)
+    return a, p, report
+
+
+def _pressure_resultant(p) -> np.ndarray:
+    """The summed force of the FE pressures the converter made: p * element area along the face pushed into."""
+    from ada.fem import LoadPressure
+
+    total = np.zeros(3)
+    (step,) = p.fem.steps
+    for lc in step.load_cases.values():
+        for ld in lc.loads:
+            assert isinstance(ld, LoadPressure)
+            for fem_set, side in zip(ld.surface.fem_set, ld.surface.el_face_index):
+                for el in fem_set.members:
+                    xs = np.array([n.p for n in el.nodes], dtype=float)
+                    n = 0.5 * (
+                        np.cross(xs[2] - xs[0], xs[3] - xs[1])
+                        if len(xs) == 4
+                        else np.cross(xs[1] - xs[0], xs[2] - xs[0])
+                    )
+                    # a pressure on the positive face pushes against the element normal
+                    total += -side * float(ld.magnitude) * n
+    return total
+
+
+@pytest.mark.parametrize("use_quads", [True, False], ids=["quads", "triangles"])
+def test_a_polygon_pressure_gives_its_whole_force_whatever_the_mesh(tmp_path, use_quads):
+    """An L-shaped (non-convex) footprint of 1.5 m2 cutting across elements, counter-clockwise seen from +z: 1500 N
+    along +z on quads and on triangles alike (GeniE's rule: each element takes the pressure times its covered
+    share, so the force does not depend on where the mesh lines are)."""
+    pts = [(0.3, 0.1, 0), (2.3, 0.1, 0), (2.3, 0.6, 0), (1.3, 0.6, 0), (1.3, 0.85, 0), (0.3, 0.85, 0)]
+    area = 2.0 * 0.5 + 1.0 * 0.25
+    _, p, report = _polygon_deck(tmp_path, pts, use_quads=use_quads)
+    assert _pressure_resultant(p) == pytest.approx((0, 0, 1000.0 * area), abs=1e-6)
+    assert "S in load case LC" not in _found(report)
+
+
+def test_a_polygon_pressure_on_its_back_side_and_wound_the_other_way_reverses(tmp_path):
+    pts = [(1, 0.25, 0), (3, 0.25, 0), (3, 0.75, 0), (1, 0.75, 0)]
+    _, p, _ = _polygon_deck(tmp_path / "back", pts, side="back")
+    assert _pressure_resultant(p) == pytest.approx((0, 0, -1000.0), abs=1e-6)
+    _, p, _ = _polygon_deck(tmp_path / "cw", pts[::-1])
+    assert _pressure_resultant(p) == pytest.approx((0, 0, -1000.0), abs=1e-6)
+
+
+def test_a_polygon_partly_off_the_plate_loads_what_it_covers_and_names_the_rest(tmp_path):
+    """Half of a 1 m2 square hangs off the plate's x = 4 edge: 500 N is written, the 0.5 m2 over nothing named."""
+    pts = [(3.5, 0, 0), (4.5, 0, 0), (4.5, 1, 0), (3.5, 1, 0)]
+    _, p, report = _polygon_deck(tmp_path, pts)
+    assert _pressure_resultant(p) == pytest.approx((0, 0, 500.0), abs=1e-6)
+    (f,) = [f for f in report.findings if f.subject == "S in load case LC"]
+    assert f.kind == "omitted" and f.details["not_covered"] == pytest.approx(0.5)
+
+
+def test_a_polygon_out_of_the_plates_plane_acts_on_nothing_and_is_named(tmp_path):
+    pts = [(1, 0.25, 0.5), (3, 0.25, 0.5), (3, 0.75, 0.5), (1, 0.75, 0.5)]
+    _, p, report = _polygon_deck(tmp_path, pts)
+    assert _found(report)["S in load case LC"] == [("omitted", "LoadConceptSurface")]
+    assert _pressure_resultant(p) == pytest.approx((0, 0, 0))
+
+
+def test_a_polygon_pressure_reaches_the_code_aster_deck_as_shell_pressures(tmp_path):
+    """Partly covered elements take a smaller pressure of their own: one FORCE_COQUE row per covered share."""
+    pts = [(1, 0.25, 0), (3, 0.25, 0), (3, 0.75, 0), (1, 0.75, 0)]
+    _, p, report = _polygon_deck(tmp_path, pts, fmt="code_aster")
+    comm = (tmp_path / "d" / "d.comm").read_text()
+    assert "FORCE_COQUE" in comm and "NOM_CAS='LC'" in comm
+    assert [f for f in report.findings if f.keyword in ("LoadPressure", "LoadConceptSurface")] == []
+    assert _pressure_resultant(p) == pytest.approx((0, 0, 1000.0), abs=1e-6)
 
 
 @pytest.mark.parametrize("fmt", ["calculix", "code_aster"])
@@ -750,6 +884,36 @@ def test_a_point_load_at_a_rigid_link_master_is_named_as_on_a_reference_node(tmp
     (f,) = [f for f in report.findings if f.subject == "PL1 in load case LC"]
     assert f.kind == "omitted" and "reference node" in f.reason and f.details["nodes"] == [master.id]
     assert fem.steps[0].load_cases["LC"].loads == []
+
+
+def test_a_polygon_traction_gives_its_whole_force_whatever_the_mesh(tmp_path):
+    """The L-shaped 1.5 m2 footprint with a traction (100, -50, 200) N/m2 by components: each covered element takes
+    the traction times its covered share (GeniE's smear, as for a pressure), so the total is the traction times the
+    area on any mesh, and the winding and side do not turn it."""
+    from ada.fem import LoadSurfaceTraction
+    from ada.fem.concept.loads import LoadConceptSurface
+
+    pts = [(0.3, 0.1, 0), (2.3, 0.1, 0), (2.3, 0.6, 0), (1.3, 0.6, 0), (1.3, 0.85, 0), (0.3, 0.85, 0)]
+    area = 2.0 * 0.5 + 1.0 * 0.25
+    t = (100.0, -50.0, 200.0)
+    for k, (points, side) in enumerate(((pts, "front"), (pts[::-1], "back"))):
+        for use_quads in (True, False):
+            a, p, _ = _plate_part(
+                f"pt{k}{int(use_quads)}", LoadConceptSurface("S", points=points, traction=t, side=side)
+            )
+            p.fem = p.to_fem_obj(0.5, use_quads=use_quads)
+            (step,) = p.fem.steps
+            total = np.zeros(3)
+            for lc in step.load_cases.values():
+                for ld in lc.loads:
+                    assert isinstance(ld, LoadSurfaceTraction)
+                    for fem_set in ld.surface.fem_set:
+                        for el in fem_set.members:
+                            xs = np.array([n.p for n in el.nodes], dtype=float)
+                            tri = [xs[[0, i, i + 1]] for i in range(1, len(xs) - 1)]
+                            el_area = sum(0.5 * np.linalg.norm(np.cross(c[1] - c[0], c[2] - c[0])) for c in tri)
+                            total += np.asarray(ld.traction) * el_area
+            assert total == pytest.approx(np.asarray(t) * area, abs=1e-6)
 
 
 # --- a load case holding loads of several placed parts -------------------------------------------------------------
