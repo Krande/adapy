@@ -95,7 +95,7 @@ jobs:
         with:
           pixi-version: v0.81.0
           environments: >-
-            tests-adacpp
+            tests
           cache: true
 
       # Software Vulkan for the offscreen render tests: see test-core.
@@ -103,7 +103,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends mesa-vulkan-drivers libvulkan1
 
       - name: Run Tests
-        run: pixi run -e tests-adacpp test-core
+        run: pixi run -e tests test-core
 
   test-rest:
     name: Test viewer REST API
