@@ -241,7 +241,7 @@ jobs:
         - uses: actions/setup-node@v7
           if: steps.scope.outputs.run == 'true'
           with:
-            node-version: '20'   # matches the frontend-build stage of deploy/Dockerfile.viewer
+            node-version: '24'   # matches the frontend-build stage of deploy/Dockerfile.viewer
             cache: npm
             cache-dependency-path: src/frontend/package-lock.json
 
@@ -264,9 +264,8 @@ jobs:
     # Same scope gate as bundle-provenance so a docs-only PR skips it but the job always reports
     # a status and can be marked required.
     #
-    # node 24, not the 20 the provenance job and deploy/Dockerfile.viewer use: the npm test script
-    # discovers files with glob patterns, which `node --test` only expands from node 21 on. Nothing
-    # here builds the bundle, so the Dockerfile pin is not what has to match.
+    # node 24, as in the provenance job and deploy/Dockerfile.viewer. It can't go below 21: the npm
+    # test script discovers files with glob patterns, which `node --test` only expands from there on.
     frontend-tests:
         name: Viewer frontend tests
         runs-on: ubuntu-latest

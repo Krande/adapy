@@ -21,7 +21,7 @@ least one backend.
 Two verbs answering the same question on the two kernels must answer it
 the SAME way — a caller that has to know which backend is loaded gets no
 portability out of the abstraction. That is asserted, not assumed: see
-`tests/core/cad/test_backend_parity.py`, which runs each operation under
+`tests/compat/test_backend_parity.py`, which runs each operation under
 both kernels and compares.
 
 For operations the abstraction has no verb for yet, `to_occ_shape()` is
