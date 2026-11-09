@@ -82,7 +82,7 @@ RUN git init -q /src && cd /src && \
     git rev-parse HEAD > /out/adacpp_render.ref
 
 # Stage 1: build the SPA bundle.
-FROM node:20-slim AS frontend-build
+FROM node:24-slim AS frontend-build
 WORKDIR /build
 COPY src/frontend/package.json src/frontend/package-lock.json ./
 RUN npm ci

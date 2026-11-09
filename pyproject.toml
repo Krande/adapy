@@ -40,10 +40,6 @@ ada = "ada_cli.main:main"
 # ``figure_source:`` in markdown; the handler bakes the result file
 # referenced by ``source_inp:`` into a bundle dir, registers the
 # ThreeDData rows, and emits the static + interactive figure pair.
-# The implementation is staged across steps 1-2 (bake + descriptor)
-# and step 6 (dispatcher wire-up); the entry point can be declared
-# today because `register_paradoc_block_sugar` is a no-op stub until
-# then.
 [project.entry-points."paradoc.figure_sources"]
 fea_artefact_bundle = "ada.fem.results.docs:register_paradoc_block_sugar"
 
