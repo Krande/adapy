@@ -146,7 +146,15 @@ class GmshSession:
         build_native_lines=False,
         point_tol=Config().general_point_tol,
         use_native_pointer=True,
+        synchronize=True,
     ):
+        """Import ``obj`` into the session's gmsh model as ``geom_repr`` entities and register it in ``model_map``.
+
+        ``synchronize=False`` leaves gmsh's model synchronisation to the caller: a caller adding many objects adds
+        them all and then calls :meth:`synchronize` once. Each synchronisation walks the whole OCC model, so one per
+        object makes adding a large model quadratic. Objects built from native lines (``build_native_lines``) look
+        up the points already in the model and are synchronised regardless.
+        """
         from ada.core.utils import Counter
 
         from .utils import build_bm_lines
@@ -177,12 +185,17 @@ class GmshSession:
             self.model.set_physical_name(dim, ent, ent_name)
             self.model.set_entity_name(dim, ent, ent_name)
 
-        self.model.occ.synchronize()
-        self.model.geo.synchronize()
+        if synchronize or build_native_lines:
+            self.synchronize()
 
         gmsh_data = GmshData(entities, geom_repr, el_order, obj, mesh_size=mesh_size)
         self.model_map[obj] = gmsh_data
         return gmsh_data
+
+    def synchronize(self) -> None:
+        """Synchronise gmsh's model with its OCC and built-in geometry kernels."""
+        self.model.occ.synchronize()
+        self.model.geo.synchronize()
 
     def add_cutting_plane(self, cut_plane: CutPlane, cut_objects: List[GmshData] = None):
         if cut_objects is not None:
@@ -402,11 +415,10 @@ class GmshSession:
             entity_elements = get_elements_from_entities(self.model, gmsh_data.entities, fem)
             gmsh_data.obj.elem_refs = entity_elements
             [add_obj_to_elem_ref(el, gmsh_data.obj) for el in entity_elements]
-            existing_el_ids = set(elements.keys())
-            el_ids = set([el.id for el in entity_elements])
 
-            # create a variable for all overlapping element ids
-            overlapping_el_ids = existing_el_ids.intersection(el_ids)
+            # Element ids this object shares with the objects before it -- looked up, not copied: copying every id
+            # so far for every object made this quadratic in the size of the model.
+            overlapping_el_ids = {el.id for el in entity_elements if el.id in elements}
             if overlapping_el_ids:
                 logger.warning(f"Overlapping element ids found for {gmsh_data.obj.name}: {overlapping_el_ids}")
 
@@ -434,10 +446,12 @@ class GmshSession:
         self.gmsh.fltk.run()
 
     def check_model_entities(self):
-        from ada.fem.meshing.utils import check_entities_exist
+        from ada.fem.meshing.utils import check_entities_exist, occ_entity_set
 
+        # The model's entities are listed once for all objects, not once per object.
+        model_entities = occ_entity_set(self.model)
         for map_obj in self.model_map.values():
-            existing, nonexisting = check_entities_exist(map_obj.entities, self.model)
+            existing, nonexisting = check_entities_exist(map_obj.entities, self.model, model_entities)
             if len(nonexisting) > 0:
                 self.open_gui()
                 raise ValueError(f"Entities not found in model for {map_obj}: {nonexisting}")

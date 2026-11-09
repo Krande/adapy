@@ -269,3 +269,28 @@ def test_a_pressure_on_the_negative_face_pushes_the_other_way(tmp_path):
     assert u3_neg == -u3_pos, "the same magnitude the other way, not merely a different number"
     assert reaction_pos[2] == pytest.approx(-TOTAL_LOAD, rel=1e-07)
     assert reaction_neg[2] == pytest.approx(TOTAL_LOAD, rel=1e-07)
+
+
+def test_two_pressures_on_one_element_add(tmp_path):
+    """The strip's 1000 Pa as two pressure loads, 400 and 600 Pa, on the same elements in one load case: two BEUSLO
+    records per element, which Sestra adds -- the reaction and the mid-span deflection of one 1000 Pa record, to
+    single precision -- and which adapy's SIN reader adds too (``cases.pressures``; the last record used to win).
+    Measured, Sestra V11.3-00: reaction ``q L b``, mid-span ``u3`` 0.17330 m, the single record's."""
+    mesh_size = MESH_SIZES[1]
+    assembly, shells = _strip(mesh_size)
+    step = next(iter(assembly.fem.steps))
+    (single,) = step.loads
+    step.loads.clear()
+    for name, part in (("qa", 0.4), ("qb", 0.6)):
+        step.add_load(Load(name, Load.TYPES.PRESSURE, part * PRESSURE, fem_set=single.fem_set))
+    run_dir = _solve(assembly, "two_pressures", tmp_path)
+
+    assert len(_beuslo_records(run_dir / "two_pressuresT1.FEM")) == 2 * len(shells)
+    u3, reaction = _mid_span_u3_and_reaction(run_dir / "two_pressuresR1.SIN")
+    assert reaction[2] == pytest.approx(-TOTAL_LOAD, rel=1e-06)
+    assert u3 == pytest.approx(-NODAL_LOAD_REFERENCE[mesh_size], rel=1e-06)
+
+    res = ada.from_fem_res(run_dir / "two_pressuresR1.SIN", lazy=True)
+    (table,) = res.cases.pressures.values()
+    assert sorted(table) == sorted(el.id for el in shells)
+    assert {round(abs(p), 6) for p in table.values()} == {PRESSURE}

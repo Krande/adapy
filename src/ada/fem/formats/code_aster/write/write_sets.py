@@ -86,13 +86,14 @@ def _add_cell_sets(cells_group, part: "Part", families, extra_elements=(), extra
     _write_families(element, tags)
 
 
-def _add_node_sets(nodes_group, fems, points, families):
+def _add_node_sets(nodes_group, fems, points, families, extra: dict[str, list[int]] | None = None):
     """Write the node-set family table ("FAM") for one or more FEMs into ``nodes_group``.
 
     Takes a list of FEMs (the part's plus, when distinct, the assembly's) and merges their
     nsets so the single MED "FAM" dataset is created exactly once — creating it per-FEM
     raised "dataset name already exists" for decks with both part- and assembly-level
-    node sets."""
+    node sets. ``extra``: node groups of this deck only (the eccentric beams' link groups,
+    :mod:`.write_eccentricity`), ``{name: node ids}``, written as the FEMs' are."""
     tags = dict()
     nsets = dict()
     for fem in fems:
@@ -101,6 +102,8 @@ def _add_node_sets(nodes_group, fems, points, families):
             # only to read .id back is pure overhead (and was O(N^2) via FemSet iteration).
             mids = getattr(val, "_member_ids", None)
             nsets[key] = [int(i) for i in mids] if mids is not None else [int(p.id) for p in val.members]
+    for key, ids in (extra or {}).items():
+        nsets[key] = [int(i) for i in ids]
 
     points = _set_to_tags(nsets, points, 2, tags)
 

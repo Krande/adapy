@@ -914,3 +914,205 @@ def test_a_polygon_traction_gives_its_whole_force_whatever_the_mesh(tmp_path):
                             el_area = sum(0.5 * np.linalg.norm(np.cross(c[1] - c[0], c[2] - c[0])) for c in tri)
                             total += np.asarray(ld.traction) * el_area
             assert total == pytest.approx(np.asarray(t) * area, abs=1e-6)
+
+
+# --- a load case holding loads of several placed parts -------------------------------------------------------------
+
+#: Two structures, each a 4 m beam along its own x, placed at different origins.
+ORIGINS = {"S1": (10.0, 0.0, 0.0), "S2": (0.0, 20.0, 5.0)}
+
+
+def _placed_parts(gather: bool):
+    """An assembly of the two structures, each with a point load at its x = 1 and a line load over its x = 2..4 made
+    in a load case of its own. With ``gather`` the loads are then moved into one case ``LC`` of the assembly (the
+    loads keep the case they were made in, as the GeniE XML writer reads them) and the parts' cases removed."""
+    from ada.fem.concept.loads import LoadConceptCase, LoadConceptLine, LoadConceptPoint
+
+    a = ada.Assembly("A")
+    made = []
+    for name, origin in ORIGINS.items():
+        p = ada.Part(name, placement=ada.Placement(origin=origin)) / ada.Beam(
+            f"bm{name}", (0, 0, 0), (4, 0, 0), "IPE300"
+        )
+        a.add_part(p)
+        lc = LoadConceptCase(
+            f"LC_{name}",
+            [
+                LoadConceptPoint(f"P{name}", (1, 0, 0), (0, 0, -1000.0), (0, 0, 0)),
+                LoadConceptLine(f"L{name}", (2, 0, 0), (4, 0, 0), (0, 0, -500.0), (0, 0, -500.0)),
+            ],
+        )
+        made.append((p, p.concept_fem.loads.add_load_case(lc)))
+    if gather:
+        asm_lc = a.concept_fem.loads.add_load_case(LoadConceptCase("LC"))
+        for p, lc in made:
+            asm_lc.loads.extend(lc.loads)
+            del p.concept_fem.loads.load_cases[lc.name]
+    return a
+
+
+def _mesh_and_write_assembly(a, work: pathlib.Path):
+    with conversion_report.collect() as report:
+        a.fem = a.to_fem_obj(0.5, "line")
+        a.to_fem("d", "sesam", scratch_dir=work, overwrite=True)
+    return next((work / "d").glob("*T1.FEM")), report
+
+
+def test_each_load_of_a_case_is_placed_by_its_own_part(tmp_path):
+    """One assembly case holding the loads of two structures placed at different origins: each load lands on its own
+    structure, at its local position moved by that structure's origin, as the GeniE XML writer places it. Placed by
+    the assembly's (identity) placement instead, every one of them was reported as on no node or element."""
+    (tmp_path / "direct").mkdir(), (tmp_path / "xml").mkdir()
+    deck, report = _mesh_and_write_assembly(_placed_parts(gather=True), tmp_path / "direct")
+    assert not [f for f in report.findings if f.stage == STAGE and f.kind == "omitted"]
+
+    records = load_records(deck)["LC"]
+    for name, (x0, y0, z0) in ORIGINS.items():
+        assert records[("BNLOAD", _key((x0 + 1, y0, z0)))] == (0.0, 0.0, -1000.0, 0.0, 0.0, 0.0)
+        on_line = [k for k in records if k[0] == "BELOAD1" and k[1][1:] == _key((0, y0, z0))[1:]]
+        assert sorted(k[1][0] for k in on_line) == [x0 + 2, x0 + 2.5, x0 + 3, x0 + 3.5]
+    assert resultants(deck)["LC"][0] == (0.0, 0.0, -2 * (1000.0 + 2 * 500.0))
+
+    # the same model through the GeniE XML (written with each load placed by its part, read back flat) gives the
+    # same records, node by node
+    xml = tmp_path / "xml" / "placed.xml"
+    _placed_parts(gather=True).to_genie_xml(xml)
+    via_xml, _ = _mesh_and_write_assembly(ada.from_genie_xml(xml), tmp_path / "xml")
+    assert load_records(via_xml)["LC"] == records
+    assert resultants(via_xml)["LC"] == resultants(deck)["LC"]
+
+
+def test_the_points_meshing_embeds_are_placed_by_each_loads_part():
+    """``concept_load_points`` -- the nodes meshing makes for point loads -- places each point by its own part too."""
+    from ada.fem.concept.loads_to_fem import concept_load_points
+
+    a = _placed_parts(gather=True)
+    points = sorted(tuple(float(c) for c in pt) for pt in concept_load_points(a))
+    assert points == sorted((x0 + 1, y0, z0) for x0, y0, z0 in ORIGINS.values())
+
+
+def _omitted_cases(report) -> list:
+    return [f for f in report.findings if f.kind == "omitted" and f.keyword == "LoadConceptCase"]
+
+
+def test_a_case_moved_to_the_assembly_after_it_was_made_is_not_reported_unconverted(tmp_path):
+    """A part's cases moved into the assembly's load cases without being re-made there (they still say which part
+    they are of). They were converted, under the part that owns them, and the writer's check, which looked them up
+    under the part now holding them, also reported each "of part A" omitted."""
+    a = _placed_parts(gather=False)
+    for p in a.get_all_subparts():
+        for name in list(p.concept_fem.loads.load_cases):
+            a.concept_fem.loads.load_cases[name] = p.concept_fem.loads.load_cases.pop(name)
+    deck, report = _mesh_and_write_assembly(a, tmp_path)
+    assert _omitted_cases(report) == []
+    res = resultants(deck)
+    assert res["LC_S1"][0] == res["LC_S2"][0] == (0.0, 0.0, -2000.0)
+    assert ("BNLOAD", _key((11, 0, 0))) in load_records(deck)["LC_S1"]
+
+
+def test_a_case_held_by_one_part_and_owned_by_another_is_not_reported_unconverted(tmp_path):
+    """A gravity case made in S2 but held by S1, and only S1 meshed: it was converted with S1, and the check, which
+    looked it up under its owner S2, reported it omitted."""
+    from ada.fem.concept.loads import LoadConceptAccelerationField, LoadConceptCase
+
+    a = _placed_parts(gather=False)
+    s1, s2 = a.get_part("S1"), a.get_part("S2")
+    lc = s2.concept_fem.loads.add_load_case(LoadConceptCase("LC_g", [LoadConceptAccelerationField("g", (0, 0, -9.81))]))
+    s1.concept_fem.loads.load_cases["LC_g"] = s2.concept_fem.loads.load_cases.pop("LC_g")
+    assert lc.parent.parent_fem.parent_part is s2
+    with conversion_report.collect() as report:
+        s1.fem = s1.to_fem_obj(0.5, "line")
+        a.to_fem("d", "sesam", scratch_dir=tmp_path, overwrite=True)
+    deck = next((tmp_path / "d").glob("*T1.FEM"))
+    assert load_records(deck)["LC_g"] == {("BGRAV",): (0.0, 0.0, -9.81)}
+    # S2 was not meshed: its own case is still named, and it alone
+    (omitted,) = _omitted_cases(report)
+    assert [o["subject"] for o in omitted.occurrences] == ["LC_S2 of part S2"]
+
+
+def test_each_unconverted_case_is_named_with_its_own_part(tmp_path):
+    """Two cases of two parts not converted are one finding (same reason), naming each with its part."""
+    from ada.fem.concept.loads import LoadConceptCase, LoadConceptPoint
+
+    a = _placed_parts(gather=False)
+    for p in a.get_all_subparts():
+        p.fem = p.to_fem_obj(0.5, "line")
+        p.concept_fem.loads.add_load_case(
+            LoadConceptCase(f"LC_late_{p.name}", [LoadConceptPoint("Q", (1, 0, 0), (0, 0, -1), (0, 0, 0))])
+        )
+    with conversion_report.collect() as report:
+        a.to_fem("late", "sesam", scratch_dir=tmp_path, overwrite=True)
+    (omitted,) = _omitted_cases(report)
+    assert omitted.count == 2
+    assert omitted.occurrences == [
+        {"subject": "LC_late_S1 of part S1", "count": 1, "details": {"part": "S1", "load_case": "LC_late_S1"}},
+        {"subject": "LC_late_S2 of part S2", "count": 1, "details": {"part": "S2", "load_case": "LC_late_S2"}},
+    ]
+
+
+def test_a_case_two_parts_hold_is_converted_once(tmp_path):
+    """One case object in the load cases of the assembly and of a part is one FE load case, its loads once."""
+    a = _placed_parts(gather=False)
+    s1 = a.get_part("S1")
+    a.concept_fem.loads.load_cases["LC_S1"] = s1.concept_fem.loads.load_cases["LC_S1"]
+    deck, report = _mesh_and_write_assembly(a, tmp_path)
+    assert _omitted_cases(report) == []
+    assert resultants(deck)["LC_S1"][0] == (0.0, 0.0, -2000.0)
+
+
+@pytest.mark.parametrize("combined", ["S1", "S2"])
+def test_a_combination_of_either_same_named_case_combines_the_merged_case(tmp_path, combined):
+    """A combination may name the case of the part converted first or last; either way it combines the one merged
+    ``LC`` (both loads), not only the loads of the part it names."""
+    from ada.fem.concept.loads import (
+        LoadConceptCaseCombination,
+        LoadConceptCaseFactored,
+    )
+
+    a = _placed_parts(gather=False)
+    for p in a.get_all_subparts():
+        lcs = p.concept_fem.loads.load_cases
+        lcs["LC"] = lcs.pop(f"LC_{p.name}")
+        lcs["LC"].name = "LC"
+    named = a.get_part(combined)
+    named.concept_fem.loads.add_load_case_combination(
+        LoadConceptCaseCombination("LCC", [LoadConceptCaseFactored(named.concept_fem.loads.load_cases["LC"], 2.0)])
+    )
+    deck, _ = _mesh_and_write_assembly(a, tmp_path)
+    assert resultants(deck)["LCC"][0] == (0.0, 0.0, -8000.0)
+
+
+def test_same_named_cases_of_several_parts_are_one_load_case_as_in_the_genie_xml(tmp_path):
+    """S1 and S2 each have a case ``LC``. The GeniE XML writer merges them into one case; the FE conversion made two
+    load cases of one name, of which the step kept the second, and S1's load was reported as in no load case and not
+    written. Now ``LC`` holds both, and a combination of S2's ``LC`` is a combination of that case, as in the XML."""
+    from ada.fem.concept.loads import (
+        LoadConceptCaseCombination,
+        LoadConceptCaseFactored,
+    )
+
+    a = _placed_parts(gather=False)
+    for p in a.get_all_subparts():
+        lcs = p.concept_fem.loads.load_cases
+        lcs["LC"] = lcs.pop(f"LC_{p.name}")
+        lcs["LC"].name = "LC"
+    s2 = a.get_part("S2")
+    s2.concept_fem.loads.add_load_case_combination(
+        LoadConceptCaseCombination("LCC", [LoadConceptCaseFactored(s2.concept_fem.loads.load_cases["LC"], 2.0)])
+    )
+    (tmp_path / "direct").mkdir(), (tmp_path / "xml").mkdir()
+    deck, report = _mesh_and_write_assembly(a, tmp_path / "direct")
+    assert not [f for f in report.findings if f.kind == "omitted" and f.keyword != "Step"]
+    records = load_records(deck)
+    assert sorted(k for k in records["LC"] if k[0] == "BNLOAD") == [
+        ("BNLOAD", (1.0, 20.0, 5.0)),
+        ("BNLOAD", (11.0, 0.0, 0.0)),
+    ]
+    assert resultants(deck)["LC"][0] == (0.0, 0.0, -4000.0)
+    assert resultants(deck)["LCC"][0] == (0.0, 0.0, -8000.0)
+
+    xml = tmp_path / "xml" / "same.xml"
+    a.to_genie_xml(xml)
+    via_xml, _ = _mesh_and_write_assembly(ada.from_genie_xml(xml), tmp_path / "xml")
+    assert load_records(via_xml)["LC"] == records["LC"]
+    assert resultants(via_xml)["LCC"] == resultants(deck)["LCC"]

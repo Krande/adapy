@@ -793,3 +793,60 @@ def test_multi_node_bc_writes_per_node_support_points(tmp_path):
             "ry": "free",
             "rz": "free",
         }
+
+
+def _two_parts_with_a_shared_case_name():
+    """Parts S1 and S2 each with a case ``LC`` of one point load; S1's ``LCC`` = 2 LC; and S1's case also held by the
+    assembly (one object in two parts' load cases)."""
+    from ada.fem.concept.loads import (
+        LoadConceptCase,
+        LoadConceptCaseCombination,
+        LoadConceptCaseFactored,
+        LoadConceptPoint,
+    )
+
+    a = ada.Assembly("A")
+    cases = {}
+    for name, origin in (("S1", (10, 0, 0)), ("S2", (0, 20, 0))):
+        p = ada.Part(name, placement=ada.Placement(origin=origin)) / ada.Beam(
+            f"bm{name}", (0, 0, 0), (4, 0, 0), "IPE300"
+        )
+        a.add_part(p)
+        cases[name] = p.concept_fem.loads.add_load_case(
+            LoadConceptCase("LC", [LoadConceptPoint(f"P{name}", (1, 0, 0), (0, 0, -1000.0), (0, 0, 0))])
+        )
+    a.get_part("S1").concept_fem.loads.add_load_case_combination(
+        LoadConceptCaseCombination("LCC", [LoadConceptCaseFactored(cases["S1"], 2.0)])
+    )
+    a.concept_fem.loads.load_cases["LC"] = cases["S1"]
+    return a, cases
+
+
+def test_global_load_concepts_merge_without_changing_the_model():
+    """Same-named cases of several parts are merged into a new case each call; the parts' own cases keep their loads.
+    The merge used to extend the first part's case in place: the shared case was extended by its own load, and each
+    call added S2's load to S1's case once more (1, 3, 4, ... loads)."""
+    a, cases = _two_parts_with_a_shared_case_name()
+    for _ in range(3):
+        merged = a.concept_fem.loads.get_global_load_concepts()
+        assert [ld.name for ld in merged.load_cases["LC"].loads] == ["PS1", "PS2"]
+        assert [t.factor for t in merged.load_case_combinations["LCC"].load_cases] == [2.0]
+    assert [ld.name for ld in cases["S1"].loads] == ["PS1"]
+    assert [ld.name for ld in cases["S2"].loads] == ["PS2"]
+    # each load keeps the case it was made in, which places it
+    assert [ld.parent for ld in merged.load_cases["LC"].loads] == [cases["S1"], cases["S2"]]
+
+
+def test_the_genie_xml_writes_each_load_once_at_its_parts_position(tmp_path):
+    """Written twice, the XML has each point load once, each at its own part's position."""
+    a, _ = _two_parts_with_a_shared_case_name()
+    for name in ("first.xml", "second.xml"):
+        a.to_genie_xml(tmp_path / name)
+        root = ET.parse(tmp_path / name).getroot()
+        loads = root.findall(".//explicit_loads/point_load")
+        positions = {
+            pl.attrib["name"]: tuple(float(pl.find(".//footprint_point/point").attrib[c]) for c in "xyz")
+            for pl in loads
+        }
+        assert len(loads) == 2
+        assert positions == {"PS1": (11.0, 0.0, 0.0), "PS2": (1.0, 20.0, 0.0)}

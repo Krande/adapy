@@ -57,7 +57,7 @@ def split_intersecting_beams(
     logger.info("Running 'split_intersecting_beams' partitioning function")
     from ada import Beam, Node
     from ada.api.containers import Beams, Nodes
-    from ada.core.clash_check import are_beams_connected, basic_intersect
+    from ada.core.clash_check import are_beams_connected, basic_intersect_all
 
     br_names = Config().meshing_open_viewer_breakpoint_names
 
@@ -68,7 +68,7 @@ def split_intersecting_beams(
 
     nodes = Nodes()
     nmap: dict[Node, list[Beam]] = dict()
-    for bm, cbeams in filter(None, [basic_intersect(bm, margins, [bm_cont]) for bm in all_beams]):
+    for bm, cbeams in basic_intersect_all(all_beams, margins, [bm_cont]):
         are_beams_connected(bm, cbeams, out_of_plane_tol, point_tol, nodes, nmap)
 
     for n, beams in nmap.items():

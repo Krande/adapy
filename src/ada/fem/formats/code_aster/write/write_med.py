@@ -16,6 +16,8 @@ from .write_sets import _add_cell_sets, _add_node_sets
 if TYPE_CHECKING:
     from ada.api.spatial import Part
 
+    from .write_eccentricity import EccentricMesh
+
 
 def _mass_or_spring_attach_id(el) -> int:
     """Resolve the node id a Mass/Spring element attaches to.
@@ -77,13 +79,26 @@ def element_groups(part: Part, extra=()) -> list[tuple[object, list]]:
 
 
 def med_elements(
-    part: Part, time_step: h5py.Group, profile: str, families: h5py.Group, extra_elements=(), extra_sets=()
+    part: Part,
+    time_step: h5py.Group,
+    profile: str,
+    families: h5py.Group,
+    extra_elements=(),
+    extra_sets=(),
+    ecc: EccentricMesh | None = None,
 ):
     """
     Add the following ['FAM', 'NOD', 'NUM'] to the 'MAI' group
 
     **NOD** requires 'CGT' and 'NBR' attrs
+
+    ``ecc``: the eccentric beams' offset nodes (:mod:`.write_eccentricity`); their elements are written on those
+    instead of the mesh nodes they share with the shells.
     """
+
+    def node_ids(el_) -> list[int]:
+        ids = cell_node_ids(el_)
+        return ids if ecc is None else ecc.element_nodes(int(el_.id), ids)
 
     elements_group = time_step.create_group("MAI")
     elements_group.attrs.create("CGT", 1)
@@ -94,7 +109,7 @@ def med_elements(
         # Per element: a group may hold several adapy types of one MED type (element_groups). A point mass or
         # grounded spring attaches to one node, read from ``.members`` (a Mass / Spring) or ``.nodes`` (the plain Elem
         # a cross-format reader makes) by _mass_or_spring_attach_id.
-        cells = np.array([cell_node_ids(el) for el in elements])
+        cells = np.array([node_ids(el) for el in elements])
         if cells.ndim == 2 and cells.shape[1] == 1:
             cells = cells[:, 0]
 
@@ -124,24 +139,31 @@ def med_elements(
         _add_cell_sets(elements_group, part, families, extra_elements, extra_sets)
 
 
-def med_nodes(part: "Part", time_step, profile, families):
+def med_nodes(part: "Part", time_step, profile, families, ecc: EccentricMesh | None = None):
     """
     TODO: Go through each data group and set in HDF5 file and make sure that it writes what was read 1:1.
         Use cylinder.med as a benchmark.
 
     Add the following datasets ['COO', 'FAM', 'NUM'] to the 'NOE' group
-    """
 
-    points = np.zeros((int(part.fem.nodes.max_nid), 3))
+    ``ecc``: the eccentric beams' offset nodes (:mod:`.write_eccentricity`), numbered after the mesh's last node,
+    and the node groups their rigid links are written over.
+    """
+    # The offset nodes follow the mesh's nodes: ids max_nid + 1, max_nid + 2, ... (write_eccentricity.eccentric_mesh)
+    n_extra = len(ecc.coords) if ecc is not None else 0
+    points = np.zeros((int(part.fem.nodes.max_nid) + n_extra, 3))
 
     def pmap(n):
         points[int(n.id - 1)] = n.p
 
     list(map(pmap, part.fem.nodes))
+    if ecc is not None:
+        for nid, p in ecc.coords.items():
+            points[nid - 1] = p
 
     # Try this
     if Config().code_aster_ca_experimental_id_numbering is True:
-        points = np.array([n.p for n in part.fem.nodes])
+        points = np.array([n.p for n in part.fem.nodes] + ([p for p in ecc.coords.values()] if ecc else []))
 
     nodes_group = time_step.create_group("NOE")
     nodes_group.attrs.create("CGT", 1)
@@ -153,7 +175,7 @@ def med_nodes(part: "Part", time_step, profile, families):
     coo.attrs.create("NBR", len(points))
 
     if Config().code_aster_ca_experimental_id_numbering is True:
-        node_ids = [n.id for n in part.fem.nodes]
+        node_ids = [n.id for n in part.fem.nodes] + (list(ecc.coords.keys()) if ecc else [])
         num = nodes_group.create_dataset("NUM", data=node_ids)
         num.attrs.create("CGT", 1)
         num.attrs.create("NBR", len(points))
@@ -165,5 +187,6 @@ def med_nodes(part: "Part", time_step, profile, families):
     if assembly != part and len(assembly.fem.nsets.keys()) > 0:
         fems.append(assembly.fem)
 
-    if any(len(f.nsets.keys()) > 0 for f in fems):
-        _add_node_sets(nodes_group, fems, points, families)
+    extra = ecc.node_groups if ecc is not None else {}
+    if extra or any(len(f.nsets.keys()) > 0 for f in fems):
+        _add_node_sets(nodes_group, fems, points, families, extra)

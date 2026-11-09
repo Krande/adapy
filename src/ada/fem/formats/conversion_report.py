@@ -89,6 +89,10 @@ STATUS_WITH_OMISSIONS = "COMPLETED_WITH_OMISSIONS"
 #: regardless; this only decides how many examples an engineer gets without opening the deck.
 MAX_OTHER_SUBJECTS = 10
 
+#: How many subjects a deduplicated finding keeps with their own count and details (``Finding.occurrences``). The
+#: merged finding keeps the first subject's details only, which cannot say which of its subjects a value belongs to.
+MAX_OCCURRENCES = 1000
+
 
 def _jsonable(value: Any) -> Any:
     """Coerce ``value`` into something :mod:`json` will take.
@@ -119,7 +123,10 @@ class Finding:
 
     ``subject`` names the first construct this finding was raised for; when the same
     ``(kind, stage, keyword, reason)`` recurs, ``count`` grows and further names land in
-    ``other_subjects`` up to :data:`MAX_OTHER_SUBJECTS`.
+    ``other_subjects`` up to :data:`MAX_OTHER_SUBJECTS`. ``details`` are the first occurrence's
+    (a later one only adds keys it lacks); ``occurrences`` keeps each distinct subject with its
+    own count and details, up to :data:`MAX_OCCURRENCES`, so every subject can be judged on its
+    own. The JSON form carries ``occurrences`` only for a finding of more than one subject.
     """
 
     kind: str
@@ -130,6 +137,22 @@ class Finding:
     count: int = 1
     details: dict = dataclasses.field(default_factory=dict)
     other_subjects: list = dataclasses.field(default_factory=list)
+    occurrences: list = dataclasses.field(default_factory=list)
+
+    def __post_init__(self):
+        if not self.occurrences:
+            self.occurrences = [{"subject": self.subject, "count": self.count, "details": dict(self.details)}]
+
+    def _occur(self, subject: str, count: int, details: dict) -> None:
+        """Count one more occurrence of ``subject`` with its own ``details``."""
+        for occ in self.occurrences:
+            if occ["subject"] == subject:
+                occ["count"] += count
+                for key, value in details.items():
+                    occ["details"].setdefault(key, value)
+                return
+        if len(self.occurrences) < MAX_OCCURRENCES:
+            self.occurrences.append({"subject": subject, "count": count, "details": dict(details)})
 
     @property
     def key(self) -> tuple[str, str, str, str]:
@@ -149,6 +172,15 @@ class Finding:
             out["other_subjects"] = [str(s) for s in self.other_subjects]
         if self.details:
             out["details"] = _jsonable(self.details)
+        if len(self.occurrences) > 1:
+            out["occurrences"] = [
+                {
+                    "subject": str(o["subject"]),
+                    "count": o["count"],
+                    **({"details": _jsonable(o["details"])} if o["details"] else {}),
+                }
+                for o in self.occurrences
+            ]
         return out
 
     def one_line(self) -> str:
@@ -215,6 +247,7 @@ class ConversionReport:
                     existing.other_subjects.append(subject)
             for key, value in finding.details.items():
                 existing.details.setdefault(key, value)
+            existing._occur(subject, count, finding.details)
             return existing
 
         self._findings.append(finding)
@@ -230,7 +263,12 @@ class ConversionReport:
         for f in other.findings:
             existing = self._by_key.get(f.key)
             if existing is None:
-                copy = dataclasses.replace(f, details=dict(f.details), other_subjects=list(f.other_subjects))
+                copy = dataclasses.replace(
+                    f,
+                    details=dict(f.details),
+                    other_subjects=list(f.other_subjects),
+                    occurrences=[{**o, "details": dict(o["details"])} for o in f.occurrences],
+                )
                 self._findings.append(copy)
                 self._by_key[copy.key] = copy
                 continue
@@ -245,6 +283,8 @@ class ConversionReport:
                     existing.other_subjects.append(subject)
             for key, value in f.details.items():
                 existing.details.setdefault(key, value)
+            for o in f.occurrences:
+                existing._occur(o["subject"], o["count"], o["details"])
 
     @staticmethod
     def _log(finding: Finding) -> None:

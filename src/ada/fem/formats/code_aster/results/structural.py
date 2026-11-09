@@ -8,7 +8,8 @@ wrote beside the run and what Code_Aster wrote:
   and the element groups, named back through ``<name>.name_map.json``;
 * the sidecar ``<name>.adapy_fem.json`` (``..write.beams_sidecar``, schema 6): the beams' sections, local z,
   materials and member names, the shell sections' elements, thickness, material and reference vector, the
-  materials' E / nu / f_y, and the restrained nodes;
+  materials' E / nu / f_y, and the restrained nodes; from schema 7 each case's shell pressures (input data,
+  which the ``.rmed`` does not hold), given as ``cases.pressures`` in the SIN reader's layout and sign;
 * the command file ``<name>.comm``: the load-case names;
 * the results ``<name>.rmed``: ``DEPL``, ``REAC_NODA`` and the element forces ``EFGE_ELNO``.
 
@@ -283,6 +284,7 @@ def open_rmed_result(path: str | os.PathLike):
         stored=sorted(of_case),
         loader=_Loader(rmed, cells, thickness, frames, beam_of, of_case),
         names=names,
+        pressures=_shell_pressures(side, of_case),
     )
     return FEAResult(
         rmed.stem,
@@ -295,6 +297,35 @@ def open_rmed_result(path: str | os.PathLike):
         analysis_kind="static",
         buckling_factors=read_buckling_factors(rmed),
     )
+
+
+def _shell_pressures(side: dict, of_case: dict[int, tuple[str, int]]) -> dict[int, dict[int, float]]:
+    """``{case: {element: p}}``: the shell pressures of each case read (``of_case``: case -> (MED field prefix, order
+    number), :func:`open_rmed_result`), from the sidecar (``shell_pressures``, v7,
+    ``..write.write_steps.case_shell_pressures``, by result concept and order number) -- the net pressure on each
+    element, positive along its normal, as the SIN reader gives BEUSLO's. Empty for a sidecar without them (an older
+    one, or a model without pressures)."""
+    by_result = side.get("shell_pressures") or {}
+    if not by_result:
+        return {}
+    # The field prefix is the result concept padded to 8 characters with "_" (``result__DEPL``).
+    concepts = sorted({pre.rstrip("_") for pre, _ in of_case.values()})
+    out: dict[int, dict[int, float]] = {}
+    for concept in concepts:
+        tables = by_result.get(concept)
+        if tables is None and len(concepts) == 1 and len(by_result) == 1:
+            tables = next(iter(by_result.values()))
+        if not tables:
+            continue
+        tables = {int(k): {int(e): float(p) for e, p in t.items()} for k, t in tables.items()}
+        mine = sorted((case, ndt) for case, (pre, ndt) in of_case.items() if pre.rstrip("_") == concept)
+        if len(mine) == 1 and set(tables) == {1} and mine[0][1] != 1:
+            # A step without load cases is one case: its order number is whatever the solver gave it.
+            tables = {mine[0][1]: tables[1]}
+        for case, ndt in mine:
+            if ndt in tables:
+                out[case] = tables[ndt]
+    return out
 
 
 #: ``# Step <name>: <result>`` -- the comment the writer puts before each static step (write_steps.steps_str).

@@ -383,6 +383,23 @@ class OffsetHelper:
             axes = (self.beam.xvec, self.beam.yvec, self.beam.up)
         return self.curve_offset_local(axes=axes, strict_centroid=False)
 
+    def curve_offset_global(self) -> tuple[np.ndarray, np.ndarray]:
+        """The FEM eccentricity of each end as a global vector: from the end node to the section centroid
+        (:meth:`centroid_offset_local`), in the absolute system the mesh nodes are in (the placement applied).
+        Zero for a beam that states no offset (:meth:`has_offset_intent`). What the mesher puts on the beam's
+        elements (Sesam GECCEN) and the Code_Aster writer its offset nodes on."""
+        from ada.api.transforms import to_global_vectors
+
+        data = self.centroid_offset_local()
+        if data is None:
+            return np.zeros(3), np.zeros(3)
+        xv, yv, up = (np.asarray(v, dtype=float) for v in (self.beam.xvec, self.beam.yvec, self.beam.up))
+
+        def to_vector(comp) -> np.ndarray:
+            return np.asarray(to_global_vectors(self.beam, comp[0] * xv + comp[1] * yv + comp[2] * up), dtype=float)
+
+        return to_vector(data.end1), to_vector(data.end2)
+
     def _offset_endpoints_abs(self) -> tuple[np.ndarray, np.ndarray]:
         """Absolute, offset-adjusted beam endpoints ``(start, end)``.
 

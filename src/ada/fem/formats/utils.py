@@ -68,8 +68,68 @@ class DatFormatReader:
         return results
 
 
+def kill_process_tree(proc: subprocess.Popen) -> None:
+    """Kill ``proc`` and every process it started.
+
+    A solver is rarely one process: Code_Aster's ``run_aster`` is a batch file (Windows) or script that starts
+    Python, which starts the solver, and killing the process ``subprocess`` started leaves the solver running. On
+    Windows the tree is killed by ``taskkill /T``; elsewhere ``proc`` leads a session of its own
+    (:func:`run_process`) and its process group is killed.
+    """
+    if sys.platform == "win32":
+        subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)], capture_output=True)
+    else:
+        import signal
+
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            pass
+    try:
+        proc.kill()
+    except OSError:
+        pass
+
+
+def run_process(cmd, timeout: float | None = None, **kwargs) -> subprocess.CompletedProcess:
+    """``subprocess.run(cmd, capture_output=True, timeout=timeout, **kwargs)``, but on a timeout, a
+    ``KeyboardInterrupt`` or any other exception while it runs, the whole process tree ``cmd`` started is killed
+    (:func:`kill_process_tree`) before the exception is raised again -- ``subprocess.run`` kills only the process it
+    started, and a Ctrl-C left the solver running. A timeout raises :class:`subprocess.TimeoutExpired` with the
+    output captured until then. ``timeout`` None waits as long as the process runs."""
+    if sys.platform != "win32":
+        kwargs.setdefault("start_new_session", True)
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, **kwargs)
+    try:
+        stdout, stderr = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        kill_process_tree(proc)
+        try:
+            stdout, stderr = proc.communicate(timeout=30)
+        except subprocess.TimeoutExpired:  # a pipe held open by a process the kill did not reach
+            stdout, stderr = None, None
+        raise subprocess.TimeoutExpired(proc.args, timeout, output=stdout, stderr=stderr) from None
+    except BaseException:
+        kill_process_tree(proc)
+        try:  # reap it, so no zombie is left behind until this Python exits
+            proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            pass
+        raise
+    finally:
+        for pipe in (proc.stdout, proc.stderr):
+            if pipe is not None:
+                pipe.close()
+    return subprocess.CompletedProcess(proc.args, proc.returncode, stdout, stderr)
+
+
 class LocalExecute:
-    """Backend Component for executing local analysis"""
+    """Backend Component for executing local analysis
+
+    ``timeout``: the seconds the analysis may run (None: no limit). When it is exceeded, or the wait is interrupted
+    (Ctrl-C), the solver's whole process tree is killed and :class:`subprocess.TimeoutExpired` (or the interruption)
+    is raised (:func:`run_process`). Not for a run started externally (``run_ext``), which is not waited for.
+    """
 
     def __init__(
         self,
@@ -81,6 +141,7 @@ class LocalExecute:
         auto_execute=True,
         excute_locally=True,
         run_in_shell=False,
+        timeout: float | None = None,
     ):
         self._inp_path = pathlib.Path(inp_path)
         self._cpus = cpus
@@ -90,6 +151,7 @@ class LocalExecute:
         self.auto_execute = auto_execute
         self.local_execute = excute_locally
         self.run_in_shell = run_in_shell
+        self.timeout = timeout
 
     def _run_local(self, run_command, stop_command=None, exit_on_complete=True, bat_start_str=None):
         if self._metadata is not None:
@@ -395,7 +457,8 @@ echo ON\ncall {run_cmd}"""
 
 
 def run_linux(exe, run_cmd):
-    return run_tool(exe, run_cmd.split(), "Linux")
+    # A command given as a list is already split (and may hold paths with spaces).
+    return run_tool(exe, run_cmd if isinstance(run_cmd, (list, tuple)) else run_cmd.split(), "Linux")
 
 
 def run_tool(exe: LocalExecute, run_cmd, platform):
@@ -421,8 +484,7 @@ def run_tool(exe: LocalExecute, run_cmd, platform):
         print(f"Note! This starts {fem_tool_name} in an external window on a separate thread.")
     else:
         # run_directly_on_windows(run_cmd, props, exe)
-        props["capture_output"] = True
-        out = subprocess.run(run_cmd, **props)
+        out = run_process(run_cmd, timeout=getattr(exe, "timeout", None), **props)
         print(f'Finished {fem_tool_name} simulation "{exe.analysis_name}"')
     print(80 * "-")
     return out

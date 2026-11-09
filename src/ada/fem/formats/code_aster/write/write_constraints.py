@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING
 from ada.fem import Constraint
 
 from .names import concept_name
+from .write_eccentricity import ECC_LINKS, eccentric_elements
 
 if TYPE_CHECKING:
     from ada.api.spatial import Part
@@ -193,6 +194,9 @@ def step_charges(part: Part, step=None) -> StepCharges:
         names.append(zero_name)
     names += [concept_name(con, "coupling") for con in get_couplings(part)]
     names += [concept_name(con, "link") for con in get_links(part) if con in _WRITTEN_LINKS]
+    # The eccentric beams' rigid links (write_eccentricity): one charge, in every step like the couplings.
+    if any(True for _ in eccentric_elements(part.fem)):
+        names.append(ECC_LINKS)
     return StepCharges(names, zero_name if zero else None, "\n".join(definitions), bcs)
 
 

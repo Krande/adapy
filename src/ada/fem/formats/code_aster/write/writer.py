@@ -7,7 +7,7 @@ import numpy as np
 
 from ada.config import logger
 from ada.fem.formats.prescribed import prescribed_dofs
-from ada.fem.formats.utils import get_fem_model_from_assembly, report_unwritten_beam_ecc
+from ada.fem.formats.utils import get_fem_model_from_assembly
 from ada.fem.utils import is_quad8_shell_elem, is_tri6_shell_elem
 
 from ..compatibility import check_compatibility
@@ -23,12 +23,18 @@ from .write_constraints import (
     ref_points_group,
     step_bcs,
 )
-from .write_loads import add_line_load_groups
+from .write_eccentricity import (
+    EccentricMesh,
+    ecc_links_str,
+    ecc_sidecar_path,
+    eccentric_mesh,
+)
+from .write_loads import add_line_load_groups, add_pressure_groups
 from .write_masses import mass_model_str, point_masses
 from .write_materials import materials_str
 from .write_med import med_elements, med_nodes
 from .write_sections import create_sections_str, has_shear_deformation
-from .write_steps import all_steps, steps_str
+from .write_steps import all_steps, case_shell_pressures, steps_str
 
 if TYPE_CHECKING:
     from ada.api.spatial import Assembly, Part
@@ -55,12 +61,7 @@ def to_fem(assembly: Assembly, name, analysis_dir, metadata=None, model_data_onl
         from ada.fem.formats.sesam.write.writer import to_fem as to_sesam_deck
 
         to_sesam_deck(assembly, name, analysis_dir, metadata={}, model_data_only=True)
-    report_unwritten_beam_ecc(
-        p.fem,
-        "code_aster writer",
-        "a beam end offset (a flush stiffener, or an explicit e1/e2) is not written: the deck has no "
-        "beam offset (no ORIENTATION/AFFE_CARA_ELEM keyword for one), so the member sits on its node line",
-    )
+    # Eccentric beams are written on offset nodes tied to their mesh nodes (write_eccentricity), not dropped.
     # Prepare model for
     shorten_material_names(assembly)
 
@@ -69,6 +70,8 @@ def to_fem(assembly: Assembly, name, analysis_dir, metadata=None, model_data_onl
     line_load_groups = add_line_load_groups(all_steps(assembly), p.fem)
     link_groups = None
     try:
+        # So are the net pressures of pressures that load one element twice in one charge (write_loads.pressure_items).
+        line_load_groups += add_pressure_groups(all_steps(assembly), p.fem)
         # Code Aster's MED reader drops any GROUP_MA/GROUP_NO name >24 chars
         # at LIRE_MAILLAGE time (MED_7 alarm — bibcxx/IOManager/MedToAsterReader.cxx).
         # Mutate every FemSet name to a deterministic short id BEFORE we
@@ -101,8 +104,16 @@ def to_fem(assembly: Assembly, name, analysis_dir, metadata=None, model_data_onl
         last_id = max([int(p.fem.elements.max_el_id) if len(p.fem.elements) else 0] + [el.id for el in skins.elements])
         discretes = discrete_cells(p.fem, last_id + 1, {fs.name for fs in skins.sets})
         cells = Skins(elements=skins.elements + discretes.elements, sets=skins.sets + discretes.sets)
+        # The eccentric beams' offset nodes and rigid links (write_eccentricity): in the MED file and the .comm,
+        # not in the model; the sidecar maps the offset nodes back for the SIN conversion.
+        ecc = eccentric_mesh(p)
         filename = (analysis_dir / name).with_suffix(".med")
-        write_to_med(name, p, filename, cells)
+        write_to_med(name, p, filename, cells, ecc)
+        sidecar = ecc_sidecar_path(analysis_dir / name)
+        if ecc is not None:
+            ecc.dump(sidecar)
+        elif sidecar.exists():
+            sidecar.unlink()
 
         dump_name_map(name_map, (analysis_dir / name).with_suffix(".name_map.json"))
 
@@ -111,7 +122,12 @@ def to_fem(assembly: Assembly, name, analysis_dir, metadata=None, model_data_onl
         # AND to resolve CAD↔FEA linkage. The .med format has no section
         # / orientation / lineage on its own, so this is the only way to
         # feed the streaming bake without re-parsing the .comm.
-        dump_beams_sidecar(assembly, (analysis_dir / name).with_suffix(".adapy_fem.json"))
+        # With the cases' shell pressures (input data the .rmed does not hold), for a structural check reading them.
+        dump_beams_sidecar(
+            assembly,
+            (analysis_dir / name).with_suffix(".adapy_fem.json"),
+            shell_pressures=case_shell_pressures(all_steps(assembly), p),
+        )
 
         if model_data_only:
             return
@@ -122,7 +138,7 @@ def to_fem(assembly: Assembly, name, analysis_dir, metadata=None, model_data_onl
             skins_deck(skins),
             discretes_deck(discretes),
         ):
-            f.write(create_comm_str(assembly, p))
+            f.write(create_comm_str(assembly, p, ecc))
 
     finally:
         for fs in line_load_groups:
@@ -135,8 +151,14 @@ def to_fem(assembly: Assembly, name, analysis_dir, metadata=None, model_data_onl
     logger.info(f'Created a Code_Aster input deck at "{analysis_dir}"')
 
 
-def create_comm_str(assembly: Assembly, part: Part) -> str:
-    """Create COMM file input str"""
+def create_comm_str(assembly: Assembly, part: Part, ecc: EccentricMesh | None = None) -> str:
+    """Create COMM file input str
+
+    ``ecc``: the eccentric beams' offset nodes and links (:func:`.write_eccentricity.eccentric_mesh`); computed here
+    when not given, so a caller that wrote the MED file hands over the one the MED file was written with.
+    """
+    if ecc is None:
+        ecc = eccentric_mesh(part)
     couplings = get_couplings(part)
     mat_str = materials_str(assembly)
     ref_group = ref_points_group(part)
@@ -176,6 +198,8 @@ def create_comm_str(assembly: Assembly, part: Part) -> str:
         if text:
             _WRITTEN_LINKS.append(con)
             links.append(text)
+    if ecc is not None:
+        links.append(ecc_links_str(ecc))
     bc_str = "\n".join([s for s in supports if s] + [create_coupling_str(con) for con in couplings] + links)
     step_str = steps_str(steps, part)
 
@@ -319,8 +343,12 @@ def membranes_large_strain(part: Part, steps) -> bool:
     return len(nonlinear) > 0
 
 
-def write_to_med(name, part: Part, filename, skins=None):
-    """Custom Method for writing a part directly based on meshio"""
+def write_to_med(name, part: Part, filename, skins=None, ecc: EccentricMesh | None = None):
+    """Custom Method for writing a part directly based on meshio
+
+    ``skins``: extra cells and their groups (:mod:`.write_skins`, :mod:`.write_masses`), kept off the model.
+    ``ecc``: the eccentric beams' offset nodes (:mod:`.write_eccentricity`), written into the mesh.
+    """
 
     with h5py.File(filename, "w") as f:
         mesh_name = name if name is not None else part.fem.name
@@ -345,14 +373,14 @@ def write_to_med(name, part: Part, filename, skins=None):
         # TODO: Evaluate if this can be avoided using a smarter algorithm
         part.fem.sets.add_references()
 
-        # Nodes and node sets
-        med_nodes(part, time_step, profile, families)
+        # Nodes and node sets (plus the eccentric beams' offset nodes and link groups)
+        med_nodes(part, time_step, profile, families, ecc)
 
         # Elements (mailles in French) and element sets
         if skins is None:
-            med_elements(part, time_step, profile, families)
+            med_elements(part, time_step, profile, families, ecc=ecc)
         else:
-            med_elements(part, time_step, profile, families, skins.elements, skins.sets)
+            med_elements(part, time_step, profile, families, skins.elements, skins.sets, ecc=ecc)
 
 
 def _write_mesh_presets(f, mesh_name):

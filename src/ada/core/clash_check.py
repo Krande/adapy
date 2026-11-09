@@ -59,6 +59,62 @@ def basic_intersect(bm: Beam, margins, all_beam_containers: list[Beams]):
     return bm, beams
 
 
+def _beam_box(bm: Beam):
+    """``bm.bbox().minmax`` as two float lists, or None when the box cannot be built."""
+    try:
+        o_lo, o_hi = bm.bbox().minmax
+    except ValueError:
+        return None
+    return [float(v) for v in o_lo], [float(v) for v in o_hi]
+
+
+def basic_intersect_all(beams: Iterable[Beam], margins, all_beam_containers: list[Beams]) -> list[tuple[Beam, list]]:
+    """``basic_intersect`` for every beam of ``beams`` at once: the same pairs, in the same order, as
+    ``[r for r in (basic_intersect(bm, margins, all_beam_containers) for bm in beams) if r]``, with each candidate
+    set a list.
+
+    ``basic_intersect`` tests a beam against every beam of the containers, which is quadratic in the size of the
+    model: 16 000 beams make 256 million box tests in Python. Here the boxes are binned in a grid
+    (:class:`ada.core.spatial_grid.AabbGrid`) once, and each beam is tested -- with the same comparisons -- against
+    the beams in the cells its box covers.
+    """
+    from ada.core.spatial_grid import AabbGrid
+
+    pad = margins or 0.0
+    others = list(chain.from_iterable(all_beam_containers))
+    n = len(others)
+    o_lo = np.full((n, 3), -np.inf)
+    o_hi = np.full((n, 3), np.inf)
+    for j, other in enumerate(others):
+        box = _beam_box(other)
+        if box is not None:  # a beam whose box cannot be built is offered rather than dropped
+            o_lo[j], o_hi[j] = box
+    grid_lo = np.where(np.isfinite(o_lo), o_lo - pad, -np.inf)
+    grid_hi = np.where(np.isfinite(o_hi), o_hi + pad, np.inf)
+    grid = AabbGrid(grid_lo, grid_hi)
+
+    results = []
+    for bm in beams:
+        if bm.section.type == "gensec":
+            results.append((bm, []))
+            continue
+        try:
+            vol = bm.bbox().minmax
+        except ValueError as e:
+            logger.error(f"Intersect bbox skipped: {e}\n{traceback.format_exc()}")
+            continue
+        lo = np.array([float(v) - pad for v in vol[0]])
+        hi = np.array([float(v) + pad for v in vol[1]])
+        cand = grid.candidates(lo, hi)
+        if len(cand):
+            c_lo, c_hi = o_lo[cand], o_hi[cand]
+            # The comparisons of `basic_intersect.could_touch`; a beam without a box (inf bounds) passes.
+            keep = np.all((lo <= c_hi + pad) & (c_lo - pad <= hi), axis=1)
+            cand = cand[keep]
+        results.append((bm, [others[j] for j in cand if not (others[j] is bm or others[j] == bm)]))
+    return results
+
+
 def beam_cross_check(bm1: Beam, bm2: Beam, outofplane_tol=0.1):
     """Calculate intersection of beams and return point, s, t"""
     p_check = is_parallel
@@ -226,7 +282,31 @@ def _beam_reach(bm: Beam) -> float:
     return 0.5 * max(sizes)
 
 
-def find_beams_connected_to_plate(pl: Plate, beams: list[Beam], tol: float | None = None) -> list[Beam]:
+class BeamMidspanIndex:
+    """The beams' mid-span points and reaches, built once for many :func:`find_beams_connected_to_plate` queries.
+
+    Building it is the costly part of the query (a ``Nodes`` container of every beam's mid-span point), so a caller
+    asking for many plates against one set of beams builds it once instead of once per plate.
+    """
+
+    def __init__(self, beams: Iterable[Beam]):
+        from ada import Node
+        from ada.api.containers import Nodes
+
+        self.beams = list(beams)
+        nid = Counter(1)
+        self.mids = {}
+        for bm in self.beams:
+            mid = np.asarray(bm.placement.get_absolute_placement().origin + (bm.n2.p + bm.n1.p) / 2, dtype=float)
+            self.mids[id(bm)] = mid
+        self.nodes = Nodes([Node(self.mids[id(bm)], next(nid), refs=[bm]) for bm in self.beams])
+        self.reaches = {id(bm): _beam_reach(bm) for bm in self.beams}
+        self.widest = max(self.reaches.values(), default=0.0)
+
+
+def find_beams_connected_to_plate(
+    pl: Plate, beams: list[Beam], tol: float | None = None, index: BeamMidspanIndex | None = None
+) -> list[Beam]:
     """Beams whose mid-span reaches the plate: inside its bounding box, grown by the beam's own
     half-section (see :func:`_beam_reach`) plus ``tol``, which defaults to the plate's thickness.
 
@@ -237,21 +317,17 @@ def find_beams_connected_to_plate(pl: Plate, beams: list[Beam], tol: float | Non
     Measured on one demo frame: adapy's own model found 16 beams per plate, the same model read
     back from IFC (where a beam's eccentricity is baked into its axis rather than carried beside
     it) found 0, and a clash check lost two thirds of its plate joints on a round trip.
-    """
-    from ada import Node
-    from ada.api.containers import Nodes
 
-    nid = Counter(1)
-    mids = {}
-    for bm in beams:
-        mid = np.asarray(bm.placement.get_absolute_placement().origin + (bm.n2.p + bm.n1.p) / 2, dtype=float)
-        mids[id(bm)] = mid
-    nodes = Nodes([Node(mids[id(bm)], next(nid), refs=[bm]) for bm in beams])
+    ``index`` is a :class:`BeamMidspanIndex` of ``beams``, for a caller asking this for many plates: built once, it
+    keeps the query from rebuilding it per plate. The answer is the same with or without it.
+    """
+    if index is None:
+        index = BeamMidspanIndex(beams)
+    mids = index.mids
+    reaches = index.reaches
 
     if tol is None:
         tol = abs(float(pl.t))
-    reaches = {id(bm): _beam_reach(bm) for bm in beams}
-    widest = max(reaches.values(), default=0.0)
 
     bbox = pl.bbox()
     pmin = np.asarray(bbox.p1, dtype=float)
@@ -259,8 +335,8 @@ def find_beams_connected_to_plate(pl: Plate, beams: list[Beam], tol: float | Non
     # One coarse query with the WIDEST pad, then each candidate is re-tested against its own --
     # a container query takes a single box, and padding every beam by the widest section in the
     # model would pull in beams that only a deeper neighbour could have reached.
-    coarse = np.array([tol + widest] * 3, dtype=float)
-    res = nodes.get_by_volume(pmin - coarse, pmax + coarse)
+    coarse = np.array([tol + index.widest] * 3, dtype=float)
+    res = index.nodes.get_by_volume(pmin - coarse, pmax + coarse)
 
     all_beams_within = []
     for node in res:
@@ -388,6 +464,47 @@ def _classify_connection(
         edge_conn.setdefault(source, []).append(target)
 
 
+#: The touch tolerance of ``plates_min_distance`` (its default ``tol``), the one the plate pairing below asks with.
+_PLATE_TOUCH_TOL = 1e-3
+
+
+def _plate_world_boxes(plates: list[Plate], pad: float) -> tuple[np.ndarray, np.ndarray]:
+    """World axis-aligned boxes of the plates' solids, grown by ``pad`` -- boxes that hold what
+    ``plates_min_distance`` measures, so two plates whose boxes do not overlap are farther apart than ``pad``.
+
+    The box of each cached local solid (``backend.bbox(optimal=False)``, a loose box that holds the shape), its eight
+    corners taken to world. A plate whose box cannot be found gets an infinite one: it is offered to every plate.
+    """
+    from ada.cad import active_backend
+    from ada.cad.shape_cache import get_solid_occ
+
+    backend = active_backend()
+    n = len(plates)
+    lo = np.full((n, 3), -np.inf)
+    hi = np.full((n, 3), np.inf)
+    for i, pl in enumerate(plates):
+        try:
+            box = np.asarray(backend.bbox(get_solid_occ(pl), optimal=False), dtype=float)
+        except Exception as e:  # noqa: BLE001 - no box: offer the plate to every other one
+            logger.debug(f"no bounding box for {pl.name}: {e}")
+            continue
+        if box.shape != (6,) or not np.all(np.isfinite(box)):
+            continue
+        b_lo, b_hi = box[:3], box[3:]
+        matrix = pl.world_matrix()
+        if matrix is not None:
+            corners = np.array(
+                [[x, y, z, 1.0] for x in (b_lo[0], b_hi[0]) for y in (b_lo[1], b_hi[1]) for z in (b_lo[2], b_hi[2])]
+            )
+            world = (np.asarray(matrix, dtype=float) @ corners.T).T[:, :3]
+            b_lo, b_hi = world.min(axis=0), world.max(axis=0)
+        # A relative margin on top of `pad` keeps rounding in the box or the transform from dropping a touching pair.
+        margin = pad + 1e-9 * max(1.0, float(np.max(np.abs(np.concatenate([b_lo, b_hi])))))
+        lo[i] = b_lo - margin
+        hi[i] = b_hi + margin
+    return lo, hi
+
+
 def find_edge_connected_perpendicular_plates(plates: list[Plate]) -> PlateConnections:
     """Find all plates that are connected at an edge and are perpendicular to that edge."""
     # OCC-backend solid build/distance — imported lazily so this module stays
@@ -418,14 +535,26 @@ def find_edge_connected_perpendicular_plates(plates: list[Plate]) -> PlateConnec
     edge_connected: dict[Plate, list[Plate]] = {}
     mid_span_connected: dict[Plate, list[Plate]] = {}
 
-    # 2) *Exact* same nested‐loop + classification as your old code
-    for guid1, d1 in pdata.items():
+    # Only plates whose bodies come within the touch tolerance of `plates_min_distance` can pass test c) below, so
+    # each plate is offered the plates whose world boxes, grown by that tolerance, overlap its own -- found in a grid
+    # instead of by trying every other plate (quadratic: 2000 plates are 4 million pairs, each with a numpy test).
+    from ada.core.spatial_grid import AabbGrid
+
+    entries = list(pdata.items())
+    lo, hi = _plate_world_boxes([d["plate"] for _, d in entries], pad=_PLATE_TOUCH_TOL)
+    grid = AabbGrid(lo, hi)
+
+    # 2) *Exact* same nested‐loop + classification as your old code, over the candidates in the same order
+    for i1, (guid1, d1) in enumerate(entries):
         pl1 = d1["plate"]
         eq1 = d1["eq"]
         n1 = d1["normal"]
         pts1 = d1["pts"]
 
-        for guid2, d2 in pdata.items():
+        cand = grid.candidates(lo[i1], hi[i1])
+        cand = cand[np.all((lo[cand] <= hi[i1]) & (lo[i1] <= hi[cand]), axis=1)]
+        for i2 in cand:
+            guid2, d2 = entries[i2]
             if guid1 == guid2:
                 continue
 

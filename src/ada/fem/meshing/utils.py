@@ -207,13 +207,19 @@ def add_beam_ecc_to_elements(beam: Beam, elements: list[Elem]) -> None:
 
     The offset is ``Beam.e1`` / ``Beam.e2`` and the beam's flush alignment
     (``Beam.justification``, or the GeniE ``aligned_curve_offset`` it was read from), measured
-    -- as GeniE does -- from the node to the section **centroid**.
+    -- as GeniE does -- from the node to the section **centroid**
+    (:meth:`OffsetHelper.curve_offset_global`).
 
     The line mesh is built on the beam's *nodal* line -- ``Beam.line_occ`` makes its
     wire from ``n1.p``/``n2.p`` and ignores the eccentricities -- so without this the
     offsets are simply dropped on the way into the FEM, and every downstream writer
     has nothing to write. That is why the Sesam writer never emitted a GECCEN record:
     not because it chose not to, but because no element ever carried one.
+
+    It used to read ``e1``/``e2`` alone, so a stiffened panel whose stiffeners and girders were
+    placed flush by justification -- the way a deck generator or a GeniE import places
+    them -- was meshed with every profile's neutral axis in the plate: a simply supported
+    panel deflected 4.2 times what Sestra gives for the eccentric model.
 
     Every element node gets an offset, not only the beam's two end nodes. A beam
     offset is a property of the whole member -- the same ``e1``/``e2`` a CAD program
@@ -238,15 +244,13 @@ def add_beam_ecc_to_elements(beam: Beam, elements: list[Elem]) -> None:
     mid-height) the two differ. ``curve_offset_local`` is ``-e`` plus that difference
     (``Cgz - h`` for an angle, ``Cgz - h/2`` for a T), so it is the vector a file holds.
     A beam that states no offset at all has its centroid on the node line, as in GeniE,
-    and gets no eccentricity.
+    and gets no eccentricity, so a Sesam deck of such beams round-trips without growing a GECCEN.
     """
     from ada.api.beams.justification import Justification
     from ada.fem.elements import Eccentricity, EccPoint
     from ada.fem.formats import conversion_report
 
-    helper = beam.offset_helper
-    data = helper.centroid_offset_local()
-    if data is None:
+    if not beam.offset_helper.has_offset_intent():
         if beam.justification == Justification.TOS:
             # TOS has two readings in the helpers (``resolve_justification`` and
             # ``curve_offset_local`` carry opposite signs for it), so it is not guessed at.
@@ -258,15 +262,8 @@ def add_beam_ecc_to_elements(beam: Beam, elements: list[Elem]) -> None:
             )
         return
 
-    # ``centroid_offset_local`` is in the beam's own (x, y, up) basis; the offsets and nodal line
-    # are in the beam's local system, the element nodes are global
-    xv, yv, up = (np.asarray(v, dtype=float) for v in (beam.xvec, beam.yvec, beam.up))
-
-    def to_vector(comp) -> np.ndarray:
-        return to_global_vectors(beam, comp[0] * xv + comp[1] * yv + comp[2] * up)
-
-    e1 = to_vector(data.end1)
-    e2 = to_vector(data.end2)
+    # global vectors, in the system the element nodes are in
+    e1, e2 = beam.offset_helper.curve_offset_global()
     p1, p2 = to_global_points(beam, [beam.n1.p, beam.n2.p])
     axis = p2 - p1
     length_sq = float(np.dot(axis, axis))
@@ -329,7 +326,7 @@ def get_nodes_from_gmsh(model: gmsh.model, fem: FEM) -> list[Node]:
 def get_elements_from_entity(model: gmsh.model, ent, fem: FEM, dim) -> list[Elem]:
     elem_types, elem_tags, elem_node_tags = model.mesh.getElements(dim, ent)
     elements = []
-    el_tags = []
+    el_tags = set()
     for k, element_list in enumerate(elem_tags):
         el_name, _, _, numv, _, _ = model.mesh.getElementProperties(elem_types[k])
         if el_name == "Point":
@@ -338,7 +335,7 @@ def get_elements_from_entity(model: gmsh.model, ent, fem: FEM, dim) -> list[Elem
         for j, eltag in enumerate(element_list):
             if eltag in el_tags:
                 continue
-            el_tags.append(eltag)
+            el_tags.add(eltag)
             nodes = []
             for i in range(numv):
                 idtag = numv * j + i
@@ -444,16 +441,26 @@ def add_point(model: gmsh.model, p):
     return point
 
 
-def check_entities_exist(entity_list, gmsh_model: gmsh.model):
+def occ_entity_set(gmsh_model: gmsh.model) -> set[tuple[int, int]]:
+    """Every ``(dim, tag)`` of the OCC model, from one ``getEntities`` call."""
+    return {(int(dim), int(tag)) for dim, tag in gmsh_model.occ.getEntities(-1)}
+
+
+def check_entities_exist(entity_list, gmsh_model: gmsh.model, existing: set[tuple[int, int]] | None = None):
+    """Split ``entity_list`` into the entities that exist in the OCC model and those that do not.
+
+    ``existing`` is the model's entity set (:func:`occ_entity_set`); a caller checking many lists passes it, so the
+    model is listed once instead of once per list -- listing it per object is what made checking every object of a
+    large model quadratic.
+    """
     existing_entities = []
     non_existing_entities = []
 
-    # Get all existing entities grouped by dimension
-    existing_entities_by_dim = {dim: gmsh_model.occ.getEntities(dim) for dim in range(4)}
+    if existing is None:
+        existing = occ_entity_set(gmsh_model)
 
     for dim, tag in entity_list:
-        # Check if the entity exists in the list for its dimension
-        if (dim, tag) in existing_entities_by_dim.get(dim, []):
+        if (dim, tag) in existing:
             existing_entities.append((dim, tag))
         else:
             non_existing_entities.append((dim, tag))

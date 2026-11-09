@@ -77,6 +77,13 @@ place they survive the .med→.rmed round-trip; the bake reads it
 back into the result manifest so the viewer's FEM mode can overlay
 masses / BCs / loads on a baked FEA-result GLB.
 
+v7 adds an optional top-level ``shell_pressures`` object: ``{result
+concept: {order number: {element id: p}}}``, the net pressure on each
+shell element in each case of a linear static step, positive along the
+element's normal (Sesam's sign, as a SIN's BEUSLO gives it;
+``..write_steps.case_shell_pressures``). The ``.rmed`` reader gives it
+as ``ResultCases.pressures``, as the SIN reader gives BEUSLO's.
+
 Schema is additive across versions: v1/v2 readers see new keys as
 unknown and ignore them; v3 readers fall back gracefully when v1/v2
 files don't carry the new arrays. So the bump is backward-
@@ -97,7 +104,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from ada.api.spatial import Assembly
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 
 def _section_to_dict(section) -> dict | None:
@@ -168,13 +175,15 @@ def _iter_shell_fem_sections(assembly: "Assembly"):
             yield fem_sec
 
 
-def build_beams_payload(assembly: "Assembly") -> dict:
+def build_beams_payload(assembly: "Assembly", shell_pressures: dict | None = None) -> dict:
     """Walk ``assembly`` and return the JSON-ready beams sidecar dict.
 
     Beams whose section is None / GENBEAM, or whose ``local_z`` is
     missing, are silently dropped — the viewer-side reader couldn't
     tessellate them anyway, and counting them in the sidecar would
     just confuse coverage telemetry on the read side.
+
+    ``shell_pressures``: v7, the cases' shell pressures (``..write_steps.case_shell_pressures``).
     """
     units_attr = getattr(assembly, "units", "m")
     units = units_attr.value if hasattr(units_attr, "value") else str(units_attr)
@@ -256,6 +265,11 @@ def build_beams_payload(assembly: "Assembly") -> dict:
     restrained = _restrained_nodes(assembly)
     if restrained:
         payload["restrained_nodes"] = restrained
+    if shell_pressures:
+        payload["shell_pressures"] = {
+            str(result): {str(k): {str(e): float(p) for e, p in table.items()} for k, table in cases.items()}
+            for result, cases in shell_pressures.items()
+        }
     return payload
 
 
@@ -399,13 +413,13 @@ def _build_plates_lineage(assembly: "Assembly") -> list[dict]:
     return out
 
 
-def dump_beams_sidecar(assembly: "Assembly", path: pathlib.Path) -> int:
+def dump_beams_sidecar(assembly: "Assembly", path: pathlib.Path, shell_pressures: dict | None = None) -> int:
     """Write the per-beam metadata sidecar next to the analysis deck.
 
     Returns the number of beams emitted, mostly for tests / callers
     that want to log coverage at write time.
     """
-    payload = build_beams_payload(assembly)
+    payload = build_beams_payload(assembly, shell_pressures=shell_pressures)
     pathlib.Path(path).write_text(json.dumps(payload, indent=2, sort_keys=True))
     return len(payload["beams"])
 

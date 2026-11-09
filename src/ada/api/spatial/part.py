@@ -1544,15 +1544,16 @@ class Part(BackendGeom):
         masses: list[Shape] = []
 
         with GmshSession(silent=silent, options=options, debug_mode=debug_mode) as gs:
+            # One synchronisation after all objects are added, not one per object (each walks the whole model).
             for obj in self.get_all_physical_objects(sub_elements_only=False):
                 if isinstance(obj, Beam):
-                    gs.add_obj(obj, geom_repr=bm_repr, build_native_lines=False)
+                    gs.add_obj(obj, geom_repr=bm_repr, build_native_lines=False, synchronize=False)
                 elif isinstance(obj, Plate):
-                    gs.add_obj(obj, geom_repr=pl_repr)
+                    gs.add_obj(obj, geom_repr=pl_repr, synchronize=False)
                 elif issubclass(type(obj), Shape) and obj.mass is not None:
                     masses.append(obj)
                 elif issubclass(type(obj), Shape):
-                    gs.add_obj(obj, geom_repr=shp_repr)
+                    gs.add_obj(obj, geom_repr=shp_repr, synchronize=False)
                 else:
                     # A finding, not a log line: GeniE's cylinder shells and plates with holes read as PlateCurved,
                     # and a mesh without them used to say so on stderr only.
@@ -1563,6 +1564,7 @@ class Part(BackendGeom):
                         "not meshed: the mesher takes beams, flat plates and shapes and has no route for this kind "
                         "of object, so whatever acts on it (a load, a support) acts on nothing",
                     )
+            gs.synchronize()
 
             if interactive is True:
                 gs.open_gui()

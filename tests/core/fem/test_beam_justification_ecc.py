@@ -224,17 +224,27 @@ def test_abaqus_needs_no_mpc_for_a_flush_top_angle(tmp_path):
     assert _mpc_node_positions(p) == []
 
 
-@pytest.mark.parametrize("fmt", ["calculix", "code_aster"])
-def test_a_writer_without_beam_offsets_reports_them_omitted(tmp_path, fmt):
+def test_a_writer_without_beam_offsets_reports_them_omitted(tmp_path):
     # IPE300, not an HP: CalculiX refuses an angle's product of inertia for a reason of its own
     a, _ = _model(_beam("IPE300", justification=Justification.FLUSH_TOP))
 
     with conversion_report.collect() as report:
-        a.to_fem("m", fem_format=fmt, scratch_dir=tmp_path, overwrite=True, write_input_files_only=True)
+        a.to_fem("m", fem_format="calculix", scratch_dir=tmp_path, overwrite=True, write_input_files_only=True)
 
     found = [f for f in report.findings if f.kind == "omitted" and f.keyword == "Beam eccentricity"]
     assert len(found) == 1 and found[0].count == 1
-    assert fmt.replace("_", "") in found[0].stage.replace("_", "").replace(" ", "")
+    assert "calculix" in found[0].stage
+
+
+def test_code_aster_writes_beam_offsets_instead_of_omitting_them(tmp_path):
+    """Code_Aster puts an eccentric beam on offset nodes tied to its mesh nodes (write_eccentricity): nothing omitted."""
+    a, _ = _model(_beam("IPE300", justification=Justification.FLUSH_TOP))
+
+    with conversion_report.collect() as report:
+        a.to_fem("m", fem_format="code_aster", scratch_dir=tmp_path, overwrite=True, write_input_files_only=True)
+
+    assert not [f for f in report.findings if f.kind == "omitted" and f.keyword == "Beam eccentricity"]
+    assert "ecc_links" in (tmp_path / "m" / "m.comm").read_text()
 
 
 def test_abaqus_reports_offsets_it_was_told_not_to_convert(tmp_path):

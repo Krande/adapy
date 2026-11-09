@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import enum
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Iterable, Literal
@@ -42,26 +43,56 @@ class LoadConcepts:
         return load_case_combination
 
     def get_global_load_concepts(self) -> LoadConcepts:
-        """Consolidate all load cases and load combinations from all parts into a new LoadConcepts object."""
-        load_cases = {}
-        load_combinations = {}
+        """Consolidate all load cases and load combinations from all parts into a new LoadConcepts object.
+
+        Same-named load cases of several parts become one case holding the loads of each, and same-named
+        combinations one combination of the terms of each. Nothing of the model is changed: a merged case is a new
+        object, and a case or combination (or a load or term) that two parts hold is taken once. The merge used to
+        extend the first part's case in place, so each call added the other parts' loads to the model again, and a
+        case two parts held was extended by its own loads: written twice to the GeniE XML, three times on the next
+        call.
+        """
+        load_cases: dict[str, LoadConceptCase] = {}
+        load_combinations: dict[str, LoadConceptCaseCombination] = {}
+        merged: set[str] = set()
+        merged_combinations: set[str] = set()
         all_parts = self.parent_fem.parent_part.get_all_parts_in_assembly(include_self=True)
         for p in all_parts:
             for lc_name, lc in p.concept_fem.loads.load_cases.items():
-                if lc_name not in load_cases:
+                first = load_cases.get(lc_name)
+                if first is None:
                     load_cases[lc_name] = lc
-                else:
-                    # Merge loads if they have the same name
-                    load_cases[lc_name].loads.extend(lc.loads)
+                elif first is not lc:
+                    if lc_name not in merged:
+                        # a shallow copy keeps the first case's attributes and parent, and the loads keep theirs
+                        # (each load is placed by the part of the case it was made in)
+                        first = copy.copy(first)
+                        first.loads = list(first.loads)
+                        load_cases[lc_name] = first
+                        merged.add(lc_name)
+                    _extend_once(first.loads, lc.loads)
             for lcc_name, lcc in p.concept_fem.loads.load_case_combinations.items():
-                if lcc_name not in load_combinations:
+                first = load_combinations.get(lcc_name)
+                if first is None:
                     load_combinations[lcc_name] = lcc
-                else:
-                    # Merge load cases in combinations if they have the same name
-                    existing_lcc = load_combinations[lcc_name]
-                    existing_lcc.load_cases.extend(lcc.load_cases)
+                elif first is not lcc:
+                    if lcc_name not in merged_combinations:
+                        first = copy.copy(first)
+                        first.load_cases = list(first.load_cases)
+                        load_combinations[lcc_name] = first
+                        merged_combinations.add(lcc_name)
+                    _extend_once(first.load_cases, lcc.load_cases)
 
         return LoadConcepts(self.parent_fem, load_cases, load_combinations)
+
+
+def _extend_once(target: list, items: Iterable) -> None:
+    """Append to ``target`` each of ``items`` it does not already hold (by identity)."""
+    held = {id(x) for x in target}
+    for x in items:
+        if id(x) not in held:
+            held.add(id(x))
+            target.append(x)
 
 
 @dataclass

@@ -36,6 +36,10 @@ case in ``tests/core/fem/test_concept_loads_to_fem.py``:
 Whatever does not become an FE load -- a rotational field, an acceleration without self-weight,
 a line partly over nothing, a point with no node -- is a named finding in :mod:`ada.fem.formats.conversion_report`
 under :data:`STAGE`, as is a part whose concept loads reach a writer without having been converted at all.
+
+Each load is placed by the part it belongs to -- that of the load case it was made in -- as the GeniE XML writer
+places it, not by the part of the case that now holds it: a case gathered on the assembly from several placed parts
+holds loads in each part's own system.
 """
 
 from __future__ import annotations
@@ -62,14 +66,31 @@ if TYPE_CHECKING:
 #: The static step the concept load cases become load cases of.
 CONCEPT_STEP_NAME = "concept_loads"
 
-#: ``Step.metadata`` key: ``{part name: [load case names]}`` the step was converted from.
+#: ``Step.metadata`` key: ``{part name: [load case names]}`` the step was converted from, by the part that owns each
+#: case (whose system its positions are in; :func:`_owner`).
 CONVERTED_KEY = "concept_load_cases"
+
+#: ``Step.metadata`` key: ``{part name: [load case names]}`` the step was converted from, by the part that holds each
+#: (in whose ``concept_fem.loads`` it is), where that is not its owner: a case moved to another part.
+CONVERTED_HELD_KEY = "concept_load_cases_held"
 
 
 def concept_load_cases(part: Part) -> list[LoadConceptCase]:
-    """The load cases of ``part`` and its sub-parts, in GeniE's order (``fem_loadcase_number``, then as read)."""
-    cases = [lc for p in part.get_all_subparts(include_self=True) for lc in p.concept_fem.loads.load_cases.values()]
-    return sorted(cases, key=lambda lc: lc.fem_loadcase_number)
+    """The load cases of ``part`` and its sub-parts, in GeniE's order (``fem_loadcase_number``, then as read).
+
+    A case held by two of them (one object in both) is listed once."""
+    return [lc for _, lc in _held_cases(part)]
+
+
+def _held_cases(part: Part) -> list[tuple[Part, LoadConceptCase]]:
+    """``(holder, case)`` of the load cases of ``part`` and its sub-parts, each case once, in GeniE's order."""
+    out, seen = [], set()
+    for p in part.get_all_subparts(include_self=True):
+        for lc in p.concept_fem.loads.load_cases.values():
+            if id(lc) not in seen:
+                seen.add(id(lc))
+                out.append((p, lc))
+    return sorted(out, key=lambda pc: pc[1].fem_loadcase_number)
 
 
 def concept_load_points(part: Part) -> list[np.ndarray]:
@@ -78,16 +99,29 @@ def concept_load_points(part: Part) -> list[np.ndarray]:
 
     out = []
     for lc in concept_load_cases(part):
-        owner = _owner(lc, part)
-        out += [to_global_points(owner, ld.position) for ld in lc.loads if isinstance(ld, LoadConceptPoint)]
+        for ld in lc.loads:
+            if isinstance(ld, LoadConceptPoint):
+                out.append(to_global_points(_load_owner(ld, lc, part), ld.position))
     return out
 
 
-def _owner(lc: LoadConceptCase, part: Part) -> Part:
-    """The part a load case belongs to: its positions are in that part's local system."""
+def _case_owner(lc) -> Part | None:
     loads = getattr(lc, "parent", None)
     concept = getattr(loads, "parent_fem", None)
-    return getattr(concept, "parent_part", None) or part
+    return getattr(concept, "parent_part", None)
+
+
+def _owner(lc: LoadConceptCase, part: Part) -> Part:
+    """The part a load case belongs to (``part`` when it says none): its positions are in that part's local system."""
+    return _case_owner(lc) or part
+
+
+def _load_owner(load, lc: LoadConceptCase, part: Part) -> Part:
+    """The part a load belongs to: that of the case it was made in (``load.parent``), which the GeniE XML writer
+    places it by, else that of the case ``lc`` holding it. The two differ for a case that gathers loads of several
+    parts (one case on the assembly for the loads of each placed sub-structure): placed by ``lc``'s part, every
+    point and line load of another part landed off its own structure, by the difference of the two placements."""
+    return _case_owner(getattr(load, "parent", None)) or _owner(lc, part)
 
 
 def add_load_concepts_to_fem(part: Part, fem: FEM, tol: float = 1e-4) -> None:
@@ -97,7 +131,8 @@ def add_load_concepts_to_fem(part: Part, fem: FEM, tol: float = 1e-4) -> None:
     from ada.fem.loads.fe_loads import LOAD_CASE_NUMBER
     from ada.fem.steps import StepImplicitStatic
 
-    cases = concept_load_cases(part)
+    held = _held_cases(part)
+    cases = [lc for _, lc in held]
     # with the part that owns each: a sub-part's combination is recorded under that part, as its load cases are
     combinations = [
         (p, lcc)
@@ -110,22 +145,46 @@ def add_load_concepts_to_fem(part: Part, fem: FEM, tol: float = 1e-4) -> None:
     conv = _Converter(fem, tol)
     step = fem.add_step(StepImplicitStatic(CONCEPT_STEP_NAME))
     converted: dict[str, list[str]] = {}
+    held_by: dict[str, list[str]] = {}
     fe_loads: dict[int, list[Load]] = {}
-    for lc in cases:
+    for holder, lc in held:
         owner = _owner(lc, part)
-        loads = [fe for load in lc.loads for fe in conv.load(load, lc, owner)]
+        loads = [fe for load in lc.loads for fe in conv.load(load, lc, _load_owner(load, lc, part))]
+        same = step.load_cases.get(lc.name)
+        if same is None:
+            step.add_loadcase(LoadCase(lc.name, None, loads=loads, metadata={LOAD_CASE_NUMBER: lc.fem_loadcase_number}))
+        else:
+            # Same-named cases of several parts are one load case, as the GeniE XML writer merges them
+            # (LoadConcepts.get_global_load_concepts). A second LoadCase of the name replaced the first in the step,
+            # whose loads were then reported as in no load case and not written.
+            same.loads.extend(loads)
+            step.add_loadcase(same)
+            loads = same.loads
+            report().note(
+                STAGE,
+                "LoadConceptCase",
+                f"{lc.name} ({holder.name})",
+                "load cases of this name in several parts are written as one load case holding the loads of each, "
+                "as the GeniE XML writer merges them",
+                part=holder.name,
+            )
         fe_loads[id(lc)] = loads
-        if not loads and not conv.settles(lc):
+        converted.setdefault(owner.name, []).append(lc.name)
+        if holder is not owner:
+            held_by.setdefault(holder.name, []).append(lc.name)
+    # Every case of a merged name refers to its one FE load case, whichever part's case a combination names.
+    for _holder, lc in held:
+        fe_loads[id(lc)] = step.load_cases[lc.name].loads
+    for name, fe_case in step.load_cases.items():
+        if not fe_case.loads and not any(conv.settles(lc) for lc in cases if lc.name == name):
             # Sestra V11.3-00 makes no result case of it and says nothing: the user's model, 10 TDLOAD with three
             # empty, gave 7 result cases (FEM load case ids 1, 3, 4, 5, 8, 9, 10).
             report().note(
                 STAGE,
                 "LoadConceptCase",
-                lc.name,
+                name,
                 "a load case with no load in it is written empty; Sestra makes no result case of an empty load case",
             )
-        step.add_loadcase(LoadCase(lc.name, None, loads=loads, metadata={LOAD_CASE_NUMBER: lc.fem_loadcase_number}))
-        converted.setdefault(owner.name, []).append(lc.name)
 
     for owner, lcc in combinations:
         loads = conv.combination(lcc, fe_loads)
@@ -142,27 +201,43 @@ def add_load_concepts_to_fem(part: Part, fem: FEM, tol: float = 1e-4) -> None:
             factors={t.load_case.name: t.factor * lcc.global_scale_factor for t in lcc.load_cases},
         )
     step.metadata[CONVERTED_KEY] = converted
+    if held_by:
+        step.metadata[CONVERTED_HELD_KEY] = held_by
 
 
 def report_unconverted_concept_loads(assembly: Assembly) -> None:
     """Name every concept load case that reaches a writer without having become an FE load case: a part whose FEM
-    was not made by ``Part.to_fem_obj`` (or was made before its loads were added) carries none of them."""
+    was not made by ``Part.to_fem_obj`` (or was made before its loads were added) carries none of them.
+
+    A case counts as converted by the part that owns it (:func:`_owner`) or the part that held it when it was
+    converted, as a step records them, so a case moved from one part to another (the assembly) after it was made is
+    not reported omitted though converted, as it was when only the name of the part now holding it was looked up."""
     converted: set[tuple[str, str]] = set()
     for p in assembly.get_all_parts_in_assembly(include_self=True):
         for step in p.fem.steps:
-            for owner, names in (step.metadata or {}).get(CONVERTED_KEY, {}).items():
-                converted.update((owner, n) for n in names)
+            metadata = step.metadata or {}
+            for key in (CONVERTED_KEY, CONVERTED_HELD_KEY):
+                for owner, names in metadata.get(key, {}).items():
+                    converted.update((owner, n) for n in names)
     for p in assembly.get_all_parts_in_assembly(include_self=True):
         concept = p.concept_fem.loads
-        for name in list(concept.load_cases) + list(concept.load_case_combinations):
-            if (p.name, name) not in converted:
-                report().omitted(
-                    STAGE,
-                    "LoadConceptCase",
-                    f"{name} of part {p.name}",
-                    "a concept load case that no FE step carries -- the part's FEM was not meshed from it by "
-                    "Part.to_fem_obj -- so none of its loads is written",
-                )
+        held = [(name, _owner(lc, p)) for name, lc in concept.load_cases.items()]
+        # a combination has no back-reference to its part: it is recorded under the part that holds it
+        held += [(name, p) for name in concept.load_case_combinations]
+        for name, owner in held:
+            if (p.name, name) in converted or (owner.name, name) in converted:
+                continue
+            details = {"part": p.name, "load_case": name}
+            if owner is not p:
+                details["owner"] = owner.name
+            report().omitted(
+                STAGE,
+                "LoadConceptCase",
+                f"{name} of part {p.name}",
+                "a concept load case that no FE step carries -- the part's FEM was not meshed from it by "
+                "Part.to_fem_obj -- so none of its loads is written",
+                **details,
+            )
 
 
 class _Converter:

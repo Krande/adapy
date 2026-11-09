@@ -13,7 +13,7 @@ Measured before the fix (CalculiX 2.23, Code_Aster 18.1.8, Abaqus 2025, Sestra V
 3. the solver started with ``cwd=<execute_dir>`` and could not open its deck
    (``*ERROR in readinput: cannot open file``, ``Command line option "input" must have a value``).
 
-No solver is run here: ``subprocess.run`` is replaced by a recorder.
+No solver is run here: ``run_process`` (the solver's ``subprocess`` call) is replaced by a recorder.
 """
 
 from __future__ import annotations
@@ -26,6 +26,7 @@ import sys
 import pytest
 
 from ada.config import Config
+from ada.fem.formats import utils
 from ada.fem.formats.abaqus.execute import AbaqusExecute
 from ada.fem.formats.calculix.execute import CalculixExecute
 from ada.fem.formats.utils import LocalExecute
@@ -63,11 +64,11 @@ def deck(tmp_path) -> pathlib.Path:
 def recorded_runs(monkeypatch) -> list[dict]:
     calls = []
 
-    def fake_run(cmd, **kwargs):
-        calls.append(dict(cmd=cmd, **kwargs))
+    def fake_run(cmd, timeout=None, **kwargs):
+        calls.append(dict(cmd=cmd, timeout=timeout, **kwargs))
         return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
 
-    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr(utils, "run_process", fake_run)
     return calls
 
 
