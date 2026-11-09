@@ -76,8 +76,8 @@ test("running the 3D mouse command asks for the device inside the key press or c
   // The device module's request does its first await only on requestDevice itself.
   const dev = readFileSync(new URL("../../utils/spacemouse/spaceMouseDevice.ts", import.meta.url), "utf8");
   const req = dev.slice(dev.indexOf("export async function requestSpaceMouse"));
-  assert.ok(req.indexOf("hid.requestDevice") < req.indexOf("await openDevice"));
-  assert.equal((req.slice(0, req.indexOf("hid.requestDevice")).match(/await/g) ?? []).length, 0);
+  assert.ok(req.indexOf("await hid.requestDevice") < req.indexOf("await openDevice"));
+  assert.equal((req.slice(0, req.indexOf("await hid.requestDevice")).match(/await/g) ?? []).length, 0);
 });
 
 test("AUDIT: every setter an Options component calls has a command", () => {
