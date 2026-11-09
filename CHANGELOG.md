@@ -2,6 +2,21 @@
 
 
 
+## v0.139.4 (2026-11-09)
+
+### Chore
+
+* chore: drop the tests-adacpp environment (#517)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`5954af1`](https://github.com/Krande/adapy/commit/5954af17a5421b940354b578195e93f6a0cda2db))
+
+### Fix
+
+* fix: resolve FE solver executables from Config first (#519)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`c4262bf`](https://github.com/Krande/adapy/commit/c4262bfe875f6f4a455a40f4e3768e495864532a))
+
+
 ## v0.139.3 (2026-11-09)
 
 ### Fix
