@@ -76,6 +76,7 @@ const ThemeOptions: React.FC = () => {
                         type="color"
                         // Color inputs need a hex; when no override is set show
                         // a neutral derived from the active preset family.
+                        data-option="panel-colour"
                         value={customBg ?? "#111827"}
                         onChange={(e) => setCustomBg(e.target.value)}
                         className="h-6 w-10 cursor-pointer rounded-sm border border-gray-600 bg-transparent"
@@ -86,6 +87,7 @@ const ThemeOptions: React.FC = () => {
                     <span>Text color</span>
                     <input
                         type="color"
+                        data-option="text-colour"
                         value={customText ?? "#f3f4f6"}
                         onChange={(e) => setCustomText(e.target.value)}
                         className="h-6 w-10 cursor-pointer rounded-sm border border-gray-600 bg-transparent"
@@ -98,6 +100,7 @@ const ThemeOptions: React.FC = () => {
                     </span>
                     <input
                         type="range"
+                        data-option="panel-opacity"
                         min={0.1}
                         max={1}
                         step={0.05}

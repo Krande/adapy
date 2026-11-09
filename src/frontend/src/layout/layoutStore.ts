@@ -17,6 +17,7 @@ import { createStore, type StoreApi } from "zustand/vanilla";
 import { layoutDocKey, type LayoutDoc, type LayoutPersistence, type LayoutPrefs, type ZoneDef } from "./layout";
 import type { PresetId } from "./panel";
 import { emptyLayoutDoc, migrateLayoutDoc } from "./reducers";
+import { setShortcutOverrides } from "./shortcuts";
 import { migrateRailPrefs, type RailPrefs } from "./toolRailModel";
 
 export const LAYOUT_PREFS_VERSION = 1;
@@ -40,6 +41,10 @@ export interface LayoutStoreState {
   setCustomisablePanels(on: boolean, shell?: string): void;
   /** Freeze (lock) or unfreeze the layout of UI shell `shell` (core's own UI by default). */
   setUiFreeze(on: boolean, shell?: string): void;
+  /** Bind shortcut `id` to `chord`, leave it with no key (`null`), or back to its default (`undefined`). */
+  setKeyOverride(id: string, chord: string | null | undefined): void;
+  /** Every shortcut back to its default. */
+  resetKeyOverrides(): void;
   /** Pin or unpin a panel in a composed shell (by shell id). */
   setPinned(shell: string, panel: string, pinned: boolean): void;
   /** Forget a saved document: the next read starts from the preset's (or shell's) starting one. */
@@ -74,6 +79,11 @@ export function migrateLayoutPrefs(raw: unknown): LayoutPrefs {
   }
   if (typeof r.customisablePanels === "boolean" && !("core" in byShell)) byShell.core = r.customisablePanels;
   if (Object.keys(byShell).length) prefs.customisablePanelsByShell = byShell;
+  if (r.keyOverrides && typeof r.keyOverrides === "object") {
+    const keys: Record<string, string | null> = {};
+    for (const [id, chord] of Object.entries(r.keyOverrides)) if (chord === null || (typeof chord === "string" && chord.trim())) keys[id] = chord;
+    if (Object.keys(keys).length) prefs.keyOverrides = keys;
+  }
   if (r.uiFreezeByShell && typeof r.uiFreezeByShell === "object") {
     const freeze: Record<string, boolean> = {};
     for (const [shell, on] of Object.entries(r.uiFreezeByShell)) if (typeof on === "boolean") freeze[shell] = on;
@@ -202,6 +212,22 @@ export function createLayoutStore(): StoreApi<LayoutStoreState> {
         else byShell[shell] = on;
         setPrefs({ ...prefs, markingMenuByShell: byShell });
       },
+      setKeyOverride(id, chord) {
+        const prefs = get().prefs;
+        const next = { ...prefs.keyOverrides };
+        if (chord === undefined) {
+          if (!(id in next)) return;
+          delete next[id];
+        } else if (next[id] === chord) return;
+        else next[id] = chord;
+        const { keyOverrides: _old, ...rest } = prefs;
+        setPrefs(Object.keys(next).length ? { ...rest, keyOverrides: next } : rest);
+      },
+      resetKeyOverrides() {
+        const { keyOverrides, ...rest } = get().prefs;
+        if (!keyOverrides) return;
+        setPrefs(rest);
+      },
       setUiFreeze(on, shell = "core") {
         const prefs = get().prefs;
         if (prefs.uiFreezeByShell?.[shell] === on) return;
@@ -232,3 +258,9 @@ export function createLayoutStore(): StoreApi<LayoutStoreState> {
 
 /** The viewer's layout store. */
 export const layoutStore = createLayoutStore();
+
+// The shortcut registry reads the user's overrides from here (`./shortcuts`), so every reader of a chord agrees.
+setShortcutOverrides(layoutStore.getState().prefs.keyOverrides);
+layoutStore.subscribe((s, prev) => {
+  if (s.prefs.keyOverrides !== prev.prefs.keyOverrides) setShortcutOverrides(s.prefs.keyOverrides);
+});

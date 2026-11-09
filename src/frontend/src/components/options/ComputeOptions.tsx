@@ -67,6 +67,7 @@ const ComputeOptions: React.FC = () => {
                 Worker processes
                 <input
                     type="number"
+                    data-option="compute-workers"
                     min={1}
                     max={cores}
                     placeholder="auto"
@@ -80,6 +81,7 @@ const ComputeOptions: React.FC = () => {
                 Memory limit (GB)
                 <input
                     type="text"
+                    data-option="compute-memory"
                     inputMode="decimal"
                     placeholder="no limit"
                     className="w-20 rounded-sm bg-gray-700 px-1 py-0.5 text-gray-100"

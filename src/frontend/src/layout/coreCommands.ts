@@ -55,6 +55,7 @@ import {openCoreDialog} from "./coreDialogs";
 import {registerCommand, unregisterCommand, type CommandSpec} from "./commands";
 import {layoutStore} from "./layoutStore";
 import {listShellModes} from "./shellModes";
+import {registerOptionCommands} from "./optionCommands";
 import {setUiFrozen, uiFreezeOffered, uiFrozen} from "./uiFreeze";
 import {builderLoaded} from "./modeRequirements";
 import {deleteWorkspace, listWorkspaces, loadWorkspace, resetArrangement, saveWorkspace} from "./presets/classicPlace";
@@ -974,6 +975,7 @@ let unsubscribe: (() => void) | null = null;
 /** Register core's commands (idempotent; a later call re-registers them, e.g. after the shell list changed). */
 export function registerCoreCommands(): void {
   for (const spec of coreCommandSpecs()) registerCommand(spec, OWNER);
+  registerOptionCommands();
   syncWorkspaceCommands();
   unsubscribe ??= layoutStore.subscribe((s, prev) => {
     if (s.prefs.workspaces !== prev.prefs.workspaces) syncWorkspaceCommands();

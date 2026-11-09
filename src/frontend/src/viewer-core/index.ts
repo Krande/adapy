@@ -600,6 +600,23 @@
 //          drops, and keeps tabs, dividers, close and reopen. Kept per shell in
 //          `LayoutPrefs.uiFreezeByShell`; `UiShellChrome.uiFreeze` is `false` (not offered)
 //          or `"default-on"`. `setUiFrozen`, `uiFrozen`, `useUiFrozen` on `/layout`.
+//          - Every setting is a command, and every key is the user's. `CommandSpec.keywords`
+//          (the palette matches every word of a query against the label, group,
+//          keywords and id: `commandRank`). `optionDescriptors()` is one list that
+//          registers `core:option.<id>` for each Options setting (toggles checked,
+//          one command per value of a choice, "open in Options" for free-form
+//          numbers; `optionCommandId`, `openOption`), plus `core:option.spacemouse-connect`
+//          and the result-view and storage extras; a test fails when an Options
+//          control has no command. Keyboard shortcuts are editable: the shortcuts
+//          dialog (`core:shortcuts`) lists every command with its chord, captures a
+//          new one, unbinds and resets; conflicts offer replace or cancel, chords the
+//          browser or OS keeps (Ctrl+W, ...) are refused, core's own keys may be moved
+//          (`RESERVED_SHORTCUTS` still binds plugins only). Overrides are user-wide, not per shell:
+//          `LayoutPrefs.keyOverrides`, applied in `listShortcuts` / `coreShortcutKeys`, so the
+//          dispatcher, palette, tooltips and menus agree. A shell's or plugin's `keys` are defaults.
+//          On the root: `shortcutOverrides`, `setShortcutOverrides`, `listDefaultShortcuts`,
+//          `subscribeShortcutBindings`; on `/layout`: `keyRows`, `assignKeys`, `refuseChord`,
+//          `chordFromEvent`, `setKeyBinding`, `resetAllKeyBindings`.
 //          - Calculation options: `ComputeOptionsBody` and an Options section "compute"
 //          over `useComputeStore`.
 //          - Facade: core's glyphs (`ChevronRightIcon`, ... the icon set),
@@ -705,7 +722,7 @@ export { SHELL_MODE_PARAM, setShellModeBadge, shellModeBadge } from "@/layout/sh
 export type { PanelOverride } from "@/layout/registry";
 export type { FixedSize, GroupArrangement } from "@/layout/splitTree";
 // Commands (menus, palette, keys share them) and HUDs over the view (dependency-free).
-export { commandChord, getCommand, listCommands, matchCommand, registerCommand, runCommand, unregisterCommand } from "@/layout/commands";
+export { commandChord, commandRank, getCommand, listCommands, matchCommand, registerCommand, runCommand, unregisterCommand } from "@/layout/commands";
 export type { CommandSpec, RegisteredCommand } from "@/layout/commands";
 // Core's own commands, by id (registered for every composed shell), for a shell's menus.
 export { CAMERA_VIEWS, CORE_COMMAND_IDS, cameraViewCommandId, themeCommandId, uiShellCommandId, workspaceCommandId } from "@/layout/coreCommandIds";
@@ -762,12 +779,16 @@ export type { ViewportAnchor, ViewportOverlaySpec } from "@/layout/viewportOverl
 export {
   RESERVED_SHORTCUTS,
   coreShortcutKeys,
+  listDefaultShortcuts,
   listShortcuts,
   parseShortcut,
   registerShortcut,
+  setShortcutOverrides,
+  shortcutOverrides,
+  subscribeShortcutBindings,
   unregisterShortcut,
 } from "@/layout/shortcuts";
-export type { RegisteredShortcut, ShortcutKeys, ShortcutSpec } from "@/layout/shortcuts";
+export type { KeyOverrides, RegisteredShortcut, ShortcutKeys, ShortcutSpec } from "@/layout/shortcuts";
 export { CORE_SHORTCUTS, CORE_SHORTCUT_GROUPS } from "@/layout/coreShortcutTable";
 export type { CoreShortcutDef } from "@/layout/coreShortcutTable";
 export { installShortcutDispatcher } from "@/layout/shortcutDispatch";

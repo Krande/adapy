@@ -80,6 +80,7 @@ const SpaceMouseOptions: React.FC = () => {
                         <span className="w-20">Sensitivity</span>
                         <input
                             type="range"
+                            data-option="spacemouse-sensitivity"
                             min={0.1}
                             max={3}
                             step={0.05}
@@ -93,6 +94,7 @@ const SpaceMouseOptions: React.FC = () => {
                         <span className="w-20">Dead zone</span>
                         <input
                             type="range"
+                            data-option="spacemouse-dead-zone"
                             min={0}
                             max={0.4}
                             step={0.01}
