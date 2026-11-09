@@ -2,6 +2,15 @@
 
 
 
+## v0.139.2 (2026-11-09)
+
+### Fix
+
+* fix: build the frontend on Node 24 everywhere (#515)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`64882ca`](https://github.com/Krande/adapy/commit/64882cae0777e4d82a2e41697f8dacf0326f5e9f))
+
+
 ## v0.139.1 (2026-11-09)
 
 ### Fix
