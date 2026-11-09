@@ -34,8 +34,9 @@ def get_available_software() -> list[str]:
     """Return the list of solver names this machine can actually run.
 
     Calculix + Code_Aster are always considered available (they ship via
-    the docs/test pixi envs in adapy). Abaqus + Sesam require
-    `ADA_abaqus_exe` / `ADA_SESTRA_EXE` to point at existing files.
+    the docs/test pixi envs in adapy). Abaqus + Sesam are listed when the
+    same lookup the launcher uses finds them (`[fea] fem_exe_paths` in
+    ada_config.toml first). A configured path with nothing at it raises.
 
     Used by reporting code (eg the verification report) to narrow the
     solver fanout to what the host can produce results for.

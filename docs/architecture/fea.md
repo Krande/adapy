@@ -387,3 +387,22 @@ flowchart TB
 Code_Aster and CalculiX run on every build. Abaqus and Sesam need licences, so their results
 replay from committed caches (`_CACHE_ONLY_SOLVERS`). `fea_outputs` bakes the mode-shape
 artefact bundles that the report's interactive 3D views load.
+
+## Solver executables
+
+adapy finds a solver in this order, and the launcher and `get_available_software` share the lookup:
+
+1. `[fea] fem_exe_paths` in `ada_config.toml`, for example:
+
+   ```toml
+   [fea]
+   fem_exe_paths = { abaqus = "/opt/abaqus/Commands/abaqus", sestra = "C:/DNV/Sestra/sestra.exe" }
+   ```
+
+   `ADA_FEA_FEM_EXE_PATHS` overrides it per key, as JSON: `ADA_FEA_FEM_EXE_PATHS='{"abaqus": "/x/abaqus"}'`.
+2. The older per-solver variables, which are deprecated and warn when used: `ADA_<solver>_exe` (such as `ADA_abaqus_exe`,
+   `ADA_ccx_exe`), `ADA_ABAQUS_EXE`, `ADA_SESTRA_EXE`.
+3. `PATH` and the environment's own bin folders.
+4. Install defaults, such as the DNV Application Version Manager's for Sestra.
+
+A path set in step 1 with nothing at it is an error rather than a reason to look elsewhere.

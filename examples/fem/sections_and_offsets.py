@@ -65,7 +65,7 @@ Usage
 ``python examples/fem/sections_and_offsets.py --out-dir <dir>``
 
 Sestra is located through ``ada.fem.formats.sesam.sesam_exe_locator`` (the DNV
-Application Version Manager's default, or ``ADA_SESTRA_EXE``). Pass ``--no-execute``
+Application Version Manager's default, or ``[fea] fem_exe_paths.sestra``). Pass ``--no-execute``
 to write the deck only.
 """
 
