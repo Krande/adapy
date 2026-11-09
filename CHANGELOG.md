@@ -2,6 +2,13 @@
 
 
 
+## v0.138.3 (2026-11-09)
+
+### Fix
+
+* fix(fem): a beam with no offset has its centroid on the node line; top of steel is flush top (#508) ([`989459a`](https://github.com/Krande/adapy/commit/989459ab6ff91795896e83c0f4eeef5391f05931))
+
+
 ## v0.138.2 (2026-11-09)
 
 ### Fix
