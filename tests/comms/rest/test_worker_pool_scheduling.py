@@ -28,6 +28,7 @@ os.environ.setdefault("ADA_VIEWER_LOCAL_PATH", tempfile.mkdtemp(prefix="ada-test
 from ada.comms.rest.worker import (  # noqa: E402
     FETCH_TIMEOUT,
     _advance_pool_cursor,
+    _PendingProbe,
     _per_fetch_timeout,
 )
 
@@ -195,6 +196,49 @@ def test_pending_pools_is_none_when_the_stream_cannot_be_asked():
     assert asyncio.run(q.pending_pools()) is None
     q._js = None
     assert asyncio.run(q.pending_pools()) is None
+
+
+# ── a failed ask is retried, not believed for good ─────────────────
+
+
+class _Clock:
+    def __init__(self) -> None:
+        self.now = 1000.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
+def test_the_probe_asks_every_round_while_the_stream_answers():
+    probe = _PendingProbe(retry_after=60.0, clock=_Clock())
+    for _ in range(3):
+        assert probe.due()
+        assert probe.record({"alpha": 1}) is None
+
+
+def test_one_failed_ask_pauses_the_probe_and_it_comes_back():
+    clock = _Clock()
+    probe = _PendingProbe(retry_after=60.0, clock=clock)
+    assert probe.record(None) == "lost"
+
+    clock.now += 59.0
+    assert not probe.due()
+
+    clock.now += 1.0
+    assert probe.due()
+    assert probe.record({}) == "restored"  # an empty stream IS an answer
+    assert probe.due()
+
+
+def test_a_stream_that_keeps_failing_is_asked_at_the_retry_cadence_and_reported_once():
+    clock = _Clock()
+    probe = _PendingProbe(retry_after=60.0, clock=clock)
+    assert probe.record(None) == "lost"
+    for _ in range(3):
+        clock.now += 60.0
+        assert probe.due()
+        assert probe.record(None) is None
+        assert not probe.due()
 
 
 # ── a plugin's preferred pools go first ────────────────────────────

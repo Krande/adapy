@@ -34,10 +34,12 @@ from .pools import (
     FETCH_TIMEOUT,
     IN_PROGRESS_REFRESH_SECONDS,
     MAX_DELIVERIES,
+    PENDING_PROBE_RETRY_SECONDS,
     _advance_pool_cursor,
     _bool_env,
     _capabilities_to_add,
     _fetch_plan,
+    _PendingProbe,
     _per_fetch_timeout,
     _pool_capabilities,
     _preferred_indices,
@@ -437,11 +439,9 @@ async def _run() -> None:
     rr = 0  # round-robin cursor over `subs`
     streak = 0  # consecutive productive fetches on the current pool
     yielded: int | None = None  # the pool that just used up its streak: tried last next round
-    # Whether the stream can be asked which pools hold messages (see JobQueue.pending_pools).
-    # Turned off, once and for good, the first time it cannot: a credential without the
-    # permission will not grow it mid-life, and asking every round would be a failed request
-    # per second for nothing.
-    probing = True
+    # When to ask the stream which pools hold messages (see JobQueue.pending_pools): every round
+    # while it answers, and once per PENDING_PROBE_RETRY_SECONDS after it did not.
+    probe = _PendingProbe()
     try:
         while not stop.is_set():
             _touch_liveness()  # each pull round — a stalled fetch lets this go stale -> livenessProbe restart
@@ -456,14 +456,18 @@ async def _run() -> None:
                 await asyncio.sleep(FETCH_TIMEOUT)
                 continue
             pending = None
-            if probing and streak == 0:
+            if streak == 0 and probe.due():
                 pending = await queue.pending_pools()
-                if pending is None:
-                    probing = False
+                change = probe.record(pending)
+                if change == "lost":
                     logger.info(
-                        "worker: cannot ask the stream which pools hold jobs; polling the %d pools in turn",
+                        "worker: cannot ask the stream which pools hold jobs; polling the %d pools in turn "
+                        "and asking again every %.0f s",
                         len(subs),
+                        PENDING_PROBE_RETRY_SECONDS,
                     )
+                elif change == "restored":
+                    logger.info("worker: the stream answers again; no longer polling the pools in turn")
             pools = [c for c, _ in subs]
             preferred = _preferred_indices(pools, locally_preferred_pools())
             plan = _fetch_plan(
