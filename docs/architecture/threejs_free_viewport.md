@@ -99,13 +99,18 @@ flowchart LR
 | adacpp renderer | `viewport/native/nativeResultLayer.ts` | One geometry with colours and a morph, one instance. Colours and displacement are written into buffers kept on the module heap, so a step allocates nothing. |
 | Playing | `feaAnimationDriver.ts`, `playbackActions.ts`, `resultInfluence.ts` | The oscillator and the transport write one number per frame to the layer in `feaAnimationStore.resultLayer`. No vertex data moves while a mode shape plays. |
 | Controls and legend | `utils/scene/fea/streaming/resultStores.ts` | A painted result is registered the same way from either loader: the session, the step count, the derived deformation scale, the legend's range. |
-| The loader without a scene | `utils/scene/fea/streaming/layerSession.ts` | Reads the mesh GLB as typed arrays (`utils/glb/glbMesh.ts`), draws faces and element edges as layers, paints a nodal field, registers the step callback. `load_fea_streaming` hands a load to it while the three.js-free viewport is on screen. |
+| The loader without a scene | `utils/scene/fea/streaming/layerSession.ts` | Reads the mesh GLB as typed arrays (`utils/glb/glbMesh.ts`), draws faces and element edges as layers, paints a nodal or an element field, registers the step callback. `load_fea_streaming` hands a load to it while the three.js-free viewport is on screen. |
+| Element fields | `utils/scene/fea/elemFieldPaint.ts` | One step of an element (integration point) field as typed arrays: a colour per render vertex, the displacement per node, the result-point markers, the coloured lines of line elements, and each element's painted value. An element's colour is its own, so the mesh it is painted on is element-local (a vertex per triangle corner). `applyElemField.ts` writes the same output to the three.js mesh. |
+| Elements as objects | `viewport/api/resultLayer.ts` (`ResultMeshObjects`), `viewport/native/resultObjects.ts` | A result mesh says which objects it is made of: a model key, its object ids, and the part of the index list each draws. The three.js-free scene makes them the renderer's segments and registers the model beside the loaded ones, so pick, select, hide, show, isolate and fit go through `ViewportApi` as for any model, and `onModelLoaded` carries the hierarchy the Scene tree lists. The selection is a per-segment colour, so the other elements keep their result colours. |
+| Beam sections | `utils/scene/fea/streaming/layerBeamSolids.ts` | The beam solids of a bake as typed arrays, from the compact artefact (expanded by the compute capability) or the mesh GLB with its sidecars. Drawn as one more layer when asked for; each section is the object its element is. |
+| What a layer can be | `viewport/api/resultLayer.ts` | Triangles, lines or points, with a width or diameter in pixels and an opacity: result points are a layer of points, the coloured lines of line elements and the undeformed outline are layers of lines. `streaming/layerGroup.ts` holds a result's layers as one for the controls and the playback driver. |
+| Number labels | `utils/scene/fea/labelPlacement.ts`, `layout/NumberLabels.tsx` | What is worth a label and where it goes, from a `LabelSource` (elements, their vertices, where each vertex is now) and a projector. `ViewportApi.projectToScreen` projects a batch of world points to CSS pixels and depth, and `onCameraChange` says when to do it again; the three.js mesh (`numberLabels.ts`) and the layer session are the two sources. |
 
-The three.js viewport still loads a result with its own loader, which does more than the layer
-session does: element fields with their element-local vertices, beam sections, result points, the
-undeformed outline, per-element selection, recorded playback frames and load combinations computed
-on request. Those are the next things to move behind layers; until then the layer session refuses
-an element field or a combination with the reason instead of drawing it wrong.
+Both viewports paint with the same kernels. What the three.js viewport's own loader still does
+that the layer session does not: recorded playback frames (a played frame is repainted from the
+step cache instead; read-ahead and "load every frame" work), the feature edges of beam sections,
+and the element sets of a result (the Scene tree's set rows and isolating by set act on the
+three.js mesh). Plugin overlays (`plugins/sceneOverlays.ts`) are also three.js-only.
 
 ## What the next slices have to settle
 
@@ -130,8 +135,8 @@ These are open design points, ordered by how much of the viewer depends on them.
    `ADA_EXT_data` extension (design / simulation objects, FEA metadata) and animations. The native
    path gets the hierarchy from the reader, which also hands back the extension data as JSON text;
    nothing reads it yet. A streamed FEA result does not come through the reader at all: its mesh is
-   read as typed arrays and drawn through result layers (above), so its elements are not objects of
-   the viewport yet and cannot be picked or hidden one by one.
+   read as typed arrays and drawn through result layers (above), which name the elements as the
+   mesh's objects, so they are picked, selected and hidden like a loaded model's.
 4. **Section planes and caps.** The planes are plain data in `state/sectionStore` (no three.js),
    and both viewports cut by them, so the section commands and the panel's sliders work on either.
    On the three.js-free viewport the reader flags single-sided surfaces as closed solids, so their
@@ -146,10 +151,10 @@ These are open design points, ordered by how much of the viewer depends on them.
    so that layer keeps the pixels and makes its sprites again. Where an object is comes from the
    viewport too (`objectsCentre`), as does a change of selection (`onSelectionChange`). The type
    icons of a procedural model and the names of the selected objects ("Object names") are drawn
-   this way, by controllers that follow the viewport on screen (`followActiveViewport`). Still the
-   three.js viewport's only: the number labels of an FEA result, which need the result's mesh, and
-   a plugin's labels (`addLabels`), which can pin to FEA elements and are cut by section planes at
-   their anchor.
+   this way, by controllers that follow the viewport on screen (`followActiveViewport`). The number labels
+   of an FEA result are HTML placed through the viewport (`projectToScreen`, `onCameraChange`), on
+   either one. Still the three.js viewport's only: a plugin's labels (`addLabels`), which can pin
+   to FEA elements and are cut by section planes at their anchor.
 6. **Controls parity.** The renderer's camera covers orbit, pan, zoom, zoom towards the cursor, fit
    to the model or the selection, named views and the user's input mapping. Still the main
    viewer's only: the orientation gizmo, orthographic projection as a setting, and 3D-mouse input.

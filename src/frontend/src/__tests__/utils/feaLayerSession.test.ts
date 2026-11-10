@@ -567,6 +567,21 @@ test("an element field paints each beam section with its beam's value, in place 
     assert.equal(lineNow.visible, false, "one rendering of a beam at a time");
 });
 
+test("a time history can be loaded ahead of playing it; other results offer no such thing", async () => {
+    const viewport = fakeViewport();
+    withdraw = viewport.withdraw;
+    await load(displacement());
+    assert.equal(useFeaAnimationStore.getState().startFramePreload, null, "mode shapes are not frames of one history");
+    closeLayerSession();
+    await load(displacement({analysis_kind: "transient"} as Partial<FeaManifestField>));
+    const start = useFeaAnimationStore.getState().startFramePreload;
+    assert.ok(start, "offered for a transient field of more than one step");
+    start();
+    await tick();
+    const progress = useFeaAnimationStore.getState().framePreload;
+    assert.ok(progress && progress.loaded === progress.total, `every frame loaded: ${JSON.stringify(progress)}`);
+});
+
 test("closing the session takes its layers off the viewport", async () => {
     const viewport = fakeViewport();
     withdraw = viewport.withdraw;

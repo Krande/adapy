@@ -16,7 +16,7 @@ import type {FeaFetcher, FeaRangeFetcher} from "@/services/fea/feaFetcher";
 import {isCaseRef} from "@/services/fea/feaStepRef";
 import type {FeaManifest, FeaManifestField} from "@/services/viewerApi";
 import {slotRef} from "../caseSteps";
-import {findDisplacementField} from "./warp";
+import {findDisplacementField} from "./warpSource";
 
 /** How many frames play reads ahead of the one it is showing. Enough to ride out a
  *  slow request at 12 fps; few enough that a pause does not leave many requests

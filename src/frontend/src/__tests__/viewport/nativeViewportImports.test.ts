@@ -80,6 +80,7 @@ for (const module of [
     "utils/scene/fea/labelPlacement.ts",
     "utils/scene/fea/streaming/layerGroup.ts",
     "utils/scene/fea/streaming/layerBeamSolids.ts",
+    "utils/scene/fea/streaming/prefetch.ts",
     "utils/scene/fea/resultInfluence.ts",
     "utils/scene/fea/feaAnimationDriver.ts",
     "utils/scene/fea/playbackActions.ts",

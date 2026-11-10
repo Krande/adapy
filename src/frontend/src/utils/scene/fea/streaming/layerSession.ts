@@ -26,6 +26,7 @@ import type {FeaFetcher} from "@/services/fea/feaFetcher";
 import {prefetchCase, resolveCase, resolveEnvelope} from "@/services/fea/feaCaseResolver";
 import {withFieldDetail} from "@/services/fea/feaFieldDetail";
 import {caseManifestView, isCaseRef} from "@/services/fea/feaStepRef";
+import {FEA_STEP_CACHE} from "@/services/fea/stepCache";
 import {fetchElemFieldStep} from "@/services/feaElemFieldBlob";
 import {fetchFieldStep} from "@/services/feaFieldBlob";
 import {fetchMeshEdges} from "@/services/feaMeshEdges";
@@ -49,9 +50,11 @@ import type {LabelSource} from "../labelPlacement";
 import {paintNodalField} from "../nodalFieldPaint";
 import {isPropertyField} from "../propertyColors";
 import {RangeAccumulator} from "../rangeAccumulator";
+import {isTimeHistory} from "../timeHistory";
 import {recordLayerValues} from "../visibleValues";
 import {loadBeamSolidData, type BeamSolidData} from "./layerBeamSolids";
 import {PaintedPointsLayer, ResultGroup} from "./layerGroup";
+import {preloadFrames, prefetchFieldSteps, upcomingSteps} from "./prefetch";
 import {syncResultStores} from "./resultStores";
 import {requestStep} from "./stepQueue";
 import type {ApplyStepOptions, LoadFeaStreaming, LoadFeaStreamingArgs} from "./types";
@@ -137,6 +140,8 @@ let playbackSyncedFor: string | null = null;
 // The slot the step callback last asked for: tells a walk through the list (start on the next
 // combination) from a jump (start nothing).
 let lastAppliedSlot: number | null = null;
+// The running "load every frame" job, and what it is loading. A load of anything else stops it.
+let preload: {key: string; abort: AbortController} | null = null;
 
 /** An sRGB hex colour (0xrrggbb) as linear RGB in 0..1, which is what a layer takes. */
 function linear(hex: number): [number, number, number] {
@@ -218,6 +223,8 @@ export function closeLayerSession(): void {
     session = null;
     playbackSyncedFor = null;
     lastAppliedSlot = null;
+    preload?.abort.abort();
+    preload = null;
     recordLayerValues(null);
     s.unsubscribe();
     s.group.remove();
@@ -977,8 +984,39 @@ export async function loadFeaOnLayers(
 
     if (field) {
         const store = useFeaAnimationStore.getState();
-        // Frames are fetched as they are played here; there is nothing to load ahead.
-        store.setStartFramePreload(null);
+        // Playing reads the next frames while this one paints, and a time history can be loaded
+        // whole ahead of playing it: both fill the step cache the paint reads from.
+        const readAhead = (step: number) =>
+            prefetchFieldSteps({
+                manifest, field, steps: upcomingSteps(step, nSlots),
+                warpEnabled: useFeaAnimationStore.getState().warpEnabled, fetcher, rangeFetcher, cacheKey,
+            });
+        const preloadKey = `${scope}\u0000${sourceName}\u0000${field.name_canonical}`;
+        if (preload && preload.key !== preloadKey) {
+            // Another field or source: stop loading the old one's frames.
+            preload.abort.abort();
+            preload = null;
+            store.setFramePreload(null);
+        }
+        store.setStartFramePreload(
+            isTimeHistory(field, manifest) && nSlots > 1
+                ? () => {
+                    if (preload?.key === preloadKey) return;
+                    const abort = new AbortController();
+                    preload = {key: preloadKey, abort};
+                    const now = useFeaAnimationStore.getState();
+                    void preloadFrames({
+                        manifest, field, warpEnabled: now.warpEnabled, fetcher, rangeFetcher, cacheKey, nFrames: nSlots,
+                        startStep: now.stepIndex, budgetBytes: FEA_STEP_CACHE.budgetBytes, signal: abort.signal,
+                        onProgress: (p) => {
+                            if (!abort.signal.aborted) useFeaAnimationStore.getState().setFramePreload(p);
+                        },
+                    }).finally(() => {
+                        if (preload?.abort === abort) preload = null;
+                    });
+                }
+                : null,
+        );
         store.setApplyStep((newStepIndex: number, stepOpts?: ApplyStepOptions) =>
             requestStep(newStepIndex, async (step) => {
                 // Read at call time: the slider and the warp scale the user has set now.
@@ -991,6 +1029,7 @@ export async function loadFeaOnLayers(
                     const next = nextCaseToPrefetch(mergeCaseSteps(manifest, field), step);
                     if (next !== null) prefetchCase(manifest, {scope, sourceKey: sourceName}, next);
                 }
+                if (stepOpts?.playback) readAhead(step);
                 await reload({
                     sourceName,
                     manifest,
