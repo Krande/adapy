@@ -129,7 +129,7 @@ export function isBoxRequestBusy(entry: BoxRequestEntry | undefined): boolean {
 }
 
 // --- the live flow ---------------------------------------------------------------------------------
-// Heavy modules (three.js scene, the asset browser, the plugin listing) are imported on first use,
+// Heavy modules (the asset browser, the plugin listing, the scene tree) are imported on first use,
 // so a test of this store, or a page that never opens the menu, does not load them.
 
 async function scopeNow(): Promise<string> {
@@ -137,40 +137,39 @@ async function scopeNow(): Promise<string> {
     return scopeUrlPart(useScopeStore.getState().current);
 }
 
-/** The box's DRAWN members in `mode`, and how many draw ranges they came from. */
+/** The box's DRAWN members in `mode`, and how many objects they came from: what the viewport on
+ *  screen says the box takes (the same objects "Reselect" would select), without touching the
+ *  selection. */
 async function captureBox(boxId: string, mode: BoxSelectMode) {
-    const {boxRanges} = await import("@/utils/bboxSelection/threeBoxSelection");
-    const {captureRanges} = await import("@/utils/groups/groupScene");
-    const batch = boxRanges(boxId, mode);
-    if (batch.length === 0) {
+    const [{useBBoxSelectionStore}, {activeViewport}, {captureObjects}] = await Promise.all([
+        import("@/state/bboxSelectionStore"),
+        import("@/viewport/api/viewportApi"),
+        import("@/utils/groups/groupScene"),
+    ]);
+    const box = useBBoxSelectionStore.getState().boxes.find((b) => b.id === boxId);
+    const taken = box ? activeViewport()?.objectsInBox({min: box.min, max: box.max}, mode) : undefined;
+    if (!taken || taken.size === 0) {
         return {elements: 0, members: [] as GroupMember[], reason: "Nothing drawn is in the box."};
     }
-    const captured = captureRanges(batch);
-    return {elements: batch.length, members: captured.members, reason: captured.reason};
+    const captured = captureObjects(taken);
+    return {elements: taken.size, members: captured.members, reason: captured.reason};
 }
 
 /** The published models in the scene: provider, collection, and where the loader put each one's
- *  model frame (the world position of its source-space root -- the scene's recentring offset). */
+ *  model frame (the world position of its source-space root -- the scene's recentring offset), as
+ *  the viewport on screen places it. */
 async function loadedModels(): Promise<{provider: string; collection: string; offset: [number, number, number] | null}[]> {
-    const [{getSingletonViewerStores}, {loadedSourceGroups}, {sourceSpaceRoot}, THREE] = await Promise.all([
+    const [{getSingletonViewerStores}, {useSceneFrameStore}, {activeViewport}] = await Promise.all([
         import("@/state/AdaViewerContext"),
-        import("@/state/modelState"),
-        import("@/utils/scene/clashJointMarkers"),
-        import("three"),
+        import("@/state/sceneFrameStore"),
+        import("@/viewport/api/viewportApi"),
     ]);
-    // The scene's one recentring offset, for a model whose group is not (or no longer) registered.
-    const fallback = getSingletonViewerStores().useModelState.getState().translation;
-    const base: [number, number, number] | null = fallback ? [fallback.x, fallback.y, fallback.z] : null;
+    // The scene's one recentring offset, for a model the viewport does not (or no longer) hold.
+    const fallback = useSceneFrameStore.getState().offset;
+    const viewport = activeViewport();
     return getSingletonViewerStores().useAssetBrowserStore.getState().loaded.map((a) => {
-        const group = loadedSourceGroups.get(a.sourceName);
-        let offset = base;
-        if (group) {
-            const root = sourceSpaceRoot(group);
-            root.updateWorldMatrix(true, false);
-            const p = root.getWorldPosition(new THREE.Vector3());
-            offset = [p.x, p.y, p.z];
-        }
-        return {provider: a.ref.provider, collection: a.ref.collection.toLowerCase(), offset};
+        const at = viewport?.sourceOrigin(a.sourceName) ?? fallback;
+        return {provider: a.ref.provider, collection: a.ref.collection.toLowerCase(), offset: at ? [at[0], at[1], at[2]] : null};
     });
 }
 

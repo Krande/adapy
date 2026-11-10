@@ -15,7 +15,7 @@ import type {ViewportUndoState} from "./viewportState";
 export type ViewportKind = "three" | "native";
 
 /** Things one viewport can do and another cannot yet. A caller asks before offering it. */
-export type ViewportFeature = "fit-selection" | "box-request";
+export type ViewportFeature = "fit-selection";
 
 /** One object of a loaded model: the model's key and the object's id in it (the GLB's own id for it,
  *  which a Scene tree row carries as `model_key` and `rangeId`). The identity panels use; neither
@@ -86,6 +86,10 @@ export interface ViewportApi {
     captureState: ViewportUndoState["captureState"];
     stateChange: ViewportUndoState["stateChange"];
     restoreState: ViewportUndoState["restoreState"];
+    /** Where the origin of the model loaded from `sourceName` is in the world: the offset its
+     *  loader moved it by (state/sceneFrameStore has the scene's one offset). Null when no such model
+     *  is on screen. */
+    sourceOrigin(sourceName: string): Point3 | null;
 
     /** The loaded model's box (min xyz, max xyz), or null with nothing loaded. */
     modelBounds(): [number, number, number, number, number, number] | null;

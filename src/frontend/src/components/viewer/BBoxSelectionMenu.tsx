@@ -7,7 +7,6 @@ import {createPortal} from "react-dom";
 import {useBBoxSelectionStore, type SelectionBox} from "@/state/bboxSelectionStore";
 import type {BoxSelectMode} from "@/utils/bboxSelection/boxMath";
 import {applyBoxSelection} from "@/utils/bboxSelection/applyBoxSelection";
-import {activeViewport} from "@/viewport/api/viewportApi";
 
 import {BoxRequestSection} from "./BoxRequestSection";
 
@@ -31,8 +30,6 @@ const BBoxSelectionMenu: React.FC<{box: SelectionBox; x: number; y: number; onCl
     const [style, setStyle] = useState<React.CSSProperties>({top: y, left: x, visibility: "hidden"});
     const update = useBBoxSelectionStore((s) => s.update);
     const remove = useBBoxSelectionStore((s) => s.remove);
-    // What the box holds is requested and loaded by the three.js scene's loaders only, so far.
-    const requestUnavailable = activeViewport()?.unavailable("box-request") ?? null;
 
     useLayoutEffect(() => {
         const el = ref.current;
@@ -83,9 +80,7 @@ const BBoxSelectionMenu: React.FC<{box: SelectionBox; x: number; y: number; onCl
                 <span>Reselect</span>
             </button>
             <div className="my-1 border-t border-gray-700"/>
-            {requestUnavailable
-                ? <div className="px-3 py-1.5 text-[11px] text-gray-400" title={requestUnavailable}>Request from source: not on this viewport</div>
-                : <BoxRequestSection box={box}/>}
+            <BoxRequestSection box={box}/>
             <div className="my-1 border-t border-gray-700"/>
             <label className="flex items-center gap-2 px-3 py-1.5 text-xs">
                 <span className="w-16">Colour</span>

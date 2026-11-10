@@ -25,8 +25,7 @@ export function createNativeViewportApi(scene: NativeScene): ViewportApi {
     // Each call that changes the selection or what is hidden is one undo step (./nativeViewportHistory.ts).
     return withNativeHistory(scene, {
         kind: "native",
-        unavailable: (feature) =>
-            feature === "box-request" ? "Requesting what a box holds from a source needs the three.js viewport" : null,
+        unavailable: () => null,
         selectionCount: () => scene.selectionSize,
         selection: () => scene.selectedIds.map(splitObjectKey),
         selectionToken: () => scene.selectionVersion,
@@ -49,6 +48,8 @@ export function createNativeViewportApi(scene: NativeScene): ViewportApi {
             const key = objectKey(model, id);
             return scene.draws(key) ? (scene.isHidden(key) ? "hidden" : "shown") : null;
         },
+        // A model is drawn where its file puts it.
+        sourceOrigin: (sourceName) => (scene.hasSource(sourceName) ? [0, 0, 0] : null),
         unloadSource: (sourceName) => scene.unloadSource(sourceName),
         modelBounds: () => scene.modelBounds,
         saveScreenshot: () => {

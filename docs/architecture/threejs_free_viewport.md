@@ -59,8 +59,7 @@ flowchart LR
 
 What the main viewer does beyond this is listed in the viewport itself under "Not available in
 this mode", so nothing looks broken by omission: element (integration point) fields of an FEA
-result, number labels and plugin overlays, requesting a selection box's contents from a source,
-3D-mouse input and export.
+result, number labels and plugin overlays, 3D-mouse input and export.
 
 React reads the selection through `viewport/api/useViewportSelection.ts` (its count, the selected
 objects, a token that changes with it), so a panel written against it follows whichever viewport is
@@ -151,7 +150,7 @@ JavaScript side:
 - **An object with children that draws something itself.** The reader reports one box per object,
   of the object and everything below it, so such an object is judged by the larger box.
 
-The boxes are kept across reloads on both viewports:
+Two more things about boxes are the same on both viewports:
 
 - **Kept across reloads.** `utils/bboxSelection/boxPersistence.ts` keeps the boxes of a scope in the
   browser, bound by whichever viewport draws them. A box is in world coordinates, and the two
@@ -160,8 +159,14 @@ The boxes are kept across reloads on both viewports:
   (`state/sceneFrameStore.ts`: mirrored from the three.js model state, zero on the three.js-free
   viewport) and stored with the boxes, so a box moves by the difference and stays over the same
   object, on a reload and from one viewport to the other.
-Not on the three.js-free viewport yet: "Request from source" in a box's menu (what it loads comes
-through the three.js scene's loaders; the menu says so).
+- **"Request from source".** What a box holds is asked of the viewport on screen (`objectsInBox`),
+  read as object refs and folded to whole levels of the Scene tree (`captureObjects` in
+  `utils/groups/groupScene.ts`); where each loaded model's own frame is in the world comes from the
+  viewport too (`sourceOrigin`). Finding candidates, the plan and the request are then the same code
+  for both. Putting what was requested into the scene (`boxSiteLoad.ts`) loads whole sites and hides
+  the rest by tree row. Holding a model invisible while it loads is the three.js loader's, so on the
+  three.js-free viewport a site would be drawn whole until the rest is hidden; that last step has
+  not been exercised there against a live source.
 
 ## Undo and redo on both viewports
 

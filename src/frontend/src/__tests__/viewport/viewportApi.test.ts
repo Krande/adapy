@@ -42,6 +42,7 @@ function recorder(kind: ViewportApi["kind"], cannot: string | null = null): {api
             captureState: () => ({selected: 0}),
             stateChange: () => ({selection: false, visibility: false, hidden: 0, shown: 0, after: () => ({selected: 0})}),
             restoreState: log("restoreState"),
+            sourceOrigin: () => null,
             showAll: log("showAll"),
             cameraPose: () => null,
             setCameraPose: log("setCameraPose"),

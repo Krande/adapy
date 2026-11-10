@@ -30,7 +30,6 @@ function linearRgb(hex: string): [number, number, number] | null {
 
 const UNAVAILABLE = [
     "element sets and the edges of beam sections of an FEA result", "plugin overlays",
-    "requesting a selection box's contents from a source",
 ];
 
 const NativeViewport: React.FC = () => {

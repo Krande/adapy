@@ -7,14 +7,14 @@ import type CameraControls from "camera-controls";
 import type {OrbitControls} from "three/examples/jsm/controls/OrbitControls";
 
 import {type CameraView} from "@/layout/coreCommandIds";
-import {useModelState} from "@/state/modelState";
+import {loadedSourceGroups, useModelState} from "@/state/modelState";
 import {useObjectInfoStore} from "@/state/objectInfoStore";
 import {requestRender} from "@/state/perfStore";
 import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
 import {useTreeViewStore} from "@/state/treeViewStore";
 import {getViewerRuntime} from "@/state/viewerRuntime";
 import type {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
-import {batchedMeshOf, isBatched} from "@/utils/scene/meshLookup";
+import {batchedMeshOf, isBatched, sourceSpaceRoot} from "@/utils/scene/meshLookup";
 import {matrixProjector} from "@/utils/scene/fea/labelPlacement";
 import {createThreeResultMesh} from "@/utils/scene/fea/threeResultLayer";
 import {recordViewerAction} from "@/utils/scene/viewerHistory";
@@ -202,6 +202,15 @@ export function createThreeViewport(h: ThreeViewportHandles): ViewportApi {
         captureState: captureThreeState,
         stateChange: threeStateChange,
         restoreState: restoreThreeState,
+        // Where the loader put the model's own frame: its source-space root, recentred with the scene.
+        sourceOrigin: (sourceName) => {
+            const group = loadedSourceGroups.get(sourceName);
+            if (!group) return null;
+            const root = sourceSpaceRoot(group);
+            root.updateWorldMatrix(true, false);
+            const p = root.getWorldPosition(new Vector3());
+            return [p.x, p.y, p.z];
+        },
         unloadSource: () => false,
         saveScreenshot: () => void import("@/utils/takeScreenshot").then((m) => m.takeScreenshot()),
         modelBounds: () => {

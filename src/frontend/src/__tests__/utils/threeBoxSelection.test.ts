@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 import * as THREE from "three";
 
 import {useBBoxSelectionStore} from "@/state/bboxSelectionStore";
+import {loadedSourceGroups} from "@/state/modelState";
 import {useObjectInfoStore} from "@/state/objectInfoStore";
 import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
 import {useViewerHistoryStore} from "@/state/viewerHistoryStore";
@@ -16,7 +17,7 @@ import {RangeSet, rangesInWorldBox} from "@/utils/bboxSelection/threeBoxSelectio
 import {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
 import {undoViewerAction} from "@/utils/scene/viewerHistory";
 import {createThreeViewport} from "@/viewport/api/threeViewport";
-import {setActiveViewport} from "@/viewport/api/viewportApi";
+import {activeViewport, setActiveViewport} from "@/viewport/api/viewportApi";
 
 const unit: Aabb = {min: [0, 0, 0], max: [1, 1, 1]};
 
@@ -154,4 +155,21 @@ test("ranges grouped by mesh are selected as the same ranges given one by one", 
     const same = useSelectedObjectStore.getState().selectedObjects;
     store.addRangesByMesh([[mesh, ["B"]]]);
     assert.equal(useSelectedObjectStore.getState().selectedObjects, same);
+});
+
+test("where a model's own origin is in the world: its source-space root, wherever the loader put it", () => {
+    const viewport = activeViewport()!;
+    assert.equal(viewport.sourceOrigin("proj/a.glb"), null, "no such model on screen");
+    const group = new THREE.Group();
+    group.position.set(1, 0, 0);
+    const root = new THREE.Group();
+    root.userData.__sourceSpaceRoot = true;
+    root.position.set(10, 20, 30);
+    group.add(root);
+    loadedSourceGroups.set("proj/a.glb", group);
+    try {
+        assert.deepEqual(viewport.sourceOrigin("proj/a.glb"), [11, 20, 30]);
+    } finally {
+        loadedSourceGroups.delete("proj/a.glb");
+    }
 });

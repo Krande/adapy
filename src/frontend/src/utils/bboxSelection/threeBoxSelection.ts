@@ -7,7 +7,6 @@
 
 import * as THREE from "three";
 
-import {useBBoxSelectionStore} from "@/state/bboxSelectionStore";
 import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
 import {getViewerRuntime} from "@/state/viewerRuntime";
 import {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
@@ -113,12 +112,4 @@ export function threeSelectionBounds(): Aabb | null {
         }
     }
     return out;
-}
-
-/** What box `id` takes in `mode` (its own mode when omitted), without touching the selection:
- *  the same elements "Reselect" would select. Empty when the box or the scene is gone. */
-export function boxRanges(id: string, mode?: BoxSelectMode): [CustomBatchedMesh, string][] {
-    const box = useBBoxSelectionStore.getState().boxes.find((b) => b.id === id);
-    if (!box) return [];
-    return rangesInWorldBox({min: box.min, max: box.max}, mode ?? box.mode).pairs();
 }

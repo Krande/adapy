@@ -494,6 +494,12 @@ export class NativeScene {
         this.onPick?.(id);
     }
 
+    /** Whether a model loaded from `sourceName` is on screen. */
+    hasSource(sourceName: string): boolean {
+        for (const model of this.models.values()) if (model.sourceName === sourceName) return true;
+        return false;
+    }
+
     /** Draw line segments (xyz per point, two points per segment) over the model, in one linear colour:
      *  a helper, never picked. Returns the handle for `removeLines`. */
     addLines(points: Float32Array, color: readonly [number, number, number], widthPx: number): number {
