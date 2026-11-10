@@ -11,6 +11,7 @@ import {useSectionStore} from "@/state/sectionStore";
 import {notifyModelLoaded, notifyViewportPick, setActiveViewport} from "@/viewport/api/viewportApi";
 import {viewportShortcutHandlers} from "@/viewport/api/viewportShortcuts";
 import {NativeScene} from "./nativeScene";
+import {bindSectionGizmo} from "./sectionGizmo";
 import {createNativeViewportApi} from "./nativeViewportApi";
 import {useNativeViewport} from "./nativeModel";
 
@@ -23,7 +24,7 @@ function linearRgb(hex: string): [number, number, number] | null {
 }
 
 const UNAVAILABLE = [
-    "section plane gizmo", "FEA results and animation", "labels, markers and plugin overlays", "measurements and gizmos",
+    "FEA results and animation", "labels, markers and plugin overlays", "measurements and gizmos",
     "screenshots and export", "overlaying several models",
 ];
 
@@ -60,7 +61,9 @@ const NativeViewport: React.FC = () => {
             };
             cut();
             const uncut = useSectionStore.subscribe(cut);
+            const unbindGizmo = bindSectionGizmo(scene);
             release = () => {
+                unbindGizmo();
                 uncut();
                 releaseDispatcher();
                 unbind();

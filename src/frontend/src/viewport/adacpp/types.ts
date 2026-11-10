@@ -160,6 +160,8 @@ export interface WebRendererApi {
     cameraView(name: string, seconds: number): boolean;
     cameraSetOrientation(azimuthDeg: number, elevationDeg: number, rollDeg: number, seconds: number): void;
     cameraPose(): CameraPoseInfo;
+    /** The camera's view and projection (column-major, clip z 0..1) for the canvas' aspect. */
+    cameraMatrices(): {view: Float32Array; proj: Float32Array};
     cameraSetOrthographic(on: boolean): void;
     cameraSetUpAxis(axis: "z" | "y"): void;
     /** The share of a drag's speed kept per 1/60 s after it is released; 0 stops dead. */

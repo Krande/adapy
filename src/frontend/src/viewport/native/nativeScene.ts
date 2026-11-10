@@ -7,7 +7,7 @@ import {useCameraControlsStore} from "@/state/cameraControlsStore";
 import {useVisibilityStore} from "@/state/visibilityStore";
 import {dragAction, mouseButtonOf, wheelZoomFactor, type CameraAction} from "@/utils/camera/cameraMapping";
 import {startRenderer} from "@/viewport/adacpp/rendererModule";
-import {SegmentFlag, type AdacppModule, type GpuDeviceLike, type LoadedGlbObjects, type RawPick, type WebRendererApi} from "@/viewport/adacpp/types";
+import {InstanceFlag, SegmentFlag, Topology, type AdacppModule, type GpuDeviceLike, type LoadedGlbObjects, type RawPick, type WebRendererApi} from "@/viewport/adacpp/types";
 
 /** The viewer's background (#393939) and selection colour, as the three.js viewport has them. */
 const BACKGROUND = 0x39 / 255;
@@ -81,6 +81,13 @@ export class NativeScene {
     sceneExtras = "";
     /** A different object whenever the selection has changed. */
     selectionVersion: object = {};
+    /** Called after a model replaced the scene: helper lines are gone with it, and the box has changed. */
+    readonly onLoaded = new Set<() => void>();
+    /** Asked at each press before the camera: return a handler to take the drag (it gets every move
+     *  until release), or null to leave it to the camera. */
+    dragInterceptor: ((e: PointerEvent) => ((e: PointerEvent) => void) | null) | null = null;
+    /** Helper lines by handle (their instance): the geometry to free with each. */
+    private readonly helperLines = new Map<number, number>();
     /** The renderer stopped (device lost, a failed frame): the caller falls back. */
     onFailure: ((reason: string) => void) | null = null;
     /** Why it stopped, kept for a caller that attaches `onFailure` after the fact: a device can be lost
@@ -158,7 +165,9 @@ export class NativeScene {
         }
         this.objectList = list.sort((x, y) => x.path.join("/").localeCompare(y.path.join("/")));
         this.bounds = loaded.bounds;
+        this.helperLines.clear(); // renderer.clear() took them
         this.home(0);
+        for (const listener of this.onLoaded) listener();
         this.onChange?.();
     }
 
@@ -193,6 +202,51 @@ export class NativeScene {
 
     get selectionSize(): number {
         return this.selected.size;
+    }
+
+    /** Draw line segments (xyz per point, two points per segment) over the model, in one linear colour:
+     *  a helper, never picked. Returns the handle for `removeLines`. */
+    addLines(points: Float32Array, color: readonly [number, number, number], widthPx: number): number {
+        const M = this.module;
+        const count = points.length / 3;
+        const indices = Uint32Array.from({length: count}, (_, i) => i);
+        const pPos = M._malloc(points.byteLength), pIdx = M._malloc(indices.byteLength), pMat = M._malloc(64);
+        M.HEAPF32.set(points, pPos >> 2);
+        M.HEAPU32.set(indices, pIdx >> 2);
+        M.HEAPF32.set([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1], pMat >> 2);
+        try {
+            const geometry = this.renderer.addGeometry(Topology.Lines, pPos, count, 0, 0, 0, pIdx, count, 0, 0, 0);
+            const instance = this.renderer.addInstance(geometry);
+            const flags = InstanceFlag.Unlit | InstanceFlag.NoPick | InstanceFlag.OnTop;
+            this.renderer.setInstance(instance, pMat, color[0], color[1], color[2], 1, flags, 0, 0, 1, false, widthPx * this.pixelRatio(), 0, 0);
+            this.helperLines.set(instance, geometry);
+            this.invalidate();
+            return instance;
+        } finally {
+            M._free(pPos);
+            M._free(pIdx);
+            M._free(pMat);
+        }
+    }
+
+    removeLines(handle: number): void {
+        const geometry = this.helperLines.get(handle);
+        if (geometry === undefined) return;
+        this.helperLines.delete(handle);
+        this.renderer.removeInstance(handle);
+        this.renderer.removeGeometry(geometry);
+        this.invalidate();
+    }
+
+    /** Where a world point is on screen, in client pixels; null behind the camera. */
+    worldToClient(p: readonly [number, number, number]): {x: number; y: number} | null {
+        this.syncSize();
+        const {view: v, proj: q} = this.renderer.cameraMatrices();
+        const e = [0, 1, 2, 3].map((r) => v[r] * p[0] + v[4 + r] * p[1] + v[8 + r] * p[2] + v[12 + r]);
+        const c = [0, 1, 2, 3].map((r) => q[r] * e[0] + q[4 + r] * e[1] + q[8 + r] * e[2] + q[12 + r] * e[3]);
+        if (c[3] <= 1e-9) return null;
+        const rect = this.canvas.getBoundingClientRect();
+        return {x: rect.left + (c[0] / c[3] * 0.5 + 0.5) * rect.width, y: rect.top + (0.5 - c[1] / c[3] * 0.5) * rect.height};
     }
 
     /** The loaded model's box (min xyz, max xyz). */
@@ -447,6 +501,8 @@ export class NativeScene {
         let tap: {id: number; x: number; y: number} | null = null;
         /** What the drag in progress does: decided at the press, from its button and modifiers. */
         let action: CameraAction = "none";
+        /** A drag something else took from the camera at its press (dragInterceptor). */
+        let taken: ((e: PointerEvent) => void) | null = null;
         const mapping = () => useCameraControlsStore.getState().mapping;
         const camera = this.renderer;
         /** A drag of (dx, dy) CSS pixels. */
@@ -463,6 +519,8 @@ export class NativeScene {
         };
         on("pointerdown", (e) => {
             el.setPointerCapture(e.pointerId);
+            taken = this.dragInterceptor?.(e) ?? null;
+            if (taken) return;
             pointers.set(e.pointerId, {x: e.clientX, y: e.clientY});
             lastPinch = 0;
             tap = pointers.size === 1 && e.button === 0 ? {id: e.pointerId, x: e.clientX, y: e.clientY} : null;
@@ -470,6 +528,7 @@ export class NativeScene {
             action = button ? dragAction(mapping(), button, e) : mapping().touch.one;
         });
         on("pointermove", (e) => {
+            if (taken) return taken(e);
             const prev = pointers.get(e.pointerId);
             if (!prev) return;
             const dx = e.clientX - prev.x, dy = e.clientY - prev.y;
@@ -490,6 +549,7 @@ export class NativeScene {
             this.invalidate();
         });
         on("pointerup", (e) => {
+            if (taken) return void (taken = null);
             const t = tap;
             tap = null;
             pointers.delete(e.pointerId);
@@ -503,6 +563,7 @@ export class NativeScene {
             }
         });
         on("pointercancel", (e) => {
+            taken = null;
             tap = null;
             pointers.delete(e.pointerId);
             lastPinch = 0;

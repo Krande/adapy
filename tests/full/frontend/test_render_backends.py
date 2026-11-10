@@ -352,6 +352,18 @@ async def test_commands_and_keys_reach_whichever_viewport_is_on_screen(ws_server
             await _command(page, "Section plane X")
             cut = _count(await _pixels(page), _is_model)
             assert 0.2 * whole < cut < 0.85 * whole, f"{backend}: the section plane cut {whole} -> {cut} model pixels"
+            if backend == NATIVE:
+                # the plane's handle: its arrow starts at the model's centre, which Fit all put mid-screen;
+                # dragging it along the arrow moves the cut
+                await page.mouse.move(*CENTRE)
+                await page.mouse.down()
+                await page.mouse.move(CENTRE[0] + 40, CENTRE[1] - 20, steps=4)
+                await page.mouse.move(CENTRE[0] + 80, CENTRE[1] - 40, steps=4)
+                await page.mouse.up()
+                await page.wait_for_timeout(700)
+                moved = _count(await _pixels(page), _is_model)
+                assert abs(moved - cut) > 0.05 * cut, f"dragging the plane's arrow left the cut at {cut} -> {moved}"
+                assert _count(await _pixels(page), _is_selected) < 50, "the drag on the arrow selected something"
             await _command(page, "Remove section planes")
             restored = _count(await _pixels(page), _is_model)
             assert abs(restored - whole) < 0.05 * whole, f"{backend}: removing the plane left {restored} of {whole}"
