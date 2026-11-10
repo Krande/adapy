@@ -118,6 +118,8 @@ export function createThreeViewport(h: ThreeViewportHandles): ViewportApi {
         },
         selection: threeSelectionRefs,
         selectionToken: () => useSelectedObjectStore.getState().selectedObjects,
+        onSelectionChange: (listener) =>
+            useSelectedObjectStore.subscribe((s, prev) => void (s.selectedObjects !== prev.selectedObjects && listener())),
         setSelection: setThreeSelection,
         // What clicking empty space in the tree does: one undo entry, the info panel emptied.
         clearSelection: () =>

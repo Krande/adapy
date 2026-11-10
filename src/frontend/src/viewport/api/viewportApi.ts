@@ -39,6 +39,8 @@ export interface ViewportApi {
     selection(): ObjectRef[];
     /** A value that is a different one whenever the selection has changed. */
     selectionToken(): unknown;
+    /** Called after each change of the selection. Returns the unsubscribe function. */
+    onSelectionChange(listener: () => void): () => void;
     /** Make `refs` the selection (one undo step where the viewport has undo). Objects that are not
      *  drawn (a level of the hierarchy, an unknown id) are left out. */
     /** `within` runs as part of the same step: state that belongs to the selection (what the object
@@ -95,6 +97,21 @@ export function setActiveViewport(viewport: ViewportApi): () => void {
 export function onActiveViewportChange(listener: () => void): () => void {
     listeners.add(listener);
     return () => void listeners.delete(listener);
+}
+
+/** Called whenever the selection on screen may have changed: the viewport's selection did, or another
+ *  viewport took its place. What a panel subscribes to (see `useViewportSelection`). */
+export function subscribeSelection(listener: () => void): () => void {
+    let off = active?.onSelectionChange(listener) ?? null;
+    const offViewport = onActiveViewportChange(() => {
+        off?.();
+        off = active?.onSelectionChange(listener) ?? null;
+        listener();
+    });
+    return () => {
+        off?.();
+        offViewport();
+    };
 }
 
 export const NO_VIEWPORT = "No 3D view";

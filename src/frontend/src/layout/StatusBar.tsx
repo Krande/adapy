@@ -11,11 +11,10 @@ import React from "react";
 import {runtime} from "@/runtime/config";
 import {hasEmbeddedDoc, useCellBuilderStore} from "@/state/cellBuilderStore";
 import {useModelState} from "@/state/modelState";
-import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
+import {useSelectionCount} from "@/viewport/api/useViewportSelection";
 import {useViewerHistoryStore} from "@/state/viewerHistoryStore";
 import {useWebsocketStatusStore} from "@/state/websocketStatusStore";
 
-import {selectionCount} from "./coreCommands";
 import {useShellMode} from "./ShellModeSwitcher";
 import {SHELL_BAR, isCoreStatusItem, type CoreStatusItemId, type StatusBarItem, type StatusItemSpec} from "./statusItems";
 
@@ -53,7 +52,7 @@ const ModelsItem: React.FC = () => {
 };
 
 const SelectionItem: React.FC = () => {
-  const selected = useSelectedObjectStore((s) => selectionCount(s.selectedObjects));
+  const selected = useSelectionCount();
   return <StatusItem>{selected ? `${plural(selected, "object")} selected` : "Nothing selected"}</StatusItem>;
 };
 

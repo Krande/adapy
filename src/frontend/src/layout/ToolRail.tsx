@@ -13,7 +13,7 @@
 import React, {useEffect, useMemo, useRef, useState, useSyncExternalStore} from "react";
 
 import {OverlayPortal} from "@/components/ui/OverlayPortal";
-import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
+import {subscribeSelection} from "@/viewport/api/viewportApi";
 import {useViewerHistoryStore} from "@/state/viewerHistoryStore";
 
 import {MenuList, type MenuItemDef} from "./CommandPalette";
@@ -71,7 +71,7 @@ function useToolStates(ids: readonly string[], byId: ReadonlyMap<string, Registe
     const later = () => window.setTimeout(check, 0);
     window.addEventListener("pointerup", later, true);
     window.addEventListener("keyup", later, true);
-    const subs = [layoutStore.subscribe(check), useSelectedObjectStore.subscribe(check), useViewerHistoryStore.subscribe(check)];
+    const subs = [layoutStore.subscribe(check), subscribeSelection(check), useViewerHistoryStore.subscribe(check)];
     const tick = window.setInterval(check, 1000);
     return () => {
       window.removeEventListener("pointerup", later, true);

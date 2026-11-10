@@ -1,5 +1,6 @@
 import {PanelCard} from "@/components/ui/PanelFrame";
 import React, {useState, useSyncExternalStore} from 'react';
+import {useSelectionCount} from "@/viewport/api/useViewportSelection";
 import {ErrorBoundary} from '@/components/common/ErrorBoundary';
 import {
     listPropertyProviders,
@@ -73,17 +74,10 @@ function useSelectionSnapshot(): SelectionSnapshot {
  * (`core:selection`).
  */
 function useSelectedRangeCount(): number {
-    const {useSelectedObjectStore} = useViewerStores();
-    const selectedObjects = useSelectedObjectStore((s) => s.selectedObjects);
+    // On the viewport on screen, whichever it is.
+    const selected = useSelectionCount();
     const mirrored = useSceneMirrorStore((s) => s.rangeCount);
-    return React.useMemo(() => {
-        if (isMirroredWindow()) return mirrored;
-        let n = 0;
-        selectedObjects.forEach((ids) => {
-            n += ids.size;
-        });
-        return n;
-    }, [selectedObjects, mirrored]);
+    return isMirroredWindow() ? mirrored : selected;
 }
 
 /** ObjectMetadataPanel takes its payload as a prop. */

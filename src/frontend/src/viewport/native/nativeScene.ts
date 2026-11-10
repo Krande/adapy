@@ -81,6 +81,8 @@ export class NativeScene {
     sceneExtras = "";
     /** A different object whenever the selection has changed. */
     selectionVersion: object = {};
+    /** Called after each change of the selection (or of what is hidden). */
+    readonly onSelection = new Set<() => void>();
     /** Called after a model replaced the scene: helper lines are gone with it, and the box has changed. */
     readonly onLoaded = new Set<() => void>();
     /** Asked at each press before the camera: return a handler to take the drag (it gets every move
@@ -418,6 +420,7 @@ export class NativeScene {
         }
         this.invalidate();
         this.selectionVersion = {};
+        for (const listener of this.onSelection) listener();
         // What draws visibility (the Scene tree's rows) re-reads on this; a selection alone is not one.
         if (this.hidden.changed) {
             this.hidden.changed = false;
