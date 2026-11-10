@@ -2,12 +2,14 @@ import {create} from "zustand";
 
 import type {Aabb, BoxSelectMode, Vec3} from "@/utils/bboxSelection/boxMath";
 import {highestBoxNumber} from "@/utils/bboxSelection/boxStorage";
-import {recordViewerAction, type StateSlice} from "@/utils/scene/viewerHistory";
+import type {StateSlice} from "@/utils/scene/viewerHistory";
 import type {ViewerActionKind} from "@/state/viewerHistoryStore";
 
 // Selection boxes: world-space boxes that select the elements they touch or contain.
-// Plain data only; BBoxSelectionController owns the three.js side. `boxes` and `activeId` are
-// kept per scope in this browser by utils/bboxSelection/boxPersistence.
+// Plain data only, and no three.js: each viewport draws the boxes and their handles its own way
+// (BBoxSelectionController on the three.js one, viewport/native/boxSelectionGizmo on the other), and
+// what a box selects is asked of the viewport on screen (utils/bboxSelection/applyBoxSelection).
+// `boxes` and `activeId` are kept per scope in this browser by utils/bboxSelection/boxPersistence.
 
 export interface SelectionBox {
     id: string;
@@ -54,13 +56,22 @@ let counter = 0;
 // active one are the state an undo puts back, together with the selection the change made. A drag
 // of a box's handles calls `update` on every move; those moves coalesce into one step. `restore`
 // (a reload, a scope switch) and the menu are not steps.
-const boxSlices: StateSlice[] = [
+export const boxSlices: StateSlice[] = [
     {get: () => useBBoxSelectionStore.getState().boxes, set: (v) => useBBoxSelectionStore.setState({boxes: v as SelectionBox[]})},
     {get: () => useBBoxSelectionStore.getState().activeId, set: (v) => useBBoxSelectionStore.setState({activeId: v as string | null})},
 ];
+
+/** Runs a change to the boxes as one undo step. The viewer's history installs itself here when it
+ *  loads (utils/scene/viewerHistory), as it does for the section planes; with none installed (the
+ *  three.js-free viewport, which has no history yet) the change is simply made. */
+export type BoxRecorder = <T>(kind: ViewerActionKind, change: () => T, coalesce?: string) => T;
+let recorder: BoxRecorder | null = null;
+export function setBoxRecorder(next: BoxRecorder | null): void {
+    recorder = next;
+}
 /** Run `fn` as one undo step that may change the boxes (and the selection). */
 export const recordBoxAction = <T>(kind: ViewerActionKind, fn: () => T, coalesce?: string): T =>
-    recordViewerAction(kind, fn, {slices: boxSlices, coalesce});
+    recorder ? recorder(kind, fn, coalesce) : fn();
 const recorded = recordBoxAction;
 
 export const useBBoxSelectionStore = create<BBoxSelectionState>()((set, get) => ({

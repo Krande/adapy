@@ -3,7 +3,7 @@ import {CustomBatchedMesh} from '../utils/mesh_select/CustomBatchedMesh';
 import * as THREE from "three";
 import {Object3D} from "three";
 import {clearPointSelectionMask} from "../utils/scene/pointsImpostor";
-import {rangeHidden, withoutHidden} from "../utils/mesh_select/rangeVisibility";
+import {objectShown, rangeHidden, withoutHidden} from "../utils/mesh_select/rangeVisibility";
 
 // Map keys are typed as Object3D (rather than CustomBatchedMesh) because
 // the store also accepts Points and plain meshes; the body dispatches
@@ -14,6 +14,9 @@ type SelectedObjectState = {
     removeSelectedObject: (mesh: Object3D, drawRangeId: string) => void;
     clearSelectedObjects: () => void;
     addBatchofMeshes: (batch: [Object3D, string][]) => void;
+    /** `addBatchofMeshes` for ranges already grouped by the batched mesh that draws them (what a
+     *  selection box takes): the same selection, without a pair made per range. */
+    addRangesByMesh: (groups: readonly (readonly [CustomBatchedMesh, readonly string[]])[]) => void;
     // Sticky additive-select mode. When true, every scene tap behaves
     // like a shift+click (toggles membership instead of replacing the
     // selection). Lets mobile users build a multi-selection without a
@@ -157,5 +160,25 @@ export const useSelectedObjectStore = create<SelectedObjectState>((set) => ({
             });
 
             return {selectedObjects: newMap};
+        }),
+
+    addRangesByMesh: (groups) =>
+        set((state) => {
+            let newMap: Map<Object3D, Set<string>> | null = null;
+            for (const [mesh, ids] of groups) {
+                if (!objectShown(mesh)) continue;
+                const hidden = mesh.getHiddenRanges();
+                let merged: Set<string> | null = null;
+                for (const id of ids) {
+                    if (hidden.has(id)) continue;
+                    merged ??= new Set((newMap ?? state.selectedObjects).get(mesh) || []);
+                    merged.add(id);
+                }
+                if (!merged) continue;
+                newMap ??= new Map(state.selectedObjects);
+                newMap.set(mesh, merged);
+                mesh.updateSelectionGroups(Array.from(merged));
+            }
+            return newMap ? {selectedObjects: newMap} : {};
         }),
 }));

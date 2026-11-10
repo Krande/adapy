@@ -9,11 +9,12 @@
 import type {ViewportResults} from "./resultLayer";
 import {type CameraView} from "@/layout/coreCommandIds";
 import type {BillboardLayer, Point3} from "./billboards";
+import type {ViewportBoxSelection} from "./boxSelection";
 
 export type ViewportKind = "three" | "native";
 
 /** Things one viewport can do and another cannot yet. A caller asks before offering it. */
-export type ViewportFeature = "fit-selection";
+export type ViewportFeature = "fit-selection" | "box-request";
 
 /** One object of a loaded model: the model's key and the object's id in it (the GLB's own id for it,
  *  which a Scene tree row carries as `model_key` and `rangeId`). The identity panels use; neither
@@ -32,6 +33,9 @@ export interface SetSelectionOptions {
     /** Runs as part of the same step: state that belongs to the selection (what the object info
      *  names), so an undo takes both back. */
     within?: () => void;
+    /** Selections made with the same key in quick succession are one undo step: what re-applies
+     *  while something is dragged (a selection box's handles). */
+    coalesce?: string;
 }
 
 /** Reads how one object is drawn now: "shown", "hidden", or null when the viewport draws nothing for
@@ -98,6 +102,11 @@ export interface ViewportApi {
     /** The viewport's layer of camera-facing images called `name`, made on first use; asking again
      *  gives the same layer until it is disposed. */
     billboards(name: string): BillboardLayer;
+
+    // Box selection: what a box in the world or a rectangle on the screen takes (./boxSelection.ts).
+    objectsInBox: ViewportBoxSelection["objectsInBox"];
+    objectsInScreenRect: ViewportBoxSelection["objectsInScreenRect"];
+    selectionBounds: ViewportBoxSelection["selectionBounds"];
 }
 
 let active: ViewportApi | null = null;
