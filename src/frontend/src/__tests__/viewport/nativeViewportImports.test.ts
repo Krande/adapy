@@ -62,7 +62,7 @@ test("the three.js-free viewport's chunk imports no three.js", () => {
 
 // The interface both viewports stand behind, and the keys bound through it, are loaded by the
 // three.js-free viewport: they may name three.js in types only.
-for (const module of ["viewportApi.ts", "viewportShortcuts.ts"]) {
+for (const module of ["viewportApi.ts", "viewportShortcuts.ts", "billboards.ts"]) {
     test(`viewport/api/${module} imports no three.js`, () => {
         walkFreeOfThree(join(ROOT, "src/viewport/api", module));
     });
