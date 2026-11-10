@@ -1,0 +1,14 @@
+{
+    "name": "nafems_LE10_aba_n4",
+    "fem_format": "abaqus",
+    "software_version": "2025",
+    "metadata": {
+        "elo": 2
+    },
+    "case": "LE10",
+    "divisions": 4,
+    "n_elements": 128,
+    "stress_yy": -5437744.5,
+    "plane": null,
+    "last_modified": 1794297652.037758
+}

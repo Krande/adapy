@@ -1,0 +1,14 @@
+{
+    "name": "nafems_LE1_ses_n2",
+    "fem_format": "sesam",
+    "software_version": "11.3.1.0",
+    "metadata": {
+        "elo": 2
+    },
+    "case": "LE1",
+    "divisions": 2,
+    "n_elements": 8,
+    "stress_yy": 89717639.77271707,
+    "plane": null,
+    "last_modified": 1794297651.980709
+}
