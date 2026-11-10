@@ -12,6 +12,8 @@
 // them against the model's depth.
 import * as THREE from "three";
 import {create} from "zustand";
+import {useOptionsStore} from "@/state/optionsStore";
+import {adacppHandover} from "@/state/perfStore";
 import {resolveModuleUrl} from "@/utils/wasm/emscriptenLoader";
 import {SceneSync, SPRITE_LAYER} from "./sceneSync";
 import type {AdacppModule, AdacppStats, GpuDeviceLike, GpuLike, RawPick, WebRendererApi} from "./types";
@@ -240,6 +242,7 @@ export class AdacppViewport {
         try {
             this.renderer.resize(w, h);
             this.renderer.setCulling(this.culling.frustum, this.culling.cone, this.culling.occlusion);
+            this.sync.pickPoints = adacppHandover().pointPick && useOptionsStore.getState().useGpuPointPicking;
             this.sync.sync(scene, camera, w, h, pixelRatio);
             this.renderer.render();
             this.renderSprites(scene, camera, w, h);

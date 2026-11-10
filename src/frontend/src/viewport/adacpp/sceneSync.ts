@@ -160,6 +160,9 @@ export class SceneSync {
         clearStencil: () => {},
     };
     lastSyncMs = 0;
+    /** Points registered with the point picker are pickable in the renderer too (the `adacppPointPick`
+     *  switch). Off, only model meshes are, so a mesh pick never lands on a point in front of it. */
+    pickPoints = false;
     /** Sprites the last sync found on the camera's layers; the caller draws them with three.js. */
     spriteCount = 0;
     private pixelRatio = 1;
@@ -617,7 +620,8 @@ export class SceneSync {
         if ((obj as THREE.GridHelper).type === "GridHelper") flags |= InstanceFlag.Underlay;
         // Like three.js' GpuMeshPicker, only model meshes are pickable: edges, grid, overlays and
         // helpers must never stand in front of the object a click is meant for.
-        if (!(obj instanceof CustomBatchedMesh)) flags |= InstanceFlag.NoPick;
+        const pickablePoints = this.pickPoints && e.topology === Topology.Points && !!geometry.attributes.pickColor;
+        if (!(obj instanceof CustomBatchedMesh) && !pickablePoints) flags |= InstanceFlag.NoPick;
         const influence = (obj as THREE.Mesh).morphTargetInfluences?.[0] ?? 0;
         // MeshStandardMaterial's metalness/roughness; Lambert/Phong light as diffuse-only.
         const pbr = mat as unknown as {isMeshStandardMaterial?: boolean; metalness?: number; roughness?: number};
