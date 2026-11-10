@@ -20,6 +20,7 @@ import { loadedSourceGroups } from "@/state/modelState";
 import { requestRender } from "@/state/perfStore";
 import { getViewerRuntime } from "@/state/viewerRuntime";
 import { sourceSpaceRoot } from "@/utils/scene/clashJointMarkers";
+import { weldTypeName } from "@/utils/weldTypeNames";
 
 export interface ConnectionOverlayToggles {
   axes: boolean;
@@ -95,7 +96,7 @@ export function renderConnectionOverlay(
     for (const w of result.properties.welds) {
       if (!w.at) continue;
       const bad = w.joins_its_members === false;
-      const text = `${w.name} · ${(w.weld_type ?? "weld").toLowerCase()} a=${mm(w.throat)}${bad ? " · not joined" : ""}`;
+      const text = `${w.name} · ${weldTypeName(w.weld_type)} a=${mm(w.throat)}${bad ? " · not joined" : ""}`;
       out.add(label(text, w.at, bad ? WELD_BAD_COLOUR : WELD_COLOUR));
       marks++;
     }

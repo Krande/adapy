@@ -26,6 +26,7 @@ import {
   useConnectionBuilderStore,
 } from "@/state/connectionBuilderStore";
 import { useSceneInfoStore } from "@/state/sceneInfoStore";
+import { weldTypeName } from "@/utils/weldTypeNames";
 
 /** Sections offered per `section_in` family; any section adapy can parse may be typed. */
 const SECTION_SUGGESTIONS: Record<string, string[]> = {
@@ -541,7 +542,10 @@ const WeldsList: React.FC<{ result: DevBuildResult }> = ({ result }) => {
           title="Select in the scene"
         >
           <span className="text-gray-200">
-            {w.name} <span className="text-gray-500">· {(w.weld_type ?? "weld").toLowerCase()}</span>
+            {w.name}{" "}
+            <span className="text-gray-500" title={w.weld_type ?? undefined}>
+              · {weldTypeName(w.weld_type)}
+            </span>
             {w.joins_its_members === false && (
               <span className="text-red-300" title={`touches: ${w.touches.join(", ") || "nothing"}`}>
                 {" "}
