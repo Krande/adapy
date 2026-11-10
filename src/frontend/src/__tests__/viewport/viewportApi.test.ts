@@ -22,7 +22,7 @@ function recorder(kind: ViewportApi["kind"], cannot: string | null = null): {api
             selection: () => [],
             selectionToken: () => calls.length,
             onSelectionChange: () => () => {},
-            setSelection: log("setSelection"),
+            setSelection: (...args: unknown[]) => (log("setSelection")(...args), 0),
             modelBounds: () => null,
             clearSelection: log("clearSelection"),
             hideSelected: log("hideSelected"),

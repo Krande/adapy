@@ -26,9 +26,11 @@ export {currentSelectionNode, parentLevelName, selectedLeafNodes} from "./treeSe
  *  the tree. */
 export async function selectTreeNode(node: TreeNodeData): Promise<void> {
     // On whichever viewport is on screen; the object info is part of the same undo step.
-    activeViewport()?.setSelection(refsUnder([node]), () => {
-        useObjectInfoStore.getState().setName(node.name);
-        useObjectInfoStore.getState().setSelectedNodeId(node.id);
+    activeViewport()?.setSelection(refsUnder([node]), {
+        within: () => {
+            useObjectInfoStore.getState().setName(node.name);
+            useObjectInfoStore.getState().setSelectedNodeId(node.id);
+        },
     });
     noteTreeSelection([node.id]);
     const tv = useTreeViewStore.getState();

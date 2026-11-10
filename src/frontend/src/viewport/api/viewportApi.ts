@@ -24,6 +24,14 @@ export interface ObjectRef {
     node?: string | null;
 }
 
+export interface SetSelectionOptions {
+    /** Add to the selection instead of replacing it. */
+    add?: boolean;
+    /** Runs as part of the same step: state that belongs to the selection (what the object info
+     *  names), so an undo takes both back. */
+    within?: () => void;
+}
+
 /** Reads how one object is drawn now: "shown", "hidden", or null when the viewport draws nothing for
  *  it (a level of the hierarchy). Good for one pass over many objects; get a new one after a change. */
 export type ObjectVisibilityReader = (model: string, id: string, node?: string | null) => "shown" | "hidden" | null;
@@ -43,9 +51,8 @@ export interface ViewportApi {
     onSelectionChange(listener: () => void): () => void;
     /** Make `refs` the selection (one undo step where the viewport has undo). Objects that are not
      *  drawn (a level of the hierarchy, an unknown id) are left out. */
-    /** `within` runs as part of the same step: state that belongs to the selection (what the object
-     *  info names), so an undo takes both back. */
-    setSelection(refs: readonly ObjectRef[], within?: () => void): void;
+    /** Returns how many objects it selected. */
+    setSelection(refs: readonly ObjectRef[], options?: SetSelectionOptions): number;
     clearSelection(): void;
     hideSelected(): void;
     /** Hide everything that is not selected. */

@@ -189,17 +189,18 @@ export class NativeScene {
         return [...this.selected];
     }
 
-    /** Make `ids` the selection; ids that draw nothing themselves are left out. */
-    setSelection(ids: readonly string[]): void {
-        const table = this.table;
-        this.selected.clear();
-        if (table) {
-            for (const id of ids) {
-                const i = this.indexOfId.get(id);
-                if (i !== undefined && table.segmentOffsets[i + 1] > table.segmentOffsets[i] && !this.hidden.has(id)) this.selected.add(id);
-            }
+    /** Make `ids` the selection, or with `add` add them to it; ids that draw nothing themselves, or are
+     *  hidden, are left out. Returns how many of `ids` it selected. */
+    setSelection(ids: readonly string[], add = false): number {
+        if (!add) this.selected.clear();
+        let taken = 0;
+        for (const id of ids) {
+            if (!this.draws(id) || this.hidden.has(id)) continue;
+            this.selected.add(id);
+            taken++;
         }
         this.pushStates();
+        return taken;
     }
 
     get selectionSize(): number {

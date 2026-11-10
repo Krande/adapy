@@ -15,7 +15,7 @@ import {getViewerRuntime} from "@/state/viewerRuntime";
 import type {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
 import {batchedMeshOf, isBatched} from "@/utils/scene/meshLookup";
 import {recordViewerAction} from "@/utils/scene/viewerHistory";
-import type {ObjectRef, ObjectVisibilityReader, ViewportApi} from "./viewportApi";
+import type {ObjectRef, ObjectVisibilityReader, SetSelectionOptions, ViewportApi} from "./viewportApi";
 
 /** The GLB node that draws `ref`: the caller's, or the Scene tree row's. */
 const nodeOf = (ref: ObjectRef): string | null | undefined =>
@@ -63,17 +63,10 @@ export function threeSelectionRefs(): ObjectRef[] {
     return out;
 }
 
-/** Select `refs` in the three.js scene: each one's mesh is the one its tree row names. One undo step. */
-export function setThreeSelection(refs: readonly ObjectRef[], within?: () => void): void {
+/** Select `refs` in the three.js scene: each one's mesh is the one its GLB node names. One undo step.
+ *  Returns how many draw ranges it selected. */
+export function setThreeSelection(refs: readonly ObjectRef[], options: SetSelectionOptions = {}): number {
     const store = useSelectedObjectStore.getState();
-    if (!refs.length) {
-        recordViewerAction("clear-selection", () => {
-            store.clearSelectedObjects();
-            within?.();
-        });
-        requestRender();
-        return;
-    }
     const models = getViewerRuntime().modelKeyMap.current;
     const tree = useTreeViewStore.getState();
     const batch: [THREE.Object3D, string][] = [];
@@ -88,23 +81,38 @@ export function setThreeSelection(refs: readonly ObjectRef[], within?: () => voi
         if (mesh === undefined) meshes.set(key, (mesh = models?.get(ref.model)?.getObjectByName(meshName) ?? null));
         if (mesh) batch.push([mesh, ref.id]);
     }
-    recordViewerAction("select", () => {
-        store.clearSelectedObjects();
-        store.addBatchofMeshes(batch);
-        within?.();
-    });
+    if (options.add) {
+        if (batch.length || options.within) {
+            recordViewerAction("select", () => {
+                if (batch.length) store.addBatchofMeshes(batch);
+                options.within?.();
+            });
+        }
+    } else if (!refs.length) {
+        recordViewerAction("clear-selection", () => {
+            store.clearSelectedObjects();
+            options.within?.();
+        });
+    } else {
+        recordViewerAction("select", () => {
+            store.clearSelectedObjects();
+            if (batch.length) store.addBatchofMeshes(batch);
+            options.within?.();
+        });
+    }
     requestRender();
+    return batch.length;
 }
+
+const visibility = () => import("@/utils/scene/visibility");
+const cameraHandlers = () => import("@/components/viewer/sceneHelpers/setupCameraControlsHandlers");
+const cameraKeys = () => import("@/components/viewer/sceneHelpers/cameraKeys");
 
 export interface ThreeViewportHandles {
     scene: THREE.Scene;
     camera: THREE.PerspectiveCamera;
     controls: CameraControls | OrbitControls;
 }
-
-const visibility = () => import("@/utils/scene/visibility");
-const cameraHandlers = () => import("@/components/viewer/sceneHelpers/setupCameraControlsHandlers");
-const cameraKeys = () => import("@/components/viewer/sceneHelpers/cameraKeys");
 
 /** The viewport interface over the three.js scene, camera and controls of one mounted canvas. */
 export function createThreeViewport(h: ThreeViewportHandles): ViewportApi {

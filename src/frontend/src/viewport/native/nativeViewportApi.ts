@@ -21,9 +21,10 @@ export function createNativeViewportApi(scene: NativeScene): ViewportApi {
             scene.onSelection.add(listener);
             return () => void scene.onSelection.delete(listener);
         },
-        setSelection: (refs, within) => {
-            scene.setSelection(own(refs));
-            within?.();
+        setSelection: (refs, options) => {
+            const selected = scene.setSelection(own(refs), options?.add);
+            options?.within?.();
+            return selected;
         },
         clearSelection: () => scene.select(null),
         hide: (refs) => scene.setHiddenMany(own(refs), true),
