@@ -41,7 +41,7 @@ request publishes into the scope the hit lies in, or is reported as one to make 
 PROVIDER DATA IS READ THROUGH GRANTS (docs/design/provider-scope-grants.md). A hit from the provider
 store (``scope: "providers"``) is accepted only when its (provider, collection) carries an
 ``attributes`` grant on the searched scope (:func:`refuse_unreadable_hits`). DESIGN GEOMETRY for any
-hit -- a web3d hit included; web3d is never a geometry source -- is the ``GEOMETRY_PROVIDER`` CSG of
+hit -- a mesh-provider hit included; the mesh provider is never a geometry source -- is the ``GEOMETRY_PROVIDER`` CSG of
 the same collection IN THE STORE when the scope holds a ``geometry`` grant on (``GEOMETRY_PROVIDER``,
 collection), and a store hit without that grant writes no file: it reports ``no_geometry`` with
 ``reason: "not_granted"`` (:func:`geometry_read_scope`; the preflight counts them as
@@ -215,7 +215,7 @@ async def geometry_read_scope(
       such file reports ``no_geometry`` with that reason, and nothing is read;
     * otherwise the hits' origin, as before (a legacy copy, until the store holds the dataset).
 
-    An admin exporting from the store itself reads it directly. web3d is never asked here for design
+    An admin exporting from the store itself reads it directly. The mesh provider is never asked here for design
     geometry: the caller names ``GEOMETRY_PROVIDER``, whatever provider found the hit."""
     if scope_obj.kind == "providers" or pool is None:
         return origin_obj, None

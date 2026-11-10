@@ -211,7 +211,7 @@ def test_merging_does_not_mutate_the_incoming_spec():
 # --- existing pools must not move -------------------------------------------
 
 
-@pytest.mark.parametrize("name", ["base", "weld_gen", "fem_solver", "abaqus", "cad-export", "a1"])
+@pytest.mark.parametrize("name", ["base", "joint_gen", "fem_solver", "abaqus", "cad-export", "a1"])
 def test_capability_names_already_in_use_are_unchanged(name):
     """The compatibility guard.
 
@@ -228,6 +228,6 @@ def test_capability_names_already_in_use_are_unchanged(name):
 def test_the_token_is_idempotent():
     # Applied at both the publish and the subscribe end, so a value that has
     # already been through it must survive a second pass unchanged.
-    for raw in ["ALPHA", "site a/2", "weld_gen", "  x  ", "a.b.c", ""]:
+    for raw in ["ALPHA", "site a/2", "joint_gen", "  x  ", "a.b.c", ""]:
         once = capability_token(raw)
         assert capability_token(once) == once

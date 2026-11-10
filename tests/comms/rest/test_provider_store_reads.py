@@ -465,7 +465,7 @@ def test_design_geometry_is_the_stores_with_a_geometry_grant_else_not_granted(mo
         ],
     )
     assert where(store) == (store, None)
-    assert where(shared) == (store, None)  # a web3d hit of its own: the design geometry is the store's
+    assert where(shared) == (store, None)  # a mesh-provider hit of its own: the design geometry is the store's
     assert where(shared, "beta") == (shared, None)  # not granted there: its own copy
     # An admin exporting from the store reads it directly.
     assert asyncio.run(ex.geometry_read_scope(ctx, object(), store, store, geometry, "beta")) == (store, None)

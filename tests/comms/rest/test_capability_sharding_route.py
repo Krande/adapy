@@ -247,7 +247,7 @@ def test_the_advertised_spec_is_stable_across_requests(monkeypatch, tmp_path):
 @pytest.mark.parametrize(
     "raw,expected",
     [
-        ("weld_gen", "ada.viewer.jobs.convert.weld_gen"),
+        ("joint_gen", "ada.viewer.jobs.convert.joint_gen"),
         ("Fem Solver", "ada.viewer.jobs.convert.fem-solver"),
         ("abaqus", "ada.viewer.jobs.convert.abaqus"),
         (None, "ada.viewer.jobs.convert.base"),
