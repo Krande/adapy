@@ -2,6 +2,7 @@
 import {type CameraView} from "@/layout/coreCommandIds";
 import {namedViewDirection} from "@/utils/camera/namedViewDirection";
 import {downloadCanvas} from "@/utils/downloadCanvas";
+import {matrixProjector} from "@/utils/scene/fea/labelPlacement";
 import type {ObjectRef, ViewportApi} from "@/viewport/api/viewportApi";
 import type {BillboardLayer} from "@/viewport/api/billboards";
 import {createNativeBillboardLayer} from "./nativeBillboards";
@@ -67,6 +68,15 @@ export function createNativeViewportApi(scene: NativeScene): ViewportApi {
                 layers.set(name, layer);
             }
             return layer;
+        },
+        projectToScreen: (world, count, out) => {
+            const {view, proj, width, height} = scene.screenProjection();
+            return matrixProjector(view, proj, width, height, 0)(world, count, out);
+        },
+        // A frame is drawn only when something changed, the camera included: every frame counts.
+        onCameraChange: (listener) => {
+            scene.onFrame.add(listener);
+            return () => void scene.onFrame.delete(listener);
         },
     };
 }

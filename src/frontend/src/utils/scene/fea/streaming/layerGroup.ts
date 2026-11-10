@@ -28,6 +28,11 @@ export class ResultGroup implements ResultMeshLayer {
         return this.faces?.vertexCount ?? 0;
     }
 
+    /** How much of the displacement is drawn now. */
+    get scale(): number {
+        return this.influence;
+    }
+
     add<T extends ResultMeshLayer>(layer: T, shown = true): T {
         this.members.set(layer, shown);
         layer.setInfluence(this.influence);

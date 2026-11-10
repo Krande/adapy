@@ -77,6 +77,7 @@ for (const module of [
     "utils/glb/glbMesh.ts",
     "utils/scene/fea/nodalFieldPaint.ts",
     "utils/scene/fea/elemFieldPaint.ts",
+    "utils/scene/fea/labelPlacement.ts",
     "utils/scene/fea/streaming/layerGroup.ts",
     "utils/scene/fea/streaming/layerBeamSolids.ts",
     "utils/scene/fea/resultInfluence.ts",

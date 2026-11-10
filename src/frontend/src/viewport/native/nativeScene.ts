@@ -502,6 +502,14 @@ export class NativeScene {
         return {x: rect.left + (c[0] / c[3] * 0.5 + 0.5) * rect.width, y: rect.top + (0.5 - c[1] / c[3] * 0.5) * rect.height};
     }
 
+    /** The camera's view and projection matrices (column-major, clip z from 0 to 1) and the view's
+     *  size in CSS pixels: what projecting a batch of points onto the screen needs. */
+    screenProjection(): {view: Float32Array; proj: Float32Array; width: number; height: number} {
+        this.syncSize();
+        const {view, proj} = this.renderer.cameraMatrices();
+        return {view, proj, width: this.container.clientWidth, height: this.container.clientHeight};
+    }
+
     /** The view as it is now, drawn at `width` x `height` pixels onto a canvas of its own; null when the
      *  picture cannot be read back. The view on screen is redrawn at its own size afterwards. */
     capture(width: number, height: number): HTMLCanvasElement | null {

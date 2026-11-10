@@ -45,6 +45,7 @@ import {FEA_BEAM_EDGE_COLOR, FEA_EDGE_COLOR, FEA_UNDEFORMED_COLOR} from "../edge
 import {withoutEdges} from "../edgeSplit";
 import {elementLocalVertices, expandTriplesInto, paintElemField, shownElemFieldRange} from "../elemFieldPaint";
 import {edgeOwners, maskHiddenEdges, type EdgeOwners} from "../feaEdgeFilter";
+import type {LabelSource} from "../labelPlacement";
 import {paintNodalField} from "../nodalFieldPaint";
 import {isPropertyField} from "../propertyColors";
 import {RangeAccumulator} from "../rangeAccumulator";
@@ -144,6 +145,64 @@ function linear(hex: number): [number, number, number] {
         return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
     };
     return [channel((hex >> 16) & 255), channel((hex >> 8) & 255), channel(hex & 255)];
+}
+
+const labelSources = new WeakMap<LayerSession, LabelSource>();
+
+/** The result shown through layers as what number labels are placed on (labelPlacement.ts): its
+ *  elements, their nodes, and where each node is at the deformation drawn now. Null when no
+ *  result is shown this way or it has no elements to label. */
+export function layerLabelSource(): LabelSource | null {
+    const s = session;
+    if (!s || !s.drawRanges || !s.mesh.indices || s.mesh.topology !== "triangles") return null;
+    let source = labelSources.get(s);
+    if (!source) {
+        const base = s.basePositions, m = s.mesh.matrix;
+        source = {
+            ranges: s.drawRanges,
+            index: s.mesh.indices,
+            position: (node, out, at) => {
+                const i = node * 3;
+                if (i + 2 >= base.length) return false;
+                const moved = s.lastDisplacement, k = s.group.scale;
+                const x = base[i] + (moved ? k * moved[i] : 0);
+                const y = base[i + 1] + (moved ? k * moved[i + 1] : 0);
+                const z = base[i + 2] + (moved ? k * moved[i + 2] : 0);
+                out[at] = m[0] * x + m[4] * y + m[8] * z + m[12];
+                out[at + 1] = m[1] * x + m[5] * y + m[9] * z + m[13];
+                out[at + 2] = m[2] * x + m[6] * y + m[10] * z + m[14];
+                return true;
+            },
+            isHidden: (key) => s.hidden.has(key),
+        };
+        labelSources.set(s, source);
+    }
+    return source;
+}
+
+let selectedElements: {token: unknown; ids: ReadonlySet<string> | null} | null = null;
+
+/** The elements of the result shown through layers that are selected on the viewport, by their
+ *  keys; null when none is. Read again only when the selection has changed. */
+export function layerSelectedElements(): ReadonlySet<string> | null {
+    const s = session;
+    const viewport = activeViewport();
+    if (!s?.objects || !viewport) return null;
+    const token = viewport.selectionToken();
+    const read = selectedElements;
+    if (read && read.token === token) return read.ids;
+    const ids = new Set<string>();
+    if (viewport.selectionCount() > 0) {
+        for (const ref of viewport.selection()) if (ref.model === s.objects.model) ids.add(ref.id);
+    }
+    const now = {token, ids: ids.size ? ids : null};
+    selectedElements = now;
+    return now.ids;
+}
+
+/** The scope a result shown through layers was loaded from, when `sourceName` is that result. */
+export function layerSessionScope(sourceName: string | null | undefined): string | null {
+    return session && sourceName && session.sourceName === sourceName ? session.scope : null;
 }
 
 /** Is a result shown through layers now. */

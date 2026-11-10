@@ -731,3 +731,64 @@ async def test_fea_beams_are_drawn_as_their_sections(ws_server, backend, fem_fil
         finally:
             await browser.close()
 
+
+@pytest.mark.parametrize("backend", ["three", NATIVE])
+async def test_fea_number_labels_follow_whichever_viewport_is_on_screen(ws_server, backend, fem_files):
+    """Element and node numbers over a result: drawn over the model where the viewport on screen puts
+    its elements, and placed again when the camera moves."""
+    result_file = fem_files / "cantilever/sesam/static/shell/STATIC_SHELL_CANTILEVER_SESAMR1.SIF"
+    async with async_playwright() as playwright:
+        # The number labels are part of the desktop UI's view (the classic one has no overlays).
+        desktop = "localStorage.setItem('ada:ui', 'desktop')"
+        browser, page, state = await _open_viewer(playwright, ws_server, backend, desktop, empty_pixels=300000)
+        try:
+            await _show_result(page, ws_server, result_file)
+            await _command(page, "Element numbers")
+            labels = page.locator("[data-number-labels] [data-label-kind=element]")
+
+            async def labelled():
+                return await labels.count() >= 5
+
+            await _until(page, labelled, f"{backend}: element numbers to be drawn")
+
+            async def places():
+                return await labels.evaluate_all(
+                    "els => els.map(e => { const r = e.getBoundingClientRect();"
+                    " return [e.textContent, Math.round(r.x + r.width / 2), Math.round(r.y + r.height / 2)]; })"
+                )
+
+            # the labels sit on the painted result, not somewhere else in the view (the legend lies over
+            # part of the result, and over the labels there)
+            before = await places()
+            image = await _pixels(page)
+            near_result = 0
+            for _, x, y in before:
+                box = image.crop((x - 14, y - 14, x + 14, y + 14))
+                near_result += _count(box, _is_coloured) > 0
+            assert near_result >= 0.5 * len(
+                before
+            ), f"{backend}: {near_result} of {len(before)} labels lie on the result"
+            assert all(
+                text.isdigit() for text, _, _ in before
+            ), f"{backend}: labels {before[:5]} are not element numbers"
+
+            # the camera moves: the labels are placed again
+            await page.keyboard.press("Escape")
+            await page.mouse.move(*CENTRE)
+            await page.mouse.wheel(0, -400)
+
+            async def moved():
+                return await labels.count() >= 1 and await places() != before
+
+            await _until(page, moved, f"{backend}: the labels to follow the camera")
+
+            await _command(page, "Node numbers")
+            nodes = page.locator("[data-number-labels] [data-label-kind=node]")
+
+            async def nodes_labelled():
+                return await nodes.count() >= 5
+
+            await _until(page, nodes_labelled, f"{backend}: node numbers to be drawn")
+            await _assert_drawing_with(page, backend, state)
+        finally:
+            await browser.close()
