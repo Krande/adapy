@@ -26,7 +26,7 @@ import {useThemeStore} from "@/state/themeStore";
 import {useViewMetricsStore} from "@/state/viewMetricsStore";
 import {feaControlActions} from "@/utils/scene/fea/feaControls";
 import {COLORMAP_NAMES} from "@/utils/scene/fea/colormaps";
-import {isWebHidSupported, requestSpaceMouse} from "@/utils/spacemouse/spaceMouseDevice";
+import {isSpaceMouseSupported, isWebHidSupported, requestSpaceMouse} from "@/utils/spacemouse/spaceMouseDevice";
 
 import {registerCommand, type CommandSpec} from "./commands";
 import {CORE_COMMAND_IDS as ID} from "./coreCommandIds";
@@ -75,6 +75,8 @@ const perf = () => usePerfStore.getState();
 const sm = () => useSpaceMouseStore.getState();
 
 const needWebHid = () => (isWebHidSupported() ? null : "Needs WebHID: use Chrome, Edge or another Chromium-based browser");
+// The option itself also works over the Gamepad API; only the explicit device chooser needs WebHID.
+const needSpaceMouse = () => (isSpaceMouseSupported() ? null : "Needs WebHID or the Gamepad API: use Chrome or Edge");
 const GEN = ["options", "settings", "preferences"] as const;
 
 /** A perf-store switch. `invert`: the setting is the opposite of what the store holds ("Disable antialias"). */
@@ -95,7 +97,7 @@ const BUTTON_CHOICES: {value: SpaceMouseButtonAction; label: string}[] = [
   {value: "fitSelection", label: "Fit selection"},
   {value: "none", label: "Nothing"},
 ];
-const SM_KEYS = ["3d mouse", "3dconnexion", "spacemouse", "space mouse", "6dof", "navigation", "hid"] as const;
+const SM_KEYS = ["3d mouse", "3dconnexion", "spacemouse", "space mouse", "6dof", "navigation", "hid", "gamepad", "joystick"] as const;
 
 /** Every Options setting, as data. */
 export function optionDescriptors(): OptionDescriptor[] {
@@ -183,8 +185,8 @@ export function optionDescriptors(): OptionDescriptor[] {
     }),
     // --- 3D mouse ---
     {kind: "toggle", id: "spacemouse", title: "3D mouse (SpaceMouse)", group: "3D mouse", keywords: [...SM_KEYS, "enable", ...GEN],
-      setters: ["setEnabled"], disabledReason: needWebHid,
-      get: () => sm().enabled && isWebHidSupported(),
+      setters: ["setEnabled"], disabledReason: needSpaceMouse,
+      get: () => sm().enabled && isSpaceMouseSupported(),
       set: (on) => {
         sm().setEnabled(on);
         // Turning it on asks the browser for the device, here and now: the chooser needs the user's key press
@@ -272,7 +274,7 @@ export function optionCommandSpecs(): CommandSpec[] {
     }
   }
   // Commands that are not a setting's value but belong with them.
-  const mouse = ["3d mouse", "3dconnexion", "spacemouse", "space mouse", "hid"];
+  const mouse = ["3d mouse", "3dconnexion", "spacemouse", "space mouse", "hid", "gamepad", "joystick"];
   out.push(
     {
       id: "core:option.spacemouse-connect", label: "Connect 3D mouse (SpaceMouse)…", group: "3D mouse", keywords: [...mouse, "device", "pair", "choose"],

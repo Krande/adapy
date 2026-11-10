@@ -2,6 +2,30 @@
 
 
 
+## v0.141.0 (2026-11-10)
+
+### Feature
+
+* feat(viewer): read the 3D mouse over the Gamepad API, no prompt (#524)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`c624be8`](https://github.com/Krande/adapy/commit/c624be87198fd8b6a95ce4c4691708dc4c31d86c))
+
+
+## v0.140.0 (2026-11-10)
+
+### Chore
+
+* chore: tidy vocabulary gates, fixtures and docs wording (#523)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`027d9d6`](https://github.com/Krande/adapy/commit/027d9d62c694057f05eebf7e04fb97bce555e5b2))
+
+### Feature
+
+* feat(fem): add NAFEMS LE1 and LE10 and cantilever closed forms to the verification report (#518)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`8937a3b`](https://github.com/Krande/adapy/commit/8937a3b0d1c06309558f1a22dbff865665329943))
+
+
 ## v0.139.7 (2026-11-10)
 
 ### Fix
@@ -1946,15 +1970,15 @@ Co-authored-by: Claude Fable 5 &lt;noreply@anthropic.com&gt; ([`ec25512`](https:
 
 The pull-loop heartbeat livenessProbe (task #74) was emitted for EVERY worker
 pool, but only the adapy worker image writes /tmp/worker-alive. The abaqus and
-plugin capability pools run foreign images (adapy-viewer-worker-abaqus, an old
-base; a plugin's own runner) that never write it, so the probe failed every cycle
+weld-gen capability pools run foreign images (adapy-viewer-worker-abaqus, an old
+base; asa-weld-gen-runner) that never write it, so the probe failed every cycle
 and SIGKILL-crashlooped them (exit 137 ~4.5min after start) — which in turn spammed
 PodCrashLooping/PodCrashLoopingSlow alerts all night.
 
 Make the heartbeat probe opt-in: the helper emits it only when a pool sets
 `heartbeatLiveness: true` (now the default on the adapy `worker` pool) or supplies
 its own `livenessProbe:`. Capability pools that do neither get no liveness probe.
-helm template verified: main worker keeps the heartbeat probe, abaqus + plugin
+helm template verified: main worker keeps the heartbeat probe, abaqus + weld-gen
 render with none.
 
 Co-Authored-By: Claude Opus 4.8 (1M context) &lt;noreply@anthropic.com&gt; ([`b606c1d`](https://github.com/Krande/adapy/commit/b606c1d7cbf7175f159eb9f2217d6f6615a8e211))

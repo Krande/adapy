@@ -77,6 +77,9 @@ STRESS_MAP = {
 # Shell element types whose RVSTRESS records become STRESS fields: the 4- and
 # 3-node shells (FQUS, FTRS) and their 8- and 6-node counterparts (FQUS8, FTRS6).
 _SHELL_STRESS_TYPES = (24, 25, 26, 28)
+# Solid element types whose RVSTRESS records become STRESS fields: the 20-node hexahedron (IHEX), whose
+# stresses Sestra stores at its 2x2x2 Gauss points, in the model's axes.
+_SOLID_STRESS_TYPES = (20,)
 # Gauss points of the 8- and 6-node shells, in [0, 1] element coordinates.
 _G2 = (0.5 - 0.5 / 3**0.5, 0.5 + 0.5 / 3**0.5)
 _TRI3 = ((1 / 6, 1 / 6), (2 / 3, 1 / 6), (1 / 6, 2 / 3))
@@ -1302,7 +1305,7 @@ class Sif2Mesh:
         for ires, group_nsp, group_type, irstrs, rows in _element_groups(
             table.heads[keep, ires_i], nsp[keep], elem_type[keep], table.heads[keep, irstrs_i]
         ):
-            if group_type not in _SHELL_STRESS_TYPES:
+            if group_type not in _SHELL_STRESS_TYPES + _SOLID_STRESS_TYPES:
                 continue
 
             field_data = self._get_shell_field_data(table, keep[rows], ires, irstrs, group_type, group_nsp)
@@ -1325,7 +1328,7 @@ class Sif2Mesh:
             components=stress_types,
             values=data,
             field_pos=ElementFieldData.field_pos.INT,
-            int_positions=INT_LOCATIONS[elem_type],
+            int_positions=INT_LOCATIONS.get(elem_type),  # none listed for the solids
         )
 
     def get_int_positions(self, rdpoints_res, nlay_i, nsptra_i) -> list:

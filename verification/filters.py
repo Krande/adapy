@@ -285,6 +285,18 @@ class Eig(Filter):
         return TableView(table_key="eig_compare_line_o2")
 
     @attr
+    def bending_line(self) -> TableView:
+        return TableView(table_key="eig_bending_line_o2")
+
+    @attr
+    def bending_shell(self) -> TableView:
+        return TableView(table_key="eig_bending_shell_o2")
+
+    @attr
+    def bending_solid(self) -> TableView:
+        return TableView(table_key="eig_bending_solid_o2")
+
+    @attr
     def eff_mass_summary(self) -> TableView:
         # Per-case effective modal mass [kg] summed over the captured
         # modes (global X/Y/Z); registered by the eff_mass_table task.
@@ -436,6 +448,60 @@ class Plate(Filter):
         )
 
 
+class Nafems(Filter):
+    """The NAFEMS benchmarks. Task-bound to ``nafems_run``, so the scalars report what ran on this machine."""
+
+    def __init__(self, *, name: str, task=None):
+        super().__init__(name=name, task=task)
+
+    def _live_cells(self) -> list:
+        if self.task is None:
+            return []
+        return [c for c in self.task.cells() if self.task._runner.result_for(c) is not None]
+
+    @attr
+    def num_cases(self) -> int:
+        return len(self._live_cells())
+
+    @attr
+    def solvers(self) -> str:
+        return ", ".join(sorted({c.kwargs["solver"] for c in self._live_cells()})) or "none on this machine"
+
+    @attr
+    def le1_geometry(self) -> ThreeDView:
+        return ThreeDView(
+            glb_key="nafems_LE1_geom",
+            caption="NAFEMS LE1 geometry.",
+            camera_preset="iso_3",
+            image_path=_poster("nafems/LE1.png"),
+        )
+
+    @attr
+    def le10_geometry(self) -> ThreeDView:
+        return ThreeDView(
+            glb_key="nafems_LE10_geom",
+            caption="NAFEMS LE10 geometry.",
+            camera_preset="iso_3",
+            image_path=_poster("nafems/LE10.png"),
+        )
+
+    @attr
+    def le1_contour(self) -> FigureView:
+        return FigureView(plot_key="nafems_LE1_syy", caption="NAFEMS LE1: σyy over the plan, by solver.")
+
+    @attr
+    def le10_contour(self) -> FigureView:
+        return FigureView(plot_key="nafems_LE10_syy", caption="NAFEMS LE10: σyy on the upper face, by solver.")
+
+    @attr
+    def le1(self) -> TableView:
+        return TableView(table_key="nafems_LE1")
+
+    @attr
+    def le10(self) -> TableView:
+        return TableView(table_key="nafems_LE10")
+
+
 # ---------------------------------------------------------------------
 # Module-level instances. paradoc.filters.discover_filters picks these
 # up from `verification/filters.py`; OneDoc binds the TaskHandles when
@@ -453,6 +519,7 @@ from paradoc.tasks import TaskHandle  # noqa: E402 — module-level instances ne
 beam = Beam(name="beam", task=TaskHandle.unbound("design"))
 eig = Eig(name="eig", task=TaskHandle.unbound("run_eig"))
 plate = Plate(name="plate", task=TaskHandle.unbound("plate_run_static"))
+nafems = Nafems(name="nafems", task=TaskHandle.unbound("nafems_run"))
 
 
 # `SolverCase` lived here until step 5 of the FEA-docs generalisation
@@ -509,6 +576,7 @@ class FeaModesCompare(BaseFigureSource):
             "`plate_static`. Case names are `<prefix>_<solver>_<configuration>`."
         ),
     )
+    heading_level: int = Field(3, description="Markdown level of each configuration's heading.")
     analysis: Literal["eigen", "static"] = Field("eigen", description="`static` drops the per-mode heading.")
     assets_dir: str = Field(
         "_assets",
@@ -731,6 +799,8 @@ def _split_case_name(case_name: str, prefix: str) -> tuple[str, str] | None:
 
 def _config_label(config: str) -> str:
     """``shell_o1_hqTrue_riFalse`` -> ``Shell, 1st order, QUAD``; unknown tokens pass through."""
+    if config[:1] == "n" and config[1:].isdigit():  # a benchmark's mesh density
+        return f"Results at {config[1:]} radial divisions"
     tokens = config.split("_")
     geom = tokens[0].lower()
     parts = [geom.capitalize()]
@@ -802,6 +872,7 @@ class FeaModesCompareFilter(FigureSourceFilter):
                     analysis=spec.analysis,
                     beam_solids=spec.beam_solids,
                     case_prefix=spec.case_prefix,
+                    heading_level=spec.heading_level,
                 )
             )
         return entries
@@ -814,8 +885,9 @@ class FeaModesCompareFilter(FigureSourceFilter):
         analysis: str,
         beam_solids: bool = False,
         case_prefix: str = "",
+        heading_level: int = 3,
     ) -> list:
-        entries: list = [MarkdownChunk(text=f"\n### {_config_label(config)}\n")]
+        entries: list = [MarkdownChunk(text=f"\n{'#' * heading_level} {_config_label(config)}\n")]
 
         loaded: dict[str, FeaDocAssets] = {}
         unavailable: list[str] = []

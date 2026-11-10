@@ -17,6 +17,63 @@ D_STRESS_COMPONENTS = ("SIGMX", "SIGMY", "SIGBX", "SIGBY", "TAUMXY", "TAUBXY", "
 R_STRESS_COMPONENTS = ("NXX", "NXY", "NYY", "MXY", "MXX", "MYY")
 G_FORCE_COMPONENTS = ("NXX", "NXY", "NXZ", "MXX", "MXY", "MXZ")
 B_STRESS_COMPONENTS = ("SIGXX", "SIGBYX", "SIGBZX", "TAUTX", "TAUXY", "TAUXZ", "SIGBYX2", "SIGBZX2")
+#: What Sestra stores for a solid (RDSTRESS codes 1 to 6), in the model's axes.
+SOLID_BASIC_COMPONENTS = ("SIGXX", "SIGYY", "SIGZZ", "TAUXY", "TAUXZ", "TAUYZ")
+SOLID_STRESS_COMPONENTS = (*SOLID_BASIC_COMPONENTS, "VONMISES")
+
+#: Natural-coordinate signs of a hexahedron's corners, in adapy's (and Abaqus') order.
+HEX_CORNER_SIGNS = np.array(
+    [(-1, -1, -1), (1, -1, -1), (1, 1, -1), (-1, 1, -1), (-1, -1, 1), (1, -1, 1), (1, 1, 1), (-1, 1, 1)]
+)
+#: The corners at the ends of each edge, in the order of a 20-node hexahedron's mid-side nodes 9 to 20.
+HEX20_EDGES = np.array([(0, 1), (1, 2), (2, 3), (3, 0), (4, 5), (5, 6), (6, 7), (7, 4), (0, 4), (1, 5), (2, 6), (3, 7)])
+
+
+def _hex_gauss_extrapolation() -> np.ndarray:
+    """``W[c, g]``: corner ``c``'s value from the 2x2x2 Gauss point in corner ``g``'s octant.
+
+    The trilinear field through the eight points, evaluated at the corner. In the points' own coordinates a corner
+    sits at ``+-sqrt(3)``, so each axis contributes ``(1 + sqrt 3) / 2`` where point and corner are on the same side
+    and ``(1 - sqrt 3) / 2`` where they are not.
+    """
+    same, other = (1.0 + 3**0.5) / 2.0, (1.0 - 3**0.5) / 2.0
+    differ = (HEX_CORNER_SIGNS[:, None, :] != HEX_CORNER_SIGNS[None, :, :]).sum(axis=2)
+    return same ** (3 - differ) * other**differ
+
+
+HEX_GAUSS_EXTRAPOLATION = _hex_gauss_extrapolation()
+
+
+def solid_von_mises(basic: np.ndarray) -> np.ndarray:
+    """Von Mises of ``[..., (SIGXX, SIGYY, SIGZZ, TAUXY, TAUXZ, TAUYZ)]``."""
+    s = np.asarray(basic, dtype=float)
+    sx, sy, sz, txy, txz, tyz = (s[..., i] for i in range(6))
+    return np.sqrt(0.5 * ((sx - sy) ** 2 + (sy - sz) ** 2 + (sz - sx) ** 2) + 3.0 * (txy * txy + txz * txz + tyz * tyz))
+
+
+def solid_general_stress(basic: np.ndarray) -> np.ndarray:
+    """Append VONMISES to ``[..., SOLID_BASIC_COMPONENTS]``."""
+    basic = np.asarray(basic, dtype=float)
+    if basic.shape[-1] != 6:
+        raise ValueError(f"solid_general_stress expects 6 basic components, got {basic.shape}")
+    return np.concatenate((basic, solid_von_mises(basic)[..., None]), axis=-1)
+
+
+def hex_gauss_to_nodes(gauss: np.ndarray, nearest: np.ndarray, n_nodes: int) -> np.ndarray:
+    """A hexahedron's 2x2x2 Gauss-point values at its nodes: ``(elements, n_nodes, components)``.
+
+    ``gauss`` is ``(elements, 8, components)`` in the solver's point order and ``nearest[e, c]`` the point in corner
+    ``c``'s octant. Corners by :data:`HEX_GAUSS_EXTRAPOLATION`; a mid-side node (``n_nodes`` 20) is the mean of its
+    edge's corners, which is where the trilinear field puts it.
+    """
+    ordered = np.take_along_axis(np.asarray(gauss, dtype=float), np.asarray(nearest)[..., None], axis=1)
+    corners = np.einsum("cg,egk->eck", HEX_GAUSS_EXTRAPOLATION, ordered)
+    if n_nodes == 8:
+        return corners
+    if n_nodes != 20:
+        raise ValueError(f"hex_gauss_to_nodes: a hexahedron has 8 or 20 nodes, not {n_nodes}")
+    mid = 0.5 * (corners[:, HEX20_EDGES[:, 0]] + corners[:, HEX20_EDGES[:, 1]])
+    return np.concatenate((corners, mid), axis=1)
 
 
 def plane_von_mises(sig_x, sig_y, tau_xy):

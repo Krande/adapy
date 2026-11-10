@@ -59,6 +59,26 @@ ${ eig.compare_line_o1 }{tbl:sortby:Mode:asc;index:no}
 ${ eig.compare_line_o2 }{tbl:sortby:Mode:asc;index:no}
 
 
+#### Bending modes against Euler-Bernoulli
+
+The tables above compare the solvers with each other, which shows agreement but not accuracy. The
+bending modes of a clamped-free beam have a closed form, `f_n = (β_n L)² / (2π L²) √(E I / (ρ A))`.
+Modes are matched by the direction they move in rather than by number, because torsion modes fall
+between the bending modes at different places in each representation. Y modes bend about the weak
+axis and Z modes about the strong axis. Only the first two in each direction are listed: past those,
+the shell and solid models have local modes of the web that also move mainly in Y.
+
+Euler-Bernoulli ignores shear deformation and rotary inertia, and this beam is short: its length is
+7.5 times its depth. A correct model that includes those effects lands below the closed form, by
+more in the higher modes. So the numbers to read are the trend and how closely the representations
+agree, and a large negative deviation here is the theory's limit rather than a solver's error.
+
+${ eig.bending_line }{tbl:index:no}
+
+${ eig.bending_shell }{tbl:index:no}
+
+${ eig.bending_solid }{tbl:index:no}
+
 #### Effective modal mass
 
 Effective modal mass [kg] per case, summed over the captured modes in the

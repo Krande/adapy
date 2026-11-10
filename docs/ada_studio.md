@@ -97,16 +97,31 @@ joints match the built-in girder-gusset rule, and **generate detail model** buil
 ## Navigate with a 3D mouse
 
 A 3Dconnexion SpaceMouse (or an older SpaceNavigator, SpacePilot or SpaceExplorer) can fly
-the 3D view alongside the mouse. The viewer reads the device directly through
-[WebHID](https://developer.mozilla.org/en-US/docs/Web/API/WebHID_API), so no driver is needed,
-but the browser must be Chromium-based: Chrome, Edge or Opera. Firefox and Safari have no
-WebHID, and the option is greyed out there.
+the 3D view alongside the mouse. The viewer reads the device in the browser, with no driver
+needed, in one of two ways. The status line in **Options → 3D mouse** says which is in use:
+
+- **Gamepad API (no prompt).** Chrome and Edge list a SpaceMouse as a joystick-class gamepad,
+  and the viewer reads its six axes from that. Nothing is asked of you and no permission is
+  stored. The browser only shows a gamepad to a page once it has been moved there, so
+  **push the cap once** after opening the page. The first push may zoom a little before the
+  viewer sees the device, if the vendor's driver is running (it can also turn the cap into
+  mouse-wheel zoom; while the cap is moving the viewer ignores the wheel and reads the cap
+  itself, and an ordinary wheel is untouched). If the status reads **Device found, but no
+  axes are exposed**, the browser lists the device but gives the page nothing to read; use
+  the next route. Firefox does not list these devices as gamepads and Safari is untested.
+- **[WebHID](https://developer.mozilla.org/en-US/docs/Web/API/WebHID_API).** Reads the device
+  directly (Chrome, Edge or Opera). The first time, click **Connect SpaceMouse…** and pick the
+  device in the browser's chooser; the browser remembers the choice, so later visits
+  reconnect on their own, and unplugging and replugging is picked up while the page is open.
+  A device opened this way is used instead of the gamepad one.
+
+In the desktop app the device is read natively and none of this is needed.
 
 1. Open **Options → 3D mouse** and tick **Enable 3D mouse**. It is off by default, and while it
-   is off the viewer never asks the browser for the device.
-2. Click **Connect SpaceMouse…** and pick the device in the browser's chooser. The browser
-   remembers the choice, so later visits reconnect on their own, and unplugging and
-   replugging the device is picked up while the page is open.
+   is off the viewer never asks the browser for the device. Until you choose, a device the
+   browser already lists (a gamepad you have pushed, or a WebHID device granted before) turns
+   it on by itself; switching it off in Options is remembered and stops that.
+2. Push the cap once, or click **Connect SpaceMouse…** for WebHID.
 
 The model follows the cap: push it sideways or lift it to pan, pull it toward you to zoom in,
 twist or tilt it to turn the model about the orbit target. The view stays level, so a sideways
@@ -115,8 +130,13 @@ as Shift+A and Shift+F), and **Shift+F** is also how you move the point the view
 onto the selection. In the same section you can set the speed, the dead zone around rest, invert
 any axis, keep only the strongest axis, lock rotation or panning, and remap the buttons.
 
-On Windows, the vendor's 3DxWare driver may hold the device. If the status reads **Could not
-connect**, quit the driver (the 3DxService process) and connect again.
+On Windows, the vendor's 3DxWare driver may hold the device, which WebHID cannot open. The
+gamepad route is not affected by that, so push the cap once and it keeps working. To use
+WebHID anyway, quit the driver (the 3DxService process) and connect again.
+
+The gamepad route assumes the browser lists the axes in the device's own order and signs. This
+has not been checked on every model: if the view turns the wrong way, use the **Invert**
+switches in the same section.
 
 ## Marking menu and tool rail
 

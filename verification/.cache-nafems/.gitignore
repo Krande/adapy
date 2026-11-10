@@ -1,0 +1,9 @@
+# Mirrors `.cache/.gitignore`: only results that cannot be reproduced are committed.
+#
+# Calculix and Code_Aster are conda-installable, so their results are re-measured on every
+# machine that builds the report and committing them would freeze a number someone can just compute.
+# Abaqus and Sestra cannot be run in CI, so when a licensed machine produces `nafems_*_aba_*` /
+# `nafems_*_ses_*` snapshots, those DO get committed -- that is what puts their columns in the table.
+*_ca_*
+*_ccx_*
+*.png

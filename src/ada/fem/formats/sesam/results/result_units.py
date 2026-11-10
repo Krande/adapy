@@ -50,7 +50,7 @@ def result_component_units(
     force_per_length = f"{force}/{length}"
     moment = f"{force}·{length}"
 
-    if attribute in {"G-STRESS", "P-STRESS", "PM-STRESS", "D-STRESS", "B-STRESS"}:
+    if attribute in {"G-STRESS", "P-STRESS", "PM-STRESS", "D-STRESS", "B-STRESS", "SOLID-STRESS"}:
         return tuple(stress for _ in component_names)
     if attribute == "DISPLACEMENT":
         return tuple("rad" if name in {"RX", "RY", "RZ"} else length for name in component_names)
