@@ -37,6 +37,7 @@ import { useOptionsStore } from "@/state/optionsStore";
 import { useSceneInfoStore } from "@/state/sceneInfoStore";
 import { SEARCH_WINDOW_TITLE, useSearchWindowStore } from "@/state/searchWindowStore";
 import { useServerInfoStore } from "@/state/serverInfoStore";
+import { useSimulationStore } from "@/state/simulationStore";
 import { useTableNavStore } from "@/state/tableNavStore";
 import { useTreeViewStore } from "@/state/treeViewStore";
 import { useViewerPanelStore, type ViewerPanel } from "@/state/viewerPanelStore";
@@ -52,6 +53,7 @@ import ComponentIcon from "@/components/icons/ComponentIcon";
 import InfoIcon from "@/components/icons/InfoIcon";
 import SceneIcon from "@/components/icons/SceneIcon";
 import ServerIcon from "@/components/icons/ServerIcon";
+import SimulationRunsIcon from "@/components/icons/SimulationRunsIcon";
 import StorageIcon from "@/components/icons/StorageIcon";
 import ToggleControlsIcon from "@/components/icons/AnimationControlToggle";
 import TreeViewIcon from "@/components/icons/TreeViewIcon";
@@ -422,6 +424,28 @@ export function corePanelSpecs(): PanelSpec[] {
       content: classicContent(CORE_PANEL_IDS.convert),
       placement: classic({ zone: CLASSIC_ZONES.window, order: 20, float: { w: 1100, h: 720 } }),
       frame: "host",
+    },
+    {
+      // Simulation providers and the scope's runs. Offered once the server lists a provider
+      // (the list is fetched at sign-in, see AuthGate), so a deployment without any shows no
+      // button for it.
+      id: CORE_PANEL_IDS.simulations,
+      title: "Simulations",
+      icon: SimulationRunsIcon,
+      hint: "Toggle simulations panel",
+      body: classicBody(CORE_PANEL_IDS.simulations),
+      content: classicContent(CORE_PANEL_IDS.simulations),
+      watch: watchStores(useSimulationStore),
+      binding: bindStoreFlag(
+        useSimulationStore,
+        (s) => s.panelOpen,
+        (open, s) => s.setPanelOpen(open),
+      ),
+      available: (env) => env.restMode !== false && useSimulationStore.getState().providers.length > 0,
+      // Its plugin sections are given a plugin context, which reads the viewer's stores.
+      constraints: { requiresRest: true, requiresViewerProvider: true },
+      placement: column(110),
+      toolbar: { order: 110 },
     },
   ];
 }

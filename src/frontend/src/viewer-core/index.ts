@@ -625,7 +625,14 @@
 //          without the `/app` barrel's `window` reads.
 //          - The Desktop UI's Build mode is always offered (`UiShellMode.requires`
 //          stays an option for other shells); its panel starts a model when none is open.
-export const VIEWER_CORE_API_VERSION = "1.16.0";
+//   1.17.0 Kept in step with PLUGIN_API_VERSION 1.17.0 (`PluginSpec.simulationProviders`).
+//          Additive: `CORE_PANEL_IDS.simulations` (`core:simulations`, the Simulations panel:
+//          providers by domain, a start form, runs with progress and cancel, open result) and
+//          the seam's types (`SimulationProviderUi`, `SimulationParameterFormArgs`,
+//          `SimulationOpenResultArgs`); the wire shapes they are handed (`SimulationProviderInfo`,
+//          `SimulationRun`, `SimulationArtefact`, `SimulationDomain`) and `simulationsApi` are on
+//          `/app`, beside `viewerApi`.
+export const VIEWER_CORE_API_VERSION = "1.17.0";
 
 // ---------------------------------------------------------------------------
 // Plugin declaration. `registerPlugin` is how a package announces itself —
@@ -668,6 +675,9 @@ export type {
   SceneLines,
   SceneOverlay,
   SidecarFetcher,
+  SimulationOpenResultArgs,
+  SimulationParameterFormArgs,
+  SimulationProviderUi,
   TopBarButtonSpec,
   UrlParamHandler,
 } from "@/plugins/registry";
