@@ -31,10 +31,24 @@ function decodeBase64(b64: string): Uint8Array {
     return out;
 }
 
+type ModuleFactory = (opts: object) => Promise<AdacppModule>;
+
+/** Start the module. A failed `instantiateWasm` never settles the factory's own promise, so it is raced
+ *  against `instantiationFailed`: the caller gets the reason instead of waiting for ever. */
+export function startRendererModule(
+    factory: ModuleFactory,
+    opts: object,
+    instantiationFailed: Promise<never> | null,
+): Promise<AdacppModule> {
+    const started = factory(opts);
+    return instantiationFailed ? Promise.race([started, instantiationFailed]) : started;
+}
+
 /** The module factory and the options it needs: from the inlined copy when the page has one
  *  (the wasm instantiated through `instantiateWasm`, since a blob-imported module cannot locate its
- *  own and this build reads no `wasmBinary`), else from /wasm. */
-async function loadRendererModule(): Promise<{factory: (opts: object) => Promise<AdacppModule>; opts: object}> {
+ *  own and this build reads no `wasmBinary`), else from /wasm. `instantiationFailed` rejects when the
+ *  inlined wasm cannot be instantiated. */
+async function loadRendererModule(): Promise<{factory: ModuleFactory; opts: object; instantiationFailed: Promise<never> | null}> {
     const inline = (globalThis as {ADACPP_RENDER_INLINE?: InlineRenderer}).ADACPP_RENDER_INLINE;
     if (inline) {
         const url = URL.createObjectURL(new Blob([decodeBase64(inline.js)], {type: "text/javascript"}));
@@ -42,23 +56,26 @@ async function loadRendererModule(): Promise<{factory: (opts: object) => Promise
             const mod = await import(/* @vite-ignore */ url);
             // Compiled here, so a bad module throws to the caller rather than hanging the factory.
             const compiled = await WebAssembly.compile(decodeBase64(inline.wasm) as BufferSource);
+            let fail: (err: unknown) => void = () => {};
+            const instantiationFailed = new Promise<never>((_, reject) => (fail = reject));
+            instantiationFailed.catch(() => {}); // observed by the race in startRendererModule
             const instantiateWasm = (
                 imports: WebAssembly.Imports,
                 receive: (instance: WebAssembly.Instance, module: WebAssembly.Module) => void,
             ) => {
                 void WebAssembly.instantiate(compiled, imports).then(
                     (instance) => receive(instance, compiled),
-                    (err) => console.error("[adacpp-webgpu] instantiating the inlined renderer failed:", err),
+                    (err) => fail(new Error(`instantiating the inlined renderer failed: ${err instanceof Error ? err.message : String(err)}`)),
                 );
                 return {};
             };
-            return {factory: mod.default ?? mod, opts: {instantiateWasm}};
+            return {factory: mod.default ?? mod, opts: {instantiateWasm}, instantiationFailed};
         } finally {
             URL.revokeObjectURL(url);
         }
     }
     const mod = await import(/* @vite-ignore */ resolveModuleUrl(MODULE_URL, globalThis.location?.origin));
-    return {factory: mod.default ?? mod, opts: {}};
+    return {factory: mod.default ?? mod, opts: {}, instantiationFailed: null};
 }
 
 export type AdacppRenderState = "off" | "starting" | "active" | "failed";
@@ -133,8 +150,8 @@ export class AdacppViewport {
             });
             device.onuncapturederror = (ev) => console.error("[adacpp-webgpu]", ev.error.message);
 
-            const {factory, opts} = await loadRendererModule();
-            const module = await factory({...opts, preinitializedWebGPUDevice: device});
+            const {factory, opts, instantiationFailed} = await loadRendererModule();
+            const module = await startRendererModule(factory, {...opts, preinitializedWebGPUDevice: device}, instantiationFailed);
 
             const canvas = document.createElement("canvas");
             canvas.id = `adacpp-webgpu-canvas-${++canvasSerial}`;
