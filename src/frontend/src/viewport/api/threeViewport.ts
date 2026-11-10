@@ -17,6 +17,7 @@ import type {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
 import {batchedMeshOf, isBatched} from "@/utils/scene/meshLookup";
 import {createThreeResultMesh} from "@/utils/scene/fea/threeResultLayer";
 import {recordViewerAction} from "@/utils/scene/viewerHistory";
+import {RangeSet, rangesInCameraRect, rangesInWorldBox, threeSelectionBounds} from "@/utils/bboxSelection/threeBoxSelection";
 import {rangesCentroidWorld} from "@/utils/viewer/pipeTrace";
 import type {BillboardLayer} from "./billboards";
 import {createThreeBillboardLayer} from "./threeBillboards";
@@ -72,6 +73,17 @@ export function threeSelectionRefs(): ObjectRef[] {
  *  Returns how many draw ranges it selected. */
 export function setThreeSelection(refs: Iterable<ObjectRef>, options: SetSelectionOptions = {}): number {
     const store = useSelectedObjectStore.getState();
+    // What this viewport found itself (the ranges a box or a rectangle takes) comes grouped by mesh:
+    // there is nothing to look up, and no pair is made per range.
+    if (refs instanceof RangeSet) {
+        recordViewerAction("select", () => {
+            if (!options.add) store.clearSelectedObjects();
+            if (refs.size) store.addRangesByMesh(refs.groups);
+            options.within?.();
+        }, {coalesce: options.coalesce});
+        requestRender();
+        return refs.size;
+    }
     const models = getViewerRuntime().modelKeyMap.current;
     const tree = useTreeViewStore.getState();
     const batch: [THREE.Object3D, string][] = [];
@@ -98,24 +110,25 @@ export function setThreeSelection(refs: Iterable<ObjectRef>, options: SetSelecti
         }
         if (lastMesh) batch.push([lastMesh, ref.id]);
     }
+    const record = {coalesce: options.coalesce};
     if (options.add) {
         if (batch.length || options.within) {
             recordViewerAction("select", () => {
                 if (batch.length) store.addBatchofMeshes(batch);
                 options.within?.();
-            });
+            }, record);
         }
     } else if (!asked) {
         recordViewerAction("clear-selection", () => {
             store.clearSelectedObjects();
             options.within?.();
-        });
+        }, record);
     } else {
         recordViewerAction("select", () => {
             store.clearSelectedObjects();
             if (batch.length) store.addBatchofMeshes(batch);
             options.within?.();
-        });
+        }, record);
     }
     requestRender();
     return batch.length;
@@ -265,5 +278,9 @@ export function createThreeViewport(h: ThreeViewportHandles): ViewportApi {
             }
             return layer;
         },
+        // Box selection: decided on the triangles and the cached range bounds, as before the interface.
+        objectsInBox: rangesInWorldBox,
+        objectsInScreenRect: (rect, mode) => rangesInCameraRect(rect, mode, h.camera),
+        selectionBounds: threeSelectionBounds,
     };
 }

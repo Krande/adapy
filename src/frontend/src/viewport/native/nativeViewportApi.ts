@@ -5,6 +5,7 @@ import {downloadCanvas} from "@/utils/downloadCanvas";
 import type {ObjectRef, ViewportApi} from "@/viewport/api/viewportApi";
 import type {BillboardLayer} from "@/viewport/api/billboards";
 import {createNativeBillboardLayer} from "./nativeBillboards";
+import {KeySet, nativeObjectsInBox, nativeObjectsInScreenRect, nativeSelectionBounds} from "./nativeBoxSelection";
 import {objectKey, splitObjectKey, type NativeScene} from "./nativeScene";
 
 /** One key press orbits by this much, and pans by this fraction of the view: as on the three.js viewport. */
@@ -21,7 +22,8 @@ export function createNativeViewportApi(scene: NativeScene): ViewportApi {
     const own = (refs: Iterable<ObjectRef>): string[] => Array.from(refs, (r) => objectKey(r.model, r.id));
     return {
         kind: "native",
-        unavailable: () => null,
+        unavailable: (feature) =>
+            feature === "box-request" ? "Requesting what a box holds from a source needs the three.js viewport" : null,
         selectionCount: () => scene.selectionSize,
         selection: () => scene.selectedIds.map(splitObjectKey),
         selectionToken: () => scene.selectionVersion,
@@ -30,7 +32,8 @@ export function createNativeViewportApi(scene: NativeScene): ViewportApi {
             return () => void scene.onSelection.delete(listener);
         },
         setSelection: (refs, options) => {
-            const selected = scene.setSelection(own(refs), options?.add);
+            // What this viewport found itself (a box's objects) already has the scene's keys.
+            const selected = scene.setSelection(refs instanceof KeySet ? refs.keys : own(refs), options?.add);
             options?.within?.();
             return selected;
         },
@@ -70,5 +73,9 @@ export function createNativeViewportApi(scene: NativeScene): ViewportApi {
             }
             return layer;
         },
+        // Box selection, decided on each object's box (./nativeBoxSelection.ts says where that is coarser).
+        objectsInBox: (box, mode) => nativeObjectsInBox(scene, box, mode),
+        objectsInScreenRect: (rect, mode) => nativeObjectsInScreenRect(scene, rect, mode),
+        selectionBounds: () => nativeSelectionBounds(scene),
     };
 }

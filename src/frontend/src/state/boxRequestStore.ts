@@ -139,7 +139,7 @@ async function scopeNow(): Promise<string> {
 
 /** The box's DRAWN members in `mode`, and how many draw ranges they came from. */
 async function captureBox(boxId: string, mode: BoxSelectMode) {
-    const {boxRanges} = await import("@/utils/bboxSelection/applyBoxSelection");
+    const {boxRanges} = await import("@/utils/bboxSelection/threeBoxSelection");
     const {captureRanges} = await import("@/utils/groups/groupScene");
     const batch = boxRanges(boxId, mode);
     if (batch.length === 0) {

@@ -16,57 +16,9 @@ import {boxCutAway, type PlaneLike} from "@/utils/mesh_select/rangeVisibility";
 
 import {rangeBounds} from "./rangeBounds";
 
-export type ScreenBoxMode = "window" | "crossing";
+import {inside, project, rectAgainstBounds, RectVsBounds, triangleMeetsRect, type NdcRect, type Projected, type ScreenBoxMode} from "./screenRect";
 
-/** A rectangle in normalised device coordinates, x0 < x1 and y0 < y1. */
-export interface NdcRect {
-    x0: number;
-    y0: number;
-    x1: number;
-    y1: number;
-}
-
-/** Window when dragged rightwards, crossing when dragged leftwards. */
-export function screenBoxMode(startX: number, endX: number): ScreenBoxMode {
-    return endX >= startX ? "window" : "crossing";
-}
-
-/** The rectangle between two client points, in NDC of the element `rect`. */
-export function ndcRect(a: {x: number; y: number}, b: {x: number; y: number}, rect: DOMRect): NdcRect {
-    const nx = (x: number) => ((x - rect.left) / rect.width) * 2 - 1;
-    const ny = (y: number) => -((y - rect.top) / rect.height) * 2 + 1;
-    const xs = [nx(a.x), nx(b.x)].sort((p, q) => p - q);
-    const ys = [ny(a.y), ny(b.y)].sort((p, q) => p - q);
-    return {x0: xs[0], x1: xs[1], y0: ys[0], y1: ys[1]};
-}
-
-/** A projected point: NDC x, y, and whether it is in front of the camera. */
-type Projected = [number, number, boolean];
-
-function project(m: ArrayLike<number>, x: number, y: number, z: number): Projected {
-    const w = m[3] * x + m[7] * y + m[11] * z + m[15];
-    if (w <= 1e-9) return [0, 0, false];
-    return [(m[0] * x + m[4] * y + m[8] * z + m[12]) / w, (m[1] * x + m[5] * y + m[9] * z + m[13]) / w, true];
-}
-
-const inside = (p: Projected, r: NdcRect) => p[2] && p[0] >= r.x0 && p[0] <= r.x1 && p[1] >= r.y0 && p[1] <= r.y1;
-
-/** Does the 2D triangle a, b, c meet the rectangle? Separating axes: the rectangle's two and the
- *  triangle's three edge normals. */
-export function triangleMeetsRect(a: Projected, b: Projected, c: Projected, r: NdcRect): boolean {
-    if (Math.max(a[0], b[0], c[0]) < r.x0 || Math.min(a[0], b[0], c[0]) > r.x1) return false;
-    if (Math.max(a[1], b[1], c[1]) < r.y0 || Math.min(a[1], b[1], c[1]) > r.y1) return false;
-    const corners: [number, number][] = [[r.x0, r.y0], [r.x1, r.y0], [r.x1, r.y1], [r.x0, r.y1]];
-    const tri = [a, b, c];
-    for (let i = 0; i < 3; i++) {
-        const p = tri[i], q = tri[(i + 1) % 3], o = tri[(i + 2) % 3];
-        const nx = q[1] - p[1], ny = p[0] - q[0];
-        const side = nx * (o[0] - p[0]) + ny * (o[1] - p[1]);
-        // Every corner on the far side of this edge from the triangle's third vertex: separated.
-        if (corners.every(([x, y]) => (nx * (x - p[0]) + ny * (y - p[1])) * side < 0)) return false;
-    }
-    return true;
-}
+export {ndcRect, screenBoxMode, triangleMeetsRect, type NdcRect, type ScreenBoxMode} from "./screenRect";
 
 /**
  * The ranges of `mesh` the rectangle takes, skipping `hidden` ones and any a section plane
@@ -106,24 +58,11 @@ export function rangesInScreenRect(
         const o = r * 6;
         if (!Number.isFinite(b[o]) || boxCutAway(b, o, planes)) continue;
         // The projected AABB: decides most elements without touching their geometry.
-        let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity, allFront = true;
-        for (let c = 0; c < 8; c++) {
-            const q = project(m, b[o + (c & 1 ? 3 : 0)], b[o + 1 + (c & 2 ? 3 : 0)], b[o + 2 + (c & 4 ? 3 : 0)]);
-            if (!q[2]) {
-                allFront = false;
-                break;
-            }
-            x0 = Math.min(x0, q[0]);
-            x1 = Math.max(x1, q[0]);
-            y0 = Math.min(y0, q[1]);
-            y1 = Math.max(y1, q[1]);
-        }
-        if (allFront) {
-            if (x1 < rect.x0 || x0 > rect.x1 || y1 < rect.y0 || y0 > rect.y1) continue;
-            if (x0 >= rect.x0 && x1 <= rect.x1 && y0 >= rect.y0 && y1 <= rect.y1) {
-                out.push(id);
-                continue;
-            }
+        const how = rectAgainstBounds(b, o, m, rect);
+        if (how === RectVsBounds.Outside) continue;
+        if (how === RectVsBounds.Inside) {
+            out.push(id);
+            continue;
         }
         // Straddles the rectangle (or reaches behind the camera): decided on the geometry itself.
         const start = rb.starts[r], end = start + rb.counts[r];

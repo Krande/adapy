@@ -891,6 +891,74 @@ export class NativeScene {
         return n ? [sum[0] / n, sum[1] / n, sum[2] / n] : null;
     }
 
+    // Box selection: what viewport/native/nativeBoxSelection.ts asks, decided on each object's box.
+
+    /** The camera's projection x view matrix (column-major), for the view as it is now. */
+    viewProjection(): Float64Array {
+        this.syncSize();
+        const {view: v, proj: q} = this.renderer.cameraMatrices();
+        const out = new Float64Array(16);
+        for (let c = 0; c < 4; c++) {
+            for (let r = 0; r < 4; r++) out[c * 4 + r] = q[r] * v[c * 4] + q[4 + r] * v[c * 4 + 1] + q[8 + r] * v[c * 4 + 2] + q[12 + r] * v[c * 4 + 3];
+        }
+        return out;
+    }
+
+    /** The keys of the objects drawn now whose box `takes` accepts: it is given every model's boxes
+     *  (six numbers per object) and an object's index in them. Left out before it is asked: an object
+     *  that draws nothing itself, a hidden one, and one `skip` names (its box and the offset in it). */
+    drawnObjectsWhere(takes: (bounds: Float32Array, index: number) => boolean, skip?: (bounds: Float32Array, offset: number) => boolean): string[] {
+        const out: string[] = [];
+        for (const model of this.models.values()) {
+            const {bounds, segmentOffsets, count} = model.table;
+            for (let i = 0; i < count; i++) {
+                const o = i * 6;
+                if (segmentOffsets[i + 1] === segmentOffsets[i] || bounds[o] > bounds[o + 3]) continue;
+                if (this.hidden.has(model.keys[i]) || skip?.(bounds, o)) continue;
+                if (takes(bounds, i)) out.push(model.keys[i]);
+            }
+        }
+        return out;
+    }
+
+    /** Draw see-through faces (xyz per point, three indices per triangle) in one linear colour, seen
+     *  from both sides and behind whatever is in front of them: a helper, never picked. Returns the
+     *  handle, which `removeLines` takes as it takes a line helper's. */
+    addFaces(points: Float32Array, indices: Uint32Array, color: readonly [number, number, number], opacity: number): number {
+        const M = this.module;
+        const pPos = M._malloc(points.byteLength), pIdx = M._malloc(indices.byteLength), pMat = M._malloc(64);
+        M.HEAPF32.set(points, pPos >> 2);
+        M.HEAPU32.set(indices, pIdx >> 2);
+        M.HEAPF32.set([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1], pMat >> 2);
+        try {
+            const geometry = this.renderer.addGeometry(Topology.Triangles, pPos, points.length / 3, 0, 0, 0, pIdx, indices.length, 0, 0, 0);
+            const instance = this.renderer.addInstance(geometry);
+            const flags = InstanceFlag.Unlit | InstanceFlag.NoPick | InstanceFlag.Transparent | InstanceFlag.DoubleSided;
+            this.renderer.setInstance(instance, pMat, color[0], color[1], color[2], opacity, flags, 0, 0, 1, false, 1, 0, 0);
+            this.helperLines.set(instance, geometry);
+            this.invalidate();
+            return instance;
+        } finally {
+            M._free(pPos);
+            M._free(pIdx);
+            M._free(pMat);
+        }
+    }
+
+    /** The box (min xyz, max xyz) around the selected objects; null when none of them is drawn. */
+    selectionBounds(): Bounds | null {
+        const box: Bounds = [Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity];
+        for (const id of this.selected) {
+            const own = this.boxOf(id);
+            if (!own) continue;
+            for (let k = 0; k < 3; k++) {
+                box[k] = Math.min(box[k], own[k]);
+                box[k + 3] = Math.max(box[k + 3], own[k + 3]);
+            }
+        }
+        return box[0] > box[3] ? null : box;
+    }
+
     dispose(): void {
         if (this.disposed) return;
         this.disposed = true;
