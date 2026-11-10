@@ -2,6 +2,13 @@
 
 
 
+## v0.139.7 (2026-11-10)
+
+### Fix
+
+* fix(docs,frontend): tighten docs server path containment and bump qs to 6.16.1 (#522) ([`45cd50d`](https://github.com/Krande/adapy/commit/45cd50d987d5b68b21e990c3db1208e644b66e5a))
+
+
 ## v0.139.6 (2026-11-09)
 
 ### Fix
