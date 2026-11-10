@@ -6,6 +6,7 @@
 // still goes straight to three.js and is simply absent on the three.js-free viewport. Nothing in this
 // module (or anything it imports at runtime) may import three.js: the three.js-free viewport's chunk
 // depends on it.
+import type {ViewportResults} from "./resultLayer";
 import {type CameraView} from "@/layout/coreCommandIds";
 import type {BillboardLayer, Point3} from "./billboards";
 
@@ -69,6 +70,9 @@ export interface ViewportApi {
 
     /** The loaded model's box (min xyz, max xyz), or null with nothing loaded. */
     modelBounds(): [number, number, number, number, number, number] | null;
+    /** Drawing an FEA result: meshes whose colours and displacement are replaced step by step
+     *  (./resultLayer.ts). */
+    readonly results: ViewportResults;
 
     /** Save a picture of the view as it is now (a PNG download). */
     saveScreenshot(): void;

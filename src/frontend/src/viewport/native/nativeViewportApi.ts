@@ -37,6 +37,7 @@ export function createNativeViewportApi(scene: NativeScene): ViewportApi {
         hide: (refs) => scene.setHiddenMany(own(refs), true),
         show: (refs) => scene.setHiddenMany(own(refs), false),
         isolate: (refs) => scene.isolate(own(refs)),
+        results: {createResultMesh: (data, opts) => scene.createResultLayer(data, opts)},
         objectVisibility: () => (model, id) =>
             model === scene.modelKey && scene.draws(id) ? (scene.isHidden(id) ? "hidden" : "shown") : null,
         modelBounds: () => scene.modelBounds,

@@ -13,6 +13,7 @@
 
 import {useFeaAnimationStore, type FeaAnimationState} from "@/state/feaAnimationStore";
 
+import {hasResultTarget} from "./resultInfluence";
 import {nextTimeHistoryStep, type TimeHistoryClock} from "./timeHistory";
 
 let elapsed = 0;
@@ -40,16 +41,17 @@ export function setFeaAnimationPhase(value: number): void {
 /** The fields of the FEA session the oscillator reads. */
 export type FeaSweepState = Pick<
     FeaAnimationState,
-    "isPlaying" | "sessionActive" | "mesh" | "period" | "range" | "scaleFactor"
+    "isPlaying" | "sessionActive" | "mesh" | "resultLayer" | "period" | "range" | "scaleFactor"
 >;
 
 /**
  * One oscillator step for ``state``, starting from phase ``phase``: writes the
- * mesh's morph influence and returns the new phase and the swept factor, or
- * null when there is nothing to drive (not playing, no session, no mesh).
+ * shown result's influence (resultInfluence.ts) and returns the new phase and
+ * the swept factor, or null when there is nothing to drive (not playing, no
+ * session, nothing drawn).
  *
- * Pure in the store: it touches only the mesh. ``tickFeaAnimation`` runs it on
- * the store's session; a host with several viewers runs it on the session of a
+ * Pure in the store: it touches only what draws the result.
+ * ``tickFeaAnimation`` runs it on the store's session; a host with several viewers runs it on the session of a
  * viewer that is not the active one, with that viewer's own phase.
  */
 export function stepFeaSweep(
@@ -57,7 +59,10 @@ export function stepFeaSweep(
     phase: number,
     deltaSeconds: number,
 ): {phase: number; factor: number} | null {
-    if (!state.isPlaying || !state.sessionActive || !state.mesh) {
+    // What draws the result: its layer, or the mesh of a session registered by
+    // its mesh alone (see resultInfluence.ts; written out here, once per frame).
+    const layer = state.resultLayer;
+    if (!state.isPlaying || !state.sessionActive || (!layer && !state.mesh)) {
         return null;
     }
     const period = state.period;
@@ -73,15 +78,17 @@ export function stepFeaSweep(
     const half = (hi - lo) / 2;
     const factor = mid + half * sin;
 
-    // Drive the mesh directly — bypassing the store keeps the RAF
-    // path GPU-only on the hot path.
+    // Drive what draws the result directly — bypassing the store keeps
+    // the RAF path GPU-only on the hot path.
     //
     // ``scaleFactor`` exaggerates the morph delta on top of the
     // [-1..1] / [0..1] sweep range without touching the slider's
     // visible value. Default 1 leaves the behaviour identical to
     // before this knob landed.
-    if (state.mesh.morphTargetInfluences) {
-        state.mesh.morphTargetInfluences[0] = factor * state.scaleFactor;
+    if (layer) {
+        layer.setInfluence(factor * state.scaleFactor);
+    } else if (state.mesh!.morphTargetInfluences) {
+        state.mesh!.morphTargetInfluences[0] = factor * state.scaleFactor;
     }
     return {phase: next, factor};
 }
@@ -122,7 +129,7 @@ export function tickFeaAnimation(deltaSeconds: number): void {
  * sequence; ``applyStep`` itself warms up the following case while it does. */
 function tickTimeHistory(deltaSeconds: number): void {
     const state = useFeaAnimationStore.getState();
-    if (!state.isPlaying || !state.sessionActive || !state.mesh || !state.applyStep) return;
+    if (!state.isPlaying || !state.sessionActive || !hasResultTarget(state) || !state.applyStep) return;
     const next = nextTimeHistoryStep(historyClock, deltaSeconds, state.stepIndex, state.nSteps);
     if (next === null) return;
     const [, hi] = state.range;

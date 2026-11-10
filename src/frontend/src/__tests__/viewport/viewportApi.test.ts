@@ -24,6 +24,11 @@ function recorder(kind: ViewportApi["kind"], cannot: string | null = null): {api
             onSelectionChange: () => () => {},
             setSelection: (...args: unknown[]) => (log("setSelection")(...args), 0),
             modelBounds: () => null,
+            results: {
+                createResultMesh: () => {
+                    throw new Error("not drawn in this test");
+                },
+            },
             clearSelection: log("clearSelection"),
             hideSelected: log("hideSelected"),
             hideOthers: log("hideOthers"),

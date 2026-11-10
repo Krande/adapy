@@ -14,6 +14,7 @@ import {useTreeViewStore} from "@/state/treeViewStore";
 import {getViewerRuntime} from "@/state/viewerRuntime";
 import type {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
 import {batchedMeshOf, isBatched} from "@/utils/scene/meshLookup";
+import {createThreeResultMesh} from "@/utils/scene/fea/threeResultLayer";
 import {recordViewerAction} from "@/utils/scene/viewerHistory";
 import {rangesCentroidWorld} from "@/utils/viewer/pipeTrace";
 import type {BillboardLayer} from "./billboards";
@@ -172,6 +173,23 @@ export function createThreeViewport(h: ThreeViewportHandles): ViewportApi {
         modelBounds: () => {
             const box = useModelState.getState().boundingBox;
             return box && !box.isEmpty() ? [box.min.x, box.min.y, box.min.z, box.max.x, box.max.y, box.max.z] : null;
+        },
+        // A result mesh from typed arrays, added to the scene. The streaming loader's own result
+        // mesh comes in as a GLB (with its selection and overlays) and is wrapped by the same layer
+        // (threeResultLayer); replacing the model is that loader's job here, so `replaceModel` only
+        // frames the new mesh.
+        results: {
+            createResultMesh: (data, opts) => {
+                const layer = createThreeResultMesh(data, getViewerRuntime().scene.current ?? h.scene);
+                if (opts?.replaceModel) {
+                    void cameraHandlers().then((m) => {
+                        m.fitAllView(h.scene, h.camera, h.controls);
+                        requestRender();
+                    });
+                }
+                requestRender();
+                return layer;
+            },
         },
         hideSelected: () => void visibility().then((m) => m.hideSelectedRanges()),
         hideOthers: () => void visibility().then((m) => m.hideUnselectedRanges()),

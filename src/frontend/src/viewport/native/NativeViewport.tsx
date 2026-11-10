@@ -7,7 +7,9 @@ import React from "react";
 import {ensureViewportInput} from "@/viewport/input";
 import {installShortcutDispatcher} from "@/layout/shortcutDispatch";
 import {bindCoreShortcuts} from "@/layout/shortcuts";
+import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {useSectionStore} from "@/state/sectionStore";
+import {tickFeaAnimation} from "@/utils/scene/fea/feaAnimationDriver";
 import {notifyModelLoaded, notifyViewportPick, setActiveViewport} from "@/viewport/api/viewportApi";
 import {viewportShortcutHandlers} from "@/viewport/api/viewportShortcuts";
 import {NativeOrientationGizmo} from "./NativeOrientationGizmo";
@@ -25,8 +27,8 @@ function linearRgb(hex: string): [number, number, number] | null {
 }
 
 const UNAVAILABLE = [
-    "FEA results and animation", "number labels and plugin overlays", "box selection", "3D-mouse input",
-    "export", "overlaying several models",
+    "FEA element (integration point) fields, beam sections and picking in a result", "number labels and plugin overlays",
+    "box selection", "3D-mouse input", "export", "overlaying several models",
 ];
 
 const NativeViewport: React.FC = () => {
@@ -36,6 +38,8 @@ const NativeViewport: React.FC = () => {
     const [loadError, setLoadError] = React.useState("");
     const model = useNativeViewport((s) => s.model);
     const state = useNativeViewport((s) => s.state);
+    // A result shown through result layers is not a model handed over as bytes: it is named here.
+    const result = useFeaAnimationStore((s) => (s.resultLayer ? s.sourceName : null));
 
     React.useEffect(() => {
         const host = hostRef.current;
@@ -48,6 +52,13 @@ const NativeViewport: React.FC = () => {
             if (cancelled) return scene.dispose();
             scene.onChange = () => setVersion((v) => v + 1);
             scene.onFailure = fail;
+            // A playing result: the same driver the three.js viewport ticks, once per frame, for as
+            // long as it plays. It writes the deformation scale to the result's layer.
+            scene.beforeFrame = (dt) => {
+                tickFeaAnimation(dt);
+                const fea = useFeaAnimationStore.getState();
+                return fea.isPlaying && fea.sessionActive;
+            };
             scene.onPick = (id) => notifyViewportPick({ref: id ? {model: scene.modelKey, id} : null});
             sceneRef.current = scene;
             if (scene.failure) return fail(scene.failure);
@@ -83,6 +94,15 @@ const NativeViewport: React.FC = () => {
         };
     }, []);
 
+    // A result starts playing: the frame loop, which runs only while something changes, wakes up.
+    React.useEffect(
+        () =>
+            useFeaAnimationStore.subscribe((s, p) => {
+                if (s.isPlaying && !p.isPlaying) sceneRef.current?.invalidate();
+            }),
+        [],
+    );
+
     React.useEffect(() => {
         const scene = sceneRef.current;
         if (!scene || !model || state !== "active") return;
@@ -107,7 +127,8 @@ const NativeViewport: React.FC = () => {
                 {state === "starting" && <div>Starting WebGPU…</div>}
                 {loadError && <div className="text-amber-300">{loadError}</div>}
                 {model && <div className="text-gray-400 truncate" title={model.sourceName}>{model.sourceName || "model"} · {objects.length} objects</div>}
-                {!model && state === "active" && <div className="text-gray-400">No model loaded.</div>}
+                {!model && result && <div className="text-gray-400 truncate" title={result}>{result} · result</div>}
+                {!model && !result && state === "active" && <div className="text-gray-400">No model loaded.</div>}
                 <details>
                     <summary className="cursor-pointer text-gray-400">Not available in this mode</summary>
                     <ul className="list-disc pl-4 text-gray-400">{UNAVAILABLE.map((u) => <li key={u}>{u}</li>)}</ul>

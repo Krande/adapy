@@ -3,6 +3,8 @@
 // There is no THREE.Scene behind it and no scene model on this side either: the reader reports the
 // model's objects and which one each segment draws, per-object state is segment state in the renderer,
 // and input is mapped to the camera's semantic operations (orbit, pan, zoom, fit, look from).
+import type {ResultMeshData, ResultMeshLayer} from "@/viewport/api/resultLayer";
+import {NativeResultLayer} from "./nativeResultLayer";
 import {useCameraControlsStore} from "@/state/cameraControlsStore";
 import {useVisibilityStore} from "@/state/visibilityStore";
 import {dragAction, mouseButtonOf, wheelZoomFactor, type CameraAction} from "@/utils/camera/cameraMapping";
@@ -57,6 +59,23 @@ class TrackedSet extends Set<string> {
 
 let canvasSerial = 0;
 
+/** The box (min xyz, max xyz) around `positions` (xyz per vertex) placed by `matrix` (column-major
+ *  4x4, identity when absent); null for none. */
+function boundsOf(positions: Float32Array, matrix?: ArrayLike<number> | null): Bounds | null {
+    if (positions.length < 3) return null;
+    const m = matrix ?? [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+    const box: Bounds = [Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity];
+    for (let i = 0; i + 2 < positions.length; i += 3) {
+        const x = positions[i], y = positions[i + 1], z = positions[i + 2];
+        for (let k = 0; k < 3; k++) {
+            const w = m[k] * x + m[4 + k] * y + m[8 + k] * z + m[12 + k];
+            if (w < box[k]) box[k] = w;
+            if (w > box[k + 3]) box[k + 3] = w;
+        }
+    }
+    return box;
+}
+
 export class NativeScene {
     /** Per instance, the object index of each of its segments (-1: none). */
     private segments = new Map<number, Int32Array>();
@@ -97,6 +116,11 @@ export class NativeScene {
     /** Why it stopped, kept for a caller that attaches `onFailure` after the fact: a device can be lost
      *  before the first frame. */
     failure: string | null = null;
+    /** The result meshes drawn now (createResultLayer). */
+    private readonly resultLayers = new Set<NativeResultLayer>();
+    /** Called before each frame is drawn, with the seconds since the last one (0 after an idle
+     *  spell). Returning true asks for another frame: what plays a result keeps the loop running. */
+    beforeFrame: ((dtSeconds: number) => boolean) | null = null;
 
     private constructor(
         private readonly container: HTMLElement,
@@ -142,6 +166,7 @@ export class NativeScene {
     load(bytes: Uint8Array, modelKey = ""): void {
         this.modelKey = modelKey;
         this.sceneExtras = "";
+        this.detachResultLayers();
         this.renderer.clear();
         this.sceneEpoch++;
         this.selected.clear();
@@ -174,6 +199,45 @@ export class NativeScene {
         this.home(0);
         for (const listener of this.onLoaded) listener();
         this.onChange?.();
+    }
+
+    /** Draw a result mesh from typed arrays: its colours, displacement and deformation scale are
+     *  then set through the layer returned. With `replaceModel` the loaded model goes and the mesh
+     *  is what the viewport shows and frames. */
+    createResultLayer(data: ResultMeshData, opts: {replaceModel?: boolean} = {}): ResultMeshLayer {
+        if (opts.replaceModel) {
+            this.detachResultLayers();
+            this.renderer.clear();
+            this.modelKey = "";
+            this.sceneExtras = "";
+            this.table = null;
+            this.segments = new Map();
+            this.indexOfId = new Map();
+            this.objectList = [];
+            this.selected.clear();
+            this.hidden.clear();
+            this.selectionVersion = {};
+            // As a model load: helper lines and sprites went with renderer.clear().
+            this.helperLines.clear();
+            this.sceneEpoch++;
+        }
+        const layer = new NativeResultLayer(this.module, this.renderer, data, () => this.invalidate());
+        this.resultLayers.add(layer);
+        if (opts.replaceModel) {
+            this.bounds = boundsOf(data.positions, data.matrix);
+            this.home(0);
+            for (const listener of this.onLoaded) listener();
+            for (const listener of this.onSelection) listener();
+            this.onChange?.();
+        }
+        this.invalidate();
+        return layer;
+    }
+
+    /** The renderer is about to drop everything it draws: the result layers go with it. */
+    private detachResultLayers(): void {
+        for (const layer of this.resultLayers) layer.detach();
+        this.resultLayers.clear();
     }
 
     get objects(): readonly NativeObject[] {
@@ -523,9 +587,11 @@ export class NativeScene {
             this.syncSize();
             // A move to a view, or the glide after a drag, runs for as long as the camera says it does.
             const moving = this.renderer.cameraUpdate(dt);
+            const playing = this.beforeFrame?.(dt) ?? false;
             this.renderer.render();
             for (const listener of this.onFrame) listener();
             if (moving) this.invalidate();
+            else if (playing) this.invalidate();
             else this.lastFrame = 0;
         } catch (err) {
             this.fail(err instanceof Error ? err.message : String(err));
@@ -707,6 +773,7 @@ export class NativeScene {
         this.disposed = true;
         if (this.raf) cancelAnimationFrame(this.raf);
         for (const c of this.cleanups) c();
+        this.detachResultLayers();
         try {
             this.renderer.delete();
             this.device.destroy();

@@ -68,6 +68,25 @@ for (const module of ["viewportApi.ts", "viewportShortcuts.ts", "billboards.ts"]
     });
 }
 
+// What computes and registers an FEA result is shared by both viewports, and what draws it through
+// result layers is the three.js-free viewport's way to show one: none of it may import three.js.
+for (const module of [
+    "viewport/api/resultLayer.ts",
+    "viewport/native/nativeResultLayer.ts",
+    "utils/glb/glbMesh.ts",
+    "utils/scene/fea/nodalFieldPaint.ts",
+    "utils/scene/fea/resultInfluence.ts",
+    "utils/scene/fea/feaAnimationDriver.ts",
+    "utils/scene/fea/playbackActions.ts",
+    "utils/scene/fea/streaming/resultStores.ts",
+    "utils/scene/fea/streaming/warpSource.ts",
+    "utils/scene/fea/streaming/layerSession.ts",
+]) {
+    test(`${module} imports no three.js`, () => {
+        walkFreeOfThree(join(ROOT, "src", module));
+    });
+}
+
 test("the walk sees what a build would bundle", () => {
     const imports = runtimeImports(`
         import * as THREE from "three";
