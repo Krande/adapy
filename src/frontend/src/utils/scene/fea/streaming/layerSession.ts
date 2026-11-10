@@ -40,6 +40,7 @@ import {readGlbMesh, type GlbMesh} from "@/utils/glb/glbMesh";
 import {positionsDiagonal, type ResultMeshLayer, type ResultMeshObjects, type ViewportResults} from "@/viewport/api/resultLayer";
 import {activeViewport, notifyModelLoaded} from "@/viewport/api/viewportApi";
 import {beamSolidNodalColors, nodalScalars} from "../beamSolidNodalColors";
+import {computeBeamSolidEdges, type BeamSolidEdgeData} from "../beamSolidFeatureEdges";
 import {beamSolidDisplacement} from "../beamSolidWarp";
 import {hasLazyCases, legendScopeFor, mergeCaseSteps, nextCaseToPrefetch, slotCount, slotRef} from "../caseSteps";
 import {FEA_BEAM_EDGE_COLOR, FEA_EDGE_COLOR, FEA_UNDEFORMED_COLOR} from "../edgeColors";
@@ -134,6 +135,11 @@ interface LayerSession {
     solidsLocal: {renderToSource: Uint32Array; indices: Uint32Array; colors: Float32Array; displacement: Float32Array} | null;
     /** Whether the beam sections carry the colours of the field shown. */
     solidsPainted: boolean;
+    /** The edges of the beam sections, once they were asked for: the pairs of their vertices
+     *  with the beam each outlines, and the lines that draw those of the beams not hidden. */
+    solidEdgeData: BeamSolidEdgeData | null;
+    solidEdgesPending: boolean;
+    solidEdges: ResultMeshLayer | null;
     /** Reused across steps, in node numbering: a step allocates nothing. */
     displacement: Float32Array;
     colors: Float32Array;
@@ -452,6 +458,10 @@ function applyView(s: LayerSession): void {
     const solids = solidsOn(s);
     s.group.setShown(s.solidsLayer, solids);
     s.solidsLayer?.setColorsVisible(view.resultColorsVisible && s.solidsPainted);
+    // Their edges: built the first time they are wanted, and drawn with the sections.
+    const solidEdges = solids && view.beamSolidEdgesVisible;
+    if (solidEdges) requestSolidEdges(s);
+    s.group.setShown(s.solidEdges, solidEdges);
     // What is painted over the beam sections is drawn while they are.
     for (const pinned of s.pinned) if (pinned.on === "beamSolids") s.group.setShown(pinned.layer, solids);
     const colouredLines = s.lines.drawn && view.resultColorsVisible && !solids;
@@ -586,12 +596,62 @@ function warpSolids(s: LayerSession, warp: {field: FeaManifestField; stepValues:
     s.solidsDisplacement = displacement;
     s.displacementWrites++;
     for (const pinned of s.pinned) if (pinned.on === "beamSolids") movePinned(pinned, displacement);
+    s.solidEdges?.setDisplacement(displacement);
     if (s.solidsLocal) {
         expandTriplesInto(displacement, s.solidsLocal.renderToSource, s.solidsLocal.displacement);
         layer.setDisplacement(s.solidsLocal.displacement);
     } else {
         layer.setDisplacement(displacement);
     }
+}
+
+/** Have the edges of the beam sections worked out, off the main thread where a worker can be
+ *  started, and drawn when they are ready: the corners of each section and the outline of each
+ *  end, which is where one element ends and the next begins. Once per session. */
+function requestSolidEdges(s: LayerSession): void {
+    const solids = s.solids;
+    if (!solids || s.solidEdgeData || s.solidEdgesPending) return;
+    s.solidEdgesPending = true;
+    const ranges: [number, number][] = [];
+    for (let i = 0; i + 1 < solids.segments.length; i += 2) ranges.push([solids.segments[i], solids.segments[i + 1]]);
+    void import("../beamSolidEdgesInWorker")
+        .then(({computeBeamSolidEdgesInWorker}) => computeBeamSolidEdgesInWorker(solids.positions, solids.indices, ranges))
+        .catch((err) => {
+            console.warn("[fea] beam-solid edge worker unavailable; building on the main thread:", err);
+            return computeBeamSolidEdges(solids.positions, solids.indices, ranges);
+        })
+        .then((data) => {
+            s.solidEdgesPending = false;
+            // Another result took its place meanwhile: nothing to draw them on.
+            if (session !== s) return;
+            s.solidEdgeData = data;
+            drawSolidEdges(s);
+        })
+        .catch((err) => console.warn("[fea] beam-solid edges failed:", err));
+}
+
+/** The lines that draw the beam sections' edges, for the beams that are not hidden. */
+function drawSolidEdges(s: LayerSession): void {
+    const data = s.solidEdgeData, solids = s.solids;
+    if (!data || !solids || data.pairs.length === 0) return;
+    let pairs = data.pairs;
+    if (s.hidden.size) {
+        const hidden = Array.from(solids.labels, (label) => s.hidden.has(`E${label}`));
+        pairs = new Uint32Array(data.pairs.length);
+        // A hidden beam's edges become pairs of one vertex: nothing is drawn.
+        for (let p = 0; p < data.owner.length; p++) {
+            const a = data.pairs[p * 2];
+            pairs[p * 2] = a;
+            pairs[p * 2 + 1] = hidden[data.owner[p]] ? a : data.pairs[p * 2 + 1];
+        }
+    }
+    const before = s.solidEdges;
+    s.solidEdges = s.group.add(
+        s.results.createResultMesh({positions: solids.positions, indices: pairs, topology: "lines", matrix: s.mesh.matrix, color: linear(FEA_EDGE_COLOR)}),
+        solidsOn(s) && useFeaAnimationStore.getState().beamSolidEdgesVisible,
+    );
+    s.group.drop(before);
+    if (s.solidsDisplacement) s.solidEdges.setDisplacement(s.solidsDisplacement);
 }
 
 /** The beam sections were switched on or off: they and the coloured lines swap places, and the
@@ -671,6 +731,7 @@ function refreshHidden(s: LayerSession): void {
     s.hidden = hidden;
     s.shownNodes = null;
     redrawShellEdges(s);
+    if (s.solidEdges) drawSolidEdges(s);
 
     const {sessionActive, applyStep, stepIndex} = useFeaAnimationStore.getState();
     if (s.rangeFromShown && sessionActive && applyStep) {
@@ -757,6 +818,9 @@ async function openLayerSession(args: {
         solidsLayer: null,
         solidsLocal: null,
         solidsPainted: false,
+        solidEdgeData: null,
+        solidEdgesPending: false,
+        solidEdges: null,
         displacement: new Float32Array(nPoints * 3),
         colors: new Float32Array(nPoints * 3),
         renderDisplacement: null,
@@ -771,7 +835,8 @@ async function openLayerSession(args: {
     const offView = useFeaAnimationStore.subscribe((now, before) => {
         if (
             now.resultColorsVisible !== before.resultColorsVisible || now.elementEdgesVisible !== before.elementEdgesVisible ||
-            now.resultPointMarkersVisible !== before.resultPointMarkersVisible || now.showUndeformed !== before.showUndeformed
+            now.resultPointMarkersVisible !== before.resultPointMarkersVisible || now.showUndeformed !== before.showUndeformed ||
+            now.beamSolidEdgesVisible !== before.beamSolidEdgesVisible
         ) applyView(opened);
         if (now.beamSolidsVisible !== before.beamSolidsVisible) toggleSolids(opened);
     });

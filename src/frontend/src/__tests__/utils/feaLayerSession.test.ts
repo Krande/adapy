@@ -285,7 +285,7 @@ afterEach(() => {
     closeLayerSession();
     useFeaAnimationStore.getState().reset();
     // The deformation scale is a preference that outlives a reset: back to the automatic one.
-    useFeaAnimationStore.setState({scaleFactor: 1, scaleFactorAuto: true, beamSolidsVisible: false});
+    useFeaAnimationStore.setState({scaleFactor: 1, scaleFactorAuto: true, beamSolidsVisible: false, beamSolidEdgesVisible: true});
     withdraw?.();
     withdraw = null;
 });
@@ -604,6 +604,42 @@ test("an element field paints each beam section with its beam's value, in place 
     for (const corner of [0, 1, 2]) assert.deepEqual(solids.colors.slice(corner * 3, corner * 3 + 3), colorAt(0.5));
     const lineNow = viewport.layers.filter((l) => l.data.topology === "lines").at(-1)!;
     assert.equal(lineNow.visible, false, "one rendering of a beam at a time");
+});
+
+test("the edges of the beam sections are lines over them, moving with them and going with their beam", async () => {
+    const viewport = fakeViewport();
+    withdraw = viewport.withdraw;
+    useFeaAnimationStore.setState({beamSolidsVisible: true, beamSolidEdgesVisible: true});
+    // A section with some area (the shared one is flat on the beam's axis, which has no edges).
+    const section = {expandBeamSolids: async () => ({...(await compute.expandBeamSolids()), positions: new Float32Array([3, 0, 0, 3, 2, 1, 3, 4, 0])})};
+    await loadFeaOnLayers(
+        {sourceName: "deck.frd", manifest: manifest([displacement()], BEAM_MESH), fieldName: "displacement", stepIndex: 0, reduction: "magnitude", sliderFactor: 1},
+        {fea, compute: section},
+    );
+    await tick();
+    // The one section is one triangle: its three sides, as pairs of its vertices.
+    const edges = () => viewport.layers.filter((l) => l.data.topology === "lines" && l.data.positions.length === 9 && !l.removed).at(-1)!;
+    assert.ok(edges(), "a layer of lines over the sections' own vertices");
+    assert.equal(edges().data.indices!.length, 6);
+    assert.equal(edges().visible, true);
+    // They carry the sections' displacement: the beam's far end is node 2, up by 1 at this step.
+    assert.deepEqual([edges().displacement[2], edges().displacement[5], edges().displacement[8]], [0, 0.5, 1]);
+
+    useFeaAnimationStore.getState().setBeamSolidEdgesVisible(false);
+    assert.equal(edges().visible, false, "the checkbox takes them away");
+    useFeaAnimationStore.getState().setBeamSolidEdgesVisible(true);
+    assert.equal(edges().visible, true);
+
+    // The beam hidden: its edges are pairs of one vertex, so nothing of it is drawn.
+    viewport.hidden.add("E20");
+    useVisibilityStore.getState().bump();
+    await tick();
+    const pairs = [...edges().data.indices!];
+    assert.ok(pairs.every((v, i) => i % 2 === 0 || v === pairs[i - 1]), `collapsed: ${pairs}`);
+
+    useFeaAnimationStore.getState().setBeamSolidsVisible(false);
+    await tick();
+    assert.equal(edges().visible, false, "they go with the sections");
 });
 
 test("a time history can be loaded ahead of playing it; other results offer no such thing", async () => {

@@ -17,6 +17,7 @@ from .test_render_backends import (
     _is_coloured,
     _open_viewer,
     _pixels,
+    _select_field,
     _show_result,
     _until,
 )
@@ -186,3 +187,43 @@ async def test_fea_sets_are_listed_and_isolated_on_whichever_viewport_is_on_scre
         finally:
             await browser.close()
 
+
+@pytest.mark.parametrize("backend", ["three", NATIVE])
+async def test_fea_beam_sections_have_their_edges_drawn(ws_server, backend, fem_files):
+    """Beams drawn as their sections carry the sections' edges, which "Solid edges" takes away and
+    brings back."""
+    if backend == "three":
+        pytest.skip("the three.js viewport's loader does not open a result made of line elements only")
+    result_file = fem_files / "cantilever/sesam/static/line/STATIC_LINE_CANTILEVER_SESAMR1.SIF"
+    model = (300, 280, 1030, 780)  # the view between the panels and the legend
+    async with async_playwright() as playwright:
+        browser, page, state = await _open_viewer(playwright, ws_server, backend)
+        try:
+            await _show_result(page, ws_server, result_file, painted_pixels=500)
+            await _select_field(page, "sesam.element_average.b_stress")
+            await page.get_by_label("Beams as solid").check()
+            edges = page.get_by_label("Solid edges")
+
+            async def offered():
+                return await edges.count() == 1 and await edges.is_checked()
+
+            await _until(page, offered, f"{backend}: the edges of the sections to be offered, and on")
+            await page.wait_for_timeout(1500)
+            with_edges = _count((await _pixels(page)).crop(model), _is_coloured)
+
+            # without the edges, more of the sections shows its colour
+            await edges.uncheck()
+
+            async def edges_gone():
+                return _count((await _pixels(page)).crop(model), _is_coloured) > with_edges + 100
+
+            await _until(page, edges_gone, f"{backend}: the edges of the sections to be taken away")
+            await edges.check()
+
+            async def edges_back():
+                return abs(_count((await _pixels(page)).crop(model), _is_coloured) - with_edges) < 50
+
+            await _until(page, edges_back, f"{backend}: the edges of the sections to be drawn again")
+            await _assert_drawing_with(page, backend, state)
+        finally:
+            await browser.close()
