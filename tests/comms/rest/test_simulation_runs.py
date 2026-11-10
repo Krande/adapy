@@ -421,7 +421,7 @@ def test_a_run_end_to_end_with_a_partial_artefact_seen_before_the_end(client):
     assert client.get(f"/api/scopes/{SCOPE}/blobs/{by_name['model.json']['key']}").json()["steps"][-1] == {"step": 4}
 
     # The record is a file beside the artefacts, and it is what the listing reads.
-    on_disk = client.scope_dir / "_derived" / "simulations" / run_id
+    on_disk = client.scope_dir / "_simulations" / run_id
     record = json.loads(_ungzip((on_disk / "run.json").read_bytes()))
     assert record["status"] == "done" and record["started_at"] and record["finished_at"]
     assert sorted(p.name for p in (on_disk / "artefacts").iterdir()) == ["log.txt", "model.json", "timeline.json"]
@@ -510,7 +510,7 @@ def test_a_run_whose_job_the_server_no_longer_knows_is_ended_not_left_running(cl
     run_id = _start(client, {"steps": 1}).json()["run"]["run_id"]
     _wait_ended(client, run_id)
     # The record of a run a restarted server was in the middle of: running, and its job gone.
-    path = client.scope_dir / "_derived" / "simulations" / run_id / "run.json"
+    path = client.scope_dir / "_simulations" / run_id / "run.json"
     record = json.loads(_ungzip(path.read_bytes()))
     record.update(status="running", finished_at=None, job_id="local-gone")
     path.write_bytes(json.dumps(record).encode())

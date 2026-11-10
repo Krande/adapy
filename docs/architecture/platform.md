@@ -249,7 +249,7 @@ sequenceDiagram
     B->>A: GET /api/simulation/providers
     B->>A: POST /api/scopes/{scope}/simulations (provider, parameters, inputs)
     A->>A: validate parameters against the provider's JSON Schema
-    A->>S: write _derived/simulations/{run_id}/run.json (queued)
+    A->>S: write _simulations/{run_id}/run.json (queued)
     A->>W: simulation_run job on the subject of sim-{provider id}
     W->>W: provider.run(case, ctx)
     loop while it runs
@@ -339,9 +339,9 @@ provider registered in the API process in a thread; both paths call
 
 | Key | Content |
 |---|---|
-| `_derived/simulations/{run_id}/run.json` | The run record: provider (id, domain, engine, version), kind, parameters, inputs, who started it, `created_at` / `started_at` / `finished_at`, status, stage, progress, error, job id, the artefact list and the summary. |
-| `_derived/simulations/{run_id}/artefacts/{name}` | What the provider stored. Each is listed with `name`, `key`, `media_type`, `role`, `size`, `partial` and `revision`, and fetched through the blob route. |
-| `_derived/simulations/{run_id}/cancel` | Present once a cancel was asked for. |
+| `_simulations/{run_id}/run.json` | The run record: provider (id, domain, engine, version), kind, parameters, inputs, who started it, `created_at` / `started_at` / `finished_at`, status, stage, progress, error, job id, the artefact list and the summary. |
+| `_simulations/{run_id}/artefacts/{name}` | What the provider stored. Each is listed with `name`, `key`, `media_type`, `role`, `size`, `partial` and `revision`, and fetched through the blob route. |
+| `_simulations/{run_id}/cancel` | Present once a cancel was asked for. |
 
 The record is a JSON manifest beside the artefacts, as clash runs are documents in storage: it
 needs no database, it is written before the job is published, and it outlives the job status,

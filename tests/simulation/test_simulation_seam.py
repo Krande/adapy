@@ -227,9 +227,9 @@ def test_no_schema_accepts_any_object():
 
 def test_a_run_keeps_its_files_in_its_own_directory_under_derived():
     run_id = new_run_id()
-    assert run_record_key(run_id) == f"_derived/simulations/{run_id}/run.json"
-    assert artefact_key(run_id, "frames/0001.bin") == f"_derived/simulations/{run_id}/artefacts/frames/0001.bin"
-    assert cancel_key(run_id).startswith(f"_derived/simulations/{run_id}/")
+    assert run_record_key(run_id) == f"_simulations/{run_id}/run.json"
+    assert artefact_key(run_id, "frames/0001.bin") == f"_simulations/{run_id}/artefacts/frames/0001.bin"
+    assert cancel_key(run_id).startswith(f"_simulations/{run_id}/")
     assert run_id_of_key(run_record_key(run_id)) == run_id
     assert run_id_of_key(artefact_key(run_id, "a.json")) is None
 

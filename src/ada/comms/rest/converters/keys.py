@@ -364,6 +364,11 @@ def sif_index_key_for(source_key: str) -> str:
     return f"_derived/{src}{_SIF_INDEX_SUFFIX}"
 
 
+def is_simulation_key(key: str) -> bool:
+    """A key under the simulation runs' prefix, which only a run's job may write."""
+    return key.lstrip("/").startswith("_simulations/")
+
+
 def is_derived_key(key: str) -> bool:
     return key.lstrip("/").startswith("_derived/")
 
@@ -397,6 +402,10 @@ HIDDEN_PREFIXES: tuple[str, ...] = (
     # Convex-contact clash runs (ada.clash.sidecar). Not client-written through the blob route: a
     # browser's run is POSTed to /clash-contacts/runs, which validates it before storing it.
     "_clash/",
+    # Simulation runs (ada.simulation.runs): the run record and what the provider stored. Written by
+    # the run's job only, never through the blob route, and kept when temp files are cleared: a run
+    # can take hours to make.
+    "_simulations/",
 )
 
 

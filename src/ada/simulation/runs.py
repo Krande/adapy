@@ -3,9 +3,9 @@
 A run is a directory under ``_derived/`` in the scope it was started in, like the other results
 a job writes there (``_derived/clash/...``, ``_derived/plugin_jobs/...``)::
 
-    _derived/simulations/<run_id>/run.json          the run record (this module)
-    _derived/simulations/<run_id>/artefacts/<name>  what the provider stored
-    _derived/simulations/<run_id>/cancel            present once a cancel was asked for
+    _simulations/<run_id>/run.json          the run record (this module)
+    _simulations/<run_id>/artefacts/<name>  what the provider stored
+    _simulations/<run_id>/cancel            present once a cancel was asked for
 
 The record is a JSON manifest beside the artefacts, the way a clash run is kept as a document in
 storage: it needs no database, so it exists the same on a single-node viewer and in a cluster,
@@ -51,7 +51,7 @@ __all__ = [
     "utc_now",
 ]
 
-RUNS_PREFIX = "_derived/simulations/"
+RUNS_PREFIX = "_simulations/"
 RUN_SCHEMA = "ada.simulation/run@1"
 
 # Spelled as the job queue spells them, so a run's status and its job's read the same.
