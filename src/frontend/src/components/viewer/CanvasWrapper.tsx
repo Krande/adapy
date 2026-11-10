@@ -11,6 +11,7 @@ import GalleryControls from "./GalleryControls";
 import BBoxSelectionController from "./BBoxSelectionController";
 import SpaceMouseConnectChip from "./SpaceMouseConnectChip";
 import RenderRecordingHud from "./RenderRecordingHud";
+import {useAdacppRenderStatus} from "@/viewport/adacpp/adacppViewport";
 
 export interface CanvasWrapperProps {
   /**
@@ -26,8 +27,10 @@ export interface CanvasWrapperProps {
 }
 
 const CanvasWrapper: React.FC<CanvasWrapperProps> = ({legend = true}) => {
+  // WebGPU-only mode fell back to WebGL: remount the canvas and the controllers that hold its renderer.
+  const webglFallback = useAdacppRenderStatus((s) => s.webglFallback);
   return (
-    <div className="relative w-full h-full">
+    <div key={webglFallback ? "webgl-fallback" : "viewport"} className="relative w-full h-full">
       {legend && (
         // Phones: top-right corner, clear of the left-hand control column and the
         // bottom-right orientation gizmo. Desktop keeps its old place.

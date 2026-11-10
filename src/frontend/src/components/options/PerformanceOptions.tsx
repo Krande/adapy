@@ -74,6 +74,9 @@ const RendererBackendOptions: React.FC = () => {
             {renderBackend === "adacpp-webgpu" && (
                 <div className="text-xs text-gray-400 space-y-1">
                     {status.state === "starting" && <div>Starting WebGPU…</div>}
+                    {status.webglFallback && (
+                        <div className="text-amber-300">WebGPU-only mode started WebGL after all: {status.webglFallback}</div>
+                    )}
                     {status.state === "failed" && (
                         <div className="text-amber-300">Not available, three.js is drawing: {status.error}</div>
                     )}

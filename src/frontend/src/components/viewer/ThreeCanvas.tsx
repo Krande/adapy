@@ -22,12 +22,13 @@ import {replace_model} from "@/utils/scene/handlers/update_scene_from_message";
 import {tickFeaAnimation} from "@/utils/scene/fea/feaAnimationDriver";
 import {applyFeaDeformationGate} from "@/utils/scene/fea/deformationGate";
 import {applyFeaUnpaintedColor} from "@/utils/scene/fea/unpaintedColor";
-import {consumeDirty, isRenderSuspended, requestRender, usePerfStore} from "@/state/perfStore";
+import {consumeDirty, isRenderSuspended, requestRender, usePerfStore, adacppHandover} from "@/state/perfStore";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {renderProfiler} from "@/utils/scene/renderProfiler";
 import {bindSpaceMouseToOptions, tickSpaceMouse} from "@/utils/spacemouse/spaceMouseDevice";
 import {setCaptureViewport} from "@/viewport/capture";
-import {AdacppViewport} from "@/viewport/adacpp/adacppViewport";
+import {createNullRenderer, isNullRenderer} from "@/viewport/nullRenderer";
+import {AdacppViewport, useAdacppRenderStatus} from "@/viewport/adacpp/adacppViewport";
 import {ensureViewportInput} from "@/viewport/input";
 import {setPickingViewport} from "@/viewport/picking";
 import {bindLocalFileDrop} from "@/utils/scene/handlers/open_local_file";
@@ -121,14 +122,19 @@ const ThreeCanvas: React.FC = () => {
             // `stencil: true` is required for the section-plane caps (three r163+
             // defaults stencil OFF; without the buffer the NotEqual(0) cap test
             // always passes and the cut cross-section renders as a full plane).
-            const renderer = new THREE.WebGLRenderer({antialias: initialPerf.antialias, stencil: true});
+            // WebGPU-only mode: no WebGL context at all, unless WebGPU already failed this session
+            // (the backend effect below then remounts the viewport to get a real renderer here).
+            const webgpuOnly = initialPerf.renderBackend === "adacpp-webgpu" && adacppHandover(initialPerf).noWebGL &&
+                !useAdacppRenderStatus.getState().webglFallback;
+            const pixelRatio = Math.min(window.devicePixelRatio, initialPerf.pixelRatioCap);
+            const renderer = webgpuOnly
+                ? createNullRenderer(containerRef.current.clientWidth, containerRef.current.clientHeight, pixelRatio)
+                : new THREE.WebGLRenderer({antialias: initialPerf.antialias, stencil: true});
             renderer.setSize(
                 containerRef.current.clientWidth,
                 containerRef.current.clientHeight,
             );
-            renderer.setPixelRatio(
-                Math.min(window.devicePixelRatio, initialPerf.pixelRatioCap),
-            );
+            renderer.setPixelRatio(pixelRatio);
             renderer.shadowMap.enabled = !initialPerf.disableShadowMap;
             containerRef.current.appendChild(renderer.domElement);
             // Input goes to the renderer-independent input surface (viewport/input.ts), never to a
@@ -281,6 +287,7 @@ const ThreeCanvas: React.FC = () => {
                 setPickingViewport(null);
                 setCaptureViewport(null);
                 renderer.domElement.style.opacity = "";
+                fallBackToWebGL(useAdacppRenderStatus.getState().error ?? "the WebGPU renderer stopped");
             }
             if (shouldRender && adacpp) {
                 adacpp.render(scene, camera, renderer.getPixelRatio(), {
@@ -362,6 +369,15 @@ const ThreeCanvas: React.FC = () => {
         };
     }, [defaultOrbitController, zIsUp]);
 
+    // WebGPU-only mode has no WebGL renderer to hand the viewport back to: drop the stand-in and say why,
+    // which remounts the viewport (CanvasWrapper keys on it) with a real one. Never a blank viewport.
+    const fallBackToWebGL = (reason: string) => {
+        if (!isNullRenderer(rendererRef.current)) return;
+        rendererRef.current?.domElement.remove();
+        rendererRef.current = null;
+        useAdacppRenderStatus.setState({webglFallback: reason});
+    };
+
     // ——— Renderer backend: start / stop the adacpp WebGPU viewport ———
     // Declared after the setup effect so the WebGLRenderer exists. Switching is live: the WebGL
     // canvas is made transparent (not removed — it keeps receiving the controls' pointer and touch
@@ -385,7 +401,10 @@ const ThreeCanvas: React.FC = () => {
                 if (rendererRef.current) rendererRef.current.domElement.style.opacity = "0";
                 requestRender();
             })
-            .catch((err) => console.warn("[adacpp-webgpu] unavailable, staying on three.js:", err));
+            .catch((err) => {
+                console.warn("[adacpp-webgpu] unavailable, staying on three.js:", err);
+                if (!cancelled) fallBackToWebGL(err instanceof Error ? err.message : String(err));
+            });
         return () => {
             cancelled = true;
             setPickingViewport(null);

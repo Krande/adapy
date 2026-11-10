@@ -90,6 +90,8 @@ interface AdacppRenderStatus {
     stats: AdacppStats | null;
     /** Why adacpp is not drawing the labels although asked to (the three.js pass draws them instead). */
     labelsError: string | null;
+    /** WebGPU-only mode: why a WebGL renderer was started after all (WebGPU could not start, or stopped). */
+    webglFallback: string | null;
 }
 
 /** What the Performance panel shows about the adacpp renderer. Not persisted. */
@@ -99,6 +101,7 @@ export const useAdacppRenderStatus = create<AdacppRenderStatus>(() => ({
     adapter: null,
     stats: null,
     labelsError: null,
+    webglFallback: null,
 }));
 
 // The state on the document element too (`data-adacpp-renderer`, with the failure reason beside it), so
