@@ -51,13 +51,13 @@ flowchart LR
 | Per-object state | Two sets, selected and hidden, written to the renderer as segment state (`setSegmentStates`). Hidden wins over selected. |
 | Camera and input | The renderer's own camera (`setCameraControlled`). The viewport maps input from the viewport's input surface (`viewport/input.ts`, the same element the three.js controls use) to semantic operations: orbit, pan, zoom, zoom towards the cursor, fit to a box, look from a direction. Fit and the named views move there over a short time, and a drag glides to a stop when the camera settings say so. |
 | Picking | `WebRendererApi.pick` at the pointer, mapped through the reader's segment table to an object id. |
-| Object list | The objects that draw something, with their path of names from the reader's hierarchy; click selects, each row hides or shows. |
+| Tree and object info | The viewer's own Scene tree and object info. The viewport announces the model it loaded and what a click picked (`onModelLoaded`, `onViewportPick`); the panels' side (`sceneHelpers/viewportPanelBridge.ts`) builds the tree from the GLB's scene extras and names the picked object. A tree row and a viewport object are the same thing by `ObjectRef`: the model's key and the object's id in it. |
 | Failure | If WebGPU or the module cannot start, or the device is lost, the state becomes `failed` with the reason, `CanvasWrapper` mounts the three.js viewport, and the model that was handed over is loaded there. The Performance panel shows the reason. |
 
 What the main viewer does beyond this is listed in the viewport itself under "Not available in
-this mode", so nothing looks broken by omission: the section plane gizmo and filled cuts, FEA results and animation, labels
-and plugin overlays, measurements and gizmos, screenshots and export, overlaying several models,
-and the main viewer's tree, info and scene panels.
+this mode", so nothing looks broken by omission: the section plane gizmo and filled cuts, FEA
+results and animation, labels and plugin overlays, measurements and gizmos, screenshots and export,
+and overlaying several models.
 
 ### Keeping the chunk free of three.js
 
@@ -77,8 +77,8 @@ These are open design points, ordered by how much of the viewer depends on them.
 
 1. **The interface features program against.** A feature that reaches into `THREE.Scene` exists on
    one viewport only. `src/frontend/src/viewport/api` is the interface both stand behind:
-   `ViewportApi` (selection and visibility of the model's objects, fit, named views, reset, orbit and
-   pan by step), implemented by `threeViewport.ts` over the three.js scene and by
+   `ViewportApi` (the selection as object refs, visibility of the model's objects, the model's
+   box, fit, named views, reset, orbit and pan by step), implemented by `threeViewport.ts` over the three.js scene and by
    `native/nativeViewportApi.ts` over `NativeScene`. The viewport on screen registers itself
    (`setActiveViewport`); commands ask `activeViewport()`, and the keys are bound once for both in
    `viewportShortcuts.ts`. A viewport says what it cannot do yet (`unavailable(feature)`), and the
