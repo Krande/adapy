@@ -9,7 +9,12 @@ from types import SimpleNamespace
 
 import pytest
 
-from ada.assets.build import BuildProvenance, BuildSummary, NothingToBuild, parse_build_summary
+from ada.assets.build import (
+    BuildProvenance,
+    BuildSummary,
+    NothingToBuild,
+    parse_build_summary,
+)
 from ada.assets.builders import clear_asset_builders, register_asset_builder
 from ada.comms.rest.formats import asset_build
 
