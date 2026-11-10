@@ -2,6 +2,39 @@
 
 
 
+## v0.139.6 (2026-11-09)
+
+### Fix
+
+* fix(cli): document the exit-code contract and correct three exit codes (#521)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`d1743fa`](https://github.com/Krande/adapy/commit/d1743fa0165595f5624284dbe2d9cfda70eaed58))
+
+
+## v0.139.5 (2026-11-09)
+
+### Fix
+
+* fix(calculix): write three-node circular and flat-bar beams (#520)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`2c5c1b9`](https://github.com/Krande/adapy/commit/2c5c1b9bae0b3689e5ee5ad2e725a34b3800bc80))
+
+
+## v0.139.4 (2026-11-09)
+
+### Chore
+
+* chore: drop the tests-adacpp environment (#517)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`5954af1`](https://github.com/Krande/adapy/commit/5954af17a5421b940354b578195e93f6a0cda2db))
+
+### Fix
+
+* fix: resolve FE solver executables from Config first (#519)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`c4262bf`](https://github.com/Krande/adapy/commit/c4262bfe875f6f4a455a40f4e3768e495864532a))
+
+
 ## v0.139.3 (2026-11-09)
 
 ### Fix

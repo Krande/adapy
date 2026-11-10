@@ -39,13 +39,16 @@ a bare command with nothing to act on — a bare invocation prints that parser's
 because a wrong invocation must not look like success to a script. An explicit
 `--help` goes to stdout and exits `0`.
 
-`convert`, `view` and `results` also exit `2` for a usage error they raise
-themselves — an extension nothing can be inferred from, an output that names a
-directory, an input that is not there, two results on different meshes — printed as
-`ada <command>: error: <what was wrong>`. For those three, `1` means the
-invocation was fine and the work itself failed. The commands that talk to a
-hosted viewer (`files`, `audit`, `build`) predate this convention and
-return `1` for a request that failed or was declined.
+Every command uses the same exit codes:
+
+| Code | Meaning |
+|------|---------|
+| `0`  | Success. |
+| `1`  | The command line was fine, but the operation failed or was refused: an HTTP error, a declined request, an aborted prompt, a tool missing from the environment, an uncaught exception. |
+| `2`  | The command line was wrong: an argparse error, a bare invocation, or a missing or invalid argument, including a missing URL, token or scope. Printed as `ada <command>: error: <what was wrong>` where the command raises it itself. |
+| `3`  | `convert --strict` found an omission or a suspect finding. |
+
+To choose between `1` and `2`: if changing the command line would fix it, it is `2`.
 
 The command groups are `convert`, `view`, `results`, `build`, `files`, `audit`,
 `serve`, `desktop` and `viewers`. The first three run entirely locally; the rest of this page notes

@@ -173,7 +173,7 @@ B32R = "B32R"
 
 def beam_element_type(el_type, fem_sec: FemSection) -> str:
     """The CalculiX element a beam of this shape and section is written as: ``U1`` for a two-node beam, ``B32R`` for
-    a three-node beam of a box or pipe section; any other three-node beam is refused.
+    a three-node beam with a geometric outline (box, pipe, circle, flat bar); any other three-node beam is refused.
 
     Measured with ccx 2.23 (``CALCULIX_CODE_ASTER.md``):
 
@@ -192,7 +192,7 @@ def beam_element_type(el_type, fem_sec: FemSection) -> str:
 
     if el_type == shape_def.LineShapes.LINE:
         return U1
-    if fem_sec.section.type in (BaseTypes.BOX, BaseTypes.TUBULAR):
+    if fem_sec.section.type in (BaseTypes.BOX, BaseTypes.TUBULAR, BaseTypes.CIRCULAR, BaseTypes.FLATBAR):
         return B32R
     raise IncompatibleElements(
         f"calculix writer: a three-node beam of a {fem_sec.section.type} section ({fem_sec.elset.name}) has no "

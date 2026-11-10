@@ -28,6 +28,16 @@ class ConfigError(Exception):
     pass
 
 
+def _merged(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
+    """``base`` with ``override`` on top, table by table, so overriding one key keeps the rest of its table."""
+    out = dict(base)
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(out.get(key), dict):
+            value = _merged(out[key], value)
+        out[key] = value
+    return out
+
+
 def strtobool(val: str) -> int:
     """
     Convert a string representation of truth to 1 or 0.
@@ -339,14 +349,17 @@ class Config:
                 return f
 
     def reload_config(self):
-        self.config.update(self._get_environ_config())
-        self._trigger_update_config()
+        self._apply_sources()
 
     def update_config_globally(self, key: str, value: Any):
         """Updates an environment variable and triggers a config reload."""
         key_upper = f"{_env_prefix}{key.upper()}"
         os.environ[key_upper] = str(value)
-        self.config.update(self._get_environ_config())
+        self._apply_sources()
+
+    def _apply_sources(self) -> None:
+        """Rebuild from the file and the environment as they are now, so a variable that has gone stops applying."""
+        self.config = _merged(self._file_config, self._get_environ_config())
         self._trigger_update_config()
 
     def init(self, path: str) -> None:
@@ -358,14 +371,9 @@ class Config:
             The file chosen by `find_file`, or an empty string when there is none
         """
 
-        self.config: Dict[str, Any] = {}
-
         # only try to get config from config file if it exists.
-        if path:
-            self.config.update(self._read_config(path))
-
-        self.config.update(self._get_environ_config())
-        self._trigger_update_config()
+        self._file_config: Dict[str, Any] = self._read_config(path) if path else {}
+        self._apply_sources()
 
     def _trigger_update_config(self):
         def set_entry_attr(entry, section=""):
@@ -402,6 +410,11 @@ class Config:
                 value = self.config[entry.name]
 
             return entry.casted(value)
+
+        except (TypeError, ValueError) as e:
+            if entry.cast is dict:
+                raise ConfigError(f"{entry.env_var(section)}: expected a table, got {value!r}") from e
+            raise
 
         except KeyError:
             if entry.default is not None:
@@ -457,13 +470,15 @@ class Config:
                 return item
         return None
 
-    def _correct_environ_config_list_value(self, value: str) -> Union[str, List[str]]:
-        """Correct a value from environ that should be a list.
+    def _correct_environ_config_list_value(self, value: str, var: str = "") -> Union[str, List[str], Dict[str, Any]]:
+        """Correct a value from environ that should be a list or a table (JSON, single or double quoted).
 
         Parameters
         ----------
         value : str
             The env variable value to correct.
+        var : str
+            The variable's name, for the error when a table isn't valid JSON.
         Returns
         -------
         corrected_value : Union[str, List[str]]
@@ -472,7 +487,12 @@ class Config:
         """
         corrected_value = value
         if isinstance(value, str):
-            if "[" in value:
+            if value.lstrip().startswith("{"):
+                try:
+                    corrected_value = json.loads(value.replace("'", '"'))
+                except json.JSONDecodeError as e:
+                    raise ConfigError(f"{var}: not a valid JSON table: {e}") from e
+            elif "[" in value:
                 if "'" in value:
                     value = value.replace("'", '"')
                 corrected_value = json.loads(value)
@@ -497,7 +517,7 @@ class Config:
         # get QUETZ environment variables.
         quetz_var = {key: value for key, value in os.environ.items() if key.startswith(_env_prefix)}
         for var, value in quetz_var.items():
-            value = self._correct_environ_config_list_value(value)
+            value = self._correct_environ_config_list_value(value, var)
             splitted_key = var.split("_")
             config_key = splitted_key[1].lower()
             idx = 2

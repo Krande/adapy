@@ -5,14 +5,13 @@ version line; cheap enough to call per-build, but the verification
 report caches the result in `<doc>/.cache/software_versions.json` to
 keep cache-only docs builds offline.
 
-Executable path is resolved from `ADA_abaqus_exe` (the env-var
-convention used elsewhere in adapy). Returns None if unset — callers
-treat that as "abaqus not available".
+The executable comes from the shared lookup (`resolve_solver_exe`), which
+reads `[fea] fem_exe_paths.abaqus` first. None means callers treat abaqus
+as not available.
 """
 
 from __future__ import annotations
 
-import os
 import pathlib
 import re
 import subprocess
@@ -20,17 +19,13 @@ from typing import Optional
 
 
 def get_abaqus_exe() -> Optional[pathlib.Path]:
-    """Resolve the abaqus executable path from `ADA_abaqus_exe`.
+    """Where abaqus is, or None, which tells the consumer to skip the abaqus branch entirely.
 
-    Returns None when the env var isn't set — that's the signal the
-    consumer should skip the abaqus branch entirely. Returns a Path
-    even when the file doesn't exist on disk; callers that need
-    existence check can call `.exists()` themselves.
+    A path from `Config` comes back even when no file is there; callers that need that checked call `.exists()`.
     """
-    raw = os.getenv("ADA_abaqus_exe")
-    if raw is None:
-        return None
-    return pathlib.Path(raw)
+    from ada.fem.formats.utils import resolve_solver_exe
+
+    return resolve_solver_exe("abaqus")
 
 
 def get_abaqus_version(exe: Optional[pathlib.Path] = None) -> str:
@@ -42,7 +37,7 @@ def get_abaqus_version(exe: Optional[pathlib.Path] = None) -> str:
     """
     exe = exe or get_abaqus_exe()
     if exe is None:
-        raise FileNotFoundError("ADA_abaqus_exe is not set")
+        raise FileNotFoundError("abaqus was not found: set [fea] fem_exe_paths.abaqus in ada_config.toml")
     proc = subprocess.run(
         [exe.as_posix(), "information=release"],
         text=True,
