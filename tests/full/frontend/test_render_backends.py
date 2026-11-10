@@ -240,7 +240,7 @@ async def test_fea_field_and_warp_playback(ws_server, backend, fem_files):
             await browser.close()
 
 
-async def test_three_free_viewport_loads_picks_selects_and_hides(ws_server):
+async def test_three_free_viewport_draws_without_webgl(ws_server):
     async with async_playwright() as playwright:
         browser, page, _ = await _open_viewer(playwright, ws_server, NATIVE)
         try:
@@ -252,22 +252,50 @@ async def test_three_free_viewport_loads_picks_selects_and_hides(ws_server):
             assert (
                 await page.evaluate("window.__webglContexts") == 0
             ), "the three.js-free viewport created a WebGL context"
-            items = page.get_by_role("treeitem")
-            assert await items.count() == 2, "the object list names the deck and the box"
-
-            # pick + select: in the scene and in the list
             await _click(page, *CENTRE)
             assert _count(await _pixels(page), _is_selected) > 3000
-            assert await page.locator("[role=treeitem][aria-selected=true]").count() == 1
+        finally:
+            await browser.close()
 
-            # hide, then show all
-            await page.get_by_role("button", name="Hide selected").click()
-            await page.wait_for_timeout(700)
-            assert _count(await _pixels(page), _is_selected) < 50
-            hidden = _count(await _pixels(page), _is_model)
-            await page.get_by_role("button", name="Show all").click()
-            await page.wait_for_timeout(700)
-            assert _count(await _pixels(page), _is_model) > hidden, "Show all brought nothing back"
+
+@pytest.mark.parametrize("backend", ["three", NATIVE])
+async def test_scene_tree_and_object_info_follow_whichever_viewport_is_on_screen(ws_server, backend):
+    """The viewer's own Scene tree and object info, not a second set for the three.js-free viewport:
+    the tree lists the model, a click in 3D selects its row and names the object, and a click on a row
+    selects in 3D."""
+    async with async_playwright() as playwright:
+        browser, page, _ = await _open_viewer(playwright, ws_server, backend)
+        try:
+            await asyncio.to_thread(
+                lambda: _model().show(ws_port=ws_server.port, unique_viewer_id=1, liveness_timeout=10)
+            )
+            await _until(page, lambda: _model_on_screen(page), "the model to be drawn")
+            await _command(page, "Selection tree")
+            rows = page.get_by_role("treeitem")
+
+            async def listed():
+                return await rows.count() >= 1
+
+            await _until(page, listed, "the Scene tree to list the model")
+
+            # 3D -> tree and info: a click on the box selects its row
+            await _click(page, *CENTRE)
+            assert _count(await _pixels(page), _is_selected) > 3000, f"{backend}: the click selected nothing"
+
+            async def box_row_selected():
+                selected = page.locator("[role=treeitem][aria-selected=true]")
+                return await selected.count() == 1 and "box" in (await selected.first.inner_text())
+
+            await _until(page, box_row_selected, f"{backend}: the box's row to be selected in the tree")
+
+            # tree -> 3D: the deck's row selects the deck, which is larger on screen than the box
+            box_pixels = _count(await _pixels(page), _is_selected)
+            await rows.filter(has_text="deck").first.click()
+            await page.wait_for_timeout(1000)
+            deck_pixels = _count(await _pixels(page), _is_selected)
+            assert (
+                deck_pixels > 3000 and deck_pixels != box_pixels
+            ), f"{backend}: clicking the deck's row left {deck_pixels} selected pixels (box: {box_pixels})"
         finally:
             await browser.close()
 

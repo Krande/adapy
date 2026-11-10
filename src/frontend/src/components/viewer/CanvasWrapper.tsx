@@ -15,9 +15,12 @@ import {useAdacppRenderStatus} from "@/viewport/adacpp/adacppViewport";
 import {usePerfStore} from "@/state/perfStore";
 import {useViewerRefs} from "@/state/AdaViewerContext";
 import {useNativeViewport} from "@/viewport/native/nativeModel";
+import {installViewportPanelBridge} from "./sceneHelpers/viewportPanelBridge";
 
 // Its own chunk, which imports no three.js.
 const NativeViewport = React.lazy(() => import("@/viewport/native/NativeViewport"));
+// The panels listen for what a viewport without a three.js scene announces (its model, its clicks).
+installViewportPanelBridge();
 
 /** The native viewport failed after a model was handed to it: once the three.js viewport is up, load
  *  that model there, so the fallback shows the model and not an empty scene. */

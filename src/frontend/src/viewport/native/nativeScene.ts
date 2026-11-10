@@ -54,6 +54,14 @@ export class NativeScene {
     private readonly cleanups: (() => void)[] = [];
     /** Selection, visibility or the object list changed. */
     onChange: (() => void) | null = null;
+    /** A click picked an object (its id), or empty space (null); the selection is already updated. */
+    onPick: ((id: string | null) => void) | null = null;
+    /** The key the loaded model is known by outside the viewport. */
+    modelKey = "";
+    /** The loaded GLB's scene extras, as JSON text. */
+    sceneExtras = "";
+    /** A different object whenever the selection has changed. */
+    selectionVersion: object = {};
     /** The renderer stopped (device lost, a failed frame): the caller falls back. */
     onFailure: ((reason: string) => void) | null = null;
     /** Why it stopped, kept for a caller that attaches `onFailure` after the fact: a device can be lost
@@ -99,8 +107,11 @@ export class NativeScene {
         return new NativeScene(container, input, canvas, module, renderer, device);
     }
 
-    /** Replace the model with a GLB. Throws when it has nothing to draw. */
-    load(bytes: Uint8Array): void {
+    /** Replace the model with a GLB, known to the rest of the viewer as `modelKey`. Throws when it has
+     *  nothing to draw. */
+    load(bytes: Uint8Array, modelKey = ""): void {
+        this.modelKey = modelKey;
+        this.sceneExtras = "";
         this.renderer.clear();
         this.selected.clear();
         this.hidden.clear();
@@ -115,6 +126,7 @@ export class NativeScene {
         if (!loaded.geometries.length) throw new Error("the model has nothing to draw");
         const table = loaded.objects;
         this.table = table;
+        this.sceneExtras = loaded.extras;
         this.segments = new Map(loaded.geometries.map((g) => [g.instance, g.segmentObjects]));
         this.indexOfId = new Map(table.ids.map((id, i) => [id, i]));
         // The list is of what can be picked: the objects that draw something themselves.
@@ -141,6 +153,23 @@ export class NativeScene {
 
     isHidden(id: string): boolean {
         return this.hidden.has(id);
+    }
+
+    get selectedIds(): string[] {
+        return [...this.selected];
+    }
+
+    /** Make `ids` the selection; ids that draw nothing themselves are left out. */
+    setSelection(ids: readonly string[]): void {
+        const table = this.table;
+        this.selected.clear();
+        if (table) {
+            for (const id of ids) {
+                const i = this.indexOfId.get(id);
+                if (i !== undefined && table.segmentOffsets[i + 1] > table.segmentOffsets[i] && !this.hidden.has(id)) this.selected.add(id);
+            }
+        }
+        this.pushStates();
     }
 
     get selectionSize(): number {
@@ -284,6 +313,7 @@ export class NativeScene {
             }
         }
         this.invalidate();
+        this.selectionVersion = {};
         this.onChange?.();
     }
 
@@ -411,7 +441,10 @@ export class NativeScene {
             lastPinch = 0;
             if (t && t.id === e.pointerId) {
                 const additive = e.ctrlKey || e.metaKey || e.shiftKey;
-                void this.pick(e.clientX, e.clientY).then((id) => this.select(id, additive && !!id));
+                void this.pick(e.clientX, e.clientY).then((id) => {
+                    this.select(id, additive && !!id);
+                    this.onPick?.(id);
+                });
             }
         });
         on("pointercancel", (e) => {

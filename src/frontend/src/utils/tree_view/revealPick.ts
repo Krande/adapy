@@ -26,6 +26,7 @@ import {getSingletonViewerStores} from "@/state/AdaViewerContext";
 import {loaderFor} from "@/state/assetBrowserLoader";
 import {elementPath, modelRootOf, parseAssetSourceName} from "@/utils/export/selectionExport";
 import {buildTreeIndices, type TreeIndices} from "./treeGraph";
+import {selectedLeafNodes} from "./treeSelection";
 
 let cachedRoot: TreeNodeData | null = null;
 let cachedIndices: TreeIndices | null = null;
@@ -45,25 +46,15 @@ let generation = 0;
  *  did not follow while it was shut. Programmatic, so the tree does not select in 3D again. Returns
  *  how many rows it selected. */
 export function syncSceneTreeToSelection(): number {
-    const {useTreeViewStore, useSelectedObjectStore} = getSingletonViewerStores();
+    const {useTreeViewStore} = getSingletonViewerStores();
     const tv = useTreeViewStore.getState();
     if (!tv.treeData || !tv.tree) return 0;
     const tree: any = tv.tree;
     tree.isProgrammaticChange = true;
     try {
-        const ids: string[] = [];
-        let last: TreeNodeData | null = null;
-        for (const [m, ranges] of useSelectedObjectStore.getState().selectedObjects) {
-            const key: string | undefined = (m as any).unique_key ?? (m.userData ? m.userData["unique_hash"] : undefined);
-            if (!key) continue;
-            for (const rid of ranges) {
-                const node = tv.findNodeByRangeId(key, rid);
-                if (node) {
-                    ids.push(node.id);
-                    last = node;
-                }
-            }
-        }
+        const nodes = selectedLeafNodes();
+        const ids = nodes.map((n) => n.id);
+        const last: TreeNodeData | null = nodes.length ? nodes[nodes.length - 1] : null;
         if (!ids.length) return 0;
         tree.setSelection({ids, mostRecent: last, anchor: last});
         if (last) tree.scrollTo({id: last.id});
@@ -75,7 +66,7 @@ export function syncSceneTreeToSelection(): number {
 
 /** Select the picked ranges' rows in the Scene tree and scroll to the picked one. */
 function syncSceneTree(modelKey: string, rangeId: string): TreeNodeData | null {
-    const {useTreeViewStore, useSelectedObjectStore} = getSingletonViewerStores();
+    const {useTreeViewStore} = getSingletonViewerStores();
     const tv = useTreeViewStore.getState();
     const lastNode = tv.findNodeByRangeId(modelKey, rangeId);
     if (!tv.treeData || !tv.tree) return lastNode;
@@ -83,17 +74,9 @@ function syncSceneTree(modelKey: string, rangeId: string): TreeNodeData | null {
     // Flagged so the tree's onSelect does not treat this as a user click and re-select in 3D.
     tree.isProgrammaticChange = true;
     try {
-        const ids: string[] = [];
-        for (const [m, ranges] of useSelectedObjectStore.getState().selectedObjects) {
-            const key: string | undefined = (m as any).unique_key ?? (m.userData ? m.userData["unique_hash"] : undefined);
-            if (!key) continue;
-            for (const rid of ranges) {
-                // By (model key, range id) -- the unique node id -- never by display name, which
-                // repeats thousands of times in real CAD models.
-                const node = tv.findNodeByRangeId(key, rid);
-                if (node) ids.push(node.id);
-            }
-        }
+        // By (model key, object id) -- never by display name, which repeats thousands of times in
+        // real CAD models -- from the viewport on screen.
+        const ids = selectedLeafNodes().map((n) => n.id);
         tree.setSelection({ids, mostRecent: lastNode, anchor: lastNode});
         if (lastNode) tree.scrollTo({id: lastNode.id});
     } finally {

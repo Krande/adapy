@@ -8,7 +8,7 @@ import {ensureViewportInput} from "@/viewport/input";
 import {installShortcutDispatcher} from "@/layout/shortcutDispatch";
 import {bindCoreShortcuts} from "@/layout/shortcuts";
 import {useSectionStore} from "@/state/sectionStore";
-import {setActiveViewport} from "@/viewport/api/viewportApi";
+import {notifyModelLoaded, notifyViewportPick, setActiveViewport} from "@/viewport/api/viewportApi";
 import {viewportShortcutHandlers} from "@/viewport/api/viewportShortcuts";
 import {NativeScene} from "./nativeScene";
 import {createNativeViewportApi} from "./nativeViewportApi";
@@ -16,7 +16,7 @@ import {useNativeViewport} from "./nativeModel";
 
 const UNAVAILABLE = [
     "section plane gizmo and filled cuts", "FEA results and animation", "labels, markers and plugin overlays", "measurements and gizmos",
-    "screenshots and export", "overlaying several models", "the tree, info and scene panels of the main viewer",
+    "screenshots and export", "overlaying several models",
 ];
 
 const NativeViewport: React.FC = () => {
@@ -38,6 +38,7 @@ const NativeViewport: React.FC = () => {
             if (cancelled) return scene.dispose();
             scene.onChange = () => setVersion((v) => v + 1);
             scene.onFailure = fail;
+            scene.onPick = (id) => notifyViewportPick({ref: id ? {model: scene.modelKey, id} : null});
             sceneRef.current = scene;
             if (scene.failure) return fail(scene.failure);
             const withdraw = setActiveViewport(createNativeViewportApi(scene));
@@ -71,8 +72,11 @@ const NativeViewport: React.FC = () => {
         const scene = sceneRef.current;
         if (!scene || !model || state !== "active") return;
         try {
-            scene.load(model.bytes);
+            const key = `native-${model.seq}`;
+            scene.load(model.bytes, key);
             setLoadError("");
+            // The Scene tree and the object info list and name this model from here on.
+            notifyModelLoaded({model: key, sourceName: model.sourceName, sceneExtras: scene.sceneExtras});
         } catch (err) {
             setLoadError(err instanceof Error ? err.message : String(err));
         }
@@ -88,25 +92,6 @@ const NativeViewport: React.FC = () => {
                 {loadError && <div className="text-amber-300">{loadError}</div>}
                 {model && <div className="text-gray-400 truncate" title={model.sourceName}>{model.sourceName || "model"} · {objects.length} objects</div>}
                 {!model && state === "active" && <div className="text-gray-400">No model loaded.</div>}
-                <div className="flex space-x-1">
-                    <button className="bg-blue-700 hover:bg-blue-600 rounded-sm px-2 py-1 disabled:opacity-40" disabled={!scene?.selectionSize} onClick={() => scene?.hideSelected()}>Hide selected</button>
-                    <button className="bg-blue-700 hover:bg-blue-600 rounded-sm px-2 py-1" onClick={() => scene?.showAll()}>Show all</button>
-                    <button className="bg-blue-700 hover:bg-blue-600 rounded-sm px-2 py-1" onClick={() => scene?.fit()}>Fit</button>
-                </div>
-                <div className="overflow-auto min-h-0" role="tree" aria-label="Objects">
-                    {objects.map((o) => (
-                        <div key={o.id} role="treeitem" aria-selected={scene?.isSelected(o.id)}
-                            className={`flex items-center justify-between px-1 cursor-pointer ${scene?.isSelected(o.id) ? "bg-blue-700" : "hover:bg-gray-700"} ${scene?.isHidden(o.id) ? "opacity-50" : ""}`}
-                            title={o.path.join(" / ")}
-                            onClick={(e) => scene?.select(o.id, e.ctrlKey || e.metaKey || e.shiftKey)}>
-                            <span className="truncate">{o.path[o.path.length - 1]}</span>
-                            <button className="ml-1 text-gray-300 hover:text-white" aria-label={scene?.isHidden(o.id) ? "Show" : "Hide"}
-                                onClick={(e) => { e.stopPropagation(); scene?.setHidden(o.id, !scene.isHidden(o.id)); }}>
-                                {scene?.isHidden(o.id) ? "show" : "hide"}
-                            </button>
-                        </div>
-                    ))}
-                </div>
                 <details>
                     <summary className="cursor-pointer text-gray-400">Not available in this mode</summary>
                     <ul className="list-disc pl-4 text-gray-400">{UNAVAILABLE.map((u) => <li key={u}>{u}</li>)}</ul>

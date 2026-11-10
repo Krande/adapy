@@ -13,6 +13,14 @@ export type ViewportKind = "three" | "native";
 /** Things one viewport can do and another cannot yet. A caller asks before offering it. */
 export type ViewportFeature = "fit-selection";
 
+/** One object of a loaded model: the model's key and the object's id in it (the GLB's own id for it,
+ *  which a Scene tree row carries as `model_key` and `rangeId`). The identity panels use; neither
+ *  viewport's own representation of the object appears outside it. */
+export interface ObjectRef {
+    model: string;
+    id: string;
+}
+
 export interface ViewportApi {
     readonly kind: ViewportKind;
     /** Why this viewport cannot do `feature`, in words for the user; null when it can. */
@@ -20,6 +28,13 @@ export interface ViewportApi {
 
     // Selection and visibility, of the model's objects.
     selectionCount(): number;
+    /** The selected objects. */
+    selection(): ObjectRef[];
+    /** A value that is a different one whenever the selection has changed. */
+    selectionToken(): unknown;
+    /** Make `refs` the selection (one undo step where the viewport has undo). Objects that are not
+     *  drawn (a level of the hierarchy, an unknown id) are left out. */
+    setSelection(refs: readonly ObjectRef[]): void | Promise<void>;
     clearSelection(): void;
     hideSelected(): void;
     /** Hide everything that is not selected. */
@@ -67,3 +82,36 @@ export function onActiveViewportChange(listener: () => void): () => void {
 }
 
 export const NO_VIEWPORT = "No 3D view";
+
+/** A model a viewport loaded without building a three.js scene for it: what the panels need to list it. */
+export interface LoadedModelInfo {
+    model: string;
+    sourceName: string;
+    /** The GLB scene's extras, as JSON text ("" when it has none). */
+    sceneExtras: string;
+}
+
+/** A click in a viewport: the object under it, or null for empty space. */
+export interface ViewportPick {
+    ref: ObjectRef | null;
+}
+
+function channel<T>(): {on: (listener: (value: T) => void) => () => void; emit: (value: T) => void} {
+    const subscribers = new Set<(value: T) => void>();
+    return {
+        on: (listener) => {
+            subscribers.add(listener);
+            return () => void subscribers.delete(listener);
+        },
+        emit: (value) => subscribers.forEach((l) => l(value)),
+    };
+}
+
+const modelLoaded = channel<LoadedModelInfo>();
+const picked = channel<ViewportPick>();
+/** A viewport replaced what it shows with this model. The panels' side listens (the Scene tree). */
+export const onModelLoaded = modelLoaded.on;
+export const notifyModelLoaded = modelLoaded.emit;
+/** A viewport's click picked an object (or nothing), after it updated its selection. */
+export const onViewportPick = picked.on;
+export const notifyViewportPick = picked.emit;
