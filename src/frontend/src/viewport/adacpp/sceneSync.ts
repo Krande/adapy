@@ -201,7 +201,10 @@ export class SceneSync {
 
         scene.traverseVisible((obj) => {
             if (!camera.layers.test(obj.layers)) return;
-            if (obj.parent instanceof CustomBatchedMesh && obj.parent.isHighlightOverlay(obj)) return;
+            if (obj.parent instanceof CustomBatchedMesh && obj.parent.isHighlightOverlay(obj)) {
+                this.syncFaceHighlight(obj.parent, obj);
+                return;
+            }
             const o = obj as unknown as Record<string, boolean>;
             // Sprites, and what asks to be drawn over the model (a plugin's lines `throughModel`), go to
             // the three.js pass over the WebGPU image.
@@ -265,6 +268,82 @@ export class SceneSync {
             this.byInstance.delete(id);
         }
         this.r.removeGeometry(e.geometry);
+    }
+
+    /** The highlighted face of a model mesh (Faces picking). three.js draws it with an overlay that shares
+     *  the whole model's buffers and shows one index range; mirroring that would upload the model again on
+     *  every click, so only the face's own triangles are uploaded, as a small geometry of their own. */
+    private syncFaceHighlight(mesh: CustomBatchedMesh, obj: THREE.Object3D): void {
+        const face = mesh.faceHighlightRange();
+        if (!face || face.overlay !== obj) return;
+        const geometry = face.overlay.geometry;
+        const position = geometry.attributes.position;
+        if (!position) return;
+        const index = geometry.index;
+        const morphAttr = geometry.morphAttributes.position?.[0];
+        const signature = `face:${geometry.uuid}:${bufferId(position)}:${attrVersion(position)}:${bufferId(index)}:` +
+            `${face.start}:${face.count}:${bufferId(morphAttr)}:${attrVersion(morphAttr)}`;
+        let e = this.entries.get(obj.uuid);
+        if (e && e.signature !== signature) {
+            this.drop(e);
+            this.entries.delete(obj.uuid);
+            e = undefined;
+        }
+        if (!e) {
+            // Only the vertices the face uses, renumbered from 0.
+            const local = new Map<number, number>();
+            const indices = new Uint32Array(face.count);
+            const positions: number[] = [];
+            const morph: number[] = [];
+            for (let i = 0; i < face.count; i++) {
+                const v = index ? index.getX(face.start + i) : face.start + i;
+                let k = local.get(v);
+                if (k === undefined) {
+                    k = local.size;
+                    local.set(v, k);
+                    positions.push(position.getX(v), position.getY(v), position.getZ(v));
+                    if (morphAttr) morph.push(morphAttr.getX(v), morphAttr.getY(v), morphAttr.getZ(v));
+                }
+                indices[i] = k;
+            }
+            const M = this.module;
+            const pPos = M._malloc(positions.length * 4), pIdx = M._malloc(indices.byteLength);
+            const pMorph = morph.length ? M._malloc(morph.length * 4) : 0;
+            M.HEAPF32.set(positions, pPos >> 2);
+            M.HEAPU32.set(indices, pIdx >> 2);
+            if (pMorph) M.HEAPF32.set(morph, pMorph >> 2);
+            let geom: number;
+            try {
+                geom = this.r.addGeometry(Topology.Triangles, pPos, local.size, 0, 0, pMorph, pIdx, indices.length, 0, 0, 0);
+            } finally {
+                M._free(pPos);
+                M._free(pIdx);
+                if (pMorph) M._free(pMorph);
+            }
+            e = {
+                obj, signature, geometry: geom, instances: [this.r.addInstance(geom)], topology: Topology.Triangles,
+                segmentKind: "none", segmentIds: null, segmentRangeIdx: null, stateVersion: -1, seen: 0,
+                colorAttr: undefined, colorVersion: -1, morphAttr, morphVersion: attrVersion(morphAttr),
+            };
+            this.entries.set(obj.uuid, e);
+            this.byInstance.set(e.instances[0], e);
+        }
+        e.seen = this.frame;
+        const mats = face.overlay.material;
+        const mat = (Array.isArray(mats) ? mats[0] : mats) as AnyMaterial;
+        const color = materialColor(mat, 0xffffff);
+        // In front of the surface it lies on, from either side, and never what a click lands on.
+        let flags = InstanceFlag.DoubleSided | InstanceFlag.DepthOffset | InstanceFlag.NoPick;
+        if (geometry.morphTargetsRelative) flags |= InstanceFlag.MorphRelative;
+        const planes = (baseMaterial(mesh)?.clippingPlanes ?? mat.clippingPlanes) as THREE.Plane[] | null | undefined;
+        if (planes?.length) {
+            flags |= InstanceFlag.Clipped;
+            for (const p of planes) this.framePlanes.add(p);
+        }
+        this.module.HEAPF32.set(obj.matrixWorld.elements, this.matrixPtr >> 2);
+        // Matte, as three.js lights the selection material.
+        this.r.setInstance(e.instances[0], this.matrixPtr, color.r, color.g, color.b, 1, flags,
+            face.overlay.morphTargetInfluences?.[0] ?? 0, 0, 1, true, 1, 0, 0);
     }
 
     private syncObject(obj: THREE.Object3D): void {

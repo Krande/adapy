@@ -300,3 +300,29 @@ test("section planes, polygonOffset overlays and sprites reach the renderer", ()
     sync.sync(scene, camera);
     assert.deepEqual(rec.clipPlanes, [[1, 0, 0, 0.25]]);
 });
+
+test("a highlighted face is uploaded as its own triangles, not as a second copy of the model", () => {
+    const {module, renderer, rec} = fakeModule();
+    const mesh = batched(); // 12 vertices, 4 triangles
+    const {scene, camera} = cameraAndScene(mesh);
+    const sync = new SceneSync(module, renderer);
+    sync.sync(scene, camera);
+    assert.equal(rec.geometries.size, 1);
+
+    mesh.highlightFaceRange(6, 3); // the third triangle
+    sync.sync(scene, camera);
+    const face = [...rec.geometries.entries()].find(([, g]) => g.vertexCount === 3);
+    assert.ok(face, "the face's three vertices, not the model's twelve");
+    const flags = rec.flags.get(face[0])!;
+    assert.ok(flags & InstanceFlag.DepthOffset, "in front of the surface it lies on");
+    assert.ok(flags & InstanceFlag.NoPick, "a click goes to the model, not to the highlight");
+
+    mesh.highlightFaceRange(0, 6); // another face: the old one goes, the new one has two triangles
+    sync.sync(scene, camera);
+    assert.ok(rec.removed.includes(face[0]));
+    assert.ok([...rec.geometries.values()].some((g) => g.vertexCount === 6));
+
+    mesh.clearFaceHighlight();
+    sync.sync(scene, camera);
+    assert.equal(rec.removed.length, 2, "cleared: nothing of the highlight stays in the renderer");
+});
