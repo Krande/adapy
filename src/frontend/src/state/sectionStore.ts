@@ -3,6 +3,7 @@ import {create} from "zustand";
 
 import type {ViewerActionKind} from "./viewerHistoryStore";
 import {activeViewport} from "@/viewport/api/viewportApi";
+import {recordViewerAction} from "@/utils/scene/viewerHistory";
 
 // A single section / clipping plane. The three.js plane equation is
 // normal·x + constant = 0; geometry on the +normal side is kept.
@@ -28,17 +29,9 @@ export const sectionPlaneSlices: {get: () => unknown; set: (value: unknown) => v
     {get: () => useSectionStore.getState().activeId, set: (v) => useSectionStore.setState({activeId: v as string | null})},
 ];
 
-/** Runs a change to the planes as one undo step. The viewer's history installs itself here when it
- *  loads (utils/scene/viewerHistory); with none installed the change is simply made. */
-export type SectionRecorder = (kind: ViewerActionKind, change: () => void, coalesce?: string) => void;
-let recorder: SectionRecorder | null = null;
-export function setSectionRecorder(next: SectionRecorder | null): void {
-    recorder = next;
-}
-const recorded = (kind: ViewerActionKind, fn: () => void, coalesce?: string): void => {
-    if (recorder) recorder(kind, fn, coalesce);
-    else fn();
-};
+/** Runs a change to the planes as one undo step. */
+const recorded = (kind: ViewerActionKind, fn: () => void, coalesce?: string): void =>
+    recordViewerAction(kind, fn, {slices: sectionPlaneSlices, coalesce});
 
 let _seq = 0;
 const nextId = () => `sp_${++_seq}`;

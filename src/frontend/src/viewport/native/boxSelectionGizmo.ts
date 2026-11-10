@@ -246,10 +246,7 @@ export function bindBoxSelectionGizmo(scene: NativeScene): () => void {
         untilRelease(e.pointerId, (up) => {
             if (!el) {
                 if (up.type !== "pointerup") return;
-                void scene.pick(up.clientX, up.clientY).then((id) => {
-                    scene.select(id, !!id);
-                    scene.onPick?.(id);
-                });
+                void scene.pick(up.clientX, up.clientY).then((id) => scene.pickSelect(id, true));
                 return;
             }
             el.remove();

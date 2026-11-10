@@ -185,6 +185,10 @@ function boundsViewport(objects: Record<string, number[]>) {
     const set = (keys: string[]): ObjectSet => new KeySet(keys.map((id) => objectKey("m", id)));
     const api = {
         kind: "native",
+        // Nothing here is undone: the history is told that no action changes anything.
+        captureState: () => ({selected: 0}),
+        stateChange: () => ({selection: false, visibility: false, hidden: 0, shown: 0, after: () => ({selected: 0})}),
+        restoreState: () => {},
         objectsInBox: (box: Aabb, mode: BoxSelectMode) => set(ids.filter((_, i) => (mode === "full" ? containedAt : overlapsAt)(b, i, box))),
         objectsInScreenRect: (rect: NdcRect, mode: ScreenBoxMode) => set(ids.filter((_, i) => rectTakesBounds(b, i * 6, camera(), rect, mode))),
         selectionBounds: (): Aabb | null => {

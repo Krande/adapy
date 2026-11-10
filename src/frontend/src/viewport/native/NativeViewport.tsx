@@ -17,6 +17,7 @@ import {NativeScene, splitObjectKey} from "./nativeScene";
 import {bindSectionGizmo} from "./sectionGizmo";
 import {bindBoxSelectionGizmo} from "./boxSelectionGizmo";
 import {createNativeViewportApi} from "./nativeViewportApi";
+import {bindNativeHistory} from "./nativeViewportHistory";
 import {useNativeViewport} from "./nativeModel";
 
 /** "#rrggbb" (sRGB) as linear rgb, which the renderer takes; null when it is not that. */
@@ -77,7 +78,10 @@ const NativeViewport: React.FC = () => {
             const unbindGizmo = bindSectionGizmo(scene);
             // Selection boxes: the same store the three.js viewport's controller draws.
             const unbindBoxes = bindBoxSelectionGizmo(scene);
+            // Undo and Redo: their keys, and a history that never outlives the scene it names.
+            const unbindHistory = bindNativeHistory(scene);
             release = () => {
+                unbindHistory();
                 unbindBoxes();
                 unbindGizmo();
                 uncut();

@@ -9,6 +9,8 @@ import { createViewerRuntime, mountViewerRuntime } from "@/state/viewerRuntime";
 import { CustomBatchedMesh } from "@/utils/mesh_select/CustomBatchedMesh";
 import { invertSelection, selectAllRanges } from "@/utils/scene/selectionCommands";
 import { undoViewerAction } from "@/utils/scene/viewerHistory";
+import { createThreeViewport } from "@/viewport/api/threeViewport";
+import { setActiveViewport } from "@/viewport/api/viewportApi";
 
 // Select all / invert against a real (headless) scene: hidden ranges and switched-off models are
 // left out, a wrapper-keyed selection is inverted as its meshes', and each is one undo entry.
@@ -25,6 +27,8 @@ function mesh(ids: string[]): CustomBatchedMesh {
 
 const runtime = createViewerRuntime();
 mountViewerRuntime(runtime);
+// The history asks the viewport on screen what is selected and hidden: the three.js one, over this scene.
+setActiveViewport(createThreeViewport({} as never));
 let a: CustomBatchedMesh;
 let b: CustomBatchedMesh;
 let off: CustomBatchedMesh;

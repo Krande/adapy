@@ -2,7 +2,7 @@ import {create} from "zustand";
 
 import type {Aabb, BoxSelectMode, Vec3} from "@/utils/bboxSelection/boxMath";
 import {highestBoxNumber} from "@/utils/bboxSelection/boxStorage";
-import type {StateSlice} from "@/utils/scene/viewerHistory";
+import {recordViewerAction, type StateSlice} from "@/utils/scene/viewerHistory";
 import type {ViewerActionKind} from "@/state/viewerHistoryStore";
 
 // Selection boxes: world-space boxes that select the elements they touch or contain.
@@ -61,17 +61,9 @@ export const boxSlices: StateSlice[] = [
     {get: () => useBBoxSelectionStore.getState().activeId, set: (v) => useBBoxSelectionStore.setState({activeId: v as string | null})},
 ];
 
-/** Runs a change to the boxes as one undo step. The viewer's history installs itself here when it
- *  loads (utils/scene/viewerHistory), as it does for the section planes; with none installed (the
- *  three.js-free viewport, which has no history yet) the change is simply made. */
-export type BoxRecorder = <T>(kind: ViewerActionKind, change: () => T, coalesce?: string) => T;
-let recorder: BoxRecorder | null = null;
-export function setBoxRecorder(next: BoxRecorder | null): void {
-    recorder = next;
-}
 /** Run `fn` as one undo step that may change the boxes (and the selection). */
 export const recordBoxAction = <T>(kind: ViewerActionKind, fn: () => T, coalesce?: string): T =>
-    recorder ? recorder(kind, fn, coalesce) : fn();
+    recordViewerAction(kind, fn, {slices: boxSlices, coalesce});
 const recorded = recordBoxAction;
 
 export const useBBoxSelectionStore = create<BBoxSelectionState>()((set, get) => ({

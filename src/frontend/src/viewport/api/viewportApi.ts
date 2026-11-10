@@ -10,6 +10,7 @@ import type {ViewportResults} from "./resultLayer";
 import {type CameraView} from "@/layout/coreCommandIds";
 import type {BillboardLayer, Point3} from "./billboards";
 import type {ViewportBoxSelection} from "./boxSelection";
+import type {ViewportUndoState} from "./viewportState";
 
 export type ViewportKind = "three" | "native";
 
@@ -79,6 +80,12 @@ export interface ViewportApi {
     /** Show `refs` and hide everything else. */
     isolate(refs: readonly ObjectRef[]): void;
     objectVisibility(): ObjectVisibilityReader;
+    // Undo: the selection and what is hidden as a state the history captures before an action and
+    // puts back on undo and redo (./viewportState.ts). Each of the calls above that changes either is
+    // one undo step.
+    captureState: ViewportUndoState["captureState"];
+    stateChange: ViewportUndoState["stateChange"];
+    restoreState: ViewportUndoState["restoreState"];
 
     /** The loaded model's box (min xyz, max xyz), or null with nothing loaded. */
     modelBounds(): [number, number, number, number, number, number] | null;

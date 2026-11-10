@@ -21,7 +21,8 @@
 import {useFeaIsolationStore, type FeaIsolation} from "@/state/feaIsolationStore";
 import {requestRender} from "@/state/perfStore";
 import {getViewerRuntime} from "@/state/viewerRuntime";
-import {batchedUnder, recordViewerAction, type StateSlice} from "@/utils/scene/viewerHistory";
+import {batchedUnder} from "@/utils/scene/threeViewportState";
+import {recordViewerAction, type StateSlice} from "@/utils/scene/viewerHistory";
 
 import {applyFeaGroupVisibility, applyFeaIsolationOverlays, clearFeaGroupVisibility} from "./groupVisibility";
 import {feaIsolationMembers} from "./feaTree";

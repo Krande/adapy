@@ -15,11 +15,15 @@ import {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
 import {bindModelHistory, type ModelHistoryDeps} from "@/utils/scene/modelHistory";
 import type {RecordedModel} from "@/utils/scene/sceneRecord";
 import {recordViewerAction, redoViewerAction, undoViewerAction} from "@/utils/scene/viewerHistory";
+import {createThreeViewport} from "@/viewport/api/threeViewport";
+import {setActiveViewport} from "@/viewport/api/viewportApi";
 import {hideSelectedRanges} from "@/utils/scene/visibility";
 
 const IDS = ["e0", "e1", "e2", "e3"];
 const runtime = createViewerRuntime();
 mountViewerRuntime(runtime);
+// The history asks the viewport on screen what is selected and hidden: the three.js one, over this scene.
+setActiveViewport(createThreeViewport({} as never));
 let scene: THREE.Scene;
 
 function mesh(ids: string[]): CustomBatchedMesh {

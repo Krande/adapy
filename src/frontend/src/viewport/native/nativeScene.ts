@@ -457,6 +457,43 @@ export class NativeScene {
         return this.selected.size;
     }
 
+    // Undo: the two sets as the history reads them and puts them back (./nativeViewportHistory.ts).
+
+    /** The selected keys and the hidden keys themselves, to read only: a caller that keeps either
+     *  copies it. */
+    get selectedKeys(): ReadonlySet<string> {
+        return this.selected;
+    }
+
+    get hiddenKeys(): ReadonlySet<string> {
+        return this.hidden;
+    }
+
+    /** Go back to a state: show `show`, hide `hide`, and make `selected` the selection (null leaves
+     *  it). Keys of objects that are no longer on screen are left out. */
+    restoreSets(selected: ReadonlySet<string> | null, hide: readonly string[], show: readonly string[]): void {
+        for (const key of show) this.hidden.delete(key);
+        for (const key of hide) if (this.where.has(key)) this.hidden.add(key);
+        if (selected) {
+            this.selected.clear();
+            for (const key of selected) if (this.where.has(key)) this.selected.add(key);
+        }
+        this.pushStates();
+    }
+
+    /** Runs a click's change of the selection when set, so the viewport can make it one undo step.
+     *  `picked` is false for a click on empty space. */
+    pickStep: ((picked: boolean, change: () => void) => void) | null = null;
+
+    /** What a click does: `id` (the object under it, null for empty space) becomes the selection, or
+     *  with `additive` joins or leaves it; then the click is announced (`onPick`). */
+    pickSelect(id: string | null, additive: boolean): void {
+        const change = () => this.select(id, additive && !!id);
+        if (this.pickStep) this.pickStep(!!id, change);
+        else change();
+        this.onPick?.(id);
+    }
+
     /** Draw line segments (xyz per point, two points per segment) over the model, in one linear colour:
      *  a helper, never picked. Returns the handle for `removeLines`. */
     addLines(points: Float32Array, color: readonly [number, number, number], widthPx: number): number {
@@ -885,10 +922,7 @@ export class NativeScene {
             lastPinch = 0;
             if (t && t.id === e.pointerId) {
                 const additive = e.ctrlKey || e.metaKey || e.shiftKey;
-                void this.pick(e.clientX, e.clientY).then((id) => {
-                    this.select(id, additive && !!id);
-                    this.onPick?.(id);
-                });
+                void this.pick(e.clientX, e.clientY).then((id) => this.pickSelect(id, additive));
             }
         });
         on("pointercancel", (e) => {

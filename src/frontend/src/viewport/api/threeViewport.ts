@@ -18,6 +18,7 @@ import {batchedMeshOf, isBatched} from "@/utils/scene/meshLookup";
 import {matrixProjector} from "@/utils/scene/fea/labelPlacement";
 import {createThreeResultMesh} from "@/utils/scene/fea/threeResultLayer";
 import {recordViewerAction} from "@/utils/scene/viewerHistory";
+import {captureThreeState, restoreThreeState, threeStateChange} from "@/utils/scene/threeViewportState";
 import {RangeSet, rangesInCameraRect, rangesInWorldBox, threeSelectionBounds} from "@/utils/bboxSelection/threeBoxSelection";
 import {rangesCentroidWorld} from "@/utils/viewer/pipeTrace";
 import type {BillboardLayer} from "./billboards";
@@ -196,6 +197,11 @@ export function createThreeViewport(h: ThreeViewportHandles): ViewportApi {
             requestRender();
         },
         objectVisibility: threeVisibilityReader,
+        // Undo: the hidden ranges per mesh and the selection store, as the history noted them itself
+        // before it asked the viewport (utils/scene/threeViewportState.ts).
+        captureState: captureThreeState,
+        stateChange: threeStateChange,
+        restoreState: restoreThreeState,
         unloadSource: () => false,
         saveScreenshot: () => void import("@/utils/takeScreenshot").then((m) => m.takeScreenshot()),
         modelBounds: () => {

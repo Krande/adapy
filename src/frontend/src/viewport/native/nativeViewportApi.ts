@@ -8,6 +8,7 @@ import type {BillboardLayer} from "@/viewport/api/billboards";
 import {createNativeBillboardLayer} from "./nativeBillboards";
 import {KeySet, nativeObjectsInBox, nativeObjectsInScreenRect, nativeSelectionBounds} from "./nativeBoxSelection";
 import {objectKey, splitObjectKey, type NativeScene} from "./nativeScene";
+import {withNativeHistory} from "./nativeViewportHistory";
 
 /** One key press orbits by this much, and pans by this fraction of the view: as on the three.js viewport. */
 const ORBIT_STEP_RAD = (15 * Math.PI) / 180;
@@ -21,7 +22,8 @@ export function createNativeViewportApi(scene: NativeScene): ViewportApi {
     const layers = new Map<string, BillboardLayer>();
     // The scene knows an object by one key made of its model and its id.
     const own = (refs: Iterable<ObjectRef>): string[] => Array.from(refs, (r) => objectKey(r.model, r.id));
-    return {
+    // Each call that changes the selection or what is hidden is one undo step (./nativeViewportHistory.ts).
+    return withNativeHistory(scene, {
         kind: "native",
         unavailable: (feature) =>
             feature === "box-request" ? "Requesting what a box holds from a source needs the three.js viewport" : null,
@@ -87,5 +89,5 @@ export function createNativeViewportApi(scene: NativeScene): ViewportApi {
             scene.onFrame.add(listener);
             return () => void scene.onFrame.delete(listener);
         },
-    };
+    });
 }

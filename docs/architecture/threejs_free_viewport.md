@@ -130,7 +130,7 @@ flowchart LR
 
 | Part | Where | What it is |
 |---|---|---|
-| The boxes | `state/bboxSelectionStore.ts` | Bounds, mode ("partially within", "fully within"), colour, opacity, visibility, and which box is the active one. No three.js: the undo history installs itself as the store's recorder when it loads, as it does for the section planes. |
+| The boxes | `state/bboxSelectionStore.ts` | Bounds, mode ("partially within", "fully within"), colour, opacity, visibility, and which box is the active one. No three.js. A change to the boxes records itself as an undo step, as a change to the section planes does. |
 | The rules | `utils/bboxSelection/boxMath.ts`, `screenRect.ts`, `boxHandles.ts` | A box against a box or a triangle; a rectangle on the screen against a box's picture (a window takes what is wholly inside, a crossing what touches); a box's edges, faces and handles, and the pointer's place along a handle's axis. Plain numbers, unit-tested. |
 | What a viewport answers | `viewport/api/boxSelection.ts` | `objectsInBox(box, mode)`, `objectsInScreenRect(rect, mode)` and `selectionBounds()`, all members of `ViewportApi`. The first two return an `ObjectSet`: iterable as object refs (one ref reused), and taken back by the same viewport's `setSelection` without a lookup per object. Hidden objects and ones a section plane cuts away whole are never in an answer. |
 | Applying | `utils/bboxSelection/applyBoxSelection.ts` | A box around the selection, the selection a box makes, the selection a screen rectangle adds, and "the active box's selection follows its bounds and mode". Used by the commands (`Box around selection`, `Selection box takes only what is fully within`, `Reselect with selection box`, `Remove selection boxes`), the Scene panel, the tree's menu and both viewports' controllers. |
@@ -152,9 +152,38 @@ JavaScript side:
   of the object and everything below it, so such an object is judged by the larger box.
 
 Not on the three.js-free viewport yet: "Request from source" in a box's menu (what it loads comes
-through the three.js scene's loaders; the menu says so), keeping the boxes across reloads (the
-storage binding reads the model's recentring offset from the three.js model state), and undo, which
-that viewport does not have for anything.
+through the three.js scene's loaders; the menu says so), and keeping the boxes across reloads (the
+storage binding reads the model's recentring offset from the three.js model state).
+
+## Undo and redo on both viewports
+
+One history (`state/viewerHistoryStore.ts`), filled by `recordViewerAction` in
+`utils/scene/viewerHistory.ts`, which imports no three.js. What is selected and what is hidden is
+the viewport's own, so the history asks the viewport on screen:
+
+```mermaid
+flowchart LR
+    ACT["an action<br/>(command, key, click, drag)"] --> REC["recordViewerAction(kind, fn)"]
+    REC -->|"captureState({selection, visibility})"| API["ViewportApi"]
+    REC -->|"fn()"| ACT2["the change"]
+    REC -->|"stateChange(before)"| API
+    REC --> ENTRY["entry<br/>before, after, store slices, object info"]
+    ENTRY -->|"undo: restoreState(before)<br/>redo: restoreState(after)"| API
+    API --> T["three.js<br/>hidden ranges per mesh, selection store"]
+    API --> N["NativeScene<br/>selected and hidden key sets"]
+```
+
+| Part | Where | What it is |
+|---|---|---|
+| The interface | `viewport/api/viewportState.ts` | `captureState(what)` notes the state before an action, `stateChange(before)` says what the action changed (and gives the state after it on request), `restoreState(state)` goes to one end of a step. A state is opaque outside the viewport that made it. An action that cannot hide or show anything asks for the selection only, and the viewport then does not look at what is hidden. |
+| The history | `utils/scene/viewerHistory.ts` | One entry per user action: the two ends of the viewport's step, the store slices it was given (section planes, selection boxes, FEA isolation) and the object info's name. Nested actions are one entry, actions with the same coalesce key in quick succession (a drag) are one entry, and nothing records while an entry is applied. The section and box stores record through it directly. |
+| three.js | `utils/scene/threeViewportState.ts` | As before the interface: the hidden ranges per mesh are copied before an action that can hide, and the entry keeps the difference per model by its scene name; the selection is kept as element ids per model. Entries survive a model being removed and loaded again. |
+| adacpp renderer | `viewport/native/nativeViewportHistory.ts` | The selected keys as a copy, and the keys a step hid and showed. `setSelection`, `clearSelection`, `hide`, `show`, `isolate`, `showAll`, `hideSelected`, `hideOthers` and a click in the view are each one step. A key names a model and an object in it; keys of a model no longer on screen are skipped. |
+| Keys and commands | `viewport/api/viewportShortcuts.ts`, `layout/coreCommands.ts` | Undo and Redo (Ctrl+Z, Ctrl+Y, Ctrl+Shift+Z) are bound by each viewport to the same history. |
+
+Where the three.js-free viewport differs: it has no entries for models loaded and removed
+(`utils/scene/modelHistory.ts` reloads through the three.js loaders), so a model that replaces the
+scene starts the history over, and a model that joins or leaves keeps it.
 
 ## What the next slices have to settle
 
@@ -163,7 +192,7 @@ These are open design points, ordered by how much of the viewer depends on them.
 1. **The interface features program against.** A feature that reaches into `THREE.Scene` exists on
    one viewport only. `src/frontend/src/viewport/api` is the interface both stand behind:
    `ViewportApi` (the selection as object refs and its changes, hiding, showing and isolating
-   objects, how each is drawn, the model's box, what a box or a screen rectangle takes, fit, named views, reset, orbit and pan by step), implemented by `threeViewport.ts` over the three.js scene and by
+   objects, how each is drawn, the model's box, what a box or a screen rectangle takes, its undoable state, fit, named views, reset, orbit and pan by step), implemented by `threeViewport.ts` over the three.js scene and by
    `native/nativeViewportApi.ts` over `NativeScene`. The viewport on screen registers itself
    (`setActiveViewport`); commands ask `activeViewport()`, and the keys are bound once for both in
    `viewportShortcuts.ts`. A viewport says what it cannot do yet (`unavailable(feature)`), and the

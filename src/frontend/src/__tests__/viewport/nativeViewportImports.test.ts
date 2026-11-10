@@ -62,7 +62,7 @@ test("the three.js-free viewport's chunk imports no three.js", () => {
 
 // The interface both viewports stand behind, and the keys bound through it, are loaded by the
 // three.js-free viewport: they may name three.js in types only.
-for (const module of ["viewportApi.ts", "viewportShortcuts.ts", "billboards.ts"]) {
+for (const module of ["viewportApi.ts", "viewportShortcuts.ts", "billboards.ts", "viewportState.ts"]) {
     test(`viewport/api/${module} imports no three.js`, () => {
         walkFreeOfThree(join(ROOT, "src/viewport/api", module));
     });
@@ -105,6 +105,20 @@ for (const module of [
     "utils/bboxSelection/boxMath.ts",
     "utils/bboxSelection/marquee.ts",
     "utils/bboxSelection/screenRect.ts",
+]) {
+    test(`${module} imports no three.js`, () => {
+        walkFreeOfThree(join(ROOT, "src", module));
+    });
+}
+
+// The undo / redo history asks the viewport on screen for its state and records store slices: the
+// history, the stores that record through it and the three.js-free viewport's side of it are shared
+// or that viewport's own.
+for (const module of [
+    "utils/scene/viewerHistory.ts",
+    "state/viewerHistoryStore.ts",
+    "state/sectionStore.ts",
+    "viewport/native/nativeViewportHistory.ts",
 ]) {
     test(`${module} imports no three.js`, () => {
         walkFreeOfThree(join(ROOT, "src", module));
