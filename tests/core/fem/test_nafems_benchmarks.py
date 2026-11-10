@@ -22,7 +22,7 @@ from ada.api.fem_benchmarks import (
     stress_yy_on_plane,
 )
 from ada.api.fem_tasks import design_cantilever
-from ada.fem.results.field_data import ElementFieldData, NodalFieldData
+from ada.fem.results.field_data import ElementFieldData, FieldPosition, NodalFieldData
 
 
 def fem_of(a):
@@ -118,6 +118,15 @@ def test_element_node_stresses_are_averaged_over_the_elements_at_the_node():
     field = ElementFieldData("result__SIGM_ELNO", 0, ["SIXX", "SIYY"], values)
     result = SimpleNamespace(mesh=_mesh([[10, 20], [20, 30]]), results=[field])
     assert stress_yy_at(result, (2, 0, 0)) == pytest.approx((3.0 + 5.0) / 2)
+
+
+def test_element_nodal_rows_are_averaged_over_the_elements_at_the_node():
+    """Abaqus' ``position=NODES`` output: rows of (element, place in its connectivity, components)."""
+    values = np.array([[1, 1, 0.0, 1.0], [1, 2, 0.0, 3.0], [2, 1, 0.0, 5.0], [2, 2, 0.0, 9.0]])
+    field = ElementFieldData("S (element_nodal)", 1, ["S11", "S22"], values, field_pos=FieldPosition.ELEMENT_NODAL)
+    mesh = _mesh([[10, 20], [20, 30]])
+    mesh.elements[0].identifiers = np.array([1, 2])
+    assert stress_yy_at(SimpleNamespace(mesh=mesh, results=[field]), (2, 0, 0)) == pytest.approx((3.0 + 5.0) / 2)
 
 
 def test_integration_point_stresses_are_refused():

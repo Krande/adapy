@@ -24,6 +24,12 @@ elliptic coordinates, so every node sits on the true geometry and the elements a
 error in the tables is then the element's and the solver's, not a mesher's. Each row doubles the
 divisions of the one before it.
 
+The stress at D is each solver's own value at that node, averaged over the elements meeting there,
+the way each solver hands it out. Calculix writes nodal stresses. Code_Aster's and Abaqus' are
+each element's extrapolation to its nodes (Abaqus' `*Element Output, position=NODES`). Sestra stores
+the stresses at each element's 2×2×2 Gauss points, which adapy extrapolates to the nodes with the
+trilinear field through them, as a postprocessor does.
+
 The restraints are collected per node and written once for each distinct set of degrees of freedom.
 One set per face would hold a degree of freedom twice along the edges where faces meet, which
 Code_Aster refuses.

@@ -184,6 +184,9 @@ def add_nafems_load(assembly: ada.Assembly) -> None:
         ada.fem.StepImplicitStatic("static", nl_geom=False, total_time=1, init_incr=1, max_incr=1)
     )
     step.add_load(LoadPressure("q", case.pressure, surface))
+    # The stress at the element nodes as well: Abaqus writes none at the nodes themselves, so its value at D is the
+    # average of the elements' own extrapolations there. Formats without such an output ignore it.
+    step.field_outputs[0].element_nodal.append("S")
 
 
 def run_nafems_le(
@@ -208,7 +211,7 @@ def nafems_case_name(fem_format: str | FEA, case: str, divisions: int) -> str:
 
 
 #: What the solvers' readers call the stress on planes normal to global y.
-_SYY_COMPONENTS = ("SYY", "SIYY", "S22")
+_SYY_COMPONENTS = ("SYY", "SIYY", "S22", "SIGYY")
 
 
 def stress_yy_nodes(result):
@@ -219,7 +222,7 @@ def stress_yy_nodes(result):
     """
     import numpy as np
 
-    from ada.fem.results.field_data import ElementFieldData, NodalFieldData
+    from ada.fem.results.field_data import ElementFieldData, FieldPosition, NodalFieldData
 
     if hasattr(result, "to_fea_result"):
         result = result.to_fea_result()
@@ -238,6 +241,21 @@ def stress_yy_nodes(result):
     for field in sorted((f for f in fields if isinstance(f, ElementFieldData)), key=lambda f: "SIGM" not in f.name):
         values = np.asarray(field.values, dtype=float)
         total, count = np.zeros(len(coords)), np.zeros(len(coords), dtype=int)
+        if values.ndim == 2 and field.field_pos == FieldPosition.ELEMENT_NODAL:
+            # Rows of (element, its node's place in the connectivity from 1, components...).
+            refs_by_element = {
+                int(label): (group, row)
+                for group in result.mesh.elements
+                for label, row in zip(group.identifiers, np.asarray(group.node_refs))
+            }
+            for element, place, value in zip(
+                values[:, 0].astype(int), values[:, 1].astype(int), values[:, 2 + column(field)]
+            ):
+                group, row = refs_by_element[element]
+                ref = row[place - 1]
+                node = int(ref) if group.node_refs_are_indices else index_of[int(ref)]
+                total[node] += value
+                count[node] += 1
         offset = 0
         for group in result.mesh.elements:
             refs = np.asarray(group.node_refs)

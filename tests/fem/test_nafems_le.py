@@ -1,6 +1,7 @@
-"""NAFEMS LE1 and LE10 through each free solver, against the published targets.
+"""NAFEMS LE1 and LE10 through each solver, against the published targets.
 
-At the finest mesh the report uses, where both solvers measured within 0.8 % of the targets.
+At the finest mesh the report uses, where every solver measured within 0.8 % of the targets. A solver that is not
+installed is skipped, which in CI is Abaqus and Sestra.
 """
 
 from __future__ import annotations
@@ -16,7 +17,7 @@ from ada.api.fem_benchmarks import (
 from ada.fem.exceptions.fea_software import FEASolverNotInstalled
 
 
-@pytest.mark.parametrize("solver", ["calculix", "code_aster"])
+@pytest.mark.parametrize("solver", ["abaqus", "calculix", "code_aster", "sesam"])
 @pytest.mark.parametrize("case", ["LE1", "LE10"])
 def test_stress_at_d_reaches_the_published_target(case, solver, tmp_path):
     assembly = mesh_nafems_le(case, 8)
