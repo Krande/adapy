@@ -194,6 +194,7 @@ function fakeViewport(): {
         isolate: (refs: Iterable<{model: string; id: string}>) => void calls.push(`isolate(${ids(refs)})`),
         hide: (refs: Iterable<{model: string; id: string}>) => void calls.push(`hide(${ids(refs)})`),
         showAll: () => void calls.push("showAll"),
+        show: (refs: Iterable<{model: string; id: string}>) => void calls.push(`show(${ids(refs)})`),
         fitBox: (min: readonly number[], max: readonly number[]) => (calls.push(`fitBox(${[...min, ...max].join(",")})`), true),
         overlays: () => ({
             addLines: (spec: OverlayLines) => lines.push({spec, segments: [...spec.segments], removed: false}),
@@ -703,6 +704,63 @@ test("a plugin hides and isolates elements as the viewport's objects", async () 
     assert.deepEqual(viewport.calls, ["isolate(E8)", "hide(E7,E8)", "showAll"]);
     viewport.hidden.add("E7");
     assert.deepEqual(overlays.hiddenFeaElements(), [7]);
+});
+
+test("a result's sets are isolated, hidden and shown as the viewport's objects", async () => {
+    const {useFeaIsolationStore} = await import("@/state/feaIsolationStore");
+    const {useFemConceptsStore} = await import("@/state/femConceptsStore");
+    const isolation = await import("@/utils/scene/fea/layerIsolation");
+    const {elementSetRowId} = await import("@/utils/scene/fea/feaTreeRows");
+    const viewport = fakeViewport();
+    withdraw = viewport.withdraw;
+    await load(displacement(), {manifest: manifest([displacement()], {edges_url: "fea.mesh.edges.bin"})});
+    assert.equal(isolation.layerResultShown(), true);
+    useFeaIsolationStore.getState().setSets("deck.frd", [
+        {name: "deck", members: ["EL8"], fe_object_type: "element"},
+        {name: "both", members: ["EL7", "EL8"], fe_object_type: "element"},
+        {name: "elsewhere", members: ["EL99"], fe_object_type: "element"},
+        {name: "nodes", members: ["P1"], fe_object_type: "node"},
+    ]);
+    try {
+        isolation.isolateFeaRows([elementSetRowId("deck")]);
+        assert.deepEqual(viewport.calls, ["isolate(E8)"]);
+        assert.deepEqual(useFeaIsolationStore.getState().isolation.rows, [elementSetRowId("deck")]);
+        // The rest stays as a wireframe: element 7 is hidden, and its edges are still drawn.
+        viewport.hidden.add("E7");
+        useVisibilityStore.getState().bump();
+        await tick();
+        const edges = () => viewport.layers.filter((l) => l.data.topology === "lines" && !l.removed).at(-1)!;
+        assert.deepEqual([...edges().data.indices!], [0, 1, 1, 2, 2, 3, 3, 0]);
+        isolation.toggleFeaContextWireframe();
+        assert.deepEqual([...edges().data.indices!], [0, 0, 1, 1, 2, 3, 3, 0], "hidden outright: the edges only element 7 has are gone");
+
+        // A set that names nothing the result has leaves it whole.
+        viewport.calls.length = 0;
+        isolation.isolateFeaRows([elementSetRowId("elsewhere")]);
+        assert.deepEqual(viewport.calls, ["showAll"]);
+        assert.equal(isolation.isolateFeaSetsMatching("BOTH"), 1);
+        assert.equal(viewport.calls.at(-1), "isolate(E7,E8)");
+        isolation.clearFeaIsolation();
+        assert.equal(viewport.calls.at(-1), "showAll");
+        assert.deepEqual(useFeaIsolationStore.getState().isolation.rows, []);
+
+        isolation.hideFeaRows([elementSetRowId("deck")]);
+        isolation.showFeaRows([elementSetRowId("both")]);
+        assert.deepEqual(viewport.calls.slice(-2), ["hide(E8)", "show(E7,E8)"]);
+
+        // The beams that only carry a mass stay hidden unless they are asked for, isolated or not.
+        useFemConceptsStore.setState({dummyMassIds: ["E8"], showDummyMasses: false});
+        isolation.applyLayerIsolation();
+        assert.equal(viewport.calls.at(-1), "hide(E8)");
+        isolation.isolateFeaRows([elementSetRowId("both")]);
+        assert.equal(viewport.calls.at(-1), "isolate(E7)");
+        useFemConceptsStore.setState({showDummyMasses: true});
+        isolation.applyLayerIsolation();
+        assert.equal(viewport.calls.at(-1), "isolate(E7,E8)");
+    } finally {
+        useFemConceptsStore.setState({dummyMassIds: [], showDummyMasses: false});
+        useFeaIsolationStore.getState().reset(null);
+    }
 });
 
 test("closing the session takes its layers off the viewport", async () => {

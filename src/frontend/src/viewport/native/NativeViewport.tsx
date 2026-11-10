@@ -29,7 +29,8 @@ function linearRgb(hex: string): [number, number, number] | null {
 }
 
 const UNAVAILABLE = [
-    "element sets and the edges of beam sections of an FEA result",
+    "the edges of beam sections of an FEA result",
+    "the glyphs of an FEA model's masses, supports and loads, and its link to the CAD model",
     "requesting a selection box's contents from a source, and keeping boxes across reloads",
 ];
 

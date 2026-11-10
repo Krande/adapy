@@ -119,6 +119,23 @@ async function attachBeamSolids(
     if (warp) active.beamSolidWarp = warp;
 }
 
+// The result whose manifest was last put into the stores for a load on result layers.
+let layerResultRegistered: {sourceName: string; manifest: unknown} | null = null;
+
+/** What the manifest says about a result drawn through result layers, into the stores the
+ *  three.js loader fills too: its sets (the Scene tree's rows, isolating by set), the dummy-mass
+ *  beams and the FEA input concepts. Once per result, not per step. The CAD lineage is left out:
+ *  it is kept against a three.js object. */
+async function registerLayerResult(args: LoadFeaStreamingArgs): Promise<void> {
+    const {sourceName, manifest} = args;
+    if (layerResultRegistered?.sourceName === sourceName && layerResultRegistered.manifest === manifest) return;
+    layerResultRegistered = {sourceName, manifest};
+    const {fetcher, cacheKey} = capabilities.fea.fieldFetchers(feaSourceScope(sourceName), sourceName);
+    await registerManifestStores({manifest, sourceName, feaRoot: null, fetcher, cacheKey, lineage: false});
+    const {followLayerIsolation} = await import("../fea/layerIsolation");
+    followLayerIsolation();
+}
+
 /** The load on a viewport that has no three.js scene to load into: the result is drawn through
  *  the viewport's result layers (fea/streaming/layerSession). What surrounds a load is the same:
  *  the source named as the loaded model, the Simulation panel shown for a result. */
@@ -129,6 +146,8 @@ async function loadOnResultLayers(args: LoadFeaStreamingArgs): Promise<void> {
     const ms = useModelState.getState();
     if (ms.loadedSourceName !== args.sourceName) ms.setLoadedSourceName(args.sourceName);
     if (args.fieldName != null && !isPanelOpen(CORE_PANEL_IDS.simulation)) reveal(CORE_PANEL_IDS.simulation);
+    // After the source is named: naming it empties what the previous model put in these stores.
+    await registerLayerResult(args);
 }
 
 export async function load_fea_streaming(args: LoadFeaStreamingArgs): Promise<void> {

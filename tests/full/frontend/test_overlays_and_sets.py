@@ -1,12 +1,18 @@
 """What is drawn over a model on behalf of a plugin (lines, outlines of elements, element colours,
-labels), on whichever viewport is on screen."""
+labels) and the element sets of an FEA result, on whichever viewport is on screen."""
+
+import asyncio
+import shutil
 
 import pytest
+
+import ada
 from playwright.async_api import Page, async_playwright
 
 from .test_render_backends import (
     NATIVE,
     _assert_drawing_with,
+    _command,
     _count,
     _is_coloured,
     _open_viewer,
@@ -119,6 +125,64 @@ async def test_plugin_overlays_are_drawn_by_whichever_viewport_is_on_screen(ws_s
             await _until(page, shown, f"{backend}: the elements to be shown again")
             assert await page.evaluate(f"{SCENE}.hiddenFeaElements()") == []
             await _assert_drawing_with(page, backend, state)
+        finally:
+            await browser.close()
+
+
+def _sets(sets: dict[str, range]) -> list[dict]:
+    """Named element sets as a result carries them into the viewer."""
+    return [
+        {"name": name, "members": [f"EL{label}" for label in labels], "fe_object_type": "element"}
+        for name, labels in sets.items()
+    ]
+
+
+@pytest.mark.parametrize("backend", ["three", NATIVE])
+async def test_fea_sets_are_listed_and_isolated_on_whichever_viewport_is_on_screen(
+    ws_server, backend, fem_files, tmp_path
+):
+    """The element sets of a result: the Scene tree lists them, isolating one leaves its elements on
+    screen, and clearing the isolation brings the rest back."""
+    source = fem_files / "cantilever/sesam/static/shell/STATIC_SHELL_CANTILEVER_SESAMR1.SIF"
+    # A copy of its own: what the viewer is sent for a file is kept and reused, without the sets.
+    result = ada.from_fem_res(shutil.copy(source, tmp_path / source.name))
+    # the first half of the elements, and the rest
+    result.sesam_groups = _sets({"lowerhalf": range(1, 181), "upperhalf": range(181, 361)})
+    async with async_playwright() as playwright:
+        browser, page, state = await _open_viewer(playwright, ws_server, backend)
+        try:
+            await asyncio.to_thread(lambda: result.show(port=ws_server.port, unique_id=1, ping_timeout=10))
+
+            async def painted():
+                return await _coloured(page) > 5000
+
+            await _until(page, painted, f"{backend}: the result field to be painted", seconds=40)
+            await _command(page, "Selection tree")
+
+            async def listed():
+                return await page.get_by_role("treeitem").filter(has_text="Sets").count() >= 1
+
+            await _until(page, listed, f"{backend}: the Scene tree to list the result's sets")
+            whole = await _coloured(page)
+
+            # isolate one set by name: about half of the result stays
+            await _command(page, "Isolate FEA sets")
+            await page.keyboard.type("lowerhalf")
+            await page.keyboard.press("Enter")
+
+            async def isolated():
+                n = await _coloured(page)
+                return 0.2 * whole < n < 0.8 * whole
+
+            await _until(page, isolated, f"{backend}: one set to be isolated")
+            await _assert_drawing_with(page, backend, state)
+
+            await _command(page, "Clear FEA isolation")
+
+            async def cleared():
+                return await _coloured(page) > 0.95 * whole
+
+            await _until(page, cleared, f"{backend}: the isolation to be cleared")
         finally:
             await browser.close()
 

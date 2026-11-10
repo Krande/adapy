@@ -92,6 +92,10 @@ interface LayerSession {
      *  borders (worked out the first time elements are hidden). */
     shellEdgeIndices: Uint32Array | null;
     edgeOwners: EdgeOwners | null;
+    /** Whether the edges on screen leave out those of hidden elements, and whether they are to
+     *  stay (the rest of an isolation, drawn as a wireframe). */
+    shellEdgesMasked: boolean;
+    hiddenEdgesKept: boolean;
     /** 1 for each node a face uses, or null when every node is drawn. */
     drawn: Uint8Array | null;
     /** The same over the faces of the elements that are not hidden, while some are. */
@@ -615,6 +619,44 @@ function scheduleHiddenRefresh(s: LayerSession): void {
     }, 0));
 }
 
+/** The edges of the elements with faces, for what is hidden now: an edge is drawn while an
+ *  element it borders is, or all of them while the hidden rest is kept as a wireframe. */
+function redrawShellEdges(s: LayerSession): void {
+    if (!s.shellEdges || !s.shellEdgeIndices || !s.drawRanges || !s.mesh.indices) return;
+    const {hidden} = s;
+    const masked = hidden.size > 0 && !s.hiddenEdgesKept;
+    // Nothing to mask now and nothing masked before: the edges on screen are the right ones.
+    if (!masked && !s.shellEdgesMasked) return;
+    let indices = s.shellEdgeIndices;
+    if (masked) {
+        s.edgeOwners ??= edgeOwners(s.drawRanges, s.mesh.indices, s.basePositions.length / 3, s.shellEdgeIndices);
+        indices = new Uint32Array(s.shellEdgeIndices.length);
+        // An edge all of whose elements are hidden becomes a pair of one node: nothing is drawn.
+        maskHiddenEdges(s.shellEdgeIndices, s.edgeOwners, (id) => hidden.has(id), indices);
+    }
+    s.shellEdgesMasked = masked;
+    const before = s.shellEdges;
+    s.shellEdges = s.group.add(edgeLines(s, indices, FEA_EDGE_COLOR));
+    s.group.drop(before);
+    if (s.lastDisplacement) s.shellEdges.setDisplacement(s.lastDisplacement);
+    applyView(s);
+}
+
+/** The elements of the result shown through layers as objects of the viewport: the model they
+ *  belong to and their ids. Null when no result is shown this way or its elements are not objects. */
+export function layerResultObjects(): {model: string; ids: readonly string[]} | null {
+    return session?.objects ?? null;
+}
+
+/** Keep the edges of hidden elements on screen (the rest of an isolation, as a wireframe), or
+ *  let them go with their elements. */
+export function setLayerHiddenEdgesKept(kept: boolean): void {
+    const s = session;
+    if (!s || s.hiddenEdgesKept === kept) return;
+    s.hiddenEdgesKept = kept;
+    redrawShellEdges(s);
+}
+
 /** Read which elements are hidden on the viewport. When that changed: an edge is drawn while an
  *  element it borders is, and a scale measured over what is drawn is measured again. */
 function refreshHidden(s: LayerSession): void {
@@ -628,21 +670,7 @@ function refreshHidden(s: LayerSession): void {
     if (same) return;
     s.hidden = hidden;
     s.shownNodes = null;
-
-    if (s.shellEdges && s.shellEdgeIndices && s.drawRanges && s.mesh.indices) {
-        let indices = s.shellEdgeIndices;
-        if (hidden.size) {
-            s.edgeOwners ??= edgeOwners(s.drawRanges, s.mesh.indices, s.basePositions.length / 3, s.shellEdgeIndices);
-            indices = new Uint32Array(s.shellEdgeIndices.length);
-            // An edge all of whose elements are hidden becomes a pair of one node: nothing is drawn.
-            maskHiddenEdges(s.shellEdgeIndices, s.edgeOwners, (id) => hidden.has(id), indices);
-        }
-        const before = s.shellEdges;
-        s.shellEdges = s.group.add(edgeLines(s, indices, FEA_EDGE_COLOR));
-        s.group.drop(before);
-        if (s.lastDisplacement) s.shellEdges.setDisplacement(s.lastDisplacement);
-        applyView(s);
-    }
+    redrawShellEdges(s);
 
     const {sessionActive, applyStep, stepIndex} = useFeaAnimationStore.getState();
     if (s.rangeFromShown && sessionActive && applyStep) {
@@ -707,6 +735,8 @@ async function openLayerSession(args: {
         edgeIndices: edges.shell && edges.beam ? concat(edges.shell, edges.beam) : (edges.shell ?? edges.beam),
         shellEdgeIndices: edges.shell,
         edgeOwners: null,
+        shellEdgesMasked: false,
+        hiddenEdgesKept: false,
         drawn,
         shownNodes: null,
         lastDisplacement: null,

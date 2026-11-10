@@ -90,6 +90,7 @@ for (const module of [
     // What is drawn over a result, and what plugins draw through: plain data on both viewports.
     "utils/scene/fea/elementSource.ts",
     "utils/scene/fea/streaming/layerOverlayTarget.ts",
+    "utils/scene/fea/layerIsolation.ts",
     "viewport/native/nativeOverlays.ts",
     "plugins/sceneOverlays.ts",
 ]) {

@@ -105,12 +105,22 @@ flowchart LR
 | What a layer can be | `viewport/api/resultLayer.ts` | Triangles, lines or points, with a width or diameter in pixels and an opacity: result points are a layer of points, the coloured lines of line elements and the undeformed outline are layers of lines. `streaming/layerGroup.ts` holds a result's layers as one for the controls and the playback driver. |
 | Number labels | `utils/scene/fea/labelPlacement.ts`, `layout/NumberLabels.tsx` | What is worth a label and where it goes, from a `LabelSource` (elements, their vertices, where each vertex is now) and a projector. `ViewportApi.projectToScreen` projects a batch of world points to CSS pixels and depth, and `onCameraChange` says when to do it again; the three.js mesh (`numberLabels.ts`) and the layer session are the two sources. |
 
+| Sets and properties | `utils/scene/fea/streaming/manifestStores.ts`, `utils/scene/fea/layerIsolation.ts` | The manifest's sets, dummy-mass beams and FEA input concepts go into the stores the three.js loader fills, so the Scene tree lists "Sets" and "Properties" for either. A set is a list of element ids, and the elements are the viewport's objects: isolating, hiding and showing a set go through `ViewportApi` (`isolate`, `hide`, `show` take any iterable of refs, read once, so a set of thousands is one reused ref). "Show the rest as wireframe" keeps the edges of the hidden elements. The scene actions pick this module or the three.js one (`feaIsolation.ts`) by how the result is drawn. |
 
 Both viewports paint with the same kernels. What the three.js viewport's own loader still does
-that the layer session does not: recorded playback frames (a played frame is repainted from the
-step cache instead; read-ahead and "load every frame" work), the feature edges of beam sections,
-and the element sets of a result (the Scene tree's set rows and isolating by set act on the
-three.js mesh).
+that the layer session does not:
+
+- An isolation does not reach beams drawn as coloured lines (they are no objects of the viewport
+  while nothing but a line draws them), and the dummy-mass beams are left out of the section
+  solids only, not of those lines.
+- The rest of an isolation "as wireframe" is drawn with the ordinary edge colour, not dimmed.
+- Recorded playback frames: a played frame is repainted from the step cache instead (read-ahead
+  and "load every frame" work).
+- The glyphs of the FEA input concepts (masses, supports, loads) are three.js objects, and the
+  CAD lineage is kept against a three.js object: neither is on the three.js-free viewport. The
+  "FEM groups" picker of the Scene panel selects in the three.js scene.
+- The feature edges of beam sections ("Solid edges").
+- No undo there, so an isolation is not an undo step.
 
 ## Overlays on both viewports
 
