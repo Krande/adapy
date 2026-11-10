@@ -12,6 +12,7 @@ cannot read is a leak.
 
 from __future__ import annotations
 
+import hashlib
 import re
 from pathlib import Path
 
@@ -51,7 +52,19 @@ ASSETS_PKG = Path(ada.assets.__file__).resolve().parent
 # does not ban the coupling either (a fabrication branch called `bead_size` passes a word filter),
 # so it cost real names and bought little. What indicates coupling is the TYPE and the PACKAGE, and
 # those are what is checked now.
-FORBIDDEN = ("tekla", "e3d", "csg", "weld-gen", "weld_gen", "weldgen")
+#: Vendor systems, by name.
+FORBIDDEN = ("tekla", "e3d", "csg")
+
+#: Out-of-tree package names, as ``(length, SHA-256 of the lower-cased term)``. Stored hashed so the
+#: list doesn't spell them out; not meant to resist guessing. Matched as substrings, like FORBIDDEN.
+#: To add one: ``printf %s term | sha256sum`` and its length.
+PRIVATE = frozenset(
+    {
+        (8, "5cb880004f88bc0892e580c2394b0ca9fa9cec37154d4a3ac4e4d0309dd183c9"),
+        (7, "5fe569f4011f206147df7550d6e2b7d8dc1e275c303676a65d15d053aefdfca4"),
+        (8, "cb62d62cda97ab93bfaa8f7fd285520ae3132dc3033c4194ba53cd8e417dd876"),
+    }
+)
 
 #: The `Weld` TYPE, case-sensitively. `ada.Weld` is a real core object and belongs in what a
 #: generator returns (`ada.topo_model.detail_joints` builds beads with it); it must never appear in
@@ -59,7 +72,26 @@ FORBIDDEN = ("tekla", "e3d", "csg", "weld-gen", "weld_gen", "weldgen")
 FORBIDDEN_TYPE = r"\bWeld[A-Za-z_]*\b"
 
 
-def _grep_package(pattern: str, pkg: Path, *, flags: int = re.IGNORECASE) -> list[str]:
+def _names_private(line: str, terms: frozenset, *, whole_word: bool = False) -> bool:
+    """Whether ``line`` contains one of the hashed ``terms`` (case-insensitive), as a substring or,
+    with ``whole_word``, bounded the way ``\\b`` bounds it."""
+    low = line.lower()
+    for length in {n for n, _ in terms}:
+        wanted = {d for n, d in terms if n == length}
+        for i in range(len(low) - length + 1):
+            if whole_word and (
+                (i and (low[i - 1].isalnum() or low[i - 1] == "_"))
+                or (i + length < len(low) and (low[i + length].isalnum() or low[i + length] == "_"))
+            ):
+                continue
+            if hashlib.sha256(low[i : i + length].encode()).hexdigest() in wanted:
+                return True
+    return False
+
+
+def _grep_package(
+    pattern: str, pkg: Path, *, flags: int = re.IGNORECASE, private: frozenset = frozenset(), whole_word: bool = False
+) -> list[str]:
     """``relpath:line: text`` for every case-insensitive match in the package's ``.py`` files.
 
     Every file on disk counts, committed or not, so a gate cannot pass by omission. An empty
@@ -71,7 +103,7 @@ def _grep_package(pattern: str, pkg: Path, *, flags: int = re.IGNORECASE) -> lis
         f"{f.relative_to(pkg.parent)}:{n}: {line.strip()}"
         for f in files
         for n, line in enumerate(f.read_text(encoding="utf-8").splitlines(), 1)
-        if rx.search(line)
+        if rx.search(line) or (private and _names_private(line, private, whole_word=whole_word))
     ]
 
 
@@ -89,9 +121,9 @@ def test_asset_vocabulary_gate_is_empty():
     gate was widened; they are what it is for.
     """
     pattern = "|".join(FORBIDDEN)
-    hits = _grep_package(pattern, ASSETS_PKG) + _grep_package(FORBIDDEN_TYPE, ASSETS_PKG, flags=0)
+    hits = _grep_package(pattern, ASSETS_PKG, private=PRIVATE) + _grep_package(FORBIDDEN_TYPE, ASSETS_PKG, flags=0)
     assert not hits, (
-        f"ada.assets names a vendor system, a detailing package or the `Weld` type ({FORBIDDEN}):\n  "
+        f"ada.assets names a vendor system ({FORBIDDEN}), an out-of-tree package or the `Weld` type:\n  "
         + "\n  ".join(hits)
         + "\n\nA provider's format is opaque to core by design; describe the SHAPE of a source "
         "(a private format, a catalogue, a system of record), never whose it is."
@@ -100,16 +132,21 @@ def test_asset_vocabulary_gate_is_empty():
 
 #: ``ada.geom_compare`` compares two sources' tessellations and must not know whose either is: the
 #: core list plus the vendor and provider names a comparison was first built against.
-GEOM_COMPARE_FORBIDDEN = (*FORBIDDEN, "web3d", "aveva", "rvm")
+GEOM_COMPARE_FORBIDDEN = (*FORBIDDEN, "aveva", "rvm")
+GEOM_COMPARE_PRIVATE = PRIVATE | {
+    (5, "5a669d12ed3919433eede6a90769c4288c46bbd607a6ebefff216b60642f10d5"),
+}
 
 
 def test_geometry_comparison_names_no_source():
     import ada.geom_compare
 
     pkg = Path(ada.geom_compare.__file__).resolve().parent
-    hits = _grep_package(r"\b(" + "|".join(GEOM_COMPARE_FORBIDDEN) + r")\b", pkg)
+    hits = _grep_package(
+        r"\b(" + "|".join(GEOM_COMPARE_FORBIDDEN) + r")\b", pkg, private=GEOM_COMPARE_PRIVATE, whole_word=True
+    )
     assert not hits, (
-        f"ada.geom_compare names a source ({GEOM_COMPARE_FORBIDDEN}):\n  "
+        f"ada.geom_compare names a source ({GEOM_COMPARE_FORBIDDEN}, or an out-of-tree one):\n  "
         + "\n  ".join(hits)
         + "\n\nTwo geometry sources of the same elements; never whose they are."
     )
@@ -117,9 +154,9 @@ def test_geometry_comparison_names_no_source():
 
 def test_clash_names_no_vendor_system_or_detailing_package():
     pattern = "|".join(FORBIDDEN)
-    hits = _grep_package(pattern, CLASH_PKG)
+    hits = _grep_package(pattern, CLASH_PKG, private=PRIVATE)
     assert not hits, (
-        f"ada.clash names a vendor system or a detailing package ({FORBIDDEN}):\n  "
+        f"ada.clash names a vendor system ({FORBIDDEN}) or an out-of-tree package:\n  "
         + "\n  ".join(hits)
         + "\n\nIdentification depends on no provider (Decision 10). Describe the SHAPE of a "
         "source, never whose it is."
@@ -204,13 +241,16 @@ def test_core_asset_style_gate_also_covers_the_result_and_match_modules():
         text = path.read_text(encoding="utf-8")
         for token in FORBIDDEN:
             assert not re.search(token, text, re.IGNORECASE), f"{module} names {token!r}"
+        assert not any(
+            _names_private(line, PRIVATE) for line in text.splitlines()
+        ), f"{module} names an out-of-tree package"
         assert not re.search(FORBIDDEN_TYPE, text), f"{module} names the `Weld` type"
 
     builtin_specs = (CLASH_PKG / "builtin_specs.py").read_text(encoding="utf-8")
     offending_lines = [
         f"src/ada/clash/builtin_specs.py:{i}:{line}"
         for i, line in enumerate(builtin_specs.splitlines(), start=1)
-        if re.search("|".join(FORBIDDEN), line, re.IGNORECASE)
+        if re.search("|".join(FORBIDDEN), line, re.IGNORECASE) or _names_private(line, PRIVATE)
     ]
     assert not offending_lines, (
         "src/ada/clash must name no fabrication term at all. The one line that used to need an "
@@ -218,3 +258,13 @@ def test_core_asset_style_gate_also_covers_the_result_and_match_modules():
         "SIGNATURE instead, so the gate needs no carve-out -- keep it that way: an allowlist is "
         "the thing that grows."
     )
+
+
+def test_hashed_terms_are_matched_as_the_readable_ones_are():
+    # The hashed half of the gate, proven with a public term so the fixture names nothing private.
+    terms = frozenset({(5, hashlib.sha256(b"tekla").hexdigest())})
+    assert _names_private("# exported from Tekla", terms)
+    assert _names_private("teklas_model = 1", terms), "substring, like FORBIDDEN"
+    assert not _names_private("teklas_model = 1", terms, whole_word=True), "bounded, like \\b"
+    assert _names_private("x = 'tekla-export'", terms, whole_word=True)
+    assert not _names_private("nothing here", terms)
