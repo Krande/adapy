@@ -14,8 +14,16 @@ import {NativeScene} from "./nativeScene";
 import {createNativeViewportApi} from "./nativeViewportApi";
 import {useNativeViewport} from "./nativeModel";
 
+/** "#rrggbb" (sRGB) as linear rgb, which the renderer takes; null when it is not that. */
+function linearRgb(hex: string): [number, number, number] | null {
+    const m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex);
+    if (!m) return null;
+    const linear = (c: number) => (c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
+    return [linear(parseInt(m[1], 16) / 255), linear(parseInt(m[2], 16) / 255), linear(parseInt(m[3], 16) / 255)];
+}
+
 const UNAVAILABLE = [
-    "section plane gizmo and filled cuts", "FEA results and animation", "labels, markers and plugin overlays", "measurements and gizmos",
+    "section plane gizmo", "FEA results and animation", "labels, markers and plugin overlays", "measurements and gizmos",
     "screenshots and export", "overlaying several models",
 ];
 
@@ -46,7 +54,10 @@ const NativeViewport: React.FC = () => {
             const unbind = bindCoreShortcuts(viewportShortcutHandlers((run) => ({run})));
             const releaseDispatcher = installShortcutDispatcher();
             // Section planes: the same store the three.js viewport cuts by.
-            const cut = () => scene.setSectionPlanes(useSectionStore.getState().planes.filter((p) => p.enabled));
+            const cut = () => {
+                const {planes, capColor} = useSectionStore.getState();
+                scene.setSectionPlanes(planes.filter((p) => p.enabled), linearRgb(capColor));
+            };
             cut();
             const uncut = useSectionStore.subscribe(cut);
             release = () => {

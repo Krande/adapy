@@ -27,6 +27,8 @@ export interface LoadGlbOptions {
     pointSize?: number;
     lineColor?: [number, number, number, number];
     doubleSided?: boolean;
+    /** Mark single-sided surfaces as closed solids, so setSectionCaps fills their cut. */
+    sectionCaps?: boolean;
     /** Above 0: also draw the viewer's feature edges (boundary + folds over this angle, degrees). */
     featureEdgeAngleDeg?: number;
     /** Return each added geometry's world-space positions. */

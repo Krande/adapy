@@ -138,7 +138,7 @@ export class NativeScene {
         this.module.HEAPU8.set(bytes, p);
         let loaded;
         try {
-            loaded = this.renderer.loadGlb(p, bytes.byteLength, {featureEdgeAngleDeg: FEATURE_EDGE_ANGLE_DEG, lineColor: EDGE_COLOR, doubleSided: true});
+            loaded = this.renderer.loadGlb(p, bytes.byteLength, {featureEdgeAngleDeg: FEATURE_EDGE_ANGLE_DEG, lineColor: EDGE_COLOR, sectionCaps: true});
         } finally {
             this.module._free(p);
         }
@@ -201,7 +201,13 @@ export class NativeScene {
     }
 
     /** Cut the model by planes (`normal . x + constant = 0`, the +normal side is kept); none removes the cut. */
-    setSectionPlanes(planes: readonly {normal: readonly [number, number, number]; constant: number}[]): void {
+    setSectionPlanes(
+        planes: readonly {normal: readonly [number, number, number]; constant: number}[],
+        capColor: readonly [number, number, number] | null = null,
+    ): void {
+        // The cut through closed solids is filled, in one colour (linear rgb) when given.
+        this.renderer.setSectionCaps(planes.length > 0);
+        if (capColor) this.renderer.setSectionCapColor(capColor[0], capColor[1], capColor[2], 1);
         const used = planes.slice(0, MAX_CLIP_PLANES);
         const p = this.module._malloc(Math.max(1, used.length) * 16);
         used.forEach((plane, i) => this.module.HEAPF32.set([...plane.normal, plane.constant], (p >> 2) + i * 4));
