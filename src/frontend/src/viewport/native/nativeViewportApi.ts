@@ -56,6 +56,8 @@ export function createNativeViewportApi(scene: NativeScene): ViewportApi {
         fitSelection: () => void scene.fitSelection(),
         setView: (view: CameraView) => scene.viewFrom(namedViewDirection(view)),
         resetCamera: () => scene.home(),
+        cameraPose: () => scene.viewPose(),
+        setCameraPose: (eye, target, roll) => scene.setCameraPose(eye, target, roll),
         orbitStep: (right, up) => scene.orbitBy(right * ORBIT_STEP_RAD, up * ORBIT_STEP_RAD),
         panStep: (right, up) => scene.panBy(right * PAN_STEP_FRACTION, up * PAN_STEP_FRACTION),
         objectsCentre: (refs) => scene.objectsCentre(own(refs)),

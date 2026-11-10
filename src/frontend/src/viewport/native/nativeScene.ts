@@ -442,6 +442,33 @@ export class NativeScene {
         return out;
     }
 
+    /** Where the camera is and what it looks at; `up` is the world's up axis. */
+    viewPose(): {eye: [number, number, number]; target: [number, number, number]; up: [number, number, number]; fovDeg: number} {
+        const pose = this.renderer.cameraPose();
+        return {eye: [...pose.eye], target: [...pose.target], up: [0, 0, 1], fovDeg: pose.fov};
+    }
+
+    /** Put the camera at `eye` looking at `target`, rolled by `roll` radians about that direction
+     *  (the world's up turned about it). */
+    setCameraPose(eye: readonly [number, number, number], target: readonly [number, number, number], roll: number): void {
+        let up: [number, number, number] = [0, 0, 1];
+        if (roll !== 0) {
+            // Rodrigues: the up axis turned by `roll` about the unit view direction.
+            const d = [target[0] - eye[0], target[1] - eye[1], target[2] - eye[2]];
+            const l = Math.hypot(d[0], d[1], d[2]) || 1;
+            const k = [d[0] / l, d[1] / l, d[2] / l];
+            const c = Math.cos(roll), s = Math.sin(roll), kz = k[2];
+            up = [
+                -k[1] * s + k[0] * kz * (1 - c),
+                k[0] * s + k[1] * kz * (1 - c),
+                c + kz * kz * (1 - c),
+            ];
+        }
+        const pose = this.renderer.cameraPose();
+        this.renderer.cameraSetPose(eye[0], eye[1], eye[2], target[0], target[1], target[2], up[0], up[1], up[2], pose.fov, pose.orthographic, 0, 0);
+        this.invalidate();
+    }
+
     /** The camera's axes in the world: `right` and `up` of the screen, and `back`, from the model towards
      *  the camera. */
     cameraAxes(): {right: [number, number, number]; up: [number, number, number]; back: [number, number, number]} {

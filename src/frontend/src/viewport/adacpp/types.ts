@@ -160,6 +160,12 @@ export interface WebRendererApi {
     cameraView(name: string, seconds: number): boolean;
     cameraSetOrientation(azimuthDeg: number, elevationDeg: number, rollDeg: number, seconds: number): void;
     cameraPose(): CameraPoseInfo;
+    /** Put the camera at `eye`, looking at `target`, with `up` deciding its roll. `orthoHeight` 0
+     *  derives it; `seconds` > 0 moves there over that time. */
+    cameraSetPose(
+        ex: number, ey: number, ez: number, tx: number, ty: number, tz: number, ux: number, uy: number, uz: number,
+        fovDeg: number, orthographic: boolean, orthoHeight: number, seconds: number,
+    ): void;
     /** The camera's view and projection (column-major, clip z 0..1) for the canvas' aspect. */
     cameraMatrices(): {view: Float32Array; proj: Float32Array};
     cameraSetOrthographic(on: boolean): void;

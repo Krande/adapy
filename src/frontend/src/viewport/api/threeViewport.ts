@@ -2,6 +2,7 @@
 // interface existed, moved here unchanged. The modules are imported on first use, as the commands
 // imported them, so the boot path does not pay for the scene helpers.
 import type * as THREE from "three";
+import {Vector3} from "three";
 import type CameraControls from "camera-controls";
 import type {OrbitControls} from "three/examples/jsm/controls/OrbitControls";
 
@@ -223,6 +224,24 @@ export function createThreeViewport(h: ThreeViewportHandles): ViewportApi {
                 requestRender();
             }),
         resetCamera: () => void cameraHandlers().then((m) => m.resetCameraHome(h.camera, h.controls)),
+        cameraPose: () => {
+            const position = h.camera.position;
+            const target = "target" in h.controls ? h.controls.target : h.controls.getTarget(new Vector3());
+            const up = h.camera.up;
+            return {eye: [position.x, position.y, position.z], target: [target.x, target.y, target.z], up: [up.x, up.y, up.z], fovDeg: h.camera.fov};
+        },
+        // The three.js viewport's own input drives its controls directly; this is for a caller that
+        // only has a pose. Roll is the 3D mouse's, which keeps it itself on this viewport.
+        setCameraPose: (eye, target) => {
+            if ("target" in h.controls) {
+                h.camera.position.set(eye[0], eye[1], eye[2]);
+                h.controls.target.set(target[0], target[1], target[2]);
+                h.controls.update();
+            } else {
+                void h.controls.setLookAt(eye[0], eye[1], eye[2], target[0], target[1], target[2], false);
+            }
+            requestRender();
+        },
         orbitStep: (right, up) =>
             void cameraKeys().then((m) => {
                 m.orbitByStep(h.controls, h.camera, right, up);

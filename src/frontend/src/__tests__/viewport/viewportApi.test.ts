@@ -39,6 +39,8 @@ function recorder(kind: ViewportApi["kind"], cannot: string | null = null): {api
             isolate: log("isolate"),
             objectVisibility: () => () => null,
             showAll: log("showAll"),
+            cameraPose: () => null,
+            setCameraPose: log("setCameraPose"),
             fitAll: log("fitAll"),
             fitSelection: log("fitSelection"),
             setView: log("setView"),

@@ -26,6 +26,13 @@ export interface ObjectRef {
     node?: string | null;
 }
 
+export interface ViewportCameraPose {
+    eye: [number, number, number];
+    target: [number, number, number];
+    up: [number, number, number];
+    fovDeg: number;
+}
+
 export interface SetSelectionOptions {
     /** Add to the selection instead of replacing it. */
     add?: boolean;
@@ -82,6 +89,11 @@ export interface ViewportApi {
     saveScreenshot(): void;
 
     // The camera.
+    /** Where the camera is and what it looks at, for input that moves it directly (a 3D mouse).
+     *  `up` is the world's up axis, not the camera's own; null before there is a camera. */
+    cameraPose(): ViewportCameraPose | null;
+    /** Put the camera at `eye` looking at `target`, rolled by `roll` radians about that direction. */
+    setCameraPose(eye: Point3, target: Point3, roll: number): void;
     fitAll(): void;
     fitSelection(): void;
     setView(view: CameraView): void;

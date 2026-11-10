@@ -69,6 +69,7 @@ import {applyObjectModeMotion, DEFAULT_RATES, rolledUp} from "./navigation";
 import {createOneEuro, resetOneEuro, stepOneEuro} from "./smoothing";
 import type {InputWindow} from "@/utils/scene/renderInputSummary";
 import {VIEWPORT_INPUT_ATTR} from "@/viewport/input";
+import {activeViewport} from "@/viewport/api/viewportApi";
 
 // The slice of WebHID this file uses. TypeScript's DOM lib does not carry the
 // API, and these few lines are cheaper than a types dependency.
@@ -309,13 +310,72 @@ export function tickSpaceMouse(frameDelta: number, camera: THREE.PerspectiveCame
     }
 }
 
+/** What `tickSpaceMousePose` moves: a camera known only by where it is and what it looks at. */
+export interface SpaceMousePoseRig {
+    /** Fill `position` and `target` with the camera's pose; false when there is no camera to move. */
+    read(position: Vector3, target: Vector3): boolean;
+    /** The pose after this frame's motion, and the view's roll about its direction (radians). */
+    write(position: Vector3, target: Vector3, roll: number): void;
+    /** The world's up axis, unit length. */
+    worldUp: Vector3;
+    fovDeg: number;
+}
+
+let poseGestureOpen = false;
+
+/**
+ * One frame of 3D-mouse motion for a viewport that is driven by pose alone (no orbit controls of
+ * three.js behind it): the same device state, filter, dead zone and navigation as `tickSpaceMouse`.
+ * Returns true when the camera moved.
+ */
+export function tickSpaceMousePose(frameDelta: number, rig: SpaceMousePoseRig): boolean {
+    const now = performance.now();
+    if (pad && pad.poll(now)) active = true;
+    if (!active) return false;
+    const settings = useSpaceMouseStore.getState();
+    const fresh = now - axis.lastMotionAt <= STALE_MS || now <= holdUntil;
+    const frameDt = frameDelta < MAX_DT ? frameDelta : MAX_DT;
+    stepOneEuro(filter, fresh ? axis.raw : AT_REST, frameDt, FULL_SCALE, filtered);
+    const moving = processAxes(filtered, settings, motion);
+    if (!moving) {
+        if (now - lastMovingAt > LINGER_MS) {
+            poseGestureOpen = false;
+            active = false;
+            resetOneEuro(filter);
+        }
+        return false;
+    }
+    lastMovingAt = now;
+    // A gesture's first frame takes the real delta; after that, the average.
+    dtAvg = poseGestureOpen ? dtAvg + (frameDt - dtAvg) * DT_EMA : frameDt;
+    poseGestureOpen = true;
+    if (!rig.read(_position, _target)) return false;
+    const moved = applyObjectModeMotion(
+        _position, _target, rig.worldUp, motion, dtAvg, rig.fovDeg, settings.sensitivity, DEFAULT_RATES, rollAngle,
+    );
+    if (motion[5] !== 0) {
+        rollAngle += motion[5] * DEFAULT_RATES.rotate * settings.sensitivity * dtAvg;
+        if (rollAngle > Math.PI) rollAngle -= 2 * Math.PI;
+        else if (rollAngle < -Math.PI) rollAngle += 2 * Math.PI;
+    }
+    if (!moved && motion[5] === 0) return false;
+    rig.write(_position, _target, rollAngle);
+    return true;
+}
+
 function runButton(action: SpaceMouseButtonAction): void {
     if (action === "none") return;
     const rt = getViewerRuntime();
     const scene = rt.scene.current;
     const camera = rt.camera.current;
     const controls = rt.controls.current;
-    if (!camera || !controls) return;
+    if (!camera || !controls) {
+        // No three.js camera: the viewport on screen frames what was asked for.
+        const viewport = activeViewport();
+        if (action === "fitAll") viewport?.fitAll();
+        else viewport?.fitSelection();
+        return;
+    }
     endGesture();
     if (action === "fitAll") {
         if (scene) fitAllView(scene, camera, controls);
