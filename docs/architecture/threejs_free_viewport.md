@@ -55,9 +55,11 @@ flowchart LR
 | Failure | If WebGPU or the module cannot start, or the device is lost, the state becomes `failed` with the reason, `CanvasWrapper` mounts the three.js viewport, and the model that was handed over is loaded there. The Performance panel shows the reason. |
 
 What the main viewer does beyond this is listed in the viewport itself under "Not available in
-this mode", so nothing looks broken by omission: the section plane gizmo and filled cuts, FEA
-results and animation, labels and plugin overlays, measurements and gizmos, screenshots and export,
-and overlaying several models.
+this mode", so nothing looks broken by omission.
+
+React reads the selection through `viewport/api/useViewportSelection.ts` (its count, the selected
+objects, a token that changes with it), so a panel written against it follows whichever viewport is
+on screen.
 
 ### Keeping the chunk free of three.js
 
@@ -77,8 +79,8 @@ These are open design points, ordered by how much of the viewer depends on them.
 
 1. **The interface features program against.** A feature that reaches into `THREE.Scene` exists on
    one viewport only. `src/frontend/src/viewport/api` is the interface both stand behind:
-   `ViewportApi` (the selection as object refs, visibility of the model's objects, the model's
-   box, fit, named views, reset, orbit and pan by step), implemented by `threeViewport.ts` over the three.js scene and by
+   `ViewportApi` (the selection as object refs and its changes, hiding, showing and isolating
+   objects, how each is drawn, the model's box, fit, named views, reset, orbit and pan by step), implemented by `threeViewport.ts` over the three.js scene and by
    `native/nativeViewportApi.ts` over `NativeScene`. The viewport on screen registers itself
    (`setActiveViewport`); commands ask `activeViewport()`, and the keys are bound once for both in
    `viewportShortcuts.ts`. A viewport says what it cannot do yet (`unavailable(feature)`), and the
@@ -96,10 +98,10 @@ These are open design points, ordered by how much of the viewer depends on them.
    nothing reads it yet. The streaming FEA loader
    (`utils/scene/fea`) is not connected to it.
 4. **Section planes and caps.** The planes are plain data in `state/sectionStore` (no three.js),
-   and both viewports cut by them, so the section commands work on either. Missing on the
-   three.js-free viewport: the filled cut (the reader would have to mark closed solids as capped)
-   and a gizmo. A gizmo without `TransformControls` is its own piece of work (handles as on-top
-   instances, hit-testing through `pick`).
+   and both viewports cut by them, so the section commands and the panel's sliders work on either.
+   On the three.js-free viewport the reader flags single-sided surfaces as closed solids, so their
+   cut is filled, and `native/sectionGizmo.ts` draws the active plane's outline and an arrow that
+   drags it (helper lines on top, hit-tested on screen).
 5. **Labels and markers.** The renderer draws textured sprites. A native label layer needs the
    text rasterised to textures without a `THREE.CanvasTexture` (a plain canvas works) and a store of
    label positions.
