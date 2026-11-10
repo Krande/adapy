@@ -2,6 +2,15 @@
 
 
 
+## v0.141.0 (2026-11-10)
+
+### Feature
+
+* feat(viewer): read the 3D mouse over the Gamepad API, no prompt (#524)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`c624be8`](https://github.com/Krande/adapy/commit/c624be87198fd8b6a95ce4c4691708dc4c31d86c))
+
+
 ## v0.140.0 (2026-11-10)
 
 ### Chore
