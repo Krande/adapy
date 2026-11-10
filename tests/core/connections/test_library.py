@@ -46,6 +46,11 @@ def isolate(monkeypatch):
             del sys.modules[name]
 
 
+def _own(specs) -> list[str]:
+    """The test library's specs, without core's built-ins (registered beside it)."""
+    return [s.name for s in specs if s.name.startswith("devlib.")]
+
+
 def _write_library(root, name="devlib.plate_on_box", message="first"):
     pkg = root / "devlib"
     pkg.mkdir(exist_ok=True)
@@ -87,8 +92,10 @@ def test_load_reload_and_build(tmp_path):
     result = lib.load()
     assert result.ok, result.traceback
     assert "devlib.plate_on_box" in result.modules
-    specs = lib.specs()
+    specs = [s for s in lib.specs() if s["in_library"]]
     assert [s["name"] for s in specs] == ["devlib.plate_on_box"]
+    # Core's built-ins are listed from the start (not only once a clash measurement registers them).
+    assert any(s["name"].startswith("builtin.") and not s["in_library"] for s in lib.specs())
     spec = specs[0]
     assert spec["in_library"] is True
     assert spec["defaults"]["incoming"] == {"thickness": 0.02, "width": 0.4, "height": 0.3}
@@ -105,9 +112,47 @@ def test_load_reload_and_build(tmp_path):
     _write_library(tmp_path, name="devlib.renamed", message="second")
     result = lib.reload()
     assert result.ok, result.traceback
-    assert [s.name for s in list_specs()] == ["devlib.renamed"]
+    assert _own(list_specs()) == ["devlib.renamed"]
     report = lib.build("devlib.renamed", {}, glb)
     assert report["log"][-1]["message"] == "second"
+
+
+def test_a_build_reports_the_joints_members_and_welds(tmp_path):
+    _write_library(tmp_path)
+    lib = Library(load_config(tmp_path))
+    assert lib.load().ok
+    report = lib.build("devlib.plate_on_box", {"incoming": {"thickness": 0.03}}, tmp_path / "out.glb")
+
+    members = {m["role"]: m for m in report["properties"]["members"]}
+    assert set(members) == {"incoming", "landing"}
+    assert members["incoming"]["type"] == "Plate"
+    assert members["incoming"]["thickness"] == pytest.approx(0.03)
+    assert members["landing"]["type"] == "Beam"
+    assert members["landing"]["section"]["type"] == "BOX"
+    assert members["landing"]["length"] == pytest.approx(2.0)
+    assert report["properties"]["welds"] == []  # the test builder makes none
+
+
+def test_a_build_measures_the_joints_clash(tmp_path):
+    from ada.clash.contacts import available
+
+    if not available():
+        pytest.skip("the installed adacpp cannot measure contacts")
+    _write_library(tmp_path)
+    lib = Library(load_config(tmp_path))
+    assert lib.load().ok
+    report = lib.build("devlib.plate_on_box", {}, tmp_path / "out.glb")
+
+    run = report["clash_run"]
+    assert report["clash_note"] is None
+    assert run["schema"] == "ada.clash/contacts@1"
+    names = [m["name"] for m in run["members"]]
+    # One clash: the plate standing on the beam's top face, the plate incoming.
+    (contact,) = run["contacts"]
+    assert {names[k] for k in contact["members"]} == {"sample_incoming", "sample_landing"}
+    assert names[contact["roles"]["incoming"]] == "sample_incoming"
+    assert names[contact["roles"]["landing"]] == "sample_landing"
+    assert "devlib.plate_on_box" in [a["spec"] for a in contact["applicable"]]
 
 
 def test_a_same_size_edit_within_the_second_is_not_served_from_stale_bytecode(tmp_path):
@@ -129,11 +174,11 @@ def test_a_broken_edit_is_reported_and_the_next_one_recovers(tmp_path):
     result = lib.reload()
     assert not result.ok
     assert "SyntaxError" in result.error
-    assert list_specs() == []
+    assert _own(list_specs()) == []
 
     _write_library(tmp_path)
     assert lib.reload().ok
-    assert [s.name for s in list_specs()] == ["devlib.plate_on_box"]
+    assert _own(list_specs()) == ["devlib.plate_on_box"]
 
 
 def test_a_library_notapplicable_counts_as_declined_by_name():
@@ -169,7 +214,7 @@ def test_devhost_protocol(tmp_path):
     try:
         ready = json.loads(proc.stdout.readline())
         assert ready["event"] == "ready" and ready["ok"], ready
-        assert [s["name"] for s in ready["specs"]] == ["devlib.plate_on_box"]
+        assert [s["name"] for s in ready["specs"] if s["in_library"]] == ["devlib.plate_on_box"]
 
         glb = tmp_path / "host.glb"
         proc.stdin.write(json.dumps({"id": 1, "op": "build", "spec_name": "devlib.plate_on_box", "glb_path": str(glb)}))

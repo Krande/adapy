@@ -153,6 +153,12 @@ class Library:
             if str(p) not in sys.path:
                 sys.path.insert(0, str(p))
         importlib.invalidate_caches()
+        # Core's built-in specs are registered too, up front: measuring a joint's clash resolves the
+        # specs that claim it against the whole registry, built-ins included, and registers them
+        # if they are not -- so without this the spec list would grow after the first build.
+        from ada.clash.builtin_specs import register_builtin_specs
+
+        register_builtin_specs()
         before = set(sys.modules)
         try:
             for package in self.config.packages:

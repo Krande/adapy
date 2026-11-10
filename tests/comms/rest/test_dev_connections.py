@@ -100,7 +100,7 @@ def test_serve_build_and_reload(client: TestClient, lib_dir: pathlib.Path):
     state = _wait_for(client, lambda s: s["status"] in ("ready", "error"))
     assert state["status"] == "ready", state["error"]
     assert state["library"]["name"] == "rest test library"
-    assert [s["name"] for s in state["specs"]] == ["devrest.plate_on_box"]
+    assert [s["name"] for s in state["specs"] if s["in_library"]] == ["devrest.plate_on_box"]
     generation = state["generation"]
 
     r = client.post(
@@ -120,7 +120,7 @@ def test_serve_build_and_reload(client: TestClient, lib_dir: pathlib.Path):
     _write(lib_dir, name="devrest.renamed")
     state = _wait_for(client, lambda s: s["generation"] > generation and s["status"] != "reloading")
     assert state["status"] == "ready", state["error"]
-    assert [s["name"] for s in state["specs"]] == ["devrest.renamed"]
+    assert [s["name"] for s in state["specs"] if s["in_library"]] == ["devrest.renamed"]
     assert any("joint.py" in c for c in state["changed"])
     generation = state["generation"]
 
