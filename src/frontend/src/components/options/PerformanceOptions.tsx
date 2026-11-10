@@ -46,6 +46,14 @@ const RendererBackendOptions: React.FC = () => {
     const setAdacppConeCull = usePerfStore((s) => s.setAdacppConeCull);
     const adacppOcclusionCull = usePerfStore((s) => s.adacppOcclusionCull);
     const setAdacppOcclusionCull = usePerfStore((s) => s.setAdacppOcclusionCull);
+    const adacppLabels = usePerfStore((s) => s.adacppLabels);
+    const setAdacppLabels = usePerfStore((s) => s.setAdacppLabels);
+    const adacppPointPick = usePerfStore((s) => s.adacppPointPick);
+    const setAdacppPointPick = usePerfStore((s) => s.setAdacppPointPick);
+    const adacppCapture = usePerfStore((s) => s.adacppCapture);
+    const setAdacppCapture = usePerfStore((s) => s.setAdacppCapture);
+    const adacppNoWebGL = usePerfStore((s) => s.adacppNoWebGL);
+    const setAdacppNoWebGL = usePerfStore((s) => s.setAdacppNoWebGL);
     const status = useAdacppRenderStatus();
     const st = status.stats;
 
@@ -97,10 +105,32 @@ const RendererBackendOptions: React.FC = () => {
                                 title="Occlusion culling (GPU)"
                                 blurb="Skips clusters hidden behind others. Used on models of 2M+ triangles; smaller ones cull on the CPU."
                             />
-                            <div>
-                                Not drawn by this renderer yet: section caps, transform gizmos, face
-                                highlight. Labels and icons draw on top of the model.
-                            </div>
+                            <div className="pt-1 text-gray-300">Handed over from three.js (opt-in)</div>
+                            <Row
+                                checked={adacppLabels || adacppNoWebGL}
+                                onChange={() => { setAdacppLabels(!adacppLabels); requestRender(); }}
+                                title="Labels, markers and icons"
+                                blurb="Drawn by adacpp and hidden behind the model where it covers them. Off: a three.js pass draws them on top of everything."
+                            />
+                            <Row
+                                checked={adacppPointPick || adacppNoWebGL}
+                                onChange={() => setAdacppPointPick(!adacppPointPick)}
+                                title="Point picking"
+                                blurb="Points are picked in adacpp's id buffer. Off: three.js' point picker."
+                            />
+                            <Row
+                                checked={adacppCapture || adacppNoWebGL}
+                                onChange={() => setAdacppCapture(!adacppCapture)}
+                                title="Screenshots and animation export"
+                                blurb="Taken from the WebGPU image, so they show what is on screen. Off: re-rendered by three.js."
+                            />
+                            <Row
+                                checked={adacppNoWebGL}
+                                onChange={() => setAdacppNoWebGL(!adacppNoWebGL)}
+                                title="WebGPU only: no WebGL renderer"
+                                blurb="Constructs no WebGL renderer for the main viewport and turns the three switches above on. If WebGPU cannot start, WebGL is started instead and the reason is shown here."
+                                reloadHint
+                            />
                         </>
                     )}
                 </div>

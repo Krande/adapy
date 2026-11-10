@@ -1,5 +1,37 @@
 import * as THREE from 'three';
 import {getViewerRuntime} from "@/state/viewerRuntime";
+import {cameraForAspect, captureViewport} from "@/viewport/capture";
+
+const SCREENSHOT_WIDTH = 1920;
+const SCREENSHOT_HEIGHT = 1080;
+
+function download(canvas: HTMLCanvasElement): void {
+    canvas.toBlob(blob => {
+        if (blob) {
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = 'screenshot.png';
+            link.click();
+        }
+    });
+}
+
+/** The screenshot taken from the adacpp WebGPU image, when that renderer is on screen and captures are
+ *  handed over to it. False: three.js takes it. */
+function takeAdacppScreenshot(scene: THREE.Scene, camera: THREE.Camera): boolean {
+    const viewport = captureViewport();
+    if (!viewport) return false;
+    const canvas = document.createElement('canvas');
+    canvas.width = SCREENSHOT_WIDTH;
+    canvas.height = SCREENSHOT_HEIGHT;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return false;
+    getViewerRuntime().updateLight.current?.();
+    const cam = cameraForAspect(camera, SCREENSHOT_WIDTH / SCREENSHOT_HEIGHT);
+    if (!viewport.captureInto(ctx, scene, cam, SCREENSHOT_WIDTH, SCREENSHOT_HEIGHT)) return false;
+    download(canvas);
+    return true;
+}
 
 export async function takeScreenshot() {
     let renderer = getViewerRuntime().renderer.current;
@@ -18,6 +50,7 @@ export async function takeScreenshot() {
         return;
     }
 
+    if (takeAdacppScreenshot(scene, camera)) return;
     await takeHighResScreenshot(renderer, scene, camera, false);
 }
 
@@ -28,8 +61,8 @@ export async function takeHighResScreenshot(
     camera: THREE.Camera,
     transparentBackground = false // <-- optional flag
 ) {
-    const width = 1920;
-    const height = 1080;
+    const width = SCREENSHOT_WIDTH;
+    const height = SCREENSHOT_HEIGHT;
 
     const renderTarget = new THREE.WebGLRenderTarget(width, height, {
         type: THREE.UnsignedByteType,
@@ -88,14 +121,7 @@ export async function takeHighResScreenshot(
 
     ctx.putImageData(imageData, 0, 0);
 
-    tempCanvas.toBlob(blob => {
-        if (blob) {
-            const link = document.createElement('a');
-            link.href = URL.createObjectURL(blob);
-            link.download = 'screenshot.png';
-            link.click();
-        }
-    });
+    download(tempCanvas);
 
     renderer.setRenderTarget(originalRenderTarget);
     renderer.setSize(originalSize.x, originalSize.y);

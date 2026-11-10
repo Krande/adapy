@@ -17,7 +17,8 @@ import * as THREE from "three";
 import {useColorStore} from "@/state/colorLegendStore";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {getViewerRuntime} from "@/state/viewerRuntime";
-import {setRenderSuspended} from "@/state/perfStore";
+import {requestRender, setRenderSuspended} from "@/state/perfStore";
+import {cameraForAspect, captureViewport} from "@/viewport/capture";
 import {getColormap} from "@/utils/scene/fea/colormaps";
 import {selectedResultUnit} from "@/utils/scene/fea/resultUnits";
 import {formatStepTime} from "@/utils/scene/fea/timeHistory";
@@ -194,23 +195,6 @@ function drawGizmo(ctx: CanvasRenderingContext2D, w: number, h: number, gizmo: H
     ctx.drawImage(gizmo, w - size - pad, h - size - pad, size, size);
 }
 
-/** A copy of the view camera with the export's aspect, so the live camera is untouched. */
-function exportCamera(camera: THREE.Camera, aspect: number): THREE.Camera {
-    const cam = camera.clone();
-    if (cam instanceof THREE.PerspectiveCamera) {
-        cam.aspect = aspect;
-        cam.updateProjectionMatrix();
-    } else if (cam instanceof THREE.OrthographicCamera) {
-        // Keep the vertical extent, widen / narrow the horizontal one around its centre.
-        const cx = (cam.left + cam.right) / 2;
-        const halfH = (cam.top - cam.bottom) / 2;
-        cam.left = cx - halfH * aspect;
-        cam.right = cx + halfH * aspect;
-        cam.updateProjectionMatrix();
-    }
-    return cam;
-}
-
 /** Render the planned frames of the active FEA session and download the result. */
 export async function exportFeaAnimation(options: ExportOptions): Promise<void> {
     const settings = normaliseExportSettings(options.settings);
@@ -248,7 +232,7 @@ export async function exportFeaAnimation(options: ExportOptions): Promise<void> 
     const ctx = canvas.getContext("2d", {willReadFrequently: settings.format === "gif"})!;
     ctx.imageSmoothingQuality = "high";
     const bg = backgroundFill(renderer, scene);
-    const cam = exportCamera(camera, w / h);
+    const cam = cameraForAspect(camera, w / h);
     const gizmo = settings.gizmo ? gizmoCanvas() : null;
 
     const original = {stepIndex: anim.stepIndex, factor: anim.factor, isPlaying: anim.isPlaying};
@@ -259,10 +243,15 @@ export async function exportFeaAnimation(options: ExportOptions): Promise<void> 
             ? await (await import("./mp4Sink")).createMp4Sink(canvas, plan.fps)
             : await createGifSink(canvas, plan.fps);
 
+    // Frames come from the adacpp WebGPU image when it is on screen and captures are handed over to
+    // it: what three.js would re-render is not what the user sees then.
+    const adacpp = captureViewport();
     // Own the renderer: no loop draws, drawing buffer at export size (CSS size kept).
     setRenderSuspended(true);
-    renderer.setPixelRatio(1);
-    renderer.setSize(w, h, false);
+    if (!adacpp) {
+        renderer.setPixelRatio(1);
+        renderer.setSize(w, h, false);
+    }
     let finished = false;
     try {
         for (let i = 0; i < plan.frames.length; i++) {
@@ -282,13 +271,17 @@ export async function exportFeaAnimation(options: ExportOptions): Promise<void> 
             // A browser may cap the drawing buffer below what was asked for; read
             // back what it actually holds, then render and copy in the same task
             // (the buffer is only guaranteed intact until the browser composites).
-            const gl = renderer.getContext();
-            const bufW = gl.drawingBufferWidth;
-            const bufH = gl.drawingBufferHeight;
-            renderer.render(scene, cam);
             ctx.fillStyle = bg;
             ctx.fillRect(0, 0, w, h);
-            ctx.drawImage(src, 0, 0, bufW, bufH, 0, 0, w, h);
+            if (adacpp) {
+                if (!adacpp.captureInto(ctx, scene, cam, w, h)) throw new Error("the WebGPU renderer stopped during the export");
+            } else {
+                const gl = renderer.getContext();
+                const bufW = gl.drawingBufferWidth;
+                const bufH = gl.drawingBufferHeight;
+                renderer.render(scene, cam);
+                ctx.drawImage(src, 0, 0, bufW, bufH, 0, 0, w, h);
+            }
             if (gizmo) drawGizmo(ctx, w, h, gizmo);
             if (settings.legend) drawOverlay(ctx, w, h, legendInfo(), frame);
             await sink.add(i);
@@ -299,9 +292,12 @@ export async function exportFeaAnimation(options: ExportOptions): Promise<void> 
         download(blob, exportFileName(anim.sourceName, anim.fieldName, settings.format));
     } finally {
         if (!finished) await sink.cancel().catch(() => {});
-        renderer.setPixelRatio(originalPixelRatio);
-        renderer.setSize(viewSize.x, viewSize.y, false);
+        if (!adacpp) {
+            renderer.setPixelRatio(originalPixelRatio);
+            renderer.setSize(viewSize.x, viewSize.y, false);
+        }
         setRenderSuspended(false);
+        requestRender(); // the next loop draw puts the on-screen size back
         const state = useFeaAnimationStore.getState();
         state.setFactor(original.factor);
         if (plan.stepsChange && state.stepIndex !== original.stepIndex) {

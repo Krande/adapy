@@ -26,6 +26,7 @@ import {consumeDirty, isRenderSuspended, requestRender, usePerfStore} from "@/st
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {renderProfiler} from "@/utils/scene/renderProfiler";
 import {bindSpaceMouseToOptions, tickSpaceMouse} from "@/utils/spacemouse/spaceMouseDevice";
+import {setCaptureViewport} from "@/viewport/capture";
 import {AdacppViewport} from "@/viewport/adacpp/adacppViewport";
 import {ensureViewportInput} from "@/viewport/input";
 import {setPickingViewport} from "@/viewport/picking";
@@ -278,6 +279,7 @@ const ThreeCanvas: React.FC = () => {
                 // Device lost / render failure: hand the viewport back to three.js.
                 adacppRef.current = adacpp = null;
                 setPickingViewport(null);
+                setCaptureViewport(null);
                 renderer.domElement.style.opacity = "";
             }
             if (shouldRender && adacpp) {
@@ -377,6 +379,7 @@ const ThreeCanvas: React.FC = () => {
                 }
                 adacppRef.current = vp;
                 setPickingViewport(vp);
+                setCaptureViewport(vp);
                 // Transparent, not hidden: the camera controls and pointer handlers listen on this
                 // canvas, and a visibility:hidden element gets no pointer/touch events at all.
                 if (rendererRef.current) rendererRef.current.domElement.style.opacity = "0";
@@ -386,6 +389,7 @@ const ThreeCanvas: React.FC = () => {
         return () => {
             cancelled = true;
             setPickingViewport(null);
+            setCaptureViewport(null);
             adacppRef.current?.dispose();
             adacppRef.current = null;
             if (rendererRef.current) rendererRef.current.domElement.style.opacity = "";

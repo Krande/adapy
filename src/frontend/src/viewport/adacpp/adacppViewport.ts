@@ -95,6 +95,18 @@ export const useAdacppRenderStatus = create<AdacppRenderStatus>(() => ({
     stats: null,
 }));
 
+// The state on the document element too (`data-adacpp-renderer`, with the failure reason beside it), so
+// an end-to-end test can tell a WebGPU frame from a silent fallback to three.js.
+if (typeof document !== "undefined") {
+    const publish = (st: AdacppRenderStatus) => {
+        document.documentElement.dataset.adacppRenderer = st.state;
+        if (st.error) document.documentElement.dataset.adacppRendererError = st.error;
+        else delete document.documentElement.dataset.adacppRendererError;
+    };
+    publish(useAdacppRenderStatus.getState());
+    useAdacppRenderStatus.subscribe(publish);
+}
+
 let canvasSerial = 0;
 
 export class AdacppViewport {
@@ -106,6 +118,7 @@ export class AdacppViewport {
     private cssWidth = 0;
     private cssHeight = 0;
     private spriteRenderer: THREE.WebGLRenderer | null = null;
+    private culling = {frustum: true, cone: true, occlusion: true};
 
     private constructor(
         private readonly module: AdacppModule,
@@ -195,25 +208,10 @@ export class AdacppViewport {
         culling: {frustum: boolean; cone: boolean; occlusion: boolean},
     ) {
         if (!this.alive_) return;
+        this.culling = culling;
         const w = Math.max(1, Math.floor(this.cssWidth * pixelRatio));
         const h = Math.max(1, Math.floor(this.cssHeight * pixelRatio));
-        if (this.canvas.width !== w || this.canvas.height !== h) {
-            this.canvas.width = w;
-            this.canvas.height = h;
-        }
-        try {
-            this.renderer.resize(w, h);
-            this.renderer.setCulling(culling.frustum, culling.cone, culling.occlusion);
-            this.sync.sync(scene, camera, w, h, pixelRatio);
-            this.renderer.render();
-            this.renderSprites(scene, camera, w, h);
-        } catch (err) {
-            this.alive_ = false;
-            const message = err instanceof Error ? err.message : String(err);
-            console.error("[adacpp-webgpu] render failed; back to three.js", err);
-            useAdacppRenderStatus.setState({state: "failed", error: message});
-            return;
-        }
+        if (!this.draw(scene, camera, w, h, pixelRatio)) return;
         const now = performance.now();
         if (now - this.lastStatsPush > 250) {
             this.lastStatsPush = now;
@@ -228,6 +226,44 @@ export class AdacppViewport {
                 useAdacppRenderStatus.setState({stats: {...st, syncMs}});
             }
         }
+    }
+
+    /** One frame at `w` x `h` device pixels. False when it failed: the viewport is then dead and three.js
+     *  takes over (the status carries the reason). */
+    private draw(scene: THREE.Scene, camera: THREE.Camera, w: number, h: number, pixelRatio: number): boolean {
+        if (this.canvas.width !== w || this.canvas.height !== h) {
+            this.canvas.width = w;
+            this.canvas.height = h;
+        }
+        try {
+            this.renderer.resize(w, h);
+            this.renderer.setCulling(this.culling.frustum, this.culling.cone, this.culling.occlusion);
+            this.sync.sync(scene, camera, w, h, pixelRatio);
+            this.renderer.render();
+            this.renderSprites(scene, camera, w, h);
+            return true;
+        } catch (err) {
+            this.alive_ = false;
+            const message = err instanceof Error ? err.message : String(err);
+            console.error("[adacpp-webgpu] render failed; back to three.js", err);
+            useAdacppRenderStatus.setState({state: "failed", error: message});
+            return false;
+        }
+    }
+
+    /** Draw one frame at `width` x `height` pixels through `camera` and copy it into `target` (scaled to
+     *  the target canvas), for screenshots and animation export. Rendered and copied in one task: a
+     *  canvas' WebGPU image is only guaranteed until the browser composites. The next render() puts the
+     *  on-screen size back. False when the renderer has gone. */
+    captureInto(target: CanvasRenderingContext2D, scene: THREE.Scene, camera: THREE.Camera, width: number, height: number): boolean {
+        if (!this.alive_) return false;
+        const w = Math.max(1, Math.floor(width)), h = Math.max(1, Math.floor(height));
+        if (!this.draw(scene, camera, w, h, 1)) return false;
+        const out = target.canvas;
+        target.drawImage(this.canvas, 0, 0, w, h, 0, 0, out.width, out.height);
+        const sprites = this.spriteRenderer?.domElement;
+        if (sprites && sprites.style.display !== "none") target.drawImage(sprites, 0, 0, w, h, 0, 0, out.width, out.height);
+        return true;
     }
 
     /** Draw the scene's sprites (SceneSync put them on SPRITE_LAYER) with three.js, over the WebGPU image. */

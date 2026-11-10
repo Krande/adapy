@@ -25,6 +25,18 @@ export interface PerfState {
     adacppConeCull: boolean;
     // GPU two-pass occlusion culling; the renderer applies it to large scenes (2M+ triangles) only.
     adacppOcclusionCull: boolean;
+    // What three.js still does while adacpp draws, each handed over by its own switch (all off by
+    // default), so the WebGPU path can be tried piece by piece and compared with the WebGL one:
+    // labels, markers and icons drawn by adacpp, depth-tested against the model (else a three.js
+    // sprite pass on a canvas above);
+    adacppLabels: boolean;
+    // points picked through adacpp's id buffer (else three.js' GpuPointPicker);
+    adacppPointPick: boolean;
+    // screenshots and animation export taken from the WebGPU image (else re-rendered by three.js);
+    adacppCapture: boolean;
+    // and no WebGLRenderer constructed for the main viewport at all (read at construction: reload
+    // required, like `antialias`). Implies the three above. If WebGPU fails, WebGL is started then.
+    adacppNoWebGL: boolean;
 
     // FEA material gating ----------------------------------------------------
     materialMode: MaterialMode;
@@ -84,6 +96,10 @@ export interface PerfState {
     setAdacppFrustumCull: (v: boolean) => void;
     setAdacppConeCull: (v: boolean) => void;
     setAdacppOcclusionCull: (v: boolean) => void;
+    setAdacppLabels: (v: boolean) => void;
+    setAdacppPointPick: (v: boolean) => void;
+    setAdacppCapture: (v: boolean) => void;
+    setAdacppNoWebGL: (v: boolean) => void;
     setMaterialMode: (v: MaterialMode) => void;
     setSolidsBackfaceCull: (v: boolean) => void;
     setSolidsSmoothShading: (v: boolean) => void;
@@ -120,6 +136,10 @@ export const usePerfStore = create<PerfState>()(
             adacppFrustumCull: true,
             adacppConeCull: true,
             adacppOcclusionCull: true,
+            adacppLabels: false,
+            adacppPointPick: false,
+            adacppCapture: false,
+            adacppNoWebGL: false,
 
             materialMode: "standard",
             solidsBackfaceCull: false,
@@ -145,6 +165,10 @@ export const usePerfStore = create<PerfState>()(
             setAdacppFrustumCull: (v) => set({adacppFrustumCull: v}),
             setAdacppConeCull: (v) => set({adacppConeCull: v}),
             setAdacppOcclusionCull: (v) => set({adacppOcclusionCull: v}),
+            setAdacppLabels: (v) => set({adacppLabels: v}),
+            setAdacppPointPick: (v) => set({adacppPointPick: v}),
+            setAdacppCapture: (v) => set({adacppCapture: v}),
+            setAdacppNoWebGL: (v) => set({adacppNoWebGL: v}),
             setMaterialMode: (v) => set({materialMode: v}),
             setSolidsBackfaceCull: (v) => set({solidsBackfaceCull: v}),
             setSolidsSmoothShading: (v) => set({solidsSmoothShading: v}),
@@ -219,4 +243,14 @@ export function setRenderSuspended(suspended: boolean): void {
 }
 export function isRenderSuspended(): boolean {
     return _renderSuspended;
+}
+
+/** What adacpp does instead of three.js while it draws: each switch, or all of them in the no-WebGL mode. */
+export function adacppHandover(state: Pick<PerfState, "adacppLabels" | "adacppPointPick" | "adacppCapture" | "adacppNoWebGL"> = usePerfStore.getState()) {
+    return {
+        labels: state.adacppLabels || state.adacppNoWebGL,
+        pointPick: state.adacppPointPick || state.adacppNoWebGL,
+        capture: state.adacppCapture || state.adacppNoWebGL,
+        noWebGL: state.adacppNoWebGL,
+    };
 }
