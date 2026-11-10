@@ -41,7 +41,9 @@ export interface ViewportApi {
     selectionToken(): unknown;
     /** Make `refs` the selection (one undo step where the viewport has undo). Objects that are not
      *  drawn (a level of the hierarchy, an unknown id) are left out. */
-    setSelection(refs: readonly ObjectRef[]): void | Promise<void>;
+    /** `within` runs as part of the same step: state that belongs to the selection (what the object
+     *  info names), so an undo takes both back. */
+    setSelection(refs: readonly ObjectRef[], within?: () => void): void;
     clearSelection(): void;
     hideSelected(): void;
     /** Hide everything that is not selected. */

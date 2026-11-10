@@ -17,7 +17,10 @@ export function createNativeViewportApi(scene: NativeScene): ViewportApi {
         selectionCount: () => scene.selectionSize,
         selection: () => scene.selectedIds.map((id) => ({model: scene.modelKey, id})),
         selectionToken: () => scene.selectionVersion,
-        setSelection: (refs) => scene.setSelection(refs.filter((r) => r.model === scene.modelKey).map((r) => r.id)),
+        setSelection: (refs, within) => {
+            scene.setSelection(own(refs));
+            within?.();
+        },
         clearSelection: () => scene.select(null),
         hide: (refs) => scene.setHiddenMany(own(refs), true),
         show: (refs) => scene.setHiddenMany(own(refs), false),

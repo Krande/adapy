@@ -310,7 +310,7 @@ export function coreCommandSpecs(): CommandSpec[] {
       label: "Select parent",
       group: "Edit",
       shortcut: "core:select-parent",
-      disabledReason: nothingSelectedInScene,
+      disabledReason: nothingSelected,
       run: () => sceneActions().selectParent(),
     },
     {
@@ -318,7 +318,7 @@ export function coreCommandSpecs(): CommandSpec[] {
       label: "Select first child",
       group: "Edit",
       shortcut: "core:select-child",
-      disabledReason: nothingSelectedInScene,
+      disabledReason: nothingSelected,
       run: () => void navigation().then((m) => m.selectChildLevel()),
     },
     {
@@ -326,7 +326,7 @@ export function coreCommandSpecs(): CommandSpec[] {
       label: "Select previous sibling",
       group: "Edit",
       shortcut: "core:select-prev-sibling",
-      disabledReason: nothingSelectedInScene,
+      disabledReason: nothingSelected,
       run: () => void navigation().then((m) => m.selectSibling(-1)),
     },
     {
@@ -334,7 +334,7 @@ export function coreCommandSpecs(): CommandSpec[] {
       label: "Select next sibling",
       group: "Edit",
       shortcut: "core:select-next-sibling",
-      disabledReason: nothingSelectedInScene,
+      disabledReason: nothingSelected,
       run: () => void navigation().then((m) => m.selectSibling(1)),
     },
     {
@@ -342,9 +342,9 @@ export function coreCommandSpecs(): CommandSpec[] {
       label: "Copy names",
       group: "Edit",
       shortcut: "core:copy-names",
-      disabledReason: nothingSelectedInScene,
+      disabledReason: nothingSelected,
       run: () =>
-        void import("@/utils/clipboard/copySelectionNames").then((m) => m.copySelectionNames(useSelectedObjectStore.getState().selectedObjects)),
+        void import("@/utils/clipboard/copySelectionNames").then((m) => m.copySelectionNames()),
     },
     {
       id: ID.groupSelection,

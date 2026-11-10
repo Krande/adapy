@@ -64,14 +64,14 @@ export async function selectRows(
     if (target.length) {
         // One tree selection, one undo entry (Ctrl+Z / Ctrl+Y), however large the subtree; on whichever
         // viewport is on screen.
-        await viewport?.setSelection(objectRefs(subtreeOf(target)));
+        viewport?.setSelection(objectRefs(subtreeOf(target)));
         // The selected row itself, never a descendant from the subtree walk (selecting a container
         // must name the container). Under multi-select the first row stands for the rest: the
         // widget reports its selection in document order, so there is no "clicked one".
         useObjectInfoStore.getState().setName(target[0].name);
         useObjectInfoStore.getState().setSelectedNodeId(target[0].id);
     } else {
-        await viewport?.setSelection([]);
+        viewport?.setSelection([]);
         useObjectInfoStore.getState().setSelectedNodeId(null);
     }
     const ids = target.map((r) => r.id);

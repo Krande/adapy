@@ -64,10 +64,13 @@ export function threeSelectionRefs(): ObjectRef[] {
 }
 
 /** Select `refs` in the three.js scene: each one's mesh is the one its tree row names. One undo step. */
-export function setThreeSelection(refs: readonly ObjectRef[]): void {
+export function setThreeSelection(refs: readonly ObjectRef[], within?: () => void): void {
     const store = useSelectedObjectStore.getState();
     if (!refs.length) {
-        recordViewerAction("clear-selection", () => store.clearSelectedObjects());
+        recordViewerAction("clear-selection", () => {
+            store.clearSelectedObjects();
+            within?.();
+        });
         requestRender();
         return;
     }
@@ -88,6 +91,7 @@ export function setThreeSelection(refs: readonly ObjectRef[]): void {
     recordViewerAction("select", () => {
         store.clearSelectedObjects();
         store.addBatchofMeshes(batch);
+        within?.();
     });
     requestRender();
 }

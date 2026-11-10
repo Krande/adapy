@@ -245,7 +245,7 @@ const SelectionSummary = () => {
             if (ok) flashCopied("multi");
             return;
         }
-        const n = await copySelectionNames(selectedObjects);
+        const n = await copySelectionNames();
         if (n > 0) flashCopied("multi");
     };
 

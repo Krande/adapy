@@ -166,7 +166,7 @@ const SceneTreeMenu: React.FC<SceneMenuState & {onClose: () => void}> = ({row, r
             key: "copy",
             label: "Copy names  (Ctrl+C)",
             separatorBefore: true,
-            onClick: () => void copySelectionNames(useSelectedObjectStore.getState().selectedObjects),
+            onClick: () => void copySelectionNames(),
         },
         {
             key: "add-to-group",

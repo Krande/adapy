@@ -12,26 +12,12 @@
  */
 
 import {queryNameFromRangeId} from "@/utils/mesh_select/queryMeshDrawRange";
-import type {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
+import {activeViewport, type ObjectRef} from "@/viewport/api/viewportApi";
 import {selectedTreeRowNames} from "@/utils/tree_view/treeKeyboard";
 
-/** Resolve every (mesh, drawRangeId) pair in a selection map into
- * the corresponding element name via the existing range-id lookup.
- * Failed lookups are dropped silently. */
-export async function resolveSelectionNames(
-    selection: Map<CustomBatchedMesh | unknown, Set<string>>,
-): Promise<string[]> {
-    const lookups: Promise<string | null>[] = [];
-    selection.forEach((rangeIds, mesh) => {
-        const lookupKey: string | undefined =
-            (mesh as any).unique_key ??
-            ((mesh as any).userData ? (mesh as any).userData["unique_hash"] : undefined);
-        if (!lookupKey) return;
-        for (const rangeId of rangeIds) {
-            lookups.push(queryNameFromRangeId(lookupKey, rangeId));
-        }
-    });
-    const results = await Promise.allSettled(lookups);
+/** The names of `refs`, each looked up by its model and id. Failed lookups are dropped silently. */
+export async function resolveSelectionNames(refs: readonly ObjectRef[]): Promise<string[]> {
+    const results = await Promise.allSettled(refs.map((ref) => queryNameFromRangeId(ref.model, ref.id)));
     const names: string[] = [];
     for (const r of results) {
         if (r.status === "fulfilled" && r.value) names.push(r.value);
@@ -79,7 +65,8 @@ export async function writeToClipboard(text: string): Promise<boolean> {
 /** Convenience: resolve selection → join names with newlines →
  * copy. Returns the count of names actually copied (0 on failure). */
 export async function copySelectionNames(
-    selection: Map<CustomBatchedMesh | unknown, Set<string>>,
+    /** Default: what is selected on the viewport on screen. */
+    selection: readonly ObjectRef[] = activeViewport()?.selection() ?? [],
 ): Promise<number> {
     // Levels picked in the tree copy as the levels' own names, not every member under them.
     const names = selectedTreeRowNames() ?? (await resolveSelectionNames(selection));
