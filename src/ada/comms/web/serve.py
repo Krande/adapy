@@ -36,7 +36,8 @@ class CustomHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
         super().__init__(*args, directory=directory, **kwargs)
 
     def do_GET(self):
-        if self.path == "/" or self.path == "/index.html":
+        # The query is the page's business (`?renderer=...` picks the render backend), not the route's.
+        if self.path.split("?", 1)[0] in ("/", "/index.html"):
             # Serve the index.html file with replacements
             try:
                 modified_html_content = self.renderer_obj.get_html_with_injected_data(
