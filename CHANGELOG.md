@@ -2,6 +2,15 @@
 
 
 
+## v0.143.0 (2026-11-10)
+
+### Feature
+
+* feat: configurable camera controls, and commands, camera and sections shared by both viewports (#528)
+
+Co-authored-by: Claude Fable 5.2 &lt;noreply@anthropic.com&gt; ([`6109ebf`](https://github.com/Krande/adapy/commit/6109ebf29dbcdd91798da51823d9d0eeab2f8b43))
+
+
 ## v0.142.1 (2026-11-10)
 
 ### Fix
