@@ -19,11 +19,15 @@ export type SpaceMouseButtonAction = "none" | "fitAll" | "fitSelection";
 
 export type SpaceMouseConnection =
     | "off"           // support switched off in Options
-    | "unsupported"   // this browser has no WebHID
+    | "unsupported"   // this browser has neither WebHID nor the Gamepad API
     | "disconnected"  // on, but no granted device present
     | "connecting"
     | "connected"
+    | "noAxes"        // a Gamepad-API pad was found, but the browser exposes no axes for it
     | "error";        // the device was found but could not be opened
+
+/** What is driving the view: the desktop app's native reader, a WebHID device, or the Gamepad API. */
+export type SpaceMouseSource = "native" | "webhid" | "gamepad";
 
 export interface SpaceMouseState {
     enabled: boolean;
@@ -47,6 +51,8 @@ export interface SpaceMouseState {
     connection: SpaceMouseConnection;
     deviceName: string | null;
     error: string | null;
+    /** Which source drives the view while `connection` is "connected". */
+    source: SpaceMouseSource | null;
 
     /** The user's choice, from Options. */
     setEnabled: (v: boolean) => void;
@@ -61,7 +67,7 @@ export interface SpaceMouseState {
     setEnableRoll: (v: boolean) => void;
     setButton1: (v: SpaceMouseButtonAction) => void;
     setButton2: (v: SpaceMouseButtonAction) => void;
-    setConnection: (connection: SpaceMouseConnection, deviceName?: string | null, error?: string | null) => void;
+    setConnection: (connection: SpaceMouseConnection, deviceName?: string | null, error?: string | null, source?: SpaceMouseSource | null) => void;
 }
 
 export const useSpaceMouseStore = create<SpaceMouseState>()(
@@ -82,6 +88,7 @@ export const useSpaceMouseStore = create<SpaceMouseState>()(
             connection: "off",
             deviceName: null,
             error: null,
+            source: null,
 
             setEnabled: (v) => set({enabled: v, chosen: true}),
             autoEnable: () => set((s) => (s.chosen || s.enabled ? s : {enabled: true})),
@@ -101,7 +108,7 @@ export const useSpaceMouseStore = create<SpaceMouseState>()(
             setEnableRoll: (v) => set({enableRoll: v}),
             setButton1: (v) => set({button1: v}),
             setButton2: (v) => set({button2: v}),
-            setConnection: (connection, deviceName = null, error = null) => set({connection, deviceName, error}),
+            setConnection: (connection, deviceName = null, error = null, source = null) => set({connection, deviceName, error, source}),
         }),
         {
             name: "ada-spacemouse",
