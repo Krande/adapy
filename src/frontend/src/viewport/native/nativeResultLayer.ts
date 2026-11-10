@@ -21,6 +21,9 @@ export class NativeResultLayer implements ResultMeshLayer {
     private readonly matrixPtr: number;
     private readonly color: readonly [number, number, number];
     private readonly baseFlags: number;
+    /** Lines' width and points' diameter in the drawing buffer's pixels, and the layer's opacity. */
+    private readonly size: number;
+    private readonly opacity: number;
     private painted = false;
     private colorsVisible = true;
     private visible = true;
@@ -32,6 +35,11 @@ export class NativeResultLayer implements ResultMeshLayer {
         data: ResultMeshData,
         /** The picture is out of date: the scene draws a frame. */
         private readonly changed: () => void,
+        /** CSS pixels to the drawing buffer's. */
+        pixelRatio = 1,
+        /** The index list cut into segments (start and count, two numbers each, covering it in
+         *  order): each is picked, hidden and coloured on its own. */
+        segments: Uint32Array | null = null,
     ) {
         const M = module;
         const n = data.positions.length / 3;
@@ -41,8 +49,11 @@ export class NativeResultLayer implements ResultMeshLayer {
         // Faces: both sides (a shell has no inside), cut by the section planes, and just behind
         // coplanar lines so element edges draw cleanly on them. Lines and points are unlit overlays
         // that a click passes through.
+        this.opacity = Math.max(0, Math.min(1, data.opacity ?? 1));
+        this.size = Math.max(1, (data.sizePx ?? 1) * pixelRatio);
         this.baseFlags = InstanceFlag.MorphRelative | InstanceFlag.Clipped |
-            (triangles ? InstanceFlag.DoubleSided | InstanceFlag.DepthBack : InstanceFlag.Unlit | InstanceFlag.NoPick);
+            (triangles ? InstanceFlag.DoubleSided | InstanceFlag.DepthBack : InstanceFlag.Unlit | InstanceFlag.NoPick) |
+            (this.opacity < 1 ? InstanceFlag.Transparent : 0);
 
         this.colorsPtr = M._malloc(Math.max(1, n) * 4);
         this.morphPtr = M._malloc(Math.max(1, n) * 12);
@@ -54,16 +65,22 @@ export class NativeResultLayer implements ResultMeshLayer {
         const positionsPtr = M._malloc(Math.max(1, n) * 12);
         const indexCount = data.indices?.length ?? 0;
         const indicesPtr = indexCount ? M._malloc(indexCount * 4) : 0;
+        // The parts of the index list that are picked and given a state one at a time.
+        const segmentCount = segments ? segments.length / 2 : 0;
+        const segmentsPtr = segmentCount ? M._malloc(segments!.byteLength) : 0;
         try {
             M.HEAPF32.set(data.positions, positionsPtr >> 2);
             if (indicesPtr) M.HEAPU32.set(data.indices!, indicesPtr >> 2);
+            if (segmentsPtr) M.HEAPU32.set(segments!, segmentsPtr >> 2);
             // No normals: the renderer shades each face by its own, which follows the deformed shape.
             this.geometry = renderer.addGeometry(
-                TOPOLOGY[data.topology], positionsPtr, n, 0, this.colorsPtr, this.morphPtr, indicesPtr, indexCount, 0, 0, 0,
+                TOPOLOGY[data.topology], positionsPtr, n, 0, this.colorsPtr, this.morphPtr, indicesPtr, indexCount,
+                segmentsPtr, segmentCount, 0,
             );
         } finally {
             M._free(positionsPtr);
             if (indicesPtr) M._free(indicesPtr);
+            if (segmentsPtr) M._free(segmentsPtr);
         }
         this.instance = renderer.addInstance(this.geometry);
         this.push();
@@ -76,7 +93,7 @@ export class NativeResultLayer implements ResultMeshLayer {
         if (this.painted && this.colorsVisible) flags |= InstanceFlag.VertexColors;
         if (!this.visible) flags |= InstanceFlag.Hidden;
         const [r, g, b] = this.color;
-        this.renderer.setInstance(this.instance, this.matrixPtr, r, g, b, 1, flags, this.influence, 0, 1, false, 1, 0, 0);
+        this.renderer.setInstance(this.instance, this.matrixPtr, r, g, b, this.opacity, flags, this.influence, 0, 1, false, this.size, 0, 0);
         this.changed();
     }
 
@@ -129,11 +146,20 @@ export class NativeResultLayer implements ResultMeshLayer {
         this.push();
     }
 
+    /** The renderer's instance of the layer: what a pick names. */
+    get instanceId(): number {
+        return this.instance;
+    }
+
+    /** Called when the layer is taken off the viewport by `remove`. */
+    onRemove: (() => void) | null = null;
+
     remove(): void {
         if (!this.alive) return;
         this.renderer.removeInstance(this.instance);
         this.renderer.removeGeometry(this.geometry);
         this.detach();
+        this.onRemove?.();
         this.changed();
     }
 

@@ -85,8 +85,8 @@ def _is_coloured(px) -> bool:  # a result colour map: clearly not grey
     return max(px) - min(px) > 70
 
 
-async def _viewport_ready(page: Page) -> bool:
-    return _count(await _pixels(page), _is_background) > 500000
+async def _viewport_ready(page: Page, empty_pixels: int = 500000) -> bool:
+    return _count(await _pixels(page), _is_background) > empty_pixels
 
 
 async def _model_on_screen(page: Page) -> bool:
@@ -121,9 +121,10 @@ async def _until(page: Page, check, what: str, seconds: float = 20.0):
     raise AssertionError(f"timed out waiting for {what}")
 
 
-async def _open_viewer(playwright, ws_server, backend: str, init_script: str | None = None):
+async def _open_viewer(playwright, ws_server, backend: str, init_script: str | None = None, empty_pixels: int = 500000):
     """A viewer page on `backend`, connected to the websocket server; skips when WebGPU has no adapter here.
-    `init_script` runs in the page before the viewer starts (stored settings)."""
+    `init_script` runs in the page before the viewer starts (stored settings); `empty_pixels` is how much
+    of the page the empty viewport shows (less in a UI with panels docked around it)."""
     query, perf, state = BACKENDS.get(backend, (backend, {}, "off"))
     browser = await playwright.chromium.launch(headless=True, args=CHROMIUM_ARGS)
     page = await browser.new_page(viewport=VIEWPORT)
@@ -147,7 +148,7 @@ async def _open_viewer(playwright, ws_server, backend: str, init_script: str | N
             raise AssertionError("the viewer never became live on the websocket")
     # Live on the socket is not yet ready for a scene: the viewport (grid, gizmo) has to be up, or the
     # first model sent is dropped.
-    await _until(page, lambda: _viewport_ready(page), "the empty viewport")
+    await _until(page, lambda: _viewport_ready(page, empty_pixels), "the empty viewport")
     return browser, page, state
 
 
@@ -653,5 +654,248 @@ async def test_box_selection_on_whichever_viewport_is_on_screen(ws_server, backe
             await page.wait_for_timeout(800)
             windowed = _count(await _pixels(page), _is_selected)
             assert windowed > 2.2 * one, f"{backend}: the window selected {windowed} pixels, one object is {one}"
+        finally:
+            await browser.close()
+
+
+async def _show_result(page: Page, ws_server, result_file, painted_pixels: int = 5000) -> None:
+    """Send an FEA result to the viewer and wait for its first field to be painted."""
+    result = ada.from_fem_res(result_file)
+    await asyncio.to_thread(lambda: result.show(port=ws_server.port, unique_id=1, ping_timeout=10))
+
+    async def coloured():
+        return _count(await _pixels(page), _is_coloured) > painted_pixels
+
+    await _until(page, coloured, "the result field to be painted", seconds=40)
+
+
+async def _select_field(page: Page, name: str) -> None:
+    """Pick a result field in the Simulation panel, and wait for the viewer to have taken it."""
+    picker = page.locator("select").filter(has=page.locator(f"option[value='{name}']")).first
+    before = (await _pixels(page)).tobytes()
+    await picker.select_option(name)
+
+    async def painted():
+        return await picker.input_value() == name and (await _pixels(page)).tobytes() != before
+
+    await _until(page, painted, f"the field {name} to be painted")
+    await page.wait_for_timeout(500)
+
+
+@pytest.mark.parametrize("backend", ["three", NATIVE])
+async def test_fea_element_fields_and_result_points(ws_server, backend, fem_files):
+    """A field that lives on the elements, not the nodes: each element in its own colour, and a marker
+    for each result point of a field that has them, on whichever viewport is on screen."""
+    result_file = fem_files / "cantilever/sesam/static/shell/STATIC_SHELL_CANTILEVER_SESAMR1.SIF"
+    async with async_playwright() as playwright:
+        browser, page, state = await _open_viewer(playwright, ws_server, backend)
+        try:
+            await _show_result(page, ws_server, result_file)
+            await _assert_drawing_with(page, backend, state)
+
+            # an element field: painted, and named by the legend
+            await _select_field(page, "sesam.element_average.g_stress")
+            assert _count(await _pixels(page), _is_coloured) > 5000, f"{backend}: the element field is not painted"
+            assert await page.get_by_text("Element average / G-STRESS").count() >= 1, f"{backend}: no legend for it"
+
+            # result points: a marker each, which the panel's switch takes away and brings back
+            await _select_field(page, "sesam.resultpoints.g_stress")
+            # (counted over the model only: the panel's own switch changes too)
+            model = (420, 200, 1000, 700)
+            with_markers = (await _pixels(page)).crop(model).tobytes()
+            markers = page.get_by_label("Result points")
+            await markers.uncheck()
+            await page.wait_for_timeout(700)
+            without_markers = (await _pixels(page)).crop(model).tobytes()
+            assert without_markers != with_markers, f"{backend}: switching the result points off changed nothing"
+            await markers.check()
+
+            async def markers_back():
+                return (await _pixels(page)).crop(model).tobytes() == with_markers
+
+            await _until(page, markers_back, f"{backend}: the result points to be drawn again")
+            await _assert_drawing_with(page, backend, state)
+        finally:
+            await browser.close()
+
+
+def _point_on_result(image: Image.Image) -> tuple[int, int]:
+    """A pixel well inside the painted result: the one nearest the middle of its coloured pixels that
+    has colour all around it. The panels at the left and the legend at the right are left out."""
+    px = image.load()
+    step = 4
+    coloured = [
+        (x, y)
+        for y in range(260, image.height - 40, step)
+        for x in range(300, 1000, step)
+        if all(_is_coloured(px[x + dx, y + dy]) for dx, dy in ((0, 0), (6, 0), (-6, 0), (0, 6), (0, -6)))
+    ]
+    assert coloured, "no painted result on screen"
+    mx = sorted(x for x, _ in coloured)[len(coloured) // 2]
+    my = sorted(y for _, y in coloured)[len(coloured) // 2]
+    return min(coloured, key=lambda p: (p[0] - mx) ** 2 + (p[1] - my) ** 2)
+
+
+@pytest.mark.parametrize("backend", ["three", NATIVE])
+async def test_fea_elements_are_picked_listed_and_hidden(ws_server, backend, fem_files):
+    """The elements of a result are objects like any other: the Scene tree lists them, a click on the
+    result selects one and its row, and it is hidden and shown again with the viewer's own commands."""
+    result_file = fem_files / "cantilever/sesam/static/shell/STATIC_SHELL_CANTILEVER_SESAMR1.SIF"
+    model = (300, 250, 1030, 780)  # the view between the panels and the legend
+    async with async_playwright() as playwright:
+        browser, page, state = await _open_viewer(playwright, ws_server, backend)
+        try:
+            await _show_result(page, ws_server, result_file)
+            await _command(page, "Selection tree")
+            rows = page.get_by_role("treeitem")
+
+            async def listed():
+                return await rows.count() >= 1
+
+            await _until(page, listed, f"{backend}: the Scene tree to list the result")
+            await page.wait_for_timeout(500)
+            untouched = await _pixels(page)
+
+            # 3D -> tree: a click on the result selects the element under it, and its row
+            x, y = _point_on_result(untouched)
+            selected_row = page.locator("[role=treeitem][aria-selected=true]")
+
+            async def element_selected():
+                # (the three.js viewport prepares its picking of a result on the first click, and draws
+                # the selection from the second)
+                await _click(page, x, y)
+                drawn = (await _pixels(page)).crop(model).tobytes() != untouched.crop(model).tobytes()
+                return drawn and await selected_row.count() == 1 and (await selected_row.first.inner_text()).strip()
+
+            name = await _until(page, element_selected, f"{backend}: a click on the result to select an element")
+            assert name.startswith("E"), f"{backend}: the selected row is {name!r}, not an element"
+            picked = (await _pixels(page)).crop(model)
+            # the rest of the result keeps its colours under the selection
+            assert _count(picked, _is_coloured) > 0.8 * _count(untouched.crop(model), _is_coloured)
+
+            # hidden, the element leaves the picture; shown again, the result is as it was
+            await _command(page, "Hide selected")
+            hidden = (await _pixels(page)).crop(model).tobytes()
+            assert hidden not in (picked.tobytes(), untouched.crop(model).tobytes()), f"{backend}: nothing was hidden"
+            await _command(page, "Show all")
+
+            async def restored():
+                return (await _pixels(page)).crop(model).tobytes() == untouched.crop(model).tobytes()
+
+            await _until(page, restored, f"{backend}: Show all to bring the element back")
+            await _assert_drawing_with(page, backend, state)
+        finally:
+            await browser.close()
+
+
+@pytest.mark.parametrize("backend", ["three", NATIVE])
+async def test_fea_beams_are_drawn_as_their_sections(ws_server, backend, fem_files):
+    """Beam elements as their solid cross-sections: switched on they take the place of the beams'
+    lines, carry the field's colours, and each is the element it stands for when clicked."""
+    if backend == "three":
+        pytest.skip("the three.js viewport's loader does not open a result made of line elements only")
+    result_file = fem_files / "cantilever/sesam/static/line/STATIC_LINE_CANTILEVER_SESAMR1.SIF"
+    model = (300, 280, 1030, 780)  # the view between the panels and the legend
+    async with async_playwright() as playwright:
+        browser, page, state = await _open_viewer(playwright, ws_server, backend)
+        try:
+            await _show_result(page, ws_server, result_file, painted_pixels=500)
+            await _command(page, "Selection tree")
+            await _select_field(page, "sesam.element_average.b_stress")
+            as_lines = _count((await _pixels(page)).crop(model), _is_coloured)
+
+            sections = page.get_by_label("Beams as solid")
+            await sections.check()
+
+            async def drawn_as_sections():
+                return _count((await _pixels(page)).crop(model), _is_coloured) > 5 * as_lines
+
+            await _until(page, drawn_as_sections, f"{backend}: the beams to be drawn as their sections")
+            await _assert_drawing_with(page, backend, state)
+
+            # a click on a section selects that beam element, in 3D and in the Scene tree
+            unselected = _count((await _pixels(page)).crop(model), _is_selected)
+            await _click(page, *_point_on_result(await _pixels(page)))
+            assert (
+                _count((await _pixels(page)).crop(model), _is_selected) > unselected + 300
+            ), f"{backend}: no beam selected"
+            selected_row = page.locator("[role=treeitem][aria-selected=true]")
+
+            async def row_selected():
+                return await selected_row.count() == 1 and (await selected_row.first.inner_text()).strip().startswith(
+                    "E"
+                )
+
+            await _until(page, row_selected, f"{backend}: the beam's row to be selected in the tree")
+
+            # switched off, the beams are lines again
+            await sections.uncheck()
+
+            async def drawn_as_lines():
+                return _count((await _pixels(page)).crop(model), _is_coloured) < 2 * as_lines
+
+            await _until(page, drawn_as_lines, f"{backend}: the beams to be drawn as lines again")
+        finally:
+            await browser.close()
+
+
+@pytest.mark.parametrize("backend", ["three", NATIVE])
+async def test_fea_number_labels_follow_whichever_viewport_is_on_screen(ws_server, backend, fem_files):
+    """Element and node numbers over a result: drawn over the model where the viewport on screen puts
+    its elements, and placed again when the camera moves."""
+    result_file = fem_files / "cantilever/sesam/static/shell/STATIC_SHELL_CANTILEVER_SESAMR1.SIF"
+    async with async_playwright() as playwright:
+        # The number labels are part of the desktop UI's view (the classic one has no overlays).
+        desktop = "localStorage.setItem('ada:ui', 'desktop')"
+        browser, page, state = await _open_viewer(playwright, ws_server, backend, desktop, empty_pixels=300000)
+        try:
+            await _show_result(page, ws_server, result_file)
+            await _command(page, "Element numbers")
+            labels = page.locator("[data-number-labels] [data-label-kind=element]")
+
+            async def labelled():
+                return await labels.count() >= 5
+
+            await _until(page, labelled, f"{backend}: element numbers to be drawn")
+
+            async def places():
+                return await labels.evaluate_all(
+                    "els => els.map(e => { const r = e.getBoundingClientRect();"
+                    " return [e.textContent, Math.round(r.x + r.width / 2), Math.round(r.y + r.height / 2)]; })"
+                )
+
+            # the labels sit on the painted result, not somewhere else in the view (the legend lies over
+            # part of the result, and over the labels there)
+            before = await places()
+            image = await _pixels(page)
+            near_result = 0
+            for _, x, y in before:
+                box = image.crop((x - 14, y - 14, x + 14, y + 14))
+                near_result += _count(box, _is_coloured) > 0
+            assert near_result >= 0.5 * len(
+                before
+            ), f"{backend}: {near_result} of {len(before)} labels lie on the result"
+            assert all(
+                text.isdigit() for text, _, _ in before
+            ), f"{backend}: labels {before[:5]} are not element numbers"
+
+            # the camera moves: the labels are placed again
+            await page.keyboard.press("Escape")
+            await page.mouse.move(*CENTRE)
+            await page.mouse.wheel(0, -400)
+
+            async def moved():
+                return await labels.count() >= 1 and await places() != before
+
+            await _until(page, moved, f"{backend}: the labels to follow the camera")
+
+            await _command(page, "Node numbers")
+            nodes = page.locator("[data-number-labels] [data-label-kind=node]")
+
+            async def nodes_labelled():
+                return await nodes.count() >= 5
+
+            await _until(page, nodes_labelled, f"{backend}: node numbers to be drawn")
+            await _assert_drawing_with(page, backend, state)
         finally:
             await browser.close()

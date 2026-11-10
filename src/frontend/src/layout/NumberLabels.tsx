@@ -8,15 +8,20 @@
 //
 // A pass costs a bounded scan of the mesh, and runs only when something it
 // depends on changed (camera, view size, selection, deformation, toggles), at
-// most every 60 ms.
+// most every 60 ms. The result is read as plain data and the camera through the
+// viewport on screen (`ViewportApi.projectToScreen`, `onCameraChange`), so the
+// labels are the same on either viewport.
 
 import React from "react";
 
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {useLabelsStore} from "@/state/labelsStore";
 import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
-import {getViewerRuntime} from "@/state/viewerRuntime";
-import {collectLabels, type ScreenLabel} from "@/utils/scene/fea/numberLabels";
+import {useVisibilityStore} from "@/state/visibilityStore";
+import {placeLabels, type ScreenLabel} from "@/utils/scene/fea/labelPlacement";
+import {threeLabelSource} from "@/utils/scene/fea/numberLabels";
+import {layerLabelSource, layerSelectedElements} from "@/utils/scene/fea/streaming/layerSession";
+import {activeViewport, followActiveViewport, subscribeSelection} from "@/viewport/api/viewportApi";
 import {loadNodeLabelTable} from "@/utils/scene/fea/nodeLabelTable";
 import {loadElementValueTable, type ElementValueTable} from "@/utils/scene/fea/elementValueTable";
 
@@ -79,38 +84,30 @@ export function NumberLabels() {
         }
         let raf = 0;
         let last = 0;
-        let sig = "";
-        const tick = (now: number) => {
-            raf = requestAnimationFrame(tick);
-            if (now - last < MIN_INTERVAL_MS) return;
-            const rt = getViewerRuntime();
-            const camera = rt.camera.current;
-            const el = rt.renderer.current?.domElement;
-            const fea = useFeaAnimationStore.getState();
-            const mesh = fea.mesh;
-            if (!camera || !el || !mesh) return;
-            const width = el.clientWidth;
-            const height = el.clientHeight;
-            const selected = useSelectedObjectStore.getState().selectedObjects.get(mesh) ?? null;
-            const next = [
-                camera.matrixWorld.elements.join(","),
-                camera.projectionMatrix.elements[0],
-                camera.projectionMatrix.elements[5],
-                width,
-                height,
-                fea.factor,
-                fea.scaleFactor,
-                fea.stepIndex,
-                selected ? `${selected.size}:${[...selected].slice(0, 8).join(",")}` : "-",
-                tableFor ? "t" : "-",
-                valuesFor ? "v" : "-",
-            ].join("|");
-            if (next === sig) return;
-            sig = next;
+        let dirty = false;
+        const pass = (now: number) => {
+            raf = 0;
+            if (!dirty) return;
+            // At most one pass per interval: the rest of a burst of changes waits for the next.
+            if (now - last < MIN_INTERVAL_MS) {
+                raf = requestAnimationFrame(pass);
+                return;
+            }
+            dirty = false;
             last = now;
+            const viewport = activeViewport();
+            const mesh = useFeaAnimationStore.getState().mesh;
+            // The result as plain data: over the three.js mesh, or from the result layers of a
+            // viewport that has no such mesh.
+            const source = mesh ? threeLabelSource(mesh) : layerLabelSource();
+            if (!viewport || !source) {
+                setLabels((shown) => (shown.length ? [] : shown));
+                return;
+            }
+            const selected = mesh ? (useSelectedObjectStore.getState().selectedObjects.get(mesh) ?? null) : layerSelectedElements();
             const t = table.current;
             setLabels(
-                collectLabels(mesh, camera, {
+                placeLabels(source, (world, count, out) => viewport.projectToScreen(world, count, out), {
                     nodes,
                     elements,
                     values,
@@ -118,14 +115,37 @@ export function NumberLabels() {
                     cap: LABEL_CAP,
                     scanCap: LABEL_SCAN_CAP,
                     selected,
-                    width,
-                    height,
                     nodeText: t ? (i) => String(t[i] ?? i + 1) : undefined,
                 }),
             );
         };
-        raf = requestAnimationFrame(tick);
-        return () => cancelAnimationFrame(raf);
+        // Whatever a label's place or text depends on asks for a pass when it changes: the camera
+        // and the view's size (told by the viewport on screen), the selection, what is hidden,
+        // the deformation and the step.
+        const stale = () => {
+            dirty = true;
+            if (!raf) raf = requestAnimationFrame(pass);
+        };
+        const offs = [
+            followActiveViewport((viewport) => {
+                stale();
+                return viewport.onCameraChange(stale);
+            }),
+            subscribeSelection(stale),
+            useSelectedObjectStore.subscribe(stale),
+            useVisibilityStore.subscribe(stale),
+            useFeaAnimationStore.subscribe((s, p) => {
+                if (
+                    s.factor !== p.factor || s.scaleFactor !== p.scaleFactor || s.stepIndex !== p.stepIndex ||
+                    s.mesh !== p.mesh || s.resultLayer !== p.resultLayer
+                ) stale();
+            }),
+        ];
+        stale();
+        return () => {
+            cancelAnimationFrame(raf);
+            for (const off of offs) off();
+        };
     }, [nodes, elements, values, sessionActive, tableFor, valuesFor]);
 
     if (!labels.length) return null;

@@ -49,6 +49,8 @@ function recorder(kind: ViewportApi["kind"], cannot: string | null = null): {api
             orbitStep: log("orbitStep"),
             panStep: log("panStep"),
             objectsCentre: () => null,
+            projectToScreen: () => ({width: 0, height: 0}),
+            onCameraChange: () => () => {},
             billboards: () => {
                 throw new Error("no billboards in this test");
             },

@@ -21,7 +21,7 @@ import {capabilities} from "@/services/capabilities";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {peekCase, resolveCase} from "@/services/fea/feaCaseResolver";
 import {caseFieldView, isCaseRef} from "@/services/fea/feaStepRef";
-import {layerIpIndices, reduceIps} from "./applyElemField";
+import {layerIpIndices, reduceIps} from "./elemFieldPaint";
 import {mergeCaseSteps, slotRef} from "./caseSteps";
 import {feaSourceScope} from "./streaming/session";
 

@@ -1,4 +1,4 @@
-import * as THREE from "three";
+import type * as THREE from "three";
 
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 
@@ -104,12 +104,30 @@ export function paintedFieldValues(mesh: THREE.Object3D | null): number[] | null
     return Array.from(seen).sort((a, b) => a - b);
 }
 
+/** What a result drawn without a three.js mesh was painted with (a result drawn through result
+ *  layers), and how to ask whether one of its elements is hidden. */
+let layerValues: {values: ValueByRange; isHidden: (rangeId: string) => boolean} | null = null;
+
+/** Record what each element of a result drawn through result layers was painted with; null
+ *  forgets it. */
+export function recordLayerValues(values: ValueByRange | null, isHidden: (rangeId: string) => boolean = () => false): void {
+    layerValues = values ? {values, isHidden} : null;
+}
+
 /** The same, for whichever mesh the active result session is painting. */
 export function paintedFieldValuesForSession(): number[] | null {
-    return paintedFieldValues(useFeaAnimationStore.getState().mesh);
+    const mesh = useFeaAnimationStore.getState().mesh;
+    if (mesh || !layerValues || layerValues.values.size === 0) return paintedFieldValues(mesh);
+    const seen = new Set<number>();
+    for (const value of layerValues.values.values()) if (Number.isFinite(value)) seen.add(value);
+    return Array.from(seen).sort((a, b) => a - b);
 }
 
 /** The same, for whichever mesh the active result session is painting. */
 export function visibleFieldValuesForSession(): Set<number> | null {
-    return visibleFieldValues(useFeaAnimationStore.getState().mesh);
+    const mesh = useFeaAnimationStore.getState().mesh;
+    if (mesh || !layerValues || layerValues.values.size === 0) return visibleFieldValues(mesh);
+    const out = new Set<number>();
+    for (const [rangeId, value] of layerValues.values) if (!layerValues.isHidden(rangeId)) out.add(value);
+    return out;
 }

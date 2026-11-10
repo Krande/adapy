@@ -15,6 +15,7 @@ import {useTreeViewStore} from "@/state/treeViewStore";
 import {getViewerRuntime} from "@/state/viewerRuntime";
 import type {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
 import {batchedMeshOf, isBatched} from "@/utils/scene/meshLookup";
+import {matrixProjector} from "@/utils/scene/fea/labelPlacement";
 import {createThreeResultMesh} from "@/utils/scene/fea/threeResultLayer";
 import {recordViewerAction} from "@/utils/scene/viewerHistory";
 import {RangeSet, rangesInCameraRect, rangesInWorldBox, threeSelectionBounds} from "@/utils/bboxSelection/threeBoxSelection";
@@ -282,5 +283,37 @@ export function createThreeViewport(h: ThreeViewportHandles): ViewportApi {
         objectsInBox: rangesInWorldBox,
         objectsInScreenRect: (rect, mode) => rangesInCameraRect(rect, mode, h.camera),
         selectionBounds: threeSelectionBounds,
+        projectToScreen: (world, count, out) => {
+            const rt = getViewerRuntime();
+            const camera = rt.camera.current ?? h.camera;
+            const el = rt.renderer.current?.domElement;
+            const width = el?.clientWidth ?? 0, height = el?.clientHeight ?? 0;
+            return matrixProjector(camera.matrixWorldInverse.elements, camera.projectionMatrix.elements, width, height, -1)(world, count, out);
+        },
+        onCameraChange: (listener) => {
+            // The camera is moved by the controls, by commands and by animations, none of which
+            // says so in one place: its matrices and the view's size are compared once a frame
+            // for as long as someone listens. Numbers only, nothing allocated.
+            const seen = new Float64Array(34);
+            let raf = 0;
+            const check = () => {
+                raf = requestAnimationFrame(check);
+                const rt = getViewerRuntime();
+                const camera = rt.camera.current ?? h.camera;
+                const el = rt.renderer.current?.domElement;
+                const world = camera.matrixWorld.elements, proj = camera.projectionMatrix.elements;
+                let changed = false;
+                for (let i = 0; i < 34; i++) {
+                    const v = i < 16 ? world[i] : i < 32 ? proj[i - 16] : i === 32 ? (el?.clientWidth ?? 0) : (el?.clientHeight ?? 0);
+                    if (seen[i] !== v) {
+                        seen[i] = v;
+                        changed = true;
+                    }
+                }
+                if (changed) listener();
+            };
+            raf = requestAnimationFrame(check);
+            return () => cancelAnimationFrame(raf);
+        },
     };
 }

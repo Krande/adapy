@@ -28,7 +28,7 @@ function linearRgb(hex: string): [number, number, number] | null {
 }
 
 const UNAVAILABLE = [
-    "FEA element (integration point) fields, beam sections and picking in a result", "number labels and plugin overlays",
+    "element sets and the edges of beam sections of an FEA result", "plugin overlays",
     "requesting a selection box's contents from a source, and keeping boxes across reloads",
 ];
 

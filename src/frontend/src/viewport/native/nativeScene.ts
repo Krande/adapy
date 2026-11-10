@@ -5,6 +5,7 @@
 // and input is mapped to the camera's semantic operations (orbit, pan, zoom, fit, look from).
 import type {ResultMeshData, ResultMeshLayer} from "@/viewport/api/resultLayer";
 import {NativeResultLayer} from "./nativeResultLayer";
+import {growObjectBounds, indexResultSegments, resultSegments} from "./resultObjects";
 import {useCameraControlsStore} from "@/state/cameraControlsStore";
 import {useVisibilityStore} from "@/state/visibilityStore";
 import {dragAction, mouseButtonOf, wheelZoomFactor, type CameraAction} from "@/utils/camera/cameraMapping";
@@ -82,6 +83,10 @@ interface LoadedModel {
     instances: number[];
     geometries: number[];
     bounds: Bounds;
+    /** A model whose objects are drawn by result layers: each layer by its instance, with the
+     *  object of each of its segments. Its objects are listed in the order given, not sorted by
+     *  name, and its triangles are not counted. */
+    resultSegments?: Map<number, {layer: NativeResultLayer; objectOf: Int32Array}>;
 }
 
 let canvasSerial = 0;
@@ -259,6 +264,14 @@ export class NativeScene {
     private dropModel(key: string): void {
         const model = this.models.get(key);
         if (!model) return;
+        // A result model's geometry belongs to its layers: they take it off themselves.
+        for (const [instance, {layer}] of model.resultSegments ?? []) {
+            layer.onRemove = null;
+            layer.remove();
+            this.resultLayers.delete(layer);
+            this.segments.delete(instance);
+        }
+        if (model.resultSegments) model.instances = [];
         for (const instance of model.instances) {
             this.renderer.removeInstance(instance);
             this.segments.delete(instance);
@@ -275,9 +288,20 @@ export class NativeScene {
     /** The list of pickable objects and the box around everything, from the models on screen. */
     private rebuild(): void {
         const list: NativeObject[] = [];
+        // A result's elements, kept in the order they were given: there can be hundreds of
+        // thousands, and their ids are numbers that sorting as text would not put in order anyway.
+        const unsorted: NativeObject[] = [];
         let box: Bounds | null = null;
         for (const model of this.models.values()) {
             const table = model.table;
+            if (model.resultSegments) {
+                for (let i = 0; i < table.count; i++) {
+                    if (table.segmentOffsets[i + 1] > table.segmentOffsets[i]) unsorted.push({id: model.keys[i], path: [table.ids[i]]});
+                }
+                const b = model.bounds;
+                box = box ? [Math.min(box[0], b[0]), Math.min(box[1], b[1]), Math.min(box[2], b[2]), Math.max(box[3], b[3]), Math.max(box[4], b[4]), Math.max(box[5], b[5])] : [...b];
+                continue;
+            }
             // The list is of what can be picked: the objects that draw something themselves.
             for (let i = 0; i < table.count; i++) {
                 if (table.segmentOffsets[i + 1] === table.segmentOffsets[i]) continue;
@@ -289,6 +313,7 @@ export class NativeScene {
             box = box ? [Math.min(box[0], b[0]), Math.min(box[1], b[1]), Math.min(box[2], b[2]), Math.max(box[3], b[3]), Math.max(box[4], b[4]), Math.max(box[5], b[5])] : [...b];
         }
         this.objectList = list.sort((x, y) => x.path.join("/").localeCompare(y.path.join("/")));
+        if (unsorted.length) this.objectList = this.objectList.length ? this.objectList.concat(unsorted) : unsorted;
         this.bounds = box;
     }
 
@@ -320,8 +345,10 @@ export class NativeScene {
             this.helperLines.clear();
             this.sceneEpoch++;
         }
-        const layer = new NativeResultLayer(this.module, this.renderer, data, () => this.invalidate());
+        const drawn = data.objects ? resultSegments(data) : null;
+        const layer = new NativeResultLayer(this.module, this.renderer, data, () => this.invalidate(), this.pixelRatio(), drawn?.segments ?? null);
         this.resultLayers.add(layer);
+        if (drawn) this.attachResultObjects(layer, data, drawn.objectOf);
         if (opts.replaceModel) {
             this.bounds = boundsOf(data.positions, data.matrix);
             this.home(0);
@@ -331,6 +358,63 @@ export class NativeScene {
         }
         this.invalidate();
         return layer;
+    }
+
+    /** Make the objects a result layer draws objects of the scene: picked, selected and hidden as a
+     *  loaded model's are. The model is made by the first layer that names it; later layers of the
+     *  same model add what they draw of its objects. */
+    private attachResultObjects(layer: NativeResultLayer, data: ResultMeshData, objectOf: Int32Array): void {
+        const objects = data.objects!;
+        let model = this.models.get(objects.model);
+        if (!model?.resultSegments) {
+            if (model) this.dropModel(objects.model);
+            const count = objects.ids.length;
+            const ids = objects.ids as string[];
+            model = {
+                key: objects.model,
+                sourceName: objects.sourceName ?? "",
+                table: {
+                    count, ids, names: ids, parents: new Int32Array(count).fill(-1),
+                    // Inverted until something of the object is drawn.
+                    bounds: new Float32Array(count * 6).map((_, i) => (i % 6 < 3 ? Infinity : -Infinity)),
+                    triangles: new Uint32Array(count), segmentOffsets: new Uint32Array(count + 1), segments: new Uint32Array(0),
+                },
+                keys: ids.map((id) => objectKey(objects.model, id)),
+                instances: [],
+                geometries: [],
+                bounds: boundsOf(data.positions, data.matrix) ?? [0, 0, 0, 0, 0, 0],
+                resultSegments: new Map(),
+            };
+            this.models.set(objects.model, model);
+            const held = model;
+            model.keys.forEach((key, index) => this.where.set(key, {model: held, index}));
+        }
+        const held = model;
+        const instance = layer.instanceId;
+        held.instances.push(instance);
+        held.resultSegments!.set(instance, {layer, objectOf});
+        this.segments.set(instance, {model: held, objects: objectOf});
+        growObjectBounds(held.table.bounds, data);
+        indexResultSegments(held.table, held.resultSegments!);
+        layer.onRemove = () => {
+            this.resultLayers.delete(layer);
+            this.segments.delete(instance);
+            held.resultSegments!.delete(instance);
+            held.instances = held.instances.filter((i) => i !== instance);
+            if (this.models.get(held.key) !== held) return;
+            if (held.resultSegments!.size) {
+                indexResultSegments(held.table, held.resultSegments!);
+            } else {
+                // Its last layer: the model is no longer on screen.
+                this.dropModel(held.key);
+            }
+            this.rebuild();
+            this.pushStates();
+        };
+        this.rebuild();
+        // What was selected or hidden before this layer came (another layer of the same model
+        // drew it) applies to it too.
+        if (this.selected.size || this.hidden.size) this.pushStates();
     }
 
     /** The renderer is about to drop everything it draws: the result layers go with it. */
@@ -416,6 +500,14 @@ export class NativeScene {
         if (c[3] <= 1e-9) return null;
         const rect = this.canvas.getBoundingClientRect();
         return {x: rect.left + (c[0] / c[3] * 0.5 + 0.5) * rect.width, y: rect.top + (0.5 - c[1] / c[3] * 0.5) * rect.height};
+    }
+
+    /** The camera's view and projection matrices (column-major, clip z from 0 to 1) and the view's
+     *  size in CSS pixels: what projecting a batch of points onto the screen needs. */
+    screenProjection(): {view: Float32Array; proj: Float32Array; width: number; height: number} {
+        this.syncSize();
+        const {view, proj} = this.renderer.cameraMatrices();
+        return {view, proj, width: this.container.clientWidth, height: this.container.clientHeight};
     }
 
     /** The view as it is now, drawn at `width` x `height` pixels onto a canvas of its own; null when the

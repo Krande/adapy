@@ -18,7 +18,8 @@ const {getColormap} = await import("@/utils/scene/fea/colormaps");
 const {stepFeaSweep} = await import("@/utils/scene/fea/feaAnimationDriver");
 const {setResultStep, stepResults} = await import("@/utils/scene/fea/playbackActions");
 const {closeLayerSession, layerSessionActive, loadFeaOnLayers} = await import("@/utils/scene/fea/streaming/layerSession");
-const {setActiveViewport} = await import("@/viewport/api/viewportApi");
+const {onModelLoaded, setActiveViewport} = await import("@/viewport/api/viewportApi");
+const {useVisibilityStore} = await import("@/state/visibilityStore");
 import type {FeaCapability} from "@/services/capabilities/types";
 import type {FeaManifest, FeaManifestField} from "@/services/viewerApi";
 import type {ResultMeshData, ResultMeshLayer} from "@/viewport/api/resultLayer";
@@ -83,8 +84,52 @@ function displacement(over: Partial<FeaManifestField> = {}): FeaManifestField {
     } as FeaManifestField;
 }
 
-const manifest = (fields: FeaManifestField[]): FeaManifest =>
-    ({version: 2, src: "deck.frd", mesh: {url: "fea.mesh.glb", n_points: 4, n_cells: 2}, fields}) as unknown as FeaManifest;
+const manifest = (fields: FeaManifestField[], mesh: Record<string, unknown> = {}): FeaManifest =>
+    ({
+        version: 2, src: "deck.frd", fields,
+        mesh: {url: "fea.mesh.glb", n_points: 4, n_cells: 2, elements_url: "fea.mesh.elements.bin", ...mesh},
+    }) as unknown as FeaManifest;
+
+/** The elements sidecar: element 7 is the first triangle, element 8 the second. */
+function elementsSidecar(): ArrayBuffer {
+    const out = new Uint32Array([0x4d454641, 1, 2, 0, 7, 0, 1, 8, 1, 1]);
+    return out.buffer;
+}
+
+/** The element edges sidecar: the outline of the two triangles, as pairs of nodes. */
+function edgesSidecar(): ArrayBuffer {
+    const pairs = [0, 1, 1, 2, 2, 3, 3, 0];
+    const out = new Uint32Array(4 + pairs.length);
+    out.set([0x47454641, 1, pairs.length / 2, 0]);
+    out.set(pairs, 4);
+    return out.buffer;
+}
+
+/** One value per element: element 7 carries 10, element 8 carries 30. */
+const ELEMENT_VALUES = new Float32Array([10, 30]);
+
+function stress(over: Partial<FeaManifestField> = {}): FeaManifestField {
+    return {
+        name_canonical: "stress",
+        name_native: "S",
+        kind: "scalar",
+        category: "stress",
+        support: "element_average",
+        analysis_kind: "static",
+        components: ["S"],
+        n_steps: 1,
+        steps: [{i: 0, value: 1, label: "1"}],
+        scalar_range: {S: [0, 100]},
+        default_view: {reduction: "S", colormap: "viridis"},
+        per_type: [{
+            elem_type: "triangle", n_elements: 2, n_ips: 1, ip_layout: [], element_labels: [7, 8],
+            element_node_indices: [[0, 1, 2], [0, 2, 3]],
+            blob: {url: "fea.stress.triangle.bin", header_bytes: 1024, stride_bytes: 8, dtype: "float32", byte_order: "little"},
+            scalar_range: {S: [0, 100]},
+        }],
+        ...over,
+    } as unknown as FeaManifestField;
+}
 
 const fea: FeaCapability = {
     supports: () => true,
@@ -95,9 +140,15 @@ const fea: FeaCapability = {
         cacheKey: `test-${Math.random()}`,
         fetcher: async (url: string) => {
             if (url === "fea.mesh.glb") return meshGlb();
+            if (url === "fea.mesh.elements.bin") return elementsSidecar();
+            if (url === "fea.mesh.edges.bin") return edgesSidecar();
+            if (url === "fea.mesh.elements.beam.bin") return new Uint32Array([0x4d454641, 1, 3, 0, 7, 0, 1, 8, 1, 1, 20, 2, 0]).buffer;
+            if (url === "fea.beam_solids.compact.bin") return new ArrayBuffer(8);
             throw new Error(`unexpected fetch of ${url}`);
         },
-        rangeFetcher: async (_url: string, start: number) => {
+        rangeFetcher: async (url: string, start: number) => {
+            if (url === "fea.stress.triangle.bin") return {buf: ELEMENT_VALUES.slice().buffer, ranged: true};
+            if (url === "fea.stress.line.bin") return {buf: new Float32Array([20]).buffer, ranged: true};
             const step = STEPS[(start - HEADER) / 48];
             return {buf: step.slice().buffer, ranged: true};
         },
@@ -111,17 +162,20 @@ interface Recorded {
     displacement: number[];
     influence: number;
     colorsVisible: boolean;
+    visible: boolean;
     removed: boolean;
 }
 
 /** A viewport that records what it is asked to draw. */
-function fakeViewport(): {layers: Recorded[]; withdraw: () => void} {
+function fakeViewport(): {layers: Recorded[]; hidden: Set<string>; withdraw: () => void} {
     const layers: Recorded[] = [];
+    const hidden = new Set<string>();
     const api = {
         kind: "native",
+        objectVisibility: () => (_model: string, id: string) => (hidden.has(id) ? "hidden" : "shown"),
         results: {
             createResultMesh: (data: ResultMeshData, opts?: {replaceModel?: boolean}): ResultMeshLayer => {
-                const r: Recorded = {data, replaceModel: !!opts?.replaceModel, colors: [], displacement: [], influence: 0, colorsVisible: true, removed: false};
+                const r: Recorded = {data, replaceModel: !!opts?.replaceModel, colors: [], displacement: [], influence: 0, colorsVisible: true, visible: true, removed: false};
                 layers.push(r);
                 return {
                     vertexCount: data.positions.length / 3,
@@ -129,13 +183,13 @@ function fakeViewport(): {layers: Recorded[]; withdraw: () => void} {
                     setDisplacement: (xyz) => void (r.displacement = [...xyz]),
                     setInfluence: (v) => void (r.influence = v),
                     setColorsVisible: (v) => void (r.colorsVisible = v),
-                    setVisible() {},
+                    setVisible: (v) => void (r.visible = v),
                     remove: () => void (r.removed = true),
                 };
             },
         },
     } as unknown as ViewportApi;
-    return {layers, withdraw: setActiveViewport(api)};
+    return {layers, hidden, withdraw: setActiveViewport(api)};
 }
 
 /** The colour of `t` (0..1 of the scale) in the colour map the user has chosen. */
@@ -144,6 +198,35 @@ function colorAt(t: number): number[] {
     getColormap(useFeaAnimationStore.getState().colormap)(t, out, 0);
     return [...out];
 }
+
+/** One beam, element 20, from node 1 to node 2: its section as one triangle on the beam's axis,
+ *  with a vertex at each end and one half way. What the compute capability expands the bake's
+ *  compact beam solids into. */
+const compute = {
+    expandBeamSolids: async () => ({
+        positions: new Float32Array([3, 0, 0, 3, 2, 0, 3, 4, 0]),
+        indices: new Uint32Array([0, 1, 2]),
+        nVerts: 3,
+        elemLabel: new Uint32Array([20]),
+        elemTriStart: new Uint32Array([0]),
+        elemTriCount: new Uint32Array([1]),
+        node0: new Uint32Array([1, 1, 1]),
+        node1: new Uint32Array([2, 2, 2]),
+        t: new Float32Array([0, 0.5, 1]),
+    }),
+};
+const BEAM_MESH = {elements_url: "fea.mesh.elements.beam.bin", beam_solids_compact_url: "fea.beam_solids.compact.bin"};
+/** The stress field with a second bucket: the beam, element 20, carrying 20. */
+const stressWithBeam = (): FeaManifestField => {
+    const field = stress();
+    field.per_type!.push({
+        elem_type: "line", n_elements: 1, n_ips: 1, ip_layout: [], element_labels: [20], element_node_indices: [[1, 2]],
+        blob: {url: "fea.stress.line.bin", header_bytes: 1024, stride_bytes: 4, dtype: "float32", byte_order: "little"},
+        scalar_range: {S: [0, 100]},
+    } as unknown as NonNullable<FeaManifestField["per_type"]>[number]);
+    return field;
+};
+const tick = () => new Promise((resolve) => setTimeout(resolve, 20));
 
 const load = (field: FeaManifestField | null, over: Partial<Parameters<typeof loadFeaOnLayers>[0]> = {}) =>
     loadFeaOnLayers(
@@ -155,7 +238,7 @@ const load = (field: FeaManifestField | null, over: Partial<Parameters<typeof lo
             reduction: field ? "magnitude" : null,
             ...over,
         },
-        {fea},
+        {fea, compute},
     );
 
 let withdraw: (() => void) | null = null;
@@ -163,7 +246,7 @@ afterEach(() => {
     closeLayerSession();
     useFeaAnimationStore.getState().reset();
     // The deformation scale is a preference that outlives a reset: back to the automatic one.
-    useFeaAnimationStore.setState({scaleFactor: 1, scaleFactorAuto: true});
+    useFeaAnimationStore.setState({scaleFactor: 1, scaleFactorAuto: true, beamSolidsVisible: false});
     withdraw?.();
     withdraw = null;
 });
@@ -282,13 +365,221 @@ test("a mesh without fields is drawn with no result session", async () => {
     assert.equal(useColorStore.getState().showLegend, false);
 });
 
-test("what is not drawn through layers yet is refused with the reason, before anything is shown", async () => {
+test("a request that cannot be drawn is refused with the reason, before anything is shown", async () => {
     const viewport = fakeViewport();
     withdraw = viewport.withdraw;
-    const element = displacement({name_canonical: "stress", category: "stress", per_type: [{}]} as unknown as Partial<FeaManifestField>);
-    await assert.rejects(load(element), /element field/);
-    assert.equal(viewport.layers.length, 0);
     await assert.rejects(load(displacement(), {stepIndex: 5}), /out of range/);
+    assert.equal(viewport.layers.length, 0);
+});
+
+test("an element field makes the faces element-local and paints each element in its own colour", async () => {
+    const viewport = fakeViewport();
+    withdraw = viewport.withdraw;
+    await load(stress(), {manifest: manifest([displacement(), stress()]), reduction: "S", sliderFactor: 1});
+
+    // The faces in node numbering were replaced by one vertex per triangle corner.
+    const [nodeFaces, faces] = viewport.layers;
+    assert.equal(nodeFaces.removed, true);
+    assert.equal(faces.replaceModel, false, "the camera stays where it was");
+    assert.deepEqual([...faces.data.indices!], [0, 1, 2, 3, 4, 5]);
+    assert.deepEqual([...faces.data.positions], [0, 0, 0, 3, 0, 0, 3, 4, 0, 0, 0, 0, 3, 4, 0, 0, 4, 0]);
+    // Element 7 (value 10) is the first triangle, element 8 (value 30) the second: the scale is
+    // measured over the two, so they sit at its ends, and the shared nodes 0 and 2 carry both.
+    for (const corner of [0, 1, 2]) assert.deepEqual(faces.colors.slice(corner * 3, corner * 3 + 3), colorAt(0));
+    for (const corner of [3, 4, 5]) assert.deepEqual(faces.colors.slice(corner * 3, corner * 3 + 3), colorAt(1));
+    // Warped by the displacement field's step, node by node: node 2 is corners 2 and 4.
+    assert.deepEqual(faces.displacement, [0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0]);
+    assert.equal(faces.influence, useFeaAnimationStore.getState().scaleFactor);
+    assert.deepEqual([useColorStore.getState().min, useColorStore.getState().max], [10, 30]);
+    assert.equal(useFeaAnimationStore.getState().fieldName, "stress");
+
+    // A nodal field afterwards is painted through the same element-local faces: no new mesh.
+    await load(displacement(), {manifest: manifest([displacement(), stress()])});
+    assert.equal(viewport.layers.length, 2);
+    assert.deepEqual(faces.colors.slice(6, 9), colorAt(1), "node 2, the step's maximum, as corner 2");
+    assert.deepEqual(faces.colors.slice(12, 15), colorAt(1), "and as corner 4");
+    assert.deepEqual(faces.colors.slice(0, 3), colorAt(0));
+});
+
+test("an element field averaged onto the nodes keeps the faces in node numbering", async () => {
+    const viewport = fakeViewport();
+    withdraw = viewport.withdraw;
+    useFeaAnimationStore.setState({nodalAverage: true});
+    try {
+        await load(stress(), {manifest: manifest([displacement(), stress()]), reduction: "S"});
+        assert.equal(viewport.layers.length, 1);
+        const [faces] = viewport.layers;
+        // Nodes 0 and 2 belong to both elements (the mean, 20); node 1 to element 7, node 3 to 8.
+        assert.deepEqual(faces.colors.slice(0, 3), colorAt(0.5));
+        assert.deepEqual(faces.colors.slice(3, 6), colorAt(0));
+        assert.deepEqual(faces.colors.slice(9, 12), colorAt(1));
+    } finally {
+        useFeaAnimationStore.setState({nodalAverage: false});
+    }
+});
+
+test("a field with result points draws a marker for each, coloured and moved with the nodes", async () => {
+    const viewport = fakeViewport();
+    withdraw = viewport.withdraw;
+    const points = stress({name_canonical: "points", support: "result_point"});
+    await load(points, {manifest: manifest([displacement(), points]), reduction: "S"});
+    const markers = viewport.layers.find((l) => l.data.topology === "points")!;
+    assert.ok(markers, "a layer of points");
+    assert.equal(markers.data.sizePx, 7);
+    // One result point per element, at the middle of its three nodes.
+    assert.deepEqual([...markers.data.positions].map((v) => Math.round(v * 1000) / 1000), [2, 1.333, 0, 1, 2.667, 0]);
+    assert.deepEqual(markers.colors.slice(0, 3), colorAt(0));
+    assert.deepEqual(markers.colors.slice(3, 6), colorAt(1));
+    // Node 2 moves 1 in z and belongs to both: each point moves a third of that.
+    assert.deepEqual(markers.displacement.map((v) => Math.round(v * 1000) / 1000), [0, 0, 0.333, 0, 0, 0.333]);
+
+    // Switched off they leave the screen, and so they do with the result colours.
+    useFeaAnimationStore.getState().setResultPointMarkersVisible(false);
+    assert.equal(markers.visible, false);
+    useFeaAnimationStore.getState().setResultPointMarkersVisible(true);
+    assert.equal(markers.visible, true);
+
+    // A nodal field has none.
+    await load(displacement(), {manifest: manifest([displacement(), points])});
+    assert.equal(markers.removed, true);
+});
+
+test("the undeformed outline is the element edges where they were, while it is asked for", async () => {
+    const viewport = fakeViewport();
+    withdraw = viewport.withdraw;
+    await load(displacement(), {manifest: manifest([displacement()], {edges_url: "fea.mesh.edges.bin"})});
+    assert.equal(viewport.layers.length, 2, "faces and element edges");
+    useFeaAnimationStore.getState().setShowUndeformed(true);
+    try {
+        const ghost = viewport.layers[2];
+        assert.ok(ghost, "a third layer");
+        assert.equal(ghost.data.topology, "lines");
+        assert.ok(ghost.data.opacity! < 1);
+        assert.deepEqual(ghost.displacement, [], "never displaced");
+        useFeaAnimationStore.getState().setShowUndeformed(false);
+        assert.equal(ghost.removed, true);
+    } finally {
+        useFeaAnimationStore.getState().setShowUndeformed(false);
+    }
+});
+
+test("the elements are the viewport's objects and the Scene tree's rows, by the same ids", async () => {
+    const viewport = fakeViewport();
+    withdraw = viewport.withdraw;
+    const announced: {model: string; extras?: Record<string, unknown>}[] = [];
+    const off = onModelLoaded((info) => announced.push(info));
+    try {
+        await load(stress(), {manifest: manifest([displacement(), stress()]), reduction: "S"});
+    } finally {
+        off();
+    }
+    const [nodeFaces, faces] = viewport.layers;
+    for (const layer of [nodeFaces, faces]) {
+        const objects = layer.data.objects!;
+        assert.equal(objects.model, "fea-result:deck.frd");
+        assert.deepEqual([...objects.ids], ["E7", "E8"]);
+        // Element 7 is the first triangle of the index list, element 8 the second, in either numbering.
+        assert.deepEqual([...objects.segments], [0, 3, 3, 3]);
+        assert.deepEqual([...objects.objectOf], [0, 1]);
+    }
+    assert.equal(announced.length, 1);
+    assert.equal(announced[0].model, "fea-result:deck.frd");
+    assert.deepEqual(announced[0].extras, {
+        id_hierarchy: {"fea-root": ["FEA elements", "*"], E7: ["E7", "fea-root"], E8: ["E8", "fea-root"]},
+        draw_ranges_node0: {E7: [0, 3], E8: [3, 3]},
+    });
+});
+
+test("hiding elements takes their edges with them and measures the scale over what is left", async () => {
+    const viewport = fakeViewport();
+    withdraw = viewport.withdraw;
+    await load(stress(), {manifest: manifest([displacement(), stress()], {edges_url: "fea.mesh.edges.bin"}), reduction: "S"});
+    const edges = viewport.layers.find((l) => l.data.topology === "lines")!;
+    assert.deepEqual([...edges.data.indices!], [0, 1, 1, 2, 2, 3, 3, 0]);
+    assert.deepEqual([useColorStore.getState().min, useColorStore.getState().max], [10, 30]);
+
+    viewport.hidden.add("E8");
+    useVisibilityStore.getState().bump();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    // Element 8 owned the edges 2-3 and 3-0: they are drawn as nothing, the others as before,
+    // displaced as the nodes are.
+    assert.equal(edges.removed, true);
+    const masked = viewport.layers.filter((l) => l.data.topology === "lines").at(-1)!;
+    assert.deepEqual([...masked.data.indices!], [0, 1, 1, 2, 2, 2, 3, 3]);
+    assert.deepEqual(masked.displacement, [...STEPS[0]]);
+    // Element 7's value alone (a range of one value is widened a hair, so it has two ends).
+    assert.ok(Math.abs(useColorStore.getState().min - 10) < 1e-3 && Math.abs(useColorStore.getState().max - 10) < 1e-3);
+
+    viewport.hidden.clear();
+    useVisibilityStore.getState().bump();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const shown = viewport.layers.filter((l) => l.data.topology === "lines").at(-1)!;
+    assert.deepEqual([...shown.data.indices!], [0, 1, 1, 2, 2, 3, 3, 0]);
+    assert.deepEqual([useColorStore.getState().min, useColorStore.getState().max], [10, 30]);
+});
+
+test("beam sections are drawn when asked for, coloured and moved as their beams' nodes are", async () => {
+    const viewport = fakeViewport();
+    withdraw = viewport.withdraw;
+    await load(displacement(), {manifest: manifest([displacement()], BEAM_MESH), sliderFactor: 1});
+    assert.equal(viewport.layers.length, 1, "not drawn until they are asked for");
+
+    useFeaAnimationStore.getState().setBeamSolidsVisible(true);
+    await tick();
+    const solids = viewport.layers[1];
+    assert.ok(solids, "a layer of their own");
+    assert.deepEqual([...solids.data.positions], [3, 0, 0, 3, 2, 0, 3, 4, 0]);
+    // The beam is the object its element is: the third of the result's elements.
+    assert.deepEqual([...solids.data.objects!.ids], ["E7", "E8", "E20"]);
+    assert.deepEqual([...solids.data.objects!.segments], [0, 3]);
+    assert.deepEqual([...solids.data.objects!.objectOf], [2]);
+    // Node 1 carries 0 and node 2 carries 1: the section's vertices sit at 0, half way and 1.
+    assert.deepEqual(solids.colors.slice(0, 3), colorAt(0));
+    assert.deepEqual(solids.colors.slice(3, 6), colorAt(0.5));
+    assert.deepEqual(solids.colors.slice(6, 9), colorAt(1));
+    assert.deepEqual([solids.displacement[2], solids.displacement[5], solids.displacement[8]], [0, 0.5, 1]);
+    assert.equal(solids.influence, viewport.layers[0].influence, "scaled with the faces");
+
+    useFeaAnimationStore.getState().setBeamSolidsVisible(false);
+    await tick();
+    assert.equal(solids.visible, false);
+    assert.equal(solids.removed, false, "kept for the next time");
+});
+
+test("an element field paints each beam section with its beam's value, in place of its coloured line", async () => {
+    const viewport = fakeViewport();
+    withdraw = viewport.withdraw;
+    const field = stressWithBeam();
+    await load(field, {manifest: manifest([displacement(), field], BEAM_MESH), reduction: "S"});
+    // Sections off: the beam is a coloured line between its nodes, at the middle of the scale.
+    const line = viewport.layers.find((l) => l.data.topology === "lines")!;
+    assert.deepEqual([...line.data.positions], [3, 0, 0, 3, 4, 0]);
+    assert.deepEqual(line.colors, [...colorAt(0.5), ...colorAt(0.5)]);
+    assert.equal(line.visible, true);
+
+    useFeaAnimationStore.getState().setBeamSolidsVisible(true);
+    await tick();
+    const solids = viewport.layers.filter((l) => l.data.topology === "triangles" && l.data.positions.length === 9).at(-1)!;
+    assert.ok(solids, "the sections, element-local");
+    assert.equal(solids.removed, false);
+    for (const corner of [0, 1, 2]) assert.deepEqual(solids.colors.slice(corner * 3, corner * 3 + 3), colorAt(0.5));
+    const lineNow = viewport.layers.filter((l) => l.data.topology === "lines").at(-1)!;
+    assert.equal(lineNow.visible, false, "one rendering of a beam at a time");
+});
+
+test("a time history can be loaded ahead of playing it; other results offer no such thing", async () => {
+    const viewport = fakeViewport();
+    withdraw = viewport.withdraw;
+    await load(displacement());
+    assert.equal(useFeaAnimationStore.getState().startFramePreload, null, "mode shapes are not frames of one history");
+    closeLayerSession();
+    await load(displacement({analysis_kind: "transient"} as Partial<FeaManifestField>));
+    const start = useFeaAnimationStore.getState().startFramePreload;
+    assert.ok(start, "offered for a transient field of more than one step");
+    start();
+    await tick();
+    const progress = useFeaAnimationStore.getState().framePreload;
+    assert.ok(progress && progress.loaded === progress.total, `every frame loaded: ${JSON.stringify(progress)}`);
 });
 
 test("closing the session takes its layers off the viewport", async () => {

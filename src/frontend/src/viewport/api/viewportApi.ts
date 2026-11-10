@@ -119,6 +119,16 @@ export interface ViewportApi {
     objectsInBox: ViewportBoxSelection["objectsInBox"];
     objectsInScreenRect: ViewportBoxSelection["objectsInScreenRect"];
     selectionBounds: ViewportBoxSelection["selectionBounds"];
+    // Screen positions, for what is drawn in HTML over the view (number labels).
+    /** Where `count` world points (xyz each, in `world`) are in the view now: per point, x and y in
+     *  CSS pixels from the view's top-left corner and the depth (0 at the near plane, 1 at the far
+     *  one) into `out`, three numbers each; a point behind the camera gets NaN. Returns the view's
+     *  size in CSS pixels. Nothing is allocated per point. */
+    projectToScreen(world: Float32Array, count: number, out: Float32Array): {width: number; height: number};
+    /** Called when the camera has moved or the view has changed size: what was projected is out
+     *  of date. A viewport that draws only when something changed may call it for every frame it
+     *  draws. Returns the unsubscribe function. */
+    onCameraChange(listener: () => void): () => void;
 }
 
 let active: ViewportApi | null = null;
@@ -193,6 +203,9 @@ export interface LoadedModelInfo {
     sourceName: string;
     /** The GLB scene's extras, as JSON text ("" when it has none). */
     sceneExtras: string;
+    /** The same extras as an object, from a viewport that made them itself instead of reading
+     *  them from a file; `sceneExtras` is then "". */
+    extras?: Record<string, unknown>;
 }
 
 /** A click in a viewport: the object under it, or null for empty space. */
