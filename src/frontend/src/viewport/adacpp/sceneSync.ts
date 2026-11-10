@@ -138,6 +138,13 @@ const MAX_CLIP_PLANES = 6;
 /** RGBA8 pixels of a texture's image, top row first (what the renderer's addTexture takes). */
 export type ReadPixels = (image: unknown) => {data: Uint8ClampedArray | Uint8Array; width: number; height: number} | null;
 
+// three.js reads a texture without a colour space as linear and encodes the result for the screen; the
+// renderer takes sRGB pixels. Encoding such a texture's pixels at upload gives the same picture.
+const LINEAR_TO_SRGB = Uint8Array.from({length: 256}, (_, i) => {
+    const c = i / 255;
+    return Math.round(255 * (c <= 0.0031308 ? c * 12.92 : 1.055 * Math.pow(c, 1 / 2.4) - 0.055));
+});
+
 let scratch: HTMLCanvasElement | null = null;
 /** Through a 2D canvas: a sprite's map is a canvas, an image or a bitmap. */
 const readPixelsWithCanvas: ReadPixels = (image) => {
@@ -383,6 +390,14 @@ export class SceneSync {
         if (!pixels) return t ? ((t.seen = this.frame), t.id) : NO_TEXTURE;
         const p = this.module._malloc(pixels.data.length);
         this.module.HEAPU8.set(pixels.data, p);
+        if (map.colorSpace !== THREE.SRGBColorSpace) {
+            const heap = this.module.HEAPU8;
+            for (let i = p, end = p + pixels.data.length; i < end; i += 4) {
+                heap[i] = LINEAR_TO_SRGB[heap[i]];
+                heap[i + 1] = LINEAR_TO_SRGB[heap[i + 1]];
+                heap[i + 2] = LINEAR_TO_SRGB[heap[i + 2]];
+            }
+        }
         try {
             if (t) this.r.updateTexture(t.id, p, pixels.width, pixels.height);
             else t = {id: this.r.addTexture(p, pixels.width, pixels.height), version: 0, seen: 0};
