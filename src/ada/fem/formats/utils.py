@@ -7,8 +7,9 @@ import re
 import shutil
 import subprocess
 import sys
+import warnings
 from contextlib import contextmanager
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Callable, Sequence
 
 import numpy as np
 
@@ -214,14 +215,10 @@ class LocalExecute:
         from ada.fem.formats.general import fem_solver_map
 
         solver_exe_name = fem_solver_map.get(fea_software, fea_software)
-        exe_path = None
-        for exe_test in [fea_software, solver_exe_name]:
-            try:
-                exe_path = get_exe_path(exe_test)
-            except FileNotFoundError:
-                continue
-            if exe_path is not None:
-                break
+        try:
+            exe_path = get_exe_path(fea_software, aliases=(solver_exe_name,))
+        except FileNotFoundError:
+            exe_path = None
 
         if exe_path is None:
             msg = (
@@ -276,51 +273,78 @@ def get_fem_model_from_assembly(assembly: Assembly) -> Part:
     return parts[0]
 
 
-def get_exe_path(fea_type: FEATypes):
-    from ada.fem.formats.general import FEATypes
+_LOGGED_EXE_VARIABLES: set[str] = set()
 
-    if isinstance(fea_type, FEATypes):
-        exe_name = fea_type.value
-    else:
-        exe_name = fea_type
 
-    env_name = f"ADA_{exe_name}_exe"
-    env_path = os.getenv(env_name, None)
-    if env_path is not None:
-        exe_path = pathlib.Path(env_path)
-        if exe_path.exists():
-            return exe_path
+def _exe_from_deprecated_variable(names: tuple[str, ...], config_key: str) -> pathlib.Path | None:
+    """The first old per-solver variable pointing at a file that exists. One pointing nowhere is passed over."""
+    for name in names:
+        for variable in (f"ADA_{name}_exe", f"ADA_{name.upper()}_EXE"):
+            raw = os.getenv(variable)
+            if raw is None or not pathlib.Path(raw).exists():
+                continue
+            message = f"{variable} is deprecated: set [fea] fem_exe_paths.{config_key} in ada_config.toml instead"
+            warnings.warn(message, DeprecationWarning, stacklevel=3)
+            if variable not in _LOGGED_EXE_VARIABLES:
+                _LOGGED_EXE_VARIABLES.add(variable)
+                logger.warning(message)
+            return pathlib.Path(raw)
+    return None
 
-    exe_linux = shutil.which(exe_name)
+
+def _exe_on_path(exe_name: str) -> pathlib.Path | None:
     bin_exe_linux = pathlib.Path(sys.prefix) / f"bin/{exe_name}"
     bin_exe_win = pathlib.Path(sys.prefix) / f"Library/bin/{exe_name}.exe"
     bat_bat_win = bin_exe_win.with_suffix(".bat")
+    found = (
+        shutil.which(exe_name)
+        or (bin_exe_linux if bin_exe_linux.exists() else None)
+        or shutil.which(f"{exe_name}.exe")
+        or (bin_exe_win if bin_exe_win.exists() else None)
+        or (bat_bat_win if bat_bat_win.exists() else None)
+        or shutil.which(f"{exe_name}.bat")
+    )
+    return pathlib.Path(found) if found else None
 
-    if exe_linux is None and bin_exe_linux.exists():
-        exe_linux = bin_exe_linux
-    exe_win = shutil.which(f"{exe_name}.exe")
-    if exe_win is None and bin_exe_win.exists():
-        exe_win = bin_exe_win
-    if exe_win is None and bat_bat_win.exists():
-        exe_win = bat_bat_win
 
-    if Config().fea_fem_exe_paths.get(exe_name, None) is not None:
-        exe_path = Config().fea_fem_exe_paths[exe_name]
-    elif exe_linux:
-        exe_path = exe_linux
-    elif exe_win:
-        exe_path = exe_win
-    elif shutil.which(f"{exe_name}.bat"):
-        exe_path = shutil.which(f"{exe_name}.bat")
-    else:
+def resolve_solver_exe(
+    name, aliases: Sequence[str] = (), default: Callable[[], Any] | None = None
+) -> pathlib.Path | None:
+    """Where a solver's executable is, the one lookup every caller shares. None when it can't be found.
+
+    In order: ``Config().fea_fem_exe_paths`` (``[fea] fem_exe_paths`` in ada_config.toml, overridden per key by
+    ``ADA_FEA_FEM_EXE_PATHS``), then the deprecated per-solver variables, then ``PATH`` and the environment's own bin
+    folders, then ``default``, for what only a caller knows, such as an installer's registered location.
+
+    A path from ``Config`` is returned even if nothing is there, so that a mistyped path can be reported and not
+    quietly replaced by another installation.
+    """
+    names = tuple(dict.fromkeys(getattr(n, "value", n) for n in (name, *aliases)))  # callers pass FEATypes as well
+    first = names[0]
+    table = Config().fea_fem_exe_paths
+    for candidate in names:
+        if table.get(candidate) is not None:
+            return pathlib.Path(table[candidate])
+
+    config_key = next((candidate for candidate in names if candidate in table), first)
+    found = _exe_from_deprecated_variable(names, config_key)
+    if found is not None:
+        return found
+    for candidate in names:
+        found = _exe_on_path(candidate)
+        if found is not None:
+            return found
+    fallback = default() if default is not None else None
+    return pathlib.Path(fallback) if fallback else None
+
+
+def get_exe_path(fea_type: FEATypes, aliases: Sequence[str] = ()) -> pathlib.Path | None:
+    """:func:`resolve_solver_exe`, raising when nothing is known and giving None for a path with nothing at it."""
+    found = resolve_solver_exe(fea_type, aliases)
+    if found is None:
+        exe_name = getattr(fea_type, "value", fea_type)
         raise FileNotFoundError(f'No Path to Executable "{exe_name}.exe" or "{exe_name}.bat" is found')
-
-    exe_path = pathlib.Path(exe_path)
-
-    if exe_path.exists() is False:
-        return None
-
-    return exe_path
+    return found if found.exists() else None
 
 
 def str_to_int(s):

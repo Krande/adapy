@@ -2,7 +2,7 @@
 
 Each fixture is a deliberately tiny model, solved with Abaqus and exported with adapy's own
 ``abaqus-python`` ODB exporter, so the tests read a real export of a real ODB without an Abaqus
-install. Needs Abaqus 2024+ on PATH (or ``ADA_ABAQUS_EXE``) and a license; each job is a few
+install. Needs Abaqus 2024+ on PATH (or ``[fea] fem_exe_paths.abaqus``) and a license; each job is a few
 seconds.
 
     python scripts/codegen/gen_abaqus_results_fixtures.py [names...]
@@ -174,7 +174,7 @@ def generate(name: str, workdir: pathlib.Path) -> pathlib.Path:
 
     exe = _abaqus_exe()
     if exe is None:
-        raise SystemExit("Abaqus not found (on PATH as abaqus, or set ADA_ABAQUS_EXE)")
+        raise SystemExit("Abaqus not found (on PATH as abaqus, or set [fea] fem_exe_paths.abaqus)")
     (workdir / f"{name}.inp").write_text(MODELS[name](), encoding="ascii")
     res = subprocess.run([exe, f"job={name}", "interactive", "cpus=1"], cwd=workdir, capture_output=True, text=True)
     odb = workdir / f"{name}.odb"
