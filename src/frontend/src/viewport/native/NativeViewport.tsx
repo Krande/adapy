@@ -10,6 +10,7 @@ import {bindCoreShortcuts} from "@/layout/shortcuts";
 import {useSectionStore} from "@/state/sectionStore";
 import {notifyModelLoaded, notifyViewportPick, setActiveViewport} from "@/viewport/api/viewportApi";
 import {viewportShortcutHandlers} from "@/viewport/api/viewportShortcuts";
+import {NativeOrientationGizmo} from "./NativeOrientationGizmo";
 import {NativeScene} from "./nativeScene";
 import {bindSectionGizmo} from "./sectionGizmo";
 import {createNativeViewportApi} from "./nativeViewportApi";
@@ -24,7 +25,7 @@ function linearRgb(hex: string): [number, number, number] | null {
 }
 
 const UNAVAILABLE = [
-    "FEA results and animation", "number labels and plugin overlays", "measurements and gizmos",
+    "FEA results and animation", "number labels and plugin overlays", "box selection", "3D-mouse input",
     "export", "overlaying several models",
 ];
 
@@ -100,6 +101,7 @@ const NativeViewport: React.FC = () => {
     const objects = scene?.objects ?? [];
     return (
         <div ref={hostRef} className="w-full h-full relative" data-native-viewport-host="true">
+            {scene && state === "active" && <NativeOrientationGizmo scene={scene}/>}
             <div className="absolute left-2 top-14 z-10 w-72 max-h-[70%] flex flex-col rounded-sm bg-gray-800/90 text-xs text-gray-200 p-2 space-y-1">
                 <div className="font-semibold">adacpp WebGPU, no three.js (experimental)</div>
                 {state === "starting" && <div>Starting WebGPU…</div>}

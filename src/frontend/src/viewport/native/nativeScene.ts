@@ -83,6 +83,8 @@ export class NativeScene {
     selectionVersion: object = {};
     /** Called after each change of the selection (or of what is hidden). */
     readonly onSelection = new Set<() => void>();
+    /** Called after each frame drawn: what follows the camera on screen (the orientation gizmo) redraws. */
+    readonly onFrame = new Set<() => void>();
     /** Called after a model replaced the scene: helper lines are gone with it, and the box has changed. */
     readonly onLoaded = new Set<() => void>();
     /** Asked at each press before the camera: return a handler to take the drag (it gets every move
@@ -275,6 +277,20 @@ export class NativeScene {
             this.invalidate();
         }
         return out;
+    }
+
+    /** The camera's axes in the world: `right` and `up` of the screen, and `back`, from the model towards
+     *  the camera. */
+    cameraAxes(): {right: [number, number, number]; up: [number, number, number]; back: [number, number, number]} {
+        const {eye, target, up} = this.renderer.cameraPose();
+        const norm = (v: number[]): [number, number, number] => {
+            const l = Math.hypot(v[0], v[1], v[2]) || 1;
+            return [v[0] / l, v[1] / l, v[2] / l];
+        };
+        const cross = (a: number[], b: number[]) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+        const back = norm([eye[0] - target[0], eye[1] - target[1], eye[2] - target[2]]);
+        const right = norm(cross(up, back));
+        return {right, up: norm(cross(back, right)), back};
     }
 
     /** The loaded model's box (min xyz, max xyz). */
@@ -508,6 +524,7 @@ export class NativeScene {
             // A move to a view, or the glide after a drag, runs for as long as the camera says it does.
             const moving = this.renderer.cameraUpdate(dt);
             this.renderer.render();
+            for (const listener of this.onFrame) listener();
             if (moving) this.invalidate();
             else this.lastFrame = 0;
         } catch (err) {

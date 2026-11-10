@@ -379,6 +379,12 @@ async def test_commands_and_keys_reach_whichever_viewport_is_on_screen(ws_server
             await changes(lambda: page.keyboard.press("Control+ArrowLeft"), "Ctrl+Left (orbit)")
             await changes(lambda: page.keyboard.press("Control+Shift+ArrowUp"), "Ctrl+Shift+Up (pan)")
             await changes(lambda: page.keyboard.press("Alt+3"), "Alt+3 (the front view)")
+            if backend == NATIVE:
+                # the orientation gizmo in the corner: an axis end looks at the model from there
+                await changes(
+                    lambda: page.get_by_role("button", name="View from Z", exact=True).click(),
+                    "the orientation gizmo's Z",
+                )
             await _command(page, "Fit all")
             await page.wait_for_timeout(1200)
             fitted = _count(await _pixels(page), _is_model)
