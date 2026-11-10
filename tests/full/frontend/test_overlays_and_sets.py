@@ -5,9 +5,9 @@ import asyncio
 import shutil
 
 import pytest
+from playwright.async_api import Page, async_playwright
 
 import ada
-from playwright.async_api import Page, async_playwright
 
 from .test_render_backends import (
     NATIVE,

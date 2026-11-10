@@ -7,19 +7,31 @@
 // panel read one isolation whichever way the result is drawn.
 //
 // What the three.js path does that this does not: the beams drawn as coloured lines have no
-// object here, so an isolation does not reach them, and there is no undo on this viewport.
+// object here, so an isolation does not reach them.
 //
 // No three.js in this module or in anything it imports.
 
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {useFeaIsolationStore, type FeaIsolation} from "@/state/feaIsolationStore";
 import {useFemConceptsStore} from "@/state/femConceptsStore";
+import {recordViewerAction, type StateSlice} from "@/utils/scene/viewerHistory";
 import {activeViewport, type ObjectRef} from "@/viewport/api/viewportApi";
 
 import {combineIsolation, elementSetRowId, isolatedMembers, setRowsMatching} from "./feaTreeRows";
 import {layerResultObjects, layerSessionActive, setLayerHiddenEdgesKept} from "./streaming/layerSession";
 
 const store = () => useFeaIsolationStore.getState();
+
+/** The isolation as a history slice: an undo or redo puts back which sets are isolated and whether
+ *  the rest keeps its edges; what is hidden comes back with the viewport's own state. */
+const isolationSlice: StateSlice = {
+    get: () => store().isolation,
+    set: (raw) => {
+        const value = raw as FeaIsolation;
+        useFeaIsolationStore.setState({isolation: value});
+        setLayerHiddenEdgesKept(value.rows.length > 0 && value.contextWireframe);
+    },
+};
 
 /** Is the result on screen one drawn through result layers: the one these actions act on. */
 export const layerResultShown = (): boolean => layerSessionActive();
@@ -99,8 +111,15 @@ export function isolateFeaRows(ids: readonly string[], mode: "replace" | "add" |
     const rows = combineIsolation(current.rows, ids, mode);
     if (same(rows, current.rows)) return;
     const next: FeaIsolation = {rows, contextWireframe: current.contextWireframe};
-    useFeaIsolationStore.setState({isolation: next});
-    applyIsolation(next);
+    // One undo entry: what is hidden is the viewport's part of it, the isolation itself a slice.
+    recordViewerAction(
+        rows.length ? "isolate-sets" : "clear-isolation",
+        () => {
+            useFeaIsolationStore.setState({isolation: next});
+            applyIsolation(next);
+        },
+        {slices: [isolationSlice]},
+    );
 }
 
 /** Isolate every element set whose name holds `text` (case ignored). Returns how many. */
@@ -124,8 +143,14 @@ export function clearFeaIsolation(): void {
 export function toggleFeaContextWireframe(): void {
     const current = store().isolation;
     const next: FeaIsolation = {rows: current.rows, contextWireframe: !current.contextWireframe};
-    useFeaIsolationStore.setState({isolation: next});
-    if (next.rows.length) applyIsolation(next);
+    recordViewerAction(
+        "isolate-sets",
+        () => {
+            useFeaIsolationStore.setState({isolation: next});
+            if (next.rows.length) applyIsolation(next);
+        },
+        {slices: [isolationSlice]},
+    );
 }
 
 function setRowsHidden(ids: readonly string[], hide: boolean): void {

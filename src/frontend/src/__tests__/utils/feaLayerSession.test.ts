@@ -195,6 +195,10 @@ function fakeViewport(): {
     const api = {
         kind: "native",
         objectVisibility: () => (_model: string, id: string) => (hidden.has(id) ? "hidden" : "shown"),
+        // An isolation is one undo step, so the history asks the viewport for its state around it.
+        captureState: () => ({selected: 0}),
+        stateChange: () => ({selection: false, visibility: false, hidden: 0, shown: 0, after: () => ({selected: 0})}),
+        restoreState: () => {},
         isolate: (refs: Iterable<{model: string; id: string}>) => void calls.push(`isolate(${ids(refs)})`),
         hide: (refs: Iterable<{model: string; id: string}>) => void calls.push(`hide(${ids(refs)})`),
         showAll: () => void calls.push("showAll"),
