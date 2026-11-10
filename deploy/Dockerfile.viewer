@@ -297,6 +297,12 @@ COPY src/ada/core/takeoff_tables.py /app/src/ada/core/takeoff_tables.py
 # importlib.metadata) — nothing numpy- or OCC-bound. With no plugin distribution installed in the
 # slim env, discovery correctly finds no entry points and registers nothing.
 COPY src/ada/plugins/ /app/src/ada/plugins/
+# ada.simulation -- the simulation-provider interface, its registry and the run record. ada.plugins
+# imports the registry at MODULE level (it re-exports register_simulation_provider), and
+# routes/simulations.py imports the record and the parameter check, so leaving it out crashloops
+# the slim API on `No module named 'ada.simulation'`. Safe on the same test as ada.plugins: the
+# whole package is stdlib-only by construction.
+COPY src/ada/simulation/ /app/src/ada/simulation/
 # pyproject.toml is the single source of truth for the version. The viewer copies adapy source
 # (no installed-dist metadata) and a stripped ada/__init__ (no __version__), so config.js reads
 # the version from here for window.ADAPY_VERSION (see _resolve_adapy_version).
