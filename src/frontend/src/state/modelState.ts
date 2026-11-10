@@ -5,6 +5,7 @@ import {SceneOperations} from "../flatbuffers/scene/scene-operations";
 import {FilePurpose} from "../flatbuffers/base/file-purpose";
 import {useLineageStore} from './lineageStore';
 import {loadedSourceGroups, useModelSessionStore} from './modelSession';
+import {setSceneOffset} from './sceneFrameStore';
 
 export interface ModelState {
     modelUrl: string | null;
@@ -186,3 +187,8 @@ export const useModelState = create<ModelState>((set) => ({
         set({loadedSourceNames: new Set<string>(), loadedSourceName: null});
     },
 }));
+
+// The recentring offset as plain numbers, for what must not depend on three.js (state/sceneFrameStore).
+useModelState.subscribe((s, prev) => {
+    if (s.translation !== prev.translation) setSceneOffset(s.translation ? [s.translation.x, s.translation.y, s.translation.z] : null);
+});

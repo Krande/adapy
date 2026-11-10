@@ -113,12 +113,15 @@ for (const module of [
 
 // The undo / redo history asks the viewport on screen for its state and records store slices: the
 // history, the stores that record through it and the three.js-free viewport's side of it are shared
-// or that viewport's own.
+// or that viewport's own. Keeping the boxes across reloads reads the scene's offset as plain numbers.
 for (const module of [
     "utils/scene/viewerHistory.ts",
     "state/viewerHistoryStore.ts",
     "state/sectionStore.ts",
+    "state/sceneFrameStore.ts",
     "viewport/native/nativeViewportHistory.ts",
+    "utils/bboxSelection/boxPersistence.ts",
+    "utils/bboxSelection/boxStorage.ts",
 ]) {
     test(`${module} imports no three.js`, () => {
         walkFreeOfThree(join(ROOT, "src", module));

@@ -151,9 +151,17 @@ JavaScript side:
 - **An object with children that draws something itself.** The reader reports one box per object,
   of the object and everything below it, so such an object is judged by the larger box.
 
+The boxes are kept across reloads on both viewports:
+
+- **Kept across reloads.** `utils/bboxSelection/boxPersistence.ts` keeps the boxes of a scope in the
+  browser, bound by whichever viewport draws them. A box is in world coordinates, and the two
+  viewports place a model differently: the three.js one recentres what it loads, the three.js-free
+  one draws a model where its file puts it. The offset in use is published as plain numbers
+  (`state/sceneFrameStore.ts`: mirrored from the three.js model state, zero on the three.js-free
+  viewport) and stored with the boxes, so a box moves by the difference and stays over the same
+  object, on a reload and from one viewport to the other.
 Not on the three.js-free viewport yet: "Request from source" in a box's menu (what it loads comes
-through the three.js scene's loaders; the menu says so), and keeping the boxes across reloads (the
-storage binding reads the model's recentring offset from the three.js model state).
+through the three.js scene's loaders; the menu says so).
 
 ## Undo and redo on both viewports
 

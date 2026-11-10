@@ -1,5 +1,5 @@
-"""Undo and redo on whichever viewport is on screen: the three.js one and the three.js-free one answer
-the same commands and keys through one history."""
+"""Undo and redo, and selection boxes kept across a reload, on whichever viewport is on screen: the
+three.js one and the three.js-free one answer the same commands and keys through one history."""
 
 import asyncio
 
@@ -9,6 +9,7 @@ from playwright.async_api import async_playwright
 from .test_render_backends import (
     CENTRE,
     NATIVE,
+    _box_edges,
     _click,
     _command,
     _count,
@@ -123,3 +124,90 @@ async def test_undo_and_redo_restore_each_picture(ws_server, backend):
         finally:
             await browser.close()
 
+
+@pytest.mark.parametrize("backend", ["three", NATIVE])
+async def test_a_selection_box_is_one_step_and_survives_a_reload(ws_server, backend):
+    """A box made around the selection is one undo step, with the selection it makes. It is kept in
+    the browser: after a reload it is drawn again once the model is back, over the same object, and
+    selects it again when asked to."""
+    async with async_playwright() as playwright:
+        browser, page, _ = await _open_viewer(playwright, ws_server, backend)
+        try:
+            await _show_row_of_boxes(page, ws_server)
+            await _click(page, *CENTRE)
+            one = (await _picture(page))[0]
+            assert one > 3000, f"{backend}: the click selected nothing"
+
+            await _command(page, "Box around selection")
+            edges = _box_edges(await _pixels(page))
+            assert edges > 100, f"{backend}: no selection box is drawn ({edges} box-coloured pixels)"
+
+            # the box is one step: undo takes it away and leaves the object selected, redo brings it back
+            await page.mouse.move(*CENTRE)
+            await page.keyboard.press("Control+z")
+            await page.wait_for_timeout(700)
+            image = await _pixels(page)
+            assert _box_edges(image) < 50, f"{backend}: the undone box is still drawn"
+            assert _count(image, _is_selected) > 0.6 * one, f"{backend}: undoing the box lost the selection"
+            await page.keyboard.press("Control+y")
+            await page.wait_for_timeout(700)
+            assert _box_edges(await _pixels(page)) > 100, f"{backend}: redo did not bring the box back"
+
+            # reload: the box comes back with the page, and is over the same object once the model is
+            await page.reload()
+            await _until(page, lambda: page.evaluate("document.readyState === 'complete'"), "the page to load")
+            await page.wait_for_timeout(1500)
+            await _show_row_of_boxes(page, ws_server)
+            if backend == NATIVE:
+                assert await page.evaluate("document.documentElement.dataset.nativeViewport") == "active"
+            image = await _pixels(page)
+            kept = _box_edges(image)
+            assert kept > 100, f"{backend}: the box did not survive the reload ({kept} box-coloured pixels)"
+            # (the three.js viewport's move gizmo on the active box has an arrow in the selection's blue)
+            assert _count(image, _is_selected) < 0.3 * one, f"{backend}: restoring a box selected something by itself"
+
+            await _command(page, "Reselect with selection box")
+            again = (await _picture(page))[0]
+            assert 0.6 * one < again < 1.3 * one, f"{backend}: the kept box selects {again} pixels, the object {one}"
+        finally:
+            await browser.close()
+
+
+@pytest.mark.parametrize("first, second", [("three", NATIVE), (NATIVE, "three")])
+async def test_a_kept_selection_box_is_over_the_same_object_on_the_other_viewport(ws_server, first, second):
+    """The two viewports place a model differently (the three.js one recentres it). A box kept by one
+    is moved by the difference when the other shows the model, so it holds the same object there."""
+    async with async_playwright() as playwright:
+        browser, page, _ = await _open_viewer(playwright, ws_server, first)
+        try:
+            await _show_row_of_boxes(page, ws_server)
+            await _click(page, *CENTRE)
+            assert (await _picture(page))[0] > 3000, f"{first}: the click selected nothing"
+            await _command(page, "Box around selection")
+            assert _box_edges(await _pixels(page)) > 100, f"{first}: no selection box is drawn"
+
+            await page.goto(page.url.replace(f"renderer={first}", f"renderer={second}"), timeout=20000)
+            await page.wait_for_timeout(1500)
+            await _show_row_of_boxes(page, ws_server)
+            assert (await page.evaluate("document.documentElement.dataset.nativeViewport") == "active") == (
+                second == NATIVE
+            )
+            image = await _pixels(page)
+            assert _box_edges(image) > 100, f"{second}: the box kept by {first} is not drawn"
+
+            # what the box holds here is the object in the middle of the view, and only that one
+            await _command(page, "Reselect with selection box")
+            boxed = (await _picture(page))[0]
+            middle = (await _pixels(page)).crop((CENTRE[0] - 40, CENTRE[1] - 40, CENTRE[0] + 40, CENTRE[1] + 40))
+            assert (
+                _count(middle, _is_selected) > 3200
+            ), f"{second}: the box from {first} does not hold the middle object"
+            await _command(page, "Remove selection boxes")
+            await _click(page, *CENTRE)
+            one = (await _picture(page))[0]
+            assert one > 3000, f"{second}: the click selected nothing"
+            assert (
+                0.6 * one < boxed < 1.3 * one
+            ), f"{second}: the box from {first} selects {boxed} pixels, the object {one}"
+        finally:
+            await browser.close()

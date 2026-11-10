@@ -9,7 +9,9 @@
 // every frame, so they keep their size on screen; a press is hit-tested against them on screen,
 // before the camera sees it (`dragInterceptor`).
 import {useBBoxSelectionStore, type SelectionBox} from "@/state/bboxSelectionStore";
+import {setSceneOffset, useSceneFrameStore} from "@/state/sceneFrameStore";
 import {bindActiveBoxSelection, selectInScreenRect} from "@/utils/bboxSelection/applyBoxSelection";
+import {bindBBoxSelectionStorage} from "@/utils/bboxSelection/boxPersistence";
 import {axisVector, boxEdges, boxFaces, faceAxis, HANDLE_COLORS, lineParamAtScreen, minBoxSize, moveArrows, screenPointOverBox, toScreen} from "@/utils/bboxSelection/boxHandles";
 import {BOX_FACES, boxCenter, centeredAt, faceCenter, moveFace, type Aabb, type Vec3} from "@/utils/bboxSelection/boxMath";
 import {drawMarquee, marqueeElement} from "@/utils/bboxSelection/marquee";
@@ -293,7 +295,20 @@ export function bindBoxSelectionGizmo(scene: NativeScene): () => void {
     scene.onLoaded.add(rebuild);
     scene.onFrame.add(placeHandles);
 
+    // The boxes are kept in this browser while the viewport is up, as on the three.js viewport. This
+    // viewport draws a model where its file puts it, so once one is on screen the world's offset from
+    // the models' own coordinates is zero: boxes stored under another offset move over.
+    const placed = () => {
+        const offset = useSceneFrameStore.getState().offset;
+        if (scene.modelBounds && (!offset || offset.some((v) => v !== 0))) setSceneOffset([0, 0, 0]);
+    };
+    const unbindStorage = bindBBoxSelectionStorage();
+    placed();
+    scene.onLoaded.add(placed);
+
     return () => {
+        scene.onLoaded.delete(placed);
+        unbindStorage();
         scene.onFrame.delete(placeHandles);
         scene.onLoaded.delete(rebuild);
         unfollow();
