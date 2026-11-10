@@ -28,6 +28,11 @@ import { unload_any_source } from "@/utils/scene/handlers/unload_any_source";
 
 /** Scene source names of builder previews start with this. */
 export const PREVIEW_SOURCE_PREFIX = "connection-preview:";
+
+/** Whether the loaded source `name` is a connection-builder preview. */
+export function isConnectionPreview(name: string | null | undefined): boolean {
+  return !!name?.startsWith(PREVIEW_SOURCE_PREFIX);
+}
 const INPUT_DEBOUNCE_MS = 350;
 
 let started = false;
