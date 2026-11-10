@@ -69,7 +69,7 @@ export function threeSelectionRefs(): ObjectRef[] {
 
 /** Select `refs` in the three.js scene: each one's mesh is the one its GLB node names. One undo step.
  *  Returns how many draw ranges it selected. */
-export function setThreeSelection(refs: readonly ObjectRef[], options: SetSelectionOptions = {}): number {
+export function setThreeSelection(refs: Iterable<ObjectRef>, options: SetSelectionOptions = {}): number {
     const store = useSelectedObjectStore.getState();
     const models = getViewerRuntime().modelKeyMap.current;
     const tree = useTreeViewStore.getState();
@@ -77,13 +77,25 @@ export function setThreeSelection(refs: readonly ObjectRef[], options: SetSelect
     // A mesh is looked up by name once per call, not once per object: a subtree of thousands of
     // objects usually draws from a handful of meshes, and getObjectByName walks the model.
     const meshes = new Map<string, THREE.Object3D | null>();
+    // Consecutive objects are nearly always drawn by the same mesh: the last answer is tried first,
+    // so a run of them costs two comparisons each and no key is built.
+    let lastModel: string | null = null;
+    let lastNode: string | null = null;
+    let lastMesh: THREE.Object3D | null = null;
+    let asked = 0;
     for (const ref of refs) {
+        asked++;
         const meshName = ref.node !== undefined ? ref.node : tree.findNodeByRangeId(ref.model, ref.id)?.node_name;
         if (!meshName) continue;
-        const key = `${ref.model}\n${meshName}`;
-        let mesh = meshes.get(key);
-        if (mesh === undefined) meshes.set(key, (mesh = models?.get(ref.model)?.getObjectByName(meshName) ?? null));
-        if (mesh) batch.push([mesh, ref.id]);
+        if (ref.model !== lastModel || meshName !== lastNode) {
+            const key = `${ref.model}\n${meshName}`;
+            let mesh = meshes.get(key);
+            if (mesh === undefined) meshes.set(key, (mesh = models?.get(ref.model)?.getObjectByName(meshName) ?? null));
+            lastModel = ref.model;
+            lastNode = meshName;
+            lastMesh = mesh;
+        }
+        if (lastMesh) batch.push([lastMesh, ref.id]);
     }
     if (options.add) {
         if (batch.length || options.within) {
@@ -92,7 +104,7 @@ export function setThreeSelection(refs: readonly ObjectRef[], options: SetSelect
                 options.within?.();
             });
         }
-    } else if (!refs.length) {
+    } else if (!asked) {
         recordViewerAction("clear-selection", () => {
             store.clearSelectedObjects();
             options.within?.();

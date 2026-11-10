@@ -18,7 +18,7 @@ const SCREENSHOT_HEIGHT = 1080;
 export function createNativeViewportApi(scene: NativeScene): ViewportApi {
     const layers = new Map<string, BillboardLayer>();
     // The scene knows an object by one key made of its model and its id.
-    const own = (refs: readonly ObjectRef[]): string[] => refs.map((r) => objectKey(r.model, r.id));
+    const own = (refs: Iterable<ObjectRef>): string[] => Array.from(refs, (r) => objectKey(r.model, r.id));
     return {
         kind: "native",
         unavailable: () => null,

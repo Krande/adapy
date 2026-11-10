@@ -27,12 +27,19 @@ function subtreeOf(rows: readonly TreeNodeData[]): TreeNodeData[] {
     return out;
 }
 
-/** The objects of `nodes`, as the viewport knows them: a row's model and its id in it. A row that is
- *  only a level names nothing drawn, and the viewport leaves it out. */
-function objectRefs(nodes: readonly TreeNodeData[]): ObjectRef[] {
-    const out: ObjectRef[] = [];
-    for (const n of nodes) if (n.model_key && n.rangeId != null) out.push({model: n.model_key, id: String(n.rangeId)});
-    return out;
+/** The objects of `nodes`, as the viewport knows them: a row's model, its id in it and the GLB node
+ *  that draws it. A row that is only a level names nothing drawn, and the viewport leaves it out. One
+ *  ref is yielded again and again with each row's values (the viewport reads it and moves on), so
+ *  selecting a model of tens of thousands of objects makes no garbage per object. */
+function* objectRefs(nodes: readonly TreeNodeData[]): Generator<ObjectRef> {
+    const ref: ObjectRef = {model: "", id: "", node: null};
+    for (const n of nodes) {
+        if (!n.model_key || n.rangeId == null) continue;
+        ref.model = n.model_key;
+        ref.id = typeof n.rangeId === "string" ? n.rangeId : String(n.rangeId);
+        ref.node = n.node_name ?? null;
+        yield ref;
+    }
 }
 
 /** Combine `rows` with the selected rows by `mode`. */

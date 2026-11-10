@@ -53,8 +53,9 @@ export interface ViewportApi {
     onSelectionChange(listener: () => void): () => void;
     /** Make `refs` the selection (one undo step where the viewport has undo). Objects that are not
      *  drawn (a level of the hierarchy, an unknown id) are left out. */
-    /** Returns how many objects it selected. */
-    setSelection(refs: readonly ObjectRef[], options?: SetSelectionOptions): number;
+    /** Returns how many objects it selected. `refs` is read once, in order, and no ref is kept: a
+     *  caller selecting thousands of objects may yield one object over and over with new values. */
+    setSelection(refs: Iterable<ObjectRef>, options?: SetSelectionOptions): number;
     clearSelection(): void;
     hideSelected(): void;
     /** Hide everything that is not selected. */
