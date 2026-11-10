@@ -89,6 +89,21 @@ def locally_preferred_pools() -> list[str]:
         return []
 
 
+def locally_registered_simulation_providers() -> list[dict]:
+    """The simulation providers this process registered (``ada.plugins.register_simulation_provider``),
+    each as the dict a worker advertises; ``[]`` when there is no registry, it predates the
+    providers, or the listing fails (logged)."""
+    registry = local_plugin_registry()
+    fn = getattr(registry, "simulation_provider_specs", None) if registry is not None else None
+    if fn is None:
+        return []
+    try:
+        return list(fn())
+    except Exception:
+        logger.exception("failed to list locally registered simulation providers (non-fatal)")
+        return []
+
+
 def locally_registered_spec(plugin_id: str) -> dict | None:
     """The spec this process registered for ``plugin_id``, or ``None`` — both
     for "not registered" and for "no registry here", which read the same to a
