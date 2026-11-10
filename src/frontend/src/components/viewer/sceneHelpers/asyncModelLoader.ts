@@ -71,6 +71,31 @@ export function loadGLTF(
 
   set("running", 0, `Loading ${name}`);
 
+  // Bytes that are already in memory (a blob: URL, as a model sent over the websocket or dropped as a
+  // file has) are read in one native step and parsed. Going through the loader's fetch would pump
+  // them through a JavaScript stream chunk by chunk, to report the progress of a download that is
+  // not one: over a hundred milliseconds of main thread on a large model.
+  if (modelUrl.startsWith("blob:")) {
+    return (async () => {
+      try {
+        const buffer = await (await fetch(modelUrl)).arrayBuffer();
+        metrics?.markDownloadDone();
+        set("running", 1, `Processing ${name}…`);
+        const gltf = await loader.parseAsync(buffer, "");
+        metrics?.markParseDone();
+        useConversionStore.getState().clearJob(LOAD_KEY);
+        return gltf;
+      } catch (err) {
+        set("error", 0, "Load failed", String(err));
+        throw err;
+      }
+    })();
+  }
+
+  // The toast is told when there is something new to show (another percent, another megabyte, the
+  // next stage), not once per chunk the network delivers: each telling re-renders it.
+  let shown = "";
+
   return new Promise((resolve, reject) => {
     loader.load(
       modelUrl,
@@ -99,6 +124,9 @@ export function loadGLTF(
             : computable
               ? `Downloading ${name}`
               : `Downloading ${name} (${mb} MB)`;
+        const step = `${stage}|${computable ? Math.floor(frac * 100) : mb}`;
+        if (step === shown) return;
+        shown = step;
         set("running", frac, stage);
       },
       (err) => {

@@ -59,6 +59,7 @@ function sync(field: FeaManifestField | null, extra: Partial<Parameters<typeof s
   const mesh = makeMesh();
   syncResultSession({
     mesh,
+    basePositions: mesh.geometry.getAttribute("position").array as Float32Array,
     sourceName: "deck.fem",
     manifest: makeManifest(field),
     field,

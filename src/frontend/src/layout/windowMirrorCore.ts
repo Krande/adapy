@@ -29,7 +29,7 @@ import type {TreeNodeData} from "@/components/tree_view/CustomNode";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {useObjectInfoStore} from "@/state/objectInfoStore";
 import {useSceneMirrorStore} from "@/state/sceneMirrorStore";
-import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
+import {subscribeSelection} from "@/viewport/api/viewportApi";
 import {useTreeViewStore} from "@/state/treeViewStore";
 import {registerSystemsCommands} from "@/utils/systems/systems";
 import {parentLevelName, rowsById, selectedRangeCount} from "@/utils/tree_view/treeSelection";
@@ -107,7 +107,7 @@ export function registerCoreMirror(): void {
         cb();
       });
       // The count and the parent level follow the 3D selection and the tree.
-      const offSel = useSelectedObjectStore.subscribe((s, prev) => void (s.selectedObjects !== prev.selectedObjects && cb()));
+      const offSel = subscribeSelection(cb);
       const offTree = useTreeViewStore.subscribe((s, prev) => void (s.treeData !== prev.treeData && cb()));
       return () => {
         offInfo();

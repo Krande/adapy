@@ -19,10 +19,25 @@ function recorder(kind: ViewportApi["kind"], cannot: string | null = null): {api
             kind,
             unavailable: () => cannot,
             selectionCount: () => 0,
+            selection: () => [],
+            selectionToken: () => calls.length,
+            onSelectionChange: () => () => {},
+            setSelection: (...args: unknown[]) => (log("setSelection")(...args), 0),
             modelBounds: () => null,
+            results: {
+                createResultMesh: () => {
+                    throw new Error("not drawn in this test");
+                },
+            },
             clearSelection: log("clearSelection"),
             hideSelected: log("hideSelected"),
             hideOthers: log("hideOthers"),
+            hide: log("hide"),
+            saveScreenshot: log("saveScreenshot"),
+            unloadSource: () => false,
+            show: log("show"),
+            isolate: log("isolate"),
+            objectVisibility: () => () => null,
             showAll: log("showAll"),
             fitAll: log("fitAll"),
             fitSelection: log("fitSelection"),
@@ -30,6 +45,10 @@ function recorder(kind: ViewportApi["kind"], cannot: string | null = null): {api
             resetCamera: log("resetCamera"),
             orbitStep: log("orbitStep"),
             panStep: log("panStep"),
+            objectsCentre: () => null,
+            billboards: () => {
+                throw new Error("no billboards in this test");
+            },
         },
     };
 }

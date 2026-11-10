@@ -9,12 +9,10 @@
 // repeated "up" calls climb one level at a time with no extra state to track.
 
 import {TreeNodeData} from "@/components/tree_view/CustomNode";
-import {getViewerRuntime} from "@/state/viewerRuntime";
 import {useObjectInfoStore} from "@/state/objectInfoStore";
-import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
 import {useTreeViewStore} from "@/state/treeViewStore";
-import {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
-import {recordViewerAction} from "@/utils/scene/viewerHistory";
+import {activeViewport} from "@/viewport/api/viewportApi";
+import {refsUnder} from "./sceneTreeActions";
 import {selectableParent} from "./treeGraph";
 import {currentSelectionNode, noteTreeSelection, treeIndices as indices} from "./treeSelection";
 
@@ -22,40 +20,17 @@ import {currentSelectionNode, noteTreeSelection, treeIndices as indices} from ".
 
 export {currentSelectionNode, parentLevelName, selectedLeafNodes} from "./treeSelection";
 
-function collectSubtree(node: TreeNodeData, out: TreeNodeData[]): void {
-    out.push(node);
-    for (const child of node.children ?? []) collectSubtree(child, out);
-}
-
-async function meshesAndRanges(nodes: TreeNodeData[]): Promise<[CustomBatchedMesh, string][]> {
-    const res: [CustomBatchedMesh, string][] = [];
-    for (const n of nodes) {
-        if (n.rangeId == null || !n.node_name || !n.model_key) continue;
-        const scene = getViewerRuntime().modelKeyMap.current?.get(n.model_key);
-        if (!scene) continue;
-        const mesh = scene.getObjectByName(n.node_name) as CustomBatchedMesh | undefined;
-        if (!mesh) continue;
-        res.push([mesh, n.rangeId]);
-    }
-    return res;
-}
-
 /** Select ``node``'s whole subtree in 3D and make it the selection: covers every
  *  draw range beneath it, sets the info-panel name to the node, and — only when
  *  the tree panel is already open — highlights + scrolls to the row. Never opens
  *  the tree. */
 export async function selectTreeNode(node: TreeNodeData): Promise<void> {
-    const nodes: TreeNodeData[] = [];
-    collectSubtree(node, nodes);
-    const batch = await meshesAndRanges(nodes);
-
-    recordViewerAction("select", () => {
-        const sel = useSelectedObjectStore.getState();
-        sel.clearSelectedObjects();
-        sel.addBatchofMeshes(batch);
-
-        useObjectInfoStore.getState().setName(node.name);
-        useObjectInfoStore.getState().setSelectedNodeId(node.id);
+    // On whichever viewport is on screen; the object info is part of the same undo step.
+    activeViewport()?.setSelection(refsUnder([node]), {
+        within: () => {
+            useObjectInfoStore.getState().setName(node.name);
+            useObjectInfoStore.getState().setSelectedNodeId(node.id);
+        },
     });
     noteTreeSelection([node.id]);
     const tv = useTreeViewStore.getState();

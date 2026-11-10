@@ -7,16 +7,28 @@ import React from "react";
 import {ensureViewportInput} from "@/viewport/input";
 import {installShortcutDispatcher} from "@/layout/shortcutDispatch";
 import {bindCoreShortcuts} from "@/layout/shortcuts";
+import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {useSectionStore} from "@/state/sectionStore";
-import {setActiveViewport} from "@/viewport/api/viewportApi";
+import {tickFeaAnimation} from "@/utils/scene/fea/feaAnimationDriver";
+import {notifyModelLoaded, notifyViewportPick, setActiveViewport} from "@/viewport/api/viewportApi";
 import {viewportShortcutHandlers} from "@/viewport/api/viewportShortcuts";
-import {NativeScene} from "./nativeScene";
+import {NativeOrientationGizmo} from "./NativeOrientationGizmo";
+import {NativeScene, splitObjectKey} from "./nativeScene";
+import {bindSectionGizmo} from "./sectionGizmo";
 import {createNativeViewportApi} from "./nativeViewportApi";
 import {useNativeViewport} from "./nativeModel";
 
+/** "#rrggbb" (sRGB) as linear rgb, which the renderer takes; null when it is not that. */
+function linearRgb(hex: string): [number, number, number] | null {
+    const m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex);
+    if (!m) return null;
+    const linear = (c: number) => (c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
+    return [linear(parseInt(m[1], 16) / 255), linear(parseInt(m[2], 16) / 255), linear(parseInt(m[3], 16) / 255)];
+}
+
 const UNAVAILABLE = [
-    "section plane gizmo and filled cuts", "FEA results and animation", "labels, markers and plugin overlays", "measurements and gizmos",
-    "screenshots and export", "overlaying several models", "the tree, info and scene panels of the main viewer",
+    "FEA element (integration point) fields, beam sections and picking in a result", "number labels and plugin overlays",
+    "box selection", "3D-mouse input", "export",
 ];
 
 const NativeViewport: React.FC = () => {
@@ -26,6 +38,8 @@ const NativeViewport: React.FC = () => {
     const [loadError, setLoadError] = React.useState("");
     const model = useNativeViewport((s) => s.model);
     const state = useNativeViewport((s) => s.state);
+    // A result shown through result layers is not a model handed over as bytes: it is named here.
+    const result = useFeaAnimationStore((s) => (s.resultLayer ? s.sourceName : null));
 
     React.useEffect(() => {
         const host = hostRef.current;
@@ -38,6 +52,14 @@ const NativeViewport: React.FC = () => {
             if (cancelled) return scene.dispose();
             scene.onChange = () => setVersion((v) => v + 1);
             scene.onFailure = fail;
+            // A playing result: the same driver the three.js viewport ticks, once per frame, for as
+            // long as it plays. It writes the deformation scale to the result's layer.
+            scene.beforeFrame = (dt) => {
+                tickFeaAnimation(dt);
+                const fea = useFeaAnimationStore.getState();
+                return fea.isPlaying && fea.sessionActive;
+            };
+            scene.onPick = (key) => notifyViewportPick({ref: key ? splitObjectKey(key) : null});
             sceneRef.current = scene;
             if (scene.failure) return fail(scene.failure);
             const withdraw = setActiveViewport(createNativeViewportApi(scene));
@@ -45,10 +67,15 @@ const NativeViewport: React.FC = () => {
             const unbind = bindCoreShortcuts(viewportShortcutHandlers((run) => ({run})));
             const releaseDispatcher = installShortcutDispatcher();
             // Section planes: the same store the three.js viewport cuts by.
-            const cut = () => scene.setSectionPlanes(useSectionStore.getState().planes.filter((p) => p.enabled));
+            const cut = () => {
+                const {planes, capColor} = useSectionStore.getState();
+                scene.setSectionPlanes(planes.filter((p) => p.enabled), linearRgb(capColor));
+            };
             cut();
             const uncut = useSectionStore.subscribe(cut);
+            const unbindGizmo = bindSectionGizmo(scene);
             release = () => {
+                unbindGizmo();
                 uncut();
                 releaseDispatcher();
                 unbind();
@@ -67,12 +94,25 @@ const NativeViewport: React.FC = () => {
         };
     }, []);
 
+    // A result starts playing: the frame loop, which runs only while something changes, wakes up.
+    React.useEffect(
+        () =>
+            useFeaAnimationStore.subscribe((s, p) => {
+                if (s.isPlaying && !p.isPlaying) sceneRef.current?.invalidate();
+            }),
+        [],
+    );
+
     React.useEffect(() => {
         const scene = sceneRef.current;
         if (!scene || !model || state !== "active") return;
         try {
-            scene.load(model.bytes);
+            const key = `native-${model.seq}`;
+            const added = model.placement === "overlay" && scene.objects.length > 0;
+            scene.load(model.bytes, key, {add: added, sourceName: model.sourceName});
             setLoadError("");
+            // The Scene tree and the object info list and name this model from here on.
+            notifyModelLoaded({added, model: key, sourceName: model.sourceName, sceneExtras: scene.sceneExtras});
         } catch (err) {
             setLoadError(err instanceof Error ? err.message : String(err));
         }
@@ -82,31 +122,14 @@ const NativeViewport: React.FC = () => {
     const objects = scene?.objects ?? [];
     return (
         <div ref={hostRef} className="w-full h-full relative" data-native-viewport-host="true">
+            {scene && state === "active" && <NativeOrientationGizmo scene={scene}/>}
             <div className="absolute left-2 top-14 z-10 w-72 max-h-[70%] flex flex-col rounded-sm bg-gray-800/90 text-xs text-gray-200 p-2 space-y-1">
                 <div className="font-semibold">adacpp WebGPU, no three.js (experimental)</div>
                 {state === "starting" && <div>Starting WebGPU…</div>}
                 {loadError && <div className="text-amber-300">{loadError}</div>}
                 {model && <div className="text-gray-400 truncate" title={model.sourceName}>{model.sourceName || "model"} · {objects.length} objects</div>}
-                {!model && state === "active" && <div className="text-gray-400">No model loaded.</div>}
-                <div className="flex space-x-1">
-                    <button className="bg-blue-700 hover:bg-blue-600 rounded-sm px-2 py-1 disabled:opacity-40" disabled={!scene?.selectionSize} onClick={() => scene?.hideSelected()}>Hide selected</button>
-                    <button className="bg-blue-700 hover:bg-blue-600 rounded-sm px-2 py-1" onClick={() => scene?.showAll()}>Show all</button>
-                    <button className="bg-blue-700 hover:bg-blue-600 rounded-sm px-2 py-1" onClick={() => scene?.fit()}>Fit</button>
-                </div>
-                <div className="overflow-auto min-h-0" role="tree" aria-label="Objects">
-                    {objects.map((o) => (
-                        <div key={o.id} role="treeitem" aria-selected={scene?.isSelected(o.id)}
-                            className={`flex items-center justify-between px-1 cursor-pointer ${scene?.isSelected(o.id) ? "bg-blue-700" : "hover:bg-gray-700"} ${scene?.isHidden(o.id) ? "opacity-50" : ""}`}
-                            title={o.path.join(" / ")}
-                            onClick={(e) => scene?.select(o.id, e.ctrlKey || e.metaKey || e.shiftKey)}>
-                            <span className="truncate">{o.path[o.path.length - 1]}</span>
-                            <button className="ml-1 text-gray-300 hover:text-white" aria-label={scene?.isHidden(o.id) ? "Show" : "Hide"}
-                                onClick={(e) => { e.stopPropagation(); scene?.setHidden(o.id, !scene.isHidden(o.id)); }}>
-                                {scene?.isHidden(o.id) ? "show" : "hide"}
-                            </button>
-                        </div>
-                    ))}
-                </div>
+                {!model && result && <div className="text-gray-400 truncate" title={result}>{result} · result</div>}
+                {!model && !result && state === "active" && <div className="text-gray-400">No model loaded.</div>}
                 <details>
                     <summary className="cursor-pointer text-gray-400">Not available in this mode</summary>
                     <ul className="list-disc pl-4 text-gray-400">{UNAVAILABLE.map((u) => <li key={u}>{u}</li>)}</ul>

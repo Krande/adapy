@@ -83,7 +83,7 @@ export function setupCameraControlsHandlers(
     const shortcut = (run: () => void | boolean, when: CoreShortcutHandler["when"] = live): CoreShortcutHandler => ({run, when});
     const copyNames = () => {
         const selectedObjects = useSelectedObjectStore.getState().selectedObjects;
-        void copySelectionNames(selectedObjects).then((n) => {
+        void copySelectionNames().then((n) => {
             if (n === 0) console.warn("Shift+C: nothing copied");
         });
     };

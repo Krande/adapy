@@ -37,6 +37,7 @@ import {feModelLoaded, hasFemConcepts} from "@/components/simulation/simPanelTab
 import {beamSolidsToggleState} from "@/utils/scene/fea/streaming/beamSolidsToggle";
 import {feaControlActions} from "@/utils/scene/fea/feaControls";
 import {useLabelsStore} from "@/state/labelsStore";
+import {useTypeIconsStore} from "@/state/typeIconsStore";
 import {anyShownRange} from "@/utils/mesh_select/selectionSets";
 import {playbackAvailable} from "@/utils/scene/fea/playbackActions";
 import {openLocalFilePicker} from "@/utils/scene/handlers/localOpenPlan";
@@ -310,7 +311,7 @@ export function coreCommandSpecs(): CommandSpec[] {
       label: "Select parent",
       group: "Edit",
       shortcut: "core:select-parent",
-      disabledReason: nothingSelectedInScene,
+      disabledReason: nothingSelected,
       run: () => sceneActions().selectParent(),
     },
     {
@@ -318,7 +319,7 @@ export function coreCommandSpecs(): CommandSpec[] {
       label: "Select first child",
       group: "Edit",
       shortcut: "core:select-child",
-      disabledReason: nothingSelectedInScene,
+      disabledReason: nothingSelected,
       run: () => void navigation().then((m) => m.selectChildLevel()),
     },
     {
@@ -326,7 +327,7 @@ export function coreCommandSpecs(): CommandSpec[] {
       label: "Select previous sibling",
       group: "Edit",
       shortcut: "core:select-prev-sibling",
-      disabledReason: nothingSelectedInScene,
+      disabledReason: nothingSelected,
       run: () => void navigation().then((m) => m.selectSibling(-1)),
     },
     {
@@ -334,7 +335,7 @@ export function coreCommandSpecs(): CommandSpec[] {
       label: "Select next sibling",
       group: "Edit",
       shortcut: "core:select-next-sibling",
-      disabledReason: nothingSelectedInScene,
+      disabledReason: nothingSelected,
       run: () => void navigation().then((m) => m.selectSibling(1)),
     },
     {
@@ -342,9 +343,9 @@ export function coreCommandSpecs(): CommandSpec[] {
       label: "Copy names",
       group: "Edit",
       shortcut: "core:copy-names",
-      disabledReason: nothingSelectedInScene,
+      disabledReason: nothingSelected,
       run: () =>
-        void import("@/utils/clipboard/copySelectionNames").then((m) => m.copySelectionNames(useSelectedObjectStore.getState().selectedObjects)),
+        void import("@/utils/clipboard/copySelectionNames").then((m) => m.copySelectionNames()),
     },
     {
       id: ID.groupSelection,
@@ -384,8 +385,8 @@ export function coreCommandSpecs(): CommandSpec[] {
       label: "Take screenshot",
       group: "View",
       keywords: ["image", "png", "capture", "save"],
-      disabledReason: noScene,
-      run: () => void import("@/utils/takeScreenshot").then((m) => m.takeScreenshot()),
+      disabledReason: noViewport,
+      run: () => activeViewport()?.saveScreenshot(),
     },
     {
       id: ID.fitAll,
@@ -737,6 +738,23 @@ export function coreCommandSpecs(): CommandSpec[] {
       checked: () => useLabelsStore.getState().values,
       disabledReason: () => (useFeaAnimationStore.getState().sessionActive ? null : "No result is loaded"),
       run: () => useLabelsStore.getState().setValues(!useLabelsStore.getState().values),
+    },
+    // Labels and icons either viewport draws: the names of the selected objects, the type icons
+    {
+      id: ID.labelsNames,
+      label: "Object names",
+      group: "View",
+      checked: () => useLabelsStore.getState().names,
+      disabledReason: () => (activeViewport() ? null : NO_VIEWPORT),
+      run: () => useLabelsStore.getState().setNames(!useLabelsStore.getState().names),
+    },
+    {
+      id: ID.typeIcons,
+      label: "Type icons",
+      group: "View",
+      checked: () => useTypeIconsStore.getState().enabled,
+      disabledReason: () => (activeViewport() ? null : NO_VIEWPORT),
+      run: () => useTypeIconsStore.getState().toggle(),
     },
     // Colour by property
     {

@@ -209,7 +209,17 @@ async def test_load_select_hide_section_and_pick(ws_server, backend):
             await browser.close()
 
 
-@pytest.mark.parametrize("backend", list(BACKENDS))
+async def _assert_drawing_with(page: Page, backend: str, state: str) -> None:
+    """What draws is what was asked for: the renderer's state, or the three.js-free viewport up and no
+    WebGL context made."""
+    if backend != NATIVE:
+        return await _assert_backend(page, backend, state)
+    got = await page.evaluate("document.documentElement.dataset.nativeViewport")
+    assert got == "active", f"the three.js-free viewport is {got!r}, not drawing"
+    assert await page.evaluate("window.__webglContexts") == 0, "the three.js-free viewport created a WebGL context"
+
+
+@pytest.mark.parametrize("backend", [*BACKENDS, NATIVE])
 async def test_fea_field_and_warp_playback(ws_server, backend, fem_files):
     result_file = fem_files / "cantilever/calculix/eigen_shell_cantilever_calculix.frd"
     async with async_playwright() as playwright:
@@ -223,7 +233,7 @@ async def test_fea_field_and_warp_playback(ws_server, backend, fem_files):
                 return _count(await _pixels(page), _is_coloured) > 5000
 
             await _until(page, coloured, "the result field to be painted", seconds=40)
-            await _assert_backend(page, backend, state)
+            await _assert_drawing_with(page, backend, state)
 
             # warp playback: the mode shape moves, so frames differ while it plays
             still = (await _pixels(page)).tobytes()
@@ -235,12 +245,25 @@ async def test_fea_field_and_warp_playback(ws_server, backend, fem_files):
             assert len(frames) > 2, f"{backend}: the warp did not animate ({len(frames)} distinct frames)"
             await _command(page, "Play / pause results")
             assert still  # the still frame was captured before playback started
-            await _assert_backend(page, backend, state)
+
+            # step: stopped, the shape is undeformed; the next mode is another picture
+            await _command(page, "Stop results")
+            stopped = (await _pixels(page)).tobytes()
+            await _command(page, "Next result step")
+
+            async def stepped():
+                return (await _pixels(page)).tobytes() != stopped
+
+            await _until(page, stepped, f"{backend}: the next result step to be drawn")
+
+            # legend: the scale the colours are read against is on screen
+            assert await page.get_by_text("Range: shown elements").count() >= 1, f"{backend}: no colour legend"
+            await _assert_drawing_with(page, backend, state)
         finally:
             await browser.close()
 
 
-async def test_three_free_viewport_loads_picks_selects_and_hides(ws_server):
+async def test_three_free_viewport_draws_without_webgl(ws_server):
     async with async_playwright() as playwright:
         browser, page, _ = await _open_viewer(playwright, ws_server, NATIVE)
         try:
@@ -252,22 +275,50 @@ async def test_three_free_viewport_loads_picks_selects_and_hides(ws_server):
             assert (
                 await page.evaluate("window.__webglContexts") == 0
             ), "the three.js-free viewport created a WebGL context"
-            items = page.get_by_role("treeitem")
-            assert await items.count() == 2, "the object list names the deck and the box"
-
-            # pick + select: in the scene and in the list
             await _click(page, *CENTRE)
             assert _count(await _pixels(page), _is_selected) > 3000
-            assert await page.locator("[role=treeitem][aria-selected=true]").count() == 1
+        finally:
+            await browser.close()
 
-            # hide, then show all
-            await page.get_by_role("button", name="Hide selected").click()
-            await page.wait_for_timeout(700)
-            assert _count(await _pixels(page), _is_selected) < 50
-            hidden = _count(await _pixels(page), _is_model)
-            await page.get_by_role("button", name="Show all").click()
-            await page.wait_for_timeout(700)
-            assert _count(await _pixels(page), _is_model) > hidden, "Show all brought nothing back"
+
+@pytest.mark.parametrize("backend", ["three", NATIVE])
+async def test_scene_tree_and_object_info_follow_whichever_viewport_is_on_screen(ws_server, backend):
+    """The viewer's own Scene tree and object info, not a second set for the three.js-free viewport:
+    the tree lists the model, a click in 3D selects its row and names the object, and a click on a row
+    selects in 3D."""
+    async with async_playwright() as playwright:
+        browser, page, _ = await _open_viewer(playwright, ws_server, backend)
+        try:
+            await asyncio.to_thread(
+                lambda: _model().show(ws_port=ws_server.port, unique_viewer_id=1, liveness_timeout=10)
+            )
+            await _until(page, lambda: _model_on_screen(page), "the model to be drawn")
+            await _command(page, "Selection tree")
+            rows = page.get_by_role("treeitem")
+
+            async def listed():
+                return await rows.count() >= 1
+
+            await _until(page, listed, "the Scene tree to list the model")
+
+            # 3D -> tree and info: a click on the box selects its row
+            await _click(page, *CENTRE)
+            assert _count(await _pixels(page), _is_selected) > 3000, f"{backend}: the click selected nothing"
+
+            async def box_row_selected():
+                selected = page.locator("[role=treeitem][aria-selected=true]")
+                return await selected.count() == 1 and "box" in (await selected.first.inner_text())
+
+            await _until(page, box_row_selected, f"{backend}: the box's row to be selected in the tree")
+
+            # tree -> 3D: the deck's row selects the deck, which is larger on screen than the box
+            box_pixels = _count(await _pixels(page), _is_selected)
+            await rows.filter(has_text="deck").first.click()
+            await page.wait_for_timeout(1000)
+            deck_pixels = _count(await _pixels(page), _is_selected)
+            assert (
+                deck_pixels > 3000 and deck_pixels != box_pixels
+            ), f"{backend}: clicking the deck's row left {deck_pixels} selected pixels (box: {box_pixels})"
         finally:
             await browser.close()
 
@@ -324,6 +375,18 @@ async def test_commands_and_keys_reach_whichever_viewport_is_on_screen(ws_server
             await _command(page, "Section plane X")
             cut = _count(await _pixels(page), _is_model)
             assert 0.2 * whole < cut < 0.85 * whole, f"{backend}: the section plane cut {whole} -> {cut} model pixels"
+            if backend == NATIVE:
+                # the plane's handle: its arrow starts at the model's centre, which Fit all put mid-screen;
+                # dragging it along the arrow moves the cut
+                await page.mouse.move(*CENTRE)
+                await page.mouse.down()
+                await page.mouse.move(CENTRE[0] + 40, CENTRE[1] - 20, steps=4)
+                await page.mouse.move(CENTRE[0] + 80, CENTRE[1] - 40, steps=4)
+                await page.mouse.up()
+                await page.wait_for_timeout(700)
+                moved = _count(await _pixels(page), _is_model)
+                assert abs(moved - cut) > 0.05 * cut, f"dragging the plane's arrow left the cut at {cut} -> {moved}"
+                assert _count(await _pixels(page), _is_selected) < 50, "the drag on the arrow selected something"
             await _command(page, "Remove section planes")
             restored = _count(await _pixels(page), _is_model)
             assert abs(restored - whole) < 0.05 * whole, f"{backend}: removing the plane left {restored} of {whole}"
@@ -339,9 +402,149 @@ async def test_commands_and_keys_reach_whichever_viewport_is_on_screen(ws_server
             await changes(lambda: page.keyboard.press("Control+ArrowLeft"), "Ctrl+Left (orbit)")
             await changes(lambda: page.keyboard.press("Control+Shift+ArrowUp"), "Ctrl+Shift+Up (pan)")
             await changes(lambda: page.keyboard.press("Alt+3"), "Alt+3 (the front view)")
+            if backend == NATIVE:
+                # the orientation gizmo in the corner: an axis end looks at the model from there
+                await changes(
+                    lambda: page.get_by_role("button", name="View from Z", exact=True).click(),
+                    "the orientation gizmo's Z",
+                )
             await _command(page, "Fit all")
             await page.wait_for_timeout(1200)
             fitted = _count(await _pixels(page), _is_model)
             assert fitted > 0.2 * loaded, f"{backend}: Fit all left {fitted} model pixels of {loaded}"
+        finally:
+            await browser.close()
+
+
+def _is_label(px) -> bool:  # a name label's amber text and border: no model, selection or toolbar colour
+    return px[0] > 200 and px[1] > 150 and px[2] < 170 and px[0] - px[2] > 70
+
+
+@pytest.mark.parametrize("backend", ["three", NATIVE])
+async def test_name_labels_are_drawn_by_whichever_viewport_is_on_screen(ws_server, backend):
+    """One switch, "Object names", labels the selected object on the three.js viewport and on the
+    three.js-free one: the label appears over the selection, follows it, and goes when switched off."""
+    async with async_playwright() as playwright:
+        browser, page, _ = await _open_viewer(playwright, ws_server, backend)
+        try:
+            await asyncio.to_thread(
+                lambda: _model().show(ws_port=ws_server.port, unique_viewer_id=1, liveness_timeout=10)
+            )
+            await _until(page, lambda: _model_on_screen(page), "the model to be drawn")
+            if backend == NATIVE:
+                assert await page.evaluate("document.documentElement.dataset.nativeViewport") == "active"
+
+            await _click(page, *CENTRE)
+            assert _count(await _pixels(page), _is_selected) > 3000, f"{backend}: the click selected nothing"
+            unlabelled = _count(await _pixels(page), _is_label)
+            assert unlabelled < 10, f"{backend}: {unlabelled} label-coloured pixels before any label"
+
+            await _command(page, "Object names")
+            labelled = _count(await _pixels(page), _is_label)
+            assert labelled > 30, f"{backend}: the selected box got no label ({labelled} label pixels)"
+
+            # the label is of the selection: with nothing selected there is none
+            await _command(page, "Clear selection")
+            assert _count(await _pixels(page), _is_label) < 10, f"{backend}: the label outlived the selection"
+            await _click(page, *CENTRE)
+            again = _count(await _pixels(page), _is_label)
+            assert again > 30, f"{backend}: selecting again brought no label back ({again} label pixels)"
+
+            await _command(page, "Object names")
+            left = _count(await _pixels(page), _is_label)
+            assert left < 10, f"{backend}: switching the labels off left {left} label pixels"
+        finally:
+            await browser.close()
+
+
+@pytest.mark.parametrize("backend", ["three", NATIVE])
+async def test_take_screenshot_saves_the_view_of_whichever_viewport_is_on_screen(ws_server, backend):
+    async with async_playwright() as playwright:
+        browser, page, _ = await _open_viewer(playwright, ws_server, backend)
+        try:
+            await asyncio.to_thread(
+                lambda: _model().show(ws_port=ws_server.port, unique_viewer_id=1, liveness_timeout=10)
+            )
+            await _until(page, lambda: _model_on_screen(page), "the model to be drawn")
+            async with page.expect_download(timeout=20000) as download:
+                await _command(page, "Take screenshot")
+            saved = await (await download.value).path()
+            picture = Image.open(saved).convert("RGB")
+            assert picture.size == (1920, 1080)
+            assert _count(picture, _is_model) > 20000, f"{backend}: the screenshot does not show the model"
+        finally:
+            await browser.close()
+
+
+def _second_model_message(instance_id: int, tmp_path) -> bytes:
+    """A websocket message that adds another model beside the one on screen."""
+    from ada.comms.fb_wrap_model_gen import (
+        CommandTypeDC,
+        FileObjectDC,
+        FilePurposeDC,
+        FileTypeDC,
+        MessageDC,
+        SceneDC,
+        SceneOperationsDC,
+        TargetTypeDC,
+    )
+    from ada.comms.fb_wrap_serializer import serialize_root_message
+
+    part = ada.Part("annex")
+    part.add_shape(ada.PrimBox("tower", (1.5, 2.5, 0.0), (2.5, 3.5, 2.0)))
+    glb = tmp_path / "annex.glb"
+    (ada.Assembly("b") / part).to_gltf(glb)
+    file_object = FileObjectDC(
+        name="annex.glb", file_type=FileTypeDC.GLB, purpose=FilePurposeDC.DESIGN, filedata=glb.read_bytes()
+    )
+    return serialize_root_message(
+        MessageDC(
+            instance_id=instance_id,
+            command_type=CommandTypeDC.UPDATE_SCENE,
+            target_group=TargetTypeDC.WEB,
+            target_id=1,
+            scene=SceneDC(operation=SceneOperationsDC.ADD, current_file=file_object),
+        )
+    )
+
+
+@pytest.mark.parametrize("backend", ["three", NATIVE])
+async def test_a_second_model_joins_the_first_on_whichever_viewport_is_on_screen(ws_server, backend, tmp_path):
+    async with async_playwright() as playwright:
+        browser, page, _ = await _open_viewer(playwright, ws_server, backend)
+        try:
+            await asyncio.to_thread(
+                lambda: _model().show(ws_port=ws_server.port, unique_viewer_id=1, liveness_timeout=10)
+            )
+            await _until(page, lambda: _model_on_screen(page), "the model to be drawn")
+            await _command(page, "Selection tree")
+            roots = page.locator("[role=treeitem][aria-level='1']")
+
+            async def one_root():
+                return await roots.count() == 1
+
+            await _until(page, one_root, "the Scene tree to list the first model")
+            first = _count(await _pixels(page), _is_model)
+
+            async with WebSocketClientAsync(ws_server.host, ws_server.port, "local") as client:
+                await client.websocket.send(_second_model_message(client.instance_id, tmp_path))
+
+                async def two_roots():
+                    return await roots.count() == 2
+
+                await _until(page, two_roots, f"{backend}: the second model's root in the Scene tree")
+            await _command(page, "Fit all")
+            await page.wait_for_timeout(1500)
+            both = _count(await _pixels(page), _is_model)
+            assert (
+                both > 20000
+            ), f"{backend}: the models are not on screen together ({both} model pixels, {first} before)"
+
+            # the second model's root row selects what that model draws, by its own model's key
+            await roots.nth(1).click()
+            await page.wait_for_timeout(1000)
+            assert (
+                _count(await _pixels(page), _is_selected) > 1500
+            ), f"{backend}: the second model's row selected nothing"
         finally:
             await browser.close()

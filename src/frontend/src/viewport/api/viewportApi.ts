@@ -6,12 +6,37 @@
 // still goes straight to three.js and is simply absent on the three.js-free viewport. Nothing in this
 // module (or anything it imports at runtime) may import three.js: the three.js-free viewport's chunk
 // depends on it.
+import type {ViewportResults} from "./resultLayer";
 import {type CameraView} from "@/layout/coreCommandIds";
+import type {BillboardLayer, Point3} from "./billboards";
 
 export type ViewportKind = "three" | "native";
 
 /** Things one viewport can do and another cannot yet. A caller asks before offering it. */
 export type ViewportFeature = "fit-selection";
+
+/** One object of a loaded model: the model's key and the object's id in it (the GLB's own id for it,
+ *  which a Scene tree row carries as `model_key` and `rangeId`). The identity panels use; neither
+ *  viewport's own representation of the object appears outside it. */
+export interface ObjectRef {
+    model: string;
+    id: string;
+    /** The GLB node that draws it, when the caller already knows (a tree row does): it saves a
+     *  viewport that works per node a lookup. Never required. */
+    node?: string | null;
+}
+
+export interface SetSelectionOptions {
+    /** Add to the selection instead of replacing it. */
+    add?: boolean;
+    /** Runs as part of the same step: state that belongs to the selection (what the object info
+     *  names), so an undo takes both back. */
+    within?: () => void;
+}
+
+/** Reads how one object is drawn now: "shown", "hidden", or null when the viewport draws nothing for
+ *  it (a level of the hierarchy). Good for one pass over many objects; get a new one after a change. */
+export type ObjectVisibilityReader = (model: string, id: string, node?: string | null) => "shown" | "hidden" | null;
 
 export interface ViewportApi {
     readonly kind: ViewportKind;
@@ -20,14 +45,41 @@ export interface ViewportApi {
 
     // Selection and visibility, of the model's objects.
     selectionCount(): number;
+    /** The selected objects. */
+    selection(): ObjectRef[];
+    /** A value that is a different one whenever the selection has changed. */
+    selectionToken(): unknown;
+    /** Called after each change of the selection. Returns the unsubscribe function. */
+    onSelectionChange(listener: () => void): () => void;
+    /** Make `refs` the selection (one undo step where the viewport has undo). Objects that are not
+     *  drawn (a level of the hierarchy, an unknown id) are left out. */
+    /** Returns how many objects it selected. `refs` is read once, in order, and no ref is kept: a
+     *  caller selecting thousands of objects may yield one object over and over with new values. */
+    setSelection(refs: Iterable<ObjectRef>, options?: SetSelectionOptions): number;
     clearSelection(): void;
     hideSelected(): void;
     /** Hide everything that is not selected. */
     hideOthers(): void;
     showAll(): void;
+    /** Hide `refs` (one undo step where the viewport has undo); the selection is cleared, as its
+     *  highlight would keep drawing what was hidden. */
+    hide(refs: readonly ObjectRef[]): void;
+    show(refs: readonly ObjectRef[]): void;
+    /** Show `refs` and hide everything else. */
+    isolate(refs: readonly ObjectRef[]): void;
+    objectVisibility(): ObjectVisibilityReader;
 
     /** The loaded model's box (min xyz, max xyz), or null with nothing loaded. */
     modelBounds(): [number, number, number, number, number, number] | null;
+    /** Drawing an FEA result: meshes whose colours and displacement are replaced step by step
+     *  (./resultLayer.ts). */
+    readonly results: ViewportResults;
+
+    /** Take the model loaded from `sourceName` off the screen, when this viewport holds its models
+     *  itself; false when it does not (the three.js scene's models are unloaded with the scene). */
+    unloadSource(sourceName: string): boolean;
+    /** Save a picture of the view as it is now (a PNG download). */
+    saveScreenshot(): void;
 
     // The camera.
     fitAll(): void;
@@ -38,6 +90,14 @@ export interface ViewportApi {
     orbitStep(right: number, up: number): void;
     /** One keyboard step of pan in the plane of the screen. */
     panStep(right: number, up: number): void;
+
+    // Labels, markers and icons over the model.
+    /** A point in the middle of what `refs` draw, in world space: where a label or a marker for them
+     *  goes. Null when none of them is drawn. */
+    objectsCentre(refs: readonly ObjectRef[]): Point3 | null;
+    /** The viewport's layer of camera-facing images called `name`, made on first use; asking again
+     *  gives the same layer until it is disposed. */
+    billboards(name: string): BillboardLayer;
 }
 
 let active: ViewportApi | null = null;
@@ -66,4 +126,75 @@ export function onActiveViewportChange(listener: () => void): () => void {
     return () => void listeners.delete(listener);
 }
 
+/** Called whenever the selection on screen may have changed: the viewport's selection did, or another
+ *  viewport took its place. What a panel subscribes to (see `useViewportSelection`). */
+export function subscribeSelection(listener: () => void): () => void {
+    let off = active?.onSelectionChange(listener) ?? null;
+    const offViewport = onActiveViewportChange(() => {
+        off?.();
+        off = active?.onSelectionChange(listener) ?? null;
+        listener();
+    });
+    return () => {
+        off?.();
+        offViewport();
+    };
+}
+
+/** Keep something attached to whichever viewport is on screen: `attach` runs for the one there now and
+ *  for each that replaces it, and what it returns is called when that viewport leaves. Returns the
+ *  function that detaches for good. */
+export function followActiveViewport(attach: (viewport: ViewportApi) => () => void): () => void {
+    let detach: (() => void) | null = null;
+    let attached: ViewportApi | null = null;
+    const follow = () => {
+        if (active === attached) return;
+        detach?.();
+        attached = active;
+        detach = active ? attach(active) : null;
+    };
+    follow();
+    const off = onActiveViewportChange(follow);
+    return () => {
+        off();
+        detach?.();
+        detach = null;
+    };
+}
+
 export const NO_VIEWPORT = "No 3D view";
+
+/** A model a viewport loaded without building a three.js scene for it: what the panels need to list it. */
+export interface LoadedModelInfo {
+    /** True when it joined the models on screen instead of replacing them. */
+    added?: boolean;
+    model: string;
+    sourceName: string;
+    /** The GLB scene's extras, as JSON text ("" when it has none). */
+    sceneExtras: string;
+}
+
+/** A click in a viewport: the object under it, or null for empty space. */
+export interface ViewportPick {
+    ref: ObjectRef | null;
+}
+
+function channel<T>(): {on: (listener: (value: T) => void) => () => void; emit: (value: T) => void} {
+    const subscribers = new Set<(value: T) => void>();
+    return {
+        on: (listener) => {
+            subscribers.add(listener);
+            return () => void subscribers.delete(listener);
+        },
+        emit: (value) => subscribers.forEach((l) => l(value)),
+    };
+}
+
+const modelLoaded = channel<LoadedModelInfo>();
+const picked = channel<ViewportPick>();
+/** A viewport replaced what it shows with this model. The panels' side listens (the Scene tree). */
+export const onModelLoaded = modelLoaded.on;
+export const notifyModelLoaded = modelLoaded.emit;
+/** A viewport's click picked an object (or nothing), after it updated its selection. */
+export const onViewportPick = picked.on;
+export const notifyViewportPick = picked.emit;

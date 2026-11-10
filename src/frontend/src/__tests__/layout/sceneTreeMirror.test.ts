@@ -262,6 +262,10 @@ test("the selected rows: the rows a tree selection chose while it stands, else t
   const { noteTreeSelection, treeSelectionIds, rowsById } = await import("@/utils/tree_view/treeSelection");
   const { useTreeViewStore } = await import("@/state/treeViewStore");
   const { useSelectedObjectStore } = await import("@/state/useSelectedObjectStore");
+  // The selection is the viewport's: here the three.js one, over the selection store.
+  const { setActiveViewport } = await import("@/viewport/api/viewportApi");
+  const { createThreeViewport } = await import("@/viewport/api/threeViewport");
+  const withdraw = setActiveViewport(createThreeViewport({} as never));
   const tree = { id: "__roots__", name: "", children: [{ id: "m", name: "M", children: [{ id: "a", name: "A", model_key: "k", rangeId: "7", node_name: "mesh", children: [] }] }] };
   useTreeViewStore.getState().setTreeData(tree as never);
   useSelectedObjectStore.setState({ selectedObjects: new Map() });
@@ -274,4 +278,5 @@ test("the selected rows: the rows a tree selection chose while it stands, else t
   assert.deepEqual(rowsById(["a", "nope", "__roots__"]).map((r) => r.id), ["a"]);
   useTreeViewStore.getState().clearTreeData();
   useSelectedObjectStore.setState({ selectedObjects: new Map() });
+  withdraw();
 });

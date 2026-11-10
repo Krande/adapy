@@ -48,16 +48,22 @@ flowchart LR
 |---|---|
 | Loading | `loadModel` resolves the source as it always does, then hands the GLB **bytes** to the store instead of calling `GLTFLoader`. `NativeScene.load` passes them to the renderer's own reader (`WebRendererApi.loadGlb`), the one the offscreen posters and the WebGPU embed use. |
 | Scene model | None on the JavaScript side. The reader merges primitives per topology and material and keeps each adapy draw range as a **segment**, and `loadGlb` returns the model's objects (id, name, parent, bounds, triangle count) and which object each segment draws. |
+| Several models | The scene holds any number of models. An object is known by one key made of its model's key and its id (`objectKey`), so two models may use the same ids. A load asked for as an addition joins the others, leaves the camera where it is and adds a root to the Scene tree; unloading a source removes that model's geometry (`ViewportApi.unloadSource`). |
 | Per-object state | Two sets, selected and hidden, written to the renderer as segment state (`setSegmentStates`). Hidden wins over selected. |
 | Camera and input | The renderer's own camera (`setCameraControlled`). The viewport maps input from the viewport's input surface (`viewport/input.ts`, the same element the three.js controls use) to semantic operations: orbit, pan, zoom, zoom towards the cursor, fit to a box, look from a direction. Fit and the named views move there over a short time, and a drag glides to a stop when the camera settings say so. |
 | Picking | `WebRendererApi.pick` at the pointer, mapped through the reader's segment table to an object id. |
-| Object list | The objects that draw something, with their path of names from the reader's hierarchy; click selects, each row hides or shows. |
+| Tree and object info | The viewer's own Scene tree and object info. The viewport announces the model it loaded and what a click picked (`onModelLoaded`, `onViewportPick`); the panels' side (`sceneHelpers/viewportPanelBridge.ts`) builds the tree from the GLB's scene extras and names the picked object. A tree row and a viewport object are the same thing by `ObjectRef`: the model's key and the object's id in it. |
+| FEA results | Drawn through **result layers** (see below): the mesh from the bake's GLB as typed arrays, a nodal field as per-vertex colours, the deformed shape as a morph whose influence is the deformation scale. The Simulation panel, the result commands and the colour legend are the viewer's own. |
+| Screenshots and the orientation gizmo | `saveScreenshot` draws the view at the screenshot's size and saves the canvas' picture. The world's axes in the corner are an SVG drawn from the camera's pose (`NativeOrientationGizmo.tsx`); an axis end looks at the model from there. |
 | Failure | If WebGPU or the module cannot start, or the device is lost, the state becomes `failed` with the reason, `CanvasWrapper` mounts the three.js viewport, and the model that was handed over is loaded there. The Performance panel shows the reason. |
 
 What the main viewer does beyond this is listed in the viewport itself under "Not available in
-this mode", so nothing looks broken by omission: the section plane gizmo and filled cuts, FEA results and animation, labels
-and plugin overlays, measurements and gizmos, screenshots and export, overlaying several models,
-and the main viewer's tree, info and scene panels.
+this mode", so nothing looks broken by omission: element (integration point) fields of an FEA
+result, number labels and plugin overlays, box selection, 3D-mouse input and export.
+
+React reads the selection through `viewport/api/useViewportSelection.ts` (its count, the selected
+objects, a token that changes with it), so a panel written against it follows whichever viewport is
+on screen.
 
 ### Keeping the chunk free of three.js
 
@@ -71,20 +77,50 @@ viewports.
 The end-to-end test `tests/full/frontend/test_render_backends.py` runs the slice in Chromium
 (load, pick, select, hide, show all) and asserts that the page created no WebGL context.
 
+## FEA results on both viewports
+
+A shown result is three things, and only the last differs between the viewports:
+
+```mermaid
+flowchart LR
+    BAKE["bake<br/>mesh GLB, field blobs"] --> PAINT["nodalFieldPaint.ts<br/>values -> colours, displacement<br/>(typed arrays)"]
+    PAINT --> LAYER["ResultMeshLayer<br/>setColors / setDisplacement / setInfluence"]
+    STORE["feaAnimationStore<br/>step, factor, scale, playing"] --> DRIVER["feaAnimationDriver.ts<br/>playbackActions.ts"]
+    DRIVER -->|influence per frame| LAYER
+    LAYER --> T["three.js<br/>colour attribute, morph target 0,<br/>morphTargetInfluences[0]"]
+    LAYER --> N["adacpp renderer<br/>updateColors, updateMorph,<br/>setInstance(morphInfluence)"]
+```
+
+| Part | Where | What it is |
+|---|---|---|
+| The numbers | `utils/scene/fea/nodalFieldPaint.ts` | One step of a nodal field as two typed arrays: RGB per node from the colour map and the range (the field's, the measured one, pinned ends, bands), and the un-scaled displacement per node. One pass, no allocation. |
+| What a viewport draws | `viewport/api/resultLayer.ts` | `ResultMeshLayer`: colours, displacement, and the **influence** (the drawn shape is `base + influence * displacement`). `ViewportApi.results.createResultMesh` makes one from positions and indices. |
+| three.js | `utils/scene/fea/threeResultLayer.ts` | The layer over a mesh: the streaming loader's result mesh is wrapped (`threeResultLayer`), so its selection, overlays and beam sections are as before. |
+| adacpp renderer | `viewport/native/nativeResultLayer.ts` | One geometry with colours and a morph, one instance. Colours and displacement are written into buffers kept on the module heap, so a step allocates nothing. |
+| Playing | `feaAnimationDriver.ts`, `playbackActions.ts`, `resultInfluence.ts` | The oscillator and the transport write one number per frame to the layer in `feaAnimationStore.resultLayer`. No vertex data moves while a mode shape plays. |
+| Controls and legend | `utils/scene/fea/streaming/resultStores.ts` | A painted result is registered the same way from either loader: the session, the step count, the derived deformation scale, the legend's range. |
+| The loader without a scene | `utils/scene/fea/streaming/layerSession.ts` | Reads the mesh GLB as typed arrays (`utils/glb/glbMesh.ts`), draws faces and element edges as layers, paints a nodal field, registers the step callback. `load_fea_streaming` hands a load to it while the three.js-free viewport is on screen. |
+
+The three.js viewport still loads a result with its own loader, which does more than the layer
+session does: element fields with their element-local vertices, beam sections, result points, the
+undeformed outline, per-element selection, recorded playback frames and load combinations computed
+on request. Those are the next things to move behind layers; until then the layer session refuses
+an element field or a combination with the reason instead of drawing it wrong.
+
 ## What the next slices have to settle
 
 These are open design points, ordered by how much of the viewer depends on them.
 
 1. **The interface features program against.** A feature that reaches into `THREE.Scene` exists on
    one viewport only. `src/frontend/src/viewport/api` is the interface both stand behind:
-   `ViewportApi` (selection and visibility of the model's objects, fit, named views, reset, orbit and
-   pan by step), implemented by `threeViewport.ts` over the three.js scene and by
+   `ViewportApi` (the selection as object refs and its changes, hiding, showing and isolating
+   objects, how each is drawn, the model's box, fit, named views, reset, orbit and pan by step), implemented by `threeViewport.ts` over the three.js scene and by
    `native/nativeViewportApi.ts` over `NativeScene`. The viewport on screen registers itself
    (`setActiveViewport`); commands ask `activeViewport()`, and the keys are bound once for both in
    `viewportShortcuts.ts`. A viewport says what it cannot do yet (`unavailable(feature)`), and the
    command is offered disabled with that reason. The interface grows one feature area at a time:
    still to come are objects by id with their state (colour, transparency), their bounds, and
-   overlay geometry (lines, points, markers) by handle. An area not on it yet still goes straight to
+   overlay geometry (lines, points) by handle. An area not on it yet still goes straight to
    three.js and is absent on the three.js-free viewport.
 2. **Where per-object state lives.** `CustomBatchedMesh` owns hidden and selected ranges, and a
    number of scene objects update themselves in `onBeforeRender`, which `SceneSync` replays every
@@ -93,16 +129,27 @@ These are open design points, ordered by how much of the viewer depends on them.
 3. **The model beyond geometry.** `GLTFLoader` also gives the main viewer the node hierarchy, the
    `ADA_EXT_data` extension (design / simulation objects, FEA metadata) and animations. The native
    path gets the hierarchy from the reader, which also hands back the extension data as JSON text;
-   nothing reads it yet. The streaming FEA loader
-   (`utils/scene/fea`) is not connected to it.
+   nothing reads it yet. A streamed FEA result does not come through the reader at all: its mesh is
+   read as typed arrays and drawn through result layers (above), so its elements are not objects of
+   the viewport yet and cannot be picked or hidden one by one.
 4. **Section planes and caps.** The planes are plain data in `state/sectionStore` (no three.js),
-   and both viewports cut by them, so the section commands work on either. Missing on the
-   three.js-free viewport: the filled cut (the reader would have to mark closed solids as capped)
-   and a gizmo. A gizmo without `TransformControls` is its own piece of work (handles as on-top
-   instances, hit-testing through `pick`).
-5. **Labels and markers.** The renderer draws textured sprites. A native label layer needs the
-   text rasterised to textures without a `THREE.CanvasTexture` (a plain canvas works) and a store of
-   label positions.
+   and both viewports cut by them, so the section commands and the panel's sliders work on either.
+   On the three.js-free viewport the reader flags single-sided surfaces as closed solids, so their
+   cut is filled, and `native/sectionGizmo.ts` draws the active plane's outline and an arrow that
+   drags it (helper lines on top, hit-tested on screen).
+5. **Labels and markers.** Both viewports draw them from plain data. A feature asks the viewport
+   on screen for a layer of billboards (`ViewportApi.billboards(name)`, `viewport/api/billboards.ts`)
+   and adds camera-facing images to it by handle: a world position, an image painted on a plain
+   canvas, and a height in world units or in pixels. The three.js viewport draws each as a
+   `THREE.Sprite` (`threeBillboards.ts`), the three.js-free one as a sprite of the renderer with the
+   canvas' pixels as its texture (`native/nativeBillboards.ts`); a load empties the renderer's scene,
+   so that layer keeps the pixels and makes its sprites again. Where an object is comes from the
+   viewport too (`objectsCentre`), as does a change of selection (`onSelectionChange`). The type
+   icons of a procedural model and the names of the selected objects ("Object names") are drawn
+   this way, by controllers that follow the viewport on screen (`followActiveViewport`). Still the
+   three.js viewport's only: the number labels of an FEA result, which need the result's mesh, and
+   a plugin's labels (`addLabels`), which can pin to FEA elements and are cut by section planes at
+   their anchor.
 6. **Controls parity.** The renderer's camera covers orbit, pan, zoom, zoom towards the cursor, fit
    to the model or the selection, named views and the user's input mapping. Still the main
    viewer's only: the orientation gizmo, orthographic projection as a setting, and 3D-mouse input.

@@ -5,6 +5,7 @@
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 
 import {resetFeaAnimationPhase} from "./feaAnimationDriver";
+import {setResultInfluence} from "./resultInfluence";
 
 const store = () => useFeaAnimationStore.getState();
 
@@ -58,7 +59,7 @@ export function stopResults(): void {
         return;
     }
     s.setFactor(0);
-    if (s.mesh?.morphTargetInfluences) s.mesh.morphTargetInfluences[0] = 0;
+    setResultInfluence(s, 0);
 }
 
 /** Set the deformation scale (the user's own, so the loader stops choosing one) and apply it to the shown shape. */
@@ -66,12 +67,12 @@ export function setResultScale(raw: number): void {
     if (!isFinite(raw)) return;
     const s = store();
     s.setScaleFactor(raw);
-    if (s.mesh?.morphTargetInfluences) s.mesh.morphTargetInfluences[0] = s.factor * raw;
+    setResultInfluence(s, s.factor * raw);
 }
 
 /** Set the paused deformation factor within the field's range and apply it. */
 export function setResultFactor(factor: number): void {
     const s = store();
     s.setFactor(factor);
-    if (s.mesh?.morphTargetInfluences) s.mesh.morphTargetInfluences[0] = factor * s.scaleFactor;
+    setResultInfluence(s, factor * s.scaleFactor);
 }

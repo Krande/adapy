@@ -1,84 +1,23 @@
 // FEA streaming: deformation.
 //
-// Owns: which field drives the morph delta (`resolveWarpSource`), the lerped
-// nodal warp on the beam-solid mesh (`installBeamSolidWarp`), and sharing the
-// mesh's morph attribute + influences with its wireframe children
-// (`linkLineMorphToMesh`). Every function takes the mesh and buffers it works
-// on; none reads the session.
+// Owns: the lerped nodal warp on the beam-solid mesh (`installBeamSolidWarp`),
+// and sharing the mesh's morph attribute + influences with its wireframe
+// children (`linkLineMorphToMesh`). Every function takes the mesh and buffers
+// it works on; none reads the session. Which field drives the displacement
+// (`resolveWarpSource`) is plain data and lives in ./warpSource; it is
+// re-exported here for the modules that import it from this one.
 //
-// Inputs: the manifest + a blob fetcher (for the displacement field's step),
-// the meshes, their base positions and the parsed AFBV warp mapping.
+// Inputs: the meshes, their base positions and the parsed AFBV warp mapping.
 
 import * as THREE from "three";
 
-import type {FeaFetcher, FeaRangeFetcher} from "@/services/fea/feaFetcher";
 import type {ParsedBeamSolidsWarp} from "@/services/feaBeamSolidsWarp";
-import {fetchFieldStep} from "@/services/feaFieldBlob";
-import type {FeaManifest, FeaManifestField} from "@/services/viewerApi";
+import type {FeaManifestField} from "@/services/viewerApi";
 import {beamSolidEdges, warpBeamSolidEdges} from "../beamSolidEdges";
 import {elementLocalMap} from "../elementLocalGeometry";
 import {refreshMorphTexture, resetBasePositions, writeMorphTarget} from "../gpuRefresh";
 
-/** Pick the displacement field from the manifest. Frontend reads
- *  ``category`` set by the bake to find it without re-string-matching
- *  solver-specific names. Returns the first match or null. */
-export function findDisplacementField(manifest: FeaManifest): FeaManifestField | null {
-    for (const f of manifest.fields) {
-        if (f.category === "displacement") return f;
-    }
-    return null;
-}
-
-/** Resolve which field (and which step-values) drives the morph
- *  delta for this apply. The colour field is always the user's pick;
- *  warp is decoupled so stress / strain visualisations can still show
- *  the deformed shape. Returns ``null`` when the geometry should stay
- *  static (reaction fields, warp toggle off + no displacement field
- *  available, or the user picked displacement but warpEnabled is off). */
-export async function resolveWarpSource(
-    rangeFetcher: FeaRangeFetcher,
-    fetcher: FeaFetcher,
-    cacheKey: string,
-    manifest: FeaManifest,
-    colorField: FeaManifestField,
-    stepIndex: number,
-    warpEnabled: boolean,
-): Promise<{field: FeaManifestField; stepValues: Float32Array} | null> {
-    // Reaction force fields never drive a deformation — applying them
-    // as a morph delta would visualise a force vector as a
-    // displacement, which is semantically wrong. Lock off regardless
-    // of the toggle.
-    if (colorField.category === "reaction") return null;
-
-    // For the displacement field itself, the warp toggle still
-    // controls whether the user sees the deformed shape — a user
-    // inspecting raw DX values may want them on the un-deformed mesh.
-    if (colorField.category === "displacement") {
-        if (!warpEnabled) return null;
-        const stepValues = await fetchFieldStep(rangeFetcher, fetcher, colorField, stepIndex, cacheKey);
-        return {field: colorField, stepValues};
-    }
-
-    // Stress / strain / other — warp by the manifest's displacement
-    // field when the user has the toggle on.
-    if (!warpEnabled) return null;
-    const dispField = findDisplacementField(manifest);
-    if (!dispField) return null;
-
-    // Step alignment: prefer the same index. If the displacement
-    // field has fewer steps (rare — sub-step output), clamp to last.
-    let warpStep = stepIndex;
-    if (warpStep >= dispField.n_steps) {
-        warpStep = dispField.n_steps - 1;
-        // eslint-disable-next-line no-console
-        console.warn(
-            `[fea-streaming] colour-field step ${stepIndex} exceeds displacement-field ` +
-            `n_steps=${dispField.n_steps}; clamping warp source to step ${warpStep}`,
-        );
-    }
-    const stepValues = await fetchFieldStep(rangeFetcher, fetcher, dispField, warpStep, cacheKey);
-    return {field: dispField, stepValues};
-}
+export {findDisplacementField, resolveWarpSource} from "./warpSource";
 
 export {beamSolidDisplacement, BeamRotationFit} from "../beamSolidWarp";
 import {beamSolidDisplacement} from "../beamSolidWarp";

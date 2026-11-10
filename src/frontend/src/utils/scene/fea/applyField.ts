@@ -14,17 +14,15 @@
 //   * raycasting on morphed geometry is supported by THREE out of
 //     the box (CustomBatchedMesh's custom raycast respects it too).
 
-import * as THREE from "three";
+import type * as THREE from "three";
 
-import type {FeaManifestField, FeaScalarRange} from "@/services/viewerApi";
-import {getColormap} from "./colormaps";
-import {bandedColormap, resolveContourRange, type ContourSettings} from "./contourScale";
-import {elementLocalMap} from "./elementLocalGeometry";
-import {ensureVertexNormals, resetBasePositions, writeColorAttribute, writeMorphTarget} from "./gpuRefresh";
-import {setSourceMorph} from "./sourceMorph";
+import type {FeaManifestField} from "@/services/viewerApi";
+import type {ContourSettings} from "./contourScale";
+import {ensureVertexNormals} from "./gpuRefresh";
+import {paintNodalField} from "./nodalFieldPaint";
 import {clearResultPointMarkers} from "./resultPointMarkers";
 import {clearResultLineSegments} from "./resultLineSegments";
-import {translationOffsets, warpValue} from "./warpComponents";
+import {threeResultLayer} from "./threeResultLayer";
 
 export interface ApplyFieldArgs {
     /** The mesh whose geometry we deform. We need the mesh (not just
@@ -80,33 +78,14 @@ export interface ApplyFieldArgs {
     autoRange?: readonly [number, number] | null;
 }
 
-function pickRange(field: FeaManifestField, reduction: string): [number, number] {
-    const range: FeaScalarRange = field.scalar_range;
-    const r = range[reduction];
-    if (r) return [r[0], r[1]];
-    if (field.components.length > 0) {
-        const fallback = range[field.components[0]];
-        if (fallback) return [fallback[0], fallback[1]];
-    }
-    return [0, 1];
-}
-
-function componentIndex(field: FeaManifestField, reduction: string): number {
-    const index = field.components.indexOf(reduction);
-    // A one-component field's reduction is the bake's "scalar" (default_view for any
-    // field under three components without presentation metadata) rather than the
-    // component's own name. It means "the value itself": component 0. Without this
-    // every such field fell through to the 0 fallback and painted uniformly at the
-    // bottom of its scale.
-    if (index < 0 && field.components.length === 1) return 0;
-    return index;
-}
-
 /** Update the geometry's morph target + colour attribute for the
  * chosen step, and seed the mesh's morphTargetInfluences[0] with
  * the requested factor. Idempotent: always derives from
  * basePositions and the step's raw values, so repeated calls just
- * replace the morph delta and colours. */
+ * replace the morph delta and colours.
+ *
+ * The numbers come from ``paintNodalField`` (plain typed arrays, shared
+ * with the three.js-free viewport); the mesh's result layer draws them. */
 export function applyFieldToMesh(args: ApplyFieldArgs): void {
     const {
         mesh,
@@ -117,151 +96,38 @@ export function applyFieldToMesh(args: ApplyFieldArgs): void {
         warpField,
         warpStepValues,
         displacementScale = 1,
-        colormap: colormapName,
+        colormap,
         contour,
         autoRange,
     } = args;
-    const colormap = bandedColormap(getColormap(colormapName), contour?.levels ?? null);
     clearResultPointMarkers(mesh);
     clearResultLineSegments(mesh);
 
     const geometry = mesh.geometry;
     const n_points = basePositions.length / 3;
-    // null when the geometry was never expanded to element-local vertices: render
-    // numbering is source numbering and every write below is a straight copy.
-    const renderToSource = elementLocalMap(geometry);
-    const n_components = colorField.components.length;
-    if (colorStepValues.length !== n_points * n_components) {
-        throw new Error(
-            `applyFieldToMesh: colorStepValues length ${colorStepValues.length} doesn't match ` +
-            `n_points*n_components (${n_points}*${n_components}=${n_points * n_components})`,
-        );
-    }
 
-    // Warp source — independent of the colour source. ``warpField`` is
-    // typically the manifest's displacement field; ``colorField`` is
-    // whatever the user picked to visualise. When both are the same
-    // (the user picked displacement), this still works — the loop
-    // reads two component slices from the same backing array.
-    let warpComponents = 0;
-    // Which slots inside one point's record are the translation. NOT always the
-    // first three -- see translationOffsets.
-    let warpAxes: [number, number, number] = [0, 1, 2];
-    if (warpField && warpStepValues) {
-        warpComponents = warpField.components.length;
-        warpAxes = translationOffsets(warpField);
-        if (warpStepValues.length !== n_points * warpComponents) {
-            throw new Error(
-                `applyFieldToMesh: warpStepValues length ${warpStepValues.length} doesn't match ` +
-                `n_points*warpComponents (${n_points}*${warpComponents}=${n_points * warpComponents})`,
-            );
-        }
-    }
-
-    const isMagnitude = reduction === "magnitude";
-    const compIdx = isMagnitude ? -1 : componentIndex(colorField, reduction);
-
-    // Displacement vector per vertex (un-scaled). Lives as the morph
-    // delta — THREE adds ``influence * morphAttr`` to the base
-    // position when morphTargetsRelative is true. Always full-length
-    // even when no warp source is active; the influence stays at
-    // whatever the user has on the slider but the deltas are zero,
-    // so the geometry sits at base positions.
-    // Per-geometry scratch, reused across repaints: a 255k-node deck played at
-    // 12 fps allocated ~15 MB a frame here, and the garbage collector paid for it
-    // in the middle of the animation. Nothing keeps a reference to these past
-    // this call -- every consumer below copies out of them.
+    // Displacement vector per vertex (un-scaled) and its colour, in source
+    // numbering. Per-geometry scratch, reused across repaints: a 255k-node deck
+    // played at 12 fps allocated ~15 MB a frame here, and the garbage collector
+    // paid for it in the middle of the animation. Nothing keeps a reference to
+    // these past this call -- the layer copies out of them.
     const {sourceDisplacement, sourceColors} = scratchFor(geometry, n_points);
-    sourceDisplacement.fill(0);
+    paintNodalField(
+        {nPoints: n_points, colorField, colorStepValues, reduction, warpField, warpStepValues, colormap, contour, autoRange},
+        sourceDisplacement,
+        sourceColors,
+    );
 
-    const [rangeMin, rangeMax] = resolveContourRange(autoRange ?? pickRange(colorField, reduction), contour);
-    const range = rangeMax - rangeMin;
-    const scaleColor = range > 0 ? 1 / range : 0;
-
-    for (let v = 0; v < n_points; v++) {
-        const base = v * 3;
-        const colorStride = v * n_components;
-
-        if (warpComponents > 0 && warpStepValues) {
-            const warpStride = v * warpComponents;
-            sourceDisplacement[base + 0] = warpValue(warpStepValues, warpStride, warpAxes[0]);
-            sourceDisplacement[base + 1] = warpValue(warpStepValues, warpStride, warpAxes[1]);
-            sourceDisplacement[base + 2] = warpValue(warpStepValues, warpStride, warpAxes[2]);
-        }
-        // else: displacement[base..base+2] left at 0 from Float32Array
-        //       initialisation, so morph delta is identity.
-
-        let scalar: number;
-        if (isMagnitude) {
-            // Magnitude of the *colour* field's first 3 components.
-            // For a vector3 displacement this is ||u||; for a
-            // displacement-warped scalar field it'd reduce to the
-            // value itself (n_components == 1).
-            const dx0 = colorStepValues[colorStride] || 0;
-            const dy0 = n_components >= 2 ? colorStepValues[colorStride + 1] || 0 : 0;
-            const dz0 = n_components >= 3 ? colorStepValues[colorStride + 2] || 0 : 0;
-            scalar = Math.sqrt(dx0 * dx0 + dy0 * dy0 + dz0 * dz0);
-        } else if (compIdx >= 0) {
-            scalar = colorStepValues[colorStride + compIdx] || 0;
-        } else {
-            scalar = colorStepValues[colorStride] || 0;
-        }
-        const t = isFinite(scalar) ? (scalar - rangeMin) * scaleColor : 0;
-        colormap(t, sourceColors, base);
-    }
-    // 1. Reset the position attribute to the un-deformed base. The
-    //    morph delta is what carries the deformation; the base must
-    //    stay static or repeated applies stack onto each other. A no-op
-    //    (no copy, no upload) when it already holds this base.
-    resetBasePositions(geometry, basePositions, renderToSource);
-
-    // 2. The displacement morph, written into the installed attribute in
-    //    place, and the morph texture refreshed WITHOUT the full geometry
-    //    dispose this used to fire -- that deleted every attribute buffer and
-    //    re-uploaded the whole mesh on each step change. See gpuRefresh.ts.
-    //    Additive morphing: position = base + influence * morphAttr.
-    writeMorphTarget(geometry, sourceDisplacement, renderToSource);
-
-    // 3. Vertex colours — independent of the morph factor.
-    writeColorAttribute(geometry, sourceColors, renderToSource);
-
-    // 4. Seed the influence. Animation drivers (RAF) update this
-    //    directly afterwards.
-    if (!mesh.morphTargetInfluences) {
-        mesh.morphTargetInfluences = [displacementScale];
-    } else {
-        mesh.morphTargetInfluences[0] = displacementScale;
-    }
-    if (!mesh.morphTargetDictionary) {
-        mesh.morphTargetDictionary = {displacement: 0};
-    }
-
-    // 5. Material flags. CustomBatchedMesh holds material as an Array
-    //    of three slots (original / selected-overlay / invisible);
-    //    every slot that ends up rendering vertices needs
-    //    `vertexColors` so the per-vertex colour attribute we just
-    //    installed is actually used by the shader, and `morphTargets`
-    //    so the morph attribute drives geometry. Setting these on the
-    //    array as a whole (a previous bug) is silent — the
-    //    "vertexColors" in (Array) check is false, so the flag never
-    //    landed and the colormap never appeared on the deformed mesh.
-    const enableShaderFlags = (mat: THREE.Material) => {
-        let dirty = false;
-        if ("vertexColors" in mat && (mat as any).vertexColors !== true) {
-            (mat as any).vertexColors = true;
-            dirty = true;
-        }
-        if ("morphTargets" in mat && (mat as any).morphTargets !== true) {
-            (mat as any).morphTargets = true;
-            dirty = true;
-        }
-        if (dirty) mat.needsUpdate = true;
-    };
-    if (Array.isArray(mesh.material)) {
-        mesh.material.forEach(enableShaderFlags);
-    } else if (mesh.material) {
-        enableShaderFlags(mesh.material as THREE.Material);
-    }
+    // The layer writes them where three.js draws from: the position attribute
+    // reset to the un-deformed base (a no-op when it already holds it), the
+    // displacement as the morph delta (additive: position = base + influence *
+    // morph, also on the element-edge wireframes), the colours as the colour
+    // attribute, and the shader flags that make the material use both.
+    const layer = threeResultLayer(mesh, basePositions);
+    layer.setDisplacement(sourceDisplacement);
+    layer.setColors(sourceColors);
+    // Seed the influence. Animation drivers (RAF) update it directly afterwards.
+    layer.setInfluence(displacementScale);
 
     // Normals depend on the deformed shape; recompute against the
     // base positions only — the morph delta blends per-vertex on the
@@ -269,12 +135,6 @@ export function applyFieldToMesh(args: ApplyFieldArgs): void {
     // normals array. For viz that's acceptable: lighting on the
     // morphed shape uses base normals, which is consistent with how
     // GLTF morph clips behave by default.
-    // The element-edge wireframe indexes SOURCE vertices and shares the position
-    // buffer this geometry had before any element-local expansion — so it needs
-    // the unexpanded deltas, not the ones installed above. See sourceMorph.ts.
-    setSourceMorph(mesh, "fea-element-edges", sourceDisplacement);
-    setSourceMorph(mesh, "fea-beam-element-edges", sourceDisplacement);
-
     // Base positions only change with the position attribute, so neither do
     // these: computed once per geometry, not once per step.
     ensureVertexNormals(geometry);

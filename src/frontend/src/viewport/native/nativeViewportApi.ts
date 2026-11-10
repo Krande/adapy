@@ -1,21 +1,54 @@
 // The three.js-free viewport behind the viewport interface (viewport/api/viewportApi.ts).
 import {type CameraView} from "@/layout/coreCommandIds";
 import {namedViewDirection} from "@/utils/camera/namedViewDirection";
-import type {ViewportApi} from "@/viewport/api/viewportApi";
-import type {NativeScene} from "./nativeScene";
+import {downloadCanvas} from "@/utils/downloadCanvas";
+import type {ObjectRef, ViewportApi} from "@/viewport/api/viewportApi";
+import type {BillboardLayer} from "@/viewport/api/billboards";
+import {createNativeBillboardLayer} from "./nativeBillboards";
+import {objectKey, splitObjectKey, type NativeScene} from "./nativeScene";
 
 /** One key press orbits by this much, and pans by this fraction of the view: as on the three.js viewport. */
 const ORBIT_STEP_RAD = (15 * Math.PI) / 180;
 const PAN_STEP_FRACTION = 0.1;
 const MOVE_SECONDS = 0.25;
+/** A screenshot's size, as the three.js viewport's. */
+const SCREENSHOT_WIDTH = 1920;
+const SCREENSHOT_HEIGHT = 1080;
 
 export function createNativeViewportApi(scene: NativeScene): ViewportApi {
+    const layers = new Map<string, BillboardLayer>();
+    // The scene knows an object by one key made of its model and its id.
+    const own = (refs: Iterable<ObjectRef>): string[] => Array.from(refs, (r) => objectKey(r.model, r.id));
     return {
         kind: "native",
         unavailable: () => null,
         selectionCount: () => scene.selectionSize,
+        selection: () => scene.selectedIds.map(splitObjectKey),
+        selectionToken: () => scene.selectionVersion,
+        onSelectionChange: (listener) => {
+            scene.onSelection.add(listener);
+            return () => void scene.onSelection.delete(listener);
+        },
+        setSelection: (refs, options) => {
+            const selected = scene.setSelection(own(refs), options?.add);
+            options?.within?.();
+            return selected;
+        },
         clearSelection: () => scene.select(null),
+        hide: (refs) => scene.setHiddenMany(own(refs), true),
+        show: (refs) => scene.setHiddenMany(own(refs), false),
+        isolate: (refs) => scene.isolate(own(refs)),
+        results: {createResultMesh: (data, opts) => scene.createResultLayer(data, opts)},
+        objectVisibility: () => (model, id) => {
+            const key = objectKey(model, id);
+            return scene.draws(key) ? (scene.isHidden(key) ? "hidden" : "shown") : null;
+        },
+        unloadSource: (sourceName) => scene.unloadSource(sourceName),
         modelBounds: () => scene.modelBounds,
+        saveScreenshot: () => {
+            const picture = scene.capture(SCREENSHOT_WIDTH, SCREENSHOT_HEIGHT);
+            if (picture) downloadCanvas(picture, "screenshot.png");
+        },
         hideSelected: () => scene.hideSelected(),
         hideOthers: () => scene.hideOthers(),
         showAll: () => scene.showAll(),
@@ -25,5 +58,15 @@ export function createNativeViewportApi(scene: NativeScene): ViewportApi {
         resetCamera: () => scene.home(),
         orbitStep: (right, up) => scene.orbitBy(right * ORBIT_STEP_RAD, up * ORBIT_STEP_RAD),
         panStep: (right, up) => scene.panBy(right * PAN_STEP_FRACTION, up * PAN_STEP_FRACTION),
+        objectsCentre: (refs) => scene.objectsCentre(own(refs)),
+        billboards: (name) => {
+            let layer = layers.get(name);
+            if (!layer) {
+                const made = createNativeBillboardLayer(scene);
+                layer = {...made, dispose: () => (layers.delete(name), made.dispose())};
+                layers.set(name, layer);
+            }
+            return layer;
+        },
     };
 }

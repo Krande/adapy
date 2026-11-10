@@ -1,20 +1,12 @@
 import * as THREE from 'three';
 import {getViewerRuntime} from "@/state/viewerRuntime";
 import {cameraForAspect, captureViewport} from "@/viewport/capture";
+import {downloadCanvas} from "@/utils/downloadCanvas";
 
 const SCREENSHOT_WIDTH = 1920;
 const SCREENSHOT_HEIGHT = 1080;
 
-function download(canvas: HTMLCanvasElement): void {
-    canvas.toBlob(blob => {
-        if (blob) {
-            const link = document.createElement('a');
-            link.href = URL.createObjectURL(blob);
-            link.download = 'screenshot.png';
-            link.click();
-        }
-    });
-}
+const download = (canvas: HTMLCanvasElement): void => downloadCanvas(canvas, 'screenshot.png');
 
 /** The screenshot taken from the adacpp WebGPU image, when that renderer is on screen and captures are
  *  handed over to it. False: three.js takes it. */
@@ -66,7 +58,8 @@ export async function takeHighResScreenshot(
 
     const renderTarget = new THREE.WebGLRenderTarget(width, height, {
         type: THREE.UnsignedByteType,
-        // format: THREE.RGBAFormat,
+        // As the screen: without it the picture is read back in linear colour, and comes out dark.
+        colorSpace: THREE.SRGBColorSpace,
     });
 
     const originalRenderTarget = renderer.getRenderTarget();
