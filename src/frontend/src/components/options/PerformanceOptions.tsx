@@ -4,6 +4,7 @@ import {useOptionsStore} from "@/state/optionsStore";
 import {useViewMetricsStore} from "@/state/viewMetricsStore";
 import {useMeStore} from "@/state/meStore";
 import {useAdacppRenderStatus} from "@/viewport/adacpp/adacppViewport";
+import {useNativeViewport} from "@/viewport/native/nativeModel";
 
 // Phase A perf-toggle panel. Each row is an opt-in A/B switch for one
 // rendering-cost lever. Defaults reproduce the pre-toggle behaviour so
@@ -46,8 +47,17 @@ const RendererBackendOptions: React.FC = () => {
     const setAdacppConeCull = usePerfStore((s) => s.setAdacppConeCull);
     const adacppOcclusionCull = usePerfStore((s) => s.adacppOcclusionCull);
     const setAdacppOcclusionCull = usePerfStore((s) => s.setAdacppOcclusionCull);
+    const adacppLabels = usePerfStore((s) => s.adacppLabels);
+    const setAdacppLabels = usePerfStore((s) => s.setAdacppLabels);
+    const adacppPointPick = usePerfStore((s) => s.adacppPointPick);
+    const setAdacppPointPick = usePerfStore((s) => s.setAdacppPointPick);
+    const adacppCapture = usePerfStore((s) => s.adacppCapture);
+    const setAdacppCapture = usePerfStore((s) => s.setAdacppCapture);
+    const adacppNoWebGL = usePerfStore((s) => s.adacppNoWebGL);
+    const setAdacppNoWebGL = usePerfStore((s) => s.setAdacppNoWebGL);
     const status = useAdacppRenderStatus();
     const st = status.stats;
+    const native = useNativeViewport();
 
     return (
         <div className="space-y-1">
@@ -62,10 +72,21 @@ const RendererBackendOptions: React.FC = () => {
             >
                 <option value="three">three.js (WebGL)</option>
                 <option value="adacpp-webgpu">adacpp WebGPU (experimental)</option>
+                <option value="adacpp-native">adacpp WebGPU, no three.js (experimental)</option>
             </select>
+            {renderBackend === "adacpp-native" && (
+                <div className="text-xs text-gray-400">
+                    {native.state === "failed"
+                        ? <div className="text-amber-300">Not available, the three.js viewport is shown: {native.error}</div>
+                        : <div>A separate viewport with a small feature set: load, orbit, pick, select, hide and an object list.</div>}
+                </div>
+            )}
             {renderBackend === "adacpp-webgpu" && (
                 <div className="text-xs text-gray-400 space-y-1">
                     {status.state === "starting" && <div>Starting WebGPU…</div>}
+                    {status.webglFallback && (
+                        <div className="text-amber-300">WebGPU-only mode started WebGL after all: {status.webglFallback}</div>
+                    )}
                     {status.state === "failed" && (
                         <div className="text-amber-300">Not available, three.js is drawing: {status.error}</div>
                     )}
@@ -97,10 +118,35 @@ const RendererBackendOptions: React.FC = () => {
                                 title="Occlusion culling (GPU)"
                                 blurb="Skips clusters hidden behind others. Used on models of 2M+ triangles; smaller ones cull on the CPU."
                             />
-                            <div>
-                                Not drawn by this renderer yet: section caps, transform gizmos, face
-                                highlight. Labels and icons draw on top of the model.
-                            </div>
+                            <div className="pt-1 text-gray-300">Handed over from three.js (opt-in)</div>
+                            <Row
+                                checked={adacppLabels || adacppNoWebGL}
+                                onChange={() => { setAdacppLabels(!adacppLabels); requestRender(); }}
+                                title="Labels, markers and icons"
+                                blurb="Drawn by adacpp and hidden behind the model where it covers them. Off: a three.js pass draws them on top of everything."
+                            />
+                            {status.labelsError && (
+                                <div className="text-amber-300">Labels are back on the three.js pass: {status.labelsError}</div>
+                            )}
+                            <Row
+                                checked={adacppPointPick || adacppNoWebGL}
+                                onChange={() => setAdacppPointPick(!adacppPointPick)}
+                                title="Point picking"
+                                blurb="Points are picked in adacpp's id buffer. Off: three.js' point picker."
+                            />
+                            <Row
+                                checked={adacppCapture || adacppNoWebGL}
+                                onChange={() => setAdacppCapture(!adacppCapture)}
+                                title="Screenshots and animation export"
+                                blurb="Taken from the WebGPU image, so they show what is on screen. Off: re-rendered by three.js."
+                            />
+                            <Row
+                                checked={adacppNoWebGL}
+                                onChange={() => setAdacppNoWebGL(!adacppNoWebGL)}
+                                title="WebGPU only: no WebGL renderer"
+                                blurb="Constructs no WebGL renderer for the main viewport and turns the three switches above on. If WebGPU cannot start, WebGL is started instead and the reason is shown here."
+                                reloadHint
+                            />
                         </>
                     )}
                 </div>

@@ -1,0 +1,69 @@
+// The three.js-free viewport is only that while nothing it imports, directly or through another module,
+// imports three.js. This walks the chunk's import graph from its entry and fails on the first such
+// import, naming the chain that leads to it. Type-only imports are erased by the build and do not count.
+import {test} from "node:test";
+import assert from "node:assert/strict";
+import {existsSync, readFileSync} from "node:fs";
+import {dirname, join, resolve} from "node:path";
+
+const ROOT = process.cwd();
+const ENTRY = join(ROOT, "src/viewport/native/NativeViewport.tsx");
+const FORBIDDEN = /^three($|\/)/;
+
+/** Runtime import specifiers of a module: static imports and re-exports that are not type-only, and import(). */
+export function runtimeImports(source: string): string[] {
+    const out: string[] = [];
+    const statement = /^\s*(import|export)\s+(type\s+)?([^;]*?\s+from\s+)?["']([^"']+)["']/gm;
+    for (const m of source.matchAll(statement)) {
+        if (m[2]) continue; // import type / export type
+        if (m[1] === "export" && !m[3]) continue; // not a re-export
+        out.push(m[4]);
+    }
+    for (const m of source.matchAll(/\bimport\(\s*(?:\/\*[^*]*\*\/\s*)?["']([^"']+)["']\s*\)/g)) out.push(m[1]);
+    return out;
+}
+
+function resolveModule(from: string, specifier: string): string | null {
+    const base = specifier.startsWith("@/") ? join(ROOT, "src", specifier.slice(2)) : specifier.startsWith(".") ? resolve(dirname(from), specifier) : null;
+    if (!base) return null; // a package
+    for (const candidate of [base, `${base}.ts`, `${base}.tsx`, join(base, "index.ts"), join(base, "index.tsx")]) {
+        if (existsSync(candidate) && /\.(ts|tsx)$/.test(candidate)) return candidate;
+    }
+    return null;
+}
+
+test("the three.js-free viewport's chunk imports no three.js", () => {
+    const seen = new Map<string, string | null>([[ENTRY, null]]);
+    const queue = [ENTRY];
+    const chain = (file: string): string => {
+        const parts: string[] = [];
+        for (let f: string | null | undefined = file; f; f = seen.get(f)) parts.unshift(f.slice(ROOT.length + 1));
+        return parts.join(" -> ");
+    };
+    while (queue.length) {
+        const file = queue.pop()!;
+        for (const specifier of runtimeImports(readFileSync(file, "utf-8"))) {
+            assert.ok(!FORBIDDEN.test(specifier), `${chain(file)} imports "${specifier}"`);
+            const next = resolveModule(file, specifier);
+            if (next && !seen.has(next)) {
+                seen.set(next, file);
+                queue.push(next);
+            }
+        }
+    }
+    assert.ok(seen.size >= 6, `only ${seen.size} modules walked: the walk must reach the scene, the renderer start-up and the embed's camera`);
+});
+
+test("the walk sees what a build would bundle", () => {
+    const imports = runtimeImports(`
+        import * as THREE from "three";
+        import type {Scene} from "three";
+        import {a} from "./a";
+        export {b} from "./b";
+        export type {C} from "./c";
+        export const d = 1;
+        const lazy = () => import("./lazy");
+        const ignored = () => import(/* @vite-ignore */ "./ignored");
+    `);
+    assert.deepEqual(imports.sort(), ["./a", "./b", "./ignored", "./lazy", "three"]);
+});

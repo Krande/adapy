@@ -1,11 +1,11 @@
 // Mirrors the three.js scene into the adacpp renderer: geometry is uploaded once per buffer version,
 // instance state (transform, colour, flags, morph influence) and per-range state (hidden, selected)
-// are pushed as they change. Everything three.js would draw on the camera's layers is mirrored,
-// except what the adacpp renderer cannot draw yet (see adacppViewport.ts).
+// are pushed as they change. Everything three.js would draw on the camera's layers is mirrored, except
+// what the renderer does itself (section caps) and what draws nothing visible (stencil-only helpers).
 import * as THREE from "three";
 import {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
 import {selectedMaterial} from "@/utils/default_materials";
-import {InstanceFlag, SegmentFlag, Topology, type AdacppModule, type WebRendererApi} from "./types";
+import {InstanceFlag, NO_TEXTURE, SegmentFlag, SpriteFlag, Topology, type AdacppModule, type WebRendererApi} from "./types";
 
 type SegmentKind = "batched" | "groups" | "edges" | "none";
 
@@ -135,6 +135,31 @@ function dashOf(mat: THREE.Material | undefined): [number, number] {
 }
 const MAX_CLIP_PLANES = 6;
 
+/** RGBA8 pixels of a texture's image, top row first (what the renderer's addTexture takes). */
+export type ReadPixels = (image: unknown) => {data: Uint8ClampedArray | Uint8Array; width: number; height: number} | null;
+
+// three.js reads a texture without a colour space as linear and encodes the result for the screen; the
+// renderer takes sRGB pixels. Encoding such a texture's pixels at upload gives the same picture.
+const LINEAR_TO_SRGB = Uint8Array.from({length: 256}, (_, i) => {
+    const c = i / 255;
+    return Math.round(255 * (c <= 0.0031308 ? c * 12.92 : 1.055 * Math.pow(c, 1 / 2.4) - 0.055));
+});
+
+let scratch: HTMLCanvasElement | null = null;
+/** Through a 2D canvas: a sprite's map is a canvas, an image or a bitmap. */
+const readPixelsWithCanvas: ReadPixels = (image) => {
+    const src = image as (CanvasImageSource & {width: number; height: number}) | null | undefined;
+    if (!src || !src.width || !src.height || typeof document === "undefined") return null;
+    scratch ??= document.createElement("canvas");
+    scratch.width = src.width;
+    scratch.height = src.height;
+    const ctx = scratch.getContext("2d", {willReadFrequently: true});
+    if (!ctx) return null;
+    ctx.clearRect(0, 0, src.width, src.height);
+    ctx.drawImage(src, 0, 0);
+    return ctx.getImageData(0, 0, src.width, src.height);
+};
+
 export class SceneSync {
     private readonly entries = new Map<string, Entry>();
     private readonly byInstance = new Map<number, Entry>();
@@ -160,6 +185,16 @@ export class SceneSync {
         clearStencil: () => {},
     };
     lastSyncMs = 0;
+    /** Points registered with the point picker are pickable in the renderer too (the `adacppPointPick`
+     *  switch). Off, only model meshes are, so a mesh pick never lands on a point in front of it. */
+    pickPoints = false;
+    /** Sprites and through-the-model overlays are drawn by the renderer (the `adacppLabels` switch) instead of
+     *  being left for the three.js pass. Cleared, with the reason in `nativeSpritesError`, if that fails. */
+    nativeSprites = false;
+    nativeSpritesError: string | null = null;
+    private readonly sprites = new Map<string, {id: number; seen: number}>();
+    private readonly textures = new Map<string, {id: number; version: number; seen: number}>();
+    private forceOnTop = false;
     /** Sprites the last sync found on the camera's layers; the caller draws them with three.js. */
     spriteCount = 0;
     private pixelRatio = 1;
@@ -167,8 +202,17 @@ export class SceneSync {
     private readonly framePlanes = new Set<THREE.Plane>();
     private planesKey = "";
     private readonly planesPtr: number;
+    // Section caps: three.js fills a cut with stencil helper meshes and one cap quad per plane; the
+    // renderer fills it itself, so those helpers are not mirrored. A cap quad seen this frame switches
+    // the renderer's caps on, in its colour.
+    private frameCapColor: THREE.Color | null = null;
+    private capsKey = "";
 
-    constructor(private readonly module: AdacppModule, private readonly r: WebRendererApi) {
+    constructor(
+        private readonly module: AdacppModule,
+        private readonly r: WebRendererApi,
+        private readonly readPixels: ReadPixels = readPixelsWithCanvas,
+    ) {
         this.matrixPtr = module._malloc(64);
         this.viewPtr = module._malloc(64);
         this.projPtr = module._malloc(64);
@@ -191,6 +235,7 @@ export class SceneSync {
         this.frame++;
         this.spriteCount = 0;
         this.framePlanes.clear();
+        this.frameCapColor = null;
         scene.updateMatrixWorld();
         if (camera.parent === null) camera.updateMatrixWorld();
 
@@ -201,16 +246,35 @@ export class SceneSync {
 
         scene.traverseVisible((obj) => {
             if (!camera.layers.test(obj.layers)) return;
-            if (obj.parent instanceof CustomBatchedMesh && obj.parent.isHighlightOverlay(obj)) return;
+            if (obj.parent instanceof CustomBatchedMesh && obj.parent.isHighlightOverlay(obj)) {
+                this.syncFaceHighlight(obj.parent, obj);
+                return;
+            }
             const o = obj as unknown as Record<string, boolean>;
             // Sprites, and what asks to be drawn over the model (a plugin's lines `throughModel`), go to
             // the three.js pass over the WebGPU image.
             if (o.isSprite || obj.userData.__overlayPass) {
-                obj.layers.enable(SPRITE_LAYER);
-                this.spriteCount++;
-                return;
+                if (!this.nativeSprites) {
+                    obj.layers.enable(SPRITE_LAYER);
+                    this.spriteCount++;
+                    return;
+                }
+                if (o.isSprite) {
+                    this.syncSprite(obj as THREE.Sprite);
+                    return;
+                }
+                // Not a sprite: mirrored like any other object, but over the model.
+                this.forceOnTop = true;
+            } else {
+                this.forceOnTop = false;
             }
             if (!(o.isMesh || o.isLineSegments || o.isLine || o.isPoints)) return;
+            if (obj.userData.__sectionCap) {
+                this.frameCapColor = materialColor(baseMaterial(obj), 0x888888);
+                return;
+            }
+            // Nothing to see: what only writes depth or stencil (the caps' stencil passes).
+            if (baseMaterial(obj)?.colorWrite === false) return;
             // three.js calls onBeforeRender only on objects it draws, and here it draws nothing. Scene
             // code relies on the hook for per-frame state: FEA overlays (element wireframe, beam lines,
             // result points) copy the mesh's morph influence there, the selection overlay follows the
@@ -234,8 +298,10 @@ export class SceneSync {
                 this.entries.delete(key);
             }
         }
+        this.dropUnseenSprites();
 
         this.pushClipPlanes();
+        this.pushSectionCaps();
         const heap = this.module.HEAPF32;
         heap.set(camera.matrixWorldInverse.elements, this.viewPtr >> 2);
         heap.set(camera.projectionMatrix.elements, this.projPtr >> 2);
@@ -253,6 +319,16 @@ export class SceneSync {
         this.r.setClipPlanes(this.planesPtr, planes.length);
     }
 
+    private pushSectionCaps(): void {
+        const c = this.frameCapColor;
+        const key = c ? `${c.r},${c.g},${c.b}` : "";
+        if (key === this.capsKey) return;
+        this.capsKey = key;
+        // Optional calls: a renderer from before caps existed draws the cut hollow, as it always did.
+        this.r.setSectionCaps?.(!!c);
+        if (c) this.r.setSectionCapColor?.(c.r, c.g, c.b, 1);
+    }
+
     /** The scene object an instance draws, and which of its segments' range ids is which. */
     entryForInstance(instance: number): {obj: THREE.Object3D; segmentIds: ReadonlyArray<string> | null} | null {
         const e = this.byInstance.get(instance);
@@ -267,6 +343,165 @@ export class SceneSync {
         this.r.removeGeometry(e.geometry);
     }
 
+    /** A three.js Sprite as a renderer sprite: its map's pixels as a texture (uploaded again when the
+     *  texture's version moves, as a relabelled canvas does), placed and sized as three.js would. */
+    private syncSprite(sprite: THREE.Sprite): void {
+        const mat = sprite.material;
+        if (!mat.visible) return;
+        try {
+            const texture = this.syncTexture(mat.map);
+            let entry = this.sprites.get(sprite.uuid);
+            if (!entry) {
+                entry = {id: this.r.addSprite(), seen: 0};
+                this.sprites.set(sprite.uuid, entry);
+            }
+            entry.seen = this.frame;
+            const m = sprite.matrixWorld.elements;
+            let flags = 0;
+            if (mat.sizeAttenuation) flags |= SpriteFlag.SizeAttenuation;
+            if (mat.depthTest) flags |= SpriteFlag.DepthTest;
+            if (mat.clippingPlanes?.length) {
+                flags |= SpriteFlag.Clipped;
+                for (const p of mat.clippingPlanes) this.framePlanes.add(p);
+            }
+            this.r.setSprite(
+                entry.id, texture, m[12], m[13], m[14], Math.hypot(m[0], m[1], m[2]), Math.hypot(m[4], m[5], m[6]),
+                sprite.center.x, sprite.center.y, mat.rotation, mat.color.r, mat.color.g, mat.color.b, mat.opacity,
+                flags, sprite.renderOrder,
+            );
+        } catch (err) {
+            // Back to the three.js pass for good: a label drawn the old way beats no label.
+            this.nativeSprites = false;
+            this.nativeSpritesError = err instanceof Error ? err.message : String(err);
+            this.dropUnseenSprites(true);
+            sprite.layers.enable(SPRITE_LAYER);
+            this.spriteCount++;
+        }
+    }
+
+    private syncTexture(map: THREE.Texture | null): number {
+        if (!map?.image) return NO_TEXTURE;
+        let t = this.textures.get(map.uuid);
+        if (t && t.version === map.version) {
+            t.seen = this.frame;
+            return t.id;
+        }
+        const pixels = this.readPixels(map.image);
+        if (!pixels) return t ? ((t.seen = this.frame), t.id) : NO_TEXTURE;
+        const p = this.module._malloc(pixels.data.length);
+        this.module.HEAPU8.set(pixels.data, p);
+        if (map.colorSpace !== THREE.SRGBColorSpace) {
+            const heap = this.module.HEAPU8;
+            for (let i = p, end = p + pixels.data.length; i < end; i += 4) {
+                heap[i] = LINEAR_TO_SRGB[heap[i]];
+                heap[i + 1] = LINEAR_TO_SRGB[heap[i + 1]];
+                heap[i + 2] = LINEAR_TO_SRGB[heap[i + 2]];
+            }
+        }
+        try {
+            if (t) this.r.updateTexture(t.id, p, pixels.width, pixels.height);
+            else t = {id: this.r.addTexture(p, pixels.width, pixels.height), version: 0, seen: 0};
+        } finally {
+            this.module._free(p);
+        }
+        t.version = map.version;
+        t.seen = this.frame;
+        this.textures.set(map.uuid, t);
+        return t.id;
+    }
+
+    /** Sprites and textures no longer in the scene (`all`: every one, when handing back to three.js). */
+    private dropUnseenSprites(all = false): void {
+        for (const [key, s] of this.sprites) {
+            if (all || s.seen !== this.frame) {
+                this.r.removeSprite(s.id);
+                this.sprites.delete(key);
+            }
+        }
+        for (const [key, t] of this.textures) {
+            if (all || t.seen !== this.frame) {
+                this.r.removeTexture(t.id);
+                this.textures.delete(key);
+            }
+        }
+    }
+
+    /** The highlighted face of a model mesh (Faces picking). three.js draws it with an overlay that shares
+     *  the whole model's buffers and shows one index range; mirroring that would upload the model again on
+     *  every click, so only the face's own triangles are uploaded, as a small geometry of their own. */
+    private syncFaceHighlight(mesh: CustomBatchedMesh, obj: THREE.Object3D): void {
+        const face = mesh.faceHighlightRange();
+        if (!face || face.overlay !== obj) return;
+        const geometry = face.overlay.geometry;
+        const position = geometry.attributes.position;
+        if (!position) return;
+        const index = geometry.index;
+        const morphAttr = geometry.morphAttributes.position?.[0];
+        const signature = `face:${geometry.uuid}:${bufferId(position)}:${attrVersion(position)}:${bufferId(index)}:` +
+            `${face.start}:${face.count}:${bufferId(morphAttr)}:${attrVersion(morphAttr)}`;
+        let e = this.entries.get(obj.uuid);
+        if (e && e.signature !== signature) {
+            this.drop(e);
+            this.entries.delete(obj.uuid);
+            e = undefined;
+        }
+        if (!e) {
+            // Only the vertices the face uses, renumbered from 0.
+            const local = new Map<number, number>();
+            const indices = new Uint32Array(face.count);
+            const positions: number[] = [];
+            const morph: number[] = [];
+            for (let i = 0; i < face.count; i++) {
+                const v = index ? index.getX(face.start + i) : face.start + i;
+                let k = local.get(v);
+                if (k === undefined) {
+                    k = local.size;
+                    local.set(v, k);
+                    positions.push(position.getX(v), position.getY(v), position.getZ(v));
+                    if (morphAttr) morph.push(morphAttr.getX(v), morphAttr.getY(v), morphAttr.getZ(v));
+                }
+                indices[i] = k;
+            }
+            const M = this.module;
+            const pPos = M._malloc(positions.length * 4), pIdx = M._malloc(indices.byteLength);
+            const pMorph = morph.length ? M._malloc(morph.length * 4) : 0;
+            M.HEAPF32.set(positions, pPos >> 2);
+            M.HEAPU32.set(indices, pIdx >> 2);
+            if (pMorph) M.HEAPF32.set(morph, pMorph >> 2);
+            let geom: number;
+            try {
+                geom = this.r.addGeometry(Topology.Triangles, pPos, local.size, 0, 0, pMorph, pIdx, indices.length, 0, 0, 0);
+            } finally {
+                M._free(pPos);
+                M._free(pIdx);
+                if (pMorph) M._free(pMorph);
+            }
+            e = {
+                obj, signature, geometry: geom, instances: [this.r.addInstance(geom)], topology: Topology.Triangles,
+                segmentKind: "none", segmentIds: null, segmentRangeIdx: null, stateVersion: -1, seen: 0,
+                colorAttr: undefined, colorVersion: -1, morphAttr, morphVersion: attrVersion(morphAttr),
+            };
+            this.entries.set(obj.uuid, e);
+            this.byInstance.set(e.instances[0], e);
+        }
+        e.seen = this.frame;
+        const mats = face.overlay.material;
+        const mat = (Array.isArray(mats) ? mats[0] : mats) as AnyMaterial;
+        const color = materialColor(mat, 0xffffff);
+        // In front of the surface it lies on, from either side, and never what a click lands on.
+        let flags = InstanceFlag.DoubleSided | InstanceFlag.DepthOffset | InstanceFlag.NoPick;
+        if (geometry.morphTargetsRelative) flags |= InstanceFlag.MorphRelative;
+        const planes = (baseMaterial(mesh)?.clippingPlanes ?? mat.clippingPlanes) as THREE.Plane[] | null | undefined;
+        if (planes?.length) {
+            flags |= InstanceFlag.Clipped;
+            for (const p of planes) this.framePlanes.add(p);
+        }
+        this.module.HEAPF32.set(obj.matrixWorld.elements, this.matrixPtr >> 2);
+        // Matte, as three.js lights the selection material.
+        this.r.setInstance(e.instances[0], this.matrixPtr, color.r, color.g, color.b, 1, flags,
+            face.overlay.morphTargetInfluences?.[0] ?? 0, 0, 1, true, 1, 0, 0);
+    }
+
     private syncObject(obj: THREE.Object3D): void {
         const o = obj as unknown as Record<string, boolean>;
         const geometry = (obj as THREE.Mesh).geometry as THREE.BufferGeometry | undefined;
@@ -279,11 +514,14 @@ export class SceneSync {
         const topology = o.isPoints ? Topology.Points : (o.isLine || o.isLineSegments || fatLines) ? Topology.Lines : Topology.Triangles;
         const flat = topology === Topology.Triangles && !!mat?.flatShading;
         const groupsSig = obj instanceof CustomBatchedMesh ? "b" : `${geometry.groups.length}`;
+        // BackSide draws the faces turned away: the renderer only culls back faces, so the winding is
+        // reversed at upload instead (a PlaneHelper's fill flips between the two as its plane moves).
+        const backSide = topology === Topology.Triangles && mat?.side === THREE.BackSide;
         const positionBuffer = (position as THREE.InterleavedBufferAttribute).isInterleavedBufferAttribute
             ? (position as THREE.InterleavedBufferAttribute).data
             : position;
         const signature = `${geometry.uuid}:${bufferId(positionBuffer)}:${attrVersion(position)}:` +
-            `${bufferId(geometry.index)}:${geometry.index?.version ?? -1}:${topology}:${flat}:${groupsSig}`;
+            `${bufferId(geometry.index)}:${geometry.index?.version ?? -1}:${topology}:${flat}:${groupsSig}:${backSide}`;
 
         let e = this.entries.get(obj.uuid);
         if (e && e.signature !== signature) {
@@ -292,7 +530,7 @@ export class SceneSync {
             e = undefined;
         }
         if (!e) {
-            const created = this.upload(obj, geometry, topology, flat, fatLines);
+            const created = this.upload(obj, geometry, topology, flat, fatLines, backSide);
             if (!created) return;
             const morph0 = fatLines ? undefined : geometry.morphAttributes.position?.[0];
             e = {
@@ -337,6 +575,7 @@ export class SceneSync {
         topology: number,
         flat: boolean,
         fatLines: boolean,
+        backSide = false,
     ): Pick<Entry, "geometry" | "instances" | "topology" | "segmentKind" | "segmentIds" | "segmentRangeIdx"> | null {
         let positions: Float32Array;
         let colors: Uint32Array | null = null;
@@ -384,6 +623,11 @@ export class SceneSync {
                 }
                 indices = seg;
             }
+        }
+        if (backSide) {
+            const src = indices ?? Uint32Array.from({length: positions.length / 3}, (_, i) => i);
+            indices = new Uint32Array(src.length);
+            for (let i = 0; i + 2 < src.length; i += 3) indices.set([src[i], src[i + 2], src[i + 1]], i);
         }
         const vertexCount = positions.length / 3;
         const normals = topology === Topology.Triangles && !flat && geometry.attributes.normal && !fatLines
@@ -476,15 +720,24 @@ export class SceneSync {
             flags |= InstanceFlag.VertexColors;
         }
         if (isUnlit(mat) || e.topology !== Topology.Triangles) flags |= InstanceFlag.Unlit;
-        if (mat?.side === THREE.DoubleSide || mat?.side === THREE.BackSide) flags |= InstanceFlag.DoubleSided;
-        if (mat?.transparent && opacity < 1) flags |= InstanceFlag.Transparent;
+        if (mat?.side === THREE.DoubleSide) flags |= InstanceFlag.DoubleSided;
+        if (mat?.transparent && opacity < 1) {
+            flags |= InstanceFlag.Transparent;
+            // The renderer draws both sides of a transparent instance unless told the material is single-sided.
+            if (mat.side !== THREE.DoubleSide) flags |= InstanceFlag.CullBack;
+        }
         if (mat && !mat.visible) flags |= InstanceFlag.Hidden;
         if (geometry.morphTargetsRelative) flags |= InstanceFlag.MorphRelative;
         const planes = mat?.clippingPlanes;
         if (planes?.length) {
             flags |= InstanceFlag.Clipped;
             for (const p of planes) this.framePlanes.add(p);
+            // A cut model mesh that is a closed solid gets its cut filled; an open shell (double-sided)
+            // has no inside to fill. The same rule as the three.js caps (SectionPlanesController).
+            if (obj instanceof CustomBatchedMesh && mat?.side !== THREE.DoubleSide) flags |= InstanceFlag.Capped;
         }
+        // three.js' depthTest: false draws over whatever is there (transform gizmo handles).
+        if (mat?.depthTest === false || this.forceOnTop) flags |= InstanceFlag.OnTop;
         // three.js' polygonOffset: negative pulls an overlay in front of the surface it lies on, positive
         // pushes a surface behind the edges drawn on it (FEA meshes). Without it, no bias, as in three.js.
         if (mat?.polygonOffset && (mat.polygonOffsetFactor < 0 || mat.polygonOffsetUnits < 0)) {
@@ -497,7 +750,8 @@ export class SceneSync {
         if ((obj as THREE.GridHelper).type === "GridHelper") flags |= InstanceFlag.Underlay;
         // Like three.js' GpuMeshPicker, only model meshes are pickable: edges, grid, overlays and
         // helpers must never stand in front of the object a click is meant for.
-        if (!(obj instanceof CustomBatchedMesh)) flags |= InstanceFlag.NoPick;
+        const pickablePoints = this.pickPoints && e.topology === Topology.Points && !!geometry.attributes.pickColor;
+        if (!(obj instanceof CustomBatchedMesh) && !pickablePoints) flags |= InstanceFlag.NoPick;
         const influence = (obj as THREE.Mesh).morphTargetInfluences?.[0] ?? 0;
         // MeshStandardMaterial's metalness/roughness; Lambert/Phong light as diffuse-only.
         const pbr = mat as unknown as {isMeshStandardMaterial?: boolean; metalness?: number; roughness?: number};

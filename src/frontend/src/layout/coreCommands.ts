@@ -380,6 +380,14 @@ export function coreCommandSpecs(): CommandSpec[] {
     },
     // View
     {
+      id: ID.screenshot,
+      label: "Take screenshot",
+      group: "View",
+      keywords: ["image", "png", "capture", "save"],
+      disabledReason: noScene,
+      run: () => void import("@/utils/takeScreenshot").then((m) => m.takeScreenshot()),
+    },
+    {
       id: ID.fitAll,
       label: "Fit all",
       group: "View",

@@ -104,6 +104,25 @@ export interface WebRendererApi {
     setCulling(frustum: boolean, cone: boolean, occlusion: boolean): void;
     /** `count` section planes as (nx, ny, nz, constant) floats at `planes` (heap pointer); at most 6. */
     setClipPlanes(planes: number, count: number): void;
+    /** Fill the cut of every `Capped` instance (closed, single-sided solids) on each section plane. */
+    setSectionCaps(enabled: boolean): void;
+    /** One colour for every cap (linear rgb); `a` 0 goes back to each instance's own colour. */
+    setSectionCapColor(r: number, g: number, b: number, a: number): void;
+    /** A texture from RGBA8 pixels at `rgba` (heap pointer): top row first, sRGB, straight alpha, as
+     *  `getImageData().data`. */
+    addTexture(rgba: number, width: number, height: number): number;
+    updateTexture(texture: number, rgba: number, width: number, height: number): void;
+    removeTexture(texture: number): void;
+    addSprite(): number;
+    /** A camera-facing quad as three.js' Sprite: world anchor, `sprite.scale`, `sprite.center`, rotation
+     *  (radians), tint (linear rgb, a = opacity), SpriteFlag bits, and three's renderOrder. `texture`
+     *  NO_TEXTURE draws the tint alone. */
+    setSprite(
+        sprite: number, texture: number, x: number, y: number, z: number, scaleX: number, scaleY: number,
+        centerX: number, centerY: number, rotation: number, r: number, g: number, b: number, a: number,
+        flags: number, renderOrder: number,
+    ): void;
+    removeSprite(sprite: number): void;
     pick(x: number, y: number, width: number, height: number, callback: (r: RawPick) => void): void;
     stats(): AdacppStats;
     readCullStats(callback: (s: AdacppStats) => void): void;
@@ -115,8 +134,11 @@ export interface RawPick {
     hit: boolean;
     instance: number;
     segment: number;
-    /** Triangle index in the geometry's original index list (index position / 3). */
+    /** Triangle index in the geometry's original index list (index position / 3); for a point, its
+     *  position in the index list (its vertex when the geometry has no index). */
     triangle: number;
+    /** What was hit: Topology.Triangles or Topology.Points. Absent from renderers that only pick triangles. */
+    topology?: number;
     world: [number, number, number];
 }
 
@@ -168,7 +190,18 @@ export const InstanceFlag = {
     DepthOffset: 1 << 12, // in front of coplanar faces (a negative polygonOffset)
     DepthBack: 1 << 14, // behind coplanar lines, so edges drawn on it win (a positive polygonOffset)
     Underlay: 1 << 15, // lines drawn before the faces, so a coplanar face hides them (a ground grid)
+    Capped: 1 << 16, // a closed solid whose cut is filled on each section plane (setSectionCaps)
+    OnTop: 1 << 17, // drawn over the model, no depth test (three.js' depthTest: false, e.g. gizmo handles)
+    CullBack: 1 << 18, // transparent, yet back faces culled (a single-sided transparent material)
 } as const;
+export const SpriteFlag = {
+    SizeAttenuation: 1 << 0, // three.js' sizeAttenuation; clear = constant size on screen (perspective)
+    DepthTest: 1 << 1, // hidden where the model is in front
+    Hidden: 1 << 2,
+    Clipped: 1 << 3, // cut by the section planes
+} as const;
+/** setSprite's `texture` for a sprite without one. */
+export const NO_TEXTURE = 0xffffffff;
 export const SegmentFlag = {
     Hidden: 1 << 0,
     // The colour override is a matte surface (metalness 0, roughness 1), as the selection material is.

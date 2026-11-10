@@ -2,11 +2,13 @@ import asyncio
 import contextlib
 import http.server
 import os
+import subprocess
 import threading
 from dataclasses import dataclass
 
 import pytest
 import pytest_asyncio
+from playwright.sync_api import sync_playwright
 
 from ada.comms.fb_wrap_model_gen import CommandTypeDC, MessageDC, TargetTypeDC
 from ada.comms.fb_wrap_serializer import serialize_root_message
@@ -41,6 +43,18 @@ class MockWSClient:
     @property
     def url(self):
         return f"ws://{self.host}:{self.port}"
+
+
+@pytest.fixture(scope="session", autouse=True)
+def ensure_playwright_installed():
+    """For every browser test in this directory, whichever file runs first."""
+    with sync_playwright() as playwright:
+        try:
+            # Try getting the executable path of Chromium
+            _ = playwright.chromium.launch(headless=True)
+        except Exception as e:
+            print(f"Playwright browsers are missing [{e}]. Installing them now...")
+            subprocess.run(["playwright", "install"], check=True)
 
 
 @pytest.fixture(scope="function")

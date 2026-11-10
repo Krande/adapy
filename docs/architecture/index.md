@@ -21,6 +21,7 @@ so you can go from a diagram straight to the code.
 | [FEA](fea.md) | `FEM`, concepts, meshing, the array-backed mesh store, solver integration, results, the viewer bake, verification |
 | [Viewer platform](platform.md) | WebSocket and REST servers, jobs and workers, storage, database, auth, assets, clash, plugins, deployment |
 | [Frontend](frontend.md) | The React/three.js viewer, model and FEA loading, in-browser conversion, the embeddable and notebook viewers |
+| [A viewer without three.js](threejs_free_viewport.md) | The three render paths of the viewer, the three.js-free viewport's first slice, and what the next slices have to settle |
 | [Docs pipeline](docs_pipeline.md) | How this site is built: Zensical, notebook conversion, the FEA verification report |
 
 ## System context

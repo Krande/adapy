@@ -30,6 +30,7 @@ export const CORE_COMMAND_IDS = {
   fitAll: "core:fit-all",
   fitSelection: "core:fit-selection",
   resetCamera: "core:reset-camera",
+  screenshot: "core:screenshot",
   /** Named camera views: the model framed from one side (`cameraViewCommandId`). */
   viewTop: "core:view.top",
   viewBottom: "core:view.bottom",

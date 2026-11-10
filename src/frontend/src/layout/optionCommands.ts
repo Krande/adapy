@@ -143,7 +143,8 @@ export function optionDescriptors(): OptionDescriptor[] {
       setters: ["setCustomText"], focus: "text-colour"},
     // --- Performance ---
     {kind: "choice", id: "renderer", title: "Renderer", group: "Performance", keywords: ["webgl", "webgpu", "backend", "three", "adacpp", ...GEN],
-      setters: ["setRenderBackend"], choices: [{value: "three", label: "three.js (WebGL)"}, {value: "adacpp-webgpu", label: "adacpp WebGPU (experimental)"}],
+      setters: ["setRenderBackend"], choices: [{value: "three", label: "three.js (WebGL)"}, {value: "adacpp-webgpu", label: "adacpp WebGPU (experimental)"},
+        {value: "adacpp-native", label: "adacpp WebGPU, no three.js (experimental)"}],
       get: () => perf().renderBackend, set: (v) => {
         perf().setRenderBackend(v as ReturnType<typeof perf>["renderBackend"]);
         requestRender();
@@ -151,6 +152,10 @@ export function optionDescriptors(): OptionDescriptor[] {
     perfToggle("cluster-frustum-cull", "Cluster frustum culling", "adacppFrustumCull", "setAdacppFrustumCull", ["webgpu", "adacpp"]),
     perfToggle("cluster-cone-cull", "Cluster back-face cone culling", "adacppConeCull", "setAdacppConeCull", ["webgpu", "adacpp"]),
     perfToggle("occlusion-cull", "Occlusion culling (GPU)", "adacppOcclusionCull", "setAdacppOcclusionCull", ["webgpu", "adacpp"]),
+    perfToggle("webgpu-labels", "WebGPU: labels and markers drawn by adacpp", "adacppLabels", "setAdacppLabels", ["webgpu", "adacpp", "sprites", "icons"]),
+    perfToggle("webgpu-point-pick", "WebGPU: point picking through adacpp", "adacppPointPick", "setAdacppPointPick", ["webgpu", "adacpp", "points", "pick"]),
+    perfToggle("webgpu-capture", "WebGPU: screenshots and animation export from the WebGPU image", "adacppCapture", "setAdacppCapture", ["webgpu", "adacpp", "screenshot", "export"]),
+    perfToggle("webgpu-no-webgl", "WebGPU only: no WebGL renderer (reload required)", "adacppNoWebGL", "setAdacppNoWebGL", ["webgpu", "adacpp", "webgl"]),
     {kind: "choice", id: "material", title: "Material", group: "Performance", keywords: ["pbr", "lambert", "standard", "shading", ...GEN],
       setters: ["setMaterialMode"], choices: [{value: "standard", label: "MeshStandard (PBR)"}, {value: "lambert", label: "MeshLambert (cheap)"}],
       get: () => perf().materialMode, set: (v) => perf().setMaterialMode(v as ReturnType<typeof perf>["materialMode"])},

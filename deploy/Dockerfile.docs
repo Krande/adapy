@@ -139,7 +139,7 @@ RUN --mount=type=cache,target=/root/.cache/rattler,sharing=locked \
 FROM emscripten/emsdk:6.0.11 AS overlay-render
 ARG VIEWER_OVERLAY=0
 # Keep in step with Dockerfile.viewer's ADACPP_RENDER_REF.
-ARG ADACPP_RENDER_REF=1d4e05b8072767ff815c92a018220f8ecc3fd1bc
+ARG ADACPP_RENDER_REF=1d902eda5b72905a8709914c480ce91385d3042c
 ARG ADACPP_GIT_URL=https://github.com/Krande/adacpp.git
 RUN mkdir -p /out && if [ "$VIEWER_OVERLAY" = "1" ]; then \
       git init -q /src && cd /src \

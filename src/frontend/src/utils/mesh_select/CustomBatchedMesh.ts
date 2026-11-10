@@ -44,9 +44,18 @@ export class CustomBatchedMesh extends THREE.Mesh {
     }
 
     /** True for this mesh's own selection / face-highlight overlay children: three.js draws the
-     *  highlight with them, the adacpp renderer colours the ranges directly and skips them. */
+     *  highlight with them. The adacpp renderer colours selected ranges directly and skips the selection
+     *  overlay; the face overlay it draws from `faceHighlightRange`. */
     public isHighlightOverlay(obj: THREE.Object3D): boolean {
         return obj === this._selectionOverlay || obj === this._faceOverlay;
+    }
+
+    /** The highlighted face as a range of this mesh's index buffer, and the overlay that draws it in
+     *  three.js; null when no face is highlighted. */
+    public faceHighlightRange(): {overlay: THREE.Mesh; start: number; count: number} | null {
+        const overlay = this._faceOverlay;
+        const face = overlay?.geometry.groups.find((g) => g.materialIndex === 0);
+        return overlay && face && face.count > 0 ? {overlay, start: face.start, count: face.count} : null;
     }
 
     /** Lazy cache of drawRanges sorted by start offset, stored as
