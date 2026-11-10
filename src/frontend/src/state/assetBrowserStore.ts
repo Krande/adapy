@@ -227,6 +227,8 @@ export interface AssetBrowserState {
   failLoad: (id: string, error: string) => void;
   /** A load for `id` ended in "nothing to draw" -- `reason` is the builder's own. */
   emptyLoad: (id: string, reason: string) => void;
+  /** A load for `id` was cancelled: no longer busy, and neither loaded nor failed. */
+  cancelLoad: (id: string) => void;
   clearLoadError: (id: string) => void;
   /** Drop every `loaded` entry whose source name the scene no longer holds --
    *  what keeps this mirror honest against an unload that happened anywhere
@@ -454,6 +456,13 @@ export const useAssetBrowserStore = create<AssetBrowserState>((set) => ({
       const empty = new Map(s.loadEmpty);
       empty.set(id, reason);
       return { loadBusy: busy, loadEmpty: empty };
+    }),
+  cancelLoad: (id) =>
+    set((s) => {
+      if (!s.loadBusy.has(id)) return s;
+      const busy = new Set(s.loadBusy);
+      busy.delete(id);
+      return { loadBusy: busy };
     }),
   clearLoadError: (id) =>
     set((s) => {
