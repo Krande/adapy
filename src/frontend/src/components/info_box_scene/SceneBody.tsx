@@ -20,7 +20,19 @@ import MeshDistortionSection from "./MeshDistortionSection";
 import OverlaysPanel from "./OverlaysPanel";
 import {useSceneInfoStore} from "@/state/sceneInfoStore";
 import FemConceptsPanel from "@/components/simulation/FemConceptsPanel";
-import {activeSceneTab, sceneTabs, shouldStackTabs, TAB_TO_MODE, type SceneTab, type SceneTabOptions} from "./sceneTabs";
+import {
+    activeSceneTab,
+    groupOf,
+    sceneGroups,
+    sceneTabs,
+    shouldStackTabs,
+    SUB_LABEL,
+    TAB_TO_MODE,
+    type OfferedGroup,
+    type SceneGroup,
+    type SceneTab,
+    type SceneTabOptions,
+} from "./sceneTabs";
 import {useFemConceptsStore} from "@/state/femConceptsStore";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {useStatsStore} from "@/state/statsStore";
@@ -58,7 +70,12 @@ export interface SceneBodyProps extends SceneTabOptions {
 // tab bar is just a nicer projection of it. `fem` stays a mode for other UI
 // shells and lands on Model here.
 //
-// Three regions: the pinned model list, the tab strip, and a body that scrolls on
+// The strip shows GROUPS of related tabs (`sceneTabs`' `SCENE_GROUPS`): Model, View
+// (Overlays, Clip, Mesh), Joints (Connection, Clashes, Review), Tools -- and a group
+// of more than one offered tab a second strip of its tabs. The tabs are still what
+// the store's mode and the `tabs` / `hiddenTabs` options name.
+//
+// Three regions: the pinned model list, the tab strip(s), and a body that scrolls on
 // its own. A frame lays them out in a flex column (the card has no padding of its
 // own, so the strip can span edge to edge).
 const SceneBody: React.FC<SceneBodyProps> = ({tabs: tabIds, hiddenTabs, femTab = false, arrangement = "tabs", loadedTitle = "Loaded models", loadedEmpty}) => {
@@ -98,6 +115,18 @@ const SceneBody: React.FC<SceneBodyProps> = ({tabs: tabIds, hiddenTabs, femTab =
     // stored mode points at a tab that isn't currently available (e.g. Joints
     // after the model carrying them was unloaded).
     const tab = activeSceneTab(mode, tabs, femTab);
+    const groups = sceneGroups(tabs);
+    const group = groups.find((g) => g.tabs.some((t) => t.id === tab)) ?? groups[0];
+    // A group reopens on the tab last shown in it, where that is still offered.
+    const [lastInGroup, setLastInGroup] = useState<Partial<Record<SceneGroup, SceneTab>>>({});
+    const openTab = (id: SceneTab) => {
+        setLastInGroup((was) => ({...was, [groupOf(id)]: id}));
+        setMode(TAB_TO_MODE[id]);
+    };
+    const openGroup = (g: OfferedGroup) => {
+        const last = lastInGroup[g.id];
+        openTab(last && g.tabs.some((t) => t.id === last) ? last : g.tabs[0].id);
+    };
 
     const bodyRef = useRef<HTMLDivElement | null>(null);
     const [autoStacked, setAutoStacked] = useState(false);
@@ -126,7 +155,7 @@ const SceneBody: React.FC<SceneBodyProps> = ({tabs: tabIds, hiddenTabs, femTab =
             </div>
 
             {!stacked && (<>
-            {/* ── adaptive tab strip ──
+            {/* ── adaptive group strip ──
                 `overflow-y-hidden` is not decoration: CSS computes the OTHER axis to `auto` as
                 soon as one is set, so `overflow-x-auto` alone gave the strip a vertical
                 scrollbar of its own -- the tabs' `-mb-px` makes their content one pixel taller
@@ -136,30 +165,64 @@ const SceneBody: React.FC<SceneBodyProps> = ({tabs: tabIds, hiddenTabs, femTab =
                 role="tablist"
                 aria-label="Scene panel section"
             >
-                {tabs.map((t) => (
+                {groups.map((g) => (
                     <button
-                        key={t.id}
+                        key={g.id}
                         type="button"
                         role="tab"
-                        aria-selected={tab === t.id}
-                        onClick={() => setMode(TAB_TO_MODE[t.id])}
+                        aria-selected={group?.id === g.id}
+                        onClick={() => openGroup(g)}
                         className={
                             "px-2.5 py-1.5 font-semibold whitespace-nowrap border-b-2 -mb-px flex items-center gap-1.5 " +
-                            (tab === t.id
+                            (group?.id === g.id
                                 ? "border-blue-400 text-[var(--ada-panel-text)]"
                                 : "border-transparent text-gray-400 hover:text-[var(--ada-panel-text)]")
                         }
                     >
-                        {t.ctx && (
+                        {/* Contextual only when everything in it is: a group of contextual tabs
+                            beside an always-offered one marks those tabs, below, instead. */}
+                        {g.tabs.every((t) => t.ctx) && (
                             <span
                                 className="w-1.5 h-1.5 rounded-full bg-violet-400"
                                 aria-hidden="true"
                             />
                         )}
-                        {t.label}
+                        {g.label}
                     </button>
                 ))}
             </div>
+            {/* ── the group's own tabs, where it has more than one ── */}
+            {group && group.tabs.length > 1 && (
+                <div
+                    className="shrink-0 flex gap-0.5 px-1.5 border-b border-white/10 overflow-x-auto overflow-y-hidden text-xs"
+                    role="tablist"
+                    aria-label={`${group.label} section`}
+                >
+                    {group.tabs.map((t) => (
+                        <button
+                            key={t.id}
+                            type="button"
+                            role="tab"
+                            aria-selected={tab === t.id}
+                            onClick={() => openTab(t.id)}
+                            className={
+                                "px-2 py-1 whitespace-nowrap border-b-2 -mb-px flex items-center gap-1.5 " +
+                                (tab === t.id
+                                    ? "border-blue-300 text-[var(--ada-panel-text)]"
+                                    : "border-transparent text-gray-400 hover:text-[var(--ada-panel-text)]")
+                            }
+                        >
+                            {t.ctx && (
+                                <span
+                                    className="w-1.5 h-1.5 rounded-full bg-violet-400"
+                                    aria-hidden="true"
+                                />
+                            )}
+                            {SUB_LABEL[t.id] ?? t.label}
+                        </button>
+                    ))}
+                </div>
+            )}
             </>)}
 
             {/* ── scrollable tab body ── */}
