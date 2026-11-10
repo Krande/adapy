@@ -76,6 +76,9 @@ async function loadFrom(
     const {sourceName, placement = "replace"} = source;
     // The three.js-free viewport is on screen: it takes the GLB as bytes, and no three.js scene is built.
     if (isNativeViewportActive()) {
+        // As a replace does on the three.js viewport: a result that was shown ends with its model.
+        const {clearActiveFeaStreaming} = await import("@/utils/scene/fea/streaming/teardown");
+        clearActiveFeaStreaming();
         await showInNativeViewport(url, requestHeaders, sourceName);
         return undefined;
     }

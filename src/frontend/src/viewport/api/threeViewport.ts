@@ -14,6 +14,7 @@ import {useTreeViewStore} from "@/state/treeViewStore";
 import {getViewerRuntime} from "@/state/viewerRuntime";
 import type {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
 import {batchedMeshOf, isBatched} from "@/utils/scene/meshLookup";
+import {createThreeResultMesh} from "@/utils/scene/fea/threeResultLayer";
 import {recordViewerAction} from "@/utils/scene/viewerHistory";
 import type {ObjectRef, ObjectVisibilityReader, ViewportApi} from "./viewportApi";
 
@@ -183,5 +184,22 @@ export function createThreeViewport(h: ThreeViewportHandles): ViewportApi {
                 m.panByStep(h.controls, h.camera, right, up);
                 requestRender();
             }),
+        // A result mesh from typed arrays, added to the scene. The streaming loader's own result
+        // mesh comes in as a GLB (with its selection and overlays) and is wrapped by the same layer
+        // (threeResultLayer); replacing the model is that loader's job here, so `replaceModel` only
+        // frames the new mesh.
+        results: {
+            createResultMesh: (data, opts) => {
+                const layer = createThreeResultMesh(data, getViewerRuntime().scene.current ?? h.scene);
+                if (opts?.replaceModel) {
+                    void cameraHandlers().then((m) => {
+                        m.fitAllView(h.scene, h.camera, h.controls);
+                        requestRender();
+                    });
+                }
+                requestRender();
+                return layer;
+            },
+        },
     };
 }

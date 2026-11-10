@@ -34,5 +34,6 @@ export function createNativeViewportApi(scene: NativeScene): ViewportApi {
         resetCamera: () => scene.home(),
         orbitStep: (right, up) => scene.orbitBy(right * ORBIT_STEP_RAD, up * ORBIT_STEP_RAD),
         panStep: (right, up) => scene.panBy(right * PAN_STEP_FRACTION, up * PAN_STEP_FRACTION),
+        results: {createResultMesh: (data, opts) => scene.createResultLayer(data, opts)},
     };
 }

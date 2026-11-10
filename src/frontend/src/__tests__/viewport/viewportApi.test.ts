@@ -37,6 +37,11 @@ function recorder(kind: ViewportApi["kind"], cannot: string | null = null): {api
             resetCamera: log("resetCamera"),
             orbitStep: log("orbitStep"),
             panStep: log("panStep"),
+            results: {
+                createResultMesh: () => {
+                    throw new Error("not drawn in this test");
+                },
+            },
         },
     };
 }

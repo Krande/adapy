@@ -18,6 +18,7 @@ import {useTableNavStore} from "@/state/tableNavStore";
 import {resetFeaAnimationPhase} from "../feaAnimationDriver";
 import {disposeFrameRecorder} from "../playbackFrames";
 import {clearGoToNode} from "../goToNode";
+import {closeLayerSession} from "./layerSession";
 
 /** Drop the cached state on next call (e.g. when the user replaces
  * the scene with a different file). The blob cache lives separately
@@ -32,6 +33,8 @@ export function clearActiveFeaStreaming(): void {
     // views — the next load is a new source even if it is the same file again
     // (what `noteFieldSourceCleared` used to say here, now `close()`'s job).
     useModelSessionStore.getState().close();
+    // A result drawn through result layers (the three.js-free viewport) leaves with them.
+    closeLayerSession();
     useFeaAnimationStore.getState().reset();
     useColorStore.getState().setShowLegend(false);
     resetFeaAnimationPhase();

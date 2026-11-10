@@ -39,6 +39,9 @@ import {syncResultSession} from "../fea/streaming/legendSync";
 import {loadFeaWithDefaults} from "../fea/streaming/loadWithDefaults";
 import type {ApplyStepOptions, LoadFeaStreamingArgs} from "../fea/streaming/types";
 import {requestStep} from "../fea/streaming/stepQueue";
+import {loadFeaOnLayers} from "../fea/streaming/layerSession";
+import {isNativeViewportActive, useNativeViewport} from "@/viewport/native/nativeModel";
+import {useModelState} from "@/state/modelState";
 import {preloadFrames, prefetchFieldSteps, upcomingSteps} from "../fea/streaming/prefetch";
 import {framesKey, noteOrdinaryPaint, recordPlayedFrame, showRecordedFrame} from "../fea/streaming/frameRecording";
 import {FEA_STEP_CACHE} from "@/services/fea/stepCache";
@@ -116,7 +119,20 @@ async function attachBeamSolids(
     if (warp) active.beamSolidWarp = warp;
 }
 
+/** The load on a viewport that has no three.js scene to load into: the result is drawn through
+ *  the viewport's result layers (fea/streaming/layerSession). What surrounds a load is the same:
+ *  the source named as the loaded model, the Simulation panel shown for a result. */
+async function loadOnResultLayers(args: LoadFeaStreamingArgs): Promise<void> {
+    await loadFeaOnLayers(args, {reload: load_fea_streaming});
+    // The result took the place of whatever model the viewport was handed.
+    if (useNativeViewport.getState().model) useNativeViewport.setState({model: null});
+    const ms = useModelState.getState();
+    if (ms.loadedSourceName !== args.sourceName) ms.setLoadedSourceName(args.sourceName);
+    if (args.fieldName != null && !isPanelOpen(CORE_PANEL_IDS.simulation)) reveal(CORE_PANEL_IDS.simulation);
+}
+
 export async function load_fea_streaming(args: LoadFeaStreamingArgs): Promise<void> {
+    if (isNativeViewportActive()) return loadOnResultLayers(args);
     // The mesh, field and sidecar blobs are read from a bake, which only a
     // transport that serves FEA manifests and their files can do (REST, or the
     // websocket after FEAResult.show() registered one).

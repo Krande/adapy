@@ -8,6 +8,8 @@ import {useVisibilityStore} from "@/state/visibilityStore";
 import {dragAction, mouseButtonOf, wheelZoomFactor, type CameraAction} from "@/utils/camera/cameraMapping";
 import {startRenderer} from "@/viewport/adacpp/rendererModule";
 import {SegmentFlag, type AdacppModule, type GpuDeviceLike, type LoadedGlbObjects, type RawPick, type WebRendererApi} from "@/viewport/adacpp/types";
+import type {ResultMeshData, ResultMeshLayer} from "@/viewport/api/resultLayer";
+import {NativeResultLayer} from "./nativeResultLayer";
 
 /** The viewer's background (#393939) and selection colour, as the three.js viewport has them. */
 const BACKGROUND = 0x39 / 255;
@@ -57,6 +59,23 @@ class TrackedSet extends Set<string> {
 
 let canvasSerial = 0;
 
+/** The box (min xyz, max xyz) around `positions` (xyz per vertex) placed by `matrix` (column-major
+ *  4x4, identity when absent); null for none. */
+function boundsOf(positions: Float32Array, matrix?: ArrayLike<number> | null): Bounds | null {
+    if (positions.length < 3) return null;
+    const m = matrix ?? [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+    const box: Bounds = [Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity];
+    for (let i = 0; i + 2 < positions.length; i += 3) {
+        const x = positions[i], y = positions[i + 1], z = positions[i + 2];
+        for (let k = 0; k < 3; k++) {
+            const w = m[k] * x + m[4 + k] * y + m[8 + k] * z + m[12 + k];
+            if (w < box[k]) box[k] = w;
+            if (w > box[k + 3]) box[k + 3] = w;
+        }
+    }
+    return box;
+}
+
 export class NativeScene {
     /** Per instance, the object index of each of its segments (-1: none). */
     private segments = new Map<number, Int32Array>();
@@ -86,6 +105,8 @@ export class NativeScene {
     /** Why it stopped, kept for a caller that attaches `onFailure` after the fact: a device can be lost
      *  before the first frame. */
     failure: string | null = null;
+    /** The result meshes drawn now (createResultLayer). */
+    private readonly resultLayers = new Set<NativeResultLayer>();
 
     private constructor(
         private readonly container: HTMLElement,
@@ -131,6 +152,7 @@ export class NativeScene {
     load(bytes: Uint8Array, modelKey = ""): void {
         this.modelKey = modelKey;
         this.sceneExtras = "";
+        this.detachResultLayers();
         this.renderer.clear();
         this.selected.clear();
         this.hidden.clear();
@@ -160,6 +182,40 @@ export class NativeScene {
         this.bounds = loaded.bounds;
         this.home(0);
         this.onChange?.();
+    }
+
+    /** Draw a result mesh from typed arrays: its colours, displacement and deformation scale are
+     *  then set through the layer returned. With `replaceModel` the loaded model goes and the mesh
+     *  is what the viewport shows and frames. */
+    createResultLayer(data: ResultMeshData, opts: {replaceModel?: boolean} = {}): ResultMeshLayer {
+        if (opts.replaceModel) {
+            this.detachResultLayers();
+            this.renderer.clear();
+            this.modelKey = "";
+            this.sceneExtras = "";
+            this.table = null;
+            this.segments = new Map();
+            this.indexOfId = new Map();
+            this.objectList = [];
+            this.selected.clear();
+            this.hidden.clear();
+            this.selectionVersion = {};
+        }
+        const layer = new NativeResultLayer(this.module, this.renderer, data, () => this.invalidate());
+        this.resultLayers.add(layer);
+        if (opts.replaceModel) {
+            this.bounds = boundsOf(data.positions, data.matrix);
+            this.home(0);
+            this.onChange?.();
+        }
+        this.invalidate();
+        return layer;
+    }
+
+    /** The renderer is about to drop everything it draws: the result layers go with it. */
+    private detachResultLayers(): void {
+        for (const layer of this.resultLayers) layer.detach();
+        this.resultLayers.clear();
     }
 
     get objects(): readonly NativeObject[] {
@@ -522,6 +578,7 @@ export class NativeScene {
         this.disposed = true;
         if (this.raf) cancelAnimationFrame(this.raf);
         for (const c of this.cleanups) c();
+        this.detachResultLayers();
         try {
             this.renderer.delete();
             this.device.destroy();
