@@ -29,6 +29,24 @@ let started = false;
 let requested = 0;
 let debounce: ReturnType<typeof setTimeout> | null = null;
 
+// Loads wait for the 3D scene (see useConnectionBuilderBoot): the first build
+// finishes before the canvas mounts on a cold start, and a model loaded then is
+// lost. Capped, so a shell that never reports a scene still gets its loads.
+const SCENE_WAIT_MAX_MS = 15000;
+let markSceneReady: () => void = () => {};
+const sceneReady = new Promise<void>((resolve) => {
+  markSceneReady = resolve;
+});
+
+/** The viewer's scene is mounted: builds may load into it. */
+export function markConnectionBuilderSceneReady(): void {
+  markSceneReady();
+}
+
+function untilSceneReady(): Promise<void> {
+  return Promise.race([sceneReady, new Promise<void>((resolve) => setTimeout(resolve, SCENE_WAIT_MAX_MS))]);
+}
+
 /** Start the loop once per page; later calls are no-ops. Returns nothing to stop: it lives with the page. */
 export function startConnectionBuilderSession(): void {
   if (started) return;
@@ -82,6 +100,7 @@ async function buildSelected(): Promise<void> {
   s.setBuild({ status: "building", specName });
   try {
     const result = await devConnectionsApi.build(specName, effectiveInputs(spec.defaults, s.inputsBySpec[specName]));
+    await untilSceneReady();
     if (seq !== requested) return;
     const sourceName = `${PREVIEW_SOURCE_PREFIX}${specName}#${seq}`;
     await overlay_file_in_scene(sourceName, result.key, { scope: result.scope });
