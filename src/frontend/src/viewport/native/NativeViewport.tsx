@@ -15,6 +15,7 @@ import {viewportShortcutHandlers} from "@/viewport/api/viewportShortcuts";
 import {NativeOrientationGizmo} from "./NativeOrientationGizmo";
 import {NativeScene, splitObjectKey} from "./nativeScene";
 import {bindSectionGizmo} from "./sectionGizmo";
+import {bindBoxSelectionGizmo} from "./boxSelectionGizmo";
 import {createNativeViewportApi} from "./nativeViewportApi";
 import {useNativeViewport} from "./nativeModel";
 
@@ -28,7 +29,7 @@ function linearRgb(hex: string): [number, number, number] | null {
 
 const UNAVAILABLE = [
     "FEA element (integration point) fields, beam sections and picking in a result", "number labels and plugin overlays",
-    "box selection", "3D-mouse input", "export",
+    "requesting a selection box's contents from a source, and keeping boxes across reloads", "3D-mouse input", "export",
 ];
 
 const NativeViewport: React.FC = () => {
@@ -74,7 +75,10 @@ const NativeViewport: React.FC = () => {
             cut();
             const uncut = useSectionStore.subscribe(cut);
             const unbindGizmo = bindSectionGizmo(scene);
+            // Selection boxes: the same store the three.js viewport's controller draws.
+            const unbindBoxes = bindBoxSelectionGizmo(scene);
             release = () => {
+                unbindBoxes();
                 unbindGizmo();
                 uncut();
                 releaseDispatcher();

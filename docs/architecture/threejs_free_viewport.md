@@ -59,7 +59,8 @@ flowchart LR
 
 What the main viewer does beyond this is listed in the viewport itself under "Not available in
 this mode", so nothing looks broken by omission: element (integration point) fields of an FEA
-result, number labels and plugin overlays, box selection, 3D-mouse input and export.
+result, number labels and plugin overlays, requesting a selection box's contents from a source,
+3D-mouse input and export.
 
 React reads the selection through `viewport/api/useViewportSelection.ts` (its count, the selected
 objects, a token that changes with it), so a panel written against it follows whichever viewport is
@@ -107,6 +108,49 @@ undeformed outline, per-element selection, recorded playback frames and load com
 on request. Those are the next things to move behind layers; until then the layer session refuses
 an element field or a combination with the reason instead of drawing it wrong.
 
+## Box selection on both viewports
+
+A selection box is plain data, and so are its rules; only "which objects are in it" is the
+viewport's to answer.
+
+```mermaid
+flowchart LR
+    STORE["bboxSelectionStore<br/>boxes, the active one"] --> APPLY["applyBoxSelection.ts<br/>box around the selection,<br/>apply a box, screen rectangle"]
+    APPLY -->|objectsInBox, objectsInScreenRect,<br/>selectionBounds, setSelection| API["ViewportApi"]
+    API --> T["three.js<br/>triangles and cached range bounds"]
+    API --> N["NativeScene<br/>each object's box"]
+    STORE --> TC["BBoxSelectionController<br/>meshes, TransformControls"]
+    STORE --> NC["native/boxSelectionGizmo.ts<br/>helper lines and faces, SVG handles"]
+```
+
+| Part | Where | What it is |
+|---|---|---|
+| The boxes | `state/bboxSelectionStore.ts` | Bounds, mode ("partially within", "fully within"), colour, opacity, visibility, and which box is the active one. No three.js: the undo history installs itself as the store's recorder when it loads, as it does for the section planes. |
+| The rules | `utils/bboxSelection/boxMath.ts`, `screenRect.ts`, `boxHandles.ts` | A box against a box or a triangle; a rectangle on the screen against a box's picture (a window takes what is wholly inside, a crossing what touches); a box's edges, faces and handles, and the pointer's place along a handle's axis. Plain numbers, unit-tested. |
+| What a viewport answers | `viewport/api/boxSelection.ts` | `objectsInBox(box, mode)`, `objectsInScreenRect(rect, mode)` and `selectionBounds()`, all members of `ViewportApi`. The first two return an `ObjectSet`: iterable as object refs (one ref reused), and taken back by the same viewport's `setSelection` without a lookup per object. Hidden objects and ones a section plane cuts away whole are never in an answer. |
+| Applying | `utils/bboxSelection/applyBoxSelection.ts` | A box around the selection, the selection a box makes, the selection a screen rectangle adds, and "the active box's selection follows its bounds and mode". Used by the commands (`Box around selection`, `Selection box takes only what is fully within`, `Reselect with selection box`, `Remove selection boxes`), the Scene panel, the tree's menu and both viewports' controllers. |
+| three.js | `utils/bboxSelection/threeBoxSelection.ts`, `BBoxSelectionController.tsx` | As before the interface: an object on a box's boundary is decided on its triangles, one that straddles a screen rectangle on its vertices or triangles. Boxes are meshes, the handles spheres, the move gizmo `TransformControls`. |
+| adacpp renderer | `viewport/native/nativeBoxSelection.ts`, `boxSelectionGizmo.ts` | Decided on each object's box from the GLB reader. A box's edges are helper lines and its faces see-through triangles of the renderer; the face handles and the move arrows are an SVG placed from the camera after each frame, and a press is hit-tested against them before the camera sees it. Shift and a drag draws the rectangle; a right-click on a box opens its menu. |
+
+Where the three.js-free viewport's answer is coarser, because it keeps no triangles on the
+JavaScript side:
+
+- **Partially within a box.** An object is taken when its box touches the selection box. The
+  three.js viewport looks at the triangles of an object on the boundary, so it leaves out a slanted
+  or L-shaped object whose box reaches in while the object itself does not. "Fully within" is the
+  same on both: an object is inside exactly when its box is.
+- **A rectangle on the screen.** A window takes an object when the picture of its box is wholly
+  inside, so it can miss a slanted object that is itself inside while its box's corner sticks out;
+  a crossing takes an object when the picture of its box touches, so it can take one that only its
+  box's corner reaches.
+- **An object with children that draws something itself.** The reader reports one box per object,
+  of the object and everything below it, so such an object is judged by the larger box.
+
+Not on the three.js-free viewport yet: "Request from source" in a box's menu (what it loads comes
+through the three.js scene's loaders; the menu says so), keeping the boxes across reloads (the
+storage binding reads the model's recentring offset from the three.js model state), and undo, which
+that viewport does not have for anything.
+
 ## What the next slices have to settle
 
 These are open design points, ordered by how much of the viewer depends on them.
@@ -114,7 +158,7 @@ These are open design points, ordered by how much of the viewer depends on them.
 1. **The interface features program against.** A feature that reaches into `THREE.Scene` exists on
    one viewport only. `src/frontend/src/viewport/api` is the interface both stand behind:
    `ViewportApi` (the selection as object refs and its changes, hiding, showing and isolating
-   objects, how each is drawn, the model's box, fit, named views, reset, orbit and pan by step), implemented by `threeViewport.ts` over the three.js scene and by
+   objects, how each is drawn, the model's box, what a box or a screen rectangle takes, fit, named views, reset, orbit and pan by step), implemented by `threeViewport.ts` over the three.js scene and by
    `native/nativeViewportApi.ts` over `NativeScene`. The viewport on screen registers itself
    (`setActiveViewport`); commands ask `activeViewport()`, and the keys are bound once for both in
    `viewportShortcuts.ts`. A viewport says what it cannot do yet (`unavailable(feature)`), and the

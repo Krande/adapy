@@ -548,3 +548,110 @@ async def test_a_second_model_joins_the_first_on_whichever_viewport_is_on_screen
             ), f"{backend}: the second model's row selected nothing"
         finally:
             await browser.close()
+
+
+def _row_of_boxes() -> ada.Assembly:
+    """Three unit boxes in a row along x, a box's width apart: the middle one is at the model's centre."""
+    p = ada.Part("row")
+    for i, name in enumerate(("left", "middle", "right")):
+        p.add_shape(ada.PrimBox(name, (2 * i, 0, 0), (2 * i + 1, 1, 1)))
+    return ada.Assembly("a") / p
+
+
+def _is_box_edge(px) -> bool:  # a selection box's default light blue: lighter than the selection's blue
+    return 30 < px[0] < 110 and 140 < px[1] < 205 and px[2] > 220
+
+
+def _is_x_handle(px) -> bool:  # the red of a selection box's two x handles (the move arrows are a purer red)
+    return 190 < px[0] < 250 and 50 < px[1] < 110 and 55 < px[2] < 115
+
+
+def _box_edges(image: Image.Image) -> int:
+    """Box-coloured pixels over the model: the toolbar and the orientation gizmo in the corner, which has
+    a blue of its own, are left out."""
+    return _count(image.crop((0, 130, 1100, 660)), _is_box_edge)
+
+
+def _x_handles(image: Image.Image) -> list[tuple[int, int]]:
+    """Where the red handles are in the middle of the view, left to right: the centre of each group of
+    handle-coloured pixels (a few stray pixels of another colour's edge are no group)."""
+    points = sorted((x, y) for y in range(130, 700) for x in range(100, 1100) if _is_x_handle(image.getpixel((x, y))))
+    groups: list[list[tuple[int, int]]] = []
+    for point in points:
+        if groups and point[0] - groups[-1][-1][0] <= 6:
+            groups[-1].append(point)
+        else:
+            groups.append([point])
+    return [(sum(x for x, _ in g) // len(g), sum(y for _, y in g) // len(g)) for g in groups if len(g) >= 40]
+
+
+@pytest.mark.parametrize("backend", ["three", NATIVE])
+async def test_box_selection_on_whichever_viewport_is_on_screen(ws_server, backend):
+    """A selection box, on the three.js viewport and on the three.js-free one: made around the selected
+    object from the palette, it is drawn and selects what it holds; dragging a face's handle outwards
+    takes in the neighbour; its right-click menu switches it to "fully within", which lets the neighbour
+    go again; and a rectangle dragged with Shift selects everything inside it."""
+    async with async_playwright() as playwright:
+        browser, page, _ = await _open_viewer(playwright, ws_server, backend)
+        try:
+            await asyncio.to_thread(
+                lambda: _row_of_boxes().show(ws_port=ws_server.port, unique_viewer_id=1, liveness_timeout=10)
+            )
+            await _until(page, lambda: _model_on_screen(page), "the model to be drawn")
+            if backend == NATIVE:
+                assert await page.evaluate("document.documentElement.dataset.nativeViewport") == "active"
+
+            await _click(page, *CENTRE)
+            one = _count(await _pixels(page), _is_selected)
+            assert one > 3000, f"{backend}: the click selected nothing"
+
+            # a box around the middle object: drawn, and selecting just that object (its neighbours are
+            # a box's width away)
+            await _command(page, "Box around selection")
+            image = await _pixels(page)
+            edges = _box_edges(image)
+            assert edges > 100, f"{backend}: no selection box is drawn ({edges} box-coloured pixels)"
+            boxed = _count(image, _is_selected)
+            assert 0.6 * one < boxed < 1.3 * one, f"{backend}: the box selects {boxed} pixels, the object {one}"
+
+            # resize: the outer x handle, dragged away from the other one, reaches a neighbour
+            handles = _x_handles(image)
+            assert len(handles) >= 2, f"{backend}: the box's x handles are not on screen ({handles})"
+            (ax, ay), (bx, by) = handles[0], handles[-1]
+            await page.mouse.move(bx, by)
+            await page.mouse.down()
+            for step in range(1, 9):
+                await page.mouse.move(bx + (bx - ax) * 1.3 * step / 8, by + (by - ay) * 1.3 * step / 8)
+                await page.wait_for_timeout(40)
+            await page.mouse.up()
+            await page.wait_for_timeout(800)
+            enlarged = _count(await _pixels(page), _is_selected)
+            assert enlarged > 1.4 * boxed, f"{backend}: the enlarged box selects {enlarged} pixels, before {boxed}"
+
+            # its menu: only what is fully within, and the neighbour the box merely reaches into goes
+            await page.mouse.click(*CENTRE, button="right")
+            await page.get_by_role("menuitemradio", name="Fully within").click()
+            await page.keyboard.press("Escape")
+            await page.wait_for_timeout(700)
+            within = _count(await _pixels(page), _is_selected)
+            assert within < 0.8 * enlarged, f"{backend}: fully within still selects {within} of {enlarged} pixels"
+            assert within > 0.6 * one, f"{backend}: fully within lost the object the box holds ({within} pixels)"
+
+            # without boxes and selection, a window dragged over the whole model selects all three objects
+            await _command(page, "Remove selection boxes")
+            await _command(page, "Clear selection")
+            image = await _pixels(page)
+            assert _box_edges(image) < 50, f"{backend}: a removed box is still drawn"
+            assert _count(image, _is_selected) < 50, f"{backend}: the selection was not cleared"
+            await page.keyboard.down("Shift")
+            await page.mouse.move(305, 150)
+            await page.mouse.down()
+            await page.mouse.move(700, 500, steps=4)
+            await page.mouse.move(1200, 790, steps=4)
+            await page.mouse.up()
+            await page.keyboard.up("Shift")
+            await page.wait_for_timeout(800)
+            windowed = _count(await _pixels(page), _is_selected)
+            assert windowed > 2.2 * one, f"{backend}: the window selected {windowed} pixels, one object is {one}"
+        finally:
+            await browser.close()

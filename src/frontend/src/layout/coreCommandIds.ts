@@ -83,6 +83,11 @@ export const CORE_COMMAND_IDS = {
   sectionToggle: "core:section-toggle",
   sectionFlip: "core:section-flip",
   sectionClear: "core:section-clear",
+  /** Selection boxes: one around the selection (it selects what it touches or holds), the active box's rule (partially or fully within), select again what it takes, remove all. */
+  selectionBoxAdd: "core:selection-box.add",
+  selectionBoxFullyWithin: "core:selection-box.fully-within",
+  selectionBoxReselect: "core:selection-box.reselect",
+  selectionBoxClear: "core:selection-box.clear",
   /** Representation of a loaded FEA result: the undeformed outline, the element edges, the result colours. */
   feaToggleUndeformed: "core:fea-toggle-undeformed",
   feaToggleElementEdges: "core:fea-toggle-element-edges",

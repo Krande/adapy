@@ -87,6 +87,24 @@ for (const module of [
     });
 }
 
+// Selection boxes are plain data, and what a box selects is asked through the viewport interface:
+// the store, the rules, the handles' maths and applying a box are shared by both viewports.
+for (const module of [
+    "viewport/api/boxSelection.ts",
+    "viewport/native/boxSelectionGizmo.ts",
+    "viewport/native/nativeBoxSelection.ts",
+    "state/bboxSelectionStore.ts",
+    "utils/bboxSelection/applyBoxSelection.ts",
+    "utils/bboxSelection/boxHandles.ts",
+    "utils/bboxSelection/boxMath.ts",
+    "utils/bboxSelection/marquee.ts",
+    "utils/bboxSelection/screenRect.ts",
+]) {
+    test(`${module} imports no three.js`, () => {
+        walkFreeOfThree(join(ROOT, "src", module));
+    });
+}
+
 test("the walk sees what a build would bundle", () => {
     const imports = runtimeImports(`
         import * as THREE from "three";
