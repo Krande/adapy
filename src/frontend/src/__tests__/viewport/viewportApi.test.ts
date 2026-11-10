@@ -34,6 +34,7 @@ function recorder(kind: ViewportApi["kind"], cannot: string | null = null): {api
             hideOthers: log("hideOthers"),
             hide: log("hide"),
             saveScreenshot: log("saveScreenshot"),
+            unloadSource: () => false,
             show: log("show"),
             isolate: log("isolate"),
             objectVisibility: () => () => null,

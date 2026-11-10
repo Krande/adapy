@@ -79,7 +79,7 @@ async function loadFrom(
         // As a replace does on the three.js viewport: a result that was shown ends with its model.
         const {clearActiveFeaStreaming} = await import("@/utils/scene/fea/streaming/teardown");
         clearActiveFeaStreaming();
-        await showInNativeViewport(url, requestHeaders, sourceName);
+        await showInNativeViewport(url, requestHeaders, sourceName, placement);
         return undefined;
     }
     if (placement === "overlay") {

@@ -5,7 +5,7 @@ import {downloadCanvas} from "@/utils/downloadCanvas";
 import type {ObjectRef, ViewportApi} from "@/viewport/api/viewportApi";
 import type {BillboardLayer} from "@/viewport/api/billboards";
 import {createNativeBillboardLayer} from "./nativeBillboards";
-import type {NativeScene} from "./nativeScene";
+import {objectKey, splitObjectKey, type NativeScene} from "./nativeScene";
 
 /** One key press orbits by this much, and pans by this fraction of the view: as on the three.js viewport. */
 const ORBIT_STEP_RAD = (15 * Math.PI) / 180;
@@ -17,12 +17,13 @@ const SCREENSHOT_HEIGHT = 1080;
 
 export function createNativeViewportApi(scene: NativeScene): ViewportApi {
     const layers = new Map<string, BillboardLayer>();
-    const own = (refs: readonly ObjectRef[]): string[] => refs.filter((r) => r.model === scene.modelKey).map((r) => r.id);
+    // The scene knows an object by one key made of its model and its id.
+    const own = (refs: readonly ObjectRef[]): string[] => refs.map((r) => objectKey(r.model, r.id));
     return {
         kind: "native",
         unavailable: () => null,
         selectionCount: () => scene.selectionSize,
-        selection: () => scene.selectedIds.map((id) => ({model: scene.modelKey, id})),
+        selection: () => scene.selectedIds.map(splitObjectKey),
         selectionToken: () => scene.selectionVersion,
         onSelectionChange: (listener) => {
             scene.onSelection.add(listener);
@@ -38,8 +39,11 @@ export function createNativeViewportApi(scene: NativeScene): ViewportApi {
         show: (refs) => scene.setHiddenMany(own(refs), false),
         isolate: (refs) => scene.isolate(own(refs)),
         results: {createResultMesh: (data, opts) => scene.createResultLayer(data, opts)},
-        objectVisibility: () => (model, id) =>
-            model === scene.modelKey && scene.draws(id) ? (scene.isHidden(id) ? "hidden" : "shown") : null,
+        objectVisibility: () => (model, id) => {
+            const key = objectKey(model, id);
+            return scene.draws(key) ? (scene.isHidden(key) ? "hidden" : "shown") : null;
+        },
+        unloadSource: (sourceName) => scene.unloadSource(sourceName),
         modelBounds: () => scene.modelBounds,
         saveScreenshot: () => {
             const picture = scene.capture(SCREENSHOT_WIDTH, SCREENSHOT_HEIGHT);

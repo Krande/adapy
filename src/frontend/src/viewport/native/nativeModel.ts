@@ -8,6 +8,8 @@ export type NativeViewportState = "off" | "starting" | "active" | "failed";
 export interface NativeModel {
     bytes: Uint8Array;
     sourceName: string;
+    /** Beside the models on screen ("overlay"), or instead of them. */
+    placement: "replace" | "overlay";
     /** Bumped per load, so the same file loaded again is still a change. */
     seq: number;
 }
@@ -41,9 +43,14 @@ let seq = 0;
 
 /** Fetch a model and hand it to the native viewport. The fetch finishes before this returns: a caller
  *  may revoke the URL right after. */
-export async function showInNativeViewport(url: string, requestHeaders: Record<string, string> | undefined, sourceName: string): Promise<void> {
+export async function showInNativeViewport(
+    url: string,
+    requestHeaders: Record<string, string> | undefined,
+    sourceName: string,
+    placement: "replace" | "overlay" = "replace",
+): Promise<void> {
     const response = await fetch(url, requestHeaders ? {headers: requestHeaders} : undefined);
     if (!response.ok) throw new Error(`loading the model failed: ${response.status} ${response.statusText}`);
     const bytes = new Uint8Array(await response.arrayBuffer());
-    useNativeViewport.setState({model: {bytes, sourceName, seq: ++seq}});
+    useNativeViewport.setState({model: {bytes, sourceName, placement, seq: ++seq}});
 }

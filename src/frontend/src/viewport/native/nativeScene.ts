@@ -57,6 +57,33 @@ class TrackedSet extends Set<string> {
     }
 }
 
+/** Between a model's key and an object's id in it, in the one string the scene knows an object by.
+ *  Neither a key nor an id contains it. */
+const KEY_SEPARATOR = "\u0000";
+
+/** The scene's name for object `id` of model `model`. */
+export function objectKey(model: string, id: string): string {
+    return model + KEY_SEPARATOR + id;
+}
+
+/** The model and the id an object key was made from. */
+export function splitObjectKey(key: string): {model: string; id: string} {
+    const at = key.indexOf(KEY_SEPARATOR);
+    return at < 0 ? {model: "", id: key} : {model: key.slice(0, at), id: key.slice(at + 1)};
+}
+
+/** One loaded GLB: what the reader said it holds, and what it added to the renderer. */
+interface LoadedModel {
+    key: string;
+    sourceName: string;
+    table: LoadedGlbObjects;
+    /** Each object's key in the scene, by its index in `table`. */
+    keys: string[];
+    instances: number[];
+    geometries: number[];
+    bounds: Bounds;
+}
+
 let canvasSerial = 0;
 
 /** The box (min xyz, max xyz) around `positions` (xyz per vertex) placed by `matrix` (column-major
@@ -78,9 +105,11 @@ function boundsOf(positions: Float32Array, matrix?: ArrayLike<number> | null): B
 
 export class NativeScene {
     /** Per instance, the object index of each of its segments (-1: none). */
-    private segments = new Map<number, Int32Array>();
-    private table: LoadedGlbObjects | null = null;
-    private indexOfId = new Map<string, number>();
+    private segments = new Map<number, {model: LoadedModel; objects: Int32Array}>();
+    /** The models on screen, by their key. */
+    private readonly models = new Map<string, LoadedModel>();
+    /** Every object by its key: the model that holds it and its index in that model's table. */
+    private readonly where = new Map<string, {model: LoadedModel; index: number}>();
     private bounds: Bounds | null = null;
     private lastFrame = 0;
     private objectList: NativeObject[] = [];
@@ -161,16 +190,26 @@ export class NativeScene {
         return new NativeScene(container, input, canvas, module, renderer, device);
     }
 
-    /** Replace the model with a GLB, known to the rest of the viewer as `modelKey`. Throws when it has
-     *  nothing to draw. */
-    load(bytes: Uint8Array, modelKey = ""): void {
+    /** Show a GLB, known to the rest of the viewer as `modelKey`: instead of what is on screen, or with
+     *  `add` beside it (a model already loaded under that key is replaced). Objects are known by
+     *  `objectKey(modelKey, id)`. Throws when the GLB has nothing to draw. */
+    load(bytes: Uint8Array, modelKey = "", options: {add?: boolean; sourceName?: string} = {}): void {
+        const add = !!options.add && this.models.size > 0;
+        if (add) {
+            this.dropModel(modelKey);
+        } else {
+            this.detachResultLayers();
+            this.renderer.clear();
+            this.sceneEpoch++;
+            this.helperLines.clear(); // renderer.clear() took them
+            this.models.clear();
+            this.where.clear();
+            this.segments = new Map();
+            this.selected.clear();
+            this.hidden.clear();
+        }
         this.modelKey = modelKey;
         this.sceneExtras = "";
-        this.detachResultLayers();
-        this.renderer.clear();
-        this.sceneEpoch++;
-        this.selected.clear();
-        this.hidden.clear();
         const p = this.module._malloc(bytes.byteLength);
         this.module.HEAPU8.set(bytes, p);
         let loaded;
@@ -179,26 +218,86 @@ export class NativeScene {
         } finally {
             this.module._free(p);
         }
-        if (!loaded.geometries.length) throw new Error("the model has nothing to draw");
+        if (!loaded.geometries.length) {
+            this.rebuild();
+            throw new Error("the model has nothing to draw");
+        }
         const table = loaded.objects;
-        this.table = table;
+        const model: LoadedModel = {
+            key: modelKey,
+            sourceName: options.sourceName ?? "",
+            table,
+            keys: table.ids.map((id) => objectKey(modelKey, id)),
+            instances: loaded.geometries.map((g) => g.instance),
+            geometries: loaded.geometries.map((g) => g.geometry),
+            bounds: loaded.bounds,
+        };
+        this.models.set(modelKey, model);
         this.sceneExtras = loaded.extras;
-        this.segments = new Map(loaded.geometries.map((g) => [g.instance, g.segmentObjects]));
-        this.indexOfId = new Map(table.ids.map((id, i) => [id, i]));
-        // The list is of what can be picked: the objects that draw something themselves.
+        for (const g of loaded.geometries) this.segments.set(g.instance, {model, objects: g.segmentObjects});
+        model.keys.forEach((key, index) => this.where.set(key, {model, index}));
+        this.rebuild();
+        // A model that joins others leaves the camera where the user has it.
+        if (!add) this.home(0);
+        for (const listener of this.onLoaded) listener();
+        if (add) this.pushStates();
+        else this.onChange?.();
+    }
+
+    /** Take the model loaded from `sourceName` off the screen; false when there is none. */
+    unloadSource(sourceName: string): boolean {
+        const model = [...this.models.values()].find((m) => m.sourceName === sourceName);
+        if (!model) return false;
+        this.dropModel(model.key);
+        this.rebuild();
+        for (const listener of this.onLoaded) listener();
+        this.pushStates();
+        return true;
+    }
+
+    /** Remove one model's geometry and everything known about its objects. */
+    private dropModel(key: string): void {
+        const model = this.models.get(key);
+        if (!model) return;
+        for (const instance of model.instances) {
+            this.renderer.removeInstance(instance);
+            this.segments.delete(instance);
+        }
+        for (const geometry of model.geometries) this.renderer.removeGeometry(geometry);
+        for (const objectKeyOf of model.keys) {
+            this.where.delete(objectKeyOf);
+            this.selected.delete(objectKeyOf);
+            this.hidden.delete(objectKeyOf);
+        }
+        this.models.delete(key);
+    }
+
+    /** The list of pickable objects and the box around everything, from the models on screen. */
+    private rebuild(): void {
         const list: NativeObject[] = [];
-        for (let i = 0; i < table.count; i++) {
-            if (table.segmentOffsets[i + 1] === table.segmentOffsets[i]) continue;
-            const path: string[] = [];
-            for (let o = i; o >= 0; o = table.parents[o]) path.unshift(table.names[o] || table.ids[o]);
-            list.push({id: table.ids[i], path});
+        let box: Bounds | null = null;
+        for (const model of this.models.values()) {
+            const table = model.table;
+            // The list is of what can be picked: the objects that draw something themselves.
+            for (let i = 0; i < table.count; i++) {
+                if (table.segmentOffsets[i + 1] === table.segmentOffsets[i]) continue;
+                const path: string[] = [];
+                for (let o = i; o >= 0; o = table.parents[o]) path.unshift(table.names[o] || table.ids[o]);
+                list.push({id: model.keys[i], path});
+            }
+            const b = model.bounds;
+            box = box ? [Math.min(box[0], b[0]), Math.min(box[1], b[1]), Math.min(box[2], b[2]), Math.max(box[3], b[3]), Math.max(box[4], b[4]), Math.max(box[5], b[5])] : [...b];
         }
         this.objectList = list.sort((x, y) => x.path.join("/").localeCompare(y.path.join("/")));
-        this.bounds = loaded.bounds;
-        this.helperLines.clear(); // renderer.clear() took them
-        this.home(0);
-        for (const listener of this.onLoaded) listener();
-        this.onChange?.();
+        this.bounds = box;
+    }
+
+    /** The box (min xyz, max xyz) of object `key`, with everything below it; null when nothing of it is drawn. */
+    private boxOf(key: string): Bounds | null {
+        const at = this.where.get(key);
+        if (!at) return null;
+        const b = at.model.table.bounds, i = at.index * 6;
+        return b[i] > b[i + 3] ? null : [b[i], b[i + 1], b[i + 2], b[i + 3], b[i + 4], b[i + 5]];
     }
 
     /** Draw a result mesh from typed arrays: its colours, displacement and deformation scale are
@@ -210,9 +309,9 @@ export class NativeScene {
             this.renderer.clear();
             this.modelKey = "";
             this.sceneExtras = "";
-            this.table = null;
+            this.models.clear();
+            this.where.clear();
             this.segments = new Map();
-            this.indexOfId = new Map();
             this.objectList = [];
             this.selected.clear();
             this.hidden.clear();
@@ -396,15 +495,13 @@ export class NativeScene {
 
     /** Frame the selected objects; false when none of them is drawn. */
     fitSelection(seconds = MOVE_SECONDS): boolean {
-        const table = this.table;
-        if (!table) return false;
         const box: Bounds = [Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity];
         for (const id of this.selected) {
-            const i = this.indexOfId.get(id);
-            if (i === undefined || table.bounds[i * 6] > table.bounds[i * 6 + 3]) continue;
+            const own = this.boxOf(id);
+            if (!own) continue;
             for (let k = 0; k < 3; k++) {
-                box[k] = Math.min(box[k], table.bounds[i * 6 + k]);
-                box[k + 3] = Math.max(box[k + 3], table.bounds[i * 6 + k + 3]);
+                box[k] = Math.min(box[k], own[k]);
+                box[k + 3] = Math.max(box[k + 3], own[k + 3]);
             }
         }
         if (box[0] > box[3]) return false;
@@ -446,8 +543,8 @@ export class NativeScene {
 
     /** Whether `id` is an object that draws something itself. */
     draws(id: string): boolean {
-        const i = this.indexOfId.get(id);
-        return i !== undefined && !!this.table && this.table.segmentOffsets[i + 1] > this.table.segmentOffsets[i];
+        const at = this.where.get(id);
+        return !!at && at.model.table.segmentOffsets[at.index + 1] > at.model.table.segmentOffsets[at.index];
     }
 
     /** Hide or show `ids`. Hiding clears the selection, whose highlight would otherwise keep drawing. */
@@ -504,8 +601,8 @@ export class NativeScene {
 
     /** Every segment's state from the two sets: hidden wins over selected. */
     private pushStates(): void {
-        const ids = this.table?.ids ?? [];
-        for (const [instance, segments] of this.segments) {
+        for (const [instance, {model, objects: segments}] of this.segments) {
+            const ids = model.keys;
             const states = new Uint32Array(segments.length * 2);
             segments.forEach((object, i) => {
                 if (object < 0) return;
@@ -550,8 +647,9 @@ export class NativeScene {
                 resolve(null);
             }
         });
-        const object = raw ? (this.segments.get(raw.instance)?.[raw.segment] ?? -1) : -1;
-        return object >= 0 ? (this.table?.ids[object] ?? null) : null;
+        const drawn = raw ? this.segments.get(raw.instance) : undefined;
+        const object = drawn ? (drawn.objects[raw!.segment] ?? -1) : -1;
+        return drawn && object >= 0 ? (drawn.model.keys[object] ?? null) : null;
     }
 
     invalidate(): void {
@@ -755,14 +853,12 @@ export class NativeScene {
 
     /** The middle of the boxes of `ids`, averaged; null when none of them draws anything. */
     objectsCentre(ids: readonly string[]): [number, number, number] | null {
-        const table = this.table;
-        if (!table) return null;
         const sum: [number, number, number] = [0, 0, 0];
         let n = 0;
         for (const id of ids) {
-            const i = this.indexOfId.get(id);
-            if (i === undefined || table.bounds[i * 6] > table.bounds[i * 6 + 3]) continue;
-            for (let k = 0; k < 3; k++) sum[k] += (table.bounds[i * 6 + k] + table.bounds[i * 6 + k + 3]) / 2;
+            const box = this.boxOf(id);
+            if (!box) continue;
+            for (let k = 0; k < 3; k++) sum[k] += (box[k] + box[k + 3]) / 2;
             n++;
         }
         return n ? [sum[0] / n, sum[1] / n, sum[2] / n] : null;

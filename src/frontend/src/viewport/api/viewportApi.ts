@@ -74,6 +74,9 @@ export interface ViewportApi {
      *  (./resultLayer.ts). */
     readonly results: ViewportResults;
 
+    /** Take the model loaded from `sourceName` off the screen, when this viewport holds its models
+     *  itself; false when it does not (the three.js scene's models are unloaded with the scene). */
+    unloadSource(sourceName: string): boolean;
     /** Save a picture of the view as it is now (a PNG download). */
     saveScreenshot(): void;
 
@@ -162,6 +165,8 @@ export const NO_VIEWPORT = "No 3D view";
 
 /** A model a viewport loaded without building a three.js scene for it: what the panels need to list it. */
 export interface LoadedModelInfo {
+    /** True when it joined the models on screen instead of replacing them. */
+    added?: boolean;
     model: string;
     sourceName: string;
     /** The GLB scene's extras, as JSON text ("" when it has none). */

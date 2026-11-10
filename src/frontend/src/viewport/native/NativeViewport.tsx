@@ -13,7 +13,7 @@ import {tickFeaAnimation} from "@/utils/scene/fea/feaAnimationDriver";
 import {notifyModelLoaded, notifyViewportPick, setActiveViewport} from "@/viewport/api/viewportApi";
 import {viewportShortcutHandlers} from "@/viewport/api/viewportShortcuts";
 import {NativeOrientationGizmo} from "./NativeOrientationGizmo";
-import {NativeScene} from "./nativeScene";
+import {NativeScene, splitObjectKey} from "./nativeScene";
 import {bindSectionGizmo} from "./sectionGizmo";
 import {createNativeViewportApi} from "./nativeViewportApi";
 import {useNativeViewport} from "./nativeModel";
@@ -28,7 +28,7 @@ function linearRgb(hex: string): [number, number, number] | null {
 
 const UNAVAILABLE = [
     "FEA element (integration point) fields, beam sections and picking in a result", "number labels and plugin overlays",
-    "box selection", "3D-mouse input", "export", "overlaying several models",
+    "box selection", "3D-mouse input", "export",
 ];
 
 const NativeViewport: React.FC = () => {
@@ -59,7 +59,7 @@ const NativeViewport: React.FC = () => {
                 const fea = useFeaAnimationStore.getState();
                 return fea.isPlaying && fea.sessionActive;
             };
-            scene.onPick = (id) => notifyViewportPick({ref: id ? {model: scene.modelKey, id} : null});
+            scene.onPick = (key) => notifyViewportPick({ref: key ? splitObjectKey(key) : null});
             sceneRef.current = scene;
             if (scene.failure) return fail(scene.failure);
             const withdraw = setActiveViewport(createNativeViewportApi(scene));
@@ -108,10 +108,11 @@ const NativeViewport: React.FC = () => {
         if (!scene || !model || state !== "active") return;
         try {
             const key = `native-${model.seq}`;
-            scene.load(model.bytes, key);
+            const added = model.placement === "overlay" && scene.objects.length > 0;
+            scene.load(model.bytes, key, {add: added, sourceName: model.sourceName});
             setLoadError("");
             // The Scene tree and the object info list and name this model from here on.
-            notifyModelLoaded({model: key, sourceName: model.sourceName, sceneExtras: scene.sceneExtras});
+            notifyModelLoaded({added, model: key, sourceName: model.sourceName, sceneExtras: scene.sceneExtras});
         } catch (err) {
             setLoadError(err instanceof Error ? err.message : String(err));
         }

@@ -17,8 +17,8 @@ function listModel(info: LoadedModelInfo): void {
     } catch (err) {
         console.warn("[viewport] the model's scene extras are not JSON; its tree is empty", err);
     }
-    // The viewport replaced its model, so the tree starts over with it.
-    useTreeViewStore.getState().clearTreeData();
+    // A model that replaced what the viewport showed starts the tree over; one that joined adds a root.
+    if (!info.added) useTreeViewStore.getState().clearTreeData();
     void cacheAndBuildTree(info.model, extras, info.sourceName);
 }
 

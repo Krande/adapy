@@ -474,3 +474,77 @@ async def test_take_screenshot_saves_the_view_of_whichever_viewport_is_on_screen
             assert _count(picture, _is_model) > 20000, f"{backend}: the screenshot does not show the model"
         finally:
             await browser.close()
+
+
+def _second_model_message(instance_id: int, tmp_path) -> bytes:
+    """A websocket message that adds another model beside the one on screen."""
+    from ada.comms.fb_wrap_model_gen import (
+        CommandTypeDC,
+        FileObjectDC,
+        FilePurposeDC,
+        FileTypeDC,
+        MessageDC,
+        SceneDC,
+        SceneOperationsDC,
+        TargetTypeDC,
+    )
+    from ada.comms.fb_wrap_serializer import serialize_root_message
+
+    part = ada.Part("annex")
+    part.add_shape(ada.PrimBox("tower", (1.5, 2.5, 0.0), (2.5, 3.5, 2.0)))
+    glb = tmp_path / "annex.glb"
+    (ada.Assembly("b") / part).to_gltf(glb)
+    file_object = FileObjectDC(
+        name="annex.glb", file_type=FileTypeDC.GLB, purpose=FilePurposeDC.DESIGN, filedata=glb.read_bytes()
+    )
+    return serialize_root_message(
+        MessageDC(
+            instance_id=instance_id,
+            command_type=CommandTypeDC.UPDATE_SCENE,
+            target_group=TargetTypeDC.WEB,
+            target_id=1,
+            scene=SceneDC(operation=SceneOperationsDC.ADD, current_file=file_object),
+        )
+    )
+
+
+@pytest.mark.parametrize("backend", ["three", NATIVE])
+async def test_a_second_model_joins_the_first_on_whichever_viewport_is_on_screen(ws_server, backend, tmp_path):
+    async with async_playwright() as playwright:
+        browser, page, _ = await _open_viewer(playwright, ws_server, backend)
+        try:
+            await asyncio.to_thread(
+                lambda: _model().show(ws_port=ws_server.port, unique_viewer_id=1, liveness_timeout=10)
+            )
+            await _until(page, lambda: _model_on_screen(page), "the model to be drawn")
+            await _command(page, "Selection tree")
+            roots = page.locator("[role=treeitem][aria-level='1']")
+
+            async def one_root():
+                return await roots.count() == 1
+
+            await _until(page, one_root, "the Scene tree to list the first model")
+            first = _count(await _pixels(page), _is_model)
+
+            async with WebSocketClientAsync(ws_server.host, ws_server.port, "local") as client:
+                await client.websocket.send(_second_model_message(client.instance_id, tmp_path))
+
+                async def two_roots():
+                    return await roots.count() == 2
+
+                await _until(page, two_roots, f"{backend}: the second model's root in the Scene tree")
+            await _command(page, "Fit all")
+            await page.wait_for_timeout(1500)
+            both = _count(await _pixels(page), _is_model)
+            assert (
+                both > 20000
+            ), f"{backend}: the models are not on screen together ({both} model pixels, {first} before)"
+
+            # the second model's root row selects what that model draws, by its own model's key
+            await roots.nth(1).click()
+            await page.wait_for_timeout(1000)
+            assert (
+                _count(await _pixels(page), _is_selected) > 1500
+            ), f"{backend}: the second model's row selected nothing"
+        finally:
+            await browser.close()
