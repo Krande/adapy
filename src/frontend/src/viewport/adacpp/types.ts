@@ -41,6 +41,8 @@ export interface LoadedGlbGeometry {
     vertexCount: number;
     vertexColors: boolean;
     featureEdges: boolean;
+    /** The object (an index into `LoadedGlb.objects`) each of its segments draws; -1 for none. */
+    segmentObjects: Int32Array;
     positions?: Float32Array;
     /** Its index buffer (into `positions`), with keepPositions. */
     indices?: Uint32Array;
@@ -51,6 +53,44 @@ export interface LoadedGlb {
     bounds: [number, number, number, number, number, number];
     featureEdges: number;
     geometries: LoadedGlbGeometry[];
+    /** The model's objects, parents before children. */
+    objects: LoadedGlbObjects;
+    /** True when the objects are the GLB's nodes (ids are node indices), not adapy's object ids. */
+    nodeObjects: boolean;
+    /** The scene's extras and the root `ADA_EXT_data` extension, as the JSON text the GLB holds ("" if absent). */
+    extras: string;
+    adaExtData: string;
+}
+
+/** The objects of a loaded GLB as parallel tables, `count` long. */
+export interface LoadedGlbObjects {
+    count: number;
+    ids: string[];
+    names: string[];
+    /** Index of each object's parent, -1 for a root. */
+    parents: Int32Array;
+    /** 6 per object: min xyz, max xyz in world space, of the object and everything below it. Inverted
+     *  (min > max) when nothing of it is drawn. */
+    bounds: Float32Array;
+    triangles: Uint32Array;
+    /** Object i draws the (instance, segment) pairs `segments[2k], segments[2k + 1]` for k in
+     *  `segmentOffsets[i] .. segmentOffsets[i + 1]`. */
+    segmentOffsets: Uint32Array;
+    segments: Uint32Array;
+}
+
+/** The renderer's own camera, as `cameraPose()` reports it. Angles in degrees. */
+export interface CameraPoseInfo {
+    eye: [number, number, number];
+    target: [number, number, number];
+    up: [number, number, number];
+    fov: number;
+    orthographic: boolean;
+    orthoHeight: number;
+    azimuth: number;
+    elevation: number;
+    roll: number;
+    distance: number;
 }
 
 export interface WebRendererApi {
@@ -99,6 +139,32 @@ export interface WebRendererApi {
     removeInstance(instance: number): void;
     clear(): void;
     setCamera(view: number, proj: number, orthographic: boolean): void;
+    // The renderer's own camera. With setCameraControlled(true), render() and pick() draw from it and
+    // setCamera is ignored. Pixels are drawing-buffer pixels (x right, y down); angles are degrees;
+    // `seconds` > 0 moves there over that time, driven by cameraUpdate.
+    setCameraControlled(on: boolean): void;
+    /** Half a turn per viewport height. */
+    cameraOrbit(dx: number, dy: number): void;
+    /** What is at the target's depth follows the pointer. */
+    cameraPan(dx: number, dy: number): void;
+    /** Multiplies the distance: below 1 moves in. */
+    cameraZoom(factor: number): void;
+    /** As cameraZoom, keeping what is under the pixel (at the target's depth) under it. */
+    cameraZoomAt(factor: number, x: number, y: number): void;
+    cameraRoll(angleDeg: number): void;
+    /** Frame a box, keeping the viewing direction. `margin` 0 is the default (1.15). */
+    cameraFit(x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, margin: number, seconds: number): void;
+    /** front, back, left, right, top, bottom or iso; false for a name it does not know. */
+    cameraView(name: string, seconds: number): boolean;
+    cameraSetOrientation(azimuthDeg: number, elevationDeg: number, rollDeg: number, seconds: number): void;
+    cameraPose(): CameraPoseInfo;
+    cameraSetOrthographic(on: boolean): void;
+    cameraSetUpAxis(axis: "z" | "y"): void;
+    /** The share of a drag's speed kept per 1/60 s after it is released; 0 stops dead. */
+    cameraSetDamping(inertia: number): void;
+    /** Advance transitions and glides by `dtSeconds`; true while the camera is still moving. */
+    cameraUpdate(dtSeconds: number): boolean;
+    cameraMoving(): boolean;
     setBackground(r: number, g: number, b: number): void;
     setLighting(ambient: number, diffuse: number): void;
     setCulling(frustum: boolean, cone: boolean, occlusion: boolean): void;

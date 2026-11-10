@@ -307,6 +307,16 @@ async def test_commands_and_keys_reach_whichever_viewport_is_on_screen(ws_server
             await page.keyboard.press("Shift+U")
             await page.wait_for_timeout(700)
 
+            # fit selection: the selected box fills more of the view than it did
+            await _click(page, *CENTRE)
+            before = _count(await _pixels(page), _is_selected)
+            assert before > 3000
+            await _command(page, "Fit selection")
+            await page.wait_for_timeout(1200)
+            framed = _count(await _pixels(page), _is_selected)
+            assert framed > 1.5 * before, f"{backend}: Fit selection took the box from {before} to {framed} pixels"
+            await _command(page, "Clear selection")
+
             # camera: a named view and a key step each change the picture; fit all brings the model back
             async def changes(act, what: str) -> None:
                 before = (await _pixels(page)).tobytes()

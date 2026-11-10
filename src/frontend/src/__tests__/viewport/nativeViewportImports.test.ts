@@ -57,7 +57,7 @@ function walkFreeOfThree(entry: string): number {
 
 test("the three.js-free viewport's chunk imports no three.js", () => {
     const walked = walkFreeOfThree(ENTRY);
-    assert.ok(walked >= 6, `only ${walked} modules walked: the walk must reach the scene, the renderer start-up and the embed's camera`);
+    assert.ok(walked >= 6, `only ${walked} modules walked: the walk must reach the scene, the renderer start-up and the viewport interface`);
 });
 
 // The interface both viewports stand behind, and the keys bound through it, are loaded by the

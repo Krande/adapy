@@ -7,21 +7,21 @@ import type {NativeScene} from "./nativeScene";
 /** One key press orbits by this much, and pans by this fraction of the view: as on the three.js viewport. */
 const ORBIT_STEP_RAD = (15 * Math.PI) / 180;
 const PAN_STEP_FRACTION = 0.1;
+const MOVE_SECONDS = 0.25;
 
 export function createNativeViewportApi(scene: NativeScene): ViewportApi {
     return {
         kind: "native",
-        // The renderer does not report an object's own bounds yet, so there is nothing to frame it by.
-        unavailable: (feature) => (feature === "fit-selection" ? "Not available on the three.js-free viewport yet" : null),
+        unavailable: () => null,
         selectionCount: () => scene.selectionSize,
         clearSelection: () => scene.select(null),
         hideSelected: () => scene.hideSelected(),
         hideOthers: () => scene.hideOthers(),
         showAll: () => scene.showAll(),
-        fitAll: () => scene.fit(),
-        fitSelection: () => {},
+        fitAll: () => scene.fit(MOVE_SECONDS),
+        fitSelection: () => void scene.fitSelection(),
         setView: (view: CameraView) => scene.viewFrom(namedViewDirection(view)),
-        resetCamera: () => scene.fit(),
+        resetCamera: () => scene.home(),
         orbitStep: (right, up) => scene.orbitBy(right * ORBIT_STEP_RAD, up * ORBIT_STEP_RAD),
         panStep: (right, up) => scene.panBy(right * PAN_STEP_FRACTION, up * PAN_STEP_FRACTION),
     };

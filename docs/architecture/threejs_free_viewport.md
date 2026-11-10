@@ -39,20 +39,19 @@ flowchart LR
     LOAD["loadModel()<br/>storage / bytes / url"] -->|GLB bytes| STORE["nativeModel.ts<br/>zustand store"]
     STORE --> VIEW["NativeViewport.tsx<br/>object list, hide / show"]
     VIEW --> SCENE["nativeScene.ts<br/>NativeScene"]
-    SCENE -->|loadGlb, setSegmentStates, pick| R["adacpp WebRenderer<br/>(wasm, WebGPU)"]
-    SCENE --> CAM["embed-webgpu/camera.ts<br/>OrbitCamera"]
-    SCENE --> NAMES["embed-webgpu/glbObjects.ts<br/>segment -> object id"]
+    SCENE -->|loadGlb, setSegmentStates, pick, camera*| R["adacpp WebRenderer<br/>(wasm, WebGPU)"]
+    R -->|objects, segment -> object| SCENE
     INPUT["viewport input surface"] --> SCENE
 ```
 
 | Part | How the slice does it |
 |---|---|
 | Loading | `loadModel` resolves the source as it always does, then hands the GLB **bytes** to the store instead of calling `GLTFLoader`. `NativeScene.load` passes them to the renderer's own reader (`WebRendererApi.loadGlb`), the one the offscreen posters and the WebGPU embed use. |
-| Scene model | None on the JavaScript side. The reader merges primitives per topology and material and keeps each adapy draw range as a **segment**. `glbObjects.ts` replays that batching on the GLB's JSON to name every segment (`matchGeometries` drops a geometry whose replay disagrees with what the reader built, so a mismatch shows as "no object", never as a wrong one). |
+| Scene model | None on the JavaScript side. The reader merges primitives per topology and material and keeps each adapy draw range as a **segment**, and `loadGlb` returns the model's objects (id, name, parent, bounds, triangle count) and which object each segment draws. |
 | Per-object state | Two sets, selected and hidden, written to the renderer as segment state (`setSegmentStates`). Hidden wins over selected. |
-| Camera and input | `OrbitCamera` from the embed (z up, orbit / pan / zoom), bound to the viewport's input surface (`viewport/input.ts`), the same element the three.js controls use. |
-| Picking | `WebRendererApi.pick` at the pointer, mapped through the segment names to an object id. |
-| Object list | The object ids with their path of names from the GLB's hierarchy; click selects, each row hides or shows. |
+| Camera and input | The renderer's own camera (`setCameraControlled`). The viewport maps input from the viewport's input surface (`viewport/input.ts`, the same element the three.js controls use) to semantic operations: orbit, pan, zoom, zoom towards the cursor, fit to a box, look from a direction. Fit and the named views move there over a short time, and a drag glides to a stop when the camera settings say so. |
+| Picking | `WebRendererApi.pick` at the pointer, mapped through the reader's segment table to an object id. |
+| Object list | The objects that draw something, with their path of names from the reader's hierarchy; click selects, each row hides or shows. |
 | Failure | If WebGPU or the module cannot start, or the device is lost, the state becomes `failed` with the reason, `CanvasWrapper` mounts the three.js viewport, and the model that was handed over is loaded there. The Performance panel shows the reason. |
 
 What the main viewer does beyond this is listed in the viewport itself under "Not available in
@@ -93,17 +92,18 @@ These are open design points, ordered by how much of the viewer depends on them.
    and whatever follows the camera or the animation has to be driven from the frame loop.
 3. **The model beyond geometry.** `GLTFLoader` also gives the main viewer the node hierarchy, the
    `ADA_EXT_data` extension (design / simulation objects, FEA metadata) and animations. The native
-   path reads the hierarchy from the GLB's JSON. The extension data and the streaming FEA loader
-   (`utils/scene/fea`) are not connected to it.
+   path gets the hierarchy from the reader, which also hands back the extension data as JSON text;
+   nothing reads it yet. The streaming FEA loader
+   (`utils/scene/fea`) is not connected to it.
 4. **Section planes and caps.** The renderer has `setClipPlanes` and `setSectionCaps`; what is
    missing is the plane store wired to them and a gizmo. A gizmo without `TransformControls` is its
    own piece of work (handles as on-top instances, hit-testing through `pick`).
 5. **Labels and markers.** The renderer draws textured sprites. A native label layer needs the
    text rasterised to textures without a `THREE.CanvasTexture` (a plain canvas works) and a store of
    label positions.
-6. **Controls parity.** The main viewer offers two camera controllers, named views, fit to
-   selection, the orientation gizmo and 3D-mouse input. `OrbitCamera` covers orbit, pan, zoom and
-   fit to the model.
+6. **Controls parity.** The renderer's camera covers orbit, pan, zoom, zoom towards the cursor, fit
+   to the model or the selection, named views and the user's input mapping. Still the main
+   viewer's only: the orientation gizmo, orthographic projection as a setting, and 3D-mouse input.
 7. **Uses of three.js outside the main viewport.** The equipment preview, the cell builder, the
    robot (STL) loader, the FEA GLB assembly (`GLTFLoader` / `GLTFExporter` used to build data, not
    to draw) and the three.js embed each need a decision of their own: ported, exempt, or dropped.
