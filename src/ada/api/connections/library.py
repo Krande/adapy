@@ -240,6 +240,7 @@ class Library:
             conn = build_component(spec_name, merged, name=spec_name.replace(".", "_"), **extra)
             conn.to_gltf(glb_path)
         parts = conn.get_all_subparts(include_self=True)
+        run, contacts_by_weld, clash_note = _measure_joint(glb_path, conn)
         return {
             "inputs": merged,
             "log": log.lines,
@@ -248,7 +249,89 @@ class Library:
                 "plates": sum(len(p.plates) for p in parts),
                 "welds": sum(len(p.welds) for p in parts),
             },
+            "properties": _joint_properties(conn, list(merged), contacts_by_weld),
+            # The clash the joint is: the members' measured contact in the built GLB, as a
+            # convex-contact run (``ada.clash.sidecar``) the studio's Clashes view reads.
+            "clash_run": run,
+            "clash_note": clash_note,
         }
+
+
+def _joint_members(conn) -> list:
+    """The joint's own members: what ``build_component`` placed at the top of the connection (the
+    builder's stiffeners and welds sit in its child part)."""
+    return [*conn.beams, *conn.plates]
+
+
+def _measure_joint(glb_path: pathlib.Path, conn) -> tuple[dict | None, dict[str, set[str]], str | None]:
+    """Measure the built GLB's contacts (adacpp, ``ada.clash.contacts``).
+
+    Returns the run restricted to the contacts BETWEEN the joint's members -- the clash that is the
+    joint -- with roles and the applicable specs resolved against the connection; which members
+    each weld touches (from the unrestricted run); and why there is no run, where there is none.
+    A failed measurement never fails the build.
+    """
+    import dataclasses
+
+    from ada.clash.contacts import annotate_applicable, available, check_glb
+
+    if not available():
+        return None, {}, "the installed adacpp cannot measure contacts"
+    try:
+        run = check_glb(
+            glb_path.read_bytes(),
+            target={"kind": "file", "source_key": "preview"},
+            glb_key="preview",
+            up_axis="z",
+            engine="worker",
+        )
+        names = [str(m["name"]) for m in run.members]
+        members = {m.name for m in _joint_members(conn)}
+        touches: dict[str, set[str]] = {}
+        for c in run.contacts:
+            a, b = (names[k] for k in c.members)
+            touches.setdefault(a, set()).add(b)
+            touches.setdefault(b, set()).add(a)
+        joint = tuple(c for c in run.contacts if {names[k] for k in c.members} <= members)
+        annotated, _ = annotate_applicable(dataclasses.replace(run, contacts=joint), conn)
+        return annotated.to_dict(), touches, None
+    except Exception as e:  # noqa: BLE001 - the preview stands without its clash
+        logger.warning("dev-connections: measuring the joint's contacts failed", exc_info=True)
+        return None, {}, f"measuring the contacts failed: {type(e).__name__}: {e}"
+
+
+def _joint_properties(conn, roles: list[str], touches: dict[str, set[str]]) -> dict[str, Any]:
+    """What the studio lists for the joint: each member (its role, section or thickness, material,
+    the cuts on it) and each weld (its metadata as the GLB carries it, plus whether it touches the
+    members it says it joins)."""
+    from ada import Beam
+    from ada.comms.msg_handling.object_metadata import beam_metadata, plate_metadata
+    from ada.visit.scene_handling.scene_from_part import _weld_metadata
+
+    role_of = {f"sample_{role}": role for role in roles}
+    members = []
+    for m in _joint_members(conn):
+        meta = (
+            beam_metadata(m.name, m.section, m.material)
+            if isinstance(m, Beam)
+            else plate_metadata(m.name, m.t, m.material)
+        )
+        meta["role"] = role_of.get(m.name)
+        meta["booleans"] = len(m.booleans)
+        if isinstance(m, Beam):
+            meta["length"] = float(m.length)
+        members.append(meta)
+
+    welds = []
+    for part in conn.get_all_subparts(include_self=True):
+        for w in part.welds:
+            meta = {"name": w.name, **_weld_metadata(w)}
+            touched = sorted(touches.get(w.name, set()))
+            meta["touches"] = touched
+            # Only judged where the contacts were measured at all.
+            meta["joins_its_members"] = set(meta["members"]) <= set(touched) if touches else None
+            welds.append(meta)
+    return {"members": members, "welds": welds}
 
 
 class _CapturedLog(logging.Handler):

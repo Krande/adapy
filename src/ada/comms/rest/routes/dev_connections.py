@@ -104,6 +104,11 @@ async def api_dev_connections_build(
             "inputs": report.get("inputs"),
             "log": report.get("log") or [],
             "counts": report.get("counts") or {},
+            "properties": report.get("properties") or {"members": [], "welds": []},
+            # The joint's measured contact as a convex-contact run over THIS GLB (its member ids are
+            # the GLB's element ids); null where it could not be measured, `clash_note` saying why.
+            "clash_run": report.get("clash_run"),
+            "clash_note": report.get("clash_note"),
             "generation": dev.generation,
             "build_ms": build_ms,
         }

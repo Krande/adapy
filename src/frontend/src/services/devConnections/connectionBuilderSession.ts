@@ -13,11 +13,15 @@
 
 import {
   DevBuildError,
+  type DevBuildResult,
   devConnectionsApi,
   type DevConnectionsState,
 } from "@/services/api/devConnections";
+import type { ContactRunDoc } from "@/services/clash/contactRuns";
+import { contactRunToResult, useClashCheckStore } from "@/state/clashCheckStore";
 import { effectiveInputs, useConnectionBuilderStore } from "@/state/connectionBuilderStore";
 import { useModelState } from "@/state/modelState";
+import { selectInOtherModel } from "@/utils/scene/crossModelSelect";
 import { overlay_file_in_scene } from "@/utils/scene/handlers/overlay_file_in_scene";
 import { unload_any_source } from "@/utils/scene/handlers/unload_any_source";
 
@@ -109,6 +113,8 @@ async function buildSelected(): Promise<void> {
       return;
     }
     dropPreviews(sourceName);
+    currentPreview = sourceName;
+    showClash(result, sourceName);
     useConnectionBuilderStore.getState().setBuild({ status: "done", result });
   } catch (err) {
     if (seq !== requested) return;
@@ -117,6 +123,41 @@ async function buildSelected(): Promise<void> {
     const error = err instanceof Error ? err.message : String(err);
     useConnectionBuilderStore.getState().setBuild({ status: "error", specName, error, traceback, declined });
   }
+}
+
+/** The scene source name of the preview on show; what select-in-scene and the clash run name. */
+let currentPreview: string | null = null;
+
+/**
+ * The joint's clash in Scene > Clashes: the build's convex-contact run, read as any run of the
+ * loaded model is, so its row selects the members, and its patches, normals and incoming/landing
+ * colours draw in 3D.
+ *
+ * The run measured exactly the GLB loaded under `sourceName` (its member ids are that GLB's
+ * element ids), so it is filed under that source -- a run on a file matches the model loaded
+ * under its `source_key`. The store is pointed at the same source, so the Clashes tab's
+ * follow-the-loaded-model rule keeps the result instead of clearing it. Never stored: the next
+ * build replaces it.
+ */
+function showClash(result: DevBuildResult, sourceName: string): void {
+  const clash = useClashCheckStore.getState();
+  if (!result.clash_run) {
+    if (clash.sourceKey?.startsWith(PREVIEW_SOURCE_PREFIX)) clash.setSource(sourceName, sourceName);
+    return;
+  }
+  const run: ContactRunDoc = {
+    ...result.clash_run,
+    target: { kind: "file", source_key: sourceName },
+    geometry: { ...result.clash_run.geometry, key: sourceName },
+  };
+  clash.setSource(sourceName, sourceName);
+  useClashCheckStore.setState({ result: contactRunToResult(run, null), runKey: null, derivedKey: null });
+}
+
+/** Select objects of the preview on show (members, welds) by name. */
+export function selectPreviewObjects(names: string[]): void {
+  if (!currentPreview) return;
+  void selectInOtherModel({ file: currentPreview, nodeNames: names });
 }
 
 /** Unload every builder preview but `keep`. */

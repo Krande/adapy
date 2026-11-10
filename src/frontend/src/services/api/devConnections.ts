@@ -5,6 +5,8 @@
 
 import { runtime } from "@/runtime/config";
 
+import type { ContactRunDoc } from "@/services/clash/contactRuns";
+
 import { authedFetch, jsonOrThrow } from "./client";
 import type { ComponentSpecSchema } from "./components";
 
@@ -53,6 +55,36 @@ export interface DevBuildLogLine {
   message: string;
 }
 
+/** A member of the built joint, as the GLB's object metadata describes it, plus its role. */
+export interface DevJointMember {
+  name: string;
+  type: string; // "Beam" | "Plate"
+  role: string | null;
+  section?: { name: string | null; type: string | null; h: number | null; w_top: number | null } | null;
+  thickness?: number | null;
+  material?: { name?: string | null } | null;
+  length?: number;
+  /** Boolean cuts on the member (a stub's, or the builder's trims). */
+  booleans: number;
+}
+
+/** A weld of the built joint, as the GLB's object metadata describes it. */
+export interface DevJointWeld {
+  name: string;
+  weld_type: string | null;
+  throat: number | null;
+  leg1: number | null;
+  leg2: number | null;
+  sided: unknown;
+  intermittent: { pitch: number; length_on: number; length_off: number } | null;
+  /** The members it says it joins. */
+  members: string[];
+  /** What it actually touches in the built GLB (members and other welds). */
+  touches: string[];
+  /** Whether it touches every member it says it joins; null where contacts were not measured. */
+  joins_its_members: boolean | null;
+}
+
 export interface DevBuildResult {
   spec_name: string;
   scope: string;
@@ -61,6 +93,12 @@ export interface DevBuildResult {
   inputs: ConnectionInputs;
   log: DevBuildLogLine[];
   counts: { beams?: number; plates?: number; welds?: number };
+  properties: { members: DevJointMember[]; welds: DevJointWeld[] };
+  /** The joint's clash: the members' measured contact in this GLB, as a convex-contact run (its
+   *  member ids are this GLB's element ids). Null where it could not be measured. */
+  clash_run: ContactRunDoc | null;
+  /** Why `clash_run` is null. */
+  clash_note: string | null;
   generation: number;
   build_ms: number;
 }

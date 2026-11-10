@@ -3,7 +3,7 @@
 
 import type {SceneInfoMode} from "@/state/sceneInfoStore";
 
-export type SceneTab = "model" | "overlays" | "tools" | "clip" | "mesh" | "fem" | "clashes" | "joints";
+export type SceneTab = "model" | "overlays" | "tools" | "clip" | "mesh" | "fem" | "connection" | "clashes" | "joints";
 
 export interface SceneTabDef {
     id: SceneTab;
@@ -23,6 +23,9 @@ export const TAB_META: SceneTabDef[] = [
     {id: "tools", label: "Tools"},
     {id: "clip", label: "Clip"},
     {id: "mesh", label: "Mesh"},
+    // The joint being developed (`ada dev connections`), right before the clash that is it and the
+    // joints review: the three tabs that describe a joint, together. Offered only on that viewer.
+    {id: "connection", label: "Connection", ctx: true},
     {id: "clashes", label: "Clashes"},
     {id: "joints", label: "Joints", ctx: true},
 ];
@@ -40,6 +43,7 @@ export const MODE_TO_TAB: Record<SceneInfoMode, SceneTab> = {
     clashes: "clashes",
     joints: "joints",
     overlays: "overlays",
+    connection: "connection",
 };
 
 export const TAB_TO_MODE: Record<SceneTab, SceneInfoMode> = {
@@ -49,6 +53,7 @@ export const TAB_TO_MODE: Record<SceneTab, SceneInfoMode> = {
     clip: "section",
     mesh: "mesh",
     fem: "fem",
+    connection: "connection",
     clashes: "clashes",
     joints: "joints",
 };

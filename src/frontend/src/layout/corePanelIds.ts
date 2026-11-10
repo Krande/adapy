@@ -18,8 +18,6 @@ export const CORE_PANEL_IDS = {
   simulation: "core:simulation",
   feaTable: "core:fea-table",
   componentControls: "core:component-controls",
-  /** The live connection library `ada dev connections` serves. */
-  connectionBuilder: "core:connection-builder",
   cellbuilder: "core:cellbuilder",
   /** The procedural model's cells, lofts, openings and equipment, as a list of their own. */
   componentList: "core:component-list",

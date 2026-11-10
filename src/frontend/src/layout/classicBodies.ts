@@ -30,7 +30,6 @@ import { WebsocketStatusBody, WebsocketStatusBox } from "@/components/WebsocketS
 import SimulationControls, { SimulationBody } from "@/components/simulation/SimulationControls";
 import SimulationDataInfoPanel from "@/components/simulation/SimulationDataInfoPanel";
 import ComponentControls, { ComponentControlsBody } from "@/components/component_view/ComponentControls";
-import ConnectionBuilder, { ConnectionBuilderBody } from "@/components/component_view/ConnectionBuilder";
 import CellBuilderPanel, { CellBuilderBody } from "@/components/viewer/CellBuilderPanel";
 import { ComponentListBody, ComponentListPanel } from "@/components/viewer/cellbuilder/panel/ComponentList";
 
@@ -77,7 +76,6 @@ export const CLASSIC_PANEL_COMPONENTS: Readonly<Record<PanelId, React.ComponentT
   [CORE_PANEL_IDS.simulation]: asBody(SimulationControls),
   [CORE_PANEL_IDS.feaTable]: asBody(SimulationDataInfoPanel),
   [CORE_PANEL_IDS.componentControls]: asBody(ComponentControls),
-  [CORE_PANEL_IDS.connectionBuilder]: asBody(ConnectionBuilder),
   [CORE_PANEL_IDS.cellbuilder]: asBody(CellBuilderPanel),
   [CORE_PANEL_IDS.componentList]: asBody(ComponentListPanel),
 };
@@ -93,7 +91,6 @@ export const CLASSIC_PANEL_CONTENTS: Readonly<Record<PanelId, React.ComponentTyp
   [CORE_PANEL_IDS.simulation]: withOptions(SimulationBody),
   [CORE_PANEL_IDS.feaTable]: withOptions(SimulationDataInfoPanel),
   [CORE_PANEL_IDS.componentControls]: withOptions(ComponentControlsBody),
-  [CORE_PANEL_IDS.connectionBuilder]: withOptions(ConnectionBuilderBody),
   [CORE_PANEL_IDS.cellbuilder]: withOptions(CellBuilderBody),
   [CORE_PANEL_IDS.componentList]: asBody(ComponentListBody),
 };

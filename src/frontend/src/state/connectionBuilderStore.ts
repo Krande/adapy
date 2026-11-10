@@ -1,4 +1,4 @@
-// Panel state for the connection builder (`ada dev connections`): the served
+// State of the connection builder (`ada dev connections`, the Scene panel's Connection tab): the served
 // library's latest state, the selected spec, the per-spec member inputs, and
 // the latest build. Pure state -- the session in
 // services/devConnections/connectionBuilderSession.ts fetches, builds and
@@ -29,10 +29,6 @@ export type ConnectionBuildState =
     };
 
 type ConnectionBuilderState = {
-  isVisible: boolean;
-  setIsVisible: (v: boolean) => void;
-  toggleVisible: () => void;
-
   /** The library's latest state, from the event stream. Null until the first. */
   library: DevConnectionsState | null;
   setLibrary: (s: DevConnectionsState) => void;
@@ -50,6 +46,9 @@ type ConnectionBuilderState = {
 
   build: ConnectionBuildState;
   setBuild: (b: ConnectionBuildState) => void;
+  /** The latest SUCCESSFUL build: its joint (clash, members, welds) stays listed while the next
+   *  one builds or fails, until a build of another spec replaces it. */
+  lastResult: DevBuildResult | null;
 };
 
 const STORAGE_PREFIX = "ada-connection-builder:";
@@ -82,10 +81,6 @@ function save(s: ConnectionBuilderState): void {
 }
 
 export const useConnectionBuilderStore = create<ConnectionBuilderState>((set, get) => ({
-  isVisible: false,
-  setIsVisible: (isVisible) => set({ isVisible }),
-  toggleVisible: () => set({ isVisible: !get().isVisible }),
-
   library: null,
   setLibrary: (library) => {
     const first = get().library === null;
@@ -125,7 +120,8 @@ export const useConnectionBuilderStore = create<ConnectionBuilderState>((set, ge
   },
 
   build: { status: "idle" },
-  setBuild: (build) => set({ build }),
+  setBuild: (build) => set(build.status === "done" ? { build, lastResult: build.result } : { build }),
+  lastResult: null,
 }));
 
 /** The inputs a build of `spec` sends: the spec's defaults, overridden by what the user changed. */

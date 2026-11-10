@@ -1,5 +1,6 @@
 // `ada dev connections`: on a viewer serving a connection library, start the
-// builder's live loop and open its panel once, at startup. Elsewhere a no-op.
+// builder's live loop and open the Scene panel on its Connection tab, once, at
+// startup. Elsewhere a no-op.
 //
 // The loop's first build is asked for as soon as the library reports in, which
 // on a cold start is before ThreeCanvas has mounted its scene; a model loaded
@@ -16,6 +17,7 @@ import {
   startConnectionBuilderSession,
 } from "@/services/devConnections/connectionBuilderSession";
 import { useViewerRefs } from "@/state/AdaViewerContext";
+import { useSceneInfoStore } from "@/state/sceneInfoStore";
 
 const SCENE_WAIT_INTERVAL_MS = 100;
 const SCENE_WAIT_MAX_MS = 15000;
@@ -25,7 +27,8 @@ export function useConnectionBuilderBoot(): void {
   useEffect(() => {
     if (!runtime.devConnections()) return;
     startConnectionBuilderSession();
-    reveal(CORE_PANEL_IDS.connectionBuilder);
+    useSceneInfoStore.getState().setMode("connection");
+    reveal(CORE_PANEL_IDS.scene);
     void pollUntilTerminal({
       fetch: async () => sceneRef.current,
       terminal: (scene) => scene != null,

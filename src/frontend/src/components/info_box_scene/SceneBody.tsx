@@ -14,6 +14,8 @@ import FaceSearchSection from "./FaceSearchSection";
 import SectionPlanesPanel from "./SectionPlanesPanel";
 import JointsOverviewPanel from "./JointsOverviewPanel";
 import ClashesPanel from "./ClashesPanel";
+import {ConnectionBuilderBody} from "@/components/component_view/ConnectionBuilder";
+import {runtime} from "@/runtime/config";
 import MeshDistortionSection from "./MeshDistortionSection";
 import OverlaysPanel from "./OverlaysPanel";
 import {useSceneInfoStore} from "@/state/sceneInfoStore";
@@ -82,7 +84,12 @@ const SceneBody: React.FC<SceneBodyProps> = ({tabs: tabIds, hiddenTabs, femTab =
 
     const isMobile = useIsMobile();
 
-    const ctxAvailable: Partial<Record<SceneTab, boolean>> = {joints: hasJoints, fem: hasFemConcepts || feaSessionActive};
+    const ctxAvailable: Partial<Record<SceneTab, boolean>> = {
+        joints: hasJoints,
+        fem: hasFemConcepts || feaSessionActive,
+        // The joint being developed, on a viewer `ada dev connections` started.
+        connection: runtime.devConnections(),
+    };
     // A pop-out window has the Model tab: the others (overlays, tools, clip, mesh, clashes, joints)
     // read and change the scene itself, which only the main window has.
     const mirrored = isMirroredWindow();
@@ -222,6 +229,8 @@ const TabContent: React.FC<{tab: SceneTab; isMobile: boolean}> = ({tab, isMobile
                     <MeshDistortionSection />
                 ) : tab === "fem" ? (
                     <FemConceptsPanel />
+                ) : tab === "connection" ? (
+                    <ConnectionBuilderBody />
                 ) : tab === "clashes" ? (
                     <ClashesPanel />
                 ) : (
