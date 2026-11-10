@@ -20,7 +20,21 @@ const globals = globalThis as unknown as {sessionStorage: unknown; localStorage:
 globals.sessionStorage = storage;
 globals.localStorage = storage;
 
-const {beginOperation, operationProgress, MODEL_LOAD_KEY} = await import("@/services/operationTracking");
+// The API base is read off `window`, as the page sets it.
+(globalThis as unknown as {window: unknown}).window = {location: {origin: "https://app.example.test", pathname: "/", search: ""}};
+
+// Every cancel request the operation sends, as `<scope>/<job id>`; answered as the route does.
+const cancelled: string[] = [];
+globalThis.fetch = (async (input: unknown) => {
+    const m = /\/scopes\/([^/]+)\/my-jobs\/([^/]+)\/cancel$/.exec(String(input));
+    if (m) cancelled.push(`${decodeURIComponent(m[1])}/${decodeURIComponent(m[2])}`);
+    return new Response(JSON.stringify({job_id: m?.[2], cancelled: true}), {
+        status: 200,
+        headers: {"content-type": "application/json"},
+    });
+}) as typeof fetch;
+
+const {beginOperation, cancelOperation, operationProgress, MODEL_LOAD_KEY} = await import("@/services/operationTracking");
 const {useConversionStore} = await import("@/state/conversionStore");
 
 const jobs = () => useConversionStore.getState().jobs;
@@ -93,6 +107,42 @@ test("a failed step ends it as an error and stays reachable; its own progress an
     assert.ok(jobs()[`${op.key}#b1`], "the failed step stays");
     useConversionStore.getState().clearJob(op.key);
     useConversionStore.getState().clearJob(`${op.key}#b1`);
+});
+
+test("cancelling stops the operation and cancels every unfinished job it tracked", async () => {
+    cancelled.length = 0;
+    const op = beginOperation("Loading 3 models");
+    const release = op.hold();
+    op.trackJob({jobId: "build-a", label: "a"});
+    op.trackJob({jobId: "build-b", label: "b", scope: "providers"});
+    op.trackJob({jobId: "build-c", label: "c"});
+    step(op.key, "build-c", {status: "done", progress: 1});
+
+    assert.equal(cancelOperation(op.key), true);
+    assert.equal(op.signal.aborted, true);
+    assert.equal(jobs()[op.key], undefined);
+    assert.equal(Object.keys(jobs()).some((k) => k.startsWith(`${op.key}#`)), false);
+    await new Promise((r) => setTimeout(r, 0));
+    // A finished step is left alone; each other job is cancelled in the scope it runs in.
+    assert.deepEqual(cancelled.sort(), ["providers/build-b", "shared/build-a"]);
+
+    // A build whose request was in flight when Kill was pressed is cancelled as it arrives.
+    op.trackJob({jobId: "build-late", label: "late"});
+    await new Promise((r) => setTimeout(r, 0));
+    assert.ok(cancelled.includes("shared/build-late"));
+    assert.equal(jobs()[`${op.key}#build-late`], undefined);
+
+    release(); // the driver unwinding after a cancel changes nothing
+    assert.equal(jobs()[op.key], undefined);
+    assert.equal(cancelOperation(op.key), false, "a cancelled operation is gone");
+});
+
+test("an operation that ended, or one this page never started, cannot be cancelled", () => {
+    const op = beginOperation("Load one");
+    op.hold()();
+    assert.equal(op.signal.aborted, false);
+    assert.equal(cancelOperation(op.key), false);
+    assert.equal(cancelOperation("op:from-before-a-reload"), false);
 });
 
 test("dismissing the operation takes its rows with it", () => {

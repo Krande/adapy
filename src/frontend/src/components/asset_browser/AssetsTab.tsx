@@ -35,6 +35,7 @@ import { nodeBatches, requestNodes, type NodeTarget } from "@/assets/collectionR
 import { sourcesTabAccess } from "@/assets/sourcesTabAccess";
 import {
     assetSourceName,
+    LoadCancelled,
     loadPrepared,
     NothingToDraw,
     parseDeliveryClaim,
@@ -111,12 +112,15 @@ const ROOTS_CONTAINER_ID = "__roots__";
  *  for "is this already loaded". Built fresh per call rather than memoised --
  *  every field it closes over is either a stable module export or a snapshot
  *  read at call time, so there is nothing to keep in sync. A load that is one step of an operation
- *  passes its `trackJob`, so the build jobs are rows under it. */
+ *  passes its `trackJob`, so the build jobs are rows under it, and its `signal`, so cancelling the
+ *  operation stops the load. */
 export function realDeliveryDeps(
     isLoaded: (sourceName: string) => boolean,
     trackJob?: LoadNodeDeps["trackJob"],
+    signal?: AbortSignal,
 ): LoadNodeDeps {
     return {
+        ...(signal ? {signal} : {}),
         api: {
             buildAssetNode: (scope, body) => assetsApi.buildAssetNode(scope, body),
             getBuildSummary: (scope, key) => assetsApi.getBuildSummary(scope, key),
@@ -459,7 +463,7 @@ function useAssetLoads(view: AssetView, ids: readonly string[], scope: string): 
         const loadedHere = !!asset;
         const root = loadedHere ? loadedTreeRoot(treeData, sourceName) : null;
         const deps = (op?: Operation) =>
-            realDeliveryDeps((name) => useModelState.getState().loadedSourceNames.has(name), op?.trackJob);
+            realDeliveryDeps((name) => useModelState.getState().loadedSourceNames.has(name), op?.trackJob, op?.signal);
         const prepare = async (op?: Operation): Promise<PreparedNode> => {
             // The claim's own provider in the path: the server then reads THAT provider's
             // manifest for the subject, not whichever provider published it last.
@@ -500,7 +504,8 @@ function useAssetLoads(view: AssetView, ids: readonly string[], scope: string): 
                         useAssetBrowserStore.getState().endLoad(key, asset);
                         requestRender();
                     } catch (e) {
-                        if (e instanceof NothingToDraw) useAssetBrowserStore.getState().emptyLoad(key, e.message);
+                        if (e instanceof LoadCancelled) useAssetBrowserStore.getState().cancelLoad(key);
+                        else if (e instanceof NothingToDraw) useAssetBrowserStore.getState().emptyLoad(key, e.message);
                         else {
                             const message = e instanceof Error ? e.message : String(e);
                             useAssetBrowserStore.getState().failLoad(key, message);
@@ -793,6 +798,7 @@ async function loadEach(scope: string, collection: string, controls: readonly As
     const prepared = new Map<AssetLoadControl, Promise<PreparedNode>>();
     const prepareAhead = (from: number) => {
         for (let j = from; j < Math.min(controls.length, from + 1 + PREPARE_AHEAD); j++) {
+            if (op.signal.aborted) return;
             if (prepared.has(controls[j])) continue;
             const p = controls[j].prepare(op);
             // Settled even if nobody awaits it: its error, if any, surfaces in that node's own load.
@@ -802,6 +808,8 @@ async function loadEach(scope: string, collection: string, controls: readonly As
     };
     try {
         for (let i = 0; i < controls.length; i++) {
+            // Cancelled from the toast: the rest of the batch is never asked for.
+            if (op.signal.aborted) break;
             prepareAhead(i);
             await controls[i].load(prepared.get(controls[i]), op);
             prepared.delete(controls[i]);

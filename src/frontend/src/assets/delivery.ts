@@ -171,6 +171,19 @@ export class NothingToDraw extends DeliveryError {
   }
 }
 
+/** The load was cancelled (`LoadNodeDeps.signal`): it stopped where it was, by request. Neither a
+ *  failure nor an answer -- a caller just clears the row. */
+export class LoadCancelled extends DeliveryError {
+  constructor() {
+    super("load cancelled");
+    this.name = "LoadCancelled";
+  }
+}
+
+function throwIfCancelled(deps: LoadNodeDeps): void {
+  if (deps.signal?.aborted) throw new LoadCancelled();
+}
+
 // --- wire -> the browser's model ---------------------------------------------------
 
 export function parseDeliveryClaim(wire: WireDeliveryClaim): DeliveryClaim {
@@ -387,6 +400,10 @@ export interface LoadNodeDeps {
   /** Clock the poll timeout is measured against. Injected for the same reason
    *  as `wait`: a test proves the give-up path without waiting ten minutes. */
   now?: () => number;
+  /** Aborted, the load stops at its next step with `LoadCancelled`: no build is asked for, a build
+   *  is no longer waited on, and nothing more is put in the scene. Cancelling the build JOB is the
+   *  owner of the signal's business (an operation cancels the jobs it tracked). */
+  signal?: AbortSignal;
 }
 
 const OWNER = "assets";
@@ -408,6 +425,7 @@ async function pollToTerminal(deps: LoadNodeDeps, jobId: string, capability: str
   const now = deps.now ?? (() => Date.now());
   const startedAt = now();
   for (;;) {
+    throwIfCancelled(deps);
     const status = await deps.api.jobStatus(jobId);
     if (status.status === "done") return;
     if (status.status === "error" || status.status === "cancelled") {
@@ -484,6 +502,8 @@ export async function loadPrepared(
 ): Promise<LoadedAsset> {
   const sourceName = assetSourceName(ref);
   const p = await prepared;
+  // A build that finished after the load was cancelled stays out of the scene.
+  throwIfCancelled(deps);
   if (deps.isLoaded(sourceName)) {
     return { sourceName, ref, revision: p.revision, provider: p.provider };
   }
@@ -542,6 +562,7 @@ export async function prepareNode(
   ref: NodeRef,
   claim: DeliveryClaim,
 ): Promise<PreparedNode> {
+  throwIfCancelled(deps);
   if (claim.kind === "mesh") {
     // The built-in `published` provider mints `url` as a storage KEY, not an
     // absolute URL (`routes/assets.py`'s mesh branch: `"url": mesh_key`) --
