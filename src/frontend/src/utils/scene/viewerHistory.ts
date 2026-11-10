@@ -24,6 +24,7 @@
 import * as THREE from "three";
 
 import {loadedSourceGroups} from "@/state/modelState";
+import {sectionPlaneSlices, setSectionRecorder} from "@/state/sectionStore";
 import {useObjectInfoStore} from "@/state/objectInfoStore";
 import {requestRender} from "@/state/perfStore";
 import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
@@ -302,3 +303,7 @@ export function undoViewerAction(): string | null {
 export function redoViewerAction(): string | null {
     return useViewerHistoryStore.getState().redo()?.label ?? null;
 }
+
+// Section planes are data both viewports read (state/sectionStore, no three.js); their changes become
+// undo steps once this history is loaded.
+setSectionRecorder((kind, change, coalesce) => recordViewerAction(kind, change, {slices: sectionPlaneSlices, coalesce}));

@@ -26,6 +26,9 @@ export interface ViewportApi {
     hideOthers(): void;
     showAll(): void;
 
+    /** The loaded model's box (min xyz, max xyz), or null with nothing loaded. */
+    modelBounds(): [number, number, number, number, number, number] | null;
+
     // The camera.
     fitAll(): void;
     fitSelection(): void;

@@ -25,6 +25,9 @@ const GLIDE_INERTIA = 0.8;
 /** A frame after an idle spell must not advance a glide or a move by the whole spell. */
 const MAX_FRAME_SECONDS = 0.05;
 
+/** As many section planes as the renderer takes. */
+const MAX_CLIP_PLANES = 6;
+
 type Bounds = [number, number, number, number, number, number];
 
 export interface NativeObject {
@@ -142,6 +145,24 @@ export class NativeScene {
 
     get selectionSize(): number {
         return this.selected.size;
+    }
+
+    /** The loaded model's box (min xyz, max xyz). */
+    get modelBounds(): Bounds | null {
+        return this.bounds;
+    }
+
+    /** Cut the model by planes (`normal . x + constant = 0`, the +normal side is kept); none removes the cut. */
+    setSectionPlanes(planes: readonly {normal: readonly [number, number, number]; constant: number}[]): void {
+        const used = planes.slice(0, MAX_CLIP_PLANES);
+        const p = this.module._malloc(Math.max(1, used.length) * 16);
+        used.forEach((plane, i) => this.module.HEAPF32.set([...plane.normal, plane.constant], (p >> 2) + i * 4));
+        try {
+            this.renderer.setClipPlanes(p, used.length);
+        } finally {
+            this.module._free(p);
+        }
+        this.invalidate();
     }
 
     /** Frame the whole model. */

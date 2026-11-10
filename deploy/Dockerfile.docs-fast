@@ -24,7 +24,7 @@ ARG DOCS_ENV_IMAGE
 FROM emscripten/emsdk:6.0.11 AS overlay-render
 ARG VIEWER_OVERLAY=0
 # Keep in step with Dockerfile.viewer's ADACPP_RENDER_REF.
-ARG ADACPP_RENDER_REF=1d902eda5b72905a8709914c480ce91385d3042c
+ARG ADACPP_RENDER_REF=a70d3207707c45f9bd72fe2b7e6869295841c582
 ARG ADACPP_GIT_URL=https://github.com/Krande/adacpp.git
 RUN mkdir -p /out && if [ "$VIEWER_OVERLAY" = "1" ]; then \
       git init -q /src && cd /src \

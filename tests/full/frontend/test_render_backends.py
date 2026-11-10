@@ -317,6 +317,17 @@ async def test_commands_and_keys_reach_whichever_viewport_is_on_screen(ws_server
             assert framed > 1.5 * before, f"{backend}: Fit selection took the box from {before} to {framed} pixels"
             await _command(page, "Clear selection")
 
+            # section: a plane through the model removes part of it from view; removing it restores it
+            await _command(page, "Fit all")
+            await page.wait_for_timeout(1200)
+            whole = _count(await _pixels(page), _is_model)
+            await _command(page, "Section plane X")
+            cut = _count(await _pixels(page), _is_model)
+            assert 0.2 * whole < cut < 0.85 * whole, f"{backend}: the section plane cut {whole} -> {cut} model pixels"
+            await _command(page, "Remove section planes")
+            restored = _count(await _pixels(page), _is_model)
+            assert abs(restored - whole) < 0.05 * whole, f"{backend}: removing the plane left {restored} of {whole}"
+
             # camera: a named view and a key step each change the picture; fit all brings the model back
             async def changes(act, what: str) -> None:
                 before = (await _pixels(page)).tobytes()

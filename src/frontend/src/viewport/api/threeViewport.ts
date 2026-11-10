@@ -40,6 +40,10 @@ export function createThreeViewport(h: ThreeViewportHandles): ViewportApi {
                 useObjectInfoStore.getState().setSelectedNodeId(null);
                 requestRender();
             }),
+        modelBounds: () => {
+            const box = useModelState.getState().boundingBox;
+            return box && !box.isEmpty() ? [box.min.x, box.min.y, box.min.z, box.max.x, box.max.y, box.max.z] : null;
+        },
         hideSelected: () => void visibility().then((m) => m.hideSelectedRanges()),
         hideOthers: () => void visibility().then((m) => m.hideUnselectedRanges()),
         showAll: () => void visibility().then((m) => m.unhideAllRanges()),

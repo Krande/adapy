@@ -7,6 +7,7 @@ import React from "react";
 import {ensureViewportInput} from "@/viewport/input";
 import {installShortcutDispatcher} from "@/layout/shortcutDispatch";
 import {bindCoreShortcuts} from "@/layout/shortcuts";
+import {useSectionStore} from "@/state/sectionStore";
 import {setActiveViewport} from "@/viewport/api/viewportApi";
 import {viewportShortcutHandlers} from "@/viewport/api/viewportShortcuts";
 import {NativeScene} from "./nativeScene";
@@ -14,7 +15,7 @@ import {createNativeViewportApi} from "./nativeViewportApi";
 import {useNativeViewport} from "./nativeModel";
 
 const UNAVAILABLE = [
-    "section planes", "FEA results and animation", "labels, markers and plugin overlays", "measurements and gizmos",
+    "section plane gizmo and filled cuts", "FEA results and animation", "labels, markers and plugin overlays", "measurements and gizmos",
     "screenshots and export", "overlaying several models", "the tree, info and scene panels of the main viewer",
 ];
 
@@ -43,7 +44,12 @@ const NativeViewport: React.FC = () => {
             // The viewport's keys (hide, show all, fit, named views, orbit and pan by key), while it is up.
             const unbind = bindCoreShortcuts(viewportShortcutHandlers((run) => ({run})));
             const releaseDispatcher = installShortcutDispatcher();
+            // Section planes: the same store the three.js viewport cuts by.
+            const cut = () => scene.setSectionPlanes(useSectionStore.getState().planes.filter((p) => p.enabled));
+            cut();
+            const uncut = useSectionStore.subscribe(cut);
             release = () => {
+                uncut();
                 releaseDispatcher();
                 unbind();
                 withdraw();

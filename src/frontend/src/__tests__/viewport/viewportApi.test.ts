@@ -19,6 +19,7 @@ function recorder(kind: ViewportApi["kind"], cannot: string | null = null): {api
             kind,
             unavailable: () => cannot,
             selectionCount: () => 0,
+            modelBounds: () => null,
             clearSelection: log("clearSelection"),
             hideSelected: log("hideSelected"),
             hideOthers: log("hideOthers"),

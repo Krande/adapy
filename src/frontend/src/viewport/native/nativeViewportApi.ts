@@ -15,6 +15,7 @@ export function createNativeViewportApi(scene: NativeScene): ViewportApi {
         unavailable: () => null,
         selectionCount: () => scene.selectionSize,
         clearSelection: () => scene.select(null),
+        modelBounds: () => scene.modelBounds,
         hideSelected: () => scene.hideSelected(),
         hideOthers: () => scene.hideOthers(),
         showAll: () => scene.showAll(),

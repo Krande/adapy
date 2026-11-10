@@ -55,7 +55,7 @@ flowchart LR
 | Failure | If WebGPU or the module cannot start, or the device is lost, the state becomes `failed` with the reason, `CanvasWrapper` mounts the three.js viewport, and the model that was handed over is loaded there. The Performance panel shows the reason. |
 
 What the main viewer does beyond this is listed in the viewport itself under "Not available in
-this mode", so nothing looks broken by omission: section planes, FEA results and animation, labels
+this mode", so nothing looks broken by omission: the section plane gizmo and filled cuts, FEA results and animation, labels
 and plugin overlays, measurements and gizmos, screenshots and export, overlaying several models,
 and the main viewer's tree, info and scene panels.
 
@@ -95,9 +95,11 @@ These are open design points, ordered by how much of the viewer depends on them.
    path gets the hierarchy from the reader, which also hands back the extension data as JSON text;
    nothing reads it yet. The streaming FEA loader
    (`utils/scene/fea`) is not connected to it.
-4. **Section planes and caps.** The renderer has `setClipPlanes` and `setSectionCaps`; what is
-   missing is the plane store wired to them and a gizmo. A gizmo without `TransformControls` is its
-   own piece of work (handles as on-top instances, hit-testing through `pick`).
+4. **Section planes and caps.** The planes are plain data in `state/sectionStore` (no three.js),
+   and both viewports cut by them, so the section commands work on either. Missing on the
+   three.js-free viewport: the filled cut (the reader would have to mark closed solids as capped)
+   and a gizmo. A gizmo without `TransformControls` is its own piece of work (handles as on-top
+   instances, hit-testing through `pick`).
 5. **Labels and markers.** The renderer draws textured sprites. A native label layer needs the
    text rasterised to textures without a `THREE.CanvasTexture` (a plain canvas works) and a store of
    label positions.
