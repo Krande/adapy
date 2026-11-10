@@ -15,6 +15,9 @@ export interface BillboardImage {
      *  which comes out lighter than painted. The type icons have always looked so. Left out, the pixels
      *  are sRGB and come out as painted. */
     untagged?: boolean;
+    /** Sample the image itself when it is drawn smaller than it was painted, instead of a blurred
+     *  smaller copy: small text stays crisper. A viewport without the choice ignores it. */
+    crisp?: boolean;
 }
 
 export interface Billboard {
@@ -32,6 +35,9 @@ export interface Billboard {
     order?: number;
     /** Whatever the feature wants back when the billboard is clicked. */
     tag?: unknown;
+    /** Cut by the section planes at its anchor: the point is kept or cut away, and the image goes
+     *  with it, whole. */
+    clipped?: boolean;
 }
 
 /** One feature's billboards in a viewport. They are drawn over the model, never hidden behind it, and
@@ -65,6 +71,20 @@ const focal = (fovDeg: number): number => 1 / Math.tan((fovDeg * Math.PI) / 360)
  *  projection's focal term (as three.js sizes a Sprite without size attenuation). */
 export function screenScale(heightPx: number, viewHeightPx: number, fovDeg: number): number {
     return (2 * heightPx * Math.tan((fovDeg * Math.PI) / 360)) / Math.max(1, viewHeightPx);
+}
+
+// Under section planes a clipped billboard is cut at its ANCHOR, not per pixel. A sprite is a
+// screen-facing quad around its anchor, and three.js clips each fragment by where that fragment
+// sits, so a label near the cut lost part of its text, and one pinned ON the plane (a plane at deck
+// level, where planes usually go) showed half of it. The patch makes every fragment test the anchor
+// instead. `modelViewMatrix[3]` is the anchor in view space, before the quad's corner offset; the
+// sprite shader starts `mvPosition` from it.
+const PER_FRAGMENT_CLIP = "#include <clipping_planes_vertex>";
+const ANCHOR_CLIP = ["#if NUM_CLIPPING_PLANES > 0", "\tvClipPosition = - modelViewMatrix[ 3 ].xyz;", "#endif"].join("\n");
+
+/** A three.js sprite vertex shader (its source text) that clips at the sprite's anchor. */
+export function anchorClipVertexShader(source: string): string {
+    return source.replace(PER_FRAGMENT_CLIP, ANCHOR_CLIP);
 }
 
 /** Where a world point is in a view of `width` by `height` (x right, y down, the view's own units), and

@@ -4,7 +4,8 @@ import * as THREE from "three";
 
 import {requestRender} from "@/state/perfStore";
 import {getViewerRuntime} from "@/state/viewerRuntime";
-import type {Billboard, BillboardLayer} from "./billboards";
+import {clipWithModel} from "@/utils/scene/section_clipping";
+import {anchorClipVertexShader, type Billboard, type BillboardLayer} from "./billboards";
 
 /** Layer 1: drawn by the camera, not tested by the scene's own picker. */
 const OVERLAY_LAYER = 1;
@@ -16,7 +17,16 @@ interface SharedImage {
     aspect: number;
     world: THREE.SpriteMaterial | null;
     screen: THREE.SpriteMaterial | null;
+    /** The same two for billboards the section planes cut: the planes are set on the material. */
+    worldClipped: THREE.SpriteMaterial | null;
+    screenClipped: THREE.SpriteMaterial | null;
     uses: number;
+}
+
+// One function for every clipped billboard: three keys compiled programs by the text of
+// `onBeforeCompile`, so a shared one keeps them all on one program.
+function anchorClip(shader: {vertexShader: string}): void {
+    shader.vertexShader = anchorClipVertexShader(shader.vertexShader);
 }
 
 export function createThreeBillboardLayer(scene: THREE.Scene, name: string): BillboardLayer {
@@ -35,7 +45,14 @@ export function createThreeBillboardLayer(scene: THREE.Scene, name: string): Bil
             const texture = new THREE.CanvasTexture(canvas);
             texture.anisotropy = 4;
             if (!b.image.untagged) texture.colorSpace = THREE.SRGBColorSpace;
-            shared = {texture, aspect: canvas.width / Math.max(1, canvas.height), world: null, screen: null, uses: 0};
+            if (b.image.crisp) {
+                texture.anisotropy = 1;
+                texture.minFilter = THREE.LinearFilter;
+            }
+            shared = {
+                texture, aspect: canvas.width / Math.max(1, canvas.height),
+                world: null, screen: null, worldClipped: null, screenClipped: null, uses: 0,
+            };
             images.set(b.image.key, shared);
         }
         shared.uses++;
@@ -46,20 +63,37 @@ export function createThreeBillboardLayer(scene: THREE.Scene, name: string): Bil
         if (!shared || --shared.uses > 0) return;
         shared.world?.dispose();
         shared.screen?.dispose();
+        shared.worldClipped?.dispose();
+        shared.screenClipped?.dispose();
         shared.texture.dispose();
         images.delete(key);
     };
-    const materialOf = (shared: SharedImage, sizing: Billboard["sizing"]): THREE.SpriteMaterial =>
-        (shared[sizing] ??= new THREE.SpriteMaterial({
-            map: shared.texture,
-            transparent: true,
-            depthTest: false,
-            depthWrite: false,
-            sizeAttenuation: sizing === "world",
-        }));
+    const materialOf = (shared: SharedImage, sizing: Billboard["sizing"], clipped: boolean): THREE.SpriteMaterial => {
+        const slot = clipped ? (sizing === "world" ? "worldClipped" : "screenClipped") : sizing;
+        let material = shared[slot];
+        if (!material) {
+            material = shared[slot] = new THREE.SpriteMaterial({
+                map: shared.texture,
+                transparent: true,
+                depthTest: false,
+                depthWrite: false,
+                sizeAttenuation: sizing === "world",
+            });
+            if (clipped) material.onBeforeCompile = anchorClip;
+        }
+        return material;
+    };
 
     const place = (sprite: THREE.Sprite, b: Billboard, shared: SharedImage): void => {
-        sprite.material = materialOf(shared, b.sizing);
+        const material = materialOf(shared, b.sizing, !!b.clipped);
+        if (sprite.material !== material) {
+            sprite.material = material;
+            // The section planes are put on whatever is tagged when they change, and on this one
+            // now. Only when the material is another one: a billboard that is merely moved must
+            // not have its shader compiled again.
+            if (b.clipped) clipWithModel(sprite);
+            else sprite.userData.__clipWithModel = false;
+        }
         sprite.position.set(b.position[0], b.position[1], b.position[2]);
         sprite.center.set(b.anchor?.[0] ?? 0.5, b.anchor?.[1] ?? 0.5);
         sprite.renderOrder = b.order ?? DEFAULT_ORDER;

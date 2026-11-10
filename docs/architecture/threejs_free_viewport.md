@@ -58,9 +58,7 @@ flowchart LR
 | Failure | If WebGPU or the module cannot start, or the device is lost, the state becomes `failed` with the reason, `CanvasWrapper` mounts the three.js viewport, and the model that was handed over is loaded there. The Performance panel shows the reason. |
 
 What the main viewer does beyond this is listed in the viewport itself under "Not available in
-this mode", so nothing looks broken by omission: element (integration point) fields of an FEA
-result, number labels and plugin overlays, requesting a selection box's contents from a source,
-3D-mouse input and export.
+this mode", so nothing looks broken by omission.
 
 React reads the selection through `viewport/api/useViewportSelection.ts` (its count, the selected
 objects, a token that changes with it), so a panel written against it follows whichever viewport is
@@ -107,11 +105,44 @@ flowchart LR
 | What a layer can be | `viewport/api/resultLayer.ts` | Triangles, lines or points, with a width or diameter in pixels and an opacity: result points are a layer of points, the coloured lines of line elements and the undeformed outline are layers of lines. `streaming/layerGroup.ts` holds a result's layers as one for the controls and the playback driver. |
 | Number labels | `utils/scene/fea/labelPlacement.ts`, `layout/NumberLabels.tsx` | What is worth a label and where it goes, from a `LabelSource` (elements, their vertices, where each vertex is now) and a projector. `ViewportApi.projectToScreen` projects a batch of world points to CSS pixels and depth, and `onCameraChange` says when to do it again; the three.js mesh (`numberLabels.ts`) and the layer session are the two sources. |
 
+
 Both viewports paint with the same kernels. What the three.js viewport's own loader still does
 that the layer session does not: recorded playback frames (a played frame is repainted from the
 step cache instead; read-ahead and "load every frame" work), the feature edges of beam sections,
 and the element sets of a result (the Scene tree's set rows and isolating by set act on the
-three.js mesh). Plugin overlays (`plugins/sceneOverlays.ts`) are also three.js-only.
+three.js mesh).
+
+## Overlays on both viewports
+
+What a feature draws over the model without it being part of the model is plain data handed to
+the viewport on screen, by handle:
+
+```mermaid
+flowchart LR
+    PLUGIN["plugin<br/>ctx.scene.addLines, addLabels,<br/>addElementOutlines, paintFeaElements"] --> VERBS["plugins/sceneOverlays.ts<br/>colours, frames, owners"]
+    VERBS -->|segments, points| OL["ViewportApi.overlays(name)<br/>OverlayLayer"]
+    VERBS -->|images| BB["ViewportApi.billboards(name)<br/>BillboardLayer"]
+    VERBS -->|elements, positions now| TARGET["elementSource.ts<br/>activeFeaTarget()"]
+    TARGET --> MESH["meshOverlayTarget.ts<br/>the three.js result mesh"]
+    TARGET --> LAYERS["layerOverlayTarget.ts<br/>the layer session"]
+    TICK["beforeDraw.ts<br/>once per frame"] --> VERBS
+```
+
+| Part | Where | What it is |
+|---|---|---|
+| Lines and points | `viewport/api/overlayLayer.ts` | `OverlayLayer`: line segments or points in the world (or in a frame given as a matrix), one colour or a colour each, a width or a size in pixels, dashes, over the model or depth-tested, cut by the section planes or not. `addLines` / `addPoints` return a handle; `setPositions` moves what it draws. |
+| three.js | `viewport/api/threeOverlays.ts` | Wide lines (`LineSegments2`) and points in the scene, as plugin lines were always drawn; the adacpp WebGPU viewport mirrors them. |
+| adacpp renderer | `viewport/native/nativeOverlays.ts` | A geometry of the renderer per overlay, through the scene's result layers with the look of an annotation (`ResultMeshData.overlay`: unlit, never picked, over the model or just in front of the faces it lies on). A move is written as the geometry's morph, and what is drawn is made again after a load emptied the scene. |
+| Labels | `viewport/api/billboards.ts` | A plugin's labels are billboards of constant size on screen, cut by the section planes at their anchor (`clipped`), their image sampled without mipmaps (`crisp`). |
+| The result under them | `utils/scene/fea/elementSource.ts` | `activeFeaTarget()`: the FEA result on screen as `ElementGeometry` (each element's range of the index list, a vertex where it is drawn now, a version that changes when that may have, where the mesh stands), and the element-level verbs only the result can do (paint, hide, isolate). Two results register themselves: the three.js loader's mesh and the layer session. |
+| Following the result | `viewport/api/beforeDraw.ts` | Each viewport's frame loop runs the listeners before it draws. An outline or a pinned label compares the geometry's version and writes new positions only when it changed. |
+| Painted elements | `meshOverlayTarget.ts`, `streaming/layerOverlayTarget.ts` | On the three.js mesh, a copy of its triangles with the mesh's morph and its influences (as before). On the layer session, the painted elements' triangles as one more result layer, a vertex per corner, pinned to the session so each step's displacement and the deformation scale reach it. |
+
+The plugin-facing verbs are unchanged. What differs between the viewports: on the three.js-free
+one, lines drawn over the model are not ordered among themselves by when they were added, dashes
+are measured once (not again after the line moved), and hiding elements through a plugin clears
+the selection as any hide does there. An overlay is drawn by the viewport that was on screen when
+it was added; it is not carried over when the other viewport takes its place.
 
 ## Box selection on both viewports
 
@@ -168,8 +199,8 @@ These are open design points, ordered by how much of the viewer depends on them.
    (`setActiveViewport`); commands ask `activeViewport()`, and the keys are bound once for both in
    `viewportShortcuts.ts`. A viewport says what it cannot do yet (`unavailable(feature)`), and the
    command is offered disabled with that reason. The interface grows one feature area at a time:
-   still to come are objects by id with their state (colour, transparency), their bounds, and
-   overlay geometry (lines, points) by handle. An area not on it yet still goes straight to
+   still to come are objects by id with their state (colour, transparency) and their bounds.
+   Overlay geometry (lines, points) by handle is `overlays(name)`. An area not on it yet still goes straight to
    three.js and is absent on the three.js-free viewport.
 2. **Where per-object state lives.** `CustomBatchedMesh` owns hidden and selected ranges, and a
    number of scene objects update themselves in `onBeforeRender`, which `SceneSync` replays every
@@ -197,8 +228,8 @@ These are open design points, ordered by how much of the viewer depends on them.
    icons of a procedural model and the names of the selected objects ("Object names") are drawn
    this way, by controllers that follow the viewport on screen (`followActiveViewport`). The number labels
    of an FEA result are HTML placed through the viewport (`projectToScreen`, `onCameraChange`), on
-   either one. Still the three.js viewport's only: a plugin's labels (`addLabels`), which can pin
-   to FEA elements and are cut by section planes at their anchor.
+   either one. A plugin's labels (`addLabels`), which can pin to FEA elements and are cut by
+   section planes at their anchor, are billboards too (see "Overlays on both viewports").
 6. **Controls parity.** The renderer's camera covers orbit, pan, zoom, zoom towards the cursor, fit
    to the model or the selection, named views and the user's input mapping. Still the main
    viewer's only: the orientation gizmo, orthographic projection as a setting, and 3D-mouse input.

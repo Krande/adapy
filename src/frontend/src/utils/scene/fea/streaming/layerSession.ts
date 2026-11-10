@@ -45,6 +45,7 @@ import {hasLazyCases, legendScopeFor, mergeCaseSteps, nextCaseToPrefetch, slotCo
 import {FEA_BEAM_EDGE_COLOR, FEA_EDGE_COLOR, FEA_UNDEFORMED_COLOR} from "../edgeColors";
 import {withoutEdges} from "../edgeSplit";
 import {elementLocalVertices, expandTriplesInto, paintElemField, shownElemFieldRange} from "../elemFieldPaint";
+import {notifyFeaTargetGone, registerFeaTarget, type FeaOverlayTarget} from "../elementSource";
 import {edgeOwners, maskHiddenEdges, type EdgeOwners} from "../feaEdgeFilter";
 import type {LabelSource} from "../labelPlacement";
 import {paintNodalField} from "../nodalFieldPaint";
@@ -54,6 +55,7 @@ import {isTimeHistory} from "../timeHistory";
 import {recordLayerValues} from "../visibleValues";
 import {loadBeamSolidData, type BeamSolidData} from "./layerBeamSolids";
 import {PaintedPointsLayer, ResultGroup} from "./layerGroup";
+import {makeLayerOverlayTarget, type LayerMeshView} from "./layerOverlayTarget";
 import {preloadFrames, prefetchFieldSteps, upcomingSteps} from "./prefetch";
 import {syncResultStores} from "./resultStores";
 import {requestStep} from "./stepQueue";
@@ -96,6 +98,13 @@ interface LayerSession {
     shownNodes: Uint8Array | null;
     /** The displacement the layers hold now, xyz per node: what a layer made later starts from. */
     lastDisplacement: Float32Array | null;
+    /** Goes up each time a displacement is written to the layers. */
+    displacementWrites: number;
+    /** The displacement the beam sections hold now, xyz per vertex of theirs. */
+    solidsDisplacement: Float32Array | null;
+    /** Layers something else drew over the result (colours a plugin paints over elements): each
+     *  moves with the vertices of the mesh it lies on. */
+    pinned: Set<PinnedLayer>;
     /** Whether the last paint measured its scale over what is drawn. */
     rangeFromShown: boolean;
     /** Everything the result is made of on the viewport: what the controls and the playback
@@ -130,6 +139,15 @@ interface LayerSession {
     /** The identity numbering, for an element field averaged onto faces in node numbering. */
     identity: Uint32Array | null;
     unsubscribe: () => void;
+}
+
+/** A layer drawn over one of the result's meshes: the vertex of that mesh each of its vertices is,
+ *  and the buffer its displacement is written through. */
+interface PinnedLayer {
+    layer: ResultMeshLayer;
+    on: "model" | "beamSolids";
+    toSource: Uint32Array;
+    displacement: Float32Array;
 }
 
 let session: LayerSession | null = null;
@@ -228,7 +246,57 @@ export function closeLayerSession(): void {
     recordLayerValues(null);
     s.unsubscribe();
     s.group.remove();
+    s.pinned.clear();
+    const target = overlayTargets.get(s);
+    if (target) notifyFeaTargetGone(target.token);
 }
+
+const overlayTargets = new WeakMap<LayerSession, FeaOverlayTarget>();
+
+/** The result shown through layers as what overlays are drawn on (../elementSource.ts): its
+ *  faces and beam sections at the deformation shown, element paint, hiding and isolating. */
+function overlayTarget(s: LayerSession): FeaOverlayTarget {
+    let target = overlayTargets.get(s);
+    if (target) return target;
+    const faces: LayerMeshView | null =
+        s.drawRanges && s.mesh.indices && s.mesh.topology === "triangles"
+            ? {positions: s.basePositions, indices: s.mesh.indices, ranges: s.drawRanges, displacement: () => s.lastDisplacement}
+            : null;
+    let solids: LayerMeshView | null = null;
+    target = makeLayerOverlayTarget({
+        results: s.results,
+        matrix: s.mesh.matrix,
+        model: s.objects?.model ?? null,
+        ids: s.objects?.ids ?? null,
+        mesh: (on) => {
+            if (on === "model") return faces;
+            if (!solidsOn(s) || !s.solidsLayer) return null;
+            const data = s.solids!;
+            return (solids ??= {positions: data.positions, indices: data.indices, ranges: data.drawRanges, displacement: () => s.solidsDisplacement});
+        },
+        scale: () => s.group.scale,
+        serial: () => s.displacementWrites,
+        pin: (layer, toSource, on) => {
+            const pinned: PinnedLayer = {layer, on, toSource, displacement: new Float32Array(toSource.length * 3)};
+            s.pinned.add(pinned);
+            s.group.add(layer);
+            const moved = on === "model" ? s.lastDisplacement : s.solidsDisplacement;
+            if (moved) movePinned(pinned, moved);
+            return () => {
+                if (s.pinned.delete(pinned)) s.group.drop(layer);
+            };
+        },
+    });
+    overlayTargets.set(s, target);
+    return target;
+}
+
+function movePinned(pinned: PinnedLayer, source: Float32Array): void {
+    expandTriplesInto(source, pinned.toSource, pinned.displacement);
+    pinned.layer.setDisplacement(pinned.displacement);
+}
+
+registerFeaTarget(() => (session ? overlayTarget(session) : null));
 
 /** The bake's element edges as index pairs into the nodes: the shell grid, and the beam members
  *  when the bake says which those are. Best-effort, like the three.js loader's: a missing sidecar
@@ -349,6 +417,8 @@ function ensureLocalFaces(s: LayerSession): Uint32Array {
 /** A step's displacement (xyz per node) onto every layer that moves with the nodes. */
 function applyDisplacement(s: LayerSession, source: Float32Array): void {
     s.lastDisplacement = source;
+    s.displacementWrites++;
+    for (const pinned of s.pinned) if (pinned.on === "model") movePinned(pinned, source);
     s.shellEdges?.setDisplacement(source);
     s.beamEdges?.setDisplacement(source);
     if (s.renderToSource) {
@@ -378,6 +448,8 @@ function applyView(s: LayerSession): void {
     const solids = solidsOn(s);
     s.group.setShown(s.solidsLayer, solids);
     s.solidsLayer?.setColorsVisible(view.resultColorsVisible && s.solidsPainted);
+    // What is painted over the beam sections is drawn while they are.
+    for (const pinned of s.pinned) if (pinned.on === "beamSolids") s.group.setShown(pinned.layer, solids);
     const colouredLines = s.lines.drawn && view.resultColorsVisible && !solids;
     s.lines.setShown(colouredLines);
     s.markers.setShown(view.resultColorsVisible && view.resultPointMarkersVisible);
@@ -507,6 +579,9 @@ function warpSolids(s: LayerSession, warp: {field: FeaManifestField; stepValues:
     const layer = s.solidsLayer;
     if (!layer || !solids.warp) return;
     const displacement = beamSolidDisplacement(solids.warp, solids.positions, warp?.field, warp?.stepValues, s.basePositions);
+    s.solidsDisplacement = displacement;
+    s.displacementWrites++;
+    for (const pinned of s.pinned) if (pinned.on === "beamSolids") movePinned(pinned, displacement);
     if (s.solidsLocal) {
         expandTriplesInto(displacement, s.solidsLocal.renderToSource, s.solidsLocal.displacement);
         layer.setDisplacement(s.solidsLocal.displacement);
@@ -635,6 +710,9 @@ async function openLayerSession(args: {
         drawn,
         shownNodes: null,
         lastDisplacement: null,
+        displacementWrites: 0,
+        solidsDisplacement: null,
+        pinned: new Set(),
         rangeFromShown: false,
         group,
         faces,

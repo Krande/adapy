@@ -62,7 +62,7 @@ test("the three.js-free viewport's chunk imports no three.js", () => {
 
 // The interface both viewports stand behind, and the keys bound through it, are loaded by the
 // three.js-free viewport: they may name three.js in types only.
-for (const module of ["viewportApi.ts", "viewportShortcuts.ts", "billboards.ts"]) {
+for (const module of ["viewportApi.ts", "viewportShortcuts.ts", "billboards.ts", "overlayLayer.ts", "beforeDraw.ts"]) {
     test(`viewport/api/${module} imports no three.js`, () => {
         walkFreeOfThree(join(ROOT, "src/viewport/api", module));
     });
@@ -87,6 +87,11 @@ for (const module of [
     "utils/scene/fea/streaming/resultStores.ts",
     "utils/scene/fea/streaming/warpSource.ts",
     "utils/scene/fea/streaming/layerSession.ts",
+    // What is drawn over a result, and what plugins draw through: plain data on both viewports.
+    "utils/scene/fea/elementSource.ts",
+    "utils/scene/fea/streaming/layerOverlayTarget.ts",
+    "viewport/native/nativeOverlays.ts",
+    "plugins/sceneOverlays.ts",
 ]) {
     test(`${module} imports no three.js`, () => {
         walkFreeOfThree(join(ROOT, "src", module));

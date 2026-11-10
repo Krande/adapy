@@ -9,6 +9,7 @@
 import type {ViewportResults} from "./resultLayer";
 import {type CameraView} from "@/layout/coreCommandIds";
 import type {BillboardLayer, Point3} from "./billboards";
+import type {OverlayLayer} from "./overlayLayer";
 import type {ViewportBoxSelection} from "./boxSelection";
 
 export type ViewportKind = "three" | "native";
@@ -74,10 +75,11 @@ export interface ViewportApi {
     showAll(): void;
     /** Hide `refs` (one undo step where the viewport has undo); the selection is cleared, as its
      *  highlight would keep drawing what was hidden. */
-    hide(refs: readonly ObjectRef[]): void;
-    show(refs: readonly ObjectRef[]): void;
-    /** Show `refs` and hide everything else. */
-    isolate(refs: readonly ObjectRef[]): void;
+    hide(refs: Iterable<ObjectRef>): void;
+    show(refs: Iterable<ObjectRef>): void;
+    /** Show `refs` and hide everything else. As with `setSelection`, `refs` is read once and no
+     *  ref is kept. */
+    isolate(refs: Iterable<ObjectRef>): void;
     objectVisibility(): ObjectVisibilityReader;
 
     /** The loaded model's box (min xyz, max xyz), or null with nothing loaded. */
@@ -114,6 +116,12 @@ export interface ViewportApi {
     /** The viewport's layer of camera-facing images called `name`, made on first use; asking again
      *  gives the same layer until it is disposed. */
     billboards(name: string): BillboardLayer;
+    /** The viewport's layer of lines and points called `name` (./overlayLayer.ts), made on first
+     *  use; asking again gives the same layer until it is disposed. */
+    overlays(name: string): OverlayLayer;
+    /** Frame the camera on a box in the world (min xyz, max xyz), keeping the direction it looks
+     *  in. False when there is no camera yet or the box is empty. */
+    fitBox(min: Point3, max: Point3): boolean;
 
     // Box selection: what a box in the world or a rectangle on the screen takes (./boxSelection.ts).
     objectsInBox: ViewportBoxSelection["objectsInBox"];
