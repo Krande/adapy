@@ -5,7 +5,7 @@
 import * as THREE from "three";
 import {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
 import {selectedMaterial} from "@/utils/default_materials";
-import {InstanceFlag, SegmentFlag, Topology, type AdacppModule, type WebRendererApi} from "./types";
+import {InstanceFlag, NO_TEXTURE, SegmentFlag, SpriteFlag, Topology, type AdacppModule, type WebRendererApi} from "./types";
 
 type SegmentKind = "batched" | "groups" | "edges" | "none";
 
@@ -135,6 +135,24 @@ function dashOf(mat: THREE.Material | undefined): [number, number] {
 }
 const MAX_CLIP_PLANES = 6;
 
+/** RGBA8 pixels of a texture's image, top row first (what the renderer's addTexture takes). */
+export type ReadPixels = (image: unknown) => {data: Uint8ClampedArray | Uint8Array; width: number; height: number} | null;
+
+let scratch: HTMLCanvasElement | null = null;
+/** Through a 2D canvas: a sprite's map is a canvas, an image or a bitmap. */
+const readPixelsWithCanvas: ReadPixels = (image) => {
+    const src = image as (CanvasImageSource & {width: number; height: number}) | null | undefined;
+    if (!src || !src.width || !src.height || typeof document === "undefined") return null;
+    scratch ??= document.createElement("canvas");
+    scratch.width = src.width;
+    scratch.height = src.height;
+    const ctx = scratch.getContext("2d", {willReadFrequently: true});
+    if (!ctx) return null;
+    ctx.clearRect(0, 0, src.width, src.height);
+    ctx.drawImage(src, 0, 0);
+    return ctx.getImageData(0, 0, src.width, src.height);
+};
+
 export class SceneSync {
     private readonly entries = new Map<string, Entry>();
     private readonly byInstance = new Map<number, Entry>();
@@ -163,6 +181,13 @@ export class SceneSync {
     /** Points registered with the point picker are pickable in the renderer too (the `adacppPointPick`
      *  switch). Off, only model meshes are, so a mesh pick never lands on a point in front of it. */
     pickPoints = false;
+    /** Sprites and through-the-model overlays are drawn by the renderer (the `adacppLabels` switch) instead of
+     *  being left for the three.js pass. Cleared, with the reason in `nativeSpritesError`, if that fails. */
+    nativeSprites = false;
+    nativeSpritesError: string | null = null;
+    private readonly sprites = new Map<string, {id: number; seen: number}>();
+    private readonly textures = new Map<string, {id: number; version: number; seen: number}>();
+    private forceOnTop = false;
     /** Sprites the last sync found on the camera's layers; the caller draws them with three.js. */
     spriteCount = 0;
     private pixelRatio = 1;
@@ -176,7 +201,11 @@ export class SceneSync {
     private frameCapColor: THREE.Color | null = null;
     private capsKey = "";
 
-    constructor(private readonly module: AdacppModule, private readonly r: WebRendererApi) {
+    constructor(
+        private readonly module: AdacppModule,
+        private readonly r: WebRendererApi,
+        private readonly readPixels: ReadPixels = readPixelsWithCanvas,
+    ) {
         this.matrixPtr = module._malloc(64);
         this.viewPtr = module._malloc(64);
         this.projPtr = module._malloc(64);
@@ -218,9 +247,19 @@ export class SceneSync {
             // Sprites, and what asks to be drawn over the model (a plugin's lines `throughModel`), go to
             // the three.js pass over the WebGPU image.
             if (o.isSprite || obj.userData.__overlayPass) {
-                obj.layers.enable(SPRITE_LAYER);
-                this.spriteCount++;
-                return;
+                if (!this.nativeSprites) {
+                    obj.layers.enable(SPRITE_LAYER);
+                    this.spriteCount++;
+                    return;
+                }
+                if (o.isSprite) {
+                    this.syncSprite(obj as THREE.Sprite);
+                    return;
+                }
+                // Not a sprite: mirrored like any other object, but over the model.
+                this.forceOnTop = true;
+            } else {
+                this.forceOnTop = false;
             }
             if (!(o.isMesh || o.isLineSegments || o.isLine || o.isPoints)) return;
             if (obj.userData.__sectionCap) {
@@ -252,6 +291,7 @@ export class SceneSync {
                 this.entries.delete(key);
             }
         }
+        this.dropUnseenSprites();
 
         this.pushClipPlanes();
         this.pushSectionCaps();
@@ -294,6 +334,81 @@ export class SceneSync {
             this.byInstance.delete(id);
         }
         this.r.removeGeometry(e.geometry);
+    }
+
+    /** A three.js Sprite as a renderer sprite: its map's pixels as a texture (uploaded again when the
+     *  texture's version moves, as a relabelled canvas does), placed and sized as three.js would. */
+    private syncSprite(sprite: THREE.Sprite): void {
+        const mat = sprite.material;
+        if (!mat.visible) return;
+        try {
+            const texture = this.syncTexture(mat.map);
+            let entry = this.sprites.get(sprite.uuid);
+            if (!entry) {
+                entry = {id: this.r.addSprite(), seen: 0};
+                this.sprites.set(sprite.uuid, entry);
+            }
+            entry.seen = this.frame;
+            const m = sprite.matrixWorld.elements;
+            let flags = 0;
+            if (mat.sizeAttenuation) flags |= SpriteFlag.SizeAttenuation;
+            if (mat.depthTest) flags |= SpriteFlag.DepthTest;
+            if (mat.clippingPlanes?.length) {
+                flags |= SpriteFlag.Clipped;
+                for (const p of mat.clippingPlanes) this.framePlanes.add(p);
+            }
+            this.r.setSprite(
+                entry.id, texture, m[12], m[13], m[14], Math.hypot(m[0], m[1], m[2]), Math.hypot(m[4], m[5], m[6]),
+                sprite.center.x, sprite.center.y, mat.rotation, mat.color.r, mat.color.g, mat.color.b, mat.opacity,
+                flags, sprite.renderOrder,
+            );
+        } catch (err) {
+            // Back to the three.js pass for good: a label drawn the old way beats no label.
+            this.nativeSprites = false;
+            this.nativeSpritesError = err instanceof Error ? err.message : String(err);
+            this.dropUnseenSprites(true);
+            sprite.layers.enable(SPRITE_LAYER);
+            this.spriteCount++;
+        }
+    }
+
+    private syncTexture(map: THREE.Texture | null): number {
+        if (!map?.image) return NO_TEXTURE;
+        let t = this.textures.get(map.uuid);
+        if (t && t.version === map.version) {
+            t.seen = this.frame;
+            return t.id;
+        }
+        const pixels = this.readPixels(map.image);
+        if (!pixels) return t ? ((t.seen = this.frame), t.id) : NO_TEXTURE;
+        const p = this.module._malloc(pixels.data.length);
+        this.module.HEAPU8.set(pixels.data, p);
+        try {
+            if (t) this.r.updateTexture(t.id, p, pixels.width, pixels.height);
+            else t = {id: this.r.addTexture(p, pixels.width, pixels.height), version: 0, seen: 0};
+        } finally {
+            this.module._free(p);
+        }
+        t.version = map.version;
+        t.seen = this.frame;
+        this.textures.set(map.uuid, t);
+        return t.id;
+    }
+
+    /** Sprites and textures no longer in the scene (`all`: every one, when handing back to three.js). */
+    private dropUnseenSprites(all = false): void {
+        for (const [key, s] of this.sprites) {
+            if (all || s.seen !== this.frame) {
+                this.r.removeSprite(s.id);
+                this.sprites.delete(key);
+            }
+        }
+        for (const [key, t] of this.textures) {
+            if (all || t.seen !== this.frame) {
+                this.r.removeTexture(t.id);
+                this.textures.delete(key);
+            }
+        }
     }
 
     /** The highlighted face of a model mesh (Faces picking). three.js draws it with an overlay that shares
@@ -607,7 +722,7 @@ export class SceneSync {
             if (obj instanceof CustomBatchedMesh && mat?.side !== THREE.DoubleSide) flags |= InstanceFlag.Capped;
         }
         // three.js' depthTest: false draws over whatever is there (transform gizmo handles).
-        if (mat?.depthTest === false) flags |= InstanceFlag.OnTop;
+        if (mat?.depthTest === false || this.forceOnTop) flags |= InstanceFlag.OnTop;
         // three.js' polygonOffset: negative pulls an overlay in front of the surface it lies on, positive
         // pushes a surface behind the edges drawn on it (FEA meshes). Without it, no bias, as in three.js.
         if (mat?.polygonOffset && (mat.polygonOffsetFactor < 0 || mat.polygonOffsetUnits < 0)) {

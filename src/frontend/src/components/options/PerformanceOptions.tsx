@@ -112,6 +112,9 @@ const RendererBackendOptions: React.FC = () => {
                                 title="Labels, markers and icons"
                                 blurb="Drawn by adacpp and hidden behind the model where it covers them. Off: a three.js pass draws them on top of everything."
                             />
+                            {status.labelsError && (
+                                <div className="text-amber-300">Labels are back on the three.js pass: {status.labelsError}</div>
+                            )}
                             <Row
                                 checked={adacppPointPick || adacppNoWebGL}
                                 onChange={() => setAdacppPointPick(!adacppPointPick)}

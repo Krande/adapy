@@ -9,7 +9,7 @@ import {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
 import {ensureElementLocalVertices} from "@/utils/scene/fea/elementLocalGeometry";
 import {resetBasePositions, writeMorphTarget} from "@/utils/scene/fea/gpuRefresh";
 import {SceneSync, SPRITE_LAYER} from "@/viewport/adacpp/sceneSync";
-import {InstanceFlag, SegmentFlag, Topology, type AdacppModule, type WebRendererApi} from "@/viewport/adacpp/types";
+import {InstanceFlag, SegmentFlag, SpriteFlag, Topology, type AdacppModule, type WebRendererApi} from "@/viewport/adacpp/types";
 
 interface Recorded {
     geometries: Map<number, {topology: number; vertexCount: number; segments: number[]}>;
@@ -367,4 +367,61 @@ test("depthTest false draws on top, and a single-sided transparent material keep
     assert.ok(h & InstanceFlag.OnTop);
     assert.ok(f & InstanceFlag.CullBack && !(f & InstanceFlag.DoubleSided), "BackSide is single-sided (its winding is reversed at upload)");
     assert.ok(g & InstanceFlag.DoubleSided && !(g & InstanceFlag.CullBack));
+});
+
+test("with labels handed over, sprites become renderer sprites and their texture uploads once per version", () => {
+    const {module, renderer} = fakeModule();
+    const calls: string[] = [];
+    const sprites: Record<number, number[]> = {};
+    let nextTexture = 10, nextSprite = 20;
+    Object.assign(renderer, {
+        addTexture: (_p: number, w: number, h: number) => (calls.push(`addTexture ${w}x${h}`), nextTexture++),
+        updateTexture: (t: number) => calls.push(`updateTexture ${t}`),
+        removeTexture: (t: number) => calls.push(`removeTexture ${t}`),
+        addSprite: () => nextSprite++,
+        setSprite: (id: number, ...rest: number[]) => (sprites[id] = rest),
+        removeSprite: (s: number) => calls.push(`removeSprite ${s}`),
+    });
+    const map = new THREE.Texture({width: 2, height: 1} as unknown as HTMLImageElement);
+    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({map, sizeAttenuation: false, depthTest: true, opacity: 0.5}));
+    sprite.position.set(1, 2, 3);
+    sprite.scale.set(4, 5, 1);
+    const through = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial());
+    through.userData.__overlayPass = true;
+    const {scene, camera} = cameraAndScene(sprite, through);
+    const sync = new SceneSync(module, renderer, () => ({data: new Uint8Array(8), width: 2, height: 1}));
+    sync.nativeSprites = true;
+    sync.sync(scene, camera);
+    sync.sync(scene, camera);
+
+    assert.equal(sync.spriteCount, 0, "nothing left for the three.js pass");
+    assert.deepEqual(calls, ["addTexture 2x1"], "the texture is uploaded once, not every frame");
+    const [texture, x, y, z, sx, sy, cx, cy, , , , , a, flags] = sprites[20];
+    assert.deepEqual([texture, x, y, z, sx, sy, cx, cy, a], [10, 1, 2, 3, 4, 5, 0.5, 0.5, 0.5]);
+    assert.ok(flags & SpriteFlag.DepthTest && !(flags & SpriteFlag.SizeAttenuation));
+
+    map.needsUpdate = true; // a relabelled canvas
+    sync.sync(scene, camera);
+    assert.equal(calls.at(-1), "updateTexture 10");
+
+    scene.remove(sprite);
+    sync.sync(scene, camera);
+    assert.deepEqual(calls.slice(-2), ["removeSprite 20", "removeTexture 10"]);
+});
+
+test("a renderer that cannot draw sprites hands them back to the three.js pass, with the reason", () => {
+    const {module, renderer} = fakeModule();
+    Object.assign(renderer, {
+        addSprite: () => { throw new Error("no sprite pass"); },
+        removeSprite: () => {}, removeTexture: () => {},
+    });
+    const sprite = new THREE.Sprite(new THREE.SpriteMaterial());
+    const {scene, camera} = cameraAndScene(sprite);
+    const sync = new SceneSync(module, renderer, () => null);
+    sync.nativeSprites = true;
+    sync.sync(scene, camera);
+    assert.equal(sync.nativeSprites, false);
+    assert.equal(sync.nativeSpritesError, "no sprite pass");
+    assert.equal(sync.spriteCount, 1);
+    assert.ok(sprite.layers.isEnabled(SPRITE_LAYER));
 });

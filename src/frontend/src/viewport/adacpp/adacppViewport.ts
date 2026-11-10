@@ -88,6 +88,8 @@ interface AdacppRenderStatus {
     error: string | null;
     adapter: string | null;
     stats: AdacppStats | null;
+    /** Why adacpp is not drawing the labels although asked to (the three.js pass draws them instead). */
+    labelsError: string | null;
 }
 
 /** What the Performance panel shows about the adacpp renderer. Not persisted. */
@@ -96,6 +98,7 @@ export const useAdacppRenderStatus = create<AdacppRenderStatus>(() => ({
     error: null,
     adapter: null,
     stats: null,
+    labelsError: null,
 }));
 
 // The state on the document element too (`data-adacpp-renderer`, with the failure reason beside it), so
@@ -232,6 +235,20 @@ export class AdacppViewport {
         }
     }
 
+    /** Sprites to adacpp when the switch says so and it has not failed at it; a failure is shown in the
+     *  Performance panel and the three.js pass draws them again. */
+    private labelsWanted = false;
+    private syncLabelsMode(wanted: boolean): void {
+        if (wanted !== this.labelsWanted) {
+            this.labelsWanted = wanted;
+            this.sync.nativeSpritesError = null;
+            this.sync.nativeSprites = wanted;
+            useAdacppRenderStatus.setState({labelsError: null});
+        }
+        const error = this.sync.nativeSpritesError;
+        if (error && useAdacppRenderStatus.getState().labelsError !== error) useAdacppRenderStatus.setState({labelsError: error});
+    }
+
     /** One frame at `w` x `h` device pixels. False when it failed: the viewport is then dead and three.js
      *  takes over (the status carries the reason). */
     private draw(scene: THREE.Scene, camera: THREE.Camera, w: number, h: number, pixelRatio: number): boolean {
@@ -242,7 +259,9 @@ export class AdacppViewport {
         try {
             this.renderer.resize(w, h);
             this.renderer.setCulling(this.culling.frustum, this.culling.cone, this.culling.occlusion);
-            this.sync.pickPoints = adacppHandover().pointPick && useOptionsStore.getState().useGpuPointPicking;
+            const handover = adacppHandover();
+            this.sync.pickPoints = handover.pointPick && useOptionsStore.getState().useGpuPointPicking;
+            this.syncLabelsMode(handover.labels);
             this.sync.sync(scene, camera, w, h, pixelRatio);
             this.renderer.render();
             this.renderSprites(scene, camera, w, h);
