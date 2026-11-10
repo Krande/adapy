@@ -270,3 +270,57 @@ async def test_three_free_viewport_loads_picks_selects_and_hides(ws_server):
             assert _count(await _pixels(page), _is_model) > hidden, "Show all brought nothing back"
         finally:
             await browser.close()
+
+
+@pytest.mark.parametrize("backend", ["three", NATIVE])
+async def test_commands_and_keys_reach_whichever_viewport_is_on_screen(ws_server, backend):
+    """Hide, show all and the camera, from the palette and from the keyboard: one set of commands and
+    keys, answered by the three.js viewport and by the three.js-free one."""
+    async with async_playwright() as playwright:
+        browser, page, _ = await _open_viewer(playwright, ws_server, backend)
+        try:
+            await asyncio.to_thread(
+                lambda: _model().show(ws_port=ws_server.port, unique_viewer_id=1, liveness_timeout=10)
+            )
+            await _until(page, lambda: _model_on_screen(page), "the model to be drawn")
+            if backend == NATIVE:
+                assert await page.evaluate("document.documentElement.dataset.nativeViewport") == "active"
+            loaded = _count(await _pixels(page), _is_model)
+
+            await _click(page, *CENTRE)
+            assert _count(await _pixels(page), _is_selected) > 3000, f"{backend}: the click selected nothing"
+
+            # palette: hide the selection, then bring everything back
+            await _command(page, "Hide selected")
+            image = await _pixels(page)
+            assert _count(image, _is_selected) < 50, f"{backend}: the hidden box is still highlighted"
+            hidden = _count(image, _is_model)
+            await _command(page, "Show all")
+            assert _count(await _pixels(page), _is_model) > hidden, f"{backend}: Show all brought nothing back"
+
+            # keyboard: the same two, by their keys
+            await _click(page, *CENTRE)
+            assert _count(await _pixels(page), _is_selected) > 3000
+            await page.keyboard.press("Shift+H")
+            await page.wait_for_timeout(700)
+            assert _count(await _pixels(page), _is_selected) < 50, f"{backend}: Shift+H hid nothing"
+            await page.keyboard.press("Shift+U")
+            await page.wait_for_timeout(700)
+
+            # camera: a named view and a key step each change the picture; fit all brings the model back
+            async def changes(act, what: str) -> None:
+                before = (await _pixels(page)).tobytes()
+                await act()
+                await page.wait_for_timeout(1200)
+                assert (await _pixels(page)).tobytes() != before, f"{backend}: {what} changed nothing"
+
+            await changes(lambda: _command(page, "Top view"), "the top view")
+            await changes(lambda: page.keyboard.press("Control+ArrowLeft"), "Ctrl+Left (orbit)")
+            await changes(lambda: page.keyboard.press("Control+Shift+ArrowUp"), "Ctrl+Shift+Up (pan)")
+            await changes(lambda: page.keyboard.press("Alt+3"), "Alt+3 (the front view)")
+            await _command(page, "Fit all")
+            await page.wait_for_timeout(1200)
+            fitted = _count(await _pixels(page), _is_model)
+            assert fitted > 0.2 * loaded, f"{backend}: Fit all left {fitted} model pixels of {loaded}"
+        finally:
+            await browser.close()

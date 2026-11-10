@@ -156,6 +156,36 @@ export class NativeScene {
         this.pushStates();
     }
 
+    /** Hide every object that is not selected. */
+    hideOthers(): void {
+        for (const o of this.objectList) if (!this.selected.has(o.id)) this.hidden.add(o.id);
+        this.pushStates();
+    }
+
+    /** Look at the whole model from `direction` (the unit vector from the model to the camera, z up). */
+    viewFrom(direction: readonly [number, number, number]): void {
+        if (!this.bounds) return;
+        this.camera.frame(this.bounds, undefined, this.aspect());
+        this.camera.azimuth = Math.atan2(direction[0], direction[1]);
+        this.camera.elevation = Math.asin(Math.max(-1, Math.min(1, direction[2])));
+        this.invalidate();
+    }
+
+    /** Orbit by the given angles (radians), as a key press does. */
+    orbitBy(azimuth: number, elevation: number): void {
+        const h = Math.max(1, this.container.clientHeight);
+        // OrbitCamera.orbit takes a drag in pixels, half a turn per viewport height.
+        this.camera.orbit((azimuth / Math.PI) * h, (elevation / Math.PI) * h, h);
+        this.invalidate();
+    }
+
+    /** Pan by fractions of the viewport's height, as a key press does. */
+    panBy(right: number, up: number): void {
+        const h = Math.max(1, this.container.clientHeight);
+        this.camera.pan(-right * h, up * h, h);
+        this.invalidate();
+    }
+
     /** Every segment's state from the two sets: hidden wins over selected. */
     private pushStates(): void {
         for (const [instance, segments] of this.names) {

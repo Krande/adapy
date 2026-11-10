@@ -76,12 +76,17 @@ The end-to-end test `tests/full/frontend/test_render_backends.py` runs the slice
 
 These are open design points, ordered by how much of the viewer depends on them.
 
-1. **The interface features program against.** Today a feature reaches into `THREE.Scene`. A
-   three.js-free viewer needs a narrow scene interface instead: objects by id, their state
-   (hidden, selected, colour, transparency), their bounds, and a way to add overlay geometry
-   (lines, points, markers) by handle. `NativeScene` is the start of it; the three.js viewport
-   would implement the same interface so that panels and commands work on either. Until that
-   exists, each feature ported to the native viewport is a second implementation.
+1. **The interface features program against.** A feature that reaches into `THREE.Scene` exists on
+   one viewport only. `src/frontend/src/viewport/api` is the interface both stand behind:
+   `ViewportApi` (selection and visibility of the model's objects, fit, named views, reset, orbit and
+   pan by step), implemented by `threeViewport.ts` over the three.js scene and by
+   `native/nativeViewportApi.ts` over `NativeScene`. The viewport on screen registers itself
+   (`setActiveViewport`); commands ask `activeViewport()`, and the keys are bound once for both in
+   `viewportShortcuts.ts`. A viewport says what it cannot do yet (`unavailable(feature)`), and the
+   command is offered disabled with that reason. The interface grows one feature area at a time:
+   still to come are objects by id with their state (colour, transparency), their bounds, and
+   overlay geometry (lines, points, markers) by handle. An area not on it yet still goes straight to
+   three.js and is absent on the three.js-free viewport.
 2. **Where per-object state lives.** `CustomBatchedMesh` owns hidden and selected ranges, and a
    number of scene objects update themselves in `onBeforeRender`, which `SceneSync` replays every
    frame. Without three.js there is no such hook: state has to live in stores keyed by object id,

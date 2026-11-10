@@ -12,7 +12,6 @@ import CameraControls from "camera-controls";
 import {copySelectionNames} from "@/utils/clipboard/copySelectionNames";
 import {toggleTreeFocus} from "@/utils/tree_view/treeKeyboard";
 import {groupSelectionFromKeyboard} from "@/utils/groups/groupShortcut";
-import {hideSelectedRanges, hideUnselectedRanges, unhideAllRanges} from "@/utils/scene/visibility";
 import {applyAdaptiveClipping} from "@/components/viewer/sceneHelpers/adaptiveClipping";
 import {frameBox, zoomToAll} from "@/components/viewer/sceneHelpers/cameraFit";
 
@@ -23,9 +22,7 @@ import {selectChildLevel, selectParentLevel, selectSibling} from "@/utils/tree_v
 import {useCellBuilderStore, needsPreviewCompile} from "@/state/cellBuilderStore";
 import {frameCells} from "@/utils/scene/frameCells";
 import {requestRender} from "@/state/perfStore";
-import {runCommand} from "@/layout/commands";
-import {CAMERA_VIEWS, CORE_COMMAND_IDS, cameraViewCommandId} from "@/layout/coreCommandIds";
-import {orbitByStep, panByStep} from "./cameraKeys";
+import {viewportShortcutHandlers} from "@/viewport/api/viewportShortcuts";
 import {useModelState} from "@/state/modelState";
 import {bindCoreShortcuts, type CoreShortcutHandler} from "@/layout/shortcuts";
 import {installShortcutDispatcher} from "@/layout/shortcutDispatch";
@@ -99,32 +96,13 @@ export function setupCameraControlsHandlers(
         if (useCellBuilderStore.getState().active !== null) return false;
         step();
     };
-    const cameraStep = (step: () => void) => () => {
-        step();
-        requestRender();
-    };
     const unbindShortcuts = bindCoreShortcuts({
         "core:undo": shortcut(history(undoViewerAction)),
         "core:redo": shortcut(history(redoViewerAction)),
         "core:redo-alt": shortcut(history(redoViewerAction)),
-        "core:hide-selected": shortcut(() => hideSelectedRanges()),
-        "core:hide-others": shortcut(() => hideUnselectedRanges()),
         "core:group-selection": shortcut(() => void groupSelectionFromKeyboard()),
-        "core:show-all": shortcut(() => unhideAllRanges()),
-        "core:fit-selection": shortcut(() => fitSelectionView(camera, controls)),
-        "core:fit-all": shortcut(() => fitAllView(scene, camera, controls)),
-        // The camera from the keyboard. Named views and reset run their commands, so the key and the
-        // palette do the same thing; a step of orbit or pan asks for a frame.
-        ...Object.fromEntries(CAMERA_VIEWS.map((view) => [cameraViewCommandId(view), shortcut(() => void runCommand(cameraViewCommandId(view)))])),
-        "core:reset-camera": shortcut(() => void runCommand(CORE_COMMAND_IDS.resetCamera)),
-        "core:orbit-left": shortcut(cameraStep(() => orbitByStep(controls, camera, -1, 0))),
-        "core:orbit-right": shortcut(cameraStep(() => orbitByStep(controls, camera, 1, 0))),
-        "core:orbit-up": shortcut(cameraStep(() => orbitByStep(controls, camera, 0, 1))),
-        "core:orbit-down": shortcut(cameraStep(() => orbitByStep(controls, camera, 0, -1))),
-        "core:pan-left": shortcut(cameraStep(() => panByStep(controls, camera, -1, 0))),
-        "core:pan-right": shortcut(cameraStep(() => panByStep(controls, camera, 1, 0))),
-        "core:pan-up": shortcut(cameraStep(() => panByStep(controls, camera, 0, 1))),
-        "core:pan-down": shortcut(cameraStep(() => panByStep(controls, camera, 0, -1))),
+        // Hide / show, fit, the named views and the camera keys are the viewport's, three.js or not.
+        ...viewportShortcutHandlers(shortcut),
         // Shift+Enter: preview-compile the current (uncommitted) procedural model -- the fast
         // path when editing. Only when there is something to compile (mirrors the Compile
         // button's disabled state, see needsPreviewCompile); otherwise the key is not ours.
