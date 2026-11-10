@@ -2,6 +2,15 @@
 
 
 
+## v0.142.0 (2026-11-10)
+
+### Feature
+
+* feat: WebGPU renderer parity, a WebGPU-only mode and a three.js-free viewport (#526)
+
+Co-authored-by: Claude Fable 5.2 &lt;noreply@anthropic.com&gt; ([`7213ce9`](https://github.com/Krande/adapy/commit/7213ce91f2137b5e46b32e6ccec763bf394e501d))
+
+
 ## v0.141.0 (2026-11-10)
 
 ### Feature
