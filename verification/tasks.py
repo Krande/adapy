@@ -68,6 +68,16 @@ from paradoc.tasks import (  # noqa: E402
 )
 
 import ada  # noqa: E402
+from ada.api.fem_benchmarks import (  # noqa: E402
+    NAFEMS_CASES,
+    cantilever_bending_frequencies,
+    design_nafems_le,
+    mesh_nafems_le,
+    nafems_case_name,
+    run_nafems_le,
+    stress_yy_at,
+    stress_yy_on_plane,
+)
 from ada.api.fem_tasks import (  # noqa: E402
     PLATE_PART_NAME,
     PLATE_STRIP_LENGTH,
@@ -453,6 +463,35 @@ def eig_tables(results: list) -> list:
                 caption=caption,
                 show_index=False,
                 default_sort=("Mode", True),
+            )
+        )
+    return out
+
+
+#: The representations compared with the Euler-Bernoulli bending modes: the second-order ones, whose
+#: discretisation error is small enough for the gap to be about the theory.
+_BENDING_SPECS = [("line", "Line"), ("shell", "Shell"), ("solid", "Solid")]
+
+
+@task(parent=postprocess)
+def eig_closed_form_tables(results: list) -> list:
+    """The bending modes against Euler-Bernoulli, matched by the direction each mode moves in."""
+    closed_form = cantilever_bending_frequencies()
+    out: list = []
+    for geo, label in _BENDING_SPECS:
+        df = ru.create_bending_deviation_df(results, geo, 2, closed_form)
+        if df is None or df.empty:
+            logger.info(f"no bending modes for {geo}, skipping table")
+            continue
+        out.append(
+            TableOutcome(
+                key=f"eig_bending_{geo}_o2",
+                df=df,
+                caption=(
+                    f"{label}, 2nd order: bending frequencies against Euler-Bernoulli. Each solver column is the "
+                    "deviation in %. Y modes bend about the weak axis, Z about the strong axis."
+                ),
+                show_index=False,
             )
         )
     return out
@@ -991,17 +1030,21 @@ def plate_eig_tables(results: list) -> list:
 
 
 def _plate_bundle_outcomes(cases: list, prefix: str) -> list:
-    """Bake the live plate cases into `_assets/plate/` and register what is on disk.
+    return _bundle_outcomes(cases, prefix, _PLATE_ASSETS_DIR, _PLATE_CACHE_DIR)
+
+
+def _bundle_outcomes(cases: list, prefix: str, assets_dir: pathlib.Path, cache_dir: pathlib.Path) -> list:
+    """Bake the live cases into ``assets_dir`` and register what is on disk.
 
     The shape `fea_outputs` has for the cantilever: fresh bakes of this build's cases (`_cases_to_bake`),
     then the cache-only cases (Abaqus, Sestra) restored from the bundles committed in `.cache-plate/`,
     then whatever bundles an earlier build left.
     """
-    fresh = bake_fea_bundles(_cases_to_bake(cases), out_dir=_PLATE_ASSETS_DIR)
+    fresh = bake_fea_bundles(_cases_to_bake(cases), out_dir=assets_dir)
     assets_by_name: dict = {**fresh}
-    restored = restore_fea_bundles(_PLATE_CACHE_DIR, _PLATE_ASSETS_DIR, skip_keys=set(fresh), prefix=prefix)
+    restored = restore_fea_bundles(cache_dir, assets_dir, skip_keys=set(fresh), prefix=prefix)
     skip = set(fresh) | {a.key for a in restored}
-    for a in [*restored, *collect_fea_bundles(_PLATE_ASSETS_DIR, skip_keys=skip)]:
+    for a in [*restored, *collect_fea_bundles(assets_dir, skip_keys=skip)]:
         if a.key.startswith(prefix):
             assets_by_name.setdefault(a.key, a)
 
@@ -1027,3 +1070,182 @@ def plate_static_fea_outputs(results: list) -> list:
     """
     at_seed = [r for r in results if getattr(r, "mesh_size", None) == _PLATE_EIG_MESH_SIZE]
     return _plate_bundle_outcomes(at_seed, "plate_static_")
+
+
+# ---------------------------------------------------------------------------------------------
+# The NAFEMS benchmarks: solids against published targets
+# ---------------------------------------------------------------------------------------------
+#
+# The cantilever and the plate are checked against formulas this report derives. LE1 and LE10 are
+# checked against values someone else published, which is the point of having them. They are also
+# the only cases reaching solid-element pressure records.
+
+#: Radial divisions. Twice that go around the ellipse and, for LE10, the same through the thickness.
+_NAFEMS_DIVISIONS = [2, 4, 8]
+
+#: The density the report shows as figures. The tables carry the convergence.
+_NAFEMS_FIGURE_DIVISIONS = 8
+
+_NAFEMS_SCRATCH_DIR = _THIS_DIR / "temp" / "nafems"
+_NAFEMS_ASSETS_DIR = _ASSETS_DIR / "nafems"
+
+#: Beside `.cache` and not in it, for the reason given at `_PLATE_CACHE_DIR`.
+_NAFEMS_CACHE_DIR = _THIS_DIR / ".cache-nafems"
+_NAFEMS_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+
+@task(fanout={"case": sorted(NAFEMS_CASES)})
+def nafems_glb(*, case: str):
+    """The geometry as a GLB and a poster, one per benchmark, for the model description."""
+    dest = _NAFEMS_ASSETS_DIR / f"{case}.glb"
+    regen = os.environ.get("ADAPY_VERIFICATION_REGEN_ASSETS", "0") == "1"
+    if regen or not dest.exists():
+        try:
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            design_nafems_le(case).to_gltf(dest)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"NAFEMS {case} GLB generation failed: {exc}")
+            return None
+    if not dest.is_file():
+        return None
+    _render_poster(dest, regen)
+    metadata: dict = {}
+    png_path = dest.with_suffix(".png")
+    if png_path.is_file():
+        metadata["image_path"] = str(png_path.relative_to(_THIS_DIR))
+    return ThreeDOutcome(
+        row=ThreeDData(
+            key=f"nafems_{case}_geom",
+            glb_path=str(dest.relative_to(_THIS_DIR)),
+            format="glb",
+            camera_pos="iso_3",
+            caption=f"NAFEMS {case} geometry.",
+            sha256=hashlib.sha256(dest.read_bytes()).hexdigest(),
+            size=dest.stat().st_size,
+            source_type="cad_model_file",
+            metadata=metadata,
+        )
+    )
+
+
+@task(fanout={"case": sorted(NAFEMS_CASES), "divisions": _NAFEMS_DIVISIONS})
+def nafems_mesh(*, case: str, divisions: int) -> ada.Assembly:
+    """The benchmark model at one mesh density."""
+    return mesh_nafems_le(case, divisions)
+
+
+def _nafems_skip(**kw: object) -> bool:
+    return _licensed_skip(kw["solver"])
+
+
+@task(
+    parent=nafems_mesh,
+    fanout={"solver": ["abaqus", "calculix", "code_aster", "sesam"]},
+    skip_if=_nafems_skip,
+    **_CONCURRENCY,
+)
+def nafems_run(a: ada.Assembly, *, solver: str):
+    """Solve one benchmark and keep the stress at point D. A cell that can't run logs and yields nothing."""
+    axes = a.metadata["nafems"]
+    name = nafems_case_name(solver, axes["case"], axes["divisions"])
+    try:
+        result = run_nafems_le(copy.deepcopy(a), fem_format=solver, scratch_dir=_NAFEMS_SCRATCH_DIR, name=name)
+    except FEASolverNotInstalled as exc:
+        logger.warning(f"{name}: solver {solver!r} not installed: {exc}")
+        return None
+    except Exception as exc:  # noqa: BLE001 - one bad cell must not lose the report
+        logger.warning(f"{name}: {type(exc).__name__}: {exc}", exc_info=True)
+        return None
+    if result is None:
+        return None
+    try:
+        stress = stress_yy_at(result, axes["point_d"])
+        plane = (
+            stress_yy_on_plane(result, axes["point_d"][2]) if axes["divisions"] == _NAFEMS_FIGURE_DIVISIONS else None
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"{name}: could not sample the stress at D: {exc}")
+        return None
+    result._nafems_case = {"name": name, "solver": solver, "stress_yy": stress, "plane": plane, **axes}
+    return result
+
+
+@task(consumes=nafems_run)
+def nafems_postprocess(results: list) -> list:
+    """What ran on this machine, then the cached cases for the solvers it doesn't have."""
+    out: list = []
+    for r in results:
+        case = getattr(r, "_nafems_case", {})
+        wrapper = ru.NafemsResult(
+            name=case.get("name", "nafems"),
+            fem_format=r.softwares[0] if getattr(r, "softwares", None) else case.get("solver", "unknown"),
+            results=r,
+            metadata={"elo": 2},
+            case=case.get("case"),
+            divisions=case.get("divisions"),
+            n_elements=case.get("n_elements"),
+            stress_yy=case.get("stress_yy"),
+            plane=case.get("plane"),
+        )
+        wrapper.name = wrapper.safe_name
+        if wrapper.divisions == _NAFEMS_FIGURE_DIVISIONS:
+            _snapshot_raw_data(wrapper, _NAFEMS_CACHE_DIR)  # a licensed solver's figures are committed with its numbers
+        try:
+            wrapper.save_to_json(_NAFEMS_CACHE_DIR / f"{wrapper.name}.json")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"could not cache {wrapper.name}: {exc}")
+        out.append(wrapper)
+
+    live = {r.name for r in out}
+    out.extend(walk_cached_case_results(ru.NafemsResult, _NAFEMS_CACHE_DIR, skip_names=live))
+    logger.info(f"nafems_postprocess: {len(out)} case(s) (live + cached)")
+    return out
+
+
+@task(parent=nafems_postprocess)
+def nafems_tables(results: list) -> list:
+    """One table per benchmark: the stress at D by solver and mesh, against the published target."""
+    out: list = []
+    for name, case in sorted(NAFEMS_CASES.items()):
+        df = ru.create_nafems_df([r for r in results if r.case == name], case.target_pa)
+        if df is None or df.empty:
+            logger.info(f"no results for {name}, skipping table")
+            continue
+        out.append(
+            TableOutcome(
+                key=f"nafems_{name}",
+                df=df,
+                caption=f"NAFEMS {name}, {case.title.lower()}: sigma_yy at point D [MPa] and its deviation from the target [%].",
+                show_index=False,
+            )
+        )
+    return out
+
+
+@task(parent=nafems_postprocess)
+def nafems_fea_outputs(results: list) -> list:
+    """FEA bundles at the finest mesh, for the benchmark page's figures."""
+    at_density = [r for r in results if r.divisions == _NAFEMS_FIGURE_DIVISIONS]
+    return _bundle_outcomes(at_density, "nafems_", _NAFEMS_ASSETS_DIR, _NAFEMS_CACHE_DIR)
+
+
+@task(parent=nafems_postprocess)
+def nafems_stress_plots(results: list) -> list:
+    """Sigma_yy contours, the quantity the benchmarks are judged on, at the finest mesh."""
+    out: list = []
+    for name, case in sorted(NAFEMS_CASES.items()):
+        at_density = [r for r in results if r.case == name and r.divisions == _NAFEMS_FIGURE_DIVISIONS]
+        fig = ru.create_nafems_contour(at_density, f"NAFEMS {name}: σyy, target at D {case.target_pa / 1e6:g} MPa")
+        if fig is None:
+            logger.info(f"no stress field for {name}, skipping contour")
+            continue
+        out.append(
+            PlotOutcome(
+                key=f"nafems_{name}_syy",
+                fig=fig,
+                caption=f"NAFEMS {name}: σyy at the finest mesh, by solver.",
+                width=max(520, 440 * len(at_density)),
+                height=470,
+            )
+        )
+    return out

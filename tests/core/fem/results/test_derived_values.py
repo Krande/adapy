@@ -4,12 +4,16 @@ import numpy as np
 
 from ada.fem.formats.sesam.results.derived_fields import _surface_values_and_positions
 from ada.fem.formats.sesam.results.derived_values import (
+    HEX20_EDGES,
+    HEX_CORNER_SIGNS,
     beam_stress,
     decompose_shell,
     general_stress,
+    hex_gauss_to_nodes,
     membrane_principal,
     opposite_section_modulus,
     plane_principal,
+    solid_general_stress,
     stress_resultants,
 )
 from ada.fem.formats.sesam.results.result_units import (
@@ -28,6 +32,29 @@ def test_shell_surfaces_are_packed_top_first_with_layer_metadata():
     assert values[0, :, 0].tolist() == [10.0, 20.0, 30.0, -10.0, -20.0, -30.0]
     assert [position[2] for position in positions] == [0.5, 0.5, 0.5, -0.5, -0.5, -0.5]
     assert [position[1] for position in positions] == ["1", "2", "3", "1", "2", "3"]
+
+
+def _trilinear(points: np.ndarray) -> np.ndarray:
+    """Two components of a field trilinear in natural coordinates, at ``points`` (n, 3)."""
+    x, y, z = points.T
+    return np.stack((1.0 + 2.0 * x - 3.0 * y + 0.5 * z + x * y * z, 4.0 * x * z - y), axis=-1)
+
+
+def test_hex_gauss_extrapolation_reproduces_a_trilinear_field_at_every_node():
+    gauss = HEX_CORNER_SIGNS / 3**0.5  # one point per corner's octant
+    # The solver's point order is not the corners': the extrapolation is told which point is in which octant.
+    order = np.array([6, 2, 7, 0, 5, 1, 3, 4])
+    nearest = np.argsort(order)[None, :]
+    at_nodes = hex_gauss_to_nodes(_trilinear(gauss[order])[None], nearest, 20)[0]
+
+    assert np.allclose(at_nodes[:8], _trilinear(HEX_CORNER_SIGNS.astype(float)))
+    mid = 0.5 * (HEX_CORNER_SIGNS[HEX20_EDGES[:, 0]] + HEX_CORNER_SIGNS[HEX20_EDGES[:, 1]])
+    assert np.allclose(at_nodes[8:], _trilinear(mid))
+
+
+def test_solid_von_mises_of_uniaxial_and_pure_shear():
+    basic = np.array([[100.0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 10.0], [50.0, 50.0, 50.0, 0, 0, 0]])
+    assert np.allclose(solid_general_stress(basic)[:, -1], [100.0, 10.0 * 3**0.5, 0.0])
 
 
 def test_shell_derived_values_match_reference_row():

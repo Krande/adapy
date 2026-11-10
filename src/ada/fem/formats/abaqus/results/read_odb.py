@@ -27,6 +27,7 @@ import sqlite3
 import subprocess
 import warnings
 from dataclasses import dataclass
+from itertools import product
 from typing import TYPE_CHECKING, Callable
 
 import numpy as np
@@ -247,6 +248,13 @@ def read_results_sqlite(
     )
     from ada.fem.results.sqlite_schema import check_schema_version, order_components
 
+    # The element-field locations read, each with its position and what its fields' names get appended: an
+    # element-nodal field is named apart, so it is never taken for the integration-point field of the same variable.
+    elem_locations = {
+        "INTEGRATION_POINT": (FieldPosition.INT, ""),
+        "ELEMENT_NODAL": (FieldPosition.ELEMENT_NODAL, " (element_nodal)"),
+    }
+
     db_path = pathlib.Path(db_path)
     conn = sqlite3.connect(db_path)
     try:
@@ -313,13 +321,15 @@ def read_results_sqlite(
                 (inst,),
             )
         }
-        elem_blobs: dict[tuple[int, float, str], dict[int, tuple[int, bytes]]] = {}
-        for step_id, frame, var_id, el_type, n_ips, data in conn.execute(
-            """SELECT StepID, Frame, FieldVarID, ElemType, NIPs, Data FROM FieldElem
-               WHERE InstanceID = ? AND IsImaginary = 0 AND Location = 'INTEGRATION_POINT'""",
-            (inst,),
+        # Integration points, and element nodes (``*Element Output, position=NODES``: one value per node of
+        # each element, in its connectivity order) where they were asked for.
+        elem_blobs: dict[tuple[int, float, str, str], dict[int, tuple[int, bytes]]] = {}
+        for step_id, frame, var_id, el_type, location, n_ips, data in conn.execute(
+            f"""SELECT StepID, Frame, FieldVarID, ElemType, Location, NIPs, Data FROM FieldElem
+               WHERE InstanceID = ? AND IsImaginary = 0 AND Location IN ({", ".join("?" * len(elem_locations))})""",
+            (inst, *elem_locations),
         ):
-            elem_blobs.setdefault((step_id, frame, el_type), {})[var_id] = (int(n_ips or 1), data)
+            elem_blobs.setdefault((step_id, frame, el_type, location), {})[var_id] = (int(n_ips or 1), data)
     finally:
         conn.close()
 
@@ -363,8 +373,8 @@ def read_results_sqlite(
                 )
             )
 
-        for el_type, el_ids in by_type.items():
-            per_var = elem_blobs.get((step_id, frame_value, el_type))
+        for (el_type, el_ids), (location, (field_pos, suffix)) in product(by_type.items(), elem_locations.items()):
+            per_var = elem_blobs.get((step_id, frame_value, el_type, location))
             if not per_var:
                 continue
             for desc, fids in groups.items():
@@ -378,13 +388,13 @@ def read_results_sqlite(
                 comps = [var_name[f] for f in fids]
                 fields.append(
                     ElementFieldData(
-                        _field_name(comps, desc),
+                        _field_name(comps, desc) + suffix,
                         result_step,
                         comps,
                         np.column_stack([labels, ips] + cols),
                         eigen_freq=mode.get("EIGFREQ"),
                         eigen_value=mode.get("EIGVAL"),
-                        field_pos=FieldPosition.INT,
+                        field_pos=field_pos,
                         elem_type=abaqus_el_type_to_ada(el_type),
                     )
                 )
