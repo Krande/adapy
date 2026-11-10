@@ -49,6 +49,10 @@ type ConnectionBuilderState = {
   /** The latest SUCCESSFUL build: its joint (clash, members, welds) stays listed while the next
    *  one builds or fails, until a build of another spec replaces it. */
   lastResult: DevBuildResult | null;
+
+  /** The joint's 3D annotations (Scene > Overlays, "Connection"). */
+  overlays: { axes: boolean; welds: boolean };
+  setOverlay: (which: "axes" | "welds", on: boolean) => void;
 };
 
 const STORAGE_PREFIX = "ada-connection-builder:";
@@ -122,6 +126,9 @@ export const useConnectionBuilderStore = create<ConnectionBuilderState>((set, ge
   build: { status: "idle" },
   setBuild: (build) => set(build.status === "done" ? { build, lastResult: build.result } : { build }),
   lastResult: null,
+
+  overlays: { axes: true, welds: true },
+  setOverlay: (which, on) => set((s) => ({ overlays: { ...s.overlays, [which]: on } })),
 }));
 
 /** The inputs a build of `spec` sends: the spec's defaults, overridden by what the user changed. */

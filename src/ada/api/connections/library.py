@@ -269,13 +269,15 @@ def _joint_members(conn) -> list:
     return [*conn.beams, *conn.plates]
 
 
-def _measure_joint(glb_path: pathlib.Path, conn) -> tuple[dict | None, dict[str, set[str]], str | None]:
+def _measure_joint(
+    glb_path: pathlib.Path, conn
+) -> tuple[dict | None, dict[str, dict[str, tuple[float, float, float]]], str | None]:
     """Measure the built GLB's contacts (adacpp, ``ada.clash.contacts``).
 
     Returns the run restricted to the contacts BETWEEN the joint's members -- the clash that is the
-    joint -- with roles and the applicable specs resolved against the connection; which members
-    each weld touches (from the unrestricted run); and why there is no run, where there is none.
-    A failed measurement never fails the build.
+    joint -- with roles and the applicable specs resolved against the connection; for every object,
+    what it touches and where (from the unrestricted run); and why there is no run, where there is
+    none. A failed measurement never fails the build.
     """
     import dataclasses
 
@@ -293,11 +295,13 @@ def _measure_joint(glb_path: pathlib.Path, conn) -> tuple[dict | None, dict[str,
         )
         names = [str(m["name"]) for m in run.members]
         members = {m.name for m in _joint_members(conn)}
-        touches: dict[str, set[str]] = {}
+        touches: dict[str, dict[str, tuple[float, float, float]]] = {}
         for c in run.contacts:
             a, b = (names[k] for k in c.members)
-            touches.setdefault(a, set()).add(b)
-            touches.setdefault(b, set()).add(a)
+            # Where they touch: the midpoint of the two nearest points, in the GLB's model frame.
+            at = tuple((p + q) / 2 for p, q in zip(*c.near_points))
+            touches.setdefault(a, {})[b] = at
+            touches.setdefault(b, {})[a] = at
         joint = tuple(c for c in run.contacts if {names[k] for k in c.members} <= members)
         annotated, _ = annotate_applicable(dataclasses.replace(run, contacts=joint), conn)
         return annotated.to_dict(), touches, None
@@ -306,10 +310,13 @@ def _measure_joint(glb_path: pathlib.Path, conn) -> tuple[dict | None, dict[str,
         return None, {}, f"measuring the contacts failed: {type(e).__name__}: {e}"
 
 
-def _joint_properties(conn, roles: list[str], touches: dict[str, set[str]]) -> dict[str, Any]:
+def _joint_properties(
+    conn, roles: list[str], touches: dict[str, dict[str, tuple[float, float, float]]]
+) -> dict[str, Any]:
     """What the studio lists for the joint: each member (its role, section or thickness, material,
     the cuts on it) and each weld (its metadata as the GLB carries it, plus whether it touches the
-    members it says it joins)."""
+    members it says it joins). Positions are in the GLB's model frame, for the studio's overlays:
+    a beam's ``axis`` (n1, n2), a plate's ``centre``, a weld's ``at`` (where it meets its members)."""
     from ada import Beam
     from ada.comms.msg_handling.object_metadata import beam_metadata, plate_metadata
     from ada.visit.scene_handling.scene_from_part import _weld_metadata
@@ -326,18 +333,36 @@ def _joint_properties(conn, roles: list[str], touches: dict[str, set[str]]) -> d
         meta["booleans"] = len(m.booleans)
         if isinstance(m, Beam):
             meta["length"] = float(m.length)
+            meta["axis"] = [_xyz(m.n1.p), _xyz(m.n2.p)]
+        else:
+            meta["centre"] = _xyz(m.poly.get_centroid())
         members.append(meta)
 
     welds = []
     for part in conn.get_all_subparts(include_self=True):
         for w in part.welds:
             meta = {"name": w.name, **_weld_metadata(w)}
-            touched = sorted(touches.get(w.name, set()))
-            meta["touches"] = touched
+            touched = touches.get(w.name, {})
+            meta["touches"] = sorted(touched)
             # Only judged where the contacts were measured at all.
             meta["joins_its_members"] = set(meta["members"]) <= set(touched) if touches else None
+            meta["at"] = _weld_position(w, [touched[m] for m in meta["members"] if m in touched])
             welds.append(meta)
     return {"members": members, "welds": welds}
+
+
+def _xyz(p) -> list[float]:
+    return [float(v) for v in p]
+
+
+def _weld_position(weld, contact_points: list[tuple[float, float, float]]) -> list[float] | None:
+    """Where to label a weld: the mean of where it meets its members, else its sweep curve's middle."""
+    if contact_points:
+        return [sum(p[i] for p in contact_points) / len(contact_points) for i in range(3)]
+    points = getattr(getattr(weld, "sweep_curve", None), "points3d", None)
+    if points is not None and len(points):
+        return _xyz(points[len(points) // 2])
+    return None
 
 
 class _CapturedLog(logging.Handler):

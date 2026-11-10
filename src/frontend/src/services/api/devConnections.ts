@@ -66,6 +66,10 @@ export interface DevJointMember {
   length?: number;
   /** Boolean cuts on the member (a stub's, or the builder's trims). */
   booleans: number;
+  /** A beam's axis (n1, n2), in the GLB's model frame. */
+  axis?: [number[], number[]];
+  /** A plate's centroid, in the GLB's model frame. */
+  centre?: number[];
 }
 
 /** A weld of the built joint, as the GLB's object metadata describes it. */
@@ -83,6 +87,8 @@ export interface DevJointWeld {
   touches: string[];
   /** Whether it touches every member it says it joins; null where contacts were not measured. */
   joins_its_members: boolean | null;
+  /** Where it meets its members (else its sweep curve's middle), in the GLB's model frame. */
+  at: number[] | null;
 }
 
 export interface DevBuildResult {

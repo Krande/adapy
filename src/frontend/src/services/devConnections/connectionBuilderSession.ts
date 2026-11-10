@@ -21,6 +21,7 @@ import type { ContactRunDoc } from "@/services/clash/contactRuns";
 import { contactRunToResult, useClashCheckStore } from "@/state/clashCheckStore";
 import { effectiveInputs, useConnectionBuilderStore } from "@/state/connectionBuilderStore";
 import { useModelState } from "@/state/modelState";
+import { renderConnectionOverlay } from "@/utils/scene/connectionOverlay";
 import { selectInOtherModel } from "@/utils/scene/crossModelSelect";
 import { overlay_file_in_scene } from "@/utils/scene/handlers/overlay_file_in_scene";
 import { unload_any_source } from "@/utils/scene/handlers/unload_any_source";
@@ -69,11 +70,19 @@ export function startConnectionBuilderSession(): void {
     () => store.getState().setConnected(false),
   );
 
-  // Selection and input edits rebuild; the library's own updates are handled above.
+  // Selection and input edits rebuild; the library's own updates are handled above. A toggled
+  // overlay redraws over the preview on show.
   store.subscribe((s, prev) => {
     if (s.selectedSpec !== prev.selectedSpec) requestBuild(0);
     else if (s.inputsBySpec !== prev.inputsBySpec) requestBuild(INPUT_DEBOUNCE_MS);
+    if (s.overlays !== prev.overlays) drawOverlay();
   });
+}
+
+/** The joint's 3D annotations over the preview on show (`connectionOverlay`). */
+function drawOverlay(): void {
+  const s = useConnectionBuilderStore.getState();
+  renderConnectionOverlay(currentPreview, s.lastResult, s.overlays);
 }
 
 function keepSelectionValid(state: DevConnectionsState): void {
@@ -116,6 +125,7 @@ async function buildSelected(): Promise<void> {
     currentPreview = sourceName;
     showClash(result, sourceName);
     useConnectionBuilderStore.getState().setBuild({ status: "done", result });
+    drawOverlay();
   } catch (err) {
     if (seq !== requested) return;
     const traceback = err instanceof DevBuildError ? err.traceback : null;
