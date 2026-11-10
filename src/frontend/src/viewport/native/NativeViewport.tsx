@@ -11,6 +11,7 @@ import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {useSectionStore} from "@/state/sectionStore";
 import {tickFeaAnimation} from "@/utils/scene/fea/feaAnimationDriver";
 import {notifyModelLoaded, notifyViewportPick, setActiveViewport} from "@/viewport/api/viewportApi";
+import {runBeforeDraw} from "@/viewport/api/beforeDraw";
 import {viewportShortcutHandlers} from "@/viewport/api/viewportShortcuts";
 import {NativeOrientationGizmo} from "./NativeOrientationGizmo";
 import {NativeScene, splitObjectKey} from "./nativeScene";
@@ -29,7 +30,7 @@ function linearRgb(hex: string): [number, number, number] | null {
 }
 
 const UNAVAILABLE = [
-    "element sets and the edges of beam sections of an FEA result", "plugin overlays",
+    "the glyphs of an FEA model's masses, supports and loads, and its link to the CAD model",
 ];
 
 const NativeViewport: React.FC = () => {
@@ -57,6 +58,8 @@ const NativeViewport: React.FC = () => {
             // long as it plays. It writes the deformation scale to the result's layer.
             scene.beforeFrame = (dt) => {
                 tickFeaAnimation(dt);
+                // What is pinned to the result (a label on an element, an outline) moves with it.
+                runBeforeDraw();
                 const fea = useFeaAnimationStore.getState();
                 return fea.isPlaying && fea.sessionActive;
             };

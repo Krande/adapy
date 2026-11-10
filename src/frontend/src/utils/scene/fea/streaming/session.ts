@@ -15,6 +15,7 @@ import {useModelSessionStore, type FeaSessionHandle} from "@/state/modelSession"
 import {requestRender} from "@/state/perfStore";
 import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
 import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
+import {feaMeshChanged} from "../meshOverlayTarget";
 import {layerSessionScope} from "./layerSession";
 
 /**
@@ -34,6 +35,8 @@ export const feaSession = {
     },
     set active(handle: FeaSessionHandle | null) {
         useModelSessionStore.getState().ensure().fea = handle;
+        // What was drawn over the mesh that left (plugin overlays) goes with it.
+        feaMeshChanged();
     },
 };
 

@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 import {CAMERA_VIEWS, cameraViewCommandId} from "@/layout/coreCommandIds";
 import {CORE_SHORTCUTS} from "@/layout/coreShortcutTable";
 import {NO_OBJECTS} from "@/viewport/api/boxSelection";
+import {NO_OVERLAYS} from "@/viewport/api/overlayLayer";
 import {activeViewport, onActiveViewportChange, setActiveViewport, type ViewportApi} from "@/viewport/api/viewportApi";
 import {viewportShortcutHandlers} from "@/viewport/api/viewportShortcuts";
 
@@ -58,6 +59,8 @@ function recorder(kind: ViewportApi["kind"], cannot: string | null = null): {api
             billboards: () => {
                 throw new Error("no billboards in this test");
             },
+            overlays: () => NO_OVERLAYS,
+            fitBox: () => false,
             objectsInBox: () => NO_OBJECTS,
             objectsInScreenRect: () => NO_OBJECTS,
             selectionBounds: () => null,

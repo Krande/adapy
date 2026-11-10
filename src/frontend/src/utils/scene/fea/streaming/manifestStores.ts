@@ -26,6 +26,8 @@ export async function registerManifestStores(args: {
      *  manifest's sets are not registered. */
     fetcher?: FeaFetcher;
     cacheKey?: string;
+    /** False leaves the CAD lineage out: for a result that has no three.js object to hang it on. */
+    lineage?: boolean;
 }): Promise<void> {
     const {manifest, sourceName, feaRoot} = args;
     // Register CAD↔FEA lineage from the manifest. Mirrors the
@@ -34,7 +36,7 @@ export async function registerManifestStores(args: {
     // same ``assembly_guid`` is also loaded, the panel's link
     // row resolves a clicked FEA element back to its parent
     // beam without going through the server.
-    if (manifest.lineage && manifest.lineage.assembly_guid) {
+    if (args.lineage !== false && manifest.lineage && manifest.lineage.assembly_guid) {
         const sceneRoot = getViewerRuntime().scene.current;
         const meshRoot = feaRoot ? findFirstMesh(feaRoot) : null;
         const root = (meshRoot ?? feaRoot ?? sceneRoot) as THREE.Object3D | null;

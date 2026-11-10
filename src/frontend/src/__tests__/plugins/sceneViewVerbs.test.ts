@@ -9,6 +9,10 @@ import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {useModelSessionStore, type FeaSessionHandle} from "@/state/modelSession";
 import {createViewerRuntime, mountViewerRuntime} from "@/state/viewerRuntime";
 import {frameFeaElements, frameSceneBox} from "@/plugins/sceneOverlays";
+// The three.js loader's result as what the verbs act on: registered where the loader is.
+import "@/utils/scene/fea/meshOverlayTarget";
+import {setActiveViewport} from "@/viewport/api/viewportApi";
+import {createThreeViewport} from "@/viewport/api/threeViewport";
 import {
     _resetFeaDeformationGate,
     applyFeaDeformationGate,
@@ -51,7 +55,13 @@ function viewer(): {camera: THREE.PerspectiveCamera; controls: OrbitControls} {
     }) as OrbitControls;
     (runtime.camera as {current: unknown}).current = camera;
     (runtime.controls as {current: unknown}).current = controls;
-    unmount = mountViewerRuntime(runtime);
+    const unmountRuntime = mountViewerRuntime(runtime);
+    // The verbs frame through the viewport on screen.
+    const withdraw = setActiveViewport(createThreeViewport({scene: new THREE.Scene(), camera, controls}));
+    unmount = () => {
+        withdraw();
+        unmountRuntime();
+    };
     return {camera, controls};
 }
 

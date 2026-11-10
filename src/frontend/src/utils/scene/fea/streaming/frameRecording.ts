@@ -10,7 +10,6 @@
 
 import type {FeaManifestField} from "@/services/viewerApi";
 import type {FeaSessionHandle} from "@/state/modelSession";
-import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {
     disposeFrameRecorder,
     frameRecorderFor,
@@ -18,32 +17,10 @@ import {
     releaseFrames,
 } from "../playbackFrames";
 import {translationOffsets, warpValue} from "../warpComponents";
+import {recordable} from "./framesKey";
 import {syncFeaOverlayVisibility} from "./visibility";
 
-/** What a recording is valid for: the field painted and every setting that changes
- *  its colours or its warp. Not the warp SCALE -- that is the morph influence,
- *  applied when a frame is shown. */
-export function framesKey(sourceName: string, fieldName: string | null, reduction: string | null): string {
-    const s = useFeaAnimationStore.getState();
-    return JSON.stringify([
-        sourceName,
-        fieldName,
-        reduction,
-        s.colormap,
-        s.contour,
-        s.layer,
-        s.ipReduction,
-        s.nodalAverage,
-        s.warpEnabled,
-        s.envelopeMode,
-    ]);
-}
-
-/** Fields whose paint the recorder can replay. Result-point fields also draw point
- *  markers, which it does not keep. */
-export function recordable(field: FeaManifestField): boolean {
-    return field.support !== "result_point" && field.support !== "line_result_point";
-}
+export {framesKey, recordable} from "./framesKey";
 
 /** The warp per source vertex (xyz), as the ordinary paint installed it. Zero when
  *  there is no warp source. */

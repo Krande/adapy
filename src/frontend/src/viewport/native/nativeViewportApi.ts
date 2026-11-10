@@ -6,6 +6,8 @@ import {matrixProjector} from "@/utils/scene/fea/labelPlacement";
 import type {ObjectRef, ViewportApi} from "@/viewport/api/viewportApi";
 import type {BillboardLayer} from "@/viewport/api/billboards";
 import {createNativeBillboardLayer} from "./nativeBillboards";
+import type {OverlayLayer} from "@/viewport/api/overlayLayer";
+import {createNativeOverlayLayer} from "./nativeOverlays";
 import {KeySet, nativeObjectsInBox, nativeObjectsInScreenRect, nativeSelectionBounds} from "./nativeBoxSelection";
 import {objectKey, splitObjectKey, type NativeScene} from "./nativeScene";
 import {withNativeHistory} from "./nativeViewportHistory";
@@ -20,6 +22,7 @@ const SCREENSHOT_HEIGHT = 1080;
 
 export function createNativeViewportApi(scene: NativeScene): ViewportApi {
     const layers = new Map<string, BillboardLayer>();
+    const overlayLayers = new Map<string, OverlayLayer>();
     // The scene knows an object by one key made of its model and its id.
     const own = (refs: Iterable<ObjectRef>): string[] => Array.from(refs, (r) => objectKey(r.model, r.id));
     // Each call that changes the selection or what is hidden is one undo step (./nativeViewportHistory.ts).
@@ -77,6 +80,16 @@ export function createNativeViewportApi(scene: NativeScene): ViewportApi {
             }
             return layer;
         },
+        overlays: (name) => {
+            let layer = overlayLayers.get(name);
+            if (!layer) {
+                const made = createNativeOverlayLayer(scene);
+                layer = {...made, dispose: () => (overlayLayers.delete(name), made.dispose())};
+                overlayLayers.set(name, layer);
+            }
+            return layer;
+        },
+        fitBox: (min, max) => scene.fitBox([min[0], min[1], min[2], max[0], max[1], max[2]]),
         // Box selection, decided on each object's box (./nativeBoxSelection.ts says where that is coarser).
         objectsInBox: (box, mode) => nativeObjectsInBox(scene, box, mode),
         objectsInScreenRect: (rect, mode) => nativeObjectsInScreenRect(scene, rect, mode),

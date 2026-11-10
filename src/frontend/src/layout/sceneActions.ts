@@ -144,7 +144,12 @@ export function isMirroredWindow(): boolean {
 const coreRun = (id: string) => void import("./coreCommands").then((m) => m.runCoreCommandAction(id));
 const treeActions = () => import("@/utils/tree_view/sceneTreeActions");
 const treeSelect = () => import("@/utils/tree_view/treeSelectionActions");
-const feaActions = () => import("@/utils/scene/fea/feaIsolation");
+// A result drawn through result layers (the three.js-free viewport) isolates through the
+// viewport's objects; the three.js loader's result on its mesh. The same actions either way.
+const feaActions = () =>
+    import("@/utils/scene/fea/layerIsolation").then((layers) =>
+        layers.layerResultShown() ? layers : import("@/utils/scene/fea/feaIsolation"),
+    );
 
 /** The actions, run on this window's scene; and a selection of rows made in another window (shown in this one's tree too). */
 export const localSceneActions: SceneActions & {selectRowsFromElsewhere(rows: readonly TreeNodeData[], mode: RowSelectMode): void} = {

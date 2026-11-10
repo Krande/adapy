@@ -648,6 +648,13 @@ export class NativeScene {
         this.frame(this.bounds, seconds);
     }
 
+    /** Frame a box in the world (min xyz, max xyz); false for an empty one. */
+    fitBox(box: Bounds, seconds = MOVE_SECONDS): boolean {
+        if (!(box[0] <= box[3] && box[1] <= box[4] && box[2] <= box[5])) return false;
+        this.frame(box, seconds);
+        return true;
+    }
+
     /** The whole model from the starting direction: what a newly loaded model shows. */
     home(seconds = MOVE_SECONDS): void {
         if (!this.bounds) return;

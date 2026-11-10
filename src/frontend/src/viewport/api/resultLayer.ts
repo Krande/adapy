@@ -48,6 +48,20 @@ export interface ResultMeshData {
     opacity?: number;
     /** The objects the mesh is made of, when they can be picked, selected and hidden. */
     objects?: ResultMeshObjects;
+    /** Drawn as an annotation over the model instead of as part of it: unlit, never picked, and
+     *  in front of the faces it lies on. What an overlay of lines or points is made of, and the
+     *  colours a feature paints over elements. */
+    overlay?: ResultOverlayLook;
+}
+
+/** How a mesh that is an annotation (`ResultMeshData.overlay`) is drawn. */
+export interface ResultOverlayLook {
+    /** Over the model, never hidden behind it. */
+    onTop?: boolean;
+    /** Cut by the section planes; true when left out. */
+    clipped?: boolean;
+    /** Lines: dashes, measured by `distances` (the length along the line at each vertex). */
+    dashed?: {dash: number; gap: number; distances: Float32Array};
 }
 
 /** One mesh of a shown result. Each call replaces what the previous one of its kind set; the arrays

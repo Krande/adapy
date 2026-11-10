@@ -40,11 +40,13 @@ import {readGlbMesh, type GlbMesh} from "@/utils/glb/glbMesh";
 import {positionsDiagonal, type ResultMeshLayer, type ResultMeshObjects, type ViewportResults} from "@/viewport/api/resultLayer";
 import {activeViewport, notifyModelLoaded} from "@/viewport/api/viewportApi";
 import {beamSolidNodalColors, nodalScalars} from "../beamSolidNodalColors";
+import {computeBeamSolidEdges, type BeamSolidEdgeData} from "../beamSolidFeatureEdges";
 import {beamSolidDisplacement} from "../beamSolidWarp";
 import {hasLazyCases, legendScopeFor, mergeCaseSteps, nextCaseToPrefetch, slotCount, slotRef} from "../caseSteps";
 import {FEA_BEAM_EDGE_COLOR, FEA_EDGE_COLOR, FEA_UNDEFORMED_COLOR} from "../edgeColors";
 import {withoutEdges} from "../edgeSplit";
 import {elementLocalVertices, expandTriplesInto, paintElemField, shownElemFieldRange} from "../elemFieldPaint";
+import {notifyFeaTargetGone, registerFeaTarget, type FeaOverlayTarget} from "../elementSource";
 import {edgeOwners, maskHiddenEdges, type EdgeOwners} from "../feaEdgeFilter";
 import type {LabelSource} from "../labelPlacement";
 import {paintNodalField} from "../nodalFieldPaint";
@@ -53,7 +55,10 @@ import {RangeAccumulator} from "../rangeAccumulator";
 import {isTimeHistory} from "../timeHistory";
 import {recordLayerValues} from "../visibleValues";
 import {loadBeamSolidData, type BeamSolidData} from "./layerBeamSolids";
+import {framesKey, recordable} from "./framesKey";
+import {colorsFromBytes, LayerFrameRecorder} from "./layerFrames";
 import {PaintedPointsLayer, ResultGroup} from "./layerGroup";
+import {makeLayerOverlayTarget, type LayerMeshView} from "./layerOverlayTarget";
 import {preloadFrames, prefetchFieldSteps, upcomingSteps} from "./prefetch";
 import {syncResultStores} from "./resultStores";
 import {requestStep} from "./stepQueue";
@@ -90,12 +95,27 @@ interface LayerSession {
      *  borders (worked out the first time elements are hidden). */
     shellEdgeIndices: Uint32Array | null;
     edgeOwners: EdgeOwners | null;
+    /** Whether the edges on screen leave out those of hidden elements, and whether they are to
+     *  stay (the rest of an isolation, drawn as a wireframe). */
+    shellEdgesMasked: boolean;
+    hiddenEdgesKept: boolean;
     /** 1 for each node a face uses, or null when every node is drawn. */
     drawn: Uint8Array | null;
     /** The same over the faces of the elements that are not hidden, while some are. */
     shownNodes: Uint8Array | null;
     /** The displacement the layers hold now, xyz per node: what a layer made later starts from. */
     lastDisplacement: Float32Array | null;
+    /** The colours the faces and the beam sections were last given, in the numbering each is
+     *  drawn in: what a recorded frame keeps. */
+    lastFaceColors: Float32Array | null;
+    lastSolidColors: Float32Array | null;
+    /** Goes up each time a displacement is written to the layers. */
+    displacementWrites: number;
+    /** The displacement the beam sections hold now, xyz per vertex of theirs. */
+    solidsDisplacement: Float32Array | null;
+    /** Layers something else drew over the result (colours a plugin paints over elements): each
+     *  moves with the vertices of the mesh it lies on. */
+    pinned: Set<PinnedLayer>;
     /** Whether the last paint measured its scale over what is drawn. */
     rangeFromShown: boolean;
     /** Everything the result is made of on the viewport: what the controls and the playback
@@ -121,6 +141,11 @@ interface LayerSession {
     solidsLocal: {renderToSource: Uint32Array; indices: Uint32Array; colors: Float32Array; displacement: Float32Array} | null;
     /** Whether the beam sections carry the colours of the field shown. */
     solidsPainted: boolean;
+    /** The edges of the beam sections, once they were asked for: the pairs of their vertices
+     *  with the beam each outlines, and the lines that draw those of the beams not hidden. */
+    solidEdgeData: BeamSolidEdgeData | null;
+    solidEdgesPending: boolean;
+    solidEdges: ResultMeshLayer | null;
     /** Reused across steps, in node numbering: a step allocates nothing. */
     displacement: Float32Array;
     colors: Float32Array;
@@ -130,6 +155,15 @@ interface LayerSession {
     /** The identity numbering, for an element field averaged onto faces in node numbering. */
     identity: Uint32Array | null;
     unsubscribe: () => void;
+}
+
+/** A layer drawn over one of the result's meshes: the vertex of that mesh each of its vertices is,
+ *  and the buffer its displacement is written through. */
+interface PinnedLayer {
+    layer: ResultMeshLayer;
+    on: "model" | "beamSolids";
+    toSource: Uint32Array;
+    displacement: Float32Array;
 }
 
 let session: LayerSession | null = null;
@@ -142,6 +176,8 @@ let playbackSyncedFor: string | null = null;
 let lastAppliedSlot: number | null = null;
 // The running "load every frame" job, and what it is loading. A load of anything else stops it.
 let preload: {key: string; abort: AbortController} | null = null;
+// The frames this play has painted, kept to be shown again on its next pass (./layerFrames.ts).
+let frames: LayerFrameRecorder | null = null;
 
 /** An sRGB hex colour (0xrrggbb) as linear RGB in 0..1, which is what a layer takes. */
 function linear(hex: number): [number, number, number] {
@@ -225,10 +261,62 @@ export function closeLayerSession(): void {
     lastAppliedSlot = null;
     preload?.abort.abort();
     preload = null;
+    frames?.dispose();
+    frames = null;
     recordLayerValues(null);
     s.unsubscribe();
     s.group.remove();
+    s.pinned.clear();
+    const target = overlayTargets.get(s);
+    if (target) notifyFeaTargetGone(target.token);
 }
+
+const overlayTargets = new WeakMap<LayerSession, FeaOverlayTarget>();
+
+/** The result shown through layers as what overlays are drawn on (../elementSource.ts): its
+ *  faces and beam sections at the deformation shown, element paint, hiding and isolating. */
+function overlayTarget(s: LayerSession): FeaOverlayTarget {
+    let target = overlayTargets.get(s);
+    if (target) return target;
+    const faces: LayerMeshView | null =
+        s.drawRanges && s.mesh.indices && s.mesh.topology === "triangles"
+            ? {positions: s.basePositions, indices: s.mesh.indices, ranges: s.drawRanges, displacement: () => s.lastDisplacement}
+            : null;
+    let solids: LayerMeshView | null = null;
+    target = makeLayerOverlayTarget({
+        results: s.results,
+        matrix: s.mesh.matrix,
+        model: s.objects?.model ?? null,
+        ids: s.objects?.ids ?? null,
+        mesh: (on) => {
+            if (on === "model") return faces;
+            if (!solidsOn(s) || !s.solidsLayer) return null;
+            const data = s.solids!;
+            return (solids ??= {positions: data.positions, indices: data.indices, ranges: data.drawRanges, displacement: () => s.solidsDisplacement});
+        },
+        scale: () => s.group.scale,
+        serial: () => s.displacementWrites,
+        pin: (layer, toSource, on) => {
+            const pinned: PinnedLayer = {layer, on, toSource, displacement: new Float32Array(toSource.length * 3)};
+            s.pinned.add(pinned);
+            s.group.add(layer);
+            const moved = on === "model" ? s.lastDisplacement : s.solidsDisplacement;
+            if (moved) movePinned(pinned, moved);
+            return () => {
+                if (s.pinned.delete(pinned)) s.group.drop(layer);
+            };
+        },
+    });
+    overlayTargets.set(s, target);
+    return target;
+}
+
+function movePinned(pinned: PinnedLayer, source: Float32Array): void {
+    expandTriplesInto(source, pinned.toSource, pinned.displacement);
+    pinned.layer.setDisplacement(pinned.displacement);
+}
+
+registerFeaTarget(() => (session ? overlayTarget(session) : null));
 
 /** The bake's element edges as index pairs into the nodes: the shell grid, and the beam members
  *  when the bake says which those are. Best-effort, like the three.js loader's: a missing sidecar
@@ -349,6 +437,8 @@ function ensureLocalFaces(s: LayerSession): Uint32Array {
 /** A step's displacement (xyz per node) onto every layer that moves with the nodes. */
 function applyDisplacement(s: LayerSession, source: Float32Array): void {
     s.lastDisplacement = source;
+    s.displacementWrites++;
+    for (const pinned of s.pinned) if (pinned.on === "model") movePinned(pinned, source);
     s.shellEdges?.setDisplacement(source);
     s.beamEdges?.setDisplacement(source);
     if (s.renderToSource) {
@@ -364,9 +454,70 @@ function applyNodalColors(s: LayerSession, source: Float32Array): void {
     if (s.renderToSource) {
         expandTriplesInto(source, s.renderToSource, s.renderColors!);
         s.faces.setColors(s.renderColors!);
+        s.lastFaceColors = s.renderColors;
     } else {
         s.faces.setColors(source);
+        s.lastFaceColors = source;
     }
+}
+
+/** The vertex counts a recorded frame is made for: the nodes, the faces as they are drawn now,
+ *  and the beam sections while they are drawn. */
+function frameShape(s: LayerSession): [number, number, number] {
+    return [
+        s.basePositions.length / 3,
+        (s.renderToSource ? s.renderColors!.length : s.colors.length) / 3,
+        solidsOn(s) ? s.solids!.positions.length / 3 : 0,
+    ];
+}
+
+/** Keep the frame a playback paint just put on the layers, when it is one that can be shown
+ *  again from what is kept: the faces and the beam sections, no result points and no coloured
+ *  lines (those are worked out anew by each paint). */
+function recordFrame(s: LayerSession, key: string, step: number, nFrames: number): void {
+    if (!s.lastDisplacement || !s.lastFaceColors || s.markers.drawn || s.lines.drawn) return;
+    const shape = frameShape(s);
+    if (s.lastFaceColors.length !== shape[1] * 3) return;
+    if (!frames) {
+        frames = new LayerFrameRecorder(key, shape, nFrames);
+        if (frames.capacity === 0) {
+            frames.dispose();
+            frames = null;
+            return;
+        }
+    }
+    frames.record(step, {
+        displacement: s.lastDisplacement,
+        colors: s.lastFaceColors,
+        solidColors: shape[2] && s.solidsPainted ? s.lastSolidColors : null,
+        solidDisplacement: shape[2] ? s.solidsDisplacement : null,
+    });
+}
+
+/** Show recorded frame `step` if this play has painted it under the same settings: the kept
+ *  displacement and colours go to the layers as a paint's would, without fetching or painting
+ *  the step. True when it is on screen. */
+function showRecordedFrame(s: LayerSession, key: string, step: number, scale: number): boolean {
+    if (!frames?.matches(key, frameShape(s))) return false;
+    const frame = frames.get(step);
+    if (!frame) return false;
+    const colors = s.renderToSource ? s.renderColors! : s.colors;
+    const solids = solidsOn(s) ? s.solidsLayer : null;
+    let solidColors: Float32Array | null = null;
+    if (solids && frame.solidColors) {
+        solidColors = s.solidsLocal ? s.solidsLocal.colors : s.lastSolidColors;
+        if (solidColors?.length !== frame.solidColors.length) return false;
+    }
+    applyDisplacement(s, frame.displacement);
+    s.faces.setColors(colorsFromBytes(frame.colors, colors));
+    s.lastFaceColors = colors;
+    if (solids && solidColors) {
+        solids.setColors(colorsFromBytes(frame.solidColors!, solidColors));
+        s.lastSolidColors = solidColors;
+    }
+    if (solids && frame.solidDisplacement) moveSolids(s, frame.solidDisplacement);
+    s.group.setInfluence(scale);
+    return true;
 }
 
 /** The view switches a result has, applied to the layers as they are now. */
@@ -378,6 +529,12 @@ function applyView(s: LayerSession): void {
     const solids = solidsOn(s);
     s.group.setShown(s.solidsLayer, solids);
     s.solidsLayer?.setColorsVisible(view.resultColorsVisible && s.solidsPainted);
+    // Their edges: built the first time they are wanted, and drawn with the sections.
+    const solidEdges = solids && view.beamSolidEdgesVisible;
+    if (solidEdges) requestSolidEdges(s);
+    s.group.setShown(s.solidEdges, solidEdges);
+    // What is painted over the beam sections is drawn while they are.
+    for (const pinned of s.pinned) if (pinned.on === "beamSolids") s.group.setShown(pinned.layer, solids);
     const colouredLines = s.lines.drawn && view.resultColorsVisible && !solids;
     s.lines.setShown(colouredLines);
     s.markers.setShown(view.resultColorsVisible && view.resultPointMarkersVisible);
@@ -506,13 +663,73 @@ function warpSolids(s: LayerSession, warp: {field: FeaManifestField; stepValues:
     const solids = s.solids!;
     const layer = s.solidsLayer;
     if (!layer || !solids.warp) return;
-    const displacement = beamSolidDisplacement(solids.warp, solids.positions, warp?.field, warp?.stepValues, s.basePositions);
+    moveSolids(s, beamSolidDisplacement(solids.warp, solids.positions, warp?.field, warp?.stepValues, s.basePositions));
+}
+
+/** A displacement of the beam sections (xyz per vertex of theirs) onto them and onto what lies
+ *  on them: their edges, and whatever is painted over them. */
+function moveSolids(s: LayerSession, displacement: Float32Array): void {
+    const layer = s.solidsLayer;
+    if (!layer) return;
+    s.solidsDisplacement = displacement;
+    s.displacementWrites++;
+    for (const pinned of s.pinned) if (pinned.on === "beamSolids") movePinned(pinned, displacement);
+    s.solidEdges?.setDisplacement(displacement);
     if (s.solidsLocal) {
         expandTriplesInto(displacement, s.solidsLocal.renderToSource, s.solidsLocal.displacement);
         layer.setDisplacement(s.solidsLocal.displacement);
     } else {
         layer.setDisplacement(displacement);
     }
+}
+
+/** Have the edges of the beam sections worked out, off the main thread where a worker can be
+ *  started, and drawn when they are ready: the corners of each section and the outline of each
+ *  end, which is where one element ends and the next begins. Once per session. */
+function requestSolidEdges(s: LayerSession): void {
+    const solids = s.solids;
+    if (!solids || s.solidEdgeData || s.solidEdgesPending) return;
+    s.solidEdgesPending = true;
+    const ranges: [number, number][] = [];
+    for (let i = 0; i + 1 < solids.segments.length; i += 2) ranges.push([solids.segments[i], solids.segments[i + 1]]);
+    void import("../beamSolidEdgesInWorker")
+        .then(({computeBeamSolidEdgesInWorker}) => computeBeamSolidEdgesInWorker(solids.positions, solids.indices, ranges))
+        .catch((err) => {
+            console.warn("[fea] beam-solid edge worker unavailable; building on the main thread:", err);
+            return computeBeamSolidEdges(solids.positions, solids.indices, ranges);
+        })
+        .then((data) => {
+            s.solidEdgesPending = false;
+            // Another result took its place meanwhile: nothing to draw them on.
+            if (session !== s) return;
+            s.solidEdgeData = data;
+            drawSolidEdges(s);
+        })
+        .catch((err) => console.warn("[fea] beam-solid edges failed:", err));
+}
+
+/** The lines that draw the beam sections' edges, for the beams that are not hidden. */
+function drawSolidEdges(s: LayerSession): void {
+    const data = s.solidEdgeData, solids = s.solids;
+    if (!data || !solids || data.pairs.length === 0) return;
+    let pairs = data.pairs;
+    if (s.hidden.size) {
+        const hidden = Array.from(solids.labels, (label) => s.hidden.has(`E${label}`));
+        pairs = new Uint32Array(data.pairs.length);
+        // A hidden beam's edges become pairs of one vertex: nothing is drawn.
+        for (let p = 0; p < data.owner.length; p++) {
+            const a = data.pairs[p * 2];
+            pairs[p * 2] = a;
+            pairs[p * 2 + 1] = hidden[data.owner[p]] ? a : data.pairs[p * 2 + 1];
+        }
+    }
+    const before = s.solidEdges;
+    s.solidEdges = s.group.add(
+        s.results.createResultMesh({positions: solids.positions, indices: pairs, topology: "lines", matrix: s.mesh.matrix, color: linear(FEA_EDGE_COLOR)}),
+        solidsOn(s) && useFeaAnimationStore.getState().beamSolidEdgesVisible,
+    );
+    s.group.drop(before);
+    if (s.solidsDisplacement) s.solidEdges.setDisplacement(s.solidsDisplacement);
 }
 
 /** The beam sections were switched on or off: they and the coloured lines swap places, and the
@@ -540,6 +757,44 @@ function scheduleHiddenRefresh(s: LayerSession): void {
     }, 0));
 }
 
+/** The edges of the elements with faces, for what is hidden now: an edge is drawn while an
+ *  element it borders is, or all of them while the hidden rest is kept as a wireframe. */
+function redrawShellEdges(s: LayerSession): void {
+    if (!s.shellEdges || !s.shellEdgeIndices || !s.drawRanges || !s.mesh.indices) return;
+    const {hidden} = s;
+    const masked = hidden.size > 0 && !s.hiddenEdgesKept;
+    // Nothing to mask now and nothing masked before: the edges on screen are the right ones.
+    if (!masked && !s.shellEdgesMasked) return;
+    let indices = s.shellEdgeIndices;
+    if (masked) {
+        s.edgeOwners ??= edgeOwners(s.drawRanges, s.mesh.indices, s.basePositions.length / 3, s.shellEdgeIndices);
+        indices = new Uint32Array(s.shellEdgeIndices.length);
+        // An edge all of whose elements are hidden becomes a pair of one node: nothing is drawn.
+        maskHiddenEdges(s.shellEdgeIndices, s.edgeOwners, (id) => hidden.has(id), indices);
+    }
+    s.shellEdgesMasked = masked;
+    const before = s.shellEdges;
+    s.shellEdges = s.group.add(edgeLines(s, indices, FEA_EDGE_COLOR));
+    s.group.drop(before);
+    if (s.lastDisplacement) s.shellEdges.setDisplacement(s.lastDisplacement);
+    applyView(s);
+}
+
+/** The elements of the result shown through layers as objects of the viewport: the model they
+ *  belong to and their ids. Null when no result is shown this way or its elements are not objects. */
+export function layerResultObjects(): {model: string; ids: readonly string[]} | null {
+    return session?.objects ?? null;
+}
+
+/** Keep the edges of hidden elements on screen (the rest of an isolation, as a wireframe), or
+ *  let them go with their elements. */
+export function setLayerHiddenEdgesKept(kept: boolean): void {
+    const s = session;
+    if (!s || s.hiddenEdgesKept === kept) return;
+    s.hiddenEdgesKept = kept;
+    redrawShellEdges(s);
+}
+
 /** Read which elements are hidden on the viewport. When that changed: an edge is drawn while an
  *  element it borders is, and a scale measured over what is drawn is measured again. */
 function refreshHidden(s: LayerSession): void {
@@ -553,21 +808,8 @@ function refreshHidden(s: LayerSession): void {
     if (same) return;
     s.hidden = hidden;
     s.shownNodes = null;
-
-    if (s.shellEdges && s.shellEdgeIndices && s.drawRanges && s.mesh.indices) {
-        let indices = s.shellEdgeIndices;
-        if (hidden.size) {
-            s.edgeOwners ??= edgeOwners(s.drawRanges, s.mesh.indices, s.basePositions.length / 3, s.shellEdgeIndices);
-            indices = new Uint32Array(s.shellEdgeIndices.length);
-            // An edge all of whose elements are hidden becomes a pair of one node: nothing is drawn.
-            maskHiddenEdges(s.shellEdgeIndices, s.edgeOwners, (id) => hidden.has(id), indices);
-        }
-        const before = s.shellEdges;
-        s.shellEdges = s.group.add(edgeLines(s, indices, FEA_EDGE_COLOR));
-        s.group.drop(before);
-        if (s.lastDisplacement) s.shellEdges.setDisplacement(s.lastDisplacement);
-        applyView(s);
-    }
+    redrawShellEdges(s);
+    if (s.solidEdges) drawSolidEdges(s);
 
     const {sessionActive, applyStep, stepIndex} = useFeaAnimationStore.getState();
     if (s.rangeFromShown && sessionActive && applyStep) {
@@ -632,9 +874,16 @@ async function openLayerSession(args: {
         edgeIndices: edges.shell && edges.beam ? concat(edges.shell, edges.beam) : (edges.shell ?? edges.beam),
         shellEdgeIndices: edges.shell,
         edgeOwners: null,
+        shellEdgesMasked: false,
+        hiddenEdgesKept: false,
         drawn,
         shownNodes: null,
         lastDisplacement: null,
+        lastFaceColors: null,
+        lastSolidColors: null,
+        displacementWrites: 0,
+        solidsDisplacement: null,
+        pinned: new Set(),
         rangeFromShown: false,
         group,
         faces,
@@ -649,6 +898,9 @@ async function openLayerSession(args: {
         solidsLayer: null,
         solidsLocal: null,
         solidsPainted: false,
+        solidEdgeData: null,
+        solidEdgesPending: false,
+        solidEdges: null,
         displacement: new Float32Array(nPoints * 3),
         colors: new Float32Array(nPoints * 3),
         renderDisplacement: null,
@@ -663,7 +915,8 @@ async function openLayerSession(args: {
     const offView = useFeaAnimationStore.subscribe((now, before) => {
         if (
             now.resultColorsVisible !== before.resultColorsVisible || now.elementEdgesVisible !== before.elementEdgesVisible ||
-            now.resultPointMarkersVisible !== before.resultPointMarkersVisible || now.showUndeformed !== before.showUndeformed
+            now.resultPointMarkersVisible !== before.resultPointMarkersVisible || now.showUndeformed !== before.showUndeformed ||
+            now.beamSolidEdgesVisible !== before.beamSolidEdgesVisible
         ) applyView(opened);
         if (now.beamSolidsVisible !== before.beamSolidsVisible) toggleSolids(opened);
     });
@@ -759,6 +1012,7 @@ async function paintElementField(args: {
     );
     applyDisplacement(active, painted.sourceDisplacement);
     if (faces) active.faces.setColors(outColors);
+    active.lastFaceColors = faces ? outColors : null;
     // The beam sections carry the same field: each beam's value on its own solid. The elements
     // with faces have no range there, and the beams none on the faces.
     if (solidsOn(active)) {
@@ -774,6 +1028,7 @@ async function paintElementField(args: {
             local.colors,
         );
         active.solidsLayer!.setColors(local.colors);
+        active.lastSolidColors = local.colors;
         active.solidsPainted = true;
         warpSolids(active, warp);
     }
@@ -932,8 +1187,10 @@ export async function loadFeaOnLayers(
                     if (active.solidsLocal) {
                         expandTriplesInto(colors, active.solidsLocal.renderToSource, active.solidsLocal.colors);
                         layer.setColors(active.solidsLocal.colors);
+                        active.lastSolidColors = active.solidsLocal.colors;
                     } else {
                         layer.setColors(colors);
+                        active.lastSolidColors = colors;
                     }
                 }
                 active.solidsPainted = colors !== null;
@@ -948,6 +1205,14 @@ export async function loadFeaOnLayers(
         active.group.setInfluence(displacementScale);
         // Which lines stand in for which edges follows from what was just painted.
         applyView(active);
+        // What is on screen is this paint. A recording made under other settings is dropped; a
+        // playback paint is kept, so the next pass through the history shows it without painting.
+        const recKey = framesKey(sourceName, fieldName ?? null, reduction ?? null);
+        if (frames && !frames.matches(recKey, frameShape(active))) {
+            frames.dispose();
+            frames = null;
+        }
+        if (playback && !isCase && recordable(paintField)) recordFrame(active, recKey, stepIndex, nSlots);
     }
 
     stage("rendering", 0.9);
@@ -1030,6 +1295,11 @@ export async function loadFeaOnLayers(
                     if (next !== null) prefetchCase(manifest, {scope, sourceKey: sourceName}, next);
                 }
                 if (stepOpts?.playback) readAhead(step);
+                // A frame this play already painted once: show the recording.
+                if (
+                    stepOpts?.playback && session === opened &&
+                    showRecordedFrame(opened, framesKey(sourceName, fieldName ?? null, reduction ?? null), step, factor * scaleFactor)
+                ) return;
                 await reload({
                     sourceName,
                     manifest,
