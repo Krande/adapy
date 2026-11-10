@@ -197,9 +197,15 @@ def unregister_modules(prefixes: Iterable[str]) -> list[str]:
 
 
 def role_input_fields(role: MemberCriteria) -> list[str]:
-    """The per-role inputs ``build_sample`` reads for ``role``: a section for a beam, the
-    thickness and extent for a plate, and an angle wherever the role carries an angle criterion."""
-    fields = ["thickness", "width", "height"] if role.kind is MemberKind.PLATE else ["section"]
+    """The per-role inputs ``build_sample`` reads for ``role``: a section for a beam (and its outer
+    and inner corner radii, where the role takes box sections), the thickness and extent for a
+    plate, and an angle wherever the role carries an angle criterion."""
+    if role.kind is MemberKind.PLATE:
+        fields = ["thickness", "width", "height"]
+    else:
+        fields = ["section"]
+        if role.section_in is None or "BOX" in {s.upper() for s in role.section_in}:
+            fields += ["corner_radius", "corner_radius_inner"]
     if role.angle_to_role is not None or role.angle_range is not None:
         fields.append("angle_deg")
     return fields

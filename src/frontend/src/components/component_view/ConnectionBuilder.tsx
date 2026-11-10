@@ -232,7 +232,81 @@ const RoleEditor: React.FC<{
       {fields.includes("angle_deg") && (
         <AngleField role={role} value={value.angle_deg as number | undefined} onCommit={(v) => onField("angle_deg", v)} />
       )}
+      {fields.includes("corner_radius") && <BeamOptions value={value} onField={onField} />}
     </div>
+  );
+};
+
+/** A beam's further options, folded away until wanted: a box's outer and inner corner radii. */
+const BeamOptions: React.FC<{
+  value: Record<string, unknown>;
+  onField: (field: string, value: unknown) => void;
+}> = ({ value, onField }) => {
+  const set = typeof value.corner_radius === "number" || typeof value.corner_radius_inner === "number";
+  const [open, setOpen] = useState(set);
+  return (
+    <div className="flex flex-col gap-1">
+      <button
+        type="button"
+        className="self-start text-gray-400 hover:text-white"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+      >
+        {open ? "▾" : "▸"} Options{!open && set ? " · rounded corners" : ""}
+      </button>
+      {open && (
+        <div className="flex flex-col gap-1 pl-3">
+          <OptionalMillimetreField
+            label="corner r"
+            title="Outer corner radius of a box section (RADA). Empty: sharp corners."
+            metres={value.corner_radius as number | null | undefined}
+            onCommit={(m) => onField("corner_radius", m)}
+          />
+          <OptionalMillimetreField
+            label="inner r"
+            title="Inner corner radius. Empty: the outer radius less the wall (a cold-formed section); a hot-finished one (EN 10210) is 1.0 t inside, 1.5 t outside."
+            metres={value.corner_radius_inner as number | null | undefined}
+            onCommit={(m) => onField("corner_radius_inner", m)}
+          />
+        </div>
+      )}
+    </div>
+  );
+};
+
+/** A length in millimetres that may be left empty (null). */
+const OptionalMillimetreField: React.FC<{
+  label: string;
+  title: string;
+  metres: number | null | undefined;
+  onCommit: (m: number | null) => void;
+}> = ({ label, title, metres, onCommit }) => {
+  const shown = typeof metres === "number" ? String(Math.round(metres * 1e4) / 10) : "";
+  const [draft, setDraft] = useState(shown);
+  useEffect(() => setDraft(shown), [shown]);
+  const commit = (text: string) => {
+    if (!text.trim()) return onCommit(null);
+    const mm = parseFloat(text);
+    if (Number.isFinite(mm) && mm >= 0) onCommit(mm > 0 ? mm / 1000 : null);
+  };
+  return (
+    <label className="flex items-center gap-2" title={title}>
+      <span className="text-gray-400 w-16 shrink-0">{label}</span>
+      <input
+        type="number"
+        min={0}
+        step={1}
+        placeholder="—"
+        className={`${input} w-24`}
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={() => commit(draft)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") commit(draft);
+        }}
+      />
+      <span className="text-gray-500">mm</span>
+    </label>
   );
 };
 

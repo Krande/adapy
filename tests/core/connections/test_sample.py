@@ -285,3 +285,74 @@ def test_anchor_role_runs_along_x():
     # Both members run along +X (degenerate placeholder, but valid)
     assert pytest.approx(members[MemberRole.LANDING].n2.p[0]) == 1.0
     assert pytest.approx(members[MemberRole.INCOMING].n2.p[0]) == 1.0
+
+
+# ── corner radii on box members ────────────────────────────────────────────────────────────────
+
+
+def _arcs(curve) -> int:
+    return sum(type(s).__name__ == "ArcSegment" for s in curve.segments)
+
+
+def test_a_box_member_takes_outer_and_inner_corner_radii():
+    from ada.sections.profiles import build_section_profile
+
+    inputs = {
+        # A hot-finished SHS200x10: 1.5 t outside, 1.0 t inside -- not outer less the wall.
+        "incoming": {
+            "section": "BOX200x200x10x10",
+            "angle_deg": 90.0,
+            "corner_radius": 0.015,
+            "corner_radius_inner": 0.010,
+        },
+        "landing": {"section": "BOX200x200x10x10"},
+    }
+    members = build_sample(_box_to_box_spec(), inputs)
+    incoming, landing = members[MemberRole.INCOMING], members[MemberRole.LANDING]
+    assert incoming.section.r == pytest.approx(0.015)
+    assert incoming.section.r_inner == pytest.approx(0.010)
+    # Its own section: the one the string resolves to (shared by every beam built from it) is untouched.
+    assert incoming.section is not landing.section
+    profile = build_section_profile(incoming.section, True)
+    assert _arcs(profile.outer_curve) == 4 and _arcs(profile.inner_curve) == 4
+    # The other member stays sharp.
+    assert landing.section.r is None
+    assert _arcs(build_section_profile(landing.section, True).outer_curve) == 0
+
+
+def test_without_an_inner_radius_the_inner_corners_follow_the_wall():
+    from ada.sections.profiles import build_section_profile
+
+    inputs = {
+        "incoming": {"section": "BOX200x200x10x10", "angle_deg": 90.0, "corner_radius": 0.02},
+        "landing": {"section": "BOX200x200x10x10"},
+    }
+    incoming = build_sample(_box_to_box_spec(), inputs)[MemberRole.INCOMING]
+    assert incoming.section.r_inner is None
+    inner = build_section_profile(incoming.section, True).inner_curve
+    arc = next(s for s in inner.segments if type(s).__name__ == "ArcSegment")
+    assert arc.radius == pytest.approx(0.01)  # 20 mm outside less the 10 mm wall
+
+
+def test_corner_radii_are_refused_where_they_cannot_apply():
+    spec = ConnectionSpec(
+        name="test.i",
+        roles=(MemberCriteria(role=MemberRole.LANDING, kind=MemberKind.BEAM),),
+    )
+    with pytest.raises(ValueError, match="corner radii round a box section"):
+        build_sample(spec, {"landing": {"section": "IPE300", "corner_radius": 0.01}})
+    with pytest.raises(ValueError, match="needs an outer one"):
+        build_sample(spec, {"landing": {"section": "BOX200x200x10x10", "corner_radius_inner": 0.01}})
+
+
+def test_a_corner_radius_set_after_an_outline_was_built_is_not_lost():
+    """The outline builders are cached per section object: setting r must not hand back the old one."""
+    from ada.sections import Section
+    from ada.sections.profiles import build_section_profile
+
+    # A section of this test's own: one from a string is shared, process-wide, by every beam built from it.
+    own = Section("own", sec_type="BOX", h=0.2, w_top=0.2, w_btn=0.2, t_w=0.01, t_ftop=0.01, t_fbtn=0.01)
+    beam = Beam("b", (0, 0, 0), (1, 0, 0), own)
+    assert _arcs(build_section_profile(beam.section, True).outer_curve) == 0
+    beam.section.r = 0.015
+    assert _arcs(build_section_profile(beam.section, True).outer_curve) == 4

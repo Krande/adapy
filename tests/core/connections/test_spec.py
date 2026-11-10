@@ -13,6 +13,7 @@ from ada.api.connections.spec import (
     get_spec,
     list_specs,
     register_connection,
+    role_input_fields,
     spec_to_form_schema,
     unregister_modules,
 )
@@ -53,7 +54,10 @@ def test_form_schema_lists_each_roles_input_fields():
     )
     incoming, landing = spec_to_form_schema(spec)["roles"]
     assert incoming["fields"] == ["thickness", "width", "height"]
-    assert landing["fields"] == ["section", "angle_deg"]
+    # Any section, so possibly a box: its corner radii too.
+    assert landing["fields"] == ["section", "corner_radius", "corner_radius_inner", "angle_deg"]
+    i_only = MemberCriteria(role=MemberRole.LANDING, kind=MemberKind.BEAM, section_in=frozenset({"I"}))
+    assert role_input_fields(i_only) == ["section"]
 
 
 @pytest.fixture(autouse=True)
