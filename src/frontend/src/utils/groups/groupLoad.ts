@@ -6,7 +6,7 @@
 // One load per SOURCE, not per member: several members commonly live in one published node or one
 // file, and loading it once is what makes the group's members appear together.
 
-import { loadPrepared, NothingToDraw, parseDeliveryClaim, prepareNode, type LoadNodeDeps, type NodeRef } from "@/assets/delivery";
+import { LoadCancelled, loadPrepared, NothingToDraw, parseDeliveryClaim, prepareNode, type LoadNodeDeps, type NodeRef } from "@/assets/delivery";
 import { assetsApi } from "@/services/api/assets";
 import type { ScopeUrl } from "@/services/api/client";
 import { getSingletonViewerStores } from "@/state/AdaViewerContext";
@@ -117,6 +117,11 @@ export async function loadAssetNode(
     const asset = await loadPrepared(deps, ref, prepareNode(deps, scope, ref, claim), nodeDisplayName(target, label));
     store.getState().endLoad(key, asset);
   } catch (e) {
+    if (e instanceof LoadCancelled) {
+      // Stopped by request: neither loaded nor failed. Thrown on, so a caller's loop stops too.
+      store.getState().cancelLoad(key);
+      throw e;
+    }
     // A member whose build found nothing to draw is an answer, not a failure of the group's load.
     if (e instanceof NothingToDraw) {
       store.getState().emptyLoad(key, e.message);

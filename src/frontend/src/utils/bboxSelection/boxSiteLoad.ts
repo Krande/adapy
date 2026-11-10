@@ -89,6 +89,8 @@ export async function loadBoxSites(
   const session = beginBulkLoad(scope, `assets:box`, { hold: true, save: false });
   try {
     for (const { site, names: wanted } of sites.values()) {
+      // Cancelled from the toast: the remaining sites are not loaded.
+      if (deps.signal?.aborted) break;
       n += 1;
       const label = nodeDisplayName(site) ?? site.subject;
       onStage?.(`loading site ${n} of ${sites.size}: ${label}`);
@@ -100,6 +102,7 @@ export async function loadBoxSites(
         try {
           if (!before) await loadAssetNode(scope, deps, site);
         } catch (e) {
+          if (deps.signal?.aborted) break; // cancelled: not a failed site
           failed.push({ site: label, reason: e instanceof Error ? e.message : String(e) });
           continue;
         }

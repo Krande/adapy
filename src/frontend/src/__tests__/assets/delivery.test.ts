@@ -20,6 +20,7 @@ import { test } from "node:test";
 import {
   assetSourceName,
   DeliveryError,
+  LoadCancelled,
   loadNode,
   loadPrepared,
   NothingToDraw,
@@ -30,6 +31,7 @@ import {
   type DeliveryApi,
   type LoadNodeDeps,
   type NodeRef,
+  type PreparedNode,
 } from "../../assets/delivery";
 import type { WireBuildAssetResponse, WireDeliveryClaim } from "../../assets/types";
 
@@ -156,6 +158,56 @@ test("a build can be prepared without touching the scene, and loaded from that p
   assert.equal(calls.loadModelFromUrl[0][1], p.url);
   assert.equal((calls.loadModelFromUrl[0][2] as { displayName?: string }).displayName, "Area One");
   assert.equal(asset.glbKey, summaryDoc().glb_key);
+});
+
+// --- cancelled ----------------------------------------------------------------------
+
+const BUILD_CLAIM = () =>
+  parseDeliveryClaim({ kind: "build", capability: "asset-build-fixture", revision: REF.revision, provider: "fixture-lines" } as WireDeliveryClaim);
+
+test("a cancelled load asks for no build", async () => {
+  const { deps, calls } = fakeDeps();
+  const ctl = new AbortController();
+  ctl.abort();
+  deps.signal = ctl.signal;
+  await assert.rejects(prepareNode(deps, SCOPE, REF, BUILD_CLAIM()), LoadCancelled);
+  assert.equal(calls.buildAssetNode.length, 0);
+});
+
+test("a load cancelled while its build runs stops waiting on it and loads nothing", async () => {
+  const ctl = new AbortController();
+  const tracked: string[] = [];
+  const { deps, calls } = fakeDeps({
+    async buildAssetNode() {
+      return buildResponse({ cached: false, job_id: "job-1" });
+    },
+    async jobStatus(jobId) {
+      calls.jobStatus.push(jobId);
+      ctl.abort(); // Kill pressed while the build is queued
+      return { status: "queued", error: null };
+    },
+  });
+  deps.signal = ctl.signal;
+  deps.trackJob = (o) => void tracked.push(o.jobId);
+  const prepared = prepareNode(deps, SCOPE, REF, BUILD_CLAIM());
+  await assert.rejects(loadPrepared(deps, REF, prepared), LoadCancelled);
+  assert.deepEqual(tracked, ["job-1"], "the job is handed over, so its owner can cancel it");
+  assert.equal(calls.jobStatus.length, 1, "no poll after the cancel");
+  assert.equal(calls.getBuildSummary.length, 0);
+  assert.equal(calls.loadModelFromUrl.length, 0);
+});
+
+test("a build that finishes after the cancel stays out of the scene", async () => {
+  const { deps, calls } = fakeDeps();
+  const ctl = new AbortController();
+  deps.signal = ctl.signal;
+  let finish: (p: PreparedNode) => void = () => undefined;
+  const prepared = new Promise<PreparedNode>((resolve) => (finish = resolve));
+  const loading = loadPrepared(deps, REF, prepared);
+  ctl.abort();
+  finish({ url: "blob://x", revision: REF.revision, provider: REF.provider });
+  await assert.rejects(loading, LoadCancelled);
+  assert.equal(calls.loadModelFromUrl.length, 0);
 });
 
 test("a prepared node already in the scene is not loaded again", async () => {
