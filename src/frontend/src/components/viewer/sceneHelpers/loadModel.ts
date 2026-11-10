@@ -23,6 +23,7 @@ import {beginLoadMetrics} from "@/utils/scene/loadMetrics";
 import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
 import {useStatsStore} from "@/state/statsStore";
 import type {SourceUpAxis} from "@/utils/scene/sourceUpAxis";
+import {isNativeViewportActive, showInNativeViewport} from "@/viewport/native/nativeModel";
 import {setupModelLoaderAsync, type SetupModelPrepareHook} from "./setupModelLoader";
 
 /** Where a model's bytes come from. */
@@ -73,6 +74,11 @@ async function loadFrom(
     metrics: ReturnType<typeof beginLoadMetrics>,
 ): Promise<THREE.Group | undefined> {
     const {sourceName, placement = "replace"} = source;
+    // The three.js-free viewport is on screen: it takes the GLB as bytes, and no three.js scene is built.
+    if (isNativeViewportActive()) {
+        await showInNativeViewport(url, requestHeaders, sourceName);
+        return undefined;
+    }
     if (placement === "overlay") {
         return await setupModelLoaderAsync({
             modelUrl: url,

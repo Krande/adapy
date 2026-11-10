@@ -15,7 +15,9 @@ export type MaterialMode = "standard" | "lambert";
 // renderer (wasm, /wasm/adacpp_render.js): three.js keeps the scene graph, picking and controls,
 // only the main draw goes through adacpp. Falls back to three.js when WebGPU is unavailable.
 // `?renderer=adacpp` / `?renderer=three` in the URL overrides the stored choice.
-export type RenderBackend = "three" | "adacpp-webgpu";
+// "adacpp-native" is a different thing: a second, three.js-free viewport (viewport/native) with a
+// small feature set, for trying out a viewer without three.js. `?renderer=native` picks it.
+export type RenderBackend = "three" | "adacpp-webgpu" | "adacpp-native";
 
 export interface PerfState {
     // Renderer backend -------------------------------------------------------
@@ -198,6 +200,7 @@ export const usePerfStore = create<PerfState>()(
     try {
         const param = new URLSearchParams(globalThis.location?.search ?? "").get("renderer");
         if (param === "adacpp" || param === "adacpp-webgpu") usePerfStore.getState().setRenderBackend("adacpp-webgpu");
+        else if (param === "native" || param === "adacpp-native") usePerfStore.getState().setRenderBackend("adacpp-native");
         else if (param === "three") usePerfStore.getState().setRenderBackend("three");
     } catch {
         // no location (tests, workers): keep the stored choice

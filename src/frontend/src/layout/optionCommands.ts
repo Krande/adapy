@@ -141,7 +141,8 @@ export function optionDescriptors(): OptionDescriptor[] {
       setters: ["setCustomText"], focus: "text-colour"},
     // --- Performance ---
     {kind: "choice", id: "renderer", title: "Renderer", group: "Performance", keywords: ["webgl", "webgpu", "backend", "three", "adacpp", ...GEN],
-      setters: ["setRenderBackend"], choices: [{value: "three", label: "three.js (WebGL)"}, {value: "adacpp-webgpu", label: "adacpp WebGPU (experimental)"}],
+      setters: ["setRenderBackend"], choices: [{value: "three", label: "three.js (WebGL)"}, {value: "adacpp-webgpu", label: "adacpp WebGPU (experimental)"},
+        {value: "adacpp-native", label: "adacpp WebGPU, no three.js (experimental)"}],
       get: () => perf().renderBackend, set: (v) => {
         perf().setRenderBackend(v as ReturnType<typeof perf>["renderBackend"]);
         requestRender();

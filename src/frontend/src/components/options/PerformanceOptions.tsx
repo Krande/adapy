@@ -4,6 +4,7 @@ import {useOptionsStore} from "@/state/optionsStore";
 import {useViewMetricsStore} from "@/state/viewMetricsStore";
 import {useMeStore} from "@/state/meStore";
 import {useAdacppRenderStatus} from "@/viewport/adacpp/adacppViewport";
+import {useNativeViewport} from "@/viewport/native/nativeModel";
 
 // Phase A perf-toggle panel. Each row is an opt-in A/B switch for one
 // rendering-cost lever. Defaults reproduce the pre-toggle behaviour so
@@ -56,6 +57,7 @@ const RendererBackendOptions: React.FC = () => {
     const setAdacppNoWebGL = usePerfStore((s) => s.setAdacppNoWebGL);
     const status = useAdacppRenderStatus();
     const st = status.stats;
+    const native = useNativeViewport();
 
     return (
         <div className="space-y-1">
@@ -70,7 +72,15 @@ const RendererBackendOptions: React.FC = () => {
             >
                 <option value="three">three.js (WebGL)</option>
                 <option value="adacpp-webgpu">adacpp WebGPU (experimental)</option>
+                <option value="adacpp-native">adacpp WebGPU, no three.js (experimental)</option>
             </select>
+            {renderBackend === "adacpp-native" && (
+                <div className="text-xs text-gray-400">
+                    {native.state === "failed"
+                        ? <div className="text-amber-300">Not available, the three.js viewport is shown: {native.error}</div>
+                        : <div>A separate viewport with a small feature set: load, orbit, pick, select, hide and an object list.</div>}
+                </div>
+            )}
             {renderBackend === "adacpp-webgpu" && (
                 <div className="text-xs text-gray-400 space-y-1">
                     {status.state === "starting" && <div>Starting WebGPU…</div>}

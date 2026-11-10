@@ -12,6 +12,35 @@ import BBoxSelectionController from "./BBoxSelectionController";
 import SpaceMouseConnectChip from "./SpaceMouseConnectChip";
 import RenderRecordingHud from "./RenderRecordingHud";
 import {useAdacppRenderStatus} from "@/viewport/adacpp/adacppViewport";
+import {usePerfStore} from "@/state/perfStore";
+import {useViewerRefs} from "@/state/AdaViewerContext";
+import {useNativeViewport} from "@/viewport/native/nativeModel";
+
+// Its own chunk, which imports no three.js.
+const NativeViewport = React.lazy(() => import("@/viewport/native/NativeViewport"));
+
+/** The native viewport failed after a model was handed to it: once the three.js viewport is up, load
+ *  that model there, so the fallback shows the model and not an empty scene. */
+function useNativeFallbackReload(nativeFailed: boolean): void {
+  const {scene} = useViewerRefs();
+  React.useEffect(() => {
+    if (!nativeFailed) return;
+    const model = useNativeViewport.getState().model;
+    if (!model) return;
+    let cancelled = false;
+    const tryLoad = () => {
+      if (cancelled) return;
+      if (!scene.current) return void setTimeout(tryLoad, 100);
+      void import("./sceneHelpers/loadModel").then(({loadModel}) =>
+        loadModel({sourceName: model.sourceName, bytes: {from: "bytes", bytes: model.bytes}}),
+      ).catch((err) => console.error("[adacpp-native] loading the model into the three.js viewport failed:", err));
+    };
+    tryLoad();
+    return () => {
+      cancelled = true;
+    };
+  }, [nativeFailed, scene]);
+}
 
 export interface CanvasWrapperProps {
   /**
@@ -29,6 +58,19 @@ export interface CanvasWrapperProps {
 const CanvasWrapper: React.FC<CanvasWrapperProps> = ({legend = true}) => {
   // WebGPU-only mode fell back to WebGL: remount the canvas and the controllers that hold its renderer.
   const webglFallback = useAdacppRenderStatus((s) => s.webglFallback);
+  // The three.js-free viewport instead of everything below, while it is chosen and has not failed.
+  const renderBackend = usePerfStore((s) => s.renderBackend);
+  const nativeFailed = useNativeViewport((s) => s.state === "failed");
+  useNativeFallbackReload(nativeFailed);
+  if (renderBackend === "adacpp-native" && !nativeFailed) {
+    return (
+      <div className="relative w-full h-full">
+        <React.Suspense fallback={null}>
+          <NativeViewport />
+        </React.Suspense>
+      </div>
+    );
+  }
   return (
     <div key={webglFallback ? "webgl-fallback" : "viewport"} className="relative w-full h-full">
       {legend && (

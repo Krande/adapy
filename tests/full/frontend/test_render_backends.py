@@ -31,6 +31,8 @@ BACKENDS = {
     # everything three.js still did handed over, and no WebGL context at all
     "adacpp-only": ("adacpp", {"adacppNoWebGL": True}, "active"),
 }
+# The three.js-free viewport is a different viewport, with its own state and its own small UI.
+NATIVE = "native"
 
 COUNT_WEBGL = """
 window.__webglContexts = 0;
@@ -114,7 +116,7 @@ async def _until(page: Page, check, what: str, seconds: float = 20.0):
 
 async def _open_viewer(playwright, ws_server, backend: str):
     """A viewer page on `backend`, connected to the websocket server; skips when WebGPU has no adapter here."""
-    query, perf, state = BACKENDS[backend]
+    query, perf, state = BACKENDS.get(backend, (backend, {}, "off"))
     browser = await playwright.chromium.launch(headless=True, args=CHROMIUM_ARGS)
     page = await browser.new_page(viewport=VIEWPORT)
     await page.add_init_script(COUNT_WEBGL)
@@ -123,7 +125,7 @@ async def _open_viewer(playwright, ws_server, backend: str):
         await page.add_init_script(f"localStorage.setItem('ada-perf', JSON.stringify({stored}))")
     server, _ = start_serving(web_port=0, ws_port=ws_server.port, unique_id=1, non_blocking=True)
     await page.goto(f"http://localhost:{server.server_address[1]}/?renderer={query}", timeout=20000)
-    if query == "adacpp" and not await page.evaluate(HAS_ADAPTER):
+    if query != "three" and not await page.evaluate(HAS_ADAPTER):
         await browser.close()
         pytest.skip("this Chromium offers no WebGPU adapter")
     async with WebSocketClientAsync(ws_server.host, ws_server.port, "local") as ws_client:
@@ -224,5 +226,37 @@ async def test_fea_field_and_warp_playback(ws_server, backend, fem_files):
             await _command(page, "Play / pause results")
             assert still  # the still frame was captured before playback started
             await _assert_backend(page, backend, state)
+        finally:
+            await browser.close()
+
+
+async def test_three_free_viewport_loads_picks_selects_and_hides(ws_server):
+    async with async_playwright() as playwright:
+        browser, page, _ = await _open_viewer(playwright, ws_server, NATIVE)
+        try:
+            await asyncio.to_thread(
+                lambda: _model().show(ws_port=ws_server.port, unique_viewer_id=1, liveness_timeout=10)
+            )
+            await _until(page, lambda: _model_on_screen(page), "the model to be drawn")
+            assert await page.evaluate("document.documentElement.dataset.nativeViewport") == "active"
+            assert (
+                await page.evaluate("window.__webglContexts") == 0
+            ), "the three.js-free viewport created a WebGL context"
+            items = page.get_by_role("treeitem")
+            assert await items.count() == 2, "the object list names the deck and the box"
+
+            # pick + select: in the scene and in the list
+            await _click(page, *CENTRE)
+            assert _count(await _pixels(page), _is_selected) > 3000
+            assert await page.locator("[role=treeitem][aria-selected=true]").count() == 1
+
+            # hide, then show all
+            await page.get_by_role("button", name="Hide selected").click()
+            await page.wait_for_timeout(700)
+            assert _count(await _pixels(page), _is_selected) < 50
+            hidden = _count(await _pixels(page), _is_model)
+            await page.get_by_role("button", name="Show all").click()
+            await page.wait_for_timeout(700)
+            assert _count(await _pixels(page), _is_model) > hidden, "Show all brought nothing back"
         finally:
             await browser.close()
