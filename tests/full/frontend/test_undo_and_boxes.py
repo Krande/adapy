@@ -186,7 +186,18 @@ async def test_a_kept_selection_box_is_over_the_same_object_on_the_other_viewpor
             await _command(page, "Box around selection")
             assert _box_edges(await _pixels(page)) > 100, f"{first}: no selection box is drawn"
 
-            await page.goto(page.url.replace(f"renderer={first}", f"renderer={second}"), timeout=20000)
+            # The other viewport in a browser of its own, given what the first one stored (the kept
+            # boxes): a page that has drawn with one renderer is not asked to start the other.
+            stored = await page.evaluate(
+                "JSON.stringify(Object.fromEntries(Object.entries(localStorage)"
+                ".filter(([k]) => k.startsWith('ada.bboxSelection:'))))"
+            )
+            assert stored != "{}", f"{first}: no selection box was kept"
+            await browser.close()
+            restore = f"for (const [k, v] of Object.entries({stored})) localStorage.setItem(k, v);"
+            # (the kept box is drawn before any model and can fill the view, so little of the empty
+            # viewport's background is left to wait for)
+            browser, page, _ = await _open_viewer(playwright, ws_server, second, restore, empty_pixels=1000)
             await page.wait_for_timeout(1500)
             await _show_row_of_boxes(page, ws_server)
             assert (await page.evaluate("document.documentElement.dataset.nativeViewport") == "active") == (

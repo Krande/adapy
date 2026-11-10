@@ -28,6 +28,8 @@ const rootData = typeof document !== "undefined" ? document.documentElement?.dat
 if (rootData) {
     const publish = (s: NativeViewportStore) => {
         rootData.nativeViewport = s.state;
+        // Why it is not up, when it is not: a test that needs it can say why it could not run.
+        rootData.nativeViewportError = s.error ?? "";
     };
     publish(useNativeViewport.getState());
     useNativeViewport.subscribe(publish);
