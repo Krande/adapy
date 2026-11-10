@@ -94,8 +94,9 @@ async function buildSelected(): Promise<void> {
   } catch (err) {
     if (seq !== requested) return;
     const traceback = err instanceof DevBuildError ? err.traceback : null;
+    const declined = err instanceof DevBuildError && err.declined;
     const error = err instanceof Error ? err.message : String(err);
-    useConnectionBuilderStore.getState().setBuild({ status: "error", specName, error, traceback });
+    useConnectionBuilderStore.getState().setBuild({ status: "error", specName, error, traceback, declined });
   }
 }
 

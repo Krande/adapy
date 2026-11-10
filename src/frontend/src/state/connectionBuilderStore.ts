@@ -19,7 +19,14 @@ export type ConnectionBuildState =
   | { status: "idle" }
   | { status: "building"; specName: string }
   | { status: "done"; result: DevBuildResult }
-  | { status: "error"; specName: string; error: string; traceback: string | null };
+  | {
+      status: "error";
+      specName: string;
+      error: string;
+      traceback: string | null;
+      /** The builder raised NotApplicable: it refused these members (not a crash). */
+      declined: boolean;
+    };
 
 type ConnectionBuilderState = {
   isVisible: boolean;

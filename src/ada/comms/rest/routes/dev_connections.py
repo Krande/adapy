@@ -4,7 +4,8 @@ Mounted only when ``ADA_DEV_CONNECTIONS`` names a library (see :mod:`..dev_conne
 
 * ``GET  /dev/connections``         — the library, its load status, generation and specs
 * ``POST /dev/connections/build``   — ``{spec_name, inputs}`` → the built GLB, stored in the
-  caller's personal scope; returns ``{scope, key, inputs, log, counts, generation}``
+  caller's personal scope; returns ``{scope, key, inputs, log, counts, generation}``. A builder
+  that raises is a 422 ``{error, traceback, declined}`` (``declined``: it raised NotApplicable)
 * ``POST /dev/connections/reload``  — reload now (the watcher does this on every change)
 * ``POST /dev/connections/restart`` — a fresh library host, re-reading ``ada_connections.toml``
 * ``GET  /dev/connections/events``  — server-sent ``state`` events, one per status change
@@ -71,7 +72,14 @@ async def api_dev_connections_build(
     except HostError as e:
         return JSONResponse(
             status_code=422,
-            content={"spec_name": spec_name, "error": e.error, "traceback": e.traceback, "generation": dev.generation},
+            content={
+                "spec_name": spec_name,
+                "error": e.error,
+                "traceback": e.traceback,
+                # The builder raised NotApplicable: it refused these members (not a crash).
+                "declined": bool(e.extra.get("declined")),
+                "generation": dev.generation,
+            },
         )
     build_ms = round((time.perf_counter() - t0) * 1000)
 

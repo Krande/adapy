@@ -9,6 +9,7 @@ from ada.api.connections.library import (
     CONFIG_FILENAME,
     Library,
     LibraryConfigError,
+    is_declined,
     load_config,
 )
 from ada.api.connections.spec import _clear_registry, list_specs
@@ -133,6 +134,27 @@ def test_a_broken_edit_is_reported_and_the_next_one_recovers(tmp_path):
     _write_library(tmp_path)
     assert lib.reload().ok
     assert [s.name for s in list_specs()] == ["devlib.plate_on_box"]
+
+
+def test_a_library_notapplicable_counts_as_declined_by_name():
+    class NotApplicable(Exception):  # a library's own, as a provider on an older core defines it
+        pass
+
+    class Refused(NotApplicable):
+        pass
+
+    assert is_declined(Refused("x"))
+    assert not is_declined(ValueError("x"))
+
+
+def test_a_load_error_traceback_starts_in_the_library(tmp_path):
+    _write_library(tmp_path)
+    (tmp_path / "devlib" / "plate_on_box.py").write_text("import nonexistent_module_xyz\n")
+    result = Library(load_config(tmp_path)).load()
+    assert not result.ok
+    first_frame = result.traceback.splitlines()[1]
+    assert "plate_on_box.py" in first_frame, result.traceback
+    assert "<frozen" not in result.traceback and "library.py" not in result.traceback
 
 
 def test_devhost_protocol(tmp_path):

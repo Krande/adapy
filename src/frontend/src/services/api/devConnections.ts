@@ -65,11 +65,13 @@ export interface DevBuildResult {
   build_ms: number;
 }
 
-/** A builder that raised: its message and traceback. */
+/** A builder that raised: its message and traceback (from the library's own code). `declined`
+ *  when it raised NotApplicable -- it refused these members, which is not a crash. */
 export class DevBuildError extends Error {
   constructor(
     message: string,
     readonly traceback: string | null,
+    readonly declined: boolean = false,
   ) {
     super(message);
     this.name = "DevBuildError";
@@ -91,8 +93,8 @@ export const devConnectionsApi = {
       body: JSON.stringify({ spec_name: specName, inputs }),
     });
     if (r.status === 422) {
-      const body = (await r.json()) as { error?: string; traceback?: string | null };
-      throw new DevBuildError(body.error ?? "build failed", body.traceback ?? null);
+      const body = (await r.json()) as { error?: string; traceback?: string | null; declined?: boolean };
+      throw new DevBuildError(body.error ?? "build failed", body.traceback ?? null, body.declined === true);
     }
     return jsonOrThrow<DevBuildResult>(r, `devConnections.build(${specName})`);
   },

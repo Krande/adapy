@@ -12,7 +12,9 @@ On start it writes one ``{"event": "ready", ...}`` line (the load result and the
   → ``{"id": 2, "ok": true, "inputs": {...}, "log": [...], "counts": {...}}``
 * ``{"id": 3, "op": "reload"}`` → ``{"id": 3, "ok": true, "load": {...}, "specs": [...]}``
 
-A failed request answers ``{"id": n, "ok": false, "error": ..., "traceback": ...}``.
+A failed request answers ``{"id": n, "ok": false, "error": ..., "traceback": ..., "declined": bool}``;
+``declined`` marks a builder's ``NotApplicable`` (it refused these members) apart from a crash, and
+the traceback starts at the library's own code.
 
 The protocol owns the real stdout; ``print`` in library code (and anything a native library
 writes to fd 1) goes to stderr instead, so it cannot corrupt a reply.
@@ -48,7 +50,13 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     out = _protocol_stream()
 
-    from ada.api.connections.library import Library, LibraryConfigError, load_config
+    from ada.api.connections.library import (
+        Library,
+        LibraryConfigError,
+        format_user_traceback,
+        is_declined,
+        load_config,
+    )
 
     try:
         library = Library(load_config(argv[0]))
@@ -94,7 +102,15 @@ def main(argv: list[str] | None = None) -> int:
                 raise
             _send(
                 out,
-                {"id": req_id, "ok": False, "error": f"{type(e).__name__}: {e}", "traceback": traceback.format_exc()},
+                {
+                    "id": req_id,
+                    "ok": False,
+                    "error": f"{type(e).__name__}: {e}",
+                    "traceback": format_user_traceback(e),
+                    # A builder's NotApplicable: it refused these members, which is a message
+                    # for the developer, not a crash.
+                    "declined": is_declined(e),
+                },
             )
     return 0
 

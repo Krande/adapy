@@ -339,6 +339,18 @@ const BuildStatus: React.FC<{ build: ConnectionBuildState; specName: string }> =
   if (build.status === "building") {
     return <div className="text-gray-300">Building {build.specName === specName ? "" : build.specName}…</div>;
   }
+  if (build.status === "error" && build.declined) {
+    // NotApplicable: the builder refused these sample members -- its reason is the message.
+    return (
+      <ErrorBox
+        tone="notice"
+        title={`${build.specName} declined`}
+        error={build.error.replace(/^\w*NotApplicable:\s*/, "")}
+        hint="The builder raised NotApplicable for these members: its preconditions are not met by the sample members (a spec can build its own with `synth_sample`)."
+        traceback={build.traceback}
+      />
+    );
+  }
   if (build.status === "error") {
     return <ErrorBox title={`${build.specName} failed`} error={build.error} traceback={build.traceback} />;
   }
@@ -366,12 +378,24 @@ const BuildStatus: React.FC<{ build: ConnectionBuildState; specName: string }> =
   );
 };
 
-const ErrorBox: React.FC<{ title: string; error: string; traceback: string | null }> = ({ title, error, traceback }) => {
-  const [open, setOpen] = useState(true);
+/** A failure (red, traceback open) or a notice such as a declined build (amber, traceback folded). */
+const ErrorBox: React.FC<{
+  title: string;
+  error: string;
+  traceback: string | null;
+  tone?: "error" | "notice";
+  hint?: string;
+}> = ({ title, error, traceback, tone = "error", hint }) => {
+  const notice = tone === "notice";
+  const [open, setOpen] = useState(!notice);
   return (
-    <div className="flex flex-col gap-1 p-1 border border-red-800 bg-red-950/50 rounded-sm">
+    <div
+      className={`flex flex-col gap-1 p-1 border rounded-sm ${
+        notice ? "border-yellow-800 bg-yellow-950/40" : "border-red-800 bg-red-950/50"
+      }`}
+    >
       <div className="flex items-center gap-2">
-        <span className="text-red-300 font-medium flex-1 min-w-0 break-words">
+        <span className={`${notice ? "text-yellow-200" : "text-red-300"} font-medium flex-1 min-w-0 break-words`}>
           {title}: {error}
         </span>
         {traceback && (
@@ -380,6 +404,7 @@ const ErrorBox: React.FC<{ title: string; error: string; traceback: string | nul
           </button>
         )}
       </div>
+      {hint && <div className="text-gray-400">{hint}</div>}
       {traceback && open && (
         <pre className="text-[10px] leading-tight text-red-200 whitespace-pre overflow-auto max-h-64">{traceback}</pre>
       )}

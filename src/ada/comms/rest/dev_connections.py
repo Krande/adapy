@@ -129,7 +129,9 @@ class LibraryHost:
             raise HostUnavailable(f"the library host is gone: {e}") from e
         reply = self._wait(lambda m: m.get("id") == req_id, timeout)
         if not reply.get("ok"):
-            raise HostError(reply.get("error") or "failed", reply.get("traceback"))
+            raise HostError(
+                reply.get("error") or "failed", reply.get("traceback"), declined=bool(reply.get("declined"))
+            )
         return reply
 
     @property

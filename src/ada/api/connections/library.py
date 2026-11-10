@@ -166,7 +166,7 @@ class Library:
         except BaseException as e:  # noqa: BLE001 - a SystemExit in user code must not kill the host
             if isinstance(e, KeyboardInterrupt):
                 raise
-            result = LoadResult(ok=False, error=f"{type(e).__name__}: {e}", traceback=traceback.format_exc())
+            result = LoadResult(ok=False, error=f"{type(e).__name__}: {e}", traceback=format_user_traceback(e))
         self._owned |= {name for name in set(sys.modules) - before if self._owns(name)}
         self.generation += 1
         result.modules = sorted(self._owned)
@@ -278,6 +278,32 @@ class _CapturedLog(logging.Handler):
         logging.getLogger().removeHandler(self)
         for lg in self._patched:
             lg.removeHandler(self)
+
+
+_HERE = os.path.normcase(os.path.dirname(os.path.abspath(__file__)))
+
+
+def format_user_traceback(exc: BaseException) -> str:
+    """``exc``'s traceback from the first frame that is the library's own: the frames of this
+    package (the host, the loader, ``build_component``) and of the import machinery that led
+    there are the same every time and only push the developer's code out of view. A failure
+    inside this package itself keeps every frame."""
+    tb = exc.__traceback__
+    while tb is not None:
+        file = tb.tb_frame.f_code.co_filename
+        module = tb.tb_frame.f_globals.get("__name__", "")
+        machinery = file.startswith("<frozen") or module.split(".")[0] in ("importlib", "pkgutil")
+        if not (machinery or os.path.normcase(os.path.dirname(os.path.abspath(file))) == _HERE):
+            break
+        tb = tb.tb_next
+    return "".join(traceback.format_exception(type(exc), exc, tb if tb is not None else exc.__traceback__))
+
+
+def is_declined(exc: BaseException) -> bool:
+    """Whether a builder DECLINED (``NotApplicable``: "not mine") rather than failed. Recognised by
+    the class name anywhere in its MRO, as the detail loop does, so a library's own
+    ``NotApplicable`` counts on a core that predates :class:`~ada.api.connections.spec.NotApplicable`."""
+    return any(cls.__name__ == "NotApplicable" for cls in type(exc).__mro__)
 
 
 def _import_recursive(package: str) -> list[ModuleType]:

@@ -129,8 +129,25 @@ def test_serve_build_and_reload(client: TestClient, lib_dir: pathlib.Path):
     state = _wait_for(client, lambda s: s["generation"] > generation and s["status"] != "reloading")
     r = client.post("/api/dev/connections/build", json={"spec_name": "devrest.renamed", "inputs": {}})
     assert r.status_code == 422
-    assert "bad detail" in r.json()["error"]
-    assert "Traceback" in r.json()["traceback"]
+    body = r.json()
+    assert "bad detail" in body["error"]
+    assert body["declined"] is False
+    # The traceback starts at the library's own code, not at the host / build_component frames.
+    assert "joint.py" in body["traceback"]
+    assert "devhost.py" not in body["traceback"] and "build.py" not in body["traceback"]
+
+    # A builder that raises NotApplicable declined these members: still a 422, flagged as such.
+    generation = state["generation"]
+    _write(
+        lib_dir,
+        name="devrest.renamed",
+        body='raise __import__("ada.api.connections.spec", fromlist=["_"]).NotApplicable("needs a stub")',
+    )
+    state = _wait_for(client, lambda s: s["generation"] > generation and s["status"] != "reloading")
+    r = client.post("/api/dev/connections/build", json={"spec_name": "devrest.renamed", "inputs": {}})
+    assert r.status_code == 422
+    assert r.json()["declined"] is True
+    assert "needs a stub" in r.json()["error"]
 
     # A syntax error is a load error the studio shows, until the next edit fixes it.
     generation = state["generation"]
