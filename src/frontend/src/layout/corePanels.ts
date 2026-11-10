@@ -29,6 +29,7 @@ import { useAnimationStore } from "@/state/animationStore";
 import { hasEmbeddedDoc, useCellBuilderStore } from "@/state/cellBuilderStore";
 import { useComponentControlsStore } from "@/state/componentControlsStore";
 import { useComponentSpecsStore } from "@/state/componentSpecsStore";
+import { useConsoleLogStore } from "@/state/consoleLogStore";
 import { useEquipmentCatalogStore } from "@/state/equipmentCatalogStore";
 import { useFeaAnimationStore } from "@/state/feaAnimationStore";
 import { useFemConceptsStore } from "@/state/femConceptsStore";
@@ -396,6 +397,21 @@ export function corePanelSpecs(): PanelSpec[] {
       ),
       available: () => proceduralActive(),
       placement: column(100),
+    },
+    {
+      // What the page has logged. No top-bar button: found with Ctrl+K ("Console") or View > Panels.
+      id: CORE_PANEL_IDS.console,
+      title: "Console",
+      hint: "Toggle the console",
+      body: classicBody(CORE_PANEL_IDS.console),
+      content: classicContent(CORE_PANEL_IDS.console),
+      binding: bindStoreFlag(
+        useConsoleLogStore,
+        (s) => s.isVisible,
+        (open, s) => s.setIsVisible(open),
+      ),
+      available: () => true,
+      placement: column(110),
     },
     {
       // The in-viewer admin window (Options' "Admin panel", Shift+P).

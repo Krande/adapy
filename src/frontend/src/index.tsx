@@ -13,6 +13,10 @@ import { load_base64_model } from "./utils/scene/handlers/update_scene_from_mess
 import { runtime } from "@/runtime/config";
 import ErrorBoundary from "./components/common/ErrorBoundary";
 import { UiShellHost, loadPlugins } from "@/plugins";
+import { installConsoleCapture } from "@/utils/consoleCapture";
+
+// First: the Console panel shows what the page logs from here on, start-up included.
+installConsoleCapture();
 
 // A page loaded before a deploy asks for lazy chunks the deploy removed. Reload once to pick up the
 // new build rather than leaving a broken panel; the guard stops a loop if the chunk is really broken.
