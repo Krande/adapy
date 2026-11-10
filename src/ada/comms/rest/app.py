@@ -93,6 +93,7 @@ from .routes.plugins import router as plugins_router
 from .routes.preferences import router as preferences_router
 from .routes.procedural_models import router as procedural_models_router
 from .routes.projects import router as projects_router
+from .routes.simulations import router as simulations_router
 from .routes.source_nodes import router as source_nodes_router
 from .routes.storage import router as storage_router
 from .scope import Scope
@@ -1507,6 +1508,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     api.include_router(clash_check_router)
     # Convex-contact clash runs on the viewer GLB: ``/scopes/{scope}/clash-contacts...``.
     api.include_router(clash_contacts_router)
+
+    # Simulation providers and runs (routes/simulations.py): ``/simulation/providers`` and
+    # ``/scopes/{scope}/simulations...``, neither colliding with a fixed/parameterised sibling.
+    api.include_router(simulations_router)
 
     # A selection as a STEP/IFC download (routes/export_selection.py). One fixed path,
     # ``/scopes/{scope}/export-selection``, with no parameterised sibling to collide with.

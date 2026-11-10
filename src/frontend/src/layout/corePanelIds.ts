@@ -25,6 +25,8 @@ export const CORE_PANEL_IDS = {
   systemAdmin: "core:system-admin",
   admin: "core:admin",
   convert: "core:convert",
+  /** Simulation providers and the scope's simulation runs. */
+  simulations: "core:simulations",
 } as const;
 
 export type CorePanelId = (typeof CORE_PANEL_IDS)[keyof typeof CORE_PANEL_IDS];

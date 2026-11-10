@@ -9,6 +9,9 @@ Synthetic kinds have no source file, so the extension check does not apply to th
 comes from the format registry rather than a hand-kept list: the list once omitted
 ``procedural_engine_build``, whose synthetic key has no extension, so every engine-build job
 was failed as misrouted on every pool.
+
+A ``simulation_run`` is synthetic too, but it does name what it needs: a provider. A pool whose
+worker has not registered that provider refuses the job here, by the provider's name.
 """
 
 from __future__ import annotations
@@ -26,11 +29,24 @@ def misroute_reason(
     cap: str,
     source_ext_set: set[str] | frozenset[str],
     ext_allow_set: set[str] | frozenset[str] | None,
+    conversion_options: dict | None = None,
 ) -> str | None:
-    """``None`` when the pool can serve the job, else the message to fail it with."""
+    """``None`` when the pool can serve the job, else the message to fail it with.
+
+    ``conversion_options`` are the job's own; only a ``simulation_run`` is read from them (its
+    ``provider_id``)."""
     # Importing the package populates the registry; the registry module itself is a leaf.
     import ada.comms.rest.formats  # noqa: F401
 
+    if target_format == "simulation_run":
+        from ada.simulation.registry import get_simulation_provider
+
+        from ..formats.simulation import unserved_provider_reason
+
+        provider_id = str((conversion_options or {}).get("provider_id") or "")
+        if provider_id and get_simulation_provider(provider_id) is None:
+            return f"misrouted: pool capability {cap!r} cannot run this job: {unserved_provider_reason(provider_id)}"
+        return None
     if target_format in synthetic_kinds():
         return None
     ext = pathlib.PurePosixPath(source_key).suffix.lower()

@@ -526,6 +526,7 @@ async def _run() -> None:
                         cap=cap,
                         source_ext_set=source_ext_set,
                         ext_allow_set=ext_allow_set,
+                        conversion_options=peeked.conversion_options,
                     )
                     if misroute_msg is not None:
                         logger.warning(

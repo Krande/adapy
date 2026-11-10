@@ -13,7 +13,10 @@ from typing import Awaitable, Callable
 from ada.config import logger
 
 from ..converter import ConverterRegistry
-from ..plugin_registry import locally_registered_specs
+from ..plugin_registry import (
+    locally_registered_simulation_providers,
+    locally_registered_specs,
+)
 from ..qualification import CAPABILITY_REQUIREMENTS_KEY, evaluate
 from ..queue import JobQueue, capability_token
 from . import state
@@ -238,6 +241,27 @@ def _asset_concept_readers_for_heartbeat(capabilities: list[str]) -> list[dict]:
                 "union_fields": ["readable_pools", "licensed_pools"],
             }
         )
+    return out
+
+
+def _simulation_providers_for_heartbeat(capabilities: list[str]) -> list[dict]:
+    """The simulation providers registered in this process, in the heartbeat catalog shape:
+    id, domain, engine and what the provider's ``describe()`` says (title, version, kinds,
+    parameter schema).
+
+    ``capability`` is the pool token a run for the provider is published to, and ``serving``
+    whether this worker pulls from it. The two can differ: registering a provider only ASKS for
+    its capability, and qualification or ``ADA_WORKER_DISABLED_CAPABILITIES`` may withhold it. A
+    provider that is advertised and not served is listed by the API as offline rather than
+    having its runs queue on a pool nobody pulls from.
+
+    Re-read on every heartbeat, like the plugin specs: a provider can be registered after boot.
+    """
+    serving = {t for c in capabilities if (t := capability_token(c))}
+    out: list[dict] = []
+    for spec in locally_registered_simulation_providers():
+        token = capability_token(spec.get("capability"))
+        out.append({**spec, "capability": token, "serving": bool(token) and token in serving})
     return out
 
 
@@ -491,6 +515,7 @@ async def build_registration(queue: JobQueue) -> Registration:
                     "clash_passes": clash_passes,
                     "clash_checkers": clash_checkers,
                     "asset_concept_readers": _asset_concept_readers_for_heartbeat(capabilities),
+                    "simulation_providers": _simulation_providers_for_heartbeat(capabilities),
                     "started_at": started_at,
                     "last_heartbeat": time.time(),
                 },

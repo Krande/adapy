@@ -71,10 +71,13 @@ class LocalJob:
     result: dict[str, Any] | None = None
     started_at: float = field(default_factory=time.time)
     cancel_event: threading.Event = field(default_factory=threading.Event)
+    #: What a running job has already put in storage, as the queue's ``Job.artefacts_ready``.
+    #: Set by a simulation run; None for every job that has nothing to say before it ends.
+    artefacts_ready: dict[str, Any] | None = None
 
     def as_json(self) -> dict[str, Any]:
         """The shape ``GET /api/convert/{job_id}`` returns for a queued job."""
-        return {
+        out: dict[str, Any] = {
             "job_id": self.job_id,
             "status": self.status,
             "stage": self.stage,
@@ -84,6 +87,9 @@ class LocalJob:
             "scope_kind": self.scope_kind,
             "scope_id": self.scope_id,
         }
+        if self.artefacts_ready is not None:
+            out["artefacts_ready"] = self.artefacts_ready
+        return out
 
 
 class LocalJobRegistry:
@@ -1116,4 +1122,101 @@ def start_export_selection_group(
             out_path.unlink(missing_ok=True)
 
     threading.Thread(target=_run, name="local-export-selection-group", daemon=True).start()
+    return job
+
+
+def start_simulation_run(
+    *,
+    provider_id: str,
+    run_id: str,
+    derived_key: str,
+    storage: Any,
+    scope: Any,
+) -> LocalJob:
+    """Run a simulation provider in a thread -- the queue-less twin of the worker's
+    ``simulation_run`` kind, through the same ``ada.simulation.runner.execute_run``.
+
+    The provider has to be registered in THIS process; ``LookupError`` before a job (and its
+    thread) is started when it is not. The run record at ``derived_key`` was written by the route
+    and carries the parameters and inputs. Cancelling the job sets the event the provider's
+    context reads, so a cooperative provider stops between units of work.
+    """
+    from ada.comms.rest.worker import _SyncStorageFacade
+    from ada.simulation.registry import get_simulation_provider
+    from ada.simulation.runner import execute_run
+    from ada.simulation.runs import STATUS_CANCELLED as RUN_CANCELLED
+    from ada.simulation.runs import STATUS_DONE as RUN_DONE
+    from ada.simulation.runs import STATUS_ERROR as RUN_ERROR
+    from ada.simulation.runs import dump_run_record, parse_run_record, utc_now
+
+    provider = get_simulation_provider(provider_id)
+    if provider is None:
+        raise LookupError(
+            f"simulation provider {provider_id!r} is not registered in this process -- running a "
+            "simulation in-process needs the provider importable HERE (ADA_WORKER_PRELOAD / an "
+            "ada.plugins entry point), not in a worker."
+        )
+
+    sync_storage = _SyncStorageFacade(storage, scope, asyncio.get_running_loop())
+
+    job = LocalJob(
+        job_id=f"local-{uuid.uuid4().hex[:16]}",
+        plugin_id=f"simulation:{provider_id}",
+        scope_kind=getattr(scope, "kind", "shared"),
+        scope_id=getattr(scope, "id", None),
+        derived_key=derived_key,
+    )
+    registry.add(job)
+
+    def _on_progress(fraction: float, stage: str) -> None:
+        # Below 1.0 until the run has ended: only the final status says it is over.
+        job.stage, job.progress = stage or "running", min(fraction, 0.99)
+
+    def _on_artefacts(artefacts: list[dict], complete: bool) -> None:
+        job.artefacts_ready = {"artefacts": artefacts, "complete": complete}
+
+    def _run() -> None:
+        record: dict[str, Any] | None = None
+        try:
+            record = parse_run_record(sync_storage.get_bytes(derived_key))
+            # The route could not know this id when it wrote the record; the first write of the
+            # run puts it there.
+            record["job_id"] = job.job_id
+            finished = execute_run(
+                provider,
+                record,
+                sync_storage,
+                scope=scope.prefix(),
+                cancel_event=job.cancel_event,
+                on_progress=_on_progress,
+                on_artefacts=_on_artefacts,
+            )
+            if job.status != STATUS_RUNNING:
+                # The registry already ruled on this job (the age sweep): leave its verdict.
+                return
+            outcome = finished.get("status")
+            if outcome == RUN_DONE:
+                job.status, job.stage, job.progress = STATUS_DONE, "done", 1.0
+            elif outcome == RUN_CANCELLED:
+                job.status, job.stage = STATUS_CANCELLED, "cancelled"
+            else:
+                job.status, job.stage = STATUS_ERROR, "error"
+                job.error = str(finished.get("error") or "the run failed")
+        except Exception as exc:  # noqa: BLE001 — the run's failure is data, not ours
+            # Not the provider failing (``execute_run`` reports that in the record): the record
+            # could not be read or written.
+            if job.status != STATUS_RUNNING:
+                return
+            logger.exception("local simulation run %s (%s) failed", run_id, provider_id)
+            job.status, job.stage = STATUS_ERROR, "error"
+            job.error = f"{type(exc).__name__}: {exc}"
+            if record is not None:
+                try:
+                    failed = {**record, "status": RUN_ERROR, "stage": "error", "error": job.error}
+                    failed["finished_at"] = utc_now()
+                    sync_storage.put_bytes(derived_key, dump_run_record(failed), content_encoding="gzip")
+                except Exception:  # noqa: BLE001 - the job still says what failed
+                    logger.warning("local simulation run %s: the failure could not be recorded", run_id)
+
+    threading.Thread(target=_run, name=f"local-simulation-{provider_id}", daemon=True).start()
     return job
