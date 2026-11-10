@@ -21,12 +21,13 @@ async def serve_static_files(file_path: str):
         resolved_path = (_build_dir / file_path).resolve(strict=False)
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid path.")
-    # Check that the resolved path starts with the build dir (prevents path traversal)
-    if not str(resolved_path).startswith(str(_build_dir)):
+    # Check that the resolved path is inside the build dir (prevents path traversal). A plain string
+    # prefix check would also accept siblings such as "site-old/" or "site_backup/".
+    if not resolved_path.is_relative_to(_build_dir):
         raise HTTPException(status_code=403, detail="Access is forbidden.")
 
-    # Check if the file exists locally
-    if not resolved_path.exists():
+    # Check if the file exists locally (a directory is not a servable file)
+    if not resolved_path.is_file():
         raise HTTPException(status_code=404, detail=f"File '{file_path}' not found locally.")
 
     # Determine the content type based on the file extension
