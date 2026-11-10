@@ -22,6 +22,7 @@ import { contactRunToResult, useClashCheckStore } from "@/state/clashCheckStore"
 import { effectiveInputs, useConnectionBuilderStore } from "@/state/connectionBuilderStore";
 import { useModelState } from "@/state/modelState";
 import { renderConnectionOverlay } from "@/utils/scene/connectionOverlay";
+import { tintWelds } from "@/utils/scene/connectionWeldTint";
 import { selectInOtherModel } from "@/utils/scene/crossModelSelect";
 import { overlay_file_in_scene } from "@/utils/scene/handlers/overlay_file_in_scene";
 import { unload_any_source } from "@/utils/scene/handlers/unload_any_source";
@@ -80,14 +81,22 @@ export function startConnectionBuilderSession(): void {
   store.subscribe((s, prev) => {
     if (s.selectedSpec !== prev.selectedSpec) requestBuild(0);
     else if (s.inputsBySpec !== prev.inputsBySpec) requestBuild(INPUT_DEBOUNCE_MS);
-    if (s.overlays !== prev.overlays) drawOverlay();
+    if (s.overlays !== prev.overlays) {
+      const tintChanged =
+        s.overlays.tintWelds !== prev.overlays.tintWelds || s.overlays.weldColour !== prev.overlays.weldColour;
+      drawOverlay(tintChanged);
+    }
   });
 }
 
-/** The joint's 3D annotations over the preview on show (`connectionOverlay`). */
-function drawOverlay(): void {
+/** The joint's 3D annotations over the preview on show (`connectionOverlay`), and, with `tint`, its
+ *  welds' colour (`connectionWeldTint`). */
+function drawOverlay(tint = true): void {
   const s = useConnectionBuilderStore.getState();
   renderConnectionOverlay(currentPreview, s.lastResult, s.overlays);
+  if (!tint) return;
+  const welds = s.lastResult?.properties.welds.map((w) => w.name) ?? [];
+  void tintWelds(currentPreview, welds, s.overlays.tintWelds ? s.overlays.weldColour : null);
 }
 
 function keepSelectionValid(state: DevConnectionsState): void {

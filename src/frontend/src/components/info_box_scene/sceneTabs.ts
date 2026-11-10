@@ -3,7 +3,17 @@
 
 import type {SceneInfoMode} from "@/state/sceneInfoStore";
 
-export type SceneTab = "model" | "overlays" | "tools" | "clip" | "mesh" | "fem" | "connection" | "clashes" | "joints";
+export type SceneTab =
+    | "model"
+    | "overlays"
+    | "tools"
+    | "clip"
+    | "mesh"
+    | "fem"
+    | "connection"
+    | "clashes"
+    | "joints"
+    | "jointOverlays";
 
 export interface SceneTabDef {
     id: SceneTab;
@@ -28,6 +38,9 @@ export const TAB_META: SceneTabDef[] = [
     {id: "connection", label: "Connection", ctx: true},
     {id: "clashes", label: "Clashes"},
     {id: "joints", label: "Joints", ctx: true},
+    // What the joint tabs draw in 3D, in one place: the joint being developed's axes, weld labels
+    // and weld colour, and the clash run's markers and contacts.
+    {id: "jointOverlays", label: "Joint overlays"},
     {id: "tools", label: "Tools"},
 ];
 
@@ -54,12 +67,12 @@ export const SCENE_GROUPS: readonly SceneGroupDef[] = [
     {id: "model", label: "Model", tabs: ["model"]},
     {id: "view", label: "View", tabs: ["overlays", "clip", "mesh"]},
     {id: "fem", label: "FEM", tabs: ["fem"]},
-    {id: "joints", label: "Joints", tabs: ["connection", "clashes", "joints"]},
+    {id: "joints", label: "Joints", tabs: ["connection", "clashes", "joints", "jointOverlays"]},
     {id: "tools", label: "Tools", tabs: ["tools"]},
 ];
 
 /** A tab's name inside its group's strip, where the group already names the subject. */
-export const SUB_LABEL: Partial<Record<SceneTab, string>> = {joints: "Review"};
+export const SUB_LABEL: Partial<Record<SceneTab, string>> = {joints: "Review", jointOverlays: "Overlays"};
 
 export interface OfferedGroup {
     id: SceneGroup;
@@ -97,6 +110,7 @@ export const MODE_TO_TAB: Record<SceneInfoMode, SceneTab> = {
     joints: "joints",
     overlays: "overlays",
     connection: "connection",
+    jointOverlays: "jointOverlays",
 };
 
 export const TAB_TO_MODE: Record<SceneTab, SceneInfoMode> = {
@@ -109,6 +123,7 @@ export const TAB_TO_MODE: Record<SceneTab, SceneInfoMode> = {
     connection: "connection",
     clashes: "clashes",
     joints: "joints",
+    jointOverlays: "jointOverlays",
 };
 
 export interface SceneTabOptions {

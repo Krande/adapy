@@ -43,8 +43,8 @@ test("without options the panel renders as with an empty options object", () => 
 
 test("tabs picks and orders the tabs; hiddenTabs leaves some out", () => {
     assert.deepEqual(tabLabels(render({ tabs: ["tools", "model"] })), ["Tools", "Model"]);
-    // Joints loses its only tab (Clashes; Review needs joints), so the group goes too.
-    assert.deepEqual(tabLabels(render({ hiddenTabs: ["clip", "clashes"] })), ["Model", "View", "Tools"]);
+    // Joints loses its tabs (Clashes, Overlays; Review needs joints), so the group goes too.
+    assert.deepEqual(tabLabels(render({ hiddenTabs: ["clip", "clashes", "jointOverlays"] })), ["Model", "View", "Tools"]);
 });
 
 test("a group of several tabs shows them in a second strip, on the one the mode names", () => {
@@ -99,9 +99,9 @@ test("the loaded list takes a title and an empty state", () => {
 
 test("sceneTabs and activeSceneTab", () => {
     const ids = (t: { id: string }[]) => t.map((x) => x.id);
-    assert.deepEqual(ids(sceneTabs({}, {})), ["model", "overlays", "clip", "mesh", "clashes", "tools"]);
-    assert.deepEqual(ids(sceneTabs({}, { joints: true })), ["model", "overlays", "clip", "mesh", "clashes", "joints", "tools"]);
-    assert.deepEqual(ids(sceneTabs({ femTab: true }, { fem: true })), ["model", "overlays", "clip", "mesh", "fem", "clashes", "tools"]);
+    assert.deepEqual(ids(sceneTabs({}, {})), ["model", "overlays", "clip", "mesh", "clashes", "jointOverlays", "tools"]);
+    assert.deepEqual(ids(sceneTabs({}, { joints: true })), ["model", "overlays", "clip", "mesh", "clashes", "joints", "jointOverlays", "tools"]);
+    assert.deepEqual(ids(sceneTabs({ femTab: true }, { fem: true })), ["model", "overlays", "clip", "mesh", "fem", "clashes", "jointOverlays", "tools"]);
     assert.deepEqual(ids(sceneTabs({ tabs: ["joints", "tools"] }, {})), ["tools"], "a contextual tab still needs content");
     const offered = sceneTabs({ tabs: ["tools", "mesh"] }, {});
     assert.equal(activeSceneTab("info", offered), "tools", "with no Model tab the first offered one is active");
@@ -114,7 +114,7 @@ test("sceneGroups groups the offered tabs, in the order their first tab is offer
     assert.deepEqual(shape(sceneTabs({}, { connection: true, joints: true })), [
         ["model", ["model"]],
         ["view", ["overlays", "clip", "mesh"]],
-        ["joints", ["connection", "clashes", "joints"]],
+        ["joints", ["connection", "clashes", "joints", "jointOverlays"]],
         ["tools", ["tools"]],
     ]);
     assert.deepEqual(shape(sceneTabs({ tabs: ["clashes", "tools", "clip"] }, {})), [
@@ -125,6 +125,8 @@ test("sceneGroups groups the offered tabs, in the order their first tab is offer
     assert.equal(groupOf("joints"), "joints");
     assert.equal(groupOf("mesh"), "view");
     assert.equal(SUB_LABEL.joints, "Review");
+    assert.equal(SUB_LABEL.jointOverlays, "Overlays");
+    assert.equal(groupOf("jointOverlays"), "joints");
 });
 
 test("shouldStackTabs enters above its threshold and leaves only below a lower one", () => {

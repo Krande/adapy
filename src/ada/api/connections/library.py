@@ -269,6 +269,12 @@ def _joint_members(conn) -> list:
     return [*conn.beams, *conn.plates]
 
 
+# Whether a weld touches its members is asked of solids that are meant to meet exactly. The check's
+# defaults (a 10 mm margin, patches under 1 mm² dropped) are for a model's clashes, and drop the thin
+# patch where a corner fillet meets a rounded hollow section: those welds then read "not joined".
+_JOINT_CONTACT_OPTIONS = {"security_margin": 0.002, "min_contact_area": 0.0}
+
+
 def _measure_joint(
     glb_path: pathlib.Path, conn
 ) -> tuple[dict | None, dict[str, dict[str, tuple[float, float, float]]], str | None]:
@@ -292,6 +298,7 @@ def _measure_joint(
             glb_key="preview",
             up_axis="z",
             engine="worker",
+            options=_JOINT_CONTACT_OPTIONS,
         )
         names = [str(m["name"]) for m in run.members]
         members = {m.name for m in _joint_members(conn)}

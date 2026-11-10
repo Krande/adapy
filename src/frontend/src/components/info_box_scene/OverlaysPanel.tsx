@@ -3,8 +3,6 @@ import React, {useEffect} from "react";
 import {useViewerStores} from "@/state/AdaViewerContext";
 import {bindOverlays, refreshOverlays} from "@/utils/overlays/overlayController";
 import {markCount, OVERLAYS} from "@/utils/overlays/overlayModel";
-import {runtime} from "@/runtime/config";
-import {useConnectionBuilderStore} from "@/state/connectionBuilderStore";
 
 const LEGEND_MAX = 12;
 
@@ -28,7 +26,6 @@ const OverlaysPanel = () => {
     const read = status === "ready" || status === "loading";
     return (
         <div className="flex flex-col gap-2">
-            {runtime.devConnections() && <ConnectionOverlays />}
             <p className="text-xs text-gray-400">
                 Drawn from the relations providers publish for the models loaded from published sources.
             </p>
@@ -97,39 +94,6 @@ const OverlaysPanel = () => {
                     Refresh
                 </button>
             </div>
-        </div>
-    );
-};
-
-/** The joint `ada dev connections` previews, annotated in 3D (`utils/scene/connectionOverlay`). */
-const CONNECTION_OVERLAYS = [
-    {
-        id: "axes",
-        label: "Member axes",
-        description: "Each member's axis and its role (incoming amber, landing teal), with its section or thickness.",
-    },
-    {
-        id: "welds",
-        label: "Weld labels",
-        description: "Each weld's type and throat where it meets its members; red where it does not touch one it joins.",
-    },
-] as const;
-
-const ConnectionOverlays = () => {
-    const overlays = useConnectionBuilderStore((s) => s.overlays);
-    const setOverlay = useConnectionBuilderStore((s) => s.setOverlay);
-    return (
-        <div className="flex flex-col gap-1 pb-2 border-b border-white/10">
-            <span className="text-xs text-gray-400">The joint being developed (Scene &gt; Connection):</span>
-            {CONNECTION_OVERLAYS.map((o) => (
-                <div key={o.id} className="flex flex-col gap-1">
-                    <label className="flex items-center gap-2 cursor-pointer">
-                        <input type="checkbox" checked={overlays[o.id]} onChange={(e) => setOverlay(o.id, e.target.checked)} />
-                        <span className="font-semibold">{o.label}</span>
-                    </label>
-                    <p className="text-xs text-gray-400 pl-6">{o.description}</p>
-                </div>
-            ))}
         </div>
     );
 };

@@ -14,6 +14,7 @@ import FaceSearchSection from "./FaceSearchSection";
 import SectionPlanesPanel from "./SectionPlanesPanel";
 import JointsOverviewPanel from "./JointsOverviewPanel";
 import ClashesPanel from "./ClashesPanel";
+import JointOverlaysPanel from "./JointOverlaysPanel";
 import {ConnectionBuilderBody} from "@/components/component_view/ConnectionBuilder";
 import {runtime} from "@/runtime/config";
 import MeshDistortionSection from "./MeshDistortionSection";
@@ -296,6 +297,8 @@ const TabContent: React.FC<{tab: SceneTab; isMobile: boolean}> = ({tab, isMobile
                     <ConnectionBuilderBody />
                 ) : tab === "clashes" ? (
                     <ClashesPanel />
+                ) : tab === "jointOverlays" ? (
+                    <JointOverlaysPanel />
                 ) : (
                     <JointsOverviewPanel />
                 );

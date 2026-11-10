@@ -1,4 +1,4 @@
-// The joint `ada dev connections` previews, annotated in 3D (Scene > Overlays, "Connection"):
+// The joint `ada dev connections` previews, annotated in 3D (Scene > Joints > Overlays):
 //
 //   * member axes -- each beam's axis, coloured by its role (the Clashes legend's incoming amber and
 //     landing teal), labelled with its role and section; a plate gets its label at its centre;
@@ -18,14 +18,12 @@ import * as THREE from "three";
 import type { DevBuildResult } from "@/services/api/devConnections";
 import { loadedSourceGroups } from "@/state/modelState";
 import { requestRender } from "@/state/perfStore";
+import type { ConnectionOverlays } from "@/state/connectionBuilderStore";
 import { getViewerRuntime } from "@/state/viewerRuntime";
 import { sourceSpaceRoot } from "@/utils/scene/clashJointMarkers";
 import { weldTypeName } from "@/utils/weldTypeNames";
 
-export interface ConnectionOverlayToggles {
-  axes: boolean;
-  welds: boolean;
-}
+export type ConnectionOverlayToggles = Pick<ConnectionOverlays, "axes" | "welds" | "weldSymbols" | "weldDetails">;
 
 /** Role colours, as the Clashes legend draws them (`clashContactPlan`). */
 const ROLE_COLOUR: Record<string, string> = { incoming: "#f59e0b", landing: "#14b8a6" };
@@ -96,8 +94,9 @@ export function renderConnectionOverlay(
     for (const w of result.properties.welds) {
       if (!w.at) continue;
       const bad = w.joins_its_members === false;
-      const text = `${w.name} · ${weldTypeName(w.weld_type)} a=${mm(w.throat)}${bad ? " · not joined" : ""}`;
-      out.add(label(text, w.at, bad ? WELD_BAD_COLOUR : WELD_COLOUR, w.symbol_svg));
+      const type = weldTypeName(w.weld_type);
+      const text = `${toggles.weldDetails ? `${w.name} · ${type} a=${mm(w.throat)}` : type}${bad ? " · not joined" : ""}`;
+      out.add(label(text, w.at, bad ? WELD_BAD_COLOUR : WELD_COLOUR, toggles.weldSymbols ? w.symbol_svg : null));
       marks++;
     }
   }

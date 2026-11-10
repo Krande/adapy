@@ -50,12 +50,46 @@ type ConnectionBuilderState = {
    *  one builds or fails, until a build of another spec replaces it. */
   lastResult: DevBuildResult | null;
 
-  /** The joint's 3D annotations (Scene > Overlays, "Connection"). */
-  overlays: { axes: boolean; welds: boolean };
-  setOverlay: (which: "axes" | "welds", on: boolean) => void;
+  /** How the joint is drawn in 3D (Scene > Joints > Overlays). */
+  overlays: ConnectionOverlays;
+  setOverlay: <K extends keyof ConnectionOverlays>(which: K, value: ConnectionOverlays[K]) => void;
+};
+
+export interface ConnectionOverlays {
+  /** Each member's axis and its role / section label. */
+  axes: boolean;
+  /** A label at each weld. */
+  welds: boolean;
+  /** In a weld's label: its ISO 2553 symbol. */
+  weldSymbols: boolean;
+  /** In a weld's label: its name and throat, besides its type. */
+  weldDetails: boolean;
+  /** Draw the weld solids in `weldColour` rather than their material's colour. */
+  tintWelds: boolean;
+  weldColour: string;
+}
+
+export const DEFAULT_OVERLAYS: ConnectionOverlays = {
+  axes: true,
+  welds: true,
+  weldSymbols: true,
+  weldDetails: true,
+  tintWelds: true,
+  weldColour: "#3b82f6",
 };
 
 const STORAGE_PREFIX = "ada-connection-builder:";
+// One for every library: how a joint is drawn is the viewer's preference, not the library's.
+const OVERLAYS_KEY = STORAGE_PREFIX + "overlays";
+
+function loadOverlays(): ConnectionOverlays {
+  try {
+    const raw = localStorage.getItem(OVERLAYS_KEY);
+    return raw ? { ...DEFAULT_OVERLAYS, ...(JSON.parse(raw) as Partial<ConnectionOverlays>) } : DEFAULT_OVERLAYS;
+  } catch {
+    return DEFAULT_OVERLAYS;
+  }
+}
 
 function storageKey(library: DevConnectionsState | null): string | null {
   return library ? STORAGE_PREFIX + library.library.config : null;
@@ -127,8 +161,15 @@ export const useConnectionBuilderStore = create<ConnectionBuilderState>((set, ge
   setBuild: (build) => set(build.status === "done" ? { build, lastResult: build.result } : { build }),
   lastResult: null,
 
-  overlays: { axes: true, welds: true },
-  setOverlay: (which, on) => set((s) => ({ overlays: { ...s.overlays, [which]: on } })),
+  overlays: loadOverlays(),
+  setOverlay: (which, value) => {
+    set((s) => ({ overlays: { ...s.overlays, [which]: value } }));
+    try {
+      localStorage.setItem(OVERLAYS_KEY, JSON.stringify(get().overlays));
+    } catch {
+      // Not remembered past the page; nothing else depends on it.
+    }
+  },
 }));
 
 /** The inputs a build of `spec` sends: the spec's defaults, overridden by what the user changed. */
