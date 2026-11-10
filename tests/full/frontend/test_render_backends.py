@@ -426,3 +426,22 @@ async def test_name_labels_are_drawn_by_whichever_viewport_is_on_screen(ws_serve
             assert left < 10, f"{backend}: switching the labels off left {left} label pixels"
         finally:
             await browser.close()
+
+
+@pytest.mark.parametrize("backend", ["three", NATIVE])
+async def test_take_screenshot_saves_the_view_of_whichever_viewport_is_on_screen(ws_server, backend):
+    async with async_playwright() as playwright:
+        browser, page, _ = await _open_viewer(playwright, ws_server, backend)
+        try:
+            await asyncio.to_thread(
+                lambda: _model().show(ws_port=ws_server.port, unique_viewer_id=1, liveness_timeout=10)
+            )
+            await _until(page, lambda: _model_on_screen(page), "the model to be drawn")
+            async with page.expect_download(timeout=20000) as download:
+                await _command(page, "Take screenshot")
+            saved = await (await download.value).path()
+            picture = Image.open(saved).convert("RGB")
+            assert picture.size == (1920, 1080)
+            assert _count(picture, _is_model) > 20000, f"{backend}: the screenshot does not show the model"
+        finally:
+            await browser.close()

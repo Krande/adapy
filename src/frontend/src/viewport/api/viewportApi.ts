@@ -70,6 +70,9 @@ export interface ViewportApi {
     /** The loaded model's box (min xyz, max xyz), or null with nothing loaded. */
     modelBounds(): [number, number, number, number, number, number] | null;
 
+    /** Save a picture of the view as it is now (a PNG download). */
+    saveScreenshot(): void;
+
     // The camera.
     fitAll(): void;
     fitSelection(): void;

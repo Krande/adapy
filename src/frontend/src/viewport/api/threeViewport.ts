@@ -168,6 +168,7 @@ export function createThreeViewport(h: ThreeViewportHandles): ViewportApi {
             requestRender();
         },
         objectVisibility: threeVisibilityReader,
+        saveScreenshot: () => void import("@/utils/takeScreenshot").then((m) => m.takeScreenshot()),
         modelBounds: () => {
             const box = useModelState.getState().boundingBox;
             return box && !box.isEmpty() ? [box.min.x, box.min.y, box.min.z, box.max.x, box.max.y, box.max.z] : null;

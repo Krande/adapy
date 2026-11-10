@@ -1,6 +1,7 @@
 // The three.js-free viewport behind the viewport interface (viewport/api/viewportApi.ts).
 import {type CameraView} from "@/layout/coreCommandIds";
 import {namedViewDirection} from "@/utils/camera/namedViewDirection";
+import {downloadCanvas} from "@/utils/downloadCanvas";
 import type {ObjectRef, ViewportApi} from "@/viewport/api/viewportApi";
 import type {BillboardLayer} from "@/viewport/api/billboards";
 import {createNativeBillboardLayer} from "./nativeBillboards";
@@ -10,6 +11,9 @@ import type {NativeScene} from "./nativeScene";
 const ORBIT_STEP_RAD = (15 * Math.PI) / 180;
 const PAN_STEP_FRACTION = 0.1;
 const MOVE_SECONDS = 0.25;
+/** A screenshot's size, as the three.js viewport's. */
+const SCREENSHOT_WIDTH = 1920;
+const SCREENSHOT_HEIGHT = 1080;
 
 export function createNativeViewportApi(scene: NativeScene): ViewportApi {
     const layers = new Map<string, BillboardLayer>();
@@ -36,6 +40,10 @@ export function createNativeViewportApi(scene: NativeScene): ViewportApi {
         objectVisibility: () => (model, id) =>
             model === scene.modelKey && scene.draws(id) ? (scene.isHidden(id) ? "hidden" : "shown") : null,
         modelBounds: () => scene.modelBounds,
+        saveScreenshot: () => {
+            const picture = scene.capture(SCREENSHOT_WIDTH, SCREENSHOT_HEIGHT);
+            if (picture) downloadCanvas(picture, "screenshot.png");
+        },
         hideSelected: () => scene.hideSelected(),
         hideOthers: () => scene.hideOthers(),
         showAll: () => scene.showAll(),

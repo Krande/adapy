@@ -253,6 +253,30 @@ export class NativeScene {
         return {x: rect.left + (c[0] / c[3] * 0.5 + 0.5) * rect.width, y: rect.top + (0.5 - c[1] / c[3] * 0.5) * rect.height};
     }
 
+    /** The view as it is now, drawn at `width` x `height` pixels onto a canvas of its own; null when the
+     *  picture cannot be read back. The view on screen is redrawn at its own size afterwards. */
+    capture(width: number, height: number): HTMLCanvasElement | null {
+        const out = document.createElement("canvas");
+        out.width = width;
+        out.height = height;
+        const ctx = out.getContext("2d");
+        if (!ctx || this.disposed) return null;
+        try {
+            this.canvas.width = width;
+            this.canvas.height = height;
+            this.renderer.resize(width, height);
+            this.renderer.render();
+            // The frame just drawn is the canvas' picture until this task ends.
+            ctx.drawImage(this.canvas, 0, 0);
+        } catch (err) {
+            console.warn("[adacpp-native] capture failed:", err);
+            return null;
+        } finally {
+            this.invalidate();
+        }
+        return out;
+    }
+
     /** The loaded model's box (min xyz, max xyz). */
     get modelBounds(): Bounds | null {
         return this.bounds;

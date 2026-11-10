@@ -25,7 +25,7 @@ function linearRgb(hex: string): [number, number, number] | null {
 
 const UNAVAILABLE = [
     "FEA results and animation", "number labels and plugin overlays", "measurements and gizmos",
-    "screenshots and export", "overlaying several models",
+    "export", "overlaying several models",
 ];
 
 const NativeViewport: React.FC = () => {
