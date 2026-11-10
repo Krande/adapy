@@ -4,6 +4,7 @@
 // model's objects and which one each segment draws, per-object state is segment state in the renderer,
 // and input is mapped to the camera's semantic operations (orbit, pan, zoom, fit, look from).
 import {useCameraControlsStore} from "@/state/cameraControlsStore";
+import {useVisibilityStore} from "@/state/visibilityStore";
 import {dragAction, mouseButtonOf, wheelZoomFactor, type CameraAction} from "@/utils/camera/cameraMapping";
 import {startRenderer} from "@/viewport/adacpp/rendererModule";
 import {SegmentFlag, type AdacppModule, type GpuDeviceLike, type LoadedGlbObjects, type RawPick, type WebRendererApi} from "@/viewport/adacpp/types";
@@ -36,6 +37,24 @@ export interface NativeObject {
     path: string[];
 }
 
+/** A set of ids that remembers whether it has changed since last asked. */
+class TrackedSet extends Set<string> {
+    changed = false;
+    override add(id: string): this {
+        if (!this.has(id)) this.changed = true;
+        return super.add(id);
+    }
+    override delete(id: string): boolean {
+        const had = super.delete(id);
+        if (had) this.changed = true;
+        return had;
+    }
+    override clear(): void {
+        if (this.size) this.changed = true;
+        super.clear();
+    }
+}
+
 let canvasSerial = 0;
 
 export class NativeScene {
@@ -47,7 +66,7 @@ export class NativeScene {
     private lastFrame = 0;
     private objectList: NativeObject[] = [];
     private readonly selected = new Set<string>();
-    private readonly hidden = new Set<string>();
+    private readonly hidden = new TrackedSet();
     private dirty = true;
     private raf = 0;
     private disposed = false;
@@ -257,6 +276,31 @@ export class NativeScene {
         this.pushStates();
     }
 
+    /** Whether `id` is an object that draws something itself. */
+    draws(id: string): boolean {
+        const i = this.indexOfId.get(id);
+        return i !== undefined && !!this.table && this.table.segmentOffsets[i + 1] > this.table.segmentOffsets[i];
+    }
+
+    /** Hide or show `ids`. Hiding clears the selection, whose highlight would otherwise keep drawing. */
+    setHiddenMany(ids: readonly string[], hidden: boolean): void {
+        for (const id of ids) {
+            if (!this.draws(id)) continue;
+            if (hidden) this.hidden.add(id);
+            else this.hidden.delete(id);
+        }
+        if (hidden) this.selected.clear();
+        this.pushStates();
+    }
+
+    /** Show `ids` and hide every other object. */
+    isolate(ids: readonly string[]): void {
+        const keep = new Set(ids);
+        this.hidden.clear();
+        for (const o of this.objectList) if (!keep.has(o.id)) this.hidden.add(o.id);
+        this.pushStates();
+    }
+
     /** Hide every object that is not selected. */
     hideOthers(): void {
         for (const o of this.objectList) if (!this.selected.has(o.id)) this.hidden.add(o.id);
@@ -314,6 +358,11 @@ export class NativeScene {
         }
         this.invalidate();
         this.selectionVersion = {};
+        // What draws visibility (the Scene tree's rows) re-reads on this; a selection alone is not one.
+        if (this.hidden.changed) {
+            this.hidden.changed = false;
+            useVisibilityStore.getState().bump();
+        }
         this.onChange?.();
     }
 

@@ -1,7 +1,7 @@
 // The three.js-free viewport behind the viewport interface (viewport/api/viewportApi.ts).
 import {type CameraView} from "@/layout/coreCommandIds";
 import {namedViewDirection} from "@/utils/camera/namedViewDirection";
-import type {ViewportApi} from "@/viewport/api/viewportApi";
+import type {ObjectRef, ViewportApi} from "@/viewport/api/viewportApi";
 import type {NativeScene} from "./nativeScene";
 
 /** One key press orbits by this much, and pans by this fraction of the view: as on the three.js viewport. */
@@ -10,6 +10,7 @@ const PAN_STEP_FRACTION = 0.1;
 const MOVE_SECONDS = 0.25;
 
 export function createNativeViewportApi(scene: NativeScene): ViewportApi {
+    const own = (refs: readonly ObjectRef[]): string[] => refs.filter((r) => r.model === scene.modelKey).map((r) => r.id);
     return {
         kind: "native",
         unavailable: () => null,
@@ -18,6 +19,11 @@ export function createNativeViewportApi(scene: NativeScene): ViewportApi {
         selectionToken: () => scene.selectionVersion,
         setSelection: (refs) => scene.setSelection(refs.filter((r) => r.model === scene.modelKey).map((r) => r.id)),
         clearSelection: () => scene.select(null),
+        hide: (refs) => scene.setHiddenMany(own(refs), true),
+        show: (refs) => scene.setHiddenMany(own(refs), false),
+        isolate: (refs) => scene.isolate(own(refs)),
+        objectVisibility: () => (model, id) =>
+            model === scene.modelKey && scene.draws(id) ? (scene.isHidden(id) ? "hidden" : "shown") : null,
         modelBounds: () => scene.modelBounds,
         hideSelected: () => scene.hideSelected(),
         hideOthers: () => scene.hideOthers(),

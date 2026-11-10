@@ -12,7 +12,39 @@ import {requestRender} from "@/state/perfStore";
 import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
 import {useTreeViewStore} from "@/state/treeViewStore";
 import {getViewerRuntime} from "@/state/viewerRuntime";
-import type {ObjectRef, ViewportApi} from "./viewportApi";
+import type {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
+import {batchedMeshOf, isBatched} from "@/utils/scene/meshLookup";
+import {recordViewerAction} from "@/utils/scene/viewerHistory";
+import type {ObjectRef, ObjectVisibilityReader, ViewportApi} from "./viewportApi";
+
+/** The GLB node that draws `ref`: the caller's, or the Scene tree row's. */
+const nodeOf = (ref: ObjectRef): string | null | undefined =>
+    ref.node !== undefined ? ref.node : useTreeViewStore.getState().findNodeByRangeId(ref.model, ref.id)?.node_name;
+
+/** `refs` as draw ranges, grouped by the mesh that draws them. */
+function rangesOf(refs: readonly ObjectRef[]): Map<CustomBatchedMesh, Set<string>> {
+    const out = new Map<CustomBatchedMesh, Set<string>>();
+    const cache = new Map<string, CustomBatchedMesh>();
+    for (const ref of refs) {
+        const node = nodeOf(ref);
+        const mesh = node ? batchedMeshOf(ref.model, node, cache) : null;
+        if (!mesh) continue;
+        const ids = out.get(mesh) ?? new Set<string>();
+        ids.add(ref.id);
+        out.set(mesh, ids);
+    }
+    return out;
+}
+
+function threeVisibilityReader(): ObjectVisibilityReader {
+    const cache = new Map<string, CustomBatchedMesh>();
+    return (model, id, node) => {
+        const name = node !== undefined ? node : useTreeViewStore.getState().findNodeByRangeId(model, id)?.node_name;
+        const mesh = name ? batchedMeshOf(model, name, cache) : null;
+        if (!mesh) return null;
+        return mesh.getHiddenRanges().has(id) ? "hidden" : "shown";
+    };
+}
 
 /** The key a mesh's ranges are known by outside the scene (a tree row's `model_key`). */
 function modelKeyOf(mesh: unknown): string | undefined {
@@ -32,8 +64,7 @@ export function threeSelectionRefs(): ObjectRef[] {
 }
 
 /** Select `refs` in the three.js scene: each one's mesh is the one its tree row names. One undo step. */
-export async function setThreeSelection(refs: readonly ObjectRef[]): Promise<void> {
-    const {recordViewerAction} = await import("@/utils/scene/viewerHistory");
+export function setThreeSelection(refs: readonly ObjectRef[]): void {
     const store = useSelectedObjectStore.getState();
     if (!refs.length) {
         recordViewerAction("clear-selection", () => store.clearSelectedObjects());
@@ -47,7 +78,7 @@ export async function setThreeSelection(refs: readonly ObjectRef[]): Promise<voi
     // objects usually draws from a handful of meshes, and getObjectByName walks the model.
     const meshes = new Map<string, THREE.Object3D | null>();
     for (const ref of refs) {
-        const meshName = tree.findNodeByRangeId(ref.model, ref.id)?.node_name;
+        const meshName = ref.node !== undefined ? ref.node : tree.findNodeByRangeId(ref.model, ref.id)?.node_name;
         if (!meshName) continue;
         const key = `${ref.model}\n${meshName}`;
         let mesh = meshes.get(key);
@@ -92,6 +123,33 @@ export function createThreeViewport(h: ThreeViewportHandles): ViewportApi {
                 useObjectInfoStore.getState().setSelectedNodeId(null);
                 requestRender();
             }),
+        // Each of these is one undo / redo entry, however many objects it covers.
+        hide: (refs) => {
+            recordViewerAction("hide", () => {
+                for (const [mesh, ids] of rangesOf(refs)) mesh.hideBatchDrawRange(ids);
+                // As Shift+H: the selection overlay would keep drawing what was just hidden.
+                useSelectedObjectStore.getState().clearSelectedObjects();
+            });
+            requestRender();
+        },
+        show: (refs) => {
+            recordViewerAction("show", () => {
+                for (const [mesh, ids] of rangesOf(refs)) mesh.unhideBatchDrawRange(ids);
+            });
+            requestRender();
+        },
+        isolate: (refs) => {
+            const scene = getViewerRuntime().scene.current ?? h.scene;
+            if (!scene) return;
+            const keep = rangesOf(refs);
+            recordViewerAction("isolate", () => {
+                scene.traverse((obj) => {
+                    if (isBatched(obj)) obj.isolateDrawRanges(keep.get(obj) ?? new Set());
+                });
+            });
+            requestRender();
+        },
+        objectVisibility: threeVisibilityReader,
         modelBounds: () => {
             const box = useModelState.getState().boundingBox;
             return box && !box.isEmpty() ? [box.min.x, box.min.y, box.min.z, box.max.x, box.max.y, box.max.z] : null;

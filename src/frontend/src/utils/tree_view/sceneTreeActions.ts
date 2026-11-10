@@ -9,41 +9,32 @@
 import type {NodeApi} from "react-arborist";
 
 import type {TreeNodeData} from "@/components/tree_view/CustomNode";
-import {getViewerRuntime} from "@/state/viewerRuntime";
-import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
 import {useObjectInfoStore} from "@/state/objectInfoStore";
 import {requestRender} from "@/state/perfStore";
-import {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
-import {centerViewOnSelection} from "@/utils/scene/centerViewOnSelection";
-import {recordViewerAction} from "@/utils/scene/viewerHistory";
-import {unhideAllRanges} from "@/utils/scene/visibility";
+import type {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
+import {batchedMeshOf} from "@/utils/scene/meshLookup";
+import {activeViewport, type ObjectRef, type ObjectVisibilityReader} from "@/viewport/api/viewportApi";
 
-/** A batched mesh, by what it can do rather than `instanceof`: a hot reload can leave the scene
- *  holding meshes of an earlier copy of the class. */
-function isBatched(o: unknown): o is CustomBatchedMesh {
-    return !!o && typeof (o as CustomBatchedMesh).getHiddenRanges === "function" && typeof (o as CustomBatchedMesh).hideBatchDrawRange === "function";
-}
-
-/** The mesh that draws `n`'s own range, or null for a row with none (a pure level). `cache` saves
- *  the scene-graph lookup across a walk; lookups that find nothing are not cached, since the mesh
- *  may simply not have arrived yet. */
+/** The mesh that draws `n`'s own range, or null for a row with none (a pure level). */
 function meshOf(n: TreeNodeData, cache: Map<string, CustomBatchedMesh>): CustomBatchedMesh | null {
     if (n.rangeId == null || !n.node_name || !n.model_key) return null;
-    const key = `${n.model_key}\u0000${n.node_name}`;
-    const hit = cache.get(key);
-    if (hit) return hit;
-    const found = getViewerRuntime().modelKeyMap.current?.get(n.model_key)?.getObjectByName(n.node_name);
-    // The name can resolve to a wrapper around the mesh rather than the mesh itself (selection
-    // entries are keyed either way; see hideSelectedRanges), so look inside it too.
-    let mesh: CustomBatchedMesh | null = isBatched(found) ? found : null;
-    if (!mesh && found) {
-        found.traverse((o) => {
-            if (!mesh && isBatched(o)) mesh = o;
-        });
+    return batchedMeshOf(n.model_key, n.node_name, cache);
+}
+
+/** The objects under `rows` (each row's whole subtree), as the viewport knows them. A row nested
+ *  under another selected row is counted once. */
+export function refsUnder(rows: readonly TreeNodeData[]): ObjectRef[] {
+    const out: ObjectRef[] = [];
+    const seen = new Set<string>();
+    const stack = [...rows];
+    while (stack.length) {
+        const n = stack.pop()!;
+        if (seen.has(n.id)) continue;
+        seen.add(n.id);
+        for (const c of n.children ?? []) stack.push(c);
+        if (n.model_key && n.rangeId != null) out.push({model: n.model_key, id: String(n.rangeId), node: n.node_name});
     }
-    if (!mesh) return null;
-    cache.set(key, mesh);
-    return mesh;
+    return out;
 }
 
 /** The draw ranges under `rows` (each row's whole subtree), grouped by the mesh that draws them. A
@@ -67,14 +58,17 @@ export function rangesUnder(rows: readonly TreeNodeData[]): Map<CustomBatchedMes
     return out;
 }
 
-/** How many of the ranges under `rows` are hidden, and how many there are. */
+/** How many of the objects under `rows` are hidden, and how many are drawn at all: on the viewport on screen. */
 export function hiddenCount(rows: readonly TreeNodeData[]): {hidden: number; total: number} {
     let hidden = 0;
     let total = 0;
-    for (const [mesh, ids] of rangesUnder(rows)) {
-        const h = mesh.getHiddenRanges();
-        total += ids.size;
-        for (const id of ids) if (h.has(id)) hidden++;
+    const read = activeViewport()?.objectVisibility();
+    if (!read) return {hidden, total};
+    for (const ref of refsUnder(rows)) {
+        const v = read(ref.model, ref.id, ref.node);
+        if (!v) continue;
+        total++;
+        if (v === "hidden") hidden++;
     }
     return {hidden, total};
 }
@@ -88,7 +82,9 @@ export type RowVisibility = "shown" | "hidden" | "partial" | "none";
 let countsVersion = -1;
 let countsTree: unknown = null;
 let counts = new WeakMap<TreeNodeData, {hidden: number; total: number}>();
-let countMeshes = new Map<string, CustomBatchedMesh>();
+const NOTHING_DRAWN: ObjectVisibilityReader = () => null;
+let countReader: ObjectVisibilityReader = NOTHING_DRAWN;
+let countViewport: unknown = null;
 
 function countsOf(root: TreeNodeData): {hidden: number; total: number} {
     // Post-order without recursion: a deep tree must not cost a stack frame per level.
@@ -103,10 +99,10 @@ function countsOf(root: TreeNodeData): {hidden: number; total: number} {
         }
         let hidden = 0;
         let total = 0;
-        const mesh = meshOf(n, countMeshes);
-        if (mesh) {
+        const v = n.model_key && n.rangeId != null ? countReader(n.model_key, String(n.rangeId), n.node_name) : null;
+        if (v) {
             total = 1;
-            if (mesh.getHiddenRanges().has(String(n.rangeId))) hidden = 1;
+            if (v === "hidden") hidden = 1;
         }
         for (const c of n.children ?? []) {
             const cc = counts.get(c)!;
@@ -121,11 +117,13 @@ function countsOf(root: TreeNodeData): {hidden: number; total: number} {
 /** `node`'s visibility as of `version` (`useVisibilityStore`) and `tree` (the store's treeData):
  *  pass what the caller subscribed to, so a hide anywhere, or a model arriving, re-reads every row. */
 export function rowVisibility(node: TreeNodeData, version: number, tree: unknown): RowVisibility {
-    if (version !== countsVersion || tree !== countsTree) {
+    const viewport = activeViewport();
+    if (version !== countsVersion || tree !== countsTree || viewport !== countViewport) {
         countsVersion = version;
         countsTree = tree;
+        countViewport = viewport;
         counts = new WeakMap();
-        countMeshes = new Map();
+        countReader = viewport?.objectVisibility() ?? NOTHING_DRAWN;
     }
     const {hidden, total} = countsOf(node);
     if (total === 0) return "none";
@@ -144,7 +142,7 @@ const VISIBILITY_CODE: Record<RowVisibility, number> = {shown: 0, hidden: 1, par
  */
 export function rowVisibilityMap(container: TreeNodeData): Map<string, number> {
     const out = new Map<string, number>();
-    const meshes = new Map<string, CustomBatchedMesh>();
+    const read = activeViewport()?.objectVisibility() ?? NOTHING_DRAWN;
     const own = new Map<TreeNodeData, {hidden: number; total: number}>();
     const stack: [TreeNodeData, boolean][] = (container.children ?? []).map((c) => [c, false]);
     while (stack.length) {
@@ -156,10 +154,10 @@ export function rowVisibilityMap(container: TreeNodeData): Map<string, number> {
         }
         let hidden = 0;
         let total = 0;
-        const mesh = meshOf(n, meshes);
-        if (mesh) {
+        const state = n.model_key && n.rangeId != null ? read(n.model_key, String(n.rangeId), n.node_name) : null;
+        if (state) {
             total = 1;
-            if (mesh.getHiddenRanges().has(String(n.rangeId))) hidden = 1;
+            if (state === "hidden") hidden = 1;
         }
         for (const c of n.children ?? []) {
             const cc = own.get(c);
@@ -177,43 +175,29 @@ export function rowVisibilityMap(container: TreeNodeData): Map<string, number> {
 // Each of these is one undo / redo entry (Ctrl+Z / Ctrl+Y), however many ranges the rows hold.
 
 export function hideRows(rows: readonly TreeNodeData[]): void {
-    recordViewerAction("hide", () => {
-        for (const [mesh, ids] of rangesUnder(rows)) mesh.hideBatchDrawRange(ids);
-        // As Shift+H: the selection overlay would keep drawing what was just hidden.
-        useSelectedObjectStore.getState().clearSelectedObjects();
-        useObjectInfoStore.getState().setName(null);
-    });
+    activeViewport()?.hide(refsUnder(rows));
+    useObjectInfoStore.getState().setName(null);
     requestRender();
 }
 
 export function showRows(rows: readonly TreeNodeData[]): void {
-    recordViewerAction("show", () => {
-        for (const [mesh, ids] of rangesUnder(rows)) mesh.unhideBatchDrawRange(ids);
-    });
+    activeViewport()?.show(refsUnder(rows));
     requestRender();
 }
 
 /** Show `rows` and hide everything else in the scene. */
 export function isolateRows(rows: readonly TreeNodeData[]): void {
-    const scene = getViewerRuntime().scene.current;
-    if (!scene) return;
-    const keep = rangesUnder(rows);
-    recordViewerAction("isolate", () => {
-        scene.traverse((obj) => {
-            if (obj instanceof CustomBatchedMesh) obj.isolateDrawRanges(keep.get(obj) ?? new Set());
-        });
-    });
+    activeViewport()?.isolate(refsUnder(rows));
     requestRender();
 }
 
 export function showAll(): void {
-    unhideAllRanges();
+    activeViewport()?.showAll();
 }
 
 /** Frame the 3D selection -- which, after the right-click, is these rows. */
 export function frameSelection(): void {
-    const {controls, camera} = getViewerRuntime();
-    if (controls.current && camera.current) centerViewOnSelection(controls.current, camera.current);
+    activeViewport()?.fitSelection();
 }
 
 /** Open (or close) `node` and every level below it. */

@@ -19,7 +19,14 @@ export type ViewportFeature = "fit-selection";
 export interface ObjectRef {
     model: string;
     id: string;
+    /** The GLB node that draws it, when the caller already knows (a tree row does): it saves a
+     *  viewport that works per node a lookup. Never required. */
+    node?: string | null;
 }
+
+/** Reads how one object is drawn now: "shown", "hidden", or null when the viewport draws nothing for
+ *  it (a level of the hierarchy). Good for one pass over many objects; get a new one after a change. */
+export type ObjectVisibilityReader = (model: string, id: string, node?: string | null) => "shown" | "hidden" | null;
 
 export interface ViewportApi {
     readonly kind: ViewportKind;
@@ -40,6 +47,13 @@ export interface ViewportApi {
     /** Hide everything that is not selected. */
     hideOthers(): void;
     showAll(): void;
+    /** Hide `refs` (one undo step where the viewport has undo); the selection is cleared, as its
+     *  highlight would keep drawing what was hidden. */
+    hide(refs: readonly ObjectRef[]): void;
+    show(refs: readonly ObjectRef[]): void;
+    /** Show `refs` and hide everything else. */
+    isolate(refs: readonly ObjectRef[]): void;
+    objectVisibility(): ObjectVisibilityReader;
 
     /** The loaded model's box (min xyz, max xyz), or null with nothing loaded. */
     modelBounds(): [number, number, number, number, number, number] | null;
