@@ -2,6 +2,13 @@
 
 
 
+## v0.142.1 (2026-11-10)
+
+### Fix
+
+* fix: skip geometry that fails to tessellate, and make Kill on a load operation cancel it (#527) ([`3c75cf9`](https://github.com/Krande/adapy/commit/3c75cf946c74f1cdca50e77d248563201493ee2d))
+
+
 ## v0.142.0 (2026-11-10)
 
 ### Feature
