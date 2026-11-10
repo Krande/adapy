@@ -1,7 +1,7 @@
 // Mirrors the three.js scene into the adacpp renderer: geometry is uploaded once per buffer version,
 // instance state (transform, colour, flags, morph influence) and per-range state (hidden, selected)
-// are pushed as they change. Everything three.js would draw on the camera's layers is mirrored,
-// except what the adacpp renderer cannot draw yet (see adacppViewport.ts).
+// are pushed as they change. Everything three.js would draw on the camera's layers is mirrored, except
+// what the renderer does itself (section caps) and what draws nothing visible (stencil-only helpers).
 import * as THREE from "three";
 import {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
 import {selectedMaterial} from "@/utils/default_materials";
@@ -167,6 +167,11 @@ export class SceneSync {
     private readonly framePlanes = new Set<THREE.Plane>();
     private planesKey = "";
     private readonly planesPtr: number;
+    // Section caps: three.js fills a cut with stencil helper meshes and one cap quad per plane; the
+    // renderer fills it itself, so those helpers are not mirrored. A cap quad seen this frame switches
+    // the renderer's caps on, in its colour.
+    private frameCapColor: THREE.Color | null = null;
+    private capsKey = "";
 
     constructor(private readonly module: AdacppModule, private readonly r: WebRendererApi) {
         this.matrixPtr = module._malloc(64);
@@ -191,6 +196,7 @@ export class SceneSync {
         this.frame++;
         this.spriteCount = 0;
         this.framePlanes.clear();
+        this.frameCapColor = null;
         scene.updateMatrixWorld();
         if (camera.parent === null) camera.updateMatrixWorld();
 
@@ -214,6 +220,12 @@ export class SceneSync {
                 return;
             }
             if (!(o.isMesh || o.isLineSegments || o.isLine || o.isPoints)) return;
+            if (obj.userData.__sectionCap) {
+                this.frameCapColor = materialColor(baseMaterial(obj), 0x888888);
+                return;
+            }
+            // Nothing to see: what only writes depth or stencil (the caps' stencil passes).
+            if (baseMaterial(obj)?.colorWrite === false) return;
             // three.js calls onBeforeRender only on objects it draws, and here it draws nothing. Scene
             // code relies on the hook for per-frame state: FEA overlays (element wireframe, beam lines,
             // result points) copy the mesh's morph influence there, the selection overlay follows the
@@ -239,6 +251,7 @@ export class SceneSync {
         }
 
         this.pushClipPlanes();
+        this.pushSectionCaps();
         const heap = this.module.HEAPF32;
         heap.set(camera.matrixWorldInverse.elements, this.viewPtr >> 2);
         heap.set(camera.projectionMatrix.elements, this.projPtr >> 2);
@@ -254,6 +267,16 @@ export class SceneSync {
         const heap = this.module.HEAPF32;
         planes.forEach((p, i) => heap.set([p.normal.x, p.normal.y, p.normal.z, p.constant], (this.planesPtr >> 2) + i * 4));
         this.r.setClipPlanes(this.planesPtr, planes.length);
+    }
+
+    private pushSectionCaps(): void {
+        const c = this.frameCapColor;
+        const key = c ? `${c.r},${c.g},${c.b}` : "";
+        if (key === this.capsKey) return;
+        this.capsKey = key;
+        // Optional calls: a renderer from before caps existed draws the cut hollow, as it always did.
+        this.r.setSectionCaps?.(!!c);
+        if (c) this.r.setSectionCapColor?.(c.r, c.g, c.b, 1);
     }
 
     /** The scene object an instance draws, and which of its segments' range ids is which. */
@@ -358,11 +381,14 @@ export class SceneSync {
         const topology = o.isPoints ? Topology.Points : (o.isLine || o.isLineSegments || fatLines) ? Topology.Lines : Topology.Triangles;
         const flat = topology === Topology.Triangles && !!mat?.flatShading;
         const groupsSig = obj instanceof CustomBatchedMesh ? "b" : `${geometry.groups.length}`;
+        // BackSide draws the faces turned away: the renderer only culls back faces, so the winding is
+        // reversed at upload instead (a PlaneHelper's fill flips between the two as its plane moves).
+        const backSide = topology === Topology.Triangles && mat?.side === THREE.BackSide;
         const positionBuffer = (position as THREE.InterleavedBufferAttribute).isInterleavedBufferAttribute
             ? (position as THREE.InterleavedBufferAttribute).data
             : position;
         const signature = `${geometry.uuid}:${bufferId(positionBuffer)}:${attrVersion(position)}:` +
-            `${bufferId(geometry.index)}:${geometry.index?.version ?? -1}:${topology}:${flat}:${groupsSig}`;
+            `${bufferId(geometry.index)}:${geometry.index?.version ?? -1}:${topology}:${flat}:${groupsSig}:${backSide}`;
 
         let e = this.entries.get(obj.uuid);
         if (e && e.signature !== signature) {
@@ -371,7 +397,7 @@ export class SceneSync {
             e = undefined;
         }
         if (!e) {
-            const created = this.upload(obj, geometry, topology, flat, fatLines);
+            const created = this.upload(obj, geometry, topology, flat, fatLines, backSide);
             if (!created) return;
             const morph0 = fatLines ? undefined : geometry.morphAttributes.position?.[0];
             e = {
@@ -416,6 +442,7 @@ export class SceneSync {
         topology: number,
         flat: boolean,
         fatLines: boolean,
+        backSide = false,
     ): Pick<Entry, "geometry" | "instances" | "topology" | "segmentKind" | "segmentIds" | "segmentRangeIdx"> | null {
         let positions: Float32Array;
         let colors: Uint32Array | null = null;
@@ -463,6 +490,11 @@ export class SceneSync {
                 }
                 indices = seg;
             }
+        }
+        if (backSide) {
+            const src = indices ?? Uint32Array.from({length: positions.length / 3}, (_, i) => i);
+            indices = new Uint32Array(src.length);
+            for (let i = 0; i + 2 < src.length; i += 3) indices.set([src[i], src[i + 2], src[i + 1]], i);
         }
         const vertexCount = positions.length / 3;
         const normals = topology === Topology.Triangles && !flat && geometry.attributes.normal && !fatLines
@@ -555,15 +587,24 @@ export class SceneSync {
             flags |= InstanceFlag.VertexColors;
         }
         if (isUnlit(mat) || e.topology !== Topology.Triangles) flags |= InstanceFlag.Unlit;
-        if (mat?.side === THREE.DoubleSide || mat?.side === THREE.BackSide) flags |= InstanceFlag.DoubleSided;
-        if (mat?.transparent && opacity < 1) flags |= InstanceFlag.Transparent;
+        if (mat?.side === THREE.DoubleSide) flags |= InstanceFlag.DoubleSided;
+        if (mat?.transparent && opacity < 1) {
+            flags |= InstanceFlag.Transparent;
+            // The renderer draws both sides of a transparent instance unless told the material is single-sided.
+            if (mat.side !== THREE.DoubleSide) flags |= InstanceFlag.CullBack;
+        }
         if (mat && !mat.visible) flags |= InstanceFlag.Hidden;
         if (geometry.morphTargetsRelative) flags |= InstanceFlag.MorphRelative;
         const planes = mat?.clippingPlanes;
         if (planes?.length) {
             flags |= InstanceFlag.Clipped;
             for (const p of planes) this.framePlanes.add(p);
+            // A cut model mesh that is a closed solid gets its cut filled; an open shell (double-sided)
+            // has no inside to fill. The same rule as the three.js caps (SectionPlanesController).
+            if (obj instanceof CustomBatchedMesh && mat?.side !== THREE.DoubleSide) flags |= InstanceFlag.Capped;
         }
+        // three.js' depthTest: false draws over whatever is there (transform gizmo handles).
+        if (mat?.depthTest === false) flags |= InstanceFlag.OnTop;
         // three.js' polygonOffset: negative pulls an overlay in front of the surface it lies on, positive
         // pushes a surface behind the edges drawn on it (FEA meshes). Without it, no bias, as in three.js.
         if (mat?.polygonOffset && (mat.polygonOffsetFactor < 0 || mat.polygonOffsetUnits < 0)) {

@@ -4,11 +4,12 @@
 // unchanged. Picking goes through viewport/picking.ts, which asks this renderer while it draws. Each frame
 // this mirrors what three.js would have drawn into the adacpp renderer (wasm, /wasm/adacpp_render.js)
 // and draws it on a WebGPU canvas layered over the hidden WebGL one. The renderer itself lives in
-// adacpp (src/render). Sprites (canvas-textured labels, markers, icons) are the exception: the renderer
-// has no textures, so a small transparent three.js renderer draws just them on a canvas above.
+// adacpp (src/render). Section caps are the renderer's own (three.js' stencil helpers are not mirrored);
+// gizmo handles and the face highlight are mirrored like any other object.
 //
-// Not drawn yet (three.js-only for now): section caps, transform gizmos, face-highlight overlays; sprites
-// draw over everything (no depth test against the model).
+// Sprites (canvas-textured labels, markers, icons) are drawn by a small transparent three.js renderer on
+// a canvas above, over everything, unless the `adacppLabels` switch hands them to adacpp, which tests
+// them against the model's depth.
 import * as THREE from "three";
 import {create} from "zustand";
 import {resolveModuleUrl} from "@/utils/wasm/emscriptenLoader";
@@ -97,11 +98,12 @@ export const useAdacppRenderStatus = create<AdacppRenderStatus>(() => ({
 
 // The state on the document element too (`data-adacpp-renderer`, with the failure reason beside it), so
 // an end-to-end test can tell a WebGPU frame from a silent fallback to three.js.
-if (typeof document !== "undefined") {
+const rootData = typeof document !== "undefined" ? document.documentElement?.dataset : undefined;
+if (rootData) {
     const publish = (st: AdacppRenderStatus) => {
-        document.documentElement.dataset.adacppRenderer = st.state;
-        if (st.error) document.documentElement.dataset.adacppRendererError = st.error;
-        else delete document.documentElement.dataset.adacppRendererError;
+        rootData.adacppRenderer = st.state;
+        if (st.error) rootData.adacppRendererError = st.error;
+        else delete rootData.adacppRendererError;
     };
     publish(useAdacppRenderStatus.getState());
     useAdacppRenderStatus.subscribe(publish);

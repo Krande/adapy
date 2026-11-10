@@ -326,3 +326,45 @@ test("a highlighted face is uploaded as its own triangles, not as a second copy 
     sync.sync(scene, camera);
     assert.equal(rec.removed.length, 2, "cleared: nothing of the highlight stays in the renderer");
 });
+
+test("section caps are the renderer's: three.js' stencil helpers are not mirrored, the cap quad switches caps on", () => {
+    const {module, renderer, rec} = fakeModule();
+    const caps: Array<boolean | number[]> = [];
+    Object.assign(renderer, {
+        setSectionCaps: (on: boolean) => caps.push(on),
+        setSectionCapColor: (r: number, g: number, b: number, a: number) => caps.push([r, g, b, a]),
+    });
+    const plane = new THREE.Plane(new THREE.Vector3(1, 0, 0), 0);
+    const solid = batched();
+    (solid.originalMaterial as THREE.Material).clippingPlanes = [plane];
+    const shell = batched();
+    shell.originalMaterial = new THREE.MeshStandardMaterial({side: THREE.DoubleSide, clippingPlanes: [plane]});
+    const stencil = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial({colorWrite: false}));
+    const cap = new THREE.Mesh(new THREE.PlaneGeometry(), new THREE.MeshStandardMaterial({color: 0xff0000}));
+    cap.userData.__sectionCap = true;
+    const {scene, camera} = cameraAndScene(solid, shell, stencil, cap);
+    const sync = new SceneSync(module, renderer);
+    sync.sync(scene, camera);
+
+    assert.equal(rec.geometries.size, 2, "only the two model meshes: no stencil pass, no cap quad");
+    const flags = [...rec.flags.values()];
+    assert.equal(flags.filter((f) => f & InstanceFlag.Capped).length, 1, "the closed solid is capped, the open shell is not");
+    assert.deepEqual(caps, [true, [1, 0, 0, 1]]);
+
+    scene.remove(cap);
+    sync.sync(scene, camera);
+    assert.equal(caps.at(-1), false, "no cap quad, no caps");
+});
+
+test("depthTest false draws on top, and a single-sided transparent material keeps its culling", () => {
+    const {module, renderer, rec} = fakeModule();
+    const handle = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial({depthTest: false}));
+    const fill = new THREE.Mesh(new THREE.PlaneGeometry(), new THREE.MeshBasicMaterial({transparent: true, opacity: 0.2, side: THREE.BackSide}));
+    const glass = new THREE.Mesh(new THREE.PlaneGeometry(), new THREE.MeshBasicMaterial({transparent: true, opacity: 0.2, side: THREE.DoubleSide}));
+    const {scene, camera} = cameraAndScene(handle, fill, glass);
+    new SceneSync(module, renderer).sync(scene, camera);
+    const [h, f, g] = [...rec.flags.values()];
+    assert.ok(h & InstanceFlag.OnTop);
+    assert.ok(f & InstanceFlag.CullBack && !(f & InstanceFlag.DoubleSided), "BackSide is single-sided (its winding is reversed at upload)");
+    assert.ok(g & InstanceFlag.DoubleSided && !(g & InstanceFlag.CullBack));
+});
