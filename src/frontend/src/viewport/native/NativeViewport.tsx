@@ -45,7 +45,7 @@ const NativeViewport: React.FC = () => {
             scene.onFailure = fail;
             // A playing result: the same driver the three.js viewport ticks, once per frame, for as
             // long as it plays. It writes the deformation scale to the result's layer.
-            scene.onFrame = (dt) => {
+            scene.beforeFrame = (dt) => {
                 tickFeaAnimation(dt);
                 const fea = useFeaAnimationStore.getState();
                 return fea.isPlaying && fea.sessionActive;

@@ -109,7 +109,7 @@ export class NativeScene {
     private readonly resultLayers = new Set<NativeResultLayer>();
     /** Called before each frame is drawn, with the seconds since the last one (0 after an idle
      *  spell). Returning true asks for another frame: what plays a result keeps the loop running. */
-    onFrame: ((dtSeconds: number) => boolean) | null = null;
+    beforeFrame: ((dtSeconds: number) => boolean) | null = null;
 
     private constructor(
         private readonly container: HTMLElement,
@@ -477,9 +477,10 @@ export class NativeScene {
             this.syncSize();
             // A move to a view, or the glide after a drag, runs for as long as the camera says it does.
             const moving = this.renderer.cameraUpdate(dt);
-            const playing = this.onFrame?.(dt) ?? false;
+            const playing = this.beforeFrame?.(dt) ?? false;
             this.renderer.render();
-            if (moving || playing) this.invalidate();
+            if (moving) this.invalidate();
+            else if (playing) this.invalidate();
             else this.lastFrame = 0;
         } catch (err) {
             this.fail(err instanceof Error ? err.message : String(err));
