@@ -318,6 +318,7 @@ def _joint_properties(
     members it says it joins). Positions are in the GLB's model frame, for the studio's overlays:
     a beam's ``axis`` (n1, n2), a plate's ``centre``, a weld's ``at`` (where it meets its members)."""
     from ada import Beam
+    from ada.api.weld_symbols import weld_symbol_svg
     from ada.comms.msg_handling.object_metadata import beam_metadata, plate_metadata
     from ada.visit.scene_handling.scene_from_part import _weld_metadata
 
@@ -347,6 +348,8 @@ def _joint_properties(
             # Only judged where the contacts were measured at all.
             meta["joins_its_members"] = set(meta["members"]) <= set(touched) if touches else None
             meta["at"] = _weld_position(w, [touched[m] for m in meta["members"] if m in touched])
+            # Its symbol (ISO 2553, `ada.api.weld_symbols`) as an SVG icon in the text colour.
+            meta["symbol_svg"] = weld_symbol_svg(w.type, size=20) if w.type is not None else None
             welds.append(meta)
     return {"members": members, "welds": welds}
 

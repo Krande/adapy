@@ -89,6 +89,8 @@ export interface DevJointWeld {
   joins_its_members: boolean | null;
   /** Where it meets its members (else its sweep curve's middle), in the GLB's model frame. */
   at: number[] | null;
+  /** Its weld symbol (ISO 2553, `ada.api.weld_symbols`) as an SVG icon stroked in `currentColor`. */
+  symbol_svg: string | null;
 }
 
 export interface DevBuildResult {

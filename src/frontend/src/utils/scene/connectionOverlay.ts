@@ -97,7 +97,7 @@ export function renderConnectionOverlay(
       if (!w.at) continue;
       const bad = w.joins_its_members === false;
       const text = `${w.name} · ${weldTypeName(w.weld_type)} a=${mm(w.throat)}${bad ? " · not joined" : ""}`;
-      out.add(label(text, w.at, bad ? WELD_BAD_COLOUR : WELD_COLOUR));
+      out.add(label(text, w.at, bad ? WELD_BAD_COLOUR : WELD_COLOUR, w.symbol_svg));
       marks++;
     }
   }
@@ -130,24 +130,37 @@ function axisLine(a: readonly number[], b: readonly number[], colour: string): T
   return line;
 }
 
-/** A text sprite of a constant on-screen height, drawn over the model. */
-function label(text: string, at: readonly number[], colour: string): THREE.Sprite {
+/** A text sprite of a constant on-screen height, drawn over the model; `svg`, an icon stroked in
+ *  `currentColor` (a weld symbol), is drawn before the text in the label's colour. */
+function label(text: string, at: readonly number[], colour: string, svg?: string | null): THREE.Sprite {
   const scale = 2; // canvas pixels per CSS pixel, for crisp text
   const font = `${LABEL_HEIGHT_PX * scale}px sans-serif`;
   const canvas = document.createElement("canvas");
   const ctx = canvas.getContext("2d")!;
   ctx.font = font;
   const pad = 4 * scale;
-  canvas.width = Math.ceil(ctx.measureText(text).width) + 2 * pad;
+  const icon = svg ? LABEL_HEIGHT_PX * scale : 0;
+  const textX = pad + (icon ? icon + pad : 0);
+  canvas.width = Math.ceil(ctx.measureText(text).width) + textX + pad;
   canvas.height = LABEL_HEIGHT_PX * scale + 2 * pad;
   ctx.font = font;
   ctx.fillStyle = "rgba(17, 24, 39, 0.8)";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.fillStyle = colour;
   ctx.textBaseline = "middle";
-  ctx.fillText(text, pad, canvas.height / 2);
+  ctx.fillText(text, textX, canvas.height / 2);
 
   const texture = new THREE.CanvasTexture(canvas);
+  if (svg) {
+    // An SVG decodes asynchronously: draw it into the space left for it once it has.
+    const img = new Image();
+    img.onload = () => {
+      ctx.drawImage(img, pad, pad, icon, icon);
+      texture.needsUpdate = true;
+      requestRender();
+    };
+    img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg.replace(/currentColor/g, colour))}`;
+  }
   texture.colorSpace = THREE.SRGBColorSpace;
   const sprite = new THREE.Sprite(
     new THREE.SpriteMaterial({ map: texture, sizeAttenuation: false, depthTest: false, transparent: true }),

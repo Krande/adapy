@@ -541,8 +541,16 @@ const WeldsList: React.FC<{ result: DevBuildResult }> = ({ result }) => {
           onClick={() => selectPreviewObjects([w.name])}
           title="Select in the scene"
         >
-          <span className="text-gray-200">
-            {w.name}{" "}
+          <span className="text-gray-200 flex items-center gap-1.5">
+            {w.symbol_svg && (
+              // The core-generated symbol (ada.api.weld_symbols), inline so it takes the text colour.
+              <span
+                className="inline-flex shrink-0 text-gray-300"
+                aria-hidden="true"
+                dangerouslySetInnerHTML={{ __html: w.symbol_svg }}
+              />
+            )}
+            {w.name}
             <span className="text-gray-500" title={w.weld_type ?? undefined}>
               · {weldTypeName(w.weld_type)}
             </span>
