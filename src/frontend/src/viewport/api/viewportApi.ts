@@ -6,8 +6,8 @@
 // still goes straight to three.js and is simply absent on the three.js-free viewport. Nothing in this
 // module (or anything it imports at runtime) may import three.js: the three.js-free viewport's chunk
 // depends on it.
-import {type CameraView} from "@/layout/coreCommandIds";
 import type {ViewportResults} from "./resultLayer";
+import {type CameraView} from "@/layout/coreCommandIds";
 
 export type ViewportKind = "three" | "native";
 
@@ -58,6 +58,9 @@ export interface ViewportApi {
 
     /** The loaded model's box (min xyz, max xyz), or null with nothing loaded. */
     modelBounds(): [number, number, number, number, number, number] | null;
+    /** Drawing an FEA result: meshes whose colours and displacement are replaced step by step
+     *  (./resultLayer.ts). */
+    readonly results: ViewportResults;
 
     // The camera.
     fitAll(): void;
@@ -68,10 +71,6 @@ export interface ViewportApi {
     orbitStep(right: number, up: number): void;
     /** One keyboard step of pan in the plane of the screen. */
     panStep(right: number, up: number): void;
-
-    /** Drawing an FEA result: meshes whose colours and displacement are replaced step by step
-     *  (./resultLayer.ts). */
-    readonly results: ViewportResults;
 }
 
 let active: ViewportApi | null = null;

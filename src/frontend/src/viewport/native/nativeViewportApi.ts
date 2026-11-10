@@ -22,6 +22,7 @@ export function createNativeViewportApi(scene: NativeScene): ViewportApi {
         hide: (refs) => scene.setHiddenMany(own(refs), true),
         show: (refs) => scene.setHiddenMany(own(refs), false),
         isolate: (refs) => scene.isolate(own(refs)),
+        results: {createResultMesh: (data, opts) => scene.createResultLayer(data, opts)},
         objectVisibility: () => (model, id) =>
             model === scene.modelKey && scene.draws(id) ? (scene.isHidden(id) ? "hidden" : "shown") : null,
         modelBounds: () => scene.modelBounds,
@@ -34,6 +35,5 @@ export function createNativeViewportApi(scene: NativeScene): ViewportApi {
         resetCamera: () => scene.home(),
         orbitStep: (right, up) => scene.orbitBy(right * ORBIT_STEP_RAD, up * ORBIT_STEP_RAD),
         panStep: (right, up) => scene.panBy(right * PAN_STEP_FRACTION, up * PAN_STEP_FRACTION),
-        results: {createResultMesh: (data, opts) => scene.createResultLayer(data, opts)},
     };
 }

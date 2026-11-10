@@ -209,7 +209,17 @@ async def test_load_select_hide_section_and_pick(ws_server, backend):
             await browser.close()
 
 
-@pytest.mark.parametrize("backend", list(BACKENDS))
+async def _assert_drawing_with(page: Page, backend: str, state: str) -> None:
+    """What draws is what was asked for: the renderer's state, or the three.js-free viewport up and no
+    WebGL context made."""
+    if backend != NATIVE:
+        return await _assert_backend(page, backend, state)
+    got = await page.evaluate("document.documentElement.dataset.nativeViewport")
+    assert got == "active", f"the three.js-free viewport is {got!r}, not drawing"
+    assert await page.evaluate("window.__webglContexts") == 0, "the three.js-free viewport created a WebGL context"
+
+
+@pytest.mark.parametrize("backend", [*BACKENDS, NATIVE])
 async def test_fea_field_and_warp_playback(ws_server, backend, fem_files):
     result_file = fem_files / "cantilever/calculix/eigen_shell_cantilever_calculix.frd"
     async with async_playwright() as playwright:
@@ -223,7 +233,7 @@ async def test_fea_field_and_warp_playback(ws_server, backend, fem_files):
                 return _count(await _pixels(page), _is_coloured) > 5000
 
             await _until(page, coloured, "the result field to be painted", seconds=40)
-            await _assert_backend(page, backend, state)
+            await _assert_drawing_with(page, backend, state)
 
             # warp playback: the mode shape moves, so frames differ while it plays
             still = (await _pixels(page)).tobytes()
@@ -235,7 +245,20 @@ async def test_fea_field_and_warp_playback(ws_server, backend, fem_files):
             assert len(frames) > 2, f"{backend}: the warp did not animate ({len(frames)} distinct frames)"
             await _command(page, "Play / pause results")
             assert still  # the still frame was captured before playback started
-            await _assert_backend(page, backend, state)
+
+            # step: stopped, the shape is undeformed; the next mode is another picture
+            await _command(page, "Stop results")
+            stopped = (await _pixels(page)).tobytes()
+            await _command(page, "Next result step")
+
+            async def stepped():
+                return (await _pixels(page)).tobytes() != stopped
+
+            await _until(page, stepped, f"{backend}: the next result step to be drawn")
+
+            # legend: the scale the colours are read against is on screen
+            assert await page.get_by_text("Range: shown elements").count() >= 1, f"{backend}: no colour legend"
+            await _assert_drawing_with(page, backend, state)
         finally:
             await browser.close()
 

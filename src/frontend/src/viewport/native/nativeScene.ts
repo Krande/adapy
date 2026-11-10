@@ -3,13 +3,13 @@
 // There is no THREE.Scene behind it and no scene model on this side either: the reader reports the
 // model's objects and which one each segment draws, per-object state is segment state in the renderer,
 // and input is mapped to the camera's semantic operations (orbit, pan, zoom, fit, look from).
+import type {ResultMeshData, ResultMeshLayer} from "@/viewport/api/resultLayer";
+import {NativeResultLayer} from "./nativeResultLayer";
 import {useCameraControlsStore} from "@/state/cameraControlsStore";
 import {useVisibilityStore} from "@/state/visibilityStore";
 import {dragAction, mouseButtonOf, wheelZoomFactor, type CameraAction} from "@/utils/camera/cameraMapping";
 import {startRenderer} from "@/viewport/adacpp/rendererModule";
 import {SegmentFlag, type AdacppModule, type GpuDeviceLike, type LoadedGlbObjects, type RawPick, type WebRendererApi} from "@/viewport/adacpp/types";
-import type {ResultMeshData, ResultMeshLayer} from "@/viewport/api/resultLayer";
-import {NativeResultLayer} from "./nativeResultLayer";
 
 /** The viewer's background (#393939) and selection colour, as the three.js viewport has them. */
 const BACKGROUND = 0x39 / 255;
@@ -107,6 +107,9 @@ export class NativeScene {
     failure: string | null = null;
     /** The result meshes drawn now (createResultLayer). */
     private readonly resultLayers = new Set<NativeResultLayer>();
+    /** Called before each frame is drawn, with the seconds since the last one (0 after an idle
+     *  spell). Returning true asks for another frame: what plays a result keeps the loop running. */
+    onFrame: ((dtSeconds: number) => boolean) | null = null;
 
     private constructor(
         private readonly container: HTMLElement,
@@ -474,8 +477,9 @@ export class NativeScene {
             this.syncSize();
             // A move to a view, or the glide after a drag, runs for as long as the camera says it does.
             const moving = this.renderer.cameraUpdate(dt);
+            const playing = this.onFrame?.(dt) ?? false;
             this.renderer.render();
-            if (moving) this.invalidate();
+            if (moving || playing) this.invalidate();
             else this.lastFrame = 0;
         } catch (err) {
             this.fail(err instanceof Error ? err.message : String(err));

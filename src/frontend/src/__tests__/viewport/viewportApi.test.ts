@@ -23,6 +23,11 @@ function recorder(kind: ViewportApi["kind"], cannot: string | null = null): {api
             selectionToken: () => calls.length,
             setSelection: log("setSelection"),
             modelBounds: () => null,
+            results: {
+                createResultMesh: () => {
+                    throw new Error("not drawn in this test");
+                },
+            },
             clearSelection: log("clearSelection"),
             hideSelected: log("hideSelected"),
             hideOthers: log("hideOthers"),
@@ -37,11 +42,6 @@ function recorder(kind: ViewportApi["kind"], cannot: string | null = null): {api
             resetCamera: log("resetCamera"),
             orbitStep: log("orbitStep"),
             panStep: log("panStep"),
-            results: {
-                createResultMesh: () => {
-                    throw new Error("not drawn in this test");
-                },
-            },
         },
     };
 }
