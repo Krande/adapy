@@ -26,6 +26,7 @@ import {consumeDirty, isRenderSuspended, requestRender, usePerfStore, adacppHand
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {renderProfiler} from "@/utils/scene/renderProfiler";
 import {bindSpaceMouseToOptions, tickSpaceMouse} from "@/utils/spacemouse/spaceMouseDevice";
+import {bindCameraMapping} from "./sceneHelpers/bindCameraMapping";
 import {setCaptureViewport} from "@/viewport/capture";
 import {createNullRenderer, isNullRenderer} from "@/viewport/nullRenderer";
 import {AdacppViewport, useAdacppRenderStatus} from "@/viewport/adacpp/adacppViewport";
@@ -153,6 +154,8 @@ const ThreeCanvas: React.FC = () => {
         // === Orbit Controls ===
         const controls = setupControls(camera, containerRef.current, zIsUp, defaultOrbitController);
         controlsRef.current = controls;
+        // Which button, modifier, wheel and gesture does what: the user's mapping, kept live.
+        const unbindCameraMapping = bindCameraMapping(controls, ensureViewportInput(containerRef.current));
 
         // === Key Handlers ===
         const removeKeyHandlers = setupCameraControlsHandlers(
@@ -330,6 +333,7 @@ const ThreeCanvas: React.FC = () => {
             cancelAnimationFrame(rafId);
             cleanupResizeHandler();
             cleanupPointerHandler();
+            unbindCameraMapping();
             // renderer.dispose();
             // containerRef.current?.removeChild(renderer.domElement);
             if (gizmo && containerRef.current?.contains(gizmo)) {

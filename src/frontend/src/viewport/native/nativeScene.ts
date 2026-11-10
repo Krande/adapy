@@ -5,6 +5,8 @@
 // difference is that this one lives in the viewer and takes its input from the viewport's input surface.
 import {OrbitCamera, type Bounds} from "../../../embed-webgpu/camera";
 import {glbJson, matchGeometries, objectPath, replayBatches, type SegmentObject} from "../../../embed-webgpu/glbObjects";
+import {useCameraControlsStore} from "@/state/cameraControlsStore";
+import {dragAction, mouseButtonOf, wheelZoomFactor, type CameraAction} from "@/utils/camera/cameraMapping";
 import {startRenderer} from "@/viewport/adacpp/rendererModule";
 import {SegmentFlag, type AdacppModule, type GpuDeviceLike, type RawPick, type WebRendererApi} from "@/viewport/adacpp/types";
 
@@ -234,12 +236,22 @@ export class NativeScene {
         this.onFailure?.(reason);
     }
 
-    /** Orbit (drag), pan (right / middle drag, shift-drag, two fingers), zoom (wheel, pinch), click to select. */
+    /** Drags, the wheel and touch gestures move the camera as the user's mapping says
+     *  (state/cameraControlsStore); a click selects. */
     private bindInput(): void {
         const el = this.input;
         const pointers = new Map<number, {x: number; y: number}>();
         let lastPinch = 0;
         let tap: {id: number; x: number; y: number} | null = null;
+        /** What the drag in progress does: decided at the press, from its button and modifiers. */
+        let action: CameraAction = "none";
+        const mapping = () => useCameraControlsStore.getState().mapping;
+        const move = (kind: CameraAction, dx: number, dy: number, h: number) => {
+            const speed = mapping().orbitSpeed;
+            if (kind === "orbit") this.camera.orbit(dx * speed, dy * speed, h);
+            else if (kind === "pan") this.camera.pan(dx, dy, h);
+            else if (kind === "zoom") this.camera.zoom(Math.exp(dy * 0.005 * mapping().zoomSpeed));
+        };
         const on = <K extends keyof HTMLElementEventMap>(type: K, fn: (e: HTMLElementEventMap[K]) => void, opts?: AddEventListenerOptions) => {
             el.addEventListener(type, fn as EventListener, opts);
             this.cleanups.push(() => el.removeEventListener(type, fn as EventListener, opts));
@@ -249,6 +261,8 @@ export class NativeScene {
             pointers.set(e.pointerId, {x: e.clientX, y: e.clientY});
             lastPinch = 0;
             tap = pointers.size === 1 && e.button === 0 ? {id: e.pointerId, x: e.clientX, y: e.clientY} : null;
+            const button = e.pointerType === "mouse" ? mouseButtonOf(e.button) : null;
+            action = button ? dragAction(mapping(), button, e) : mapping().touch.one;
         });
         on("pointermove", (e) => {
             const prev = pointers.get(e.pointerId);
@@ -258,15 +272,16 @@ export class NativeScene {
             pointers.set(e.pointerId, {x: e.clientX, y: e.clientY});
             const h = el.clientHeight;
             if (pointers.size >= 2) {
+                const two = mapping().touch.two;
+                if (two === "none") return;
                 const [a, b] = [...pointers.values()];
                 const d = Math.hypot(a.x - b.x, a.y - b.y);
                 if (lastPinch > 0 && d > 0) this.camera.zoom(lastPinch / d);
                 lastPinch = d;
-                this.camera.pan(dx / 2, dy / 2, h);
-            } else if (e.buttons & 2 || e.buttons & 4 || e.shiftKey) {
-                this.camera.pan(dx, dy, h);
+                // Each finger reports its own move: half of each makes the pair's.
+                move(two === "zoom-orbit" ? "orbit" : "pan", dx / 2, dy / 2, h);
             } else {
-                this.camera.orbit(dx, dy, h);
+                move(action, dx, dy, h);
             }
             this.invalidate();
         });
@@ -288,7 +303,9 @@ export class NativeScene {
         on("contextmenu", (e) => e.preventDefault());
         on("wheel", (e) => {
             e.preventDefault();
-            this.camera.zoom(Math.exp(e.deltaY * 0.001));
+            const factor = wheelZoomFactor(mapping(), e.deltaY);
+            if (factor === null) return;
+            this.camera.zoom(factor);
             this.invalidate();
         }, {passive: false});
     }

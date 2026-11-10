@@ -33,6 +33,7 @@ export interface CoreShortcutDef {
 }
 
 const VIEWER = "Global / viewer";
+const CAMERA = "Camera";
 const PANELS = "Panels";
 const GALLERY = "Gallery walk";
 const BUILDER = "Procedural cellbuilder";
@@ -40,6 +41,7 @@ const BUILDER = "Procedural cellbuilder";
 /** The dialog's core groups, in order, with the line saying when their keys are live. */
 export const CORE_SHORTCUT_GROUPS: ReadonlyArray<{ group: string; when: string }> = [
   { group: VIEWER, when: "Active whenever the viewer has focus (ignored while typing in a field)" },
+  { group: CAMERA, when: "Active whenever the viewer has focus. Mouse and touch are set in Options → Camera controls" },
   { group: PANELS, when: "Active with Options → Theme → Customisable panels on" },
   { group: GALLERY, when: "Active while stepping through a files/geometry gallery" },
   { group: BUILDER, when: "Active when a procedural model's cell builder is open (these keys preempt the global ones)" },
@@ -61,6 +63,23 @@ export const CORE_SHORTCUTS: readonly CoreShortcutDef[] = [
   { id: "core:redo-alt", keys: "Ctrl+Shift+Z", label: "Redo (alternative)", group: VIEWER },
   { id: "core:fit-selection", keys: "Shift+F", label: "Center the view on the selection", group: VIEWER, keepDefault: true },
   { id: "core:fit-all", keys: "Shift+A", label: "Zoom to fit the whole model", group: VIEWER, keepDefault: true },
+  // The camera from the keyboard. Mouse and touch are mapped in Options > Camera controls.
+  { id: "core:view.top", keys: "Alt+1", label: "Camera: top view", group: CAMERA },
+  { id: "core:view.bottom", keys: "Alt+2", label: "Camera: bottom view", group: CAMERA },
+  { id: "core:view.front", keys: "Alt+3", label: "Camera: front view", group: CAMERA },
+  { id: "core:view.back", keys: "Alt+4", label: "Camera: back view", group: CAMERA },
+  { id: "core:view.left", keys: "Alt+5", label: "Camera: left view", group: CAMERA },
+  { id: "core:view.right", keys: "Alt+6", label: "Camera: right view", group: CAMERA },
+  { id: "core:view.isometric", keys: "Alt+7", label: "Camera: isometric view", group: CAMERA },
+  { id: "core:reset-camera", keys: "Alt+0", label: "Camera: reset", group: CAMERA },
+  { id: "core:orbit-left", keys: "Ctrl+ArrowLeft", label: "Camera: orbit left", group: CAMERA },
+  { id: "core:orbit-right", keys: "Ctrl+ArrowRight", label: "Camera: orbit right", group: CAMERA },
+  { id: "core:orbit-up", keys: "Ctrl+ArrowUp", label: "Camera: orbit up", group: CAMERA },
+  { id: "core:orbit-down", keys: "Ctrl+ArrowDown", label: "Camera: orbit down", group: CAMERA },
+  { id: "core:pan-left", keys: "Ctrl+Shift+ArrowLeft", label: "Camera: pan left", group: CAMERA },
+  { id: "core:pan-right", keys: "Ctrl+Shift+ArrowRight", label: "Camera: pan right", group: CAMERA },
+  { id: "core:pan-up", keys: "Ctrl+Shift+ArrowUp", label: "Camera: pan up", group: CAMERA },
+  { id: "core:pan-down", keys: "Ctrl+Shift+ArrowDown", label: "Camera: pan down", group: CAMERA },
   { id: "core:toggle-options", keys: "Shift+Q", label: "Toggle the Options menu", group: VIEWER, keepDefault: true },
   { id: "core:toggle-gallery", keys: "Shift+W", label: "Toggle gallery mode", group: VIEWER },
   { id: "core:toggle-admin", keys: "Shift+P", label: "Toggle the Admin panel (administrators only)", group: VIEWER },

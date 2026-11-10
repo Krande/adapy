@@ -121,12 +121,15 @@ async def _until(page: Page, check, what: str, seconds: float = 20.0):
     raise AssertionError(f"timed out waiting for {what}")
 
 
-async def _open_viewer(playwright, ws_server, backend: str):
-    """A viewer page on `backend`, connected to the websocket server; skips when WebGPU has no adapter here."""
+async def _open_viewer(playwright, ws_server, backend: str, init_script: str | None = None):
+    """A viewer page on `backend`, connected to the websocket server; skips when WebGPU has no adapter here.
+    `init_script` runs in the page before the viewer starts (stored settings)."""
     query, perf, state = BACKENDS.get(backend, (backend, {}, "off"))
     browser = await playwright.chromium.launch(headless=True, args=CHROMIUM_ARGS)
     page = await browser.new_page(viewport=VIEWPORT)
     await page.add_init_script(COUNT_WEBGL)
+    if init_script:
+        await page.add_init_script(init_script)
     if perf:
         stored = json.dumps({"state": perf, "version": 1})
         await page.add_init_script(f"localStorage.setItem('ada-perf', JSON.stringify({stored}))")
