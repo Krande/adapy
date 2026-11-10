@@ -68,6 +68,22 @@ for (const module of ["viewportApi.ts", "viewportShortcuts.ts"]) {
     });
 }
 
+// What computes, plays and registers an FEA result is shared by both viewports: none of it may
+// import three.js.
+for (const module of [
+    "viewport/api/resultLayer.ts",
+    "utils/scene/fea/nodalFieldPaint.ts",
+    "utils/scene/fea/resultInfluence.ts",
+    "utils/scene/fea/feaAnimationDriver.ts",
+    "utils/scene/fea/playbackActions.ts",
+    "utils/scene/fea/streaming/resultStores.ts",
+    "utils/scene/fea/streaming/warpSource.ts",
+]) {
+    test(`${module} imports no three.js`, () => {
+        walkFreeOfThree(join(ROOT, "src", module));
+    });
+}
+
 test("the walk sees what a build would bundle", () => {
     const imports = runtimeImports(`
         import * as THREE from "three";

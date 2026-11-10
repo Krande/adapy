@@ -4,6 +4,7 @@ import type * as THREE from "three";
 import type {FeaManifest} from "@/services/viewerApi";
 import type {PreloadProgress} from "@/utils/scene/fea/streaming/prefetch";
 import type {ApplyStepOptions} from "@/utils/scene/fea/streaming/types";
+import type {ResultMeshLayer} from "@/viewport/api/resultLayer";
 import {DEFAULT_CONTOUR, normaliseLevels, type ContourSettings} from "@/utils/scene/fea/contourScale";
 
 /** State for the streaming-FEA viewer's two-slider control surface:
@@ -35,6 +36,13 @@ export interface FeaAnimationState {
      * ``load_fea_streaming`` after applyFieldToMesh has installed
      * the morph attribute. The RAF driver reads this. */
     mesh: THREE.Mesh | null;
+
+    /** What draws the shown result on the viewport on screen: the deformation
+     * scale is its influence, which the RAF driver and the transport write.
+     * On the three.js viewport it wraps ``mesh``; the three.js-free viewport
+     * has a layer and no mesh. Null with a session registered by its mesh
+     * alone, whose ``morphTargetInfluences[0]`` is then written directly. */
+    resultLayer: ResultMeshLayer | null;
 
     /** Range of the deformation factor. Inferred from the active
      * field's ``analysis_kind`` at apply time. */
@@ -225,6 +233,7 @@ export interface FeaAnimationState {
 
     setSessionActive: (active: boolean) => void;
     setMesh: (mesh: THREE.Mesh | null) => void;
+    setResultLayer: (layer: ResultMeshLayer | null) => void;
     setRange: (range: [number, number]) => void;
     setFactor: (factor: number) => void;
     setPeriod: (period: number) => void;
@@ -273,6 +282,7 @@ const DEFAULT_PERIOD = 2.0;
 export const useFeaAnimationStore = create<FeaAnimationState>((set) => ({
     sessionActive: false,
     mesh: null,
+    resultLayer: null,
     range: DEFAULT_RANGE,
     factor: 1.0,
     period: DEFAULT_PERIOD,
@@ -330,7 +340,9 @@ export const useFeaAnimationStore = create<FeaAnimationState>((set) => ({
     envelopeMode: false,
 
     setSessionActive: (active) => set({sessionActive: active}),
-    setMesh: (mesh) => set({mesh}),
+    // The layer stays with the mesh it wraps: another mesh is another result.
+    setMesh: (mesh) => set((s) => ({mesh, resultLayer: mesh !== null && s.mesh === mesh ? s.resultLayer : null})),
+    setResultLayer: (resultLayer) => set({resultLayer}),
     setRange: (range) => set({range}),
     setFactor: (factor) => set({factor}),
     setPeriod: (period) => set({period: Math.max(0.1, period)}),
@@ -372,6 +384,7 @@ export const useFeaAnimationStore = create<FeaAnimationState>((set) => ({
         set((state) => ({
             sessionActive: false,
             mesh: null,
+            resultLayer: null,
             range: DEFAULT_RANGE,
             factor: 1.0,
             isPlaying: false,

@@ -38,6 +38,7 @@ import {linkLineMorphToMesh, resolveWarpSource} from "../fea/streaming/warp";
 import {syncResultSession} from "../fea/streaming/legendSync";
 import {loadFeaWithDefaults} from "../fea/streaming/loadWithDefaults";
 import type {ApplyStepOptions, LoadFeaStreamingArgs} from "../fea/streaming/types";
+import {requestStep} from "../fea/streaming/stepQueue";
 import {preloadFrames, prefetchFieldSteps, upcomingSteps} from "../fea/streaming/prefetch";
 import {framesKey, noteOrdinaryPaint, recordPlayedFrame, showRecordedFrame} from "../fea/streaming/frameRecording";
 import {FEA_STEP_CACHE} from "@/services/fea/stepCache";
@@ -70,17 +71,9 @@ export {
     syncFeaOverlayVisibility,
 } from "../fea/streaming/visibility";
 
-// Step changes run one at a time, latest wins. Play, the slider and Stop all ask
-// for steps; loads take a network round trip each, so without this an older load
-// could finish after a newer one and repaint its frame (Stop during play landed
-// back on the in-flight frame, and a second press was needed). Requests arriving
-// while a load runs collapse into "the newest one"; the returned promise settles
-// once the queue is drained, i.e. when the LAST requested step is on screen.
-let pendingStep: {step: number; run: (step: number) => Promise<void>} | null = null;
 // The slot the step callback last asked for: tells a walk through the list
 // (prefetch the next combination) from a jump (prefetch nothing).
 let lastAppliedSlot: number | null = null;
-let stepDrain: Promise<void> | null = null;
 // The (source, field) the last playback frame fully synced the controls and legend
 // for. While it matches, a playback frame only repaints (see
 // LoadFeaStreamingArgs.playback); any other load clears it, so the first frame
@@ -89,30 +82,6 @@ let playbackSyncedFor: string | null = null;
 // The running "load every frame" job, and what it is loading. A load of anything
 // else stops it; asking again for the same field is a no-op.
 let preload: {key: string; abort: AbortController} | null = null;
-
-function requestStep(step: number, run: (step: number) => Promise<void>): Promise<void> {
-    pendingStep = {step, run};
-    if (!stepDrain) {
-        stepDrain = (async () => {
-            try {
-                while (pendingStep) {
-                    const next = pendingStep;
-                    pendingStep = null;
-                    try {
-                        await next.run(next.step);
-                    } catch (err) {
-                        // A superseded load failing is not the caller's error: carry on
-                        // to the newer step. Only the last one's failure surfaces.
-                        if (!pendingStep) throw err;
-                    }
-                }
-            } finally {
-                stepDrain = null;
-            }
-        })();
-    }
-    return stepDrain;
-}
 
 /** Load the mesh GLB, fetch the chosen field's blob, and apply the
  * (component, step) selection. Subsequent calls for the same source
@@ -426,7 +395,7 @@ export async function load_fea_streaming(args: LoadFeaStreamingArgs): Promise<vo
     // The animation store and the legend, from what was just painted: the
     // session it drives, the field's range, the derived warp scale.
     syncResultSession({
-        mesh: active.mesh, sourceName, manifest, field, fieldName, reduction, colormap, stepIndex, sliderFactor,
+        mesh: active.mesh, basePositions: active.basePositions, sourceName, manifest, field, fieldName, reduction, colormap, stepIndex, sliderFactor,
         rangeField: paintField, nSlots: field ? nSlots : undefined, legendScope, autoRange: shownRange,
     });
 
