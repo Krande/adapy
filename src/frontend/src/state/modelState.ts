@@ -39,6 +39,9 @@ export interface ModelState {
     setLoadedSourceName: (name: string | null) => void;
     // Multi-model overlay tracking
     registerLoadedSource: (name: string, group: THREE.Group) => void;
+    /** A source whose model a viewport holds itself, with no three.js group to keep: it is listed as
+     *  loaded, and what works by a source's name (export, unload) works for it. */
+    registerLoadedSourceName: (name: string) => void;
     unregisterLoadedSource: (name: string) => THREE.Group | null;
     clearLoadedSources: () => void;
 }
@@ -135,6 +138,16 @@ export const useModelState = create<ModelState>((set) => ({
             }).catch((err) => console.warn('connection graph: build failed for', name, err));
         }
         set((s) => {
+            const next = new Set(s.loadedSourceNames);
+            next.add(name);
+            return {loadedSourceNames: next, loadedSourceName: name};
+        });
+    },
+    registerLoadedSourceName: (name) => {
+        const session = useModelSessionStore.getState().ensure();
+        session.identity.sourceName ??= name;
+        set((s) => {
+            if (s.loadedSourceNames.has(name) && s.loadedSourceName === name) return {};
             const next = new Set(s.loadedSourceNames);
             next.add(name);
             return {loadedSourceNames: next, loadedSourceName: name};

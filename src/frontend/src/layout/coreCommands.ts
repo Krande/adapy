@@ -119,8 +119,6 @@ export function selectionCount(selected: ReadonlyMap<unknown, ReadonlySet<string
 
 /** Selection, visibility and the camera go through the viewport on screen, three.js or not. */
 const noViewport = () => (activeViewport() ? null : NO_VIEWPORT);
-/** For what still works on the three.js scene's own selection only (the tree walk, groups, exports). */
-const nothingSelectedInScene = () => (selectionCount() === 0 ? "Nothing selected" : null);
 // With no 3D view there is nothing selected either, and that is the reason a user recognises.
 const nothingSelected = () => ((activeViewport()?.selectionCount() ?? 0) === 0 ? "Nothing selected" : null);
 
@@ -256,7 +254,7 @@ export function coreCommandSpecs(): CommandSpec[] {
       id: ID.exportSelection,
       label: "Export selection…",
       group: "File",
-      disabledReason: () => notServer() ?? nothingSelectedInScene(),
+      disabledReason: () => notServer() ?? nothingSelected(),
       run: () => openCoreDialog({kind: "export", scope: "selection"}),
     },
     {
@@ -352,7 +350,7 @@ export function coreCommandSpecs(): CommandSpec[] {
       label: "Save selection as group…",
       group: "Edit",
       shortcut: "core:group-selection",
-      disabledReason: nothingSelectedInScene,
+      disabledReason: nothingSelected,
       run: () => void import("@/utils/groups/groupShortcut").then((m) => m.groupSelectionFromKeyboard()),
     },
     {
