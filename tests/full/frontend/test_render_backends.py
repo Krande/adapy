@@ -19,8 +19,15 @@ import ada
 from ada.comms.web.serve import start_serving
 from ada.comms.wsock.client_async import WebSocketClientAsync
 
-# Headless Chromium keeps a WebGPU device alive next to WebGL canvases only on its Vulkan (SwiftShader) path.
-CHROMIUM_ARGS = ["--enable-unsafe-webgpu", "--enable-features=Vulkan", "--use-angle=swiftshader"]
+# WebGPU in headless Chromium, with or without a GPU in the machine: Vulkan on the bundled software
+# implementation (SwiftShader). Without `--use-vulkan=swiftshader` a machine with no GPU (a CI runner)
+# still offers an adapter, but the device is destroyed right after its first frame.
+CHROMIUM_ARGS = [
+    "--enable-unsafe-webgpu",
+    "--enable-features=Vulkan",
+    "--use-angle=swiftshader",
+    "--use-vulkan=swiftshader",
+]
 VIEWPORT = {"width": 1280, "height": 800}
 CENTRE = (VIEWPORT["width"] // 2, VIEWPORT["height"] // 2)
 

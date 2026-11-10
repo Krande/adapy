@@ -32,6 +32,7 @@ const NativeViewport: React.FC = () => {
             scene.onChange = () => setVersion((v) => v + 1);
             scene.onFailure = fail;
             sceneRef.current = scene;
+            if (scene.failure) return fail(scene.failure);
             useNativeViewport.setState({state: "active"});
         }, (err: unknown) => {
             if (!cancelled) fail(err instanceof Error ? err.message : String(err));

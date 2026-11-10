@@ -42,6 +42,9 @@ export class NativeScene {
     onChange: (() => void) | null = null;
     /** The renderer stopped (device lost, a failed frame): the caller falls back. */
     onFailure: ((reason: string) => void) | null = null;
+    /** Why it stopped, kept for a caller that attaches `onFailure` after the fact: a device can be lost
+     *  before the first frame. */
+    failure: string | null = null;
 
     private constructor(
         private readonly container: HTMLElement,
@@ -58,7 +61,7 @@ export class NativeScene {
         resize.observe(container);
         this.cleanups.push(() => resize.disconnect());
         void device.lost.then((info) => {
-            if (!this.disposed) this.onFailure?.(`WebGPU device lost: ${info.message}`);
+            if (!this.disposed) this.fail(`WebGPU device lost: ${info.message}`);
         });
         this.bindInput();
     }
@@ -221,8 +224,14 @@ export class NativeScene {
             this.renderer.setCamera(this.viewPtr, this.projPtr, false);
             this.renderer.render();
         } catch (err) {
-            this.onFailure?.(err instanceof Error ? err.message : String(err));
+            this.fail(err instanceof Error ? err.message : String(err));
         }
+    }
+
+    private fail(reason: string): void {
+        if (this.failure) return;
+        this.failure = reason;
+        this.onFailure?.(reason);
     }
 
     /** Orbit (drag), pan (right / middle drag, shift-drag, two fingers), zoom (wheel, pinch), click to select. */
