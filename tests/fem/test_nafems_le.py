@@ -6,6 +6,8 @@ installed is skipped, which in CI is Abaqus and Sestra.
 
 from __future__ import annotations
 
+import shutil
+
 import pytest
 
 from ada.api.fem_benchmarks import (
@@ -20,6 +22,9 @@ from ada.fem.exceptions.fea_software import FEASolverNotInstalled
 @pytest.mark.parametrize("solver", ["abaqus", "calculix", "code_aster", "sesam"])
 @pytest.mark.parametrize("case", ["LE1", "LE10"])
 def test_stress_at_d_reaches_the_published_target(case, solver, tmp_path):
+    # The Abaqus runner looks for abaqus on PATH and raises FileNotFoundError without it, not FEASolverNotInstalled.
+    if solver == "abaqus" and shutil.which("abaqus") is None:
+        pytest.skip("abaqus is not installed")
     assembly = mesh_nafems_le(case, 8)
     add_nafems_load(assembly)
     try:
