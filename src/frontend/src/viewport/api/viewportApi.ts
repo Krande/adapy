@@ -7,6 +7,7 @@
 // module (or anything it imports at runtime) may import three.js: the three.js-free viewport's chunk
 // depends on it.
 import {type CameraView} from "@/layout/coreCommandIds";
+import type {BillboardLayer, Point3} from "./billboards";
 
 export type ViewportKind = "three" | "native";
 
@@ -67,6 +68,16 @@ export interface ViewportApi {
     orbitStep(right: number, up: number): void;
     /** One keyboard step of pan in the plane of the screen. */
     panStep(right: number, up: number): void;
+
+    // Labels, markers and icons over the model.
+    /** Call `listener` whenever the selection has changed. Returns the unsubscribe function. */
+    onSelectionChange(listener: () => void): () => void;
+    /** A point in the middle of what `refs` draw, in world space: where a label or a marker for them
+     *  goes. Null when none of them is drawn. */
+    objectsCentre(refs: readonly ObjectRef[]): Point3 | null;
+    /** The viewport's layer of camera-facing images called `name`, made on first use; asking again
+     *  gives the same layer until it is disposed. */
+    billboards(name: string): BillboardLayer;
 }
 
 let active: ViewportApi | null = null;
@@ -93,6 +104,27 @@ export function setActiveViewport(viewport: ViewportApi): () => void {
 export function onActiveViewportChange(listener: () => void): () => void {
     listeners.add(listener);
     return () => void listeners.delete(listener);
+}
+
+/** Keep something attached to whichever viewport is on screen: `attach` runs for the one there now and
+ *  for each that replaces it, and what it returns is called when that viewport leaves. Returns the
+ *  function that detaches for good. */
+export function followActiveViewport(attach: (viewport: ViewportApi) => () => void): () => void {
+    let detach: (() => void) | null = null;
+    let attached: ViewportApi | null = null;
+    const follow = () => {
+        if (active === attached) return;
+        detach?.();
+        attached = active;
+        detach = active ? attach(active) : null;
+    };
+    follow();
+    const off = onActiveViewportChange(follow);
+    return () => {
+        off();
+        detach?.();
+        detach = null;
+    };
 }
 
 export const NO_VIEWPORT = "No 3D view";

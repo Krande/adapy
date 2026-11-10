@@ -7,7 +7,7 @@ import {useCameraControlsStore} from "@/state/cameraControlsStore";
 import {useVisibilityStore} from "@/state/visibilityStore";
 import {dragAction, mouseButtonOf, wheelZoomFactor, type CameraAction} from "@/utils/camera/cameraMapping";
 import {startRenderer} from "@/viewport/adacpp/rendererModule";
-import {SegmentFlag, type AdacppModule, type GpuDeviceLike, type LoadedGlbObjects, type RawPick, type WebRendererApi} from "@/viewport/adacpp/types";
+import {SegmentFlag, type AdacppModule, type CameraPoseInfo, type GpuDeviceLike, type LoadedGlbObjects, type RawPick, type WebRendererApi} from "@/viewport/adacpp/types";
 
 /** The viewer's background (#393939) and selection colour, as the three.js viewport has them. */
 const BACKGROUND = 0x39 / 255;
@@ -132,6 +132,7 @@ export class NativeScene {
         this.modelKey = modelKey;
         this.sceneExtras = "";
         this.renderer.clear();
+        this.sceneEpoch++;
         this.selected.clear();
         this.hidden.clear();
         const p = this.module._malloc(bytes.byteLength);
@@ -358,6 +359,7 @@ export class NativeScene {
         }
         this.invalidate();
         this.selectionVersion = {};
+        for (const listener of this.selectionListeners) listener();
         // What draws visibility (the Scene tree's rows) re-reads on this; a selection alone is not one.
         if (this.hidden.changed) {
             this.hidden.changed = false;
@@ -515,6 +517,80 @@ export class NativeScene {
             }
             this.invalidate();
         }, {passive: false});
+    }
+
+    // Overlay images: what viewport/native/nativeBillboards.ts draws labels, markers and icons with.
+
+    /** Goes up each time the renderer's scene is emptied (a load), which takes every sprite and
+     *  texture made before with it. */
+    sceneEpoch = 0;
+    /** Called whenever the selection may have changed. */
+    readonly selectionListeners = new Set<() => void>();
+
+    /** Whether the renderer module draws sprites at all (an older one does not). */
+    get drawsSprites(): boolean {
+        return typeof this.renderer.addSprite === "function" && typeof this.renderer.addTexture === "function";
+    }
+
+    /** The element the view fills, and the one its clicks arrive on. */
+    get elements(): {view: HTMLElement; input: HTMLElement} {
+        return {view: this.container, input: this.input};
+    }
+
+    get cameraPose(): CameraPoseInfo {
+        return this.renderer.cameraPose();
+    }
+
+    /** A texture from RGBA pixels, top row first with straight alpha, as `getImageData().data`. */
+    addTexture(rgba: Uint8Array | Uint8ClampedArray, width: number, height: number): number {
+        const p = this.module._malloc(rgba.length);
+        this.module.HEAPU8.set(rgba, p);
+        try {
+            return this.renderer.addTexture(p, width, height);
+        } finally {
+            this.module._free(p);
+        }
+    }
+
+    removeTexture(texture: number): void {
+        if (this.disposed) return;
+        this.renderer.removeTexture(texture);
+    }
+
+    addSprite(): number {
+        return this.renderer.addSprite();
+    }
+
+    /** Place a sprite: its anchor in the world, its scale and centre as three.js' Sprite has them,
+     *  SpriteFlag bits and the order it is drawn in. Untinted and unrotated. */
+    setSprite(
+        sprite: number, texture: number, position: readonly [number, number, number], scaleX: number, scaleY: number,
+        centerX: number, centerY: number, flags: number, order: number,
+    ): void {
+        if (this.disposed) return;
+        this.renderer.setSprite(sprite, texture, position[0], position[1], position[2], scaleX, scaleY, centerX, centerY, 0, 1, 1, 1, 1, flags, order);
+        this.invalidate();
+    }
+
+    removeSprite(sprite: number): void {
+        if (this.disposed) return;
+        this.renderer.removeSprite(sprite);
+        this.invalidate();
+    }
+
+    /** The middle of the boxes of `ids`, averaged; null when none of them draws anything. */
+    objectsCentre(ids: readonly string[]): [number, number, number] | null {
+        const table = this.table;
+        if (!table) return null;
+        const sum: [number, number, number] = [0, 0, 0];
+        let n = 0;
+        for (const id of ids) {
+            const i = this.indexOfId.get(id);
+            if (i === undefined || table.bounds[i * 6] > table.bounds[i * 6 + 3]) continue;
+            for (let k = 0; k < 3; k++) sum[k] += (table.bounds[i * 6 + k] + table.bounds[i * 6 + k + 3]) / 2;
+            n++;
+        }
+        return n ? [sum[0] / n, sum[1] / n, sum[2] / n] : null;
     }
 
     dispose(): void {

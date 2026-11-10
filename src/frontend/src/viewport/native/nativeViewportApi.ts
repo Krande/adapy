@@ -2,6 +2,8 @@
 import {type CameraView} from "@/layout/coreCommandIds";
 import {namedViewDirection} from "@/utils/camera/namedViewDirection";
 import type {ObjectRef, ViewportApi} from "@/viewport/api/viewportApi";
+import type {BillboardLayer} from "@/viewport/api/billboards";
+import {createNativeBillboardLayer} from "./nativeBillboards";
 import type {NativeScene} from "./nativeScene";
 
 /** One key press orbits by this much, and pans by this fraction of the view: as on the three.js viewport. */
@@ -10,6 +12,7 @@ const PAN_STEP_FRACTION = 0.1;
 const MOVE_SECONDS = 0.25;
 
 export function createNativeViewportApi(scene: NativeScene): ViewportApi {
+    const layers = new Map<string, BillboardLayer>();
     const own = (refs: readonly ObjectRef[]): string[] => refs.filter((r) => r.model === scene.modelKey).map((r) => r.id);
     return {
         kind: "native",
@@ -34,5 +37,19 @@ export function createNativeViewportApi(scene: NativeScene): ViewportApi {
         resetCamera: () => scene.home(),
         orbitStep: (right, up) => scene.orbitBy(right * ORBIT_STEP_RAD, up * ORBIT_STEP_RAD),
         panStep: (right, up) => scene.panBy(right * PAN_STEP_FRACTION, up * PAN_STEP_FRACTION),
+        onSelectionChange: (listener) => {
+            scene.selectionListeners.add(listener);
+            return () => void scene.selectionListeners.delete(listener);
+        },
+        objectsCentre: (refs) => scene.objectsCentre(own(refs)),
+        billboards: (name) => {
+            let layer = layers.get(name);
+            if (!layer) {
+                const made = createNativeBillboardLayer(scene);
+                layer = {...made, dispose: () => (layers.delete(name), made.dispose())};
+                layers.set(name, layer);
+            }
+            return layer;
+        },
     };
 }

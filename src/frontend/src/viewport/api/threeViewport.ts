@@ -15,6 +15,9 @@ import {getViewerRuntime} from "@/state/viewerRuntime";
 import type {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
 import {batchedMeshOf, isBatched} from "@/utils/scene/meshLookup";
 import {recordViewerAction} from "@/utils/scene/viewerHistory";
+import {rangesCentroidWorld} from "@/utils/viewer/pipeTrace";
+import type {BillboardLayer} from "./billboards";
+import {createThreeBillboardLayer} from "./threeBillboards";
 import type {ObjectRef, ObjectVisibilityReader, ViewportApi} from "./viewportApi";
 
 /** The GLB node that draws `ref`: the caller's, or the Scene tree row's. */
@@ -104,6 +107,7 @@ const cameraKeys = () => import("@/components/viewer/sceneHelpers/cameraKeys");
 
 /** The viewport interface over the three.js scene, camera and controls of one mounted canvas. */
 export function createThreeViewport(h: ThreeViewportHandles): ViewportApi {
+    const layers = new Map<string, BillboardLayer>();
     return {
         kind: "three",
         unavailable: () => null,
@@ -183,5 +187,22 @@ export function createThreeViewport(h: ThreeViewportHandles): ViewportApi {
                 m.panByStep(h.controls, h.camera, right, up);
                 requestRender();
             }),
+        onSelectionChange: (listener) =>
+            useSelectedObjectStore.subscribe((s, prev) => {
+                if (s.selectedObjects !== prev.selectedObjects) listener();
+            }),
+        objectsCentre: (refs) => {
+            const c = rangesCentroidWorld(refs.map((ref) => [ref.model, ref.id] as const));
+            return c ? [c.x, c.y, c.z] : null;
+        },
+        billboards: (name) => {
+            let layer = layers.get(name);
+            if (!layer) {
+                const made = createThreeBillboardLayer(h.scene, name);
+                layer = {...made, dispose: () => (layers.delete(name), made.dispose())};
+                layers.set(name, layer);
+            }
+            return layer;
+        },
     };
 }

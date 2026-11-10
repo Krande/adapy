@@ -6,6 +6,7 @@ import SectionPlanesController from "./SectionPlanesController";
 import FemConceptsController from "./FemConceptsController";
 import CellBuilderController from "./CellBuilderController";
 import TypeIconController from "./TypeIconController";
+import NameLabelController from "./NameLabelController";
 import ProceduralFollowerController from "./ProceduralFollowerController";
 import GalleryControls from "./GalleryControls";
 import BBoxSelectionController from "./BBoxSelectionController";
@@ -71,6 +72,9 @@ const CanvasWrapper: React.FC<CanvasWrapperProps> = ({legend = true}) => {
         <React.Suspense fallback={null}>
           <NativeViewport />
         </React.Suspense>
+        {/* Headless, as below: they draw through whichever viewport is on screen. */}
+        <TypeIconController />
+        <NameLabelController />
       </div>
     );
   }
@@ -103,6 +107,8 @@ const CanvasWrapper: React.FC<CanvasWrapperProps> = ({legend = true}) => {
       <CellBuilderController />
       {/* Headless: Factorio-style type-icon overlay (equipment / media / missing inputs). */}
       <TypeIconController />
+      {/* Headless: the names of the selected objects, while that switch is on. */}
+      <NameLabelController />
       {/* Cross-tab: when opened with ?pfollow=<modelId>, live-loads that model's
           compiled results as the editing tab produces them. Inert otherwise. */}
       <ProceduralFollowerController />

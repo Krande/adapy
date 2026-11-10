@@ -56,8 +56,8 @@ flowchart LR
 
 What the main viewer does beyond this is listed in the viewport itself under "Not available in
 this mode", so nothing looks broken by omission: the section plane gizmo and filled cuts, FEA
-results and animation, labels and plugin overlays, measurements and gizmos, screenshots and export,
-and overlaying several models.
+results and animation, number labels and plugin overlays, measurements and gizmos, screenshots and
+export, and overlaying several models.
 
 ### Keeping the chunk free of three.js
 
@@ -84,7 +84,7 @@ These are open design points, ordered by how much of the viewer depends on them.
    `viewportShortcuts.ts`. A viewport says what it cannot do yet (`unavailable(feature)`), and the
    command is offered disabled with that reason. The interface grows one feature area at a time:
    still to come are objects by id with their state (colour, transparency), their bounds, and
-   overlay geometry (lines, points, markers) by handle. An area not on it yet still goes straight to
+   overlay geometry (lines, points) by handle. An area not on it yet still goes straight to
    three.js and is absent on the three.js-free viewport.
 2. **Where per-object state lives.** `CustomBatchedMesh` owns hidden and selected ranges, and a
    number of scene objects update themselves in `onBeforeRender`, which `SceneSync` replays every
@@ -100,9 +100,19 @@ These are open design points, ordered by how much of the viewer depends on them.
    three.js-free viewport: the filled cut (the reader would have to mark closed solids as capped)
    and a gizmo. A gizmo without `TransformControls` is its own piece of work (handles as on-top
    instances, hit-testing through `pick`).
-5. **Labels and markers.** The renderer draws textured sprites. A native label layer needs the
-   text rasterised to textures without a `THREE.CanvasTexture` (a plain canvas works) and a store of
-   label positions.
+5. **Labels and markers.** Both viewports draw them from plain data. A feature asks the viewport
+   on screen for a layer of billboards (`ViewportApi.billboards(name)`, `viewport/api/billboards.ts`)
+   and adds camera-facing images to it by handle: a world position, an image painted on a plain
+   canvas, and a height in world units or in pixels. The three.js viewport draws each as a
+   `THREE.Sprite` (`threeBillboards.ts`), the three.js-free one as a sprite of the renderer with the
+   canvas' pixels as its texture (`native/nativeBillboards.ts`); a load empties the renderer's scene,
+   so that layer keeps the pixels and makes its sprites again. Where an object is comes from the
+   viewport too (`objectsCentre`), as does a change of selection (`onSelectionChange`). The type
+   icons of a procedural model and the names of the selected objects ("Object names") are drawn
+   this way, by controllers that follow the viewport on screen (`followActiveViewport`). Still the
+   three.js viewport's only: the number labels of an FEA result, which need the result's mesh, and
+   a plugin's labels (`addLabels`), which can pin to FEA elements and are cut by section planes at
+   their anchor.
 6. **Controls parity.** The renderer's camera covers orbit, pan, zoom, zoom towards the cursor, fit
    to the model or the selection, named views and the user's input mapping. Still the main
    viewer's only: the orientation gizmo, orthographic projection as a setting, and 3D-mouse input.

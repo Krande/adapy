@@ -37,6 +37,7 @@ import {feModelLoaded, hasFemConcepts} from "@/components/simulation/simPanelTab
 import {beamSolidsToggleState} from "@/utils/scene/fea/streaming/beamSolidsToggle";
 import {feaControlActions} from "@/utils/scene/fea/feaControls";
 import {useLabelsStore} from "@/state/labelsStore";
+import {useTypeIconsStore} from "@/state/typeIconsStore";
 import {anyShownRange} from "@/utils/mesh_select/selectionSets";
 import {playbackAvailable} from "@/utils/scene/fea/playbackActions";
 import {openLocalFilePicker} from "@/utils/scene/handlers/localOpenPlan";
@@ -737,6 +738,23 @@ export function coreCommandSpecs(): CommandSpec[] {
       checked: () => useLabelsStore.getState().values,
       disabledReason: () => (useFeaAnimationStore.getState().sessionActive ? null : "No result is loaded"),
       run: () => useLabelsStore.getState().setValues(!useLabelsStore.getState().values),
+    },
+    // Labels and icons either viewport draws: the names of the selected objects, the type icons
+    {
+      id: ID.labelsNames,
+      label: "Object names",
+      group: "View",
+      checked: () => useLabelsStore.getState().names,
+      disabledReason: () => (activeViewport() ? null : NO_VIEWPORT),
+      run: () => useLabelsStore.getState().setNames(!useLabelsStore.getState().names),
+    },
+    {
+      id: ID.typeIcons,
+      label: "Type icons",
+      group: "View",
+      checked: () => useTypeIconsStore.getState().enabled,
+      disabledReason: () => (activeViewport() ? null : NO_VIEWPORT),
+      run: () => useTypeIconsStore.getState().toggle(),
     },
     // Colour by property
     {

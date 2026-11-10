@@ -37,6 +37,11 @@ function recorder(kind: ViewportApi["kind"], cannot: string | null = null): {api
             resetCamera: log("resetCamera"),
             orbitStep: log("orbitStep"),
             panStep: log("panStep"),
+            onSelectionChange: () => () => {},
+            objectsCentre: () => null,
+            billboards: () => {
+                throw new Error("no billboards in this test");
+            },
         },
     };
 }

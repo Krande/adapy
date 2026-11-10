@@ -373,3 +373,44 @@ async def test_commands_and_keys_reach_whichever_viewport_is_on_screen(ws_server
             assert fitted > 0.2 * loaded, f"{backend}: Fit all left {fitted} model pixels of {loaded}"
         finally:
             await browser.close()
+
+
+def _is_label(px) -> bool:  # a name label's amber text and border: no model, selection or toolbar colour
+    return px[0] > 200 and px[1] > 150 and px[2] < 170 and px[0] - px[2] > 70
+
+
+@pytest.mark.parametrize("backend", ["three", NATIVE])
+async def test_name_labels_are_drawn_by_whichever_viewport_is_on_screen(ws_server, backend):
+    """One switch, "Object names", labels the selected object on the three.js viewport and on the
+    three.js-free one: the label appears over the selection, follows it, and goes when switched off."""
+    async with async_playwright() as playwright:
+        browser, page, _ = await _open_viewer(playwright, ws_server, backend)
+        try:
+            await asyncio.to_thread(
+                lambda: _model().show(ws_port=ws_server.port, unique_viewer_id=1, liveness_timeout=10)
+            )
+            await _until(page, lambda: _model_on_screen(page), "the model to be drawn")
+            if backend == NATIVE:
+                assert await page.evaluate("document.documentElement.dataset.nativeViewport") == "active"
+
+            await _click(page, *CENTRE)
+            assert _count(await _pixels(page), _is_selected) > 3000, f"{backend}: the click selected nothing"
+            unlabelled = _count(await _pixels(page), _is_label)
+            assert unlabelled < 10, f"{backend}: {unlabelled} label-coloured pixels before any label"
+
+            await _command(page, "Object names")
+            labelled = _count(await _pixels(page), _is_label)
+            assert labelled > 30, f"{backend}: the selected box got no label ({labelled} label pixels)"
+
+            # the label is of the selection: with nothing selected there is none
+            await _command(page, "Clear selection")
+            assert _count(await _pixels(page), _is_label) < 10, f"{backend}: the label outlived the selection"
+            await _click(page, *CENTRE)
+            again = _count(await _pixels(page), _is_label)
+            assert again > 30, f"{backend}: selecting again brought no label back ({again} label pixels)"
+
+            await _command(page, "Object names")
+            left = _count(await _pixels(page), _is_label)
+            assert left < 10, f"{backend}: switching the labels off left {left} label pixels"
+        finally:
+            await browser.close()

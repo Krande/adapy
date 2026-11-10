@@ -15,7 +15,7 @@ import {createNativeViewportApi} from "./nativeViewportApi";
 import {useNativeViewport} from "./nativeModel";
 
 const UNAVAILABLE = [
-    "section plane gizmo and filled cuts", "FEA results and animation", "labels, markers and plugin overlays", "measurements and gizmos",
+    "section plane gizmo and filled cuts", "FEA results and animation", "number labels and plugin overlays", "measurements and gizmos",
     "screenshots and export", "overlaying several models",
 ];
 

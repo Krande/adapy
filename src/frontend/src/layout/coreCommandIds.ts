@@ -117,6 +117,9 @@ export const CORE_COMMAND_IDS = {
   warp: "core:warp",
   /** Label every element in view with its value of the shown property or result (or of the property `useLabelsStore.valueField` names). */
   labelsValues: "core:labels-values",
+  /** Label each selected object with its name, and the type-icon overlay of a procedural model (equipment, media, missing inputs). */
+  labelsNames: "core:labels-names",
+  typeIcons: "core:type-icons",
   /** The procedural builder's placement tools: add a cell, a loft member, an opening or a piece of equipment (the last two take the type picked last). */
   builderAddCell: "core:builder-add-cell",
   builderAddLoft: "core:builder-add-loft",
