@@ -16,6 +16,7 @@ from collections import defaultdict
 
 import numpy as np
 
+from ada.config import logger
 from ada.fem.formats.sesam.read import cards
 from ada.fem.formats.sesam.results.derived_values import (
     B_STRESS_COMPONENTS,
@@ -48,7 +49,6 @@ from ada.fem.results.field_data import (
     NodalFieldData,
     NodalFieldType,
 )
-from ada.config import logger
 from ada.fem.shapes.definitions import ShellShapes, SolidShapes
 
 _SHELL_CORNER_INDICES = {

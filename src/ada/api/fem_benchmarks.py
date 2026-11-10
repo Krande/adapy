@@ -222,7 +222,11 @@ def stress_yy_nodes(result):
     """
     import numpy as np
 
-    from ada.fem.results.field_data import ElementFieldData, FieldPosition, NodalFieldData
+    from ada.fem.results.field_data import (
+        ElementFieldData,
+        FieldPosition,
+        NodalFieldData,
+    )
 
     if hasattr(result, "to_fea_result"):
         result = result.to_fea_result()
