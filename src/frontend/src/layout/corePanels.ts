@@ -29,6 +29,7 @@ import { useAnimationStore } from "@/state/animationStore";
 import { hasEmbeddedDoc, useCellBuilderStore } from "@/state/cellBuilderStore";
 import { useComponentControlsStore } from "@/state/componentControlsStore";
 import { useComponentSpecsStore } from "@/state/componentSpecsStore";
+import { useConnectionBuilderStore } from "@/state/connectionBuilderStore";
 import { useEquipmentCatalogStore } from "@/state/equipmentCatalogStore";
 import { useFeaAnimationStore } from "@/state/feaAnimationStore";
 import { useFemConceptsStore } from "@/state/femConceptsStore";
@@ -317,6 +318,23 @@ export function corePanelSpecs(): PanelSpec[] {
       available: () => useComponentSpecsStore.getState().hasSpecs,
       placement: column(70),
       toolbar: { order: 90 },
+    },
+    {
+      // `ada dev connections`: opened at startup there, offered nowhere else; no top-bar button.
+      id: CORE_PANEL_IDS.connectionBuilder,
+      title: "Connection builder",
+      icon: ComponentIcon,
+      hint: "Toggle the connection builder",
+      body: classicBody(CORE_PANEL_IDS.connectionBuilder),
+      content: classicContent(CORE_PANEL_IDS.connectionBuilder),
+      binding: bindStoreFlag(
+        useConnectionBuilderStore,
+        (s) => s.isVisible,
+        (open, s) => s.setIsVisible(open),
+      ),
+      available: () => runtime.devConnections(),
+      constraints: { requiresRest: true },
+      placement: column(75),
     },
     {
       id: CORE_PANEL_IDS.cellbuilder,

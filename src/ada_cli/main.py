@@ -18,6 +18,7 @@ Subcommand layout:
                                       query / re-run viewer audit conversions
     ada serve api|worker              run the REST API / worker process
     ada desktop [FILE]                the local viewer in a native window (needs ada-desktop)
+    ada dev connections --dir DIR     develop a connection library live in the studio (alias: joints)
     ada viewers                      list the installed viewer bundles (--viewer)
 
 This listing is the CLI's own claim about its surface, so it is checked against
@@ -656,6 +657,33 @@ def _add_desktop(sub: argparse._SubParsersAction) -> None:
     p.set_defaults(func=_cmd_desktop)
 
 
+def _cmd_dev_connections(args: argparse.Namespace) -> int:
+    from ada_cli.dev_connections import main_run
+
+    _use_viewer_bundle(args.viewer)
+    return main_run(args)
+
+
+def _add_dev(sub: argparse._SubParsersAction) -> None:
+    from ada_cli.dev_connections import add_arguments
+
+    dev = sub.add_parser("dev", help="Develop against the studio: live-reloading libraries.")
+    dev_sub = dev.add_subparsers(dest="dev_command", required=True)
+    p = dev_sub.add_parser(
+        "connections",
+        aliases=["joints"],
+        help="Develop a connection library live: the studio's connection builder, reloaded on every edit.",
+        description=(
+            "Start the local viewer with the connection library in --dir (its ada_connections.toml) loaded, "
+            "and open the studio's connection builder: pick a spec, edit the members' sections, plate "
+            "thicknesses and angles, and see the joint rebuilt -- again on every saved change to the library."
+        ),
+    )
+    _add_viewer_bundle_opt(p)
+    add_arguments(p)
+    p.set_defaults(func=_cmd_dev_connections)
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="ada",
@@ -676,6 +704,7 @@ def _build_parser() -> argparse.ArgumentParser:
     _add_audit(sub)
     _add_serve(sub)
     _add_desktop(sub)
+    _add_dev(sub)
     _add_viewers(sub)
 
     return parser

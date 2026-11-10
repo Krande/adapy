@@ -76,6 +76,7 @@ export function desktopMenus({ modes, workspaces, shells, themes }: DesktopMenuI
             panel(P.attributeSearch),
             panel(P.simulation),
             panel(P.componentControls),
+            panel(P.connectionBuilder),
             panel(P.cellbuilder),
             panel(P.componentList),
           ],

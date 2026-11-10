@@ -8,6 +8,7 @@ import {runtime} from "@/runtime/config";
 import {AdaViewerProvider} from "./state/AdaViewerContext";
 import {useUrlParamLoad} from "./hooks/useUrlParamLoad";
 import {useSceneRestore} from "./hooks/useSceneRestore";
+import {useConnectionBuilderBoot} from "./hooks/useConnectionBuilderBoot";
 import {followerParams as simFollowerParams} from "@/utils/simChannel";
 import {CORE_UI_SHELL_ID, activeUiShellId, getUiShell, isComposedShell, type UiShellSpec} from "@/plugins/uiShells";
 import {isPopoutPage, popoutPanelId} from "@/layout/popout";
@@ -194,6 +195,7 @@ export function AppRoot({children}: {children: React.ReactNode}) {
 function ViewerBootstrap() {
     useUrlParamLoad();
     useSceneRestore();
+    useConnectionBuilderBoot();
     return null;
 }
 

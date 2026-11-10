@@ -14,7 +14,46 @@ from ada.api.connections.spec import (
     list_specs,
     register_connection,
     spec_to_form_schema,
+    unregister_modules,
 )
+
+
+def test_unregister_modules_drops_only_the_named_packages_specs():
+    def _builder_in(module: str):
+        def fn(**_):
+            return None
+
+        fn.__module__ = module
+        return fn
+
+    register_connection(_spec("lib.a"))(_builder_in("mylib.design.a"))
+    register_connection(_spec("lib.b"))(_builder_in("mylib.design"))
+    register_connection(_spec("other"))(_builder_in("mylib_other.x"))
+
+    removed = unregister_modules(["mylib.design"])
+
+    assert sorted(removed) == ["lib.a", "lib.b"]
+    assert [s.name for s in list_specs()] == ["other"]
+    # ... and the names are free to register again.
+    register_connection(_spec("lib.a"))(_builder_in("mylib.design.a"))
+
+
+def test_form_schema_lists_each_roles_input_fields():
+    spec = ConnectionSpec(
+        name="plate_on_beam",
+        roles=(
+            MemberCriteria(role=MemberRole.INCOMING, kind=MemberKind.PLATE),
+            MemberCriteria(
+                role=MemberRole.LANDING,
+                kind=MemberKind.BEAM,
+                angle_to_role=MemberRole.INCOMING,
+                angle_range=AngleRange(20.0, 165.0),
+            ),
+        ),
+    )
+    incoming, landing = spec_to_form_schema(spec)["roles"]
+    assert incoming["fields"] == ["thickness", "width", "height"]
+    assert landing["fields"] == ["section", "angle_deg"]
 
 
 @pytest.fixture(autouse=True)

@@ -116,6 +116,10 @@ declare global {
         // Never set on a deployment. The token itself is not here — /config.js
         // is a script any page can include — but in /api/config.
         ADA_LOCAL_SHUTDOWN?: boolean;
+        // True only on a local viewer `ada dev connections` started: it serves a
+        // connection library live (/api/dev/connections), and the page opens the
+        // connection builder on it.
+        ADA_DEV_CONNECTIONS?: boolean;
         WEBSOCKET_ID?: number | string;
         WEBSOCKET_PORT?: number | string;
         TARGET_INSTANCE_ID?: number | string;
@@ -142,6 +146,9 @@ export const runtime = {
 
     // A local viewer this page may stop (see services/localViewer.ts).
     localShutdownAvailable: (): boolean => w().ADA_LOCAL_SHUTDOWN === true,
+
+    // A connection library served live by `ada dev connections` (see services/devConnections).
+    devConnections: (): boolean => w().ADA_DEV_CONNECTIONS === true,
 
     // Image identity (REST mode only). Either may be empty in dev or
     // when the worker hasn't reported in yet.

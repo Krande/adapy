@@ -59,6 +59,7 @@ const { useObjectInfoStore } = await import("@/state/objectInfoStore");
 const { useSceneInfoStore } = await import("@/state/sceneInfoStore");
 const { useAnimationStore } = await import("@/state/animationStore");
 const { useComponentControlsStore } = await import("@/state/componentControlsStore");
+const { useConnectionBuilderStore } = await import("@/state/connectionBuilderStore");
 const { useCellBuilderStore } = await import("@/state/cellBuilderStore");
 const { useEquipmentCatalogStore } = await import("@/state/equipmentCatalogStore");
 const { useWebsocketStatusStore } = await import("@/state/websocketStatusStore");
@@ -77,6 +78,7 @@ function flags(): Record<string, unknown> {
     show_scene_info_box: useSceneInfoStore.getState().show_scene_info_box,
     isControlsVisible: useAnimationStore.getState().isControlsVisible,
     componentControlsVisible: useComponentControlsStore.getState().isVisible,
+    connectionBuilderVisible: useConnectionBuilderStore.getState().isVisible,
     cellBuilderPanelVisible: useCellBuilderStore.getState().panelVisible,
     equipmentPanelOpen: cb.equipmentPanelOpen,
     systemPanelOpen: cb.systemPanelOpen,
@@ -95,6 +97,7 @@ function resetFlags(): void {
   useSceneInfoStore.setState({ show_scene_info_box: false });
   useAnimationStore.setState({ isControlsVisible: false });
   useComponentControlsStore.setState({ isVisible: false });
+  useConnectionBuilderStore.setState({ isVisible: false });
   useCellBuilderStore.setState({ panelVisible: false });
   useEquipmentCatalogStore.setState({ equipmentPanelOpen: false, systemPanelOpen: false });
   useWebsocketStatusStore.setState({ showInfoBox: false });
@@ -188,6 +191,7 @@ const MENU_TOGGLES: Array<{ pressed: string; id: string; flag: string; onClick: 
 const OTHER_BINDINGS: Array<{ id: string; flag: string; open: unknown; closed: unknown }> = [
   { id: CORE_PANEL_IDS.serverInfo, flag: "showServerInfoBox", open: true, closed: false },
   { id: CORE_PANEL_IDS.feaTable, flag: "tablePanelOpen", open: true, closed: false },
+  { id: CORE_PANEL_IDS.connectionBuilder, flag: "connectionBuilderVisible", open: true, closed: false },
   { id: CORE_PANEL_IDS.equipmentAdmin, flag: "equipmentPanelOpen", open: true, closed: false },
   { id: CORE_PANEL_IDS.systemAdmin, flag: "systemPanelOpen", open: true, closed: false },
   { id: CORE_PANEL_IDS.admin, flag: "viewerPanelOpen", open: "admin", closed: null },
@@ -230,6 +234,7 @@ test("the menu column's panels are registered, in the order the column stacks th
     CORE_PANEL_IDS.wsStatus,
     CORE_PANEL_IDS.simulation,
     CORE_PANEL_IDS.componentControls,
+    CORE_PANEL_IDS.connectionBuilder,
     CORE_PANEL_IDS.cellbuilder,
     CORE_PANEL_IDS.equipmentAdmin,
     CORE_PANEL_IDS.systemAdmin,
@@ -350,6 +355,8 @@ test("availability follows the conditions the classic top bar gates on", () => {
   assert.ok(!idle.includes(CORE_PANEL_IDS.simulation));
   assert.ok(!idle.includes(CORE_PANEL_IDS.cellbuilder));
   assert.ok(!idle.includes(CORE_PANEL_IDS.componentControls));
+  // Only a viewer `ada dev connections` started offers the connection builder.
+  assert.ok(!idle.includes(CORE_PANEL_IDS.connectionBuilder));
   useAnimationStore.setState({ hasAnimation: true });
   assert.ok(ids({ restMode: true }).includes(CORE_PANEL_IDS.simulation));
   useAnimationStore.setState({ hasAnimation: false });

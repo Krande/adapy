@@ -2,7 +2,7 @@ import math
 
 import pytest
 
-from ada import Beam
+from ada import Beam, Plate
 from ada.api.connections import (
     AngleRange,
     ConnectionSpec,
@@ -11,6 +11,7 @@ from ada.api.connections import (
     MemberRole,
     build_sample,
 )
+from ada.api.connections.sample import default_inputs
 
 
 def _box_to_box_spec() -> ConnectionSpec:
@@ -162,8 +163,8 @@ def test_angle_validation_rejects_non_numeric():
         build_sample(spec, bad)
 
 
-def test_plate_kind_not_implemented():
-    spec = ConnectionSpec(
+def _beam_on_plate_spec() -> ConnectionSpec:
+    return ConnectionSpec(
         name="test.box_to_plate",
         roles=(
             MemberCriteria(
@@ -180,12 +181,91 @@ def test_plate_kind_not_implemented():
             ),
         ),
     )
+
+
+def _plate_on_box_spec() -> ConnectionSpec:
+    return ConnectionSpec(
+        name="test.plate_on_box",
+        roles=(
+            MemberCriteria(role=MemberRole.INCOMING, kind=MemberKind.PLATE),
+            MemberCriteria(role=MemberRole.LANDING, kind=MemberKind.BEAM, section_in=frozenset({"BOX"})),
+        ),
+    )
+
+
+def test_plate_anchor_lies_below_the_origin():
+    """A plate anchor is flat in XY with its top face at z=0; the beam rises from the origin."""
     inputs = {
         "incoming": {"section": "BOX200x200x10x10", "angle_deg": 90.0},
-        "landing": {"section": "PLATE"},
+        "landing": {"thickness": 0.025, "width": 0.5, "height": 0.4},
     }
-    with pytest.raises(NotImplementedError, match="plate sample synthesis"):
-        build_sample(spec, inputs)
+    members = build_sample(_beam_on_plate_spec(), inputs)
+
+    plate = members[MemberRole.LANDING]
+    assert isinstance(plate, Plate)
+    assert plate.t == pytest.approx(0.025)
+    bb = plate.bbox()
+    assert bb.p2[2] == pytest.approx(0.0, abs=1e-9)
+    assert bb.p1[2] == pytest.approx(-0.025)
+    assert bb.p2[0] - bb.p1[0] == pytest.approx(0.5)
+
+    beam = members[MemberRole.INCOMING]
+    assert tuple(beam.n1.p) == pytest.approx((0.0, 0.0, 0.0))
+    assert tuple(beam.n2.p) == pytest.approx((0.0, 0.0, 1.0), abs=1e-9)
+
+
+def test_plate_stands_on_the_anchor_beam_top_face():
+    inputs = {
+        "incoming": {"thickness": 0.02, "width": 0.4, "height": 0.3},
+        "landing": {"section": "BOX300x300x12x12"},
+    }
+    members = build_sample(_plate_on_box_spec(), inputs)
+
+    plate = members[MemberRole.INCOMING]
+    bb = plate.bbox()
+    assert bb.p1[2] == pytest.approx(0.15)  # half the box depth
+    assert bb.p2[2] == pytest.approx(0.45)
+    # 90° by default: across the beam, i.e. spanning Y, thickness along X
+    assert bb.p2[1] - bb.p1[1] == pytest.approx(0.4)
+    assert bb.p2[0] - bb.p1[0] == pytest.approx(0.02)
+
+
+def test_plate_inputs_are_validated():
+    with pytest.raises(ValueError, match="missing 'thickness'"):
+        build_sample(_plate_on_box_spec(), {"incoming": {}, "landing": {"section": "BOX300x300x12x12"}})
+    with pytest.raises(ValueError, match="'thickness' must be positive"):
+        build_sample(_plate_on_box_spec(), {"incoming": {"thickness": 0}, "landing": {"section": "BOX300x300x12x12"}})
+
+
+def test_default_inputs_fill_what_the_spec_leaves_out():
+    spec = _beam_on_plate_spec()
+    defaults = default_inputs(spec)
+    assert defaults == {
+        "incoming": {"section": "BOX300x300x12x12", "angle_deg": 90.0},
+        "landing": {"thickness": 0.02, "width": 0.4, "height": 0.3},
+    }
+    # ... and they build.
+    build_sample(spec, defaults)
+
+
+def test_default_inputs_keep_declared_defaults():
+    spec = ConnectionSpec(
+        name="test.declared",
+        roles=(
+            MemberCriteria(
+                role=MemberRole.INCOMING,
+                kind=MemberKind.BEAM,
+                angle_to_role=MemberRole.LANDING,
+                angle_range=AngleRange(20.0, 60.0),
+            ),
+            MemberCriteria(role=MemberRole.LANDING, kind=MemberKind.BEAM),
+        ),
+        defaults={"landing": {"section": "HEB300"}},
+    )
+    assert default_inputs(spec) == {
+        "incoming": {"section": "IPE300", "angle_deg": 40.0},  # 90° is out of range: the middle
+        "landing": {"section": "HEB300"},
+    }
 
 
 def test_anchor_role_runs_along_x():
