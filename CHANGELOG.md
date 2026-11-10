@@ -2,6 +2,15 @@
 
 
 
+## v0.144.0 (2026-11-10)
+
+### Feature
+
+* feat: the viewer&#39;s panels, results and tools shared by both viewports, and faster model loads (#529)
+
+Co-authored-by: Claude Fable 5.2 &lt;noreply@anthropic.com&gt; ([`d97c9f3`](https://github.com/Krande/adapy/commit/d97c9f31e1782d64a797a0d1830b3d811187da5d))
+
+
 ## v0.143.0 (2026-11-10)
 
 ### Feature
