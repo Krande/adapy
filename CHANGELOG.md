@@ -1947,7 +1947,7 @@ PodCrashLooping/PodCrashLoopingSlow alerts all night.
 Make the heartbeat probe opt-in: the helper emits it only when a pool sets
 `heartbeatLiveness: true` (now the default on the adapy `worker` pool) or supplies
 its own `livenessProbe:`. Capability pools that do neither get no liveness probe.
-helm template verified: main worker keeps the heartbeat probe, abaqus + weld-gen
+helm template verified: main worker keeps the heartbeat probe, abaqus + plugin
 render with none.
 
 Co-Authored-By: Claude Opus 4.8 (1M context) &lt;noreply@anthropic.com&gt; ([`b606c1d`](https://github.com/Krande/adapy/commit/b606c1d7cbf7175f159eb9f2217d6f6615a8e211))

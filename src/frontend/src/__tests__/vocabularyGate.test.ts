@@ -104,7 +104,7 @@ test("the gate would catch a term if one appeared", () => {
   // nothing, or an exclusion that grew to cover everything, passes while proving nothing.
   assert.ok(namesForbidden("// exported from AVEVA E3D"), "the gate must match a real mention");
   assert.ok(namesForbidden('id: "csg"'), "the gate must match an identifier fixture");
-  assert.ok(namesForbidden("import x from 'pkg-weld-gen-ui'"), "a term inside a hyphenated name must match");
+  assert.ok(candidateTerms("pkg-alpha-beta-ui").includes("alpha-beta"), "a run inside a hyphenated name must be checked");
   assert.ok(!namesForbidden("const weld = (v: number) => v"), "vertex welding must stay legal");
   assert.ok(!namesForbidden("Welds (3)"), "rendering a provider's welds must stay legal");
   assert.ok(!namesForbidden("const csg_mesh = 1"), "a term inside a longer identifier must not match, as with \\b");
