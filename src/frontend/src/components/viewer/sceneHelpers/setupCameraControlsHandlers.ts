@@ -12,7 +12,6 @@ import CameraControls from "camera-controls";
 import {copySelectionNames} from "@/utils/clipboard/copySelectionNames";
 import {toggleTreeFocus} from "@/utils/tree_view/treeKeyboard";
 import {groupSelectionFromKeyboard} from "@/utils/groups/groupShortcut";
-import {hideSelectedRanges, hideUnselectedRanges, unhideAllRanges} from "@/utils/scene/visibility";
 import {applyAdaptiveClipping} from "@/components/viewer/sceneHelpers/adaptiveClipping";
 import {frameBox, zoomToAll} from "@/components/viewer/sceneHelpers/cameraFit";
 
@@ -23,6 +22,7 @@ import {selectChildLevel, selectParentLevel, selectSibling} from "@/utils/tree_v
 import {useCellBuilderStore, needsPreviewCompile} from "@/state/cellBuilderStore";
 import {frameCells} from "@/utils/scene/frameCells";
 import {requestRender} from "@/state/perfStore";
+import {viewportShortcutHandlers} from "@/viewport/api/viewportShortcuts";
 import {useModelState} from "@/state/modelState";
 import {bindCoreShortcuts, type CoreShortcutHandler} from "@/layout/shortcuts";
 import {installShortcutDispatcher} from "@/layout/shortcutDispatch";
@@ -100,12 +100,9 @@ export function setupCameraControlsHandlers(
         "core:undo": shortcut(history(undoViewerAction)),
         "core:redo": shortcut(history(redoViewerAction)),
         "core:redo-alt": shortcut(history(redoViewerAction)),
-        "core:hide-selected": shortcut(() => hideSelectedRanges()),
-        "core:hide-others": shortcut(() => hideUnselectedRanges()),
         "core:group-selection": shortcut(() => void groupSelectionFromKeyboard()),
-        "core:show-all": shortcut(() => unhideAllRanges()),
-        "core:fit-selection": shortcut(() => fitSelectionView(camera, controls)),
-        "core:fit-all": shortcut(() => fitAllView(scene, camera, controls)),
+        // Hide / show, fit, the named views and the camera keys are the viewport's, three.js or not.
+        ...viewportShortcutHandlers(shortcut),
         // Shift+Enter: preview-compile the current (uncommitted) procedural model -- the fast
         // path when editing. Only when there is something to compile (mirrors the Compile
         // button's disabled state, see needsPreviewCompile); otherwise the key is not ours.

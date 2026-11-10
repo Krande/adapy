@@ -1,12 +1,12 @@
-// The three.js-free viewport's scene: a GLB read by adacpp's own reader, drawn by its WebGPU renderer,
-// under an orbit camera, with pick, select and hide resolved per segment (one adapy object each). There
-// is no THREE.Scene behind it: object identity comes from the GLB's JSON (embed-webgpu/glbObjects), and
-// per-object state is segment state in the renderer. The WebGPU embed is the model for all of this; the
-// difference is that this one lives in the viewer and takes its input from the viewport's input surface.
-import {OrbitCamera, type Bounds} from "../../../embed-webgpu/camera";
-import {glbJson, matchGeometries, objectPath, replayBatches, type SegmentObject} from "../../../embed-webgpu/glbObjects";
+// The three.js-free viewport's scene: a GLB read by adacpp's own reader, drawn by its WebGPU renderer
+// under the renderer's own camera, with pick, select and hide resolved per segment (one object each).
+// There is no THREE.Scene behind it and no scene model on this side either: the reader reports the
+// model's objects and which one each segment draws, per-object state is segment state in the renderer,
+// and input is mapped to the camera's semantic operations (orbit, pan, zoom, fit, look from).
+import {useCameraControlsStore} from "@/state/cameraControlsStore";
+import {dragAction, mouseButtonOf, wheelZoomFactor, type CameraAction} from "@/utils/camera/cameraMapping";
 import {startRenderer} from "@/viewport/adacpp/rendererModule";
-import {SegmentFlag, type AdacppModule, type GpuDeviceLike, type RawPick, type WebRendererApi} from "@/viewport/adacpp/types";
+import {SegmentFlag, type AdacppModule, type GpuDeviceLike, type LoadedGlbObjects, type RawPick, type WebRendererApi} from "@/viewport/adacpp/types";
 
 /** The viewer's background (#393939) and selection colour, as the three.js viewport has them. */
 const BACKGROUND = 0x39 / 255;
@@ -16,6 +16,19 @@ const EDGE_COLOR: [number, number, number, number] = [0, 0, 0, 1];
 /** A press released within this many pixels of where it went down is a click, not a drag. */
 const TAP_SLOP_PX = 6;
 const MAX_PIXEL_RATIO = 2;
+const HOME_AZIMUTH_DEG = -135;
+const HOME_ELEVATION_DEG = 30;
+/** Fit and the named views move there over this long. */
+const MOVE_SECONDS = 0.25;
+/** The share of a drag's speed kept per 1/60 s once released, when the user's mapping asks for a glide. */
+const GLIDE_INERTIA = 0.8;
+/** A frame after an idle spell must not advance a glide or a move by the whole spell. */
+const MAX_FRAME_SECONDS = 0.05;
+
+/** As many section planes as the renderer takes. */
+const MAX_CLIP_PLANES = 6;
+
+type Bounds = [number, number, number, number, number, number];
 
 export interface NativeObject {
     id: string;
@@ -26,11 +39,12 @@ export interface NativeObject {
 let canvasSerial = 0;
 
 export class NativeScene {
-    readonly camera = new OrbitCamera();
-    private readonly viewPtr: number;
-    private readonly projPtr: number;
-    private names = new Map<number, (SegmentObject | null)[]>();
+    /** Per instance, the object index of each of its segments (-1: none). */
+    private segments = new Map<number, Int32Array>();
+    private table: LoadedGlbObjects | null = null;
+    private indexOfId = new Map<string, number>();
     private bounds: Bounds | null = null;
+    private lastFrame = 0;
     private objectList: NativeObject[] = [];
     private readonly selected = new Set<string>();
     private readonly hidden = new Set<string>();
@@ -54,9 +68,11 @@ export class NativeScene {
         private readonly renderer: WebRendererApi,
         private readonly device: GpuDeviceLike,
     ) {
-        this.viewPtr = module._malloc(64);
-        this.projPtr = module._malloc(64);
         renderer.setBackground(BACKGROUND, BACKGROUND, BACKGROUND);
+        renderer.setCameraControlled(true);
+        const glide = () => renderer.cameraSetDamping(useCameraControlsStore.getState().mapping.damping ? GLIDE_INERTIA : 0);
+        glide();
+        this.cleanups.push(useCameraControlsStore.subscribe(glide));
         const resize = new ResizeObserver(() => this.invalidate());
         resize.observe(container);
         this.cleanups.push(() => resize.disconnect());
@@ -75,6 +91,11 @@ export class NativeScene {
         Object.assign(canvas.style, {position: "absolute", inset: "0", width: "100%", height: "100%", display: "block", pointerEvents: "none"});
         container.insertBefore(canvas, container.firstChild);
         const renderer = new module.WebRenderer(`#${canvas.id}`, gpu.getPreferredCanvasFormat());
+        if (typeof renderer.setCameraControlled !== "function") {
+            renderer.delete();
+            canvas.remove();
+            throw new Error("the WebGPU renderer module is older than this viewer (no camera of its own)");
+        }
         return new NativeScene(container, input, canvas, module, renderer, device);
     }
 
@@ -92,16 +113,21 @@ export class NativeScene {
             this.module._free(p);
         }
         if (!loaded.geometries.length) throw new Error("the model has nothing to draw");
-        const json = glbJson(bytes);
-        this.names = matchGeometries(json ? replayBatches(json) : [], loaded.geometries, (g) => this.renderer.segmentCount(g));
-        const ids = new Set<string>();
-        for (const segments of this.names.values()) for (const s of segments) if (s?.id) ids.add(s.id);
-        this.objectList = [...ids].map((id) => {
-            const path = json ? objectPath(json, id) : [];
-            return {id, path: path.length ? path : [id]};
-        }).sort((a, b) => a.path.join("/").localeCompare(b.path.join("/")));
+        const table = loaded.objects;
+        this.table = table;
+        this.segments = new Map(loaded.geometries.map((g) => [g.instance, g.segmentObjects]));
+        this.indexOfId = new Map(table.ids.map((id, i) => [id, i]));
+        // The list is of what can be picked: the objects that draw something themselves.
+        const list: NativeObject[] = [];
+        for (let i = 0; i < table.count; i++) {
+            if (table.segmentOffsets[i + 1] === table.segmentOffsets[i]) continue;
+            const path: string[] = [];
+            for (let o = i; o >= 0; o = table.parents[o]) path.unshift(table.names[o] || table.ids[o]);
+            list.push({id: table.ids[i], path});
+        }
+        this.objectList = list.sort((x, y) => x.path.join("/").localeCompare(y.path.join("/")));
         this.bounds = loaded.bounds;
-        this.fit();
+        this.home(0);
         this.onChange?.();
     }
 
@@ -121,10 +147,58 @@ export class NativeScene {
         return this.selected.size;
     }
 
+    /** The loaded model's box (min xyz, max xyz). */
+    get modelBounds(): Bounds | null {
+        return this.bounds;
+    }
+
+    /** Cut the model by planes (`normal . x + constant = 0`, the +normal side is kept); none removes the cut. */
+    setSectionPlanes(planes: readonly {normal: readonly [number, number, number]; constant: number}[]): void {
+        const used = planes.slice(0, MAX_CLIP_PLANES);
+        const p = this.module._malloc(Math.max(1, used.length) * 16);
+        used.forEach((plane, i) => this.module.HEAPF32.set([...plane.normal, plane.constant], (p >> 2) + i * 4));
+        try {
+            this.renderer.setClipPlanes(p, used.length);
+        } finally {
+            this.module._free(p);
+        }
+        this.invalidate();
+    }
+
     /** Frame the whole model. */
-    fit(): void {
+    fit(seconds = 0): void {
         if (!this.bounds) return;
-        this.camera.frame(this.bounds, undefined, this.aspect());
+        this.frame(this.bounds, seconds);
+    }
+
+    /** The whole model from the starting direction: what a newly loaded model shows. */
+    home(seconds = MOVE_SECONDS): void {
+        if (!this.bounds) return;
+        this.renderer.cameraSetOrientation(HOME_AZIMUTH_DEG, HOME_ELEVATION_DEG, 0, seconds);
+        this.frame(this.bounds, seconds);
+    }
+
+    /** Frame the selected objects; false when none of them is drawn. */
+    fitSelection(seconds = MOVE_SECONDS): boolean {
+        const table = this.table;
+        if (!table) return false;
+        const box: Bounds = [Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity];
+        for (const id of this.selected) {
+            const i = this.indexOfId.get(id);
+            if (i === undefined || table.bounds[i * 6] > table.bounds[i * 6 + 3]) continue;
+            for (let k = 0; k < 3; k++) {
+                box[k] = Math.min(box[k], table.bounds[i * 6 + k]);
+                box[k + 3] = Math.max(box[k + 3], table.bounds[i * 6 + k + 3]);
+            }
+        }
+        if (box[0] > box[3]) return false;
+        this.frame(box, seconds);
+        return true;
+    }
+
+    private frame(b: Bounds, seconds: number): void {
+        this.syncSize();
+        this.renderer.cameraFit(b[0], b[1], b[2], b[3], b[4], b[5], 0, seconds);
         this.invalidate();
     }
 
@@ -154,14 +228,49 @@ export class NativeScene {
         this.pushStates();
     }
 
+    /** Hide every object that is not selected. */
+    hideOthers(): void {
+        for (const o of this.objectList) if (!this.selected.has(o.id)) this.hidden.add(o.id);
+        this.pushStates();
+    }
+
+    /** Look at the whole model from `direction` (the unit vector from the model to the camera, z up). */
+    viewFrom(direction: readonly [number, number, number], seconds = MOVE_SECONDS): void {
+        if (!this.bounds) return;
+        const deg = 180 / Math.PI;
+        const azimuth = Math.atan2(direction[0], direction[1]) * deg;
+        const elevation = Math.asin(Math.max(-1, Math.min(1, direction[2]))) * deg;
+        this.renderer.cameraSetOrientation(azimuth, elevation, 0, seconds);
+        this.frame(this.bounds, seconds);
+    }
+
+    /** Orbit by the given angles (radians), as a key press does. */
+    orbitBy(azimuth: number, elevation: number): void {
+        this.syncSize();
+        // The camera takes a drag in pixels, half a turn per viewport height.
+        const h = this.canvas.height;
+        this.renderer.cameraOrbit((azimuth / Math.PI) * h, (elevation / Math.PI) * h);
+        this.invalidate();
+    }
+
+    /** Pan by fractions of the viewport's height, as a key press does. */
+    panBy(right: number, up: number): void {
+        this.syncSize();
+        const h = this.canvas.height;
+        this.renderer.cameraPan(-right * h, up * h);
+        this.invalidate();
+    }
+
     /** Every segment's state from the two sets: hidden wins over selected. */
     private pushStates(): void {
-        for (const [instance, segments] of this.names) {
+        const ids = this.table?.ids ?? [];
+        for (const [instance, segments] of this.segments) {
             const states = new Uint32Array(segments.length * 2);
-            segments.forEach((s, i) => {
-                if (!s?.id) return;
-                if (this.hidden.has(s.id)) states[i * 2 + 1] = SegmentFlag.Hidden;
-                else if (this.selected.has(s.id)) {
+            segments.forEach((object, i) => {
+                if (object < 0) return;
+                const id = ids[object];
+                if (this.hidden.has(id)) states[i * 2 + 1] = SegmentFlag.Hidden;
+                else if (this.selected.has(id)) {
                     states[i * 2] = SELECTED;
                     states[i * 2 + 1] = SegmentFlag.Matte;
                 }
@@ -193,7 +302,8 @@ export class NativeScene {
                 resolve(null);
             }
         });
-        return raw ? (this.names.get(raw.instance)?.[raw.segment]?.id ?? null) : null;
+        const object = raw ? (this.segments.get(raw.instance)?.[raw.segment] ?? -1) : -1;
+        return object >= 0 ? (this.table?.ids[object] ?? null) : null;
     }
 
     invalidate(): void {
@@ -201,28 +311,37 @@ export class NativeScene {
         if (!this.raf && !this.disposed) this.raf = requestAnimationFrame(() => this.tick());
     }
 
-    private aspect(): number {
-        return Math.max(1, this.container.clientWidth) / Math.max(1, this.container.clientHeight);
+    /** CSS pixels to the drawing buffer's, which is what the camera and pick count in. */
+    private pixelRatio(): number {
+        return Math.min(globalThis.devicePixelRatio || 1, MAX_PIXEL_RATIO);
     }
 
-    private tick(): void {
-        this.raf = 0;
-        if (this.disposed || !this.dirty) return;
-        this.dirty = false;
-        const ratio = Math.min(globalThis.devicePixelRatio || 1, MAX_PIXEL_RATIO);
+    /** The drawing buffer at the container's size; the renderer's camera takes its viewport from it. */
+    private syncSize(): void {
+        const ratio = this.pixelRatio();
         const w = Math.max(1, Math.floor(this.container.clientWidth * ratio));
         const h = Math.max(1, Math.floor(this.container.clientHeight * ratio));
         if (this.canvas.width !== w || this.canvas.height !== h) {
             this.canvas.width = w;
             this.canvas.height = h;
         }
+        this.renderer.resize(w, h);
+    }
+
+    private tick(): void {
+        this.raf = 0;
+        if (this.disposed || !this.dirty) return;
+        this.dirty = false;
+        const now = performance.now();
+        const dt = this.lastFrame ? Math.min((now - this.lastFrame) / 1000, MAX_FRAME_SECONDS) : 0;
+        this.lastFrame = now;
         try {
-            const {view, proj} = this.camera.matrices(this.aspect());
-            this.module.HEAPF32.set(view, this.viewPtr >> 2);
-            this.module.HEAPF32.set(proj, this.projPtr >> 2);
-            this.renderer.resize(w, h);
-            this.renderer.setCamera(this.viewPtr, this.projPtr, false);
+            this.syncSize();
+            // A move to a view, or the glide after a drag, runs for as long as the camera says it does.
+            const moving = this.renderer.cameraUpdate(dt);
             this.renderer.render();
+            if (moving) this.invalidate();
+            else this.lastFrame = 0;
         } catch (err) {
             this.fail(err instanceof Error ? err.message : String(err));
         }
@@ -234,12 +353,25 @@ export class NativeScene {
         this.onFailure?.(reason);
     }
 
-    /** Orbit (drag), pan (right / middle drag, shift-drag, two fingers), zoom (wheel, pinch), click to select. */
+    /** Drags, the wheel and touch gestures move the camera as the user's mapping says
+     *  (state/cameraControlsStore); a click selects. */
     private bindInput(): void {
         const el = this.input;
         const pointers = new Map<number, {x: number; y: number}>();
         let lastPinch = 0;
         let tap: {id: number; x: number; y: number} | null = null;
+        /** What the drag in progress does: decided at the press, from its button and modifiers. */
+        let action: CameraAction = "none";
+        const mapping = () => useCameraControlsStore.getState().mapping;
+        const camera = this.renderer;
+        /** A drag of (dx, dy) CSS pixels. */
+        const move = (kind: CameraAction, dx: number, dy: number) => {
+            const speed = mapping().orbitSpeed;
+            const px = this.pixelRatio();
+            if (kind === "orbit") camera.cameraOrbit(dx * speed * px, dy * speed * px);
+            else if (kind === "pan") camera.cameraPan(dx * px, dy * px);
+            else if (kind === "zoom") camera.cameraZoom(Math.exp(dy * 0.005 * mapping().zoomSpeed));
+        };
         const on = <K extends keyof HTMLElementEventMap>(type: K, fn: (e: HTMLElementEventMap[K]) => void, opts?: AddEventListenerOptions) => {
             el.addEventListener(type, fn as EventListener, opts);
             this.cleanups.push(() => el.removeEventListener(type, fn as EventListener, opts));
@@ -249,6 +381,8 @@ export class NativeScene {
             pointers.set(e.pointerId, {x: e.clientX, y: e.clientY});
             lastPinch = 0;
             tap = pointers.size === 1 && e.button === 0 ? {id: e.pointerId, x: e.clientX, y: e.clientY} : null;
+            const button = e.pointerType === "mouse" ? mouseButtonOf(e.button) : null;
+            action = button ? dragAction(mapping(), button, e) : mapping().touch.one;
         });
         on("pointermove", (e) => {
             const prev = pointers.get(e.pointerId);
@@ -256,17 +390,17 @@ export class NativeScene {
             const dx = e.clientX - prev.x, dy = e.clientY - prev.y;
             if (tap && Math.hypot(e.clientX - tap.x, e.clientY - tap.y) > TAP_SLOP_PX) tap = null;
             pointers.set(e.pointerId, {x: e.clientX, y: e.clientY});
-            const h = el.clientHeight;
             if (pointers.size >= 2) {
+                const two = mapping().touch.two;
+                if (two === "none") return;
                 const [a, b] = [...pointers.values()];
                 const d = Math.hypot(a.x - b.x, a.y - b.y);
-                if (lastPinch > 0 && d > 0) this.camera.zoom(lastPinch / d);
+                if (lastPinch > 0 && d > 0) camera.cameraZoom(lastPinch / d);
                 lastPinch = d;
-                this.camera.pan(dx / 2, dy / 2, h);
-            } else if (e.buttons & 2 || e.buttons & 4 || e.shiftKey) {
-                this.camera.pan(dx, dy, h);
+                // Each finger reports its own move: half of each makes the pair's.
+                move(two === "zoom-orbit" ? "orbit" : "pan", dx / 2, dy / 2);
             } else {
-                this.camera.orbit(dx, dy, h);
+                move(action, dx, dy);
             }
             this.invalidate();
         });
@@ -288,7 +422,15 @@ export class NativeScene {
         on("contextmenu", (e) => e.preventDefault());
         on("wheel", (e) => {
             e.preventDefault();
-            this.camera.zoom(Math.exp(e.deltaY * 0.001));
+            const factor = wheelZoomFactor(mapping(), e.deltaY);
+            if (factor === null) return;
+            if (mapping().wheel.toCursor) {
+                const rect = this.canvas.getBoundingClientRect();
+                const px = this.pixelRatio();
+                camera.cameraZoomAt(factor, (e.clientX - rect.left) * px, (e.clientY - rect.top) * px);
+            } else {
+                camera.cameraZoom(factor);
+            }
             this.invalidate();
         }, {passive: false});
     }
@@ -299,8 +441,6 @@ export class NativeScene {
         if (this.raf) cancelAnimationFrame(this.raf);
         for (const c of this.cleanups) c();
         try {
-            this.module._free(this.viewPtr);
-            this.module._free(this.projPtr);
             this.renderer.delete();
             this.device.destroy();
         } catch (err) {

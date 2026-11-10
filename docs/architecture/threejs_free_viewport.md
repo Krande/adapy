@@ -39,24 +39,23 @@ flowchart LR
     LOAD["loadModel()<br/>storage / bytes / url"] -->|GLB bytes| STORE["nativeModel.ts<br/>zustand store"]
     STORE --> VIEW["NativeViewport.tsx<br/>object list, hide / show"]
     VIEW --> SCENE["nativeScene.ts<br/>NativeScene"]
-    SCENE -->|loadGlb, setSegmentStates, pick| R["adacpp WebRenderer<br/>(wasm, WebGPU)"]
-    SCENE --> CAM["embed-webgpu/camera.ts<br/>OrbitCamera"]
-    SCENE --> NAMES["embed-webgpu/glbObjects.ts<br/>segment -> object id"]
+    SCENE -->|loadGlb, setSegmentStates, pick, camera*| R["adacpp WebRenderer<br/>(wasm, WebGPU)"]
+    R -->|objects, segment -> object| SCENE
     INPUT["viewport input surface"] --> SCENE
 ```
 
 | Part | How the slice does it |
 |---|---|
 | Loading | `loadModel` resolves the source as it always does, then hands the GLB **bytes** to the store instead of calling `GLTFLoader`. `NativeScene.load` passes them to the renderer's own reader (`WebRendererApi.loadGlb`), the one the offscreen posters and the WebGPU embed use. |
-| Scene model | None on the JavaScript side. The reader merges primitives per topology and material and keeps each adapy draw range as a **segment**. `glbObjects.ts` replays that batching on the GLB's JSON to name every segment (`matchGeometries` drops a geometry whose replay disagrees with what the reader built, so a mismatch shows as "no object", never as a wrong one). |
+| Scene model | None on the JavaScript side. The reader merges primitives per topology and material and keeps each adapy draw range as a **segment**, and `loadGlb` returns the model's objects (id, name, parent, bounds, triangle count) and which object each segment draws. |
 | Per-object state | Two sets, selected and hidden, written to the renderer as segment state (`setSegmentStates`). Hidden wins over selected. |
-| Camera and input | `OrbitCamera` from the embed (z up, orbit / pan / zoom), bound to the viewport's input surface (`viewport/input.ts`), the same element the three.js controls use. |
-| Picking | `WebRendererApi.pick` at the pointer, mapped through the segment names to an object id. |
-| Object list | The object ids with their path of names from the GLB's hierarchy; click selects, each row hides or shows. |
+| Camera and input | The renderer's own camera (`setCameraControlled`). The viewport maps input from the viewport's input surface (`viewport/input.ts`, the same element the three.js controls use) to semantic operations: orbit, pan, zoom, zoom towards the cursor, fit to a box, look from a direction. Fit and the named views move there over a short time, and a drag glides to a stop when the camera settings say so. |
+| Picking | `WebRendererApi.pick` at the pointer, mapped through the reader's segment table to an object id. |
+| Object list | The objects that draw something, with their path of names from the reader's hierarchy; click selects, each row hides or shows. |
 | Failure | If WebGPU or the module cannot start, or the device is lost, the state becomes `failed` with the reason, `CanvasWrapper` mounts the three.js viewport, and the model that was handed over is loaded there. The Performance panel shows the reason. |
 
 What the main viewer does beyond this is listed in the viewport itself under "Not available in
-this mode", so nothing looks broken by omission: section planes, FEA results and animation, labels
+this mode", so nothing looks broken by omission: the section plane gizmo and filled cuts, FEA results and animation, labels
 and plugin overlays, measurements and gizmos, screenshots and export, overlaying several models,
 and the main viewer's tree, info and scene panels.
 
@@ -76,29 +75,37 @@ The end-to-end test `tests/full/frontend/test_render_backends.py` runs the slice
 
 These are open design points, ordered by how much of the viewer depends on them.
 
-1. **The interface features program against.** Today a feature reaches into `THREE.Scene`. A
-   three.js-free viewer needs a narrow scene interface instead: objects by id, their state
-   (hidden, selected, colour, transparency), their bounds, and a way to add overlay geometry
-   (lines, points, markers) by handle. `NativeScene` is the start of it; the three.js viewport
-   would implement the same interface so that panels and commands work on either. Until that
-   exists, each feature ported to the native viewport is a second implementation.
+1. **The interface features program against.** A feature that reaches into `THREE.Scene` exists on
+   one viewport only. `src/frontend/src/viewport/api` is the interface both stand behind:
+   `ViewportApi` (selection and visibility of the model's objects, fit, named views, reset, orbit and
+   pan by step), implemented by `threeViewport.ts` over the three.js scene and by
+   `native/nativeViewportApi.ts` over `NativeScene`. The viewport on screen registers itself
+   (`setActiveViewport`); commands ask `activeViewport()`, and the keys are bound once for both in
+   `viewportShortcuts.ts`. A viewport says what it cannot do yet (`unavailable(feature)`), and the
+   command is offered disabled with that reason. The interface grows one feature area at a time:
+   still to come are objects by id with their state (colour, transparency), their bounds, and
+   overlay geometry (lines, points, markers) by handle. An area not on it yet still goes straight to
+   three.js and is absent on the three.js-free viewport.
 2. **Where per-object state lives.** `CustomBatchedMesh` owns hidden and selected ranges, and a
    number of scene objects update themselves in `onBeforeRender`, which `SceneSync` replays every
    frame. Without three.js there is no such hook: state has to live in stores keyed by object id,
    and whatever follows the camera or the animation has to be driven from the frame loop.
 3. **The model beyond geometry.** `GLTFLoader` also gives the main viewer the node hierarchy, the
    `ADA_EXT_data` extension (design / simulation objects, FEA metadata) and animations. The native
-   path reads the hierarchy from the GLB's JSON. The extension data and the streaming FEA loader
-   (`utils/scene/fea`) are not connected to it.
-4. **Section planes and caps.** The renderer has `setClipPlanes` and `setSectionCaps`; what is
-   missing is the plane store wired to them and a gizmo. A gizmo without `TransformControls` is its
-   own piece of work (handles as on-top instances, hit-testing through `pick`).
+   path gets the hierarchy from the reader, which also hands back the extension data as JSON text;
+   nothing reads it yet. The streaming FEA loader
+   (`utils/scene/fea`) is not connected to it.
+4. **Section planes and caps.** The planes are plain data in `state/sectionStore` (no three.js),
+   and both viewports cut by them, so the section commands work on either. Missing on the
+   three.js-free viewport: the filled cut (the reader would have to mark closed solids as capped)
+   and a gizmo. A gizmo without `TransformControls` is its own piece of work (handles as on-top
+   instances, hit-testing through `pick`).
 5. **Labels and markers.** The renderer draws textured sprites. A native label layer needs the
    text rasterised to textures without a `THREE.CanvasTexture` (a plain canvas works) and a store of
    label positions.
-6. **Controls parity.** The main viewer offers two camera controllers, named views, fit to
-   selection, the orientation gizmo and 3D-mouse input. `OrbitCamera` covers orbit, pan, zoom and
-   fit to the model.
+6. **Controls parity.** The renderer's camera covers orbit, pan, zoom, zoom towards the cursor, fit
+   to the model or the selection, named views and the user's input mapping. Still the main
+   viewer's only: the orientation gizmo, orthographic projection as a setting, and 3D-mouse input.
 7. **Uses of three.js outside the main viewport.** The equipment preview, the cell builder, the
    robot (STL) loader, the FEA GLB assembly (`GLTFLoader` / `GLTFExporter` used to build data, not
    to draw) and the three.js embed each need a decision of their own: ported, exempt, or dropped.

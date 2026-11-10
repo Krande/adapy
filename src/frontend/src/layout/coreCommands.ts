@@ -52,6 +52,7 @@ import {
   type CameraView,
 } from "./coreCommandIds";
 import {openCoreDialog} from "./coreDialogs";
+import {activeViewport, NO_VIEWPORT} from "@/viewport/api/viewportApi";
 import {registerCommand, unregisterCommand, type CommandSpec} from "./commands";
 import {layoutStore} from "./layoutStore";
 import {listShellModes} from "./shellModes";
@@ -115,7 +116,12 @@ export function selectionCount(selected: ReadonlyMap<unknown, ReadonlySet<string
   return n;
 }
 
-const nothingSelected = () => (selectionCount() === 0 ? "Nothing selected" : null);
+/** Selection, visibility and the camera go through the viewport on screen, three.js or not. */
+const noViewport = () => (activeViewport() ? null : NO_VIEWPORT);
+/** For what still works on the three.js scene's own selection only (the tree walk, groups, exports). */
+const nothingSelectedInScene = () => (selectionCount() === 0 ? "Nothing selected" : null);
+// With no 3D view there is nothing selected either, and that is the reason a user recognises.
+const nothingSelected = () => ((activeViewport()?.selectionCount() ?? 0) === 0 ? "Nothing selected" : null);
 
 /** The procedural builder takes Ctrl+Z / Ctrl+Y for its own history while it is open. */
 const builderOwnsHistory = () => (useCellBuilderStore.getState().active !== null ? "The procedural builder has its own undo" : null);
@@ -249,7 +255,7 @@ export function coreCommandSpecs(): CommandSpec[] {
       id: ID.exportSelection,
       label: "Export selection…",
       group: "File",
-      disabledReason: () => notServer() ?? nothingSelected(),
+      disabledReason: () => notServer() ?? nothingSelectedInScene(),
       run: () => openCoreDialog({kind: "export", scope: "selection"}),
     },
     {
@@ -296,14 +302,7 @@ export function coreCommandSpecs(): CommandSpec[] {
       label: "Clear selection",
       group: "Edit",
       disabledReason: nothingSelected,
-      // What clicking empty space in the tree does: one undo entry, the info panel emptied.
-      run: () =>
-        void import("@/utils/scene/viewerHistory").then((m) => {
-          m.recordViewerAction("clear-selection", () => useSelectedObjectStore.getState().clearSelectedObjects());
-          useObjectInfoStore.getState().setName(null);
-          useObjectInfoStore.getState().setSelectedNodeId(null);
-          requestRender();
-        }),
+      run: () => activeViewport()?.clearSelection(),
     },
     // Walk the scene tree from the selection (Shift+arrows; the tree's own level navigation).
     {
@@ -311,7 +310,7 @@ export function coreCommandSpecs(): CommandSpec[] {
       label: "Select parent",
       group: "Edit",
       shortcut: "core:select-parent",
-      disabledReason: nothingSelected,
+      disabledReason: nothingSelectedInScene,
       run: () => sceneActions().selectParent(),
     },
     {
@@ -319,7 +318,7 @@ export function coreCommandSpecs(): CommandSpec[] {
       label: "Select first child",
       group: "Edit",
       shortcut: "core:select-child",
-      disabledReason: nothingSelected,
+      disabledReason: nothingSelectedInScene,
       run: () => void navigation().then((m) => m.selectChildLevel()),
     },
     {
@@ -327,7 +326,7 @@ export function coreCommandSpecs(): CommandSpec[] {
       label: "Select previous sibling",
       group: "Edit",
       shortcut: "core:select-prev-sibling",
-      disabledReason: nothingSelected,
+      disabledReason: nothingSelectedInScene,
       run: () => void navigation().then((m) => m.selectSibling(-1)),
     },
     {
@@ -335,7 +334,7 @@ export function coreCommandSpecs(): CommandSpec[] {
       label: "Select next sibling",
       group: "Edit",
       shortcut: "core:select-next-sibling",
-      disabledReason: nothingSelected,
+      disabledReason: nothingSelectedInScene,
       run: () => void navigation().then((m) => m.selectSibling(1)),
     },
     {
@@ -343,7 +342,7 @@ export function coreCommandSpecs(): CommandSpec[] {
       label: "Copy names",
       group: "Edit",
       shortcut: "core:copy-names",
-      disabledReason: nothingSelected,
+      disabledReason: nothingSelectedInScene,
       run: () =>
         void import("@/utils/clipboard/copySelectionNames").then((m) => m.copySelectionNames(useSelectedObjectStore.getState().selectedObjects)),
     },
@@ -352,7 +351,7 @@ export function coreCommandSpecs(): CommandSpec[] {
       label: "Save selection as group…",
       group: "Edit",
       shortcut: "core:group-selection",
-      disabledReason: nothingSelected,
+      disabledReason: nothingSelectedInScene,
       run: () => void import("@/utils/groups/groupShortcut").then((m) => m.groupSelectionFromKeyboard()),
     },
     {
@@ -361,7 +360,7 @@ export function coreCommandSpecs(): CommandSpec[] {
       group: "Edit",
       shortcut: "core:hide-selected",
       disabledReason: nothingSelected,
-      run: () => void visibility().then((m) => m.hideSelectedRanges()),
+      run: () => activeViewport()?.hideSelected(),
     },
     {
       id: ID.hideOthers,
@@ -369,14 +368,15 @@ export function coreCommandSpecs(): CommandSpec[] {
       group: "Edit",
       shortcut: "core:hide-others",
       disabledReason: nothingSelected,
-      run: () => void visibility().then((m) => m.hideUnselectedRanges()),
+      run: () => activeViewport()?.hideOthers(),
     },
     {
       id: ID.showAll,
       label: "Show all",
       group: "Edit",
       shortcut: "core:show-all",
-      run: () => void visibility().then((m) => m.unhideAllRanges()),
+      disabledReason: noViewport,
+      run: () => activeViewport()?.showAll(),
     },
     // View
     {
@@ -392,50 +392,31 @@ export function coreCommandSpecs(): CommandSpec[] {
       label: "Fit all",
       group: "View",
       shortcut: "core:fit-all",
-      disabledReason: noScene,
-      run: () =>
-        void camera().then((m) => {
-          const h = sceneHandles();
-          if (h) m.fitAllView(h.scene, h.camera, h.controls);
-          requestRender();
-        }),
+      disabledReason: noViewport,
+      run: () => activeViewport()?.fitAll(),
     },
     {
       id: ID.fitSelection,
       label: "Fit selection",
       group: "View",
       shortcut: "core:fit-selection",
-      disabledReason: () => noScene() ?? nothingSelected(),
-      run: () =>
-        void camera().then((m) => {
-          const h = sceneHandles();
-          if (h) m.fitSelectionView(h.camera, h.controls);
-          requestRender();
-        }),
+      disabledReason: () => noViewport() ?? activeViewport()?.unavailable("fit-selection") ?? nothingSelected(),
+      run: () => activeViewport()?.fitSelection(),
     },
     {
       id: ID.resetCamera,
       label: "Reset camera",
       group: "View",
-      disabledReason: noScene,
-      run: () =>
-        void camera().then((m) => {
-          const h = sceneHandles();
-          if (h) m.resetCameraHome(h.camera, h.controls);
-        }),
+      disabledReason: noViewport,
+      run: () => activeViewport()?.resetCamera(),
     },
     ...CAMERA_VIEWS.map(
       (view): CommandSpec => ({
         id: cameraViewCommandId(view),
         label: `${CAMERA_VIEW_LABELS[view]} view`,
         group: "View",
-        disabledReason: noScene,
-        run: () =>
-          void import("@/components/viewer/sceneHelpers/namedViews").then((m) => {
-            const h = sceneHandles();
-            if (h) m.applyNamedView(view, h.scene, h.camera, h.controls, useModelState.getState().zIsUp);
-            requestRender();
-          }),
+        disabledReason: noViewport,
+        run: () => activeViewport()?.setView(view),
       }),
     ),
     {

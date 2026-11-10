@@ -121,12 +121,15 @@ async def _until(page: Page, check, what: str, seconds: float = 20.0):
     raise AssertionError(f"timed out waiting for {what}")
 
 
-async def _open_viewer(playwright, ws_server, backend: str):
-    """A viewer page on `backend`, connected to the websocket server; skips when WebGPU has no adapter here."""
+async def _open_viewer(playwright, ws_server, backend: str, init_script: str | None = None):
+    """A viewer page on `backend`, connected to the websocket server; skips when WebGPU has no adapter here.
+    `init_script` runs in the page before the viewer starts (stored settings)."""
     query, perf, state = BACKENDS.get(backend, (backend, {}, "off"))
     browser = await playwright.chromium.launch(headless=True, args=CHROMIUM_ARGS)
     page = await browser.new_page(viewport=VIEWPORT)
     await page.add_init_script(COUNT_WEBGL)
+    if init_script:
+        await page.add_init_script(init_script)
     if perf:
         stored = json.dumps({"state": perf, "version": 1})
         await page.add_init_script(f"localStorage.setItem('ada-perf', JSON.stringify({stored}))")
@@ -265,5 +268,80 @@ async def test_three_free_viewport_loads_picks_selects_and_hides(ws_server):
             await page.get_by_role("button", name="Show all").click()
             await page.wait_for_timeout(700)
             assert _count(await _pixels(page), _is_model) > hidden, "Show all brought nothing back"
+        finally:
+            await browser.close()
+
+
+@pytest.mark.parametrize("backend", ["three", NATIVE])
+async def test_commands_and_keys_reach_whichever_viewport_is_on_screen(ws_server, backend):
+    """Hide, show all and the camera, from the palette and from the keyboard: one set of commands and
+    keys, answered by the three.js viewport and by the three.js-free one."""
+    async with async_playwright() as playwright:
+        browser, page, _ = await _open_viewer(playwright, ws_server, backend)
+        try:
+            await asyncio.to_thread(
+                lambda: _model().show(ws_port=ws_server.port, unique_viewer_id=1, liveness_timeout=10)
+            )
+            await _until(page, lambda: _model_on_screen(page), "the model to be drawn")
+            if backend == NATIVE:
+                assert await page.evaluate("document.documentElement.dataset.nativeViewport") == "active"
+            loaded = _count(await _pixels(page), _is_model)
+
+            await _click(page, *CENTRE)
+            assert _count(await _pixels(page), _is_selected) > 3000, f"{backend}: the click selected nothing"
+
+            # palette: hide the selection, then bring everything back
+            await _command(page, "Hide selected")
+            image = await _pixels(page)
+            assert _count(image, _is_selected) < 50, f"{backend}: the hidden box is still highlighted"
+            hidden = _count(image, _is_model)
+            await _command(page, "Show all")
+            assert _count(await _pixels(page), _is_model) > hidden, f"{backend}: Show all brought nothing back"
+
+            # keyboard: the same two, by their keys
+            await _click(page, *CENTRE)
+            assert _count(await _pixels(page), _is_selected) > 3000
+            await page.keyboard.press("Shift+H")
+            await page.wait_for_timeout(700)
+            assert _count(await _pixels(page), _is_selected) < 50, f"{backend}: Shift+H hid nothing"
+            await page.keyboard.press("Shift+U")
+            await page.wait_for_timeout(700)
+
+            # fit selection: the selected box fills more of the view than it did
+            await _click(page, *CENTRE)
+            before = _count(await _pixels(page), _is_selected)
+            assert before > 3000
+            await _command(page, "Fit selection")
+            await page.wait_for_timeout(1200)
+            framed = _count(await _pixels(page), _is_selected)
+            assert framed > 1.5 * before, f"{backend}: Fit selection took the box from {before} to {framed} pixels"
+            await _command(page, "Clear selection")
+
+            # section: a plane through the model removes part of it from view; removing it restores it
+            await _command(page, "Fit all")
+            await page.wait_for_timeout(1200)
+            whole = _count(await _pixels(page), _is_model)
+            await _command(page, "Section plane X")
+            cut = _count(await _pixels(page), _is_model)
+            assert 0.2 * whole < cut < 0.85 * whole, f"{backend}: the section plane cut {whole} -> {cut} model pixels"
+            await _command(page, "Remove section planes")
+            restored = _count(await _pixels(page), _is_model)
+            assert abs(restored - whole) < 0.05 * whole, f"{backend}: removing the plane left {restored} of {whole}"
+
+            # camera: a named view and a key step each change the picture; fit all brings the model back
+            async def changes(act, what: str) -> None:
+                before = (await _pixels(page)).tobytes()
+                await act()
+                await page.wait_for_timeout(1200)
+                assert (await _pixels(page)).tobytes() != before, f"{backend}: {what} changed nothing"
+
+            await changes(lambda: _command(page, "Top view"), "the top view")
+            await changes(lambda: page.keyboard.press("Control+ArrowLeft"), "Ctrl+Left (orbit)")
+            await changes(lambda: page.keyboard.press("Control+Shift+ArrowUp"), "Ctrl+Shift+Up (pan)")
+            await changes(lambda: page.keyboard.press("Alt+3"), "Alt+3 (the front view)")
+            await _command(page, "Fit all")
+            await page.wait_for_timeout(1200)
+            fitted = _count(await _pixels(page), _is_model)
+            assert fitted > 0.2 * loaded, f"{backend}: Fit all left {fitted} model pixels of {loaded}"
         finally:
             await browser.close()

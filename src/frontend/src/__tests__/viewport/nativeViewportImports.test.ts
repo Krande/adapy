@@ -32,9 +32,10 @@ function resolveModule(from: string, specifier: string): string | null {
     return null;
 }
 
-test("the three.js-free viewport's chunk imports no three.js", () => {
-    const seen = new Map<string, string | null>([[ENTRY, null]]);
-    const queue = [ENTRY];
+/** Walk the runtime import graph from `entry`; fail on the first three.js import. Returns the module count. */
+function walkFreeOfThree(entry: string): number {
+    const seen = new Map<string, string | null>([[entry, null]]);
+    const queue = [entry];
     const chain = (file: string): string => {
         const parts: string[] = [];
         for (let f: string | null | undefined = file; f; f = seen.get(f)) parts.unshift(f.slice(ROOT.length + 1));
@@ -51,8 +52,21 @@ test("the three.js-free viewport's chunk imports no three.js", () => {
             }
         }
     }
-    assert.ok(seen.size >= 6, `only ${seen.size} modules walked: the walk must reach the scene, the renderer start-up and the embed's camera`);
+    return seen.size;
+}
+
+test("the three.js-free viewport's chunk imports no three.js", () => {
+    const walked = walkFreeOfThree(ENTRY);
+    assert.ok(walked >= 6, `only ${walked} modules walked: the walk must reach the scene, the renderer start-up and the viewport interface`);
 });
+
+// The interface both viewports stand behind, and the keys bound through it, are loaded by the
+// three.js-free viewport: they may name three.js in types only.
+for (const module of ["viewportApi.ts", "viewportShortcuts.ts"]) {
+    test(`viewport/api/${module} imports no three.js`, () => {
+        walkFreeOfThree(join(ROOT, "src/viewport/api", module));
+    });
+}
 
 test("the walk sees what a build would bundle", () => {
     const imports = runtimeImports(`

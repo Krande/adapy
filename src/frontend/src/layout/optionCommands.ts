@@ -13,7 +13,9 @@
 // option cannot ship without a command. Keywords let the palette find a setting by what a person
 // calls it ("3dconnexion", "msaa", "dpr").
 
+import {useCameraControlsStore} from "@/state/cameraControlsStore";
 import {useComputeStore, COMPUTE_MODES, type ComputeMode} from "@/state/computeStore";
+import {CAMERA_ACTIONS, CAMERA_PRESETS, CAMERA_PRESET_IDS, MOUSE_BUTTONS, ONE_FINGER_ACTIONS, TWO_FINGER_ACTIONS, presetOf} from "@/utils/camera/cameraMapping";
 import {useExperimentalStore} from "@/state/experimentalStore";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {useMeStore} from "@/state/meStore";
@@ -97,6 +99,8 @@ const BUTTON_CHOICES: {value: SpaceMouseButtonAction; label: string}[] = [
   {value: "fitSelection", label: "Fit selection"},
   {value: "none", label: "Nothing"},
 ];
+const CAM_KEYS = ["camera", "mouse", "orbit", "pan", "zoom", "rotate", "navigation", "controls"] as const;
+const cam = () => useCameraControlsStore.getState();
 const SM_KEYS = ["3d mouse", "3dconnexion", "spacemouse", "space mouse", "6dof", "navigation", "hid", "gamepad", "joystick"] as const;
 
 /** Every Options setting, as data. */
@@ -184,6 +188,36 @@ export function optionDescriptors(): OptionDescriptor[] {
       };
     }),
     // --- 3D mouse ---
+    // --- Camera controls ---
+    {kind: "choice", id: "camera-preset", title: "Camera controls", group: "Camera controls", keywords: [...CAM_KEYS, "preset"],
+      setters: ["setCameraPreset"], choices: CAMERA_PRESET_IDS.map((id) => ({value: id, label: CAMERA_PRESETS[id].label})),
+      get: () => presetOf(cam().mapping), set: (v) => { const id = CAMERA_PRESET_IDS.find((x) => x === v); if (id) cam().setCameraPreset(id); }},
+    ...MOUSE_BUTTONS.map((button): ChoiceOption => ({
+      kind: "choice", id: `camera-drag-${button}`, title: `Camera: ${button} drag`, group: "Camera controls", keywords: [...CAM_KEYS, "button", "drag"],
+      setters: ["setDragAction"], choices: CAMERA_ACTIONS.map((a) => ({value: a, label: a === "none" ? "Nothing" : a[0].toUpperCase() + a.slice(1)})),
+      get: () => cam().mapping.drag[button].none,
+      set: (v) => { const a = CAMERA_ACTIONS.find((x) => x === v); if (a) cam().setDragAction(button, "none", a); },
+    })),
+    {kind: "open", id: "camera-drag-modifiers", title: "Camera: drags with Shift, Ctrl or Alt…", group: "Camera controls", keywords: [...CAM_KEYS, "modifier"],
+      setters: ["setDragAction"], focus: "camera-drag"},
+    {kind: "toggle", id: "camera-wheel-zoom", title: "Camera: wheel zooms", group: "Camera controls", keywords: [...CAM_KEYS, "scroll"],
+      setters: ["setWheelZoom"], get: () => cam().mapping.wheel.zoom, set: (v) => cam().setWheelZoom(v)},
+    {kind: "toggle", id: "camera-wheel-inverted", title: "Camera: reverse the wheel's direction", group: "Camera controls", keywords: [...CAM_KEYS, "scroll", "invert"],
+      setters: ["setWheelInverted"], get: () => cam().mapping.wheel.inverted, set: (v) => cam().setWheelInverted(v)},
+    {kind: "toggle", id: "camera-wheel-to-cursor", title: "Camera: zoom towards the cursor", group: "Camera controls", keywords: [...CAM_KEYS, "scroll", "dolly"],
+      setters: ["setWheelToCursor"], get: () => cam().mapping.wheel.toCursor, set: (v) => cam().setWheelToCursor(v)},
+    {kind: "toggle", id: "camera-damping", title: "Camera: glide to a stop", group: "Camera controls", keywords: [...CAM_KEYS, "damping", "inertia", "smooth"],
+      setters: ["setCameraDamping"], get: () => cam().mapping.damping, set: (v) => cam().setCameraDamping(v)},
+    {kind: "choice", id: "camera-touch-one", title: "Camera: one finger", group: "Camera controls", keywords: [...CAM_KEYS, "touch", "gesture"],
+      setters: ["setOneFingerAction"], choices: ONE_FINGER_ACTIONS.map((a) => ({value: a, label: a === "none" ? "Nothing" : a[0].toUpperCase() + a.slice(1)})),
+      get: () => cam().mapping.touch.one, set: (v) => { const a = ONE_FINGER_ACTIONS.find((x) => x === v); if (a) cam().setOneFingerAction(a); }},
+    {kind: "choice", id: "camera-touch-two", title: "Camera: two fingers", group: "Camera controls", keywords: [...CAM_KEYS, "touch", "gesture", "pinch"],
+      setters: ["setTwoFingerAction"], choices: [{value: "zoom-pan", label: "Pinch zooms, move pans"}, {value: "zoom-orbit", label: "Pinch zooms, move orbits"}, {value: "none", label: "Nothing"}],
+      get: () => cam().mapping.touch.two, set: (v) => { const a = TWO_FINGER_ACTIONS.find((x) => x === v); if (a) cam().setTwoFingerAction(a); }},
+    {kind: "open", id: "camera-orbit-speed", title: "Camera: orbit speed…", group: "Camera controls", keywords: [...CAM_KEYS, "sensitivity", "slider"],
+      setters: ["setOrbitSpeed"], focus: "camera-orbit-speed"},
+    {kind: "open", id: "camera-zoom-speed", title: "Camera: zoom speed…", group: "Camera controls", keywords: [...CAM_KEYS, "sensitivity", "slider"],
+      setters: ["setZoomSpeed"], focus: "camera-zoom-speed"},
     {kind: "toggle", id: "spacemouse", title: "3D mouse (SpaceMouse)", group: "3D mouse", keywords: [...SM_KEYS, "enable", ...GEN],
       setters: ["setEnabled"], disabledReason: needSpaceMouse,
       get: () => sm().enabled && isSpaceMouseSupported(),
