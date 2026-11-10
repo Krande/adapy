@@ -11,7 +11,7 @@ import {revealPickInTrees} from "@/utils/tree_view/revealPick";
 import {onModelLoaded, onViewportPick, type LoadedModelInfo, type ViewportPick} from "@/viewport/api/viewportApi";
 
 function listModel(info: LoadedModelInfo): void {
-    let extras: Record<string, unknown> = {};
+    let extras: Record<string, unknown> = info.extras ?? {};
     try {
         if (info.sceneExtras) extras = JSON.parse(info.sceneExtras) as Record<string, unknown>;
     } catch (err) {

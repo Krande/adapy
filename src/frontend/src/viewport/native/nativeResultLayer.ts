@@ -37,6 +37,9 @@ export class NativeResultLayer implements ResultMeshLayer {
         private readonly changed: () => void,
         /** CSS pixels to the drawing buffer's. */
         pixelRatio = 1,
+        /** The index list cut into segments (start and count, two numbers each, covering it in
+         *  order): each is picked, hidden and coloured on its own. */
+        segments: Uint32Array | null = null,
     ) {
         const M = module;
         const n = data.positions.length / 3;
@@ -62,16 +65,22 @@ export class NativeResultLayer implements ResultMeshLayer {
         const positionsPtr = M._malloc(Math.max(1, n) * 12);
         const indexCount = data.indices?.length ?? 0;
         const indicesPtr = indexCount ? M._malloc(indexCount * 4) : 0;
+        // The parts of the index list that are picked and given a state one at a time.
+        const segmentCount = segments ? segments.length / 2 : 0;
+        const segmentsPtr = segmentCount ? M._malloc(segments!.byteLength) : 0;
         try {
             M.HEAPF32.set(data.positions, positionsPtr >> 2);
             if (indicesPtr) M.HEAPU32.set(data.indices!, indicesPtr >> 2);
+            if (segmentsPtr) M.HEAPU32.set(segments!, segmentsPtr >> 2);
             // No normals: the renderer shades each face by its own, which follows the deformed shape.
             this.geometry = renderer.addGeometry(
-                TOPOLOGY[data.topology], positionsPtr, n, 0, this.colorsPtr, this.morphPtr, indicesPtr, indexCount, 0, 0, 0,
+                TOPOLOGY[data.topology], positionsPtr, n, 0, this.colorsPtr, this.morphPtr, indicesPtr, indexCount,
+                segmentsPtr, segmentCount, 0,
             );
         } finally {
             M._free(positionsPtr);
             if (indicesPtr) M._free(indicesPtr);
+            if (segmentsPtr) M._free(segmentsPtr);
         }
         this.instance = renderer.addInstance(this.geometry);
         this.push();
@@ -137,11 +146,20 @@ export class NativeResultLayer implements ResultMeshLayer {
         this.push();
     }
 
+    /** The renderer's instance of the layer: what a pick names. */
+    get instanceId(): number {
+        return this.instance;
+    }
+
+    /** Called when the layer is taken off the viewport by `remove`. */
+    onRemove: (() => void) | null = null;
+
     remove(): void {
         if (!this.alive) return;
         this.renderer.removeInstance(this.instance);
         this.renderer.removeGeometry(this.geometry);
         this.detach();
+        this.onRemove?.();
         this.changed();
     }
 

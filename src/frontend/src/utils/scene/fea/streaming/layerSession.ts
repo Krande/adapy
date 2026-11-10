@@ -12,7 +12,9 @@
 //
 // Drawn here: nodal and element (integration point) fields on the shown mesh, with warp, steps
 // and playback; an element field's result-point markers and the coloured lines of its line
-// elements; the undeformed outline; load combinations computed on request. An element's colour
+// elements; beam elements as their sections; the undeformed outline; load combinations computed
+// on request. The elements are objects of the viewport (picked, selected, hidden) and the rows
+// of the Scene tree. An element's colour
 // is its own, so the first element field makes the faces element-local (elemFieldPaint.ts) and
 // every later paint goes through that numbering.
 //
@@ -31,19 +33,23 @@ import {fetchMeshElements} from "@/services/feaMeshElements";
 import type {FeaManifest, FeaManifestField} from "@/services/viewerApi";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {usePerfStore} from "@/state/perfStore";
+import {useVisibilityStore} from "@/state/visibilityStore";
 import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
 import {readGlbMesh, type GlbMesh} from "@/utils/glb/glbMesh";
-import {positionsDiagonal, type ResultMeshLayer, type ViewportResults} from "@/viewport/api/resultLayer";
+import {positionsDiagonal, type ResultMeshLayer, type ResultMeshObjects, type ViewportResults} from "@/viewport/api/resultLayer";
 import {activeViewport, notifyModelLoaded} from "@/viewport/api/viewportApi";
-import {nodalScalars} from "../beamSolidNodalColors";
+import {beamSolidNodalColors, nodalScalars} from "../beamSolidNodalColors";
+import {beamSolidDisplacement} from "../beamSolidWarp";
 import {hasLazyCases, legendScopeFor, mergeCaseSteps, nextCaseToPrefetch, slotCount, slotRef} from "../caseSteps";
 import {FEA_BEAM_EDGE_COLOR, FEA_EDGE_COLOR, FEA_UNDEFORMED_COLOR} from "../edgeColors";
 import {withoutEdges} from "../edgeSplit";
 import {elementLocalVertices, expandTriplesInto, paintElemField, shownElemFieldRange} from "../elemFieldPaint";
+import {edgeOwners, maskHiddenEdges, type EdgeOwners} from "../feaEdgeFilter";
 import {paintNodalField} from "../nodalFieldPaint";
 import {isPropertyField} from "../propertyColors";
 import {RangeAccumulator} from "../rangeAccumulator";
 import {recordLayerValues} from "../visibleValues";
+import {loadBeamSolidData, type BeamSolidData} from "./layerBeamSolids";
 import {PaintedPointsLayer, ResultGroup} from "./layerGroup";
 import {syncResultStores} from "./resultStores";
 import {requestStep} from "./stepQueue";
@@ -69,10 +75,25 @@ interface LayerSession {
     /** ``E<label>`` -> ``[start, count]`` in the index list for each element that has triangles;
      *  null when the bake has no elements sidecar. */
     drawRanges: Map<string, [number, number]> | null;
+    /** The elements as objects of the viewport: picked, selected and hidden one at a time. Null
+     *  when the bake has no elements sidecar. */
+    objects: ResultMeshObjects | null;
+    /** The ids of the elements hidden on the viewport now. */
+    hidden: Set<string>;
     /** The element edges as index pairs into the nodes, kept for the undeformed outline. */
     edgeIndices: Uint32Array | null;
-    /** 1 for each node a drawn face uses, or null when every node is drawn. */
+    /** The edges of the elements that have faces, as the bake gave them, and which elements each
+     *  borders (worked out the first time elements are hidden). */
+    shellEdgeIndices: Uint32Array | null;
+    edgeOwners: EdgeOwners | null;
+    /** 1 for each node a face uses, or null when every node is drawn. */
     drawn: Uint8Array | null;
+    /** The same over the faces of the elements that are not hidden, while some are. */
+    shownNodes: Uint8Array | null;
+    /** The displacement the layers hold now, xyz per node: what a layer made later starts from. */
+    lastDisplacement: Float32Array | null;
+    /** Whether the last paint measured its scale over what is drawn. */
+    rangeFromShown: boolean;
     /** Everything the result is made of on the viewport: what the controls and the playback
      *  driver scale. */
     group: ResultGroup;
@@ -82,11 +103,20 @@ interface LayerSession {
     renderToSource: Uint32Array | null;
     /** Element-local faces are drawn in order: 0, 1, 2, ... */
     localIndices: Uint32Array | null;
-    edges: ResultMeshLayer[];
+    /** The edges of the elements with faces, and those of the line elements. */
+    shellEdges: ResultMeshLayer | null;
+    beamEdges: ResultMeshLayer | null;
     markers: PaintedPointsLayer;
     lines: PaintedPointsLayer;
     /** The undeformed outline, while it is asked for. */
     ghost: ResultMeshLayer | null;
+    /** The beam sections the bake wrote (null: none), and what draws them once they are asked
+     *  for: a layer, element-local like the faces after the first element field painted on it. */
+    solids: BeamSolidData | null;
+    solidsLayer: ResultMeshLayer | null;
+    solidsLocal: {renderToSource: Uint32Array; indices: Uint32Array; colors: Float32Array; displacement: Float32Array} | null;
+    /** Whether the beam sections carry the colours of the field shown. */
+    solidsPainted: boolean;
     /** Reused across steps, in node numbering: a step allocates nothing. */
     displacement: Float32Array;
     colors: Float32Array;
@@ -158,16 +188,51 @@ async function elementEdges(fetcher: FeaFetcher, manifest: FeaManifest): Promise
     }
 }
 
-/** Each element's range of the index list, from the bake's elements sidecar: what an element
- *  field is painted by. Best-effort: without it nodal fields still draw. */
-async function elementRanges(fetcher: FeaFetcher, manifest: FeaManifest): Promise<Map<string, [number, number]> | null> {
+/** The key a result's elements are known by as objects of the viewport, and in the Scene tree. */
+export function resultModelKey(sourceName: string): string {
+    return `fea-result:${sourceName}`;
+}
+
+/** The elements of the mesh, from the bake's elements sidecar: each one's range of the index
+ *  list (what an element field is painted by), the same as objects of the viewport, and the
+ *  hierarchy the Scene tree lists. Best-effort: without it nodal fields still draw, as one mesh. */
+async function elementTable(fetcher: FeaFetcher, manifest: FeaManifest, sourceName: string): Promise<{
+    drawRanges: Map<string, [number, number]>;
+    objects: ResultMeshObjects;
+    extras: Record<string, unknown>;
+} | null> {
     if (!manifest.mesh.elements_url) return null;
     try {
         const entries = await fetchMeshElements(fetcher, manifest.mesh.elements_url);
-        const ranges = new Map<string, [number, number]>();
-        // The sidecar counts triangles; the index list has three corners for each.
-        for (const e of entries) if (e.triCount > 0) ranges.set(`E${e.label}`, [e.triStart * 3, e.triCount * 3]);
-        return ranges;
+        const drawRanges = new Map<string, [number, number]>();
+        const ids: string[] = new Array(entries.length);
+        // As the three.js viewport's tree of a result: every element under one root.
+        const hierarchy: Record<string, [string, string]> = {"fea-root": ["FEA elements", "*"]};
+        const ranges: Record<string, [number, number]> = {};
+        const drawing: number[] = [];
+        for (let i = 0; i < entries.length; i++) {
+            const e = entries[i];
+            const id = `E${e.label}`;
+            ids[i] = id;
+            hierarchy[id] = [id, "fea-root"];
+            if (e.triCount <= 0) continue;
+            // The sidecar counts triangles; the index list has three corners for each.
+            const range: [number, number] = [e.triStart * 3, e.triCount * 3];
+            drawRanges.set(id, range);
+            ranges[id] = range;
+            drawing.push(i);
+        }
+        drawing.sort((x, y) => entries[x].triStart - entries[y].triStart);
+        const segments = new Uint32Array(drawing.length * 2);
+        drawing.forEach((entry, s) => {
+            segments[s * 2] = entries[entry].triStart * 3;
+            segments[s * 2 + 1] = entries[entry].triCount * 3;
+        });
+        return {
+            drawRanges,
+            objects: {model: resultModelKey(sourceName), sourceName, ids, segments, objectOf: Int32Array.from(drawing)},
+            extras: {id_hierarchy: hierarchy, draw_ranges_node0: ranges},
+        };
     } catch (err) {
         console.warn("[fea-streaming] failed to load mesh elements:", err);
         return null;
@@ -175,7 +240,11 @@ async function elementRanges(fetcher: FeaFetcher, manifest: FeaManifest): Promis
 }
 
 /** The faces of the mesh as a layer, in node numbering or element-local. */
-function makeFaces(s: Pick<LayerSession, "results" | "mesh">, local: {positions: Float32Array; indices: Uint32Array} | null, replaceModel: boolean): ResultMeshLayer {
+function makeFaces(
+    s: Pick<LayerSession, "results" | "mesh" | "objects">,
+    local: {positions: Float32Array; indices: Uint32Array} | null,
+    replaceModel: boolean,
+): ResultMeshLayer {
     const {mesh} = s;
     return s.results.createResultMesh(
         {
@@ -183,6 +252,8 @@ function makeFaces(s: Pick<LayerSession, "results" | "mesh">, local: {positions:
             indices: local ? local.indices : mesh.indices,
             topology: mesh.topology,
             matrix: mesh.matrix,
+            // An element's range of the index list is the same in either numbering.
+            objects: mesh.topology === "triangles" && mesh.indices ? s.objects ?? undefined : undefined,
         },
         {replaceModel},
     );
@@ -195,8 +266,11 @@ function ensureLocalFaces(s: LayerSession): Uint32Array {
     const {renderToSource, indices} = elementLocalVertices(s.mesh.indices!);
     const positions = new Float32Array(renderToSource.length * 3);
     expandTriplesInto(s.basePositions, renderToSource, positions);
-    s.group.drop(s.faces);
+    // The new faces first: the elements stay objects of the viewport throughout, selected and
+    // hidden as they were.
+    const before = s.faces;
     s.faces = s.group.add(makeFaces(s, {positions, indices}, false));
+    s.group.drop(before);
     s.group.faces = s.faces;
     s.renderToSource = renderToSource;
     s.localIndices = indices;
@@ -208,7 +282,9 @@ function ensureLocalFaces(s: LayerSession): Uint32Array {
 
 /** A step's displacement (xyz per node) onto every layer that moves with the nodes. */
 function applyDisplacement(s: LayerSession, source: Float32Array): void {
-    for (const l of s.edges) l.setDisplacement(source);
+    s.lastDisplacement = source;
+    s.shellEdges?.setDisplacement(source);
+    s.beamEdges?.setDisplacement(source);
     if (s.renderToSource) {
         expandTriplesInto(source, s.renderToSource, s.renderDisplacement!);
         s.faces.setDisplacement(s.renderDisplacement!);
@@ -231,18 +307,18 @@ function applyNodalColors(s: LayerSession, source: Float32Array): void {
 function applyView(s: LayerSession): void {
     const view = useFeaAnimationStore.getState();
     s.faces.setColorsVisible(view.resultColorsVisible);
-    // A line element's coloured line stands in for its grey edge, and yields with the colours.
-    const colouredLines = s.lines.drawn && view.resultColorsVisible;
+    // A beam is drawn one way at a time: its section when asked for, else its coloured line,
+    // which stands in for its grey edge and yields with the colours.
+    const solids = solidsOn(s);
+    s.group.setShown(s.solidsLayer, solids);
+    s.solidsLayer?.setColorsVisible(view.resultColorsVisible && s.solidsPainted);
+    const colouredLines = s.lines.drawn && view.resultColorsVisible && !solids;
     s.lines.setShown(colouredLines);
     s.markers.setShown(view.resultColorsVisible && view.resultPointMarkersVisible);
-    const [shellEdges, beamEdges] = s.edges;
-    if (s.mesh.topology === "triangles") {
-        s.group.setShown(shellEdges ?? null, view.elementEdgesVisible);
-        s.group.setShown(beamEdges ?? null, view.elementEdgesVisible && !colouredLines);
-    } else {
-        // A mesh of line elements only: its edges are the members themselves.
-        for (const l of s.edges) s.group.setShown(l, view.elementEdgesVisible && !colouredLines);
-    }
+    // A mesh of line elements only has no faces: all its edges are the members themselves.
+    const members = s.mesh.topology !== "triangles";
+    s.group.setShown(s.shellEdges, view.elementEdgesVisible && !(members && colouredLines));
+    s.group.setShown(s.beamEdges, view.elementEdgesVisible && !colouredLines);
     // The undeformed outline: the element edges where they were, never displaced.
     if (view.showUndeformed && !s.ghost && s.edgeIndices) {
         s.ghost = s.group.add(s.results.createResultMesh({
@@ -255,6 +331,184 @@ function applyView(s: LayerSession): void {
     }
 }
 
+/** Element edges as a layer of lines over the nodes. */
+function edgeLines(s: Pick<LayerSession, "results" | "mesh">, indices: Uint32Array, color: number): ResultMeshLayer {
+    return s.results.createResultMesh({positions: s.mesh.positions, indices, topology: "lines", matrix: s.mesh.matrix, color: linear(color)});
+}
+
+/** Whether the beam sections are what draws the beams now. */
+function solidsOn(s: Pick<LayerSession, "solids">): boolean {
+    return !!s.solids && useFeaAnimationStore.getState().beamSolidsVisible;
+}
+
+/** 1 for each node that something drawn in colour uses: the faces that are not hidden and, while
+ *  the beam sections are on, the end nodes of the beams that are not; null when every node is. */
+function drawnNodes(s: LayerSession): Uint8Array | null {
+    const {objects, hidden} = s;
+    const indices = s.mesh.indices;
+    const solids = solidsOn(s) ? s.solids! : null;
+    if (!solids?.warp && (!hidden.size || !objects || !indices || s.mesh.topology !== "triangles")) return s.drawn;
+    if (!s.shownNodes) {
+        const nPoints = s.basePositions.length / 3;
+        const shown = new Uint8Array(nPoints);
+        if (!hidden.size || !objects || !indices || s.mesh.topology !== "triangles") {
+            if (s.drawn) shown.set(s.drawn);
+            else shown.fill(1);
+        } else {
+            for (let seg = 0; seg < objects.objectOf.length; seg++) {
+                if (hidden.has(objects.ids[objects.objectOf[seg]])) continue;
+                const start = objects.segments[seg * 2], end = start + objects.segments[seg * 2 + 1];
+                for (let i = start; i < end; i++) shown[indices[i]] = 1;
+            }
+        }
+        if (solids?.warp) {
+            const {node0, node1} = solids.warp;
+            for (let beam = 0; beam < solids.labels.length; beam++) {
+                if (hidden.size && hidden.has(`E${solids.labels[beam]}`)) continue;
+                const start = solids.segments[beam * 2], end = start + solids.segments[beam * 2 + 1];
+                for (let i = start; i < end; i++) {
+                    const v = solids.indices[i];
+                    if (node0[v] < nPoints) shown[node0[v]] = 1;
+                    if (node1[v] < nPoints) shown[node1[v]] = 1;
+                }
+            }
+        }
+        s.shownNodes = shown;
+    }
+    return s.shownNodes;
+}
+
+/** Is element ``label`` drawn in colour now: by a face that is not hidden, by its beam section
+ *  while those are on, or else by its coloured line. */
+function elementShown(s: LayerSession): (label: number) => boolean {
+    const {hidden, drawRanges} = s;
+    const solids = solidsOn(s) ? s.solids!.drawRanges : null;
+    if (!hidden.size && !solids) return () => true;
+    return (label) => {
+        const id = `E${label}`;
+        if (hidden.has(id)) return false;
+        // With the sections on, a beam without one is drawn by nothing coloured.
+        return !solids || !!drawRanges?.has(id) || solids.has(id);
+    };
+}
+
+/** The layer that draws the beam sections, made the first time they are asked for. Each beam is
+ *  the same object of the viewport as its element, so it is picked, selected and hidden as one. */
+function ensureSolidsLayer(s: LayerSession): ResultMeshLayer {
+    if (s.solidsLayer) return s.solidsLayer;
+    s.solidsLayer = s.group.add(makeSolids(s, null));
+    return s.solidsLayer;
+}
+
+function makeSolids(s: LayerSession, local: {positions: Float32Array; indices: Uint32Array} | null): ResultMeshLayer {
+    const solids = s.solids!;
+    let objects: ResultMeshObjects | undefined;
+    if (s.objects) {
+        const at = new Map<string, number>();
+        s.objects.ids.forEach((id, i) => at.set(id, i));
+        objects = {
+            ...s.objects,
+            segments: solids.segments,
+            objectOf: Int32Array.from(solids.labels, (label) => at.get(`E${label}`) ?? -1),
+        };
+    }
+    return s.results.createResultMesh({
+        positions: local ? local.positions : solids.positions,
+        indices: local ? local.indices : solids.indices,
+        topology: "triangles",
+        matrix: s.mesh.matrix,
+        objects,
+    });
+}
+
+/** Make the beam sections element-local, as the faces are for an element field. */
+function ensureLocalSolids(s: LayerSession): NonNullable<LayerSession["solidsLocal"]> {
+    if (s.solidsLocal) return s.solidsLocal;
+    const {renderToSource, indices} = elementLocalVertices(s.solids!.indices);
+    const positions = new Float32Array(renderToSource.length * 3);
+    expandTriplesInto(s.solids!.positions, renderToSource, positions);
+    const before = s.solidsLayer;
+    s.solidsLayer = s.group.add(makeSolids(s, {positions, indices}));
+    s.group.drop(before);
+    s.solidsLocal = {renderToSource, indices, colors: new Float32Array(positions.length), displacement: new Float32Array(positions.length)};
+    return s.solidsLocal;
+}
+
+/** Move the beam sections with the nodes: each vertex by its beam's two end nodes and their
+ *  rotations (beamSolidWarp.ts). Without the bake's node mapping they stay where they are. */
+function warpSolids(s: LayerSession, warp: {field: FeaManifestField; stepValues: Float32Array} | null): void {
+    const solids = s.solids!;
+    const layer = s.solidsLayer;
+    if (!layer || !solids.warp) return;
+    const displacement = beamSolidDisplacement(solids.warp, solids.positions, warp?.field, warp?.stepValues, s.basePositions);
+    if (s.solidsLocal) {
+        expandTriplesInto(displacement, s.solidsLocal.renderToSource, s.solidsLocal.displacement);
+        layer.setDisplacement(s.solidsLocal.displacement);
+    } else {
+        layer.setDisplacement(displacement);
+    }
+}
+
+/** The beam sections were switched on or off: they and the coloured lines swap places, and the
+ *  field is painted again, onto the sections and on a scale measured over what is drawn now. */
+function toggleSolids(s: LayerSession): void {
+    if (!s.solids) return;
+    s.shownNodes = null;
+    if (solidsOn(s)) ensureSolidsLayer(s);
+    applyView(s);
+    const {sessionActive, applyStep, stepIndex} = useFeaAnimationStore.getState();
+    if (sessionActive && applyStep) {
+        applyStep(stepIndex).catch((err) => console.warn("[fea] repaint after switching the beam sections failed", err));
+    }
+}
+
+const hiddenRefresh = new WeakMap<LayerSession, ReturnType<typeof setTimeout>>();
+
+/** Elements were hidden or shown: once per burst of changes (an isolation hides and shows many
+ *  in one go), bring the session in line with what is drawn. */
+function scheduleHiddenRefresh(s: LayerSession): void {
+    if (hiddenRefresh.has(s)) return;
+    hiddenRefresh.set(s, setTimeout(() => {
+        hiddenRefresh.delete(s);
+        if (session === s) refreshHidden(s);
+    }, 0));
+}
+
+/** Read which elements are hidden on the viewport. When that changed: an edge is drawn while an
+ *  element it borders is, and a scale measured over what is drawn is measured again. */
+function refreshHidden(s: LayerSession): void {
+    const visibility = activeViewport()?.objectVisibility();
+    if (!visibility || !s.objects) return;
+    const {model, ids} = s.objects;
+    const hidden = new Set<string>();
+    for (const id of ids) if (visibility(model, id) === "hidden") hidden.add(id);
+    let same = hidden.size === s.hidden.size;
+    if (same) for (const id of hidden) if (!s.hidden.has(id)) { same = false; break; }
+    if (same) return;
+    s.hidden = hidden;
+    s.shownNodes = null;
+
+    if (s.shellEdges && s.shellEdgeIndices && s.drawRanges && s.mesh.indices) {
+        let indices = s.shellEdgeIndices;
+        if (hidden.size) {
+            s.edgeOwners ??= edgeOwners(s.drawRanges, s.mesh.indices, s.basePositions.length / 3, s.shellEdgeIndices);
+            indices = new Uint32Array(s.shellEdgeIndices.length);
+            // An edge all of whose elements are hidden becomes a pair of one node: nothing is drawn.
+            maskHiddenEdges(s.shellEdgeIndices, s.edgeOwners, (id) => hidden.has(id), indices);
+        }
+        const before = s.shellEdges;
+        s.shellEdges = s.group.add(edgeLines(s, indices, FEA_EDGE_COLOR));
+        s.group.drop(before);
+        if (s.lastDisplacement) s.shellEdges.setDisplacement(s.lastDisplacement);
+        applyView(s);
+    }
+
+    const {sessionActive, applyStep, stepIndex} = useFeaAnimationStore.getState();
+    if (s.rangeFromShown && sessionActive && applyStep) {
+        applyStep(stepIndex).catch((err) => console.warn("[fea] repaint after a visibility change failed", err));
+    }
+}
+
 async function openLayerSession(args: {
     results: ViewportResults;
     fetcher: FeaFetcher;
@@ -262,28 +516,32 @@ async function openLayerSession(args: {
     manifest: FeaManifest;
     stage: (label: string, progress: number) => void;
     throwIfAborted: () => void;
+    compute?: Parameters<typeof loadBeamSolidData>[3];
 }): Promise<LayerSession> {
-    const {results, fetcher, sourceName, manifest, stage, throwIfAborted} = args;
+    const {results, fetcher, sourceName, manifest, stage, throwIfAborted, compute} = args;
     stage("loading mesh", 0.05);
     throwIfAborted();
     const mesh = readGlbMesh(new Uint8Array(await fetcher(manifest.mesh.url)));
-    const [edges, drawRanges] = await Promise.all([elementEdges(fetcher, manifest), elementRanges(fetcher, manifest)]);
+    const [edges, elements, solids] = await Promise.all([
+        elementEdges(fetcher, manifest),
+        elementTable(fetcher, manifest, sourceName),
+        loadBeamSolidData(fetcher, manifest, mesh.positions, compute),
+    ]);
     throwIfAborted();
     stage("loading mesh", 0.35);
 
     closeLayerSession();
     const group = new ResultGroup();
-    const faces = group.add(makeFaces({results, mesh}, null, true));
+    const objects = elements?.objects ?? null;
+    const faces = group.add(makeFaces({results, mesh, objects}, null, true));
     group.faces = faces;
-    const edgeLayers: ResultMeshLayer[] = [];
-    const lines = (indices: Uint32Array | null, color: number) => {
-        if (!indices) return;
-        edgeLayers.push(group.add(results.createResultMesh({positions: mesh.positions, indices, topology: "lines", matrix: mesh.matrix, color: linear(color)})));
-    };
-    lines(edges.shell, FEA_EDGE_COLOR);
-    lines(edges.beam, FEA_BEAM_EDGE_COLOR);
-    // The panels list the viewport's model: this one has no objects of its own.
-    notifyModelLoaded({model: `fea-result:${sourceName}`, sourceName, sceneExtras: ""});
+    const lines = (indices: Uint32Array | null, color: number) =>
+        indices ? group.add(edgeLines({results, mesh}, indices, color)) : null;
+    const shellEdges = lines(edges.shell, FEA_EDGE_COLOR);
+    const beamEdges = lines(edges.beam, FEA_BEAM_EDGE_COLOR);
+    // The panels list the viewport's model: the Scene tree gets the result's elements, which are
+    // the viewport's objects by the same ids.
+    notifyModelLoaded({model: resultModelKey(sourceName), sourceName, sceneExtras: "", extras: elements?.extras});
 
     const nPoints = mesh.positions.length / 3;
     let drawn: Uint8Array | null = null;
@@ -302,17 +560,29 @@ async function openLayerSession(args: {
         results,
         mesh,
         basePositions: mesh.positions,
-        drawRanges,
+        drawRanges: elements?.drawRanges ?? null,
+        objects,
+        hidden: new Set(),
         edgeIndices: edges.shell && edges.beam ? concat(edges.shell, edges.beam) : (edges.shell ?? edges.beam),
+        shellEdgeIndices: edges.shell,
+        edgeOwners: null,
         drawn,
+        shownNodes: null,
+        lastDisplacement: null,
+        rangeFromShown: false,
         group,
         faces,
         renderToSource: null,
         localIndices: null,
-        edges: edgeLayers,
+        shellEdges,
+        beamEdges,
         markers: points("points", MARKER_SIZE_PX),
         lines: points("lines", RESULT_LINE_WIDTH_PX),
         ghost: null,
+        solids,
+        solidsLayer: null,
+        solidsLocal: null,
+        solidsPainted: false,
         displacement: new Float32Array(nPoints * 3),
         colors: new Float32Array(nPoints * 3),
         renderDisplacement: null,
@@ -321,14 +591,22 @@ async function openLayerSession(args: {
         unsubscribe: () => {},
     };
     group.onDisplacement = (xyz) => applyDisplacement(opened, xyz);
+    if (solidsOn(opened)) ensureSolidsLayer(opened);
     // The view switches apply to the layers as they change.
     applyView(opened);
-    opened.unsubscribe = useFeaAnimationStore.subscribe((now, before) => {
+    const offView = useFeaAnimationStore.subscribe((now, before) => {
         if (
             now.resultColorsVisible !== before.resultColorsVisible || now.elementEdgesVisible !== before.elementEdgesVisible ||
             now.resultPointMarkersVisible !== before.resultPointMarkersVisible || now.showUndeformed !== before.showUndeformed
         ) applyView(opened);
+        if (now.beamSolidsVisible !== before.beamSolidsVisible) toggleSolids(opened);
     });
+    // Elements hidden or shown on the viewport: the edges and the scale follow what is drawn.
+    const offVisibility = objects ? useVisibilityStore.subscribe(() => scheduleHiddenRefresh(opened)) : () => {};
+    opened.unsubscribe = () => {
+        offView();
+        offVisibility();
+    };
     session = opened;
     return opened;
 }
@@ -379,7 +657,7 @@ async function paintElementField(args: {
         throw new Error(`${field.name_canonical} is an element field, and this result has no element ranges to paint it by`);
     }
     const autoRange = rangeFromShown
-        ? shownElemFieldRange({field, perTypeStepValues, layer, ipReduction, reduction, isShown: () => true})
+        ? shownElemFieldRange({field, perTypeStepValues, layer, ipReduction, reduction, isShown: elementShown(active)})
         : null;
     // A property is never averaged; an averaged field is painted in whatever numbering the faces
     // have, an element's own colour needs element-local faces.
@@ -415,9 +693,27 @@ async function paintElementField(args: {
     );
     applyDisplacement(active, painted.sourceDisplacement);
     if (faces) active.faces.setColors(outColors);
+    // The beam sections carry the same field: each beam's value on its own solid. The elements
+    // with faces have no range there, and the beams none on the faces.
+    if (solidsOn(active)) {
+        const solids = active.solids!;
+        ensureSolidsLayer(active);
+        const local = ensureLocalSolids(active);
+        paintElemField(
+            {
+                basePositions: solids.positions, renderToSource: local.renderToSource, indices: local.indices,
+                drawRanges: solids.drawRanges, colorField: field, perTypeStepValues, layer, ipReduction, reduction,
+                colormap, contour, autoRange, lineFallback: false, resultPoints: false,
+            },
+            local.colors,
+        );
+        active.solidsLayer!.setColors(local.colors);
+        active.solidsPainted = true;
+        warpSolids(active, warp);
+    }
     active.markers.show(painted.markers);
     active.lines.show(painted.lines);
-    recordLayerValues(painted.values);
+    recordLayerValues(painted.values, (id) => active.hidden.has(id));
     return autoRange;
 }
 
@@ -431,7 +727,7 @@ const NO_RANGES = new Map<string, [number, number]>();
  *  capability (the selected one by default; tests pass their own). */
 export async function loadFeaOnLayers(
     args: LoadFeaStreamingArgs,
-    opts: {reload?: LoadFeaStreaming; fea?: FeaCapability} = {},
+    opts: {reload?: LoadFeaStreaming; fea?: FeaCapability; compute?: Parameters<typeof loadBeamSolidData>[3]} = {},
 ): Promise<void> {
     const fea = opts.fea ?? capabilities.fea;
     const reload = opts.reload ?? ((next: LoadFeaStreamingArgs) => loadFeaOnLayers(next, opts));
@@ -466,7 +762,7 @@ export async function loadFeaOnLayers(
 
     let active = session;
     if (!active || active.sourceName !== sourceName || active.results !== results) {
-        active = await openLayerSession({results, fetcher, sourceName, manifest, stage, throwIfAborted});
+        active = await openLayerSession({results, fetcher, sourceName, manifest, stage, throwIfAborted, compute: opts.compute});
     } else if (active.manifest !== manifest) {
         // A later manifest of a running bake: the mesh is the same file.
         active.manifest = manifest;
@@ -544,7 +840,7 @@ export async function loadFeaOnLayers(
             if (rangeFromShown) {
                 const scalars = nodalScalars(paintField, colorStepValues, reductionStr, nPoints);
                 const range = new RangeAccumulator();
-                const drawn = active.drawn;
+                const drawn = drawnNodes(active);
                 for (let v = 0; v < nPoints; v++) if (!drawn || drawn[v]) range.add(scalars[v]);
                 shownRange = range.result();
             }
@@ -558,11 +854,31 @@ export async function loadFeaOnLayers(
             );
             applyDisplacement(active, active.displacement);
             applyNodalColors(active, active.colors);
+            if (solidsOn(active)) {
+                // A beam section is not made of nodes, but each of its vertices sits between its
+                // beam's two: the field is carried onto it the way the displacement is.
+                const solids = active.solids!;
+                const layer = ensureSolidsLayer(active);
+                const colors = solids.warp
+                    ? beamSolidNodalColors(paintField, colorStepValues, reductionStr, solids.warp, colormap, nPoints, contour, shownRange)
+                    : null;
+                if (colors) {
+                    if (active.solidsLocal) {
+                        expandTriplesInto(colors, active.solidsLocal.renderToSource, active.solidsLocal.colors);
+                        layer.setColors(active.solidsLocal.colors);
+                    } else {
+                        layer.setColors(colors);
+                    }
+                }
+                active.solidsPainted = colors !== null;
+                warpSolids(active, warp);
+            }
             // A nodal field has no result points and paints no line element.
             active.markers.clear();
             active.lines.clear();
             recordLayerValues(null);
         }
+        active.rangeFromShown = rangeFromShown;
         active.group.setInfluence(displacementScale);
         // Which lines stand in for which edges follows from what was just painted.
         applyView(active);

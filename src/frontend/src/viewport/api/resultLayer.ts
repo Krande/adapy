@@ -9,6 +9,24 @@
 // Nothing in this module (or anything it imports at runtime) may import three.js: the
 // three.js-free viewport's chunk depends on it.
 
+/** The objects a result mesh is made of (the elements of an FEA mesh): what a click on it picks,
+ *  and what is selected, hidden and shown one at a time through the viewport's own interface, as
+ *  `ObjectRef {model, id}`. A viewport that keeps its objects elsewhere ignores it. */
+export interface ResultMeshObjects {
+    /** The model the objects belong to. Meshes naming the same model share its objects. */
+    model: string;
+    /** The file the model came from, as the loaded-models list names it. */
+    sourceName?: string;
+    /** Every object id of the model: the same list for every mesh of it. */
+    ids: readonly string[];
+    /** The part of the index list each object draws here: start and count, two numbers per
+     *  segment, ascending and not overlapping. An object may have none (it is drawn by another
+     *  mesh, or not at all). */
+    segments: Uint32Array;
+    /** The object (an index into `ids`) of each segment. */
+    objectOf: Int32Array;
+}
+
 /** A result mesh as plain data, in the mesh's own (source) vertex numbering. */
 export interface ResultMeshData {
     /** xyz per vertex: the undeformed shape. */
@@ -28,6 +46,8 @@ export interface ResultMeshData {
     sizePx?: number;
     /** How opaque the layer is, 0..1; fully opaque when absent. */
     opacity?: number;
+    /** The objects the mesh is made of, when they can be picked, selected and hidden. */
+    objects?: ResultMeshObjects;
 }
 
 /** One mesh of a shown result. Each call replaces what the previous one of its kind set; the arrays

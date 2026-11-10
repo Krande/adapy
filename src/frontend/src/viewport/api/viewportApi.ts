@@ -172,6 +172,9 @@ export interface LoadedModelInfo {
     sourceName: string;
     /** The GLB scene's extras, as JSON text ("" when it has none). */
     sceneExtras: string;
+    /** The same extras as an object, from a viewport that made them itself instead of reading
+     *  them from a file; `sceneExtras` is then "". */
+    extras?: Record<string, unknown>;
 }
 
 /** A click in a viewport: the object under it, or null for empty space. */
