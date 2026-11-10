@@ -1,7 +1,7 @@
 """Where a plugin job may write: its summary key and its prefix stay in the plugin's own namespace.
 
 ``POST /api/plugins/{id}/jobs`` lets a caller name the job's ``derived_key`` (a plugin that keys
-its own cache, as weld-gen does) and ``derived_prefix``. Both are now accepted only under
+its own cache, as a detailing plugin does) and ``derived_prefix``. Both are now accepted only under
 ``_derived/plugin_jobs/<id>/`` or ``_derived/<id>/``; a body naming anything else is refused with
 a 400 rather than quietly replaced, so a caller that got its key wrong finds out.
 """

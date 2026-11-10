@@ -11,7 +11,7 @@ geometry, its attribute rows, its bounds, its relations -- nothing at its level,
 project. Same for every element kind.
 
 It is aimed at the E3D provider (asa-e3d-connect) and its sharded worker pool, which can answer
-"what changed since a cursor" per element. A provider that cannot (web3d: one GLB per SITE) simply
+"what changed since a cursor" per element. A provider that cannot (a mesh provider that serves one GLB per SITE) simply
 does not declare it.
 
 ## 1. The declaration (provider spec)
@@ -152,5 +152,5 @@ for that role with a warning ("no baseline; run a full export first") and does N
 
 ## 6. Not in scope
 
-- web3d: it does not declare the kind; its element-level route (GLB draw-range diff) is not built.
+- The mesh provider: it does not declare the kind; its element-level route (GLB draw-range diff) is not built.
 - Compacting patches into a new spine is the next full export's job, not this one.

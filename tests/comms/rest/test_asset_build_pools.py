@@ -73,5 +73,5 @@ def test_only_a_worker_serving_base_acquires_build_capabilities():
     ADA_WORKER_BASE_CONVERSIONS exists to prevent; a dedicated build pool is declared, not
     inferred."""
     register_asset_builder("asset-build-probe", _Builder)
-    assert _pool_capabilities(["weld-gen"]) == ["weld-gen"]
-    assert _pool_capabilities(["weld-gen", "asset-build-probe"]) == ["weld-gen", "asset-build-probe"]
+    assert _pool_capabilities(["joint-gen"]) == ["joint-gen"]
+    assert _pool_capabilities(["joint-gen", "asset-build-probe"]) == ["joint-gen", "asset-build-probe"]
