@@ -107,6 +107,7 @@ flowchart LR
 
 | Edges of beam sections | `utils/scene/fea/beamSolidFeatureEdges.ts`, `streaming/layerSession.ts` | The corners of each section and the outline of each end, worked out from the beam solids' arrays (in a worker where one can be started) and drawn as a layer of lines over the sections' own vertices: they take the sections' displacement, and a hidden beam's are left out. "Solid edges" shows and hides them. |
 | Sets and properties | `utils/scene/fea/streaming/manifestStores.ts`, `utils/scene/fea/layerIsolation.ts` | The manifest's sets, dummy-mass beams and FEA input concepts go into the stores the three.js loader fills, so the Scene tree lists "Sets" and "Properties" for either. A set is a list of element ids, and the elements are the viewport's objects: isolating, hiding and showing a set go through `ViewportApi` (`isolate`, `hide`, `show` take any iterable of refs, read once, so a set of thousands is one reused ref). "Show the rest as wireframe" keeps the edges of the hidden elements. The scene actions pick this module or the three.js one (`feaIsolation.ts`) by how the result is drawn. |
+| Recorded frames | `utils/scene/fea/streaming/layerFrames.ts`, `framesKey.ts` | A frame a play has painted is kept as plain data (the displacement per node, the colours of the faces and of the beam sections as bytes) under the key the three.js recorder uses, and written to the layers on the next pass without reading or painting the step. Out of the step cache's budget, as there. |
 
 Both viewports paint with the same kernels. What the three.js viewport's own loader still does
 that the layer session does not:
@@ -115,8 +116,7 @@ that the layer session does not:
   while nothing but a line draws them), and the dummy-mass beams are left out of the section
   solids only, not of those lines.
 - The rest of an isolation "as wireframe" is drawn with the ordinary edge colour, not dimmed.
-- Recorded playback frames: a played frame is repainted from the step cache instead (read-ahead
-  and "load every frame" work).
+- A frame that draws result points or coloured lines is not recorded: it is painted again.
 - The glyphs of the FEA input concepts (masses, supports, loads) are three.js objects, and the
   CAD lineage is kept against a three.js object: neither is on the three.js-free viewport. The
   "FEM groups" picker of the Scene panel selects in the three.js scene.

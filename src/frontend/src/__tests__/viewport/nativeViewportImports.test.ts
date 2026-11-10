@@ -91,6 +91,7 @@ for (const module of [
     "utils/scene/fea/elementSource.ts",
     "utils/scene/fea/streaming/layerOverlayTarget.ts",
     "utils/scene/fea/layerIsolation.ts",
+    "utils/scene/fea/streaming/layerFrames.ts",
     "viewport/native/nativeOverlays.ts",
     "plugins/sceneOverlays.ts",
 ]) {

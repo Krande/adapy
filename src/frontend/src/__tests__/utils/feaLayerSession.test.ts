@@ -135,6 +135,9 @@ function stress(over: Partial<FeaManifestField> = {}): FeaManifestField {
     } as unknown as FeaManifestField;
 }
 
+/** How many times a step's values were read. */
+let rangeFetches = 0;
+
 const fea: FeaCapability = {
     supports: () => true,
     fetchManifest: async () => {
@@ -151,6 +154,7 @@ const fea: FeaCapability = {
             throw new Error(`unexpected fetch of ${url}`);
         },
         rangeFetcher: async (url: string, start: number) => {
+            rangeFetches++;
             if (url === "fea.stress.triangle.bin") return {buf: ELEMENT_VALUES.slice().buffer, ranged: true};
             if (url === "fea.stress.line.bin") return {buf: new Float32Array([20]).buffer, ranged: true};
             const step = STEPS[(start - HEADER) / 48];
@@ -797,6 +801,40 @@ test("a result's sets are isolated, hidden and shown as the viewport's objects",
         useFemConceptsStore.setState({dummyMassIds: [], showDummyMasses: false});
         useFeaIsolationStore.getState().reset(null);
     }
+});
+
+test("a frame a play has painted is shown again from what was kept, without reading the step", async () => {
+    const viewport = fakeViewport();
+    withdraw = viewport.withdraw;
+    await load(displacement({analysis_kind: "transient"} as Partial<FeaManifestField>), {sliderFactor: 1});
+    const [faces] = viewport.layers;
+    const step = useFeaAnimationStore.getState().applyStep!;
+    // The first pass paints each frame the ordinary way.
+    await step(0, {playback: true});
+    const first = {colors: [...faces.colors], displacement: [...faces.displacement]};
+    await step(1, {playback: true});
+    const second = {colors: [...faces.colors], displacement: [...faces.displacement]};
+    assert.notDeepEqual(second.displacement, first.displacement);
+
+    // The next pass: the same picture, and nothing is read.
+    const read = rangeFetches;
+    useFeaAnimationStore.setState({scaleFactor: 3, scaleFactorAuto: false});
+    await step(0, {playback: true});
+    assert.equal(rangeFetches, read, "shown from the recording");
+    assert.deepEqual(faces.displacement, first.displacement);
+    faces.colors.forEach((c, i) => assert.ok(Math.abs(c - first.colors[i]) <= 0.5 / 255 + 1e-6, `colour ${i}: ${c} vs ${first.colors[i]}`));
+    assert.equal(faces.influence, 3 * useFeaAnimationStore.getState().factor, "at the scale set now, not the one it was painted at");
+    await step(1, {playback: true});
+    assert.equal(rangeFetches, read);
+    assert.deepEqual(faces.displacement, second.displacement);
+
+    // Stepping by hand paints the ordinary way, and another colour map makes the recording stale.
+    await step(0);
+    assert.ok(rangeFetches > read, "an ordinary paint reads the step");
+    useFeaAnimationStore.setState({colormap: "plasma"});
+    const before = rangeFetches;
+    await step(1, {playback: true});
+    assert.ok(rangeFetches > before, "painted again under the new settings");
 });
 
 test("closing the session takes its layers off the viewport", async () => {
