@@ -23,6 +23,11 @@ export interface ResultMeshData {
     /** One colour for the whole layer (linear RGB in 0..1) until `setColors` paints it; a line
      *  layer that is never painted (element edges) keeps it. */
     color?: readonly [number, number, number];
+    /** Lines: their width, points: their diameter, in CSS pixels. One pixel (lines) and a small
+     *  dot (points) when absent. */
+    sizePx?: number;
+    /** How opaque the layer is, 0..1; fully opaque when absent. */
+    opacity?: number;
 }
 
 /** One mesh of a shown result. Each call replaces what the previous one of its kind set; the arrays

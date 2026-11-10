@@ -75,6 +75,8 @@ for (const module of [
     "viewport/native/nativeResultLayer.ts",
     "utils/glb/glbMesh.ts",
     "utils/scene/fea/nodalFieldPaint.ts",
+    "utils/scene/fea/elemFieldPaint.ts",
+    "utils/scene/fea/streaming/layerGroup.ts",
     "utils/scene/fea/resultInfluence.ts",
     "utils/scene/fea/feaAnimationDriver.ts",
     "utils/scene/fea/playbackActions.ts",

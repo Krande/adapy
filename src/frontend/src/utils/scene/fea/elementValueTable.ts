@@ -11,7 +11,7 @@ import {fetchElemFieldStep} from "@/services/feaElemFieldBlob";
 import {capabilities} from "@/services/capabilities";
 import type {FeaManifestField} from "@/services/viewerApi";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
-import {layerIpIndices, reduceIps} from "./applyElemField";
+import {layerIpIndices, reduceIps} from "./elemFieldPaint";
 import {resolveFieldSlot} from "./elementValues";
 import {feaSourceScope} from "./streaming/session";
 

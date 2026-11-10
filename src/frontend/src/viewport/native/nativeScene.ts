@@ -320,7 +320,7 @@ export class NativeScene {
             this.helperLines.clear();
             this.sceneEpoch++;
         }
-        const layer = new NativeResultLayer(this.module, this.renderer, data, () => this.invalidate());
+        const layer = new NativeResultLayer(this.module, this.renderer, data, () => this.invalidate(), this.pixelRatio());
         this.resultLayers.add(layer);
         if (opts.replaceModel) {
             this.bounds = boundsOf(data.positions, data.matrix);

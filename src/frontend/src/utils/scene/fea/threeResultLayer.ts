@@ -127,7 +127,13 @@ export function createThreeResultMesh(data: ResultMeshData, parent: THREE.Object
     } else if (data.topology === "lines") {
         object = new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({color}));
     } else {
-        object = new THREE.Points(geometry, new THREE.PointsMaterial({color, size: 4, sizeAttenuation: false}));
+        object = new THREE.Points(geometry, new THREE.PointsMaterial({color, size: data.sizePx ?? 4, sizeAttenuation: false}));
+    }
+    if (data.opacity !== undefined && data.opacity < 1) {
+        eachMaterial(object, (mat) => {
+            mat.transparent = true;
+            mat.opacity = data.opacity!;
+        });
     }
     if (data.matrix) {
         object.matrixAutoUpdate = false;

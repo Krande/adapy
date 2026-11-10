@@ -21,6 +21,9 @@ export class NativeResultLayer implements ResultMeshLayer {
     private readonly matrixPtr: number;
     private readonly color: readonly [number, number, number];
     private readonly baseFlags: number;
+    /** Lines' width and points' diameter in the drawing buffer's pixels, and the layer's opacity. */
+    private readonly size: number;
+    private readonly opacity: number;
     private painted = false;
     private colorsVisible = true;
     private visible = true;
@@ -32,6 +35,8 @@ export class NativeResultLayer implements ResultMeshLayer {
         data: ResultMeshData,
         /** The picture is out of date: the scene draws a frame. */
         private readonly changed: () => void,
+        /** CSS pixels to the drawing buffer's. */
+        pixelRatio = 1,
     ) {
         const M = module;
         const n = data.positions.length / 3;
@@ -41,8 +46,11 @@ export class NativeResultLayer implements ResultMeshLayer {
         // Faces: both sides (a shell has no inside), cut by the section planes, and just behind
         // coplanar lines so element edges draw cleanly on them. Lines and points are unlit overlays
         // that a click passes through.
+        this.opacity = Math.max(0, Math.min(1, data.opacity ?? 1));
+        this.size = Math.max(1, (data.sizePx ?? 1) * pixelRatio);
         this.baseFlags = InstanceFlag.MorphRelative | InstanceFlag.Clipped |
-            (triangles ? InstanceFlag.DoubleSided | InstanceFlag.DepthBack : InstanceFlag.Unlit | InstanceFlag.NoPick);
+            (triangles ? InstanceFlag.DoubleSided | InstanceFlag.DepthBack : InstanceFlag.Unlit | InstanceFlag.NoPick) |
+            (this.opacity < 1 ? InstanceFlag.Transparent : 0);
 
         this.colorsPtr = M._malloc(Math.max(1, n) * 4);
         this.morphPtr = M._malloc(Math.max(1, n) * 12);
@@ -76,7 +84,7 @@ export class NativeResultLayer implements ResultMeshLayer {
         if (this.painted && this.colorsVisible) flags |= InstanceFlag.VertexColors;
         if (!this.visible) flags |= InstanceFlag.Hidden;
         const [r, g, b] = this.color;
-        this.renderer.setInstance(this.instance, this.matrixPtr, r, g, b, 1, flags, this.influence, 0, 1, false, 1, 0, 0);
+        this.renderer.setInstance(this.instance, this.matrixPtr, r, g, b, this.opacity, flags, this.influence, 0, 1, false, this.size, 0, 0);
         this.changed();
     }
 

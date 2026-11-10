@@ -31,46 +31,35 @@
 // ``warpStepValues`` exactly like ``applyFieldToMesh``. The warp
 // source is always nodal in current solvers (displacement field is
 // nodal), so the warp path is identical to the AFBL one.
+//
+// The numbers are computed by ``paintElemField`` (elemFieldPaint.ts: plain
+// typed arrays, shared with the three.js-free viewport); this module writes
+// them where three.js draws from.
 
 import * as THREE from "three";
 
-import type {FeaManifestField, FeaManifestFieldPerType, FeaScalarRange} from "@/services/viewerApi";
-import {getColormap} from "./colormaps";
-import {bandedColormap, resolveContourRange, type ContourSettings} from "./contourScale";
-import {PaintedValues, recordValueByRange} from "./visibleValues";
-import {categoryCodes, distinctValues, isPropertyField, propertyColormap} from "./propertyColors";
+import type {FeaManifestField} from "@/services/viewerApi";
+import type {ContourSettings} from "./contourScale";
+import {recordValueByRange} from "./visibleValues";
+import {isPropertyField} from "./propertyColors";
 import {
     ensureElementLocalVertices,
     sourceVertexIndices,
 } from "./elementLocalGeometry";
+import {paintElemField} from "./elemFieldPaint";
 import {clearResultPointMarkers, installResultPointMarkers} from "./resultPointMarkers";
 import {clearResultLineSegments, installResultLineSegments} from "./resultLineSegments";
 import {segmentRangeIds} from "./lineSegmentIds";
-import {RangeAccumulator} from "./shownRange";
 import {ensureVertexNormals, resetBasePositions, writeMorphTarget} from "./gpuRefresh";
 import {setSourceMorph} from "./sourceMorph";
-import {translationOffsets, warpValue} from "./warpComponents";
 
-type IpLayoutEntry = FeaManifestFieldPerType["ip_layout"][number];
-type SourceWeight = [sourceVertex: number, weight: number];
-
-function resultPointSourceWeights(
-    layout: IpLayoutEntry | undefined,
-    sourceCorners: number[],
-    line: boolean,
-): SourceWeight[] {
-    if (layout?.node_index !== undefined && sourceCorners[layout.node_index] !== undefined) {
-        return [[sourceCorners[layout.node_index], 1]];
-    }
-    const natural = layout?.natural_coordinates;
-    if (line && natural?.length === 1 && sourceCorners.length >= 2) {
-        const t = Math.max(0, Math.min(1, natural[0]));
-        return [[sourceCorners[0], 1 - t], [sourceCorners[1], t]];
-    }
-    if (sourceCorners.length === 0) return [];
-    const weight = 1 / sourceCorners.length;
-    return sourceCorners.map((source) => [source, weight]);
-}
+export {
+    elementScalarReader,
+    layerIpIndices,
+    reduceIps,
+    shownElemFieldRange,
+    type ElementScalarReader,
+} from "./elemFieldPaint";
 
 export interface ApplyElemFieldArgs {
     mesh: THREE.Mesh;
@@ -127,252 +116,6 @@ export interface ApplyElemFieldArgs {
     writeMorph?: boolean;
 }
 
-function pickRange(field: FeaManifestField, reduction: string): [number, number] {
-    const range: FeaScalarRange = field.scalar_range;
-    const r = range[reduction];
-    if (r) return [r[0], r[1]];
-    if (field.components.length > 0) {
-        const fallback = range[field.components[0]];
-        if (fallback) return [fallback[0], fallback[1]];
-    }
-    return [0, 1];
-}
-
-function componentIndex(field: FeaManifestField, reduction: string): number {
-    const index = field.components.indexOf(reduction);
-    // A one-component field's reduction is the bake's "scalar" (default_view for any
-    // field under three components without presentation metadata) rather than the
-    // component's own name. It means "the value itself": component 0. Without this
-    // every such field fell through to the 0 fallback and painted uniformly at the
-    // bottom of its scale.
-    if (index < 0 && field.components.length === 1) return 0;
-    return index;
-}
-
-/** Indices of IPs that match the chosen layer. Empty ``ip_layout``
- *  (single-IP elements, or readers that didn't infer it) returns the
- *  full IP range so the bucket still gets coloured. */
-export function layerIpIndices(
-    bucket: FeaManifestFieldPerType,
-    layer: string,
-): number[] {
-    if (!bucket.ip_layout || bucket.ip_layout.length === 0 || layer === "all") {
-        const out: number[] = new Array(bucket.n_ips);
-        for (let i = 0; i < bucket.n_ips; i++) out[i] = i;
-        return out;
-    }
-    const out: number[] = [];
-    for (let i = 0; i < bucket.ip_layout.length; i++) {
-        if (bucket.ip_layout[i].layer === layer) out.push(i);
-    }
-    // If the requested layer doesn't exist on this bucket (e.g. user
-    // picked "top" but the bucket is a solid with no layers), fall
-    // back to all IPs rather than zeroing the element. Better to show
-    // *something* than to silently grey it out.
-    if (out.length === 0) {
-        for (let i = 0; i < bucket.n_ips; i++) out.push(i);
-    }
-    return out;
-}
-
-/** Reduce IP values for one (element, component) slot down to a
- *  scalar according to ``ipReduction``. Pulls each IP value directly
- *  out of the bucket's flat step view to avoid per-element
- *  allocation. */
-export function reduceIps(
-    stepView: Float32Array,
-    elementBase: number,
-    ipIndices: number[],
-    n_components: number,
-    componentIdx: number,
-    mode: string,
-): number {
-    let acc: number;
-    switch (mode) {
-        case "max_abs": {
-            let best = 0;
-            let found = false;
-            for (let k = 0; k < ipIndices.length; k++) {
-                const v = stepView[elementBase + ipIndices[k] * n_components + componentIdx];
-                if (!isFinite(v)) continue;
-                const av = Math.abs(v);
-                if (!found || av > Math.abs(best)) best = v;
-                found = true;
-            }
-            acc = found ? best : NaN;
-            break;
-        }
-        case "max": {
-            let best = -Infinity;
-            for (let k = 0; k < ipIndices.length; k++) {
-                const v = stepView[elementBase + ipIndices[k] * n_components + componentIdx];
-                if (v > best) best = v;
-            }
-            acc = isFinite(best) ? best : NaN;
-            break;
-        }
-        case "min": {
-            let best = Infinity;
-            for (let k = 0; k < ipIndices.length; k++) {
-                const v = stepView[elementBase + ipIndices[k] * n_components + componentIdx];
-                if (v < best) best = v;
-            }
-            acc = isFinite(best) ? best : NaN;
-            break;
-        }
-        default: {
-            // "mean" and any unknown mode fall here. Defaulting to
-            // mean rather than throwing keeps the picker resilient
-            // to manifest-schema drift without a noisy log on every
-            // step change.
-            let sum = 0;
-            let count = 0;
-            for (let k = 0; k < ipIndices.length; k++) {
-                const v = stepView[elementBase + ipIndices[k] * n_components + componentIdx];
-                if (isFinite(v)) {
-                    sum += v;
-                    count++;
-                }
-            }
-            acc = count > 0 ? sum / count : NaN;
-            break;
-        }
-    }
-    return acc;
-}
-
-/** One scalar from an element's ``(n_ips × n_components)`` block, for the given IPs:
- *  the IP reduction per component, then the component reduction. NaN where the
- *  attribute does not apply to the element. */
-export type ElementScalarReader = (stepView: Float32Array, elemBase: number, ipIndices: number[]) => number;
-
-export function elementScalarReader(
-    field: FeaManifestField,
-    reduction: string,
-    ipReduction: string,
-): ElementScalarReader {
-    const n_components = field.components.length;
-    const isMagnitude = reduction === "magnitude";
-    const compIdx = isMagnitude ? -1 : componentIndex(field, reduction);
-    return (stepView, elemBase, ipIndices) => {
-        if (isMagnitude) {
-            // Magnitude across the first 3 components, computed
-            // *after* per-component IP reduction. Sequence matches
-            // the bake's scalar_range_magnitude (||u||-of-reduced-IPs,
-            // not reduced-IP-of-||u||) — important so the colour LUT
-            // range matches the rendered values.
-            const dx = n_components >= 1
-                ? reduceIps(stepView, elemBase, ipIndices, n_components, 0, ipReduction)
-                : 0;
-            const dy = n_components >= 2
-                ? reduceIps(stepView, elemBase, ipIndices, n_components, 1, ipReduction)
-                : 0;
-            const dz = n_components >= 3
-                ? reduceIps(stepView, elemBase, ipIndices, n_components, 2, ipReduction)
-                : 0;
-            return isFinite(dx) && isFinite(dy) && isFinite(dz)
-                ? Math.sqrt(dx * dx + dy * dy + dz * dz)
-                : NaN;
-        }
-        if (compIdx >= 0) {
-            return reduceIps(stepView, elemBase, ipIndices, n_components, compIdx, ipReduction);
-        }
-        // Fallback when reduction is neither magnitude nor a known
-        // component — keep the element grey instead of crashing.
-        // Same shape as the nodal path's silent fallback.
-        return 0;
-    };
-}
-
-/**
- * The range of what an element field paints on the elements ``isShown`` names, or
- * null when none of them carries a value (see shownRange.ts).
- *
- * The values are the ones the painter colours: each element's reduced scalar, and,
- * for a field painted per corner or per result point, each of those values too.
- * Nodal averaging only ever narrows these, so the range still covers it.
- */
-export function shownElemFieldRange(args: {
-    field: FeaManifestField;
-    perTypeStepValues: Float32Array[];
-    layer: string;
-    ipReduction: string;
-    reduction: string;
-    isShown: (label: number) => boolean;
-}): [number, number] | null {
-    const {field, perTypeStepValues, layer, ipReduction, reduction, isShown} = args;
-    const read = elementScalarReader(field, reduction, ipReduction);
-    const perIp =
-        field.support === "element_nodal"
-        || field.support === "result_point"
-        || field.support === "line_result_point";
-    const n_components = field.components.length;
-    const acc = new RangeAccumulator();
-    const buckets = field.per_type ?? [];
-    for (let b = 0; b < buckets.length; b++) {
-        const bucket = buckets[b];
-        const stepView = perTypeStepValues[b];
-        if (!stepView) continue;
-        const ipIndices = layerIpIndices(bucket, layer);
-        const elemStride = bucket.n_ips * n_components;
-        const labels = bucketLabels(field, bucket);
-        for (let e = 0; e < bucket.n_elements; e++) {
-            if (!isShown(labels[e])) continue;
-            const elemBase = e * elemStride;
-            acc.add(read(stepView, elemBase, ipIndices));
-            if (perIp) for (const ip of ipIndices) acc.add(read(stepView, elemBase, [ip]));
-        }
-    }
-    return acc.result();
-}
-
-/** A bucket's element labels, which a split manifest (bake_version 6) keeps in
- *  the field's detail sidecar: the caller resolves the field through
- *  ``withFieldDetail`` first (paintElemField does). Missing here is a caller
- *  bug, and painting every element as label ``undefined`` would hide it. */
-interface BucketPlan {
-    /** "E<label>" per element: the id the mesh draws and hides it by. */
-    keys: string[];
-    /** Its draw range in the index buffer, or count -1 when it has none (a line). */
-    start: Int32Array;
-    count: Int32Array;
-}
-
-const bucketPlans = new WeakMap<Map<string, [number, number]>, WeakMap<readonly number[], BucketPlan>>();
-
-/** Each element's draw range and id, resolved once per (mesh draw ranges, bucket
- *  labels) -- both stay the same objects for as long as one source is loaded. */
-function bucketPlan(drawRanges: Map<string, [number, number]>, labels: readonly number[]): BucketPlan {
-    let byLabels = bucketPlans.get(drawRanges);
-    if (!byLabels) {
-        byLabels = new WeakMap();
-        bucketPlans.set(drawRanges, byLabels);
-    }
-    const cached = byLabels.get(labels);
-    if (cached) return cached;
-    const n = labels.length;
-    const plan: BucketPlan = {keys: new Array<string>(n), start: new Int32Array(n), count: new Int32Array(n)};
-    for (let e = 0; e < n; e++) {
-        const key = `E${labels[e]}`;
-        plan.keys[e] = key;
-        const dr = drawRanges.get(key);
-        plan.start[e] = dr ? dr[0] : 0;
-        plan.count[e] = dr ? dr[1] : -1;
-    }
-    byLabels.set(labels, plan);
-    return plan;
-}
-
-function bucketLabels(field: FeaManifestField, bucket: FeaManifestFieldPerType): number[] {
-    if (!bucket.element_labels) {
-        throw new Error(
-            `field ${field.name_canonical} bucket ${bucket.elem_type}: element labels not loaded ` +
-            `(resolve the field with withFieldDetail first)`,
-        );
-    }
-    return bucket.element_labels;
-}
-
 /** Same shape as ``applyFieldToMesh`` but takes the AFEL render path
  *  instead. Caller resolves the warp source separately (always nodal
  *  in current solvers) and passes it in. */
@@ -381,26 +124,10 @@ export function applyElemFieldToMesh(args: ApplyElemFieldArgs): void {
         mesh,
         basePositions,
         colorField,
-        perTypeStepValues,
-        layer,
-        ipReduction,
-        reduction,
-        warpField,
-        warpStepValues,
         displacementScale = 1,
-        colormap: colormapName,
-        contour,
-        autoRange,
         nodalAverage: nodalAverageArg = false,
-        lineFallback = true,
         writeMorph = true,
     } = args;
-    // A model property is not a result: it is drawn in its own scheme over its own
-    // range (propertyColors.ts), never averaged across element boundaries - the
-    // mean of two material ids is a third material - and the result scale's bands
-    // and pinned ends do not apply to it.
-    const property = isPropertyField(colorField);
-    const nodalAverage = nodalAverageArg && !property;
 
     clearResultPointMarkers(mesh);
     clearResultLineSegments(mesh);
@@ -409,40 +136,15 @@ export function applyElemFieldToMesh(args: ApplyElemFieldArgs): void {
             `applyElemFieldToMesh: field ${colorField.name_canonical} has no per_type buckets`,
         );
     }
-    if (perTypeStepValues.length !== colorField.per_type.length) {
-        throw new Error(
-            `applyElemFieldToMesh: ${perTypeStepValues.length} step views for ` +
-            `${colorField.per_type.length} buckets`,
-        );
-    }
-
-    const [rangeMin, rangeMax] = property
-        ? pickRange(colorField, reduction)
-        : resolveContourRange(autoRange ?? pickRange(colorField, reduction), contour);
-    // A numeric property is coloured by rank among the values it carries, so the
-    // painter needs them before it paints: one pass over the step views, which for
-    // a property are one value per element.
-    const levels =
-        property && categoryCodes(colorField).length === 0
-            ? distinctValues((function* () {
-                  for (const view of perTypeStepValues) yield* view;
-              })())
-            : null;
-    const colormap =
-        propertyColormap(colorField, [rangeMin, rangeMax], levels) ??
-        bandedColormap(getColormap(colormapName), contour?.levels ?? null);
+    // A model property is never averaged across element boundaries (see the kernel).
+    const nodalAverage = nodalAverageArg && !isPropertyField(colorField);
     const geometry = mesh.geometry;
     const n_points = basePositions.length / 3;
     const renderToSource = nodalAverage
         ? sourceVertexIndices(geometry, n_points)
         : ensureElementLocalVertices(geometry);
     const n_render_points = renderToSource.length;
-    const n_components = colorField.components.length;
 
-    // Vertex colour seed: medium grey for any vertex not covered by an
-    // element draw range. Without this seed, the colour attribute
-    // would be zero-initialised and render black where AFEM doesn't
-    // reach (typically nowhere on a healthy mesh, but defensive).
     // Painted straight into the installed colour buffer when it fits: on an
     // element-local shell model that is 12 MB a frame not allocated and not copied.
     const installedColor = geometry.getAttribute("color") as THREE.BufferAttribute | undefined;
@@ -453,23 +155,6 @@ export function applyElemFieldToMesh(args: ApplyElemFieldArgs): void {
     const out_colors = paintInPlace
         ? (installedColor!.array as Float32Array)
         : new Float32Array(n_render_points * 3);
-    // Every bucket's length is checked before the buffer on screen is touched, so
-    // a bad step throws with the previous frame still intact.
-    for (let b = 0; b < colorField.per_type.length; b++) {
-        const bucket = colorField.per_type[b];
-        const expected = bucket.n_elements * bucket.n_ips * colorField.components.length;
-        if (perTypeStepValues[b]?.length !== expected) {
-            throw new Error(
-                `applyElemFieldToMesh: bucket ${bucket.elem_type} step view ` +
-                `length ${perTypeStepValues[b]?.length} != expected ${expected}`,
-            );
-        }
-    }
-    out_colors.fill(0.5);
-
-    const valueByRange = new PaintedValues();
-    const range = rangeMax - rangeMin;
-    const scaleColor = range > 0 ? 1 / range : 0;
 
     // Pull the AFEM draw ranges off the CustomBatchedMesh so we can
     // map element labels back to vertex spans. ``drawRanges`` keys
@@ -489,262 +174,30 @@ export function applyElemFieldToMesh(args: ApplyElemFieldArgs): void {
     if (!indexAttr) {
         throw new Error("applyElemFieldToMesh: mesh geometry has no index buffer");
     }
-    const indexArr = indexAttr.array as Uint16Array | Uint32Array;
 
-    const tmpRgb = new Float32Array(3);
-
-    // Compute one scalar per element from the (n_ips × n_components)
-    // block. Same logic for both flat and smooth render paths — only
-    // the downstream "where does the scalar land" step differs.
-    const computeElementScalar = elementScalarReader(colorField, reduction, ipReduction);
-
-    // Smooth path: accumulate per-vertex sum + count, then colormap
-    // once per vertex at the end. Reused Set dedupes each element's
-    // vertices so a quad's 4 unique verts don't get the same scalar
-    // counted 6 times (6 = 2 triangles × 3 slots). Allocated once
-    // outside the per-bucket loop to keep GC noise down.
-    const sumValues = nodalAverage ? new Float32Array(n_points) : null;
-    const countValues = nodalAverage ? new Uint32Array(n_points) : null;
-    const elemVertSet = nodalAverage ? new Set<number>() : null;
-    const directVertsBySource = new Map<number, number[]>();
-    const markerPositions: number[] = [];
-    const markerColors: number[] = [];
-    const markerSourceWeights: SourceWeight[][] = [];
-    const linePositions: number[] = [];
-    const lineColors: number[] = [];
-    const lineSourceIndices: number[] = [];
-    // One label per VERTEX, pushed beside the vertex itself. See lineSegmentIds:
-    // a parallel per-SEGMENT array maintained by a condition is what drifted.
-    const lineVertexLabels: number[] = [];
-
-    // Per-bucket loop. Each bucket is one element type; the AFEM map
-    // collapses across types so a single ``drawRanges.get(...)`` works
-    // regardless of which bucket the label came from.
-    for (let b = 0; b < colorField.per_type.length; b++) {
-        const bucket = colorField.per_type[b];
-        const stepView = perTypeStepValues[b];
-        const expectedLen = bucket.n_elements * bucket.n_ips * n_components;
-        if (stepView.length !== expectedLen) {
-            throw new Error(
-                `applyElemFieldToMesh: bucket ${bucket.elem_type} step view ` +
-                `length ${stepView.length} != expected ${expectedLen}`,
-            );
-        }
-        const ipIndices = layerIpIndices(bucket, layer);
-        const elemStride = bucket.n_ips * n_components;
-        const labels = bucketLabels(colorField, bucket);
-        // Label -> draw range and id, resolved once per mesh and bucket rather than
-        // by building and hashing an "E<label>" string per element per frame.
-        const plan = bucketPlan(drawRanges, labels);
-        const painted = new Float64Array(bucket.n_elements).fill(NaN);
-        valueByRange.add(plan.keys, painted);
-
-        // What each element ended up painted with, so a legend can say which
-        // values are on screen rather than which values the deck contains. One
-        // entry per element, keyed by the id the mesh hides by.
-
-        for (let e = 0; e < bucket.n_elements; e++) {
-            const elemBase = e * elemStride;
-            const label = labels[e];
-            const vCount = plan.count[e];
-            const hasDr = vCount >= 0;
-            const vStart = plan.start[e];
-            {
-                const own = computeElementScalar(stepView, elemBase, ipIndices);
-                if (isFinite(own)) painted[e] = own;
-            }
-
-            // Line elements have AFEM entries with zero triangles, so their
-            // values cannot colour the face mesh. Draw a two-vertex segment
-            // from the manifest connectivity as the no-solid fallback. For
-            // In Elements fields, the two result slots map to the beam
-            // ends; element-average fields use one colour at both ends.
-            if (
-                lineFallback
-                && !hasDr
-                && bucket.elem_type.startsWith("line")
-                && colorField.support !== "line_result_point"
-                && colorField.support !== "result_point"
-            ) {
-                const sourceCorners = bucket.element_node_indices?.[e] ?? [];
-                if (sourceCorners.length >= 2) {
-                    const endpoints = [sourceCorners[0], sourceCorners[sourceCorners.length - 1]];
-                    const endpointIps = colorField.support === "element_nodal" && ipIndices.length >= 2
-                        ? [ipIndices[0], ipIndices[ipIndices.length - 1]]
-                        : [null, null];
-                    const averaged = endpointIps[0] === null
-                        ? computeElementScalar(stepView, elemBase, ipIndices)
-                        : NaN;
-                    for (let endpoint = 0; endpoint < 2; endpoint++) {
-                        const sourceIdx = endpoints[endpoint];
-                        const offset = sourceIdx * 3;
-                        const scalar = endpointIps[endpoint] === null
-                            ? averaged
-                            : computeElementScalar(
-                                stepView,
-                                elemBase,
-                                [endpointIps[endpoint] as number],
-                            );
-                        if (!isFinite(scalar)) continue;
-                        linePositions.push(
-                            basePositions[offset],
-                            basePositions[offset + 1],
-                            basePositions[offset + 2],
-                        );
-                        const t = (scalar - rangeMin) * scaleColor;
-                        colormap(t, tmpRgb, 0);
-                        lineColors.push(tmpRgb[0], tmpRgb[1], tmpRgb[2]);
-                        lineSourceIndices.push(sourceIdx);
-                        lineVertexLabels.push(label);
-                    }
-                    // A LineSegments pair must be complete. Drop a lone end
-                    // when the other endpoint carried an inapplicable NaN.
-                    if (lineSourceIndices.length % 2) {
-                        lineSourceIndices.splice(-1, 1);
-                        linePositions.splice(-3, 3);
-                        lineColors.splice(-3, 3);
-                        lineVertexLabels.splice(-1, 1);
-                    }
-                }
-            }
-
-            if (
-                !mesh.userData.feaBeamSolids
-                && (
-                    colorField.support === "result_point"
-                    || colorField.support === "line_result_point"
-                )
-            ) {
-                const sourceCorners = bucket.element_node_indices?.[e]?.slice() ?? [];
-                if (sourceCorners.length === 0 && hasDr) {
-                    const seenSources = new Set<number>();
-                    for (let i = vStart; i < vStart + vCount; i++) {
-                        const sourceIdx = renderToSource[indexArr[i]];
-                        if (seenSources.has(sourceIdx)) continue;
-                        seenSources.add(sourceIdx);
-                        sourceCorners.push(sourceIdx);
-                    }
-                }
-                for (const ip of ipIndices) {
-                    const weights = resultPointSourceWeights(
-                        bucket.ip_layout?.[ip],
-                        sourceCorners,
-                        colorField.support === "line_result_point",
-                    );
-                    if (weights.length === 0) continue;
-                    const point = [0, 0, 0];
-                    for (const [sourceIdx, weight] of weights) {
-                        const offset = sourceIdx * 3;
-                        point[0] += basePositions[offset] * weight;
-                        point[1] += basePositions[offset + 1] * weight;
-                        point[2] += basePositions[offset + 2] * weight;
-                    }
-                    const scalar = computeElementScalar(stepView, elemBase, [ip]);
-                    if (!isFinite(scalar)) continue;
-                    const t = (scalar - rangeMin) * scaleColor;
-                    colormap(t, tmpRgb, 0);
-                    markerPositions.push(point[0], point[1], point[2]);
-                    markerColors.push(tmpRgb[0], tmpRgb[1], tmpRgb[2]);
-                    markerSourceWeights.push(weights);
-                }
-            }
-
-            if (!hasDr) continue;
-
-            // In Elements fields, carry one value per element-local corner.
-            // Preserve that variation instead of collapsing all corners through
-            // the generic IP reducer. The first-seen vertex order of the AFEM
-            // triangle fan follows source connectivity for TRI/QUAD cells.
-            if (colorField.support === "element_nodal") {
-                directVertsBySource.clear();
-                for (let i = vStart; i < vStart + vCount; i++) {
-                    const vIdx = indexArr[i];
-                    const sourceIdx = renderToSource[vIdx];
-                    const occurrences = directVertsBySource.get(sourceIdx);
-                    if (occurrences) occurrences.push(vIdx);
-                    else directVertsBySource.set(sourceIdx, [vIdx]);
-                }
-                if (directVertsBySource.size === ipIndices.length) {
-                    const cornerOccurrences = Array.from(directVertsBySource.values());
-                    for (let corner = 0; corner < ipIndices.length; corner++) {
-                        const scalar = computeElementScalar(
-                            stepView,
-                            elemBase,
-                            [ipIndices[corner]],
-                        );
-                        if (!isFinite(scalar)) continue;
-                        if (nodalAverage) {
-                            const sourceIdx = renderToSource[cornerOccurrences[corner][0]];
-                            sumValues![sourceIdx] += scalar;
-                            countValues![sourceIdx] += 1;
-                        } else {
-                            const t = (scalar - rangeMin) * scaleColor;
-                            colormap(t, tmpRgb, 0);
-                            for (const vIdx of cornerOccurrences[corner]) {
-                                const off = vIdx * 3;
-                                out_colors[off + 0] = tmpRgb[0];
-                                out_colors[off + 1] = tmpRgb[1];
-                                out_colors[off + 2] = tmpRgb[2];
-                            }
-                        }
-                    }
-                    continue;
-                }
-            }
-
-            const scalar = computeElementScalar(stepView, elemBase, ipIndices);
-
-            if (nodalAverage && isFinite(scalar)) {
-                // Accumulate the same scalar once per unique vertex
-                // of this element. Dedupe via the reused Set: clear,
-                // walk, contribute. Each draw range is in vertex-index
-                // units (3 entries per triangle), so the same vertex
-                // appears multiple times for shared edges within an
-                // element's triangle fan.
-                elemVertSet!.clear();
-                for (let i = vStart; i < vStart + vCount; i++) {
-                    const vIdx = indexArr[i];
-                    const sourceIdx = renderToSource[vIdx];
-                    if (elemVertSet!.has(sourceIdx)) continue;
-                    elemVertSet!.add(sourceIdx);
-                    sumValues![sourceIdx] += scalar;
-                    countValues![sourceIdx] += 1;
-                }
-            } else if (!nodalAverage) {
-                // NaN means the attribute is inapplicable to this element type.
-                // Leave the neutral grey seed; never paint it as range minimum.
-                if (!isFinite(scalar)) continue;
-                const t = (scalar - rangeMin) * scaleColor;
-                colormap(t, tmpRgb, 0);
-                const r = tmpRgb[0], g = tmpRgb[1], bch = tmpRgb[2];
-                for (let i = vStart; i < vStart + vCount; i++) {
-                    const vIdx = indexArr[i];
-                    const off = vIdx * 3;
-                    out_colors[off + 0] = r;
-                    out_colors[off + 1] = g;
-                    out_colors[off + 2] = bch;
-                }
-            }
-        }
-    }
-
-    if (nodalAverage) {
-        // Vertices with count===0 stay at the grey seed (no element
-        // touched them — line-only verts or AFEM gaps). For
-        // touched vertices, divide and colormap.
-        for (let v = 0; v < n_render_points; v++) {
-            const sourceIdx = renderToSource[v];
-            const c = countValues![sourceIdx];
-            if (c === 0) continue;
-            const avg = sumValues![sourceIdx] / c;
-            const t = isFinite(avg) ? (avg - rangeMin) * scaleColor : 0;
-            colormap(t, tmpRgb, 0);
-            const off = v * 3;
-            out_colors[off + 0] = tmpRgb[0];
-            out_colors[off + 1] = tmpRgb[1];
-            out_colors[off + 2] = tmpRgb[2];
-        }
-    }
+    const painted = paintElemField(
+        {
+            basePositions,
+            renderToSource,
+            indices: indexAttr.array as Uint16Array | Uint32Array,
+            drawRanges,
+            colorField,
+            perTypeStepValues: args.perTypeStepValues,
+            layer: args.layer,
+            ipReduction: args.ipReduction,
+            reduction: args.reduction,
+            warpField: args.warpField,
+            warpStepValues: args.warpStepValues,
+            colormap: args.colormap,
+            contour: args.contour,
+            autoRange: args.autoRange,
+            nodalAverage: nodalAverageArg,
+            lineFallback: args.lineFallback,
+            resultPoints: !mesh.userData.feaBeamSolids,
+        },
+        out_colors,
+    );
+    const {sourceDisplacement} = painted;
 
     // ── Position + morph attribute (warp). Same shape as
     //    applyFieldToMesh: reset to base, install the displacement as
@@ -752,27 +205,6 @@ export function applyElemFieldToMesh(args: ApplyElemFieldArgs): void {
     //    the morph texture on the next render.
     resetBasePositions(geometry, basePositions, renderToSource);
 
-    const sourceDisplacement = new Float32Array(basePositions.length);
-    if (warpField && warpStepValues) {
-        const warpComponents = warpField.components.length;
-        if (warpStepValues.length !== n_points * warpComponents) {
-            throw new Error(
-                `applyElemFieldToMesh: warpStepValues length ${warpStepValues.length} ` +
-                `doesn't match n_points*warpComponents (${n_points}*${warpComponents}=` +
-                `${n_points * warpComponents})`,
-            );
-        }
-        // Not slots 0..2: a Sesam displacement field leads with `ALL`, a
-        // reduction, not an axis. See translationOffsets.
-        const axes = translationOffsets(warpField);
-        for (let v = 0; v < n_points; v++) {
-            const wb = v * warpComponents;
-            const pb = v * 3;
-            sourceDisplacement[pb + 0] = warpValue(warpStepValues, wb, axes[0]);
-            sourceDisplacement[pb + 1] = warpValue(warpStepValues, wb, axes[1]);
-            sourceDisplacement[pb + 2] = warpValue(warpStepValues, wb, axes[2]);
-        }
-    }
     // The element-edge wireframe keeps SOURCE numbering: its index buffer was built
     // from the bake's edge sidecar against the original vertices, and it still holds
     // the original position attribute. The parent mesh does not -- an element field
@@ -783,37 +215,19 @@ export function applyElemFieldToMesh(args: ApplyElemFieldArgs): void {
     setSourceMorph(mesh, "fea-element-edges", sourceDisplacement);
     setSourceMorph(mesh, "fea-beam-element-edges", sourceDisplacement);
 
-    const markerDisplacement = new Float32Array(markerSourceWeights.length * 3);
-    for (let point = 0; point < markerSourceWeights.length; point++) {
-        for (const [sourceIdx, weight] of markerSourceWeights[point]) {
-            const sourceOffset = sourceIdx * 3;
-            const pointOffset = point * 3;
-            markerDisplacement[pointOffset] += sourceDisplacement[sourceOffset] * weight;
-            markerDisplacement[pointOffset + 1] += sourceDisplacement[sourceOffset + 1] * weight;
-            markerDisplacement[pointOffset + 2] += sourceDisplacement[sourceOffset + 2] * weight;
-        }
-    }
     installResultPointMarkers(
         mesh,
-        new Float32Array(markerPositions),
-        new Float32Array(markerColors),
-        markerDisplacement,
+        painted.markers.positions,
+        painted.markers.colors,
+        painted.markers.displacement,
     );
-    const lineDisplacement = new Float32Array(lineSourceIndices.length * 3);
-    for (let vertex = 0; vertex < lineSourceIndices.length; vertex++) {
-        const sourceOffset = lineSourceIndices[vertex] * 3;
-        const lineOffset = vertex * 3;
-        lineDisplacement[lineOffset] = sourceDisplacement[sourceOffset];
-        lineDisplacement[lineOffset + 1] = sourceDisplacement[sourceOffset + 1];
-        lineDisplacement[lineOffset + 2] = sourceDisplacement[sourceOffset + 2];
-    }
-    recordValueByRange(mesh, valueByRange);
+    recordValueByRange(mesh, painted.values);
     installResultLineSegments(
         mesh,
-        new Float32Array(linePositions),
-        new Float32Array(lineColors),
-        lineDisplacement,
-        segmentRangeIds(lineVertexLabels),
+        painted.lines.positions,
+        painted.lines.colors,
+        painted.lines.displacement,
+        segmentRangeIds(painted.lineVertexLabels),
     );
     // Re-apply whatever was selected before this repaint: applying a field
     // rebuilds the lines from scratch, so a selection made beforehand would
@@ -870,4 +284,3 @@ export function applyElemFieldToMesh(args: ApplyElemFieldArgs): void {
 
     ensureVertexNormals(geometry);
 }
-

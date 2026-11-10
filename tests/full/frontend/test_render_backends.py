@@ -548,3 +548,64 @@ async def test_a_second_model_joins_the_first_on_whichever_viewport_is_on_screen
             ), f"{backend}: the second model's row selected nothing"
         finally:
             await browser.close()
+
+
+async def _show_result(page: Page, ws_server, result_file) -> None:
+    """Send an FEA result to the viewer and wait for its first field to be painted."""
+    result = ada.from_fem_res(result_file)
+    await asyncio.to_thread(lambda: result.show(port=ws_server.port, unique_id=1, ping_timeout=10))
+
+    async def coloured():
+        return _count(await _pixels(page), _is_coloured) > 5000
+
+    await _until(page, coloured, "the result field to be painted", seconds=40)
+
+
+async def _select_field(page: Page, name: str) -> None:
+    """Pick a result field in the Simulation panel, and wait for the viewer to have taken it."""
+    picker = page.locator("select").filter(has=page.locator(f"option[value='{name}']")).first
+    before = (await _pixels(page)).tobytes()
+    await picker.select_option(name)
+
+    async def painted():
+        return await picker.input_value() == name and (await _pixels(page)).tobytes() != before
+
+    await _until(page, painted, f"the field {name} to be painted")
+    await page.wait_for_timeout(500)
+
+
+@pytest.mark.parametrize("backend", ["three", NATIVE])
+async def test_fea_element_fields_and_result_points(ws_server, backend, fem_files):
+    """A field that lives on the elements, not the nodes: each element in its own colour, and a marker
+    for each result point of a field that has them, on whichever viewport is on screen."""
+    result_file = fem_files / "cantilever/sesam/static/shell/STATIC_SHELL_CANTILEVER_SESAMR1.SIF"
+    async with async_playwright() as playwright:
+        browser, page, state = await _open_viewer(playwright, ws_server, backend)
+        try:
+            await _show_result(page, ws_server, result_file)
+            await _assert_drawing_with(page, backend, state)
+
+            # an element field: painted, and named by the legend
+            await _select_field(page, "sesam.element_average.g_stress")
+            assert _count(await _pixels(page), _is_coloured) > 5000, f"{backend}: the element field is not painted"
+            assert await page.get_by_text("Element average / G-STRESS").count() >= 1, f"{backend}: no legend for it"
+
+            # result points: a marker each, which the panel's switch takes away and brings back
+            await _select_field(page, "sesam.resultpoints.g_stress")
+            # (counted over the model only: the panel's own switch changes too)
+            model = (420, 200, 1000, 700)
+            with_markers = (await _pixels(page)).crop(model).tobytes()
+            markers = page.get_by_label("Result points")
+            await markers.uncheck()
+            await page.wait_for_timeout(700)
+            without_markers = (await _pixels(page)).crop(model).tobytes()
+            assert without_markers != with_markers, f"{backend}: switching the result points off changed nothing"
+            await markers.check()
+
+            async def markers_back():
+                return (await _pixels(page)).crop(model).tobytes() == with_markers
+
+            await _until(page, markers_back, f"{backend}: the result points to be drawn again")
+            await _assert_drawing_with(page, backend, state)
+        finally:
+            await browser.close()
