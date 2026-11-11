@@ -74,6 +74,8 @@ function fakeRenderer() {
         removeInstance: (instance: number) => void states.delete(instance),
         pick: (_x: number, _y: number, _w: number, _h: number, done: (r: unknown) => void) => done(picked ? {hit: true, ...picked} : {hit: false}),
         cameraUpdate: () => false,
+        // The camera reads where it is before it moves.
+        cameraPose: () => ({eye: [-5, 5, 5], target: [0, 0, 0], up: [0, 0, 1], fov: 60, orthographic: false, orthoHeight: 0, azimuth: 0, elevation: 0, roll: 0, distance: 1}),
     };
     // Whatever else the scene asks of the renderer (the camera, sizes, colours) does nothing here.
     const renderer = new Proxy(own, {get: (target, name) => (target as Record<string | symbol, unknown>)[name] ?? (() => undefined)});

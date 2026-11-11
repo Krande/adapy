@@ -11,6 +11,11 @@ import {useVisibilityStore} from "@/state/visibilityStore";
 import {dragAction, mouseButtonOf, wheelZoomFactor, type CameraAction} from "@/utils/camera/cameraMapping";
 import {startRenderer} from "@/viewport/adacpp/rendererModule";
 import {rolledUpAxis} from "@/utils/camera/roll";
+import {linearColor} from "@/utils/scene/sceneColor";
+import {useOptionsStore} from "@/state/optionsStore";
+import {placeModel, type Box6, type Vec3} from "@/viewport/api/sceneFrame";
+import {boundingSphere, clipRangeFor, DEFAULT_VIEW, framePose, namedViewPose, selectionFramePose} from "@/viewport/api/cameraFrame";
+import {GROUND_GRID, groundGridLines} from "@/viewport/api/groundGrid";
 import {InstanceFlag, SegmentFlag, Topology, type AdacppModule, type AdacppStats, type CameraPoseInfo, type GpuDeviceLike, type LoadedGlbObjects, type RawPick, type WebRendererApi} from "@/viewport/adacpp/types";
 
 /** The viewer's background (#393939) and selection colour, as the three.js viewport has them. */
@@ -21,8 +26,9 @@ const EDGE_COLOR: [number, number, number, number] = [0, 0, 0, 1];
 /** A press released within this many pixels of where it went down is a click, not a drag. */
 const TAP_SLOP_PX = 6;
 const MAX_PIXEL_RATIO = 2;
-const HOME_AZIMUTH_DEG = -135;
-const HOME_ELEVATION_DEG = 30;
+/** "Frame this box" leaves room around it, and gives a box of no size this much, as three.js' frameBox. */
+const FIT_BOX_SCALE = 1.6;
+const FIT_BOX_MIN_RADIUS = 1e-4;
 /** Fit and the named views move there over this long. */
 const MOVE_SECONDS = 0.25;
 /** The share of a drag's speed kept per 1/60 s once released, when the user's mapping asks for a glide. */
@@ -156,6 +162,10 @@ export class NativeScene {
     dragInterceptor: ((e: PointerEvent) => ((e: PointerEvent) => void) | null) | null = null;
     /** Helper lines by handle (their instance): the geometry to free with each. */
     private readonly helperLines = new Map<number, number>();
+    /** The ground grid's helper lines. */
+    private gridHandles: number[] = [];
+    /** The models' placement: world = model + offset (viewport/api/sceneFrame). */
+    private offset: Vec3 = [0, 0, 0];
     /** The renderer stopped (device lost, a failed frame): the caller falls back. */
     onFailure: ((reason: string) => void) | null = null;
     /** Why it stopped, kept for a caller that attaches `onFailure` after the fact: a device can be lost
@@ -191,6 +201,8 @@ export class NativeScene {
         void device.lost.then((info) => {
             if (!this.disposed) this.fail(`WebGPU device lost: ${info.message}`);
         });
+        this.addGrid();
+        this.home(0);
         this.bindInput();
     }
 
@@ -224,6 +236,7 @@ export class NativeScene {
             this.renderer.clear();
             this.sceneEpoch++;
             this.helperLines.clear(); // renderer.clear() took them
+            this.addGrid();
             this.models.clear();
             this.where.clear();
             this.segments = new Map();
@@ -237,7 +250,8 @@ export class NativeScene {
         this.module.HEAPU8.set(bytes, p);
         let loaded;
         try {
-            loaded = this.renderer.loadGlb(p, bytes.byteLength, {featureEdgeAngleDeg: FEATURE_EDGE_ANGLE_DEG, lineColor: EDGE_COLOR, sectionCaps: true});
+            const offset = this.place(p, bytes.byteLength, add);
+            loaded = this.renderer.loadGlb(p, bytes.byteLength, {featureEdgeAngleDeg: FEATURE_EDGE_ANGLE_DEG, lineColor: EDGE_COLOR, sectionCaps: true, offset});
         } finally {
             this.module._free(p);
         }
@@ -262,7 +276,7 @@ export class NativeScene {
         model.keys.forEach((key, index) => this.where.set(key, {model, index}));
         this.rebuild();
         // A model that joins others leaves the camera where the user has it.
-        if (!add) this.home(0);
+        if (!add) this.framed();
         for (const listener of this.onLoaded) listener();
         if (add) this.pushStates();
         else this.onChange?.();
@@ -364,6 +378,7 @@ export class NativeScene {
             this.selectionVersion = {};
             // As a model load: helper lines and sprites went with renderer.clear().
             this.helperLines.clear();
+            this.addGrid();
             this.sceneEpoch++;
         }
         const drawn = data.objects ? resultSegments(data) : null;
@@ -372,7 +387,7 @@ export class NativeScene {
         if (drawn) this.attachResultObjects(layer, data, drawn.objectOf);
         if (opts.replaceModel) {
             this.bounds = boundsOf(data.positions, data.matrix);
-            this.home(0);
+            this.fit(0);
             for (const listener of this.onLoaded) listener();
             for (const listener of this.onSelection) listener();
             this.onChange?.();
@@ -532,6 +547,10 @@ export class NativeScene {
     /** Draw line segments (xyz per point, two points per segment) over the model, in one linear colour:
      *  a helper, never picked. Returns the handle for `removeLines`. */
     addLines(points: Float32Array, color: readonly [number, number, number], widthPx: number): number {
+        return this.addLineHelper(points, color, widthPx, InstanceFlag.Unlit | InstanceFlag.NoPick | InstanceFlag.OnTop);
+    }
+
+    private addLineHelper(points: Float32Array, color: readonly [number, number, number], widthPx: number, flags: number): number {
         const M = this.module;
         const count = points.length / 3;
         const indices = Uint32Array.from({length: count}, (_, i) => i);
@@ -542,7 +561,6 @@ export class NativeScene {
         try {
             const geometry = this.renderer.addGeometry(Topology.Lines, pPos, count, 0, 0, 0, pIdx, count, 0, 0, 0);
             const instance = this.renderer.addInstance(geometry);
-            const flags = InstanceFlag.Unlit | InstanceFlag.NoPick | InstanceFlag.OnTop;
             this.renderer.setInstance(instance, pMat, color[0], color[1], color[2], 1, flags, 0, 0, 1, false, widthPx * this.pixelRatio(), 0, 0);
             this.helperLines.set(instance, geometry);
             this.invalidate();
@@ -659,27 +677,32 @@ export class NativeScene {
         this.invalidate();
     }
 
-    /** Frame the whole model. */
+    /** The models' placement: world = model + offset. */
+    get sceneOffset(): Vec3 {
+        return [this.offset[0], this.offset[1], this.offset[2]];
+    }
+
+    /** Frame the whole model, along the current view (the shared fit, viewport/api/cameraFrame). */
     fit(seconds = 0): void {
         if (!this.bounds) return;
-        this.frame(this.bounds, seconds);
+        this.applyPose(framePose(this.bounds, this.viewDirection(), this.fovDeg(), this.aspect()), seconds);
     }
 
-    /** Frame a box in the world (min xyz, max xyz); false for an empty one. */
+    /** Frame a box in the world (min xyz, max xyz) with room around it; false for an empty one. */
     fitBox(box: Bounds, seconds = MOVE_SECONDS): boolean {
-        if (!(box[0] <= box[3] && box[1] <= box[4] && box[2] <= box[5])) return false;
-        this.frame(box, seconds);
-        return true;
+        return this.applyPose(framePose(box, this.viewDirection(), this.fovDeg(), this.aspect(), FIT_BOX_SCALE, FIT_BOX_MIN_RADIUS), seconds);
     }
 
-    /** The whole model from the starting direction: what a newly loaded model shows. */
+    /** The view every viewport starts from, its clip range with it. */
     home(seconds = MOVE_SECONDS): void {
-        if (!this.bounds) return;
-        this.renderer.cameraSetOrientation(HOME_AZIMUTH_DEG, HOME_ELEVATION_DEG, 0, seconds);
-        this.frame(this.bounds, seconds);
+        const {eye, target, fovDeg, near, far} = DEFAULT_VIEW;
+        const pose = this.renderer.cameraPose();
+        this.renderer.cameraSetPose(eye[0], eye[1], eye[2], target[0], target[1], target[2], WORLD_UP[0], WORLD_UP[1], WORLD_UP[2], fovDeg, pose.orthographic, 0, seconds);
+        this.renderer.cameraSetClipRange?.(near, far);
+        this.invalidate();
     }
 
-    /** Frame the selected objects; false when none of them is drawn. */
+    /** Frame the selected objects (the shared selection fit); false when none of them is drawn. */
     fitSelection(seconds = MOVE_SECONDS): boolean {
         const box: Bounds = [Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity];
         for (const id of this.selected) {
@@ -690,15 +713,78 @@ export class NativeScene {
                 box[k + 3] = Math.max(box[k + 3], own[k + 3]);
             }
         }
-        if (box[0] > box[3]) return false;
-        this.frame(box, seconds);
+        return this.applyPose(selectionFramePose(box, this.viewDirection(), this.fovDeg()), seconds);
+    }
+
+    /** A replacing load: the clip range follows the model, and the camera frames it when the user
+     *  has auto-fit on, as on the three.js viewport. */
+    private framed(): void {
+        if (!this.bounds) return;
+        if (useOptionsStore.getState().autoFit) return this.fit(0);
+        const range = clipRangeFor(boundingSphere(this.bounds).radius);
+        if (range) this.renderer.cameraSetClipRange?.(range.near, range.far);
+    }
+
+    /** Move the camera to `pose` and fit the clip range to what it frames; false for no pose. */
+    private applyPose(pose: {eye: Vec3; target: Vec3; radius: number} | null, seconds: number): boolean {
+        if (!pose) return false;
+        const current = this.renderer.cameraPose();
+        const {eye, target} = pose;
+        this.renderer.cameraSetPose(eye[0], eye[1], eye[2], target[0], target[1], target[2], WORLD_UP[0], WORLD_UP[1], WORLD_UP[2], current.fov, current.orthographic, 0, seconds);
+        const range = clipRangeFor(pose.radius);
+        if (range) this.renderer.cameraSetClipRange?.(range.near, range.far);
+        this.invalidate();
         return true;
     }
 
-    private frame(b: Bounds, seconds: number): void {
+    /** Unit vector from the camera towards its target. */
+    private viewDirection(): Vec3 {
+        const {eye, target} = this.renderer.cameraPose();
+        const d: Vec3 = [target[0] - eye[0], target[1] - eye[1], target[2] - eye[2]];
+        const l = Math.hypot(d[0], d[1], d[2]) || 1;
+        return [d[0] / l, d[1] / l, d[2] / l];
+    }
+
+    private fovDeg(): number {
+        return this.renderer.cameraPose().fov;
+    }
+
+    private aspect(): number {
         this.syncSize();
-        this.renderer.cameraFit(b[0], b[1], b[2], b[3], b[4], b[5], 0, seconds);
-        this.invalidate();
+        return this.canvas.width / Math.max(1, this.canvas.height);
+    }
+
+    /** Where a GLB in the heap is placed (the shared rule, viewport/api/sceneFrame): its offset, also
+     *  the scene's once it replaces what is on screen. Measured before loading, so the renderer applies
+     *  it in double precision before positions become 32-bit. */
+    private place(bytes: number, length: number, add: boolean): Vec3 {
+        const box = this.module.glbBounds?.(bytes, length, false);
+        if (!box || !(box[0] <= box[3])) {
+            if (!add) this.offset = [0, 0, 0];
+            return this.offset;
+        }
+        const placed = placeModel(box as unknown as Box6, {
+            zIsUp: true,
+            locked: useOptionsStore.getState().lockTranslation,
+            current: this.models.size > 0 ? this.offset : null,
+            reuseCurrent: add,
+        });
+        const offset: Vec3 = placed.translation ?? [0, 0, 0];
+        if (placed.isNew || !add) this.offset = offset;
+        return offset;
+    }
+
+    /** The ground grid every viewport draws (viewport/api/groundGrid), at the origin. Drawn before the
+     *  faces, so the model hides it; renderer.clear() takes it with the helper lines, so it is drawn
+     *  again after each. */
+    private addGrid(): void {
+        for (const handle of this.gridHandles) this.removeLines(handle);
+        const flags = InstanceFlag.Unlit | InstanceFlag.NoPick | InstanceFlag.Underlay;
+        const {lines, centre} = groundGridLines(true);
+        this.gridHandles = [
+            this.addLineHelper(lines, linearColor(GROUND_GRID.lineColor), 1, flags),
+            this.addLineHelper(centre, linearColor(GROUND_GRID.centreColor), 1, flags),
+        ];
     }
 
     select(id: string | null, additive = false): void {
@@ -758,14 +844,12 @@ export class NativeScene {
         this.pushStates();
     }
 
-    /** Look at the whole model from `direction` (the unit vector from the model to the camera, z up). */
+    /** Look at the whole model from `direction` (the unit vector from the model to the camera, z up):
+     *  the shared named view (viewport/api/cameraFrame `namedViewPose`). */
     viewFrom(direction: readonly [number, number, number], seconds = MOVE_SECONDS): void {
-        if (!this.bounds) return;
-        const deg = 180 / Math.PI;
-        const azimuth = Math.atan2(direction[0], direction[1]) * deg;
-        const elevation = Math.asin(Math.max(-1, Math.min(1, direction[2]))) * deg;
-        this.renderer.cameraSetOrientation(azimuth, elevation, 0, seconds);
-        this.frame(this.bounds, seconds);
+        const pose = namedViewPose(this.bounds, direction, this.fovDeg(), this.aspect(), this.renderer.cameraPose());
+        // With nothing loaded there is nothing to fit the clip range to: it stays.
+        this.applyPose({...pose, radius: pose.radius ?? NaN}, seconds);
     }
 
     /** Orbit by the given angles (radians), as a key press does. */

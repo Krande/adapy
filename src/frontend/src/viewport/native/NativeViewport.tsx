@@ -23,14 +23,7 @@ import {bindNativeHistory} from "./nativeViewportHistory";
 import {useNativeViewport} from "./nativeModel";
 import {glbBufferViews} from "@/utils/glb/glbBufferView";
 import {takeConceptClick} from "@/utils/fem/conceptPicking";
-
-/** "#rrggbb" (sRGB) as linear rgb, which the renderer takes; null when it is not that. */
-function linearRgb(hex: string): [number, number, number] | null {
-    const m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex);
-    if (!m) return null;
-    const linear = (c: number) => (c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
-    return [linear(parseInt(m[1], 16) / 255), linear(parseInt(m[2], 16) / 255), linear(parseInt(m[3], 16) / 255)];
-}
+import {linearHexText} from "@/utils/scene/sceneColor";
 
 const NativeViewport: React.FC = () => {
     const hostRef = React.useRef<HTMLDivElement>(null);
@@ -88,7 +81,7 @@ const NativeViewport: React.FC = () => {
             // Section planes: the same store the three.js viewport cuts by.
             const cut = () => {
                 const {planes, capColor} = useSectionStore.getState();
-                scene.setSectionPlanes(planes.filter((p) => p.enabled), linearRgb(capColor));
+                scene.setSectionPlanes(planes.filter((p) => p.enabled), linearHexText(capColor));
             };
             cut();
             const uncut = useSectionStore.subscribe(cut);

@@ -6,6 +6,7 @@ import {OrbitControls} from 'three/examples/jsm/controls/OrbitControls';
 import CameraControls from 'camera-controls';
 import {getViewerRuntime} from "@/state/viewerRuntime";
 import {applyAdaptiveClipping} from "@/components/viewer/sceneHelpers/adaptiveClipping";
+import {selectionFramePose} from "@/viewport/api/cameraFrame";
 
 export const centerViewOnSelection = (
     controls: OrbitControls | CameraControls,
@@ -145,10 +146,16 @@ export function center_on_bounding_box(boundingBox: THREE.Box3, camera: Camera, 
         applyAdaptiveClipping(camera, controls, radius);
     }
 
-    let distance = 0;
+    const direction = new THREE.Vector3();
+    camera.getWorldDirection(direction).normalize();
+
+    let newPosition: THREE.Vector3;
     if (camera instanceof THREE.PerspectiveCamera) {
-        const fov = (camera.fov * Math.PI) / 180; // Radians
-        distance = (radius / Math.sin(fov / 2)) / fillFactor;
+        // The selection fit every viewport shares (viewport/api/cameraFrame).
+        const b = boundingBox;
+        const pose = selectionFramePose([b.min.x, b.min.y, b.min.z, b.max.x, b.max.y, b.max.z], direction.toArray(), camera.fov, fillFactor);
+        if (!pose) return;
+        newPosition = new THREE.Vector3(...pose.eye);
     } else if (camera instanceof THREE.OrthographicCamera) {
         const aspect = camera.right / camera.top;
         camera.top = radius / fillFactor;
@@ -156,17 +163,13 @@ export function center_on_bounding_box(boundingBox: THREE.Box3, camera: Camera, 
         camera.left = (-radius * aspect) / fillFactor;
         camera.right = (radius * aspect) / fillFactor;
         camera.updateProjectionMatrix();
-        distance = camera.position.distanceTo(center);
+        // Move opposite the view direction by the distance it already stands at
+        newPosition = center.clone().add(direction.clone().multiplyScalar(-camera.position.distanceTo(center)));
     } else {
         console.warn('Unknown camera type.');
         return;
     }
 
-    const direction = new THREE.Vector3();
-    camera.getWorldDirection(direction).normalize();
-
-    // Move opposite the view direction by "distance" units
-    const newPosition = center.clone().add(direction.multiplyScalar(-distance));
     camera.position.copy(newPosition);
 
     // Set correct up vector
