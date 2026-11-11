@@ -229,7 +229,7 @@ test("colour-by commands: reset needs something coloured, the model one needs tw
   registerCoreCommands();
   loadedSourceGroups.clear();
   useColorByStore.getState().set({ activeId: null, legend: null });
-  assert.equal(C.getCommand(ID.colorByReset)!.disabledReason?.(), "Nothing is coloured by property");
+  assert.equal(C.getCommand(ID.colorByReset)!.disabledReason?.(), "Nothing is recoloured or coloured by property");
   assert.match(C.getCommand(ID.colorByModel)!.disabledReason?.() ?? "", /two or more/);
   useColorByStore.getState().set({ activeId: "model" });
   assert.equal(C.getCommand(ID.colorByReset)!.disabledReason?.(), null);

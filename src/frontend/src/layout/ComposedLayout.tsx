@@ -30,6 +30,9 @@ import {setClassicShell, setClassicToolbar, type ClassicArrangement} from "./pre
 import {modeAvailable, subscribeModeRequirements} from "./modeRequirements";
 import {SHELL_MODE_PARAM,activeShellMode, listShellModes, setShellMode, setShellModes, subscribeShellModes, type ShellMode} from "./shellModes";
 
+/** The core dialogs a command of the palette opens in every layout, menus or not. */
+const PALETTE_DIALOGS = ["object-colour"] as const;
+
 /** Who holds the FEA model undeformed for a mode that shows no deformation. */
 const MODE_DEFORMATION_OWNER = "shell-mode";
 
@@ -328,7 +331,7 @@ export default function ComposedLayout({spec, children}: {spec: UiShellSpec | nu
       {/* The shortcuts dialog, for a menu's "Keyboard shortcuts" (`core:shortcuts`). */}
       {spec && <ShortcutsDialogHost />}
       {/* Help -> About and File -> Export (`core:about`, `core:export-*`). */}
-      {spec && <CoreDialogsHost />}
+      {spec ? <CoreDialogsHost /> : <CoreDialogsHost only={PALETTE_DIALOGS} />}
     </div>
   );
 }

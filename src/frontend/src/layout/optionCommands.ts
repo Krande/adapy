@@ -16,6 +16,7 @@
 import {useCameraControlsStore} from "@/state/cameraControlsStore";
 import {useComputeStore, COMPUTE_MODES, type ComputeMode} from "@/state/computeStore";
 import {CAMERA_ACTIONS, CAMERA_PRESETS, CAMERA_PRESET_IDS, MOUSE_BUTTONS, ONE_FINGER_ACTIONS, TWO_FINGER_ACTIONS, presetOf} from "@/utils/camera/cameraMapping";
+import {appearanceIsDefault, useAppearanceStore} from "@/state/appearanceStore";
 import {useExperimentalStore} from "@/state/experimentalStore";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {useMeStore} from "@/state/meStore";
@@ -80,6 +81,7 @@ const needWebHid = () => (isWebHidSupported() ? null : "Needs WebHID: use Chrome
 // The option itself also works over the Gamepad API; only the explicit device chooser needs WebHID.
 const needSpaceMouse = () => (isSpaceMouseSupported() ? null : "Needs WebHID or the Gamepad API: use Chrome or Edge");
 const GEN = ["options", "settings", "preferences"] as const;
+const LOOK = ["appearance", "look", "colour", "color", ...GEN] as const;
 
 /** A perf-store switch. `invert`: the setting is the opposite of what the store holds ("Disable antialias"). */
 function perfToggle(id: string, title: string, key: keyof ReturnType<typeof perf>, setter: string, keywords: readonly string[] = []): ToggleOption {
@@ -135,6 +137,17 @@ export function optionDescriptors(): OptionDescriptor[] {
     {kind: "toggle", id: "face-picking", title: "Face-level picking", group: "Display", keywords: ["pick", "select", "face", "step", "ifc", ...GEN],
       setters: ["setFaceLevelPicking"], get: () => opts().faceLevelPicking, set: (v) => opts().setFaceLevelPicking(v),
       disabledReason: () => (opts().faceRegionsAvailable ? null : "The loaded model has no per-face regions")},
+    // --- Appearance (the same on every renderer) ---
+    {kind: "open", id: "default-colour", title: "Appearance: default colour…", group: "Appearance", keywords: [...LOOK, "grey", "gray", "uncoloured", "model"],
+      setters: ["setDefaultColor"], focus: "default-colour"},
+    {kind: "open", id: "background-colour", title: "Appearance: background…", group: "Appearance", keywords: [...LOOK, "viewport", "backdrop"],
+      setters: ["setBackground"], focus: "background-colour"},
+    {kind: "open", id: "brightness", title: "Appearance: brightness…", group: "Appearance", keywords: [...LOOK, "light", "exposure", "intensity", "dark", "slider"],
+      setters: ["setBrightness"], focus: "brightness"},
+    {kind: "open", id: "light-balance", title: "Appearance: ambient / headlight balance…", group: "Appearance", keywords: [...LOOK, "light", "directional", "shading", "contrast", "slider"],
+      setters: ["setAmbientShare"], focus: "light-balance"},
+    {kind: "toggle", id: "shade-results", title: "Appearance: shade FEA results", group: "Appearance", keywords: [...LOOK, "fea", "result", "lit", "unlit", "flat", "legend", "contour"],
+      setters: ["setShadeResults"], get: () => useAppearanceStore.getState().shadeResults, set: (v) => useAppearanceStore.getState().setShadeResults(v)},
     // --- Session ---
     {kind: "toggle", id: "scene-restore", title: "Restore the scene on reload", group: "Session", keywords: ["session", "reopen", "remember", ...GEN],
       setters: ["setEnabled"], get: () => useSceneRestoreStore.getState().enabled, set: (v) => useSceneRestoreStore.getState().setEnabled(v)},
@@ -322,6 +335,11 @@ export function optionCommandSpecs(): CommandSpec[] {
     {
       id: "core:option.compute-reset", label: "Calculations: reset to no limits", group: "Calculations", keywords: ["compute", "cores", "memory", "workers"],
       run: () => useComputeStore.getState().reset(),
+    },
+    {
+      id: "core:option.appearance-reset", label: "Appearance: reset to defaults", group: "Appearance", keywords: [...LOOK, "brightness", "light", "background", "default"],
+      disabledReason: () => (appearanceIsDefault() ? "The appearance settings are the defaults" : null),
+      run: () => useAppearanceStore.getState().reset(),
     },
     {
       id: "core:option.theme-reset-custom", label: "Theme: reset custom panel colours", group: "Theme", keywords: ["color", "colour", "panels"],

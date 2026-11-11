@@ -1,4 +1,5 @@
-// Core's own modal dialogs that core commands open (Help -> About, File -> Export…): which one is
+// Core's own modal dialogs that core commands open (Help -> About, File -> Export…, Edit -> Set
+// colour of selection…): which one is
 // open, as a tiny external store. `CoreDialogsHost`, which a composed layout mounts, draws it and
 // loads its code on first use. Dependency-free.
 
@@ -6,7 +7,10 @@ import {useSyncExternalStore} from "react";
 
 export type ExportScope = "selection" | "model";
 
-export type CoreDialogRequest = {readonly kind: "about"} | {readonly kind: "export"; readonly scope: ExportScope};
+export type CoreDialogRequest =
+    | {readonly kind: "about"}
+    | {readonly kind: "export"; readonly scope: ExportScope}
+    | {readonly kind: "object-colour"};
 
 let current: CoreDialogRequest | null = null;
 const listeners = new Set<() => void>();

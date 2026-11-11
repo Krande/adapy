@@ -5,6 +5,9 @@
 import React, {useMemo} from "react";
 
 import {useSceneMenuStore, type SceneMenuState} from "@/state/sceneMenuStore";
+import {runCommand} from "@/layout/commands";
+import {CORE_COMMAND_IDS} from "@/layout/coreCommandIds";
+import {activeViewport} from "@/viewport/api/viewportApi";
 import {KebabMenuItem, PositionedMenu} from "@/components/common/PositionedMenu";
 import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
 import {copySelectionNames} from "@/utils/clipboard/copySelectionNames";
@@ -154,6 +157,22 @@ const SceneTreeMenu: React.FC<SceneMenuState & {onClose: () => void}> = ({row, r
             title: noGeometry,
         },
         {key: "show-all", label: "Unhide all  (Shift+U)", onClick: showAll},
+        // The menu acts on the selection, and so do these: the same commands as the palette's.
+        {
+            key: "colour",
+            label: `Set colour${what}…`,
+            onClick: () => runCommand(CORE_COMMAND_IDS.setObjectColour),
+            disabled: total === 0,
+            title: noGeometry ?? "A colour for the selection, in place of the model's own",
+            separatorBefore: true,
+        },
+        {
+            key: "colour-reset",
+            label: `Model's own colour${what}`,
+            onClick: () => void import("@/utils/scene/objectColorActions").then((m) => m.colourSelection(null)),
+            disabled: total === 0 || (activeViewport()?.objectColorCount() ?? 0) === 0,
+            title: noGeometry ?? "Take back a colour given to the selection",
+        },
         {
             key: "bbox-select",
             label: "Select with bounding box",
