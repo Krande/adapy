@@ -2,6 +2,15 @@
 
 
 
+## v0.145.0 (2026-11-11)
+
+### Feature
+
+* feat: the rest of the viewer on both viewports, and a simulation provider seam (#530)
+
+Co-authored-by: Claude Fable 5.2 &lt;noreply@anthropic.com&gt; ([`818d955`](https://github.com/Krande/adapy/commit/818d9553ad02e1f6608faa6266cd01dbd0ef10ff))
+
+
 ## v0.144.0 (2026-11-10)
 
 ### Feature
