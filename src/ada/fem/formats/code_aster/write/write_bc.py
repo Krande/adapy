@@ -47,11 +47,15 @@ def held_dofs(bc: Bc, prescribed) -> list[int]:
     """The dofs a support's charge holds: its own, less those a settlement prescribes (``prescribed``: the keys of
     :func:`ada.fem.formats.prescribed.prescribed_dofs`), and less the rotations of a node set on solid elements."""
     from ada.fem.formats.prescribed import settlements
+    from ada.fem.utils import bc_fixed_dofs
 
     if settlements([bc]):
         return []
     top = 3 if _is_solid(bc.fem_set) else 6
-    return [d for d in range(1, top + 1) if d in bc.dofs and (bc.fem_set.name, d) not in prescribed]
+    # A support given by name (``ENCASTRE``) holds the DOFs the name stands for: matched against 1..6 as it is, it
+    # matched none, and the support was not written at all.
+    fixed = bc_fixed_dofs(bc.dofs)
+    return [d for d in range(1, top + 1) if d in fixed and (bc.fem_set.name, d) not in prescribed]
 
 
 def _angles(bc) -> str | None:

@@ -144,15 +144,50 @@ def _is_mass(obj) -> bool:
     return isinstance(obj, Mass) or isinstance(getattr(obj, "type", None), shape_def.MassTypes)
 
 
+#: The DOFs a boundary condition given by name fixes (1..3 translations, 4..6 rotations): what the Abaqus
+#: keywords mean. A reader that keeps the name instead of the numbers (``ENCASTRE`` is always kept, the others
+#: when a deck states them one per line) leaves it to whoever reads ``Bc.dofs`` to know them.
+NAMED_BC_DOFS = {
+    "encastre": (1, 2, 3, 4, 5, 6),
+    "pinned": (1, 2, 3),
+    "xsymm": (1, 5, 6),
+    "ysymm": (2, 4, 6),
+    "zsymm": (3, 4, 5),
+    "xasymm": (2, 3, 4),
+    "yasymm": (1, 3, 5),
+    "zasymm": (1, 2, 6),
+}
+
+
+def bc_fixed_dofs(dofs) -> set[int]:
+    """The DOFs ``Bc.dofs`` fixes, as numbers: its integers, and for a restraint given by name (``"ENCASTRE"``, one
+    name or a list of them) the DOFs that name stands for. A name that is not one of :data:`NAMED_BC_DOFS` fixes
+    nothing known."""
+    if isinstance(dofs, str):
+        dofs = [dofs]
+    fixed: set[int] = set()
+    for d in dofs or ():
+        if isinstance(d, str):
+            fixed.update(NAMED_BC_DOFS.get(d.strip().lower(), ()))
+        elif d is not None:
+            fixed.add(int(d))
+    return fixed
+
+
 def node_is_held(node: Node) -> bool:
     """Whether something stiffens ``node``'s translations: an element that is not a mass (a beam, a shell, a solid, a
     spring, a connector), a constraint, or boundary conditions that fix all three translations.
+
+    A constraint is on the node through a set the node is in, or through a surface made of such a set (what a tie
+    between coincident nodes is built on). A boundary condition may state its DOFs by name (:func:`bc_fixed_dofs`):
+    an encastred or a pinned node is held.
 
     A node only point masses are on has no stiffness at all: a static solve finds its stiffness matrix singular
     (Code_Aster stops at ``FACTOR_11``)."""
     from ada.fem.common import Csys
     from ada.fem.constraints import Bc, Constraint
     from ada.fem.sets import FemSet
+    from ada.fem.surfaces import Surface
 
     fixed: set[int] = set()
     for ref in node.refs:
@@ -163,8 +198,10 @@ def node_is_held(node: Node) -> bool:
         for user in ref.refs:
             if isinstance(user, Constraint):
                 return True
+            if isinstance(user, Surface) and any(isinstance(u, Constraint) for u in user.refs):
+                return True
             if isinstance(user, Bc):
-                fixed.update(d for d in user.dofs if isinstance(d, int))
+                fixed |= bc_fixed_dofs(user.dofs)
     return {1, 2, 3} <= fixed
 
 

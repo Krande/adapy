@@ -28,6 +28,7 @@ matrices of every discrete element.
 from __future__ import annotations
 
 import contextlib
+import weakref
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Iterator
 
@@ -172,10 +173,25 @@ def _spring_of(ref) -> Spring | None:
     if not isinstance(getattr(ref, "type", None), SpringTypes):
         return None
     elements = getattr(getattr(ref, "parent", None), "elements", None)
-    for spring in elements.springs if elements is not None else ():
-        if isinstance(spring, Spring) and spring.id == ref.id:
-            return spring
-    return None
+    if elements is None:
+        return None
+    return _springs_by_id(elements).get(ref.id)
+
+
+#: The ``Spring`` objects of an element container by id, kept while the container lives and made again when its
+#: springs change in number: one pass per FEM instead of one per rotary inertia (a deck can have thousands of
+#: grounded springs with an inertia on each).
+_SPRING_INDEX: "weakref.WeakKeyDictionary" = weakref.WeakKeyDictionary()
+
+
+def _springs_by_id(elements) -> dict:
+    springs = elements.springs
+    count = len(springs)
+    held = _SPRING_INDEX.get(elements)
+    if held is None or held[0] != count:
+        held = (count, {s.id: s for s in springs if isinstance(s, Spring)})
+        _SPRING_INDEX[elements] = held
+    return held[1]
 
 
 def _point_mass(mass: Mass) -> Discrete:

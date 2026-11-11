@@ -21,6 +21,7 @@ import math
 from typing import TYPE_CHECKING
 
 from ada.config import logger
+from ada.fem.utils import bc_fixed_dofs
 
 if TYPE_CHECKING:
     from ada import FEM
@@ -298,8 +299,9 @@ def build_bc_glyphs(fem: "FEM"):
                 name=bc.name,
                 positions=positions,
                 # bc.dofs is a 6-slot list with None for unconstrained DOFs (e.g.
-                # [None, 2, None, 4, None, 6] for YSYMM) — keep only the constrained ones.
-                dofs=[int(d) for d in bc.dofs if d is not None],
+                # [None, 2, None, 4, None, 6] for YSYMM) — keep only the constrained ones. A support
+                # read by name (``"ENCASTRE"``) is the DOFs that name fixes.
+                dofs=sorted(bc_fixed_dofs(bc.dofs)),
                 bc_type=str(getattr(bc, "type", "") or "") or None,
             )
         )
