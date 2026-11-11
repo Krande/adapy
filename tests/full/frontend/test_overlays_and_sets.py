@@ -53,7 +53,10 @@ async def test_plugin_overlays_are_drawn_by_whichever_viewport_is_on_screen(ws_s
         try:
             await _show_result(page, ws_server, result_file)
             await _assert_drawing_with(page, backend, state)
-            assert await page.evaluate(f"{SCENE}.hasFeaModel()"), f"{backend}: no FEA model for the overlays"
+            # (the result is painted a moment before it is registered as what overlays are drawn on)
+            await _until(
+                page, lambda: page.evaluate(f"{SCENE}.hasFeaModel()"), f"{backend}: an FEA model for the overlays"
+            )
             assert await _magenta(page) == 0
 
             async def drawn(what: str, at_least: int) -> int:

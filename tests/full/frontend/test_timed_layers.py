@@ -289,11 +289,15 @@ async def test_a_models_node_animation_plays_and_scrubs_on_the_playback_clock(ws
             await page.wait_for_timeout(1500)
             clock = await _playback(page)
             assert clock["playing"] and 0.2 < clock["time"] < DURATION - 0.2, clock
-            moving = (await _seen(page))["block"]
-            assert _distance(moving, start["block"]) > 20 and _distance(moving, end["block"]) > 20
+            # Paused at once, and looked at afterwards: a picture taken first can take longer on a slow
+            # machine than what is left of the animation, and the button would be "Play" again.
             await transport.get_by_role("button", name="Pause").click()
             paused = await _playback(page)
             assert not paused["playing"]
+            assert 0.2 < paused["time"] < DURATION - 0.2, paused
+            await page.wait_for_timeout(300)
+            moving = (await _seen(page))["block"]
+            assert _distance(moving, start["block"]) > 20 and _distance(moving, end["block"]) > 20
             await page.wait_for_timeout(500)
             assert (await _playback(page))["time"] == paused["time"], "the clock moved while paused"
 
