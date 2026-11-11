@@ -28,6 +28,7 @@ matrices of every discrete element.
 from __future__ import annotations
 
 import contextlib
+import weakref
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Iterator
 
@@ -158,9 +159,39 @@ def _has_rotations(node) -> bool:
         el_type = getattr(r, "type", None)
         if isinstance(el_type, (LineShapes, ShellShapes)):
             return True
-        if isinstance(r, Spring) and np.asarray(r.stiff).shape == (6, 6):
+        spring = _spring_of(r)
+        if spring is not None and np.asarray(spring.stiff).shape == (6, 6):
             return True
     return False
+
+
+def _spring_of(ref) -> Spring | None:
+    """The ``Spring`` a node ref is: the object itself, or, for a spring's row ``to_array_backed`` packed into a block
+    (``Node.refs`` gives an ``ElemProxy``, which has no stiffness), the object the FEM keeps beside that row."""
+    if isinstance(ref, Spring):
+        return ref
+    if not isinstance(getattr(ref, "type", None), SpringTypes):
+        return None
+    elements = getattr(getattr(ref, "parent", None), "elements", None)
+    if elements is None:
+        return None
+    return _springs_by_id(elements).get(ref.id)
+
+
+#: The ``Spring`` objects of an element container by id, kept while the container lives and made again when its
+#: springs change in number: one pass per FEM instead of one per rotary inertia (a deck can have thousands of
+#: grounded springs with an inertia on each).
+_SPRING_INDEX: "weakref.WeakKeyDictionary" = weakref.WeakKeyDictionary()
+
+
+def _springs_by_id(elements) -> dict:
+    springs = elements.springs
+    count = len(springs)
+    held = _SPRING_INDEX.get(elements)
+    if held is None or held[0] != count:
+        held = (count, {s.id: s for s in springs if isinstance(s, Spring)})
+        _SPRING_INDEX[elements] = held
+    return held[1]
 
 
 def _point_mass(mass: Mass) -> Discrete:
@@ -173,6 +204,27 @@ def _point_mass(mass: Mass) -> Discrete:
         items = [f"_F(GROUP_MA='{group}', CARA='M_T_D_N', VALE={float(value)!r}),"]
     items.append(f"_F(GROUP_MA='{group}', CARA='K_T_D_N', VALE=(0.0, 0.0, 0.0)),")
     return Discrete(mass, group, "DIS_T", items)
+
+
+def _on_a_free_node(mass: Mass) -> bool:
+    """Whether ``mass`` is on a node nothing else holds (no element, support or constraint), reported as left out if
+    so. Its ``DIS_T`` has no stiffness, so written it leaves the node's translations free and every static solve stops
+    at ``FACTOR_11`` (a singular matrix), naming a node id and nothing else; left out, the model solves without it."""
+    from ada.fem.utils import mass_nodes, node_is_held
+
+    free = [n for n in mass_nodes(mass) if not node_is_held(n)]
+    if not free:
+        return False
+    _report().omitted(
+        STAGE,
+        "Mass",
+        mass.name,
+        "a point mass on a node no element, support or constraint holds (a mass off the structure): its "
+        "translations would have no stiffness and the solve would stop at FACTOR_11 (singular matrix)",
+        positions=[[round(float(c), 6) for c in n.p] for n in free],
+        mass=mass.mass,
+    )
+    return True
 
 
 def _rotary_inertia(mass: Mass) -> Discrete | None:
@@ -289,7 +341,7 @@ def point_masses(part: Part) -> DiscreteList:
         elif mass.type == MassTypes.ROTARYI:
             d = _rotary_inertia(mass)
         elif mass.type == MassTypes.MASS:
-            d = _point_mass(mass)
+            d = None if _on_a_free_node(mass) else _point_mass(mass)
         else:
             _report().omitted(STAGE, "Mass", mass.name, f'a "{mass.type}" mass has no Code_Aster form in this writer')
             d = None

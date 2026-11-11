@@ -1,4 +1,4 @@
-"""Mesh nodes at given points: the concept point loads and point supports of a part.
+"""Mesh nodes at given points: the concept point loads, point supports and point masses of a part.
 
 gmsh puts nodes where the geometry has vertices and spreads the rest evenly, so a point in a beam's span or inside a
 plate gets no node of its own. GeniE does make one: its own mesh of the support fixture had a node at ``Sp_mid``
@@ -14,7 +14,8 @@ a beam and the plate it bounds is split once, for both, so the mesh stays confor
 A quad mesh (``use_quads``) meshes each plate as a transfinite surface, which takes no extra vertex: measured with
 gmsh 4.15.2, a point inside a plate got no node, and a point on a plate's edge stopped the mesh with "Surface 1 is
 transfinite but has 5 corners". So with ``surfaces=False`` a point on a surface (edge or inside) is not embedded and
-is said so; the conversion that wanted a node there then reports the load or support that acts on nothing.
+is said so; the conversion that wanted a node there then reports the load or support that acts on nothing,
+or the point mass no element holds.
 """
 
 from __future__ import annotations
@@ -61,8 +62,8 @@ def embed_points(gmsh_session: GmshSession, points: Iterable, tol: float = 1e-4,
                 STAGE,
                 "Point",
                 str(tuple(round(float(c), 6) for c in p)),
-                "a load or support point on a plate is not made a mesh vertex in a quad mesh, a transfinite surface "
-                "taking no extra vertex; it has a node only where the quad mesh happens to put one",
+                "a load, support or mass point on a plate is not made a mesh vertex in a quad mesh, a transfinite "
+                "surface taking no extra vertex; it has a node only where the quad mesh happens to put one",
             )
             continue
         hosts.update(on)

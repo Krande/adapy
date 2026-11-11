@@ -29,6 +29,7 @@ from ada.fem.containers import FemSets
 from ada.fem.formats.utils import str_to_int
 from ada.fem.interactions import ContactTypes, IntPropTypes
 from ada.fem.shapes import ElemType
+from ada.fem.utils import NAMED_BC_DOFS
 
 from ..mapping import bc_types
 from .helper_utils import get_set_from_assembly, list_cleanup
@@ -957,15 +958,7 @@ def get_sets_from_bulk(bulk_str, fem: FEM) -> FemSets:
 
 # Abaqus standard named boundary conditions -> the DOFs they fix (1..3 translations,
 # 4..6 rotations). ENCASTRE is handled separately (passed through as a string).
-_NAMED_BC_DOFS = {
-    "pinned": (1, 2, 3),
-    "xsymm": (1, 5, 6),
-    "ysymm": (2, 4, 6),
-    "zsymm": (3, 4, 5),
-    "xasymm": (2, 3, 4),
-    "yasymm": (1, 3, 5),
-    "zasymm": (1, 2, 6),
-}
+_NAMED_BC_DOFS = {name: dofs for name, dofs in NAMED_BC_DOFS.items() if name != "encastre"}
 
 
 def get_bcs_from_bulk(bulk_str, fem: FEM) -> List[Bc]:

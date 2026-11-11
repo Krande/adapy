@@ -561,6 +561,18 @@ def _rebind_special_to_store(elem, store: MeshArrays) -> None:
             setattr(elem, attr, resolved(node))
 
 
+def _register_on_store_nodes(elem) -> None:
+    """Add a special element kept in ``_overflow`` to ``Node.refs`` of each store node it is on."""
+    from ada.api.mesh.proxies import NodeProxy
+
+    seen = set()
+    for attr in ("_nodes", "_members"):
+        for node in getattr(elem, attr, None) or ():
+            if isinstance(node, NodeProxy) and id(node) not in seen:
+                seen.add(id(node))
+                node.add_obj_to_refs(elem)
+
+
 def to_array_backed(fem):
     """Swap a FEM's object-model ``nodes``/``elements`` for substrate-backed facades
     sharing one ``MeshArrays``. The proxies are transient, so after this the mesh is
@@ -596,8 +608,10 @@ def to_array_backed(fem):
         try:
             store.elem_loc(el.id)
         except ValueError:
-            # Not packed (ragged group, or already an overflow element on a re-conversion).
+            # Not packed (ragged group, or already an overflow element on a re-conversion). No block row, so the
+            # adjacency does not see it: register it on its nodes, as a reader's special is (``RefsView.append``).
             elements._overflow.append(el)
+            _register_on_store_nodes(el)
         else:
             elements._packed_specials.append(el)
     fem.elements = elements

@@ -1514,10 +1514,13 @@ class Part(BackendGeom):
     ) -> FEM:
         """Mesh the part, then convert its concept supports and loads onto the mesh.
 
-        ``embed_concept_points`` makes every concept point load and point support a vertex of the geometry it lies
-        on before meshing, so the mesh has a node there (:mod:`ada.fem.meshing.partitioning.embed_points`); without
-        it a point in a beam's span or inside a plate has no node and is reported as acting on nothing. The concept
-        load cases become FE load cases of one static step (:mod:`ada.fem.concept.loads_to_fem`).
+        ``embed_concept_points`` makes every concept point load, point support and point mass (a shape with a mass,
+        such as a ``MassPoint``, at its cog) a vertex of the geometry it lies on before meshing, so the mesh has a
+        node there (:mod:`ada.fem.meshing.partitioning.embed_points`); without it a point in a beam's span or inside a
+        plate has no node: a load or support is reported as acting on nothing, and a point mass gets a node of its
+        own that no element holds. A point mass on no meshed element (off the structure) keeps such a node and is
+        reported. The concept load cases become FE load cases of one static step
+        (:mod:`ada.fem.concept.loads_to_fem`).
 
         Each object's ``mesh_override`` runs after partitioning and point embedding, against the shared session, and
         adds its rules for that object; everything is then meshed at once, so an overridden object conforms to its
@@ -1541,7 +1544,7 @@ class Part(BackendGeom):
             shp_repr = GeomRepr.from_str(shp_repr)
 
         options = GmshOptions(Mesh_Algorithm=8) if options is None else options
-        masses: list[Shape] = []
+        masses: list[tuple[Shape, Any]] = []
 
         with GmshSession(silent=silent, options=options, debug_mode=debug_mode) as gs:
             # One synchronisation after all objects are added, not one per object (each walks the whole model).
@@ -1551,7 +1554,7 @@ class Part(BackendGeom):
                 elif isinstance(obj, Plate):
                     gs.add_obj(obj, geom_repr=pl_repr, synchronize=False)
                 elif issubclass(type(obj), Shape) and obj.mass is not None:
-                    masses.append(obj)
+                    masses.append((obj, _mass_position(obj)))
                 elif issubclass(type(obj), Shape):
                     gs.add_obj(obj, geom_repr=shp_repr, synchronize=False)
                 else:
@@ -1576,7 +1579,7 @@ class Part(BackendGeom):
 
             constraints = self.concept_fem.constraints.get_part_constraint_concepts()
             if embed_concept_points:
-                points = concept_load_points(self) + _support_points(constraints)
+                points = concept_load_points(self) + _support_points(constraints) + [p for _, p in masses]
                 embed_points(gs, points, surfaces=not use_quads)
                 gs.check_model_entities()
 
@@ -1594,12 +1597,12 @@ class Part(BackendGeom):
 
             fem = gs.get_fem(name=name if name is not None else f"{self.name}-FEM")
 
-        for mass_shape in masses:
-            # A shape given a mass but no cog carries it at its geometric centre (local, like `cog`).
-            cog = mass_shape.cog if mass_shape.cog is not None else mass_shape.bbox().volume_cog
-            cog_absolute = to_global_points(mass_shape, cog)
+        point_masses = []
+        for mass_shape, cog_absolute in masses:
+            # On the node embedded there, when the mass is on a beam or a plate (`Nodes.add` returns the node already
+            # at that position); else on a node of its own.
             n = fem.nodes.add(Node(cog_absolute))
-            fem.add_mass(Mass(f"{mass_shape.name}_mass", [n], mass_shape.mass))
+            point_masses.append(fem.add_mass(Mass(f"{mass_shape.name}_mass", [n], mass_shape.mass)))
 
         if merge_coincident_nodes:
             n_before = len(fem.nodes)
@@ -1619,6 +1622,7 @@ class Part(BackendGeom):
             load_cases=sorted(load_cases, key=lambda lc: lc.fem_loadcase_number),
         )
         add_load_concepts_to_fem(self, fem)
+        _report_free_point_masses(fem, point_masses)
 
         if Config().meshing_check_hanging_nodes:
             from ada.fem.conformality import check_conformal_mesh
@@ -2093,6 +2097,37 @@ class Part(BackendGeom):
         return (
             f'Part("{self.name}": Beams: {nbms}, Plates: {npls}, '
             f"Pipes: {npipes}, Shapes: {nshps}, Elements: {nels}, Nodes: {nnodes})"
+        )
+
+
+def _mass_position(mass_shape: Shape):
+    """The global position of the point mass a shape with a mass becomes: its cog, or, given none, its geometric
+    centre (local, like ``cog``)."""
+    import numpy as np
+
+    cog = mass_shape.cog if mass_shape.cog is not None else mass_shape.bbox().volume_cog
+    return np.asarray(to_global_points(mass_shape, cog), dtype=float).reshape(3)
+
+
+def _report_free_point_masses(fem, point_masses) -> None:
+    """Report each point mass whose node no element, support or constraint holds -- a mass off the structure, or one
+    a quad mesh had no vertex for. Its node has no stiffness, so a static solve of the model as it stands is
+    singular; the model needs the mass moved onto the structure, or a spring or support there."""
+    from ada.fem.concept.to_fem import STAGE, report
+    from ada.fem.utils import node_is_held
+
+    for mass in point_masses:
+        node = mass.nodes[0]
+        if node_is_held(node):
+            continue
+        report().suspect(
+            STAGE,
+            "Mass",
+            mass.name,
+            "a point mass on no meshed element: its node is held by no element, so its translations have no "
+            "stiffness and a static solve is singular (Code_Aster: FACTOR_11) unless a spring or support is added "
+            "there",
+            position=[round(float(c), 6) for c in node.p],
         )
 
 

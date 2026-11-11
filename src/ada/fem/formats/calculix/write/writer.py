@@ -123,6 +123,7 @@ def masses_str(fem) -> tuple[str, int]:
     name, never left out without a word (as the writer used to, with a log line)."""
     from ada.fem.elements import Mass
     from ada.fem.formats import conversion_report
+    from ada.fem.utils import report_free_point_masses
 
     from .write_loads import ccx_number
 
@@ -131,6 +132,7 @@ def masses_str(fem) -> tuple[str, int]:
     masses = [el for el in fem.elements if isinstance(el, Mass)]
     if not masses:
         return "", next_id
+    report_free_point_masses(fem, STAGE)
     rows, blocks = [], []
     for m in masses:
         members = [n for n in (m.members or []) if hasattr(n, "id")]

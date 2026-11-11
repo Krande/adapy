@@ -327,7 +327,9 @@ class MeshArrays:
         self._adj_epoch += 1
         # rows shifted -> any cached proxies now point at the wrong row.
         self._proxy_cache.clear()
-        self._extra_refs = {}
+        # The side-table follows its rows (a removed row's refs go with it). Clearing it dropped every set, spring and
+        # mass from ``Node.refs`` of the nodes that stayed, so after a merge a node a spring alone holds looked free.
+        self._extra_refs = {int(old2new[r]): lst for r, lst in self._extra_refs.items() if r < keep.size and keep[r]}
 
     def conn_changed(self) -> None:
         """Signal that a block's connectivity was edited (invalidates adjacency)."""

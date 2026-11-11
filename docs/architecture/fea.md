@@ -127,15 +127,22 @@ sequenceDiagram
     participant P as Part.to_fem_obj
     participant G as GmshSession
     participant F as FEM
-    P->>G: open session, add_obj(beams, plates, shapes)
+    P->>G: open session, add_obj(beams, plates, shapes without a mass)
+    Note over P: a shape with a mass is not meshed: its position (cog) is kept
     P->>G: partition_plates() · partition_beams()
+    P->>G: embed_points(point loads + point supports + mass positions)
+    Note over G: each point on a beam or a plate becomes a vertex of it (not in a quad mesh's plates)
     P->>G: mesh(size, use_quads, use_hex)
     G->>F: get_fem() → nodes, elements, sections
-    P->>F: add point masses
+    P->>F: add point masses (on the embedded node, else a node of their own)
     P->>F: remove_standalones()
-    P->>F: add_constraint_concepts_to_fem()
+    P->>F: add_constraint_concepts_to_fem() · add_load_concepts_to_fem()
+    P->>F: report point masses on a node nothing holds (suspect)
     P->>F: check_conformal_mesh()
 ```
+
+`embed_concept_points=False` skips the embedding: a mass then gets a node of its own unless a
+mesh vertex is already at its position.
 
 ## The array-backed mesh store (`ada.api.mesh`)
 
@@ -200,7 +207,9 @@ classDiagram
   `to_elem_blocks()` passes `conn` and `el_ids` through as
   `ElementBlock(..., node_refs_are_indices=True)`.
 - **Node→element adjacency** is a CSR incidence (`CSRAdjacency`), built lazily, instead of
-  per-node reference lists.
+  per-node reference lists. `Node.refs` (`RefsView`) chains it with a side-table of the
+  other refs: sets, csys, and the `Mass` / `Spring` / `Connector` objects in `_overflow`,
+  which have no block row, so that a node a spring alone holds is seen as held.
 - **The Sesam, Abaqus and Code_Aster readers** fill a `MeshArrays` directly from the deck
   (Sesam can stream the file). Other FEMs are converted with `to_array_backed(fem)`.
   `GmshSession.get_fem()` still produces object containers, which
