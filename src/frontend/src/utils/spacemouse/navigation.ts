@@ -28,6 +28,7 @@
 // mutated in place.
 
 import {Quaternion, Vector3} from "three";
+import {rolledUpAxis, type Vec3} from "@/utils/camera/roll";
 
 export interface NavigationRates {
     /** Radians per second. */
@@ -53,6 +54,10 @@ const _delta = new Vector3();
 const _panRight = new Vector3();
 const _panUp = new Vector3();
 const _q = new Quaternion();
+const _eye: Vec3 = [0, 0, 0];
+const _aim: Vec3 = [0, 0, 0];
+const _level: Vec3 = [0, 0, 0];
+const _rolled: Vec3 = [0, 0, 0];
 
 /**
  * The camera up vector for a view rolled by `roll` radians about its direction
@@ -62,12 +67,8 @@ const _q = new Quaternion();
  * view direction, which is what makes this a pure roll.
  */
 export function rolledUp(position: Vector3, target: Vector3, worldUp: Vector3, roll: number, out: Vector3): Vector3 {
-    out.copy(worldUp);
-    if (roll === 0) return out;
-    _forward.subVectors(target, position);
-    if (!(_forward.lengthSq() > 0)) return out;
-    _q.setFromAxisAngle(_forward.normalize(), roll);
-    return out.applyQuaternion(_q);
+    rolledUpAxis(position.toArray(_eye), target.toArray(_aim), worldUp.toArray(_level), roll, _rolled);
+    return out.fromArray(_rolled);
 }
 
 /**

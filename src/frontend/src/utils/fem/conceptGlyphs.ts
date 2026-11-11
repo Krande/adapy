@@ -11,14 +11,10 @@ import type {
     Vec31,
 } from "@/extensions/design_and_analysis_extension";
 import {refKey, type FemConceptRef} from "@/utils/fem/femSelection";
+// "0xrrggbb" as written (sRGB) to linear RGB in 0..1, which an overlay takes.
+import {linearHex as linear} from "@/utils/scene/sceneColor";
 
 type Rgb = readonly [number, number, number];
-
-/** "0xrrggbb" as written (sRGB) to linear RGB in 0..1, which an overlay takes. */
-function linear(hex: number): Rgb {
-    const channel = (c: number) => (c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
-    return [channel(((hex >> 16) & 255) / 255), channel(((hex >> 8) & 255) / 255), channel((hex & 255) / 255)];
-}
 
 export const CONCEPT_COLORS = {
     mass: 0xffb300, // amber

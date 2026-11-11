@@ -49,6 +49,7 @@ class Section(Root):
         guid=None,
         refs=None,
         auto_display_in_html=True,
+        r_inner=None,
     ):
         super(Section, self).__init__(name=name, guid=guid, metadata=metadata, units=units, parent=parent)
         if isinstance(sec_type, str):
@@ -65,6 +66,7 @@ class Section(Root):
         self._t_ftop = t_ftop
         self._t_fbtn = t_fbtn
         self._r = r
+        self._r_inner = r_inner
         self._wt = wt
         self._id = sec_id
         self._outer_poly = outer_poly
@@ -121,7 +123,20 @@ class Section(Root):
         return True
 
     def unique_props(self):
-        props = ["type", "h", "w_top", "w_btn", "t_w", "t_ftop", "t_fbtn", "r", "wt", "poly_outer", "poly_inner"]
+        props = [
+            "type",
+            "h",
+            "w_top",
+            "w_btn",
+            "t_w",
+            "t_ftop",
+            "t_fbtn",
+            "r",
+            "r_inner",
+            "wt",
+            "poly_outer",
+            "poly_inner",
+        ]
         if self.type == self.TYPES.GENERAL:
             props += ["properties"]
         return tuple([getattr(self, p) for p in props])
@@ -197,6 +212,26 @@ class Section(Root):
     def r(self, value: float):
         self._r = value
         self._genprops = None
+        # The outline builders (`ada.sections.profiles`) are cached per section object, and `r`
+        # rounds corners (a box's, an I-section's root): an outline built before this would stay.
+        from ada.sections.profiles import clear_profile_caches
+
+        clear_profile_caches()
+
+    @property
+    def r_inner(self) -> float | None:
+        """A box's inner corner radius (IfcRectangleHollowProfileDef.InnerFilletRadius), where it
+        is not ``r`` less the wall: a hot-finished hollow section (EN 10210) is r = 1.5 t outside
+        but 1.0 t inside. None: ``r`` less the wall, as on a cold-formed one (EN 10219)."""
+        return self._r_inner
+
+    @r_inner.setter
+    def r_inner(self, value: float | None):
+        self._r_inner = value
+        self._genprops = None
+        from ada.sections.profiles import clear_profile_caches
+
+        clear_profile_caches()
 
     @property
     def wt(self) -> float:

@@ -2,6 +2,31 @@
 
 
 
+## v0.149.0 (2026-11-11)
+
+### Feature
+
+* feat(viewer): three.js-free viewport matches three.js: shared scene frame, grid and camera; status in Options; stats panel; edges hide with their objects (#535)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`624ad0b`](https://github.com/Krande/adapy/commit/624ad0b4444fad02f6203d27bda819c89dd146cc))
+
+
+## v0.148.0 (2026-11-11)
+
+### Feature
+
+* feat(connections): ada dev connections -- develop a connection library live in the studio (#525) ([`61fdec4`](https://github.com/Krande/adapy/commit/61fdec4eaf551074bfce221996a4be0d62ee124e))
+
+
+## v0.147.0 (2026-11-11)
+
+### Feature
+
+* feat: layers that change over time, one playback clock and model animation on both viewports (#533)
+
+Co-authored-by: Claude Fable 5.2 &lt;noreply@anthropic.com&gt; ([`bb3e297`](https://github.com/Krande/adapy/commit/bb3e297b7e4d1605a241a6cddc0b9f950c195ef9))
+
+
 ## v0.146.1 (2026-11-11)
 
 ### Fix

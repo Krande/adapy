@@ -313,7 +313,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 _job_cleanup_loop(queue),
                 name="job-kv-cleanup",
             )
+        # `ada dev connections`: the library's host process and file watcher (dev_connections.py).
+        if app.state.dev_connections is not None:
+            app.state.dev_connections.start()
         yield
+        if app.state.dev_connections is not None:
+            app.state.dev_connections.stop()
         # Cancel scheduler + issue bot first so a tick in flight
         # doesn't try to use a pool / queue that's about to be torn
         # down.
@@ -359,6 +364,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         lifespan=lifespan,
     )
     auth_module.install(app, settings.auth)
+    # A connection library served live (`ada dev connections`), when ADA_DEV_CONNECTIONS names one.
+    # Built here, so a bad ada_connections.toml fails the start with its own message.
+    from .dev_connections import DevConnections
+    from .dev_connections import configured_path as _dev_connections_path
+
+    _dev_path = _dev_connections_path()
+    app.state.dev_connections = DevConnections(_dev_path) if _dev_path else None
     # Cached worker-registry snapshot, refreshed off the request path by
     # ``_worker_registry_refresh_loop``. ``queue.list_workers()`` is an
     # N+1 over NATS KV (list keys, then one round-trip per worker key);
@@ -1516,6 +1528,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # A selection as a STEP/IFC download (routes/export_selection.py). One fixed path,
     # ``/scopes/{scope}/export-selection``, with no parameterised sibling to collide with.
     api.include_router(export_selection_router)
+
+    # `ada dev connections` (routes/dev_connections.py): fixed `/dev/connections...` paths, mounted
+    # only while a library is being served.
+    if app.state.dev_connections is not None:
+        from .routes.dev_connections import router as dev_connections_router
+
+        api.include_router(dev_connections_router)
 
     # ── Equipment-type & system-template catalogs (per-scope) ────────
     #
@@ -2814,6 +2833,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # before.
         if local_shutdown.enabled(settings):
             body += "window.ADA_LOCAL_SHUTDOWN = true;\n"
+        # `ada dev connections`: the studio opens its connection builder. Emitted only when true.
+        if app.state.dev_connections is not None:
+            body += "window.ADA_DEV_CONNECTIONS = true;\n"
+        # What a local (desktop) viewer lacks, so the page does not ask for it: no database (the
+        # admin/audit routes 503) and a local store (no presigned URLs). Emitted only when lacking.
+        if getattr(app.state, "db_pool", None) is None:
+            body += "window.ADA_NO_DATABASE = true;\n"
+        if not storage.supports_presigned_uploads:
+            body += "window.ADA_NO_PRESIGNED_URLS = true;\n"
 
         # config.js is the SPA's source of truth for runtime config
         # (worker registry → extraSourceExts / streamingOnlyExts, image

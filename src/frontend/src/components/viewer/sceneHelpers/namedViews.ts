@@ -11,21 +11,20 @@ import CameraControls from "camera-controls";
 import {OrbitControls} from "three/examples/jsm/controls/OrbitControls";
 
 import {applyAdaptiveClipping} from "@/components/viewer/sceneHelpers/adaptiveClipping";
-import {fitDistance, sceneFitBox} from "@/components/viewer/sceneHelpers/cameraFit";
+import {sceneFitBox} from "@/components/viewer/sceneHelpers/cameraFit";
 
 import {CAMERA_VIEWS, type CameraView} from "@/layout/coreCommandIds";
 import {namedViewDirection} from "@/utils/camera/namedViewDirection";
+import {namedViewPose} from "@/viewport/api/cameraFrame";
 
 export {namedViewDirection};
 
 export const NAMED_VIEWS = CAMERA_VIEWS;
 export type NamedView = CameraView;
 
-/** How much farther than the tight fit a view stands. */
-const VIEW_MARGIN = 1.1;
-
-/** Point the camera at the model from `view`'s side and frame it. With nothing loaded the camera
- *  turns about its current target at its current distance. */
+/** Point the camera at the model from `view`'s side and frame it (the shared rule,
+ *  viewport/api/cameraFrame `namedViewPose`). With nothing loaded the camera turns about its
+ *  current target at its current distance. */
 export function applyNamedView(
     view: NamedView,
     scene: THREE.Object3D,
@@ -33,29 +32,24 @@ export function applyNamedView(
     controls: OrbitControls | CameraControls,
     zIsUp = true,
 ): void {
-    const dir = new THREE.Vector3(...namedViewDirection(view, zIsUp));
     const box = sceneFitBox(scene);
-    let center: THREE.Vector3;
-    let distance: number;
-    if (box) {
-        const sphere = box.getBoundingSphere(new THREE.Sphere());
-        const radius = Math.max(sphere.radius, 1e-4);
-        center = sphere.center.clone();
-        applyAdaptiveClipping(camera, controls, radius);
-        // A little room around it: the sphere's outline is the model's at its corners only.
-        distance = fitDistance(camera, radius) * VIEW_MARGIN;
-    } else {
-        center = controls instanceof CameraControls ? controls.getTarget(new THREE.Vector3()) : controls.target.clone();
-        distance = Math.max(camera.position.distanceTo(center), 1e-3);
-    }
-    const pos = center.clone().addScaledVector(dir, distance);
+    const target = controls instanceof CameraControls ? controls.getTarget(new THREE.Vector3()) : controls.target;
+    const pose = namedViewPose(
+        box ? [box.min.x, box.min.y, box.min.z, box.max.x, box.max.y, box.max.z] : null,
+        namedViewDirection(view, zIsUp),
+        camera.fov,
+        camera.aspect,
+        {eye: camera.position.toArray(), target: target.toArray()},
+    );
+    if (pose.radius !== null) applyAdaptiveClipping(camera, controls, pose.radius);
+    const [px, py, pz] = pose.eye, [cx, cy, cz] = pose.target;
     if (controls instanceof CameraControls) {
-        void controls.setLookAt(pos.x, pos.y, pos.z, center.x, center.y, center.z, true);
+        void controls.setLookAt(px, py, pz, cx, cy, cz, true);
         camera.updateProjectionMatrix();
     } else {
-        camera.position.copy(pos);
-        camera.lookAt(center);
-        controls.target.copy(center);
+        camera.position.set(px, py, pz);
+        camera.lookAt(cx, cy, cz);
+        controls.target.set(cx, cy, cz);
         camera.updateProjectionMatrix();
         controls.update();
     }

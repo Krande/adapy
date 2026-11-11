@@ -222,9 +222,11 @@ async def test_design_and_analysis_models_are_linked_on_whichever_viewport_is_on
             ), f"{backend}: the design object is not the one drawn selected ({box_pixels} pixels, {tower_pixels} before)"
             await link.first.click()
             await _until(page, lambda: back.count(), f"{backend}: the analysis object to be the selection again")
+            # (to within a few pixels: an edge can fall either way between two frames)
+            again = _count(await _pixels(page), _is_selected)
             assert (
-                _count(await _pixels(page), _is_selected) == tower_pixels
-            ), f"{backend}: the analysis object is not drawn selected"
+                abs(again - tower_pixels) < 0.05 * tower_pixels
+            ), f"{backend}: the analysis object is not drawn selected ({again} pixels, {tower_pixels} before)"
 
             # a click on an object of the model loaded first names that model's file, so its link is offered
             await _command(page, "Clear selection")

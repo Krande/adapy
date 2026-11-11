@@ -14,6 +14,7 @@ import {toggleTreeFocus} from "@/utils/tree_view/treeKeyboard";
 import {groupSelectionFromKeyboard} from "@/utils/groups/groupShortcut";
 import {applyAdaptiveClipping} from "@/components/viewer/sceneHelpers/adaptiveClipping";
 import {frameBox, zoomToAll} from "@/components/viewer/sceneHelpers/cameraFit";
+import {DEFAULT_VIEW} from "@/viewport/api/cameraFrame";
 
 // The camera fits live in ./cameraFit (light enough for the plugin verbs and tests to import);
 // re-exported here, where their callers have always found them.
@@ -214,11 +215,11 @@ export function fitAllView(
 }
 
 /** The pose `setupCamera` starts every viewer at, and the clipping it starts
- *  with. Kept here beside the code that overwrites them. */
-const HOME_POSITION = new THREE.Vector3(-5, 5, 5);
-const HOME_TARGET = new THREE.Vector3(0, 0, 0);
-const HOME_NEAR = 0.1;
-const HOME_FAR = 10000;
+ *  with: the empty-scene view every viewport shares (viewport/api/cameraFrame). */
+const HOME_POSITION = new THREE.Vector3(...DEFAULT_VIEW.eye);
+const HOME_TARGET = new THREE.Vector3(...DEFAULT_VIEW.target);
+const HOME_NEAR = DEFAULT_VIEW.near;
+const HOME_FAR = DEFAULT_VIEW.far;
 
 /** Put the camera back where the viewer started.
  *

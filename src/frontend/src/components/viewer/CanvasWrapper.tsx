@@ -12,6 +12,7 @@ import GalleryControls from "./GalleryControls";
 import BBoxSelectionController from "./BBoxSelectionController";
 import SpaceMouseConnectChip from "./SpaceMouseConnectChip";
 import RenderRecordingHud from "./RenderRecordingHud";
+import PlaybackTransport from "@/components/playback/PlaybackTransport";
 import {useAdacppRenderStatus} from "@/viewport/adacpp/adacppViewport";
 import {usePerfStore} from "@/state/perfStore";
 import {useViewerRefs} from "@/state/AdaViewerContext";
@@ -102,6 +103,8 @@ const CanvasWrapper: React.FC<CanvasWrapperProps> = ({legend = true}) => {
         <React.Suspense fallback={null}>
           <NativeViewport />
         </React.Suspense>
+        {/* The playback clock's transport: nothing while no track is registered. */}
+        <PlaybackTransport />
         {/* Headless, as below: they draw through whichever viewport is on screen. */}
         <TypeIconController />
         <NameLabelController />
@@ -122,6 +125,8 @@ const CanvasWrapper: React.FC<CanvasWrapperProps> = ({legend = true}) => {
       <div id="canvasParent" className="absolute w-full h-full">
         <ThreeCanvas />
       </div>
+      {/* The playback clock's transport: nothing while no track is registered. */}
+      <PlaybackTransport />
       {/* Gallery HUD (opt-in via Theme options): prev/next over the scope's files. */}
       <GalleryControls />
       {/* With the 3D mouse option on and nothing connected: the click the browser's chooser needs. */}

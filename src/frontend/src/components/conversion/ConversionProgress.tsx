@@ -5,6 +5,8 @@ import {useMeStore} from "@/state/meStore";
 import {useViewerPanelStore} from "@/state/viewerPanelStore";
 import {useScopeStore, scopeUrlPart} from "@/state/scopeStore";
 import {viewerApi} from "@/services/viewerApi";
+import {ApiError} from "@/services/api/client";
+import {runtime} from "@/runtime/config";
 import {cancelOperation} from "@/services/operationTracking";
 import {useLoadQueueStore, type LoadTask} from "@/state/loadQueueStore";
 import {useAuditToastStore} from "@/state/auditToastStore";
@@ -838,18 +840,22 @@ const AuditActivityBadge: React.FC = () => {
     const openPanel = useViewerPanelStore((s) => s.openPanel);
     const toastHidden = useAuditToastStore((s) => s.hidden);
     const [summary, setSummary] = useState<AuditActiveSummary | null>(null);
+    // No database (desktop / local mode; config.js says so, else a 503), so no audit
+    // can run on it -- stop asking rather than log a 503 every 15s.
+    const [unavailable, setUnavailable] = useState(() => !runtime.hasDatabase());
 
     useEffect(() => {
-        if (!isAdmin) return;
+        if (!isAdmin || unavailable) return;
         let cancelled = false;
         const poll = async () => {
             try {
                 const r = await viewerApi.adminAuditActive();
                 if (!cancelled) setSummary(r);
-            } catch {
+            } catch (err) {
                 // Network blip or auth dropped — silently retry on
                 // the next tick. The badge stays at its last
                 // known state in the meantime.
+                if (!cancelled && err instanceof ApiError && err.status === 503) setUnavailable(true);
             }
         };
         void poll();
@@ -865,7 +871,7 @@ const AuditActivityBadge: React.FC = () => {
             cancelled = true;
             window.clearInterval(id);
         };
-    }, [isAdmin, summary && summary.running_runs > 0]);
+    }, [isAdmin, unavailable, summary && summary.running_runs > 0]);
 
     if (!isAdmin || toastHidden || !summary || summary.running_runs === 0) return null;
     const {running_runs, pending_cells, current_cell} = summary;

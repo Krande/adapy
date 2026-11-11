@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import CameraControls from "camera-controls";
 import {OrbitControls} from "three/examples/jsm/controls/OrbitControls.js";
+import {clipRangeFor} from "@/viewport/api/cameraFrame";
 
 // Scale the camera near/far clipping planes (and the control dolly limits) to the size of the
 // content the camera is framing, so small models don't clip away when zooming in.
@@ -11,17 +12,15 @@ import {OrbitControls} from "three/examples/jsm/controls/OrbitControls.js";
 // unit scale) 0.1 clips most of it the moment you try to zoom in. Deriving near from the framed
 // bounding-sphere radius makes the zoom-in headroom proportional to model size at any scale.
 //
-// near/far span keeps a ~1e6 ratio; with far tied to the same radius the model stays comfortably
-// inside the frustum (camera fits at ~2*radius) while near shrinks enough to inspect fine detail.
+// The range itself is the rule every viewport shares (viewport/api/cameraFrame `clipRangeFor`).
 export function applyAdaptiveClipping(
     camera: THREE.PerspectiveCamera,
     controls: OrbitControls | CameraControls | null | undefined,
     radius: number,
 ) {
-    if (!isFinite(radius) || radius <= 0) return;
-
-    const near = Math.max(radius * 1e-3, 1e-6);
-    const far = Math.max(radius * 1e3, near * 1e4);
+    const range = clipRangeFor(radius);
+    if (!range) return;
+    const {near, far} = range;
 
     // Only rewrite when meaningfully different — avoids redundant projection-matrix churn when the
     // same model is re-framed (fit-all, center-on-selection) at an already-correct scale.

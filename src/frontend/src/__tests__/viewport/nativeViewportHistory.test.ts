@@ -40,9 +40,11 @@ type ViewportApi = import("@/viewport/api/viewportApi").ViewportApi;
 type Scene = import("@/viewport/native/nativeScene").NativeScene;
 
 const NAMES = ["a", "b", "c", "d"];
+const OUTLINE = 1000;
 
 /** A renderer that draws nothing: it hands out a model of four objects in a row along x (under a
- *  root that draws nothing itself), and keeps the state last set for each segment. */
+ *  root that draws nothing itself), with their feature edges as instance `OUTLINE + instance`, and
+ *  keeps the state last set for each segment. */
 function fakeRenderer() {
     const heap = new ArrayBuffer(1 << 16);
     const module = {_malloc: () => 1024, _free: () => {}, HEAPU8: new Uint8Array(heap), HEAPU32: new Uint32Array(heap), HEAPF32: new Float32Array(heap)};
@@ -56,7 +58,10 @@ function fakeRenderer() {
             return {
                 bounds: [0, 0, 0, NAMES.length, 1, 1],
                 extras: "",
-                geometries: [{geometry: instance, instance, segmentObjects: Int32Array.from(NAMES, (_, i) => i + 1)}],
+                geometries: [
+                    {geometry: instance, instance, segmentObjects: Int32Array.from(NAMES, (_, i) => i + 1)},
+                    {geometry: OUTLINE + instance, instance: OUTLINE + instance, featureEdges: true, segmentObjects: Int32Array.from(NAMES, (_, i) => i + 1)},
+                ],
                 objects: {
                     count: NAMES.length + 1,
                     ids: ["root", ...NAMES],
@@ -74,6 +79,8 @@ function fakeRenderer() {
         removeInstance: (instance: number) => void states.delete(instance),
         pick: (_x: number, _y: number, _w: number, _h: number, done: (r: unknown) => void) => done(picked ? {hit: true, ...picked} : {hit: false}),
         cameraUpdate: () => false,
+        // The camera reads where it is before it moves.
+        cameraPose: () => ({eye: [-5, 5, 5], target: [0, 0, 0], up: [0, 0, 1], fov: 60, orthographic: false, orthoHeight: 0, azimuth: 0, elevation: 0, roll: 0, distance: 1}),
     };
     // Whatever else the scene asks of the renderer (the camera, sizes, colours) does nothing here.
     const renderer = new Proxy(own, {get: (target, name) => (target as Record<string | symbol, unknown>)[name] ?? (() => undefined)});
@@ -190,6 +197,16 @@ test("select, hide, isolate and show all are one step each; undo and redo restor
         assert.equal(picture(), pictures[i], `after redo ${i}`);
     }
     assert.equal(redoViewerAction(), null);
+});
+
+test("an object's feature edges are hidden with it, and keep their colour while it is selected", () => {
+    api.setSelection([ref("a")]);
+    api.hide([ref("b")]);
+    assert.equal(picture(), "a:shown b:hidden c:shown d:shown");
+    assert.equal(picture(OUTLINE + 1), "a:shown b:hidden c:shown d:shown");
+    api.setSelection([ref("c")]);
+    assert.equal(picture(), "a:shown b:hidden c:selected d:shown");
+    assert.equal(picture(OUTLINE + 1), "a:shown b:hidden c:shown d:shown");
 });
 
 test("hide selected, hide others, show and clearing the selection are steps too", () => {

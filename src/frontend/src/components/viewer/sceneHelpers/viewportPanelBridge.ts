@@ -24,7 +24,7 @@ function listModel(info: LoadedModelInfo): void {
     }
     // A model that replaced what the viewport showed starts the tree over; one that joined adds a root.
     if (!info.added) useTreeViewStore.getState().clearTreeData();
-    void cacheAndBuildTree(info.model, extras, info.sourceName);
+    void cacheAndBuildTree(info.model, extras, info.sourceName, info.displayName);
     keepExtension(info);
 }
 

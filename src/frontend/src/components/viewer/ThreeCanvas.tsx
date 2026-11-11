@@ -30,6 +30,8 @@ import {bindCameraMapping} from "./sceneHelpers/bindCameraMapping";
 import {createThreeViewport} from "@/viewport/api/threeViewport";
 import {runBeforeDraw} from "@/viewport/api/beforeDraw";
 import {setActiveViewport} from "@/viewport/api/viewportApi";
+import {playbackClock} from "@/state/playbackClock";
+import {bindModelAnimationTrack} from "@/state/modelAnimationTrack";
 import {setCaptureViewport} from "@/viewport/capture";
 import {createNullRenderer, isNullRenderer} from "@/viewport/nullRenderer";
 import {AdacppViewport, useAdacppRenderStatus} from "@/viewport/adacpp/adacppViewport";
@@ -159,6 +161,8 @@ const ThreeCanvas: React.FC = () => {
         controlsRef.current = controls;
         // This canvas is the viewport commands, keys and panels talk to (viewport/api).
         const releaseViewport = setActiveViewport(createThreeViewport({scene, camera, controls}));
+        // A loaded model's moving parts play on the playback clock, from whichever viewport is up.
+        bindModelAnimationTrack();
         // Which button, modifier, wheel and gesture does what: the user's mapping, kept live.
         const unbindCameraMapping = bindCameraMapping(controls, ensureViewportInput(containerRef.current));
 
@@ -261,6 +265,9 @@ const ThreeCanvas: React.FC = () => {
             // Streaming-FEA mode-shape oscillation. No-op when no
             // session is active or play isn't pressed.
             tickFeaAnimation(frameDelta);
+            // The playback clock: every timed track shows this frame's moment. One comparison
+            // while nothing plays. What a track changes asks for the frame itself.
+            playbackClock.tick(performance.now());
             // After the tick, before either renderer draws: a plugin holding the model undeformed wins.
             applyThreeFeaDeformationGate();
             applyFeaUnpaintedColor();

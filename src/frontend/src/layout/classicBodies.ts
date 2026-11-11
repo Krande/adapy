@@ -14,7 +14,7 @@
 // chunk into a new one -- which is what an earlier revision did.
 //
 // Panels whose component is already a lazy chunk of its own (storage, attribute
-// search, admin, convert, the catalog editors, simulations) are not here: the catalogue loads
+// search, admin, convert, the catalog editors, simulations, layers) are not here: the catalogue loads
 // those chunks directly, as the classic UI always has.
 
 import React from "react";
@@ -30,6 +30,7 @@ import { WebsocketStatusBody, WebsocketStatusBox } from "@/components/WebsocketS
 import SimulationControls, { SimulationBody } from "@/components/simulation/SimulationControls";
 import SimulationDataInfoPanel from "@/components/simulation/SimulationDataInfoPanel";
 import ComponentControls, { ComponentControlsBody } from "@/components/component_view/ComponentControls";
+import ConsolePanel, { ConsoleBody } from "@/components/console/ConsolePanel";
 import CellBuilderPanel, { CellBuilderBody } from "@/components/viewer/CellBuilderPanel";
 import { ComponentListBody, ComponentListPanel } from "@/components/viewer/cellbuilder/panel/ComponentList";
 
@@ -76,6 +77,7 @@ export const CLASSIC_PANEL_COMPONENTS: Readonly<Record<PanelId, React.ComponentT
   [CORE_PANEL_IDS.simulation]: asBody(SimulationControls),
   [CORE_PANEL_IDS.feaTable]: asBody(SimulationDataInfoPanel),
   [CORE_PANEL_IDS.componentControls]: asBody(ComponentControls),
+  [CORE_PANEL_IDS.console]: asBody(ConsolePanel),
   [CORE_PANEL_IDS.cellbuilder]: asBody(CellBuilderPanel),
   [CORE_PANEL_IDS.componentList]: asBody(ComponentListPanel),
 };
@@ -91,6 +93,7 @@ export const CLASSIC_PANEL_CONTENTS: Readonly<Record<PanelId, React.ComponentTyp
   [CORE_PANEL_IDS.simulation]: withOptions(SimulationBody),
   [CORE_PANEL_IDS.feaTable]: withOptions(SimulationDataInfoPanel),
   [CORE_PANEL_IDS.componentControls]: withOptions(ComponentControlsBody),
+  [CORE_PANEL_IDS.console]: asBody(ConsoleBody),
   [CORE_PANEL_IDS.cellbuilder]: withOptions(CellBuilderBody),
   [CORE_PANEL_IDS.componentList]: asBody(ComponentListBody),
 };
@@ -112,6 +115,7 @@ const LAZY_BODIES: Readonly<Record<PanelId, Loader>> = {
   [CORE_PANEL_IDS.admin]: () => import("@/components/admin/AdminPanel").then((m) => asBody(m.AdminWindowBody)),
   [CORE_PANEL_IDS.convert]: () => import("@/components/convert/ConvertPage").then((m) => asBody(m.default)),
   [CORE_PANEL_IDS.simulations]: () => import("@/components/simulations/SimulationsPanel").then((m) => asBody(m.default)),
+  [CORE_PANEL_IDS.layers]: () => import("@/components/layers/LayersPanel").then((m) => asBody(m.default)),
 };
 
 const LAZY_CONTENTS: Readonly<Record<PanelId, Loader>> = {
@@ -127,6 +131,7 @@ const LAZY_CONTENTS: Readonly<Record<PanelId, Loader>> = {
   [CORE_PANEL_IDS.convert]: () => import("@/components/convert/ConvertPage").then((m) => withOptions(m.default)),
   [CORE_PANEL_IDS.simulations]: () =>
     import("@/components/simulations/SimulationsPanel").then((m) => asBody(m.SimulationsBody)),
+  [CORE_PANEL_IDS.layers]: () => import("@/components/layers/LayersPanel").then((m) => asBody(m.LayersBody)),
 };
 
 /**

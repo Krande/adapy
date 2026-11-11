@@ -8,6 +8,8 @@ export type NativeViewportState = "off" | "starting" | "active" | "failed";
 export interface NativeModel {
     bytes: Uint8Array;
     sourceName: string;
+    /** What the model is called to a person, when its loader was told. */
+    displayName?: string;
     /** Beside the models on screen ("overlay"), or instead of them. */
     placement: "replace" | "overlay";
     /** Bumped per load, so the same file loaded again is still a change. */
@@ -19,9 +21,13 @@ interface NativeViewportStore {
     /** Why the viewport is not up: the three.js viewport is shown instead. */
     error: string | null;
     model: NativeModel | null;
+    /** Why the last model could not be shown; the viewport stays up. */
+    loadError: string | null;
+    /** Objects of the models on screen. */
+    objectCount: number;
 }
 
-export const useNativeViewport = create<NativeViewportStore>(() => ({state: "off", error: null, model: null}));
+export const useNativeViewport = create<NativeViewportStore>(() => ({state: "off", error: null, model: null, loadError: null, objectCount: 0}));
 
 // On the document element too, for end-to-end tests (as the adacpp renderer's state is).
 const rootData = typeof document !== "undefined" ? document.documentElement?.dataset : undefined;
@@ -50,9 +56,10 @@ export async function showInNativeViewport(
     requestHeaders: Record<string, string> | undefined,
     sourceName: string,
     placement: "replace" | "overlay" = "replace",
+    displayName?: string,
 ): Promise<void> {
     const response = await fetch(url, requestHeaders ? {headers: requestHeaders} : undefined);
     if (!response.ok) throw new Error(`loading the model failed: ${response.status} ${response.statusText}`);
     const bytes = new Uint8Array(await response.arrayBuffer());
-    useNativeViewport.setState({model: {bytes, sourceName, placement, seq: ++seq}});
+    useNativeViewport.setState({model: {bytes, sourceName, displayName, placement, seq: ++seq}});
 }

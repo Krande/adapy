@@ -5,6 +5,10 @@ import * as THREE from "three";
 import CameraControls from "camera-controls";
 import {OrbitControls} from "three/examples/jsm/controls/OrbitControls";
 import {applyAdaptiveClipping} from "@/components/viewer/sceneHelpers/adaptiveClipping";
+import {framePose, wholeSphereDistance} from "@/viewport/api/cameraFrame";
+import type {Box6} from "@/viewport/api/sceneFrame";
+
+const box6 = (b: THREE.Box3): Box6 => [b.min.x, b.min.y, b.min.z, b.max.x, b.max.y, b.max.z];
 
 // Skip helper subtrees (section planes, caps, the transform gizmo) and hidden
 // objects when fitting the camera. setFromObject ignores `visible`, so the
@@ -29,20 +33,11 @@ export const frameBox = (
     distanceScale = 1.6,
 ) => {
     if (box.isEmpty()) return;
-    const sphere = box.getBoundingSphere(new THREE.Sphere());
-    if (!sphere || !isFinite(sphere.radius) || sphere.radius === 0) return;
-    const center = sphere.center.clone();
-    const radius = Math.max(sphere.radius, 1e-4);
-    applyAdaptiveClipping(camera, controls, radius);
-    const vFov = THREE.MathUtils.degToRad(camera.fov);
-    const aspect = camera.aspect || 1;
-    const vDist = radius / Math.tan(vFov / 2);
-    const hFov = 2 * Math.atan(Math.tan(vFov / 2) * aspect);
-    const hDist = radius / Math.tan(hFov / 2);
-    const distance = Math.max(vDist, hDist) * distanceScale;
-    const direction = new THREE.Vector3();
-    camera.getWorldDirection(direction).normalize();
-    const newPosition = center.clone().add(direction.clone().multiplyScalar(-distance));
+    const pose = framePose(box6(box), camera.getWorldDirection(new THREE.Vector3()).toArray(), camera.fov, camera.aspect, distanceScale, 1e-4);
+    if (!pose) return;
+    applyAdaptiveClipping(camera, controls, pose.radius);
+    const center = new THREE.Vector3(...pose.target);
+    const newPosition = new THREE.Vector3(...pose.eye);
     if (controls instanceof OrbitControls) {
         camera.position.copy(newPosition);
         camera.lookAt(center);
@@ -76,12 +71,8 @@ export const sceneFitBox = (scene: THREE.Object3D): THREE.Box3 | null => {
  *  ways (its silhouette inside the narrower field of view). Farther than zoomToAll's fit, which
  *  puts the sphere's outline at the centre's depth on the edge, so geometry nearer the camera
  *  than the centre can fall outside. */
-export const fitDistance = (camera: THREE.PerspectiveCamera, radius: number): number => {
-    const vFov = THREE.MathUtils.degToRad(camera.fov);
-    const aspect = camera.aspect || 1;
-    const hFov = 2 * Math.atan(Math.tan(vFov / 2) * aspect);
-    return radius / Math.sin(Math.min(vFov, hFov) / 2);
-};
+export const fitDistance = (camera: THREE.PerspectiveCamera, radius: number): number =>
+    wholeSphereDistance(radius, camera.fov, camera.aspect);
 
 export const zoomToAll = (scene: THREE.Scene, camera: THREE.PerspectiveCamera, controls: OrbitControls | CameraControls) => {
     // Compute bounding box only from imported/visible meshes, excluding helpers
@@ -89,28 +80,15 @@ export const zoomToAll = (scene: THREE.Scene, camera: THREE.PerspectiveCamera, c
     const overallBox = sceneFitBox(scene);
     if (!overallBox) return;
 
-    // Compute a bounding sphere from the overall box for robust FOV-based fitting
-    const sphere = overallBox.getBoundingSphere(new THREE.Sphere());
-    if (!sphere || sphere.radius === 0 || !isFinite(sphere.radius)) return;
-
-    const center = sphere.center.clone();
-    const radius = sphere.radius;
+    // The shared fit (viewport/api/cameraFrame): the box's sphere, along the current viewing direction.
+    const pose = framePose(box6(overallBox), camera.getWorldDirection(new THREE.Vector3()).toArray(), camera.fov, camera.aspect);
+    if (!pose) return;
 
     // Adapt near/far to model size so small models can be zoomed into without near-plane clipping.
-    applyAdaptiveClipping(camera, controls, radius);
+    applyAdaptiveClipping(camera, controls, pose.radius);
 
-    // Compute required distance so the sphere fits both vertically and horizontally
-    const vFov = THREE.MathUtils.degToRad(camera.fov);
-    const aspect = camera.aspect || 1;
-    const vDist = radius / Math.tan(vFov / 2);
-    const hFov = 2 * Math.atan(Math.tan(vFov / 2) * aspect);
-    const hDist = radius / Math.tan(hFov / 2);
-    const distance = Math.max(vDist, hDist);
-
-    // Move the camera back along its current viewing direction
-    const direction = new THREE.Vector3();
-    camera.getWorldDirection(direction).normalize();
-    const newPosition = center.clone().add(direction.clone().multiplyScalar(-distance));
+    const center = new THREE.Vector3(...pose.target);
+    const newPosition = new THREE.Vector3(...pose.eye);
 
     if (controls instanceof OrbitControls) {
         camera.position.copy(newPosition);

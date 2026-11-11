@@ -59,6 +59,13 @@ def build_section_profile(sec: Section, is_solid) -> SectionProfile:
 build_props = dict(origin=(0, 0, 0), xdir=(1, 0, 0), normal=(0, 0, 1))
 
 
+def clear_profile_caches() -> None:
+    """Forget every cached outline. They are cached per section OBJECT (its guid), so one built before
+    a dimension of that section changed would otherwise be handed back as it was."""
+    for builder in (angular, iprofiles, tprofiles, box, flatbar, channel):
+        builder.cache_clear()
+
+
 def build_disconnected(input_curve: list[tuple[tuple, tuple]]) -> list[CurveOpen2d]:
     return [CurveOpen2d(x, **build_props) for x in input_curve]
 
@@ -302,6 +309,20 @@ def box(sec: Section, return_solid) -> SectionProfile:
         p6 = (rd(wtop / 2 - tw), rd(h / 2 - tftop))
         p7 = (rd(wbtn / 2 - tw), rd(-h / 2 + tfbtn))
         p8 = (rd(-wbtn / 2 + tw), rd(-h / 2 + tfbtn))
+
+        # Rounded corners when the section carries a corner radius in ``r`` -- the outer one, as
+        # IfcRectangleHollowProfileDef.OuterFilletRadius (and as ``r`` is the I-section's fillet
+        # radius). The inner one is ``r_inner`` (InnerFilletRadius) where given -- a hot-finished
+        # section (EN 10210) is 1.5 t outside, 1.0 t inside -- else the outer radius less the wall,
+        # as on a cold-formed one (EN 10219). A radius that won't fit (>= half its outline) is
+        # skipped, and an inner one that comes to nothing leaves the inside sharp.
+        r = getattr(sec, "r", None)
+        wall = max(tw, tftop, tfbtn)
+        if r and 0 < r < min(wtop, wbtn, h) / 2:
+            p1, p2, p3, p4 = ((x, y, r) for x, y in (p1, p2, p3, p4))
+            r_inner = sec.r_inner if sec.r_inner is not None else r - wall
+            if 0 < r_inner < min(wtop - 2 * tw, h - tftop - tfbtn) / 2:
+                p5, p6, p7, p8 = ((x, y, r_inner) for x, y in (p5, p6, p7, p8))
 
         outer_curve = build_joined([p1, p2, p3, p4])
         inner_curve = build_joined([p5, p6, p7, p8])

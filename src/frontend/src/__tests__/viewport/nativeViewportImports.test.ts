@@ -62,7 +62,7 @@ test("the three.js-free viewport's chunk imports no three.js", () => {
 
 // The interface both viewports stand behind, and the keys bound through it, are loaded by the
 // three.js-free viewport: they may name three.js in types only.
-for (const module of ["viewportApi.ts", "viewportShortcuts.ts", "billboards.ts", "overlayLayer.ts", "beforeDraw.ts", "viewportState.ts"]) {
+for (const module of ["viewportApi.ts", "viewportShortcuts.ts", "billboards.ts", "overlayLayer.ts", "imageLayer.ts", "beforeDraw.ts", "viewportState.ts"]) {
     test(`viewport/api/${module} imports no three.js`, () => {
         walkFreeOfThree(join(ROOT, "src/viewport/api", module));
     });
@@ -130,6 +130,23 @@ for (const module of [
     "viewport/api/sourceViews.ts",
     "utils/bboxSelection/boxPersistence.ts",
     "utils/bboxSelection/boxStorage.ts",
+]) {
+    test(`${module} imports no three.js`, () => {
+        walkFreeOfThree(join(ROOT, "src", module));
+    });
+}
+
+// What plays over time and the layers that change with it: the clock, the registry of named layers,
+// the model animation's track, the plugin's verbs for them, and the transport and the panel that
+// show them are shared by both viewports; images in the world have a side of their own on this one.
+for (const module of [
+    "state/playbackClock.ts",
+    "state/layerRegistry.ts",
+    "state/modelAnimationTrack.ts",
+    "plugins/sceneLayers.ts",
+    "viewport/native/nativeImages.ts",
+    "components/playback/PlaybackTransport.tsx",
+    "components/layers/LayersPanel.tsx",
 ]) {
     test(`${module} imports no three.js`, () => {
         walkFreeOfThree(join(ROOT, "src", module));

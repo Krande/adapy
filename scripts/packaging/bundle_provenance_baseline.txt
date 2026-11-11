@@ -92,3 +92,8 @@ in n)&&!(
 in t.depth?e.push(
 # src/frontend/src/assets/searchExport.ts:457
 in n?e.push(
+
+# --- An error message concatenated with `+` across two lines; the bundler folds
+# the fragments into one literal.
+# src/frontend/node_modules/three/examples/jsm/loaders/DRACOLoader.js:201-202
+THREE.DRACOLoader: Unable to re-decode a buffer with different settings. Buffer has already been transferred.

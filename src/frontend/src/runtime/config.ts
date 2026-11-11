@@ -116,6 +116,16 @@ declare global {
         // Never set on a deployment. The token itself is not here — /config.js
         // is a script any page can include — but in /api/config.
         ADA_LOCAL_SHUTDOWN?: boolean;
+        // True only on a local viewer `ada dev connections` started: it serves a
+        // connection library live (/api/dev/connections), and the page opens the
+        // connection builder on it.
+        ADA_DEV_CONNECTIONS?: boolean;
+        // True on a server without a database (a local / desktop viewer): the
+        // admin and audit routes answer 503, so the page does not ask them.
+        ADA_NO_DATABASE?: boolean;
+        // True on a server with a local store: it mints no presigned URLs, so
+        // the page reads blobs through /blobs without asking for one first.
+        ADA_NO_PRESIGNED_URLS?: boolean;
         WEBSOCKET_ID?: number | string;
         WEBSOCKET_PORT?: number | string;
         TARGET_INSTANCE_ID?: number | string;
@@ -142,6 +152,13 @@ export const runtime = {
 
     // A local viewer this page may stop (see services/localViewer.ts).
     localShutdownAvailable: (): boolean => w().ADA_LOCAL_SHUTDOWN === true,
+
+    // A connection library served live by `ada dev connections` (see services/devConnections).
+    devConnections: (): boolean => w().ADA_DEV_CONNECTIONS === true,
+
+    // What the server offers. Absent (an older server) = offered.
+    hasDatabase: (): boolean => w().ADA_NO_DATABASE !== true,
+    presignedUrls: (): boolean => w().ADA_NO_PRESIGNED_URLS !== true,
 
     // Image identity (REST mode only). Either may be empty in dev or
     // when the worker hasn't reported in yet.
