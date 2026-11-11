@@ -42,13 +42,17 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     rm -f /etc/apt/apt.conf.d/docker-clean \
     && sed -i 's|http://archive.ubuntu.com|https://archive.ubuntu.com|g; s|http://security.ubuntu.com|https://security.ubuntu.com|g' /etc/apt/sources.list.d/*.sources \
-    && apt-get update \
-    && apt-get install -y --no-install-recommends \
-        ca-certificates \
+    && PKGS="ca-certificates \
         libnss3 libatk-bridge2.0-0 libcups2 libxcomposite1 libxdamage1 \
         libxfixes3 libxrandr2 libgbm1 libxkbcommon0 libpango-1.0-0 libcairo2 \
         libasound2t64 \
-        mesa-vulkan-drivers libvulkan1
+        mesa-vulkan-drivers libvulkan1" \
+    # The Ubuntu archive hosts have failed to resolve from CI runners for hours at a time. When they
+    # do, the same archive is taken from another mirror (packages are verified against Ubuntu's keys
+    # whichever mirror serves them).
+    && { { apt-get update && apt-get install -y --no-install-recommends $PKGS; } \
+        || { sed -i 's|https://archive.ubuntu.com|https://mirrors.kernel.org|g; s|https://security.ubuntu.com|https://mirrors.kernel.org|g' /etc/apt/sources.list.d/*.sources \
+            && apt-get update && apt-get install -y --no-install-recommends $PKGS; }; }
 
 WORKDIR /work/adapy
 
