@@ -118,6 +118,17 @@ class ThreeResultLayer implements ResultMeshLayer {
         }
     }
 
+    setOpacity(opacity: number): void {
+        const m = this.object.material as THREE.Material | THREE.Material[] | undefined;
+        const mat = Array.isArray(m) ? m[0] : m;
+        if (!mat || mat.opacity === opacity) return;
+        mat.opacity = opacity;
+        if (opacity < 1 && !mat.transparent) {
+            mat.transparent = true;
+            mat.needsUpdate = true;
+        }
+    }
+
     setVisible(visible: boolean): void {
         this.object.visible = visible;
     }

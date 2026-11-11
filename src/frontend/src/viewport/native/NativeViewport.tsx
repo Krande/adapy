@@ -13,7 +13,8 @@ import {notifyModelLoaded, notifyViewportPick, setActiveViewport} from "@/viewpo
 import {runBeforeDraw} from "@/viewport/api/beforeDraw";
 import {viewportShortcutHandlers} from "@/viewport/api/viewportShortcuts";
 import {NativeOrientationGizmo} from "./NativeOrientationGizmo";
-import {NativeScene, splitObjectKey} from "./nativeScene";
+import {NativeScene, objectKey, splitObjectKey} from "./nativeScene";
+import {objectAt} from "@/viewport/api/objectAt";
 import {bindSectionGizmo} from "./sectionGizmo";
 import {bindBoxSelectionGizmo} from "./boxSelectionGizmo";
 import {createNativeViewportApi} from "./nativeViewportApi";
@@ -75,6 +76,11 @@ const NativeViewport: React.FC = () => {
             // The viewport's keys (hide, show all, fit, named views, orbit and pan by key), while it is up.
             const unbind = bindCoreShortcuts(viewportShortcutHandlers((run) => ({run})));
             const releaseDispatcher = installShortcutDispatcher();
+            scene.objectOver = (clientX, clientY, surface) => {
+                const view = host.getBoundingClientRect();
+                const ref = objectAt(api, clientX - view.left, clientY - view.top, surface);
+                return ref ? objectKey(ref.model, ref.id) : null;
+            };
             // Section planes: the same store the three.js viewport cuts by.
             const cut = () => {
                 const {planes, capColor} = useSectionStore.getState();

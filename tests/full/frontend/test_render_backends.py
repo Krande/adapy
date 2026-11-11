@@ -908,6 +908,19 @@ async def test_fea_beams_are_drawn_as_their_sections(ws_server, backend, fem_fil
                 return _count((await _pixels(page)).crop(model), _is_coloured) >= with_line - 20
 
             await _until(page, line_back, f"{backend}: Show all to bring the beam's line back")
+
+            # and a click on a line selects the beam it draws
+            # (hiding the beam left nothing selected)
+            assert _count((await _pixels(page)).crop(model), _is_selected) == 0
+            # (a line is a few pixels wide: the middle one of its coloured pixels is on it)
+            view = (await _pixels(page)).crop(model)
+            px = view.load()
+            on_line = [(x, y) for y in range(view.height) for x in range(view.width) if _is_coloured(px[x, y])]
+            assert on_line, f"{backend}: no coloured line to click"
+            x, y = on_line[len(on_line) // 2]
+            await _click(page, model[0] + x, model[1] + y)
+            await _until(page, line_selected, f"{backend}: a click on a beam's line to select it")
+            await _until(page, row_selected, f"{backend}: the clicked beam's row to be selected in the tree")
         finally:
             await browser.close()
 

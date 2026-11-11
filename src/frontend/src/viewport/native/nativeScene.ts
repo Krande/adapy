@@ -826,6 +826,10 @@ export class NativeScene {
      *  picked; a click it answers true to is its own, and nothing is picked or selected for it. */
     clickFirst: ((clientX: number, clientY: number, additive: boolean) => Promise<boolean>) | null = null;
 
+    /** The object (its key) drawn at a client position that the renderer's own pick does not see,
+     *  given the world point that pick found there (null for empty space); null when there is none. */
+    objectOver: ((clientX: number, clientY: number, surface: [number, number, number] | null) => string | null) | null = null;
+
     /** The object under a client position, in the frame last drawn. */
     async pick(clientX: number, clientY: number): Promise<string | null> {
         return (await this.pickHit(clientX, clientY))?.id ?? null;
@@ -970,7 +974,10 @@ export class NativeScene {
                 const {clientX, clientY} = e;
                 void (async () => {
                     if (this.clickFirst && (await this.clickFirst(clientX, clientY, additive))) return;
-                    this.pickSelect(await this.pick(clientX, clientY), additive);
+                    const hit = await this.pickHit(clientX, clientY);
+                    // What is drawn in a way the renderer's pick does not see (a line), when it is in front.
+                    const over = this.objectOver?.(clientX, clientY, hit?.world ?? null) ?? null;
+                    this.pickSelect(over ?? hit?.id ?? null, additive);
                 })();
             }
         });
