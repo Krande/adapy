@@ -27,10 +27,15 @@ export interface LoadGlbOptions {
     pointSize?: number;
     lineColor?: [number, number, number, number];
     doubleSided?: boolean;
+    /** Mark single-sided surfaces as closed solids, so setSectionCaps fills their cut. */
+    sectionCaps?: boolean;
     /** Above 0: also draw the viewer's feature edges (boundary + folds over this angle, degrees). */
     featureEdgeAngleDeg?: number;
     /** Return each added geometry's world-space positions. */
     keepPositions?: boolean;
+    /** Read the file's node animations: a node that moves stays an instance of its own, placed by
+     *  `setAnimationTime`. A file without animations loads as without the option. */
+    animations?: boolean;
 }
 
 /** One geometry loadGlb added, with its instance. */
@@ -41,6 +46,11 @@ export interface LoadedGlbGeometry {
     vertexCount: number;
     vertexColors: boolean;
     featureEdges: boolean;
+    /** The object (an index into `LoadedGlb.objects`) each of its segments draws; -1 for none. */
+    segmentObjects: Int32Array;
+    /** The animated node (an index into `LoadedGlb.animatedNodes`' nodes) this geometry is the
+     *  instance of; -1 when it is merged with the rest. Absent from a module without animations. */
+    node?: number;
     positions?: Float32Array;
     /** Its index buffer (into `positions`), with keepPositions. */
     indices?: Uint32Array;
@@ -51,6 +61,50 @@ export interface LoadedGlb {
     bounds: [number, number, number, number, number, number];
     featureEdges: number;
     geometries: LoadedGlbGeometry[];
+    /** The model's objects, parents before children. */
+    objects: LoadedGlbObjects;
+    /** True when the objects are the GLB's nodes (ids are node indices), not adapy's object ids. */
+    nodeObjects: boolean;
+    /** The scene's extras and the root `ADA_EXT_data` extension, as the JSON text the GLB holds ("" if absent). */
+    extras: string;
+    adaExtData: string;
+    /** The file's animations as a set the `animation*` calls take; -1 when it has none (or they
+     *  were not asked for). Absent from a module without animations. */
+    animationSet?: number;
+    animations?: {name: string; duration: number}[];
+    /** The nodes that are placed by the animations. */
+    animatedNodes?: Int32Array;
+}
+
+/** The objects of a loaded GLB as parallel tables, `count` long. */
+export interface LoadedGlbObjects {
+    count: number;
+    ids: string[];
+    names: string[];
+    /** Index of each object's parent, -1 for a root. */
+    parents: Int32Array;
+    /** 6 per object: min xyz, max xyz in world space, of the object and everything below it. Inverted
+     *  (min > max) when nothing of it is drawn. */
+    bounds: Float32Array;
+    triangles: Uint32Array;
+    /** Object i draws the (instance, segment) pairs `segments[2k], segments[2k + 1]` for k in
+     *  `segmentOffsets[i] .. segmentOffsets[i + 1]`. */
+    segmentOffsets: Uint32Array;
+    segments: Uint32Array;
+}
+
+/** The renderer's own camera, as `cameraPose()` reports it. Angles in degrees. */
+export interface CameraPoseInfo {
+    eye: [number, number, number];
+    target: [number, number, number];
+    up: [number, number, number];
+    fov: number;
+    orthographic: boolean;
+    orthoHeight: number;
+    azimuth: number;
+    elevation: number;
+    roll: number;
+    distance: number;
 }
 
 export interface WebRendererApi {
@@ -97,13 +151,91 @@ export interface WebRendererApi {
     ): void;
     setSegmentStates(instance: number, packed: number, count: number): void;
     removeInstance(instance: number): void;
+    /** Place an instance: a column-major 4x4 at `matrix` (heap pointer). Its other state stays. */
+    setInstanceMatrix(instance: number, matrix: number): void;
+    instanceMatrix(instance: number): Float32Array;
+    // Node animations of a loaded GLB (`LoadGlbOptions.animations`), by the set `loadGlb` returned.
+    // `clear()` forgets every set; a call with a set that is gone throws.
+    animationCount(set: number): number;
+    animationName(set: number, animation: number): string;
+    /** Seconds. */
+    animationDuration(set: number, animation: number): number;
+    /** Put the set's nodes where `animation` has them at `seconds`; animation -1 is the rest pose. */
+    setAnimationTime(set: number, animation: number, seconds: number): void;
+    /** Where the set's animated nodes are now: 16 numbers per entry of `animatedNodes`. */
+    animationNodeMatrices(set: number): Float32Array;
+    removeAnimations(set: number): void;
     clear(): void;
     setCamera(view: number, proj: number, orthographic: boolean): void;
+    // The renderer's own camera. With setCameraControlled(true), render() and pick() draw from it and
+    // setCamera is ignored. Pixels are drawing-buffer pixels (x right, y down); angles are degrees;
+    // `seconds` > 0 moves there over that time, driven by cameraUpdate.
+    setCameraControlled(on: boolean): void;
+    /** Half a turn per viewport height. */
+    cameraOrbit(dx: number, dy: number): void;
+    /** What is at the target's depth follows the pointer. */
+    cameraPan(dx: number, dy: number): void;
+    /** Multiplies the distance: below 1 moves in. */
+    cameraZoom(factor: number): void;
+    /** As cameraZoom, keeping what is under the pixel (at the target's depth) under it. */
+    cameraZoomAt(factor: number, x: number, y: number): void;
+    cameraRoll(angleDeg: number): void;
+    /** Frame a box, keeping the viewing direction. `margin` 0 is the default (1.15). */
+    cameraFit(x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, margin: number, seconds: number): void;
+    /** front, back, left, right, top, bottom or iso; false for a name it does not know. */
+    cameraView(name: string, seconds: number): boolean;
+    cameraSetOrientation(azimuthDeg: number, elevationDeg: number, rollDeg: number, seconds: number): void;
+    cameraPose(): CameraPoseInfo;
+    /** Put the camera at `eye`, looking at `target`, with `up` deciding its roll. `orthoHeight` 0
+     *  derives it; `seconds` > 0 moves there over that time. */
+    cameraSetPose(
+        ex: number, ey: number, ez: number, tx: number, ty: number, tz: number, ux: number, uy: number, uz: number,
+        fovDeg: number, orthographic: boolean, orthoHeight: number, seconds: number,
+    ): void;
+    /** The camera's view and projection (column-major, clip z 0..1) for the canvas' aspect. */
+    cameraMatrices(): {view: Float32Array; proj: Float32Array};
+    cameraSetOrthographic(on: boolean): void;
+    cameraSetUpAxis(axis: "z" | "y"): void;
+    /** The share of a drag's speed kept per 1/60 s after it is released; 0 stops dead. */
+    cameraSetDamping(inertia: number): void;
+    /** Advance transitions and glides by `dtSeconds`; true while the camera is still moving. */
+    cameraUpdate(dtSeconds: number): boolean;
+    cameraMoving(): boolean;
     setBackground(r: number, g: number, b: number): void;
     setLighting(ambient: number, diffuse: number): void;
     setCulling(frustum: boolean, cone: boolean, occlusion: boolean): void;
     /** `count` section planes as (nx, ny, nz, constant) floats at `planes` (heap pointer); at most 6. */
     setClipPlanes(planes: number, count: number): void;
+    /** Fill the cut of every `Capped` instance (closed, single-sided solids) on each section plane. */
+    setSectionCaps(enabled: boolean): void;
+    /** One colour for every cap (linear rgb); `a` 0 goes back to each instance's own colour. */
+    setSectionCapColor(r: number, g: number, b: number, a: number): void;
+    /** A texture from RGBA8 pixels at `rgba` (heap pointer): top row first, sRGB, straight alpha, as
+     *  `getImageData().data`. */
+    addTexture(rgba: number, width: number, height: number): number;
+    /** As `addTexture`, without a mip chain: for pixels that are replaced often. */
+    addPlainTexture(rgba: number, width: number, height: number): number;
+    /** New pixels: written in place at the size it has, made again under the same id at another. */
+    updateTexture(texture: number, rgba: number, width: number, height: number): void;
+    removeTexture(texture: number): void;
+    addSprite(): number;
+    /** A camera-facing quad as three.js' Sprite: world anchor, `sprite.scale`, `sprite.center`, rotation
+     *  (radians), tint (linear rgb, a = opacity), SpriteFlag bits, and three's renderOrder. `texture`
+     *  NO_TEXTURE draws the tint alone. */
+    setSprite(
+        sprite: number, texture: number, x: number, y: number, z: number, scaleX: number, scaleY: number,
+        centerX: number, centerY: number, rotation: number, r: number, g: number, b: number, a: number,
+        flags: number, renderOrder: number,
+    ): void;
+    removeSprite(sprite: number): void;
+    addQuad(): number;
+    /** A textured rectangle in the world: `matrix` (heap pointer, column-major 4x4) places the unit
+     *  square (x and y from -0.5 to 0.5, z 0), and the texture's top row lies on its y = +0.5 edge.
+     *  Unlit, blended with each pixel's own alpha, seen from both sides, never picked. Tint is linear
+     *  rgb, `a` the opacity; `texture` NO_TEXTURE draws the tint alone. Flags read: Hidden, Clipped,
+     *  DepthOffset, OnTop and Nearest of InstanceFlag. `clear()` drops every quad. */
+    setQuad(quad: number, texture: number, matrix: number, r: number, g: number, b: number, a: number, flags: number, renderOrder: number): void;
+    removeQuad(quad: number): void;
     pick(x: number, y: number, width: number, height: number, callback: (r: RawPick) => void): void;
     stats(): AdacppStats;
     readCullStats(callback: (s: AdacppStats) => void): void;
@@ -115,8 +247,11 @@ export interface RawPick {
     hit: boolean;
     instance: number;
     segment: number;
-    /** Triangle index in the geometry's original index list (index position / 3). */
+    /** Triangle index in the geometry's original index list (index position / 3); for a point, its
+     *  position in the index list (its vertex when the geometry has no index). */
     triangle: number;
+    /** What was hit: Topology.Triangles or Topology.Points. Absent from renderers that only pick triangles. */
+    topology?: number;
     world: [number, number, number];
 }
 
@@ -168,7 +303,19 @@ export const InstanceFlag = {
     DepthOffset: 1 << 12, // in front of coplanar faces (a negative polygonOffset)
     DepthBack: 1 << 14, // behind coplanar lines, so edges drawn on it win (a positive polygonOffset)
     Underlay: 1 << 15, // lines drawn before the faces, so a coplanar face hides them (a ground grid)
+    Capped: 1 << 16, // a closed solid whose cut is filled on each section plane (setSectionCaps)
+    OnTop: 1 << 17, // drawn over the model, no depth test (three.js' depthTest: false, e.g. gizmo handles)
+    CullBack: 1 << 18, // transparent, yet back faces culled (a single-sided transparent material)
+    Nearest: 1 << 19, // a quad's texture sampled without blending between pixels
 } as const;
+export const SpriteFlag = {
+    SizeAttenuation: 1 << 0, // three.js' sizeAttenuation; clear = constant size on screen (perspective)
+    DepthTest: 1 << 1, // hidden where the model is in front
+    Hidden: 1 << 2,
+    Clipped: 1 << 3, // cut by the section planes
+} as const;
+/** setSprite's `texture` for a sprite without one. */
+export const NO_TEXTURE = 0xffffffff;
 export const SegmentFlag = {
     Hidden: 1 << 0,
     // The colour override is a matte surface (metalness 0, roughness 1), as the selection material is.

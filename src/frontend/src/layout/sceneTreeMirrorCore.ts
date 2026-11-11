@@ -6,7 +6,7 @@
 
 import type {TreeNodeData} from "@/components/tree_view/CustomNode";
 import {applyMirroredVisibility, useSceneMirrorStore} from "@/state/sceneMirrorStore";
-import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
+import {subscribeSelection} from "@/viewport/api/viewportApi";
 import {useTreeViewStore} from "@/state/treeViewStore";
 import {useVisibilityStore} from "@/state/visibilityStore";
 import {labelRoots} from "@/utils/tree_view/rootLabels";
@@ -35,7 +35,7 @@ export function coreSceneTreeSource(): SceneTreeSource<MirrorTreeNode> {
             }
             const offTree = useTreeViewStore.subscribe((s, prev) => void (s.treeData !== prev.treeData && cb("tree")));
             const offVis = useVisibilityStore.subscribe(() => cb("visibility"));
-            const offSel = useSelectedObjectStore.subscribe((s, prev) => void (s.selectedObjects !== prev.selectedObjects && cb("selection")));
+            const offSel = subscribeSelection(() => cb("selection"));
             return () => {
                 offTree();
                 offVis();

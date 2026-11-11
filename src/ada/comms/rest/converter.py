@@ -113,6 +113,7 @@ from .converters.keys import (  # noqa: F401
     is_hidden_key,
     is_published_asset_key,
     is_scope_state_key,
+    is_simulation_key,
     is_supported_source,
     is_versions_artefact_key,
     reconvert_key_for,

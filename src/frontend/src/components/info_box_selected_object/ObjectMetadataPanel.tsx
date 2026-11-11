@@ -1,4 +1,4 @@
-import React, {useState} from 'react';
+import React, {useMemo, useState} from 'react';
 import {movedElementName} from "@/utils/scene/fea/elementInstances";
 import {selectInOtherModel} from '@/utils/scene/crossModelSelect';
 import type {LinkResult} from '@/state/lineageStore';
@@ -368,7 +368,14 @@ const ObjectMetadataPanel: React.FC<Props> = ({data}) => {
     // without going back through the server.
     const fileName = useObjectInfoStore((s) => s.fileName);
     const clickedName = useObjectInfoStore((s) => s.name);
-    const link = useLineageStore((s) => s.findLink(fileName, clickedName));
+    // The link is a new object each time it is worked out, so it is worked out when what it is made
+    // from changes, not in the store's selector (which must give the same value for the same state).
+    const lineage = useLineageStore((s) => s.entries);
+    const link = useMemo(
+        () => useLineageStore.getState().findLink(fileName, clickedName),
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [lineage, fileName, clickedName],
+    );
     // Prefer metadata embedded in the GLB extension (when the export
     // used ``embed_object_metadata=True``) over what the server
     // returned in MESH_INFO_REPLY. The embedded path works for GLB-

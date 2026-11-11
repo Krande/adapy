@@ -9,7 +9,9 @@ import AttributeSearchIcon from "@/components/icons/AttributeSearchIcon";
 import CellBuilderIcon from "@/components/icons/CellBuilderIcon";
 import ComponentIcon from "@/components/icons/ComponentIcon";
 import InfoIcon from "@/components/icons/InfoIcon";
+import LayersIcon from "@/components/icons/LayersIcon";
 import SceneIcon from "@/components/icons/SceneIcon";
+import SimulationRunsIcon from "@/components/icons/SimulationRunsIcon";
 import StorageIcon from "@/components/icons/StorageIcon";
 import ToggleControlsIcon from "@/components/icons/AnimationControlToggle";
 import TreeViewIcon from "@/components/icons/TreeViewIcon";
@@ -66,6 +68,7 @@ const MOUNT: Readonly<Record<PanelId, (c: MountCtx) => boolean>> = {
   [CORE_PANEL_IDS.attributeSearch]: ({state, env}) => env.restMode === true && state.open,
   [CORE_PANEL_IDS.admin]: ({state, env}) => env.restMode === true && state.open,
   [CORE_PANEL_IDS.convert]: ({state, env}) => env.restMode === true && state.open,
+  [CORE_PANEL_IDS.simulations]: ({state, env}) => env.restMode === true && state.open,
 };
 
 /** Is the classic UI mounting this panel right now. */
@@ -119,6 +122,18 @@ export const CLASSIC_TOOLBAR: Readonly<Record<PanelId, ToolbarRecipe>> = {
     title: () => "Toggle procedural cellbuilder panel",
     ariaLabel: () => "Toggle procedural cellbuilder panel",
     content: <CellBuilderIcon />,
+  },
+  [CORE_PANEL_IDS.simulations]: {
+    title: () => "Toggle simulations panel",
+    ariaLabel: () => "Toggle simulations panel",
+    content: <SimulationRunsIcon />,
+  },
+  // Left out while no layer is registered: a viewer without layers has no gap for it.
+  [CORE_PANEL_IDS.layers]: {
+    title: () => "Toggle layers panel",
+    ariaLabel: () => "Toggle layers panel",
+    content: <LayersIcon />,
+    omitWhenUnavailable: true,
   },
   [CORE_PANEL_IDS.wsStatus]: {title: () => "Connection", content: null, omitWhenUnavailable: true, statusMenu: true},
 };

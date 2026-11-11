@@ -41,6 +41,17 @@ export type { Runtime } from "@/runtime/config";
 // the viewer API, or it will miss auth headers and scope handling.
 // ---------------------------------------------------------------------------
 export { viewerApi } from "@/services/viewerApi";
+// Simulation providers and runs (1.17.0): the client, and the wire shapes the
+// `simulationProviders` slot's callbacks are handed.
+export { simulationsApi } from "@/services/api/simulations";
+export type {
+  ArtefactBytes,
+  ArtefactRange,
+  SimulationArtefact,
+  SimulationDomain,
+  SimulationProviderInfo,
+  SimulationRun,
+} from "@/services/api/simulations";
 
 // ---------------------------------------------------------------------------
 // Finishing a tracked job: register, at module load, what to do once a job of a

@@ -134,7 +134,36 @@ import { isPlacedElsewhere } from "@/layout/placedElsewhere";
 //          page header, glyphs, `PositionedMenu` and `ModalFrame` on `@/viewer-core/layout`, and
 //          `@/viewer-core/theme`; `CommandSpec.keywords`, `core:option.*` commands for every Options
 //          setting, and user-editable keyboard shortcuts (a `keys` is a default the user may override).
-export const PLUGIN_API_VERSION = "1.16.0";
+// 1.17.0 — `simulationProviders`: a plugin's UI for simulation providers, matched by provider id
+//          or by domain (the kind of simulation: `fea`, `robotics`, `cfd`). Each entry may give a
+//          parameter form section (`renderParameters`) and an "open result" handler
+//          (`openResult`) for the Simulations panel (`core:simulations`); without one the panel
+//          builds the form from the provider's JSON Schema and lists the artefacts as downloads.
+//          Additive, so a minor bump: a plugin built against it and loaded into 1.16.0 would
+//          register into nothing, and its results would open as a list of files with no line
+//          naming the mismatch. viewer-core moves to 1.17.0 with it (the panel id, the types).
+// 1.18.0 — what replaying something recorded over time needs: a moving model with layers of
+//          data that change with it. All additive, on both viewports.
+//          - `ctx.scene.addLineLayer`, `addPointLayer`, `addImage`: lines, points and an image
+//            lying in the world, each returned as a handle whose data is replaced in place (another
+//            number of segments or points every frame without a new buffer every frame, new pixels
+//            in the same texture) and whose look (`visible`, `opacity`) changes without making it
+//            again. Coordinates are the scene's own, z-up. `imageUnavailable` says when the
+//            viewport on screen cannot draw an image of a size.
+//          - `layer` on each of them: a row in core's Layers panel (`core:layers`) with a switch
+//            and an opacity slider, remembered per layer id. `ctx.layers` reads and sets them.
+//          - `ctx.playback`: the viewer's one playback clock. `addTrack({id, duration, show})`
+//            registers something timed; `play` / `pause` / `seek` / `setSpeed` / `setLoop`,
+//            `followEnd` for a recording that is still growing, `state` / `time` / `subscribe`.
+//            A loaded model's node animation is a track of the same clock, so it and a plugin's
+//            layers show the same moment.
+//          - `ctx.scene.loadModel`: a GLB from bytes or a URL as the scene's model, on whichever
+//            viewport is on screen (`loadModelFromUrl` builds a three.js scene only).
+//          - `simulationsApi.fetchArtefact` (@/viewer-core/app): a run artefact's bytes, whole or
+//            from a byte offset, for one that is still being written.
+//          `ctx.scene.remove(owner)` takes all of it away, tracks included. Draco-compressed
+//          GLBs load.
+export const PLUGIN_API_VERSION = "1.18.0";
 
 // The named mount regions core exposes in Phase 1. Deliberately small
 // (`fem-sidebar` covers the FEM simulation panel, `top-panel` the menu bar,
@@ -256,6 +285,7 @@ export interface SceneColorFieldResult {
 export type SceneColor = string | readonly [number, number, number];
 
 import type { ColorScale } from "@/utils/colorScale";
+import type { SimulationProviderInfo, SimulationRun } from "@/services/api/simulations";
 
 /** Something core drew for a plugin; `remove` takes it out of the scene. */
 export interface SceneOverlay {
@@ -318,6 +348,192 @@ export interface SceneElementPaint {
   // Which of the FEA model's meshes: "model" (default), its shells and lines as drawn, or
   // "beamSolids", the swept beam sections when they are shown (same element labels).
   on?: "model" | "beamSolids";
+}
+
+// ── Layers whose data changes over time (1.18.0) ──────────────────────────────
+//
+// Coordinates are the model's own: those of the loaded model's file (the recording's frame), z-up,
+// whatever the viewer does to place the model. The three.js viewport recentres what it loads, and
+// core moves these layers by the same offset, again whenever the offset changes (a model loaded
+// later); the three.js-free viewport draws both where the file puts them. So a point given at a
+// model coordinate is drawn on that point of the model, on either viewport. (`addLines` and the
+// other 1.9.0 verbs are unchanged: the FEA model's coordinates when one is loaded, the viewport's
+// world otherwise.) A handle draws in the viewport that was on screen when it was made. Arrays handed in are read during the call and not kept, so one buffer
+// can be filled and handed over again every frame.
+
+/** A row of core's Layers panel. Several things drawn with the same `id` are one row. */
+export interface SceneLayerRef {
+  id: string; // unique within the plugin
+  label: string;
+  group?: string; // rows with the same group are listed together
+  // How the row starts: its switch and its slider, when the user has not left a choice for this
+  // id in the browser (a stored choice wins). The first thing drawn in a row decides; default on
+  // and fully opaque. This is the ROW's look, the user's to change. A spec's own `visible` and
+  // `opacity` (and `setLook`) are the plugin's, a second factor: a thing is drawn when both say
+  // so, at the product of the two opacities.
+  visible?: boolean;
+  opacity?: number; // 0..1
+}
+
+/** What changes of a drawn thing without making it again. A member left out stays as it is. */
+export interface SceneLayerLook {
+  visible?: boolean;
+  opacity?: number; // 0..1
+}
+
+export interface SceneLineLayerSpec {
+  // What it draws to begin with (either may be empty or left out): `segments`, 6 numbers each
+  // (x0, y0, z0, x1, y1, z1), or `polyline`, 3 numbers per vertex of one open line.
+  segments?: Float32Array | readonly number[];
+  polyline?: Float32Array | readonly number[];
+  color?: SceneColor; // default white
+  widthPx?: number; // default 2
+  opacity?: number; // 0..1; default 1
+  visible?: boolean; // default true
+  throughModel?: boolean; // drawn over the model instead of hidden behind it
+  layer?: SceneLayerRef; // a row in the Layers panel
+}
+
+export interface SceneLineLayer extends SceneOverlay {
+  // Replace what it draws with `count` segments (all of `segments` when left out). Any number of
+  // them: what the viewport holds is reused while they fit.
+  setSegments: (segments: Float32Array, count?: number) => void;
+  // The same from the vertices of one open line: `count` vertices, 3 numbers each.
+  setPolyline: (points: Float32Array, count?: number) => void;
+  setLook: (look: SceneLayerLook & { color?: SceneColor }) => void;
+}
+
+export interface ScenePointLayerSpec {
+  positions?: Float32Array | readonly number[]; // 3 numbers per point; may be empty or left out
+  // A colour per point (sRGB 0..1, 3 numbers each) instead of `color`. Decided here: a layer made
+  // without them takes none later.
+  colors?: Float32Array | readonly number[];
+  color?: SceneColor; // default white
+  sizePx?: number; // the diameter; default 6
+  opacity?: number;
+  visible?: boolean;
+  throughModel?: boolean;
+  layer?: SceneLayerRef;
+}
+
+export interface ScenePointLayer extends SceneOverlay {
+  // Replace the points with `count` of them (all of `positions` when left out), and their colours
+  // when the layer was made with colours.
+  setPoints: (positions: Float32Array, count?: number, colors?: Float32Array) => void;
+  setLook: (look: SceneLayerLook & { color?: SceneColor }) => void;
+}
+
+/** Where an image lies: from `origin` along `u` (its rows) and `v` (across them). */
+export interface SceneImageRect {
+  origin: readonly [number, number, number];
+  u: readonly [number, number, number]; // the whole width
+  v: readonly [number, number, number]; // the whole height
+}
+
+export interface SceneImageSpec extends SceneImageRect {
+  width: number; // pixels per row
+  height: number; // rows
+  // RGBA, 4 bytes per pixel, sRGB, straight alpha. Row 0 lies on the edge at the origin that runs
+  // along `u`, column 0 on the edge at the origin that runs along `v`: pixel (column i, row j) covers
+  // origin + (i..i+1)/width*u + (j..j+1)/height*v. With the origin at the rectangle's least x and y,
+  // `u` along +x and `v` along +y, that is row 0 on the min-y edge and column 0 on the min-x edge.
+  // Data stored top row first: give the top-left corner as origin and `v` pointing down.
+  pixels: Uint8Array | Uint8ClampedArray;
+  opacity?: number; // times each pixel's alpha; default 1
+  visible?: boolean;
+  throughModel?: boolean;
+  // Each pixel a flat square, not blended into its neighbours: for a grid of cells.
+  nearest?: boolean;
+  layer?: SceneLayerRef;
+}
+
+export interface SceneImage extends SceneOverlay {
+  // New pixels, written in place when the size is the one it has; `width` and `height` change it.
+  setPixels: (pixels: Uint8Array | Uint8ClampedArray, width?: number, height?: number) => void;
+  setRect: (rect: SceneImageRect) => void;
+  setLook: (look: SceneLayerLook) => void;
+  // Why the viewport on screen does not draw it at the size it has now, in words for the user;
+  // null when it is drawn.
+  unavailable: () => string | null;
+}
+
+/** A GLB to load as the scene's model. One of `bytes` and `url`. */
+export interface SceneModelSource {
+  bytes?: Uint8Array | ArrayBuffer;
+  url?: string;
+  // The name the model is loaded under: its identity, and what `unloadModel` takes.
+  sourceName: string;
+  // What the model is called to a person: its root row in the Scene tree. Left out, the model's
+  // own root name, else `sourceName`.
+  displayName?: string;
+  // "replace" (default) shows it instead of what is loaded; "overlay" beside it.
+  placement?: "replace" | "overlay";
+  // The up axis of the file's own coordinates; "z" (default) or "y" (the glTF convention). Read by
+  // the three.js viewport; the three.js-free one draws the file as it is.
+  sourceUpAxis?: "z" | "y";
+}
+
+// ── The playback clock (1.18.0) ───────────────────────────────────────────────
+
+/** Something timed: the clock calls `show` whenever its time changes, once per frame while it plays. */
+export interface PluginPlaybackTrack {
+  id: string; // unique within the plugin
+  duration: number; // seconds
+  // Show the moment `t` (seconds, 0..duration). Runs in the frame loop: it must not allocate.
+  show: (t: number) => void;
+  label?: string;
+}
+
+export interface PluginPlaybackTrackHandle {
+  // The recording grew: the clock's duration is its longest track's.
+  setDuration: (seconds: number) => void;
+  remove: () => void;
+}
+
+/** The clock as a value; a new object whenever any of it changed. */
+export interface PluginPlaybackState {
+  readonly duration: number; // seconds: the longest track's
+  readonly time: number;
+  readonly playing: boolean;
+  readonly speed: number; // 1 is real time
+  readonly loop: boolean;
+  readonly followEnd: boolean;
+  readonly tracks: number; // every registered track, core's and other plugins' included
+}
+
+/** The viewer's one playback clock. A plugin's tracks go with `ctx.scene.remove(pluginId)`. */
+export interface PluginPlayback {
+  addTrack: (track: PluginPlaybackTrack) => PluginPlaybackTrackHandle;
+  state: () => PluginPlaybackState;
+  // The time now, without making a state object: for a frame.
+  time: () => number;
+  // Called when the state changed; while playing, the moving time about ten times a second.
+  subscribe: (listener: () => void) => () => void;
+  play: () => void;
+  pause: () => void;
+  seek: (seconds: number) => void;
+  setSpeed: (speed: number) => void;
+  setLoop: (loop: boolean) => void;
+  // Keep the time at the end while the duration grows (a recording still being written).
+  // Turning it on goes to the end; `seek` and `pause` let go.
+  followEnd: (follow: boolean) => void;
+}
+
+/** One of the plugin's rows in the Layers panel, as it is now. */
+export interface PluginLayerState {
+  id: string;
+  label: string;
+  group?: string;
+  visible: boolean;
+  opacity: number;
+}
+
+/** The plugin's rows of the Layers panel (the `layer` its drawn things were given). */
+export interface PluginLayers {
+  list: () => PluginLayerState[];
+  setVisible: (id: string, visible: boolean) => void;
+  setOpacity: (id: string, opacity: number) => void;
+  subscribe: (listener: () => void) => () => void;
 }
 
 /** A manifest-relative byte/JSON fetcher handed to sidecar loaders. */
@@ -397,6 +613,10 @@ export interface SceneHandle {
       sourceUpAxis?: "z" | "y";
     },
   ) => Promise<void>;
+  // (1.18.0) Load a GLB from bytes or a URL as the scene's model, through core's own loader: on
+  // whichever viewport is on screen, where `loadModelFromUrl` builds a three.js scene only. A model
+  // with node animation becomes a track of the playback clock. Resolves when the viewport has it.
+  loadModel: (owner: string, source: SceneModelSource) => Promise<void>;
   // Remove a model previously loaded through `loadModelFromUrl` (or any source
   // registered under that name), disposing its GPU resources. No-op when the
   // name is not loaded.
@@ -422,6 +642,14 @@ export interface SceneHandle {
   // in place of the result colormap, while the plugin paints with it; null takes it away.
   // `remove(owner)` takes it away too.
   showColorScale: (owner: string, scale: ColorScale | null) => void;
+
+  // ── Layers whose data changes over time (1.18.0): see `SceneLineLayerSpec` and the types
+  // beside it. Each handle replaces its data in place; `remove(owner)` takes them all away. ──
+  addLineLayer: (owner: string, spec?: SceneLineLayerSpec) => SceneLineLayer;
+  addPointLayer: (owner: string, spec?: ScenePointLayerSpec) => ScenePointLayer;
+  addImage: (owner: string, image: SceneImageSpec) => SceneImage;
+  // Why the viewport on screen cannot draw an image of this size; null when it can.
+  imageUnavailable: (width: number, height: number) => string | null;
 
   // ── View (1.10.0): what a UI shell's modes and searches ask of the view, without the camera,
   // the scene or the FEA mesh's morph weights. ──
@@ -494,6 +722,10 @@ export interface AdaPluginContext {
   api: PluginApiClient;
   stores: AdaViewerStores;
   scene: SceneHandle;
+  /** The viewer's playback clock (1.18.0). */
+  playback: PluginPlayback;
+  /** The plugin's rows of the Layers panel (1.18.0). */
+  layers: PluginLayers;
   scope: () => string;
   /** Active theme tokens (mirrors of the `--ada-*` CSS vars) so plugin panels
    * match core's chrome in light + dark without hardcoding colours. */
@@ -693,6 +925,69 @@ export interface RenderableFileProvider {
   order?: number;
 }
 
+// ---------------------------------------------------------------------------
+// Simulation providers (1.17.0)
+//
+// A simulation provider is a backend thing: a worker registered it, and the server lists it
+// with its domain (`fea`, `robotics`, `cfd`), its engine and a JSON Schema of its parameters.
+// Core's Simulations panel can start any of them from that schema and list any run's artefacts
+// as downloads, and that is all it can do, because it knows no engine.
+//
+// This slot is where a plugin adds what core cannot: a better form than the schema gives (a
+// file picker for an input deck, a robot chosen from the scene), and a way to OPEN a result
+// (load the animated model and its timeline, hand a result file to the FEA view). An entry is
+// matched by `providerId` (one provider) or by `domain` (every provider of that kind, since a
+// domain's artefact roles are the same whatever the engine). A provider-id match beats a domain
+// match; among equals the lower `order` wins, then the id.
+// ---------------------------------------------------------------------------
+
+/** What a parameter form section is given. */
+export interface SimulationParameterFormArgs {
+  provider: SimulationProviderInfo;
+  /** The scope the run will be started in. */
+  scope: string;
+  /** The parameters so far (the schema's defaults to begin with). */
+  value: Readonly<Record<string, unknown>>;
+  /** Replace the parameters. */
+  onChange: (next: Record<string, unknown>) => void;
+  /** The storage keys of the run's input files so far, and how to replace them. */
+  inputs: readonly string[];
+  onInputsChange: (next: string[]) => void;
+}
+
+/** What an "open result" handler is given. */
+export interface SimulationOpenResultArgs {
+  run: SimulationRun;
+  /** The scope the run (and every artefact `key`) is in. */
+  scope: string;
+  /** The provider as the server lists it now; null when it is no longer listed. */
+  provider: SimulationProviderInfo | null;
+}
+
+/** A plugin's UI for one simulation provider, or for every provider of a domain. */
+export interface SimulationProviderUi {
+  id: string; // namespaced on register
+  /** Match one provider by its id. */
+  providerId?: string;
+  /** Match every provider of this kind (`"fea"`, `"robotics"`, `"cfd"`). One of the two is needed. */
+  domain?: string;
+  /** Tie-break among entries matching equally well; ties broken by id. */
+  order?: number;
+  /**
+   * The start form's parameter section, in place of the one core builds from the provider's
+   * JSON Schema. The server still checks what is sent against the schema.
+   */
+  renderParameters?: (ctx: AdaPluginContext, args: SimulationParameterFormArgs) => React.ReactNode;
+  /**
+   * Open a run's result (also offered while the run is going, for a handler that follows
+   * partial artefacts). Throwing shows the error against that run and leaves the plugin
+   * enabled, as for a renderable file: one result that will not open says nothing of the next.
+   */
+  openResult?: (ctx: AdaPluginContext, args: SimulationOpenResultArgs) => void | Promise<void>;
+  /** The button's text; "Open" when omitted. */
+  openResultLabel?: string;
+}
+
 export interface UrlParamHandler {
   params: string[];
   // Return true when the plugin consumed the params (core stops offering them).
@@ -714,6 +1009,9 @@ export interface PluginSpec {
   // "can this file go in the scene?" predicate, not just by a UI host.
   renderableFileProviders?: RenderableFileProvider[];
   urlParamHandlers?: UrlParamHandler[];
+  // UI for simulation providers, by provider id or by domain (1.17.0). Read by core's
+  // Simulations panel.
+  simulationProviders?: SimulationProviderUi[];
   // Whole activities (1.1.0). Consumed by a shell that has modes; ignored by one
   // that does not, including core's own UI.
   modes?: PluginModeSpec[];
@@ -735,6 +1033,7 @@ export interface RegisteredPlugin {
   resultSidecarLoaders: ResultSidecarLoader[];
   renderableFileProviders: RenderableFileProvider[];
   urlParamHandlers: UrlParamHandler[];
+  simulationProviders: SimulationProviderUi[];
   modes: PluginModeSpec[];
   // Ids of the UI shells this plugin contributed (the shells themselves live in
   // the shell registry); kept for introspection / audit.
@@ -829,6 +1128,15 @@ export function registerPlugin(spec: PluginSpec): void {
     id: namespaced(id, r.id),
   }));
   const urlParamHandlers = spec.urlParamHandlers ?? [];
+  const simulationProviders = (spec.simulationProviders ?? [])
+    .filter((u) => {
+      if (u?.providerId || u?.domain) return true;
+      console.warn(
+        `[plugins] plugin "${id}": simulation provider UI "${u?.id}" names neither a providerId nor a domain; ignored`,
+      );
+      return false;
+    })
+    .map((u) => ({ ...u, id: namespaced(id, u.id) }));
   // UI shells go to their own registry (core mounts exactly one), but are
   // registered here so a plugin still has ONE entry point: registerPlugin().
   const uiShellIds: string[] = [];
@@ -849,6 +1157,7 @@ export function registerPlugin(spec: PluginSpec): void {
     resultSidecarLoaders,
     renderableFileProviders,
     urlParamHandlers,
+    simulationProviders,
     // NOT namespaced, unlike panels and colour fields. A mode id is user-facing —
     // a panel writes `modes: ["capacity"]` and a shell may accept `?mode=capacity`
     // — so it has to be the word the author chose. Collisions are the same
@@ -1140,6 +1449,46 @@ export function getUrlParamHandlers(
     for (const handler of p.urlParamHandlers) out.push({ pluginId: p.id, handler });
   }
   return out;
+}
+
+/** One capability of the simulation seam, resolved for a provider. */
+export interface ResolvedSimulationUi {
+  pluginId: string;
+  ui: SimulationProviderUi;
+}
+
+/**
+ * The plugin UI for one simulation provider: who renders its parameter form and who opens its
+ * results, each resolved on its own -- one plugin may supply the form for a provider while
+ * another opens every result of its domain. `null` for either means core's own (the form from
+ * the JSON Schema, the artefacts as downloads).
+ *
+ * A provider-id match beats a domain match; then `order`, then id. Activation predicates are
+ * honoured, as for the other slots a context is at hand for.
+ */
+export function resolveSimulationProviderUi(
+  ctx: AdaPluginContext,
+  provider: { id: string; domain: string },
+): { parameters: ResolvedSimulationUi | null; openResult: ResolvedSimulationUi | null } {
+  const matches: Array<ResolvedSimulationUi & { rank: number; order: number }> = [];
+  for (const p of _registry.values()) {
+    if (!isActive(p, { ...ctx, pluginId: p.id })) continue;
+    for (const ui of p.simulationProviders) {
+      // An entry naming both must match both; the provider id is what makes it specific.
+      if (ui.providerId && ui.providerId !== provider.id) continue;
+      if (ui.domain && ui.domain !== provider.domain) continue;
+      matches.push({ pluginId: p.id, ui, rank: ui.providerId ? 0 : 1, order: ui.order ?? 0 });
+    }
+  }
+  matches.sort((a, b) => a.rank - b.rank || a.order - b.order || a.ui.id.localeCompare(b.ui.id));
+  const pick = (has: (ui: SimulationProviderUi) => boolean): ResolvedSimulationUi | null => {
+    const m = matches.find((x) => has(x.ui));
+    return m ? { pluginId: m.pluginId, ui: m.ui } : null;
+  };
+  return {
+    parameters: pick((ui) => typeof ui.renderParameters === "function"),
+    openResult: pick((ui) => typeof ui.openResult === "function"),
+  };
 }
 
 // Re-export the range checker so tooling / tests can reuse the exact grammar.

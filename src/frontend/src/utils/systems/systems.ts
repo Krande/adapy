@@ -207,6 +207,7 @@ async function loadMembersHere(collection: string, members: readonly SystemMembe
     const deps = realDeliveryDeps(
       (name) => getSingletonViewerStores().useModelState.getState().loadedSourceNames.has(name),
       op.trackJob,
+      op.signal,
     );
     const out = await loadBoxSites(plan.members, currentScope(), deps, plan.names, (s) => op.stage(s));
     for (const f of out.failed) op.fail(`${f.site}: ${f.reason}`);

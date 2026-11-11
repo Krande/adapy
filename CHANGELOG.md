@@ -2,6 +2,100 @@
 
 
 
+## v0.147.0 (2026-11-11)
+
+### Feature
+
+* feat: layers that change over time, one playback clock and model animation on both viewports (#533)
+
+Co-authored-by: Claude Fable 5.2 &lt;noreply@anthropic.com&gt; ([`bb3e297`](https://github.com/Krande/adapy/commit/bb3e297b7e4d1605a241a6cddc0b9f950c195ef9))
+
+
+## v0.146.1 (2026-11-11)
+
+### Fix
+
+* fix: clickable line-drawn beams and edge fade on the three.js-free viewport, and links for any loaded model (#532)
+
+Co-authored-by: Claude Fable 5.2 &lt;noreply@anthropic.com&gt; ([`5a96c12`](https://github.com/Krande/adapy/commit/5a96c126a7f2c4484238fb0e1fea979028f61c8e))
+
+
+## v0.146.0 (2026-11-11)
+
+### Feature
+
+* feat: the last three.js-only viewer features on both viewports (#531)
+
+Co-authored-by: Claude Fable 5.2 &lt;noreply@anthropic.com&gt; ([`654b6b9`](https://github.com/Krande/adapy/commit/654b6b95cbe0f09324c821d52bd2132062fd3118))
+
+
+## v0.145.0 (2026-11-11)
+
+### Feature
+
+* feat: the rest of the viewer on both viewports, and a simulation provider seam (#530)
+
+Co-authored-by: Claude Fable 5.2 &lt;noreply@anthropic.com&gt; ([`818d955`](https://github.com/Krande/adapy/commit/818d9553ad02e1f6608faa6266cd01dbd0ef10ff))
+
+
+## v0.144.0 (2026-11-10)
+
+### Feature
+
+* feat: the viewer&#39;s panels, results and tools shared by both viewports, and faster model loads (#529)
+
+Co-authored-by: Claude Fable 5.2 &lt;noreply@anthropic.com&gt; ([`d97c9f3`](https://github.com/Krande/adapy/commit/d97c9f31e1782d64a797a0d1830b3d811187da5d))
+
+
+## v0.143.0 (2026-11-10)
+
+### Feature
+
+* feat: configurable camera controls, and commands, camera and sections shared by both viewports (#528)
+
+Co-authored-by: Claude Fable 5.2 &lt;noreply@anthropic.com&gt; ([`6109ebf`](https://github.com/Krande/adapy/commit/6109ebf29dbcdd91798da51823d9d0eeab2f8b43))
+
+
+## v0.142.1 (2026-11-10)
+
+### Fix
+
+* fix: skip geometry that fails to tessellate, and make Kill on a load operation cancel it (#527) ([`3c75cf9`](https://github.com/Krande/adapy/commit/3c75cf946c74f1cdca50e77d248563201493ee2d))
+
+
+## v0.142.0 (2026-11-10)
+
+### Feature
+
+* feat: WebGPU renderer parity, a WebGPU-only mode and a three.js-free viewport (#526)
+
+Co-authored-by: Claude Fable 5.2 &lt;noreply@anthropic.com&gt; ([`7213ce9`](https://github.com/Krande/adapy/commit/7213ce91f2137b5e46b32e6ccec763bf394e501d))
+
+
+## v0.141.0 (2026-11-10)
+
+### Feature
+
+* feat(viewer): read the 3D mouse over the Gamepad API, no prompt (#524)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`c624be8`](https://github.com/Krande/adapy/commit/c624be87198fd8b6a95ce4c4691708dc4c31d86c))
+
+
+## v0.140.0 (2026-11-10)
+
+### Chore
+
+* chore: tidy vocabulary gates, fixtures and docs wording (#523)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`027d9d6`](https://github.com/Krande/adapy/commit/027d9d62c694057f05eebf7e04fb97bce555e5b2))
+
+### Feature
+
+* feat(fem): add NAFEMS LE1 and LE10 and cantilever closed forms to the verification report (#518)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`8937a3b`](https://github.com/Krande/adapy/commit/8937a3b0d1c06309558f1a22dbff865665329943))
+
+
 ## v0.139.7 (2026-11-10)
 
 ### Fix
@@ -1946,15 +2040,15 @@ Co-authored-by: Claude Fable 5 &lt;noreply@anthropic.com&gt; ([`ec25512`](https:
 
 The pull-loop heartbeat livenessProbe (task #74) was emitted for EVERY worker
 pool, but only the adapy worker image writes /tmp/worker-alive. The abaqus and
-plugin capability pools run foreign images (adapy-viewer-worker-abaqus, an old
-base; a plugin's own runner) that never write it, so the probe failed every cycle
+weld-gen capability pools run foreign images (adapy-viewer-worker-abaqus, an old
+base; asa-weld-gen-runner) that never write it, so the probe failed every cycle
 and SIGKILL-crashlooped them (exit 137 ~4.5min after start) — which in turn spammed
 PodCrashLooping/PodCrashLoopingSlow alerts all night.
 
 Make the heartbeat probe opt-in: the helper emits it only when a pool sets
 `heartbeatLiveness: true` (now the default on the adapy `worker` pool) or supplies
 its own `livenessProbe:`. Capability pools that do neither get no liveness probe.
-helm template verified: main worker keeps the heartbeat probe, abaqus + plugin
+helm template verified: main worker keeps the heartbeat probe, abaqus + weld-gen
 render with none.
 
 Co-Authored-By: Claude Opus 4.8 (1M context) &lt;noreply@anthropic.com&gt; ([`b606c1d`](https://github.com/Krande/adapy/commit/b606c1d7cbf7175f159eb9f2217d6f6615a8e211))

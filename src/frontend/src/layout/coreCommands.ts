@@ -20,6 +20,7 @@ import {capabilities} from "@/services/capabilities";
 import {useCellBuilderStore} from "@/state/cellBuilderStore";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {useGalleryStore} from "@/state/galleryStore";
+import {useBBoxSelectionStore} from "@/state/bboxSelectionStore";
 import {useSectionStore, type SectionPlane} from "@/state/sectionStore";
 import {useObjectInfoStore} from "@/state/objectInfoStore";
 import {useOptionsStore} from "@/state/optionsStore";
@@ -37,6 +38,7 @@ import {feModelLoaded, hasFemConcepts} from "@/components/simulation/simPanelTab
 import {beamSolidsToggleState} from "@/utils/scene/fea/streaming/beamSolidsToggle";
 import {feaControlActions} from "@/utils/scene/fea/feaControls";
 import {useLabelsStore} from "@/state/labelsStore";
+import {useTypeIconsStore} from "@/state/typeIconsStore";
 import {anyShownRange} from "@/utils/mesh_select/selectionSets";
 import {playbackAvailable} from "@/utils/scene/fea/playbackActions";
 import {openLocalFilePicker} from "@/utils/scene/handlers/localOpenPlan";
@@ -52,6 +54,7 @@ import {
   type CameraView,
 } from "./coreCommandIds";
 import {openCoreDialog} from "./coreDialogs";
+import {activeViewport, NO_VIEWPORT} from "@/viewport/api/viewportApi";
 import {registerCommand, unregisterCommand, type CommandSpec} from "./commands";
 import {layoutStore} from "./layoutStore";
 import {listShellModes} from "./shellModes";
@@ -115,7 +118,17 @@ export function selectionCount(selected: ReadonlyMap<unknown, ReadonlySet<string
   return n;
 }
 
-const nothingSelected = () => (selectionCount() === 0 ? "Nothing selected" : null);
+/** Selection, visibility and the camera go through the viewport on screen, three.js or not. */
+const noViewport = () => (activeViewport() ? null : NO_VIEWPORT);
+const boxSelection = () => import("@/utils/bboxSelection/applyBoxSelection");
+const NO_ACTIVE_BOX = "No active selection box";
+/** The selection box the handles are on. */
+const activeSelectionBox = () => {
+  const s = useBBoxSelectionStore.getState();
+  return s.boxes.find((b) => b.id === s.activeId) ?? null;
+};
+// With no 3D view there is nothing selected either, and that is the reason a user recognises.
+const nothingSelected = () => ((activeViewport()?.selectionCount() ?? 0) === 0 ? "Nothing selected" : null);
 
 /** The procedural builder takes Ctrl+Z / Ctrl+Y for its own history while it is open. */
 const builderOwnsHistory = () => (useCellBuilderStore.getState().active !== null ? "The procedural builder has its own undo" : null);
@@ -296,14 +309,7 @@ export function coreCommandSpecs(): CommandSpec[] {
       label: "Clear selection",
       group: "Edit",
       disabledReason: nothingSelected,
-      // What clicking empty space in the tree does: one undo entry, the info panel emptied.
-      run: () =>
-        void import("@/utils/scene/viewerHistory").then((m) => {
-          m.recordViewerAction("clear-selection", () => useSelectedObjectStore.getState().clearSelectedObjects());
-          useObjectInfoStore.getState().setName(null);
-          useObjectInfoStore.getState().setSelectedNodeId(null);
-          requestRender();
-        }),
+      run: () => activeViewport()?.clearSelection(),
     },
     // Walk the scene tree from the selection (Shift+arrows; the tree's own level navigation).
     {
@@ -345,7 +351,7 @@ export function coreCommandSpecs(): CommandSpec[] {
       shortcut: "core:copy-names",
       disabledReason: nothingSelected,
       run: () =>
-        void import("@/utils/clipboard/copySelectionNames").then((m) => m.copySelectionNames(useSelectedObjectStore.getState().selectedObjects)),
+        void import("@/utils/clipboard/copySelectionNames").then((m) => m.copySelectionNames()),
     },
     {
       id: ID.groupSelection,
@@ -361,7 +367,7 @@ export function coreCommandSpecs(): CommandSpec[] {
       group: "Edit",
       shortcut: "core:hide-selected",
       disabledReason: nothingSelected,
-      run: () => void visibility().then((m) => m.hideSelectedRanges()),
+      run: () => activeViewport()?.hideSelected(),
     },
     {
       id: ID.hideOthers,
@@ -369,65 +375,55 @@ export function coreCommandSpecs(): CommandSpec[] {
       group: "Edit",
       shortcut: "core:hide-others",
       disabledReason: nothingSelected,
-      run: () => void visibility().then((m) => m.hideUnselectedRanges()),
+      run: () => activeViewport()?.hideOthers(),
     },
     {
       id: ID.showAll,
       label: "Show all",
       group: "Edit",
       shortcut: "core:show-all",
-      run: () => void visibility().then((m) => m.unhideAllRanges()),
+      disabledReason: noViewport,
+      run: () => activeViewport()?.showAll(),
     },
     // View
+    {
+      id: ID.screenshot,
+      label: "Take screenshot",
+      group: "View",
+      keywords: ["image", "png", "capture", "save"],
+      disabledReason: noViewport,
+      run: () => activeViewport()?.saveScreenshot(),
+    },
     {
       id: ID.fitAll,
       label: "Fit all",
       group: "View",
       shortcut: "core:fit-all",
-      disabledReason: noScene,
-      run: () =>
-        void camera().then((m) => {
-          const h = sceneHandles();
-          if (h) m.fitAllView(h.scene, h.camera, h.controls);
-          requestRender();
-        }),
+      disabledReason: noViewport,
+      run: () => activeViewport()?.fitAll(),
     },
     {
       id: ID.fitSelection,
       label: "Fit selection",
       group: "View",
       shortcut: "core:fit-selection",
-      disabledReason: () => noScene() ?? nothingSelected(),
-      run: () =>
-        void camera().then((m) => {
-          const h = sceneHandles();
-          if (h) m.fitSelectionView(h.camera, h.controls);
-          requestRender();
-        }),
+      disabledReason: () => noViewport() ?? activeViewport()?.unavailable("fit-selection") ?? nothingSelected(),
+      run: () => activeViewport()?.fitSelection(),
     },
     {
       id: ID.resetCamera,
       label: "Reset camera",
       group: "View",
-      disabledReason: noScene,
-      run: () =>
-        void camera().then((m) => {
-          const h = sceneHandles();
-          if (h) m.resetCameraHome(h.camera, h.controls);
-        }),
+      disabledReason: noViewport,
+      run: () => activeViewport()?.resetCamera(),
     },
     ...CAMERA_VIEWS.map(
       (view): CommandSpec => ({
         id: cameraViewCommandId(view),
         label: `${CAMERA_VIEW_LABELS[view]} view`,
         group: "View",
-        disabledReason: noScene,
-        run: () =>
-          void import("@/components/viewer/sceneHelpers/namedViews").then((m) => {
-            const h = sceneHandles();
-            if (h) m.applyNamedView(view, h.scene, h.camera, h.controls, useModelState.getState().zIsUp);
-            requestRender();
-          }),
+        disabledReason: noViewport,
+        run: () => activeViewport()?.setView(view),
       }),
     ),
     {
@@ -668,6 +664,42 @@ export function coreCommandSpecs(): CommandSpec[] {
       disabledReason: () => (useSectionStore.getState().planes.length ? null : "No section plane"),
       run: () => useSectionStore.getState().clearAll(),
     },
+    // Selection boxes: on whichever viewport is on screen (utils/bboxSelection/applyBoxSelection).
+    {
+      id: ID.selectionBoxAdd,
+      label: "Box around selection",
+      group: "Edit",
+      disabledReason: nothingSelected,
+      run: () => void boxSelection().then((m) => m.addBoxAroundSelection()),
+    },
+    {
+      id: ID.selectionBoxFullyWithin,
+      label: "Selection box takes only what is fully within",
+      group: "Edit",
+      checked: () => activeSelectionBox()?.mode === "full",
+      disabledReason: () => (activeSelectionBox() ? null : NO_ACTIVE_BOX),
+      run: () => {
+        const box = activeSelectionBox();
+        if (box) useBBoxSelectionStore.getState().update(box.id, {mode: box.mode === "full" ? "partial" : "full"});
+      },
+    },
+    {
+      id: ID.selectionBoxReselect,
+      label: "Reselect with selection box",
+      group: "Edit",
+      disabledReason: () => noViewport() ?? (activeSelectionBox() ? null : NO_ACTIVE_BOX),
+      run: () => {
+        const box = activeSelectionBox();
+        if (box) void boxSelection().then((m) => m.applyBoxSelection(box.id));
+      },
+    },
+    {
+      id: ID.selectionBoxClear,
+      label: "Remove selection boxes",
+      group: "Edit",
+      disabledReason: () => (useBBoxSelectionStore.getState().boxes.length ? null : "No selection box"),
+      run: () => useBBoxSelectionStore.getState().clearAll(),
+    },
     // Representation of a loaded FEA result
     feaViewToggle(ID.feaToggleUndeformed, "Undeformed outline", (s) => s.showUndeformed, (s) => s.setShowUndeformed),
     feaViewToggle(ID.feaToggleElementEdges, "Element edges", (s) => s.elementEdgesVisible, (s) => s.setElementEdgesVisible),
@@ -748,6 +780,23 @@ export function coreCommandSpecs(): CommandSpec[] {
       checked: () => useLabelsStore.getState().values,
       disabledReason: () => (useFeaAnimationStore.getState().sessionActive ? null : "No result is loaded"),
       run: () => useLabelsStore.getState().setValues(!useLabelsStore.getState().values),
+    },
+    // Labels and icons either viewport draws: the names of the selected objects, the type icons
+    {
+      id: ID.labelsNames,
+      label: "Object names",
+      group: "View",
+      checked: () => useLabelsStore.getState().names,
+      disabledReason: () => (activeViewport() ? null : NO_VIEWPORT),
+      run: () => useLabelsStore.getState().setNames(!useLabelsStore.getState().names),
+    },
+    {
+      id: ID.typeIcons,
+      label: "Type icons",
+      group: "View",
+      checked: () => useTypeIconsStore.getState().enabled,
+      disabledReason: () => (activeViewport() ? null : NO_VIEWPORT),
+      run: () => useTypeIconsStore.getState().toggle(),
     },
     // Colour by property
     {

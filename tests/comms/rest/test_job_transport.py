@@ -139,8 +139,9 @@ def test_every_feature_has_a_message_and_only_plugin_jobs_runs_locally():
     # Decision 10's Clashes tab (identifying joints and detailing a BUILT-IN
     # spec want no kernel this process does not already have), and
     # `export_selection` with the selected-object panel's "Download as".
+    # `simulation` like `plugin_jobs`: a provider registered in this process runs here.
     assert LOCAL_FEATURES == frozenset(
-        {"asset_build", "asset_publish", "clash_check", "clash_detail", "export_selection", "plugin_jobs"}
+        {"asset_build", "asset_publish", "clash_check", "clash_detail", "export_selection", "plugin_jobs", "simulation"}
     )
 
 

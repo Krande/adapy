@@ -625,7 +625,22 @@
 //          without the `/app` barrel's `window` reads.
 //          - The Desktop UI's Build mode is always offered (`UiShellMode.requires`
 //          stays an option for other shells); its panel starts a model when none is open.
-export const VIEWER_CORE_API_VERSION = "1.16.0";
+//   1.17.0 Kept in step with PLUGIN_API_VERSION 1.17.0 (`PluginSpec.simulationProviders`).
+//          Additive: `CORE_PANEL_IDS.simulations` (`core:simulations`, the Simulations panel:
+//          providers by domain, a start form, runs with progress and cancel, open result) and
+//          the seam's types (`SimulationProviderUi`, `SimulationParameterFormArgs`,
+//          `SimulationOpenResultArgs`); the wire shapes they are handed (`SimulationProviderInfo`,
+//          `SimulationRun`, `SimulationArtefact`, `SimulationDomain`) and `simulationsApi` are on
+//          `/app`, beside `viewerApi`.
+//   1.18.0 Kept in step with PLUGIN_API_VERSION 1.18.0 (layers whose data changes over time, the
+//          playback clock, the Layers panel). Additive: `CORE_PANEL_IDS.layers` (`core:layers`:
+//          one row per registered layer, a switch and an opacity slider each, offered while a
+//          layer is registered) and the types of the new plugin API (`SceneLineLayer`,
+//          `ScenePointLayer`, `SceneImage` and their specs, `SceneLayerRef`, `SceneLayerLook`,
+//          `SceneModelSource`, `PluginPlayback`, `PluginPlaybackTrack`, `PluginPlaybackState`,
+//          `PluginLayers`). `simulationsApi.fetchArtefact` on `/app` reads a run artefact's
+//          bytes, whole or from an offset.
+export const VIEWER_CORE_API_VERSION = "1.18.0";
 
 // ---------------------------------------------------------------------------
 // Plugin declaration. `registerPlugin` is how a package announces itself —
@@ -645,6 +660,12 @@ export type {
   AdaPluginContext,
   PanelSlot,
   PluginDockId,
+  PluginLayers,
+  PluginLayerState,
+  PluginPlayback,
+  PluginPlaybackState,
+  PluginPlaybackTrack,
+  PluginPlaybackTrackHandle,
   PluginModeId,
   PluginModeSpec,
   PluginApiClient,
@@ -664,10 +685,23 @@ export type {
   SceneFace,
   SceneHandle,
   SceneLabel,
+  SceneImage,
+  SceneImageRect,
+  SceneImageSpec,
   SceneLabelOptions,
+  SceneLayerLook,
+  SceneLayerRef,
+  SceneLineLayer,
+  SceneLineLayerSpec,
   SceneLines,
+  SceneModelSource,
   SceneOverlay,
+  ScenePointLayer,
+  ScenePointLayerSpec,
   SidecarFetcher,
+  SimulationOpenResultArgs,
+  SimulationParameterFormArgs,
+  SimulationProviderUi,
   TopBarButtonSpec,
   UrlParamHandler,
 } from "@/plugins/registry";

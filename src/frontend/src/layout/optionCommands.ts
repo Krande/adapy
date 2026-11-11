@@ -13,7 +13,9 @@
 // option cannot ship without a command. Keywords let the palette find a setting by what a person
 // calls it ("3dconnexion", "msaa", "dpr").
 
+import {useCameraControlsStore} from "@/state/cameraControlsStore";
 import {useComputeStore, COMPUTE_MODES, type ComputeMode} from "@/state/computeStore";
+import {CAMERA_ACTIONS, CAMERA_PRESETS, CAMERA_PRESET_IDS, MOUSE_BUTTONS, ONE_FINGER_ACTIONS, TWO_FINGER_ACTIONS, presetOf} from "@/utils/camera/cameraMapping";
 import {useExperimentalStore} from "@/state/experimentalStore";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {useMeStore} from "@/state/meStore";
@@ -26,7 +28,7 @@ import {useThemeStore} from "@/state/themeStore";
 import {useViewMetricsStore} from "@/state/viewMetricsStore";
 import {feaControlActions} from "@/utils/scene/fea/feaControls";
 import {COLORMAP_NAMES} from "@/utils/scene/fea/colormaps";
-import {isWebHidSupported, requestSpaceMouse} from "@/utils/spacemouse/spaceMouseDevice";
+import {isSpaceMouseSupported, isWebHidSupported, requestSpaceMouse} from "@/utils/spacemouse/spaceMouseDevice";
 
 import {registerCommand, type CommandSpec} from "./commands";
 import {CORE_COMMAND_IDS as ID} from "./coreCommandIds";
@@ -75,6 +77,8 @@ const perf = () => usePerfStore.getState();
 const sm = () => useSpaceMouseStore.getState();
 
 const needWebHid = () => (isWebHidSupported() ? null : "Needs WebHID: use Chrome, Edge or another Chromium-based browser");
+// The option itself also works over the Gamepad API; only the explicit device chooser needs WebHID.
+const needSpaceMouse = () => (isSpaceMouseSupported() ? null : "Needs WebHID or the Gamepad API: use Chrome or Edge");
 const GEN = ["options", "settings", "preferences"] as const;
 
 /** A perf-store switch. `invert`: the setting is the opposite of what the store holds ("Disable antialias"). */
@@ -95,7 +99,9 @@ const BUTTON_CHOICES: {value: SpaceMouseButtonAction; label: string}[] = [
   {value: "fitSelection", label: "Fit selection"},
   {value: "none", label: "Nothing"},
 ];
-const SM_KEYS = ["3d mouse", "3dconnexion", "spacemouse", "space mouse", "6dof", "navigation", "hid"] as const;
+const CAM_KEYS = ["camera", "mouse", "orbit", "pan", "zoom", "rotate", "navigation", "controls"] as const;
+const cam = () => useCameraControlsStore.getState();
+const SM_KEYS = ["3d mouse", "3dconnexion", "spacemouse", "space mouse", "6dof", "navigation", "hid", "gamepad", "joystick"] as const;
 
 /** Every Options setting, as data. */
 export function optionDescriptors(): OptionDescriptor[] {
@@ -141,7 +147,8 @@ export function optionDescriptors(): OptionDescriptor[] {
       setters: ["setCustomText"], focus: "text-colour"},
     // --- Performance ---
     {kind: "choice", id: "renderer", title: "Renderer", group: "Performance", keywords: ["webgl", "webgpu", "backend", "three", "adacpp", ...GEN],
-      setters: ["setRenderBackend"], choices: [{value: "three", label: "three.js (WebGL)"}, {value: "adacpp-webgpu", label: "adacpp WebGPU (experimental)"}],
+      setters: ["setRenderBackend"], choices: [{value: "three", label: "three.js (WebGL)"}, {value: "adacpp-webgpu", label: "adacpp WebGPU (experimental)"},
+        {value: "adacpp-native", label: "adacpp WebGPU, no three.js (experimental)"}],
       get: () => perf().renderBackend, set: (v) => {
         perf().setRenderBackend(v as ReturnType<typeof perf>["renderBackend"]);
         requestRender();
@@ -149,6 +156,10 @@ export function optionDescriptors(): OptionDescriptor[] {
     perfToggle("cluster-frustum-cull", "Cluster frustum culling", "adacppFrustumCull", "setAdacppFrustumCull", ["webgpu", "adacpp"]),
     perfToggle("cluster-cone-cull", "Cluster back-face cone culling", "adacppConeCull", "setAdacppConeCull", ["webgpu", "adacpp"]),
     perfToggle("occlusion-cull", "Occlusion culling (GPU)", "adacppOcclusionCull", "setAdacppOcclusionCull", ["webgpu", "adacpp"]),
+    perfToggle("webgpu-labels", "WebGPU: labels and markers drawn by adacpp", "adacppLabels", "setAdacppLabels", ["webgpu", "adacpp", "sprites", "icons"]),
+    perfToggle("webgpu-point-pick", "WebGPU: point picking through adacpp", "adacppPointPick", "setAdacppPointPick", ["webgpu", "adacpp", "points", "pick"]),
+    perfToggle("webgpu-capture", "WebGPU: screenshots and animation export from the WebGPU image", "adacppCapture", "setAdacppCapture", ["webgpu", "adacpp", "screenshot", "export"]),
+    perfToggle("webgpu-no-webgl", "WebGPU only: no WebGL renderer (reload required)", "adacppNoWebGL", "setAdacppNoWebGL", ["webgpu", "adacpp", "webgl"]),
     {kind: "choice", id: "material", title: "Material", group: "Performance", keywords: ["pbr", "lambert", "standard", "shading", ...GEN],
       setters: ["setMaterialMode"], choices: [{value: "standard", label: "MeshStandard (PBR)"}, {value: "lambert", label: "MeshLambert (cheap)"}],
       get: () => perf().materialMode, set: (v) => perf().setMaterialMode(v as ReturnType<typeof perf>["materialMode"])},
@@ -177,9 +188,39 @@ export function optionDescriptors(): OptionDescriptor[] {
       };
     }),
     // --- 3D mouse ---
+    // --- Camera controls ---
+    {kind: "choice", id: "camera-preset", title: "Camera controls", group: "Camera controls", keywords: [...CAM_KEYS, "preset"],
+      setters: ["setCameraPreset"], choices: CAMERA_PRESET_IDS.map((id) => ({value: id, label: CAMERA_PRESETS[id].label})),
+      get: () => presetOf(cam().mapping), set: (v) => { const id = CAMERA_PRESET_IDS.find((x) => x === v); if (id) cam().setCameraPreset(id); }},
+    ...MOUSE_BUTTONS.map((button): ChoiceOption => ({
+      kind: "choice", id: `camera-drag-${button}`, title: `Camera: ${button} drag`, group: "Camera controls", keywords: [...CAM_KEYS, "button", "drag"],
+      setters: ["setDragAction"], choices: CAMERA_ACTIONS.map((a) => ({value: a, label: a === "none" ? "Nothing" : a[0].toUpperCase() + a.slice(1)})),
+      get: () => cam().mapping.drag[button].none,
+      set: (v) => { const a = CAMERA_ACTIONS.find((x) => x === v); if (a) cam().setDragAction(button, "none", a); },
+    })),
+    {kind: "open", id: "camera-drag-modifiers", title: "Camera: drags with Shift, Ctrl or Alt…", group: "Camera controls", keywords: [...CAM_KEYS, "modifier"],
+      setters: ["setDragAction"], focus: "camera-drag"},
+    {kind: "toggle", id: "camera-wheel-zoom", title: "Camera: wheel zooms", group: "Camera controls", keywords: [...CAM_KEYS, "scroll"],
+      setters: ["setWheelZoom"], get: () => cam().mapping.wheel.zoom, set: (v) => cam().setWheelZoom(v)},
+    {kind: "toggle", id: "camera-wheel-inverted", title: "Camera: reverse the wheel's direction", group: "Camera controls", keywords: [...CAM_KEYS, "scroll", "invert"],
+      setters: ["setWheelInverted"], get: () => cam().mapping.wheel.inverted, set: (v) => cam().setWheelInverted(v)},
+    {kind: "toggle", id: "camera-wheel-to-cursor", title: "Camera: zoom towards the cursor", group: "Camera controls", keywords: [...CAM_KEYS, "scroll", "dolly"],
+      setters: ["setWheelToCursor"], get: () => cam().mapping.wheel.toCursor, set: (v) => cam().setWheelToCursor(v)},
+    {kind: "toggle", id: "camera-damping", title: "Camera: glide to a stop", group: "Camera controls", keywords: [...CAM_KEYS, "damping", "inertia", "smooth"],
+      setters: ["setCameraDamping"], get: () => cam().mapping.damping, set: (v) => cam().setCameraDamping(v)},
+    {kind: "choice", id: "camera-touch-one", title: "Camera: one finger", group: "Camera controls", keywords: [...CAM_KEYS, "touch", "gesture"],
+      setters: ["setOneFingerAction"], choices: ONE_FINGER_ACTIONS.map((a) => ({value: a, label: a === "none" ? "Nothing" : a[0].toUpperCase() + a.slice(1)})),
+      get: () => cam().mapping.touch.one, set: (v) => { const a = ONE_FINGER_ACTIONS.find((x) => x === v); if (a) cam().setOneFingerAction(a); }},
+    {kind: "choice", id: "camera-touch-two", title: "Camera: two fingers", group: "Camera controls", keywords: [...CAM_KEYS, "touch", "gesture", "pinch"],
+      setters: ["setTwoFingerAction"], choices: [{value: "zoom-pan", label: "Pinch zooms, move pans"}, {value: "zoom-orbit", label: "Pinch zooms, move orbits"}, {value: "none", label: "Nothing"}],
+      get: () => cam().mapping.touch.two, set: (v) => { const a = TWO_FINGER_ACTIONS.find((x) => x === v); if (a) cam().setTwoFingerAction(a); }},
+    {kind: "open", id: "camera-orbit-speed", title: "Camera: orbit speed…", group: "Camera controls", keywords: [...CAM_KEYS, "sensitivity", "slider"],
+      setters: ["setOrbitSpeed"], focus: "camera-orbit-speed"},
+    {kind: "open", id: "camera-zoom-speed", title: "Camera: zoom speed…", group: "Camera controls", keywords: [...CAM_KEYS, "sensitivity", "slider"],
+      setters: ["setZoomSpeed"], focus: "camera-zoom-speed"},
     {kind: "toggle", id: "spacemouse", title: "3D mouse (SpaceMouse)", group: "3D mouse", keywords: [...SM_KEYS, "enable", ...GEN],
-      setters: ["setEnabled"], disabledReason: needWebHid,
-      get: () => sm().enabled && isWebHidSupported(),
+      setters: ["setEnabled"], disabledReason: needSpaceMouse,
+      get: () => sm().enabled && isSpaceMouseSupported(),
       set: (on) => {
         sm().setEnabled(on);
         // Turning it on asks the browser for the device, here and now: the chooser needs the user's key press
@@ -267,7 +308,7 @@ export function optionCommandSpecs(): CommandSpec[] {
     }
   }
   // Commands that are not a setting's value but belong with them.
-  const mouse = ["3d mouse", "3dconnexion", "spacemouse", "space mouse", "hid"];
+  const mouse = ["3d mouse", "3dconnexion", "spacemouse", "space mouse", "hid", "gamepad", "joystick"];
   out.push(
     {
       id: "core:option.spacemouse-connect", label: "Connect 3D mouse (SpaceMouse)…", group: "3D mouse", keywords: [...mouse, "device", "pair", "choose"],

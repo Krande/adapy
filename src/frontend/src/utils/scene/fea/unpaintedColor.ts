@@ -2,75 +2,60 @@
 // give the plain model a colour of its own while no result or property colours it, and leave every
 // painted state alone.
 //
-// It is the model's own base material, not an overlay, so whatever paints the model (a result, a
-// property, a plugin's colour field) still draws over it exactly as before. Applied by the render
-// loop each frame, beside the deformation gate: a paint installs per-vertex colours and the base
-// colour stops showing; when the paint goes, the base colour is the one asked for. The model's own
-// colour is kept and given back exactly once no owner asks any more.
-
-import * as THREE from "three";
+// It is the model's own base colour, not an overlay, so whatever paints the model (a result, a
+// property, a plugin's colour field) still draws over it exactly as before: a paint installs
+// per-vertex colours and the base colour stops showing; when the paint goes, the base colour is
+// the one asked for. The model's own colour is kept and given back exactly once no owner asks any
+// more.
+//
+// Who asks for what is kept here, for both viewports. The three.js viewport writes it to the
+// result mesh's material each frame (./threeUnpaintedColor.ts); a result drawn through result
+// layers listens and gives it to its layers. No three.js in this module.
 
 import type {SceneColor} from "@/plugins/registry";
 import {requestRender} from "@/state/perfStore";
-import {feaSession} from "./streaming/session";
+import {linearColor} from "@/utils/scene/sceneColor";
+
+/** A colour as a viewport draws it: linear RGB in 0..1. */
+export type LinearRgb = readonly [number, number, number];
 
 /** What each owner asked for; the latest ask wins while several hold one. */
-const asked = new Map<string, THREE.Color>();
-/** Where a coloured material keeps its own colour, to be given back exactly. */
-const OWN = "__ownUnpaintedColor";
+const asked = new Map<string, LinearRgb>();
+let current: LinearRgb | null = null;
+const listeners = new Set<() => void>();
 
-type BaseMaterial = THREE.Material & {color?: THREE.Color; vertexColors?: boolean};
+function changed(): void {
+    current = null;
+    for (const color of asked.values()) current = color;
+    requestRender();
+    for (const listener of listeners) listener();
+}
 
 /** `color` for the unpainted FEA model until this owner asks again or passes null (or is released). */
 export function setFeaUnpaintedColor(owner: string, color: SceneColor | null): void {
     asked.delete(owner);
-    if (color != null) {
-        const c = typeof color === "string" ? new THREE.Color(color) : new THREE.Color().setRGB(color[0], color[1], color[2], THREE.SRGBColorSpace);
-        asked.set(owner, c);
-    }
-    requestRender();
+    if (color != null) asked.set(owner, linearColor(color));
+    changed();
 }
 
 /** Drop whatever `owner` asked for (its plugin's overlays are being removed). */
 export function releaseFeaUnpaintedColor(owner: string): void {
-    if (asked.delete(owner)) requestRender();
+    if (asked.delete(owner)) changed();
 }
 
-/** The material drawing the unpainted model: slot 0 on a CustomBatchedMesh, whose other slots are
- *  the selection overlay and the hidden-range material. */
-function baseMaterial(mesh: THREE.Mesh): BaseMaterial | null {
-    const m = (Array.isArray(mesh.material) ? mesh.material[0] : mesh.material) as BaseMaterial | undefined;
-    return m?.color && typeof m.color.setRGB === "function" ? m : null;
+/** The colour asked for now; null while no owner asks. */
+export function feaUnpaintedColor(): LinearRgb | null {
+    return current;
 }
 
-/** Colour one surface's base material, or give it its own colour back. Whether it changed. */
-export function applyUnpaintedColor(mesh: THREE.Mesh, color: THREE.Color | null): boolean {
-    const mat = baseMaterial(mesh);
-    if (!mat?.color) return false;
-    const own = mat.userData[OWN] as [number, number, number] | undefined;
-    if (color && !mat.vertexColors) {
-        if (!own) mat.userData[OWN] = [mat.color.r, mat.color.g, mat.color.b];
-        if (mat.color.equals(color)) return false;
-        mat.color.copy(color);
-        return true;
-    }
-    if (!own) return false;
-    mat.color.setRGB(own[0], own[1], own[2]);
-    delete mat.userData[OWN];
-    return true;
-}
-
-/** Called by the render loop each frame, before drawing. */
-export function applyFeaUnpaintedColor(): void {
-    const active = feaSession.active;
-    if (!active?.mesh) return;
-    const color = asked.size ? [...asked.values()].at(-1)! : null;
-    for (const mesh of [active.mesh, active.beamSolidMesh]) {
-        if (mesh) applyUnpaintedColor(mesh as THREE.Mesh, color);
-    }
+/** Call `listener` when the colour asked for changes. Returns the unsubscribe function. */
+export function onFeaUnpaintedColorChange(listener: () => void): () => void {
+    listeners.add(listener);
+    return () => void listeners.delete(listener);
 }
 
 /** Tests only. */
 export function _resetFeaUnpaintedColor(): void {
     asked.clear();
+    current = null;
 }

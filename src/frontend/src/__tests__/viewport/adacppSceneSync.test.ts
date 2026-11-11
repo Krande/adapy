@@ -9,7 +9,7 @@ import {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
 import {ensureElementLocalVertices} from "@/utils/scene/fea/elementLocalGeometry";
 import {resetBasePositions, writeMorphTarget} from "@/utils/scene/fea/gpuRefresh";
 import {SceneSync, SPRITE_LAYER} from "@/viewport/adacpp/sceneSync";
-import {InstanceFlag, SegmentFlag, Topology, type AdacppModule, type WebRendererApi} from "@/viewport/adacpp/types";
+import {InstanceFlag, SegmentFlag, SpriteFlag, Topology, type AdacppModule, type WebRendererApi} from "@/viewport/adacpp/types";
 
 interface Recorded {
     geometries: Map<number, {topology: number; vertexCount: number; segments: number[]}>;
@@ -299,4 +299,171 @@ test("section planes, polygonOffset overlays and sprites reach the renderer", ()
     plane.constant = 0.25;
     sync.sync(scene, camera);
     assert.deepEqual(rec.clipPlanes, [[1, 0, 0, 0.25]]);
+});
+
+test("a highlighted face is uploaded as its own triangles, not as a second copy of the model", () => {
+    const {module, renderer, rec} = fakeModule();
+    const mesh = batched(); // 12 vertices, 4 triangles
+    const {scene, camera} = cameraAndScene(mesh);
+    const sync = new SceneSync(module, renderer);
+    sync.sync(scene, camera);
+    assert.equal(rec.geometries.size, 1);
+
+    mesh.highlightFaceRange(6, 3); // the third triangle
+    sync.sync(scene, camera);
+    const face = [...rec.geometries.entries()].find(([, g]) => g.vertexCount === 3);
+    assert.ok(face, "the face's three vertices, not the model's twelve");
+    const flags = rec.flags.get(face[0])!;
+    assert.ok(flags & InstanceFlag.DepthOffset, "in front of the surface it lies on");
+    assert.ok(flags & InstanceFlag.NoPick, "a click goes to the model, not to the highlight");
+
+    mesh.highlightFaceRange(0, 6); // another face: the old one goes, the new one has two triangles
+    sync.sync(scene, camera);
+    assert.ok(rec.removed.includes(face[0]));
+    assert.ok([...rec.geometries.values()].some((g) => g.vertexCount === 6));
+
+    mesh.clearFaceHighlight();
+    sync.sync(scene, camera);
+    assert.equal(rec.removed.length, 2, "cleared: nothing of the highlight stays in the renderer");
+});
+
+test("section caps are the renderer's: three.js' stencil helpers are not mirrored, the cap quad switches caps on", () => {
+    const {module, renderer, rec} = fakeModule();
+    const caps: Array<boolean | number[]> = [];
+    Object.assign(renderer, {
+        setSectionCaps: (on: boolean) => caps.push(on),
+        setSectionCapColor: (r: number, g: number, b: number, a: number) => caps.push([r, g, b, a]),
+    });
+    const plane = new THREE.Plane(new THREE.Vector3(1, 0, 0), 0);
+    const solid = batched();
+    (solid.originalMaterial as THREE.Material).clippingPlanes = [plane];
+    const shell = batched();
+    shell.originalMaterial = new THREE.MeshStandardMaterial({side: THREE.DoubleSide, clippingPlanes: [plane]});
+    const stencil = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial({colorWrite: false}));
+    const cap = new THREE.Mesh(new THREE.PlaneGeometry(), new THREE.MeshStandardMaterial({color: 0xff0000}));
+    cap.userData.__sectionCap = true;
+    const {scene, camera} = cameraAndScene(solid, shell, stencil, cap);
+    const sync = new SceneSync(module, renderer);
+    sync.sync(scene, camera);
+
+    assert.equal(rec.geometries.size, 2, "only the two model meshes: no stencil pass, no cap quad");
+    const flags = [...rec.flags.values()];
+    assert.equal(flags.filter((f) => f & InstanceFlag.Capped).length, 1, "the closed solid is capped, the open shell is not");
+    assert.deepEqual(caps, [true, [1, 0, 0, 1]]);
+
+    scene.remove(cap);
+    sync.sync(scene, camera);
+    assert.equal(caps.at(-1), false, "no cap quad, no caps");
+});
+
+test("depthTest false draws on top, and a single-sided transparent material keeps its culling", () => {
+    const {module, renderer, rec} = fakeModule();
+    const handle = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial({depthTest: false}));
+    const fill = new THREE.Mesh(new THREE.PlaneGeometry(), new THREE.MeshBasicMaterial({transparent: true, opacity: 0.2, side: THREE.BackSide}));
+    const glass = new THREE.Mesh(new THREE.PlaneGeometry(), new THREE.MeshBasicMaterial({transparent: true, opacity: 0.2, side: THREE.DoubleSide}));
+    const {scene, camera} = cameraAndScene(handle, fill, glass);
+    new SceneSync(module, renderer).sync(scene, camera);
+    const [h, f, g] = [...rec.flags.values()];
+    assert.ok(h & InstanceFlag.OnTop);
+    assert.ok(f & InstanceFlag.CullBack && !(f & InstanceFlag.DoubleSided), "BackSide is single-sided (its winding is reversed at upload)");
+    assert.ok(g & InstanceFlag.DoubleSided && !(g & InstanceFlag.CullBack));
+});
+
+test("with labels handed over, sprites become renderer sprites and their texture uploads once per version", () => {
+    const {module, renderer} = fakeModule();
+    const calls: string[] = [];
+    const sprites: Record<number, number[]> = {};
+    let nextTexture = 10, nextSprite = 20;
+    Object.assign(renderer, {
+        addTexture: (_p: number, w: number, h: number) => (calls.push(`addTexture ${w}x${h}`), nextTexture++),
+        updateTexture: (t: number) => calls.push(`updateTexture ${t}`),
+        removeTexture: (t: number) => calls.push(`removeTexture ${t}`),
+        addSprite: () => nextSprite++,
+        setSprite: (id: number, ...rest: number[]) => (sprites[id] = rest),
+        removeSprite: (s: number) => calls.push(`removeSprite ${s}`),
+    });
+    const map = new THREE.Texture({width: 2, height: 1} as unknown as HTMLImageElement);
+    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({map, sizeAttenuation: false, depthTest: true, opacity: 0.5}));
+    sprite.position.set(1, 2, 3);
+    sprite.scale.set(4, 5, 1);
+    const through = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial());
+    through.userData.__overlayPass = true;
+    const {scene, camera} = cameraAndScene(sprite, through);
+    const sync = new SceneSync(module, renderer, () => ({data: new Uint8Array(8), width: 2, height: 1}));
+    sync.nativeSprites = true;
+    sync.sync(scene, camera);
+    sync.sync(scene, camera);
+
+    assert.equal(sync.spriteCount, 0, "nothing left for the three.js pass");
+    assert.deepEqual(calls, ["addTexture 2x1"], "the texture is uploaded once, not every frame");
+    const [texture, x, y, z, sx, sy, cx, cy, , , , , a, flags] = sprites[20];
+    assert.deepEqual([texture, x, y, z, sx, sy, cx, cy, a], [10, 1, 2, 3, 4, 5, 0.5, 0.5, 0.5]);
+    assert.ok(flags & SpriteFlag.DepthTest && !(flags & SpriteFlag.SizeAttenuation));
+
+    map.needsUpdate = true; // a relabelled canvas
+    sync.sync(scene, camera);
+    assert.equal(calls.at(-1), "updateTexture 10");
+
+    scene.remove(sprite);
+    sync.sync(scene, camera);
+    assert.deepEqual(calls.slice(-2), ["removeSprite 20", "removeTexture 10"]);
+});
+
+test("a renderer that cannot draw sprites hands them back to the three.js pass, with the reason", () => {
+    const {module, renderer} = fakeModule();
+    Object.assign(renderer, {
+        addSprite: () => { throw new Error("no sprite pass"); },
+        removeSprite: () => {}, removeTexture: () => {},
+    });
+    const sprite = new THREE.Sprite(new THREE.SpriteMaterial());
+    const {scene, camera} = cameraAndScene(sprite);
+    const sync = new SceneSync(module, renderer, () => null);
+    sync.nativeSprites = true;
+    sync.sync(scene, camera);
+    assert.equal(sync.nativeSprites, false);
+    assert.equal(sync.nativeSpritesError, "no sprite pass");
+    assert.equal(sync.spriteCount, 1);
+    assert.ok(sprite.layers.isEnabled(SPRITE_LAYER));
+});
+
+test("an image lying in the world is a renderer quad: its texture uploaded once per version, its first row at the rectangle's first corner", async () => {
+    const {createThreeImageLayer} = await import("@/viewport/api/threeImages");
+    const {module, renderer} = fakeModule();
+    const calls: string[] = [];
+    let quad: {texture: number; matrix: number[]; alpha: number; flags: number} | null = null;
+    Object.assign(renderer, {
+        addPlainTexture: (p: number, w: number, h: number) => (calls.push(`addPlainTexture ${w}x${h} ${[...module.HEAPU8.subarray(p, p + 4)]}`), 10),
+        updateTexture: (t: number, _p: number, w: number, h: number) => calls.push(`updateTexture ${t} ${w}x${h}`),
+        removeTexture: (t: number) => calls.push(`removeTexture ${t}`),
+        addQuad: () => 30,
+        setQuad: (_id: number, texture: number, matrix: number, _r: number, _g: number, _b: number, alpha: number, flags: number) => {
+            quad = {texture, matrix: [...module.HEAPF32.subarray(matrix >> 2, (matrix >> 2) + 16)], alpha, flags};
+        },
+        removeQuad: (q: number) => calls.push(`removeQuad ${q}`),
+    });
+    const root = new THREE.Group();
+    root.position.set(100, 0, 0);
+    const images = createThreeImageLayer(() => root, "test");
+    const handle = images.add({origin: [1, 2, 0], u: [4, 0, 0], v: [0, 2, 0], width: 2, height: 1, pixels: Uint8Array.from([9, 8, 7, 6, 5, 4, 3, 2]), nearest: true, opacity: 0.5});
+    const {scene, camera} = cameraAndScene(root);
+    const sync = new SceneSync(module, renderer);
+    sync.sync(scene, camera);
+    sync.sync(scene, camera);
+    assert.deepEqual(calls, ["addPlainTexture 2x1 9,8,7,6"], "the pixels as they are, once");
+    const drawn = quad!;
+    assert.equal(drawn.texture, 10);
+    assert.equal(drawn.alpha, 0.5);
+    assert.ok(drawn.flags & InstanceFlag.Nearest && drawn.flags & InstanceFlag.DepthOffset);
+    // The square's upper-left corner (where the renderer has a texture's first pixel) is the origin,
+    // where the scene has the mesh.
+    const at = (x: number, y: number) => [0, 1, 2].map((r) => drawn.matrix[r] * x + drawn.matrix[4 + r] * y + drawn.matrix[12 + r]);
+    assert.deepEqual(at(-0.5, 0.5), [101, 2, 0]);
+    assert.deepEqual(at(0.5, -0.5), [105, 4, 0]);
+
+    images.setPixels(handle, new Uint8Array(8));
+    sync.sync(scene, camera);
+    assert.equal(calls.at(-1), "updateTexture 10 2x1", "new pixels go into the texture that is there");
+    images.remove(handle);
+    sync.sync(scene, camera);
+    assert.deepEqual(calls.slice(-2).sort(), ["removeQuad 30", "removeTexture 10"]);
 });

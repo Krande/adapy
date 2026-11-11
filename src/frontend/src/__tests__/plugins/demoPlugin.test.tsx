@@ -21,6 +21,8 @@ function fakeCtx(pluginId = ""): AdaPluginContext {
     pluginId,
     api: { base: "/api", plugin: (id?: string) => `/api/plugins/${id ?? pluginId}` },
     stores: {} as AdaPluginContext["stores"],
+    playback: {} as AdaPluginContext["playback"],
+    layers: {} as AdaPluginContext["layers"],
     scene: {
       add() {},
       remove() {},
@@ -48,6 +50,11 @@ function fakeCtx(pluginId = ""): AdaPluginContext {
       frameAll: () => false,
       findFaces: async () => [],
       focusFace: () => false,
+      loadModel: async () => {},
+      addLineLayer: () => ({setSegments() {}, setPolyline() {}, setLook() {}, remove() {}}),
+      addPointLayer: () => ({setPoints() {}, setLook() {}, remove() {}}),
+      addImage: () => ({setPixels() {}, setRect() {}, setLook() {}, unavailable: () => null, remove() {}}),
+      imageUnavailable: () => null,
     },
     scope: () => "user:me",
     // Required by AdaPluginContext since plugin API 1.3.0. A stub: these fixtures

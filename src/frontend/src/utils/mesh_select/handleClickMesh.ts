@@ -1,4 +1,5 @@
 // utils/mesh_select/handleClickMesh.ts
+import {sourceOfModel} from "@/utils/tree_view/modelSource";
 import * as THREE from "three";
 import {CustomBatchedMesh} from "./CustomBatchedMesh";
 import {useModelState} from "@/state/modelState";
@@ -111,10 +112,12 @@ export async function handleClickMesh(
 
     // Fire-and-forget the metadata request so the Properties panel
     // populates without blocking the rest of the click handler. The
-    // active file name scopes the backend's lookup so overlay loads
-    // don't collide on name; ``loadedSourceName`` carries the most
-    // recently activated source.
-    const activeFile = useModelState.getState().loadedSourceName;
+    // file the clicked model was loaded from scopes the backend's lookup
+    // so overlay loads don't collide on name, and is what links the object
+    // to the models derived from the same design; ``loadedSourceName`` (the
+    // most recently activated source) stands in for a model the tree
+    // does not list.
+    const activeFile = sourceOfModel(mesh.unique_key) ?? useModelState.getState().loadedSourceName;
     useObjectInfoStore.getState().setFileName(activeFile);
     useObjectInfoStore.getState().setJsonData(null);
     void query_ws_server_mesh_info(last_selected_name, faceIndex, activeFile);

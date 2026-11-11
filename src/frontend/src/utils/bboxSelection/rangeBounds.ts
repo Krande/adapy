@@ -12,7 +12,7 @@ import * as THREE from "three";
 import type {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
 import {boxCutAway, type PlaneLike} from "@/utils/mesh_select/rangeVisibility";
 
-import {containedAt, overlapsAt, triangleTouchesBox, type Aabb, type BoxSelectMode, type Vec3} from "./boxMath";
+import {containedAt, overlapsAt, triangleTouchesBoxAt, type Aabb, type BoxSelectMode} from "./boxMath";
 
 interface RangeBounds {
     ids: ReadonlyArray<string>;
@@ -119,15 +119,6 @@ export function rangesInBox(
     const idx = geom.index!.array;
     const p = (geom.attributes.position as THREE.BufferAttribute).array;
     const e = mesh.matrixWorld.elements;
-    const world = (v: number): Vec3 => {
-        const o = idx[v] * 3;
-        const lx = p[o], ly = p[o + 1], lz = p[o + 2];
-        return [
-            e[0] * lx + e[4] * ly + e[8] * lz + e[12],
-            e[1] * lx + e[5] * ly + e[9] * lz + e[13],
-            e[2] * lx + e[6] * ly + e[10] * lz + e[14],
-        ];
-    };
     for (let r = 0; r < rb.ids.length; r++) {
         const id = rb.ids[r];
         if (hidden.has(id) || boxCutAway(rb.bounds, r * 6, planes) || !overlapsAt(rb.bounds, r, box)) continue;
@@ -139,7 +130,17 @@ export function rangesInBox(
         // Straddles the boundary: taken when any of its triangles touches the box.
         const end = rb.starts[r] + rb.counts[r];
         for (let i = rb.starts[r]; i + 2 < end; i += 3) {
-            if (triangleTouchesBox(world(i), world(i + 1), world(i + 2), box)) {
+            // The triangle's corners in the world, as plain numbers: nothing is made per triangle.
+            const a = idx[i] * 3, b = idx[i + 1] * 3, c = idx[i + 2] * 3;
+            const ax = p[a], ay = p[a + 1], az = p[a + 2];
+            const bx = p[b], by = p[b + 1], bz = p[b + 2];
+            const cx = p[c], cy = p[c + 1], cz = p[c + 2];
+            if (triangleTouchesBoxAt(
+                e[0] * ax + e[4] * ay + e[8] * az + e[12], e[1] * ax + e[5] * ay + e[9] * az + e[13], e[2] * ax + e[6] * ay + e[10] * az + e[14],
+                e[0] * bx + e[4] * by + e[8] * bz + e[12], e[1] * bx + e[5] * by + e[9] * bz + e[13], e[2] * bx + e[6] * by + e[10] * bz + e[14],
+                e[0] * cx + e[4] * cy + e[8] * cz + e[12], e[1] * cx + e[5] * cy + e[9] * cz + e[13], e[2] * cx + e[6] * cy + e[10] * cz + e[14],
+                box,
+            )) {
                 out.push(id);
                 break;
             }

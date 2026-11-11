@@ -6,39 +6,8 @@ import type {GroupInfo} from '@/state/sceneInfoStore';
 import {useViewerStores, useViewerRefs} from '@/state/AdaViewerContext';
 import {useModelState, loadedSourceGroups} from '@/state/modelState';
 import {applyGroupSelection} from "@/utils/groups/applyGroupSelection";
+import {announcedGroups, groupsFromExtension} from "@/utils/groups/extensionGroups";
 import {isMirroredWindow, useSceneActions} from "@/layout/sceneActions";
-
-// Pull every group out of one model's ADA extension, tagged with the
-// storage key it came from.
-function groupsFromExtension(ext: any, source: string | undefined): GroupInfo[] {
-    const groups: GroupInfo[] = [];
-    for (const designObj of ext?.design_objects ?? []) {
-        for (const group of designObj.groups ?? []) {
-            groups.push({
-                name: group.name || 'Unnamed Group',
-                description: group.description,
-                members: group.members,
-                type: 'design' as const,
-                parent_name: designObj.name || 'Unnamed Object',
-                source,
-            });
-        }
-    }
-    for (const simObj of ext?.simulation_objects ?? []) {
-        for (const group of simObj.groups ?? []) {
-            groups.push({
-                name: group.name || 'Unnamed Group',
-                description: group.description,
-                members: group.members,
-                type: 'simulation' as const,
-                parent_name: simObj.name || 'Unnamed Object',
-                fe_object_type: group.fe_object_type,
-                source,
-            });
-        }
-    }
-    return groups;
-}
 
 const GroupsSection = () => {
     const {useSceneInfoStore, useObjectInfoStore} = useViewerStores();
@@ -82,6 +51,8 @@ const GroupsSection = () => {
                 ?? (sceneGroup as any)?.userData?.__adaExt;
             if (ext) groups.push(...groupsFromExtension(ext, name));
         }
+        // Models of a viewport that builds no scene groups: read from what it announced.
+        for (const group of announcedGroups()) groups.push(group);
         // Fallback for the streaming/replace path (no per-source scene
         // groups registered): the single active-extension ref.
         if (groups.length === 0 && adaExtensionRef.current) {

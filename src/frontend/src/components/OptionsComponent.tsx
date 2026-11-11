@@ -13,6 +13,7 @@ import PerformanceOptions from "./options/PerformanceOptions";
 import SceneRestoreOptions from "./options/SceneRestoreOptions";
 import ShortcutsModal from "./options/ShortcutsModal";
 import SpaceMouseOptions from "./options/SpaceMouseOptions";
+import CameraControlsOptions from "./options/CameraControlsOptions";
 import ThemeOptions from "./options/ThemeOptions";
 
 // REST-only controls (scope picker, signed-in row, admin button) live
@@ -46,6 +47,7 @@ export type OptionsSectionId =
     | "theme"
     | "performance"
     | "compute"
+    | "camera"
     | "spacemouse"
     | "conversion"
     | "shortcuts";
@@ -65,6 +67,7 @@ const DEFAULT_SECTIONS: readonly OptionsSectionId[] = [
     "theme",
     "performance",
     "compute",
+    "camera",
     "spacemouse",
     "conversion",
     "shortcuts",
@@ -135,6 +138,11 @@ export function OptionsBody({sections: picked, hiddenSections}: OptionsBodyProps
         compute: (
             <Section title="Calculations">
                 <ComputeOptions/>
+            </Section>
+        ),
+        camera: (
+            <Section title="Camera controls">
+                <CameraControlsOptions/>
             </Section>
         ),
         spacemouse: (

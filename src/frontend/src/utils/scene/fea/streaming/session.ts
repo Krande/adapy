@@ -15,6 +15,8 @@ import {useModelSessionStore, type FeaSessionHandle} from "@/state/modelSession"
 import {requestRender} from "@/state/perfStore";
 import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
 import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
+import {feaMeshChanged} from "../meshOverlayTarget";
+import {layerSessionScope} from "./layerSession";
 
 /**
  * The streaming-FEA handle for the open model session, as a live view.
@@ -33,6 +35,8 @@ export const feaSession = {
     },
     set active(handle: FeaSessionHandle | null) {
         useModelSessionStore.getState().ensure().fea = handle;
+        // What was drawn over the mesh that left (plugin overlays) goes with it.
+        feaMeshChanged();
     },
 };
 
@@ -49,7 +53,8 @@ export const feaSession = {
 export function feaSourceScope(sourceName: string | null | undefined): string {
     const active = feaSession.active;
     if (sourceName && active?.scope && active.sourceName === sourceName) return active.scope;
-    return scopeUrlPart(useScopeStore.getState().current);
+    // A result drawn through result layers (the three.js-free viewport) has no handle here.
+    return layerSessionScope(sourceName) ?? scopeUrlPart(useScopeStore.getState().current);
 }
 
 /**

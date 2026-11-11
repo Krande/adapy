@@ -3,7 +3,7 @@ import {useModelState} from "@/state/modelState";
 import {SceneOperations} from "@/flatbuffers/scene/scene-operations";
 import {add_mesh_to_scene} from "./append_to_scene_from_message";
 
-import {ungzip} from 'pako';
+import {gunzipToBlob} from '@/utils/gunzipToBlob';
 import {SetupModelPrepareHook, setupModelLoaderAsync, type SetupModelLoaderOptions} from "@/components/viewer/sceneHelpers/setupModelLoader";
 import {loadModel} from "@/components/viewer/sceneHelpers/loadModel";
 import {clearActiveFeaStreaming} from "./load_fea_streaming";
@@ -31,6 +31,8 @@ export interface ReplaceModelOptions {
     url: string;
     prepareHook?: SetupModelPrepareHook;
     sourceName?: string;
+    /** What the model is called to a person: its root row in the Scene tree. */
+    displayName?: string;
     /** Recenter the model to the scene origin from its bbox (like the CAD loader). FEA/FEM
      * meshes can sit far from origin (real instance coordinates), so the streaming load passes
      * true; the legacy WS-message caller keeps the old no-recenter behaviour. */
@@ -48,6 +50,7 @@ export async function replace_model(options: ReplaceModelOptions) {
         url,
         prepareHook,
         sourceName,
+        displayName,
         translate = false,
         requestHeaders,
         metrics,
@@ -100,6 +103,7 @@ export async function replace_model(options: ReplaceModelOptions) {
         translate,
         prepareHook,
         sourceName,
+        displayName,
         requestHeaders,
         metrics,
         autoFitOverride,
@@ -128,17 +132,9 @@ export async function update_scene_from_message(message: Message) {
         return;
     }
 
-    let compressed = fileObject.compressed(); // New field you added
-    let finalData: Uint8Array;
-
-    if (compressed) {
-        console.log('Decompressing received GLB data...');
-        finalData = ungzip(data); // using pako.gunzip
-    } else {
-        finalData = data;
-    }
-
-    const blob = new Blob([finalData], {type: 'model/gltf-binary'});
+    // A large model arrives gzipped: inflated by the browser itself, off the main thread.
+    const type = 'model/gltf-binary';
+    const blob = fileObject.compressed() ? await gunzipToBlob(data, type) : new Blob([data as BlobPart], {type});
     const url = URL.createObjectURL(blob);
     const sourceName = fileObject.name();
     if (operation == SceneOperations.REPLACE) {

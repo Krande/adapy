@@ -10,9 +10,12 @@ import {getViewerRuntime} from "@/state/viewerRuntime";
 import {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
 import {requestRender} from "@/state/perfStore";
 import {disposeObject3D} from "@/utils/scene/dispose_object";
+import {activeViewport} from "@/viewport/api/viewportApi";
 
 export function unload_source_from_scene(sourceName: string): void {
     const group = useModelState.getState().unregisterLoadedSource(sourceName);
+    // A viewport that holds its models itself takes this one off the screen; its tree root goes below.
+    activeViewport()?.unloadSource(sourceName);
 
     // Drop this model's root from the tree view + the model-key map.
     // Each load registers one tree root under the synthetic container

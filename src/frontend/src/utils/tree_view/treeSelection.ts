@@ -4,8 +4,8 @@
 // it without loading scene code; `./treeNavigation` acts on it.
 
 import type {TreeNodeData} from "@/components/tree_view/CustomNode";
-import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
 import {useTreeViewStore} from "@/state/treeViewStore";
+import {activeViewport} from "@/viewport/api/viewportApi";
 import {buildTreeIndices, lowestCommonAncestor, selectableParent, type TreeIndices} from "./treeGraph";
 
 // --- indices cache (rebuilt only when treeData identity changes) ---------- //
@@ -28,27 +28,20 @@ export function treeIndices(): TreeIndices | null {
     return cachedIndices;
 }
 
-/** The key a selected mesh's ranges are indexed under in the tree (`findNodeByRangeId`). */
-export function meshModelKey(mesh: unknown): string | undefined {
-    const m = mesh as {unique_key?: string; userData?: Record<string, unknown>};
-    return m.unique_key ?? (m.userData ? (m.userData["unique_hash"] as string | undefined) : undefined);
-}
-
-/** Tree nodes backing the currently-selected draw ranges (resolved by the
+/** Tree nodes backing the currently-selected objects of the viewport on screen (resolved by the
  *  globally-unique ``model_key|rangeId`` — never by repeating display name). */
 export function selectedLeafNodes(): TreeNodeData[] {
     const store = useTreeViewStore.getState();
     const out: TreeNodeData[] = [];
-    for (const [mesh, ranges] of useSelectedObjectStore.getState().selectedObjects) {
-        const key = meshModelKey(mesh);
-        if (!key) continue;
-        for (const rid of ranges) {
-            const node = store.findNodeByRangeId(key, rid);
-            if (node) out.push(node);
-        }
+    for (const ref of activeViewport()?.selection() ?? []) {
+        const node = store.findNodeByRangeId(ref.model, ref.id);
+        if (node) out.push(node);
     }
     return out;
 }
+
+/** What the selection is now, by identity: a different value once it has changed. */
+const selectionToken = (): unknown => activeViewport()?.selectionToken() ?? null;
 
 /** The tree node representing the current selection level (LCA of the selected
  *  leaves), or null when nothing resolvable is selected. */
@@ -75,7 +68,7 @@ let noted: {ids: readonly string[]; sel: unknown} | null = null;
 
 /** Record that the rows `ids` were just selected (a row click, a navigation): call after the 3D selection is set. */
 export function noteTreeSelection(ids: readonly string[]): void {
-    noted = {ids: [...ids], sel: useSelectedObjectStore.getState().selectedObjects};
+    noted = {ids: [...ids], sel: selectionToken()};
 }
 
 /**
@@ -85,8 +78,7 @@ export function noteTreeSelection(ids: readonly string[]): void {
  * or a clear since the rows were chosen falls back to the ranges.
  */
 export function treeSelectionIds(): readonly string[] {
-    const sel = useSelectedObjectStore.getState().selectedObjects;
-    if (noted && noted.sel === sel) return noted.ids;
+    if (noted && noted.sel === selectionToken()) return noted.ids;
     const out: string[] = [];
     const seen = new Set<string>();
     for (const n of selectedLeafNodes()) {
@@ -134,7 +126,5 @@ export function showTreeSelection(ids: readonly string[], scroll?: boolean): voi
 
 /** How many draw ranges are selected. */
 export function selectedRangeCount(): number {
-    let n = 0;
-    for (const ids of useSelectedObjectStore.getState().selectedObjects.values()) n += ids.size;
-    return n;
+    return activeViewport()?.selectionCount() ?? 0;
 }

@@ -219,7 +219,7 @@ async function loadAsset(scope: string, m: Extract<RecordedModel, {kind: "asset"
         import("@/components/asset_browser/AssetsTab"),
     ]);
     const ref = assetRef(m);
-    const deps = realDeliveryDeps((name) => useModelState.getState().loadedSourceNames.has(name), op?.trackJob);
+    const deps = realDeliveryDeps((name) => useModelState.getState().loadedSourceNames.has(name), op?.trackJob, op?.signal);
     await loadAssetNode(scope, deps, {
         kind: "node",
         provider: ref.provider,
@@ -276,7 +276,7 @@ export async function restoreScene(skip: ReadonlySet<string> = new Set()): Promi
         const session = beginBulkLoad(scope, RESTORE_SESSION, {view: rec.camera ?? null, save: false});
         try {
             for (const m of plan) {
-                if (generation !== restoreGeneration || currentScope() !== scope || !wanted()) break;
+                if (op.signal.aborted || generation !== restoreGeneration || currentScope() !== scope || !wanted()) break;
                 const name = recordedSourceName(m);
                 op.stage(`${progress.done + 1} of ${progress.total}: ${(m.kind === "asset" && m.label) || name}`);
                 let ok = useModelState.getState().loadedSourceNames.has(name);

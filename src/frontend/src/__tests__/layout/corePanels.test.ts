@@ -64,6 +64,8 @@ const { useEquipmentCatalogStore } = await import("@/state/equipmentCatalogStore
 const { useWebsocketStatusStore } = await import("@/state/websocketStatusStore");
 const { useViewerPanelStore } = await import("@/state/viewerPanelStore");
 const { useTableNavStore } = await import("@/state/tableNavStore");
+const { useSimulationStore } = await import("@/state/simulationStore");
+const { useLayersPanelStore } = await import("@/state/layersPanelStore");
 
 /** Every visibility flag the classic UI keeps, by name. */
 function flags(): Record<string, unknown> {
@@ -83,6 +85,8 @@ function flags(): Record<string, unknown> {
     showWebsocketInfoBox: useWebsocketStatusStore.getState().showInfoBox,
     viewerPanelOpen: useViewerPanelStore.getState().open,
     tablePanelOpen: useTableNavStore.getState().isPanelOpen,
+    simulationsPanelOpen: useSimulationStore.getState().panelOpen,
+    layersPanelOpen: useLayersPanelStore.getState().panelOpen,
   };
 }
 
@@ -100,6 +104,8 @@ function resetFlags(): void {
   useWebsocketStatusStore.setState({ showInfoBox: false });
   useViewerPanelStore.setState({ open: null, shown: [], exclusive: true, adminTab: null });
   useTableNavStore.setState({ isPanelOpen: false });
+  useSimulationStore.setState({ panelOpen: false });
+  useLayersPanelStore.setState({ panelOpen: false });
 }
 
 /**
@@ -176,6 +182,18 @@ const MENU_TOGGLES: Array<{ pressed: string; id: string; flag: string; onClick: 
       useCellBuilderStore.getState().setPanelVisible(!useCellBuilderStore.getState().panelVisible),
   },
   {
+    pressed: "simulationsPanelOpen",
+    id: CORE_PANEL_IDS.simulations,
+    flag: "simulationsPanelOpen",
+    onClick: () => useSimulationStore.getState().setPanelOpen(!useSimulationStore.getState().panelOpen),
+  },
+  {
+    pressed: "layersPanelOpen",
+    id: CORE_PANEL_IDS.layers,
+    flag: "layersPanelOpen",
+    onClick: () => useLayersPanelStore.getState().setPanelOpen(!useLayersPanelStore.getState().panelOpen),
+  },
+  {
     pressed: "showWebsocketInfoBox",
     id: CORE_PANEL_IDS.wsStatus,
     flag: "showWebsocketInfoBox",
@@ -233,6 +251,8 @@ test("the menu column's panels are registered, in the order the column stacks th
     CORE_PANEL_IDS.cellbuilder,
     CORE_PANEL_IDS.equipmentAdmin,
     CORE_PANEL_IDS.systemAdmin,
+    CORE_PANEL_IDS.simulations,
+    CORE_PANEL_IDS.layers,
   ];
   const orders = column.map((id) => placementFor(getPanel(id)!, "classic"));
   assert.ok(orders.every((p) => p?.zone === "classic.menu-column"));

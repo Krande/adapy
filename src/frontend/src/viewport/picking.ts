@@ -3,12 +3,15 @@
 // answers with its own id-buffer pick (adacpp Renderer::pick), mapped back to the same result shape
 // here. Async because WebGPU reads back asynchronously; the three.js pickers resolve immediately.
 //
-// Point clouds still go to three.js' point picker in both modes: WebGPU draws points one pixel wide, so
-// a pixel-exact pick would rarely land on one until the renderer has a point-size impostor pass.
+// Points go to three.js' point picker in both modes unless the `adacppPointPick` switch hands them to
+// adacpp, whose pick then finds a point as a square of its drawn size (at least a few pixels) and,
+// unlike three.js' point picker, not through a face in front of it.
 import * as THREE from "three";
 import type {GpuMeshPickResult} from "@/utils/mesh_select/GpuMeshPicker";
+import type {GpuPickResult} from "@/utils/mesh_select/GpuPointPicker";
 import {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
-import {usePerfStore} from "@/state/perfStore";
+import {adacppHandover, usePerfStore} from "@/state/perfStore";
+import {Topology} from "./adacpp/types";
 import type {AdacppViewport} from "./adacpp/adacppViewport";
 
 let adacpp: AdacppViewport | null = null;
@@ -86,8 +89,19 @@ export async function pickMeshAt(clientX: number, clientY: number): Promise<GpuM
     return result;
 }
 
-/** The point (of a points object) under a client position. three.js' point picker in both modes. */
-export async function pickPointAt(clientX: number, clientY: number) {
-    const {gpuPointPicker} = await import("@/utils/mesh_select/GpuPointPicker");
-    return gpuPointPicker.pickAt(clientX, clientY);
+/** The point (of a points object) under a client position: adacpp's pick when it draws and point picking
+ *  is handed over to it, else three.js' point picker. */
+export async function pickPointAt(clientX: number, clientY: number): Promise<GpuPickResult> {
+    const vp = activeAdacpp();
+    if (!vp || !adacppHandover().pointPick) {
+        const {gpuPointPicker} = await import("@/utils/mesh_select/GpuPointPicker");
+        return gpuPointPicker.pickAt(clientX, clientY);
+    }
+    const raw = await vp.pickRaw(clientX, clientY);
+    if (!raw || raw.topology !== Topology.Points) return null; // nothing, or a face in front: the mesh pick's
+    const obj = vp.entryForInstance(raw.instance)?.obj;
+    if (!(obj instanceof THREE.Points)) return null;
+    // The renderer reports the position in the index list; three.js' picker reports the vertex.
+    const index = obj.geometry.index ? obj.geometry.index.getX(raw.triangle) : raw.triangle;
+    return {object: obj, index, worldPosition: new THREE.Vector3(...raw.world)};
 }

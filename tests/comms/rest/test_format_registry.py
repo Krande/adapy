@@ -54,6 +54,8 @@ CHAIN_KINDS = [
     ("export_search_asset", True),
     # Synthetic: two providers' built GLBs of one collection, compared element by element.
     ("geometry_compare", True),
+    # Synthetic: a simulation provider's run; its inputs are named by the run record.
+    ("simulation_run", True),
     ("utility", False),
     ("fea_artefacts", False),
     ("fea_meta", False),
@@ -103,9 +105,10 @@ def test_every_chain_kind_resolves_to_its_own_handler(kind, synthetic):
     handler = registry.resolve(_job(kind))
     assert handler.kind == kind
     assert handler.needs_source is (not synthetic)
-    # The cache-exempt kinds: equipment_bbox's output is a DB side-effect, not the blob, and a
-    # clash_contacts annotate job's derived key is the run it rewrites.
-    assert handler.skip_cached_short_circuit is (kind in ("equipment_bbox", "clash_contacts"))
+    # The cache-exempt kinds: equipment_bbox's output is a DB side-effect, not the blob, a
+    # clash_contacts annotate job's derived key is the run it rewrites, and a simulation_run's is
+    # the run record, which exists before the run starts.
+    assert handler.skip_cached_short_circuit is (kind in ("equipment_bbox", "clash_contacts", "simulation_run"))
 
 
 def test_registered_kinds_are_exactly_the_chain_plus_the_convert_fallback():

@@ -209,7 +209,22 @@ async def _run_asset_build(
         job_id,
         time.monotonic() - started_at,
     )
-    await _audit_done(db_pool, job_id, "done", None, started_at)
+    await _audit_done(db_pool, job_id, "done", None, started_at, metrics=_build_audit_metrics(summary))
+
+
+#: Most warnings one audit row carries; the build summary at the derived key keeps them all.
+_AUDIT_WARNINGS_CAP = 50
+
+
+def _build_audit_metrics(summary: BuildSummary) -> dict:
+    """A finished build's counts and warnings for its audit row (``convert_meta.build``): what it
+    left out -- members it could not tessellate, among them -- is visible where its outcome is."""
+    build: dict = {"counts": dict(summary.counts)}
+    if summary.warnings:
+        build["warnings"] = list(summary.warnings[:_AUDIT_WARNINGS_CAP])
+        if len(summary.warnings) > _AUDIT_WARNINGS_CAP:
+            build["warnings_total"] = len(summary.warnings)
+    return {"convert_meta": {"build": build}}
 
 
 async def _store_empty(

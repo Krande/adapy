@@ -5,6 +5,8 @@ import {SceneOperations} from "../flatbuffers/scene/scene-operations";
 import {FilePurpose} from "../flatbuffers/base/file-purpose";
 import {useLineageStore} from './lineageStore';
 import {loadedSourceGroups, useModelSessionStore} from './modelSession';
+import {setSceneOffset} from './sceneFrameStore';
+import {setSourceExtension} from './sourceExtensions';
 
 export interface ModelState {
     modelUrl: string | null;
@@ -39,6 +41,9 @@ export interface ModelState {
     setLoadedSourceName: (name: string | null) => void;
     // Multi-model overlay tracking
     registerLoadedSource: (name: string, group: THREE.Group) => void;
+    /** A source whose model a viewport holds itself, with no three.js group to keep: it is listed as
+     *  loaded, and what works by a source's name (export, unload) works for it. */
+    registerLoadedSourceName: (name: string) => void;
     unregisterLoadedSource: (name: string) => THREE.Group | null;
     clearLoadedSources: () => void;
 }
@@ -112,7 +117,16 @@ export const useModelState = create<ModelState>((set) => ({
             ?? (group as any)?.userData?.__adaGltf;
         if (ext && gltf) {
             void import('@/utils/lineage/registerLineageFromExtension').then(({registerLineageFromExtension}) =>
-                registerLineageFromExtension({gltf, extension: ext, fileName: name, root: group}),
+                registerLineageFromExtension({
+                    // three's GLTFLoader hands a buffer view back as its own ArrayBuffer.
+                    bufferView: async (index) => {
+                        const buf = await gltf.parser.getDependency('bufferView', index);
+                        return buf instanceof ArrayBuffer ? buf : null;
+                    },
+                    extension: ext,
+                    fileName: name,
+                    root: group,
+                }),
             ).catch((err) => console.warn('lineage: register failed for', name, err))
                 .finally(() => {
                     // Lineage was the last consumer of the GLTFLoader parser. Dropping
@@ -140,6 +154,16 @@ export const useModelState = create<ModelState>((set) => ({
             return {loadedSourceNames: next, loadedSourceName: name};
         });
     },
+    registerLoadedSourceName: (name) => {
+        const session = useModelSessionStore.getState().ensure();
+        session.identity.sourceName ??= name;
+        set((s) => {
+            if (s.loadedSourceNames.has(name) && s.loadedSourceName === name) return {};
+            const next = new Set(s.loadedSourceNames);
+            next.add(name);
+            return {loadedSourceNames: next, loadedSourceName: name};
+        });
+    },
     unregisterLoadedSource: (name) => {
         const group = loadedSourceGroups.get(name) ?? null;
         loadedSourceGroups.delete(name);
@@ -147,6 +171,7 @@ export const useModelState = create<ModelState>((set) => ({
         // file doesn't try to jump to a model that's no longer in the
         // scene. Symmetric to register-on-load in setupModelLoaderAsync.
         useLineageStore.getState().unregister(name);
+        setSourceExtension(name, null);
         set((s) => {
             if (!s.loadedSourceNames.has(name)) return {};
             const next = new Set(s.loadedSourceNames);
@@ -173,3 +198,8 @@ export const useModelState = create<ModelState>((set) => ({
         set({loadedSourceNames: new Set<string>(), loadedSourceName: null});
     },
 }));
+
+// The recentring offset as plain numbers, for what must not depend on three.js (state/sceneFrameStore).
+useModelState.subscribe((s, prev) => {
+    if (s.translation !== prev.translation) setSceneOffset(s.translation ? [s.translation.x, s.translation.y, s.translation.z] : null);
+});

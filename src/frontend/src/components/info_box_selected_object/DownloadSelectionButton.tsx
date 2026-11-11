@@ -1,3 +1,4 @@
+import {useSelectionRefs} from "@/viewport/api/useViewportSelection";
 import React, {useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react';
 import {createPortal} from 'react-dom';
 import {useViewerStores} from '@/state/AdaViewerContext';
@@ -77,10 +78,10 @@ interface MissingGeometryPrompt {
  * members left out, from a provider's node request -- and exports again once it is published.
  */
 const DownloadSelectionButton: React.FC = () => {
-    const {useObjectInfoStore, useSelectedObjectStore, useTreeViewStore} = useViewerStores();
+    const {useObjectInfoStore, useTreeViewStore} = useViewerStores();
     const name = useObjectInfoStore((s) => s.name);
     const selectedNodeId = useObjectInfoStore((s) => s.selectedNodeId);
-    const selectedObjects = useSelectedObjectStore((s) => s.selectedObjects);
+    const selected = useSelectionRefs();
     const treeData = useTreeViewStore((s) => s.treeData);
     const findByRange = useTreeViewStore((s) => s.findNodeByRangeId);
     const loadedAssets = useAssetBrowserStore((s) => s.loaded);
@@ -111,19 +112,14 @@ const DownloadSelectionButton: React.FC = () => {
     const indices = useMemo(() => (treeData ? buildTreeIndices(treeData) : null), [treeData]);
 
     const plan = useMemo(() => {
-        const ranges: [string, string][] = [];
-        selectedObjects.forEach((ids, mesh) => {
-            // The same lookup key the 3D click's tree sync resolves rows by (handleClickMesh).
-            const m = mesh as unknown as {unique_key?: string; userData?: Record<string, unknown>};
-            const key = m.unique_key ?? (m.userData?.['unique_hash'] as string | undefined);
-            if (key) ids.forEach((rangeId) => ranges.push([key, String(rangeId)]));
-        });
+        // What is selected on the viewport on screen: the same (model, id) the tree resolves rows by.
+        const ranges: [string, string][] = selected.map((ref) => [ref.model, ref.id]);
         const row = resolveSelectedRow({indices, selectedNodeId, name, ranges, findByRange});
         return planSelectionExport({restMode: runtime.isRestMode(), row, indices, loadedAssets});
-    }, [indices, selectedNodeId, name, selectedObjects, findByRange, loadedAssets]);
+    }, [indices, selectedNodeId, name, selected, findByRange, loadedAssets]);
 
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    const captured = useMemo(() => captureSelection(), [selectedObjects, treeData, loadedAssets]);
+    const captured = useMemo(() => captureSelection(), [selected, treeData, loadedAssets]);
     const group = useMemo(
         () => planGroupExport({members: captured.members, loadedAssets, providers, providerName}),
         [captured, loadedAssets, providers, providerName],

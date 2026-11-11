@@ -1,5 +1,4 @@
-import * as THREE from 'three';
-import {useLineageStore} from '@/state/lineageStore';
+import {useLineageStore, type LineageRoot} from '@/state/lineageStore';
 
 /**
  * Pull lineage information out of a freshly-loaded GLB's ADA_EXT_data
@@ -10,21 +9,24 @@ import {useLineageStore} from '@/state/lineageStore';
  * FEA side: walks ``simulation_objects[*].groups[*]`` that carry
  * ``parent_object_guid``. Small groups use inline ``members: [string]``;
  * large groups reference a uint32 bufferView via ``members_buffer_view``
- * which we resolve via the glTF parser to a Uint32Array.
+ * which the caller's ``bufferView`` reads, to a Uint32Array.
  *
  * If neither side carries data, the registration is a no-op (the
  * lineage store ignores empty registrations).
+ *
+ * No three.js here: both viewports register through it, each with its
+ * own way to read a buffer view.
  */
 type Args = {
-    // The loaded glTF (three.js GLTFLoader result, with ``parser``
-    // exposed so we can fetch bufferViews).
-    gltf: any;
+    // The bytes of one of the GLB's buffer views (a view or its own
+    // buffer), or null when it cannot be read.
+    bufferView: (index: number) => Promise<ArrayBuffer | Uint8Array | null> | ArrayBuffer | Uint8Array | null;
     extension: any;
     fileName: string | null;
-    root: THREE.Object3D;
+    root: LineageRoot;
 };
 
-export async function registerLineageFromExtension({gltf, extension, fileName, root}: Args): Promise<void> {
+export async function registerLineageFromExtension({bufferView, extension, fileName, root}: Args): Promise<void> {
     if (!fileName) return;
     const assemblyGuid: string | undefined = extension?.assembly_guid;
     if (!assemblyGuid) return;
@@ -87,7 +89,7 @@ export async function registerLineageFromExtension({gltf, extension, fileName, r
                 typeof grp.members_buffer_view === 'number' &&
                 typeof grp.members_prefix === 'string'
             ) {
-                const ids = await resolveBufferViewAsUint32(gltf, grp.members_buffer_view);
+                const ids = await resolveBufferViewAsUint32(bufferView, grp.members_buffer_view);
                 if (ids) {
                     feaGroups.push({
                         parentObjectGuid: parentGuid,
@@ -110,20 +112,15 @@ export async function registerLineageFromExtension({gltf, extension, fileName, r
 }
 
 /**
- * Pull the binary content of a glTF bufferView and reinterpret it as a
- * little-endian Uint32Array (matching what
- * ``SceneConverter._consume_lineage_buffers`` writes).
- *
- * three's GLTFLoader exposes ``parser.getDependency('bufferView', idx)``
- * which returns the underlying ArrayBuffer (sliced to the bufferView's
- * byteOffset/byteLength). We construct a Uint32Array view over it
- * without copying.
+ * A glTF bufferView's bytes as a little-endian Uint32Array (matching
+ * what ``SceneConverter._consume_lineage_buffers`` writes). No copy when
+ * the bytes start on a four-byte boundary of their buffer.
  */
-async function resolveBufferViewAsUint32(gltf: any, bufferViewIdx: number): Promise<Uint32Array | null> {
+async function resolveBufferViewAsUint32(bufferView: Args['bufferView'], bufferViewIdx: number): Promise<Uint32Array | null> {
     try {
-        const buf = await gltf.parser.getDependency('bufferView', bufferViewIdx);
-        if (!(buf instanceof ArrayBuffer)) {
-            console.warn(`lineage: bufferView ${bufferViewIdx} returned non-ArrayBuffer`);
+        const buf = await bufferView(bufferViewIdx);
+        if (!buf) {
+            console.warn(`lineage: bufferView ${bufferViewIdx} could not be read`);
             return null;
         }
         // The write side packs aligned uint32s (4 bytes each). If the
@@ -132,7 +129,9 @@ async function resolveBufferViewAsUint32(gltf: any, bufferViewIdx: number): Prom
             console.warn(`lineage: bufferView ${bufferViewIdx} byteLength ${buf.byteLength} not uint32-aligned`);
             return null;
         }
-        return new Uint32Array(buf);
+        if (buf instanceof ArrayBuffer) return new Uint32Array(buf);
+        if (buf.byteOffset % 4 === 0) return new Uint32Array(buf.buffer, buf.byteOffset, buf.byteLength / 4);
+        return new Uint32Array(buf.slice().buffer);
     } catch (err) {
         console.warn(`lineage: failed to read bufferView ${bufferViewIdx}`, err);
         return null;

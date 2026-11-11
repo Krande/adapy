@@ -20,7 +20,7 @@ import { loadedSourceGroups } from "@/state/modelState";
 import { requestRender } from "@/state/perfStore";
 import type { ConnectionOverlays } from "@/state/connectionBuilderStore";
 import { getViewerRuntime } from "@/state/viewerRuntime";
-import { sourceSpaceRoot } from "@/utils/scene/clashJointMarkers";
+import { sourceSpaceRoot } from "@/utils/scene/meshLookup";
 import { weldTypeName } from "@/utils/weldTypeNames";
 
 export type ConnectionOverlayToggles = Pick<ConnectionOverlays, "axes" | "welds" | "weldSymbols" | "weldDetails">;

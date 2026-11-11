@@ -62,8 +62,14 @@ export function systemRouteRanges(systemName: string): Array<[string, string]> {
 // swept tube the surface-vertex centroid lands on the centerline, so the icon
 // ends up sitting naturally over the pipe rather than over the system bounds.
 export function pipeCentroidWorld(systemName: string): THREE.Vector3 | null {
-  const treeData = useTreeViewStore.getState().treeData;
-  const ranges = routeRanges(systemName, treeData);
+  return rangesCentroidWorld(systemRouteRanges(systemName));
+}
+
+// World-space centroid of the surface vertices of a set of (model_key, rangeId)
+// draw ranges, or null when none of them is in the scene.
+export function rangesCentroidWorld(
+  ranges: ReadonlyArray<readonly [string, string]>,
+): THREE.Vector3 | null {
   if (ranges.length === 0) return null;
 
   const meshes = allBatchedMeshes();

@@ -78,7 +78,7 @@ flowchart TB
 |---|---|---|
 | App factory | `app.py` (`create_app`) | Docs at `/api/docs`. Public: `/healthz`, `/api/config`. Everything else sits under `/api` behind `auth.current_user`. Conversion, utility, job polling (`/convert/{job_id}`), components and WASM audit routes are still defined in `app.py`. |
 | Settings | `config.py` | `Settings` with `S3Config`, `LocalConfig`, `QueueConfig`, `AuthConfig`; read from `ADA_VIEWER_*` and `DATABASE_URL`. |
-| Routers | `routes/*.py` | **Projects** (`/me`, `/projects`), **storage** (files, overlays, blobs, rename/move, derived, upload-url / upload-complete / upload-progress, download-url), **source nodes**, **assets** (providers, index, tree, attributes, geometry roll-up, build, publish, staging, unpublish), **fea** (`fea/artefacts`, `fea/artefact`, `fea/manifest`, `result-meta`), **clash** (clash-check, clash-detail, passes, checkers, geometry providers, connection specs), **export_selection**, **plugins / plugin_jobs / procedural_models**, **admin** (projects, users, settings, storage, compression, workers, corpora, plugin jobs) and **audit** (runs, schedules, perf + issue bot). Shared context lives in `deps.py` (`RestContext`). |
+| Routers | `routes/*.py` | **Projects** (`/me`, `/projects`), **storage** (files, overlays, blobs, rename/move, derived, upload-url / upload-complete / upload-progress, download-url), **source nodes**, **assets** (providers, index, tree, attributes, geometry roll-up, build, publish, staging, unpublish), **fea** (`fea/artefacts`, `fea/artefact`, `fea/manifest`, `result-meta`), **clash** (clash-check, clash-detail, passes, checkers, geometry providers, connection specs), **export_selection**, **simulations** (providers, runs, cancel), **plugins / plugin_jobs / procedural_models**, **admin** (projects, users, settings, storage, compression, workers, corpora, plugin jobs) and **audit** (runs, schedules, perf + issue bot). Shared context lives in `deps.py` (`RestContext`). |
 | Auth | `auth.py`, `scope.py` | Provider-agnostic OIDC JWT verification against the discovered JWKS. Admin role from a group claim. Users are upserted lazily by `sub`. The CLI uses minted tokens. With auth disabled, a synthetic local user is used. Access is scoped to *shared*, *project* or *user*. |
 | Database | `db/pool.py`, `db/migrations.py`, `migrations/*.sql` | PostgreSQL via asyncpg. Numbered SQL migrations are applied under an advisory lock. Tables: users, projects, members, audit (log, runs, schedules, parity, issue rechecks), app settings, profiling stats, corpora, worker packages, procedural models / equipment types / system templates / engines, source nodes, plugin job schedules. **Optional:** without a DB the API runs shared-only and DB-backed routes return 503. |
 | Storage | `storage.py` | obstore `S3Store` (S3, Garage) or `LocalStore` (`ADA_VIEWER_STORAGE_KIND`), with gzip helpers. Sources and derived artefacts share one key space (`_derived/...`). |
@@ -117,20 +117,22 @@ sequenceDiagram
 
 - **Transport** (`job_transport.py`): `QueueJobTransport` (NATS) or `LocalJobTransport`
   (in-process threads for a set of `LOCAL_FEATURES`: asset build/publish, clash
-  check/detail, export selection, plugin jobs). The choice is made once at start-up.
+  check/detail, export selection, plugin jobs, simulation runs). The choice is made once at
+  start-up.
 - **Queue** (`queue.py`, `JobQueue`): a JetStream stream with WORK_QUEUE retention. The
   message body is just the job id. Status and the worker registry live in a KV bucket.
   Jobs go to capability subjects, so a worker only pulls what it can do.
 - **Workers** (`rest/worker/`): `loop.py` boots, registers and pulls. `pools.py` has one pool
   per capability, fetches one job at a time and stops retrying a poison job after a limit.
   `registration.py` heartbeats the worker's capabilities (conversion matrix, utilities, clash
-  passes/specs, asset concept providers), gated by `qualification.evaluate`. `routing.py`
-  detects misrouted jobs.
+  passes/specs, asset concept providers, simulation providers), gated by
+  `qualification.evaluate`. `routing.py` detects misrouted jobs.
 - **Job kinds** (`rest/formats/__init__.py`): `convert` (fallback), `fea_artefacts`,
   `fea_meta`, `asset_build`, `asset_publish`, `component_build`, `procedural_*` (build,
   detail, relocations, xlsx import/export, model export, engine build), `equipment_bbox`,
   `plugin_job`, `clash_check`, `clash_check_asset`, `clash_check_group`, `clash_detail`,
-  `clash_detail_group`, `export_selection`, `export_selection_asset`, `utility`, `parity`.
+  `clash_detail_group`, `export_selection`, `export_selection_asset`, `simulation_run`,
+  `utility`, `parity`.
 - **Converters** (`rest/converters/`): a `(from_ext, to_ext)` registry filled by
   `@converter`. Families: `ada_pairs` (passthrough, trimesh, ada-loadable sources),
   `ada_export` (GLB, IFC, Genie XML, GNX), `mesh_step` (STL, OBJ, STEP via OCC), `step_stream`
@@ -227,6 +229,173 @@ An idle worker does not walk its pools one blocking fetch at a time. Each round 
 stream which pools hold messages (one `STREAM.INFO` request with a subject filter, no lease),
 fetches from those, then waits about a second on one pool. It still holds at most one leased
 message. A credential without the stream-info permission falls back to polling the pools in turn.
+
+### Simulations (`ada.simulation`)
+
+A **simulation provider** is a worker-side object that runs simulations behind one interface, so
+that a robotics simulator, a second robotics simulator and an FEA solver are three providers and
+no new plumbing. Core knows no engine: it validates a request, routes the run, hands the provider
+a context and keeps a record.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant B as Browser
+    participant A as REST API
+    participant W as Worker (has the provider)
+    participant S as Object storage
+
+    W->>A: heartbeat: simulation_providers (id, domain, engine, schema, serving)
+    B->>A: GET /api/simulation/providers
+    B->>A: POST /api/scopes/{scope}/simulations (provider, parameters, inputs)
+    A->>A: validate parameters against the provider's JSON Schema
+    A->>S: write _simulations/{run_id}/run.json (queued)
+    A->>W: simulation_run job on the subject of sim-{provider id}
+    W->>W: provider.run(case, ctx)
+    loop while it runs
+        W->>S: ctx.store_artefact(...) → artefacts/{name}
+        W->>A: job status: progress, stage, artefacts_ready
+        B->>A: GET /api/scopes/{scope}/simulations/{run_id}
+        B->>S: fetch a partial artefact (blob route)
+    end
+    W->>S: run.json (done | error | cancelled, artefact list, summary)
+```
+
+**The kinds of simulation.** A provider's `domain` is one of a closed set, `SIMULATION_DOMAINS`:
+
+| Domain | Required artefact roles | Optional |
+|---|---|---|
+| `fea` | `result`: the solver's result file, in a format the FEA bake reads | `model`: the input deck |
+| `robotics` | `model`: the animated model (GLB); `timeline`: the recorded topics over time, in the recording format its media type names (JSON, or a binary recording) | |
+| `cfd` | `mesh`: the result mesh; `fields`: the field values on it over time | |
+
+Every domain may also use the common roles `log`, `report` and `data`. A domain carries only what
+is the same for every engine of that kind, so the viewer can group providers by it and open any
+provider's result of that kind the same way. The roles are checked while a run is going: storing
+an artefact with a role that is not the domain's fails the run, and so does finishing without a
+final artefact for each required role. The `engine` (the simulator's or solver's name) is free
+text and core never reads it.
+
+**Writing a provider.** A provider has an `id` (lower-case letters, digits, `-`, `_`), a `domain`,
+an `engine`, `describe()` and `run()`:
+
+```python
+from ada.simulation import ProviderDescription, SimulationResult, register_simulation_provider
+
+class BeamSolver:
+    id, domain, engine = "beam-solver", "fea", "an FEA solver"
+
+    def describe(self):
+        return ProviderDescription(
+            title="Beam solver",
+            version="1.0.0",
+            parameters_schema={
+                "type": "object",
+                "properties": {"load_factor": {"type": "number", "minimum": 0, "default": 1.0}},
+            },
+        )
+
+    def run(self, case, ctx):
+        deck = ctx.fetch_input(case.inputs[0])          # an input file, streamed to local disk
+        for step in range(10):
+            ctx.raise_if_cancelled()                    # cooperative cancel
+            ctx.progress(step / 10, f"increment {step}")
+            ctx.log(f"increment {step} converged")
+        out = ctx.workdir / "beam.rmed"                 # ... the solver wrote this
+        return SimulationResult(
+            artefacts=(ctx.store_artefact("beam.rmed", out, role="result"),),
+            summary={"increments": 10},
+        )
+
+register_simulation_provider(BeamSolver())
+```
+
+| Piece | What it is |
+|---|---|
+| `SimulationCase` | `run_id`, the scope, the parameters (validated, with the schema's defaults filled in), the input keys and the kind of run. |
+| `SimulationContext` | `progress(fraction, stage)`, `log(line)`, `cancelled()` / `raise_if_cancelled()`, `store_artefact(name, data_or_path, *, partial=False, role=..., media_type=...)`, `read_input(key)` / `fetch_input(key)` and a scratch `workdir`. |
+| `SimulationResult` | The artefacts the provider calls final (as `store_artefact` returned them) and a small summary dict. |
+| `store_artefact(..., partial=True)` | Puts the artefact in storage and on the run at once, to be replaced under the same name later: a viewer follows a run through these, as it follows the FEA bake through `artefacts_ready`. Each store raises the artefact's `revision`. |
+
+The parameter schema is JSON Schema; the part that is checked (types, `enum`, numeric and length
+limits, `required`, `additionalProperties`, `items`, `default`) is in `ada/simulation/schema.py`.
+
+**Registering.** `register_simulation_provider` is also exported from `ada.plugins`, and a
+provider's module is loaded like any plugin backend: listed in `ADA_WORKER_PRELOAD`, or reached
+through an `ada.plugins` entry point. Registering asks the worker for the capability
+`sim-<provider id>` through `request_worker_capabilities`, so it passes the same qualification and
+`ADA_WORKER_DISABLED_CAPABILITIES` switch as any other capability. The heartbeat lists each
+provider with its description and whether this worker serves it.
+
+**Routing.** There is one job kind, `simulation_run` (`rest/formats/simulation.py`), published on
+the provider's capability subject, so only a worker that registered the provider pulls it. A job
+that still reaches a pool without the provider is failed at once with a reason naming the
+provider (`worker/routing.py`). `POST .../simulations` refuses a provider no live worker serves
+(409) and an unknown one (404) before anything is queued. Without NATS, `LocalJobTransport` runs a
+provider registered in the API process in a thread; both paths call
+`ada.simulation.runner.execute_run`, so a provider cannot tell which it runs under.
+
+**What a run stores.** A run is a directory in the scope it was started in:
+
+| Key | Content |
+|---|---|
+| `_simulations/{run_id}/run.json` | The run record: provider (id, domain, engine, version), kind, parameters, inputs, who started it, `created_at` / `started_at` / `finished_at`, status, stage, progress, error, job id, the artefact list and the summary. |
+| `_simulations/{run_id}/artefacts/{name}` | What the provider stored. Each is listed with `name`, `key`, `media_type`, `role`, `size`, `partial` and `revision`, and fetched through the blob route. |
+| `_simulations/{run_id}/cancel` | Present once a cancel was asked for. |
+
+The record is a JSON manifest beside the artefacts, as clash runs are documents in storage: it
+needs no database, it is written before the job is published, and it outlives the job status,
+which the queue forgets soon after the job ends. Run ids sort by creation time, so the newest
+runs come from one directory listing. Being under `_derived/`, a run cannot be written through
+the blob route, and "clear temp files" removes it. Cancelling is cooperative: the marker is what
+a provider's `ctx.cancelled()` finds, in whichever process runs it. A run whose job failed without
+finishing the record, or whose job the server no longer knows, is ended with that reason the next
+time it is read.
+
+| Route | Does |
+|---|---|
+| `GET /api/simulation/providers` | The domains and the providers of the worker registry, grouped by domain (`?domain=`), each with `online` and `workers`. |
+| `POST /api/scopes/{scope}/simulations` | Start a run: `{provider, parameters?, inputs?, kind?}` → `{run}`. |
+| `GET /api/scopes/{scope}/simulations` | The scope's runs, newest first (`limit`, `provider`, `domain`). |
+| `GET /api/scopes/{scope}/simulations/{run_id}` | One run, with the live job's progress and artefacts laid over the record. |
+| `POST /api/scopes/{scope}/simulations/{run_id}/cancel` | Ask it to stop → `{run, cancelled}`. |
+
+In the viewer, the Simulations panel (`core:simulations`) lists providers by domain, builds a
+start form from the parameter schema and lists runs with their artefacts. A frontend plugin adds
+what core cannot know through `simulationProviders` in the plugin registry: a parameter form
+section and an "open result" handler, registered for one provider id or for a whole domain.
+
+**Replaying a run in the viewer.** What a result of a run needs on screen is not specific to one
+kind of simulation, so it is in core and a plugin's `openResult` only feeds it (plugin API 1.18.0;
+how the two viewports draw it is in [A viewer without three.js](threejs_free_viewport.md)):
+
+| On `ctx` | Does |
+|---|---|
+| `scene.loadModel(owner, {bytes \| url, sourceName, displayName?, placement?, sourceUpAxis?})` | Loads a GLB as the scene's model on whichever viewport is on screen. `sourceName` is its identity (what `unloadModel` takes); `displayName` is what its root row in the Scene tree is called. Draco- and meshopt-compressed meshes load on both viewports, decoded by what the bundle carries. A model with node animation becomes a track of the playback clock by itself, with time zero at the animation's start; a file's several animations are shown together. |
+| `scene.addImage(owner, {origin, u, v, width, height, pixels, opacity?, visible?, throughModel?, nearest?, layer?})` | An image lying in the world: RGBA bytes (sRGB, straight alpha) on the rectangle from `origin` along `u` and `v`. Row 0 lies along `u` at the origin and column 0 along `v`, so with the origin at the least x and y, `u` along +x and `v` along +y, row 0 is the min-y edge and column 0 the min-x edge. Returns `{setPixels, setRect, setLook, unavailable, remove}`. `scene.imageUnavailable(width, height)` says beforehand whether the viewport on screen draws that size. |
+| `scene.addLineLayer(owner, {segments? \| polyline?, color?, widthPx?, opacity?, visible?, throughModel?, layer?})` | Lines whose number changes: `{setSegments(segments, count?), setPolyline(points, count?), setLook, remove}`. |
+| `scene.addPointLayer(owner, {positions?, colors?, color?, sizePx?, opacity?, visible?, throughModel?, layer?})` | Points whose number changes: `{setPoints(positions, count?, colors?), setLook, remove}`. |
+| `playback` | The viewer's one clock: `addTrack({id, duration, show(t), label?})` gives `{setDuration, remove}`; `play`, `pause`, `seek`, `setSpeed`, `setLoop`, `followEnd(on)` for a recording that is still growing; `state()`, `time()`, `subscribe`. The clock's duration is its longest track's, and a shorter track (the model's animation under a longer recording) holds its last moment. |
+| `layers` | The plugin's rows in the Layers panel (`core:layers`): `list`, `setVisible`, `setOpacity`, `subscribe`. A row exists while something drawn with that `layer: {id, label, group?, visible?, opacity?}` does. |
+
+A drawn thing has two looks, and it is drawn when both say so, at the product of their opacities.
+The row's look (`layer.visible`, `layer.opacity`) is the user's: the two members are only how the
+row starts when the browser holds no choice for that layer id, and the switch and the slider of the
+panel change it from then on. The thing's own look (the spec's `visible` and `opacity`, and
+`setLook`) is the plugin's, and the panel never changes it.
+
+
+Layer coordinates are the model's own, those of the loaded model's file, z-up: core places the
+layers where the viewport places the model, so nothing has to be known about recentring. Arrays are
+read during a call and not kept, and a handle's data is replaced in place, so a `show(t)` that fills
+one buffer and hands it over every frame allocates nothing. `scene.remove(owner)` takes away
+everything the owner made, tracks included. The older overlay verbs (`addLines`, `addLabels`, ...)
+are unchanged: they are in the FEA model's coordinates when one is loaded.
+
+A run's artefacts are read with `simulationsApi.fetchArtefact(scope, artefact, {start?, end?})`
+(on `@/viewer-core/app`): the whole artefact, or the bytes from an offset on. An artefact that is
+still being written is followed by asking for what lies beyond the bytes already read; the answer
+is empty when there is nothing new, and `total` is the artefact's size at that moment.
 
 ### Audit and issue bot
 

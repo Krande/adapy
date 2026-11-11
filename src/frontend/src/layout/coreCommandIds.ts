@@ -30,6 +30,7 @@ export const CORE_COMMAND_IDS = {
   fitAll: "core:fit-all",
   fitSelection: "core:fit-selection",
   resetCamera: "core:reset-camera",
+  screenshot: "core:screenshot",
   /** Named camera views: the model framed from one side (`cameraViewCommandId`). */
   viewTop: "core:view.top",
   viewBottom: "core:view.bottom",
@@ -82,6 +83,11 @@ export const CORE_COMMAND_IDS = {
   sectionToggle: "core:section-toggle",
   sectionFlip: "core:section-flip",
   sectionClear: "core:section-clear",
+  /** Selection boxes: one around the selection (it selects what it touches or holds), the active box's rule (partially or fully within), select again what it takes, remove all. */
+  selectionBoxAdd: "core:selection-box.add",
+  selectionBoxFullyWithin: "core:selection-box.fully-within",
+  selectionBoxReselect: "core:selection-box.reselect",
+  selectionBoxClear: "core:selection-box.clear",
   /** Representation of a loaded FEA result: the undeformed outline, the element edges, the result colours. */
   feaToggleUndeformed: "core:fea-toggle-undeformed",
   feaToggleElementEdges: "core:fea-toggle-element-edges",
@@ -116,6 +122,9 @@ export const CORE_COMMAND_IDS = {
   warp: "core:warp",
   /** Label every element in view with its value of the shown property or result (or of the property `useLabelsStore.valueField` names). */
   labelsValues: "core:labels-values",
+  /** Label each selected object with its name, and the type-icon overlay of a procedural model (equipment, media, missing inputs). */
+  labelsNames: "core:labels-names",
+  typeIcons: "core:type-icons",
   /** The procedural builder's placement tools: add a cell, a loft member, an opening or a piece of equipment (the last two take the type picked last). */
   builderAddCell: "core:builder-add-cell",
   builderAddLoft: "core:builder-add-loft",

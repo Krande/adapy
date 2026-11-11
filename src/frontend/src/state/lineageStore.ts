@@ -1,5 +1,4 @@
 import {create} from 'zustand';
-import * as THREE from 'three';
 
 /**
  * In-memory CAD↔FEA lineage map.
@@ -21,11 +20,18 @@ import * as THREE from 'three';
  * We keep both representations in the store (``elementIds`` Uint32Array
  * + ``membersPrefix``) so the membership test stays O(N) but doesn't
  * have to materialize hundreds of thousands of JS string keys.
+ *
+ * No three.js here: a file's ``root`` is whatever the viewport that loaded
+ * it keeps for the model (a scene object on the three.js viewport, nothing
+ * on the other), and only that viewport's own code looks inside it.
  */
+
+/** What the loading viewport keeps for a file's model; null when it keeps nothing. */
+export type LineageRoot = object | null;
 
 export type LoadedCad = {
     fileName: string;
-    root: THREE.Object3D;
+    root: LineageRoot;
     // Beam/Plate display name → adapy guid
     nameToGuid: Map<string, string>;
     // adapy guid → Beam/Plate display name (inverse, for jump-to-CAD)
@@ -53,7 +59,7 @@ type FeaGroup = {
 
 export type LoadedFea = {
     fileName: string;
-    root: THREE.Object3D;
+    root: LineageRoot;
     groups: FeaGroup[];
     // Optional fast path for inline groups: element name → parent guid.
     // BufferView-backed groups are searched via ``groups`` because
@@ -82,7 +88,7 @@ type RegisterCadPayload = {
     kind: 'cad';
     fileName: string;
     assemblyGuid: string;
-    root: THREE.Object3D;
+    root: LineageRoot;
     objectGuids: Record<string, string>;
     objectMetadata?: Record<string, any> | null;
 };
@@ -91,7 +97,7 @@ type RegisterFeaPayload = {
     kind: 'fea';
     fileName: string;
     assemblyGuid: string;
-    root: THREE.Object3D;
+    root: LineageRoot;
     groups: FeaGroup[];
 };
 

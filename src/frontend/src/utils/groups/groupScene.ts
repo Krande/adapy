@@ -5,15 +5,11 @@
 import type { TreeNodeData } from "@/components/tree_view/CustomNode";
 import { useAssetBrowserStore } from "@/state/assetBrowserStore";
 import { useObjectInfoStore } from "@/state/objectInfoStore";
-import { useSelectedObjectStore } from "@/state/useSelectedObjectStore";
 import { useTreeViewStore } from "@/state/treeViewStore";
-import { getViewerRuntime } from "@/state/viewerRuntime";
 import { requestRender } from "@/state/perfStore";
-import type * as THREE from "three";
 
-import type { CustomBatchedMesh } from "@/utils/mesh_select/CustomBatchedMesh";
-import { recordViewerAction } from "@/utils/scene/viewerHistory";
 import { buildTreeIndices, type TreeIndices } from "@/utils/tree_view/treeGraph";
+import { activeViewport, type ObjectRef } from "@/viewport/api/viewportApi";
 
 import {
   collapseSelectedRows,
@@ -43,49 +39,38 @@ function indices(): TreeIndices | null {
   return cachedIndices;
 }
 
-/** Make `batch` the selection, as one undo entry (Ctrl+Z / Ctrl+Y). */
-function replaceSelection(batch: readonly [CustomBatchedMesh, string][]): void {
-  recordViewerAction("select", () => {
-    const sel = useSelectedObjectStore.getState();
-    sel.clearSelectedObjects();
-    if (batch.length) sel.addBatchofMeshes([...batch]);
-  });
+/** A row that draws geometry of its own, as the viewport knows it. */
+const refOf = (row: TreeNodeData): ObjectRef => ({ model: row.model_key as string, id: String(row.rangeId), node: row.node_name });
+
+/** Make `refs` the selection on the viewport on screen (or add them to it), as one undo entry
+ *  (Ctrl+Z / Ctrl+Y). Returns how many objects were selected. */
+function select(refs: readonly ObjectRef[], add = false): number {
+  return activeViewport()?.setSelection(refs, { add }) ?? 0;
 }
 
-/** The tree rows behind every selected draw range, by the unique `(model key, range id)`. */
+/** The tree rows behind every selected object, by the unique `(model key, object id)`. */
 function selectedRowIds(): Set<string> {
-  return rowIdsOf(useSelectedObjectStore.getState().selectedObjects);
-}
-
-/** The tree rows behind `(mesh, draw ranges)` pairs, by the unique `(model key, range id)`. */
-function rowIdsOf(ranges: Iterable<readonly [THREE.Object3D, Iterable<string>]>): Set<string> {
   const tv = useTreeViewStore.getState();
   const ids = new Set<string>();
-  for (const [mesh, rangeIds] of ranges) {
-    const key: string | undefined = (mesh as any).unique_key ?? (mesh.userData ? mesh.userData["unique_hash"] : undefined);
-    if (!key) continue;
-    for (const rid of rangeIds) {
-      const row = tv.findNodeByRangeId(key, rid);
-      if (row) ids.add(row.id);
-    }
+  for (const ref of activeViewport()?.selection() ?? []) {
+    const row = tv.findNodeByRangeId(ref.model, ref.id);
+    if (row) ids.add(row.id);
   }
   return ids;
 }
 
-/** Draw ranges NOT taken from the selection -- e.g. what a selection box takes -- as group members,
- *  folded up to whole levels exactly as `captureSelection` folds a selection. */
-export function captureRanges(
-  batch: readonly (readonly [CustomBatchedMesh, string])[],
-): CapturedMembers & { readonly reason: string | null } {
+/** Objects NOT taken from the selection -- e.g. what a selection box takes on the viewport on
+ *  screen -- as group members, folded up to whole levels exactly as `captureSelection` folds a
+ *  selection. `refs` is read once and no ref is kept (a viewport may yield one over and over). */
+export function captureObjects(refs: Iterable<ObjectRef>): CapturedMembers & { readonly reason: string | null } {
   const idx = indices();
   if (!idx) return { members: [], skipped: [], reason: "The scene tree is not built yet." };
-  const byMesh = new Map<CustomBatchedMesh, string[]>();
-  for (const [mesh, id] of batch) {
-    const list = byMesh.get(mesh);
-    if (list) list.push(id);
-    else byMesh.set(mesh, [id]);
+  const tv = useTreeViewStore.getState();
+  const ids = new Set<string>();
+  for (const ref of refs) {
+    const row = tv.findNodeByRangeId(ref.model, ref.id);
+    if (row) ids.add(row.id);
   }
-  const ids = rowIdsOf(byMesh);
   if (ids.size === 0) {
     return { members: [], skipped: [], reason: "Nothing in the box resolves to a row in the scene tree." };
   }
@@ -174,22 +159,20 @@ export function selectModelElements(refs: readonly { readonly source: GroupMembe
     }
     return m;
   };
-  const modelKeyMap = getViewerRuntime().modelKeyMap.current;
-  const batch: [CustomBatchedMesh, string][] = [];
+  const wanted: ObjectRef[] = [];
   for (const { source, element } of refs) {
     for (const root of roots) {
       if (!rootMatchesTarget(root, source, loaded)) continue;
       for (const row of rowsOf(root).get(element) ?? []) {
         if (row.rangeId == null || !row.node_name || !row.model_key) continue;
-        const mesh = modelKeyMap?.get(row.model_key)?.getObjectByName(row.node_name) as CustomBatchedMesh | undefined;
-        if (mesh) batch.push([mesh, row.rangeId]);
+        wanted.push(refOf(row));
       }
     }
   }
-  replaceSelection(batch);
-  useObjectInfoStore.getState().setName(batch.length ? label : "");
+  const selected = select(wanted);
+  useObjectInfoStore.getState().setName(selected ? label : "");
   requestRender();
-  return batch.length;
+  return selected;
 }
 
 /** Select draw ranges by the LOADED SOURCE they are in and their element id (draw-range key) -- a
@@ -204,21 +187,19 @@ export function selectSourceElements(refs: readonly { readonly sourceName: strin
     if (!set) wanted.set(sourceName, (set = new Set()));
     set.add(element);
   }
-  const modelKeyMap = getViewerRuntime().modelKeyMap.current;
-  const batch: [CustomBatchedMesh, string][] = [];
+  const found: ObjectRef[] = [];
   for (const root of idx.root.children ?? []) {
     const elements = root.source_name ? wanted.get(root.source_name) : undefined;
     if (!elements) continue;
     for (const row of geometryRowsUnder([root])) {
       if (row.rangeId == null || !row.node_name || !row.model_key || !elements.has(String(row.rangeId))) continue;
-      const mesh = modelKeyMap?.get(row.model_key)?.getObjectByName(row.node_name) as CustomBatchedMesh | undefined;
-      if (mesh) batch.push([mesh, row.rangeId]);
+      found.push(refOf(row));
     }
   }
-  replaceSelection(batch);
-  useObjectInfoStore.getState().setName(batch.length ? label : "");
+  const selected = select(found);
+  useObjectInfoStore.getState().setName(selected ? label : "");
   requestRender();
-  return batch.length;
+  return selected;
 }
 
 /** Select the elements NAMED one of `names` in every loaded model -- a system's members, related
@@ -235,8 +216,7 @@ export function selectNamedElements(names: ReadonlySet<string>, label: string, a
     if (names.has(row.name)) hits.push(row);
     else for (const child of row.children ?? []) stack.push(child);
   }
-  const modelKeyMap = getViewerRuntime().modelKeyMap.current;
-  const batch: [CustomBatchedMesh, string][] = [];
+  const found: ObjectRef[] = [];
   // A named element that draws geometry of its own is that geometry: a deck plate is the plate,
   // not every opening and fitting nested under it. A level that draws nothing itself (an
   // opening, a run) is what is under it.
@@ -244,17 +224,12 @@ export function selectNamedElements(names: ReadonlySet<string>, label: string, a
   const levels = hits.filter((r) => !(r.rangeId != null && r.node_name && r.model_key));
   for (const row of [...own, ...geometryRowsUnder(levels)]) {
     if (row.rangeId == null || !row.node_name || !row.model_key) continue;
-    const mesh = modelKeyMap?.get(row.model_key)?.getObjectByName(row.node_name) as CustomBatchedMesh | undefined;
-    if (mesh) batch.push([mesh, row.rangeId]);
+    found.push(refOf(row));
   }
-  if (add) {
-    if (batch.length) recordViewerAction("select", () => useSelectedObjectStore.getState().addBatchofMeshes([...batch]));
-  } else {
-    replaceSelection(batch);
-    useObjectInfoStore.getState().setName(batch.length ? label : "");
-  }
+  const selected = add ? (found.length ? select(found, true) : 0) : select(found);
+  if (!add) useObjectInfoStore.getState().setName(selected ? label : "");
   requestRender();
-  return batch.length;
+  return selected;
 }
 
 /** The loaded model of `target` and its rows NAMED one of `names`, anywhere below its root -- a
@@ -284,21 +259,19 @@ export function selectSavedGroup(group: SavedGroup): GroupSelectionOutcome {
   if (!idx) return { ranges: 0, notLoaded: [...group.members], notFound: [] };
   const { rows, notLoaded, notFound } = resolveMembers(group.members, idx, useAssetBrowserStore.getState().loaded);
 
-  const modelKeyMap = getViewerRuntime().modelKeyMap.current;
-  const batch: [CustomBatchedMesh, string][] = [];
+  const found: ObjectRef[] = [];
   for (const row of geometryRowsUnder(rows)) {
     if (row.rangeId == null || !row.node_name || !row.model_key) continue;
-    const mesh = modelKeyMap?.get(row.model_key)?.getObjectByName(row.node_name) as CustomBatchedMesh | undefined;
-    if (mesh) batch.push([mesh, row.rangeId]);
+    found.push(refOf(row));
   }
 
-  // One clear and ONE batch for every member across every model: clearing per member would leave
-  // only the last model selected.
-  replaceSelection(batch);
+  // One selection for every member across every model: selecting per member would leave only the
+  // last model selected.
+  const selected = select(found);
   const info = useObjectInfoStore.getState();
-  info.setName(batch.length ? `Group: ${group.name}` : "");
+  info.setName(selected ? `Group: ${group.name}` : "");
   // No single tree row stands for a group; a stale level id would let the panel claim one.
   info.setSelectedNodeId(rows.length === 1 ? rows[0].id : null);
   requestRender();
-  return { ranges: batch.length, notLoaded, notFound };
+  return { ranges: selected, notLoaded, notFound };
 }

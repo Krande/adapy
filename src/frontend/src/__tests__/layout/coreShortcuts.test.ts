@@ -222,7 +222,7 @@ test("the dialog lists every registered shortcut, grouped, with no hand-written 
   registerShortcut({ id: "x:k", keys: "Shift+K", label: "Plugin thing", group: "My plugin", run() {} }, "plugin");
   const groups = shortcutDialogGroups(true);
   const names = groups.map((g) => g.context);
-  assert.deepEqual(names.slice(0, 4), ["Global / viewer", "Panels", "Gallery walk", "Procedural cellbuilder"]);
+  assert.deepEqual(names.slice(0, 5), ["Global / viewer", "Camera", "Panels", "Gallery walk", "Procedural cellbuilder"]);
   assert.ok(names.includes("My plugin"));
   const listed = groups.flatMap((g) => g.shortcuts.map((s) => s.description));
   for (const d of CORE_SHORTCUTS) assert.ok(listed.includes(d.label), d.id);

@@ -18,14 +18,23 @@
 // operation) is added to it.
 //
 // COLLAPSED, its steps are not listed at all: one row, one bar (a scene restore of many models).
+//
+// CANCELLED (`cancel`, or `cancelOperation` from the toast's Kill) it stops for real: its `signal`
+// aborts, so the work driving it starts no further step and puts nothing more in the scene, and every
+// job it tracked that has not finished is cancelled server-side. A job tracked after that (a request
+// already in flight when Kill was pressed) is cancelled as it arrives. Dismissing it any other way
+// only stops the watching.
 
 import {trackJob} from "@/services/jobTracking";
+import {viewerApi} from "@/services/viewerApi";
 import {useConversionStore, type ConversionJob} from "@/state/conversionStore";
 import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
 
 export interface Operation {
     /** The parent entry's store key (`op:<id>`). */
     readonly key: string;
+    /** Aborted when the operation is cancelled: whatever drives it checks it before each next step. */
+    readonly signal: AbortSignal;
     /** Track a job as one step of this operation: a row under it. */
     trackJob(opts: {jobId: string; label: string; derivedKey?: string; scope?: string}): void;
     /** Keep the operation up until the returned release is called (once; later calls do nothing). */
@@ -36,6 +45,29 @@ export interface Operation {
     fail(error: string): void;
     /** The operation's own progress 0..1, in place of its steps' mean; null to go back to that. */
     progress(fraction: number | null): void;
+    /** Stop it: abort `signal`, cancel every unfinished job it tracked, and take its entry down. */
+    cancel(): void;
+}
+
+/** The operations still up, by key: what the toast's Kill reaches through `cancelOperation`. */
+const live = new Map<string, Operation>();
+
+/** Cancel the live operation under `key`. False when there is none -- one that already ended, or an
+ *  entry left from before a reload -- so the caller can just clear the entry. */
+export function cancelOperation(key: string): boolean {
+    const op = live.get(key);
+    if (!op) return false;
+    op.cancel();
+    return true;
+}
+
+function cancelJob(scopeUrl: string, jobId: string): void {
+    void viewerApi.cancelMyJob(scopeUrl, jobId).catch((err) => {
+        // A job that finished or vanished in the meantime answers false, not an error: this is a
+        // network failure, and the job runs on. Nothing else can be done about it from here.
+        // eslint-disable-next-line no-console
+        console.warn(`[operation] cancel ${jobId}`, err);
+    });
 }
 
 export interface OperationOptions {
@@ -70,10 +102,13 @@ export function beginOperation(label: string, options: OperationOptions = {}): O
     let ownStage: string | null = null;
     let ownProgress: number | null = null;
     let failure: string | null = null;
+    const controller = new AbortController();
+    /** Every job tracked as a step, with the scope it runs in: what a cancel reaches. */
+    const tracked: {jobId: string; scopeUrl: string; storeKey: string}[] = [];
 
     store().setJob(key, {
         sourceKey: label,
-        jobId: "", // nothing to cancel as a whole: dismissing only stops showing it
+        jobId: "", // no job of its own: `cancel` stops it and cancels its steps' jobs
         derivedKey: "",
         status: "running",
         progress: 0,
@@ -104,6 +139,7 @@ export function beginOperation(label: string, options: OperationOptions = {}): O
     const unsubscribe = useConversionStore.subscribe((s, prev) => {
         if (!s.jobs[key]) {
             unsubscribe();
+            live.delete(key);
             if (!ended) for (const [k] of steps()) store().clearJob(k);
             ended = true;
             return;
@@ -114,6 +150,7 @@ export function beginOperation(label: string, options: OperationOptions = {}): O
     const end = () => {
         if (ended) return;
         ended = true;
+        live.delete(key);
         unsubscribe();
         const failedSteps = steps().filter(([, j]) => j.status === "error");
         const error = failure ?? (failedSteps.length ? failedSteps.map(([, j]) => `${j.sourceKey}: ${j.error ?? "failed"}`).join("; ") : null);
@@ -125,11 +162,19 @@ export function beginOperation(label: string, options: OperationOptions = {}): O
         else store().clearJob(key);
     };
 
-    return {
+    const op: Operation = {
         key,
+        signal: controller.signal,
         trackJob(opts) {
+            if (controller.signal.aborted) {
+                // Submitted while the cancel was under way: it is part of what was cancelled.
+                cancelJob(opts.scope ?? scopeUrl, opts.jobId);
+                return;
+            }
             if (ended) return;
-            trackJob({...opts, scopeUrl, parent: key, storeKey: `${key}#${opts.jobId}`});
+            const storeKey = `${key}#${opts.jobId}`;
+            tracked.push({jobId: opts.jobId, scopeUrl: opts.scope ?? scopeUrl, storeKey});
+            trackJob({...opts, scopeUrl, parent: key, storeKey});
             refresh();
         },
         hold() {
@@ -153,5 +198,21 @@ export function beginOperation(label: string, options: OperationOptions = {}): O
             ownProgress = fraction === null ? null : Math.min(1, Math.max(0, fraction));
             refresh();
         },
+        cancel() {
+            if (controller.signal.aborted) return;
+            controller.abort();
+            for (const t of tracked) {
+                // A step seen to finish is left alone; one whose row is gone may still be running.
+                const status = store().jobs[t.storeKey]?.status;
+                if (!status || !TERMINAL.has(status)) cancelJob(t.scopeUrl, t.jobId);
+            }
+            ended = true;
+            live.delete(key);
+            unsubscribe();
+            for (const [k] of steps()) store().clearJob(k);
+            store().clearJob(key);
+        },
     };
+    live.set(key, op);
+    return op;
 }

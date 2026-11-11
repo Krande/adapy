@@ -16,6 +16,7 @@ from collections import defaultdict
 
 import numpy as np
 
+from ada.config import logger
 from ada.fem.formats.sesam.read import cards
 from ada.fem.formats.sesam.results.derived_values import (
     B_STRESS_COMPONENTS,
@@ -25,12 +26,16 @@ from ada.fem.formats.sesam.results.derived_values import (
     G_STRESS_COMPONENTS,
     P_STRESS_COMPONENTS,
     R_STRESS_COMPONENTS,
+    SOLID_BASIC_COMPONENTS,
+    SOLID_STRESS_COMPONENTS,
     beam_stress_per_element,
     decompose_shell,
     general_stress,
+    hex_gauss_to_nodes,
     membrane_principal,
     opposite_section_modulus,
     principal_of,
+    solid_general_stress,
     stress_resultants,
 )
 from ada.fem.formats.sesam.results.result_catalog import presentation, semantic_name
@@ -44,7 +49,7 @@ from ada.fem.results.field_data import (
     NodalFieldData,
     NodalFieldType,
 )
-from ada.fem.shapes.definitions import ShellShapes
+from ada.fem.shapes.definitions import ShellShapes, SolidShapes
 
 _SHELL_CORNER_INDICES = {
     # Surface/result-point order is node0, node1, centre, node3, node2
@@ -58,6 +63,9 @@ _SHELL_CORNER_INDICES = {
 # points only: the Elements, element-average and Nodes positions would need an
 # extrapolation to the nodes that has not been checked against the reference.
 _GAUSS_POINT_SHELLS = (ShellShapes.QUAD8, ShellShapes.TRI6)
+# Solids whose raw STRESS becomes SOLID-STRESS fields: the 20-node hexahedron (IHEX), stored at 2x2x2 Gauss points.
+_SOLID_STRESS_SHAPES = (SolidShapes.HEX20,)
+_SOLID_ATTRIBUTE = "SOLID-STRESS"
 
 
 def _field_position(position: str, *, line: bool = False) -> FieldPosition:
@@ -861,6 +869,122 @@ def _beam_fields_for_raw(raw, mesh, sif, wanted, cache: dict | None = None):
     return out
 
 
+def _solid_gauss_corners(labels: np.ndarray, mesh, sif, cache) -> tuple[np.ndarray, np.ndarray]:
+    """For each element, which of its Gauss points lies in each corner's octant, and whether that was found.
+
+    Taken from where the points are (RDPOINTS, in the model's axes) rather than from an assumed point order: the
+    point nearest each corner. An element whose nearest points are not one per corner is left out.
+    """
+    nodes_by_element, _, _ = _once(cache, "element_maps", lambda: _element_maps(mesh))
+    node_ids = np.asarray(mesh.nodes.identifiers, dtype=np.int64)
+    coords = np.asarray(mesh.nodes.coords, dtype=float)
+    row_of = _once(cache, "node_rows", lambda: {int(n): i for i, n in enumerate(node_ids)})
+    rdpoints = _once(cache, "rdpoints_map", sif.get_rdpoints_map)
+    bulk_i = int(cards.RDPOINTS.get_indices_from_names(["bulk"]))
+
+    nearest = np.zeros((len(labels), 8), dtype=np.int64)
+    found = np.zeros(len(labels), dtype=bool)
+    for e, label in enumerate(labels):
+        record, refs = rdpoints.get(int(label)), nodes_by_element.get(int(label))
+        if record is None or refs is None or len(refs) < 8:
+            continue
+        points = np.asarray(record[bulk_i : bulk_i + 32], dtype=float)
+        if points.size != 32:
+            continue
+        points = points.reshape(8, 4)[:, 1:]
+        corners = coords[[row_of[int(n)] for n in refs[:8]]]
+        pick = np.argmin(np.linalg.norm(corners[:, None, :] - points[None, :, :], axis=2), axis=1)
+        if len(set(pick.tolist())) == 8:
+            nearest[e], found[e] = pick, True
+    return nearest, found
+
+
+def _solid_fields(step: int, raws: list[ElementFieldData], mesh, sif, wanted, cache) -> list:
+    """SOLID-STRESS at the Gauss points (Resultpoints), extrapolated to each element's nodes (Elements), and that
+    averaged over the elements meeting at a node (Nodes), each with its von Mises stress.
+
+    The extrapolation is the trilinear field through the 2x2x2 points (:func:`hex_gauss_to_nodes`), as a
+    postprocessor takes a solid's stress to its nodes.
+    """
+    positions = ("resultpoints", "elements", "nodes")
+    if not any(_wants(wanted, position, _SOLID_ATTRIBUTE) for position in positions):
+        return []
+    unit_factors = sif.get_unit_factors()
+    node_ids = np.asarray(mesh.nodes.identifiers, dtype=np.int64)
+    nodes_by_element, _, _ = _once(cache, "element_maps", lambda: _element_maps(mesh))
+    total = np.zeros((len(node_ids), len(SOLID_STRESS_COMPONENTS)))
+    count = np.zeros(len(node_ids), dtype=np.int64)
+    row_of = _once(cache, "node_rows", lambda: {int(n): i for i, n in enumerate(node_ids)})
+    out: list = []
+    for raw in raws:
+        values = np.asarray(raw.values, dtype=float)
+        if list(raw.components) != list(SOLID_BASIC_COMPONENTS) or len(values) % 8:
+            logger.warning(f"solid STRESS of step {step}: components {raw.components}, not derived")
+            continue
+        labels = values[::8, 0].astype(np.int64)
+        gauss = values[:, 2:].reshape(len(labels), 8, 6)
+        if _wants(wanted, "resultpoints", _SOLID_ATTRIBUTE):
+            out.append(
+                _element_field(
+                    raw,
+                    "resultpoints",
+                    _SOLID_ATTRIBUTE,
+                    SOLID_STRESS_COMPONENTS,
+                    labels,
+                    solid_general_stress(gauss),
+                    derived=True,
+                    coordinate_system="model",
+                    unit_factors=unit_factors,
+                )
+            )
+        if not (_wants(wanted, "elements", _SOLID_ATTRIBUTE) or _wants(wanted, "nodes", _SOLID_ATTRIBUTE)):
+            continue
+        nearest, found = _solid_gauss_corners(labels, mesh, sif, cache)
+        if not found.all():
+            logger.warning(
+                f"solid STRESS of step {step}: {int((~found).sum())} element(s) without one Gauss point per "
+                "corner are left out of the Elements and Nodes stresses"
+            )
+        labels, gauss, nearest = labels[found], gauss[found], nearest[found]
+        at_nodes = solid_general_stress(hex_gauss_to_nodes(gauss, nearest, 20))
+        if _wants(wanted, "elements", _SOLID_ATTRIBUTE):
+            out.append(
+                _element_field(
+                    raw,
+                    "elements",
+                    _SOLID_ATTRIBUTE,
+                    SOLID_STRESS_COMPONENTS,
+                    labels,
+                    at_nodes,
+                    derived=True,
+                    coordinate_system="model",
+                    unit_factors=unit_factors,
+                )
+            )
+        rows = np.array([[row_of[int(n)] for n in nodes_by_element[int(label)][:20]] for label in labels], dtype=int)
+        if rows.size:
+            np.add.at(total, rows.ravel(), at_nodes.reshape(-1, at_nodes.shape[2]))
+            np.add.at(count, rows.ravel(), 1)
+    if count.any() and _wants(wanted, "nodes", _SOLID_ATTRIBUTE):
+        # Averaged component by component, then von Mises of the average, as at the other positions.
+        keep = count > 0
+        basic = total[keep, :6] / count[keep, None]
+        out.append(
+            _nodal_field(
+                step,
+                node_ids[keep],
+                "nodes",
+                _SOLID_ATTRIBUTE,
+                SOLID_STRESS_COMPONENTS,
+                solid_general_stress(basic),
+                derived=True,
+                coordinate_system="model",
+                unit_factors=unit_factors,
+            )
+        )
+    return out
+
+
 def build_derived_fields(
     raw_fields: list[ElementFieldData],
     mesh,
@@ -872,9 +996,12 @@ def build_derived_fields(
 
     out: list[ElementFieldData | NodalFieldData] = []
     shell_by_step: dict[int, list[ElementFieldData]] = defaultdict(list)
+    solid_by_step: dict[int, list[ElementFieldData]] = defaultdict(list)
     force_by_step: dict[int, list[ElementFieldData]] = defaultdict(list)
     for raw in raw_fields:
-        if raw.name == "STRESS":
+        if raw.name == "STRESS" and raw.elem_type in _SOLID_STRESS_SHAPES:
+            solid_by_step[int(raw.step)].append(raw)
+        elif raw.name == "STRESS":
             shell_by_step[int(raw.step)].append(raw)
         elif raw.name == "FORCES":
             force_by_step[int(raw.step)].append(raw)
@@ -899,6 +1026,8 @@ def build_derived_fields(
         # a deck of 8-node shells alone gets no Nodes fields rather than all-blank ones.
         if contrib.has_contributions and any(_wants(wanted, "nodes", attribute) for attribute in shell_attributes):
             out.extend(_nodal_shell_fields(step, node_ids, contrib, wanted, sif.get_unit_factors()))
+    for step, solid_fields in solid_by_step.items():
+        out.extend(_solid_fields(step, solid_fields, mesh, sif, wanted, cache))
     for force_fields in force_by_step.values():
         if wanted is not None and not any(
             _wants(wanted, position, attribute)

@@ -17,6 +17,9 @@ export interface GroupInfo {
    * for streaming-FEA groups pushed by load_fea_streaming — there's
    * only ever one streaming model in the scene. */
   source?: string;
+  /** A set of a streamed FEA result: its members are element (`EL{id}`) and node (`P{id}`) ids,
+   * which are the result's objects, not names to look up in a model's hierarchy. */
+  streamed?: boolean;
   /** A pop-out's copy of a group has no member list (it stays in the main window): this many. */
   member_count?: number;
 }

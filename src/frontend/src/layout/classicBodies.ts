@@ -14,7 +14,7 @@
 // chunk into a new one -- which is what an earlier revision did.
 //
 // Panels whose component is already a lazy chunk of its own (storage, attribute
-// search, admin, convert, the catalog editors) are not here: the catalogue loads
+// search, admin, convert, the catalog editors, simulations, layers) are not here: the catalogue loads
 // those chunks directly, as the classic UI always has.
 
 import React from "react";
@@ -114,6 +114,8 @@ const LAZY_BODIES: Readonly<Record<PanelId, Loader>> = {
   // Embedded, on the tab the viewer-panel store asks for, as the in-viewer window shows it.
   [CORE_PANEL_IDS.admin]: () => import("@/components/admin/AdminPanel").then((m) => asBody(m.AdminWindowBody)),
   [CORE_PANEL_IDS.convert]: () => import("@/components/convert/ConvertPage").then((m) => asBody(m.default)),
+  [CORE_PANEL_IDS.simulations]: () => import("@/components/simulations/SimulationsPanel").then((m) => asBody(m.default)),
+  [CORE_PANEL_IDS.layers]: () => import("@/components/layers/LayersPanel").then((m) => asBody(m.default)),
 };
 
 const LAZY_CONTENTS: Readonly<Record<PanelId, Loader>> = {
@@ -127,6 +129,9 @@ const LAZY_CONTENTS: Readonly<Record<PanelId, Loader>> = {
   // The same components as their bodies, given a shell's options (`ConvertBodyProps.inViewer`, ...).
   [CORE_PANEL_IDS.admin]: () => import("@/components/admin/AdminPanel").then((m) => withOptions(m.AdminWindowBody)),
   [CORE_PANEL_IDS.convert]: () => import("@/components/convert/ConvertPage").then((m) => withOptions(m.default)),
+  [CORE_PANEL_IDS.simulations]: () =>
+    import("@/components/simulations/SimulationsPanel").then((m) => asBody(m.SimulationsBody)),
+  [CORE_PANEL_IDS.layers]: () => import("@/components/layers/LayersPanel").then((m) => asBody(m.LayersBody)),
 };
 
 /**

@@ -1,24 +1,11 @@
 import asyncio
-import subprocess
 
 import pytest
 from playwright.async_api import async_playwright
-from playwright.sync_api import sync_playwright
 
 import ada
 from ada.comms.web.serve import start_serving
 from ada.comms.wsock.client_async import WebSocketClientAsync
-
-
-@pytest.fixture(scope="session", autouse=True)
-def ensure_playwright_installed():
-    with sync_playwright() as playwright:
-        try:
-            # Try getting the executable path of Chromium
-            _ = playwright.chromium.launch(headless=True)
-        except Exception as e:
-            print(f"Playwright browsers are missing [{e}]. Installing them now...")
-            subprocess.run(["playwright", "install"], check=True)
 
 
 @pytest.mark.asyncio

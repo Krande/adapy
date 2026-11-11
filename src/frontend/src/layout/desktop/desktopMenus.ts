@@ -79,6 +79,8 @@ export function desktopMenus({ modes, workspaces, shells, themes }: DesktopMenuI
             panel(P.cellbuilder),
             panel(P.componentList),
             panel(P.console),
+            panel(P.simulations),
+            panel(P.layers),
           ],
         },
         SEP,
@@ -87,7 +89,7 @@ export function desktopMenus({ modes, workspaces, shells, themes }: DesktopMenuI
           label: "Display",
           items: [C.edges, C.feaToggleResultColors, C.feaToggleElementEdges, C.feaToggleUndeformed, C.warp, C.beamSections, SEP, C.stats, C.gallery, SEP, C.toggleMarkingMenu],
         },
-        { label: "Labels and colours", items: [C.labelsNodes, C.labelsElements, C.labelsValues, SEP, C.colorByNext, C.colorByModel, C.colorByReset] },
+        { label: "Labels and colours", items: [C.labelsNodes, C.labelsElements, C.labelsValues, C.labelsNames, C.typeIcons, SEP, C.colorByNext, C.colorByModel, C.colorByReset] },
         { label: "Section", items: [C.sectionX, C.sectionY, C.sectionZ, SEP, C.sectionToggle, C.sectionFlip, C.sectionClear] },
         { label: "Results", items: [C.playPause, C.stopResults, C.stepBack, C.stepForward, SEP, C.colorLegend, C.femConcepts, C.dataDock] },
         // The loaded result's sets and properties (rows in the tree too); greyed, with the reason, without one.

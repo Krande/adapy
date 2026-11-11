@@ -1,8 +1,9 @@
 import React from "react";
-import * as THREE from "three";
 
 import {useSectionStore, type SectionPlane} from "@/state/sectionStore";
 import {useModelState} from "@/state/modelState";
+import {activeViewport} from "@/viewport/api/viewportApi";
+import {useNativeViewport} from "@/viewport/native/nativeModel";
 
 // Signed position of the plane along its normal (origin -> plane), the natural
 // slider value. constant = -(normal·p), so position = -constant for a unit normal.
@@ -12,17 +13,17 @@ function planePosition(p: SectionPlane): number {
 
 // Slider range = the model bbox projected onto the plane normal.
 function sliderRange(p: SectionPlane): [number, number] {
-    const bb = useModelState.getState().boundingBox;
-    if (!bb) return [-100, 100];
-    const n = new THREE.Vector3(...p.normal);
-    const corners = [
-        [bb.min.x, bb.min.y, bb.min.z], [bb.max.x, bb.min.y, bb.min.z],
-        [bb.min.x, bb.max.y, bb.min.z], [bb.max.x, bb.max.y, bb.min.z],
-        [bb.min.x, bb.min.y, bb.max.z], [bb.max.x, bb.min.y, bb.max.z],
-        [bb.min.x, bb.max.y, bb.max.z], [bb.max.x, bb.max.y, bb.max.z],
-    ].map(([x, y, z]) => n.dot(new THREE.Vector3(x, y, z)));
-    const lo = Math.min(...corners);
-    const hi = Math.max(...corners);
+    // The box of the model on screen, whichever viewport draws it.
+    const b = activeViewport()?.modelBounds();
+    if (!b) return [-100, 100];
+    const [nx, ny, nz] = p.normal;
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (let corner = 0; corner < 8; corner++) {
+        const d = nx * b[corner & 1 ? 3 : 0] + ny * b[corner & 2 ? 4 : 1] + nz * b[corner & 4 ? 5 : 2];
+        lo = Math.min(lo, d);
+        hi = Math.max(hi, d);
+    }
     // Pad the range well past the bbox on BOTH ends (10% of the extent each side)
     // so sliding to either extreme moves the plane completely clear of the model
     // — fully revealed at one end, fully clipped at the other. The range stays
@@ -36,7 +37,10 @@ const SectionPlanesPanel = () => {
     const {planes, activeId, gizmoVisible, capColor, addPlane, removePlane, toggle, setConstant, flip, setActive, setGizmoVisible, setCapColor, clearAll} =
         useSectionStore();
     const [menuId, setMenuId] = React.useState<string | null>(null);
-    const hasModel = !!useModelState((s) => s.boundingBox);
+    // Either viewport's model counts; these two subscriptions are what re-renders the panel when one arrives.
+    const threeModel = useModelState((s) => s.boundingBox);
+    const nativeModel = useNativeViewport((s) => s.model);
+    const hasModel = !!threeModel || !!nativeModel;
 
     return (
         <div className="p-1 text-sm">
@@ -114,10 +118,8 @@ const SectionPlanesPanel = () => {
                             value={pos}
                             disabled={!p.enabled}
                             onChange={(e) => {
-                                const n = new THREE.Vector3(...p.normal);
                                 // position -> constant: constant = -(normal·(position·normal)) = -position for unit normal
                                 setConstant(p.id, -Number(e.target.value));
-                                void n;
                             }}
                         />
                     </div>

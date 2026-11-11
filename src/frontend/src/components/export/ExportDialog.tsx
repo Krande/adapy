@@ -1,3 +1,4 @@
+import {useSelectionCount} from "@/viewport/api/useViewportSelection";
 import React, {useMemo, useState} from "react";
 
 import DownloadSelectionButton from "@/components/info_box_selected_object/DownloadSelectionButton";
@@ -118,12 +119,8 @@ const ModelExport: React.FC = () => {
 
 /** The "Selection" part: the object info panel's own export control. */
 const SelectionExport: React.FC = () => {
-    const {useSelectedObjectStore} = useViewerStores();
-    const n = useSelectedObjectStore((s) => {
-        let c = 0;
-        for (const ids of s.selectedObjects.values()) c += ids.size;
-        return c;
-    });
+    // On the viewport on screen, whichever it is.
+    const n = useSelectionCount();
     if (n === 0) return <p className="text-gray-300">Nothing is selected: select objects in the view or a level in the tree.</p>;
     return (
         <div className="space-y-2">

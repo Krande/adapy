@@ -23,6 +23,7 @@ import {beginLoadMetrics} from "@/utils/scene/loadMetrics";
 import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
 import {useStatsStore} from "@/state/statsStore";
 import type {SourceUpAxis} from "@/utils/scene/sourceUpAxis";
+import {isNativeViewportActive, showInNativeViewport} from "@/viewport/native/nativeModel";
 import {setupModelLoaderAsync, type SetupModelPrepareHook} from "./setupModelLoader";
 
 /** Where a model's bytes come from. */
@@ -40,6 +41,9 @@ export type ModelBytes =
 export interface LoadModelSource {
     /** The durable storage key / filename the viewer shows as loaded. */
     sourceName: string;
+    /** What the model is called to a person: its root row in the Scene tree. Absent: the model's
+     *  own root name, else the source name. */
+    displayName?: string;
     bytes: ModelBytes;
     /**
      * "replace" tears the scene down first (the single-model view); "overlay"
@@ -73,12 +77,21 @@ async function loadFrom(
     metrics: ReturnType<typeof beginLoadMetrics>,
 ): Promise<THREE.Group | undefined> {
     const {sourceName, placement = "replace"} = source;
+    // The three.js-free viewport is on screen: it takes the GLB as bytes, and no three.js scene is built.
+    if (isNativeViewportActive()) {
+        // As a replace does on the three.js viewport: a result that was shown ends with its model.
+        const {clearActiveFeaStreaming} = await import("@/utils/scene/fea/streaming/teardown");
+        clearActiveFeaStreaming();
+        await showInNativeViewport(url, requestHeaders, sourceName, placement, source.displayName);
+        return undefined;
+    }
     if (placement === "overlay") {
         return await setupModelLoaderAsync({
             modelUrl: url,
             translate: source.translate ?? true,
             prepareHook: source.prepareHook,
             sourceName,
+            displayName: source.displayName,
             requestHeaders,
             metrics,
             autoFitOverride: source.autoFitOverride,
@@ -93,6 +106,7 @@ async function loadFrom(
         url,
         prepareHook: source.prepareHook,
         sourceName,
+        displayName: source.displayName,
         translate: source.translate ?? false,
         requestHeaders,
         metrics,
@@ -205,6 +219,8 @@ export async function loadModel(source: LoadModelSource): Promise<THREE.Group | 
     const ms = useModelState.getState();
     if (placement === "replace" && sourceName) ms.setLoadedSourceName(sourceName);
     if (group && sourceName) ms.registerLoadedSource(sourceName, group);
+    // The three.js-free viewport took the model and built no group: the source is loaded all the same.
+    else if (!group && sourceName && isNativeViewportActive()) ms.registerLoadedSourceName(sourceName);
     // The take-off the conversion wrote beside this model's GLB, for the model that is now the
     // ACTIVE one -- which is the question the Stats and Take-off panels answer. Keyed on that
     // rather than on `placement`: the storage browser loads every file as an "overlay" (it keeps

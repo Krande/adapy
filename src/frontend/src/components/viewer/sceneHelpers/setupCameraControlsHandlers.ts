@@ -12,7 +12,6 @@ import CameraControls from "camera-controls";
 import {copySelectionNames} from "@/utils/clipboard/copySelectionNames";
 import {toggleTreeFocus} from "@/utils/tree_view/treeKeyboard";
 import {groupSelectionFromKeyboard} from "@/utils/groups/groupShortcut";
-import {hideSelectedRanges, hideUnselectedRanges, unhideAllRanges} from "@/utils/scene/visibility";
 import {applyAdaptiveClipping} from "@/components/viewer/sceneHelpers/adaptiveClipping";
 import {frameBox, zoomToAll} from "@/components/viewer/sceneHelpers/cameraFit";
 
@@ -23,10 +22,10 @@ import {selectChildLevel, selectParentLevel, selectSibling} from "@/utils/tree_v
 import {useCellBuilderStore, needsPreviewCompile} from "@/state/cellBuilderStore";
 import {frameCells} from "@/utils/scene/frameCells";
 import {requestRender} from "@/state/perfStore";
+import {historyShortcutHandlers, viewportShortcutHandlers} from "@/viewport/api/viewportShortcuts";
 import {useModelState} from "@/state/modelState";
 import {bindCoreShortcuts, type CoreShortcutHandler} from "@/layout/shortcuts";
 import {installShortcutDispatcher} from "@/layout/shortcutDispatch";
-import {redoViewerAction, undoViewerAction} from "@/utils/scene/viewerHistory";
 import {bindViewerHistoryReset} from "@/utils/scene/viewerHistoryBindings";
 import {anyShownRange} from "@/utils/mesh_select/selectionSets";
 import {selectAllRanges} from "@/utils/scene/selectionCommands";
@@ -83,7 +82,7 @@ export function setupCameraControlsHandlers(
     const shortcut = (run: () => void | boolean, when: CoreShortcutHandler["when"] = live): CoreShortcutHandler => ({run, when});
     const copyNames = () => {
         const selectedObjects = useSelectedObjectStore.getState().selectedObjects;
-        void copySelectionNames(selectedObjects).then((n) => {
+        void copySelectionNames().then((n) => {
             if (n === 0) console.warn("Shift+C: nothing copied");
         });
     };
@@ -97,15 +96,10 @@ export function setupCameraControlsHandlers(
         step();
     };
     const unbindShortcuts = bindCoreShortcuts({
-        "core:undo": shortcut(history(undoViewerAction)),
-        "core:redo": shortcut(history(redoViewerAction)),
-        "core:redo-alt": shortcut(history(redoViewerAction)),
-        "core:hide-selected": shortcut(() => hideSelectedRanges()),
-        "core:hide-others": shortcut(() => hideUnselectedRanges()),
+        ...historyShortcutHandlers((step) => shortcut(history(step))),
         "core:group-selection": shortcut(() => void groupSelectionFromKeyboard()),
-        "core:show-all": shortcut(() => unhideAllRanges()),
-        "core:fit-selection": shortcut(() => fitSelectionView(camera, controls)),
-        "core:fit-all": shortcut(() => fitAllView(scene, camera, controls)),
+        // Hide / show, fit, the named views and the camera keys are the viewport's, three.js or not.
+        ...viewportShortcutHandlers(shortcut),
         // Shift+Enter: preview-compile the current (uncommitted) procedural model -- the fast
         // path when editing. Only when there is something to compile (mirrors the Compile
         // button's disabled state, see needsPreviewCompile); otherwise the key is not ours.

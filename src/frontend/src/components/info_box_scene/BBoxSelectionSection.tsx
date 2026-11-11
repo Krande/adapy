@@ -3,7 +3,7 @@ import React from "react";
 import {useBBoxSelectionStore} from "@/state/bboxSelectionStore";
 import {isMirroredWindow, useSceneActions} from "@/layout/sceneActions";
 import {useSceneMirrorStore} from "@/state/sceneMirrorStore";
-import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
+import {useSelectionCount} from "@/viewport/api/useViewportSelection";
 import {BoxRequestStatus} from "@/components/viewer/BoxRequestSection";
 
 // The Scene panel's list of selection boxes: show or hide each, make one the active box
@@ -15,7 +15,8 @@ const BBoxSelectionSection: React.FC = () => {
     // Run here, or sent to the main window from a pop-out (which mirrors the boxes and the selection's size).
     const actions = useSceneActions();
     const mirrored = isMirroredWindow();
-    const hasLocalSelection = useSelectedObjectStore((s) => s.selectedObjects.size > 0);
+    // The selection of whichever viewport is on screen.
+    const hasLocalSelection = useSelectionCount() > 0;
     const hasMirroredSelection = useSceneMirrorStore((s) => s.rangeCount > 0);
     const hasSelection = mirrored ? hasMirroredSelection : hasLocalSelection;
 

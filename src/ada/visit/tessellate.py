@@ -2,19 +2,18 @@ from __future__ import annotations
 
 import os
 from collections import Counter as _Counter
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from itertools import groupby
-from typing import TYPE_CHECKING, Iterable
+from typing import TYPE_CHECKING, Iterable, Iterator
 
 import numpy as np
 
 from ada.base.physical_objects import BackendGeom
 from ada.base.types import GeomRepr
 from ada.cad import active_backend, is_shape_handle
-from ada.cad.exceptions import (
-    UnableToCreateCurveOCCGeom,
-    UnableToCreateTesselationFromSolidOCCGeom,
-)
+from ada.cad.exceptions import UnableToCreateTesselationFromSolidOCCGeom
 from ada.config import logger
 from ada.geom import Geometry
 from ada.geom.curves import CURVE_GEOM_TUPLE as _CURVE_GEOM_TUPLE
@@ -133,6 +132,92 @@ def consume_mesh_distortion_stats() -> dict:
     MESH_DISTORTION_STATS["n_tris"] = 0
     MESH_DISTORTION_STATS["distorted"] = 0
     return {"n_tris": n, "distorted_tris": d, "distorted_frac": (d / n if n else 0.0)}
+
+
+@dataclass(frozen=True)
+class TessellationFailure:
+    """One object left out of a tessellation because building or meshing its geometry raised.
+
+    ``stage`` is where it failed: ``geometry`` (building the object's solid/shell/line geometry)
+    or ``tessellate`` (meshing a geometry that did build). ``path`` is the object's parent names,
+    outermost first."""
+
+    guid: str | None
+    name: str | None
+    kind: str
+    path: tuple[str, ...]
+    stage: str
+    error_type: str
+    error: str
+
+    def to_dict(self) -> dict:
+        return {
+            "guid": self.guid,
+            "name": self.name,
+            "kind": self.kind,
+            "path": list(self.path),
+            "stage": self.stage,
+            "error_type": self.error_type,
+            "error": self.error,
+        }
+
+
+_TESSELLATION_FAILURES: ContextVar[list[TessellationFailure] | None] = ContextVar(
+    "ada_tessellation_failures", default=None
+)
+
+
+@contextmanager
+def collect_tessellation_failures() -> Iterator[list[TessellationFailure]]:
+    """Collect every object a tessellation inside the block skips, in the order they failed.
+
+    Skipped objects are always logged; this hands them to a caller that reports them (a build
+    summary, an audit). Scoped to the calling context, so concurrent conversions in other threads
+    or tasks never see each other's failures."""
+    sink: list[TessellationFailure] = []
+    token = _TESSELLATION_FAILURES.set(sink)
+    try:
+        yield sink
+    finally:
+        _TESSELLATION_FAILURES.reset(token)
+
+
+def _parent_path(obj) -> tuple[str, ...]:
+    names: list[str] = []
+    parent = getattr(obj, "parent", None)
+    while parent is not None and len(names) < 64:
+        name = getattr(parent, "name", None)
+        if name:
+            names.append(str(name))
+        parent = getattr(parent, "parent", None)
+    return tuple(reversed(names))
+
+
+def record_tessellation_failure(obj, stage: str, exc: BaseException) -> TessellationFailure:
+    """Log a skipped object and hand it to the active :func:`collect_tessellation_failures`."""
+    failure = TessellationFailure(
+        guid=getattr(obj, "guid", None),
+        name=getattr(obj, "name", None),
+        kind=type(obj).__name__,
+        path=_parent_path(obj),
+        stage=stage,
+        error_type=type(exc).__name__,
+        error=str(exc),
+    )
+    logger.error(
+        "tessellation: skipped %s %r (guid=%s, under %s) at %s: %s: %s",
+        failure.kind,
+        failure.name,
+        failure.guid,
+        " > ".join(failure.path) or "-",
+        stage,
+        failure.error_type,
+        failure.error,
+    )
+    sink = _TESSELLATION_FAILURES.get()
+    if sink is not None:
+        sink.append(failure)
+    return failure
 
 
 def _mesh_store_area(ms) -> float:
@@ -1127,10 +1212,22 @@ class BatchTessellator:
         render_override: dict[str, GeomRepr] = None,
         graph_store: GraphStore = None,
     ) -> Iterable[MeshStore]:
-        """Tessellate each object in its local system, and move its meshes to the world by its absolute placement"""
+        """Tessellate each object in its local system, and move its meshes to the world by its absolute placement.
+
+        An object whose geometry cannot be built or meshed is skipped and recorded
+        (:func:`record_tessellation_failure`), so one bad profile never sinks the rest of the model.
+        Strict mode's :class:`TessellationFallbackError` still fails the whole conversion."""
         for obj in objects:
-            matrix = obj.world_matrix() if isinstance(obj, BackendGeom) else None
-            for ms in self._batch_tessellate_local([obj], render_override, graph_store):
+            try:
+                matrix = obj.world_matrix() if isinstance(obj, BackendGeom) else None
+                # Whole object or nothing: a failure part-way leaves none of its meshes behind.
+                meshes = list(self._batch_tessellate_local([obj], render_override, graph_store))
+            except TessellationFallbackError:
+                raise
+            except Exception as e:  # noqa: BLE001 - recorded with the object's identity, then skipped
+                record_tessellation_failure(obj, "geometry", e)
+                continue
+            for ms in meshes:
                 yield ms if matrix is None else _transform_meshstore(ms, matrix)
 
     def _batch_tessellate_local(
@@ -1448,7 +1545,7 @@ class BatchTessellator:
                     try:
                         yield self.tessellate_occ_geom(raw, node_ref, obj.color, raw_mesh_type)
                     except UnableToCreateTesselationFromSolidOCCGeom as e:
-                        logger.error(e)
+                        record_tessellation_failure(obj, "tessellate", e)
                     continue
                 try:
                     if geom_repr == GeomRepr.SOLID:
@@ -1475,23 +1572,14 @@ class BatchTessellator:
             ms = None
             try:
                 ms = self.tessellate_geom(geom, ada_obj, graph_store=graph_store, mesh_type=mesh_type)
-            except UnableToCreateTesselationFromSolidOCCGeom as e:
-                logger.error(e)
-            except UnableToCreateCurveOCCGeom as e:
-                logger.error(e)
             except TessellationFallbackError:
                 raise  # strict mode: a kernel fallback must fail the conversion, not skip a shape
             except Exception as e:  # noqa: BLE001
                 # A single unbuildable shape (e.g. a B-rep face whose trim wire
-                # won't reconstruct) must not sink the whole export — log loudly
-                # and continue with the rest of the model. tessellate_geom has
-                # already logged the full context at ERROR before re-raising.
-                logger.error(
-                    "skipping %s %r after tessellation failure: %s",
-                    type(ada_obj).__name__ if ada_obj is not None else "geometry",
-                    getattr(ada_obj, "name", None),
-                    e,
-                )
+                # won't reconstruct) must not sink the whole export — record it
+                # and continue with the rest of the model. The plate fallback
+                # below may still draw it.
+                record_tessellation_failure(ada_obj if ada_obj is not None else geom, "tessellate", e)
             if ms is not None:
                 # Treat an empty MeshStore the same as a thrown
                 # tessellation error: BRepMesh produced 0 triangles

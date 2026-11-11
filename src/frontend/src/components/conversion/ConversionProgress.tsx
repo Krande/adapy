@@ -7,6 +7,7 @@ import {useScopeStore, scopeUrlPart} from "@/state/scopeStore";
 import {viewerApi} from "@/services/viewerApi";
 import {ApiError} from "@/services/api/client";
 import {runtime} from "@/runtime/config";
+import {cancelOperation} from "@/services/operationTracking";
 import {useLoadQueueStore, type LoadTask} from "@/state/loadQueueStore";
 import {useAuditToastStore} from "@/state/auditToastStore";
 import {useGalleryStore} from "@/state/galleryStore";
@@ -109,16 +110,19 @@ const CancelButton: React.FC<{
     jobId: string;
     status: "queued" | "running";
     onCancelled: () => void;
-}> = ({sourceKey, jobId, status, onCancelled}) => {
+    /** An operation: Kill stops it and every job under it, and says so. */
+    operation?: boolean;
+}> = ({sourceKey, jobId, status, onCancelled, operation}) => {
     const [confirming, setConfirming] = useState(false);
     const [busy, setBusy] = useState(false);
     const current = useScopeStore((s) => s.current);
 
-    const verb = status === "queued" ? "Delete" : "Kill";
-    const question =
-        status === "queued"
-            ? "Delete this queued job?"
-            : "Kill this running conversion?";
+    const verb = status === "queued" && !operation ? "Delete" : "Kill";
+    const question = operation
+        ? "Kill this and every job under it?"
+        : status === "queued"
+          ? "Delete this queued job?"
+          : "Kill this running conversion?";
 
     const doCancel = async () => {
         setBusy(true);
@@ -470,6 +474,7 @@ const JobRow: React.FC<{
     const isCancellable = job.status === "queued" || job.status === "running";
     const isRun =
         !!storeKey && (storeKey.startsWith("sweep:") || storeKey.startsWith("export:")) && !storeKey.includes("#");
+    const isOperation = !!storeKey && isOperationKey(storeKey);
     // A watched run's worker job is named by the item it runs, not by its internal source key.
     const label = workerLabel(job.jobId) ?? job.sourceKey;
     return (
@@ -489,7 +494,12 @@ const JobRow: React.FC<{
                         sourceKey={job.sourceKey}
                         jobId={job.jobId}
                         status={job.status as "queued" | "running"}
-                        onCancelled={onCancel}
+                        onCancelled={() => {
+                            // Kill on an operation stops it for real; an entry it no longer
+                            // drives (one left from before a reload) is just cleared.
+                            if (!(isOperation && cancelOperation(storeKey!))) onCancel();
+                        }}
+                        operation={isOperation}
                     />
                 )}
             </div>
@@ -510,6 +520,9 @@ const JobRow: React.FC<{
 };
 
 const basename = (key: string) => key.split("/").pop() ?? key;
+
+/** An operation's own entry (`op:<id>`), not one of its steps (`op:<id>#<job>`). */
+const isOperationKey = (key: string) => key.startsWith("op:") && !key.includes("#");
 
 // Conversion rows WITHOUT an outer box — the top (newest) job plus a "+N"
 // expansion for the rest. Composed inside UnifiedToast so conversion and

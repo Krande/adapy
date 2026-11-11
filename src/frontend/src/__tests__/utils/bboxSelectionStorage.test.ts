@@ -31,6 +31,7 @@ const {
 const {useBBoxSelectionStore} = await import("@/state/bboxSelectionStore");
 const {bindBBoxSelectionStorage} = await import("@/utils/bboxSelection/boxPersistence");
 const {useModelState} = await import("@/state/modelState");
+const {setSceneOffset, useSceneFrameStore} = await import("@/state/sceneFrameStore");
 const {useScopeStore} = await import("@/state/scopeStore");
 
 const box = (over: Record<string, unknown> = {}) => ({
@@ -49,6 +50,7 @@ beforeEach(() => {
     memory.clear();
     useBBoxSelectionStore.getState().clearAll();
     useModelState.setState({translation: null});
+    setSceneOffset(null);
     useScopeStore.setState({current: null});
 });
 
@@ -183,6 +185,37 @@ test("restored boxes follow a changed recentring offset without applying a selec
         assert.deepEqual(readStoredBoxes("shared").offset, [12, 0, 0]);
     } finally {
         unsub();
+        unbind();
+    }
+});
+
+test("the recentring offset is read as plain numbers, mirrored from the three.js model state", () => {
+    useModelState.getState().setTranslation(new THREE.Vector3(1, 2, 3));
+    assert.deepEqual(useSceneFrameStore.getState().offset, [1, 2, 3]);
+    useModelState.setState({translation: null});
+    assert.equal(useSceneFrameStore.getState().offset, null);
+});
+
+test("boxes stored under a recentred scene move over on a viewport that does not recentre", () => {
+    // Stored by the three.js viewport, which had moved the model by (10, 0, -2).
+    memory.set(
+        bboxStorageKey("shared"),
+        serialiseStoredBoxes({offset: [10, 0, -2], boxes: [box() as never], activeId: "bbox-a-1"}),
+    );
+    const unbind = bindBBoxSelectionStorage();
+    try {
+        assert.deepEqual(useBBoxSelectionStore.getState().boxes[0].min, [0, 0, 0], "as stored, until a model is placed");
+        // The three.js-free viewport draws a model where its file puts it.
+        setSceneOffset([0, 0, 0]);
+        const b = useBBoxSelectionStore.getState().boxes[0];
+        assert.deepEqual([b.min, b.max], [[-10, 0, 2], [-9, 2, 5]]);
+        assert.equal(useBBoxSelectionStore.getState().activeId, "bbox-a-1");
+        assert.deepEqual(readStoredBoxes("shared").offset, [0, 0, 0]);
+        // A box made there is stored under that offset, and comes back as it was.
+        useBBoxSelectionStore.getState().add({min: [1, 1, 1], max: [2, 2, 2]});
+        const stored = readStoredBoxes("shared");
+        assert.deepEqual([stored.offset, stored.boxes.length, stored.boxes[1].min], [[0, 0, 0], 2, [1, 1, 1]]);
+    } finally {
         unbind();
     }
 });

@@ -53,3 +53,24 @@ test("a miss stays a miss", async () => {
     setPickingViewport(fakeViewport(null, {}));
     assert.equal(await pickMeshAt(0, 0), null);
 });
+
+test("with point picking handed over, adacpp's pick answers for points, and a face in front is not a point", async () => {
+    const {pickPointAt} = await import("@/viewport/picking");
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(9), 3));
+    const points = new THREE.Points(g, new THREE.PointsMaterial());
+    usePerfStore.setState({adacppPointPick: true});
+    try {
+        const point: RawPick = {hit: true, instance: 4, segment: 0, triangle: 2, topology: 2, world: [1, 2, 3]};
+        setPickingViewport(fakeViewport(point, {4: {obj: points, segmentIds: null}}));
+        const got = await pickPointAt(10, 10);
+        assert.equal(got?.object, points);
+        assert.equal(got?.index, 2);
+        assert.deepEqual(got?.worldPosition.toArray(), [1, 2, 3]);
+
+        setPickingViewport(fakeViewport({...point, topology: 0}, {4: {obj: points, segmentIds: null}}));
+        assert.equal(await pickPointAt(10, 10), null);
+    } finally {
+        usePerfStore.setState({adacppPointPick: false});
+    }
+});

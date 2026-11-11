@@ -6,7 +6,7 @@ import {useViewerRefs} from "@/state/AdaViewerContext";
 import {useBBoxSelectionStore, type SelectionBox} from "@/state/bboxSelectionStore";
 import {requestRender} from "@/state/perfStore";
 import {getViewerRuntime} from "@/state/viewerRuntime";
-import {applyBoxSelection} from "@/utils/bboxSelection/applyBoxSelection";
+import {bindActiveBoxSelection} from "@/utils/bboxSelection/applyBoxSelection";
 import {bindBBoxSelectionStorage} from "@/utils/bboxSelection/boxPersistence";
 import {BOX_FACES, boxCenter, boxSize, centeredAt, faceCenter, moveFace, type Aabb, type Vec3} from "@/utils/bboxSelection/boxMath";
 import {lineParamFromRay} from "./cellbuilder/geometryHelpers";
@@ -327,17 +327,12 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
     window.addEventListener("pointerup", clearSwallow);
 
     rebuild();
-    const unsub = useBBoxSelectionStore.subscribe((s, prev) => {
-        rebuild();
-        // The active box's selection follows its bounds and mode.
-        const now = s.boxes.find((b) => b.id === s.activeId);
-        const before = prev.boxes.find((b) => b.id === s.activeId);
-        if (now && before && (now.mode !== before.mode || !sameVec(now.min, before.min) || !sameVec(now.max, before.max))) {
-            applyBoxSelection(now.id);
-        }
-    });
+    const unsub = useBBoxSelectionStore.subscribe(rebuild);
+    // The active box's selection follows its bounds and mode (after the box is redrawn).
+    const unfollow = bindActiveBoxSelection();
 
     return () => {
+        unfollow();
         unsub();
         dom.removeEventListener("pointerdown", onPointerDown, {capture: true});
         dom.removeEventListener("pointermove", onPointerMove);
@@ -358,10 +353,6 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         boxPickTargets = [];
         requestRender();
     };
-}
-
-function sameVec(a: Vec3, b: Vec3): boolean {
-    return a[0] === b[0] && a[1] === b[1] && a[2] === b[2];
 }
 
 export default BBoxSelectionController;

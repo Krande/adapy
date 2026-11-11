@@ -1,9 +1,9 @@
+// No three.js in this module or what it imports: both viewports read the planes from here.
 import {create} from "zustand";
-import * as THREE from "three";
 
-import {useModelState} from "./modelState";
 import type {ViewerActionKind} from "./viewerHistoryStore";
-import {recordViewerAction, type StateSlice} from "@/utils/scene/viewerHistory";
+import {activeViewport} from "@/viewport/api/viewportApi";
+import {recordViewerAction} from "@/utils/scene/viewerHistory";
 
 // A single section / clipping plane. The three.js plane equation is
 // normal·x + constant = 0; geometry on the +normal side is kept.
@@ -24,12 +24,14 @@ const AXIS_NORMAL: Record<"x" | "y" | "z", [number, number, number]> = {
 // Adding, moving, flipping, switching and removing planes are undo / redo steps (Ctrl+Z /
 // Ctrl+Y); a gizmo drag calls `setConstant` on every move, and those moves coalesce into one step.
 // The active plane, the gizmo's visibility and the cap colour are not steps.
-const planeSlices: StateSlice[] = [
+export const sectionPlaneSlices: {get: () => unknown; set: (value: unknown) => void}[] = [
     {get: () => useSectionStore.getState().planes, set: (v) => useSectionStore.setState({planes: v as SectionPlane[]})},
     {get: () => useSectionStore.getState().activeId, set: (v) => useSectionStore.setState({activeId: v as string | null})},
 ];
+
+/** Runs a change to the planes as one undo step. */
 const recorded = (kind: ViewerActionKind, fn: () => void, coalesce?: string): void =>
-    recordViewerAction(kind, fn, {slices: planeSlices, coalesce});
+    recordViewerAction(kind, fn, {slices: sectionPlaneSlices, coalesce});
 
 let _seq = 0;
 const nextId = () => `sp_${++_seq}`;
@@ -59,9 +61,9 @@ export const useSectionStore = create<SectionState>((set) => ({
         set((s) => {
             const normal = AXIS_NORMAL[axis];
             // Pass the plane through the model centre by default.
-            const bb = useModelState.getState().boundingBox;
-            const c = bb ? bb.getCenter(new THREE.Vector3()) : new THREE.Vector3();
-            const constant = -(normal[0] * c.x + normal[1] * c.y + normal[2] * c.z);
+            const b = activeViewport()?.modelBounds() ?? null;
+            const c = b ? [(b[0] + b[3]) / 2, (b[1] + b[4]) / 2, (b[2] + b[5]) / 2] : [0, 0, 0];
+            const constant = -(normal[0] * c[0] + normal[1] * c[1] + normal[2] * c[2]);
             const id = nextId();
             const count = s.planes.filter((p) => p.label.startsWith(axis.toUpperCase())).length;
             const label = count ? `${axis.toUpperCase()}-${count + 1}` : axis.toUpperCase();

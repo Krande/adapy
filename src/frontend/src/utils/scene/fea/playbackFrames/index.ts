@@ -20,6 +20,8 @@ export function frameBackendFor(kind: RenderBackend): {backend: FrameDisplacemen
     switch (kind) {
         case "adacpp-webgpu":
             return {backend: new WebGpuFrameBackend(), maxFrames: Number.MAX_SAFE_INTEGER};
+        // The three.js-free viewport plays no FEA results yet; nothing asks for frames in that mode.
+        case "adacpp-native":
         case "three":
         default:
             return {backend: new ThreeFrameBackend(), maxFrames: THREE_MAX_FRAMES};
