@@ -10,7 +10,8 @@ import {useCameraControlsStore} from "@/state/cameraControlsStore";
 import {useVisibilityStore} from "@/state/visibilityStore";
 import {dragAction, mouseButtonOf, wheelZoomFactor, type CameraAction} from "@/utils/camera/cameraMapping";
 import {startRenderer} from "@/viewport/adacpp/rendererModule";
-import {InstanceFlag, SegmentFlag, Topology, type AdacppModule, type CameraPoseInfo, type GpuDeviceLike, type LoadedGlbObjects, type RawPick, type WebRendererApi} from "@/viewport/adacpp/types";
+import {rolledUpAxis} from "@/utils/camera/roll";
+import {InstanceFlag, SegmentFlag, Topology, type AdacppModule, type AdacppStats, type CameraPoseInfo, type GpuDeviceLike, type LoadedGlbObjects, type RawPick, type WebRendererApi} from "@/viewport/adacpp/types";
 
 /** The viewer's background (#393939) and selection colour, as the three.js viewport has them. */
 const BACKGROUND = 0x39 / 255;
@@ -31,6 +32,8 @@ const MAX_FRAME_SECONDS = 0.05;
 
 /** As many section planes as the renderer takes. */
 const MAX_CLIP_PLANES = 6;
+/** The renderer's world is Z-up. */
+const WORLD_UP = [0, 0, 1] as const;
 
 type Bounds = [number, number, number, number, number, number];
 
@@ -163,6 +166,11 @@ export class NativeScene {
     /** Called before each frame is drawn, with the seconds since the last one (0 after an idle
      *  spell). Returning true asks for another frame: what plays a result keeps the loop running. */
     beforeFrame: ((dtSeconds: number) => boolean) | null = null;
+    /** Time each frame (the stats panel is shown): `frameTiming` is filled from the next frame on. */
+    measureFrames = false;
+    /** The last frame drawn: when it started, its CPU time, and the time from its submit until the
+     *  GPU finished it (an upper bound of its GPU time; read a frame or two late). Milliseconds. */
+    readonly frameTiming = {at: 0, cpuMs: 0, gpuMs: 0};
 
     private constructor(
         private readonly container: HTMLElement,
@@ -607,19 +615,7 @@ export class NativeScene {
     /** Put the camera at `eye` looking at `target`, rolled by `roll` radians about that direction
      *  (the world's up turned about it). */
     setCameraPose(eye: readonly [number, number, number], target: readonly [number, number, number], roll: number): void {
-        let up: [number, number, number] = [0, 0, 1];
-        if (roll !== 0) {
-            // Rodrigues: the up axis turned by `roll` about the unit view direction.
-            const d = [target[0] - eye[0], target[1] - eye[1], target[2] - eye[2]];
-            const l = Math.hypot(d[0], d[1], d[2]) || 1;
-            const k = [d[0] / l, d[1] / l, d[2] / l];
-            const c = Math.cos(roll), s = Math.sin(roll), kz = k[2];
-            up = [
-                -k[1] * s + k[0] * kz * (1 - c),
-                k[0] * s + k[1] * kz * (1 - c),
-                c + kz * kz * (1 - c),
-            ];
-        }
+        const up = rolledUpAxis(eye, target, WORLD_UP, roll);
         const pose = this.renderer.cameraPose();
         this.renderer.cameraSetPose(eye[0], eye[1], eye[2], target[0], target[1], target[2], up[0], up[1], up[2], pose.fov, pose.orthographic, 0, 0);
         this.invalidate();
@@ -892,6 +888,7 @@ export class NativeScene {
             const moving = this.renderer.cameraUpdate(dt);
             const playing = this.beforeFrame?.(dt) ?? false;
             this.renderer.render();
+            if (this.measureFrames) this.timeFrame(now);
             for (const listener of this.onFrame) listener();
             if (moving) this.invalidate();
             else if (playing) this.invalidate();
@@ -899,6 +896,20 @@ export class NativeScene {
         } catch (err) {
             this.fail(err instanceof Error ? err.message : String(err));
         }
+    }
+
+    private timeFrame(start: number): void {
+        const submitted = performance.now();
+        this.frameTiming.at = start;
+        this.frameTiming.cpuMs = submitted - start;
+        void this.device.queue?.onSubmittedWorkDone().then(() => {
+            this.frameTiming.gpuMs = performance.now() - submitted;
+        });
+    }
+
+    /** The renderer's counters for the last frame: clusters, triangles, draw calls, cull time. */
+    renderStats(): AdacppStats {
+        return this.renderer.stats();
     }
 
     private fail(reason: string): void {

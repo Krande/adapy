@@ -236,6 +236,7 @@ export interface GpuAdapterInfoLike {
 }
 export interface GpuDeviceLike {
     readonly lost: Promise<{message: string}>;
+    readonly queue?: {onSubmittedWorkDone(): Promise<void>};
     onuncapturederror: ((ev: {error: {message: string}}) => void) | null;
     destroy(): void;
 }

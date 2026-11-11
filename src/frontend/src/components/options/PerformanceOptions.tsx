@@ -5,6 +5,7 @@ import {useViewMetricsStore} from "@/state/viewMetricsStore";
 import {useMeStore} from "@/state/meStore";
 import {useAdacppRenderStatus} from "@/viewport/adacpp/adacppViewport";
 import {useNativeViewport} from "@/viewport/native/nativeModel";
+import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 
 // Phase A perf-toggle panel. Each row is an opt-in A/B switch for one
 // rendering-cost lever. Defaults reproduce the pre-toggle behaviour so
@@ -58,6 +59,8 @@ const RendererBackendOptions: React.FC = () => {
     const status = useAdacppRenderStatus();
     const st = status.stats;
     const native = useNativeViewport();
+    // A result shown through result layers is not a model handed over as bytes: it is named here.
+    const nativeResult = useFeaAnimationStore((s) => (s.resultLayer ? s.sourceName : null));
 
     return (
         <div className="space-y-1">
@@ -75,10 +78,17 @@ const RendererBackendOptions: React.FC = () => {
                 <option value="adacpp-native">adacpp WebGPU, no three.js (experimental)</option>
             </select>
             {renderBackend === "adacpp-native" && (
-                <div className="text-xs text-gray-400">
+                <div className="text-xs text-gray-400 space-y-1">
                     {native.state === "failed"
                         ? <div className="text-amber-300">Not available, the three.js viewport is shown: {native.error}</div>
                         : <div>A separate viewport with a small feature set: load, orbit, pick, select, hide and an object list.</div>}
+                    {native.state === "starting" && <div>Starting WebGPU…</div>}
+                    {native.loadError && <div className="text-amber-300">{native.loadError}</div>}
+                    {native.state === "active" && (native.model
+                        ? <div className="truncate" title={native.model.sourceName}>{native.model.sourceName || "model"} · {native.objectCount} objects</div>
+                        : nativeResult
+                            ? <div className="truncate" title={nativeResult}>{nativeResult} · result</div>
+                            : <div>No model loaded.</div>)}
                 </div>
             )}
             {renderBackend === "adacpp-webgpu" && (

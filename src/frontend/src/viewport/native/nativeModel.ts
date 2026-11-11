@@ -19,9 +19,13 @@ interface NativeViewportStore {
     /** Why the viewport is not up: the three.js viewport is shown instead. */
     error: string | null;
     model: NativeModel | null;
+    /** Why the last model could not be shown; the viewport stays up. */
+    loadError: string | null;
+    /** Objects of the models on screen. */
+    objectCount: number;
 }
 
-export const useNativeViewport = create<NativeViewportStore>(() => ({state: "off", error: null, model: null}));
+export const useNativeViewport = create<NativeViewportStore>(() => ({state: "off", error: null, model: null, loadError: null, objectCount: 0}));
 
 // On the document element too, for end-to-end tests (as the adacpp renderer's state is).
 const rootData = typeof document !== "undefined" ? document.documentElement?.dataset : undefined;

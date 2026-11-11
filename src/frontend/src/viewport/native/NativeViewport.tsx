@@ -13,6 +13,7 @@ import {notifyModelLoaded, notifyViewportPick, setActiveViewport} from "@/viewpo
 import {runBeforeDraw} from "@/viewport/api/beforeDraw";
 import {viewportShortcutHandlers} from "@/viewport/api/viewportShortcuts";
 import {NativeOrientationGizmo} from "./NativeOrientationGizmo";
+import {NativeStats} from "./NativeStats";
 import {NativeScene, objectKey, splitObjectKey} from "./nativeScene";
 import {objectAt} from "@/viewport/api/objectAt";
 import {bindSectionGizmo} from "./sectionGizmo";
@@ -35,11 +36,8 @@ const NativeViewport: React.FC = () => {
     const hostRef = React.useRef<HTMLDivElement>(null);
     const sceneRef = React.useRef<NativeScene | null>(null);
     const [, setVersion] = React.useState(0);
-    const [loadError, setLoadError] = React.useState("");
     const model = useNativeViewport((s) => s.model);
     const state = useNativeViewport((s) => s.state);
-    // A result shown through result layers is not a model handed over as bytes: it is named here.
-    const result = useFeaAnimationStore((s) => (s.resultLayer ? s.sourceName : null));
 
     React.useEffect(() => {
         const host = hostRef.current;
@@ -47,10 +45,16 @@ const NativeViewport: React.FC = () => {
         let cancelled = false;
         let release: (() => void) | null = null;
         const fail = (reason: string) => useNativeViewport.setState({state: "failed", error: reason});
-        useNativeViewport.setState({state: "starting", error: null});
+        useNativeViewport.setState({state: "starting", error: null, loadError: null, objectCount: 0});
         NativeScene.create(host, ensureViewportInput(host)).then((scene) => {
             if (cancelled) return scene.dispose();
-            scene.onChange = () => setVersion((v) => v + 1);
+            scene.onChange = () => {
+                setVersion((v) => v + 1);
+                // Performance > Renderer shows the count; it changes only when the objects do.
+                if (useNativeViewport.getState().objectCount !== scene.objects.length) {
+                    useNativeViewport.setState({objectCount: scene.objects.length});
+                }
+            };
             scene.onFailure = fail;
             // A playing result: the same driver the three.js viewport ticks, once per frame, for as
             // long as it plays. It writes the deformation scale to the result's layer.
@@ -131,30 +135,23 @@ const NativeViewport: React.FC = () => {
             const key = `native-${model.seq}`;
             const added = model.placement === "overlay" && scene.objects.length > 0;
             scene.load(model.bytes, key, {add: added, sourceName: model.sourceName});
-            setLoadError("");
+            useNativeViewport.setState({loadError: null, objectCount: scene.objects.length});
             // The Scene tree and the object info list and name this model from here on.
             notifyModelLoaded({
                 added, model: key, sourceName: model.sourceName, sceneExtras: scene.sceneExtras,
                 adaExtData: scene.adaExtData, bufferView: glbBufferViews(model.bytes),
             });
         } catch (err) {
-            setLoadError(err instanceof Error ? err.message : String(err));
+            useNativeViewport.setState({loadError: err instanceof Error ? err.message : String(err)});
         }
     }, [model, state]);
 
+    // Its state, model and load errors are shown under Performance > Renderer, not over the panels.
     const scene = sceneRef.current;
-    const objects = scene?.objects ?? [];
     return (
         <div ref={hostRef} className="w-full h-full relative" data-native-viewport-host="true">
             {scene && state === "active" && <NativeOrientationGizmo scene={scene}/>}
-            <div className="absolute left-2 top-14 z-10 w-72 max-h-[70%] flex flex-col rounded-sm bg-gray-800/90 text-xs text-gray-200 p-2 space-y-1">
-                <div className="font-semibold">adacpp WebGPU, no three.js (experimental)</div>
-                {state === "starting" && <div>Starting WebGPU…</div>}
-                {loadError && <div className="text-amber-300">{loadError}</div>}
-                {model && <div className="text-gray-400 truncate" title={model.sourceName}>{model.sourceName || "model"} · {objects.length} objects</div>}
-                {!model && result && <div className="text-gray-400 truncate" title={result}>{result} · result</div>}
-                {!model && !result && state === "active" && <div className="text-gray-400">No model loaded.</div>}
-            </div>
+            {scene && state === "active" && <NativeStats scene={scene}/>}
         </div>
     );
 };
