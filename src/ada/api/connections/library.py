@@ -366,13 +366,20 @@ def _xyz(p) -> list[float]:
 
 
 def _weld_position(weld, contact_points: list[tuple[float, float, float]]) -> list[float] | None:
-    """Where to label a weld: the mean of where it meets its members, else its sweep curve's middle."""
-    if contact_points:
-        return [sum(p[i] for p in contact_points) / len(contact_points) for i in range(3)]
+    """Where to label a weld: on its line, nearest the mean of where it meets its members; else
+    its line's middle.
+
+    On its line, not at that mean: around a tube, a weld meets its members all the way round, and
+    the mean of where is the middle of the tube -- inside it, nowhere near the weld.
+    """
     points = getattr(getattr(weld, "sweep_curve", None), "points3d", None)
-    if points is not None and len(points):
-        return _xyz(points[len(points) // 2])
-    return None
+    line = [_xyz(p) for p in points] if points is not None else []
+    if not contact_points:
+        return line[len(line) // 2] if line else None
+    mean = [sum(p[i] for p in contact_points) / len(contact_points) for i in range(3)]
+    if not line:
+        return mean
+    return min(line, key=lambda p: sum((p[i] - mean[i]) ** 2 for i in range(3)))
 
 
 class _CapturedLog(logging.Handler):
