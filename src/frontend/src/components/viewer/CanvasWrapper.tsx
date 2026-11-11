@@ -19,11 +19,15 @@ import {useNativeViewport} from "@/viewport/native/nativeModel";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {installViewportPanelBridge} from "./sceneHelpers/viewportPanelBridge";
 import {installSpaceMousePoseDriver} from "./sceneHelpers/spaceMousePoseDriver";
+import {installAnnouncedGroups} from "@/utils/groups/extensionGroups";
+import {bindViewerHistoryReset} from "@/utils/scene/viewerHistoryBindings";
 
 // Its own chunk, which imports no three.js.
 const NativeViewport = React.lazy(() => import("@/viewport/native/NativeViewport"));
 // The panels listen for what a viewport without a three.js scene announces (its model, its clicks).
 installViewportPanelBridge();
+// The groups of a model such a viewport loads go to the Scene panel's picker.
+installAnnouncedGroups();
 // A 3D mouse moves that viewport's camera through its pose.
 installSpaceMousePoseDriver();
 
@@ -82,7 +86,11 @@ const CanvasWrapper: React.FC<CanvasWrapperProps> = ({legend = true}) => {
   const renderBackend = usePerfStore((s) => s.renderBackend);
   const nativeFailed = useNativeViewport((s) => s.state === "failed");
   useNativeFallbackReload(nativeFailed);
-  if (renderBackend === "adacpp-native" && !nativeFailed) {
+  const native = renderBackend === "adacpp-native" && !nativeFailed;
+  // Models loaded and removed are undo steps on that viewport too; the three.js viewport binds
+  // the same history itself while it is up.
+  React.useEffect(() => (native ? bindViewerHistoryReset() : undefined), [native]);
+  if (native) {
     return (
       <div className="relative w-full h-full">
         {legend && (

@@ -417,6 +417,56 @@ async def test_commands_and_keys_reach_whichever_viewport_is_on_screen(ws_server
             await browser.close()
 
 
+async def test_undo_reaches_past_a_model_shown_again_on_the_three_free_viewport(ws_server):
+    """A model that replaces the scene keeps the undo history, and a step taken before it works in the
+    model that is on screen again: a step names a model by where it came from, not by one load of it."""
+    async with async_playwright() as playwright:
+        browser, page, _ = await _open_viewer(playwright, ws_server, NATIVE)
+        try:
+
+            async def show() -> None:
+                await asyncio.to_thread(
+                    lambda: _model().show(ws_port=ws_server.port, unique_viewer_id=1, liveness_timeout=10)
+                )
+
+            await show()
+            await _until(page, lambda: _model_on_screen(page), "the model to be drawn")
+            assert await page.evaluate("document.documentElement.dataset.nativeViewport") == "active"
+            await _click(page, *CENTRE)
+            assert _count(await _pixels(page), _is_selected) > 3000, "the click selected nothing"
+            await page.keyboard.press("Shift+H")
+            await page.wait_for_timeout(700)
+            image = await _pixels(page)
+            assert _count(image, _is_selected) < 50, "Shift+H hid nothing"
+            hidden = _count(image, _is_model)
+
+            # the same model again: it replaces the scene, and comes whole
+            await show()
+
+            async def whole():
+                return _count(await _pixels(page), _is_model) > hidden
+
+            await _until(page, whole, "the model shown again to be drawn whole")
+            assert _count(await _pixels(page), _is_selected) < 50
+
+            # undo the hide: the box of the model on screen now is selected, as it was before the hide
+            await page.keyboard.press("Control+z")
+            await page.wait_for_timeout(700)
+            assert _count(await _pixels(page), _is_selected) > 3000, "undo did not reach the step before the load"
+            # undo the click, then redo both: the box is hidden in the model on screen now
+            await page.keyboard.press("Control+z")
+            await page.wait_for_timeout(700)
+            assert _count(await _pixels(page), _is_selected) < 50, "undo left the box selected"
+            await page.keyboard.press("Control+y")
+            await page.keyboard.press("Control+y")
+            await page.wait_for_timeout(700)
+            image = await _pixels(page)
+            assert _count(image, _is_selected) < 50, "redo left the box selected"
+            assert abs(_count(image, _is_model) - hidden) < 0.05 * hidden, "redo did not hide the box again"
+        finally:
+            await browser.close()
+
+
 def _is_label(px) -> bool:  # a name label's amber text and border: no model, selection or toolbar colour
     return px[0] > 200 and px[1] > 150 and px[2] < 170 and px[0] - px[2] > 70
 

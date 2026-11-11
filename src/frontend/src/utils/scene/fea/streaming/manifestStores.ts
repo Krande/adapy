@@ -130,6 +130,7 @@ export async function registerManifestStores(args: {
                 type: "simulation" as const,
                 parent_name: sourceName,
                 fe_object_type: g.fe_object_type,
+                streamed: true,
             })),
         );
         // The same sets as the Scene tree's FEA rows and core's isolation commands

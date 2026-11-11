@@ -13,6 +13,7 @@ import {useViewerHistoryStore} from "@/state/viewerHistoryStore";
 import {createViewerRuntime, mountViewerRuntime} from "@/state/viewerRuntime";
 import {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
 import {bindModelHistory, type ModelHistoryDeps} from "@/utils/scene/modelHistory";
+import {modelViews} from "@/utils/scene/modelViews";
 import type {RecordedModel} from "@/utils/scene/sceneRecord";
 import {recordViewerAction, redoViewerAction, undoViewerAction} from "@/utils/scene/viewerHistory";
 import {createThreeViewport} from "@/viewport/api/threeViewport";
@@ -64,6 +65,7 @@ const deps: ModelHistoryDeps = {
         const group = useModelState.getState().unregisterLoadedSource(name);
         group?.removeFromParent();
     },
+    ...modelViews,
     shouldRecord: () => true,
 };
 bindModelHistory(deps);
