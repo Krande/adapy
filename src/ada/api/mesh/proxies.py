@@ -19,7 +19,7 @@ import numpy as np
 from ada.api.nodes import Node
 from ada.base.units import Units
 from ada.config import Config
-from ada.fem.elements import Elem
+from ada.fem.elements import Connector, Elem, Mass, Spring
 from ada.geom.points import Point
 
 if TYPE_CHECKING:
@@ -85,7 +85,8 @@ def _rebuild_node_proxy(store: "MeshArrays", row: int) -> NodeProxy:
 
 class RefsView:
     """``Node.refs`` backed by the substrate: CSR-derived element proxies chained
-    with the side-table of non-element refs (Beam/Csys/FemSet)."""
+    with the side-table of the other refs (Beam/Csys/FemSet, and the Mass/Spring/Connector
+    objects that have no block row)."""
 
     def __init__(self, store: "MeshArrays", row: int):
         self._store = store
@@ -109,14 +110,24 @@ class RefsView:
     def __getitem__(self, i):
         return list(self)[i]
 
+    @staticmethod
+    def _in_side_table(item) -> bool:
+        """Whether ``item`` is kept in the side-table rather than implied by connectivity.
+
+        A block row's membership is implied by the CSR adjacency, so an ``Elem`` is skipped -- except a special
+        element object (``Mass`` / ``Spring`` / ``Connector``): it has no block row (it sits in
+        ``ArrayElements._overflow``, where the readers and ``FEM.add_spring`` / ``add_mass`` put it), so the adjacency
+        never sees it, and a node a spring alone holds looked free. A special that ``to_array_backed`` packs into a
+        block is rebound to the store without registering, so its row is not counted twice. A plain ``Elem`` object
+        stays out: the writers build transient ones (skin faces, mass cells) on mesh nodes."""
+        return not isinstance(item, Elem) or isinstance(item, (Mass, Spring, Connector))
+
     def append(self, item) -> None:
-        # Element membership is implied by connectivity -> no-op; only non-element
-        # refs go to the side-table.
-        if not isinstance(item, Elem):
+        if self._in_side_table(item):
             self._store.add_extra_ref(self._row, item)
 
     def remove(self, item) -> None:
-        if not isinstance(item, Elem):
+        if self._in_side_table(item):
             self._store.remove_extra_ref(self._row, item)
 
     def copy(self) -> list:

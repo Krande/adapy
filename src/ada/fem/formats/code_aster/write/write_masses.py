@@ -158,9 +158,24 @@ def _has_rotations(node) -> bool:
         el_type = getattr(r, "type", None)
         if isinstance(el_type, (LineShapes, ShellShapes)):
             return True
-        if isinstance(r, Spring) and np.asarray(r.stiff).shape == (6, 6):
+        spring = _spring_of(r)
+        if spring is not None and np.asarray(spring.stiff).shape == (6, 6):
             return True
     return False
+
+
+def _spring_of(ref) -> Spring | None:
+    """The ``Spring`` a node ref is: the object itself, or, for a spring's row ``to_array_backed`` packed into a block
+    (``Node.refs`` gives an ``ElemProxy``, which has no stiffness), the object the FEM keeps beside that row."""
+    if isinstance(ref, Spring):
+        return ref
+    if not isinstance(getattr(ref, "type", None), SpringTypes):
+        return None
+    elements = getattr(getattr(ref, "parent", None), "elements", None)
+    for spring in elements.springs if elements is not None else ():
+        if isinstance(spring, Spring) and spring.id == ref.id:
+            return spring
+    return None
 
 
 def _point_mass(mass: Mass) -> Discrete:

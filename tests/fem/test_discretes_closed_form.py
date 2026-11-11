@@ -23,6 +23,8 @@ import pytest
 import scipy.linalg
 
 import ada
+from ada.api.mesh.containers import to_array_backed
+from ada.config import Config
 from ada.fem import Bc, FemSet, LoadPoint, Mass, Spring, StepEigen, StepImplicitStatic
 from ada.fem.formats.sesam.write.write_springs import two_node_matrix
 from ada.materials.metals import CarbonSteel
@@ -61,6 +63,32 @@ def test_a_mass_on_a_grounded_spring_vibrates_at_root_k_over_m(tmp_path, require
     m = np.broadcast_to(np.asarray(mass, float), 3)
     want = np.sort(np.sqrt(k / m) / TWO_PI)
     assert _frequencies(res)[:3] == pytest.approx(want, rel=1e-6 if solver == "code_aster" else 1e-5)
+
+
+@pytest.mark.parametrize("mesh", ["to_array_backed", "sesam_deck"])
+def test_a_mass_on_a_grounded_spring_of_an_array_backed_mesh_vibrates_at_root_k_over_m(
+    tmp_path, require_solver, monkeypatch, mesh
+):
+    """The same model on the array-backed mesh the readers give: the spring is no block row there, and its node
+    used to look free, so Code_Aster left the mass and the rotary inertia out (``node_is_held``, ``_has_rotations``)."""
+    require_solver("code_aster")
+    p, fem, node = _point_model()
+    k, m = np.array([1.0e6, 3.0e6, 9.0e6]), 250.0
+    fem.add_spring(
+        Spring("spr", 1, "SPRING1", np.diag([*k, 1.0e9, 1.0e9, 1.0e9]), fem.add_set(FemSet("spr_n", [node], "nset")))
+    )
+    fem.add_mass(Mass("m", [node], m, mass_id=2))
+    fem.add_mass(Mass("rot", [node], [1.0, 1.0, 1.0, 0.0, 0.0, 0.0], mass_type="ROTARYI", mass_id=3))
+    a = ada.Assembly("A") / p
+    if mesh == "to_array_backed":
+        to_array_backed(fem)
+    else:
+        a.to_fem("deck", "sesam", scratch_dir=tmp_path, overwrite=True)
+        monkeypatch.setattr(Config(), "meshing_array_backed", True)
+        a = ada.from_fem(next((tmp_path / "deck").glob("*.FEM")), "sesam")
+    a.fem.add_step(StepEigen("eig", num_eigen_modes=3))
+    res = a.to_fem("msp", "code_aster", scratch_dir=tmp_path, overwrite=True, execute=True)
+    assert _frequencies(res)[:3] == pytest.approx(np.sort(np.sqrt(k / m) / TWO_PI), rel=1e-6)
 
 
 @pytest.mark.parametrize("solver", ["code_aster"])
