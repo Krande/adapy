@@ -51,6 +51,17 @@ export interface OverlayMesh extends OverlayLook {
     colors?: Float32Array;
 }
 
+/** What of an overlay's look can change after it was added. A member left out stays as it is. */
+export interface OverlayLookChange {
+    visible?: boolean;
+    /** 0..1. */
+    opacity?: number;
+    /** The one colour (linear RGB in 0..1) of an overlay without colours of its own. */
+    color?: readonly [number, number, number];
+    /** Where the coordinates stand in the world: a column-major 4x4; null is the identity. */
+    matrix?: ArrayLike<number> | null;
+}
+
 /** One feature's lines, points and shapes in a viewport. They take no part in picking the model's objects.
  *  The arrays handed in are read during the call and not kept. */
 export interface OverlayLayer {
@@ -61,6 +72,15 @@ export interface OverlayLayer {
     /** Move what `handle` draws: as many numbers as it was added with (a line's `segments`, a
      *  point set's or a mesh's `positions`). Colours and look stay. */
     setPositions(handle: number, positions: Float32Array): void;
+    /** Replace what a handle of lines or points draws with another number of them: `count`
+     *  segments (six numbers each) or points (three each) read from the start of `positions`, all of
+     *  it when left out, and with `colors` a colour for each (as it was added with colours or
+     *  without). What the viewport holds for the handle is reused while the new data fits in it, so
+     *  a line or a point set that changes every frame makes no new buffer per frame. Dashes are
+     *  measured again. Not for a mesh. */
+    setGeometry(handle: number, positions: Float32Array, count?: number, colors?: Float32Array | null): void;
+    /** Change how `handle` is drawn. */
+    setLook(handle: number, look: OverlayLookChange): void;
     remove(handle: number): void;
     clear(): void;
     /** Remove everything and release what the layer holds; the layer is not used again. */
@@ -73,6 +93,8 @@ export const NO_OVERLAYS: OverlayLayer = {
     addPoints: () => 0,
     addMesh: () => 0,
     setPositions: () => {},
+    setGeometry: () => {},
+    setLook: () => {},
     remove: () => {},
     clear: () => {},
     dispose: () => {},
@@ -96,4 +118,10 @@ export function colorsPerEndpoint(perSegment: ArrayLike<number>, out: Float32Arr
         out[o + 2] = out[o + 5] = perSegment[s + 2];
     }
     return out;
+}
+
+/** How many segments or points a buffer makes room for when `needed` no longer fit in `held`: half
+ *  as many again, so a count that creeps up does not make a new buffer every time. */
+export function grownCapacity(held: number, needed: number): number {
+    return Math.max(needed, Math.ceil(held * 1.5));
 }

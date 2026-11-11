@@ -33,6 +33,9 @@ export interface LoadGlbOptions {
     featureEdgeAngleDeg?: number;
     /** Return each added geometry's world-space positions. */
     keepPositions?: boolean;
+    /** Read the file's node animations: a node that moves stays an instance of its own, placed by
+     *  `setAnimationTime`. A file without animations loads as without the option. */
+    animations?: boolean;
 }
 
 /** One geometry loadGlb added, with its instance. */
@@ -45,6 +48,9 @@ export interface LoadedGlbGeometry {
     featureEdges: boolean;
     /** The object (an index into `LoadedGlb.objects`) each of its segments draws; -1 for none. */
     segmentObjects: Int32Array;
+    /** The animated node (an index into `LoadedGlb.animatedNodes`' nodes) this geometry is the
+     *  instance of; -1 when it is merged with the rest. Absent from a module without animations. */
+    node?: number;
     positions?: Float32Array;
     /** Its index buffer (into `positions`), with keepPositions. */
     indices?: Uint32Array;
@@ -62,6 +68,12 @@ export interface LoadedGlb {
     /** The scene's extras and the root `ADA_EXT_data` extension, as the JSON text the GLB holds ("" if absent). */
     extras: string;
     adaExtData: string;
+    /** The file's animations as a set the `animation*` calls take; -1 when it has none (or they
+     *  were not asked for). Absent from a module without animations. */
+    animationSet?: number;
+    animations?: {name: string; duration: number}[];
+    /** The nodes that are placed by the animations. */
+    animatedNodes?: Int32Array;
 }
 
 /** The objects of a loaded GLB as parallel tables, `count` long. */
@@ -139,6 +151,20 @@ export interface WebRendererApi {
     ): void;
     setSegmentStates(instance: number, packed: number, count: number): void;
     removeInstance(instance: number): void;
+    /** Place an instance: a column-major 4x4 at `matrix` (heap pointer). Its other state stays. */
+    setInstanceMatrix(instance: number, matrix: number): void;
+    instanceMatrix(instance: number): Float32Array;
+    // Node animations of a loaded GLB (`LoadGlbOptions.animations`), by the set `loadGlb` returned.
+    // `clear()` forgets every set; a call with a set that is gone throws.
+    animationCount(set: number): number;
+    animationName(set: number, animation: number): string;
+    /** Seconds. */
+    animationDuration(set: number, animation: number): number;
+    /** Put the set's nodes where `animation` has them at `seconds`; animation -1 is the rest pose. */
+    setAnimationTime(set: number, animation: number, seconds: number): void;
+    /** Where the set's animated nodes are now: 16 numbers per entry of `animatedNodes`. */
+    animationNodeMatrices(set: number): Float32Array;
+    removeAnimations(set: number): void;
     clear(): void;
     setCamera(view: number, proj: number, orthographic: boolean): void;
     // The renderer's own camera. With setCameraControlled(true), render() and pick() draw from it and
@@ -187,6 +213,9 @@ export interface WebRendererApi {
     /** A texture from RGBA8 pixels at `rgba` (heap pointer): top row first, sRGB, straight alpha, as
      *  `getImageData().data`. */
     addTexture(rgba: number, width: number, height: number): number;
+    /** As `addTexture`, without a mip chain: for pixels that are replaced often. */
+    addPlainTexture(rgba: number, width: number, height: number): number;
+    /** New pixels: written in place at the size it has, made again under the same id at another. */
     updateTexture(texture: number, rgba: number, width: number, height: number): void;
     removeTexture(texture: number): void;
     addSprite(): number;
@@ -199,6 +228,14 @@ export interface WebRendererApi {
         flags: number, renderOrder: number,
     ): void;
     removeSprite(sprite: number): void;
+    addQuad(): number;
+    /** A textured rectangle in the world: `matrix` (heap pointer, column-major 4x4) places the unit
+     *  square (x and y from -0.5 to 0.5, z 0), and the texture's top row lies on its y = +0.5 edge.
+     *  Unlit, blended with each pixel's own alpha, seen from both sides, never picked. Tint is linear
+     *  rgb, `a` the opacity; `texture` NO_TEXTURE draws the tint alone. Flags read: Hidden, Clipped,
+     *  DepthOffset, OnTop and Nearest of InstanceFlag. `clear()` drops every quad. */
+    setQuad(quad: number, texture: number, matrix: number, r: number, g: number, b: number, a: number, flags: number, renderOrder: number): void;
+    removeQuad(quad: number): void;
     pick(x: number, y: number, width: number, height: number, callback: (r: RawPick) => void): void;
     stats(): AdacppStats;
     readCullStats(callback: (s: AdacppStats) => void): void;
@@ -269,6 +306,7 @@ export const InstanceFlag = {
     Capped: 1 << 16, // a closed solid whose cut is filled on each section plane (setSectionCaps)
     OnTop: 1 << 17, // drawn over the model, no depth test (three.js' depthTest: false, e.g. gizmo handles)
     CullBack: 1 << 18, // transparent, yet back faces culled (a single-sided transparent material)
+    Nearest: 1 << 19, // a quad's texture sampled without blending between pixels
 } as const;
 export const SpriteFlag = {
     SizeAttenuation: 1 << 0, // three.js' sizeAttenuation; clear = constant size on screen (perspective)

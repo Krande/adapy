@@ -29,6 +29,7 @@ import {linearChannel as channel, linearColor as linear, linearColorInto as line
 import type {Billboard, BillboardLayer} from "@/viewport/api/billboards";
 import type {OverlayLayer} from "@/viewport/api/overlayLayer";
 import {activeViewport, type ViewportApi} from "@/viewport/api/viewportApi";
+import {releaseOwnerLayers} from "./sceneLayers";
 import type {
     SceneBox,
     SceneColor,
@@ -102,6 +103,8 @@ function dispose(owner: string, drawn: Drawn): void {
 /** Remove every overlay `owner` added through these verbs (SceneHandle.remove(owner) calls this). */
 export function removeOwnerOverlays(owner: string): void {
     for (const drawn of [...(owned.get(owner) ?? [])]) dispose(owner, drawn);
+    // Its layers that change over time, and its playback tracks (./sceneLayers.ts).
+    releaseOwnerLayers(owner);
 }
 
 const layerName = (owner: string): string => `plugin:${owner}`;

@@ -56,6 +56,11 @@ function recorder(kind: ViewportApi["kind"], cannot: string | null = null): {api
             objectsCentre: () => null,
             projectToScreen: () => ({width: 0, height: 0}),
             onCameraChange: () => () => {},
+            images: () => {
+                throw new Error("no images in this test");
+            },
+            modelAnimation: () => null,
+            setOrbitPivot: log("setOrbitPivot"),
             billboards: () => {
                 throw new Error("no billboards in this test");
             },

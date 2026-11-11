@@ -45,6 +45,8 @@ export { viewerApi } from "@/services/viewerApi";
 // `simulationProviders` slot's callbacks are handed.
 export { simulationsApi } from "@/services/api/simulations";
 export type {
+  ArtefactBytes,
+  ArtefactRange,
   SimulationArtefact,
   SimulationDomain,
   SimulationProviderInfo,

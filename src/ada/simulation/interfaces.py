@@ -105,7 +105,11 @@ SIMULATION_DOMAINS: dict[str, SimulationDomain] = {
             "A robot moving in a simulated world.",
             (
                 ArtefactRole("model", "The animated model: the robot and its world, as a GLB.", required=True),
-                ArtefactRole("timeline", "The topics recorded during the run, over time, as JSON.", required=True),
+                ArtefactRole(
+                    "timeline",
+                    "The topics recorded during the run, over time, in the recording format its media type names.",
+                    required=True,
+                ),
             ),
         ),
         SimulationDomain(

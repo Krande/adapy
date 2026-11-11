@@ -25,6 +25,9 @@ import type {BillboardLayer} from "./billboards";
 import {createThreeBillboardLayer} from "./threeBillboards";
 import type {OverlayLayer} from "./overlayLayer";
 import {createThreeOverlayLayer} from "./threeOverlays";
+import type {ImageLayer} from "./imageLayer";
+import {createThreeImageLayer} from "./threeImages";
+import {sceneNodeAnimation} from "@/utils/scene/animations/nodeAnimation";
 import {frameBox} from "@/components/viewer/sceneHelpers/cameraFit";
 import type {ObjectRef, ObjectVisibilityReader, SetSelectionOptions, ViewportApi} from "./viewportApi";
 
@@ -153,6 +156,7 @@ export interface ThreeViewportHandles {
 export function createThreeViewport(h: ThreeViewportHandles): ViewportApi {
     const layers = new Map<string, BillboardLayer>();
     const overlayLayers = new Map<string, OverlayLayer>();
+    const imageLayers = new Map<string, ImageLayer>();
     return {
         kind: "three",
         unavailable: () => null,
@@ -308,6 +312,23 @@ export function createThreeViewport(h: ThreeViewportHandles): ViewportApi {
             }
             return layer;
         },
+        // Images lying in the world, in the scene on screen.
+        images: (name) => {
+            let layer = imageLayers.get(name);
+            if (!layer) {
+                const made = createThreeImageLayer(() => getViewerRuntime().scene.current ?? h.scene ?? null, name);
+                layer = {...made, dispose: () => (imageLayers.delete(name), made.dispose())};
+                imageLayers.set(name, layer);
+            }
+            return layer;
+        },
+        // The moving parts of the loaded GLBs, each on a mixer of its own (nodeAnimation.ts).
+        modelAnimation: sceneNodeAnimation,
+        setOrbitPivot: (point) =>
+            void import("@/components/viewer/sceneHelpers/setupPointerHandler").then((m) => {
+                m.applyOrbitPoint(getViewerRuntime().controls.current ?? h.controls, new Vector3(point[0], point[1], point[2]));
+                requestRender();
+            }),
         fitBox: (min, max) => {
             const rt = getViewerRuntime();
             const camera = rt.camera.current ?? h.camera;

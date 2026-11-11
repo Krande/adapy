@@ -8,6 +8,8 @@ import type {BillboardLayer} from "@/viewport/api/billboards";
 import {createNativeBillboardLayer} from "./nativeBillboards";
 import type {OverlayLayer} from "@/viewport/api/overlayLayer";
 import {createNativeOverlayLayer} from "./nativeOverlays";
+import type {ImageLayer} from "@/viewport/api/imageLayer";
+import {createNativeImageLayer} from "./nativeImages";
 import {KeySet, nativeObjectsInBox, nativeObjectsInScreenRect, nativeSelectionBounds} from "./nativeBoxSelection";
 import {objectKey, splitObjectKey, type NativeScene} from "./nativeScene";
 import {withNativeHistory} from "./nativeViewportHistory";
@@ -23,6 +25,7 @@ const SCREENSHOT_HEIGHT = 1080;
 export function createNativeViewportApi(scene: NativeScene): ViewportApi {
     const layers = new Map<string, BillboardLayer>();
     const overlayLayers = new Map<string, OverlayLayer>();
+    const imageLayers = new Map<string, ImageLayer>();
     // The scene knows an object by one key made of its model and its id.
     const own = (refs: Iterable<ObjectRef>): string[] => Array.from(refs, (r) => objectKey(r.model, r.id));
     // Each call that changes the selection or what is hidden is one undo step (./nativeViewportHistory.ts).
@@ -89,6 +92,18 @@ export function createNativeViewportApi(scene: NativeScene): ViewportApi {
             }
             return layer;
         },
+        images: (name) => {
+            let layer = imageLayers.get(name);
+            if (!layer) {
+                const made = createNativeImageLayer(scene);
+                layer = {...made, dispose: () => (imageLayers.delete(name), made.dispose())};
+                imageLayers.set(name, layer);
+            }
+            return layer;
+        },
+        // The renderer places the animated nodes of the loaded GLBs by time (NativeScene).
+        modelAnimation: () => scene.modelAnimation,
+        setOrbitPivot: (point) => scene.setOrbitPivot(point),
         fitBox: (min, max) => scene.fitBox([min[0], min[1], min[2], max[0], max[1], max[2]]),
         // Box selection, decided on each object's box (./nativeBoxSelection.ts says where that is coarser).
         objectsInBox: (box, mode) => nativeObjectsInBox(scene, box, mode),

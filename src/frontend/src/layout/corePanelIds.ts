@@ -27,6 +27,8 @@ export const CORE_PANEL_IDS = {
   convert: "core:convert",
   /** Simulation providers and the scope's simulation runs. */
   simulations: "core:simulations",
+  /** The layers drawn over the model: a switch and an opacity slider each. */
+  layers: "core:layers",
 } as const;
 
 export type CorePanelId = (typeof CORE_PANEL_IDS)[keyof typeof CORE_PANEL_IDS];
