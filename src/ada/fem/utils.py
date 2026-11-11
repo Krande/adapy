@@ -136,3 +136,50 @@ def split_line_element_in_two(el: Elem) -> Elem:
     fs = el.fem_sec
     fs.elset.add_members([elem])
     return elem
+
+
+def _is_mass(obj) -> bool:
+    from ada.fem.elements import Mass
+
+    return isinstance(obj, Mass) or isinstance(getattr(obj, "type", None), shape_def.MassTypes)
+
+
+def node_is_held(node: Node) -> bool:
+    """Whether something stiffens ``node``'s translations: an element that is not a mass (a beam, a shell, a solid, a
+    spring, a connector), a constraint, or boundary conditions that fix all three translations.
+
+    A node only point masses are on has no stiffness at all: a static solve finds its stiffness matrix singular
+    (Code_Aster stops at ``FACTOR_11``)."""
+    from ada.fem.common import Csys
+    from ada.fem.constraints import Bc, Constraint
+    from ada.fem.sets import FemSet
+
+    fixed: set[int] = set()
+    for ref in node.refs:
+        if _is_mass(ref) or isinstance(ref, Csys):
+            continue
+        if not isinstance(ref, FemSet):
+            return True
+        for user in ref.refs:
+            if isinstance(user, Constraint):
+                return True
+            if isinstance(user, Bc):
+                fixed.update(d for d in user.dofs if isinstance(d, int))
+    return {1, 2, 3} <= fixed
+
+
+def mass_nodes(mass) -> list:
+    """The nodes a mass is on: its members (a mass given a node set after it was made has no ``nodes``)."""
+    members = mass.members if mass.members is not None else mass.nodes
+    return [n for n in (members or []) if hasattr(n, "p") and not hasattr(n, "nodes")]
+
+
+def free_point_masses(fem: FEM) -> list:
+    """The point masses (``MassTypes.MASS``) of ``fem`` on a node nothing else holds (:func:`node_is_held`)."""
+    out = []
+    for mass in fem.elements.masses:
+        if mass.type != shape_def.MassTypes.MASS:
+            continue
+        if any(not node_is_held(n) for n in mass_nodes(mass)):
+            out.append(mass)
+    return out
