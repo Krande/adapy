@@ -34,7 +34,7 @@
 // No three.js in this module or in anything it imports: the three.js-free viewport uses it too.
 
 import type {FeaManifestField, FeaManifestFieldPerType, FeaScalarRange} from "@/services/viewerApi";
-import {getColormap} from "./colormaps";
+import {getColormap, linearColormap} from "./colormaps";
 import {bandedColormap, resolveContourRange, type ContourSettings} from "./contourScale";
 import {categoryCodes, distinctValues, isPropertyField, propertyColormap} from "./propertyColors";
 import {RangeAccumulator} from "./rangeAccumulator";
@@ -445,9 +445,11 @@ export function paintElemField(args: ElemFieldPaint, outColors: Float32Array): E
                   for (const view of perTypeStepValues) yield* view;
               })())
             : null;
-    const colormap =
+    // Linear light: a viewport draws the legend's colour only when it is handed that (colormaps.ts).
+    const colormap = linearColormap(
         propertyColormap(colorField, [rangeMin, rangeMax], levels) ??
-        bandedColormap(getColormap(colormapName), contour?.levels ?? null);
+        bandedColormap(getColormap(colormapName), contour?.levels ?? null),
+    );
     const n_points = basePositions.length / 3;
     const n_render_points = renderToSource.length;
     const n_components = colorField.components.length;

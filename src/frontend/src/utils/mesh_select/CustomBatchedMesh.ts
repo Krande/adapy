@@ -192,6 +192,7 @@ export class CustomBatchedMesh extends THREE.Mesh {
      *  ``drawRanges`` — the loader currently never does this
      *  post-construction, but defensive in case that changes. */
     public invalidateSortedSegments(): void {
+        this._segIndexById = undefined;
         this._sortedSegIds = undefined;
         this._sortedSegStarts = undefined;
         this._sortedSegCounts = undefined;
@@ -445,8 +446,222 @@ export class CustomBatchedMesh extends THREE.Mesh {
         this.reapplySelectionHighlight();
     }
 
+    // ── Colours the user gave objects (ViewportApi.setObjectColors) ──────────────────────────
+    //
+    // A colour per draw range, drawn through the one colour attribute of the mesh: no material and
+    // no draw call per object. While any range has one, the base material is white and every
+    // vertex carries its colour (the mesh's own, or the user's), so a recoloured object is exactly
+    // the colour asked for, lit by the mesh's material. Hiding, isolating and section planes do
+    // not look at colours, so they keep them; the selection is drawn by its overlay, as on any
+    // mesh coloured by vertex.
+
+    /** Per sorted segment: 0 for the mesh's own colour, else 0xff000000 | 0xRRGGBB (sRGB). */
+    private _userColors: Uint32Array | null = null;
+    private _userColorCount = 0;
+    /** The base material's colour while the user's colours have turned the material white. */
+    private _ownColor: THREE.Color | null = null;
+    private _segIndexById?: Map<string, number>;
+
+    /** How many draw ranges have a colour the user gave them. */
+    public get userColorCount(): number {
+        return this._userColorCount;
+    }
+
+    /** Whether the user's colours can be drawn on this mesh: not while its vertex colours are
+     *  someone else's (a painted FEA result, a file's own vertex colours, a colouring by property). */
+    public acceptsUserColors(): boolean {
+        return this._ownColor !== null || !this.geometry.getAttribute('color');
+    }
+
+    /** The colour the user gave range `id` (0xff000000 | 0xRRGGBB), or 0 for its own. */
+    public userColorOf(id: string): number {
+        const i = this._userColors ? this.segmentIndex().get(id) : undefined;
+        return i === undefined ? 0 : this._userColors![i];
+    }
+
+    private segmentIndex(): Map<string, number> {
+        if (!this._segIndexById) {
+            const ids = this.getSortedSegments().ids;
+            const map = new Map<string, number>();
+            for (let i = 0; i < ids.length; i++) map.set(ids[i], i);
+            this._segIndexById = map;
+        }
+        return this._segIndexById;
+    }
+
+    /** Give `ids` (every range when null) the colour `packed` (0xRRGGBB, sRGB), or their own
+     *  colour back when it is null. One pass over the ranges named, nothing allocated per range.
+     *  Returns how many ranges changed. */
+    public setUserColors(ids: Iterable<string> | null, packed: number | null): number {
+        if (!this.acceptsUserColors() || !this.geometry.index) return 0;
+        const value = packed === null ? 0 : (0xff000000 | (packed & 0xffffff)) >>> 0;
+        if (value === 0 && this._userColorCount === 0) return 0;
+        const segs = this.getSortedSegments();
+        const colors = (this._userColors ??= new Uint32Array(segs.ids.length));
+        const before = this._userColorCount;
+        const writes = this.beginUserPaint();
+        let changed = 0;
+        const paint = (i: number) => {
+            const was = colors[i];
+            if (was === value) return;
+            colors[i] = value;
+            if (was === 0) this._userColorCount++;
+            else if (value === 0) this._userColorCount--;
+            changed++;
+            this.paintSegment(writes, segs.starts[i], segs.counts[i], value);
+        };
+        if (ids === null) {
+            for (let i = 0; i < colors.length; i++) paint(i);
+        } else {
+            const index = this.segmentIndex();
+            for (const id of ids) {
+                const i = index.get(id);
+                if (i !== undefined) paint(i);
+            }
+        }
+        this.endUserPaint(before, changed > 0);
+        return changed;
+    }
+
+    /** The user's colours as they are now, for the undo history; null when there are none. */
+    public userColorSnapshot(): Uint32Array | null {
+        return this._userColorCount > 0 ? this._userColors!.slice() : null;
+    }
+
+    /** Put back what `userColorSnapshot` gave. A snapshot of another number of ranges is ignored. */
+    public restoreUserColors(snapshot: Uint32Array | null): void {
+        if (!this.acceptsUserColors() || !this.geometry.index) return;
+        if (!snapshot && this._userColorCount === 0) return;
+        const segs = this.getSortedSegments();
+        if (snapshot && snapshot.length !== segs.ids.length) return;
+        const colors = (this._userColors ??= new Uint32Array(segs.ids.length));
+        const before = this._userColorCount;
+        const writes = this.beginUserPaint();
+        let changed = false;
+        for (let i = 0; i < colors.length; i++) {
+            const value = snapshot ? snapshot[i] : 0;
+            const was = colors[i];
+            if (was === value) continue;
+            colors[i] = value;
+            if (was === 0) this._userColorCount++;
+            else if (value === 0) this._userColorCount--;
+            changed = true;
+            this.paintSegment(writes, segs.starts[i], segs.counts[i], value);
+        }
+        this.endUserPaint(before, changed);
+    }
+
+    /** The mesh's own colour (linear RGB): what its base material has, also while the user's
+     *  colours have turned that white. */
+    public setOwnColor(r: number, g: number, b: number): void {
+        if (!this._ownColor) {
+            (this.originalMaterial as THREE.Material & {color?: THREE.Color}).color?.setRGB(r, g, b, THREE.LinearSRGBColorSpace);
+            return;
+        }
+        this._ownColor.setRGB(r, g, b, THREE.LinearSRGBColorSpace);
+        this.repaintUserColors();
+    }
+
+    /** The colour attribute the user's colours are written to, made (every vertex in the mesh's
+     *  own colour, the material white) the first time. */
+    private beginUserPaint(): Float32Array {
+        const existing = this.geometry.getAttribute('color') as THREE.BufferAttribute | undefined;
+        if (this._ownColor && existing) return existing.array as Float32Array;
+        const mat0 = this.originalMaterial as THREE.Material & {color?: THREE.Color; vertexColors?: boolean};
+        const own = (this._ownColor = mat0.color ? mat0.color.clone() : new THREE.Color(1, 1, 1));
+        const pos = this.geometry.getAttribute('position');
+        const arr = new Float32Array(pos.count * 3);
+        for (let i = 0; i < arr.length; i += 3) {
+            arr[i] = own.r;
+            arr[i + 1] = own.g;
+            arr[i + 2] = own.b;
+        }
+        this.geometry.setAttribute('color', new THREE.BufferAttribute(arr, 3));
+        mat0.color?.setRGB(1, 1, 1);
+        mat0.vertexColors = true;
+        mat0.needsUpdate = true;
+        return arr;
+    }
+
+    private static readonly _linear = new Float32Array(256).map((_, i) => {
+        const c = i / 255;
+        return c < 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+    });
+
+    /** One range's vertices in `value` (0: the mesh's own colour). */
+    private paintSegment(arr: Float32Array, start: number, count: number, value: number): void {
+        const own = this._ownColor!;
+        const lin = CustomBatchedMesh._linear;
+        const r = value ? lin[(value >> 16) & 255] : own.r;
+        const g = value ? lin[(value >> 8) & 255] : own.g;
+        const b = value ? lin[value & 255] : own.b;
+        const index = this.geometry.index!.array;
+        for (let j = start, end = start + count; j < end; j++) {
+            const v = index[j] * 3;
+            arr[v] = r;
+            arr[v + 1] = g;
+            arr[v + 2] = b;
+        }
+    }
+
+    /** After a paint: upload what changed, and enter or leave the per-vertex look. */
+    private endUserPaint(countBefore: number, changed: boolean): void {
+        if (this._userColorCount === 0) {
+            this.leaveUserPaint();
+            return;
+        }
+        if (changed) (this.geometry.getAttribute('color') as THREE.BufferAttribute).needsUpdate = true;
+        if (countBefore === 0) {
+            // The selection is drawn by its overlay from here on, as on any mesh coloured by vertex.
+            this._recomputeUsesVertexColorsFlag();
+            this.reapplySelectionHighlight();
+        }
+    }
+
+    /** No range has a user colour any more: the mesh is drawn by its material's colour again. */
+    private leaveUserPaint(): void {
+        const own = this._ownColor;
+        if (!own) return;
+        this._ownColor = null;
+        this._userColors = null;
+        const mat0 = this.originalMaterial as THREE.Material & {color?: THREE.Color; vertexColors?: boolean};
+        mat0.color?.copy(own);
+        this.geometry.deleteAttribute('color');
+        this._baseColors = undefined;
+        mat0.vertexColors = false;
+        mat0.needsUpdate = true;
+        this._recomputeUsesVertexColorsFlag();
+        this._disposeSelectionOverlay();
+        this.reapplySelectionHighlight();
+    }
+
+    /** Every vertex again: its mesh's own colour, then the user's colours over it. */
+    private repaintUserColors(): void {
+        const attr = this.geometry.getAttribute('color') as THREE.BufferAttribute | undefined;
+        const colors = this._userColors;
+        if (!attr || !colors || !this._ownColor) return;
+        const arr = attr.array as Float32Array;
+        const own = this._ownColor;
+        for (let i = 0; i < arr.length; i += 3) {
+            arr[i] = own.r;
+            arr[i + 1] = own.g;
+            arr[i + 2] = own.b;
+        }
+        const segs = this.getSortedSegments();
+        for (let i = 0; i < colors.length; i++) {
+            if (colors[i]) this.paintSegment(arr, segs.starts[i], segs.counts[i], colors[i]);
+        }
+        attr.needsUpdate = true;
+    }
+
     /** Disable vertex colors and restore original material behavior for non-vertex-colored mode */
     public disableVertexColorsAndResetMaterial(): void {
+        // A feature's own colouring (by property, by system) goes; the colours the user gave
+        // objects stay, drawn again over the mesh's own.
+        if (this._ownColor && this._userColorCount > 0) {
+            this.repaintUserColors();
+            return;
+        }
         // Remove color attribute from working geometry
         if (this.geometry.getAttribute('color')) {
             this.geometry.deleteAttribute('color');

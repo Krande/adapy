@@ -1,7 +1,7 @@
 // One step of a nodal field as plain numbers: a colour and a displacement per node.
 //
 // This is the computation behind a painted result, with nothing of a renderer in it: field values
-// go in, two typed arrays come out (RGB in 0..1 and the un-scaled displacement, three floats per
+// go in, two typed arrays come out (linear RGB in 0..1 and the un-scaled displacement, three floats per
 // node each, in the mesh's own node numbering). Whichever viewport is on screen draws them through
 // a result layer (viewport/api/resultLayer.ts); the deformation scale is the layer's influence, so
 // it is not applied here and a change of scale repaints nothing.
@@ -9,7 +9,7 @@
 // No three.js in this module or in anything it imports: the three.js-free viewport uses it too.
 
 import type {FeaManifestField, FeaScalarRange} from "@/services/viewerApi";
-import {getColormap} from "./colormaps";
+import {getColormap, linearColormap} from "./colormaps";
 import {bandedColormap, resolveContourRange, type ContourSettings} from "./contourScale";
 import {translationOffsets, warpValue} from "./warpComponents";
 
@@ -67,7 +67,8 @@ function componentIndex(field: FeaManifestField, reduction: string): number {
  */
 export function paintNodalField(args: NodalFieldPaint, outDisplacement: Float32Array, outColors: Float32Array): void {
     const {nPoints: n_points, colorField, colorStepValues, reduction, warpField, warpStepValues, contour, autoRange} = args;
-    const colormap = bandedColormap(getColormap(args.colormap), contour?.levels ?? null);
+    // Linear light: a viewport draws the legend's colour only when it is handed that (colormaps.ts).
+    const colormap = linearColormap(bandedColormap(getColormap(args.colormap), contour?.levels ?? null));
     const n_components = colorField.components.length;
     if (colorStepValues.length !== n_points * n_components) {
         throw new Error(

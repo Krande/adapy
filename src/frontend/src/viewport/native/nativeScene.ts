@@ -15,13 +15,15 @@ import {startRenderer} from "@/viewport/adacpp/rendererModule";
 import {rolledUpAxis} from "@/utils/camera/roll";
 import {linearColor} from "@/utils/scene/sceneColor";
 import {useOptionsStore} from "@/state/optionsStore";
+import {defaultColorLinear, hexChannels, lightIntensities, useAppearanceStore} from "@/state/appearanceStore";
+import {glbUncoloured, UNCOLOURED_BLACK} from "@/utils/glb/glbUncoloured";
+import type {ObjectColorState} from "@/viewport/api/objectColors";
 import {placeModel, type Box6, type Vec3} from "@/viewport/api/sceneFrame";
 import {boundingSphere, clipRangeFor, DEFAULT_VIEW, framePose, namedViewPose, selectionFramePose} from "@/viewport/api/cameraFrame";
 import {GROUND_GRID, groundGridLines} from "@/viewport/api/groundGrid";
 import {InstanceFlag, SegmentFlag, Topology, type AdacppModule, type AdacppStats, type CameraPoseInfo, type GpuDeviceLike, type LoadedGlbObjects, type RawPick, type WebRendererApi} from "@/viewport/adacpp/types";
 
-/** The viewer's background (#393939) and selection colour, as the three.js viewport has them. */
-const BACKGROUND = 0x39 / 255;
+/** The selection colour, as the three.js viewport has it. */
 const SELECTED = (0 | (0 << 8) | (255 << 16) | (255 << 24)) >>> 0;
 const FEATURE_EDGE_ANGLE_DEG = 30;
 const EDGE_COLOR: [number, number, number, number] = [0, 0, 0, 1];
@@ -101,6 +103,16 @@ interface LoadedModel {
      *  object of each of its segments. Its objects are listed in the order given, not sorted by
      *  name, and its triangles are not counted. */
     resultSegments?: Map<number, {layer: NativeResultLayer; objectOf: Int32Array}>;
+    /** The colour the user gave each object (`setObjectColors`), by its index in `table`: a
+     *  segment's colour as the renderer takes it (linear RGBA8, alpha 255), 0 for the object's
+     *  own. Absent until one is given. `colored` counts the objects that have one. */
+    colors?: Uint32Array;
+    colored?: number;
+    /** Each object's index in `table` by its id, made the first time objects are recoloured. */
+    idIndex?: Map<string, number>;
+    /** Per object: which "no colour" its file gave it (utils/glb/glbUncoloured.ts), 0 for a
+     *  colour of its own. Absent when every object has one. */
+    uncoloured?: Uint8Array;
     /** Its node animations in the renderer: the set, and how long each animation is (seconds). */
     animations?: {
         set: number;
@@ -113,6 +125,23 @@ interface LoadedModel {
 }
 
 let canvasSerial = 0;
+
+/** Linear RGB (0..1) as the colour of a segment in the renderer: linear RGBA8, alpha 255 (a
+ *  colour with alpha 0 is "none" there). */
+function packSegmentColor(r: number, g: number, b: number): number {
+    const q = (v: number) => Math.max(0, Math.min(255, Math.round(v * 255)));
+    return (q(r) | (q(g) << 8) | (q(b) << 16) | 0xff000000) >>> 0;
+}
+
+/** The colours the user gave objects at one moment, per model: what the undo history keeps. */
+class NativeColorState implements ObjectColorState {
+    constructor(
+        readonly scene: NativeScene,
+        /** By model key: the source it was loaded from, and its colours (a copy). */
+        readonly models: ReadonlyMap<string, {source: string; colors: Uint32Array}>,
+        readonly count: number,
+    ) {}
+}
 
 /** The box (min xyz, max xyz) around `positions` (xyz per vertex) placed by `matrix` (column-major
  *  4x4, identity when absent); null for none. */
@@ -186,6 +215,15 @@ export class NativeScene {
     /** Why it stopped, kept for a caller that attaches `onFailure` after the fact: a device can be lost
      *  before the first frame. */
     failure: string | null = null;
+    /** The default colour as a segment's colour: what objects without a colour of their own are drawn in. */
+    private defaultSegmentColor = 0;
+    /** The grey a file gives such an object: where the default colour is that, nothing is overridden. */
+    private static readonly FILE_GREY = packSegmentColor(204 / 255, 204 / 255, 204 / 255);
+    /** Changes whenever a colour the user gave an object does; the last state handed to the history. */
+    private colorsVersion = 0;
+    private colorState: {version: number; state: NativeColorState} | null = null;
+    /** The scene extras of the model loaded last, parsed, when the file's JSON was read here. */
+    parsedExtras: Record<string, unknown> | null = null;
     /** The result meshes drawn now (createResultLayer). */
     private readonly resultLayers = new Set<NativeResultLayer>();
     /** Called before each frame is drawn, with the seconds since the last one (0 after an idle
@@ -205,7 +243,29 @@ export class NativeScene {
         private readonly renderer: WebRendererApi,
         private readonly device: GpuDeviceLike,
     ) {
-        renderer.setBackground(BACKGROUND, BACKGROUND, BACKGROUND);
+        // The appearance settings, shared with the three.js viewport (state/appearanceStore.ts):
+        // set here and when they change, never per frame.
+        const background = () => {
+            const [r, g, b] = hexChannels(useAppearanceStore.getState().background);
+            renderer.setBackground(r, g, b);
+        };
+        const lights = () => {
+            const {ambient, headlight} = lightIntensities();
+            renderer.setLighting(ambient, headlight);
+        };
+        background();
+        lights();
+        this.defaultSegmentColor = packSegmentColor(...defaultColorLinear());
+        this.cleanups.push(useAppearanceStore.subscribe((now, before) => {
+            if (now.background !== before.background) background();
+            if (now.brightness !== before.brightness || now.ambientShare !== before.ambientShare) lights();
+            if (now.shadeResults !== before.shadeResults) for (const layer of this.resultLayers) layer.refreshLook();
+            if (now.defaultColor !== before.defaultColor) {
+                this.defaultSegmentColor = packSegmentColor(...defaultColorLinear());
+                this.writeStates();
+            }
+            this.invalidate();
+        }));
         renderer.setCameraControlled(true);
         const glide = () => renderer.cameraSetDamping(useCameraControlsStore.getState().mapping.damping ? GLIDE_INERTIA : 0);
         glide();
@@ -257,10 +317,12 @@ export class NativeScene {
             this.segments = new Map();
             this.selected.clear();
             this.hidden.clear();
+            this.colorsVersion++;
         }
         this.modelKey = modelKey;
         this.sceneExtras = "";
         this.extData = "";
+        this.parsedExtras = null;
         const p = this.module._malloc(bytes.byteLength);
         this.module.HEAPU8.set(bytes, p);
         let loaded;
@@ -311,13 +373,36 @@ export class NativeScene {
         this.extData = loaded.adaExtData ?? "";
         for (const g of loaded.geometries) this.segments.set(g.instance, {model, objects: g.segmentObjects, outline: g.featureEdges});
         model.keys.forEach((key, index) => this.where.set(key, {model, index}));
+        // The objects whose file gives them no colour are drawn in the default colour.
+        const uncoloured = this.markUncoloured(model, bytes, loaded.nodeObjects);
         this.rebuild();
         this.refreshAnimation();
         // A model that joins others leaves the camera where the user has it.
         if (!add) this.framed();
         for (const listener of this.onLoaded) listener();
         if (add) this.pushStates();
-        else this.onChange?.();
+        else {
+            if (uncoloured) this.writeStates();
+            this.onChange?.();
+        }
+    }
+
+    /** Note which of `model`'s objects have no colour of their own in the file. True when any of
+     *  them is drawn in another colour than the file's now: a black one, or any while the default
+     *  colour is not the file's grey. */
+    private markUncoloured(model: LoadedModel, bytes: Uint8Array, nodeObjects: boolean): boolean {
+        let flags: Uint8Array | null = null;
+        let black = false;
+        const found = glbUncoloured(bytes, nodeObjects, (id, kind) => {
+            const at = this.where.get(objectKey(model.key, id));
+            if (at?.model !== model) return;
+            (flags ??= new Uint8Array(model.table.count))[at.index] = kind;
+            if (kind === UNCOLOURED_BLACK) black = true;
+        });
+        this.parsedExtras = found?.extras ?? null;
+        if (!flags) return false;
+        model.uncoloured = flags;
+        return black || this.defaultSegmentColor !== NativeScene.FILE_GREY;
     }
 
     /** Take the model loaded from `sourceName` off the screen; false when there is none. */
@@ -336,6 +421,7 @@ export class NativeScene {
     private dropModel(key: string): void {
         const model = this.models.get(key);
         if (!model) return;
+        if (model.colored) this.colorsVersion++;
         // A result model's geometry belongs to its layers: they take it off themselves.
         for (const [instance, {layer}] of model.resultSegments ?? []) {
             layer.onRemove = null;
@@ -495,6 +581,7 @@ export class NativeScene {
             this.objectList = [];
             this.selected.clear();
             this.hidden.clear();
+            this.colorsVersion++;
             this.selectionVersion = {};
             // As a model load: helper lines and sprites went with renderer.clear().
             this.helperLines.clear();
@@ -1004,20 +1091,44 @@ export class NativeScene {
         this.invalidate();
     }
 
-    /** Every segment's state from the two sets: hidden wins over selected. */
+    /** Every segment's state from the two sets, and the selection's listeners told: hidden wins
+     *  over selected. */
     private pushStates(): void {
+        this.writeStates();
+        this.selectionVersion = {};
+        for (const listener of this.onSelection) listener();
+        // What draws visibility (the Scene tree's rows) re-reads on this; a selection alone is not one.
+        if (this.hidden.changed) {
+            this.hidden.changed = false;
+            useVisibilityStore.getState().bump();
+        }
+        this.onChange?.();
+    }
+
+    /** Every segment's state as the renderer takes it: hidden, else the selection's colour, else
+     *  the colour the user gave the object, else the default colour where its file gave it none. */
+    private writeStates(): void {
+        // The file's grey is drawn as it is while the default colour is that grey.
+        const fallback = this.defaultSegmentColor;
+        const greyToo = fallback !== NativeScene.FILE_GREY;
+        const anyHidden = this.hidden.size > 0, anySelected = this.selected.size > 0;
         for (const [instance, {model, objects: segments, outline}] of this.segments) {
             const ids = model.keys;
+            const colors = model.colored ? model.colors! : null;
+            const uncoloured = model.uncoloured ?? null;
             const states = new Uint32Array(segments.length * 2);
-            segments.forEach((object, i) => {
-                if (object < 0) return;
+            for (let i = 0; i < segments.length; i++) {
+                const object = segments[i];
+                if (object < 0) continue;
                 const id = ids[object];
-                if (this.hidden.has(id)) states[i * 2 + 1] = SegmentFlag.Hidden;
-                else if (this.selected.has(id) && !outline) {
+                if (anyHidden && this.hidden.has(id)) states[i * 2 + 1] = SegmentFlag.Hidden;
+                else if (outline) continue;
+                else if (anySelected && this.selected.has(id)) {
                     states[i * 2] = SELECTED;
                     states[i * 2 + 1] = SegmentFlag.Matte;
-                }
-            });
+                } else if (colors && colors[object]) states[i * 2] = colors[object];
+                else if (uncoloured && uncoloured[object] && (greyToo || uncoloured[object] === UNCOLOURED_BLACK)) states[i * 2] = fallback;
+            }
             const p = this.module._malloc(states.byteLength);
             this.module.HEAPU32.set(states, p >> 2);
             try {
@@ -1027,14 +1138,110 @@ export class NativeScene {
             }
         }
         this.invalidate();
-        this.selectionVersion = {};
-        for (const listener of this.onSelection) listener();
-        // What draws visibility (the Scene tree's rows) re-reads on this; a selection alone is not one.
-        if (this.hidden.changed) {
-            this.hidden.changed = false;
-            useVisibilityStore.getState().bump();
+    }
+
+    // Colours the user gave objects (ViewportApi.setObjectColors): a colour per object, drawn as
+    // the colour of its segments, so recolouring makes no geometry, material or draw call.
+
+    /** How many objects have a colour the user gave them. */
+    get objectColorCount(): number {
+        let n = 0;
+        for (const model of this.models.values()) n += model.colored ?? 0;
+        return n;
+    }
+
+    /** Give `refs` (every object when null) the colour `rgb` (linear, 0..1), or their own colour
+     *  back when it is null. The elements of an FEA result are left out: their colours are the
+     *  result's. `refs` is read once and no ref is kept. Returns how many objects changed. */
+    setObjectColors(refs: Iterable<{model: string; id: string}> | null, rgb: readonly [number, number, number] | null): number {
+        const value = rgb ? packSegmentColor(rgb[0], rgb[1], rgb[2]) : 0;
+        let changed = 0;
+        const paint = (model: LoadedModel, index: number) => {
+            const colors = model.colors;
+            if (!colors) {
+                if (!value) return;
+                model.colors = new Uint32Array(model.table.count);
+                model.colored = 0;
+            }
+            const was = model.colors![index];
+            if (was === value) return;
+            model.colors![index] = value;
+            if (!was) model.colored!++;
+            else if (!value) model.colored!--;
+            changed++;
+        };
+        if (refs === null) {
+            for (const model of this.models.values()) {
+                if (model.resultSegments || (!value && !model.colored)) continue;
+                const offsets = model.table.segmentOffsets;
+                // Only what draws something itself: a level of the hierarchy has no colour.
+                for (let i = 0; i < model.table.count; i++) if (offsets[i + 1] > offsets[i]) paint(model, i);
+            }
+        } else {
+            // Consecutive refs are nearly always of the same model: it is looked up once per run.
+            let key: string | null = null;
+            let model: LoadedModel | undefined;
+            let index: Map<string, number> | undefined;
+            for (const ref of refs) {
+                if (ref.model !== key) {
+                    key = ref.model;
+                    model = this.models.get(key);
+                    if (model?.resultSegments) model = undefined;
+                    index = model ? (model.idIndex ??= new Map(model.table.ids.map((id, i) => [id, i]))) : undefined;
+                }
+                const at = index?.get(ref.id);
+                if (at !== undefined && model!.table.segmentOffsets[at + 1] > model!.table.segmentOffsets[at]) paint(model!, at);
+            }
         }
-        this.onChange?.();
+        if (changed) {
+            this.colorsVersion++;
+            this.writeStates();
+        }
+        return changed;
+    }
+
+    /** The colours the user gave objects as they are now, for the undo history. The same object
+     *  until a colour changes. */
+    captureObjectColors(): ObjectColorState {
+        if (this.colorState?.version === this.colorsVersion) return this.colorState.state;
+        const models = new Map<string, {source: string; colors: Uint32Array}>();
+        let count = 0;
+        for (const model of this.models.values()) {
+            if (!model.colored) continue;
+            models.set(model.key, {source: model.sourceName, colors: model.colors!.slice()});
+            count += model.colored;
+        }
+        const state = new NativeColorState(this, models, count);
+        this.colorState = {version: this.colorsVersion, state};
+        return state;
+    }
+
+    /** Go back to a state `captureObjectColors` gave. A model that has since been removed and
+     *  loaded again is found by its source; one that is gone is left out. */
+    restoreObjectColors(state: ObjectColorState): void {
+        if (!(state instanceof NativeColorState) || state.scene !== this) return;
+        const kept = new Map<LoadedModel, Uint32Array>();
+        for (const [key, {source, colors}] of state.models) {
+            let model = this.models.get(key);
+            if (!model && source) model = [...this.models.values()].find((m) => m.sourceName === source);
+            if (model && !model.resultSegments && model.table.count === colors.length) kept.set(model, colors);
+        }
+        for (const model of this.models.values()) {
+            const colors = kept.get(model);
+            if (!colors) {
+                model.colors = undefined;
+                model.colored = 0;
+                continue;
+            }
+            model.colors = colors.slice();
+            let n = 0;
+            for (let i = 0; i < colors.length; i++) if (colors[i]) n++;
+            model.colored = n;
+        }
+        this.colorsVersion++;
+        // The state handed in is the state now: asked again, the history sees no change.
+        this.colorState = {version: this.colorsVersion, state};
+        this.writeStates();
     }
 
     /** Sees a click (client position, and whether it adds to the selection) before an object is

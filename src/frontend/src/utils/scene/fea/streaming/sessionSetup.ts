@@ -13,6 +13,7 @@
 // identity; attaching sidecars (beam solids, edges) is the loader's job.
 
 import * as THREE from "three";
+import {ensureResultLook} from "../threeResultLook";
 
 import {SceneOperations} from "@/flatbuffers/scene/scene-operations";
 import type {FeaFetcher} from "@/services/fea/feaFetcher";
@@ -114,6 +115,9 @@ export async function openFeaSession(args: {
     const mesh = findFirstMesh(feaRoot ?? scene);
     if (!mesh) throw new Error("loaded GLB has no mesh");
     const basePositions = snapshotBasePositions(mesh.geometry);
+    // A result's faces are matte, and flat while painted (threeResultLook.ts): before the first
+    // paint too, so a model without a field is not drawn as a dark metal.
+    ensureResultLook(mesh);
 
     const handle: FeaSessionHandle = {sourceName, manifest, mesh, basePositions};
     session.active = handle;

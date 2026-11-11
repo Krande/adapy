@@ -224,3 +224,45 @@ export function getColormap(name: string | null | undefined): Colormap {
     if (name && name in COLORMAPS) return COLORMAPS[name];
     return viridis;
 }
+
+// ── Linear light ─────────────────────────────────────────────────────
+//
+// A colormap's channels are sRGB: the numbers a legend writes into CSS. A
+// viewport takes vertex colours as linear light and encodes the picture
+// back to sRGB, so a colour handed over as it is would come out lighter
+// than its swatch in the legend (sRGB 128 drawn as 188). The paint
+// kernels therefore hand over ``linearColormap(map)``: what is drawn is
+// then the legend's colour, on every renderer.
+
+const LINEAR_STEPS = 4095;
+const SRGB_TO_LINEAR = (() => {
+    const table = new Float32Array(LINEAR_STEPS + 1);
+    for (let i = 0; i <= LINEAR_STEPS; i++) {
+        const c = i / LINEAR_STEPS;
+        table[i] = c < 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+    }
+    return table;
+})();
+
+/** One sRGB channel (0..1) as linear light, from a table: no ``pow`` per vertex. */
+export function srgbToLinear(c: number): number {
+    return SRGB_TO_LINEAR[c <= 0 ? 0 : c >= 1 ? LINEAR_STEPS : (c * LINEAR_STEPS + 0.5) | 0];
+}
+
+const linearMaps = new WeakMap<Colormap, Colormap>();
+
+/** `map` writing linear RGB instead of sRGB: what a paint kernel hands a viewport. The same
+ *  function for the same map. */
+export function linearColormap(map: Colormap): Colormap {
+    let linear = linearMaps.get(map);
+    if (!linear) {
+        linear = (t, out, offset = 0) => {
+            map(t, out, offset);
+            out[offset] = srgbToLinear(out[offset]);
+            out[offset + 1] = srgbToLinear(out[offset + 1]);
+            out[offset + 2] = srgbToLinear(out[offset + 2]);
+        };
+        linearMaps.set(map, linear);
+    }
+    return linear;
+}

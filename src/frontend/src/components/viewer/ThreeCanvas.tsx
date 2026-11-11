@@ -9,6 +9,8 @@ import {setupCameraControlsHandlers} from "./sceneHelpers/setupCameraControlsHan
 import {setupCamera} from "./sceneHelpers/setupCamera";
 import {setupControls} from "./sceneHelpers/setupControls";
 import {setupLights} from "./sceneHelpers/setupLights";
+import {useAppearanceStore} from "@/state/appearanceStore";
+import {bindThreeAppearance} from "@/utils/scene/threeAppearance";
 import {claimSceneObjects} from "@/utils/scene/ownedSceneObjects";
 import {addDynamicGridHelper} from "./sceneHelpers/addDynamicGridHelper";
 import {setupGizmo} from "./sceneHelpers/setupGizmo";
@@ -109,7 +111,7 @@ const ThreeCanvas: React.FC = () => {
         // === Scene ===
         if (!sceneRef.current) {
             const scene = new THREE.Scene();
-            scene.background = new THREE.Color("#393939");
+            scene.background = new THREE.Color(useAppearanceStore.getState().background);
             sceneRef.current = scene;
         }
         const scene = sceneRef.current;
@@ -174,8 +176,10 @@ const ThreeCanvas: React.FC = () => {
         );
 
         // === Lights ===
-        const {updateCameraLight} = setupLights(owned, camera);
+        // The lights, the background and the default colour follow the appearance settings.
+        const {updateCameraLight, release: releaseLights} = setupLights(owned, camera);
         updatelightRef.current = updateCameraLight;
+        const releaseAppearance = bindThreeAppearance(scene);
 
         // === Helpers ===
         const grid_helper = addDynamicGridHelper(owned);
@@ -355,6 +359,8 @@ const ThreeCanvas: React.FC = () => {
                 containerRef.current.removeChild(gizmo);
             }
             grid_helper.dispose();
+            releaseLights();
+            releaseAppearance();
             owned.dispose(); // lights, the grid: everything this mount added
             if (updatelightRef.current === updateCameraLight) updatelightRef.current = null;
             removeKeyHandlers?.(); // cleanup key listeners

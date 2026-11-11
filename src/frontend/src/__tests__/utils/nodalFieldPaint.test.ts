@@ -8,7 +8,7 @@ import * as THREE from "three";
 
 import type {FeaManifestField} from "@/services/viewerApi";
 import {applyFieldToMesh} from "@/utils/scene/fea/applyField";
-import {getColormap} from "@/utils/scene/fea/colormaps";
+import {getColormap, linearColormap} from "@/utils/scene/fea/colormaps";
 import {fieldScalarRange, paintNodalField} from "@/utils/scene/fea/nodalFieldPaint";
 
 function field(over: Partial<FeaManifestField> = {}): FeaManifestField {
@@ -31,9 +31,10 @@ function field(over: Partial<FeaManifestField> = {}): FeaManifestField {
 /** Three nodes displaced by (0,0,0), (3,4,0) and (-3,0,0). */
 const U = new Float32Array([0, 0, 0, 3, 4, 0, -3, 0, 0]);
 
+// What a kernel hands a viewport is linear light: the colour map's sRGB decoded (colormaps.ts).
 function colorAt(name: string, t: number): number[] {
     const out = new Float32Array(3);
-    getColormap(name)(t, out, 0);
+    linearColormap(getColormap(name))(t, out, 0);
     return [...out];
 }
 

@@ -13,6 +13,8 @@ import {createNativeImageLayer} from "./nativeImages";
 import {KeySet, nativeObjectsInBox, nativeObjectsInScreenRect, nativeSelectionBounds} from "./nativeBoxSelection";
 import {objectKey, splitObjectKey, type NativeScene} from "./nativeScene";
 import {withNativeHistory} from "./nativeViewportHistory";
+import {hexLinear} from "@/state/appearanceStore";
+import {parseHexColor} from "@/viewport/api/objectColors";
 
 /** One key press orbits by this much, and pans by this fraction of the view: as on the three.js viewport. */
 const ORBIT_STEP_RAD = (15 * Math.PI) / 180;
@@ -49,6 +51,14 @@ export function createNativeViewportApi(scene: NativeScene): ViewportApi {
         hide: (refs) => scene.setHiddenMany(own(refs), true),
         show: (refs) => scene.setHiddenMany(own(refs), false),
         isolate: (refs) => scene.isolate(own(refs)),
+        // A colour per object, drawn as the colour of its segments in the renderer (NativeScene).
+        setObjectColors: (refs, color) => {
+            if (color !== null && parseHexColor(color) === null) return 0;
+            return scene.setObjectColors(refs, color === null ? null : hexLinear(color));
+        },
+        objectColorCount: () => scene.objectColorCount,
+        captureObjectColors: () => scene.captureObjectColors(),
+        restoreObjectColors: (state) => scene.restoreObjectColors(state),
         results: {createResultMesh: (data, opts) => scene.createResultLayer(data, opts)},
         objectVisibility: () => (model, id) => {
             const key = objectKey(model, id);

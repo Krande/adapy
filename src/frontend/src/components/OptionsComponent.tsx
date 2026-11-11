@@ -7,6 +7,7 @@ import {CORE_PANEL_IDS, hide} from "@/layout/panelActions";
 import PointSizeOptions from "./options/PointSizeOptions";
 import ComputeOptions from "./options/ComputeOptions";
 import DisplayOptions from "./options/DisplayOptions";
+import AppearanceOptions from "./options/AppearanceOptions";
 import LayoutOptions from "./options/LayoutOptions";
 import ExperimentalOptions from "./options/ExperimentalOptions";
 import PerformanceOptions from "./options/PerformanceOptions";
@@ -43,6 +44,7 @@ export type OptionsSectionId =
     | "build"
     | "account"
     | "scene"
+    | "appearance"
     | "session"
     | "theme"
     | "performance"
@@ -63,6 +65,7 @@ const DEFAULT_SECTIONS: readonly OptionsSectionId[] = [
     "build",
     "account",
     "scene",
+    "appearance",
     "session",
     "theme",
     "performance",
@@ -112,6 +115,12 @@ export function OptionsBody({sections: picked, hiddenSections}: OptionsBodyProps
                     <PointSizeOptions/>
                     <DisplayOptions/>
                 </div>
+            </Section>
+        ),
+        // Lights, colours and the background, the same on every renderer.
+        appearance: (
+            <Section title="Appearance">
+                <AppearanceOptions/>
             </Section>
         ),
         session: rest ? (

@@ -99,6 +99,8 @@ export const CORE_COMMAND_IDS = {
   colorByNext: "core:color-by-next",
   colorByModel: "core:color-by-model",
   colorByReset: "core:color-by-reset",
+  /** A colour for the selected objects (or every object, with none selected), asked for in a dialog. "Reset colours" (`colorByReset`) takes every such colour back. */
+  setObjectColour: "core:set-object-colour",
   /** The procedural builder: its own undo and redo, compile (server, forced, in the browser), commit, close the model. */
   builderUndo: "core:builder-undo",
   builderRedo: "core:builder-redo",

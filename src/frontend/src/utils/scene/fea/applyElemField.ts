@@ -37,6 +37,7 @@
 // them where three.js draws from.
 
 import * as THREE from "three";
+import {ensureResultLook} from "./threeResultLook";
 
 import type {FeaManifestField} from "@/services/viewerApi";
 import type {ContourSettings} from "./contourScale";
@@ -264,6 +265,7 @@ export function applyElemFieldToMesh(args: ApplyElemFieldArgs): void {
         mesh.morphTargetDictionary = {displacement: 0};
     }
 
+    ensureResultLook(mesh);
     const enableShaderFlags = (mat: THREE.Material) => {
         let dirty = false;
         if ("vertexColors" in mat && (mat as unknown as {vertexColors: unknown}).vertexColors !== true) {

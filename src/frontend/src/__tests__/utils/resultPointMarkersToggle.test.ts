@@ -134,6 +134,7 @@ test("the WebGPU mirror drops hidden markers and brings them back when shown", (
     setClipPlanes: () => {},
     setCamera: () => {},
     setBackground: () => {},
+    setLighting: () => {},
   } as unknown as WebRendererApi;
   const points = () => [...live.values()].filter((t) => t === Topology.Points).length;
 

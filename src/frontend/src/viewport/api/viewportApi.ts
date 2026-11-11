@@ -13,6 +13,7 @@ import type {OverlayLayer} from "./overlayLayer";
 import type {ImageLayer} from "./imageLayer";
 import type {ViewportBoxSelection} from "./boxSelection";
 import type {ViewportUndoState} from "./viewportState";
+import type {ViewportObjectColors} from "./objectColors";
 
 export type ViewportKind = "three" | "native";
 
@@ -98,6 +99,11 @@ export interface ViewportApi {
     captureState: ViewportUndoState["captureState"];
     stateChange: ViewportUndoState["stateChange"];
     restoreState: ViewportUndoState["restoreState"];
+    // Colours the user gives objects in place of the model's own (./objectColors.ts).
+    setObjectColors: ViewportObjectColors["setObjectColors"];
+    objectColorCount: ViewportObjectColors["objectColorCount"];
+    captureObjectColors: ViewportObjectColors["captureObjectColors"];
+    restoreObjectColors: ViewportObjectColors["restoreObjectColors"];
     /** Where the origin of the model loaded from `sourceName` is in the world: the offset its
      *  loader moved it by (state/sceneFrameStore has the scene's one offset). Null when no such model
      *  is on screen. */

@@ -823,8 +823,23 @@ export function coreCommandSpecs(): CommandSpec[] {
       id: ID.colorByReset,
       label: "Reset colours",
       group: "View",
-      disabledReason: () => (useColorByStore.getState().activeId ? null : "Nothing is coloured by property"),
-      run: () => void colorBy().then((m) => m.resetColorBy()),
+      keywords: ["recolour", "recolor", "color", "own", "model"],
+      // Both kinds of colouring go: by property, and the colours given to objects.
+      disabledReason: () =>
+        useColorByStore.getState().activeId || (activeViewport()?.objectColorCount() ?? 0) > 0 ? null : "Nothing is recoloured or coloured by property",
+      run: () => {
+        if ((activeViewport()?.objectColorCount() ?? 0) > 0) void import("@/utils/scene/objectColorActions").then((m) => m.resetObjectColours());
+        if (useColorByStore.getState().activeId) void colorBy().then((m) => m.resetColorBy());
+      },
+    },
+    {
+      id: ID.setObjectColour,
+      label: "Set colour of selection…",
+      group: "Edit",
+      keywords: ["recolour", "recolor", "color", "paint", "object", "all"],
+      // With nothing selected the colour goes to every object; the dialog says which it is.
+      disabledReason: noViewport,
+      run: () => openCoreDialog({kind: "object-colour"}),
     },
     // The procedural builder (the Build mode's toolbar)
     {
