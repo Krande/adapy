@@ -2,6 +2,15 @@
 
 
 
+## v0.146.1 (2026-11-11)
+
+### Fix
+
+* fix: clickable line-drawn beams and edge fade on the three.js-free viewport, and links for any loaded model (#532)
+
+Co-authored-by: Claude Fable 5.2 &lt;noreply@anthropic.com&gt; ([`5a96c12`](https://github.com/Krande/adapy/commit/5a96c126a7f2c4484238fb0e1fea979028f61c8e))
+
+
 ## v0.146.0 (2026-11-11)
 
 ### Feature
