@@ -39,6 +39,9 @@ WORKER_SIDE = {
 }
 WORKER_SIDE_FILES = {
     "local_jobs.py",
+    # `ada dev connections`: built only when ADA_DEV_CONNECTIONS names a library, i.e. on a local
+    # viewer in the full environment; a deployment never sets it.
+    "dev_connections.py",
     "subprocess_convert.py",
     "selection_export.py",
     "search_export.py",

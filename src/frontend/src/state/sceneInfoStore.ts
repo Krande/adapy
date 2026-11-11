@@ -50,7 +50,7 @@ export interface UtilityResult {
   summary?: Record<string, unknown>;
 }
 
-export type SceneInfoMode = 'info' | 'source' | 'utilities' | 'section' | 'fem' | 'mesh' | 'joints' | 'clashes' | 'overlays';
+export type SceneInfoMode = 'info' | 'source' | 'utilities' | 'section' | 'fem' | 'mesh' | 'joints' | 'clashes' | 'overlays' | 'connection' | 'jointOverlays';
 
 interface SceneInfoState {
   /** @deprecated The Scene panel's flag. Ask `isPanelOpen("core:scene")` (`@/viewer-core`); open and close it with `reveal` / `hide`. */

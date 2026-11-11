@@ -62,6 +62,7 @@ ada --help
 | `ada audit` | Query, fetch and locally re-run viewer audit conversions (`runs`, `run`, `log`, `perf`, `profile`, `fetch`, `logfile`, `repro`, `wasm-sweep`, `parity`). |
 | `ada serve` | Run the REST API or the conversion worker (`api`, `worker`). |
 | `ada desktop` | Run the local viewer (local storage, no login) and open it in a native window, optionally on a file. Needs the `ada-desktop` window shell from the separate `ada-py-desktop` conda package (Windows only for now). Local. |
+| `ada dev` | `ada dev connections --dir DIR`: develop a connection library live. Opens the studio's connection builder on the specs in DIR's `ada_connections.toml`, with editable member sections and plate thicknesses, and rebuilds the joint on every saved change. Local. |
 | `ada viewers` | List the installed viewer bundles: adapy's viewer built with plugins, which a package installs and `--viewer` / `ADA_VIEWER_BUNDLE` picks. |
 
 The `build`, `files` and `audit` groups talk to a hosted viewer and read their base URL and token

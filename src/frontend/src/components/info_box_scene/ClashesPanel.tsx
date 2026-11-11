@@ -13,6 +13,7 @@ import React, { useEffect, useMemo, useState } from "react";
 
 import { browserClashCheckSupports } from "@/services/clash/browserClashCheck";
 import { CONTACT_ORIGIN } from "@/services/clash/contactRuns";
+import { isConnectionPreview } from "@/services/devConnections/connectionBuilderSession";
 import { requestRender } from "@/state/perfStore";
 import { useModelState } from "@/state/modelState";
 import { useProviderName } from "@/state/providerNamesStore";
@@ -830,6 +831,7 @@ const ClashesPanel: React.FC = () => {
   const selectionSource = checkedSourceName(checkedSource, loadedSourceName);
   const groups = useMemo(() => (result ? filteredGroups(result, filters) : []), [result, filters]);
   const sentence = useMemo(() => (result ? noMembersSentence(result) : null), [result]);
+  const preview = isConnectionPreview(sourceKey);
 
   // A node or a group is read on the server, so it can be checked with nothing loaded.
   if (!loadedSourceName && !assetTarget) {
@@ -838,7 +840,13 @@ const ClashesPanel: React.FC = () => {
 
   return (
     <div className="text-sm px-1 py-1 flex flex-col gap-1">
-      <RunForm scope={scope} sourceKey={sourceKey} loadedSourceName={loadedSourceName} />
+      {/* The joint `ada dev connections` previews: its clash is measured with every build, and
+          detailing it into a model is not what the preview is for. */}
+      {preview ? (
+        <Banner tone="info">The joint previewed in Scene &gt; Connection: its measured contact, renewed with every build.</Banner>
+      ) : (
+        <RunForm scope={scope} sourceKey={sourceKey} loadedSourceName={loadedSourceName} />
+      )}
       {error && <Banner tone="error">{error}</Banner>}
       {result && <GeometrySourceLine result={result} />}
       {result?.warnings.map((w) => (
@@ -884,14 +892,16 @@ const ClashesPanel: React.FC = () => {
           <IsolationControls />
           <FilterBar result={result} filters={filters} onChange={setFilters} />
           <SpecProviderSelector />
-          <GenerateDetailButton
-            result={result}
-            groups={groups}
-            scope={scope}
-            busy={detailBusy}
-            progress={detailProgress}
-            onRun={(ids) => void runDetailAll(scope, ids)}
-          />
+          {!preview && (
+            <GenerateDetailButton
+              result={result}
+              groups={groups}
+              scope={scope}
+              busy={detailBusy}
+              progress={detailProgress}
+              onRun={(ids) => void runDetailAll(scope, ids)}
+            />
+          )}
           <div className="flex flex-col">
             {groups.length === 0 ? (
               <div className="text-[11px] text-gray-500 px-1 py-1">No group matches the current filters.</div>

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum, auto
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any, Callable, Iterable
 
 if TYPE_CHECKING:
     from ada import Beam, Plate
@@ -178,6 +178,39 @@ def _clear_registry() -> None:
     _REGISTRY.clear()
 
 
+def unregister_modules(prefixes: Iterable[str]) -> list[str]:
+    """Drop every spec whose builder was defined in a module under one of ``prefixes``.
+
+    A hot reload re-imports a connection library, and ``register_connection`` refuses a name it
+    already holds; removing the library's own entries first lets the re-import register them
+    again while specs other packages contributed stay registered. Returns the removed names.
+    """
+    wanted = tuple(prefixes)
+
+    def _owned(module: str) -> bool:
+        return any(module == p or module.startswith(p + ".") for p in wanted)
+
+    removed = [name for name, reg in _REGISTRY.items() if _owned(getattr(reg.fn, "__module__", "") or "")]
+    for name in removed:
+        del _REGISTRY[name]
+    return removed
+
+
+def role_input_fields(role: MemberCriteria) -> list[str]:
+    """The per-role inputs ``build_sample`` reads for ``role``: a section for a beam (and its outer
+    and inner corner radii, where the role takes box sections), the thickness and extent for a
+    plate, and an angle wherever the role carries an angle criterion."""
+    if role.kind is MemberKind.PLATE:
+        fields = ["thickness", "width", "height"]
+    else:
+        fields = ["section"]
+        if role.section_in is None or "BOX" in {s.upper() for s in role.section_in}:
+            fields += ["corner_radius", "corner_radius_inner"]
+    if role.angle_to_role is not None or role.angle_range is not None:
+        fields.append("angle_deg")
+    return fields
+
+
 def spec_to_form_schema(spec: ConnectionSpec) -> dict[str, Any]:
     return {
         "name": spec.name,
@@ -196,6 +229,7 @@ def spec_to_form_schema(spec: ConnectionSpec) -> dict[str, Any]:
                     else None
                 ),
                 "has_predicate": role.predicate is not None,
+                "fields": role_input_fields(role),
             }
             for role in spec.roles
         ],

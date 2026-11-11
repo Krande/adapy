@@ -2,6 +2,13 @@
 
 
 
+## v0.148.0 (2026-11-11)
+
+### Feature
+
+* feat(connections): ada dev connections -- develop a connection library live in the studio (#525) ([`61fdec4`](https://github.com/Krande/adapy/commit/61fdec4eaf551074bfce221996a4be0d62ee124e))
+
+
 ## v0.147.0 (2026-11-11)
 
 ### Feature

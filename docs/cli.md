@@ -624,6 +624,57 @@ ada desktop servers remove work
 See `src/desktop/README.md` for the security model (which origins may be shown
 and which one is granted native events) and the sign-in details.
 
+## `ada dev`
+
+Develop against the studio, with what you edit reloaded live.
+
+`ada dev connections`
+:   Develop a connection library: the joint details registered with
+    `@register_connection`. Starts the local viewer (as `ada desktop` does)
+    with the library in `--dir` loaded and opens the studio's connection
+    builder. Pick a spec from the library, then edit each member: a beam's
+    section, a plate's thickness and extent, the angle between them. The joint
+    is rebuilt on every change, and again on every saved edit to the library's
+    files. A builder that raises, or a module that does not import, shows its
+    traceback in the builder until the next save fixes it.
+
+`ada dev joints`
+:   The same as `ada dev connections`.
+
+The library declares itself in `ada_connections.toml` in `--dir` (default
+`.`):
+
+```toml
+[library]
+name = "my-connections"               # shown in the studio (default: the folder name)
+package = "my_project.connections"    # imported, with every submodule, to register the specs
+# loader = "loader.py:load_all"       # ...or a function that does the importing itself
+watch = ["."]                         # what a saved change reloads (default: this folder)
+python_path = ["../.."]               # prepended to sys.path, for a library that is not installed
+# handler_kwargs = "dev.py:preview_kwargs"  # a function returning extra keyword arguments for the builders
+```
+
+Paths are relative to the toml. The library runs in a process of its own
+next to the viewer. A reload drops the library's own modules and specs and
+imports them again, so the heavy imports stay loaded and a reload takes well
+under a second; editing `ada_connections.toml` starts a fresh process. The
+preview members come from the spec's roles: a landing beam runs along X
+through the joint, an incoming beam starts there at the role's angle, and a
+plate stands on the landing member's top face. A spec's `defaults` fill the
+form; fields the spec leaves out take a representative value.
+
+Options: `--port N` (default: your `ada desktop` port + 1000, so the two run
+side by side), `--data DIR`, `--static DIR` / `--zip FILE` / `--viewer NAME`
+(the viewer build to serve, as for `ada desktop`), `--browser` (open the
+default browser rather than the `ada-desktop` window, which is also the
+fallback when the shell is not installed), `--no-window`, `--binary PATH`,
+`--title`, and `--dev` (run the viewer from the source checkout with
+hot reload, as `ada desktop --dev`).
+
+```
+ada dev connections --dir path/to/my_project/connections
+```
+
 ## `ada viewers`
 
 List the installed viewer bundles. adapy's own viewer carries no plugins; they
