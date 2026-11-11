@@ -56,6 +56,16 @@ export function linearColorInto(c: SceneColor, out: Float32Array | number[], at 
     out[at + 2] = rgb[2];
 }
 
+/** An sRGB hex number (0xrrggbb) as linear RGB. */
+export function linearHex(hex: number): [number, number, number] {
+    return [linearChannel(((hex >> 16) & 255) / 255), linearChannel(((hex >> 8) & 255) / 255), linearChannel((hex & 255) / 255)];
+}
+
+/** "#rrggbb" as linear RGB; null when the text is not that. */
+export function linearHexText(text: string): [number, number, number] | null {
+    return /^#[0-9a-f]{6}$/i.test(text) ? linearHex(parseInt(text.slice(1), 16)) : null;
+}
+
 /** `c` as linear RGB. */
 export function linearColor(c: SceneColor): [number, number, number] {
     const out: [number, number, number] = [0, 0, 0];

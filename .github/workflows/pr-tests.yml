@@ -74,7 +74,17 @@ jobs:
         # The Windows and macOS runners have an adapter already (D3D12 / Metal).
         - name: Install offscreen render deps (wgpu software Vulkan)
           if: runner.os == 'Linux'
-          run: sudo apt-get update && sudo apt-get install -y --no-install-recommends mesa-vulkan-drivers libvulkan1
+          run: |
+            # The runners' own Ubuntu mirror has failed to resolve for hours at a time, taking the job down
+            # before any test ran. After a failed attempt apt is pointed at another mirror of the same
+            # archive (packages are verified against Ubuntu's keys whichever mirror serves them).
+            for i in 1 2 3; do
+              sudo apt-get update && sudo apt-get install -y --no-install-recommends mesa-vulkan-drivers libvulkan1 && break
+              echo "apt failed (attempt $i): switching to another mirror"
+              printf 'https://mirrors.kernel.org/ubuntu/\tpriority:1\n' | sudo tee /etc/apt/apt-mirrors.txt
+              sleep 10
+            done
+            dpkg -s mesa-vulkan-drivers > /dev/null
 
         - name: Runs Tests
           run: pixi run -e tests test-quick

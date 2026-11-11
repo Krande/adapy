@@ -33,6 +33,9 @@ export interface LoadGlbOptions {
     featureEdgeAngleDeg?: number;
     /** Return each added geometry's world-space positions. */
     keepPositions?: boolean;
+    /** Added to everything loaded, in double precision before positions become 32-bit: the scene's
+     *  placement (viewport/api/sceneFrame). */
+    offset?: [number, number, number];
     /** Read the file's node animations: a node that moves stays an instance of its own, placed by
      *  `setAnimationTime`. A file without animations loads as without the option. */
     animations?: boolean;
@@ -195,6 +198,9 @@ export interface WebRendererApi {
     /** The camera's view and projection (column-major, clip z 0..1) for the canvas' aspect. */
     cameraMatrices(): {view: Float32Array; proj: Float32Array};
     cameraSetOrthographic(on: boolean): void;
+    /** Exact near and far planes; (0, 0) goes back to the renderer's own. Absent on a module that
+     *  predates it. */
+    cameraSetClipRange?(near: number, far: number): void;
     cameraSetUpAxis(axis: "z" | "y"): void;
     /** The share of a drag's speed kept per 1/60 s after it is released; 0 stops dead. */
     cameraSetDamping(inertia: number): void;
@@ -262,6 +268,9 @@ export interface AdacppModule {
     HEAPF32: Float32Array;
     _malloc(bytes: number): number;
     _free(ptr: number): void;
+    /** The box (min xyz, max xyz, double precision) of a GLB in the heap, without loading it; inverted
+     *  when it draws nothing. Absent on a module that predates it. */
+    glbBounds?(bytes: number, length: number, yUp: boolean): number[];
 }
 
 // The slice of the WebGPU DOM API this module touches. TypeScript's lib.dom does not ship WebGPU
@@ -273,6 +282,7 @@ export interface GpuAdapterInfoLike {
 }
 export interface GpuDeviceLike {
     readonly lost: Promise<{message: string}>;
+    readonly queue?: {onSubmittedWorkDone(): Promise<void>};
     onuncapturederror: ((ev: {error: {message: string}}) => void) | null;
     destroy(): void;
 }

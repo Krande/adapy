@@ -10,6 +10,7 @@
 // before the camera sees it (`dragInterceptor`).
 import {useBBoxSelectionStore, type SelectionBox} from "@/state/bboxSelectionStore";
 import {setSceneOffset, useSceneFrameStore} from "@/state/sceneFrameStore";
+import {linearHexText} from "@/utils/scene/sceneColor";
 import {bindActiveBoxSelection, selectInScreenRect} from "@/utils/bboxSelection/applyBoxSelection";
 import {bindBBoxSelectionStorage} from "@/utils/bboxSelection/boxPersistence";
 import {axisVector, boxEdges, boxFaces, faceAxis, HANDLE_COLORS, lineParamAtScreen, minBoxSize, moveArrows, screenPointOverBox, toScreen} from "@/utils/bboxSelection/boxHandles";
@@ -30,10 +31,7 @@ const CLICK_SLOP_PX = 5;
 
 /** "#rrggbb" (sRGB) as linear rgb, which the renderer takes. */
 function linearRgb(hex: string): [number, number, number] {
-    const m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex);
-    if (!m) return [0.03, 0.4, 1];
-    const linear = (c: number) => (c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
-    return [linear(parseInt(m[1], 16) / 255), linear(parseInt(m[2], 16) / 255), linear(parseInt(m[3], 16) / 255)];
+    return linearHexText(hex) ?? [0.03, 0.4, 1];
 }
 
 function distanceToSegment(p: {x: number; y: number}, a: {x: number; y: number}, b: {x: number; y: number}): number {
@@ -295,12 +293,13 @@ export function bindBoxSelectionGizmo(scene: NativeScene): () => void {
     scene.onLoaded.add(rebuild);
     scene.onFrame.add(placeHandles);
 
-    // The boxes are kept in this browser while the viewport is up, as on the three.js viewport. This
-    // viewport draws a model where its file puts it, so once one is on screen the world's offset from
-    // the models' own coordinates is zero: boxes stored under another offset move over.
+    // The boxes are kept in this browser while the viewport is up, as on the three.js viewport. Once a
+    // model is on screen the world's offset from the models' own coordinates is the scene's placement
+    // (viewport/api/sceneFrame): boxes stored under another offset move over.
     const placed = () => {
         const offset = useSceneFrameStore.getState().offset;
-        if (scene.modelBounds && (!offset || offset.some((v) => v !== 0))) setSceneOffset([0, 0, 0]);
+        const own = scene.sceneOffset;
+        if (scene.modelBounds && (!offset || offset.some((v, k) => v !== own[k]))) setSceneOffset(own);
     };
     const unbindStorage = bindBBoxSelectionStorage();
     placed();

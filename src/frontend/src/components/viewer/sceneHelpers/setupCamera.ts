@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import {DEFAULT_VIEW} from "@/viewport/api/cameraFrame";
 
 /**
  * Shared invariant for every camera that renders an adapy model.
@@ -29,12 +30,12 @@ export function setupCamera(
   zIsUp: boolean,
 ): THREE.PerspectiveCamera {
   const camera = new THREE.PerspectiveCamera(
-    60,
+    DEFAULT_VIEW.fovDeg,
     container.clientWidth / container.clientHeight,
-    0.1,
-    10000,
+    DEFAULT_VIEW.near,
+    DEFAULT_VIEW.far,
   );
-  camera.position.set(-5, 5, 5);
+  camera.position.set(...DEFAULT_VIEW.eye);
   applyStandardLayers(camera);
 
   const up = zIsUp ? new THREE.Vector3(0, 0, 1) : new THREE.Vector3(0, 1, 0);

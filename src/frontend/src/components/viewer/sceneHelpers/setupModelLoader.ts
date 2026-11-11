@@ -19,6 +19,7 @@ import {updateAllPointsSize} from "@/utils/scene/updatePointSizes";
 import type {LoadMetricsRecorder} from "@/utils/scene/loadMetrics";
 import {DEFAULT_SOURCE_UP_AXIS, uprightSceneBox, type SourceUpAxis} from "@/utils/scene/sourceUpAxis";
 import {applyAdaptiveClipping} from "@/components/viewer/sceneHelpers/adaptiveClipping";
+import {placeModel} from "@/viewport/api/sceneFrame";
 import {runResultSidecarLoaders, makeManifestFetcher} from "@/plugins/sidecarLoaders";
 import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
 import {capabilities} from "@/services/capabilities";
@@ -222,26 +223,16 @@ export async function setupModelLoaderAsync(
     // bakes edge overlays from each mesh's LOCAL matrix, and the tree cache is
     // built from userData.
     const localBox = uprightSceneBox(gltf_scene, sourceUpAxis);
-    if (modelStore.translation && translate) {
-        console.log("Model already translated");
-        gltf_scene.position.add(modelStore.translation);
-    } else {
-        if (!optionsStore.lockTranslation) {
-            const center = localBox.getCenter(new THREE.Vector3());
-            const translation = center.clone().multiplyScalar(-1);
-            if (modelStore.zIsUp) {
-                const minZ = localBox.min.z;
-                const bheight = localBox.max.z - minZ;
-                translation.z = -minZ + bheight * 0.05;
-            } else {
-                const minY = localBox.min.y;
-                const bheight = localBox.max.y - minY;
-                translation.y = -minY + bheight * 0.05;
-            }
-
-            gltf_scene.position.add(translation);
-            modelStore.setTranslation(translation);
-        }
+    // The placement rule every viewport shares (viewport/api/sceneFrame).
+    const current = modelStore.translation;
+    const placed = placeModel(
+        [localBox.min.x, localBox.min.y, localBox.min.z, localBox.max.x, localBox.max.y, localBox.max.z],
+        {zIsUp: modelStore.zIsUp, locked: optionsStore.lockTranslation, current: current ? current.toArray() : null, reuseCurrent: translate},
+    );
+    if (placed.translation) {
+        const translation = new THREE.Vector3(...placed.translation);
+        gltf_scene.position.add(translation);
+        if (placed.isNew) modelStore.setTranslation(translation);
     }
     // Store the WORLD box (local box shifted by the applied position) — the model
     // is recentred to the origin above, so a pre-translation box would place the

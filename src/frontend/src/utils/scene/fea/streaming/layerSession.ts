@@ -39,6 +39,8 @@ import {usePerfStore} from "@/state/perfStore";
 import {useVisibilityStore} from "@/state/visibilityStore";
 import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
 import {readGlbMesh, type GlbMesh} from "@/utils/glb/glbMesh";
+// An sRGB hex colour (0xrrggbb) as linear RGB in 0..1, which is what a layer takes.
+import {linearHex as linear} from "@/utils/scene/sceneColor";
 import {positionsDiagonal, type ResultMeshLayer, type ResultMeshObjects, type ViewportResults} from "@/viewport/api/resultLayer";
 import {addObjectAt} from "@/viewport/api/objectAt";
 import {activeViewport, followActiveViewport, notifyModelLoaded, type ObjectRef, type ViewportApi} from "@/viewport/api/viewportApi";
@@ -195,15 +197,6 @@ let lastAppliedSlot: number | null = null;
 let preload: {key: string; abort: AbortController} | null = null;
 // The frames this play has painted, kept to be shown again on its next pass (./layerFrames.ts).
 let frames: LayerFrameRecorder | null = null;
-
-/** An sRGB hex colour (0xrrggbb) as linear RGB in 0..1, which is what a layer takes. */
-function linear(hex: number): [number, number, number] {
-    const channel = (c: number) => {
-        const v = c / 255;
-        return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
-    };
-    return [channel((hex >> 16) & 255), channel((hex >> 8) & 255), channel(hex & 255)];
-}
 
 const labelSources = new WeakMap<LayerSession, LabelSource>();
 

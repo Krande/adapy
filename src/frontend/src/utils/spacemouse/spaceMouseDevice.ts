@@ -203,8 +203,15 @@ function resetRoll(): void {
     const rt = getViewerRuntime();
     const camera = rt.camera.current;
     const controls = rt.controls.current;
-    const level = camera ? levelUps.get(camera) : undefined;
-    if (!camera || !controls || !level) return;
+    if (!camera || !controls) {
+        // No three.js camera: the viewport on screen keeps its own pose; put it back level.
+        const viewport = activeViewport();
+        const pose = viewport?.kind !== "three" ? viewport?.cameraPose() : null;
+        if (viewport && pose) viewport.setCameraPose(pose.eye, pose.target, 0);
+        return;
+    }
+    const level = levelUps.get(camera);
+    if (!level) return;
     if (applyRoll(camera, controls, level)) requestRender();
 }
 /** The controls a gesture's start event went to, so its end goes there too. */
