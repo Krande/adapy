@@ -97,6 +97,8 @@ def to_fem(assembly, name, analysis_dir=None, metadata=None, model_data_only=Fal
       retain only *some* of their DOFs comes back widened to all of them, with a warning
       naming the affected nodes, because a node set cannot carry a per-DOF pattern.
     """
+    from ada.fem.utils import report_free_point_masses
+
     from .element_numbers import ElementNumbers, NodeNumbers
     from .element_numbers import deck as numbers_deck
     from .element_numbers import deck_element_ids, nodes_deck
@@ -192,6 +194,7 @@ def to_fem(assembly, name, analysis_dir=None, metadata=None, model_data_only=Fal
     if sestra_inp and step.type == step.TYPES.BUCKLING:
         report_shell_drilling_in_buckling(part.fem)
     report_not_held(fems, materials, written=part.fem)
+    report_free_point_masses(part.fem, STAGE)
 
     # One derivation of the per-node dof count, shared by every record that declares an
     # NDOF (GNODE, BNBCD, BNMASS, BNLOAD) so they cannot disagree. See NodeDofs.

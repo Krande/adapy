@@ -183,3 +183,23 @@ def free_point_masses(fem: FEM) -> list:
         if any(not node_is_held(n) for n in mass_nodes(mass)):
             out.append(mass)
     return out
+
+
+def report_free_point_masses(fem: FEM, stage: str) -> list:
+    """Record each of :func:`free_point_masses` as suspect in the current conversion report under ``stage``, with the
+    position of its free node(s); returns them. For a writer that writes such a mass as declared (the solver then
+    stops on a singular stiffness matrix, or a mechanism, naming a node id only)."""
+    from ada.fem.formats import conversion_report
+
+    masses = free_point_masses(fem)
+    for mass in masses:
+        conversion_report.current().suspect(
+            stage,
+            "Mass",
+            mass.name,
+            "a point mass on a node no element, support or constraint holds (a mass off the structure): its "
+            "translations have no stiffness, so a static solve is singular",
+            positions=[[round(float(c), 6) for c in n.p] for n in mass_nodes(mass) if not node_is_held(n)],
+            mass=mass.mass,
+        )
+    return masses

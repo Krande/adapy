@@ -5,16 +5,18 @@ the positions of mass shapes (a ``MassPoint``): each mass got a node of its own 
 unless a mesh vertex happened to be there. Code_Aster writes a point mass as a ``DIS_T`` with no stiffness, so such
 a node had none at all, and a static solve stopped at ``FACTOR_11`` (a singular matrix) naming only a node id.
 Now the mass positions are embedded like the loads and supports; a mass on no meshed element keeps a node of its own
-and is reported (suspect).
+and is reported (suspect) by the mesher, left out (omitted) by the Code_Aster writer and reported (suspect) by the
+Sesam and CalculiX writers, which write it as declared.
 """
 
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 import ada
 from ada.api.mass import MassPoint
-from ada.fem import FemSet, Mass
+from ada.fem import Bc, FemSet, Mass, StepImplicitStatic
 from ada.fem.formats import conversion_report
 from ada.fem.utils import free_point_masses, node_is_held
 
@@ -91,3 +93,59 @@ def test_a_mass_off_the_structure_keeps_its_own_node_and_is_reported():
     (finding,) = _mass_findings(rep, "suspect", "concept to fem")
     assert finding.details["position"] == [0.9, 1.1, 0.5]
     assert "FACTOR_11" in finding.reason
+
+
+def _off_structure_assembly() -> tuple[ada.Assembly, Mass]:
+    p = _plate_part((0.9, 1.1, 0.5))
+    p.fem = p.to_fem_obj(0.5)
+    edge = [n for n in p.fem.nodes if n.z == 0.0 and (n.x in (0.0, 2.0) or n.y in (0.0, 2.0))]
+    p.fem.add_bc(Bc("fix", p.fem.add_set(FemSet("edge", edge, "nset")), [1, 2, 3, 4, 5, 6]))
+    a = ada.Assembly("A") / p
+    a.fem.add_step(StepImplicitStatic("static")).add_load(ada.fem.LoadGravity("grav"))
+    (mass,) = _point_masses(p.fem)
+    return a, mass
+
+
+def test_code_aster_leaves_out_a_mass_no_element_holds(tmp_path):
+    """Written, its zero-stiffness DIS_T would make the static solve stop at FACTOR_11; left out, the rest solves."""
+    a, mass = _off_structure_assembly()
+    with conversion_report.collect() as rep:
+        a.to_fem("off", "code_aster", scratch_dir=tmp_path, overwrite=True)
+
+    comm = (tmp_path / "off" / "off.comm").read_text()
+    assert "M_T_D_N" not in comm and "DIS_T" not in comm
+    (finding,) = _mass_findings(rep, "omitted", "code_aster writer")
+    assert finding.subject == mass.name
+    assert finding.details["positions"] == [[0.9, 1.1, 0.5]]
+    assert finding.details["mass"] == MASS
+
+
+def test_code_aster_writes_a_mass_on_a_supported_node(tmp_path):
+    """A node a support fixes in all three translations is held: the mass on it is written."""
+    a, mass = _off_structure_assembly()
+    fem = mass.parent
+    fem.add_bc(Bc("hold", fem.add_set(FemSet("m_node", [mass.nodes[0]], "nset")), [1, 2, 3]))
+    with conversion_report.collect() as rep:
+        a.to_fem("held", "code_aster", scratch_dir=tmp_path, overwrite=True)
+
+    comm = (tmp_path / "held" / "held.comm").read_text()
+    assert "M_T_D_N" in comm
+    assert not _mass_findings(rep, "omitted", "code_aster writer")
+
+
+def test_a_support_on_some_translations_does_not_hold_the_node():
+    a, mass = _off_structure_assembly()
+    fem = mass.parent
+    fem.add_bc(Bc("roller", fem.add_set(FemSet("m_node", [mass.nodes[0]], "nset")), [3]))
+    assert not node_is_held(mass.nodes[0])
+
+
+@pytest.mark.parametrize("fem_format, stage", [("sesam", "sesam writer"), ("calculix", "calculix writer")])
+def test_sesam_and_calculix_write_the_mass_and_report_it(tmp_path, fem_format, stage):
+    a, mass = _off_structure_assembly()
+    with conversion_report.collect() as rep:
+        a.to_fem("off", fem_format, scratch_dir=tmp_path, overwrite=True)
+
+    (finding,) = _mass_findings(rep, "suspect", stage)
+    assert finding.subject == mass.name
+    assert finding.details["positions"] == [[0.9, 1.1, 0.5]]

@@ -175,6 +175,27 @@ def _point_mass(mass: Mass) -> Discrete:
     return Discrete(mass, group, "DIS_T", items)
 
 
+def _on_a_free_node(mass: Mass) -> bool:
+    """Whether ``mass`` is on a node nothing else holds (no element, support or constraint), reported as left out if
+    so. Its ``DIS_T`` has no stiffness, so written it leaves the node's translations free and every static solve stops
+    at ``FACTOR_11`` (a singular matrix), naming a node id and nothing else; left out, the model solves without it."""
+    from ada.fem.utils import mass_nodes, node_is_held
+
+    free = [n for n in mass_nodes(mass) if not node_is_held(n)]
+    if not free:
+        return False
+    _report().omitted(
+        STAGE,
+        "Mass",
+        mass.name,
+        "a point mass on a node no element, support or constraint holds (a mass off the structure): its "
+        "translations would have no stiffness and the solve would stop at FACTOR_11 (singular matrix)",
+        positions=[[round(float(c), 6) for c in n.p] for n in free],
+        mass=mass.mass,
+    )
+    return True
+
+
 def _rotary_inertia(mass: Mass) -> Discrete | None:
     nodes = list(mass.members)
     if len(nodes) != 1 or not _has_rotations(nodes[0]):
@@ -289,7 +310,7 @@ def point_masses(part: Part) -> DiscreteList:
         elif mass.type == MassTypes.ROTARYI:
             d = _rotary_inertia(mass)
         elif mass.type == MassTypes.MASS:
-            d = _point_mass(mass)
+            d = None if _on_a_free_node(mass) else _point_mass(mass)
         else:
             _report().omitted(STAGE, "Mass", mass.name, f'a "{mass.type}" mass has no Code_Aster form in this writer')
             d = None
