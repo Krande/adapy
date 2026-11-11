@@ -2,6 +2,21 @@
 
 
 
+## v0.150.0 (2026-11-11)
+
+### Chore
+
+* chore(deps): ada-cpp 0.42 in the environments and the viewer&#39;s wasm base image (#536)
+
+Co-authored-by: Claude Fable 5.2 &lt;noreply@anthropic.com&gt; ([`bdae94e`](https://github.com/Krande/adapy/commit/bdae94ea15d9a4c2d2fe5448992c8e1a3f870857))
+
+### Feature
+
+* feat(viewer): one look on every renderer: FEA colours that match the legend, appearance settings and a colour per object (#537)
+
+Co-authored-by: Claude Fable 5.2 &lt;noreply@anthropic.com&gt; ([`fb70007`](https://github.com/Krande/adapy/commit/fb700070cdb2049f5cd7f2d0ee75ca8f217c6c72))
+
+
 ## v0.149.1 (2026-11-11)
 
 ### Fix
