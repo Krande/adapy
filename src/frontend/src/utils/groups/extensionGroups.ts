@@ -7,6 +7,7 @@
 // store the picker lists. No three.js in this module.
 
 import {useSceneInfoStore, type GroupInfo} from "@/state/sceneInfoStore";
+import {announcedExtension} from "@/viewport/api/modelExtension";
 import {activeViewport, onModelLoaded, type LoadedModelInfo} from "@/viewport/api/viewportApi";
 
 interface ExtensionGroup {
@@ -92,7 +93,7 @@ export function listAnnouncedGroups(info: LoadedModelInfo): void {
     // A model with no extension text is not a GLB (an FEA result): its sets reach the store from
     // its manifest, and are not touched here.
     if (info.adaExtData === undefined) return;
-    const groups = groupsFromExtensionText(info.adaExtData, info.sourceName || undefined);
+    const groups = groupsFromExtension(announcedExtension(info) as GroupsExtension | null, info.sourceName || undefined);
     if (groups.length) announced.set(info.sourceName, groups);
     else announced.delete(info.sourceName);
     if (had || announced.size) useSceneInfoStore.getState().setAvailableGroups(announcedGroups());

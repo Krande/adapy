@@ -11,6 +11,7 @@ import {useTreeViewStore} from "@/state/treeViewStore";
 import {query_ws_server_mesh_info} from "@/utils/mesh_select/handlers/send_mesh_selected_info_callback";
 import {registerLineageFromExtension} from "@/utils/lineage/registerLineageFromExtension";
 import {revealPickInTrees} from "@/utils/tree_view/revealPick";
+import {announcedExtension} from "@/viewport/api/modelExtension";
 import {onModelLoaded, onViewportPick, type LoadedModelInfo, type ViewportPick} from "@/viewport/api/viewportApi";
 
 function listModel(info: LoadedModelInfo): void {
@@ -31,12 +32,7 @@ function listModel(info: LoadedModelInfo): void {
  *  analysis models made from it (the lineage store). */
 function keepExtension(info: LoadedModelInfo): void {
     if (!info.sourceName || info.adaExtData === undefined) return;
-    let extension: unknown = null;
-    try {
-        if (info.adaExtData) extension = JSON.parse(info.adaExtData);
-    } catch (err) {
-        console.warn("[viewport] the model's ADA_EXT_data extension is not JSON", err);
-    }
+    const extension = announcedExtension(info);
     if (!info.added) clearSourceExtensions();
     setSourceExtension(info.sourceName, extension);
     useLineageStore.getState().unregister(info.sourceName);

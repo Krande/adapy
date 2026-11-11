@@ -2,7 +2,6 @@
 screen: the glyphs of an analysis model's concepts, and the link between a design model and the
 analysis model made from it."""
 
-import asyncio
 import json
 import struct
 
@@ -113,7 +112,9 @@ async def test_concept_glyphs_are_drawn_and_clicked_on_whichever_viewport_is_on_
     selects the concept in place of the model's objects, and a click on the model gives it back."""
     # A mass above the deck, clear of the box in the middle of the view.
     concepts = {"masses": [{"name": "pump", "position": [0.6, 1.0, 0.8], "mass": 1200.0}], "bcs": [], "scenarios": []}
-    glb = _with_extension(_glb(_model(), tmp_path, "topside.glb"), design_objects=[{"name": "demo", "fem_concepts": concepts}])
+    glb = _with_extension(
+        _glb(_model(), tmp_path, "topside.glb"), design_objects=[{"name": "demo", "fem_concepts": concepts}]
+    )
     async with async_playwright() as playwright:
         browser, page, _ = await _open_viewer(playwright, ws_server, backend)
         try:
@@ -136,7 +137,9 @@ async def test_concept_glyphs_are_drawn_and_clicked_on_whichever_viewport_is_on_
                 return await _in_model(page, _is_selected_concept) > 40
 
             await _until(page, glyph_selected, f"{backend}: the clicked glyph to be drawn as selected")
-            assert _count(await _pixels(page), _is_selected) < 500, f"{backend}: the click on the glyph selected the model"
+            assert (
+                _count(await _pixels(page), _is_selected) < 500
+            ), f"{backend}: the click on the glyph selected the model"
             assert await page.get_by_text("pump").count() >= 1, f"{backend}: the selected mass is not described"
 
             # a click on the model: the object is selected, and the concept no longer is
@@ -163,7 +166,12 @@ async def test_design_and_analysis_models_are_linked_on_whichever_viewport_is_on
         _glb(ada.Assembly("b") / annex, tmp_path, "analysis.glb"),
         assembly_guid="one-design",
         design_objects=[],
-        simulation_objects=[{"name": "annex", "groups": [{"name": "lineage::box", "parent_object_guid": "guid-of-box", "members": ["tower"]}]}],
+        simulation_objects=[
+            {
+                "name": "annex",
+                "groups": [{"name": "lineage::box", "parent_object_guid": "guid-of-box", "members": ["tower"]}],
+            }
+        ],
     )
     async with async_playwright() as playwright:
         browser, page, _ = await _open_viewer(playwright, ws_server, backend)
@@ -205,11 +213,13 @@ async def test_design_and_analysis_models_are_linked_on_whichever_viewport_is_on
             link = page.get_by_role("button", name="Select FEA elements")
             await _until(page, lambda: link.count(), f"{backend}: the link from the design object to its elements")
             box_pixels = _count(await _pixels(page), _is_selected)
-            assert box_pixels > 300 and box_pixels != tower_pixels, (
-                f"{backend}: the design object is not the one drawn selected ({box_pixels} pixels, {tower_pixels} before)"
-            )
+            assert (
+                box_pixels > 300 and box_pixels != tower_pixels
+            ), f"{backend}: the design object is not the one drawn selected ({box_pixels} pixels, {tower_pixels} before)"
             await link.first.click()
             await _until(page, lambda: back.count(), f"{backend}: the analysis object to be the selection again")
-            assert _count(await _pixels(page), _is_selected) == tower_pixels, f"{backend}: the analysis object is not drawn selected"
+            assert (
+                _count(await _pixels(page), _is_selected) == tower_pixels
+            ), f"{backend}: the analysis object is not drawn selected"
         finally:
             await browser.close()
