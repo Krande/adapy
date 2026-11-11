@@ -118,8 +118,9 @@ function boundsOf(positions: Float32Array, matrix?: ArrayLike<number> | null): B
 }
 
 export class NativeScene {
-    /** Per instance, the object index of each of its segments (-1: none). */
-    private segments = new Map<number, {model: LoadedModel; objects: Int32Array}>();
+    /** Per instance, the object index of each of its segments (-1: none); `outline`: the feature edges
+     *  of the objects, which are hidden with them and never take the selection's colour. */
+    private segments = new Map<number, {model: LoadedModel; objects: Int32Array; outline?: boolean}>();
     /** The models on screen, by their key. */
     private readonly models = new Map<string, LoadedModel>();
     /** Every object by its key: the model that holds it and its index in that model's table. */
@@ -272,7 +273,7 @@ export class NativeScene {
         this.models.set(modelKey, model);
         this.sceneExtras = loaded.extras;
         this.extData = loaded.adaExtData ?? "";
-        for (const g of loaded.geometries) this.segments.set(g.instance, {model, objects: g.segmentObjects});
+        for (const g of loaded.geometries) this.segments.set(g.instance, {model, objects: g.segmentObjects, outline: g.featureEdges});
         model.keys.forEach((key, index) => this.where.set(key, {model, index}));
         this.rebuild();
         // A model that joins others leaves the camera where the user has it.
@@ -871,14 +872,14 @@ export class NativeScene {
 
     /** Every segment's state from the two sets: hidden wins over selected. */
     private pushStates(): void {
-        for (const [instance, {model, objects: segments}] of this.segments) {
+        for (const [instance, {model, objects: segments, outline}] of this.segments) {
             const ids = model.keys;
             const states = new Uint32Array(segments.length * 2);
             segments.forEach((object, i) => {
                 if (object < 0) return;
                 const id = ids[object];
                 if (this.hidden.has(id)) states[i * 2 + 1] = SegmentFlag.Hidden;
-                else if (this.selected.has(id)) {
+                else if (this.selected.has(id) && !outline) {
                     states[i * 2] = SELECTED;
                     states[i * 2 + 1] = SegmentFlag.Matte;
                 }
