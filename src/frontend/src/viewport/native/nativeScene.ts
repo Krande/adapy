@@ -132,6 +132,11 @@ export class NativeScene {
     modelKey = "";
     /** The loaded GLB's scene extras, as JSON text. */
     sceneExtras = "";
+    private extData = "";
+    /** The root `ADA_EXT_data` extension of the model loaded last, as JSON text ("" when it has none). */
+    get adaExtData(): string {
+        return this.extData;
+    }
     /** A different object whenever the selection has changed. */
     selectionVersion: object = {};
     /** Called after each change of the selection (or of what is hidden). */
@@ -140,6 +145,9 @@ export class NativeScene {
     readonly onFrame = new Set<() => void>();
     /** Called after a model replaced the scene: helper lines are gone with it, and the box has changed. */
     readonly onLoaded = new Set<() => void>();
+    /** Called before the models on screen are replaced, while what is selected and hidden in them
+     *  can still be read. */
+    readonly onReplacing = new Set<() => void>();
     /** Asked at each press before the camera: return a handler to take the drag (it gets every move
      *  until release), or null to leave it to the camera. */
     dragInterceptor: ((e: PointerEvent) => ((e: PointerEvent) => void) | null) | null = null;
@@ -203,6 +211,7 @@ export class NativeScene {
         if (add) {
             this.dropModel(modelKey);
         } else {
+            for (const listener of this.onReplacing) listener();
             this.detachResultLayers();
             this.renderer.clear();
             this.sceneEpoch++;
@@ -215,6 +224,7 @@ export class NativeScene {
         }
         this.modelKey = modelKey;
         this.sceneExtras = "";
+        this.extData = "";
         const p = this.module._malloc(bytes.byteLength);
         this.module.HEAPU8.set(bytes, p);
         let loaded;
@@ -239,6 +249,7 @@ export class NativeScene {
         };
         this.models.set(modelKey, model);
         this.sceneExtras = loaded.extras;
+        this.extData = loaded.adaExtData ?? "";
         for (const g of loaded.geometries) this.segments.set(g.instance, {model, objects: g.segmentObjects});
         model.keys.forEach((key, index) => this.where.set(key, {model, index}));
         this.rebuild();
@@ -330,10 +341,12 @@ export class NativeScene {
      *  is what the viewport shows and frames. */
     createResultLayer(data: ResultMeshData, opts: {replaceModel?: boolean} = {}): ResultMeshLayer {
         if (opts.replaceModel) {
+            for (const listener of this.onReplacing) listener();
             this.detachResultLayers();
             this.renderer.clear();
             this.modelKey = "";
             this.sceneExtras = "";
+            this.extData = "";
             this.models.clear();
             this.where.clear();
             this.segments = new Map();
@@ -498,6 +511,14 @@ export class NativeScene {
     hasSource(sourceName: string): boolean {
         for (const model of this.models.values()) if (model.sourceName === sourceName) return true;
         return false;
+    }
+
+    /** The source each model on screen was loaded from, by the model's key; a model without a
+     *  source name is left out. */
+    modelSources(): Map<string, string> {
+        const out = new Map<string, string>();
+        for (const model of this.models.values()) if (model.sourceName) out.set(model.key, model.sourceName);
+        return out;
     }
 
     /** Draw line segments (xyz per point, two points per segment) over the model, in one linear colour:

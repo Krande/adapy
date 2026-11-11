@@ -122,7 +122,7 @@ const NativeViewport: React.FC = () => {
             scene.load(model.bytes, key, {add: added, sourceName: model.sourceName});
             setLoadError("");
             // The Scene tree and the object info list and name this model from here on.
-            notifyModelLoaded({added, model: key, sourceName: model.sourceName, sceneExtras: scene.sceneExtras});
+            notifyModelLoaded({added, model: key, sourceName: model.sourceName, sceneExtras: scene.sceneExtras, adaExtData: scene.adaExtData});
         } catch (err) {
             setLoadError(err instanceof Error ? err.message : String(err));
         }

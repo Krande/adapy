@@ -127,9 +127,17 @@ for (const module of [
     "state/sectionStore.ts",
     "state/sceneFrameStore.ts",
     "viewport/native/nativeViewportHistory.ts",
+    "viewport/api/sourceViews.ts",
     "utils/bboxSelection/boxPersistence.ts",
     "utils/bboxSelection/boxStorage.ts",
 ]) {
+    test(`${module} imports no three.js`, () => {
+        walkFreeOfThree(join(ROOT, "src", module));
+    });
+}
+
+// The groups a model carries and selecting one go through the viewport interface and plain stores.
+for (const module of ["utils/groups/selectGroup.ts", "utils/groups/extensionGroups.ts"]) {
     test(`${module} imports no three.js`, () => {
         walkFreeOfThree(join(ROOT, "src", module));
     });

@@ -225,6 +225,8 @@ export interface LoadedModelInfo {
     /** The same extras as an object, from a viewport that made them itself instead of reading
      *  them from a file; `sceneExtras` is then "". */
     extras?: Record<string, unknown>;
+    /** The root `ADA_EXT_data` extension, as JSON text ("" when it has none). */
+    adaExtData?: string;
 }
 
 /** A click in a viewport: the object under it, or null for empty space. */

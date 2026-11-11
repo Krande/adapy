@@ -119,8 +119,12 @@ that the layer session does not:
 - A frame that draws result points or coloured lines is not recorded: it is painted again.
 - The glyphs of the FEA input concepts (masses, supports, loads) are three.js objects, and the
   CAD lineage is kept against a three.js object: neither is on the three.js-free viewport. The
-  "FEM groups" picker of the Scene panel selects in the three.js scene.
-- No undo there, so an isolation is not an undo step.
+  "FEM groups" picker of the Scene panel is on both: a set's members are element ids, which are
+  the result's objects, and `utils/groups/selectGroup.ts` selects them through
+  `ViewportApi.setSelection` (one reused ref for the whole set). For a GLB the groups come from
+  its `ADA_EXT_data` extension, which the three.js-free viewport announces as JSON text with the
+  model (`utils/groups/extensionGroups.ts` lists them), and the members are object names the
+  model's hierarchy resolves to ids.
 
 ## Overlays on both viewports
 
@@ -233,12 +237,13 @@ flowchart LR
 | The interface | `viewport/api/viewportState.ts` | `captureState(what)` notes the state before an action, `stateChange(before)` says what the action changed (and gives the state after it on request), `restoreState(state)` goes to one end of a step. A state is opaque outside the viewport that made it. An action that cannot hide or show anything asks for the selection only, and the viewport then does not look at what is hidden. |
 | The history | `utils/scene/viewerHistory.ts` | One entry per user action: the two ends of the viewport's step, the store slices it was given (section planes, selection boxes, FEA isolation) and the object info's name. Nested actions are one entry, actions with the same coalesce key in quick succession (a drag) are one entry, and nothing records while an entry is applied. The section and box stores record through it directly. |
 | three.js | `utils/scene/threeViewportState.ts` | As before the interface: the hidden ranges per mesh are copied before an action that can hide, and the entry keeps the difference per model by its scene name; the selection is kept as element ids per model. Entries survive a model being removed and loaded again. |
-| adacpp renderer | `viewport/native/nativeViewportHistory.ts` | The selected keys as a copy, and the keys a step hid and showed. `setSelection`, `clearSelection`, `hide`, `show`, `isolate`, `showAll`, `hideSelected`, `hideOthers` and a click in the view are each one step. A key names a model and an object in it; keys of a model no longer on screen are skipped. |
+| adacpp renderer | `viewport/native/nativeViewportHistory.ts` | The selected keys as a copy, and the keys a step hid and showed. `setSelection`, `clearSelection`, `hide`, `show`, `isolate`, `showAll`, `hideSelected`, `hideOthers` and a click in the view are each one step. A key names a model and an object in it; keys of a model no longer on screen are skipped. A model's key is new with each load, so a state also notes the source of each model on screen: once a model has been removed and loaded again, its keys are read as the keys it has now. |
+| Models loaded and removed | `utils/scene/modelHistory.ts`, `utils/scene/modelViews.ts`, `viewport/api/sourceViews.ts` | One entry per change of the loaded models, on both viewports. Undo and redo load through the load queue and remove through the unload handler, which hand the model to the viewport on screen; no bytes are kept, only how to fetch the model again. What was hidden and selected in a removed model is kept with the entry by object id: read from the three.js scene, or asked of the three.js-free viewport, which also notes it for the models a replacing load is about to empty out. |
 | Keys and commands | `viewport/api/viewportShortcuts.ts`, `layout/coreCommands.ts` | Undo and Redo (Ctrl+Z, Ctrl+Y, Ctrl+Shift+Z) are bound by each viewport to the same history. |
 
-Where the three.js-free viewport differs: it has no entries for models loaded and removed
-(`utils/scene/modelHistory.ts` reloads through the three.js loaders), so a model that replaces the
-scene starts the history over, and a model that joins or leaves keeps it.
+A model that replaces the scene keeps the history on both viewports: the replaced model's removal
+and the new model's load are two entries, and the entries before them work again once an undo has
+brought the model back.
 
 ## What the next slices have to settle
 

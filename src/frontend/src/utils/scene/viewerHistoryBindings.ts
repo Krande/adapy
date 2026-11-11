@@ -5,7 +5,10 @@
  *  - models loaded and removed become entries (utils/scene/modelHistory.ts), reloaded through the
  *    page-restore paths (utils/scene/sceneRestore.ts). A model change no longer forgets the
  *    history: entries name models by scene name, so they work again once an undo brings a removed
- *    model back. A page restore starts the history clean itself.
+ *    model back. A page restore starts the history clean itself. Loading and removing go through
+ *    the load queue and the unload handler, which hand the model to the viewport on screen; what a
+ *    model looked like is read from the three.js scene, or asked of a viewport that holds its
+ *    models itself (utils/scene/modelViews.ts).
  *
  * Kept apart from utils/scene/viewerHistory.ts so the recording path does not pull the scope
  * store (sessionStorage) and the loaders into every module that records.
@@ -16,6 +19,7 @@ import {useGalleryStore} from "@/state/galleryStore";
 import {useScopeStore} from "@/state/scopeStore";
 import {useViewerHistoryStore} from "@/state/viewerHistoryStore";
 import {bindModelHistory} from "@/utils/scene/modelHistory";
+import {modelViews} from "@/utils/scene/modelViews";
 import {describeLoadedModel, reloadRecordedModel, sceneRestoreRunning} from "@/utils/scene/sceneRestore";
 
 let bound = 0;
@@ -39,6 +43,7 @@ export function bindViewerHistoryReset(): () => void {
                 const {unload_any_source} = await import("@/utils/scene/handlers/unload_any_source");
                 await unload_any_source(name);
             },
+            ...modelViews,
             shouldRecord: () =>
                 !sceneRestoreRunning() && !useGalleryStore.getState().enabled && useCellBuilderStore.getState().active === null,
         });
