@@ -6,6 +6,7 @@ import {FilePurpose} from "../flatbuffers/base/file-purpose";
 import {useLineageStore} from './lineageStore';
 import {loadedSourceGroups, useModelSessionStore} from './modelSession';
 import {setSceneOffset} from './sceneFrameStore';
+import {setSourceExtension} from './sourceExtensions';
 
 export interface ModelState {
     modelUrl: string | null;
@@ -116,7 +117,16 @@ export const useModelState = create<ModelState>((set) => ({
             ?? (group as any)?.userData?.__adaGltf;
         if (ext && gltf) {
             void import('@/utils/lineage/registerLineageFromExtension').then(({registerLineageFromExtension}) =>
-                registerLineageFromExtension({gltf, extension: ext, fileName: name, root: group}),
+                registerLineageFromExtension({
+                    // three's GLTFLoader hands a buffer view back as its own ArrayBuffer.
+                    bufferView: async (index) => {
+                        const buf = await gltf.parser.getDependency('bufferView', index);
+                        return buf instanceof ArrayBuffer ? buf : null;
+                    },
+                    extension: ext,
+                    fileName: name,
+                    root: group,
+                }),
             ).catch((err) => console.warn('lineage: register failed for', name, err))
                 .finally(() => {
                     // Lineage was the last consumer of the GLTFLoader parser. Dropping
@@ -161,6 +171,7 @@ export const useModelState = create<ModelState>((set) => ({
         // file doesn't try to jump to a model that's no longer in the
         // scene. Symmetric to register-on-load in setupModelLoaderAsync.
         useLineageStore.getState().unregister(name);
+        setSourceExtension(name, null);
         set((s) => {
             if (!s.loadedSourceNames.has(name)) return {};
             const next = new Set(s.loadedSourceNames);

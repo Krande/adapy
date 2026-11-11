@@ -6,6 +6,9 @@ import {useLineageStore} from '@/state/lineageStore';
 import {getViewerRuntime} from '@/state/viewerRuntime';
 import {requestRender} from '@/state/perfStore';
 import {CustomBatchedMesh} from '@/utils/mesh_select/CustomBatchedMesh';
+import {useTreeViewStore} from '@/state/treeViewStore';
+import {rootsForSource} from '@/utils/cellbuilder/structureNodes';
+import {activeViewport, type ViewportApi} from '@/viewport/api/viewportApi';
 import * as THREE from 'three';
 
 type Args = {
@@ -30,6 +33,9 @@ type Args = {
  * the necessary hook.
  */
 export async function selectInOtherModel({file, nodeNames}: Args): Promise<void> {
+    // A viewport that keeps no three.js scene: its objects are known by model and id alone.
+    const viewport = activeViewport();
+    if (viewport && viewport.kind !== 'three') return selectByNames(viewport, file, nodeNames);
     const loadedSourceName = useModelState.getState().loadedSourceName;
     if (loadedSourceName !== file) {
         console.warn(
@@ -49,10 +55,11 @@ export async function selectInOtherModel({file, nodeNames}: Args): Promise<void>
     let root: THREE.Object3D | null = null;
     if (assemblyGuid) {
         const entry = useLineageStore.getState().entries.get(assemblyGuid);
-        if (entry?.cad?.fileName === file) root = entry.cad.root;
+        // The roots this viewport registered are its scene objects.
+        if (entry?.cad?.fileName === file) root = entry.cad.root as THREE.Object3D | null;
         if (!root && entry) {
             const fea = entry.fea.find((f) => f.fileName === file);
-            if (fea) root = fea.root;
+            if (fea) root = fea.root as THREE.Object3D | null;
         }
     }
     if (!root) {
@@ -134,4 +141,37 @@ export async function selectInOtherModel({file, nodeNames}: Args): Promise<void>
     // On-demand rendering: nothing else here moves the camera, so without this the
     // highlight only appears on the next orbit.
     requestRender();
+}
+
+/**
+ * The same through the viewport interface: the model loaded from ``file`` is found by its root
+ * row of the Scene tree, the names are resolved against that model's hierarchy (off the main
+ * thread), and the objects become the viewport's selection.
+ */
+async function selectByNames(viewport: ViewportApi, file: string, nodeNames: string[]): Promise<void> {
+    const modelKey = rootsForSource(useTreeViewStore.getState().treeData, file).at(-1)?.model_key ?? null;
+    if (!modelKey) {
+        console.warn(`crossModelSelect: no loaded model for file "${file}"`);
+        return;
+    }
+    const pairs = await modelStore.getDrawRangesByMemberNames(modelKey, nodeNames);
+    if (pairs.length === 0) {
+        console.warn(`crossModelSelect: no objects for ${nodeNames.length} member name(s) in "${file}"`);
+        return;
+    }
+    // One ref, read once per object: a beam's elements can be thousands.
+    const ref = {model: modelKey, id: '', node: null as string | null};
+    const refs = (function* () {
+        for (const [node, id] of pairs) {
+            ref.id = String(id);
+            ref.node = node;
+            yield ref;
+        }
+    })();
+    viewport.setSelection(refs, {
+        within: () => {
+            useObjectInfoStore.getState().setName(nodeNames[0]);
+            useObjectInfoStore.getState().setFileName(file);
+        },
+    });
 }

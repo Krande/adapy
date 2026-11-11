@@ -131,7 +131,7 @@ async function registerLayerResult(args: LoadFeaStreamingArgs): Promise<void> {
     if (layerResultRegistered?.sourceName === sourceName && layerResultRegistered.manifest === manifest) return;
     layerResultRegistered = {sourceName, manifest};
     const {fetcher, cacheKey} = capabilities.fea.fieldFetchers(feaSourceScope(sourceName), sourceName);
-    await registerManifestStores({manifest, sourceName, feaRoot: null, fetcher, cacheKey, lineage: false});
+    await registerManifestStores({manifest, sourceName, feaRoot: null, fetcher, cacheKey, sceneless: true});
     const {followLayerIsolation} = await import("../fea/layerIsolation");
     followLayerIsolation();
 }

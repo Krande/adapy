@@ -97,6 +97,7 @@ const CanvasWrapper: React.FC<CanvasWrapperProps> = ({legend = true}) => {
         {/* Headless, as below: they draw through whichever viewport is on screen. */}
         <TypeIconController />
         <NameLabelController />
+        <FemConceptsController />
       </div>
     );
   }

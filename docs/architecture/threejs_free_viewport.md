@@ -117,9 +117,7 @@ that the layer session does not:
   solids only, not of those lines.
 - The rest of an isolation "as wireframe" is drawn with the ordinary edge colour, not dimmed.
 - A frame that draws result points or coloured lines is not recorded: it is painted again.
-- The glyphs of the FEA input concepts (masses, supports, loads) are three.js objects, and the
-  CAD lineage is kept against a three.js object: neither is on the three.js-free viewport. The
-  "FEM groups" picker of the Scene panel selects in the three.js scene.
+- The "FEM groups" picker of the Scene panel selects in the three.js scene.
 - No undo there, so an isolation is not an undo step.
 
 ## Overlays on both viewports
@@ -153,6 +151,24 @@ one, lines drawn over the model are not ordered among themselves by when they we
 are measured once (not again after the line moved), and hiding elements through a plugin clears
 the selection as any hide does there. An overlay is drawn by the viewport that was on screen when
 it was added; it is not carried over when the other viewport takes its place.
+
+## What a model says beside its geometry
+
+A model's `ADA_EXT_data` extension carries what is not geometry: the concepts of an analysis model
+(masses, supports, constraints, load scenarios, placed equipment) and what links a design model to
+the analysis models made from it. Both are read and shown without a scene object.
+
+| Part | Where | What it is |
+|---|---|---|
+| The extension | `state/sourceExtensions.ts`, `sceneHelpers/viewportPanelBridge.ts` | The three.js loader keeps a model's extension on its scene group. The three.js-free viewport announces the text with the model, and it is parsed once and kept by source name. A streamed result has no extension: its manifest fills the same stores. |
+| The glyphs | `utils/fem/conceptGlyphs.ts` | Plain data from the concepts that are switched on: triangles (spheres, diamonds, boxes, arrow heads) with a colour per vertex and line segments, grouped by how they are drawn (over the model, or behind what is in front of them), and a table of what a click can hit. |
+| Drawing them | `components/viewer/FemConceptsController.tsx`, `viewport/api/overlayLayer.ts` | One controller follows the viewport on screen and draws the glyphs as its overlay: `addMesh` (unlit triangles) beside the lines and points an overlay already had. three.js draws a mesh, the adacpp renderer a result layer in the look of an annotation. |
+| Clicking them | `utils/fem/conceptPicking.ts` | A click is resolved on the screen against the pick table, through `ViewportApi.projectToScreen`: a ball by its projected radius, a line by its distance in pixels, a box by the faces it shows, with the depth under the cursor. Each viewport asks before it picks an object (the three.js click handler; `NativeScene.clickFirst`). A point glyph wins outright; an equipment box only when it is nearer than the surface under the cursor. |
+| The link | `state/lineageStore.ts`, `utils/lineage/registerLineageFromExtension.ts`, `utils/glb/glbBufferView.ts` | Which design object an element was meshed from, and back, keyed by the design's id. Registered from the extension by either viewport; the ids of a large group are in a buffer view, which the three.js loader's parser or a small GLB reader hands over. A result drawn through result layers registers from its manifest. |
+| Following it | `utils/scene/crossModelSelect.ts` | "Select in CAD" and "Select FEA elements" find the other model by its root row of the Scene tree, resolve the names against that model's hierarchy and make the objects the viewport's selection. The three.js viewport keeps its own path over its scene objects. |
+
+A click on the three.js-free viewport names the file of the model that was picked. The three.js
+viewport still names the file loaded last, so there a link is offered for objects of that model only.
 
 ## Box selection on both viewports
 
@@ -261,8 +277,10 @@ These are open design points, ordered by how much of the viewer depends on them.
    and whatever follows the camera or the animation has to be driven from the frame loop.
 3. **The model beyond geometry.** `GLTFLoader` also gives the main viewer the node hierarchy, the
    `ADA_EXT_data` extension (design / simulation objects, FEA metadata) and animations. The native
-   path gets the hierarchy from the reader, which also hands back the extension data as JSON text;
-   nothing reads it yet. A streamed FEA result does not come through the reader at all: its mesh is
+   path gets the hierarchy from the reader, which also hands back the extension data as JSON text:
+   it is announced with the model (`LoadedModelInfo.adaExtData`), and the panels' side keeps it by
+   source name (`state/sourceExtensions.ts`) and reads the analysis concepts and the design-to-analysis
+   link from it (see "What a model says beside its geometry"). A streamed FEA result does not come through the reader at all: its mesh is
    read as typed arrays and drawn through result layers (above), which name the elements as the
    mesh's objects, so they are picked, selected and hidden like a loaded model's.
 4. **Section planes and caps.** The planes are plain data in `state/sectionStore` (no three.js),

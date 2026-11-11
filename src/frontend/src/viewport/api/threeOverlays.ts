@@ -1,5 +1,5 @@
-// Overlay lines and points (viewport/api/overlayLayer.ts) on the three.js viewport: wide lines
-// (LineSegments2) and points in the scene, drawn by three.js directly and by the adacpp WebGPU
+// Overlay lines, points and shapes (viewport/api/overlayLayer.ts) on the three.js viewport: wide lines
+// (LineSegments2), points and unlit meshes in the scene, drawn by three.js directly and by the adacpp WebGPU
 // viewport through its scene mirror (wide lines, depth-offset overlays, the overlay pass).
 import * as THREE from "three";
 import {LineMaterial} from "three/examples/jsm/lines/LineMaterial";
@@ -8,7 +8,7 @@ import {LineSegmentsGeometry} from "three/examples/jsm/lines/LineSegmentsGeometr
 
 import {requestRender} from "@/state/perfStore";
 import {clipWithModel} from "@/utils/scene/section_clipping";
-import {colorsPerEndpoint, type OverlayLayer, type OverlayLines, type OverlayLook, type OverlayPoints} from "./overlayLayer";
+import {colorsPerEndpoint, type OverlayLayer, type OverlayLines, type OverlayLook, type OverlayMesh, type OverlayPoints} from "./overlayLayer";
 
 // Lines drawn over the model stack in the order they were added.
 let onTopSeq = 0;
@@ -81,6 +81,30 @@ function makePoints(spec: OverlayPoints): THREE.Points {
     return points;
 }
 
+function makeMesh(spec: OverlayMesh): THREE.Mesh {
+    const geom = new THREE.BufferGeometry();
+    geom.setAttribute("position", new THREE.BufferAttribute(new Float32Array(spec.positions), 3));
+    if (spec.colors) geom.setAttribute("color", new THREE.BufferAttribute(new Float32Array(spec.colors), 3));
+    geom.setIndex(new THREE.BufferAttribute(new Uint32Array(spec.indices), 1));
+    const opacity = spec.opacity ?? 1;
+    const material = new THREE.MeshBasicMaterial({
+        vertexColors: !!spec.colors,
+        side: THREE.DoubleSide,
+        opacity,
+        transparent: opacity < 1 || !!spec.onTop,
+        depthTest: !spec.onTop,
+        depthWrite: false,
+    });
+    if (!spec.colors) {
+        const [r, g, b] = spec.color ?? [1, 1, 1];
+        material.color.setRGB(r, g, b);
+    }
+    const mesh = new THREE.Mesh(geom, material);
+    mesh.renderOrder = spec.onTop ? 20 + (onTopSeq++ % 100000) * 1e-5 : 7;
+    if (spec.onTop) mesh.userData.__overlayPass = true;
+    return mesh;
+}
+
 function free(obj: THREE.Object3D): void {
     obj.removeFromParent();
     const drawn = obj as THREE.Mesh;
@@ -100,6 +124,7 @@ export function createThreeOverlayLayer(parent: () => THREE.Object3D | null, nam
             obj.matrix.fromArray(look.matrix);
         }
         obj.raycast = () => undefined; // never stands in front of the object a click is meant for
+        if (look.fitted === false) obj.userData.__excludeFromFit = true;
         parent()?.add(obj);
         if (look.clipped) clipWithModel(obj);
         const handle = nextHandle++;
@@ -117,6 +142,7 @@ export function createThreeOverlayLayer(parent: () => THREE.Object3D | null, nam
     return {
         addLines: (spec) => put(makeLines(spec), spec),
         addPoints: (spec) => put(makePoints(spec), spec),
+        addMesh: (spec) => put(makeMesh(spec), spec),
         setPositions: (handle, positions) => {
             const obj = items.get(handle);
             if (!obj) return;

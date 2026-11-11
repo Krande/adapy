@@ -1,8 +1,6 @@
 // The three.js-free viewport, first slice: load, orbit / pan / zoom, pick, select, hide, and a list of
 // the model's objects. It is a second viewport implementation, not a mode of the three.js one, and this
 // chunk imports no three.js (src/__tests__/viewport/nativeViewportImports.test.ts walks its import graph).
-// What the three.js viewport does beyond the slice is listed here as unavailable rather than left to
-// look broken.
 import React from "react";
 import {ensureViewportInput} from "@/viewport/input";
 import {installShortcutDispatcher} from "@/layout/shortcutDispatch";
@@ -20,6 +18,8 @@ import {bindBoxSelectionGizmo} from "./boxSelectionGizmo";
 import {createNativeViewportApi} from "./nativeViewportApi";
 import {bindNativeHistory} from "./nativeViewportHistory";
 import {useNativeViewport} from "./nativeModel";
+import {glbBufferViews} from "@/utils/glb/glbBufferView";
+import {takeConceptClick} from "@/utils/fem/conceptPicking";
 
 /** "#rrggbb" (sRGB) as linear rgb, which the renderer takes; null when it is not that. */
 function linearRgb(hex: string): [number, number, number] | null {
@@ -28,10 +28,6 @@ function linearRgb(hex: string): [number, number, number] | null {
     const linear = (c: number) => (c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
     return [linear(parseInt(m[1], 16) / 255), linear(parseInt(m[2], 16) / 255), linear(parseInt(m[3], 16) / 255)];
 }
-
-const UNAVAILABLE = [
-    "the glyphs of an FEA model's masses, supports and loads, and its link to the CAD model",
-];
 
 const NativeViewport: React.FC = () => {
     const hostRef = React.useRef<HTMLDivElement>(null);
@@ -66,7 +62,13 @@ const NativeViewport: React.FC = () => {
             scene.onPick = (key) => notifyViewportPick({ref: key ? splitObjectKey(key) : null});
             sceneRef.current = scene;
             if (scene.failure) return fail(scene.failure);
-            const withdraw = setActiveViewport(createNativeViewportApi(scene));
+            const api = createNativeViewportApi(scene);
+            const withdraw = setActiveViewport(api);
+            // A glyph of an analysis concept (a mass, a support, a load) is asked before the model.
+            scene.clickFirst = (clientX, clientY, additive) => {
+                const view = host.getBoundingClientRect();
+                return takeConceptClick(api, clientX - view.left, clientY - view.top, additive, async () => (await scene.pickHit(clientX, clientY))?.world ?? null);
+            };
             // The viewport's keys (hide, show all, fit, named views, orbit and pan by key), while it is up.
             const unbind = bindCoreShortcuts(viewportShortcutHandlers((run) => ({run})));
             const releaseDispatcher = installShortcutDispatcher();
@@ -122,7 +124,10 @@ const NativeViewport: React.FC = () => {
             scene.load(model.bytes, key, {add: added, sourceName: model.sourceName});
             setLoadError("");
             // The Scene tree and the object info list and name this model from here on.
-            notifyModelLoaded({added, model: key, sourceName: model.sourceName, sceneExtras: scene.sceneExtras});
+            notifyModelLoaded({
+                added, model: key, sourceName: model.sourceName, sceneExtras: scene.sceneExtras,
+                adaExtData: scene.adaExtData, bufferView: glbBufferViews(model.bytes),
+            });
         } catch (err) {
             setLoadError(err instanceof Error ? err.message : String(err));
         }
@@ -140,10 +145,6 @@ const NativeViewport: React.FC = () => {
                 {model && <div className="text-gray-400 truncate" title={model.sourceName}>{model.sourceName || "model"} · {objects.length} objects</div>}
                 {!model && result && <div className="text-gray-400 truncate" title={result}>{result} · result</div>}
                 {!model && !result && state === "active" && <div className="text-gray-400">No model loaded.</div>}
-                <details>
-                    <summary className="cursor-pointer text-gray-400">Not available in this mode</summary>
-                    <ul className="list-disc pl-4 text-gray-400">{UNAVAILABLE.map((u) => <li key={u}>{u}</li>)}</ul>
-                </details>
             </div>
         </div>
     );

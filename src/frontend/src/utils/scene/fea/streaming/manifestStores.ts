@@ -26,8 +26,8 @@ export async function registerManifestStores(args: {
      *  manifest's sets are not registered. */
     fetcher?: FeaFetcher;
     cacheKey?: string;
-    /** False leaves the CAD lineage out: for a result that has no three.js object to hang it on. */
-    lineage?: boolean;
+    /** The result is drawn through result layers: there is no three.js object for it. */
+    sceneless?: boolean;
 }): Promise<void> {
     const {manifest, sourceName, feaRoot} = args;
     // Register CAD↔FEA lineage from the manifest. Mirrors the
@@ -36,11 +36,13 @@ export async function registerManifestStores(args: {
     // same ``assembly_guid`` is also loaded, the panel's link
     // row resolves a clicked FEA element back to its parent
     // beam without going through the server.
-    if (args.lineage !== false && manifest.lineage && manifest.lineage.assembly_guid) {
-        const sceneRoot = getViewerRuntime().scene.current;
+    if (manifest.lineage && manifest.lineage.assembly_guid) {
+        // The object the three.js viewport selects the result's elements on; a result drawn without
+        // a scene (through result layers) has none, and is linked all the same.
+        const sceneRoot = args.sceneless ? null : getViewerRuntime().scene.current;
         const meshRoot = feaRoot ? findFirstMesh(feaRoot) : null;
         const root = (meshRoot ?? feaRoot ?? sceneRoot) as THREE.Object3D | null;
-        if (root) {
+        if (root || args.sceneless) {
             const materials = manifest.lineage.materials ?? {};
             const sections = manifest.lineage.sections ?? {};
             const {useLineageStore} = await import("@/state/lineageStore");
