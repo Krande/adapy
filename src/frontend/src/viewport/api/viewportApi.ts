@@ -10,13 +10,25 @@ import type {ViewportResults} from "./resultLayer";
 import {type CameraView} from "@/layout/coreCommandIds";
 import type {BillboardLayer, Point3} from "./billboards";
 import type {OverlayLayer} from "./overlayLayer";
+import type {ImageLayer} from "./imageLayer";
 import type {ViewportBoxSelection} from "./boxSelection";
 import type {ViewportUndoState} from "./viewportState";
 
 export type ViewportKind = "three" | "native";
 
-/** Things one viewport can do and another cannot yet. A caller asks before offering it. */
-export type ViewportFeature = "fit-selection";
+/** Things one viewport can do and another cannot yet. A caller asks before offering it.
+ *  "large-ground-images": an image in the scene (./imageLayer.ts) of any size; a viewport that
+ *  names a reason draws small ones only, and its image layer says for which sizes. */
+export type ViewportFeature = "fit-selection" | "large-ground-images";
+
+/** The node animation of the models on screen (their parts moving over time), shown a moment at a
+ *  time. What the playback clock (state/playbackClock.ts) plays as one of its tracks. */
+export interface ModelAnimation {
+    /** Seconds: the longest of the models' animations. */
+    readonly duration: number;
+    /** Put every animated part where it is at `t` seconds. Allocates nothing. */
+    showTime(t: number): void;
+}
 
 /** One object of a loaded model: the model's key and the object's id in it (the GLB's own id for it,
  *  which a Scene tree row carries as `model_key` and `rangeId`). The identity panels use; neither
@@ -130,6 +142,14 @@ export interface ViewportApi {
     /** The viewport's layer of lines and points called `name` (./overlayLayer.ts), made on first
      *  use; asking again gives the same layer until it is disposed. */
     overlays(name: string): OverlayLayer;
+    /** The viewport's layer of images lying in the world called `name` (./imageLayer.ts), made on
+     *  first use; asking again gives the same layer until it is disposed. */
+    images(name: string): ImageLayer;
+    /** The node animation of the models on screen; null when none of them has one, and on a
+     *  viewport that cannot play one yet. The same object until the models change. */
+    modelAnimation(): ModelAnimation | null;
+    /** Orbit about `point` from now on (what a double-click on the model does). */
+    setOrbitPivot(point: Point3): void;
     /** Frame the camera on a box in the world (min xyz, max xyz), keeping the direction it looks
      *  in. False when there is no camera yet or the box is empty. */
     fitBox(min: Point3, max: Point3): boolean;
@@ -256,3 +276,9 @@ export const notifyModelLoaded = modelLoaded.emit;
 /** A viewport's click picked an object (or nothing), after it updated its selection. */
 export const onViewportPick = picked.on;
 export const notifyViewportPick = picked.emit;
+
+const animationChanged = channel<void>();
+/** The models on screen changed in a way that may have changed `modelAnimation()`: one with an
+ *  animation was loaded, or removed. */
+export const onModelAnimationChange = animationChanged.on;
+export const notifyModelAnimationChange = (): void => animationChanged.emit();

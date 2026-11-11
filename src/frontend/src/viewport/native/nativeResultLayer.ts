@@ -152,6 +152,37 @@ export class NativeResultLayer implements ResultMeshLayer {
         this.changed();
     }
 
+    /** Write the colours as the renderer keeps them, without a pass through floats: `write` is
+     *  given the module heap as 32-bit words and where the layer's colours start in it, one word per
+     *  vertex (linear RGBA8, red in the low byte). For colours a caller has as bytes already. */
+    writePackedColors(write: (heap: Uint32Array, at: number) => void): void {
+        if (!this.alive) return;
+        write(this.module.HEAPU32, this.colorsPtr >> 2);
+        this.renderer.updateColors(this.geometry, this.colorsPtr, this.vertexCount);
+        if (!this.painted) {
+            this.painted = true;
+            this.push();
+        } else {
+            this.changed();
+        }
+    }
+
+    /** Write the displacement in place: `write` is given the module heap as floats and where the
+     *  layer's displacement starts in it, xyz per vertex. For a caller that changes a few vertices. */
+    writeDisplacement(write: (heap: Float32Array, at: number) => void): void {
+        if (!this.alive) return;
+        write(this.module.HEAPF32, this.morphPtr >> 2);
+        this.renderer.updateMorph(this.geometry, this.morphPtr, this.vertexCount);
+        this.changed();
+    }
+
+    /** Where the mesh stands in the world from now on: a column-major 4x4, null for the identity. */
+    setMatrix(matrix: ArrayLike<number> | null): void {
+        if (!this.alive) return;
+        this.module.HEAPF32.set(matrix ?? IDENTITY, this.matrixPtr >> 2);
+        this.push();
+    }
+
     setInfluence(influence: number): void {
         if (!Number.isFinite(influence) || influence === this.influence) return;
         this.influence = influence;

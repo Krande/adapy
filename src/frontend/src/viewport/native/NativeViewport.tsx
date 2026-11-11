@@ -6,6 +6,8 @@ import {ensureViewportInput} from "@/viewport/input";
 import {installShortcutDispatcher} from "@/layout/shortcutDispatch";
 import {bindCoreShortcuts} from "@/layout/shortcuts";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
+import {playbackClock} from "@/state/playbackClock";
+import {bindModelAnimationTrack} from "@/state/modelAnimationTrack";
 import {useSectionStore} from "@/state/sectionStore";
 import {applyFeaDeformationGate} from "@/utils/scene/fea/deformationGate";
 import {tickFeaAnimation} from "@/utils/scene/fea/feaAnimationDriver";
@@ -60,8 +62,10 @@ const NativeViewport: React.FC = () => {
                 applyFeaDeformationGate();
                 // What is pinned to the result (a label on an element, an outline) moves with it.
                 runBeforeDraw();
+                // The playback clock shows this frame's moment; it keeps the loop awake only while it plays.
+                const clockPlaying = playbackClock.tick(performance.now());
                 const fea = useFeaAnimationStore.getState();
-                return fea.isPlaying && fea.sessionActive;
+                return clockPlaying || (fea.isPlaying && fea.sessionActive);
             };
             scene.onPick = (key) => notifyViewportPick({ref: key ? splitObjectKey(key) : null});
             sceneRef.current = scene;
@@ -93,7 +97,11 @@ const NativeViewport: React.FC = () => {
             const unbindBoxes = bindBoxSelectionGizmo(scene);
             // Undo and Redo: their keys, and a history that never outlives the scene it names.
             const unbindHistory = bindNativeHistory(scene);
+            // The clock starts playing: the frame loop, which runs only while something changes, wakes up.
+            const unwake = playbackClock.onWake(() => scene.invalidate());
+            bindModelAnimationTrack();
             release = () => {
+                unwake();
                 unbindHistory();
                 unbindBoxes();
                 unbindGizmo();

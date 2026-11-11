@@ -660,7 +660,7 @@ async function pickWorldPoint(
 }
 
 /** Set the camera's rotation pivot without moving the camera. */
-function applyOrbitPoint(
+export function applyOrbitPoint(
     controls: CameraControls | OrbitControls,
     point: THREE.Vector3,
 ): void {

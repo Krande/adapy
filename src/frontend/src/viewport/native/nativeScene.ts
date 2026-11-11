@@ -3,7 +3,7 @@
 // There is no THREE.Scene behind it and no scene model on this side either: the reader reports the
 // model's objects and which one each segment draws, per-object state is segment state in the renderer,
 // and input is mapped to the camera's semantic operations (orbit, pan, zoom, fit, look from).
-import type {ResultMeshData, ResultMeshLayer} from "@/viewport/api/resultLayer";
+import type {ResultMeshData} from "@/viewport/api/resultLayer";
 import {NativeResultLayer} from "./nativeResultLayer";
 import {growObjectBounds, indexResultSegments, resultSegments} from "./resultObjects";
 import {useCameraControlsStore} from "@/state/cameraControlsStore";
@@ -19,6 +19,9 @@ const FEATURE_EDGE_ANGLE_DEG = 30;
 const EDGE_COLOR: [number, number, number, number] = [0, 0, 0, 1];
 /** A press released within this many pixels of where it went down is a click, not a drag. */
 const TAP_SLOP_PX = 6;
+/** Two clicks this close in time and place are a double-click: as on the three.js viewport. */
+const DOUBLE_TAP_MS = 350;
+const DOUBLE_TAP_PX = 24;
 const MAX_PIXEL_RATIO = 2;
 const HOME_AZIMUTH_DEG = -135;
 const HOME_ELEVATION_DEG = 30;
@@ -339,7 +342,7 @@ export class NativeScene {
     /** Draw a result mesh from typed arrays: its colours, displacement and deformation scale are
      *  then set through the layer returned. With `replaceModel` the loaded model goes and the mesh
      *  is what the viewport shows and frames. */
-    createResultLayer(data: ResultMeshData, opts: {replaceModel?: boolean} = {}): ResultMeshLayer {
+    createResultLayer(data: ResultMeshData, opts: {replaceModel?: boolean} = {}): NativeResultLayer {
         if (opts.replaceModel) {
             for (const listener of this.onReplacing) listener();
             this.detachResultLayers();
@@ -622,6 +625,20 @@ export class NativeScene {
         }
         const pose = this.renderer.cameraPose();
         this.renderer.cameraSetPose(eye[0], eye[1], eye[2], target[0], target[1], target[2], up[0], up[1], up[2], pose.fov, pose.orthographic, 0, 0);
+        this.invalidate();
+    }
+
+    /** Orbit about `point` from now on: the camera stays where it is and turns to look at the
+     *  point, over a short time. What a double-click on the model does. */
+    setOrbitPivot(point: readonly [number, number, number], seconds = MOVE_SECONDS): void {
+        const pose = this.renderer.cameraPose();
+        const [ex, ey, ez] = pose.eye;
+        // A point at the eye has no direction to look in.
+        if (Math.hypot(point[0] - ex, point[1] - ey, point[2] - ez) < 1e-9) return;
+        this.renderer.cameraSetPose(
+            ex, ey, ez, point[0], point[1], point[2], pose.up[0], pose.up[1], pose.up[2],
+            pose.fov, pose.orthographic, pose.orthographic ? pose.orthoHeight : 0, seconds,
+        );
         this.invalidate();
     }
 
@@ -914,6 +931,8 @@ export class NativeScene {
         const pointers = new Map<number, {x: number; y: number}>();
         let lastPinch = 0;
         let tap: {id: number; x: number; y: number} | null = null;
+        /** The click before this one, for a double-click: when it was and where. */
+        let lastTap: {at: number; x: number; y: number} | null = null;
         /** What the drag in progress does: decided at the press, from its button and modifiers. */
         let action: CameraAction = "none";
         /** A drag something else took from the camera at its press (dragInterceptor). */
@@ -972,7 +991,19 @@ export class NativeScene {
             if (t && t.id === e.pointerId) {
                 const additive = e.ctrlKey || e.metaKey || e.shiftKey;
                 const {clientX, clientY} = e;
+                // A second click soon after the first, in the same place: the point under it becomes
+                // what the camera orbits about. The first click already selected.
+                const now = performance.now();
+                // A click with a modifier adds to the selection: it is never half of a double-click.
+                const second = !additive && !!lastTap && now - lastTap.at <= DOUBLE_TAP_MS && Math.hypot(clientX - lastTap.x, clientY - lastTap.y) <= DOUBLE_TAP_PX;
+                // A third quick click does not pair with the second.
+                lastTap = second || additive ? null : {at: now, x: clientX, y: clientY};
                 void (async () => {
+                    if (second) {
+                        const under = await this.pickHit(clientX, clientY);
+                        if (under) return this.setOrbitPivot(under.world);
+                        // Nothing under it: an ordinary click.
+                    }
                     if (this.clickFirst && (await this.clickFirst(clientX, clientY, additive))) return;
                     const hit = await this.pickHit(clientX, clientY);
                     // What is drawn in a way the renderer's pick does not see (a line), when it is in front.

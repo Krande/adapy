@@ -8,6 +8,8 @@ import type {BillboardLayer} from "@/viewport/api/billboards";
 import {createNativeBillboardLayer} from "./nativeBillboards";
 import type {OverlayLayer} from "@/viewport/api/overlayLayer";
 import {createNativeOverlayLayer} from "./nativeOverlays";
+import type {ImageLayer} from "@/viewport/api/imageLayer";
+import {createNativeImageLayer, MAX_CELLS} from "./nativeImages";
 import {KeySet, nativeObjectsInBox, nativeObjectsInScreenRect, nativeSelectionBounds} from "./nativeBoxSelection";
 import {objectKey, splitObjectKey, type NativeScene} from "./nativeScene";
 import {withNativeHistory} from "./nativeViewportHistory";
@@ -23,12 +25,16 @@ const SCREENSHOT_HEIGHT = 1080;
 export function createNativeViewportApi(scene: NativeScene): ViewportApi {
     const layers = new Map<string, BillboardLayer>();
     const overlayLayers = new Map<string, OverlayLayer>();
+    const imageLayers = new Map<string, ImageLayer>();
     // The scene knows an object by one key made of its model and its id.
     const own = (refs: Iterable<ObjectRef>): string[] => Array.from(refs, (r) => objectKey(r.model, r.id));
     // Each call that changes the selection or what is hidden is one undo step (./nativeViewportHistory.ts).
     return withNativeHistory(scene, {
         kind: "native",
-        unavailable: () => null,
+        unavailable: (feature) =>
+            feature === "large-ground-images"
+                ? `This renderer draws an image in the scene one square per pixel, up to ${MAX_CELLS.toLocaleString("en")} pixels.`
+                : null,
         selectionCount: () => scene.selectionSize,
         selection: () => scene.selectedIds.map(splitObjectKey),
         selectionToken: () => scene.selectionVersion,
@@ -89,6 +95,22 @@ export function createNativeViewportApi(scene: NativeScene): ViewportApi {
             }
             return layer;
         },
+        images: (name) => {
+            let layer = imageLayers.get(name);
+            if (!layer) {
+                const made = createNativeImageLayer(scene);
+                layer = {...made, dispose: () => (imageLayers.delete(name), made.dispose())};
+                imageLayers.set(name, layer);
+            }
+            return layer;
+        },
+        // THE SEAM for node animation on this viewport. The renderer's GLB reader bakes each node's
+        // transform into the geometry it merges and has no call that moves a node afterwards, so
+        // there is nothing to play yet. Once the renderer can pose a loaded model at a time (or
+        // takes per-node transforms), return {duration, showTime} from the scene here: the
+        // playback clock's track, the transport and the plugin API follow without another change.
+        modelAnimation: () => null,
+        setOrbitPivot: (point) => scene.setOrbitPivot(point),
         fitBox: (min, max) => scene.fitBox([min[0], min[1], min[2], max[0], max[1], max[2]]),
         // Box selection, decided on each object's box (./nativeBoxSelection.ts says where that is coarser).
         objectsInBox: (box, mode) => nativeObjectsInBox(scene, box, mode),
