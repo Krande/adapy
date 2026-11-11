@@ -2,6 +2,15 @@
 
 
 
+## v0.149.0 (2026-11-11)
+
+### Feature
+
+* feat(viewer): three.js-free viewport matches three.js: shared scene frame, grid and camera; status in Options; stats panel; edges hide with their objects (#535)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`624ad0b`](https://github.com/Krande/adapy/commit/624ad0b4444fad02f6203d27bda819c89dd146cc))
+
+
 ## v0.148.0 (2026-11-11)
 
 ### Feature
