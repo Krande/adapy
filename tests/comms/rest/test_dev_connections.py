@@ -94,6 +94,15 @@ def test_routes_absent_without_a_library(tmp_path: pathlib.Path, monkeypatch):
         assert "ADA_DEV_CONNECTIONS" not in c.get("/config.js").text
 
 
+def test_a_local_viewer_tells_the_page_what_it_lacks(tmp_path: pathlib.Path, monkeypatch):
+    # No database and a local store: the page does not poll the admin routes or ask for presigned URLs.
+    monkeypatch.delenv(ENV_CONFIG, raising=False)
+    with TestClient(create_app(_settings(tmp_path))) as c:
+        script = c.get("/config.js").text
+    assert "window.ADA_NO_DATABASE = true;" in script
+    assert "window.ADA_NO_PRESIGNED_URLS = true;" in script
+
+
 def test_serve_build_and_reload(client: TestClient, lib_dir: pathlib.Path):
     assert "window.ADA_DEV_CONNECTIONS = true;" in client.get("/config.js").text
 

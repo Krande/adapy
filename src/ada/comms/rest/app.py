@@ -2831,6 +2831,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # `ada dev connections`: the studio opens its connection builder. Emitted only when true.
         if app.state.dev_connections is not None:
             body += "window.ADA_DEV_CONNECTIONS = true;\n"
+        # What a local (desktop) viewer lacks, so the page does not ask for it: no database (the
+        # admin/audit routes 503) and a local store (no presigned URLs). Emitted only when lacking.
+        if getattr(app.state, "db_pool", None) is None:
+            body += "window.ADA_NO_DATABASE = true;\n"
+        if not storage.supports_presigned_uploads:
+            body += "window.ADA_NO_PRESIGNED_URLS = true;\n"
 
         # config.js is the SPA's source of truth for runtime config
         # (worker registry → extraSourceExts / streamingOnlyExts, image

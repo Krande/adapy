@@ -6,6 +6,7 @@ import {useViewerPanelStore} from "@/state/viewerPanelStore";
 import {useScopeStore, scopeUrlPart} from "@/state/scopeStore";
 import {viewerApi} from "@/services/viewerApi";
 import {ApiError} from "@/services/api/client";
+import {runtime} from "@/runtime/config";
 import {useLoadQueueStore, type LoadTask} from "@/state/loadQueueStore";
 import {useAuditToastStore} from "@/state/auditToastStore";
 import {useGalleryStore} from "@/state/galleryStore";
@@ -826,9 +827,9 @@ const AuditActivityBadge: React.FC = () => {
     const openPanel = useViewerPanelStore((s) => s.openPanel);
     const toastHidden = useAuditToastStore((s) => s.hidden);
     const [summary, setSummary] = useState<AuditActiveSummary | null>(null);
-    // 503: the server has no database (desktop / local mode), so no audit
+    // No database (desktop / local mode; config.js says so, else a 503), so no audit
     // can run on it -- stop asking rather than log a 503 every 15s.
-    const [unavailable, setUnavailable] = useState(false);
+    const [unavailable, setUnavailable] = useState(() => !runtime.hasDatabase());
 
     useEffect(() => {
         if (!isAdmin || unavailable) return;
