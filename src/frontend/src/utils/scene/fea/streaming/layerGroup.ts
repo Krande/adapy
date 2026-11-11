@@ -74,6 +74,10 @@ export class ResultGroup implements ResultMeshLayer {
         this.faces?.setColor(rgb);
     }
 
+    setOpacity(opacity: number): void {
+        this.faces?.setOpacity(opacity);
+    }
+
     setVisible(visible: boolean): void {
         this.visible = visible;
         for (const [layer, shown] of this.members) layer.setVisible(visible && shown);

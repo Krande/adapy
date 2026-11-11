@@ -111,13 +111,11 @@ flowchart LR
 | Recorded frames | `utils/scene/fea/streaming/layerFrames.ts`, `framesKey.ts` | A frame a play has painted is kept as plain data (the displacement per node, the colours of the faces and of the beam sections as bytes, the colours and displacement of the result points and of the coloured lines) under the key the three.js recorder uses, and written to the layers on the next pass without reading or painting the step. Where the points and lines are is kept once: a frame that has them elsewhere (a value that is not a number leaves its point out) is painted again instead. Out of the step cache's budget, as there. |
 | A plugin's view of the result | `utils/scene/fea/deformationGate.ts`, `unpaintedColor.ts` | Who holds the result undeformed (`setFeaDeformationShown`) and who asked for which colour of the unpainted model (`setFeaUnpaintedColor`) is kept once, without three.js. The gate has the last word before each frame of either viewport: on the three.js one it writes the meshes' morph influence (`threeDeformationGate.ts`), on a result drawn through layers the influence of every layer, 0 while held and the user's own when let go. The colour goes to the base material of the three.js meshes (`threeUnpaintedColor.ts`), or to the plain colour of the face and beam-section layers, which shows while nothing paints them and is given back when no one asks. |
 
-Both viewports paint with the same kernels. What the three.js viewport's own loader still does
-that the layer session does not:
+| A click on a line | `utils/scene/fea/streaming/layerLinePick.ts`, `viewport/api/objectAt.ts` | The renderer picks triangles, so a beam drawn only as a line is found on the screen: the lines are plain data, projected through the viewport, and the one within a few pixels of the cursor is the click's when it is in front of the surface the renderer's own pick found (with the allowance the three.js viewport gives a stiffener lying on its plate). The viewport asks whoever registered a finder after its own pick. |
+| Fading the grid | `utils/scene/fea/edgeFade.ts` | "Fade edges when zoomed out": how opaque the element grid is drawn, from how far apart its edges are on screen where the user is looking. The three.js viewport sets its line material's opacity before each frame; the layer session sets the opacity of its grid layer (`ResultMeshLayer.setOpacity`), and of the beam sections' edges with it, when the camera or the setting changes. |
 
-- A click does not pick a beam drawn as a line: the renderer picks triangles. Such a beam is
-  selected from the Scene tree, or as its section.
-- The element edges are not faded as they crowd together when zoomed out ("Fade edges when
-  zoomed out" in the Simulation panel).
+Both viewports paint with the same kernels, and the layer session does what the three.js
+viewport's own loader does.
 
 The "FEM groups" picker of the Scene panel is on both: a set's members are element ids, which are
 the result's objects, and `utils/groups/selectGroup.ts` selects them through
@@ -173,8 +171,9 @@ the analysis models made from it. Both are read and shown without a scene object
 | The link | `state/lineageStore.ts`, `utils/lineage/registerLineageFromExtension.ts`, `utils/glb/glbBufferView.ts` | Which design object an element was meshed from, and back, keyed by the design's id. Registered from the extension by either viewport; the ids of a large group are in a buffer view, which the three.js loader's parser or a small GLB reader hands over. A result drawn through result layers registers from its manifest. |
 | Following it | `utils/scene/crossModelSelect.ts` | "Select in CAD" and "Select FEA elements" find the other model by its root row of the Scene tree, resolve the names against that model's hierarchy and make the objects the viewport's selection. The three.js viewport keeps its own path over its scene objects. |
 
-A click on the three.js-free viewport names the file of the model that was picked. The three.js
-viewport still names the file loaded last, so there a link is offered for objects of that model only.
+A click names the file of the model that was picked (`utils/tree_view/modelSource.ts`, by the
+model's root row of the Scene tree), on either viewport, so a link is offered for an object of any
+loaded model and not only of the one loaded last.
 
 ## Box selection on both viewports
 

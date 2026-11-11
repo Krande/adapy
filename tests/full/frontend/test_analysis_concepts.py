@@ -102,6 +102,10 @@ def _centre_of(image: Image.Image, predicate) -> tuple[int, int]:
     return sum(p[0] for p in points) // len(points), sum(p[1] for p in points) // len(points)
 
 
+async def _none(locator) -> bool:
+    return await locator.count() == 0
+
+
 async def _in_model(page: Page, predicate) -> int:
     return _count((await _pixels(page)).crop(MODEL), predicate)
 
@@ -221,5 +225,15 @@ async def test_design_and_analysis_models_are_linked_on_whichever_viewport_is_on
             assert (
                 _count(await _pixels(page), _is_selected) == tower_pixels
             ), f"{backend}: the analysis object is not drawn selected"
+
+            # a click on an object of the model loaded first names that model's file, so its link is offered
+            await _command(page, "Clear selection")
+            await _until(page, lambda: _none(link), f"{backend}: the link to go with the selection")
+            await _click(page, *CENTRE)
+            # (the panel folds its properties away again when the selection goes)
+            await _until(page, lambda: properties.count(), f"{backend}: the clicked object's properties")
+            if await properties.first.get_attribute("aria-expanded") != "true":
+                await properties.first.click()
+            await _until(page, lambda: link.count(), f"{backend}: the link of an object clicked in the first model")
         finally:
             await browser.close()

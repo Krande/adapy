@@ -10,6 +10,7 @@ import {clearSourceExtensions, setSourceExtension} from "@/state/sourceExtension
 import {useTreeViewStore} from "@/state/treeViewStore";
 import {query_ws_server_mesh_info} from "@/utils/mesh_select/handlers/send_mesh_selected_info_callback";
 import {registerLineageFromExtension} from "@/utils/lineage/registerLineageFromExtension";
+import {sourceOfModel} from "@/utils/tree_view/modelSource";
 import {revealPickInTrees} from "@/utils/tree_view/revealPick";
 import {announcedExtension} from "@/viewport/api/modelExtension";
 import {onModelLoaded, onViewportPick, type LoadedModelInfo, type ViewportPick} from "@/viewport/api/viewportApi";
@@ -60,9 +61,7 @@ function showPick(pick: ViewportPick): void {
     info.setSelectedNodeId(node.id);
     // The file the picked model was loaded from (what links it to the models derived from the
     // same design), not whichever file was loaded last.
-    const roots = useTreeViewStore.getState().treeData;
-    const root = (roots?.id === "__roots__" ? roots.children : roots ? [roots] : []).find((r) => r.model_key === pick.ref!.model);
-    const activeFile = root?.source_name ?? useModelState.getState().loadedSourceName;
+    const activeFile = sourceOfModel(pick.ref.model) ?? useModelState.getState().loadedSourceName;
     info.setFileName(activeFile);
     info.setJsonData(null);
     void query_ws_server_mesh_info(node.name, 0, activeFile);

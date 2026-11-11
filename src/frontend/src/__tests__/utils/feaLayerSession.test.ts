@@ -173,6 +173,8 @@ interface Recorded {
     /** The plain colour given in place of the layer's own; null while none is. */
     color: number[] | null;
     visible: boolean;
+    /** What the layer was last told to be drawn at; undefined while it was not told. */
+    opacity?: number;
     removed: boolean;
 }
 
@@ -187,6 +189,9 @@ interface RecordedLines {
 function fakeViewport(): {
     layers: Recorded[]; hidden: Set<string>; withdraw: () => void;
     lines: RecordedLines[]; labels: Map<number, Billboard>; calls: string[];
+    /** Put the camera at `eye` (it looks at the origin, 60 degrees, a view 800 pixels high) and say so. */
+    moveCamera: (eye: [number, number, number]) => void;
+    api: ViewportApi;
 } {
     const layers: Recorded[] = [];
     const hidden = new Set<string>();
@@ -194,8 +199,22 @@ function fakeViewport(): {
     const labels = new Map<number, Billboard>();
     const calls: string[] = [];
     const ids = (refs: Iterable<{model: string; id: string}>) => Array.from(refs, (r) => r.id).join(",");
+    let eye: [number, number, number] = [0, 0, 5];
+    const cameraListeners = new Set<() => void>();
     const api = {
         kind: "native",
+        cameraPose: () => ({eye, target: [0, 0, 0], up: [0, 0, 1], fovDeg: 60}),
+        modelBounds: () => [0, 0, 0, 0, 0, 0],
+        // Looking down -z at 10 pixels per unit; depth 0.5 at z = 0, nearer for larger z.
+        projectToScreen: (world: Float32Array, count: number, out: Float32Array) => {
+            for (let i = 0; i < count * 3; i += 3) {
+                out[i] = world[i] * 10;
+                out[i + 1] = world[i + 1] * 10;
+                out[i + 2] = 0.5 - world[i + 2] * 0.01;
+            }
+            return {width: 800, height: 800};
+        },
+        onCameraChange: (listener: () => void) => (cameraListeners.add(listener), () => void cameraListeners.delete(listener)),
         objectVisibility: () => (_model: string, id: string) => (hidden.has(id) ? "hidden" : "shown"),
         // An isolation is one undo step, so the history asks the viewport for its state around it.
         captureState: () => ({selected: 0}),
@@ -233,13 +252,18 @@ function fakeViewport(): {
                     setInfluence: (v) => void (r.influence = v),
                     setColorsVisible: (v) => void (r.colorsVisible = v),
                     setColor: (rgb) => void (r.color = rgb ? [...rgb] : null),
+                    setOpacity: (v) => void (r.opacity = v),
                     setVisible: (v) => void (r.visible = v),
                     remove: () => void (r.removed = true),
                 };
             },
         },
     } as unknown as ViewportApi;
-    return {layers, hidden, lines, labels, calls, withdraw: setActiveViewport(api)};
+    const moveCamera = (to: [number, number, number]) => {
+        eye = to;
+        cameraListeners.forEach((l) => l());
+    };
+    return {layers, hidden, lines, labels, calls, moveCamera, api, withdraw: setActiveViewport(api)};
 }
 
 /** The colour of `t` (0..1 of the scale) in the colour map the user has chosen. */
@@ -907,6 +931,65 @@ test("a beam that only a coloured line draws is the object its element is, and a
     } finally {
         onLayerObjectsAdded(null);
         useFemConceptsStore.setState({dummyMassIds: [], showDummyMasses: false});
+    }
+});
+
+test("a click on a beam that only a line draws finds its element, unless something is in front of it", async () => {
+    const {objectAt} = await import("@/viewport/api/objectAt");
+    const viewport = fakeViewport();
+    withdraw = viewport.withdraw;
+    const field = stressWithBeam();
+    await load(field, {manifest: manifest([displacement(), field], BEAM_MESH), reduction: "S"});
+    const line = viewport.layers.find((l) => l.data.topology === "lines" && l.data.objects && !l.removed)!;
+    // Where the line is drawn now: half way along it, moved by what the step displaces it.
+    const [ax, ay, , bx, by] = line.data.positions;
+    const [dax, day, , dbx, dby] = line.displacement;
+    const x = ((ax + line.influence * dax + bx + line.influence * dbx) / 2) * 10, y = ((ay + line.influence * day + by + line.influence * dby) / 2) * 10;
+    assert.deepEqual(objectAt(viewport.api, x, y, null), {model: "fea-result:deck.frd", id: "E20"});
+    assert.equal(objectAt(viewport.api, x + 9, y + 9, null), null, "nine pixels off the line is a miss");
+    // A surface far behind the line leaves the click the line's; one in front takes it.
+    assert.ok(objectAt(viewport.api, x, y, [0, 0, -40]));
+    assert.equal(objectAt(viewport.api, x, y, [0, 0, 40]), null);
+    // A hidden beam is not clicked.
+    viewport.hidden.add("E20");
+    useVisibilityStore.getState().bump();
+    await tick();
+    assert.equal(objectAt(viewport.api, x, y, null), null);
+    // And nothing answers for a result that is gone.
+    viewport.hidden.clear();
+    closeLayerSession();
+    assert.equal(objectAt(viewport.api, x, y, null), null);
+});
+
+test("the element grid fades as it is zoomed out, with the user's setting", async () => {
+    const {usePerfStore} = await import("@/state/perfStore");
+    const before = usePerfStore.getState();
+    const viewport = fakeViewport();
+    withdraw = viewport.withdraw;
+    try {
+        usePerfStore.setState({edgeFade: true, edgeFadeFullPx: 5});
+        await load(displacement(), {manifest: manifest([displacement()], {edges_url: "fea.mesh.edges.bin"})});
+        const grid = viewport.layers.find((l) => l.data.topology === "lines" && !l.removed)!;
+        // Close by, the edges are far apart on screen: full strength (never told otherwise).
+        viewport.moveCamera([0, 0, 1]);
+        assert.ok(grid.opacity === undefined || grid.opacity === 1);
+        // From far away they crowd together and are gone; in between they are part way.
+        viewport.moveCamera([0, 0, 1e6]);
+        assert.equal(grid.opacity, 0);
+        const spacing = (() => {
+            const p = grid.data.positions, i = grid.data.indices!;
+            return Math.hypot(p[i[0] * 3] - p[i[1] * 3], p[i[0] * 3 + 1] - p[i[1] * 3 + 1], p[i[0] * 3 + 2] - p[i[1] * 3 + 2]);
+        })();
+        // 3.4 pixels apart: between gone (1.875) and full (5).
+        const distance = (spacing * 800) / (2 * 3.4 * Math.tan(Math.PI / 6));
+        viewport.moveCamera([0, 0, distance]);
+        // (the grid's spacing is its typical edge, which need not be this one)
+        assert.ok(grid.opacity! > 0 && grid.opacity! < 1, `part way, got ${grid.opacity}`);
+        // Switched off, the grid is drawn in full wherever the camera is.
+        usePerfStore.setState({edgeFade: false});
+        assert.equal(grid.opacity, 1);
+    } finally {
+        usePerfStore.setState({edgeFade: before.edgeFade, edgeFadeFullPx: before.edgeFadeFullPx});
     }
 });
 

@@ -34,6 +34,7 @@ function fakeScene() {
                 setInfluence: (v) => void (d.influence = v),
                 setColorsVisible: () => {},
                 setColor: () => {},
+                setOpacity: () => {},
                 setVisible: () => {},
                 remove: () => void (d.removed = true),
             };

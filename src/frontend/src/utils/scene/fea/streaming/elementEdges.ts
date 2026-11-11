@@ -17,28 +17,21 @@ import type {FeaManifest} from "@/services/viewerApi";
 import {usePerfStore} from "@/state/perfStore";
 import {getViewerRuntime} from "@/state/viewerRuntime";
 import {clipWithModel} from "@/utils/scene/section_clipping";
+import {edgeFadeOpacity, typicalEdgeLength as typicalLength} from "../edgeFade";
 import {FEA_BEAM_EDGE_COLOR, FEA_EDGE_COLOR} from "../edgeColors";
 import {withoutEdges} from "../edgeSplit";
 
-// Zoomed out, a dense element grid draws a line every few pixels and washes the result colours
-// out to the edge colour. Fade the shell grid by how far apart its edges are on screen: full
-// strength from `edgeFadeFullPx` apart (a user setting, 5 by default), gone at 3/8 of that.
-const EDGE_GONE_FRACTION = 3 / 8;
+// The shell grid is faded by how far apart its edges are on screen (../edgeFade.ts has the numbers,
+// which the three.js-free viewport fades by too).
 
 /** Median length of a sample of `edges` (index pairs into `position`), in model units. */
 function typicalEdgeLength(position: THREE.BufferAttribute, edges: Uint32Array): number {
-    const pairs = edges.length / 2;
-    const step = Math.max(1, Math.floor(pairs / 2000));
-    const lengths: number[] = [];
-    const a = new THREE.Vector3();
-    const b = new THREE.Vector3();
-    for (let i = 0; i < pairs; i += step) {
-        a.fromBufferAttribute(position, edges[i * 2]);
-        b.fromBufferAttribute(position, edges[i * 2 + 1]);
-        lengths.push(a.distanceTo(b));
+    if (position.itemSize === 3 && !(position as {isInterleavedBufferAttribute?: boolean}).isInterleavedBufferAttribute) {
+        return typicalLength(position.array, edges);
     }
-    lengths.sort((x, y) => x - y);
-    return lengths[Math.floor(lengths.length / 2)] ?? 0;
+    const flat = new Float32Array(position.count * 3);
+    for (let i = 0; i < position.count; i++) flat.set([position.getX(i), position.getY(i), position.getZ(i)], i * 3);
+    return typicalLength(flat, edges);
 }
 
 /** The orbit target: where the user is looking, by the controls' convention. */
@@ -99,9 +92,7 @@ export function fadeAtSpacing(
             : cssHeight / (2 * Math.max(focus.distanceTo(camera.position), 1e-9) *
                 Math.tan(THREE.MathUtils.degToRad((camera as THREE.PerspectiveCamera).fov) / 2));
         const px = length * perUnit;
-        const fullPx = edgeFadeFullPx;
-        const gonePx = fullPx * EDGE_GONE_FRACTION;
-        material.opacity = THREE.MathUtils.clamp((px - gonePx) / (fullPx - gonePx), 0, 1);
+        material.opacity = edgeFadeOpacity(px, edgeFadeFullPx);
     };
 }
 

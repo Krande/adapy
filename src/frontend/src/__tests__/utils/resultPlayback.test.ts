@@ -20,6 +20,7 @@ function fakeLayer(): ResultMeshLayer & {influences: number[]} {
         setInfluence: (v) => void influences.push(v),
         setColorsVisible() {},
         setColor() {},
+        setOpacity() {},
         setVisible() {},
         remove() {},
     };

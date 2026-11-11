@@ -40,12 +40,14 @@ import {useVisibilityStore} from "@/state/visibilityStore";
 import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
 import {readGlbMesh, type GlbMesh} from "@/utils/glb/glbMesh";
 import {positionsDiagonal, type ResultMeshLayer, type ResultMeshObjects, type ViewportResults} from "@/viewport/api/resultLayer";
-import {activeViewport, notifyModelLoaded} from "@/viewport/api/viewportApi";
+import {addObjectAt} from "@/viewport/api/objectAt";
+import {activeViewport, followActiveViewport, notifyModelLoaded, type ObjectRef, type ViewportApi} from "@/viewport/api/viewportApi";
 import {beamSolidNodalColors, nodalScalars} from "../beamSolidNodalColors";
 import {computeBeamSolidEdges, type BeamSolidEdgeData} from "../beamSolidFeatureEdges";
 import {beamSolidDisplacement} from "../beamSolidWarp";
 import {hasLazyCases, legendScopeFor, mergeCaseSteps, nextCaseToPrefetch, slotCount, slotRef} from "../caseSteps";
 import {FEA_BEAM_EDGE_COLOR, FEA_EDGE_COLOR, FEA_UNDEFORMED_COLOR} from "../edgeColors";
+import {edgeFadeOpacity, pixelsPerUnitAtFocus, typicalEdgeLength} from "../edgeFade";
 import {withoutEdges} from "../edgeSplit";
 import {elementLocalVertices, expandTriplesInto, paintElemField, shownElemFieldRange, type PaintedPoints} from "../elemFieldPaint";
 import {notifyFeaTargetGone, registerFeaTarget, type FeaOverlayTarget} from "../elementSource";
@@ -61,6 +63,7 @@ import {loadBeamSolidData, type BeamSolidData} from "./layerBeamSolids";
 import {framesKey} from "./framesKey";
 import {colorsFromBytes, LayerFrameRecorder} from "./layerFrames";
 import {PaintedPointsLayer, ResultGroup} from "./layerGroup";
+import {inFrontOf, lineAt} from "./layerLinePick";
 import {elementLabels, lineObjects, linesWithout} from "./layerLines";
 import {makeLayerOverlayTarget, type LayerMeshView} from "./layerOverlayTarget";
 import {preloadFrames, prefetchFieldSteps, upcomingSteps} from "./prefetch";
@@ -156,6 +159,10 @@ interface LayerSession {
     solidEdgeData: BeamSolidEdgeData | null;
     solidEdgesPending: boolean;
     solidEdges: ResultMeshLayer | null;
+    /** How far apart the shell grid's edges are, in model units (0: no grid), and how opaque the
+     *  grid is drawn now: it fades as it is zoomed out (../edgeFade.ts). */
+    edgeSpacing: number;
+    edgeOpacity: number;
     /** Reused across steps, in node numbering: a step allocates nothing. */
     displacement: Float32Array;
     colors: Float32Array;
@@ -787,6 +794,8 @@ function drawSolidEdges(s: LayerSession): void {
         solidsOn(s) && useFeaAnimationStore.getState().beamSolidEdgesVisible,
     );
     s.group.drop(before);
+    // In step with the shell grid.
+    s.solidEdges.setOpacity(s.edgeOpacity);
     if (s.solidsDisplacement) s.solidEdges.setDisplacement(s.solidsDisplacement);
 }
 
@@ -970,6 +979,8 @@ async function openLayerSession(args: {
         solidEdgeData: null,
         solidEdgesPending: false,
         solidEdges: null,
+        edgeSpacing: edges.shell ? typicalEdgeLength(mesh.positions, edges.shell) : 0,
+        edgeOpacity: 1,
         displacement: new Float32Array(nPoints * 3),
         colors: new Float32Array(nPoints * 3),
         renderDisplacement: null,
@@ -1011,7 +1022,21 @@ async function openLayerSession(args: {
             applyStep(stepIndex).catch((err) => console.warn("[fea] repaint without the dummy-mass beams failed", err));
         }
     });
+    // The grid fades as it is zoomed out: with the camera, and with the setting.
+    const fade = () => fadeEdges(opened);
+    const offFade = followActiveViewport((viewport) => {
+        fade();
+        return viewport.onCameraChange(fade);
+    });
+    const offFadeSetting = usePerfStore.subscribe((now, before) => {
+        if (now.edgeFade !== before.edgeFade || now.edgeFadeFullPx !== before.edgeFadeFullPx) fade();
+    });
+    // A click on a beam drawn as a line, which a renderer that picks triangles does not see.
+    const offLinePick = addObjectAt((viewport, x, y, surface) => lineElementAt(opened, viewport, x, y, surface));
     opened.unsubscribe = () => {
+        offFade();
+        offFadeSetting();
+        offLinePick();
         offView();
         offVisibility();
         offPlain();
@@ -1019,6 +1044,53 @@ async function openLayerSession(args: {
     };
     session = opened;
     return opened;
+}
+
+const NO_POINTS = new Float32Array(0);
+const ONE_POINT = new Float32Array(3), ONE_PROJECTED = new Float32Array(3);
+
+/** Fade the shell grid, and the beam sections' edges with it, by how far apart the grid's edges
+ *  are on screen where the user is looking. */
+function fadeEdges(s: LayerSession): void {
+    const {edgeFade, edgeFadeFullPx} = usePerfStore.getState();
+    let opacity = 1;
+    const viewport = activeViewport();
+    if (edgeFade && s.edgeSpacing > 0 && viewport) {
+        const pose = viewport.cameraPose();
+        const box = viewport.modelBounds();
+        if (pose && box) {
+            const {height} = viewport.projectToScreen(NO_POINTS, 0, NO_POINTS);
+            opacity = edgeFadeOpacity(s.edgeSpacing * pixelsPerUnitAtFocus(pose.eye, pose.target, box, pose.fovDeg, height), edgeFadeFullPx);
+        }
+    }
+    if (opacity === s.edgeOpacity) return;
+    s.edgeOpacity = opacity;
+    s.shellEdges?.setOpacity(opacity);
+    s.solidEdges?.setOpacity(opacity);
+}
+
+/** The line element drawn at a point of the view, when it is in front of the surface the
+ *  viewport's own pick found there. */
+function lineElementAt(s: LayerSession, viewport: ViewportApi, x: number, y: number, surface: ArrayLike<number> | null): ObjectRef | null {
+    const lines = s.lastLines;
+    const view = useFeaAnimationStore.getState();
+    if (session !== s || !lines?.labels || !s.objects || !s.lines.drawn || !view.resultColorsVisible || solidsOn(s)) return null;
+    const labels = lines.labels;
+    const hit = lineAt(
+        {
+            positions: lines.positions, displacement: lines.displacement, influence: s.group.scale, matrix: s.mesh.matrix,
+            skip: s.hidden.size ? (line) => s.hidden.has(`E${labels[line * 2]}`) : undefined,
+        },
+        (world, count, out) => viewport.projectToScreen(world, count, out), x, y,
+    );
+    if (!hit) return null;
+    if (surface) {
+        ONE_POINT[0] = surface[0], ONE_POINT[1] = surface[1], ONE_POINT[2] = surface[2];
+        viewport.projectToScreen(ONE_POINT, 1, ONE_PROJECTED);
+        if (!inFrontOf(hit.depth, ONE_PROJECTED[2])) return null;
+    }
+    const id = `E${labels[hit.line * 2]}`;
+    return s.lineElements?.has(labels[hit.line * 2]) ? {model: s.objects.model, id} : null;
 }
 
 function concat(a: Uint32Array, b: Uint32Array): Uint32Array {

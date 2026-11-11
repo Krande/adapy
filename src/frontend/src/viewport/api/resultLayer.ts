@@ -80,6 +80,8 @@ export interface ResultMeshLayer {
     /** The layer's plain colour (linear RGB in 0..1): what it is drawn in while its painted
      *  colours are not. Null gives back the colour it was made with. */
     setColor(rgb: readonly [number, number, number] | null): void;
+    /** How opaque the layer is drawn from now on, 0..1. */
+    setOpacity(opacity: number): void;
     setVisible(visible: boolean): void;
     /** Take the mesh off the viewport. The layer does nothing afterwards. */
     remove(): void;

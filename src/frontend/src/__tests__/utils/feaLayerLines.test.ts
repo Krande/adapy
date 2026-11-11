@@ -63,6 +63,7 @@ function pointsLayer(): {layer: PaintedPointsLayer; made: Made[]} {
             setInfluence: () => {},
             setColorsVisible: () => {},
             setColor: () => {},
+            setOpacity: () => {},
             setVisible: () => {},
             remove: () => void (m.removed = true),
         } satisfies ResultMeshLayer;

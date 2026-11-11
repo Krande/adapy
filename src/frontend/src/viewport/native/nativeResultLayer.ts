@@ -25,7 +25,7 @@ export class NativeResultLayer implements ResultMeshLayer {
     private readonly baseFlags: number;
     /** Lines' width and points' diameter in the drawing buffer's pixels, and the layer's opacity. */
     private readonly size: number;
-    private readonly opacity: number;
+    private opacity: number;
     /** Dashed lines: the dash and gap lengths; 0 draws them solid. */
     private dash = 0;
     private gap = 0;
@@ -111,6 +111,7 @@ export class NativeResultLayer implements ResultMeshLayer {
     private push(): void {
         if (!this.alive) return;
         let flags = this.baseFlags;
+        if (this.opacity < 1) flags |= InstanceFlag.Transparent;
         const painted = this.painted && this.colorsVisible;
         if (painted) flags |= InstanceFlag.VertexColors;
         if (!this.visible) flags |= InstanceFlag.Hidden;
@@ -167,6 +168,13 @@ export class NativeResultLayer implements ResultMeshLayer {
         const now = this.plain;
         if (rgb === now || (rgb && now && rgb[0] === now[0] && rgb[1] === now[1] && rgb[2] === now[2])) return;
         this.plain = rgb ? [rgb[0], rgb[1], rgb[2]] : null;
+        this.push();
+    }
+
+    setOpacity(opacity: number): void {
+        const clamped = Math.max(0, Math.min(1, opacity));
+        if (clamped === this.opacity) return;
+        this.opacity = clamped;
         this.push();
     }
 
