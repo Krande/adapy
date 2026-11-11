@@ -1110,7 +1110,8 @@ export class NativeScene {
                 const {clientX, clientY} = e;
                 // A second click soon after the first, in the same place: the point under it becomes
                 // what the camera orbits about. The first click already selected.
-                const now = performance.now();
+                // When the tap happened, not when it is handled (a busy page handles it late).
+                const now = e.timeStamp;
                 // A click with a modifier adds to the selection: it is never half of a double-click.
                 const second = !additive && !!lastTap && now - lastTap.at <= DOUBLE_TAP_MS && Math.hypot(clientX - lastTap.x, clientY - lastTap.y) <= DOUBLE_TAP_PX;
                 // A third quick click does not pair with the second.

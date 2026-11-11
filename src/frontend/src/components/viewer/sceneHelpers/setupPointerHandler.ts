@@ -122,7 +122,9 @@ export function setupPointerHandler(
         // inconsistently on mobile browsers (Safari iOS in particular)
         // and would arrive AFTER the second `click` had already
         // re-toggled selection on desktop.
-        const now = performance.now();
+        // When the click happened, not when it is handled: a busy page handles the second click late,
+        // and the two would no longer count as one gesture.
+        const now = e.timeStamp;
         if (
             controls &&
             lastTapPos &&
