@@ -70,6 +70,10 @@ export class ResultGroup implements ResultMeshLayer {
         this.faces?.setColorsVisible(visible);
     }
 
+    setColor(rgb: readonly [number, number, number] | null): void {
+        this.faces?.setColor(rgb);
+    }
+
     setVisible(visible: boolean): void {
         this.visible = visible;
         for (const [layer, shown] of this.members) layer.setVisible(visible && shown);
@@ -92,22 +96,30 @@ export class PaintedPointsLayer {
 
     constructor(
         private readonly group: ResultGroup,
-        private readonly make: (positions: Float32Array) => ResultMeshLayer,
+        private readonly make: (points: PaintedPoints) => ResultMeshLayer,
     ) {}
 
     get drawn(): boolean {
         return this.layer !== null;
     }
 
-    show(points: PaintedPoints): void {
+    /** Draw `points`. True when the layer was made again or taken away. */
+    show(points: PaintedPoints): boolean {
         if (points.positions.length === 0) return this.clear();
-        if (!this.layer || !sameFloats(this.positions, points.positions)) {
-            this.clear();
-            this.positions = points.positions;
-            this.layer = this.group.add(this.make(points.positions), this.shown);
+        let made = false;
+        if (!this.layer || !(this.positions === points.positions || sameFloats(this.positions, points.positions))) {
+            // The new layer first: what both draw stays on the viewport throughout, hidden and
+            // selected as it was.
+            const before = this.layer;
+            this.layer = this.group.add(this.make(points), this.shown);
+            this.group.drop(before);
+            made = true;
         }
+        // The same places, so the array to compare the next ones with by identity first.
+        this.positions = points.positions;
         this.layer.setColors(points.colors);
         this.layer.setDisplacement(points.displacement);
+        return made;
     }
 
     setShown(shown: boolean): void {
@@ -115,10 +127,13 @@ export class PaintedPointsLayer {
         this.group.setShown(this.layer, shown);
     }
 
-    clear(): void {
+    /** Take the layer away. True when there was one. */
+    clear(): boolean {
+        const had = this.layer !== null;
         this.group.drop(this.layer);
         this.layer = null;
         this.positions = null;
+        return had;
     }
 }
 

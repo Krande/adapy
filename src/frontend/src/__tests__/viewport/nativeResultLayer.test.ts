@@ -124,6 +124,25 @@ test("a line layer keeps its colour, stands where its matrix says, and is not pi
     assert.ok(state.instance!.flags & InstanceFlag.Unlit);
 });
 
+test("a plain colour given to the layer shows while its painted colours do not, and its own comes back", () => {
+    const {module, renderer, state, calls} = fakeRenderer();
+    const layer = new NativeResultLayer(module, renderer, {...TRIANGLE, color: [0.5, 0.5, 0.5]}, () => {});
+    layer.setColor([1, 0, 0]);
+    assert.deepEqual(state.instance!.rgba, [1, 0, 0, 1]);
+    calls.length = 0;
+    layer.setColor([1, 0, 0]);
+    assert.deepEqual(calls, [], "the same colour again is nothing to draw");
+
+    // Painted colours are drawn times the layer's own colour, so that one is back under them.
+    layer.setColors(RGB);
+    assert.deepEqual(state.instance!.rgba, [0.5, 0.5, 0.5, 1]);
+    layer.setColorsVisible(false);
+    assert.deepEqual(state.instance!.rgba, [1, 0, 0, 1]);
+
+    layer.setColor(null);
+    assert.deepEqual(state.instance!.rgba, [0.5, 0.5, 0.5, 1]);
+});
+
 test("a removed layer, or one whose renderer was cleared, does nothing more", () => {
     const a = fakeRenderer();
     const removed = new NativeResultLayer(a.module, a.renderer, TRIANGLE, () => {});

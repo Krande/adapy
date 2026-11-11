@@ -20,8 +20,8 @@ import {OrbitControls} from "three/examples/jsm/controls/OrbitControls";
 import {AnimationController} from "@/utils/scene/animations/AnimationController";
 import {replace_model} from "@/utils/scene/handlers/update_scene_from_message";
 import {tickFeaAnimation} from "@/utils/scene/fea/feaAnimationDriver";
-import {applyFeaDeformationGate} from "@/utils/scene/fea/deformationGate";
-import {applyFeaUnpaintedColor} from "@/utils/scene/fea/unpaintedColor";
+import {applyThreeFeaDeformationGate} from "@/utils/scene/fea/threeDeformationGate";
+import {applyFeaUnpaintedColor} from "@/utils/scene/fea/threeUnpaintedColor";
 import {consumeDirty, isRenderSuspended, requestRender, usePerfStore, adacppHandover} from "@/state/perfStore";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {renderProfiler} from "@/utils/scene/renderProfiler";
@@ -262,7 +262,7 @@ const ThreeCanvas: React.FC = () => {
             // session is active or play isn't pressed.
             tickFeaAnimation(frameDelta);
             // After the tick, before either renderer draws: a plugin holding the model undeformed wins.
-            applyFeaDeformationGate();
+            applyThreeFeaDeformationGate();
             applyFeaUnpaintedColor();
             // What is pinned to the model (a label on an element, an outline) moves to where it is now.
             runBeforeDraw();

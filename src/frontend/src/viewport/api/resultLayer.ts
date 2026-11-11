@@ -77,6 +77,9 @@ export interface ResultMeshLayer {
     setInfluence(influence: number): void;
     /** Draw the painted colours (true, the state after `setColors`) or the layer's plain colour. */
     setColorsVisible(visible: boolean): void;
+    /** The layer's plain colour (linear RGB in 0..1): what it is drawn in while its painted
+     *  colours are not. Null gives back the colour it was made with. */
+    setColor(rgb: readonly [number, number, number] | null): void;
     setVisible(visible: boolean): void;
     /** Take the mesh off the viewport. The layer does nothing afterwards. */
     remove(): void;

@@ -15,11 +15,11 @@ import {setActiveViewport} from "@/viewport/api/viewportApi";
 import {createThreeViewport} from "@/viewport/api/threeViewport";
 import {
     _resetFeaDeformationGate,
-    applyFeaDeformationGate,
     feaDeformationShown,
     releaseFeaDeformation,
     setFeaDeformationShown,
 } from "@/utils/scene/fea/deformationGate";
+import {applyThreeFeaDeformationGate as applyFeaDeformationGate} from "@/utils/scene/fea/threeDeformationGate";
 
 /** Element 1 a unit quad at x 0..1, element 2 one at x 10..11; a relative morph lifting every vertex 5 in z. */
 function feaMesh(): THREE.Mesh & {drawRanges: Map<string, [number, number]>} {
@@ -129,9 +129,8 @@ test("framing a box aims at its centre; without a viewer nothing is framed", () 
 // ----- 1.11.0 --------------------------------------------------------------
 
 test("the unpainted model takes the asked colour, and its own back after", async () => {
-    const {applyFeaUnpaintedColor, setFeaUnpaintedColor, _resetFeaUnpaintedColor} = await import(
-        "@/utils/scene/fea/unpaintedColor"
-    );
+    const {setFeaUnpaintedColor, _resetFeaUnpaintedColor} = await import("@/utils/scene/fea/unpaintedColor");
+    const {applyFeaUnpaintedColor} = await import("@/utils/scene/fea/threeUnpaintedColor");
     const mesh = feaMesh();
     const mat = new THREE.MeshStandardMaterial({color: 0x808080});
     mesh.material = mat;

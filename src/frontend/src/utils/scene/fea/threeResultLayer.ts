@@ -42,6 +42,11 @@ class ThreeResultLayer implements ResultMeshLayer {
     /** Called by `remove`; an adopted mesh belongs to the loader that brought it in and has none. */
     onRemove: (() => void) | null = null;
 
+    /** A plain colour given in place of the material's own (setColor), and the material's own
+     *  while the given one is on it. */
+    private plain: readonly [number, number, number] | null = null;
+    private own: [number, number, number] | null = null;
+
     constructor(
         readonly object: Drawn,
         public basePositions: Float32Array,
@@ -57,6 +62,7 @@ class ThreeResultLayer implements ResultMeshLayer {
         // then not the source vertices `rgb` is numbered by.
         writeColorAttribute(geometry, rgb, elementLocalMap(geometry));
         setFlag(this.object, "vertexColors", true);
+        if (this.plain) this.syncPlain();
     }
 
     setDisplacement(xyz: Float32Array): void {
@@ -87,6 +93,29 @@ class ThreeResultLayer implements ResultMeshLayer {
 
     setColorsVisible(visible: boolean): void {
         if (this.object.geometry.getAttribute("color")) setFlag(this.object, "vertexColors", visible);
+        if (this.plain) this.syncPlain();
+    }
+
+    setColor(rgb: readonly [number, number, number] | null): void {
+        this.plain = rgb ? [rgb[0], rgb[1], rgb[2]] : null;
+        this.syncPlain();
+    }
+
+    /** The given colour on the base material while no painted colours show (they are drawn times
+     *  the material's colour), else the material's own colour back, exactly. */
+    private syncPlain(): void {
+        // Slot 0 on a CustomBatchedMesh: its other slots are the selection overlay and the
+        // hidden-range material.
+        const m = this.object.material as THREE.Material | THREE.Material[] | undefined;
+        const mat = (Array.isArray(m) ? m[0] : m) as (THREE.Material & {color?: THREE.Color; vertexColors?: boolean}) | undefined;
+        if (!mat?.color) return;
+        if (this.plain && !mat.vertexColors) {
+            this.own ??= [mat.color.r, mat.color.g, mat.color.b];
+            mat.color.setRGB(this.plain[0], this.plain[1], this.plain[2]);
+        } else if (this.own) {
+            mat.color.setRGB(this.own[0], this.own[1], this.own[2]);
+            this.own = null;
+        }
     }
 
     setVisible(visible: boolean): void {

@@ -170,6 +170,8 @@ interface Recorded {
     displacement: number[];
     influence: number;
     colorsVisible: boolean;
+    /** The plain colour given in place of the layer's own; null while none is. */
+    color: number[] | null;
     visible: boolean;
     removed: boolean;
 }
@@ -222,7 +224,7 @@ function fakeViewport(): {
         }),
         results: {
             createResultMesh: (data: ResultMeshData, opts?: {replaceModel?: boolean}): ResultMeshLayer => {
-                const r: Recorded = {data, replaceModel: !!opts?.replaceModel, colors: [], displacement: [], influence: 0, colorsVisible: true, visible: true, removed: false};
+                const r: Recorded = {data, replaceModel: !!opts?.replaceModel, colors: [], displacement: [], influence: 0, colorsVisible: true, color: null, visible: true, removed: false};
                 layers.push(r);
                 return {
                     vertexCount: data.positions.length / 3,
@@ -230,6 +232,7 @@ function fakeViewport(): {
                     setDisplacement: (xyz) => void (r.displacement = [...xyz]),
                     setInfluence: (v) => void (r.influence = v),
                     setColorsVisible: (v) => void (r.colorsVisible = v),
+                    setColor: (rgb) => void (r.color = rgb ? [...rgb] : null),
                     setVisible: (v) => void (r.visible = v),
                     remove: () => void (r.removed = true),
                 };
@@ -839,6 +842,191 @@ test("a frame a play has painted is shown again from what was kept, without read
     const before = rangeFetches;
     await step(1, {playback: true});
     assert.ok(rangeFetches > before, "painted again under the new settings");
+});
+
+/** The stress field with the beam, as two frames of a time history. */
+const stressHistory = (): FeaManifestField => {
+    const field = stressWithBeam();
+    return {...field, analysis_kind: "transient", n_steps: 2, steps: [{i: 0, value: 1, label: "1"}, {i: 1, value: 2, label: "2"}]} as FeaManifestField;
+};
+
+test("a frame with coloured lines is kept too, and shown again without painting", async () => {
+    const viewport = fakeViewport();
+    withdraw = viewport.withdraw;
+    const field = stressHistory();
+    await load(field, {manifest: manifest([field], BEAM_MESH), reduction: "S"});
+    const line = () => viewport.layers.filter((l) => l.data.topology === "lines" && !l.removed).at(-1)!;
+    const faces = () => viewport.layers.filter((l) => l.data.topology === "triangles" && !l.removed).at(-1)!;
+    const step = useFeaAnimationStore.getState().applyStep!;
+    await step(0, {playback: true});
+    await step(1, {playback: true});
+    const painted = {line: [...line().colors], faces: [...faces().colors]};
+    const drawn = line();
+
+    const read = rangeFetches;
+    line().colors = [];
+    faces().colors = [];
+    await step(0, {playback: true});
+    assert.equal(rangeFetches, read, "shown from the recording");
+    assert.equal(line(), drawn, "the lines are where they were: the same layer");
+    const near = (now: number[], then: number[]) => now.length === then.length && now.every((c, i) => Math.abs(c - then[i]) <= 0.5 / 255 + 1e-6);
+    assert.ok(near(line().colors, painted.line), `the line's colours: ${line().colors}`);
+    assert.ok(near(faces().colors, painted.faces));
+    assert.deepEqual(line().displacement, [0, 0, 0, 0, 0, 0]);
+});
+
+test("a beam that only a coloured line draws is the object its element is, and a dummy-mass beam has no line", async () => {
+    const {useFemConceptsStore} = await import("@/state/femConceptsStore");
+    const {onLayerObjectsAdded} = await import("@/utils/scene/fea/streaming/layerSession");
+    const viewport = fakeViewport();
+    withdraw = viewport.withdraw;
+    let added = 0;
+    onLayerObjectsAdded(() => added++);
+    try {
+        const field = stressWithBeam();
+        await load(field, {manifest: manifest([displacement(), field], BEAM_MESH), reduction: "S"});
+        const lines = () => viewport.layers.filter((l) => l.data.topology === "lines" && !l.removed);
+        const [line] = lines();
+        // One line of two points, drawn in order: the third of the result's elements.
+        assert.equal(line.data.indices, null);
+        assert.deepEqual([...line.data.objects!.ids], ["E7", "E8", "E20"]);
+        assert.deepEqual([...line.data.objects!.segments], [0, 2]);
+        assert.deepEqual([...line.data.objects!.objectOf], [2]);
+        assert.equal(added, 1, "what is isolated is applied to the new objects");
+
+        // The same step again: the line stays, and nothing new is announced.
+        await useFeaAnimationStore.getState().applyStep!(0);
+        assert.equal(lines()[0], line);
+        assert.equal(added, 1);
+
+        // The result's sets are read after its first paint: the line of a beam that only carries
+        // a mass goes once they are known, whether or not those beams are asked for.
+        useFemConceptsStore.setState({dummyMassIds: ["E20"], showDummyMasses: true});
+        await tick();
+        assert.deepEqual(lines(), []);
+    } finally {
+        onLayerObjectsAdded(null);
+        useFemConceptsStore.setState({dummyMassIds: [], showDummyMasses: false});
+    }
+});
+
+test("an isolation in force takes in the beams a field first draws as lines", async () => {
+    const {useFeaIsolationStore} = await import("@/state/feaIsolationStore");
+    const isolation = await import("@/utils/scene/fea/layerIsolation");
+    const {elementSetRowId} = await import("@/utils/scene/fea/feaTreeRows");
+    const viewport = fakeViewport();
+    withdraw = viewport.withdraw;
+    const field = stressWithBeam();
+    const both = manifest([displacement(), field], BEAM_MESH);
+    await load(displacement(), {manifest: both});
+    isolation.followLayerIsolation();
+    useFeaIsolationStore.getState().setSets("deck.frd", [{name: "deck", members: ["EL8"], fe_object_type: "element"}]);
+    try {
+        // Nothing isolated: a field that draws the beam's line leaves the viewport as it is.
+        await load(field, {manifest: both, reduction: "S"});
+        await tick();
+        assert.deepEqual(viewport.calls, []);
+
+        await load(displacement(), {manifest: both});
+        isolation.isolateFeaRows([elementSetRowId("deck")]);
+        viewport.calls.length = 0;
+        await load(field, {manifest: both, reduction: "S"});
+        await tick();
+        assert.deepEqual(viewport.calls, ["isolate(E8)"], "applied again, now that the beam is an object");
+    } finally {
+        useFeaIsolationStore.getState().reset(null);
+    }
+});
+
+test("the edges of hidden beam sections stay while the rest of an isolation is drawn as a wireframe", async () => {
+    const {setLayerHiddenEdgesKept} = await import("@/utils/scene/fea/streaming/layerSession");
+    const viewport = fakeViewport();
+    withdraw = viewport.withdraw;
+    useFeaAnimationStore.setState({beamSolidsVisible: true, beamSolidEdgesVisible: true});
+    const section = {expandBeamSolids: async () => ({...(await compute.expandBeamSolids()), positions: new Float32Array([3, 0, 0, 3, 2, 1, 3, 4, 0])})};
+    await loadFeaOnLayers(
+        {sourceName: "deck.frd", manifest: manifest([displacement()], BEAM_MESH), fieldName: "displacement", stepIndex: 0, reduction: "magnitude", sliderFactor: 1},
+        {fea, compute: section},
+    );
+    await tick();
+    const edges = () => viewport.layers.filter((l) => l.data.topology === "lines" && l.data.positions.length === 9 && !l.removed).at(-1)!;
+    const collapsed = () => {
+        const pairs = [...edges().data.indices!];
+        return pairs.every((v, i) => i % 2 === 0 || v === pairs[i - 1]);
+    };
+    viewport.hidden.add("E20");
+    useVisibilityStore.getState().bump();
+    await tick();
+    assert.equal(collapsed(), true, "hidden outright");
+    setLayerHiddenEdgesKept(true);
+    assert.equal(collapsed(), false, "kept as the wireframe of the rest");
+    setLayerHiddenEdgesKept(false);
+    assert.equal(collapsed(), true);
+});
+
+test("a plugin holds a result drawn through layers undeformed, and the user's warp comes back", async () => {
+    const gate = await import("@/utils/scene/fea/deformationGate");
+    const viewport = fakeViewport();
+    withdraw = viewport.withdraw;
+    await load(displacement(), {manifest: manifest([displacement()], {edges_url: "fea.mesh.edges.bin"}), sliderFactor: 1});
+    const [faces, edges] = viewport.layers;
+    assert.notEqual(faces.influence, 0);
+    try {
+        // Held at once: this viewport draws only when something changed.
+        gate.setFeaDeformationShown("shell", false);
+        assert.deepEqual([faces.influence, edges.influence], [0, 0]);
+
+        // Anything else writing the warp between frames is overruled at the next one.
+        useFeaAnimationStore.getState().resultLayer!.setInfluence(3);
+        assert.equal(faces.influence, 3);
+        gate.applyFeaDeformationGate();
+        assert.deepEqual([faces.influence, edges.influence], [0, 0]);
+
+        useFeaAnimationStore.setState({factor: 0.5, scaleFactor: 4, scaleFactorAuto: false});
+        gate.setFeaDeformationShown("shell", true);
+        assert.deepEqual([faces.influence, edges.influence], [2, 2], "factor x scale, on every layer");
+
+        // Nobody holding it: the gate leaves the warp to its writers.
+        useFeaAnimationStore.getState().resultLayer!.setInfluence(3);
+        gate.applyFeaDeformationGate();
+        assert.equal(faces.influence, 3);
+    } finally {
+        gate._resetFeaDeformationGate();
+    }
+});
+
+test("the colour a plugin gives the unpainted model goes to the faces and the beam sections, and is given back", async () => {
+    const plain = await import("@/utils/scene/fea/unpaintedColor");
+    const viewport = fakeViewport();
+    withdraw = viewport.withdraw;
+    useFeaAnimationStore.setState({beamSolidsVisible: true});
+    try {
+        plain.setFeaUnpaintedColor("early", [0, 0, 1]);
+        const field = stressWithBeam();
+        await load(displacement(), {manifest: manifest([displacement(), field], {...BEAM_MESH, edges_url: "fea.mesh.edges.bin"})});
+        const triangles = () => viewport.layers.filter((l) => l.data.topology === "triangles" && !l.removed);
+        // Asked before the result was shown: its layers start with it. Edges keep their own.
+        assert.equal(triangles().length, 2, "the faces and the beam sections");
+        for (const layer of triangles()) assert.deepEqual(layer.color, [0, 0, 1]);
+        assert.equal(viewport.layers.find((l) => l.data.topology === "lines")!.color, null);
+
+        // The latest ask wins.
+        plain.setFeaUnpaintedColor("shell", "#ff0000");
+        for (const layer of triangles()) assert.deepEqual(layer.color, [1, 0, 0]);
+
+        // An element field makes the faces and the sections anew: the new layers have it too.
+        await load(field, {manifest: manifest([displacement(), field], {...BEAM_MESH, edges_url: "fea.mesh.edges.bin"}), reduction: "S"});
+        assert.equal(triangles().length, 2);
+        assert.ok(triangles().every((l) => l.data.indices!.length === l.data.positions.length / 3), "element-local now");
+        for (const layer of triangles()) assert.deepEqual(layer.color, [1, 0, 0]);
+
+        plain.releaseFeaUnpaintedColor("shell");
+        for (const layer of triangles()) assert.deepEqual(layer.color, [0, 0, 1]);
+        plain.setFeaUnpaintedColor("early", null);
+        for (const layer of triangles()) assert.equal(layer.color, null, "their own colour back");
+    } finally {
+        plain._resetFeaUnpaintedColor();
+    }
 });
 
 test("closing the session takes its layers off the viewport", async () => {

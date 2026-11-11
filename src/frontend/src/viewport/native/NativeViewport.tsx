@@ -9,6 +9,7 @@ import {installShortcutDispatcher} from "@/layout/shortcutDispatch";
 import {bindCoreShortcuts} from "@/layout/shortcuts";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {useSectionStore} from "@/state/sectionStore";
+import {applyFeaDeformationGate} from "@/utils/scene/fea/deformationGate";
 import {tickFeaAnimation} from "@/utils/scene/fea/feaAnimationDriver";
 import {notifyModelLoaded, notifyViewportPick, setActiveViewport} from "@/viewport/api/viewportApi";
 import {runBeforeDraw} from "@/viewport/api/beforeDraw";
@@ -58,6 +59,8 @@ const NativeViewport: React.FC = () => {
             // long as it plays. It writes the deformation scale to the result's layer.
             scene.beforeFrame = (dt) => {
                 tickFeaAnimation(dt);
+                // After the tick: a plugin holding the model undeformed has the last word.
+                applyFeaDeformationGate();
                 // What is pinned to the result (a label on an element, an outline) moves with it.
                 runBeforeDraw();
                 const fea = useFeaAnimationStore.getState();

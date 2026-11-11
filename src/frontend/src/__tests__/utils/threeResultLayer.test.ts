@@ -87,6 +87,22 @@ test("lines over the same nodes follow the same displacement", () => {
     assert.equal(lines.morphTargetInfluences?.[0], 2);
 });
 
+test("a plain colour given to the layer shows while its painted colours do not, and its own comes back", () => {
+    const layer = createThreeResultMesh({...TRIANGLE, color: [0.5, 0.25, 0.125]}, new THREE.Scene());
+    const material = (layer.object as THREE.Mesh).material as THREE.MeshStandardMaterial;
+    const own = material.color.toArray();
+    layer.setColor([1, 0, 0]);
+    assert.deepEqual(material.color.toArray(), [1, 0, 0]);
+
+    layer.setColors(RGB);
+    assert.deepEqual(material.color.toArray(), own, "painted colours are drawn times the material's own");
+    layer.setColorsVisible(false);
+    assert.deepEqual(material.color.toArray(), [1, 0, 0]);
+
+    layer.setColor(null);
+    assert.deepEqual(material.color.toArray(), own);
+});
+
 test("the size a deformation scale is chosen against is the diagonal of the undeformed box", () => {
     assert.equal(positionsDiagonal(TRIANGLE.positions), Math.hypot(2, 3));
     assert.equal(positionsDiagonal(new Float32Array(0)), 0);
