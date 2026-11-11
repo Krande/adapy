@@ -131,11 +131,13 @@ class Look {
 
     join(owner: string, row: SceneLayerRef | undefined): void {
         if (!row) return;
-        this.leave = joinLayer({id: rowId(owner, row.id), label: row.label, group: row.group}, (visible, opacity) => {
+        const apply = (visible: boolean, opacity: number): void => {
             this.rowVisible = visible;
             this.rowOpacity = opacity;
             this.push();
-        });
+        };
+        // How the row starts, unless the user left it otherwise.
+        this.leave = joinLayer({id: rowId(owner, row.id), label: row.label, group: row.group}, apply, {visible: row.visible, opacity: row.opacity});
     }
 
     set(look: SceneLayerLook): void {
@@ -344,9 +346,7 @@ export function addImage(owner: string, image: SceneImageSpec): SceneImage {
 export function imageUnavailable(width: number, height: number): string | null {
     const viewport = activeViewport();
     if (!viewport) return null;
-    // Asked of the viewport's own layer for sizes, without making one for the asking.
-    const reason = viewport.unavailable("large-ground-images");
-    if (!reason) return null;
+    // Asked of a layer of the viewport's, made for the asking and released again.
     const probe = viewport.images("plugin:probe");
     const answer = probe.unavailable(width, height);
     probe.dispose();

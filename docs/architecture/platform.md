@@ -371,12 +371,19 @@ how the two viewports draw it is in [A viewer without three.js](threejs_free_vie
 
 | On `ctx` | Does |
 |---|---|
-| `scene.loadModel(owner, {bytes \| url, sourceName, placement?, sourceUpAxis?})` | Loads a GLB as the scene's model on whichever viewport is on screen. On the three.js viewport Draco- and meshopt-compressed meshes load, with both decoders in the bundle; the three.js-free viewport reads what its renderer's own reader does, which refuses Draco. A model with node animation becomes a track of the playback clock by itself, with time zero at the animation's start. |
+| `scene.loadModel(owner, {bytes \| url, sourceName, displayName?, placement?, sourceUpAxis?})` | Loads a GLB as the scene's model on whichever viewport is on screen. `sourceName` is its identity (what `unloadModel` takes); `displayName` is what its root row in the Scene tree is called. Draco- and meshopt-compressed meshes load on both viewports, decoded by what the bundle carries. A model with node animation becomes a track of the playback clock by itself, with time zero at the animation's start; a file's several animations are shown together. |
 | `scene.addImage(owner, {origin, u, v, width, height, pixels, opacity?, visible?, throughModel?, nearest?, layer?})` | An image lying in the world: RGBA bytes (sRGB, straight alpha) on the rectangle from `origin` along `u` and `v`. Row 0 lies along `u` at the origin and column 0 along `v`, so with the origin at the least x and y, `u` along +x and `v` along +y, row 0 is the min-y edge and column 0 the min-x edge. Returns `{setPixels, setRect, setLook, unavailable, remove}`. `scene.imageUnavailable(width, height)` says beforehand whether the viewport on screen draws that size. |
 | `scene.addLineLayer(owner, {segments? \| polyline?, color?, widthPx?, opacity?, visible?, throughModel?, layer?})` | Lines whose number changes: `{setSegments(segments, count?), setPolyline(points, count?), setLook, remove}`. |
 | `scene.addPointLayer(owner, {positions?, colors?, color?, sizePx?, opacity?, visible?, throughModel?, layer?})` | Points whose number changes: `{setPoints(positions, count?, colors?), setLook, remove}`. |
 | `playback` | The viewer's one clock: `addTrack({id, duration, show(t), label?})` gives `{setDuration, remove}`; `play`, `pause`, `seek`, `setSpeed`, `setLoop`, `followEnd(on)` for a recording that is still growing; `state()`, `time()`, `subscribe`. The clock's duration is its longest track's, and a shorter track (the model's animation under a longer recording) holds its last moment. |
-| `layers` | The plugin's rows in the Layers panel (`core:layers`): `list`, `setVisible`, `setOpacity`, `subscribe`. A row exists while something drawn with that `layer: {id, label, group?}` does. |
+| `layers` | The plugin's rows in the Layers panel (`core:layers`): `list`, `setVisible`, `setOpacity`, `subscribe`. A row exists while something drawn with that `layer: {id, label, group?, visible?, opacity?}` does. |
+
+A drawn thing has two looks, and it is drawn when both say so, at the product of their opacities.
+The row's look (`layer.visible`, `layer.opacity`) is the user's: the two members are only how the
+row starts when the browser holds no choice for that layer id, and the switch and the slider of the
+panel change it from then on. The thing's own look (the spec's `visible` and `opacity`, and
+`setLook`) is the plugin's, and the panel never changes it.
+
 
 Layer coordinates are the model's own, those of the loaded model's file, z-up: core places the
 layers where the viewport places the model, so nothing has to be known about recentring. Arrays are

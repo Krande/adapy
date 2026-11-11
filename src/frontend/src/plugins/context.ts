@@ -176,6 +176,7 @@ function makeSceneHandle(): SceneHandle {
       if (!bytes && !url) throw new Error(`[plugin:${owner}] loadModel needs bytes or a url`);
       await loadModel({
         sourceName: source.sourceName,
+        displayName: source.displayName,
         bytes: bytes
           ? { from: "bytes", bytes: bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes) }
           : { from: "url", url: url! },

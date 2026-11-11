@@ -366,6 +366,13 @@ export interface SceneLayerRef {
   id: string; // unique within the plugin
   label: string;
   group?: string; // rows with the same group are listed together
+  // How the row starts: its switch and its slider, when the user has not left a choice for this
+  // id in the browser (a stored choice wins). The first thing drawn in a row decides; default on
+  // and fully opaque. This is the ROW's look, the user's to change. A spec's own `visible` and
+  // `opacity` (and `setLook`) are the plugin's, a second factor: a thing is drawn when both say
+  // so, at the product of the two opacities.
+  visible?: boolean;
+  opacity?: number; // 0..1
 }
 
 /** What changes of a drawn thing without making it again. A member left out stays as it is. */
@@ -454,8 +461,11 @@ export interface SceneImage extends SceneOverlay {
 export interface SceneModelSource {
   bytes?: Uint8Array | ArrayBuffer;
   url?: string;
-  // The name the model is loaded under: what `unloadModel` takes, and its row in the Scene tree.
+  // The name the model is loaded under: its identity, and what `unloadModel` takes.
   sourceName: string;
+  // What the model is called to a person: its root row in the Scene tree. Left out, the model's
+  // own root name, else `sourceName`.
+  displayName?: string;
   // "replace" (default) shows it instead of what is loaded; "overlay" beside it.
   placement?: "replace" | "overlay";
   // The up axis of the file's own coordinates; "z" (default) or "y" (the glTF convention). Read by

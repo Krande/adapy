@@ -31,6 +31,8 @@ export interface ReplaceModelOptions {
     url: string;
     prepareHook?: SetupModelPrepareHook;
     sourceName?: string;
+    /** What the model is called to a person: its root row in the Scene tree. */
+    displayName?: string;
     /** Recenter the model to the scene origin from its bbox (like the CAD loader). FEA/FEM
      * meshes can sit far from origin (real instance coordinates), so the streaming load passes
      * true; the legacy WS-message caller keeps the old no-recenter behaviour. */
@@ -48,6 +50,7 @@ export async function replace_model(options: ReplaceModelOptions) {
         url,
         prepareHook,
         sourceName,
+        displayName,
         translate = false,
         requestHeaders,
         metrics,
@@ -100,6 +103,7 @@ export async function replace_model(options: ReplaceModelOptions) {
         translate,
         prepareHook,
         sourceName,
+        displayName,
         requestHeaders,
         metrics,
         autoFitOverride,

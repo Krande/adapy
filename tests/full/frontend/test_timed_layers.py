@@ -19,6 +19,7 @@ from .test_render_backends import (
     VIEWPORT,
     _assert_drawing_with,
     _click,
+    _command,
     _open_viewer,
     _pixels,
     _until,
@@ -29,6 +30,13 @@ SCRIPTED_SCENE = "window.__adaScriptedScene = true;"
 SCENE = "window.__adaScriptedScene"
 # How long the test model's animation, and the layers' track, are: seconds.
 DURATION = 2.0
+# The model's second, shorter animation: seconds.
+RISE = 1.0
+
+
+# The three ways a picture is made: three.js, the adacpp WebGPU renderer mirroring the three.js scene,
+# and the three.js-free viewport.
+WAYS = ["three", "adacpp", NATIVE]
 
 
 def _box(lo, hi) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -49,7 +57,8 @@ def _box(lo, hi) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
 
 
 def _animated_glb() -> bytes:
-    """A grey plate with a green block on it; the block's parent node slides along x over `DURATION`
+    """A grey plate with a green block and a small orange one on it, and two animations: the green
+    block's parent node slides along x over `DURATION` seconds, the orange one's rises over `RISE`
     seconds. Z is up, as in the viewer's world."""
     chunks: list[bytes] = []
     views: list[dict] = []
@@ -76,29 +85,43 @@ def _animated_glb() -> bytes:
             ]
         }
 
-    meshes = [mesh((0, 0, -0.1), (4, 2, 0), 0), mesh((-0.3, -0.3, 0), (0.3, 0.3, 0.6), 1)]
+    meshes = [
+        mesh((0, 0, -0.1), (4, 2, 0), 0),
+        mesh((-0.3, -0.3, 0), (0.3, 0.3, 0.6), 1),
+        mesh((-0.15, -0.15, 0), (0.15, 0.15, 0.3), 2),
+    ]
     times = accessor(np.array([0.0, DURATION], dtype=np.float32), "SCALAR", 5126, True)
     places = accessor(np.array([[0.5, 1.0, 0.0], [3.5, 1.0, 0.0]], dtype=np.float32), "VEC3", 5126)
+    rise_times = accessor(np.array([0.0, RISE], dtype=np.float32), "SCALAR", 5126, True)
+    heights = accessor(np.array([[3.6, 0.3, 0.0], [3.6, 0.3, 1.0]], dtype=np.float32), "VEC3", 5126)
     gltf = {
         "asset": {"version": "2.0"},
         "scene": 0,
-        "scenes": [{"nodes": [0, 1]}],
+        "scenes": [{"nodes": [0, 1, 3]}],
         "nodes": [
             {"name": "plate", "mesh": 0},
             {"name": "carriage", "translation": [0.5, 1.0, 0.0], "children": [2]},
             {"name": "block", "mesh": 1},
+            {"name": "lift", "translation": [3.6, 0.3, 0.0], "children": [4]},
+            {"name": "flag", "mesh": 2},
         ],
         "meshes": meshes,
         "materials": [
             {"name": "grey", "pbrMetallicRoughness": {"baseColorFactor": [0.6, 0.6, 0.6, 1], "metallicFactor": 0}},
             {"name": "green", "pbrMetallicRoughness": {"baseColorFactor": [0.0, 0.6, 0.0, 1], "metallicFactor": 0}},
+            {"name": "orange", "pbrMetallicRoughness": {"baseColorFactor": [1.0, 0.15, 0.0, 1], "metallicFactor": 0}},
         ],
         "animations": [
             {
                 "name": "slide",
                 "samplers": [{"input": times, "output": places, "interpolation": "LINEAR"}],
                 "channels": [{"sampler": 0, "target": {"node": 1, "path": "translation"}}],
-            }
+            },
+            {
+                "name": "rise",
+                "samplers": [{"input": rise_times, "output": heights, "interpolation": "LINEAR"}],
+                "channels": [{"sampler": 0, "target": {"node": 3, "path": "translation"}}],
+            },
         ],
         "accessors": accessors,
         "bufferViews": views,
@@ -139,14 +162,20 @@ async def _seen(page: Page) -> dict:
     r, g, b = rgb[..., 0], rgb[..., 1], rgb[..., 2]
     green = (g > 90) & (r < 0.6 * g) & (b < 0.6 * g)
     ys, xs = np.nonzero(green)
+    orange = (r > 140) & (g > 0.2 * r) & (g < 0.7 * r) & (b < 0.25 * r)
+    oys, oxs = np.nonzero(orange)
     red = (r > 200) & (g < 60) & (b < 60)
     rys, rxs = np.nonzero(red)
+    magenta = (r > 200) & (g < 60) & (b > 200)
+    mys, mxs = np.nonzero(magenta)
     return {
         "green": int(green.sum()),
         "block": (float(xs.mean()), float(ys.mean())) if len(xs) else None,
-        "magenta": int(((r > 200) & (g < 60) & (b > 200)).sum()),
+        "magenta": int(magenta.sum()),
         "cyan": int(((r < 90) & (g > 180) & (b > 180)).sum()),
         "yellow": int(((r > 180) & (g > 180) & (b < 90)).sum()),
+        "flag": (float(oxs.mean()), float(oys.mean())) if len(oxs) > 100 else None,
+        "image": (float(mxs.mean()), float(mys.mean())) if len(mxs) > 100 else None,
         "marker": (float(rxs.mean()), float(rys.mean())) if len(rxs) > 20 else None,
         "block_box": (int(xs.min()), int(ys.min()), int(xs.max()), int(ys.max())) if len(xs) else None,
     }
@@ -192,15 +221,10 @@ async def _orbit(page: Page, dx: int) -> None:
     await page.wait_for_timeout(1500)
 
 
-@pytest.mark.parametrize("backend", ["three", NATIVE])
+@pytest.mark.parametrize("backend", WAYS)
 async def test_a_models_node_animation_plays_and_scrubs_on_the_playback_clock(ws_server, backend):
     """A GLB whose node moves over time is a track of the playback clock as soon as it is loaded: the
     transport appears, scrubbing shows the moment, and playing moves the part."""
-    if backend == NATIVE:
-        pytest.skip(
-            "the WebGPU renderer has no node animation yet: its GLB reader merges each node's geometry where "
-            "the node stands, so ViewportApi.modelAnimation() is null on the three.js-free viewport"
-        )
     async with async_playwright() as playwright:
         browser, page, state = await _open_viewer(playwright, ws_server, backend, SCRIPTED_SCENE)
         try:
@@ -224,6 +248,35 @@ async def test_a_models_node_animation_plays_and_scrubs_on_the_playback_clock(ws
             assert 0.3 * travelled < _distance(start["block"], half["block"]) < 0.7 * travelled
             back = await _seek(page, 0)
             assert _distance(start["block"], back["block"]) < 5
+
+            # the file's second animation plays on the same clock, and holds its last moment past its end
+            assert start["flag"] and end["flag"], f"{backend}: the orange block is not drawn"
+            risen = _distance(start["flag"], end["flag"])
+            assert risen > 40, f"{backend}: the second animation's block moved {risen:.0f} px"
+            late = await _seek(page, (RISE + DURATION) / 2)
+            assert _distance(late["flag"], end["flag"]) < 5, f"{backend}: past its end the second animation moved on"
+            early = await _seek(page, RISE / 2)
+            assert 0.25 * risen < _distance(start["flag"], early["flag"]) < 0.75 * risen
+            await _seek(page, 0)
+
+            # a part that has moved is picked, selected and hidden where it is now
+            await _seek(page, DURATION)
+            await _click(page, *end["block"])
+            picked = np.asarray(await _pixels(page)).astype(np.int32)
+            selected = (picked[..., 2] > 200) & (picked[..., 0] < 45) & (picked[..., 1] < 45)
+            assert (
+                int(selected.sum()) > 1500
+            ), f"{backend}: a click on the moved block selected {int(selected.sum())} pixels"
+            ys, xs = np.nonzero(selected)
+            assert (
+                _distance((xs.mean(), ys.mean()), end["block"]) < 40
+            ), f"{backend}: the selection is not where the block is"
+            await _command(page, "Hide selected")
+            # (the orientation gizmo's own green stays)
+            assert (await _seen(page))["green"] < 0.1 * end["green"], f"{backend}: the hidden block is still drawn"
+            await _command(page, "Show all")
+            assert _distance((await _seen(page))["block"], end["block"]) < 5
+            await _seek(page, 0)
 
             # the transport's own scrub bar does the same
             await transport.get_by_label("Time").fill(f"{DURATION:g}")
@@ -294,7 +347,7 @@ ADD_LAYERS = f"""() => {{
 }}"""
 
 
-@pytest.mark.parametrize("backend", ["three", NATIVE])
+@pytest.mark.parametrize("backend", WAYS)
 async def test_layers_change_over_time_on_whichever_viewport_is_on_screen(ws_server, backend):
     """An image on the ground, a line and points, replaced by a track of the playback clock as its time
     changes; the Layers panel switches them; a double-click sets what the camera orbits about; and all
@@ -325,7 +378,7 @@ async def test_layers_change_over_time_on_whichever_viewport_is_on_screen(ws_ser
             await page.wait_for_timeout(400)
             assert (await _seen(page))["marker"] is None
 
-            # ---- an image of a size a grid of cells has is drawn; one beyond what the viewport can is said so
+            # ---- an image of a size a grid of cells has is drawn, and replacing its pixels is cheap
             timings = await page.evaluate(
                 f"""() => {{
                     const out = {{}};
@@ -351,11 +404,7 @@ async def test_layers_change_over_time_on_whichever_viewport_is_on_screen(ws_ser
             await page.evaluate(f'{SCENE}.remove("probe")')
             await page.wait_for_timeout(500)
             assert (await _seen(page))["magenta"] == 0
-            too_large = await page.evaluate(f"{SCENE}.imageUnavailable(2048, 2048)")
-            if backend == NATIVE:
-                assert too_large and "pixel" in too_large, too_large
-            else:
-                assert too_large is None, too_large
+            assert await page.evaluate(f"{SCENE}.imageUnavailable(4096, 4096)") is None
 
             # ---- layers: nothing of them before they are added, and no button for the panel
             seen = await _seen(page)
@@ -365,8 +414,8 @@ async def test_layers_change_over_time_on_whichever_viewport_is_on_screen(ws_ser
             assert await page.evaluate(f"{SCENE}.imageUnavailable(8, 4)") is None
             await page.evaluate(ADD_LAYERS)
             clock = await _playback(page)
-            # On the three.js viewport the model's own animation is the other track.
-            assert clock["tracks"] == (1 if backend == NATIVE else 2), clock
+            # The model's own animation is the other track.
+            assert clock["tracks"] == 2, clock
             assert abs(clock["duration"] - DURATION) < 1e-6
             await _until(page, page.locator("[data-playback-transport]").count, "the transport to appear")
 
@@ -380,9 +429,12 @@ async def test_layers_change_over_time_on_whichever_viewport_is_on_screen(ws_ser
             middle = await _seek(page, DURATION / 2)
             for colour in ("magenta", "cyan", "yellow"):
                 assert first[colour] < middle[colour] < last[colour], f"{backend}: {colour} {first} {middle} {last}"
-            if backend != NATIVE:
-                # The model's moving part and the layers show the same moment.
-                assert _distance(first["block"], last["block"]) > 80, f"{backend}: the block did not move"
+            # The model's moving part and the layers show the same moment.
+            assert _distance(first["block"], last["block"]) > 80, f"{backend}: the block did not move"
+            # The image's first column lies at its origin, where the block starts: not at the far end.
+            assert _distance(first["image"], first["block"]) < 0.5 * _distance(
+                first["image"], last["block"]
+            ), f"{backend}: the image's first column is not at its origin: {first}, block ends at {last['block']}"
             # back to fewer: what was drawn beyond the new count is gone
             again = await _seek(page, 0)
             for colour in ("magenta", "cyan", "yellow"):
@@ -449,7 +501,7 @@ async def test_layers_change_over_time_on_whichever_viewport_is_on_screen(ws_ser
             gone = await _seen(page)
             assert gone["magenta"] == gone["cyan"] == gone["yellow"] == 0, f"{backend}: {gone}"
             assert await layers_button.count() == 0, f"{backend}: the Layers button outlived the layers"
-            assert (await _playback(page))["tracks"] == (0 if backend == NATIVE else 1)
+            assert (await _playback(page))["tracks"] == 1
 
             # ---- the orbit pivot: a double-click on the block makes it what the camera turns about
             await _seek(page, 0)
@@ -473,11 +525,12 @@ async def test_layers_change_over_time_on_whichever_viewport_is_on_screen(ws_ser
             await browser.close()
 
 
-async def test_a_draco_compressed_model_loads_from_the_bundle_alone(ws_server):
-    """A GLB whose mesh is Draco-compressed is decoded by the decoder inside the viewer's bundle: the
-    page asks no other host for anything."""
+@pytest.mark.parametrize("backend", WAYS)
+async def test_a_draco_compressed_model_loads_from_the_bundle_alone(ws_server, backend):
+    """A GLB whose mesh is Draco-compressed is decoded by what the viewer's bundle carries (three.js'
+    decoder, or the renderer's own reader): the page asks no other host for anything."""
     async with async_playwright() as playwright:
-        browser, page, _ = await _open_viewer(playwright, ws_server, "three", SCRIPTED_SCENE)
+        browser, page, _ = await _open_viewer(playwright, ws_server, backend, SCRIPTED_SCENE)
         try:
             elsewhere: list[str] = []
             page.on(
@@ -493,7 +546,100 @@ async def test_a_draco_compressed_model_loads_from_the_bundle_alone(ws_server):
                 changed = np.abs(now - before).max(axis=2)[150:700, 300:1000] > 40
                 return int(changed.sum()) > 5000
 
-            await _until(page, drawn, "the Draco-compressed cube to be drawn")
+            await _until(page, drawn, f"{backend}: the Draco-compressed cube to be drawn")
             assert not elsewhere, f"the page fetched from outside the bundle: {elsewhere}"
+        finally:
+            await browser.close()
+
+
+# An image larger than a grid of cells, with pixels that are clear, half clear and opaque.
+IMAGE_SIDE = 1024
+ADD_IMAGE = f"""() => {{
+    const S = {SCENE};
+    const N = {IMAGE_SIDE};
+    const pixels = new Uint8Array(N * N * 4);
+    // `keep(column, row)` says how opaque a pixel is; every pixel is magenta.
+    const paint = (alpha) => {{
+        for (let j = 0, p = 0; j < N; j++) for (let i = 0; i < N; i++, p += 4) {{
+            pixels[p] = pixels[p + 2] = 255;
+            pixels[p + 1] = 0;
+            pixels[p + 3] = alpha(i, j);
+        }}
+        return pixels;
+    }};
+    const image = S.addImage("t", {{origin: [0, 0, 0.02], u: [4, 0, 0], v: [0, 2, 0], width: N, height: N, pixels: paint(() => 255), nearest: true}});
+    window.__image = {{image, paint, N}};
+    return image.unavailable();
+}}"""
+
+
+async def _marker_at(page: Page, x: float, y: float) -> tuple[float, float]:
+    """Where a point of the model's own coordinates is on screen."""
+    await page.evaluate(
+        f"""window.__marker = {SCENE}.addPointLayer("m", {{
+            positions: [{x}, {y}, 0.05], color: "#ff0000", sizePx: 16, throughModel: true}})"""
+    )
+    await page.wait_for_timeout(500)
+    at = (await _seen(page))["marker"]
+    await page.evaluate(f'{SCENE}.remove("m")')
+    await page.wait_for_timeout(300)
+    assert at, "the marker is not drawn"
+    return at
+
+
+@pytest.mark.parametrize("backend", WAYS)
+async def test_an_image_in_the_world_has_its_first_row_at_its_origin_and_each_pixels_own_alpha(ws_server, backend):
+    """A large image on the ground: its rows and columns lie where the rectangle says, a clear pixel
+    shows what is under it, a half-clear one is blended, and new pixels replace the old in place."""
+    async with async_playwright() as playwright:
+        browser, page, state = await _open_viewer(playwright, ws_server, backend, SCRIPTED_SCENE)
+        try:
+            await _load_model(page, _animated_glb(), "sliding.glb")
+            await _until(page, lambda: _block_on_screen(page), "the model to be drawn")
+            await _assert_drawing_with(page, backend, state)
+            await page.wait_for_timeout(500)
+            near_origin = await _marker_at(page, 0.5, 0.5)
+            far_row = await _marker_at(page, 0.5, 1.5)
+            far_column = await _marker_at(page, 3.5, 0.5)
+
+            assert await page.evaluate(ADD_IMAGE) is None, f"{backend}: a {IMAGE_SIDE} x {IMAGE_SIDE} image is refused"
+            await page.wait_for_timeout(800)
+            whole = await _seen(page)
+            assert whole["magenta"] > 20000, f"{backend}: the image is not drawn: {whole}"
+
+            async def painted(alpha: str) -> dict:
+                await page.evaluate(f"window.__image.image.setPixels(window.__image.paint({alpha}))")
+                await page.wait_for_timeout(700)
+                return await _seen(page)
+
+            # the first rows only: the half of the rectangle at its origin, along u
+            rows = await painted("(i, j) => (j < window.__image.N / 2 ? 255 : 0)")
+            assert 0.3 * whole["magenta"] < rows["magenta"] < 0.7 * whole["magenta"], f"{backend}: {rows} of {whole}"
+            assert _distance(rows["image"], near_origin) < _distance(
+                rows["image"], far_row
+            ), f"{backend}: the first rows are not at the origin: image {rows['image']}, origin {near_origin}, far {far_row}"
+
+            # the first columns only: the half at the origin, along v
+            columns = await painted("(i, j) => (i < window.__image.N / 2 ? 255 : 0)")
+            assert 0.3 * whole["magenta"] < columns["magenta"] < 0.7 * whole["magenta"], f"{backend}: {columns}"
+            assert _distance(columns["image"], near_origin) < _distance(
+                columns["image"], far_column
+            ), f"{backend}: the first columns are not at the origin: {columns['image']}, {near_origin}, {far_column}"
+
+            # half-clear pixels are blended with what is under them: no longer the pure colour
+            blended = await painted("() => 128")
+            assert (
+                blended["magenta"] < 0.05 * whole["magenta"] + 20
+            ), f"{backend}: half-clear pixels are opaque: {blended}"
+            rgb = np.asarray(await _pixels(page)).astype(np.int32)
+            pinkish = (rgb[..., 0] > rgb[..., 1] + 40) & (rgb[..., 2] > rgb[..., 1] + 40)
+            assert int(pinkish.sum()) > 0.5 * whole["magenta"], f"{backend}: half-clear pixels are not drawn at all"
+
+            # and opaque again
+            again = await painted("() => 255")
+            assert again["magenta"] > 0.9 * whole["magenta"]
+            await page.evaluate(f'{SCENE}.remove("t")')
+            await page.wait_for_timeout(500)
+            assert (await _seen(page))["magenta"] == 0
         finally:
             await browser.close()

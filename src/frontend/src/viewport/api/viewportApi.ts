@@ -16,10 +16,8 @@ import type {ViewportUndoState} from "./viewportState";
 
 export type ViewportKind = "three" | "native";
 
-/** Things one viewport can do and another cannot yet. A caller asks before offering it.
- *  "large-ground-images": an image in the scene (./imageLayer.ts) of any size; a viewport that
- *  names a reason draws small ones only, and its image layer says for which sizes. */
-export type ViewportFeature = "fit-selection" | "large-ground-images";
+/** Things one viewport can do and another cannot yet. A caller asks before offering it. */
+export type ViewportFeature = "fit-selection";
 
 /** The node animation of the models on screen (their parts moving over time), shown a moment at a
  *  time. What the playback clock (state/playbackClock.ts) plays as one of its tracks. */
@@ -145,8 +143,8 @@ export interface ViewportApi {
     /** The viewport's layer of images lying in the world called `name` (./imageLayer.ts), made on
      *  first use; asking again gives the same layer until it is disposed. */
     images(name: string): ImageLayer;
-    /** The node animation of the models on screen; null when none of them has one, and on a
-     *  viewport that cannot play one yet. The same object until the models change. */
+    /** The node animation of the models on screen; null when none of them has one. The same object
+     *  until the models change. */
     modelAnimation(): ModelAnimation | null;
     /** Orbit about `point` from now on (what a double-click on the model does). */
     setOrbitPivot(point: Point3): void;
@@ -240,6 +238,9 @@ export interface LoadedModelInfo {
     added?: boolean;
     model: string;
     sourceName: string;
+    /** What the model is called to a person (its root row in the Scene tree), when its loader was
+     *  told; the model's own root name or the source name otherwise. */
+    displayName?: string;
     /** The GLB scene's extras, as JSON text ("" when it has none). */
     sceneExtras: string;
     /** The same extras as an object, from a viewport that made them itself instead of reading

@@ -142,7 +142,7 @@ const NativeViewport: React.FC = () => {
             setLoadError("");
             // The Scene tree and the object info list and name this model from here on.
             notifyModelLoaded({
-                added, model: key, sourceName: model.sourceName, sceneExtras: scene.sceneExtras,
+                added, model: key, sourceName: model.sourceName, displayName: model.displayName, sceneExtras: scene.sceneExtras,
                 adaExtData: scene.adaExtData, bufferView: glbBufferViews(model.bytes),
             });
         } catch (err) {

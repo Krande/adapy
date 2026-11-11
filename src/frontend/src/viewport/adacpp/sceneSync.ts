@@ -5,6 +5,7 @@
 import * as THREE from "three";
 import {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
 import {selectedMaterial} from "@/utils/default_materials";
+import {quadMatrix} from "@/viewport/native/nativeImages";
 import {InstanceFlag, NO_TEXTURE, SegmentFlag, SpriteFlag, Topology, type AdacppModule, type WebRendererApi} from "./types";
 
 type SegmentKind = "batched" | "groups" | "edges" | "none";
@@ -269,6 +270,8 @@ export class SceneSync {
                 this.forceOnTop = false;
             }
             if (!(o.isMesh || o.isLineSegments || o.isLine || o.isPoints)) return;
+            // An image lying in the world (viewport/api/threeImages.ts) is a quad of the renderer.
+            if (obj.userData.__worldImage && this.syncImage(obj as THREE.Mesh)) return;
             if (obj.userData.__sectionCap) {
                 this.frameCapColor = materialColor(baseMaterial(obj), 0x888888);
                 return;
@@ -379,6 +382,57 @@ export class SceneSync {
         }
     }
 
+    /** An image lying in the world as a renderer quad: its texture's bytes as a texture without a
+     *  mip chain (written again when the texture's version moves), placed on the mesh's rectangle
+     *  with the texture's first row at the rectangle's first corner. False when the renderer module
+     *  has no quads: the mesh is then mirrored as any other. */
+    private syncImage(mesh: THREE.Mesh): boolean {
+        if (typeof this.r.addQuad !== "function" || typeof this.r.addPlainTexture !== "function") return false;
+        const mat = mesh.material as THREE.MeshBasicMaterial;
+        const map = mat.map as THREE.DataTexture | null;
+        const image = map?.image as {data?: Uint8Array; width: number; height: number} | undefined;
+        if (!map || !image?.data) return false;
+        let texture = this.textures.get(map.uuid);
+        if (!texture || texture.version !== map.version) {
+            const p = this.module._malloc(image.data.length);
+            this.module.HEAPU8.set(image.data, p);
+            try {
+                if (texture) this.r.updateTexture(texture.id, p, image.width, image.height);
+                else texture = {id: this.r.addPlainTexture(p, image.width, image.height), version: 0, seen: 0};
+            } finally {
+                this.module._free(p);
+            }
+            texture.version = map.version;
+            this.textures.set(map.uuid, texture);
+        }
+        texture.seen = this.frame;
+        let quad = this.quads.get(mesh.uuid);
+        if (!quad) this.quads.set(mesh.uuid, (quad = {id: this.r.addQuad(), seen: 0}));
+        quad.seen = this.frame;
+        // The mesh's four corners are the rectangle: origin, +u, +u+v, +v.
+        const corners = (mesh.geometry.getAttribute("position") as THREE.BufferAttribute).array as Float32Array;
+        const {origin, u, v} = this.imageRect;
+        for (let k = 0; k < 3; k++) {
+            origin[k] = corners[k];
+            u[k] = corners[3 + k] - corners[k];
+            v[k] = corners[9 + k] - corners[k];
+        }
+        let flags = mat.depthTest ? InstanceFlag.DepthOffset : InstanceFlag.OnTop;
+        if (map.magFilter === THREE.NearestFilter) flags |= InstanceFlag.Nearest;
+        if (mat.clippingPlanes?.length) {
+            flags |= InstanceFlag.Clipped;
+            for (const plane of mat.clippingPlanes) this.framePlanes.add(plane);
+        }
+        quadMatrix(this.imageRect, mesh.matrixWorld.elements, this.imageMatrix);
+        this.module.HEAPF32.set(this.imageMatrix, this.matrixPtr >> 2);
+        this.r.setQuad(quad.id, texture.id, this.matrixPtr, 1, 1, 1, mat.opacity, flags, mesh.renderOrder);
+        return true;
+    }
+
+    private readonly quads = new Map<string, {id: number; seen: number}>();
+    private readonly imageRect = {origin: [0, 0, 0] as [number, number, number], u: [0, 0, 0] as [number, number, number], v: [0, 0, 0] as [number, number, number]};
+    private readonly imageMatrix = new Float32Array(16);
+
     private syncTexture(map: THREE.Texture | null): number {
         if (!map?.image) return NO_TEXTURE;
         let t = this.textures.get(map.uuid);
@@ -416,6 +470,12 @@ export class SceneSync {
             if (all || s.seen !== this.frame) {
                 this.r.removeSprite(s.id);
                 this.sprites.delete(key);
+            }
+        }
+        for (const [key, q] of this.quads) {
+            if (all || q.seen !== this.frame) {
+                this.r.removeQuad(q.id);
+                this.quads.delete(key);
             }
         }
         for (const [key, t] of this.textures) {

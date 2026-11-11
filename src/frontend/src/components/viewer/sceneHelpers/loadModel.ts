@@ -41,6 +41,9 @@ export type ModelBytes =
 export interface LoadModelSource {
     /** The durable storage key / filename the viewer shows as loaded. */
     sourceName: string;
+    /** What the model is called to a person: its root row in the Scene tree. Absent: the model's
+     *  own root name, else the source name. */
+    displayName?: string;
     bytes: ModelBytes;
     /**
      * "replace" tears the scene down first (the single-model view); "overlay"
@@ -79,7 +82,7 @@ async function loadFrom(
         // As a replace does on the three.js viewport: a result that was shown ends with its model.
         const {clearActiveFeaStreaming} = await import("@/utils/scene/fea/streaming/teardown");
         clearActiveFeaStreaming();
-        await showInNativeViewport(url, requestHeaders, sourceName, placement);
+        await showInNativeViewport(url, requestHeaders, sourceName, placement, source.displayName);
         return undefined;
     }
     if (placement === "overlay") {
@@ -88,6 +91,7 @@ async function loadFrom(
             translate: source.translate ?? true,
             prepareHook: source.prepareHook,
             sourceName,
+            displayName: source.displayName,
             requestHeaders,
             metrics,
             autoFitOverride: source.autoFitOverride,
@@ -102,6 +106,7 @@ async function loadFrom(
         url,
         prepareHook: source.prepareHook,
         sourceName,
+        displayName: source.displayName,
         translate: source.translate ?? false,
         requestHeaders,
         metrics,

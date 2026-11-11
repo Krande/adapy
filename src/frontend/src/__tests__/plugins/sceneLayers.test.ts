@@ -60,7 +60,7 @@ function fakeViewport(kind: ViewportKind = "native", imageLimit = Infinity) {
     };
     const api = {
         kind,
-        unavailable: (feature: string) => (feature === "large-ground-images" && imageLimit < Infinity ? "small images only" : null),
+        unavailable: () => null,
         overlays: (name: string) => once(`o:${name}`, () => overlays(name)),
         images: (name: string) => once(`i:${name}`, () => images(name)),
     } as unknown as ViewportApi;
@@ -157,7 +157,7 @@ test("an image is drawn through the viewport's images, its pixels replaced in pl
     assert.throws(() => addImage("p", {origin: [0, 0, 0], u: [1, 0, 0], v: [0, 1, 0], width: 2, height: 2, pixels: new Uint8Array(4)}), /4 bytes per pixel/);
 });
 
-test("a viewport that draws small images only says so, by size", () => {
+test("a viewport that cannot draw an image of a size says so", () => {
     viewport("native", 100);
     assert.equal(imageUnavailable(10, 10), null);
     assert.equal(imageUnavailable(11, 10), "too large");
@@ -264,4 +264,30 @@ test("without a viewport nothing is drawn and nothing fails", () => {
     const map = addImage("p", {origin: [0, 0, 0], u: [1, 0, 0], v: [0, 1, 0], width: 1, height: 1, pixels: new Uint8Array(4)});
     assert.equal(map.unavailable(), null);
     assert.equal(imageUnavailable(9999, 9999), null);
+});
+
+test("a row starts with the look its first layer names, unless the user left a choice for it", () => {
+    const {drawn} = viewport();
+    const kept = new Map<string, string>([["ada-layer-look", JSON.stringify({"p:scan": {visible: true, opacity: 0.8}})]]);
+    (globalThis as {localStorage?: unknown}).localStorage = {getItem: (k: string) => kept.get(k) ?? null, setItem: (k: string, v: string) => void kept.set(k, v)};
+    resetLayerRegistry();
+    try {
+        // Nothing stored for this row: it starts as the layer says, here switched off and half opaque.
+        addLineLayer("p", {segments: [0, 0, 0, 1, 0, 0], opacity: 0.5, layer: {id: "path", label: "Path", visible: false, opacity: 0.5}});
+        assert.deepEqual(makePluginLayers("p").list()[0], {id: "path", label: "Path", group: undefined, visible: false, opacity: 0.5});
+        assert.deepEqual(lastLook(drawn[0]), {visible: false, opacity: 0.25}, "the row's look times the layer's own");
+        // The row's start is not the layer's own look: switched on, the layer's own opacity remains.
+        makePluginLayers("p").setVisible("path", true);
+        makePluginLayers("p").setOpacity("path", 1);
+        assert.deepEqual(lastLook(drawn[0]), {visible: true, opacity: 0.5});
+        // A second layer in the row does not start it again.
+        addPointLayer("p", {positions: [0, 0, 0], layer: {id: "path", label: "Path", visible: false}});
+        assert.equal(makePluginLayers("p").list()[0].visible, true);
+        // A stored choice wins over what the layer names.
+        addPointLayer("p", {positions: [0, 0, 0], layer: {id: "scan", label: "Scan", visible: false, opacity: 0.1}});
+        assert.deepEqual(makePluginLayers("p").list()[1], {id: "scan", label: "Scan", group: undefined, visible: true, opacity: 0.8});
+    } finally {
+        removeOwnerOverlays("p");
+        (globalThis as {localStorage?: unknown}).localStorage = undefined;
+    }
 });

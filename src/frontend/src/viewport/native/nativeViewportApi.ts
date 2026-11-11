@@ -9,7 +9,7 @@ import {createNativeBillboardLayer} from "./nativeBillboards";
 import type {OverlayLayer} from "@/viewport/api/overlayLayer";
 import {createNativeOverlayLayer} from "./nativeOverlays";
 import type {ImageLayer} from "@/viewport/api/imageLayer";
-import {createNativeImageLayer, MAX_CELLS} from "./nativeImages";
+import {createNativeImageLayer} from "./nativeImages";
 import {KeySet, nativeObjectsInBox, nativeObjectsInScreenRect, nativeSelectionBounds} from "./nativeBoxSelection";
 import {objectKey, splitObjectKey, type NativeScene} from "./nativeScene";
 import {withNativeHistory} from "./nativeViewportHistory";
@@ -31,10 +31,7 @@ export function createNativeViewportApi(scene: NativeScene): ViewportApi {
     // Each call that changes the selection or what is hidden is one undo step (./nativeViewportHistory.ts).
     return withNativeHistory(scene, {
         kind: "native",
-        unavailable: (feature) =>
-            feature === "large-ground-images"
-                ? `This renderer draws an image in the scene one square per pixel, up to ${MAX_CELLS.toLocaleString("en")} pixels.`
-                : null,
+        unavailable: () => null,
         selectionCount: () => scene.selectionSize,
         selection: () => scene.selectedIds.map(splitObjectKey),
         selectionToken: () => scene.selectionVersion,
@@ -104,12 +101,8 @@ export function createNativeViewportApi(scene: NativeScene): ViewportApi {
             }
             return layer;
         },
-        // THE SEAM for node animation on this viewport. The renderer's GLB reader bakes each node's
-        // transform into the geometry it merges and has no call that moves a node afterwards, so
-        // there is nothing to play yet. Once the renderer can pose a loaded model at a time (or
-        // takes per-node transforms), return {duration, showTime} from the scene here: the
-        // playback clock's track, the transport and the plugin API follow without another change.
-        modelAnimation: () => null,
+        // The renderer places the animated nodes of the loaded GLBs by time (NativeScene).
+        modelAnimation: () => scene.modelAnimation,
         setOrbitPivot: (point) => scene.setOrbitPivot(point),
         fitBox: (min, max) => scene.fitBox([min[0], min[1], min[2], max[0], max[1], max[2]]),
         // Box selection, decided on each object's box (./nativeBoxSelection.ts says where that is coarser).

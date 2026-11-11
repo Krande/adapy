@@ -92,6 +92,8 @@ export function createThreeImageLayer(parent: () => THREE.Object3D | null, name:
             if (image.onTop) mesh.userData.__overlayPass = true;
             mesh.visible = image.visible !== false;
             mesh.raycast = () => undefined; // a click goes to the model under it
+            // The WebGPU viewport that mirrors the scene draws it as a textured quad of the renderer.
+            mesh.userData.__worldImage = true;
             if (image.matrix) {
                 mesh.matrixAutoUpdate = false;
                 mesh.matrix.fromArray(image.matrix);
