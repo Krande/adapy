@@ -7,6 +7,8 @@ import { useViewerHistoryStore } from "@/state/viewerHistoryStore";
 import { createViewerRuntime, mountViewerRuntime } from "@/state/viewerRuntime";
 import { CustomBatchedMesh } from "@/utils/mesh_select/CustomBatchedMesh";
 import { recordViewerAction, redoViewerAction, undoViewerAction } from "@/utils/scene/viewerHistory";
+import { createThreeViewport } from "@/viewport/api/threeViewport";
+import { setActiveViewport } from "@/viewport/api/viewportApi";
 import { hideSelectedRanges, unhideAllRanges } from "@/utils/scene/visibility";
 
 // Viewer operations against a real (headless) scene: each action is one history entry, and undo /
@@ -24,6 +26,8 @@ function mesh(ids: string[]): CustomBatchedMesh {
 
 const runtime = createViewerRuntime();
 mountViewerRuntime(runtime);
+// The history asks the viewport on screen what is selected and hidden: the three.js one, over this scene.
+setActiveViewport(createThreeViewport({} as never));
 let m: CustomBatchedMesh;
 
 const hist = () => useViewerHistoryStore.getState();

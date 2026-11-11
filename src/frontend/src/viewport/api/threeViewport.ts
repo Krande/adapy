@@ -2,23 +2,30 @@
 // interface existed, moved here unchanged. The modules are imported on first use, as the commands
 // imported them, so the boot path does not pay for the scene helpers.
 import type * as THREE from "three";
+import {Box3, Vector3} from "three";
 import type CameraControls from "camera-controls";
 import type {OrbitControls} from "three/examples/jsm/controls/OrbitControls";
 
 import {type CameraView} from "@/layout/coreCommandIds";
-import {useModelState} from "@/state/modelState";
+import {loadedSourceGroups, useModelState} from "@/state/modelState";
 import {useObjectInfoStore} from "@/state/objectInfoStore";
 import {requestRender} from "@/state/perfStore";
 import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
 import {useTreeViewStore} from "@/state/treeViewStore";
 import {getViewerRuntime} from "@/state/viewerRuntime";
 import type {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
-import {batchedMeshOf, isBatched} from "@/utils/scene/meshLookup";
+import {batchedMeshOf, isBatched, sourceSpaceRoot} from "@/utils/scene/meshLookup";
+import {matrixProjector} from "@/utils/scene/fea/labelPlacement";
 import {createThreeResultMesh} from "@/utils/scene/fea/threeResultLayer";
 import {recordViewerAction} from "@/utils/scene/viewerHistory";
+import {captureThreeState, restoreThreeState, threeStateChange} from "@/utils/scene/threeViewportState";
+import {RangeSet, rangesInCameraRect, rangesInWorldBox, threeSelectionBounds} from "@/utils/bboxSelection/threeBoxSelection";
 import {rangesCentroidWorld} from "@/utils/viewer/pipeTrace";
 import type {BillboardLayer} from "./billboards";
 import {createThreeBillboardLayer} from "./threeBillboards";
+import type {OverlayLayer} from "./overlayLayer";
+import {createThreeOverlayLayer} from "./threeOverlays";
+import {frameBox} from "@/components/viewer/sceneHelpers/cameraFit";
 import type {ObjectRef, ObjectVisibilityReader, SetSelectionOptions, ViewportApi} from "./viewportApi";
 
 /** The GLB node that draws `ref`: the caller's, or the Scene tree row's. */
@@ -26,7 +33,7 @@ const nodeOf = (ref: ObjectRef): string | null | undefined =>
     ref.node !== undefined ? ref.node : useTreeViewStore.getState().findNodeByRangeId(ref.model, ref.id)?.node_name;
 
 /** `refs` as draw ranges, grouped by the mesh that draws them. */
-function rangesOf(refs: readonly ObjectRef[]): Map<CustomBatchedMesh, Set<string>> {
+function rangesOf(refs: Iterable<ObjectRef>): Map<CustomBatchedMesh, Set<string>> {
     const out = new Map<CustomBatchedMesh, Set<string>>();
     const cache = new Map<string, CustomBatchedMesh>();
     for (const ref of refs) {
@@ -71,6 +78,17 @@ export function threeSelectionRefs(): ObjectRef[] {
  *  Returns how many draw ranges it selected. */
 export function setThreeSelection(refs: Iterable<ObjectRef>, options: SetSelectionOptions = {}): number {
     const store = useSelectedObjectStore.getState();
+    // What this viewport found itself (the ranges a box or a rectangle takes) comes grouped by mesh:
+    // there is nothing to look up, and no pair is made per range.
+    if (refs instanceof RangeSet) {
+        recordViewerAction("select", () => {
+            if (!options.add) store.clearSelectedObjects();
+            if (refs.size) store.addRangesByMesh(refs.groups);
+            options.within?.();
+        }, {coalesce: options.coalesce});
+        requestRender();
+        return refs.size;
+    }
     const models = getViewerRuntime().modelKeyMap.current;
     const tree = useTreeViewStore.getState();
     const batch: [THREE.Object3D, string][] = [];
@@ -97,24 +115,25 @@ export function setThreeSelection(refs: Iterable<ObjectRef>, options: SetSelecti
         }
         if (lastMesh) batch.push([lastMesh, ref.id]);
     }
+    const record = {coalesce: options.coalesce};
     if (options.add) {
         if (batch.length || options.within) {
             recordViewerAction("select", () => {
                 if (batch.length) store.addBatchofMeshes(batch);
                 options.within?.();
-            });
+            }, record);
         }
     } else if (!asked) {
         recordViewerAction("clear-selection", () => {
             store.clearSelectedObjects();
             options.within?.();
-        });
+        }, record);
     } else {
         recordViewerAction("select", () => {
             store.clearSelectedObjects();
             if (batch.length) store.addBatchofMeshes(batch);
             options.within?.();
-        });
+        }, record);
     }
     requestRender();
     return batch.length;
@@ -133,6 +152,7 @@ export interface ThreeViewportHandles {
 /** The viewport interface over the three.js scene, camera and controls of one mounted canvas. */
 export function createThreeViewport(h: ThreeViewportHandles): ViewportApi {
     const layers = new Map<string, BillboardLayer>();
+    const overlayLayers = new Map<string, OverlayLayer>();
     return {
         kind: "three",
         unavailable: () => null,
@@ -181,6 +201,20 @@ export function createThreeViewport(h: ThreeViewportHandles): ViewportApi {
             requestRender();
         },
         objectVisibility: threeVisibilityReader,
+        // Undo: the hidden ranges per mesh and the selection store, as the history noted them itself
+        // before it asked the viewport (utils/scene/threeViewportState.ts).
+        captureState: captureThreeState,
+        stateChange: threeStateChange,
+        restoreState: restoreThreeState,
+        // Where the loader put the model's own frame: its source-space root, recentred with the scene.
+        sourceOrigin: (sourceName) => {
+            const group = loadedSourceGroups.get(sourceName);
+            if (!group) return null;
+            const root = sourceSpaceRoot(group);
+            root.updateWorldMatrix(true, false);
+            const p = root.getWorldPosition(new Vector3());
+            return [p.x, p.y, p.z];
+        },
         unloadSource: () => false,
         saveScreenshot: () => void import("@/utils/takeScreenshot").then((m) => m.takeScreenshot()),
         modelBounds: () => {
@@ -223,6 +257,24 @@ export function createThreeViewport(h: ThreeViewportHandles): ViewportApi {
                 requestRender();
             }),
         resetCamera: () => void cameraHandlers().then((m) => m.resetCameraHome(h.camera, h.controls)),
+        cameraPose: () => {
+            const position = h.camera.position;
+            const target = "target" in h.controls ? h.controls.target : h.controls.getTarget(new Vector3());
+            const up = h.camera.up;
+            return {eye: [position.x, position.y, position.z], target: [target.x, target.y, target.z], up: [up.x, up.y, up.z], fovDeg: h.camera.fov};
+        },
+        // The three.js viewport's own input drives its controls directly; this is for a caller that
+        // only has a pose. Roll is the 3D mouse's, which keeps it itself on this viewport.
+        setCameraPose: (eye, target) => {
+            if ("target" in h.controls) {
+                h.camera.position.set(eye[0], eye[1], eye[2]);
+                h.controls.target.set(target[0], target[1], target[2]);
+                h.controls.update();
+            } else {
+                void h.controls.setLookAt(eye[0], eye[1], eye[2], target[0], target[1], target[2], false);
+            }
+            requestRender();
+        },
         orbitStep: (right, up) =>
             void cameraKeys().then((m) => {
                 m.orbitByStep(h.controls, h.camera, right, up);
@@ -245,6 +297,63 @@ export function createThreeViewport(h: ThreeViewportHandles): ViewportApi {
                 layers.set(name, layer);
             }
             return layer;
+        },
+        // Lines and points over the model, in the scene on screen.
+        overlays: (name) => {
+            let layer = overlayLayers.get(name);
+            if (!layer) {
+                const made = createThreeOverlayLayer(() => getViewerRuntime().scene.current ?? h.scene ?? null, name);
+                layer = {...made, dispose: () => (overlayLayers.delete(name), made.dispose())};
+                overlayLayers.set(name, layer);
+            }
+            return layer;
+        },
+        fitBox: (min, max) => {
+            const rt = getViewerRuntime();
+            const camera = rt.camera.current ?? h.camera;
+            const controls = rt.controls.current ?? h.controls;
+            const box = new Box3(new Vector3(min[0], min[1], min[2]), new Vector3(max[0], max[1], max[2]));
+            if (box.isEmpty() || !camera || !controls) return false;
+            frameBox(box, camera, controls);
+            rt.updateLight.current?.();
+            requestRender();
+            return true;
+        },
+        // Box selection: decided on the triangles and the cached range bounds, as before the interface.
+        objectsInBox: rangesInWorldBox,
+        objectsInScreenRect: (rect, mode) => rangesInCameraRect(rect, mode, h.camera),
+        selectionBounds: threeSelectionBounds,
+        projectToScreen: (world, count, out) => {
+            const rt = getViewerRuntime();
+            const camera = rt.camera.current ?? h.camera;
+            const el = rt.renderer.current?.domElement;
+            const width = el?.clientWidth ?? 0, height = el?.clientHeight ?? 0;
+            return matrixProjector(camera.matrixWorldInverse.elements, camera.projectionMatrix.elements, width, height, -1)(world, count, out);
+        },
+        onCameraChange: (listener) => {
+            // The camera is moved by the controls, by commands and by animations, none of which
+            // says so in one place: its matrices and the view's size are compared once a frame
+            // for as long as someone listens. Numbers only, nothing allocated.
+            const seen = new Float64Array(34);
+            let raf = 0;
+            const check = () => {
+                raf = requestAnimationFrame(check);
+                const rt = getViewerRuntime();
+                const camera = rt.camera.current ?? h.camera;
+                const el = rt.renderer.current?.domElement;
+                const world = camera.matrixWorld.elements, proj = camera.projectionMatrix.elements;
+                let changed = false;
+                for (let i = 0; i < 34; i++) {
+                    const v = i < 16 ? world[i] : i < 32 ? proj[i - 16] : i === 32 ? (el?.clientWidth ?? 0) : (el?.clientHeight ?? 0);
+                    if (seen[i] !== v) {
+                        seen[i] = v;
+                        changed = true;
+                    }
+                }
+                if (changed) listener();
+            };
+            raf = requestAnimationFrame(check);
+            return () => cancelAnimationFrame(raf);
         },
     };
 }

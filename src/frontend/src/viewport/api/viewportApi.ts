@@ -9,6 +9,9 @@
 import type {ViewportResults} from "./resultLayer";
 import {type CameraView} from "@/layout/coreCommandIds";
 import type {BillboardLayer, Point3} from "./billboards";
+import type {OverlayLayer} from "./overlayLayer";
+import type {ViewportBoxSelection} from "./boxSelection";
+import type {ViewportUndoState} from "./viewportState";
 
 export type ViewportKind = "three" | "native";
 
@@ -26,12 +29,22 @@ export interface ObjectRef {
     node?: string | null;
 }
 
+export interface ViewportCameraPose {
+    eye: [number, number, number];
+    target: [number, number, number];
+    up: [number, number, number];
+    fovDeg: number;
+}
+
 export interface SetSelectionOptions {
     /** Add to the selection instead of replacing it. */
     add?: boolean;
     /** Runs as part of the same step: state that belongs to the selection (what the object info
      *  names), so an undo takes both back. */
     within?: () => void;
+    /** Selections made with the same key in quick succession are one undo step: what re-applies
+     *  while something is dragged (a selection box's handles). */
+    coalesce?: string;
 }
 
 /** Reads how one object is drawn now: "shown", "hidden", or null when the viewport draws nothing for
@@ -63,11 +76,22 @@ export interface ViewportApi {
     showAll(): void;
     /** Hide `refs` (one undo step where the viewport has undo); the selection is cleared, as its
      *  highlight would keep drawing what was hidden. */
-    hide(refs: readonly ObjectRef[]): void;
-    show(refs: readonly ObjectRef[]): void;
-    /** Show `refs` and hide everything else. */
-    isolate(refs: readonly ObjectRef[]): void;
+    hide(refs: Iterable<ObjectRef>): void;
+    show(refs: Iterable<ObjectRef>): void;
+    /** Show `refs` and hide everything else. As with `setSelection`, `refs` is read once and no
+     *  ref is kept. */
+    isolate(refs: Iterable<ObjectRef>): void;
     objectVisibility(): ObjectVisibilityReader;
+    // Undo: the selection and what is hidden as a state the history captures before an action and
+    // puts back on undo and redo (./viewportState.ts). Each of the calls above that changes either is
+    // one undo step.
+    captureState: ViewportUndoState["captureState"];
+    stateChange: ViewportUndoState["stateChange"];
+    restoreState: ViewportUndoState["restoreState"];
+    /** Where the origin of the model loaded from `sourceName` is in the world: the offset its
+     *  loader moved it by (state/sceneFrameStore has the scene's one offset). Null when no such model
+     *  is on screen. */
+    sourceOrigin(sourceName: string): Point3 | null;
 
     /** The loaded model's box (min xyz, max xyz), or null with nothing loaded. */
     modelBounds(): [number, number, number, number, number, number] | null;
@@ -82,6 +106,11 @@ export interface ViewportApi {
     saveScreenshot(): void;
 
     // The camera.
+    /** Where the camera is and what it looks at, for input that moves it directly (a 3D mouse).
+     *  `up` is the world's up axis, not the camera's own; null before there is a camera. */
+    cameraPose(): ViewportCameraPose | null;
+    /** Put the camera at `eye` looking at `target`, rolled by `roll` radians about that direction. */
+    setCameraPose(eye: Point3, target: Point3, roll: number): void;
     fitAll(): void;
     fitSelection(): void;
     setView(view: CameraView): void;
@@ -98,6 +127,27 @@ export interface ViewportApi {
     /** The viewport's layer of camera-facing images called `name`, made on first use; asking again
      *  gives the same layer until it is disposed. */
     billboards(name: string): BillboardLayer;
+    /** The viewport's layer of lines and points called `name` (./overlayLayer.ts), made on first
+     *  use; asking again gives the same layer until it is disposed. */
+    overlays(name: string): OverlayLayer;
+    /** Frame the camera on a box in the world (min xyz, max xyz), keeping the direction it looks
+     *  in. False when there is no camera yet or the box is empty. */
+    fitBox(min: Point3, max: Point3): boolean;
+
+    // Box selection: what a box in the world or a rectangle on the screen takes (./boxSelection.ts).
+    objectsInBox: ViewportBoxSelection["objectsInBox"];
+    objectsInScreenRect: ViewportBoxSelection["objectsInScreenRect"];
+    selectionBounds: ViewportBoxSelection["selectionBounds"];
+    // Screen positions, for what is drawn in HTML over the view (number labels).
+    /** Where `count` world points (xyz each, in `world`) are in the view now: per point, x and y in
+     *  CSS pixels from the view's top-left corner and the depth (0 at the near plane, 1 at the far
+     *  one) into `out`, three numbers each; a point behind the camera gets NaN. Returns the view's
+     *  size in CSS pixels. Nothing is allocated per point. */
+    projectToScreen(world: Float32Array, count: number, out: Float32Array): {width: number; height: number};
+    /** Called when the camera has moved or the view has changed size: what was projected is out
+     *  of date. A viewport that draws only when something changed may call it for every frame it
+     *  draws. Returns the unsubscribe function. */
+    onCameraChange(listener: () => void): () => void;
 }
 
 let active: ViewportApi | null = null;
@@ -172,6 +222,9 @@ export interface LoadedModelInfo {
     sourceName: string;
     /** The GLB scene's extras, as JSON text ("" when it has none). */
     sceneExtras: string;
+    /** The same extras as an object, from a viewport that made them itself instead of reading
+     *  them from a file; `sceneExtras` is then "". */
+    extras?: Record<string, unknown>;
 }
 
 /** A click in a viewport: the object under it, or null for empty space. */

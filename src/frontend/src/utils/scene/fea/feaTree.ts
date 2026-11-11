@@ -24,6 +24,7 @@ import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {useFeaIsolationStore, type FeaIsolation, type FeaPickedInfo, type FeaTreeView} from "@/state/feaIsolationStore";
 import {useObjectInfoStore} from "@/state/objectInfoStore";
 
+import {layerSessionActive} from "./streaming/layerSession";
 import {
     buildFeaTreeRoots,
     contextWireframeReason,
@@ -261,7 +262,8 @@ export function installFeaTree(): void {
         // isolation's overlays go with it (the meshes it hid are gone or replaced).
         const had = store().isolation.rows.length > 0;
         store().reset(s.sourceName);
-        if (had) void import("./groupVisibility").then((m) => m.applyFeaIsolationOverlays([], false));
+        // (A result drawn through result layers took its layers with it: nothing to put back.)
+        if (had && !layerSessionActive()) void import("./groupVisibility").then((m) => m.applyFeaIsolationOverlays([], false));
     });
 }
 

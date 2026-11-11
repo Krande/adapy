@@ -22,11 +22,10 @@ import {selectChildLevel, selectParentLevel, selectSibling} from "@/utils/tree_v
 import {useCellBuilderStore, needsPreviewCompile} from "@/state/cellBuilderStore";
 import {frameCells} from "@/utils/scene/frameCells";
 import {requestRender} from "@/state/perfStore";
-import {viewportShortcutHandlers} from "@/viewport/api/viewportShortcuts";
+import {historyShortcutHandlers, viewportShortcutHandlers} from "@/viewport/api/viewportShortcuts";
 import {useModelState} from "@/state/modelState";
 import {bindCoreShortcuts, type CoreShortcutHandler} from "@/layout/shortcuts";
 import {installShortcutDispatcher} from "@/layout/shortcutDispatch";
-import {redoViewerAction, undoViewerAction} from "@/utils/scene/viewerHistory";
 import {bindViewerHistoryReset} from "@/utils/scene/viewerHistoryBindings";
 import {anyShownRange} from "@/utils/mesh_select/selectionSets";
 import {selectAllRanges} from "@/utils/scene/selectionCommands";
@@ -97,9 +96,7 @@ export function setupCameraControlsHandlers(
         step();
     };
     const unbindShortcuts = bindCoreShortcuts({
-        "core:undo": shortcut(history(undoViewerAction)),
-        "core:redo": shortcut(history(redoViewerAction)),
-        "core:redo-alt": shortcut(history(redoViewerAction)),
+        ...historyShortcutHandlers((step) => shortcut(history(step))),
         "core:group-selection": shortcut(() => void groupSelectionFromKeyboard()),
         // Hide / show, fit, the named views and the camera keys are the viewport's, three.js or not.
         ...viewportShortcutHandlers(shortcut),

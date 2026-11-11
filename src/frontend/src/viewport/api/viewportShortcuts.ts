@@ -2,6 +2,7 @@
 // the three.js viewport and the three.js-free one answer the same keys. No three.js in this module.
 import {CAMERA_VIEWS, cameraViewCommandId} from "@/layout/coreCommandIds";
 import type {CoreShortcutHandler} from "@/layout/shortcuts";
+import {redoViewerAction, undoViewerAction} from "@/utils/scene/viewerHistory";
 import {activeViewport} from "./viewportApi";
 
 type Run = () => void | boolean;
@@ -31,4 +32,12 @@ export function viewportShortcutHandlers(wrap: (run: Run) => CoreShortcutHandler
         "core:pan-up": on((v) => v.panStep(0, 1)),
         "core:pan-down": on((v) => v.panStep(0, -1)),
     };
+}
+
+/** Undo and Redo, by core shortcut id: the history is the same one for both viewports. `wrap` gives
+ *  each the caller's own conditions (its scope; a mode with a history of its own takes the keys first). */
+export function historyShortcutHandlers(wrap: (run: () => void) => CoreShortcutHandler): Record<string, CoreShortcutHandler> {
+    const undo = () => void undoViewerAction();
+    const redo = () => void redoViewerAction();
+    return {"core:undo": wrap(undo), "core:redo": wrap(redo), "core:redo-alt": wrap(redo)};
 }

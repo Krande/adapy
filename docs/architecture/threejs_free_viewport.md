@@ -58,8 +58,7 @@ flowchart LR
 | Failure | If WebGPU or the module cannot start, or the device is lost, the state becomes `failed` with the reason, `CanvasWrapper` mounts the three.js viewport, and the model that was handed over is loaded there. The Performance panel shows the reason. |
 
 What the main viewer does beyond this is listed in the viewport itself under "Not available in
-this mode", so nothing looks broken by omission: element (integration point) fields of an FEA
-result, number labels and plugin overlays, box selection, 3D-mouse input and export.
+this mode", so nothing looks broken by omission.
 
 React reads the selection through `viewport/api/useViewportSelection.ts` (its count, the selected
 objects, a token that changes with it), so a panel written against it follows whichever viewport is
@@ -99,13 +98,147 @@ flowchart LR
 | adacpp renderer | `viewport/native/nativeResultLayer.ts` | One geometry with colours and a morph, one instance. Colours and displacement are written into buffers kept on the module heap, so a step allocates nothing. |
 | Playing | `feaAnimationDriver.ts`, `playbackActions.ts`, `resultInfluence.ts` | The oscillator and the transport write one number per frame to the layer in `feaAnimationStore.resultLayer`. No vertex data moves while a mode shape plays. |
 | Controls and legend | `utils/scene/fea/streaming/resultStores.ts` | A painted result is registered the same way from either loader: the session, the step count, the derived deformation scale, the legend's range. |
-| The loader without a scene | `utils/scene/fea/streaming/layerSession.ts` | Reads the mesh GLB as typed arrays (`utils/glb/glbMesh.ts`), draws faces and element edges as layers, paints a nodal field, registers the step callback. `load_fea_streaming` hands a load to it while the three.js-free viewport is on screen. |
+| The loader without a scene | `utils/scene/fea/streaming/layerSession.ts` | Reads the mesh GLB as typed arrays (`utils/glb/glbMesh.ts`), draws faces and element edges as layers, paints a nodal or an element field, registers the step callback. `load_fea_streaming` hands a load to it while the three.js-free viewport is on screen. |
+| Element fields | `utils/scene/fea/elemFieldPaint.ts` | One step of an element (integration point) field as typed arrays: a colour per render vertex, the displacement per node, the result-point markers, the coloured lines of line elements, and each element's painted value. An element's colour is its own, so the mesh it is painted on is element-local (a vertex per triangle corner). `applyElemField.ts` writes the same output to the three.js mesh. |
+| Elements as objects | `viewport/api/resultLayer.ts` (`ResultMeshObjects`), `viewport/native/resultObjects.ts` | A result mesh says which objects it is made of: a model key, its object ids, and the part of the index list each draws. The three.js-free scene makes them the renderer's segments and registers the model beside the loaded ones, so pick, select, hide, show, isolate and fit go through `ViewportApi` as for any model, and `onModelLoaded` carries the hierarchy the Scene tree lists. The selection is a per-segment colour, so the other elements keep their result colours. |
+| Beam sections | `utils/scene/fea/streaming/layerBeamSolids.ts` | The beam solids of a bake as typed arrays, from the compact artefact (expanded by the compute capability) or the mesh GLB with its sidecars. Drawn as one more layer when asked for; each section is the object its element is. |
+| What a layer can be | `viewport/api/resultLayer.ts` | Triangles, lines or points, with a width or diameter in pixels and an opacity: result points are a layer of points, the coloured lines of line elements and the undeformed outline are layers of lines. `streaming/layerGroup.ts` holds a result's layers as one for the controls and the playback driver. |
+| Number labels | `utils/scene/fea/labelPlacement.ts`, `layout/NumberLabels.tsx` | What is worth a label and where it goes, from a `LabelSource` (elements, their vertices, where each vertex is now) and a projector. `ViewportApi.projectToScreen` projects a batch of world points to CSS pixels and depth, and `onCameraChange` says when to do it again; the three.js mesh (`numberLabels.ts`) and the layer session are the two sources. |
 
-The three.js viewport still loads a result with its own loader, which does more than the layer
-session does: element fields with their element-local vertices, beam sections, result points, the
-undeformed outline, per-element selection, recorded playback frames and load combinations computed
-on request. Those are the next things to move behind layers; until then the layer session refuses
-an element field or a combination with the reason instead of drawing it wrong.
+| Edges of beam sections | `utils/scene/fea/beamSolidFeatureEdges.ts`, `streaming/layerSession.ts` | The corners of each section and the outline of each end, worked out from the beam solids' arrays (in a worker where one can be started) and drawn as a layer of lines over the sections' own vertices: they take the sections' displacement, and a hidden beam's are left out. "Solid edges" shows and hides them. |
+| Sets and properties | `utils/scene/fea/streaming/manifestStores.ts`, `utils/scene/fea/layerIsolation.ts` | The manifest's sets, dummy-mass beams and FEA input concepts go into the stores the three.js loader fills, so the Scene tree lists "Sets" and "Properties" for either. A set is a list of element ids, and the elements are the viewport's objects: isolating, hiding and showing a set go through `ViewportApi` (`isolate`, `hide`, `show` take any iterable of refs, read once, so a set of thousands is one reused ref). "Show the rest as wireframe" keeps the edges of the hidden elements. The scene actions pick this module or the three.js one (`feaIsolation.ts`) by how the result is drawn. |
+| Recorded frames | `utils/scene/fea/streaming/layerFrames.ts`, `framesKey.ts` | A frame a play has painted is kept as plain data (the displacement per node, the colours of the faces and of the beam sections as bytes) under the key the three.js recorder uses, and written to the layers on the next pass without reading or painting the step. Out of the step cache's budget, as there. |
+
+Both viewports paint with the same kernels. What the three.js viewport's own loader still does
+that the layer session does not:
+
+- An isolation does not reach beams drawn as coloured lines (they are no objects of the viewport
+  while nothing but a line draws them), and the dummy-mass beams are left out of the section
+  solids only, not of those lines.
+- The rest of an isolation "as wireframe" is drawn with the ordinary edge colour, not dimmed.
+- A frame that draws result points or coloured lines is not recorded: it is painted again.
+- The glyphs of the FEA input concepts (masses, supports, loads) are three.js objects, and the
+  CAD lineage is kept against a three.js object: neither is on the three.js-free viewport. The
+  "FEM groups" picker of the Scene panel selects in the three.js scene.
+- No undo there, so an isolation is not an undo step.
+
+## Overlays on both viewports
+
+What a feature draws over the model without it being part of the model is plain data handed to
+the viewport on screen, by handle:
+
+```mermaid
+flowchart LR
+    PLUGIN["plugin<br/>ctx.scene.addLines, addLabels,<br/>addElementOutlines, paintFeaElements"] --> VERBS["plugins/sceneOverlays.ts<br/>colours, frames, owners"]
+    VERBS -->|segments, points| OL["ViewportApi.overlays(name)<br/>OverlayLayer"]
+    VERBS -->|images| BB["ViewportApi.billboards(name)<br/>BillboardLayer"]
+    VERBS -->|elements, positions now| TARGET["elementSource.ts<br/>activeFeaTarget()"]
+    TARGET --> MESH["meshOverlayTarget.ts<br/>the three.js result mesh"]
+    TARGET --> LAYERS["layerOverlayTarget.ts<br/>the layer session"]
+    TICK["beforeDraw.ts<br/>once per frame"] --> VERBS
+```
+
+| Part | Where | What it is |
+|---|---|---|
+| Lines and points | `viewport/api/overlayLayer.ts` | `OverlayLayer`: line segments or points in the world (or in a frame given as a matrix), one colour or a colour each, a width or a size in pixels, dashes, over the model or depth-tested, cut by the section planes or not. `addLines` / `addPoints` return a handle; `setPositions` moves what it draws. |
+| three.js | `viewport/api/threeOverlays.ts` | Wide lines (`LineSegments2`) and points in the scene, as plugin lines were always drawn; the adacpp WebGPU viewport mirrors them. |
+| adacpp renderer | `viewport/native/nativeOverlays.ts` | A geometry of the renderer per overlay, through the scene's result layers with the look of an annotation (`ResultMeshData.overlay`: unlit, never picked, over the model or just in front of the faces it lies on). A move is written as the geometry's morph, and what is drawn is made again after a load emptied the scene. |
+| Labels | `viewport/api/billboards.ts` | A plugin's labels are billboards of constant size on screen, cut by the section planes at their anchor (`clipped`), their image sampled without mipmaps (`crisp`). |
+| The result under them | `utils/scene/fea/elementSource.ts` | `activeFeaTarget()`: the FEA result on screen as `ElementGeometry` (each element's range of the index list, a vertex where it is drawn now, a version that changes when that may have, where the mesh stands), and the element-level verbs only the result can do (paint, hide, isolate). Two results register themselves: the three.js loader's mesh and the layer session. |
+| Following the result | `viewport/api/beforeDraw.ts` | Each viewport's frame loop runs the listeners before it draws. An outline or a pinned label compares the geometry's version and writes new positions only when it changed. |
+| Painted elements | `meshOverlayTarget.ts`, `streaming/layerOverlayTarget.ts` | On the three.js mesh, a copy of its triangles with the mesh's morph and its influences (as before). On the layer session, the painted elements' triangles as one more result layer, a vertex per corner, pinned to the session so each step's displacement and the deformation scale reach it. |
+
+The plugin-facing verbs are unchanged. What differs between the viewports: on the three.js-free
+one, lines drawn over the model are not ordered among themselves by when they were added, dashes
+are measured once (not again after the line moved), and hiding elements through a plugin clears
+the selection as any hide does there. An overlay is drawn by the viewport that was on screen when
+it was added; it is not carried over when the other viewport takes its place.
+
+## Box selection on both viewports
+
+A selection box is plain data, and so are its rules; only "which objects are in it" is the
+viewport's to answer.
+
+```mermaid
+flowchart LR
+    STORE["bboxSelectionStore<br/>boxes, the active one"] --> APPLY["applyBoxSelection.ts<br/>box around the selection,<br/>apply a box, screen rectangle"]
+    APPLY -->|objectsInBox, objectsInScreenRect,<br/>selectionBounds, setSelection| API["ViewportApi"]
+    API --> T["three.js<br/>triangles and cached range bounds"]
+    API --> N["NativeScene<br/>each object's box"]
+    STORE --> TC["BBoxSelectionController<br/>meshes, TransformControls"]
+    STORE --> NC["native/boxSelectionGizmo.ts<br/>helper lines and faces, SVG handles"]
+```
+
+| Part | Where | What it is |
+|---|---|---|
+| The boxes | `state/bboxSelectionStore.ts` | Bounds, mode ("partially within", "fully within"), colour, opacity, visibility, and which box is the active one. No three.js. A change to the boxes records itself as an undo step, as a change to the section planes does. |
+| The rules | `utils/bboxSelection/boxMath.ts`, `screenRect.ts`, `boxHandles.ts` | A box against a box or a triangle; a rectangle on the screen against a box's picture (a window takes what is wholly inside, a crossing what touches); a box's edges, faces and handles, and the pointer's place along a handle's axis. Plain numbers, unit-tested. |
+| What a viewport answers | `viewport/api/boxSelection.ts` | `objectsInBox(box, mode)`, `objectsInScreenRect(rect, mode)` and `selectionBounds()`, all members of `ViewportApi`. The first two return an `ObjectSet`: iterable as object refs (one ref reused), and taken back by the same viewport's `setSelection` without a lookup per object. Hidden objects and ones a section plane cuts away whole are never in an answer. |
+| Applying | `utils/bboxSelection/applyBoxSelection.ts` | A box around the selection, the selection a box makes, the selection a screen rectangle adds, and "the active box's selection follows its bounds and mode". Used by the commands (`Box around selection`, `Selection box takes only what is fully within`, `Reselect with selection box`, `Remove selection boxes`), the Scene panel, the tree's menu and both viewports' controllers. |
+| three.js | `utils/bboxSelection/threeBoxSelection.ts`, `BBoxSelectionController.tsx` | As before the interface: an object on a box's boundary is decided on its triangles, one that straddles a screen rectangle on its vertices or triangles. Boxes are meshes, the handles spheres, the move gizmo `TransformControls`. |
+| adacpp renderer | `viewport/native/nativeBoxSelection.ts`, `boxSelectionGizmo.ts` | Decided on each object's box from the GLB reader. A box's edges are helper lines and its faces see-through triangles of the renderer; the face handles and the move arrows are an SVG placed from the camera after each frame, and a press is hit-tested against them before the camera sees it. Shift and a drag draws the rectangle; a right-click on a box opens its menu. |
+
+Where the three.js-free viewport's answer is coarser, because it keeps no triangles on the
+JavaScript side:
+
+- **Partially within a box.** An object is taken when its box touches the selection box. The
+  three.js viewport looks at the triangles of an object on the boundary, so it leaves out a slanted
+  or L-shaped object whose box reaches in while the object itself does not. "Fully within" is the
+  same on both: an object is inside exactly when its box is.
+- **A rectangle on the screen.** A window takes an object when the picture of its box is wholly
+  inside, so it can miss a slanted object that is itself inside while its box's corner sticks out;
+  a crossing takes an object when the picture of its box touches, so it can take one that only its
+  box's corner reaches.
+- **An object with children that draws something itself.** The reader reports one box per object,
+  of the object and everything below it, so such an object is judged by the larger box.
+
+Two more things about boxes are the same on both viewports:
+
+- **Kept across reloads.** `utils/bboxSelection/boxPersistence.ts` keeps the boxes of a scope in the
+  browser, bound by whichever viewport draws them. A box is in world coordinates, and the two
+  viewports place a model differently: the three.js one recentres what it loads, the three.js-free
+  one draws a model where its file puts it. The offset in use is published as plain numbers
+  (`state/sceneFrameStore.ts`: mirrored from the three.js model state, zero on the three.js-free
+  viewport) and stored with the boxes, so a box moves by the difference and stays over the same
+  object, on a reload and from one viewport to the other.
+- **"Request from source".** What a box holds is asked of the viewport on screen (`objectsInBox`),
+  read as object refs and folded to whole levels of the Scene tree (`captureObjects` in
+  `utils/groups/groupScene.ts`); where each loaded model's own frame is in the world comes from the
+  viewport too (`sourceOrigin`). Finding candidates, the plan and the request are then the same code
+  for both. Putting what was requested into the scene (`boxSiteLoad.ts`) loads whole sites and hides
+  the rest by tree row. Holding a model invisible while it loads is the three.js loader's, so on the
+  three.js-free viewport a site would be drawn whole until the rest is hidden; that last step has
+  not been exercised there against a live source.
+
+## Undo and redo on both viewports
+
+One history (`state/viewerHistoryStore.ts`), filled by `recordViewerAction` in
+`utils/scene/viewerHistory.ts`, which imports no three.js. What is selected and what is hidden is
+the viewport's own, so the history asks the viewport on screen:
+
+```mermaid
+flowchart LR
+    ACT["an action<br/>(command, key, click, drag)"] --> REC["recordViewerAction(kind, fn)"]
+    REC -->|"captureState({selection, visibility})"| API["ViewportApi"]
+    REC -->|"fn()"| ACT2["the change"]
+    REC -->|"stateChange(before)"| API
+    REC --> ENTRY["entry<br/>before, after, store slices, object info"]
+    ENTRY -->|"undo: restoreState(before)<br/>redo: restoreState(after)"| API
+    API --> T["three.js<br/>hidden ranges per mesh, selection store"]
+    API --> N["NativeScene<br/>selected and hidden key sets"]
+```
+
+| Part | Where | What it is |
+|---|---|---|
+| The interface | `viewport/api/viewportState.ts` | `captureState(what)` notes the state before an action, `stateChange(before)` says what the action changed (and gives the state after it on request), `restoreState(state)` goes to one end of a step. A state is opaque outside the viewport that made it. An action that cannot hide or show anything asks for the selection only, and the viewport then does not look at what is hidden. |
+| The history | `utils/scene/viewerHistory.ts` | One entry per user action: the two ends of the viewport's step, the store slices it was given (section planes, selection boxes, FEA isolation) and the object info's name. Nested actions are one entry, actions with the same coalesce key in quick succession (a drag) are one entry, and nothing records while an entry is applied. The section and box stores record through it directly. |
+| three.js | `utils/scene/threeViewportState.ts` | As before the interface: the hidden ranges per mesh are copied before an action that can hide, and the entry keeps the difference per model by its scene name; the selection is kept as element ids per model. Entries survive a model being removed and loaded again. |
+| adacpp renderer | `viewport/native/nativeViewportHistory.ts` | The selected keys as a copy, and the keys a step hid and showed. `setSelection`, `clearSelection`, `hide`, `show`, `isolate`, `showAll`, `hideSelected`, `hideOthers` and a click in the view are each one step. A key names a model and an object in it; keys of a model no longer on screen are skipped. |
+| Keys and commands | `viewport/api/viewportShortcuts.ts`, `layout/coreCommands.ts` | Undo and Redo (Ctrl+Z, Ctrl+Y, Ctrl+Shift+Z) are bound by each viewport to the same history. |
+
+Where the three.js-free viewport differs: it has no entries for models loaded and removed
+(`utils/scene/modelHistory.ts` reloads through the three.js loaders), so a model that replaces the
+scene starts the history over, and a model that joins or leaves keeps it.
 
 ## What the next slices have to settle
 
@@ -114,13 +247,13 @@ These are open design points, ordered by how much of the viewer depends on them.
 1. **The interface features program against.** A feature that reaches into `THREE.Scene` exists on
    one viewport only. `src/frontend/src/viewport/api` is the interface both stand behind:
    `ViewportApi` (the selection as object refs and its changes, hiding, showing and isolating
-   objects, how each is drawn, the model's box, fit, named views, reset, orbit and pan by step), implemented by `threeViewport.ts` over the three.js scene and by
+   objects, how each is drawn, the model's box, what a box or a screen rectangle takes, its undoable state, fit, named views, reset, orbit and pan by step), implemented by `threeViewport.ts` over the three.js scene and by
    `native/nativeViewportApi.ts` over `NativeScene`. The viewport on screen registers itself
    (`setActiveViewport`); commands ask `activeViewport()`, and the keys are bound once for both in
    `viewportShortcuts.ts`. A viewport says what it cannot do yet (`unavailable(feature)`), and the
    command is offered disabled with that reason. The interface grows one feature area at a time:
-   still to come are objects by id with their state (colour, transparency), their bounds, and
-   overlay geometry (lines, points) by handle. An area not on it yet still goes straight to
+   still to come are objects by id with their state (colour, transparency) and their bounds.
+   Overlay geometry (lines, points) by handle is `overlays(name)`. An area not on it yet still goes straight to
    three.js and is absent on the three.js-free viewport.
 2. **Where per-object state lives.** `CustomBatchedMesh` owns hidden and selected ranges, and a
    number of scene objects update themselves in `onBeforeRender`, which `SceneSync` replays every
@@ -130,8 +263,8 @@ These are open design points, ordered by how much of the viewer depends on them.
    `ADA_EXT_data` extension (design / simulation objects, FEA metadata) and animations. The native
    path gets the hierarchy from the reader, which also hands back the extension data as JSON text;
    nothing reads it yet. A streamed FEA result does not come through the reader at all: its mesh is
-   read as typed arrays and drawn through result layers (above), so its elements are not objects of
-   the viewport yet and cannot be picked or hidden one by one.
+   read as typed arrays and drawn through result layers (above), which name the elements as the
+   mesh's objects, so they are picked, selected and hidden like a loaded model's.
 4. **Section planes and caps.** The planes are plain data in `state/sectionStore` (no three.js),
    and both viewports cut by them, so the section commands and the panel's sliders work on either.
    On the three.js-free viewport the reader flags single-sided surfaces as closed solids, so their
@@ -146,10 +279,10 @@ These are open design points, ordered by how much of the viewer depends on them.
    so that layer keeps the pixels and makes its sprites again. Where an object is comes from the
    viewport too (`objectsCentre`), as does a change of selection (`onSelectionChange`). The type
    icons of a procedural model and the names of the selected objects ("Object names") are drawn
-   this way, by controllers that follow the viewport on screen (`followActiveViewport`). Still the
-   three.js viewport's only: the number labels of an FEA result, which need the result's mesh, and
-   a plugin's labels (`addLabels`), which can pin to FEA elements and are cut by section planes at
-   their anchor.
+   this way, by controllers that follow the viewport on screen (`followActiveViewport`). The number labels
+   of an FEA result are HTML placed through the viewport (`projectToScreen`, `onCameraChange`), on
+   either one. A plugin's labels (`addLabels`), which can pin to FEA elements and are cut by
+   section planes at their anchor, are billboards too (see "Overlays on both viewports").
 6. **Controls parity.** The renderer's camera covers orbit, pan, zoom, zoom towards the cursor, fit
    to the model or the selection, named views and the user's input mapping. Still the main
    viewer's only: the orientation gizmo, orthographic projection as a setting, and 3D-mouse input.

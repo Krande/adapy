@@ -214,6 +214,8 @@ export async function loadModel(source: LoadModelSource): Promise<THREE.Group | 
     const ms = useModelState.getState();
     if (placement === "replace" && sourceName) ms.setLoadedSourceName(sourceName);
     if (group && sourceName) ms.registerLoadedSource(sourceName, group);
+    // The three.js-free viewport took the model and built no group: the source is loaded all the same.
+    else if (!group && sourceName && isNativeViewportActive()) ms.registerLoadedSourceName(sourceName);
     // The take-off the conversion wrote beside this model's GLB, for the model that is now the
     // ACTIVE one -- which is the question the Stats and Take-off panels answer. Keyed on that
     // rather than on `placement`: the storage browser loads every file as an "overlay" (it keeps

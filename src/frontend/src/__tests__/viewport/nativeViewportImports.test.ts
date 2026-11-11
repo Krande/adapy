@@ -62,7 +62,7 @@ test("the three.js-free viewport's chunk imports no three.js", () => {
 
 // The interface both viewports stand behind, and the keys bound through it, are loaded by the
 // three.js-free viewport: they may name three.js in types only.
-for (const module of ["viewportApi.ts", "viewportShortcuts.ts", "billboards.ts"]) {
+for (const module of ["viewportApi.ts", "viewportShortcuts.ts", "billboards.ts", "overlayLayer.ts", "beforeDraw.ts", "viewportState.ts"]) {
     test(`viewport/api/${module} imports no three.js`, () => {
         walkFreeOfThree(join(ROOT, "src/viewport/api", module));
     });
@@ -73,14 +73,62 @@ for (const module of ["viewportApi.ts", "viewportShortcuts.ts", "billboards.ts"]
 for (const module of [
     "viewport/api/resultLayer.ts",
     "viewport/native/nativeResultLayer.ts",
+    "viewport/native/resultObjects.ts",
     "utils/glb/glbMesh.ts",
     "utils/scene/fea/nodalFieldPaint.ts",
+    "utils/scene/fea/elemFieldPaint.ts",
+    "utils/scene/fea/labelPlacement.ts",
+    "utils/scene/fea/streaming/layerGroup.ts",
+    "utils/scene/fea/streaming/layerBeamSolids.ts",
+    "utils/scene/fea/streaming/prefetch.ts",
     "utils/scene/fea/resultInfluence.ts",
     "utils/scene/fea/feaAnimationDriver.ts",
     "utils/scene/fea/playbackActions.ts",
     "utils/scene/fea/streaming/resultStores.ts",
     "utils/scene/fea/streaming/warpSource.ts",
     "utils/scene/fea/streaming/layerSession.ts",
+    // What is drawn over a result, and what plugins draw through: plain data on both viewports.
+    "utils/scene/fea/elementSource.ts",
+    "utils/scene/fea/streaming/layerOverlayTarget.ts",
+    "utils/scene/fea/layerIsolation.ts",
+    "utils/scene/fea/streaming/layerFrames.ts",
+    "viewport/native/nativeOverlays.ts",
+    "plugins/sceneOverlays.ts",
+]) {
+    test(`${module} imports no three.js`, () => {
+        walkFreeOfThree(join(ROOT, "src", module));
+    });
+}
+
+// Selection boxes are plain data, and what a box selects is asked through the viewport interface:
+// the store, the rules, the handles' maths and applying a box are shared by both viewports.
+for (const module of [
+    "viewport/api/boxSelection.ts",
+    "viewport/native/boxSelectionGizmo.ts",
+    "viewport/native/nativeBoxSelection.ts",
+    "state/bboxSelectionStore.ts",
+    "utils/bboxSelection/applyBoxSelection.ts",
+    "utils/bboxSelection/boxHandles.ts",
+    "utils/bboxSelection/boxMath.ts",
+    "utils/bboxSelection/marquee.ts",
+    "utils/bboxSelection/screenRect.ts",
+]) {
+    test(`${module} imports no three.js`, () => {
+        walkFreeOfThree(join(ROOT, "src", module));
+    });
+}
+
+// The undo / redo history asks the viewport on screen for its state and records store slices: the
+// history, the stores that record through it and the three.js-free viewport's side of it are shared
+// or that viewport's own. Keeping the boxes across reloads reads the scene's offset as plain numbers.
+for (const module of [
+    "utils/scene/viewerHistory.ts",
+    "state/viewerHistoryStore.ts",
+    "state/sectionStore.ts",
+    "state/sceneFrameStore.ts",
+    "viewport/native/nativeViewportHistory.ts",
+    "utils/bboxSelection/boxPersistence.ts",
+    "utils/bboxSelection/boxStorage.ts",
 ]) {
     test(`${module} imports no three.js`, () => {
         walkFreeOfThree(join(ROOT, "src", module));

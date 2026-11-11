@@ -20,6 +20,7 @@ import {capabilities} from "@/services/capabilities";
 import {useCellBuilderStore} from "@/state/cellBuilderStore";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {useGalleryStore} from "@/state/galleryStore";
+import {useBBoxSelectionStore} from "@/state/bboxSelectionStore";
 import {useSectionStore, type SectionPlane} from "@/state/sectionStore";
 import {useObjectInfoStore} from "@/state/objectInfoStore";
 import {useOptionsStore} from "@/state/optionsStore";
@@ -119,8 +120,13 @@ export function selectionCount(selected: ReadonlyMap<unknown, ReadonlySet<string
 
 /** Selection, visibility and the camera go through the viewport on screen, three.js or not. */
 const noViewport = () => (activeViewport() ? null : NO_VIEWPORT);
-/** For what still works on the three.js scene's own selection only (the tree walk, groups, exports). */
-const nothingSelectedInScene = () => (selectionCount() === 0 ? "Nothing selected" : null);
+const boxSelection = () => import("@/utils/bboxSelection/applyBoxSelection");
+const NO_ACTIVE_BOX = "No active selection box";
+/** The selection box the handles are on. */
+const activeSelectionBox = () => {
+  const s = useBBoxSelectionStore.getState();
+  return s.boxes.find((b) => b.id === s.activeId) ?? null;
+};
 // With no 3D view there is nothing selected either, and that is the reason a user recognises.
 const nothingSelected = () => ((activeViewport()?.selectionCount() ?? 0) === 0 ? "Nothing selected" : null);
 
@@ -256,7 +262,7 @@ export function coreCommandSpecs(): CommandSpec[] {
       id: ID.exportSelection,
       label: "Export selection…",
       group: "File",
-      disabledReason: () => notServer() ?? nothingSelectedInScene(),
+      disabledReason: () => notServer() ?? nothingSelected(),
       run: () => openCoreDialog({kind: "export", scope: "selection"}),
     },
     {
@@ -352,7 +358,7 @@ export function coreCommandSpecs(): CommandSpec[] {
       label: "Save selection as group…",
       group: "Edit",
       shortcut: "core:group-selection",
-      disabledReason: nothingSelectedInScene,
+      disabledReason: nothingSelected,
       run: () => void import("@/utils/groups/groupShortcut").then((m) => m.groupSelectionFromKeyboard()),
     },
     {
@@ -657,6 +663,42 @@ export function coreCommandSpecs(): CommandSpec[] {
       group: "Section",
       disabledReason: () => (useSectionStore.getState().planes.length ? null : "No section plane"),
       run: () => useSectionStore.getState().clearAll(),
+    },
+    // Selection boxes: on whichever viewport is on screen (utils/bboxSelection/applyBoxSelection).
+    {
+      id: ID.selectionBoxAdd,
+      label: "Box around selection",
+      group: "Edit",
+      disabledReason: nothingSelected,
+      run: () => void boxSelection().then((m) => m.addBoxAroundSelection()),
+    },
+    {
+      id: ID.selectionBoxFullyWithin,
+      label: "Selection box takes only what is fully within",
+      group: "Edit",
+      checked: () => activeSelectionBox()?.mode === "full",
+      disabledReason: () => (activeSelectionBox() ? null : NO_ACTIVE_BOX),
+      run: () => {
+        const box = activeSelectionBox();
+        if (box) useBBoxSelectionStore.getState().update(box.id, {mode: box.mode === "full" ? "partial" : "full"});
+      },
+    },
+    {
+      id: ID.selectionBoxReselect,
+      label: "Reselect with selection box",
+      group: "Edit",
+      disabledReason: () => noViewport() ?? (activeSelectionBox() ? null : NO_ACTIVE_BOX),
+      run: () => {
+        const box = activeSelectionBox();
+        if (box) void boxSelection().then((m) => m.applyBoxSelection(box.id));
+      },
+    },
+    {
+      id: ID.selectionBoxClear,
+      label: "Remove selection boxes",
+      group: "Edit",
+      disabledReason: () => (useBBoxSelectionStore.getState().boxes.length ? null : "No selection box"),
+      run: () => useBBoxSelectionStore.getState().clearAll(),
     },
     // Representation of a loaded FEA result
     feaViewToggle(ID.feaToggleUndeformed, "Undeformed outline", (s) => s.showUndeformed, (s) => s.setShowUndeformed),

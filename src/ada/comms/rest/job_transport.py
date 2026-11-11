@@ -77,6 +77,7 @@ TransportFeature = Literal[
     "procedural_import",
     "procedural_relocations",
     "result_meta",
+    "simulation",
     "utilities",
     "worker_registry",
 ]
@@ -104,6 +105,7 @@ FEATURE_UNAVAILABLE_DETAIL: dict[str, str] = {
     "procedural_import": "procedural import disabled (no NATS configured)",
     "procedural_relocations": "procedural relocations disabled (no NATS configured)",
     "result_meta": "result-meta disabled (no NATS configured)",
+    "simulation": "simulations disabled (no NATS configured)",
     "utilities": "utilities disabled (no NATS configured)",
     "worker_registry": "worker registry requires a NATS-backed queue",
 }
@@ -116,8 +118,10 @@ FEATURE_UNAVAILABLE_DETAIL: dict[str, str] = {
 #: there would make Decision 10's Clashes tab a cluster-only feature.
 #: ``export_selection`` for the same reason: writing a selected part of a model this process can
 #: already read needs nothing a cluster adds, and "Download as" is a button on every selection.
+#: ``simulation`` like ``plugin_jobs``: a provider registered in this process runs here, so a
+#: desktop install with one simulator installed needs no queue to use it.
 LOCAL_FEATURES: frozenset[str] = frozenset(
-    {"asset_build", "asset_publish", "clash_check", "clash_detail", "export_selection", "plugin_jobs"}
+    {"asset_build", "asset_publish", "clash_check", "clash_detail", "export_selection", "plugin_jobs", "simulation"}
 )
 
 
@@ -397,6 +401,8 @@ class LocalJobTransport(_BaseTransport):
             return self._submit_clash_detail(req)
         if req.feature == "export_selection":
             return self._submit_export_selection(req)
+        if req.feature == "simulation":
+            return self._submit_simulation(req)
         if not req.plugin_id:
             raise HTTPException(status_code=500, detail="a local job needs a plugin_id")
         try:
@@ -616,6 +622,34 @@ class LocalJobTransport(_BaseTransport):
             )
         except LookupError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return SubmittedJob(
+            job_id=job.job_id,
+            derived_key=job.derived_key,
+            status=job.status,
+            stage=job.stage,
+            progress=job.progress,
+            target_capability=None,
+            payload=job.as_json(),
+        )
+
+    def _submit_simulation(self, req: JobRequest) -> SubmittedJob:
+        """The ``simulation_run`` kind's local engine (``local_jobs.start_simulation_run``). A
+        provider this process has not registered is a 501 naming it, as for a plugin job."""
+        opts = req.conversion_options or {}
+        try:
+            job = local_jobs.start_simulation_run(
+                provider_id=str(opts["provider_id"]),
+                run_id=str(opts["run_id"]),
+                derived_key=req.derived_key or "",
+                storage=self._storage,
+                scope=req.scope,
+            )
+        except KeyError as exc:
+            raise HTTPException(
+                status_code=500, detail=f"simulation_run is missing {exc} in conversion_options"
+            ) from exc
+        except LookupError as exc:
+            raise HTTPException(status_code=501, detail=str(exc)) from exc
         return SubmittedJob(
             job_id=job.job_id,
             derived_key=job.derived_key,

@@ -84,13 +84,13 @@ function makeSceneHandle(): SceneHandle {
         remove: (o: unknown) => void;
         children?: Object3DLike[];
       } | null;
-      if (!scene) return;
       if (obj) {
-        scene.remove(obj);
+        scene?.remove(obj);
       } else {
-        // Remove every top-level object this owner added, and its overlays.
-        for (const child of [...(scene.children ?? [])]) {
-          if (child.userData?.__pluginOwner === owner) scene.remove(child);
+        // Remove every top-level object this owner added, and its overlays. The overlays are
+        // drawn by whichever viewport is on screen: there need be no three.js scene for them.
+        for (const child of [...(scene?.children ?? [])]) {
+          if (child.userData?.__pluginOwner === owner) scene!.remove(child);
         }
         removeOwnerOverlays(owner);
         releaseFeaDeformation(owner);

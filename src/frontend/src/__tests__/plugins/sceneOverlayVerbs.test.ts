@@ -6,7 +6,12 @@ import * as THREE from "three";
 import type {LineSegments2} from "three/examples/jsm/lines/LineSegments2";
 
 import {useModelSessionStore, type FeaSessionHandle} from "@/state/modelSession";
-import {addElementOutlines, boundaryEdges, paintFeaElements} from "@/plugins/sceneOverlays";
+import {addElementOutlines, addLines, boundaryEdges, paintFeaElements, removeOwnerOverlays} from "@/plugins/sceneOverlays";
+// The three.js loader's result as what the verbs act on: registered where the loader is.
+import "@/utils/scene/fea/meshOverlayTarget";
+import {runBeforeDraw} from "@/viewport/api/beforeDraw";
+import {createThreeViewport} from "@/viewport/api/threeViewport";
+import {setActiveViewport} from "@/viewport/api/viewportApi";
 
 /** Two unit quads side by side in z=0 (elements 1 and 2), vertices split per element, as the FEA mesh
  *  stores them; one relative morph that lifts every vertex by 1 in z. */
@@ -28,39 +33,79 @@ function open(mesh: THREE.Mesh, beamSolidMesh?: THREE.Mesh): void {
     session.fea = {sourceName: "m.SIN", mesh, beamSolidMesh} as unknown as FeaSessionHandle;
 }
 
-afterEach(() => useModelSessionStore.getState().close());
+let withdraw: (() => void) | null = null;
+
+/** A three.js viewport on screen: the scene the overlay lines are drawn in. */
+function viewport(): THREE.Scene {
+    const scene = new THREE.Scene();
+    withdraw = setActiveViewport(createThreeViewport({scene, camera: new THREE.PerspectiveCamera(), controls: {} as never}));
+    return scene;
+}
+
+afterEach(() => {
+    removeOwnerOverlays("p");
+    useModelSessionStore.getState().close();
+    withdraw?.();
+    withdraw = null;
+});
 
 test("an element set's outline drops the edge its elements share", () => {
     const mesh = feaMesh();
     const pos = mesh.geometry.getAttribute("position") as THREE.BufferAttribute;
+    const rest = (v: number, out: Float32Array, at: number) => void out.set([pos.getX(v), pos.getY(v), pos.getZ(v)], at);
     // One quad: its 4 sides. Both: the 6 sides around the pair, not the one between them.
-    assert.equal(boundaryEdges(pos, [0, 1, 2, 0, 2, 3]).length / 2, 4);
-    assert.equal(boundaryEdges(pos, [0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7]).length / 2, 6);
+    assert.equal(boundaryEdges(rest, [0, 1, 2, 0, 2, 3]).length / 2, 4);
+    assert.equal(boundaryEdges(rest, [0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7]).length / 2, 6);
 });
 
 test("the outline follows the warp", () => {
+    const scene = viewport();
     const mesh = feaMesh();
+    mesh.position.set(0, 0, 10);
     open(mesh);
     const overlay = addElementOutlines("p", {elements: [1, 2], throughModel: true});
     assert.ok(overlay);
-    const lines = mesh.children[0] as LineSegments2;
+    const lines = scene.children[0] as LineSegments2;
     assert.equal(lines.userData.__overlayPass, true); // drawn over the model in the WebGPU viewport too
+    // In the mesh's own coordinates, standing where the mesh stands.
+    assert.equal(lines.matrix.elements[14], 10);
     const start = lines.geometry.attributes.instanceStart as THREE.InterleavedBufferAttribute;
     const z = () => Array.from(start.data.array as Float32Array)
         .filter((_, i) => i % 3 === 2);
     assert.ok(z().every((v) => v === 0));
     mesh.morphTargetInfluences![0] = 0.5;
-    const renderer = {domElement: {clientWidth: 100, clientHeight: 100}} as unknown as THREE.WebGLRenderer;
-    const hook = lines.onBeforeRender as unknown as (...args: unknown[]) => void;
-    hook.call(lines, renderer, new THREE.Scene(), new THREE.Camera(), lines.geometry, lines.material, new THREE.Group());
+    // What a viewport's frame loop runs before it draws.
+    runBeforeDraw();
     assert.ok(z().every((v) => v === 0.5));
+    // A step change rewrites the morph in place and bumps its version.
+    const morph = mesh.geometry.morphAttributes.position[0] as THREE.BufferAttribute;
+    (morph.array as Float32Array).fill(2);
+    morph.needsUpdate = true;
+    runBeforeDraw();
+    assert.ok(z().every((v) => v === 1));
     overlay.remove();
-    assert.equal(mesh.children.length, 0);
+    assert.equal(scene.children.length, 0);
 });
 
 test("no outline for elements the model has not got", () => {
+    viewport();
     open(feaMesh());
     assert.equal(addElementOutlines("p", {elements: [99]}), null);
+});
+
+test("lines are drawn in linear colour, a colour per segment at both its ends", () => {
+    const scene = viewport();
+    addLines("p", {segments: [0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0], colors: [1, 0, 0, 0.5, 0.5, 0.5]});
+    const lines = scene.children[0] as LineSegments2;
+    const colors = (lines.geometry.attributes.instanceColorStart as THREE.InterleavedBufferAttribute).data.array as Float32Array;
+    const grey = new THREE.Color().setRGB(0.5, 0.5, 0.5, THREE.SRGBColorSpace).r;
+    assert.deepEqual(Array.from(colors.slice(0, 6)), [1, 0, 0, 1, 0, 0]);
+    assert.ok(Math.abs(colors[6] - grey) < 1e-6 && Math.abs(colors[11] - grey) < 1e-6);
+    addLines("p", {segments: [0, 0, 0, 1, 0, 0], color: "#ff8000"});
+    const one = (scene.children[1] as LineSegments2).material.color;
+    assert.ok(Math.abs(one.r - new THREE.Color("#ff8000").r) < 1e-6 && Math.abs(one.g - new THREE.Color("#ff8000").g) < 1e-6);
+    removeOwnerOverlays("p");
+    assert.equal(scene.children.length, 0);
 });
 
 test("element paint on the beam solids goes on the beam-solid mesh, and only while it is shown", () => {
@@ -71,7 +116,14 @@ test("element paint on the beam solids goes on the beam-solid mesh, and only whi
     const overlay = paintFeaElements("p", {colors: new Map([[2, "#ff0000"]]), on: "beamSolids"});
     assert.ok(overlay);
     assert.equal(solids.children.length, 1);
+    // Element 2's corners are red, element 1's triangles collapsed to nothing.
+    const painted = solids.children[0] as THREE.Mesh;
+    const color = painted.geometry.getAttribute("color").array as Float32Array;
+    assert.deepEqual(Array.from(color.slice(18, 21)), [1, 0, 0]);
+    const position = painted.geometry.getAttribute("position").array as Float32Array;
+    assert.deepEqual(Array.from(position.slice(0, 9)), [0, 0, 0, 0, 0, 0, 0, 0, 0]);
     overlay.remove();
+    assert.equal(solids.children.length, 0);
     solids.visible = false;
     assert.equal(paintFeaElements("p", {colors: new Map([[2, "#ff0000"]]), on: "beamSolids"}), null);
 });

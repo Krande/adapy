@@ -357,6 +357,7 @@ async def api_scope_blob_put(
         is_derived_key,
         is_published_asset_key,
         is_scope_state_key,
+        is_simulation_key,
         is_versions_artefact_key,
     )
 
@@ -367,6 +368,8 @@ async def api_scope_blob_put(
         raise HTTPException(status_code=400, detail="empty key")
     if is_derived_key(clean):
         raise HTTPException(status_code=403, detail="cannot write to _derived/")
+    if is_simulation_key(clean):
+        raise HTTPException(status_code=403, detail="cannot write to _simulations/")
     # ``versions/`` (CI-pushed build outputs) and ``assets/`` (published datasets) are stored
     # blobs, not conversion inputs, so the accepted-source extension whitelist does not apply
     # to them. Two predicates rather than one because they part company on deletability — see
@@ -728,6 +731,7 @@ async def api_scope_upload_url(
     from ..converter import (
         is_derived_key,
         is_published_asset_key,
+        is_simulation_key,
         is_versions_artefact_key,
     )
 
@@ -744,6 +748,8 @@ async def api_scope_upload_url(
         raise HTTPException(status_code=400, detail="key required")
     if is_derived_key(key):
         raise HTTPException(status_code=403, detail="cannot write to _derived/")
+    if is_simulation_key(key):
+        raise HTTPException(status_code=403, detail="cannot write to _simulations/")
     # ``versions/`` (CI-pushed build outputs) and ``assets/`` (published datasets) are stored
     # blobs, not conversion inputs, so the accepted-source extension whitelist does not apply
     # to them. Two predicates rather than one because they part company on deletability — see
@@ -806,6 +812,7 @@ async def api_scope_upload_complete(
     from ..converter import (
         is_derived_key,
         is_published_asset_key,
+        is_simulation_key,
         is_versions_artefact_key,
     )
 
@@ -815,6 +822,8 @@ async def api_scope_upload_complete(
         raise HTTPException(status_code=400, detail="key required")
     if is_derived_key(key):
         raise HTTPException(status_code=403, detail="cannot write to _derived/")
+    if is_simulation_key(key):
+        raise HTTPException(status_code=403, detail="cannot write to _simulations/")
     # ``versions/`` (CI-pushed build outputs) and ``assets/`` (published datasets) are stored
     # blobs, not conversion inputs, so the accepted-source extension whitelist does not apply
     # to them. Two predicates rather than one because they part company on deletability — see

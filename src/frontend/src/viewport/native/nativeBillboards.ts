@@ -83,7 +83,7 @@ export function createNativeBillboardLayer(scene: NativeScene): BillboardLayer {
                 b.sizing === "world" ? b.height : screenScale(b.height, scene.elements.view.clientHeight, scene.cameraPose.fov);
             scene.setSprite(
                 item.sprite, shared.texture, b.position, height * aspect, height, b.anchor?.[0] ?? 0.5, b.anchor?.[1] ?? 0.5,
-                b.sizing === "world" ? SpriteFlag.SizeAttenuation : 0, b.order ?? DEFAULT_ORDER,
+                (b.sizing === "world" ? SpriteFlag.SizeAttenuation : 0) | (b.clipped ? SpriteFlag.Clipped : 0), b.order ?? DEFAULT_ORDER,
             );
         } catch (err) {
             // A label that cannot be drawn must not take the feature that asked for it down.

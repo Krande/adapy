@@ -11,11 +11,14 @@ import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {useSectionStore} from "@/state/sectionStore";
 import {tickFeaAnimation} from "@/utils/scene/fea/feaAnimationDriver";
 import {notifyModelLoaded, notifyViewportPick, setActiveViewport} from "@/viewport/api/viewportApi";
+import {runBeforeDraw} from "@/viewport/api/beforeDraw";
 import {viewportShortcutHandlers} from "@/viewport/api/viewportShortcuts";
 import {NativeOrientationGizmo} from "./NativeOrientationGizmo";
 import {NativeScene, splitObjectKey} from "./nativeScene";
 import {bindSectionGizmo} from "./sectionGizmo";
+import {bindBoxSelectionGizmo} from "./boxSelectionGizmo";
 import {createNativeViewportApi} from "./nativeViewportApi";
+import {bindNativeHistory} from "./nativeViewportHistory";
 import {useNativeViewport} from "./nativeModel";
 
 /** "#rrggbb" (sRGB) as linear rgb, which the renderer takes; null when it is not that. */
@@ -27,8 +30,7 @@ function linearRgb(hex: string): [number, number, number] | null {
 }
 
 const UNAVAILABLE = [
-    "FEA element (integration point) fields, beam sections and picking in a result", "number labels and plugin overlays",
-    "box selection", "3D-mouse input", "export",
+    "the glyphs of an FEA model's masses, supports and loads, and its link to the CAD model",
 ];
 
 const NativeViewport: React.FC = () => {
@@ -56,6 +58,8 @@ const NativeViewport: React.FC = () => {
             // long as it plays. It writes the deformation scale to the result's layer.
             scene.beforeFrame = (dt) => {
                 tickFeaAnimation(dt);
+                // What is pinned to the result (a label on an element, an outline) moves with it.
+                runBeforeDraw();
                 const fea = useFeaAnimationStore.getState();
                 return fea.isPlaying && fea.sessionActive;
             };
@@ -74,7 +78,13 @@ const NativeViewport: React.FC = () => {
             cut();
             const uncut = useSectionStore.subscribe(cut);
             const unbindGizmo = bindSectionGizmo(scene);
+            // Selection boxes: the same store the three.js viewport's controller draws.
+            const unbindBoxes = bindBoxSelectionGizmo(scene);
+            // Undo and Redo: their keys, and a history that never outlives the scene it names.
+            const unbindHistory = bindNativeHistory(scene);
             release = () => {
+                unbindHistory();
+                unbindBoxes();
                 unbindGizmo();
                 uncut();
                 releaseDispatcher();

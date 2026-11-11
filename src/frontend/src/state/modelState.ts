@@ -5,6 +5,7 @@ import {SceneOperations} from "../flatbuffers/scene/scene-operations";
 import {FilePurpose} from "../flatbuffers/base/file-purpose";
 import {useLineageStore} from './lineageStore';
 import {loadedSourceGroups, useModelSessionStore} from './modelSession';
+import {setSceneOffset} from './sceneFrameStore';
 
 export interface ModelState {
     modelUrl: string | null;
@@ -39,6 +40,9 @@ export interface ModelState {
     setLoadedSourceName: (name: string | null) => void;
     // Multi-model overlay tracking
     registerLoadedSource: (name: string, group: THREE.Group) => void;
+    /** A source whose model a viewport holds itself, with no three.js group to keep: it is listed as
+     *  loaded, and what works by a source's name (export, unload) works for it. */
+    registerLoadedSourceName: (name: string) => void;
     unregisterLoadedSource: (name: string) => THREE.Group | null;
     clearLoadedSources: () => void;
 }
@@ -140,6 +144,16 @@ export const useModelState = create<ModelState>((set) => ({
             return {loadedSourceNames: next, loadedSourceName: name};
         });
     },
+    registerLoadedSourceName: (name) => {
+        const session = useModelSessionStore.getState().ensure();
+        session.identity.sourceName ??= name;
+        set((s) => {
+            if (s.loadedSourceNames.has(name) && s.loadedSourceName === name) return {};
+            const next = new Set(s.loadedSourceNames);
+            next.add(name);
+            return {loadedSourceNames: next, loadedSourceName: name};
+        });
+    },
     unregisterLoadedSource: (name) => {
         const group = loadedSourceGroups.get(name) ?? null;
         loadedSourceGroups.delete(name);
@@ -173,3 +187,8 @@ export const useModelState = create<ModelState>((set) => ({
         set({loadedSourceNames: new Set<string>(), loadedSourceName: null});
     },
 }));
+
+// The recentring offset as plain numbers, for what must not depend on three.js (state/sceneFrameStore).
+useModelState.subscribe((s, prev) => {
+    if (s.translation !== prev.translation) setSceneOffset(s.translation ? [s.translation.x, s.translation.y, s.translation.z] : null);
+});

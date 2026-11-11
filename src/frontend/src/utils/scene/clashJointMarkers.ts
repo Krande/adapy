@@ -44,6 +44,7 @@ import {
 } from "@/utils/scene/clashContactPlan";
 import { clearContactOverlay, renderContactOverlay } from "@/utils/scene/clashContactOverlay";
 import { getViewerRuntime } from "@/state/viewerRuntime";
+import { sourceSpaceRoot } from "@/utils/scene/meshLookup";
 
 /** Marker radius as a fraction of the model's bounding-box diagonal. A joint is a point, so the
  *  only size that reads at every zoom is one relative to the thing it sits in. */
@@ -78,18 +79,6 @@ function spreadDiagonal(markers: readonly JointMarker[]): number {
     }
   }
   return Math.hypot(max[0] - min[0], max[1] - min[1], max[2] - min[2]);
-}
-
-/** The node whose local space the source's own coordinates are -- the glTF scene the loader
- *  rotated and recentred, marked by `setupModelLoader`. Falls back to the registered group for a
- *  load path that adds its group to the scene without that step (the FEA streaming session, a
- *  plugin), where the group IS that node. */
-export function sourceSpaceRoot(group: THREE.Object3D): THREE.Object3D {
-  let found: THREE.Object3D | null = null;
-  group.traverse((obj) => {
-    if (!found && obj.userData?.__sourceSpaceRoot) found = obj;
-  });
-  return found ?? group;
 }
 
 /** Remove the overlay and free its GPU resources. Safe to call when nothing is drawn. */

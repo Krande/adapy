@@ -6,8 +6,10 @@ import {recordViewerAction, type StateSlice} from "@/utils/scene/viewerHistory";
 import type {ViewerActionKind} from "@/state/viewerHistoryStore";
 
 // Selection boxes: world-space boxes that select the elements they touch or contain.
-// Plain data only; BBoxSelectionController owns the three.js side. `boxes` and `activeId` are
-// kept per scope in this browser by utils/bboxSelection/boxPersistence.
+// Plain data only, and no three.js: each viewport draws the boxes and their handles its own way
+// (BBoxSelectionController on the three.js one, viewport/native/boxSelectionGizmo on the other), and
+// what a box selects is asked of the viewport on screen (utils/bboxSelection/applyBoxSelection).
+// `boxes` and `activeId` are kept per scope in this browser by utils/bboxSelection/boxPersistence.
 
 export interface SelectionBox {
     id: string;
@@ -54,10 +56,11 @@ let counter = 0;
 // active one are the state an undo puts back, together with the selection the change made. A drag
 // of a box's handles calls `update` on every move; those moves coalesce into one step. `restore`
 // (a reload, a scope switch) and the menu are not steps.
-const boxSlices: StateSlice[] = [
+export const boxSlices: StateSlice[] = [
     {get: () => useBBoxSelectionStore.getState().boxes, set: (v) => useBBoxSelectionStore.setState({boxes: v as SelectionBox[]})},
     {get: () => useBBoxSelectionStore.getState().activeId, set: (v) => useBBoxSelectionStore.setState({activeId: v as string | null})},
 ];
+
 /** Run `fn` as one undo step that may change the boxes (and the selection). */
 export const recordBoxAction = <T>(kind: ViewerActionKind, fn: () => T, coalesce?: string): T =>
     recordViewerAction(kind, fn, {slices: boxSlices, coalesce});

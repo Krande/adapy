@@ -18,11 +18,14 @@ import {useViewerRefs} from "@/state/AdaViewerContext";
 import {useNativeViewport} from "@/viewport/native/nativeModel";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {installViewportPanelBridge} from "./sceneHelpers/viewportPanelBridge";
+import {installSpaceMousePoseDriver} from "./sceneHelpers/spaceMousePoseDriver";
 
 // Its own chunk, which imports no three.js.
 const NativeViewport = React.lazy(() => import("@/viewport/native/NativeViewport"));
 // The panels listen for what a viewport without a three.js scene announces (its model, its clicks).
 installViewportPanelBridge();
+// A 3D mouse moves that viewport's camera through its pose.
+installSpaceMousePoseDriver();
 
 /** The native viewport failed after a model was handed to it: once the three.js viewport is up, load
  *  that model there, so the fallback shows the model and not an empty scene. A result it was showing

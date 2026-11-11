@@ -27,6 +27,7 @@ from . import (
     procedural_build,
     procedural_detail,
     procedural_export,
+    simulation,
     utility,
 )
 from .registry import (
@@ -74,6 +75,9 @@ register(export_selection.ExportSelectionGroupHandler())
 register(export_search.ExportSearchAssetHandler())
 # Synthetic: two providers' built GLBs of one collection, compared element by element.
 register(geometry_compare.GeometryCompareHandler())
+# Synthetic: a simulation provider's run. Its inputs are named by the run record and read
+# through the provider's context (see the module docstring).
+register(simulation.SimulationRunHandler())
 # Source-backed kinds that are not registry conversions.
 register(utility.UtilityHandler())
 register(fea.FeaArtefactsHandler())

@@ -5,11 +5,14 @@
  * be loaded yet. A box's "Reselect" applies it once they are.
  *
  * Boxes follow the scene's recentring offset: when it changes (a scene rebuilt with another model
- * loaded first), they move by the difference and stay over the same geometry.
+ * loaded first, or shown by the other viewport, which places models differently), they move by the
+ * difference and stay over the same geometry. The offset is read as plain numbers
+ * (state/sceneFrameStore), so this binding serves the three.js viewport and the three.js-free one
+ * alike. No three.js here.
  */
 
 import {useBBoxSelectionStore} from "@/state/bboxSelectionStore";
-import {useModelState} from "@/state/modelState";
+import {useSceneFrameStore} from "@/state/sceneFrameStore";
 import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
 
 import type {Vec3} from "./boxMath";
@@ -20,8 +23,8 @@ let bound = false;
 const currentScope = () => scopeUrlPart(useScopeStore.getState().current);
 
 function currentOffset(): Vec3 | null {
-    const t = useModelState.getState().translation;
-    return t ? [t.x, t.y, t.z] : null;
+    const t = useSceneFrameStore.getState().offset;
+    return t ? [t[0], t[1], t[2]] : null;
 }
 
 /** Restore the current scope's boxes and keep them stored from now on. Returns the unbinding;
@@ -58,9 +61,9 @@ export function bindBBoxSelectionStorage(): () => void {
         load();
     });
 
-    const unsubModel = useModelState.subscribe((s, prev) => {
-        if (s.translation === prev.translation || !s.translation) return;
-        const t: Vec3 = [s.translation.x, s.translation.y, s.translation.z];
+    const unsubModel = useSceneFrameStore.subscribe((s, prev) => {
+        if (s.offset === prev.offset || !s.offset) return;
+        const t: Vec3 = [s.offset[0], s.offset[1], s.offset[2]];
         const st = boxes.getState();
         const from = offset;
         offset = t;

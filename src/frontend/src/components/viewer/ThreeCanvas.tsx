@@ -28,6 +28,7 @@ import {renderProfiler} from "@/utils/scene/renderProfiler";
 import {bindSpaceMouseToOptions, tickSpaceMouse} from "@/utils/spacemouse/spaceMouseDevice";
 import {bindCameraMapping} from "./sceneHelpers/bindCameraMapping";
 import {createThreeViewport} from "@/viewport/api/threeViewport";
+import {runBeforeDraw} from "@/viewport/api/beforeDraw";
 import {setActiveViewport} from "@/viewport/api/viewportApi";
 import {setCaptureViewport} from "@/viewport/capture";
 import {createNullRenderer, isNullRenderer} from "@/viewport/nullRenderer";
@@ -263,6 +264,8 @@ const ThreeCanvas: React.FC = () => {
             // After the tick, before either renderer draws: a plugin holding the model undeformed wins.
             applyFeaDeformationGate();
             applyFeaUnpaintedColor();
+            // What is pinned to the model (a label on an element, an outline) moves to where it is now.
+            runBeforeDraw();
             const feaPlaying = useFeaAnimationStore.getState().isPlaying;
 
             // 3D-mouse motion moves the pose the controls own, so it goes in

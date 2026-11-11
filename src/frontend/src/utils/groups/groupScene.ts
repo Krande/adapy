@@ -7,9 +7,7 @@ import { useAssetBrowserStore } from "@/state/assetBrowserStore";
 import { useObjectInfoStore } from "@/state/objectInfoStore";
 import { useTreeViewStore } from "@/state/treeViewStore";
 import { requestRender } from "@/state/perfStore";
-import type * as THREE from "three";
 
-import type { CustomBatchedMesh } from "@/utils/mesh_select/CustomBatchedMesh";
 import { buildTreeIndices, type TreeIndices } from "@/utils/tree_view/treeGraph";
 import { activeViewport, type ObjectRef } from "@/viewport/api/viewportApi";
 
@@ -61,35 +59,18 @@ function selectedRowIds(): Set<string> {
   return ids;
 }
 
-/** The tree rows behind `(mesh, draw ranges)` pairs, by the unique `(model key, range id)`. */
-function rowIdsOf(ranges: Iterable<readonly [THREE.Object3D, Iterable<string>]>): Set<string> {
-  const tv = useTreeViewStore.getState();
-  const ids = new Set<string>();
-  for (const [mesh, rangeIds] of ranges) {
-    const key: string | undefined = (mesh as any).unique_key ?? (mesh.userData ? mesh.userData["unique_hash"] : undefined);
-    if (!key) continue;
-    for (const rid of rangeIds) {
-      const row = tv.findNodeByRangeId(key, rid);
-      if (row) ids.add(row.id);
-    }
-  }
-  return ids;
-}
-
-/** Draw ranges NOT taken from the selection -- e.g. what a selection box takes -- as group members,
- *  folded up to whole levels exactly as `captureSelection` folds a selection. */
-export function captureRanges(
-  batch: readonly (readonly [CustomBatchedMesh, string])[],
-): CapturedMembers & { readonly reason: string | null } {
+/** Objects NOT taken from the selection -- e.g. what a selection box takes on the viewport on
+ *  screen -- as group members, folded up to whole levels exactly as `captureSelection` folds a
+ *  selection. `refs` is read once and no ref is kept (a viewport may yield one over and over). */
+export function captureObjects(refs: Iterable<ObjectRef>): CapturedMembers & { readonly reason: string | null } {
   const idx = indices();
   if (!idx) return { members: [], skipped: [], reason: "The scene tree is not built yet." };
-  const byMesh = new Map<CustomBatchedMesh, string[]>();
-  for (const [mesh, id] of batch) {
-    const list = byMesh.get(mesh);
-    if (list) list.push(id);
-    else byMesh.set(mesh, [id]);
+  const tv = useTreeViewStore.getState();
+  const ids = new Set<string>();
+  for (const ref of refs) {
+    const row = tv.findNodeByRangeId(ref.model, ref.id);
+    if (row) ids.add(row.id);
   }
-  const ids = rowIdsOf(byMesh);
   if (ids.size === 0) {
     return { members: [], skipped: [], reason: "Nothing in the box resolves to a row in the scene tree." };
   }

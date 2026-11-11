@@ -144,6 +144,8 @@ function CommandPalette({onClose}: {onClose(): void}) {
         .map((x) => x.c),
     [all, query],
   );
+  /** Where the mouse was last seen over the list; null until it has been seen once. */
+  const pointer = useRef<{x: number; y: number} | null>(null);
   const choose = (c: RegisteredCommand | undefined) => {
     if (!c || c.disabledReason?.()) return;
     onClose();
@@ -190,7 +192,14 @@ function CommandPalette({onClose}: {onClose(): void}) {
                   aria-disabled={!!why}
                   title={why ?? undefined}
                   className={`flex cursor-pointer items-center gap-2 px-3 py-1.5 text-sm ${i === at ? "bg-[var(--ada-tab-active-bg,#374151)]" : ""} ${why ? "opacity-50" : ""}`}
-                  onMouseEnter={() => setAt(i)}
+                  // Only a mouse that actually moved picks a row. A cursor resting where the list
+                  // appears must not: the browser reports a move for it as rows are laid out under
+                  // it, and Enter would then run that row instead of the best match.
+                  onMouseMove={(e) => {
+                    const last = pointer.current;
+                    pointer.current = {x: e.clientX, y: e.clientY};
+                    if (last && (last.x !== e.clientX || last.y !== e.clientY)) setAt(i);
+                  }}
                   onClick={() => choose(c)}
                 >
                   <span className="w-20 shrink-0 truncate text-xs text-gray-400">{c.group ?? "Commands"}</span>

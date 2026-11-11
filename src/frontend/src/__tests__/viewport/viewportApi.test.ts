@@ -4,6 +4,8 @@ import assert from "node:assert/strict";
 
 import {CAMERA_VIEWS, cameraViewCommandId} from "@/layout/coreCommandIds";
 import {CORE_SHORTCUTS} from "@/layout/coreShortcutTable";
+import {NO_OBJECTS} from "@/viewport/api/boxSelection";
+import {NO_OVERLAYS} from "@/viewport/api/overlayLayer";
 import {activeViewport, onActiveViewportChange, setActiveViewport, type ViewportApi} from "@/viewport/api/viewportApi";
 import {viewportShortcutHandlers} from "@/viewport/api/viewportShortcuts";
 
@@ -38,7 +40,13 @@ function recorder(kind: ViewportApi["kind"], cannot: string | null = null): {api
             show: log("show"),
             isolate: log("isolate"),
             objectVisibility: () => () => null,
+            captureState: () => ({selected: 0}),
+            stateChange: () => ({selection: false, visibility: false, hidden: 0, shown: 0, after: () => ({selected: 0})}),
+            restoreState: log("restoreState"),
+            sourceOrigin: () => null,
             showAll: log("showAll"),
+            cameraPose: () => null,
+            setCameraPose: log("setCameraPose"),
             fitAll: log("fitAll"),
             fitSelection: log("fitSelection"),
             setView: log("setView"),
@@ -46,9 +54,16 @@ function recorder(kind: ViewportApi["kind"], cannot: string | null = null): {api
             orbitStep: log("orbitStep"),
             panStep: log("panStep"),
             objectsCentre: () => null,
+            projectToScreen: () => ({width: 0, height: 0}),
+            onCameraChange: () => () => {},
             billboards: () => {
                 throw new Error("no billboards in this test");
             },
+            overlays: () => NO_OVERLAYS,
+            fitBox: () => false,
+            objectsInBox: () => NO_OBJECTS,
+            objectsInScreenRect: () => NO_OBJECTS,
+            selectionBounds: () => null,
         },
     };
 }

@@ -121,13 +121,29 @@ export function createThreeResultMesh(data: ResultMeshData, parent: THREE.Object
     if (data.indices) geometry.setIndex(new THREE.BufferAttribute(data.indices, 1));
     const color = new THREE.Color(...(data.color ?? (data.topology === "triangles" ? [1, 1, 1] : [0, 0, 0])));
     let object: Drawn;
-    if (data.topology === "triangles") {
+    if (data.topology === "triangles" && data.overlay) {
+        // Colours painted over elements: unlit, and in front of the faces they lie on.
+        object = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({
+            color, side: THREE.DoubleSide, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -16,
+        }));
+        object.renderOrder = 2;
+    } else if (data.topology === "triangles") {
         ensureVertexNormals(geometry);
         object = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({color, side: THREE.DoubleSide, metalness: 0, roughness: 1}));
     } else if (data.topology === "lines") {
         object = new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({color}));
     } else {
-        object = new THREE.Points(geometry, new THREE.PointsMaterial({color, size: 4, sizeAttenuation: false}));
+        object = new THREE.Points(geometry, new THREE.PointsMaterial({color, size: data.sizePx ?? 4, sizeAttenuation: false}));
+    }
+    if (data.opacity !== undefined && data.opacity < 1) {
+        eachMaterial(object, (mat) => {
+            mat.transparent = true;
+            mat.opacity = data.opacity!;
+        });
+    }
+    if (data.overlay) {
+        object.raycast = () => undefined;
+        if (data.overlay.onTop) eachMaterial(object, (mat) => void (mat.depthTest = false));
     }
     if (data.matrix) {
         object.matrixAutoUpdate = false;

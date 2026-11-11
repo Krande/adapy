@@ -1,6 +1,8 @@
 // The three.js mesh that draws a model's GLB node, by name. One place for the lookup the Scene tree's
 // actions and the three.js viewport both need.
 import {getViewerRuntime} from "@/state/viewerRuntime";
+import type * as THREE from "three";
+
 import type {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
 
 /** A batched mesh, by what it can do rather than `instanceof`: a hot reload can leave the scene
@@ -28,4 +30,16 @@ export function batchedMeshOf(model: string, node: string, cache: Map<string, Cu
     if (!mesh) return null;
     cache.set(key, mesh);
     return mesh;
+}
+
+/** The node whose local space the source's own coordinates are -- the glTF scene the loader
+ *  rotated and recentred, marked by `setupModelLoader`. Falls back to the registered group for a
+ *  load path that adds its group to the scene without that step (the FEA streaming session, a
+ *  plugin), where the group IS that node. */
+export function sourceSpaceRoot(group: THREE.Object3D): THREE.Object3D {
+    let found: THREE.Object3D | null = null;
+    group.traverse((obj) => {
+        if (!found && obj.userData?.__sourceSpaceRoot) found = obj;
+    });
+    return found ?? group;
 }

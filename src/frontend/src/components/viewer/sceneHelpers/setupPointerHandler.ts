@@ -28,6 +28,7 @@ import {pickSelectionBox} from "@/components/viewer/BBoxSelectionController";
 import {useBBoxSelectionStore} from "@/state/bboxSelectionStore";
 import type {FemConceptRef} from "@/utils/fem/femSelection";
 import {selectInScreenRect} from "@/utils/bboxSelection/applyBoxSelection";
+import {drawMarquee, marqueeElement} from "@/utils/bboxSelection/marquee";
 import {ndcRect, screenBoxMode} from "@/utils/bboxSelection/screenBox";
 import {pickMeshAt, pickPointAt} from "@/viewport/picking";
 
@@ -84,7 +85,7 @@ export function setupPointerHandler(
         if (!el) return; // never moved: the click that follows is a Shift+click
         swallowClick = true;
         const rect = renderer.domElement.getBoundingClientRect();
-        selectInScreenRect(ndcRect(start, {x: e.clientX, y: e.clientY}, rect), screenBoxMode(start.x, e.clientX), camera);
+        selectInScreenRect(ndcRect(start, {x: e.clientX, y: e.clientY}, rect), screenBoxMode(start.x, e.clientX));
     };
     signal.addEventListener("abort", endMarquee);
 
@@ -388,27 +389,6 @@ export function setupPointerHandler(
     }
 
     return () => listeners.abort();
-}
-
-/** The selection rectangle's element, over the canvas and transparent to the pointer. */
-function marqueeElement(container: HTMLElement): HTMLDivElement {
-    const el = document.createElement("div");
-    el.style.cssText = "position:absolute;pointer-events:none;z-index:30;box-sizing:border-box;";
-    container.appendChild(el);
-    return el;
-}
-
-/** Place the rectangle between two client points; styled as CAD tools style it: a window solid
- *  blue, a crossing dashed green. */
-function drawMarquee(el: HTMLDivElement, container: HTMLElement, a: {x: number; y: number}, b: {x: number; y: number}): void {
-    const r = container.getBoundingClientRect();
-    const crossing = screenBoxMode(a.x, b.x) === "crossing";
-    el.style.left = `${Math.min(a.x, b.x) - r.left}px`;
-    el.style.top = `${Math.min(a.y, b.y) - r.top}px`;
-    el.style.width = `${Math.abs(b.x - a.x)}px`;
-    el.style.height = `${Math.abs(b.y - a.y)}px`;
-    el.style.border = crossing ? "1px dashed rgb(74 222 128)" : "1px solid rgb(96 165 250)";
-    el.style.background = crossing ? "rgb(74 222 128 / 0.08)" : "rgb(96 165 250 / 0.08)";
 }
 
 /** Select a picked FEM concept and show it in the Selected Object Info panel. A plain click

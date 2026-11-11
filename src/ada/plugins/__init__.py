@@ -27,6 +27,9 @@ Two additional conventions this module owns:
   :func:`register_plugin_artefact_contributor`; the bake calls
   :func:`plugin_artefact_contributors` and folds each return under the reserved
   ``manifest["plugins"][id]`` map (see ``ada/fem/results/artefacts.py``).
+* **Simulation providers** — a plugin that runs simulations registers a provider
+  via :func:`register_simulation_provider` (the interface is ``ada.simulation``);
+  the worker then advertises it and serves its ``sim-<provider id>`` capability.
 
 Phase 1 ships this contract with NO built-in backend plugins registered — every
 registry below is empty until a plugin registers, so behaviour is unchanged.
@@ -37,6 +40,15 @@ from __future__ import annotations
 import logging
 import threading
 from typing import Any, Callable, Iterable
+
+# Simulation providers keep their registry with their interface (``ada.simulation``), as external
+# model providers do; they are registered from the same preload modules and entry points as a
+# plugin backend, so the two functions a plugin needs are re-exported here.
+from ada.simulation.registry import (
+    register_simulation_provider,
+    reset_simulation_providers,
+    simulation_provider_specs,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +65,8 @@ __all__ = [
     "requested_worker_capabilities",
     "register_preferred_pools",
     "preferred_worker_pools",
+    "register_simulation_provider",
+    "simulation_provider_specs",
     "reset_registry",
 ]
 
@@ -297,3 +311,4 @@ def reset_registry() -> None:
         _PREFERRED_POOL_PROVIDERS.clear()
     with _REQUESTED_LOCK:
         _REQUESTED_CAPABILITIES.clear()
+    reset_simulation_providers()
