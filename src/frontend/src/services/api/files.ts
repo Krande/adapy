@@ -419,6 +419,10 @@ export const filesApi = {
     expires_in_seconds: number;
     size: number;
   }> {
+    // A local store mints none (config.js says so): fail as the server would, without asking it.
+    if (!runtime.presignedUrls()) {
+      throw new ApiError(`requestDownloadUrl(${key}) failed: presigned downloads not offered`, 503);
+    }
     const r = await authedFetch(
       `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/download-url`,
       {

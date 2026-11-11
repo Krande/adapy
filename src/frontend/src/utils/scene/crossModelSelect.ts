@@ -46,7 +46,22 @@ export async function selectInOtherModel({file, nodeNames}: Args): Promise<void>
 
     const selectionStore = useSelectedObjectStore.getState();
     selectionStore.clearSelectedObjects();
+    // One batched store write, not one per range: `addSelectedObject` repaints the
+    // mesh's selection groups on every call, so selecting a 40-member group used to
+    // rebuild the same overlay 40 times.
+    const batch = await drawRangesOfNames(file, nodeNames);
+    if (batch.length === 0) return;
+    selectionStore.addBatchofMeshes(batch);
+    useObjectInfoStore.getState().setName(nodeNames[0]);
+    useObjectInfoStore.getState().setFileName(file);
+    // On-demand rendering: nothing else here moves the camera, so without this the
+    // highlight only appears on the next orbit.
+    requestRender();
+}
 
+/** The draw ranges (mesh, range id) of the nodes named `nodeNames` in the loaded source `file`;
+ *  empty, with a console warning, when they cannot be resolved. */
+export async function drawRangesOfNames(file: string, nodeNames: string[]): Promise<[CustomBatchedMesh, string][]> {
     // Pick the root that the lineage store registered for ``file``.
     // Falls back to scanning every loaded source group for the matching
     // file name if the lineage entry is missing (e.g. file pre-dates
@@ -75,7 +90,7 @@ export async function selectInOtherModel({file, nodeNames}: Args): Promise<void>
     }
     if (!root) {
         console.warn(`crossModelSelect: no registered root for file "${file}"`);
-        return;
+        return [];
     }
 
     // Build a local name→mesh index for this root only, so overlays of
@@ -107,7 +122,7 @@ export async function selectInOtherModel({file, nodeNames}: Args): Promise<void>
     }
     if (!modelKey) {
         console.warn(`crossModelSelect: no model key recoverable from root of "${file}"`);
-        return;
+        return [];
     }
 
     // One batched worker query resolves every member name to (meshName, rangeId)
@@ -116,11 +131,8 @@ export async function selectInOtherModel({file, nodeNames}: Args): Promise<void>
     const pairs = await modelStore.getDrawRangesByMemberNames(modelKey, nodeNames);
     if (pairs.length === 0) {
         console.warn(`crossModelSelect: no draw ranges for ${nodeNames.length} member name(s) in "${file}"`);
-        return;
+        return [];
     }
-    // One batched store write, not one per range: `addSelectedObject` repaints the
-    // mesh's selection groups on every call, so selecting a 40-member group used to
-    // rebuild the same overlay 40 times.
     const batch: [CustomBatchedMesh, string][] = [];
     for (const [meshName, rangeId] of pairs) {
         const named = meshesByName.get(meshName);
@@ -134,13 +146,7 @@ export async function selectInOtherModel({file, nodeNames}: Args): Promise<void>
         }
         batch.push([target, String(rangeId)]);
     }
-    if (batch.length === 0) return;
-    selectionStore.addBatchofMeshes(batch);
-    useObjectInfoStore.getState().setName(nodeNames[0]);
-    useObjectInfoStore.getState().setFileName(file);
-    // On-demand rendering: nothing else here moves the camera, so without this the
-    // highlight only appears on the next orbit.
-    requestRender();
+    return batch;
 }
 
 /**

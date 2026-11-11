@@ -23,6 +23,8 @@ export const CORE_PANEL_IDS = {
   componentList: "core:component-list",
   equipmentAdmin: "core:equipment-admin",
   systemAdmin: "core:system-admin",
+  /** What the page has logged (Ctrl+K "Console"). */
+  console: "core:console",
   admin: "core:admin",
   convert: "core:convert",
   /** Simulation providers and the scope's simulation runs. */

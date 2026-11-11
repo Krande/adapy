@@ -11,8 +11,10 @@ Handler contract (duck-typed, no Protocol enforcement):
   — so a spec with roles INCOMING / LANDING calls
   `handler(incoming=beam_a, landing=beam_b)`.
 - Return value may be `None` (then the Connection contains only the
-  sample members) or any object with `.welds` and `.stiffeners`
-  attributes (read via `getattr` with `[]` fallback).
+  sample members), a `Part` (typically the handler's own `Connection`,
+  nested as a child part with everything it holds), or any other object
+  with `.welds` and `.stiffeners` attributes (read via `getattr` with
+  `[]` fallback).
 - Booleans / cut geometry are assumed to be attached in-place by the
   handler via `beam.add_boolean(...)` — they live on the sample
   members and ride along automatically. No separate handling here.
@@ -25,6 +27,8 @@ from typing import Any
 from ada.api.connections.joints import Connection
 from ada.api.connections.sample import build_sample
 from ada.api.connections.spec import get_registered
+from ada.api.plates import Plate
+from ada.api.spatial import Part
 
 
 def build_component(
@@ -61,9 +65,16 @@ def build_component(
         spec_inputs=inputs,
     )
     for member in members.values():
-        conn.add_beam(member)
+        if isinstance(member, Plate):
+            conn.add_plate(member)
+        else:
+            conn.add_beam(member)
 
-    if result is not None:
+    if isinstance(result, Part):
+        # A handler that builds its own Connection (welds, stiffeners,
+        # visualisation shapes under one Part) keeps all of it as a child.
+        conn.add_part(result)
+    elif result is not None:
         for stiffener in getattr(result, "stiffeners", None) or []:
             conn.add_plate(stiffener)
         for weld in getattr(result, "welds", None) or []:

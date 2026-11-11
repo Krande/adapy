@@ -160,6 +160,44 @@ def test_build_component_welds_visible_via_graph():
     assert [p.name for p in partners] == [landing_beam.name]
 
 
+def test_build_component_nests_a_returned_connection():
+    """A handler that returns its own Connection keeps its plates and welds in the preview."""
+    spec = _box_to_box_spec()
+
+    @register_connection(spec)
+    def handler(*, incoming: Beam, landing: Beam, **_):
+        own = Connection("handler_own")
+        own.add_plate(Plate("stiff", [(0, 0), (0.1, 0), (0.1, 0.1), (0, 0.1)], t=0.01))
+        own.add_weld(_fillet("w1", incoming.n1.p, incoming.n2.p, [incoming, landing]))
+        return own
+
+    conn = build_component(spec.name, _basic_inputs())
+    assert "handler_own" in conn.parts
+    nested = conn.parts["handler_own"]
+    assert [p.name for p in nested.plates] == ["stiff"]
+    assert [w.name for w in nested.welds] == ["w1"]
+    assert len(conn.beams) == 2
+
+
+def test_build_component_adds_plate_members_as_plates():
+    spec = ConnectionSpec(
+        name="test.plate_on_box",
+        roles=(
+            MemberCriteria(role=MemberRole.INCOMING, kind=MemberKind.PLATE),
+            MemberCriteria(role=MemberRole.LANDING, kind=MemberKind.BEAM, section_in=frozenset({"BOX"})),
+        ),
+    )
+
+    @register_connection(spec)
+    def handler(*, incoming, landing, **_):
+        assert isinstance(incoming, Plate)
+        return None
+
+    conn = build_component(spec.name, {"incoming": {"thickness": 0.02}, "landing": {"section": "BOX300x300x12x12"}})
+    assert [p.name for p in conn.plates] == ["sample_incoming"]
+    assert [b.name for b in conn.beams] == ["sample_landing"]
+
+
 def test_build_component_inside_assembly():
     """Built Connection should slot into a parent Assembly cleanly."""
     from ada import Assembly
