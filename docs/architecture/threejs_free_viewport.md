@@ -262,6 +262,48 @@ A model that replaces the scene keeps the history on both viewports: the replace
 and the new model's load are two entries, and the entries before them work again once an undo has
 brought the model back.
 
+## Layers that change over time, and one clock
+
+Replaying something recorded (a run of a machine, a simulation) is a model that moves and data
+drawn around it that is different at every moment: a map on the ground, a planned path, a range
+scan. None of that is specific to one kind of recording, and none of it is a viewport's own:
+
+```mermaid
+flowchart LR
+    PLUGIN["plugin<br/>ctx.scene.addImage, addLineLayer, addPointLayer<br/>ctx.playback.addTrack"] --> VERBS["plugins/sceneLayers.ts<br/>colours, the scene offset, owners"]
+    VERBS -->|segments, points| OL["ViewportApi.overlays(name)<br/>setGeometry, setLook"]
+    VERBS -->|pixels| IL["ViewportApi.images(name)<br/>ImageLayer"]
+    VERBS --> REG["state/layerRegistry.ts<br/>rows of the Layers panel"]
+    CLOCK["state/playbackClock.ts<br/>duration, time, playing, speed"] -->|"show(t)"| TRACKS["tracks"]
+    TRACKS --> VERBS
+    TRACKS --> ANIM["ViewportApi.modelAnimation()<br/>showTime(t)"]
+    FRAME["each viewport's frame loop<br/>tick(now)"] --> CLOCK
+```
+
+| Part | Where | What it is |
+|---|---|---|
+| The clock | `state/playbackClock.ts` | Duration, time, playing, speed, loop and "follow the end". Something timed registers a track (`{id, duration, show(t)}`) and is shown whenever the time changes. The clock has no timer: each viewport's frame loop calls `tick` (the three.js render loop, `NativeScene.beforeFrame`), and `tick` answers whether another frame is wanted, so the three.js-free viewport's loop is awake only while the clock plays. Paused, a frame pays one comparison. The duration is the longest track's; a shorter track holds its last moment. A track's duration may grow (a recording still being written), and following the end keeps the time there. |
+| A model's animation | `ViewportApi.modelAnimation()`, `state/modelAnimationTrack.ts` | The node animation of the models on screen as `{duration, showTime(t)}`, registered as a track of the clock when a model that has one is loaded and removed with the model. Every animation of every such model is shown at the same time, each no further than its own end. three.js: a mixer per model, rooted at the model, evaluated at the clock's time (`utils/scene/animations/nodeAnimation.ts`); the clip controls of the Simulation panel are as they were. adacpp renderer: a file that names animations is read with its moving nodes as instances of their own, and `NativeScene` asks the renderer to place them at a time (`setAnimationTime`). A file with one animation is one call per frame. The renderer poses a model from one animation at a time, so a file with several is asked for each in turn and a node is put where the animation that moves it has it; two animations that move the same node, or a node and its parent, are not combined. A moving part is picked, selected and hidden where it is drawn; its box (what a fit and a label go by) is the one the reader measured. |
+| Lines and points that change | `viewport/api/overlayLayer.ts` | `setGeometry(handle, positions, count, colors)` replaces what a handle draws with another number of segments or points, and `setLook` changes its visibility, opacity, colour and matrix. three.js keeps the buffer while the new data fits and draws a range of it; a larger one is a new geometry and the old one is disposed, so nothing is left on the GPU. The adacpp renderer cannot change a geometry's vertex count: the data is written as the geometry's morph, the vertices beyond it are put on the last one drawn (a segment without length, a point under its twin), and only data that no longer fits makes a larger geometry. |
+| Images in the world | `viewport/api/imageLayer.ts` | `ImageLayer`: a rectangle given as an origin and two edges, textured with RGBA bytes (sRGB, straight alpha) that are replaced in place, with an opacity, depth-tested or on top, blended or one flat square per pixel. Row 0 lies along the first edge at the origin and column 0 along the second: the rectangle says how the rows lie, and no buffer is flipped. Any size the GPU takes, on both viewports. |
+| three.js | `viewport/api/threeImages.ts` | A quad with a `DataTexture`, sRGB decoded by the GPU, without mipmaps. New pixels of the same size are written into the texture; another size is another texture. |
+| adacpp renderer | `viewport/native/nativeImages.ts` | A textured quad of the renderer per image: the pixels as a texture without a mip chain, written in place, each pixel's own alpha drawn, sampled blended or flat. The renderer has a texture's first row on the quad's upper edge, so the quad's own y axis is placed against the rectangle's second edge and no row is moved. Quads and textures go when a load empties the renderer's scene; the layer keeps each image's pixels and makes them again. The adacpp WebGPU viewport that mirrors the three.js scene draws the three.js mesh as the same kind of quad (`viewport/adacpp/sceneSync.ts`). |
+| The Layers panel | `state/layerRegistry.ts`, `components/layers/LayersPanel.tsx` | What draws a named layer joins the registry with a function that applies the layer's look. The panel (`core:layers`) lists a row per layer with a switch and an opacity slider, remembers both per layer id in the browser, and is offered only while a layer is registered. |
+| The transport | `components/playback/PlaybackTransport.tsx` | Play and pause, a scrub bar, the time, the speed, loop and "live", over the bottom of either viewport while the clock has a track. |
+| The plugin's verbs | `plugins/sceneLayers.ts` | `addLineLayer`, `addPointLayer`, `addImage`, `ctx.playback` and `ctx.layers`. Coordinates are the model's own: the three.js viewport recentres what it loads (`state/sceneFrameStore.ts`), so the layers are moved by the same offset there, again whenever it changes, and a point given at a model coordinate is drawn on the model on either viewport. Everything a plugin made goes with `removeOwnerOverlays`. |
+
+The FEA result playback is not on the clock. A mode shape is an oscillator with a period, not a
+timeline, and a time history is a row of steps fetched one at a time, the next asked for when the
+last has been painted; `feaAnimationDriver.ts` and the Simulation panel's transport drive them as
+before, from the same two frame loops. Its own transport is unchanged, and the clock's transport is
+drawn only while the clock has a track.
+
+A double-click (or two taps) on the model makes the point under it what the camera orbits about, on
+both viewports. The three.js viewport moves the pivot of its controls; the renderer's camera orbits
+about what it looks at, so the three.js-free viewport turns to look at the point
+(`NativeScene.setOrbitPivot`, also `ViewportApi.setOrbitPivot`). A click with a modifier adds to the
+selection and is never half of a double-click there.
+
 ## What the next slices have to settle
 
 These are open design points, ordered by how much of the viewer depends on them.
@@ -282,7 +324,10 @@ These are open design points, ordered by how much of the viewer depends on them.
    frame. Without three.js there is no such hook: state has to live in stores keyed by object id,
    and whatever follows the camera or the animation has to be driven from the frame loop.
 3. **The model beyond geometry.** `GLTFLoader` also gives the main viewer the node hierarchy, the
-   `ADA_EXT_data` extension (design / simulation objects, FEA metadata) and animations. The native
+   `ADA_EXT_data` extension (design / simulation objects, FEA metadata) and animations (node
+   animation is on the interface as `modelAnimation()`, which both viewports answer: see "Layers
+   that change over time, and one clock"; what is left there is the box of a part that has moved,
+   and two animations of one file that move the same node). The native
    path gets the hierarchy from the reader, which also hands back the extension data as JSON text:
    it is announced with the model (`LoadedModelInfo.adaExtData`), and the panels' side keeps it by
    source name (`state/sourceExtensions.ts`) and reads the analysis concepts and the design-to-analysis

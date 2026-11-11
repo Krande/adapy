@@ -2,6 +2,15 @@
 
 
 
+## v0.147.0 (2026-11-11)
+
+### Feature
+
+* feat: layers that change over time, one playback clock and model animation on both viewports (#533)
+
+Co-authored-by: Claude Fable 5.2 &lt;noreply@anthropic.com&gt; ([`bb3e297`](https://github.com/Krande/adapy/commit/bb3e297b7e4d1605a241a6cddc0b9f950c195ef9))
+
+
 ## v0.146.1 (2026-11-11)
 
 ### Fix

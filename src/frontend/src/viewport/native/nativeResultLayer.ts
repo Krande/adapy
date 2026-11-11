@@ -152,6 +152,13 @@ export class NativeResultLayer implements ResultMeshLayer {
         this.changed();
     }
 
+    /** Where the mesh stands in the world from now on: a column-major 4x4, null for the identity. */
+    setMatrix(matrix: ArrayLike<number> | null): void {
+        if (!this.alive) return;
+        this.module.HEAPF32.set(matrix ?? IDENTITY, this.matrixPtr >> 2);
+        this.push();
+    }
+
     setInfluence(influence: number): void {
         if (!Number.isFinite(influence) || influence === this.influence) return;
         this.influence = influence;

@@ -14,6 +14,7 @@ import {cacheAndBuildTree} from "@/state/model_worker/cacheModelUtils";
 import {mapAnimationTargets} from "@/utils/scene/animations/mapAnimationTargets";
 import {loadGLTF} from "./asyncModelLoader";
 import {AnimationController} from "@/utils/scene/animations/AnimationController";
+import {registerNodeAnimation} from "@/utils/scene/animations/nodeAnimation";
 import {updateAllPointsSize} from "@/utils/scene/updatePointSizes";
 import type {LoadMetricsRecorder} from "@/utils/scene/loadMetrics";
 import {DEFAULT_SOURCE_UP_AXIS, uprightSceneBox, type SourceUpAxis} from "@/utils/scene/sourceUpAxis";
@@ -257,6 +258,9 @@ export async function setupModelLoaderAsync(
     // (`@/utils/scene/heldHidden`).
     if (sourceName) takeIfHeld(sourceName, modelGroup);
     main_scene.add(modelGroup);
+    // Parts that move over time are the playback clock's from here on (ViewportApi.modelAnimation).
+    // After the model was prepared and added: the tracks bind to the nodes as they are drawn.
+    if (animations.length > 0) registerNodeAnimation(gltf_scene, animations);
     // Mesh/material/tree build is done; the model is now in the scene.
     // finalize() captures GPU/first-render via a post-add rAF, gathers
     // payload + device + profile, and posts the load-metrics row.

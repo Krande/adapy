@@ -5,6 +5,7 @@ import {GLTF, GLTFLoader} from "three/examples/jsm/loaders/GLTFLoader";
 // (vendored meshoptimizer 1.1) emits the v1 vertex codec by default, which the
 // 0.18 decoder rejects with "malformed buffer". The 1.1 decoder reads both v0/v1.
 import {MeshoptDecoder} from "meshoptimizer";
+import {dracoLoader} from "./dracoDecoder";
 import {useConversionStore} from "@/state/conversionStore";
 import type {LoadMetricsRecorder} from "@/utils/scene/loadMetrics";
 
@@ -51,6 +52,9 @@ export function loadGLTF(
   // win) needs no decoder — three.js core dequantizes on read.
   enableMeshoptWorkers();
   loader.setMeshoptDecoder(MeshoptDecoder);
+  // KHR_draco_mesh_compression, decoded by the decoder in the bundle. Registering it costs
+  // nothing: the decoder is only started for a file that declares the extension.
+  loader.setDRACOLoader(dracoLoader());
   if (requestHeaders && Object.keys(requestHeaders).length > 0) {
     loader.setRequestHeader(requestHeaders);
   }

@@ -3,8 +3,10 @@
 // There is no THREE.Scene behind it and no scene model on this side either: the reader reports the
 // model's objects and which one each segment draws, per-object state is segment state in the renderer,
 // and input is mapped to the camera's semantic operations (orbit, pan, zoom, fit, look from).
-import type {ResultMeshData, ResultMeshLayer} from "@/viewport/api/resultLayer";
+import type {ResultMeshData} from "@/viewport/api/resultLayer";
 import {NativeResultLayer} from "./nativeResultLayer";
+import {glbNamesAnimations} from "@/utils/glb/glbBufferView";
+import {notifyModelAnimationChange, type ModelAnimation} from "@/viewport/api/viewportApi";
 import {growObjectBounds, indexResultSegments, resultSegments} from "./resultObjects";
 import {useCameraControlsStore} from "@/state/cameraControlsStore";
 import {useVisibilityStore} from "@/state/visibilityStore";
@@ -25,6 +27,9 @@ const FEATURE_EDGE_ANGLE_DEG = 30;
 const EDGE_COLOR: [number, number, number, number] = [0, 0, 0, 1];
 /** A press released within this many pixels of where it went down is a click, not a drag. */
 const TAP_SLOP_PX = 6;
+/** Two clicks this close in time and place are a double-click: as on the three.js viewport. */
+const DOUBLE_TAP_MS = 350;
+const DOUBLE_TAP_PX = 24;
 const MAX_PIXEL_RATIO = 2;
 /** "Frame this box" leaves room around it, and gives a box of no size this much, as three.js' frameBox. */
 const FIT_BOX_SCALE = 1.6;
@@ -96,6 +101,15 @@ interface LoadedModel {
      *  object of each of its segments. Its objects are listed in the order given, not sorted by
      *  name, and its triangles are not counted. */
     resultSegments?: Map<number, {layer: NativeResultLayer; objectOf: Int32Array}>;
+    /** Its node animations in the renderer: the set, and how long each animation is (seconds). */
+    animations?: {
+        set: number;
+        durations: number[];
+        /** For a file with more than one animation: where each animated node rests (16 numbers
+         *  each, in the order of the renderer's node matrices), the instances that draw an animated
+         *  node as (instance, node slot) pairs, and room for where the nodes are placed. */
+        several: {rest: Float32Array; instances: number[]; placed: Float32Array} | null;
+    };
 }
 
 let canvasSerial = 0;
@@ -252,12 +266,17 @@ export class NativeScene {
         let loaded;
         try {
             const offset = this.place(p, bytes.byteLength, add);
-            loaded = this.renderer.loadGlb(p, bytes.byteLength, {featureEdgeAngleDeg: FEATURE_EDGE_ANGLE_DEG, lineColor: EDGE_COLOR, sectionCaps: true, offset});
+            // A file with node animations keeps each moving node an instance of its own, which the
+            // renderer then places by time. Asked for only when the file names animations, so every
+            // other model is read exactly as before.
+            const animations = this.playsAnimations && glbNamesAnimations(bytes);
+            loaded = this.renderer.loadGlb(p, bytes.byteLength, {featureEdgeAngleDeg: FEATURE_EDGE_ANGLE_DEG, lineColor: EDGE_COLOR, sectionCaps: true, offset, animations});
         } finally {
             this.module._free(p);
         }
         if (!loaded.geometries.length) {
             this.rebuild();
+            this.refreshAnimation();
             throw new Error("the model has nothing to draw");
         }
         const table = loaded.objects;
@@ -270,12 +289,30 @@ export class NativeScene {
             geometries: loaded.geometries.map((g) => g.geometry),
             bounds: loaded.bounds,
         };
+        if ((loaded.animationSet ?? -1) >= 0 && loaded.animations?.length) {
+            const set = loaded.animationSet!;
+            model.animations = {set, durations: loaded.animations.map((a) => a.duration), several: null};
+            if (loaded.animations.length > 1) {
+                // Several animations are shown together by placing the instances here (see
+                // `showAnimationTime`): where each moving node rests, and which instances draw it.
+                const nodes = Array.from(loaded.animatedNodes ?? []);
+                this.renderer.setAnimationTime(set, -1, 0);
+                const rest = new Float32Array(this.renderer.animationNodeMatrices(set));
+                const instances: number[] = [];
+                for (const g of loaded.geometries) {
+                    const slot = nodes.indexOf(g.node ?? -1);
+                    if (slot >= 0) instances.push(g.instance, slot);
+                }
+                model.animations.several = {rest, instances, placed: new Float32Array(rest.length)};
+            }
+        }
         this.models.set(modelKey, model);
         this.sceneExtras = loaded.extras;
         this.extData = loaded.adaExtData ?? "";
         for (const g of loaded.geometries) this.segments.set(g.instance, {model, objects: g.segmentObjects, outline: g.featureEdges});
         model.keys.forEach((key, index) => this.where.set(key, {model, index}));
         this.rebuild();
+        this.refreshAnimation();
         // A model that joins others leaves the camera where the user has it.
         if (!add) this.framed();
         for (const listener of this.onLoaded) listener();
@@ -289,6 +326,7 @@ export class NativeScene {
         if (!model) return false;
         this.dropModel(model.key);
         this.rebuild();
+        this.refreshAnimation();
         for (const listener of this.onLoaded) listener();
         this.pushStates();
         return true;
@@ -311,12 +349,93 @@ export class NativeScene {
             this.segments.delete(instance);
         }
         for (const geometry of model.geometries) this.renderer.removeGeometry(geometry);
+        if (model.animations) {
+            try {
+                this.renderer.removeAnimations(model.animations.set);
+            } catch (err) {
+                console.warn("[adacpp-native] releasing a model's animations:", err);
+            }
+        }
         for (const objectKeyOf of model.keys) {
             this.where.delete(objectKeyOf);
             this.selected.delete(objectKeyOf);
             this.hidden.delete(objectKeyOf);
         }
         this.models.delete(key);
+    }
+
+    // Node animation: the models on screen whose files have animations, shown a moment at a time.
+    // Every animation of every such model is shown at the same time (each no further than its own
+    // end), as the three.js viewport plays every clip of every model on its one clock. A file with
+    // one animation is one renderer call per frame and allocates nothing; one with several reads
+    // the renderer's node matrices back once per animation and frame.
+
+    /** Whether the renderer module places nodes by time at all (an older one does not). */
+    get playsAnimations(): boolean {
+        return typeof this.renderer.setAnimationTime === "function";
+    }
+
+    private animated: LoadedModel[] = [];
+    private animation: ModelAnimation | null = null;
+
+    /** The node animation of the models on screen; null when none has one. The same object until
+     *  the models change. */
+    get modelAnimation(): ModelAnimation | null {
+        return this.animation;
+    }
+
+    private readonly showAnimationTime = (t: number): void => {
+        if (this.disposed) return;
+        const models = this.animated;
+        for (let m = 0; m < models.length; m++) {
+            const {set, durations, several} = models[m].animations!;
+            if (!several) {
+                this.renderer.setAnimationTime(set, 0, t < durations[0] ? t : durations[0]);
+                continue;
+            }
+            // The renderer poses a model from one animation at a time, every other node at rest.
+            // To show them all, each is asked for in turn and a node is put where the animation
+            // that moves it has it: where it is not at rest. Two animations that move the same
+            // node, or a node and its parent, are not combined: the later one's place is taken.
+            const {rest, instances, placed} = several;
+            placed.set(rest);
+            for (let a = 0; a < durations.length; a++) {
+                this.renderer.setAnimationTime(set, a, t < durations[a] ? t : durations[a]);
+                const now = this.renderer.animationNodeMatrices(set);
+                for (let n = 0; n + 15 < now.length && n + 15 < rest.length; n += 16) {
+                    let moved = false;
+                    for (let k = 0; k < 16; k++) if (now[n + k] !== rest[n + k]) moved = true;
+                    if (moved) for (let k = 0; k < 16; k++) placed[n + k] = now[n + k];
+                }
+            }
+            const p = (this.matrixRoom ||= this.module._malloc(64));
+            for (let i = 0; i < instances.length; i += 2) {
+                const from = instances[i + 1] * 16;
+                // The view is taken now: the heap may have grown.
+                const heap = this.module.HEAPF32;
+                for (let k = 0; k < 16; k++) heap[(p >> 2) + k] = placed[from + k];
+                this.renderer.setInstanceMatrix(instances[i], p);
+            }
+        }
+        this.invalidate();
+    };
+
+    /** Sixteen floats on the module heap, kept for placing instances; 0 until first needed. */
+    private matrixRoom = 0;
+
+    /** The models on screen changed: what there is to play may have. */
+    private refreshAnimation(): void {
+        const animated: LoadedModel[] = [];
+        let duration = 0;
+        for (const model of this.models.values()) {
+            if (!model.animations) continue;
+            animated.push(model);
+            for (const d of model.animations.durations) duration = Math.max(duration, d);
+        }
+        if (!animated.length && !this.animated.length) return;
+        this.animated = animated;
+        this.animation = animated.length ? {duration, showTime: this.showAnimationTime} : null;
+        notifyModelAnimationChange();
     }
 
     /** The list of pickable objects and the box around everything, from the models on screen. */
@@ -362,7 +481,7 @@ export class NativeScene {
     /** Draw a result mesh from typed arrays: its colours, displacement and deformation scale are
      *  then set through the layer returned. With `replaceModel` the loaded model goes and the mesh
      *  is what the viewport shows and frames. */
-    createResultLayer(data: ResultMeshData, opts: {replaceModel?: boolean} = {}): ResultMeshLayer {
+    createResultLayer(data: ResultMeshData, opts: {replaceModel?: boolean} = {}): NativeResultLayer {
         if (opts.replaceModel) {
             for (const listener of this.onReplacing) listener();
             this.detachResultLayers();
@@ -381,6 +500,7 @@ export class NativeScene {
             this.helperLines.clear();
             this.addGrid();
             this.sceneEpoch++;
+            this.refreshAnimation();
         }
         const drawn = data.objects ? resultSegments(data) : null;
         const layer = new NativeResultLayer(this.module, this.renderer, data, () => this.invalidate(), this.pixelRatio(), drawn?.segments ?? null);
@@ -637,6 +757,20 @@ export class NativeScene {
         const up = rolledUpAxis(eye, target, WORLD_UP, roll);
         const pose = this.renderer.cameraPose();
         this.renderer.cameraSetPose(eye[0], eye[1], eye[2], target[0], target[1], target[2], up[0], up[1], up[2], pose.fov, pose.orthographic, 0, 0);
+        this.invalidate();
+    }
+
+    /** Orbit about `point` from now on: the camera stays where it is and turns to look at the
+     *  point, over a short time. What a double-click on the model does. */
+    setOrbitPivot(point: readonly [number, number, number], seconds = MOVE_SECONDS): void {
+        const pose = this.renderer.cameraPose();
+        const [ex, ey, ez] = pose.eye;
+        // A point at the eye has no direction to look in.
+        if (Math.hypot(point[0] - ex, point[1] - ey, point[2] - ez) < 1e-9) return;
+        this.renderer.cameraSetPose(
+            ex, ey, ez, point[0], point[1], point[2], pose.up[0], pose.up[1], pose.up[2],
+            pose.fov, pose.orthographic, pose.orthographic ? pose.orthoHeight : 0, seconds,
+        );
         this.invalidate();
     }
 
@@ -1010,6 +1144,8 @@ export class NativeScene {
         const pointers = new Map<number, {x: number; y: number}>();
         let lastPinch = 0;
         let tap: {id: number; x: number; y: number} | null = null;
+        /** The click before this one, for a double-click: when it was and where. */
+        let lastTap: {at: number; x: number; y: number} | null = null;
         /** What the drag in progress does: decided at the press, from its button and modifiers. */
         let action: CameraAction = "none";
         /** A drag something else took from the camera at its press (dragInterceptor). */
@@ -1068,7 +1204,20 @@ export class NativeScene {
             if (t && t.id === e.pointerId) {
                 const additive = e.ctrlKey || e.metaKey || e.shiftKey;
                 const {clientX, clientY} = e;
+                // A second click soon after the first, in the same place: the point under it becomes
+                // what the camera orbits about. The first click already selected.
+                // When the tap happened, not when it is handled (a busy page handles it late).
+                const now = e.timeStamp;
+                // A click with a modifier adds to the selection: it is never half of a double-click.
+                const second = !additive && !!lastTap && now - lastTap.at <= DOUBLE_TAP_MS && Math.hypot(clientX - lastTap.x, clientY - lastTap.y) <= DOUBLE_TAP_PX;
+                // A third quick click does not pair with the second.
+                lastTap = second || additive ? null : {at: now, x: clientX, y: clientY};
                 void (async () => {
+                    if (second) {
+                        const under = await this.pickHit(clientX, clientY);
+                        if (under) return this.setOrbitPivot(under.world);
+                        // Nothing under it: an ordinary click.
+                    }
                     if (this.clickFirst && (await this.clickFirst(clientX, clientY, additive))) return;
                     const hit = await this.pickHit(clientX, clientY);
                     // What is drawn in a way the renderer's pick does not see (a line), when it is in front.
@@ -1153,6 +1302,66 @@ export class NativeScene {
     removeSprite(sprite: number): void {
         if (this.disposed) return;
         this.renderer.removeSprite(sprite);
+        this.invalidate();
+    }
+
+    // Images lying in the world: what viewport/native/nativeImages.ts draws with. As sprites and
+    // their textures, quads and theirs go when the renderer's scene is emptied (`sceneEpoch`).
+
+    /** Whether the renderer module draws textured quads at all (an older one does not). */
+    get drawsQuads(): boolean {
+        return typeof this.renderer.addQuad === "function" && typeof this.renderer.addPlainTexture === "function";
+    }
+
+    /** Room on the module heap for pixels on their way to a texture, kept between calls. */
+    private pixelRoom = {ptr: 0, bytes: 0};
+
+    private stagePixels(rgba: Uint8Array | Uint8ClampedArray, bytes: number): number {
+        if (this.pixelRoom.bytes < bytes) {
+            if (this.pixelRoom.ptr) this.module._free(this.pixelRoom.ptr);
+            this.pixelRoom = {ptr: this.module._malloc(bytes), bytes};
+        }
+        // The view is taken now: the heap may have grown.
+        const heap = this.module.HEAPU8;
+        if (rgba.length === bytes) heap.set(rgba, this.pixelRoom.ptr);
+        else for (let i = 0, at = this.pixelRoom.ptr; i < bytes; i++) heap[at + i] = rgba[i];
+        return this.pixelRoom.ptr;
+    }
+
+    /** A texture without a mip chain from RGBA pixels (top row first, sRGB, straight alpha): for
+     *  pixels that are replaced often. */
+    addPlainTexture(rgba: Uint8Array | Uint8ClampedArray, width: number, height: number): number {
+        return this.renderer.addPlainTexture(this.stagePixels(rgba, width * height * 4), width, height);
+    }
+
+    /** New pixels for a texture: in place at the size it has, the same id at another. */
+    updateTexture(texture: number, rgba: Uint8Array | Uint8ClampedArray, width: number, height: number): void {
+        if (this.disposed) return;
+        this.renderer.updateTexture(texture, this.stagePixels(rgba, width * height * 4), width, height);
+        this.invalidate();
+    }
+
+    addQuad(): number {
+        return this.renderer.addQuad();
+    }
+
+    /** Place a quad: `matrix` (column-major 4x4) takes the unit square to the world, `opacity` is
+     *  times each pixel's own alpha, `flags` are InstanceFlag bits. Untinted. */
+    setQuad(quad: number, texture: number, matrix: ArrayLike<number>, opacity: number, flags: number): void {
+        if (this.disposed) return;
+        const p = this.module._malloc(64);
+        this.module.HEAPF32.set(matrix, p >> 2);
+        try {
+            this.renderer.setQuad(quad, texture, p, 1, 1, 1, opacity, flags, 0);
+        } finally {
+            this.module._free(p);
+        }
+        this.invalidate();
+    }
+
+    removeQuad(quad: number): void {
+        if (this.disposed) return;
+        this.renderer.removeQuad(quad);
         this.invalidate();
     }
 
@@ -1243,6 +1452,8 @@ export class NativeScene {
         if (this.raf) cancelAnimationFrame(this.raf);
         for (const c of this.cleanups) c();
         this.detachResultLayers();
+        if (this.matrixRoom) this.module._free(this.matrixRoom);
+        if (this.pixelRoom.ptr) this.module._free(this.pixelRoom.ptr);
         try {
             this.renderer.delete();
             this.device.destroy();

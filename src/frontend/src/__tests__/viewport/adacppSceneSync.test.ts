@@ -425,3 +425,45 @@ test("a renderer that cannot draw sprites hands them back to the three.js pass, 
     assert.equal(sync.spriteCount, 1);
     assert.ok(sprite.layers.isEnabled(SPRITE_LAYER));
 });
+
+test("an image lying in the world is a renderer quad: its texture uploaded once per version, its first row at the rectangle's first corner", async () => {
+    const {createThreeImageLayer} = await import("@/viewport/api/threeImages");
+    const {module, renderer} = fakeModule();
+    const calls: string[] = [];
+    let quad: {texture: number; matrix: number[]; alpha: number; flags: number} | null = null;
+    Object.assign(renderer, {
+        addPlainTexture: (p: number, w: number, h: number) => (calls.push(`addPlainTexture ${w}x${h} ${[...module.HEAPU8.subarray(p, p + 4)]}`), 10),
+        updateTexture: (t: number, _p: number, w: number, h: number) => calls.push(`updateTexture ${t} ${w}x${h}`),
+        removeTexture: (t: number) => calls.push(`removeTexture ${t}`),
+        addQuad: () => 30,
+        setQuad: (_id: number, texture: number, matrix: number, _r: number, _g: number, _b: number, alpha: number, flags: number) => {
+            quad = {texture, matrix: [...module.HEAPF32.subarray(matrix >> 2, (matrix >> 2) + 16)], alpha, flags};
+        },
+        removeQuad: (q: number) => calls.push(`removeQuad ${q}`),
+    });
+    const root = new THREE.Group();
+    root.position.set(100, 0, 0);
+    const images = createThreeImageLayer(() => root, "test");
+    const handle = images.add({origin: [1, 2, 0], u: [4, 0, 0], v: [0, 2, 0], width: 2, height: 1, pixels: Uint8Array.from([9, 8, 7, 6, 5, 4, 3, 2]), nearest: true, opacity: 0.5});
+    const {scene, camera} = cameraAndScene(root);
+    const sync = new SceneSync(module, renderer);
+    sync.sync(scene, camera);
+    sync.sync(scene, camera);
+    assert.deepEqual(calls, ["addPlainTexture 2x1 9,8,7,6"], "the pixels as they are, once");
+    const drawn = quad!;
+    assert.equal(drawn.texture, 10);
+    assert.equal(drawn.alpha, 0.5);
+    assert.ok(drawn.flags & InstanceFlag.Nearest && drawn.flags & InstanceFlag.DepthOffset);
+    // The square's upper-left corner (where the renderer has a texture's first pixel) is the origin,
+    // where the scene has the mesh.
+    const at = (x: number, y: number) => [0, 1, 2].map((r) => drawn.matrix[r] * x + drawn.matrix[4 + r] * y + drawn.matrix[12 + r]);
+    assert.deepEqual(at(-0.5, 0.5), [101, 2, 0]);
+    assert.deepEqual(at(0.5, -0.5), [105, 4, 0]);
+
+    images.setPixels(handle, new Uint8Array(8));
+    sync.sync(scene, camera);
+    assert.equal(calls.at(-1), "updateTexture 10 2x1", "new pixels go into the texture that is there");
+    images.remove(handle);
+    sync.sync(scene, camera);
+    assert.deepEqual(calls.slice(-2).sort(), ["removeQuad 30", "removeTexture 10"]);
+});

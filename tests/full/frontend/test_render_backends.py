@@ -121,6 +121,18 @@ async def _until(page: Page, check, what: str, seconds: float = 20.0):
     raise AssertionError(f"timed out waiting for {what}")
 
 
+async def _steady(page: Page, box: tuple[int, int, int, int], seconds: float = 20.0) -> Image.Image:
+    """The page once the part of it in `box` is the same in two pictures half a second apart."""
+    before = await _pixels(page)
+    for _ in range(int(seconds / 0.5)):
+        await page.wait_for_timeout(500)
+        now = await _pixels(page)
+        if now.crop(box).tobytes() == before.crop(box).tobytes():
+            return now
+        before = now
+    raise AssertionError("the picture never stopped changing")
+
+
 async def _open_viewer(playwright, ws_server, backend: str, init_script: str | None = None, empty_pixels: int = 500000):
     """A viewer page on `backend`, connected to the websocket server; skips when WebGPU has no adapter here.
     `init_script` runs in the page before the viewer starts (stored settings); `empty_pixels` is how much
@@ -803,8 +815,9 @@ async def test_fea_elements_are_picked_listed_and_hidden(ws_server, backend, fem
                 return await rows.count() >= 1
 
             await _until(page, listed, f"{backend}: the Scene tree to list the result")
-            await page.wait_for_timeout(500)
-            untouched = await _pixels(page)
+            # The picture everything below is compared with, once it has stopped changing: on a slow
+            # machine the camera is still settling on the result when its tree is listed.
+            untouched = await _steady(page, model)
 
             # 3D -> tree: a click on the result selects the element under it, and its row
             x, y = _point_on_result(untouched)
