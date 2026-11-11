@@ -64,6 +64,8 @@ export interface ConnectionOverlays {
   weldSymbols: boolean;
   /** In a weld's label: its name and throat, besides its type. */
   weldDetails: boolean;
+  /** Draw the weld solids at all; off shows the members' end preparation they fill. */
+  showWelds: boolean;
   /** Draw the weld solids in `weldColour` rather than their material's colour. */
   tintWelds: boolean;
   weldColour: string;
@@ -74,6 +76,7 @@ export const DEFAULT_OVERLAYS: ConnectionOverlays = {
   welds: true,
   weldSymbols: true,
   weldDetails: true,
+  showWelds: true,
   tintWelds: true,
   weldColour: "#3b82f6",
 };

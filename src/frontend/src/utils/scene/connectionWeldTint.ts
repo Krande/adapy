@@ -1,5 +1,6 @@
-// The welds of the joint `ada dev connections` previews, drawn in one colour (Scene > Joints >
-// Overlays, "Weld colour"): a weld shares its members' steel grey and is hard to tell from them.
+// The welds of the joint `ada dev connections` previews (Scene > Joints > Overlays): drawn in one
+// colour ("Weld colour") -- a weld shares its members' steel grey and is hard to tell from them -- or
+// hidden ("Show welds"), to see the members' end preparation the welds fill.
 //
 // The welds are draw ranges of the preview's batched meshes, painted through the mesh's range colours
 // (`CustomBatchedMesh.setRangeColors`). A vertex colour MULTIPLIES the material's colour, so a painted
@@ -14,8 +15,16 @@ import { drawRangesOfNames } from "@/utils/scene/crossModelSelect";
 
 type Coloured = THREE.Material & { color: THREE.Color };
 
+export interface WeldLook {
+  /** A CSS colour to paint the welds in; null leaves their own. */
+  colour: string | null;
+  hidden: boolean;
+}
+
 /** Each painted mesh, with its materials' own colours, so `clearWeldTint` puts them back. */
 const painted = new Map<CustomBatchedMesh, Map<Coloured, THREE.Color>>();
+/** The ranges hidden, per mesh, so `clearWeldTint` shows them again. */
+const hidden = new Map<CustomBatchedMesh, string[]>();
 let generation = 0;
 
 function materialsOf(mesh: CustomBatchedMesh): Coloured[] {
@@ -32,22 +41,29 @@ export function clearWeldTint(): void {
     for (const [mat, colour] of colours) mat.color.copy(colour);
   }
   painted.clear();
+  for (const [mesh, ids] of hidden) mesh.unhideBatchDrawRange(ids);
+  hidden.clear();
   requestRender();
 }
 
-/** Paint the welds named `weldNames` of the loaded source `file` in `colour` (a CSS colour);
- *  `null` puts back the colours of whatever was painted. */
-export async function tintWelds(file: string | null, weldNames: string[], colour: string | null): Promise<void> {
+/** Draw the welds named `weldNames` of the loaded source `file` as `look` says; a plain look puts
+ *  back whatever an earlier one changed. */
+export async function tintWelds(file: string | null, weldNames: string[], look: WeldLook): Promise<void> {
   clearWeldTint();
-  if (!file || !colour || weldNames.length === 0) return;
+  if (!file || (!look.colour && !look.hidden) || weldNames.length === 0) return;
   const mine = generation;
   const ranges = await drawRangesOfNames(file, weldNames);
   // A newer paint (or a clear) was asked for while the ranges resolved.
   if (mine !== generation) return;
   const byMesh = new Map<CustomBatchedMesh, string[]>();
   for (const [mesh, id] of ranges) byMesh.set(mesh, [...(byMesh.get(mesh) ?? []), id]);
-  const tint = new THREE.Color(colour);
   for (const [mesh, ids] of byMesh) {
+    if (look.hidden) {
+      mesh.hideBatchDrawRange(ids);
+      hidden.set(mesh, ids);
+      continue;
+    }
+    const tint = new THREE.Color(look.colour!);
     const mats = materialsOf(mesh);
     const base = mats[0]?.color.clone() ?? new THREE.Color(1, 1, 1);
     painted.set(mesh, new Map(mats.map((m) => [m, m.color.clone()])));

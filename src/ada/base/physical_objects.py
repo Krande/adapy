@@ -91,6 +91,10 @@ class BackendGeom(Root):
 
         if self.change_type in (ChangeAction.NOCHANGE, ChangeAction.NOTDEFINED):
             self.change_type = ChangeAction.MODIFIED
+        # A body built before this cut (for a bbox, cut surfaces, a clash) must not be served after it.
+        from ada.cad.shape_cache import invalidate
+
+        invalidate(self.guid)
 
         if add_to_layer is not None:
             a = self.get_assembly()

@@ -83,7 +83,9 @@ export function startConnectionBuilderSession(): void {
     else if (s.inputsBySpec !== prev.inputsBySpec) requestBuild(INPUT_DEBOUNCE_MS);
     if (s.overlays !== prev.overlays) {
       const tintChanged =
-        s.overlays.tintWelds !== prev.overlays.tintWelds || s.overlays.weldColour !== prev.overlays.weldColour;
+        s.overlays.tintWelds !== prev.overlays.tintWelds ||
+        s.overlays.weldColour !== prev.overlays.weldColour ||
+        s.overlays.showWelds !== prev.overlays.showWelds;
       drawOverlay(tintChanged);
     }
   });
@@ -96,7 +98,10 @@ function drawOverlay(tint = true): void {
   renderConnectionOverlay(currentPreview, s.lastResult, s.overlays);
   if (!tint) return;
   const welds = s.lastResult?.properties.welds.map((w) => w.name) ?? [];
-  void tintWelds(currentPreview, welds, s.overlays.tintWelds ? s.overlays.weldColour : null);
+  void tintWelds(currentPreview, welds, {
+    colour: s.overlays.tintWelds ? s.overlays.weldColour : null,
+    hidden: !s.overlays.showWelds,
+  });
 }
 
 function keepSelectionValid(state: DevConnectionsState): void {

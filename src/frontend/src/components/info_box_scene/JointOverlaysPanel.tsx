@@ -65,6 +65,13 @@ const ConnectionSection = () => {
                 label="Name and throat"
             />
             <Toggle
+                checked={o.showWelds}
+                onChange={toggle("showWelds")}
+                label="Show welds"
+                description="Off, the members' end preparation (a bevelled groove) shows where the welds fill it."
+            />
+            <Toggle
+                disabled={!o.showWelds}
                 checked={o.tintWelds}
                 onChange={toggle("tintWelds")}
                 label="Weld colour"
