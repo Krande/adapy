@@ -421,11 +421,40 @@ const AngleField: React.FC<{
   );
 };
 
+/** A build in flight: a spinner, the seconds so far and, once this spec has built before, a bar
+ *  against how long that took (the server reports no stages, so it is an estimate, held at 95%). */
+const BuildProgress: React.FC<{
+  build: Extract<ConnectionBuildState, { status: "building" }>;
+  specName: string;
+}> = ({ build, specName }) => {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 100);
+    return () => clearInterval(id);
+  }, []);
+  const elapsed = Math.max(0, now - build.startedAt);
+  const fraction = build.expectedMs ? Math.min(0.95, elapsed / build.expectedMs) : null;
+  return (
+    <div className="flex flex-col gap-1">
+      <div className="flex items-center gap-2 text-gray-300">
+        <span className="inline-block w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin shrink-0" />
+        <span>Building {build.specName === specName ? "" : build.specName}…</span>
+        <span className="text-gray-500 tabular-nums">
+          {(elapsed / 1000).toFixed(1)} s{build.expectedMs ? ` / ~${(build.expectedMs / 1000).toFixed(1)} s` : ""}
+        </span>
+      </div>
+      {fraction !== null && (
+        <div className="h-1 rounded bg-blue-700/30 overflow-hidden">
+          <div className="h-full bg-blue-500 transition-[width] duration-100" style={{ width: `${fraction * 100}%` }} />
+        </div>
+      )}
+    </div>
+  );
+};
+
 const BuildStatus: React.FC<{ build: ConnectionBuildState; specName: string }> = ({ build, specName }) => {
   if (build.status === "idle") return null;
-  if (build.status === "building") {
-    return <div className="text-gray-300">Building {build.specName === specName ? "" : build.specName}…</div>;
-  }
+  if (build.status === "building") return <BuildProgress build={build} specName={specName} />;
   if (build.status === "error" && build.declined) {
     // NotApplicable: the builder refused these sample members -- its reason is the message.
     return (

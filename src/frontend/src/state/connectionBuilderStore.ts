@@ -17,7 +17,14 @@ import type {
 
 export type ConnectionBuildState =
   | { status: "idle" }
-  | { status: "building"; specName: string }
+  | {
+      status: "building";
+      specName: string;
+      /** `Date.now()` when the build was asked for. */
+      startedAt: number;
+      /** How long the last build of this spec took, end to end (ms); null before the first. */
+      expectedMs: number | null;
+    }
   | { status: "done"; result: DevBuildResult }
   | {
       status: "error";

@@ -122,6 +122,9 @@ export function requestBuild(delayMs: number): void {
   }, delayMs);
 }
 
+/** How long each spec's last successful build took, request to scene: the next one's progress estimate. */
+const buildMsBySpec = new Map<string, number>();
+
 async function buildSelected(): Promise<void> {
   const s = useConnectionBuilderStore.getState();
   const specName = s.selectedSpec;
@@ -129,7 +132,8 @@ async function buildSelected(): Promise<void> {
   if (!specName || !spec || s.library?.status !== "ready") return;
 
   const seq = ++requested;
-  s.setBuild({ status: "building", specName });
+  const startedAt = Date.now();
+  s.setBuild({ status: "building", specName, startedAt, expectedMs: buildMsBySpec.get(specName) ?? null });
   try {
     const result = await devConnectionsApi.build(specName, effectiveInputs(spec.defaults, s.inputsBySpec[specName]));
     await untilSceneReady();
@@ -143,6 +147,7 @@ async function buildSelected(): Promise<void> {
     dropPreviews(sourceName);
     currentPreview = sourceName;
     showClash(result, sourceName);
+    buildMsBySpec.set(specName, Date.now() - startedAt);
     useConnectionBuilderStore.getState().setBuild({ status: "done", result });
     drawOverlay();
   } catch (err) {
