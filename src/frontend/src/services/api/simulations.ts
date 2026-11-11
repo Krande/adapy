@@ -11,7 +11,7 @@
 
 import { runtime } from "@/runtime/config";
 
-import { authedFetch, jsonOrThrow, type ScopeUrl } from "./client";
+import { ApiError, authedFetch, jsonOrThrow, readDetail, type ScopeUrl } from "./client";
 
 /** The kinds of simulation the server knows. Open-ended in the type so a newer server's kind
  *  still lists; core's own UI names these three. */
@@ -118,6 +118,48 @@ export interface StartSimulationBody {
   readonly kind?: string;
 }
 
+/** Part of an artefact to fetch: from byte `start` (0 when left out) to byte `end` inclusive
+ *  (the end of the artefact when left out). */
+export interface ArtefactRange {
+  readonly start?: number;
+  readonly end?: number;
+  readonly signal?: AbortSignal;
+}
+
+/** What `fetchArtefact` read. */
+export interface ArtefactBytes {
+  /** The bytes from `start` on. Empty when the artefact has nothing at `start` yet. */
+  readonly bytes: Uint8Array;
+  /** Where `bytes` begins in the artefact. */
+  readonly start: number;
+  /** How long the artefact was when it was read; null when the server did not say. */
+  readonly total: number | null;
+}
+
+/**
+ * The answer to an artefact fetch as the bytes that were asked for. The server answers a range
+ * with 206 and the part, with 416 when the artefact ends before `start` (nothing new yet), or
+ * with 200 and the whole artefact when it cannot serve a part (one stored compressed): the part
+ * is then cut out here. Null for any other status.
+ */
+export function artefactBytesFrom(
+  status: number,
+  contentRange: string | null,
+  body: Uint8Array,
+  start: number,
+  end: number | undefined,
+): ArtefactBytes | null {
+  const size = /\/(\d+)\s*$/.exec(contentRange ?? "")?.[1];
+  const total = size !== undefined ? Number(size) : null;
+  if (status === 206) return { bytes: body, start, total };
+  if (status === 416) return { bytes: new Uint8Array(0), start, total };
+  if (status !== 200) return null;
+  const whole = body.length;
+  if (start === 0 && end === undefined) return { bytes: body, start: 0, total: whole };
+  const from = Math.min(start, whole);
+  return { bytes: body.subarray(from, end === undefined ? whole : Math.min(whole, end + 1)), start, total: whole };
+}
+
 /** Whether a run has not ended: it is worth polling. */
 export function isActiveRun(run: Pick<SimulationRun, "status">): boolean {
   return run.status === "queued" || run.status === "running";
@@ -166,6 +208,34 @@ export const simulationsApi = {
   async cancelRun(scope: ScopeUrl, runId: string): Promise<{ run: SimulationRun; cancelled: boolean }> {
     const r = await authedFetch(`${scoped(scope)}/${encodeURIComponent(runId)}/cancel`, { method: "POST" });
     return jsonOrThrow<{ run: SimulationRun; cancelled: boolean }>(r, "cancelSimulation");
+  },
+
+  /**
+   * One of a run's artefacts as bytes: all of it, or with `range` the part from a byte offset on.
+   * An artefact that is still being written (`partial`) is followed by asking for what lies beyond
+   * the bytes already read: `fetchArtefact(scope, artefact, { start: read })` gives the new bytes,
+   * or none when there are none yet.
+   */
+  async fetchArtefact(
+    scope: ScopeUrl,
+    artefact: Pick<SimulationArtefact, "key">,
+    range: ArtefactRange = {},
+  ): Promise<ArtefactBytes> {
+    const start = Math.max(0, Math.floor(range.start ?? 0));
+    const end = range.end === undefined ? undefined : Math.floor(range.end);
+    const ranged = start > 0 || end !== undefined;
+    let url = this.artefactUrl(scope, artefact);
+    // The range as query parameters and as a header, as `filesApi.getBlobRange` sends it: a proxy
+    // that drops the header still passes the query.
+    if (ranged) url += `?range_start=${start}&range_end=${end ?? ""}`;
+    const r = await authedFetch(url, {
+      signal: range.signal,
+      headers: ranged ? { Range: `bytes=${start}-${end ?? ""}` } : undefined,
+    });
+    const body = r.ok ? new Uint8Array(await r.arrayBuffer()) : new Uint8Array(0);
+    const read = artefactBytesFrom(r.status, r.headers.get("Content-Range"), body, start, end);
+    if (!read) throw new ApiError(`fetchArtefact(${artefact.key})`, r.status, await readDetail(r));
+    return read;
   },
 
   /** The blob-route URL of one of a run's artefacts (needs the bearer token when auth is on). */

@@ -9,6 +9,7 @@ import AttributeSearchIcon from "@/components/icons/AttributeSearchIcon";
 import CellBuilderIcon from "@/components/icons/CellBuilderIcon";
 import ComponentIcon from "@/components/icons/ComponentIcon";
 import InfoIcon from "@/components/icons/InfoIcon";
+import LayersIcon from "@/components/icons/LayersIcon";
 import SceneIcon from "@/components/icons/SceneIcon";
 import SimulationRunsIcon from "@/components/icons/SimulationRunsIcon";
 import StorageIcon from "@/components/icons/StorageIcon";
@@ -126,6 +127,13 @@ export const CLASSIC_TOOLBAR: Readonly<Record<PanelId, ToolbarRecipe>> = {
     title: () => "Toggle simulations panel",
     ariaLabel: () => "Toggle simulations panel",
     content: <SimulationRunsIcon />,
+  },
+  // Left out while no layer is registered: a viewer without layers has no gap for it.
+  [CORE_PANEL_IDS.layers]: {
+    title: () => "Toggle layers panel",
+    ariaLabel: () => "Toggle layers panel",
+    content: <LayersIcon />,
+    omitWhenUnavailable: true,
   },
   [CORE_PANEL_IDS.wsStatus]: {title: () => "Connection", content: null, omitWhenUnavailable: true, statusMenu: true},
 };

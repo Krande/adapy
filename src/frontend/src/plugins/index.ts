@@ -49,10 +49,13 @@ export function loadPlugins(): void {
     console.error("[plugins] loadPlugins failed", err);
   }
   // A page that asks for it before the viewer starts (a browser test's init script) is handed the
-  // scene verbs plugins draw with, to script what no plugin of this build draws.
+  // scene verbs plugins draw with (and its playback clock and layers), to script what no plugin of
+  // this build draws.
   const page = globalThis as { __adaScriptedScene?: unknown };
   if (page.__adaScriptedScene === true) {
-    page.__adaScriptedScene = makePluginContextStandalone("scripted").scene;
+    const scripted = makePluginContextStandalone("scripted");
+    // The scene verbs as they always were, with the clock and the layers beside them.
+    page.__adaScriptedScene = { ...scripted.scene, playback: scripted.playback, layers: scripted.layers };
   }
   // Build-time default UI (ADA_UI_DEFAULT / plugins.json `defaultUi`), applied
   // after registration so an unknown id can be reported against the real set.

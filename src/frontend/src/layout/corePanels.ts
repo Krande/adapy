@@ -58,6 +58,9 @@ import StorageIcon from "@/components/icons/StorageIcon";
 import ToggleControlsIcon from "@/components/icons/AnimationControlToggle";
 import TreeViewIcon from "@/components/icons/TreeViewIcon";
 
+import LayersIcon from "@/components/icons/LayersIcon";
+import { layerCount, subscribeLayers } from "@/state/layerRegistry";
+import { useLayersPanelStore } from "@/state/layersPanelStore";
 import { bindStoreFlag, watchStores } from "./bindings";
 import { CLASSIC_PRESET_ID, CLASSIC_ZONES } from "./layout";
 import type { PanelBinding, PanelBodyLoader, PanelPlacement, PanelProps, PanelSpec } from "./panel";
@@ -446,6 +449,26 @@ export function corePanelSpecs(): PanelSpec[] {
       constraints: { requiresRest: true, requiresViewerProvider: true },
       placement: column(110),
       toolbar: { order: 110 },
+    },
+    {
+      // The layers drawn over the model (state/layerRegistry). Offered while something has
+      // registered one, so a viewer with no layers shows no button for it.
+      id: CORE_PANEL_IDS.layers,
+      title: "Layers",
+      icon: LayersIcon,
+      hint: "Toggle layers panel",
+      body: classicBody(CORE_PANEL_IDS.layers),
+      content: classicContent(CORE_PANEL_IDS.layers),
+      watch: subscribeLayers,
+      binding: bindStoreFlag(
+        useLayersPanelStore,
+        (s) => s.panelOpen,
+        (open, s) => s.setPanelOpen(open),
+      ),
+      available: () => layerCount() > 0,
+      constraints: { requiresCanvas: true },
+      placement: column(120),
+      toolbar: { order: 120 },
     },
   ];
 }

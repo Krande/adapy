@@ -34,6 +34,14 @@ import {
   removeOwnerOverlays,
   setFeaElementEdgesVisible,
 } from "./sceneOverlays";
+import {
+  addImage,
+  addLineLayer,
+  addPointLayer,
+  imageUnavailable,
+  makePluginLayers,
+  makePluginPlayback,
+} from "./sceneLayers";
 import { releaseFeaDeformation, setFeaDeformationShown } from "@/utils/scene/fea/deformationGate";
 import { releaseFeaUnpaintedColor, setFeaUnpaintedColor } from "@/utils/scene/fea/unpaintedColor";
 import { findFaces, focusFace } from "@/utils/mesh_select/faceSearch";
@@ -160,10 +168,30 @@ function makeSceneHandle(): SceneHandle {
       useModelState.getState().registerLoadedSource(sourceName, group);
       requestRender();
     },
+    async loadModel(owner, source) {
+      // Core's own loader, which hands the bytes to whichever viewport is on screen. Imported on
+      // use, as `loadModelFromUrl` imports its loader: this module is on the boot path.
+      const { loadModel } = await import("@/components/viewer/sceneHelpers/loadModel");
+      const { bytes, url } = source;
+      if (!bytes && !url) throw new Error(`[plugin:${owner}] loadModel needs bytes or a url`);
+      await loadModel({
+        sourceName: source.sourceName,
+        bytes: bytes
+          ? { from: "bytes", bytes: bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes) }
+          : { from: "url", url: url! },
+        placement: source.placement ?? "replace",
+        sourceUpAxis: source.sourceUpAxis,
+      });
+      requestRender();
+    },
     unloadModel(sourceName) {
       void import("@/utils/scene/handlers/unload_any_source").then(({ unload_any_source }) => unload_any_source(sourceName));
     },
     addLines,
+    addLineLayer,
+    addPointLayer,
+    addImage,
+    imageUnavailable,
     addLabels,
     hasFeaModel,
     paintFeaElements,
@@ -207,6 +235,8 @@ export function makePluginContext(
     api: makeApiClient(),
     stores,
     scene: makeSceneHandle(),
+    playback: makePluginPlayback(pluginId),
+    layers: makePluginLayers(pluginId),
     scope: () => scopeUrlPart(useScopeStore.getState().current),
     // A React caller passes the SUBSCRIBED theme (`usePluginTheme`), which is
     // what makes a plugin panel repaint on a theme switch. The fallback is a

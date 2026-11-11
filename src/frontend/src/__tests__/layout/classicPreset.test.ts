@@ -84,6 +84,10 @@ test("the recipes' tooltips and accessible names are the classic top bar's", () 
       title: ["Toggle simulations panel", "Toggle simulations panel"],
       aria: ["Toggle simulations panel", "Toggle simulations panel"],
     },
+    [CORE_PANEL_IDS.layers]: {
+      title: ["Toggle layers panel", "Toggle layers panel"],
+      aria: ["Toggle layers panel", "Toggle layers panel"],
+    },
   };
   for (const [id, r] of Object.entries(CLASSIC_TOOLBAR)) {
     if (r.statusMenu) continue; // the connection status draws its own button

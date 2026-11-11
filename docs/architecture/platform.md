@@ -266,7 +266,7 @@ sequenceDiagram
 | Domain | Required artefact roles | Optional |
 |---|---|---|
 | `fea` | `result`: the solver's result file, in a format the FEA bake reads | `model`: the input deck |
-| `robotics` | `model`: the animated model (GLB); `timeline`: the recorded topics over time (JSON) | |
+| `robotics` | `model`: the animated model (GLB); `timeline`: the recorded topics over time, in the recording format its media type names (JSON, or a binary recording) | |
 | `cfd` | `mesh`: the result mesh; `fields`: the field values on it over time | |
 
 Every domain may also use the common roles `log`, `report` and `data`. A domain carries only what
@@ -364,6 +364,31 @@ In the viewer, the Simulations panel (`core:simulations`) lists providers by dom
 start form from the parameter schema and lists runs with their artefacts. A frontend plugin adds
 what core cannot know through `simulationProviders` in the plugin registry: a parameter form
 section and an "open result" handler, registered for one provider id or for a whole domain.
+
+**Replaying a run in the viewer.** What a result of a run needs on screen is not specific to one
+kind of simulation, so it is in core and a plugin's `openResult` only feeds it (plugin API 1.18.0;
+how the two viewports draw it is in [A viewer without three.js](threejs_free_viewport.md)):
+
+| On `ctx` | Does |
+|---|---|
+| `scene.loadModel(owner, {bytes \| url, sourceName, placement?, sourceUpAxis?})` | Loads a GLB as the scene's model on whichever viewport is on screen. On the three.js viewport Draco- and meshopt-compressed meshes load, with both decoders in the bundle; the three.js-free viewport reads what its renderer's own reader does, which refuses Draco. A model with node animation becomes a track of the playback clock by itself, with time zero at the animation's start. |
+| `scene.addImage(owner, {origin, u, v, width, height, pixels, opacity?, visible?, throughModel?, nearest?, layer?})` | An image lying in the world: RGBA bytes (sRGB, straight alpha) on the rectangle from `origin` along `u` and `v`. Row 0 lies along `u` at the origin and column 0 along `v`, so with the origin at the least x and y, `u` along +x and `v` along +y, row 0 is the min-y edge and column 0 the min-x edge. Returns `{setPixels, setRect, setLook, unavailable, remove}`. `scene.imageUnavailable(width, height)` says beforehand whether the viewport on screen draws that size. |
+| `scene.addLineLayer(owner, {segments? \| polyline?, color?, widthPx?, opacity?, visible?, throughModel?, layer?})` | Lines whose number changes: `{setSegments(segments, count?), setPolyline(points, count?), setLook, remove}`. |
+| `scene.addPointLayer(owner, {positions?, colors?, color?, sizePx?, opacity?, visible?, throughModel?, layer?})` | Points whose number changes: `{setPoints(positions, count?, colors?), setLook, remove}`. |
+| `playback` | The viewer's one clock: `addTrack({id, duration, show(t), label?})` gives `{setDuration, remove}`; `play`, `pause`, `seek`, `setSpeed`, `setLoop`, `followEnd(on)` for a recording that is still growing; `state()`, `time()`, `subscribe`. The clock's duration is its longest track's, and a shorter track (the model's animation under a longer recording) holds its last moment. |
+| `layers` | The plugin's rows in the Layers panel (`core:layers`): `list`, `setVisible`, `setOpacity`, `subscribe`. A row exists while something drawn with that `layer: {id, label, group?}` does. |
+
+Layer coordinates are the model's own, those of the loaded model's file, z-up: core places the
+layers where the viewport places the model, so nothing has to be known about recentring. Arrays are
+read during a call and not kept, and a handle's data is replaced in place, so a `show(t)` that fills
+one buffer and hands it over every frame allocates nothing. `scene.remove(owner)` takes away
+everything the owner made, tracks included. The older overlay verbs (`addLines`, `addLabels`, ...)
+are unchanged: they are in the FEA model's coordinates when one is loaded.
+
+A run's artefacts are read with `simulationsApi.fetchArtefact(scope, artefact, {start?, end?})`
+(on `@/viewer-core/app`): the whole artefact, or the bytes from an offset on. An artefact that is
+still being written is followed by asking for what lies beyond the bytes already read; the answer
+is empty when there is nothing new, and `total` is the artefact's size at that moment.
 
 ### Audit and issue bot
 
