@@ -12,6 +12,7 @@
 // measured over when it was taken from what is shown, for the legend.
 
 import * as THREE from "three";
+import {ensureResultLook} from "../threeResultLook";
 
 import type {ContourSettings} from "../contourScale";
 import type {FeaFetcher, FeaRangeFetcher} from "@/services/fea/feaFetcher";
@@ -100,6 +101,7 @@ export async function paintNodeField(args: {
     // structure. Without it, scaling the morph influence ×100 leaves rigid solid
     // beams at undeformed positions while the shells fly off.
     if (active.beamSolidMesh) {
+        ensureResultLook(active.beamSolidMesh);
         const setVc = (mat: THREE.Material, on: boolean) => {
             if ("vertexColors" in mat && (mat as unknown as {vertexColors: boolean}).vertexColors !== on) {
                 (mat as unknown as {vertexColors: boolean}).vertexColors = on;

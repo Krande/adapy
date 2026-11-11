@@ -144,7 +144,9 @@ export type ViewerActionKind =
     | "plane-clear"
     | "isolate-sets"
     | "clear-isolation"
-    | "context-wireframe";
+    | "context-wireframe"
+    | "color-set"
+    | "color-reset";
 
 /** Labels of the kinds whose label does not depend on what they changed. */
 const FIXED_LABELS: Partial<Record<ViewerActionKind, string>> = {
@@ -158,6 +160,8 @@ const FIXED_LABELS: Partial<Record<ViewerActionKind, string>> = {
     "plane-remove": "remove section plane",
     "plane-clear": "remove all section planes",
     "context-wireframe": "toggle the rest as wireframe",
+    "color-set": "set colour of objects",
+    "color-reset": "reset colours of objects",
 };
 
 /** The label of a model add / remove entry. */

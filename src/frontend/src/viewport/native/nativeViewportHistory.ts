@@ -15,6 +15,7 @@ import {bindCoreShortcuts} from "@/layout/shortcuts";
 import {useScopeStore} from "@/state/scopeStore";
 import {diffSets, useViewerHistoryStore} from "@/state/viewerHistoryStore";
 import {recordViewerAction} from "@/utils/scene/viewerHistory";
+import {recordObjectColors} from "@/viewport/api/objectColors";
 import type {ViewportApi} from "@/viewport/api/viewportApi";
 import {historyShortcutHandlers} from "@/viewport/api/viewportShortcuts";
 import type {ViewportState, ViewportStateChange, ViewportUndoState} from "@/viewport/api/viewportState";
@@ -121,7 +122,7 @@ export function nativeUndoState(scene: NativeScene): ViewportUndoState {
     };
 }
 
-type Recorded = "setSelection" | "clearSelection" | "hide" | "show" | "isolate" | "showAll" | "hideSelected" | "hideOthers";
+type Recorded = "setSelection" | "clearSelection" | "hide" | "show" | "isolate" | "showAll" | "hideSelected" | "hideOthers" | "setObjectColors";
 
 /** `api` with the state for the history, and with each call that changes the selection or what is
  *  hidden recorded as one undo step. A click in the view is one too. */
@@ -137,6 +138,7 @@ export function withNativeHistory(scene: NativeScene, api: Omit<ViewportApi, key
         showAll: () => recordViewerAction("show-all", () => api.showAll()),
         hideSelected: () => recordViewerAction("hide", () => api.hideSelected()),
         hideOthers: () => recordViewerAction("hide-others", () => api.hideOthers()),
+        setObjectColors: (refs, color) => recordObjectColors(color === null, () => api.setObjectColors(refs, color)),
     };
     return {...api, ...steps, ...nativeUndoState(scene)};
 }

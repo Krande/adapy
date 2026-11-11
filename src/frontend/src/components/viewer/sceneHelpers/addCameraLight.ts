@@ -5,8 +5,9 @@ import type {OwnedSceneObjects} from "@/utils/scene/ownedSceneObjects";
 export function addCameraLightWithTracking(
   camera: THREE.Camera,
   owned: OwnedSceneObjects,
-): () => void {
-  const light = new THREE.DirectionalLight(0xffffff, 1.4);
+  intensity = 1.4,
+): {update: () => void; light: THREE.DirectionalLight} {
+  const light = new THREE.DirectionalLight(0xffffff, intensity);
   light.castShadow = false;
 
   // Optional: enable shadows if needed
@@ -26,10 +27,11 @@ export function addCameraLightWithTracking(
 
   const direction = new THREE.Vector3();
   // Return an updater function to call on each frame
-  return () => {
+  const update = () => {
     light.position.copy(camera.position);
     camera.getWorldDirection(direction);
     target.position.copy(camera.position).add(direction);
     light.target.updateMatrixWorld();
   };
+  return {update, light};
 }

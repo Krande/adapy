@@ -8,6 +8,8 @@ import * as THREE from "three";
 import {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
 import {ensureElementLocalVertices} from "@/utils/scene/fea/elementLocalGeometry";
 import {resetBasePositions, writeMorphTarget} from "@/utils/scene/fea/gpuRefresh";
+import {useAppearanceStore} from "@/state/appearanceStore";
+import {ensureResultLook} from "@/utils/scene/fea/threeResultLook";
 import {SceneSync, SPRITE_LAYER} from "@/viewport/adacpp/sceneSync";
 import {InstanceFlag, SegmentFlag, SpriteFlag, Topology, type AdacppModule, type WebRendererApi} from "@/viewport/adacpp/types";
 
@@ -20,6 +22,7 @@ interface Recorded {
     influences: Map<number, number>; // geometry -> morph influence of its latest setInstance
     flags: Map<number, number>; // geometry -> flags of its latest setInstance
     clipPlanes: number[][] | null; // the latest setClipPlanes, as (nx, ny, nz, constant) rows
+    lighting: [number, number][]; // every setLighting: ambient, headlight
 }
 
 function fakeModule(): {module: AdacppModule; renderer: WebRendererApi; rec: Recorded} {
@@ -37,7 +40,7 @@ function fakeModule(): {module: AdacppModule; renderer: WebRendererApi; rec: Rec
         _free: () => {},
     } as unknown as AdacppModule;
     const u32 = (p: number, n: number) => (p ? Array.from(module.HEAPU32.subarray(p >> 2, (p >> 2) + n)) : []);
-    const rec: Recorded = {geometries: new Map(), states: new Map(), removed: [], colorUpdates: 0, morphUpdates: new Map(), influences: new Map(), flags: new Map(), clipPlanes: null};
+    const rec: Recorded = {geometries: new Map(), states: new Map(), removed: [], colorUpdates: 0, morphUpdates: new Map(), influences: new Map(), flags: new Map(), clipPlanes: null, lighting: []};
     const f32 = (p: number, n: number) => (p ? Array.from(module.HEAPF32.subarray(p >> 2, (p >> 2) + n)) : []);
     let nextGeom = 0;
     let nextInst = 0;
@@ -73,6 +76,7 @@ function fakeModule(): {module: AdacppModule; renderer: WebRendererApi; rec: Rec
         },
         setCamera: () => {},
         setBackground: () => {},
+        setLighting: (ambient: number, headlight: number) => rec.lighting.push([ambient, headlight]),
     } as unknown as WebRendererApi;
     return {module, renderer, rec};
 }
@@ -466,4 +470,54 @@ test("an image lying in the world is a renderer quad: its texture uploaded once 
     images.remove(handle);
     sync.sync(scene, camera);
     assert.deepEqual(calls.slice(-2).sort(), ["removeQuad 30", "removeTexture 10"]);
+});
+
+test("the lights are the appearance settings', set when they change and not per frame", () => {
+    const {module, renderer, rec} = fakeModule();
+    const {scene, camera} = cameraAndScene(batched());
+    const sync = new SceneSync(module, renderer);
+    sync.sync(scene, camera);
+    sync.sync(scene, camera);
+    assert.deepEqual(rec.lighting, [[Math.PI / 2, 1.4]]);
+    useAppearanceStore.getState().setBrightness(2);
+    assert.deepEqual(rec.lighting.at(-1), [Math.PI, 2.8]);
+    useAppearanceStore.getState().reset();
+    sync.dispose();
+    useAppearanceStore.getState().setBrightness(0.5);
+    assert.equal(rec.lighting.length, 3, "disposed: no longer following");
+    useAppearanceStore.getState().reset();
+});
+
+test("a painted FEA result is mirrored unlit, as three.js draws it; shaded results are lit", () => {
+    const {module, renderer, rec} = fakeModule();
+    const mesh = batched();
+    ensureResultLook(mesh);
+    const {scene, camera} = cameraAndScene(mesh);
+    const sync = new SceneSync(module, renderer);
+    sync.sync(scene, camera);
+    const flags = () => [...rec.flags.values()][0];
+    assert.equal(flags() & InstanceFlag.Unlit, 0, "unpainted: lit");
+    mesh.geometry.setAttribute("color", new THREE.BufferAttribute(new Float32Array(12 * 3).fill(0.5), 3));
+    (mesh.originalMaterial as THREE.MeshStandardMaterial).vertexColors = true;
+    sync.sync(scene, camera);
+    assert.ok(flags() & InstanceFlag.Unlit);
+    assert.ok(flags() & InstanceFlag.VertexColors);
+    useAppearanceStore.getState().setShadeResults(true);
+    sync.sync(scene, camera);
+    assert.equal(flags() & InstanceFlag.Unlit, 0);
+    useAppearanceStore.getState().reset();
+});
+
+test("colours the user gave objects reach the renderer through the mesh's colour attribute", () => {
+    const {module, renderer, rec} = fakeModule();
+    const mesh = batched();
+    const {scene, camera} = cameraAndScene(mesh);
+    const sync = new SceneSync(module, renderer);
+    sync.sync(scene, camera);
+    const uploads = rec.geometries.size;
+    mesh.setUserColors(["a"], 0xff0000);
+    sync.sync(scene, camera);
+    assert.equal(rec.colorUpdates, 1, "one colour upload");
+    assert.equal(rec.geometries.size, uploads, "no geometry");
+    assert.ok([...rec.flags.values()][0] & InstanceFlag.VertexColors);
 });

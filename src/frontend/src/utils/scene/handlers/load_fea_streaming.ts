@@ -12,6 +12,7 @@
 // session, resolved once per load.
 
 import {prefetchCase, resolveCase, resolveEnvelope} from "@/services/fea/feaCaseResolver";
+import {ensureResultLook} from "../fea/threeResultLook";
 import {caseManifestView, isCaseRef} from "@/services/fea/feaStepRef";
 import {
     hasLazyCases,
@@ -104,6 +105,7 @@ async function attachBeamSolids(
     const beamSolidsVisible = useFeaAnimationStore.getState().beamSolidsVisible;
     const beamSolid = await tryLoadBeamSolids(fetcher, sourceName, manifest, beamSolidsVisible, active.basePositions);
     if (!beamSolid) return;
+    ensureResultLook(beamSolid.mesh);
     active.mesh.add(beamSolid.mesh);
     active.beamSolidMesh = beamSolid.mesh;
     active.beamSolidBasePositions = beamSolid.basePositions;

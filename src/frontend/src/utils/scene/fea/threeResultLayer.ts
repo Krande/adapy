@@ -16,6 +16,7 @@ import type {ResultMeshData, ResultMeshLayer} from "@/viewport/api/resultLayer";
 import {elementLocalMap} from "./elementLocalGeometry";
 import {ensureVertexNormals, resetBasePositions, writeColorAttribute, writeMorphTarget} from "./gpuRefresh";
 import {setSourceMorph} from "./sourceMorph";
+import {ensureResultLook} from "./threeResultLook";
 
 type Drawn = THREE.Mesh | THREE.LineSegments | THREE.Points;
 
@@ -144,6 +145,8 @@ const adopted = new WeakMap<Drawn, ThreeResultLayer>();
 /** The layer of a mesh that is already in the scene; the same one for the same mesh.
  *  `basePositions` is the mesh's undeformed shape in source numbering. */
 export function threeResultLayer(mesh: Drawn, basePositions: Float32Array): ResultMeshLayer {
+    // Matte, and flat while it is painted, so a colour reads as the legend's (threeResultLook.ts).
+    ensureResultLook(mesh);
     let layer = adopted.get(mesh);
     if (!layer) {
         layer = new ThreeResultLayer(mesh, basePositions);
@@ -170,6 +173,7 @@ export function createThreeResultMesh(data: ResultMeshData, parent: THREE.Object
     } else if (data.topology === "triangles") {
         ensureVertexNormals(geometry);
         object = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({color, side: THREE.DoubleSide, metalness: 0, roughness: 1}));
+        ensureResultLook(object);
     } else if (data.topology === "lines") {
         object = new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({color}));
     } else {

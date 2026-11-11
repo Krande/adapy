@@ -5,6 +5,8 @@
 import * as THREE from "three";
 import {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
 import {selectedMaterial} from "@/utils/default_materials";
+import {lightIntensities, useAppearanceStore} from "@/state/appearanceStore";
+import {resultDrawnFlat} from "@/utils/scene/fea/threeResultLook";
 import {quadMatrix} from "@/viewport/native/nativeImages";
 import {InstanceFlag, NO_TEXTURE, SegmentFlag, SpriteFlag, Topology, type AdacppModule, type WebRendererApi} from "./types";
 
@@ -115,8 +117,9 @@ function materialColor(m: AnyMaterial | undefined, fallback: number): THREE.Colo
 function isUnlit(m: AnyMaterial | undefined): boolean {
     if (!m) return false;
     const t = m as unknown as Record<string, boolean>;
+    // A painted FEA result is drawn flat, as three.js draws it (utils/scene/fea/threeResultLook.ts).
     return !!(t.isMeshBasicMaterial || t.isLineBasicMaterial || t.isLineDashedMaterial || t.isPointsMaterial ||
-        t.isShaderMaterial || t.isLineMaterial);
+        t.isShaderMaterial || t.isLineMaterial) || resultDrawnFlat(m);
 }
 
 /** The layer sprites are put on (as well as their own) for the three.js pass that draws them over the WebGPU
@@ -218,9 +221,22 @@ export class SceneSync {
         this.viewPtr = module._malloc(64);
         this.projPtr = module._malloc(64);
         this.planesPtr = module._malloc(MAX_CLIP_PLANES * 16);
+        // The lights are the appearance settings', as the three.js lights are (setupLights.ts):
+        // set when they change, not each frame.
+        const light = () => {
+            const {ambient, headlight} = lightIntensities();
+            r.setLighting(ambient, headlight);
+        };
+        light();
+        this.unlight = useAppearanceStore.subscribe((s, prev) => {
+            if (s.brightness !== prev.brightness || s.ambientShare !== prev.ambientShare) light();
+        });
     }
 
+    private readonly unlight: () => void;
+
     dispose(): void {
+        this.unlight();
         this.entries.clear();
         this.byInstance.clear();
         this.module._free(this.matrixPtr);

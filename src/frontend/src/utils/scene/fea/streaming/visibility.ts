@@ -12,6 +12,7 @@
 // `useFeaAnimationStore` for the user's toggles.
 
 import * as THREE from "three";
+import {ensureResultLook} from "../threeResultLook";
 
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {requestRender} from "@/state/perfStore";
@@ -164,6 +165,7 @@ export function setFeaResultColorsVisible(visible: boolean): void {
         // solids that was a tint; for the main mesh of a model opened with no
         // result field (a model-only bake) it was a black model.
         if (visible && !target.geometry.getAttribute("color")) continue;
+        ensureResultLook(target);
         const m = target.material;
         if (Array.isArray(m)) m.forEach(setVc);
         else if (m) setVc(m as THREE.Material);

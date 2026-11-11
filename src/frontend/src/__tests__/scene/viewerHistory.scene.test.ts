@@ -132,3 +132,34 @@ test("an entry leaves alone a mesh no longer in the scene", () => {
   assert.deepEqual(hidden(), ["a"]);
   assert.deepEqual(selected(), []);
 });
+
+test("recolouring every object is one entry; undo and redo put the colours back", () => {
+  const api = createThreeViewport({} as never);
+  setActiveViewport(api);
+  assert.equal(api.setObjectColors(null, "#ff0000"), 4);
+  assert.equal(api.objectColorCount(), 4);
+  assert.equal(hist().past.length, 1);
+  assert.equal(hist().past[0].label, "set colour of objects");
+  assert.equal(api.setObjectColors(null, null), 4);
+  assert.equal(m.userColorCount, 0);
+  assert.equal(hist().past[1].label, "reset colours of objects");
+
+  undoViewerAction();
+  assert.equal(m.userColorCount, 4);
+  assert.equal(m.userColorOf("b"), 0xffff0000);
+  undoViewerAction();
+  assert.equal(m.userColorCount, 0);
+  redoViewerAction();
+  assert.equal(m.userColorOf("b"), 0xffff0000);
+  // A recolouring leaves the selection and what is hidden alone.
+  assert.deepEqual(hidden(), []);
+  assert.equal(api.setObjectColors(null, "#ff0000"), 0, "the colour they have: no entry");
+  assert.equal(hist().past.length, 1);
+});
+
+test("a mesh that is painted by vertex (an FEA result) is not recoloured", () => {
+  const api = createThreeViewport({} as never);
+  m.setRangeColors(new Map([["a", new THREE.Color(1, 1, 0)]]));
+  assert.equal(api.setObjectColors(null, "#ff0000"), 0);
+  assert.equal(hist().past.length, 0);
+});

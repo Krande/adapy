@@ -138,8 +138,12 @@ const NativeViewport: React.FC = () => {
             scene.load(model.bytes, key, {add: added, sourceName: model.sourceName});
             useNativeViewport.setState({loadError: null, objectCount: scene.objects.length});
             // The Scene tree and the object info list and name this model from here on.
+            // The scene read the file's JSON to find the objects without a colour: its extras are
+            // handed on parsed, so the panels' side does not parse them a second time.
+            const extras = scene.parsedExtras;
             notifyModelLoaded({
-                added, model: key, sourceName: model.sourceName, displayName: model.displayName, sceneExtras: scene.sceneExtras,
+                added, model: key, sourceName: model.sourceName, displayName: model.displayName,
+                sceneExtras: extras ? "" : scene.sceneExtras, ...(extras ? {extras} : {}),
                 adaExtData: scene.adaExtData, bufferView: glbBufferViews(model.bytes),
             });
         } catch (err) {

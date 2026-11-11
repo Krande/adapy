@@ -19,6 +19,8 @@ import {matrixProjector} from "@/utils/scene/fea/labelPlacement";
 import {createThreeResultMesh} from "@/utils/scene/fea/threeResultLayer";
 import {recordViewerAction} from "@/utils/scene/viewerHistory";
 import {captureThreeState, restoreThreeState, threeStateChange} from "@/utils/scene/threeViewportState";
+import {captureThreeObjectColors, restoreThreeObjectColors, setThreeObjectColors, threeObjectColorCount} from "@/utils/scene/threeObjectColors";
+import {recordObjectColors} from "./objectColors";
 import {RangeSet, rangesInCameraRect, rangesInWorldBox, threeSelectionBounds} from "@/utils/bboxSelection/threeBoxSelection";
 import {rangesCentroidWorld} from "@/utils/viewer/pipeTrace";
 import type {BillboardLayer} from "./billboards";
@@ -205,6 +207,11 @@ export function createThreeViewport(h: ThreeViewportHandles): ViewportApi {
             requestRender();
         },
         objectVisibility: threeVisibilityReader,
+        // A colour per draw range, through each mesh's colour attribute: one undo entry per call.
+        setObjectColors: (refs, color) => recordObjectColors(color === null, () => setThreeObjectColors(refs, color)),
+        objectColorCount: threeObjectColorCount,
+        captureObjectColors: captureThreeObjectColors,
+        restoreObjectColors: restoreThreeObjectColors,
         // Undo: the hidden ranges per mesh and the selection store, as the history noted them itself
         // before it asked the viewport (utils/scene/threeViewportState.ts).
         captureState: captureThreeState,

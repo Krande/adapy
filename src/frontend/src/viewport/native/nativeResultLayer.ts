@@ -3,6 +3,7 @@
 // deformation scale. The same renderer calls the three.js scene mirror makes for a result mesh
 // (viewport/adacpp/sceneSync.ts), without a three.js object behind them. No three.js in this module.
 import type {ResultMeshData, ResultMeshLayer} from "@/viewport/api/resultLayer";
+import {useAppearanceStore} from "@/state/appearanceStore";
 import {InstanceFlag, Topology, type AdacppModule, type WebRendererApi} from "@/viewport/adacpp/types";
 
 const WHITE = 0xffffffff;
@@ -23,6 +24,8 @@ export class NativeResultLayer implements ResultMeshLayer {
     /** A plain colour given in place of the layer's own (setColor). */
     private plain: readonly [number, number, number] | null = null;
     private readonly baseFlags: number;
+    /** Lit faces of a result (not an annotation, not lines or points): what a field paints. */
+    private readonly faces: boolean;
     /** Lines' width and points' diameter in the drawing buffer's pixels, and the layer's opacity. */
     private readonly size: number;
     private opacity: number;
@@ -57,6 +60,7 @@ export class NativeResultLayer implements ResultMeshLayer {
         this.opacity = Math.max(0, Math.min(1, data.opacity ?? 1));
         this.size = Math.max(1, (data.sizePx ?? 1) * pixelRatio);
         const overlay = data.overlay;
+        this.faces = triangles && !overlay;
         if (overlay) {
             // An annotation: unlit, a click passes through it, and it wins over the faces it lies on.
             this.baseFlags = InstanceFlag.MorphRelative | InstanceFlag.Unlit | InstanceFlag.NoPick |
@@ -114,11 +118,22 @@ export class NativeResultLayer implements ResultMeshLayer {
         if (this.opacity < 1) flags |= InstanceFlag.Transparent;
         const painted = this.painted && this.colorsVisible;
         if (painted) flags |= InstanceFlag.VertexColors;
+        // A painted result is drawn flat unless the user asked for shaded results: lighting darkens
+        // a colour by how its face is turned, and a colour read against a legend must not depend
+        // on that. Unpainted, the faces are lit like any model.
+        if (painted && this.faces && !useAppearanceStore.getState().shadeResults) flags |= InstanceFlag.Unlit;
         if (!this.visible) flags |= InstanceFlag.Hidden;
         // Painted colours are drawn times the layer's own colour, so a given one waits for them to go.
         const [r, g, b] = this.plain && !painted ? this.plain : this.color;
-        this.renderer.setInstance(this.instance, this.matrixPtr, r, g, b, this.opacity, flags, this.influence, 0, 1, false, this.size, this.dash, this.gap);
+        // Lit faces are a matte surface with the faint highlight three.js' standard material gives
+        // one (metalness 0, roughness 1): what the three.js viewport draws a result's faces with.
+        this.renderer.setInstance(this.instance, this.matrixPtr, r, g, b, this.opacity, flags, this.influence, 0, 1, this.faces, this.size, this.dash, this.gap);
         this.changed();
+    }
+
+    /** How results are drawn has changed (state/appearanceStore.ts): the instance's state again. */
+    refreshLook(): void {
+        if (this.faces && this.painted) this.push();
     }
 
     setColors(rgb: Float32Array): void {

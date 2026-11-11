@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import {test} from "node:test";
 
 import type {FeaManifestField} from "@/services/viewerApi";
-import {getColormap} from "@/utils/scene/fea/colormaps";
+import {getColormap, linearColormap} from "@/utils/scene/fea/colormaps";
 import {elementLocalVertices, expandTriplesInto, paintElemField, type ElemFieldPaint} from "@/utils/scene/fea/elemFieldPaint";
 
 /** Four nodes, two triangles that share the nodes 1 and 2; element 7 then element 8. */
@@ -26,9 +26,10 @@ function field(over: Record<string, unknown> = {}, bucket: Record<string, unknow
     } as unknown as FeaManifestField;
 }
 
+// What a kernel hands a viewport is linear light: the colour map's sRGB decoded (colormaps.ts).
 function colorAt(t: number): number[] {
     const out = new Float32Array(3);
-    getColormap("viridis")(t, out, 0);
+    linearColormap(getColormap("viridis"))(t, out, 0);
     return [...out];
 }
 

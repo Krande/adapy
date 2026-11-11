@@ -79,7 +79,8 @@ export function recordViewerAction<T>(kind: ViewerActionKind, fn: () => T, opts:
     if (depth > 0 || useViewerHistoryStore.getState().applying) return fn();
 
     const slices = opts.slices ?? [];
-    const touchesVisibility = kind !== "select" && kind !== "clear-selection" && !kind.startsWith("box-") && !kind.startsWith("plane-");
+    const touchesVisibility =
+        kind !== "select" && kind !== "clear-selection" && !kind.startsWith("box-") && !kind.startsWith("plane-") && !kind.startsWith("color-");
     const viewport = activeViewport();
     const before = viewport ? viewport.captureState(touchesVisibility ? SELECTION_AND_VISIBILITY : SELECTION_ONLY) : null;
     const slicesBefore = slices.map((s) => s.get());
