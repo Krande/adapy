@@ -304,6 +304,157 @@ about what it looks at, so the three.js-free viewport turns to look at the point
 (`NativeScene.setOrbitPivot`, also `ViewportApi.setOrbitPivot`). A click with a modifier adds to the
 selection and is never half of a double-click there.
 
+## Appearance on every renderer
+
+The same model is the same picture whichever of the three draws it, and what a user changes about
+its look changes on all of them. Both are one module each: the settings
+(`state/appearanceStore.ts`) and the colours given to objects (`viewport/api/objectColors.ts`).
+Neither imports three.js.
+
+```mermaid
+flowchart LR
+    OPT["Options > Appearance<br/>palette: Appearance: …"] --> STORE["appearanceStore<br/>default colour, background,<br/>brightness, ambient share, shade results"]
+    STORE -->|"AmbientLight / DirectionalLight intensity,<br/>scene.background, material colour, one uniform"| T["three.js"]
+    STORE -->|"setLighting, instance flags<br/>(the scene's materials are mirrored)"| M["adacpp mirror<br/>sceneSync.ts"]
+    STORE -->|"setLighting, setBackground,<br/>segment colours, instance flags"| N["NativeScene"]
+    CMD["Set colour of selection…<br/>Reset colours, the tree's menu"] --> API["ViewportApi.setObjectColors(refs, colour)"]
+    API -->|"colour attribute of the batched mesh"| T
+    API -->|"segment colours (setSegmentStates)"| N
+    T -.->|"the same attribute"| M
+```
+
+### What was different, and why
+
+Measured on the same models in headless Chromium (the page's pixels, sRGB levels of 255), before
+anything was changed:
+
+| What | three.js | adacpp mirror | three.js-free | Cause |
+|---|---|---|---|---|
+| Background | 57 | 57 | 57 | the same |
+| CAD, a face towards the camera | 223 | 223 | 223 | the same lights and material |
+| CAD, a face at 55 degrees (the default view) | 196 | 196 | 196 | |
+| CAD, a face seen at a grazing angle | 162 | 162 | 162 | |
+| FEA result, near the largest value (its colour-map colour: 255, 30, 0) | 101, 27, 0 | 101, 27, 0 | 228, 71, 0 | see below |
+| FEA result, mid range (0, 201, 255) | 0, 82, 92 | 0, 81, 92 | 0, 204, 227 | |
+| FEA result, near the smallest value (0, 3, 255) | 0, 4, 91 | 0, 4, 91 | 0, 24, 226 | |
+
+The colours in brackets are what three.js draws at those pixels now, from vertex colours kept as
+floats; the first was also read off the legend's bar at the same value.
+
+A CAD model was already the same picture: the renderer's lit path is three.js'
+`MeshStandardMaterial` for one ambient light and one headlight (Lambert diffuse, a GGX highlight,
+linear light in, sRGB out, no tone mapping), with the same two intensities, and both sides of a
+face are lit from the side the camera is on. The FEA result was not, for three reasons:
+
+1. **A metal on one, a matte surface on the other.** The bake's mesh GLB names no metalness, and
+   glTF's default is fully metallic. three.js drew the result with that material: no diffuse
+   light at all, only the headlight's highlight, about a ninth of the colour in linear light. The
+   layer session draws its faces as a matte surface.
+2. **sRGB numbers used as linear light.** A colour map's channels are sRGB, the numbers the legend
+   writes into CSS. Both viewports took them as linear light and encoded the picture to sRGB again,
+   so even a fully lit colour was lighter than its swatch (128 came out as 188).
+3. **Lighting.** Both lit the result, so a colour depended on how its face was turned: between a
+   half and 0.95 of it on the three.js-free viewport.
+
+### What a result colour is now
+
+A colour read against a legend has to be the legend's colour, on every renderer and whichever way
+the face is turned. So:
+
+- The paint kernels hand over **linear light** (`linearColormap` in `utils/scene/fea/colormaps.ts`,
+  a table, no `pow` per vertex), which is what `ResultMeshLayer.setColors` always said it took.
+- A **painted result is drawn flat**: the three.js-free viewport sets the instance's `Unlit` flag
+  while the colours show; three.js keeps its material and replaces the lit colour by the colour
+  itself where vertex colours are on (`utils/scene/fea/threeResultLook.ts`, one shared uniform);
+  the mirror reads that as `Unlit`. Unpainted, the faces are lit like any model.
+- A result's faces are a **matte surface** on three.js too (metalness 0, roughness 1), so the
+  unpainted model and a shaded result are the same there.
+- **"Shade FEA results"** (off by default) lights a painted result like the model, for a user who
+  wants the shape more than the exact colour. It is the same picture on all three.
+
+After, at the same three pixels (the shaded rows are from another load, which the three.js-free
+viewport framed a few pixels differently):
+
+| What | three.js | adacpp mirror | three.js-free | Colour-map colour |
+|---|---|---|---|---|
+| Near the largest value | 255, 30, 0 | 255, 29, 0 | 255, 29, 0 | 255, 30, 0 |
+| Mid range | 0, 201, 255 | 0, 198, 255 | 0, 201, 255 | 0, 201, 255 |
+| Near the smallest value | 0, 3, 255 | 0, 2, 255 | 0, 2, 255 | 0, 3, 255 |
+| Shaded ("Shade FEA results"), near the largest value | 226, 36, 17 | 226, 34, 17 | 226, 40, 17 | |
+| Shaded, near the smallest value | 13, 15, 226 | 13, 13, 226 | 13, 15, 226 | |
+
+Over the whole painted surface the colours of two renderers are within 3 levels of each other
+(each channel's values taken in order of size, the mean distance: 0.5 between three.js and its
+mirror, 2.8 between three.js and the three.js-free viewport), flat or shaded; a shaded result is
+15 to 23 from a flat one. A CAD model is within one level, pixel for pixel. The browser tests
+(`tests/full/frontend/test_appearance.py`) assert both with room to spare, and that the lit
+levels are the ones the two lights give.
+
+Two things are left, both the renderer's to finish:
+
+- The adacpp renderer keeps vertex colours as 8 bits of **linear** light a channel. That moves the
+  darkest channel values by up to 6.4 levels (under 0.7 on average over a colour map); three.js
+  keeps floats. Vertex colours kept as sRGB and decoded in the shader would make them exact.
+- Inside an element both renderers blend the nodes' colours in linear light, and the legend's bar
+  blends in sRGB: at a node the colour is the legend's, between nodes it is up to a few levels
+  lighter (4 on average on a coarse mesh). Banded contours have one colour per band and are exact.
+  Decoding in the fragment shader would settle this too, on both.
+
+### The settings
+
+| Setting | Default | three.js | adacpp renderer (both WebGPU paths) |
+|---|---|---|---|
+| Default colour: what geometry without a colour of its own is drawn in | `#e7e7e7` (0.8 linear, the grey ada writes) | the colour of each material marked as having none (`defaultBlackColor.ts`): black, or exactly ada's grey | the mirror follows the materials; `NativeScene` reads the GLB's materials once at load (`utils/glb/glbUncoloured.ts`) and draws those objects with the default colour as their segments' colour |
+| Background | `#393939` | `scene.background` | `setBackground` |
+| Brightness: multiplies both lights | 1 | the two lights' intensities | `setLighting(ambient, headlight)` |
+| Ambient share: how the light is split between the ambient light and the headlight | 0.529 (pi / 2 of pi / 2 + 1.4) | the two lights' intensities | `setLighting` |
+| Shade FEA results | off | one uniform | the instance's `Unlit` flag |
+
+The defaults are the look the viewer had, to the number. A change is applied when the store
+changes, by a subscription: a light is two numbers, a colour is three on a material or one pass over
+the segment states, and no geometry is touched. Nothing is read per frame. They are kept in the
+browser (`ada-appearance`), shown under Options > Appearance with a Reset, and each is a command of
+the palette (`core:option.*`, `layout/optionCommands.ts`).
+
+The edges are not a setting. three.js smooths a one-pixel line and the adacpp renderer does not,
+which is the difference left between two pictures of a model with its edges; an edge colour would
+need the renderer to change the colour of an instance it loaded.
+
+### Colours given to objects
+
+`ViewportApi.setObjectColors(refs, colour)` gives objects a colour (sRGB, `"#rrggbb"`) in place of
+the model's own; `null` for `refs` is every object, `null` for the colour takes it back. `refs` is
+read once and no ref is kept, as for `setSelection`.
+
+| | Stored as | Drawn by |
+|---|---|---|
+| three.js | a packed colour per draw range on the `CustomBatchedMesh` (`setUserColors`) | the mesh's one colour attribute: while any range has a colour, the material is white and every vertex carries its colour, the mesh's own or the user's. No material and no group per object. |
+| adacpp mirror | the same | the same attribute, uploaded when its version changes |
+| three.js-free | a packed colour per object on the model (`NativeScene.setObjectColors`) | each segment's colour, written with its hidden and selected state in the one pass `setSegmentStates` already was |
+
+A given colour is the object's base colour: it is lit by the object's own material, hiding,
+isolating and section planes do not look at it, and the selection is drawn over it (its overlay on
+three.js; on the adacpp renderer hidden wins, then the selection, then the given colour, then the
+default colour). It is linear light in 8 bits on the adacpp renderer, as vertex colours are.
+
+**The elements of an FEA result are never recoloured.** A result's colours are the result's,
+painted or not (the plain colour of an unpainted result is `setFeaUnpaintedColor`). A call that
+names only such elements changes nothing and returns 0, and the dialog says why. On three.js any
+mesh whose vertex colours are someone else's (a file's own, a colouring by property) is left alone
+the same way.
+
+Each call is one undo step: the history keeps the colours before and after it as a state only the
+viewport that made it reads (`captureObjectColors` / `restoreObjectColors`, a copy of the packed
+colours of the meshes or models that have any), through the history's store slices. The commands
+are "Set colour of selection…" (a dialog; with nothing selected it says the colour goes to every
+object) and "Reset colours", which gives every object its own colour back and also ends a
+colouring by property; the Scene tree's menu has "Set colour…" and "Model's own colour" for its
+selection. Per-object opacity is not offered: a segment's colour in the renderer has
+no alpha of its own.
+
+Recolouring 10,000 objects, measured in the unit tests on stand-ins for the GPU: 1.8 ms on the
+three.js mesh, 2.2 ms on the three.js-free scene, one upload each, nothing made per object.
+
 ## What the next slices have to settle
 
 These are open design points, ordered by how much of the viewer depends on them.
@@ -316,7 +467,8 @@ These are open design points, ordered by how much of the viewer depends on them.
    (`setActiveViewport`); commands ask `activeViewport()`, and the keys are bound once for both in
    `viewportShortcuts.ts`. A viewport says what it cannot do yet (`unavailable(feature)`), and the
    command is offered disabled with that reason. The interface grows one feature area at a time:
-   still to come are objects by id with their state (colour, transparency) and their bounds.
+   a colour per object is on it (see "Appearance on every renderer"); still to come are an
+   object's transparency and its bounds.
    Overlay geometry (lines, points) by handle is `overlays(name)`. An area not on it yet still goes straight to
    three.js and is absent on the three.js-free viewport.
 2. **Where per-object state lives.** `CustomBatchedMesh` owns hidden and selected ranges, and a
