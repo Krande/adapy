@@ -1,5 +1,6 @@
-// Lines and points drawn over the model: what outlines, markers and a feature's own annotations are
-// made of. A feature describes them in plain data (segments or points, a colour, a width or a size)
+// Lines, points and plain shapes drawn over the model: what outlines, markers and a feature's own
+// annotations are made of. A feature describes them in plain data (segments, points or triangles, a
+// colour, a width or a size)
 // and the viewport on screen draws them, three.js as wide lines in its scene and the three.js-free
 // viewport as geometry of the renderer. Beside the billboards (./billboards.ts), which are the
 // images. Nothing here (or anything it imports at runtime) may import three.js.
@@ -16,6 +17,9 @@ export interface OverlayLook {
     clipped?: boolean;
     /** Where the coordinates stand in the world: a column-major 4x4, identity when absent. */
     matrix?: ArrayLike<number> | null;
+    /** False keeps it out of what the camera frames when it fits the model: a marker of the model's,
+     *  not a part of it. Only a viewport that frames what is in its scene looks at this. */
+    fitted?: boolean;
 }
 
 export interface OverlayLines extends OverlayLook {
@@ -38,14 +42,24 @@ export interface OverlayPoints extends OverlayLook {
     sizePx?: number;
 }
 
-/** One feature's lines and points in a viewport. They take no part in picking the model's objects.
+export interface OverlayMesh extends OverlayLook {
+    /** Three numbers per vertex. */
+    positions: Float32Array;
+    /** Three vertices per triangle. Drawn from both sides, in its colour as it is (no lighting). */
+    indices: Uint32Array;
+    /** A colour per vertex (linear RGB, three numbers each) instead of `color`. */
+    colors?: Float32Array;
+}
+
+/** One feature's lines, points and shapes in a viewport. They take no part in picking the model's objects.
  *  The arrays handed in are read during the call and not kept. */
 export interface OverlayLayer {
     /** Returns the handle `setPositions` and `remove` take. */
     addLines(lines: OverlayLines): number;
     addPoints(points: OverlayPoints): number;
+    addMesh(mesh: OverlayMesh): number;
     /** Move what `handle` draws: as many numbers as it was added with (a line's `segments`, a
-     *  point set's `positions`). Colours and look stay. */
+     *  point set's or a mesh's `positions`). Colours and look stay. */
     setPositions(handle: number, positions: Float32Array): void;
     remove(handle: number): void;
     clear(): void;
@@ -57,6 +71,7 @@ export interface OverlayLayer {
 export const NO_OVERLAYS: OverlayLayer = {
     addLines: () => 0,
     addPoints: () => 0,
+    addMesh: () => 0,
     setPositions: () => {},
     remove: () => {},
     clear: () => {},

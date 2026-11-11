@@ -23,7 +23,8 @@ import {useCellBuilderStore} from "@/state/cellBuilderStore";
 import {selectedLeafNodes} from "@/utils/tree_view/treeNavigation";
 import {useFemConceptsStore} from "@/state/femConceptsStore";
 import {useObjectInfoStore} from "@/state/objectInfoStore";
-import {pickFemConcept} from "@/components/viewer/FemConceptsController";
+import {conceptAt, depthOf, selectClickedConcept} from "@/utils/fem/conceptPicking";
+import {activeViewport} from "@/viewport/api/viewportApi";
 import {pickSelectionBox} from "@/components/viewer/BBoxSelectionController";
 import {useBBoxSelectionStore} from "@/state/bboxSelectionStore";
 import type {FemConceptRef} from "@/utils/fem/femSelection";
@@ -207,9 +208,11 @@ export function setupPointerHandler(
         //     inside or behind: it wins only when it is nearer than the surface under the cursor,
         //     or a deck could never be clicked through the box standing on it.
         const additive = isAdditiveClick(e) || useSelectedObjectStore.getState().additiveMode;
-        const femPick = pickFemConcept(e, camera, renderer);
-        if (femPick && (!femPick.solid || (await femBoxInFront(e, femPick.distance, camera, renderer)))) {
-            selectFemConcept(femPick.ref, additive, e);
+        const viewport = activeViewport();
+        const view = renderer.domElement.getBoundingClientRect();
+        const femPick = viewport ? conceptAt(viewport, e.clientX - view.left, e.clientY - view.top) : null;
+        if (viewport && femPick && (!femPick.solid || (await femBoxInFront(e, femPick.depth, camera, renderer)))) {
+            selectClickedConcept(femPick.ref, additive, () => handleClickEmptySpace(e));
             return;
         }
         // Anything else clicked replaces the FEM selection, as it replaces any other.
@@ -393,24 +396,10 @@ export function setupPointerHandler(
 
 /** Select a picked FEM concept and show it in the Selected Object Info panel. A plain click
  *  replaces the whole selection, geometry included; an additive one toggles the concept in. */
-function selectFemConcept(ref: FemConceptRef, additive: boolean, e: MouseEvent): void {
-    const info = useObjectInfoStore.getState();
-    if (!additive) {
-        handleClickEmptySpace(e);
-        // The panel describes the concept now, not the last object clicked.
-        info.setName(null);
-        info.setJsonData(null);
-        info.setSelectedNodeId(null);
-        info.setClickCoordinate(null);
-    }
-    useFemConceptsStore.getState().selectConcept(ref, additive);
-    if (!info.show_info_box) info.toggle();
-}
-
-/** Is the equipment box hit at `boxDistance` in front of the geometry under the cursor? */
+/** Is the equipment box hit at the depth `boxDepth` in front of the geometry under the cursor? */
 async function femBoxInFront(
     e: MouseEvent,
-    boxDistance: number,
+    boxDepth: number,
     camera: THREE.PerspectiveCamera,
     renderer: THREE.WebGLRenderer,
 ): Promise<boolean> {
@@ -422,7 +411,8 @@ async function femBoxInFront(
     }
     if (!pick) return true;
     const surface = raycastPointOnMesh(e, camera, renderer, pick.mesh)?.point ?? pick.worldPosition;
-    return boxDistance <= camera.position.distanceTo(surface);
+    const viewport = activeViewport();
+    return !viewport || boxDepth <= depthOf(viewport, [surface.x, surface.y, surface.z]);
 }
 
 /**

@@ -93,7 +93,7 @@ flowchart LR
 | Part | Where | What it is |
 |---|---|---|
 | The numbers | `utils/scene/fea/nodalFieldPaint.ts` | One step of a nodal field as two typed arrays: RGB per node from the colour map and the range (the field's, the measured one, pinned ends, bands), and the un-scaled displacement per node. One pass, no allocation. |
-| What a viewport draws | `viewport/api/resultLayer.ts` | `ResultMeshLayer`: colours, displacement, and the **influence** (the drawn shape is `base + influence * displacement`). `ViewportApi.results.createResultMesh` makes one from positions and indices. |
+| What a viewport draws | `viewport/api/resultLayer.ts` | `ResultMeshLayer`: colours, displacement, and the **influence** (the drawn shape is `base + influence * displacement`), and a plain colour for while the painted ones are not shown. `ViewportApi.results.createResultMesh` makes one from positions and indices. |
 | three.js | `utils/scene/fea/threeResultLayer.ts` | The layer over a mesh: the streaming loader's result mesh is wrapped (`threeResultLayer`), so its selection, overlays and beam sections are as before. |
 | adacpp renderer | `viewport/native/nativeResultLayer.ts` | One geometry with colours and a morph, one instance. Colours and displacement are written into buffers kept on the module heap, so a step allocates nothing. |
 | Playing | `feaAnimationDriver.ts`, `playbackActions.ts`, `resultInfluence.ts` | The oscillator and the transport write one number per frame to the layer in `feaAnimationStore.resultLayer`. No vertex data moves while a mode shape plays. |
@@ -106,21 +106,25 @@ flowchart LR
 | Number labels | `utils/scene/fea/labelPlacement.ts`, `layout/NumberLabels.tsx` | What is worth a label and where it goes, from a `LabelSource` (elements, their vertices, where each vertex is now) and a projector. `ViewportApi.projectToScreen` projects a batch of world points to CSS pixels and depth, and `onCameraChange` says when to do it again; the three.js mesh (`numberLabels.ts`) and the layer session are the two sources. |
 
 | Edges of beam sections | `utils/scene/fea/beamSolidFeatureEdges.ts`, `streaming/layerSession.ts` | The corners of each section and the outline of each end, worked out from the beam solids' arrays (in a worker where one can be started) and drawn as a layer of lines over the sections' own vertices: they take the sections' displacement, and a hidden beam's are left out. "Solid edges" shows and hides them. |
-| Sets and properties | `utils/scene/fea/streaming/manifestStores.ts`, `utils/scene/fea/layerIsolation.ts` | The manifest's sets, dummy-mass beams and FEA input concepts go into the stores the three.js loader fills, so the Scene tree lists "Sets" and "Properties" for either. A set is a list of element ids, and the elements are the viewport's objects: isolating, hiding and showing a set go through `ViewportApi` (`isolate`, `hide`, `show` take any iterable of refs, read once, so a set of thousands is one reused ref). "Show the rest as wireframe" keeps the edges of the hidden elements. The scene actions pick this module or the three.js one (`feaIsolation.ts`) by how the result is drawn. |
-| Recorded frames | `utils/scene/fea/streaming/layerFrames.ts`, `framesKey.ts` | A frame a play has painted is kept as plain data (the displacement per node, the colours of the faces and of the beam sections as bytes) under the key the three.js recorder uses, and written to the layers on the next pass without reading or painting the step. Out of the step cache's budget, as there. |
+| Sets and properties | `utils/scene/fea/streaming/manifestStores.ts`, `utils/scene/fea/layerIsolation.ts` | The manifest's sets, dummy-mass beams and FEA input concepts go into the stores the three.js loader fills, so the Scene tree lists "Sets" and "Properties" for either. A set is a list of element ids, and the elements are the viewport's objects: isolating, hiding and showing a set go through `ViewportApi` (`isolate`, `hide`, `show` take any iterable of refs, read once, so a set of thousands is one reused ref). "Show the rest as wireframe" keeps the edges of the hidden elements, and of the hidden beam sections, in the edge colour they have, as on the three.js viewport. The scene actions pick this module or the three.js one (`feaIsolation.ts`) by how the result is drawn. |
+| Beams drawn as lines | `utils/scene/fea/streaming/layerLines.ts` | The coloured lines of line elements are objects of the viewport too: each line is a segment of its layer and the object its element is, so hiding, showing, isolating and selecting an element reach a beam that only a line draws, and an isolation in force is applied again when a field first colours them. The lines of the dummy-mass beams are never drawn, as on the three.js viewport: such a line runs to the mass, where the element is not. |
+| Recorded frames | `utils/scene/fea/streaming/layerFrames.ts`, `framesKey.ts` | A frame a play has painted is kept as plain data (the displacement per node, the colours of the faces and of the beam sections as bytes, the colours and displacement of the result points and of the coloured lines) under the key the three.js recorder uses, and written to the layers on the next pass without reading or painting the step. Where the points and lines are is kept once: a frame that has them elsewhere (a value that is not a number leaves its point out) is painted again instead. Out of the step cache's budget, as there. |
+| A plugin's view of the result | `utils/scene/fea/deformationGate.ts`, `unpaintedColor.ts` | Who holds the result undeformed (`setFeaDeformationShown`) and who asked for which colour of the unpainted model (`setFeaUnpaintedColor`) is kept once, without three.js. The gate has the last word before each frame of either viewport: on the three.js one it writes the meshes' morph influence (`threeDeformationGate.ts`), on a result drawn through layers the influence of every layer, 0 while held and the user's own when let go. The colour goes to the base material of the three.js meshes (`threeUnpaintedColor.ts`), or to the plain colour of the face and beam-section layers, which shows while nothing paints them and is given back when no one asks. |
 
 Both viewports paint with the same kernels. What the three.js viewport's own loader still does
 that the layer session does not:
 
-- An isolation does not reach beams drawn as coloured lines (they are no objects of the viewport
-  while nothing but a line draws them), and the dummy-mass beams are left out of the section
-  solids only, not of those lines.
-- The rest of an isolation "as wireframe" is drawn with the ordinary edge colour, not dimmed.
-- A frame that draws result points or coloured lines is not recorded: it is painted again.
-- The glyphs of the FEA input concepts (masses, supports, loads) are three.js objects, and the
-  CAD lineage is kept against a three.js object: neither is on the three.js-free viewport. The
-  "FEM groups" picker of the Scene panel selects in the three.js scene.
-- No undo there, so an isolation is not an undo step.
+- A click does not pick a beam drawn as a line: the renderer picks triangles. Such a beam is
+  selected from the Scene tree, or as its section.
+- The element edges are not faded as they crowd together when zoomed out ("Fade edges when
+  zoomed out" in the Simulation panel).
+
+The "FEM groups" picker of the Scene panel is on both: a set's members are element ids, which are
+the result's objects, and `utils/groups/selectGroup.ts` selects them through
+`ViewportApi.setSelection` (one reused ref for the whole set). For a GLB the groups come from its
+`ADA_EXT_data` extension, which the three.js-free viewport announces as JSON text with the model
+(`utils/groups/extensionGroups.ts` lists them), and the members are object names the model's
+hierarchy resolves to ids.
 
 ## Overlays on both viewports
 
@@ -153,6 +157,24 @@ one, lines drawn over the model are not ordered among themselves by when they we
 are measured once (not again after the line moved), and hiding elements through a plugin clears
 the selection as any hide does there. An overlay is drawn by the viewport that was on screen when
 it was added; it is not carried over when the other viewport takes its place.
+
+## What a model says beside its geometry
+
+A model's `ADA_EXT_data` extension carries what is not geometry: the concepts of an analysis model
+(masses, supports, constraints, load scenarios, placed equipment) and what links a design model to
+the analysis models made from it. Both are read and shown without a scene object.
+
+| Part | Where | What it is |
+|---|---|---|
+| The extension | `state/sourceExtensions.ts`, `sceneHelpers/viewportPanelBridge.ts` | The three.js loader keeps a model's extension on its scene group. The three.js-free viewport announces the text with the model, and it is parsed once and kept by source name. A streamed result has no extension: its manifest fills the same stores. |
+| The glyphs | `utils/fem/conceptGlyphs.ts` | Plain data from the concepts that are switched on: triangles (spheres, diamonds, boxes, arrow heads) with a colour per vertex and line segments, grouped by how they are drawn (over the model, or behind what is in front of them), and a table of what a click can hit. |
+| Drawing them | `components/viewer/FemConceptsController.tsx`, `viewport/api/overlayLayer.ts` | One controller follows the viewport on screen and draws the glyphs as its overlay: `addMesh` (unlit triangles) beside the lines and points an overlay already had. three.js draws a mesh, the adacpp renderer a result layer in the look of an annotation. |
+| Clicking them | `utils/fem/conceptPicking.ts` | A click is resolved on the screen against the pick table, through `ViewportApi.projectToScreen`: a ball by its projected radius, a line by its distance in pixels, a box by the faces it shows, with the depth under the cursor. Each viewport asks before it picks an object (the three.js click handler; `NativeScene.clickFirst`). A point glyph wins outright; an equipment box only when it is nearer than the surface under the cursor. |
+| The link | `state/lineageStore.ts`, `utils/lineage/registerLineageFromExtension.ts`, `utils/glb/glbBufferView.ts` | Which design object an element was meshed from, and back, keyed by the design's id. Registered from the extension by either viewport; the ids of a large group are in a buffer view, which the three.js loader's parser or a small GLB reader hands over. A result drawn through result layers registers from its manifest. |
+| Following it | `utils/scene/crossModelSelect.ts` | "Select in CAD" and "Select FEA elements" find the other model by its root row of the Scene tree, resolve the names against that model's hierarchy and make the objects the viewport's selection. The three.js viewport keeps its own path over its scene objects. |
+
+A click on the three.js-free viewport names the file of the model that was picked. The three.js
+viewport still names the file loaded last, so there a link is offered for objects of that model only.
 
 ## Box selection on both viewports
 
@@ -233,12 +255,13 @@ flowchart LR
 | The interface | `viewport/api/viewportState.ts` | `captureState(what)` notes the state before an action, `stateChange(before)` says what the action changed (and gives the state after it on request), `restoreState(state)` goes to one end of a step. A state is opaque outside the viewport that made it. An action that cannot hide or show anything asks for the selection only, and the viewport then does not look at what is hidden. |
 | The history | `utils/scene/viewerHistory.ts` | One entry per user action: the two ends of the viewport's step, the store slices it was given (section planes, selection boxes, FEA isolation) and the object info's name. Nested actions are one entry, actions with the same coalesce key in quick succession (a drag) are one entry, and nothing records while an entry is applied. The section and box stores record through it directly. |
 | three.js | `utils/scene/threeViewportState.ts` | As before the interface: the hidden ranges per mesh are copied before an action that can hide, and the entry keeps the difference per model by its scene name; the selection is kept as element ids per model. Entries survive a model being removed and loaded again. |
-| adacpp renderer | `viewport/native/nativeViewportHistory.ts` | The selected keys as a copy, and the keys a step hid and showed. `setSelection`, `clearSelection`, `hide`, `show`, `isolate`, `showAll`, `hideSelected`, `hideOthers` and a click in the view are each one step. A key names a model and an object in it; keys of a model no longer on screen are skipped. |
+| adacpp renderer | `viewport/native/nativeViewportHistory.ts` | The selected keys as a copy, and the keys a step hid and showed. `setSelection`, `clearSelection`, `hide`, `show`, `isolate`, `showAll`, `hideSelected`, `hideOthers` and a click in the view are each one step. A key names a model and an object in it; keys of a model no longer on screen are skipped. A model's key is new with each load, so a state also notes the source of each model on screen: once a model has been removed and loaded again, its keys are read as the keys it has now. |
+| Models loaded and removed | `utils/scene/modelHistory.ts`, `utils/scene/modelViews.ts`, `viewport/api/sourceViews.ts` | One entry per change of the loaded models, on both viewports. Undo and redo load through the load queue and remove through the unload handler, which hand the model to the viewport on screen; no bytes are kept, only how to fetch the model again. What was hidden and selected in a removed model is kept with the entry by object id: read from the three.js scene, or asked of the three.js-free viewport, which also notes it for the models a replacing load is about to empty out. |
 | Keys and commands | `viewport/api/viewportShortcuts.ts`, `layout/coreCommands.ts` | Undo and Redo (Ctrl+Z, Ctrl+Y, Ctrl+Shift+Z) are bound by each viewport to the same history. |
 
-Where the three.js-free viewport differs: it has no entries for models loaded and removed
-(`utils/scene/modelHistory.ts` reloads through the three.js loaders), so a model that replaces the
-scene starts the history over, and a model that joins or leaves keeps it.
+A model that replaces the scene keeps the history on both viewports: the replaced model's removal
+and the new model's load are two entries, and the entries before them work again once an undo has
+brought the model back.
 
 ## What the next slices have to settle
 
@@ -261,8 +284,10 @@ These are open design points, ordered by how much of the viewer depends on them.
    and whatever follows the camera or the animation has to be driven from the frame loop.
 3. **The model beyond geometry.** `GLTFLoader` also gives the main viewer the node hierarchy, the
    `ADA_EXT_data` extension (design / simulation objects, FEA metadata) and animations. The native
-   path gets the hierarchy from the reader, which also hands back the extension data as JSON text;
-   nothing reads it yet. A streamed FEA result does not come through the reader at all: its mesh is
+   path gets the hierarchy from the reader, which also hands back the extension data as JSON text:
+   it is announced with the model (`LoadedModelInfo.adaExtData`), and the panels' side keeps it by
+   source name (`state/sourceExtensions.ts`) and reads the analysis concepts and the design-to-analysis
+   link from it (see "What a model says beside its geometry"). A streamed FEA result does not come through the reader at all: its mesh is
    read as typed arrays and drawn through result layers (above), which name the elements as the
    mesh's objects, so they are picked, selected and hidden like a loaded model's.
 4. **Section planes and caps.** The planes are plain data in `state/sectionStore` (no three.js),

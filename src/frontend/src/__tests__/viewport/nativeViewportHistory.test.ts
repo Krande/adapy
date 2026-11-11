@@ -25,6 +25,10 @@ const {useBBoxSelectionStore} = await import("@/state/bboxSelectionStore");
 const {useObjectInfoStore} = await import("@/state/objectInfoStore");
 const {useSectionStore} = await import("@/state/sectionStore");
 const {useViewerHistoryStore} = await import("@/state/viewerHistoryStore");
+const {useModelState} = await import("@/state/modelState");
+const {bindModelHistory} = await import("@/utils/scene/modelHistory");
+const {modelViews} = await import("@/utils/scene/modelViews");
+const {viewportSourceViews} = await import("@/viewport/api/sourceViews");
 const {addBoxAroundSelection, bindActiveBoxSelection} = await import("@/utils/bboxSelection/applyBoxSelection");
 const {redoViewerAction, undoViewerAction} = await import("@/utils/scene/viewerHistory");
 const {SegmentFlag} = await import("@/viewport/adacpp/types");
@@ -115,8 +119,32 @@ function picture(instance = 1): string {
     return NAMES.map((name, i) => `${name}:${states[i * 2 + 1] & SegmentFlag.Hidden ? "hidden" : states[i * 2] ? "selected" : "shown"}`).join(" ");
 }
 
+// Models loaded and removed as steps, with a loader that hands the model to this scene (the real
+// one is the load queue): each load gives the model a new key, as the viewport does.
+const BYTES = new Uint8Array(4);
+let loadSeq = 0;
+bindModelHistory({
+    describe: (name) => ({kind: "file", name}),
+    load: async (m) => {
+        const name = (m as {name: string}).name;
+        h.scene.load(BYTES, `again-${++loadSeq}`, {add: true, sourceName: name});
+        useModelState.getState().registerLoadedSourceName(name);
+        return true;
+    },
+    unload: (name) => {
+        useModelState.getState().unregisterLoadedSource(name);
+        api.unloadSource(name);
+    },
+    ...modelViews,
+    shouldRecord: () => true,
+});
+const settle = async () => {
+    while (hist().pending) await hist().pending;
+};
+
 beforeEach(() => {
     release();
+    useModelState.getState().clearLoadedSources();
     useBBoxSelectionStore.setState({boxes: [], activeId: null, menu: null});
     useSectionStore.setState({planes: [], activeId: null});
     useObjectInfoStore.getState().setName(null);
@@ -261,7 +289,7 @@ test("a section plane is a step on this viewport as well", () => {
     assert.equal(useSectionStore.getState().planes.length, 1);
 });
 
-test("a model that joins keeps the history; one that replaces the scene starts it over", () => {
+test("a model that joins keeps the history, and so does one that replaces the scene", () => {
     api.setSelection([ref("a")]);
     api.hide([ref("b")]);
     h.scene.load(new Uint8Array(4), "m2", {add: true, sourceName: "two.glb"});
@@ -278,7 +306,94 @@ test("a model that joins keeps the history; one that replaces the scene starts i
     assert.equal(picture(), "a:selected b:shown c:shown d:shown");
 
     h.scene.load(new Uint8Array(4), "m3", {sourceName: "three.glb"});
-    assert.deepEqual([hist().past.length, hist().future.length], [0, 0]);
+    assert.deepEqual([hist().past.length, hist().future.length], [1, 2]);
+});
+
+test("a step names a model by its source: it works again in the model loaded again under a new key", () => {
+    api.setSelection([ref("a")]);
+    api.hide([ref("b")]);
+    h.scene.load(BYTES, "m2", {sourceName: "two.glb"});
+    // Nothing of the first model is on screen: its step has nothing to act on.
+    undoViewerAction();
+    assert.equal(picture(2), "a:shown b:shown c:shown d:shown");
+    redoViewerAction();
+
+    h.scene.load(BYTES, "m3", {sourceName: "one.glb"});
+    undoViewerAction();
+    assert.equal(picture(3), "a:selected b:shown c:shown d:shown");
+    redoViewerAction();
+    assert.equal(picture(3), "a:shown b:hidden c:shown d:shown");
+    undoViewerAction();
+    undoViewerAction();
+    assert.equal(picture(3), "a:shown b:shown c:shown d:shown");
+});
+
+test("what is hidden and selected in a model is read by its source, also after a load replaced it, and put back", async () => {
+    const views = viewportSourceViews()!;
+    api.hide([ref("b")]);
+    api.setSelection([ref("c")]);
+    assert.equal(views.capture("no such model"), null);
+    assert.deepEqual(views.capture("one.glb"), {hidden: ["b"], selected: ["c"]});
+
+    h.scene.load(BYTES, "m2", {sourceName: "two.glb"});
+    assert.equal(views.capture("two.glb"), null, "nothing is hidden or selected in the new model");
+    const view = views.capture("one.glb")!;
+    assert.deepEqual(view, {hidden: ["b"], selected: ["c"]});
+    assert.equal(views.capture("one.glb"), null, "kept only until it is asked for");
+
+    // Under an isolation the view names the few objects still drawn.
+    api.isolate([ref("d", "m2")]);
+    const isolated = views.capture("two.glb")!;
+    assert.deepEqual(isolated, {shown: ["d"]});
+    api.showAll();
+    await views.apply("two.glb", isolated);
+    assert.equal(picture(2), "a:hidden b:hidden c:hidden d:shown");
+    api.showAll();
+
+    // Put back once the model is on screen again, beside what is selected in the others.
+    api.setSelection([ref("a", "m2")]);
+    const applied = views.apply("one.glb", view);
+    h.scene.load(BYTES, "m3", {add: true, sourceName: "one.glb"});
+    await applied;
+    assert.equal(picture(3), "a:shown b:hidden c:selected d:shown");
+    assert.equal(picture(2), "a:selected b:shown c:shown d:shown");
+});
+
+test("a load that replaces the scene is two steps, and the steps before it work once it is undone", async () => {
+    useModelState.getState().setLoadedSourceName("one.glb");
+    hist().reset();
+    api.hide([ref("b")]);
+    api.setSelection([ref("a")]);
+    // As the loader does it: the model goes to the viewport, then the loaded names change.
+    h.scene.load(BYTES, "m2", {sourceName: "two.glb"});
+    useModelState.getState().setLoadedSourceName("two.glb");
+    assert.deepEqual(labels(), ["hide 1 object", "select 1 object", "remove one.glb", "load two.glb"]);
+
+    undoViewerAction();
+    await settle();
+    assert.equal(h.scene.hasSource("two.glb"), false);
+    undoViewerAction();
+    await settle();
+    assert.deepEqual([...useModelState.getState().loadedSourceNames], ["one.glb"]);
+    assert.equal(picture(3), "a:selected b:hidden c:shown d:shown", "loaded again as it was when it was replaced");
+    undoViewerAction();
+    assert.equal(picture(3), "a:shown b:hidden c:shown d:shown");
+    undoViewerAction();
+    assert.equal(picture(3), "a:shown b:shown c:shown d:shown");
+    assert.equal(undoViewerAction(), null);
+
+    for (let i = 0; i < 4; i++) {
+        redoViewerAction();
+        await settle();
+    }
+    assert.deepEqual([...useModelState.getState().loadedSourceNames], ["two.glb"]);
+    assert.equal(h.scene.hasSource("one.glb"), false);
+    // Undone once more, the first model comes back as the redo left it.
+    undoViewerAction();
+    await settle();
+    undoViewerAction();
+    await settle();
+    assert.equal(picture(5), "a:selected b:hidden c:shown d:shown");
 });
 
 test("a selection alone does not look at what is hidden, and another scene's state is ignored", () => {

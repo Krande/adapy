@@ -33,6 +33,7 @@ function fakeScene() {
                 setDisplacement: (xyz) => void (d.displacement = [...xyz]),
                 setInfluence: (v) => void (d.influence = v),
                 setColorsVisible: () => {},
+                setColor: () => {},
                 setVisible: () => {},
                 remove: () => void (d.removed = true),
             };
@@ -67,6 +68,23 @@ test("lines are a line geometry in the look of an annotation", () => {
 
     layer.remove(handle);
     assert.equal(lines.removed, true);
+});
+
+test("a shape is a triangle geometry in the look of an annotation, with a colour per vertex", () => {
+    const {drawn, layer} = fakeScene();
+    const positions = new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]);
+    const indices = new Uint32Array([0, 1, 2]);
+    layer.addMesh({positions, indices, colors: new Float32Array([1, 0, 0, 0, 1, 0, 0, 0, 1]), opacity: 0.5, onTop: true});
+    positions.fill(9); // read during the call, not kept
+    indices.fill(0);
+    const [mesh] = drawn;
+    assert.equal(mesh.data.topology, "triangles");
+    assert.deepEqual([...mesh.data.positions], [0, 0, 0, 1, 0, 0, 0, 1, 0]);
+    assert.deepEqual([...mesh.data.indices!], [0, 1, 2]);
+    assert.equal(mesh.data.opacity, 0.5);
+    assert.equal(mesh.data.overlay?.onTop, true);
+    assert.deepEqual(mesh.colors, [1, 0, 0, 0, 1, 0, 0, 0, 1]);
+    assert.deepEqual(mesh.data.color, [1, 1, 1], "white under its own colours");
 });
 
 test("what is drawn is made again after a load emptied the scene, where it was moved to", () => {

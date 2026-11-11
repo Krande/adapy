@@ -15,6 +15,9 @@
  * (`sceneViewRestore.ts`): its hidden elements (or isolation) and its selected ones, by element id.
  * The loader places it as it did the first time; the viewer has no per-model move / rotate.
  *
+ * Nothing here knows how a model is drawn: loading, removing and reading or putting back what a
+ * model looked like are the caller's (`viewerHistoryBindings.ts`), which asks the viewport on screen.
+ *
  * A removal is recorded only for a model that can be loaded again (one the scene record knows
  * how to fetch); a model that cannot, e.g. a local file dropped without uploading, leaves no entry
  * rather than one whose undo would fail. Removing a model from the SCENE is what is undone: deleting
@@ -23,13 +26,10 @@
  * Such an entry is async: the store holds every other undo / redo off until the load settles.
  */
 
-import type * as THREE from "three";
-
-import {loadedSourceGroups, useModelState} from "@/state/modelState";
+import {useModelState} from "@/state/modelState";
 import {describeModelChange, useViewerHistoryStore, type ViewerHistoryEntry} from "@/state/viewerHistoryStore";
 
 import type {RecordedModel, RecordedSourceView} from "./sceneRecord";
-import {applyRecordedView, captureSourceView} from "./sceneViewRestore";
 
 export interface ModelHistoryDeps {
     /** How the model loaded under `name` can be loaded again, or null when it cannot. */
@@ -38,6 +38,13 @@ export interface ModelHistoryDeps {
     load: (model: RecordedModel) => Promise<boolean>;
     /** Remove the model loaded under `name` from the scene. */
     unload: (name: string) => void | Promise<void>;
+    /** Something of the model loaded under `name` that can still be read once the scene has let go
+     *  of it (the three.js viewport's group), handed back to `captureView`; undefined for none. */
+    hold: (name: string) => unknown;
+    /** What is hidden and selected in the model loaded under `name`, or null when nothing is. */
+    captureView: (name: string, held: unknown) => RecordedSourceView | null;
+    /** Hide and select again, in the model just loaded under `name`, what `view` names. */
+    applyView: (name: string, view: RecordedSourceView) => Promise<void>;
     /** False while loads are not the user's to undo (a page restore, a gallery walk, a builder
      *  compiling its preview). */
     shouldRecord: () => boolean;
@@ -51,11 +58,8 @@ interface Removed {
     view: RecordedSourceView | null;
 }
 
-/** Ms to retry, after a model is loaded again, for meshes a streamed load adds late. */
-const REAPPLY_RETRY_MS = [500, 2000];
-
-function snapshot(name: string, group: THREE.Object3D | undefined, deps: ModelHistoryDeps): Removed {
-    return {name, model: deps.describe(name), view: group ? captureSourceView(group) : null};
+function snapshot(name: string, held: unknown, deps: ModelHistoryDeps): Removed {
+    return {name, model: deps.describe(name), view: deps.captureView(name, held)};
 }
 
 async function loadAgain(removed: readonly Removed[], deps: ModelHistoryDeps): Promise<void> {
@@ -70,9 +74,7 @@ async function loadAgain(removed: readonly Removed[], deps: ModelHistoryDeps): P
             console.warn(`viewer history: "${r.name}" could not be loaded again`);
             continue;
         }
-        if (r.view) {
-            await applyRecordedView({v: 1, sources: {[r.name]: r.view}}, REAPPLY_RETRY_MS, {replaceSelection: false, resetHistory: false});
-        }
+        if (r.view) await deps.applyView(r.name, r.view);
     }
 }
 
@@ -89,7 +91,7 @@ export function loadEntry(names: readonly string[], deps: ModelHistoryDeps): Vie
     return {
         label: describeModelChange("add", names),
         undo: async () => {
-            removed = names.map((n) => snapshot(n, loadedSourceGroups.get(n), deps));
+            removed = names.map((n) => snapshot(n, deps.hold(n), deps));
             await removeAgain(names, deps);
         },
         redo: () => loadAgain(removed, deps),
@@ -106,7 +108,7 @@ export function removeEntry(removed: readonly Removed[], deps: ModelHistoryDeps)
         redo: async () => {
             // What the user did to the model since it came back is what the next undo restores.
             state = state.map((r) => {
-                const now = snapshot(r.name, loadedSourceGroups.get(r.name), deps);
+                const now = snapshot(r.name, deps.hold(r.name), deps);
                 return {...now, model: now.model ?? r.model};
             });
             await removeAgain(names, deps);
@@ -117,9 +119,13 @@ export function removeEntry(removed: readonly Removed[], deps: ModelHistoryDeps)
 /** Record every load and removal of a model from now on. Returns the unbinding. */
 export function bindModelHistory(deps: ModelHistoryDeps): () => void {
     // Removing a model unregisters its group before the scene is torn down, and before the store
-    // tells anyone: the groups are kept here so a removal can still read what the model looked like.
-    const groups = new Map<string, THREE.Object3D>();
-    for (const [name, group] of loadedSourceGroups.entries()) groups.set(name, group);
+    // tells anyone: what was held of each is kept here so a removal can still read what the model
+    // looked like.
+    const groups = new Map<string, unknown>();
+    for (const name of useModelState.getState().loadedSourceNames) {
+        const g = deps.hold(name);
+        if (g) groups.set(name, g);
+    }
 
     return useModelState.subscribe((s, prev) => {
         if (s.loadedSourceNames === prev.loadedSourceNames) return;
@@ -128,7 +134,7 @@ export function bindModelHistory(deps: ModelHistoryDeps): () => void {
         const lost = gone.map((n) => [n, groups.get(n)] as const);
         for (const n of gone) groups.delete(n);
         for (const n of added) {
-            const g = loadedSourceGroups.get(n);
+            const g = deps.hold(n);
             if (g) groups.set(n, g);
         }
 

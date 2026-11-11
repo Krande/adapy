@@ -6,8 +6,8 @@
 // (`@/state/feaIsolationStore`), so the Scene tree's rows, the commands and the Selected Object
 // panel read one isolation whichever way the result is drawn.
 //
-// What the three.js path does that this does not: the beams drawn as coloured lines have no
-// object here, so an isolation does not reach them.
+// A beam that only a coloured line draws is an object too, so an isolation reaches it, and so do
+// hiding and showing a set.
 //
 // No three.js in this module or in anything it imports.
 
@@ -18,7 +18,7 @@ import {recordViewerAction, type StateSlice} from "@/utils/scene/viewerHistory";
 import {activeViewport, type ObjectRef} from "@/viewport/api/viewportApi";
 
 import {combineIsolation, elementSetRowId, isolatedMembers, setRowsMatching} from "./feaTreeRows";
-import {layerResultObjects, layerSessionActive, setLayerHiddenEdgesKept} from "./streaming/layerSession";
+import {layerResultObjects, layerSessionActive, onLayerObjectsAdded, setLayerHiddenEdgesKept} from "./streaming/layerSession";
 
 const store = () => useFeaIsolationStore.getState();
 
@@ -180,6 +180,11 @@ export function followLayerIsolation(): void {
     useFeaAnimationStore.subscribe((now, before) => {
         if (now.beamSolidsVisible !== before.beamSolidsVisible && layerSessionActive()) setTimeout(applyLayerIsolation, 0);
     });
+    // A field coloured the beams drawn as lines, which makes them objects: an isolation in force
+    // takes them in once it is painted. (The dummy-mass beams have no line to hide.)
+    onLayerObjectsAdded(() => setTimeout(() => {
+        if (store().isolation.rows.length) applyLayerIsolation();
+    }, 0));
     useFemConceptsStore.subscribe((now, before) => {
         if (now.showDummyMasses !== before.showDummyMasses || now.dummyMassIds !== before.dummyMassIds) applyLayerIsolation();
     });

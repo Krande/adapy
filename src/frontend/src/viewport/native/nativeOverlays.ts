@@ -1,8 +1,8 @@
-// Overlay lines and points (viewport/api/overlayLayer.ts) on the three.js-free viewport: each one a
+// Overlay lines, points and shapes (viewport/api/overlayLayer.ts) on the three.js-free viewport: each one a
 // geometry of the renderer, made through the scene's result layers with the look of an annotation
 // (unlit, never picked, over the model or just in front of the faces it lies on). A move is written
 // as the geometry's morph, so no geometry is made again while something follows the model.
-import {colorsPerEndpoint, segmentDistances, type OverlayLayer, type OverlayLines, type OverlayLook, type OverlayPoints} from "@/viewport/api/overlayLayer";
+import {colorsPerEndpoint, segmentDistances, type OverlayLayer, type OverlayLines, type OverlayLook, type OverlayMesh, type OverlayPoints} from "@/viewport/api/overlayLayer";
 import type {ResultMeshData, ResultMeshLayer} from "@/viewport/api/resultLayer";
 import type {NativeScene} from "./nativeScene";
 
@@ -46,9 +46,12 @@ export function createNativeOverlayLayer(scene: NativeScene): OverlayLayer {
     };
     scene.onLoaded.add(afterLoad);
 
-    const look = (spec: OverlayLook, topology: "lines" | "points", positions: Float32Array, sizePx: number, dashed?: OverlayLines["dashed"]): ResultMeshData => ({
+    const look = (
+        spec: OverlayLook, topology: ResultMeshData["topology"], positions: Float32Array, sizePx: number,
+        dashed?: OverlayLines["dashed"], indices: Uint32Array | null = null,
+    ): ResultMeshData => ({
         positions,
-        indices: null,
+        indices,
         topology,
         matrix: spec.matrix ? Array.from(spec.matrix) : null,
         color: spec.color ?? [1, 1, 1],
@@ -91,6 +94,11 @@ export function createNativeOverlayLayer(scene: NativeScene): OverlayLayer {
         },
         addPoints: (spec: OverlayPoints) =>
             put(look(spec, "points", new Float32Array(spec.positions), spec.sizePx ?? 6), spec.colors ? new Float32Array(spec.colors) : null),
+        addMesh: (spec: OverlayMesh) =>
+            put(
+                look(spec, "triangles", new Float32Array(spec.positions), 1, undefined, new Uint32Array(spec.indices)),
+                spec.colors ? new Float32Array(spec.colors) : null,
+            ),
         setPositions: (handle, positions) => {
             const item = items.get(handle);
             if (!item) return;

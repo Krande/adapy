@@ -11,7 +11,7 @@ import {addElementOutlines, addLines, boundaryEdges, paintFeaElements, removeOwn
 import "@/utils/scene/fea/meshOverlayTarget";
 import {runBeforeDraw} from "@/viewport/api/beforeDraw";
 import {createThreeViewport} from "@/viewport/api/threeViewport";
-import {setActiveViewport} from "@/viewport/api/viewportApi";
+import {activeViewport, setActiveViewport} from "@/viewport/api/viewportApi";
 
 /** Two unit quads side by side in z=0 (elements 1 and 2), vertices split per element, as the FEA mesh
  *  stores them; one relative morph that lifts every vertex by 1 in z. */
@@ -105,6 +105,31 @@ test("lines are drawn in linear colour, a colour per segment at both its ends", 
     const one = (scene.children[1] as LineSegments2).material.color;
     assert.ok(Math.abs(one.r - new THREE.Color("#ff8000").r) < 1e-6 && Math.abs(one.g - new THREE.Color("#ff8000").g) < 1e-6);
     removeOwnerOverlays("p");
+    assert.equal(scene.children.length, 0);
+});
+
+test("a shape of an overlay is an unlit mesh that no click or fit takes for the model", () => {
+    const scene = viewport();
+    const layer = activeViewport()!.overlays("shapes");
+    layer.addMesh({
+        positions: new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]), indices: new Uint32Array([0, 1, 2]),
+        colors: new Float32Array([1, 0, 0, 0, 1, 0, 0, 0, 1]), opacity: 0.5, onTop: true, fitted: false,
+        matrix: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 7, 1],
+    });
+    const mesh = scene.children[0] as THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>;
+    assert.ok(mesh.isMesh && mesh.material.isMeshBasicMaterial);
+    assert.equal(mesh.material.vertexColors, true);
+    assert.equal(mesh.material.depthTest, false);
+    assert.equal(mesh.material.opacity, 0.5);
+    assert.equal(mesh.userData.__overlayPass, true);
+    assert.equal(mesh.userData.__excludeFromFit, true);
+    assert.equal(mesh.matrix.elements[14], 7);
+    assert.equal(mesh.geometry.index!.count, 3);
+    // A ray through it hits nothing.
+    const hits: THREE.Intersection[] = [];
+    mesh.raycast(new THREE.Raycaster(new THREE.Vector3(0.2, 0.2, 20), new THREE.Vector3(0, 0, -1)), hits);
+    assert.equal(hits.length, 0);
+    layer.dispose();
     assert.equal(scene.children.length, 0);
 });
 

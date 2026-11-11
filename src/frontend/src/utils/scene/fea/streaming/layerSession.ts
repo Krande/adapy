@@ -14,7 +14,8 @@
 // and playback; an element field's result-point markers and the coloured lines of its line
 // elements; beam elements as their sections; the undeformed outline; load combinations computed
 // on request. The elements are objects of the viewport (picked, selected, hidden) and the rows
-// of the Scene tree. An element's colour
+// of the Scene tree; a beam that only a coloured line draws is one too (hidden, shown, isolated
+// and selected, though a click does not pick a line). An element's colour
 // is its own, so the first element field makes the faces element-local (elemFieldPaint.ts) and
 // every later paint goes through that numbering.
 //
@@ -33,6 +34,7 @@ import {fetchMeshEdges} from "@/services/feaMeshEdges";
 import {fetchMeshElements} from "@/services/feaMeshElements";
 import type {FeaManifest, FeaManifestField} from "@/services/viewerApi";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
+import {useFemConceptsStore} from "@/state/femConceptsStore";
 import {usePerfStore} from "@/state/perfStore";
 import {useVisibilityStore} from "@/state/visibilityStore";
 import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
@@ -45,7 +47,7 @@ import {beamSolidDisplacement} from "../beamSolidWarp";
 import {hasLazyCases, legendScopeFor, mergeCaseSteps, nextCaseToPrefetch, slotCount, slotRef} from "../caseSteps";
 import {FEA_BEAM_EDGE_COLOR, FEA_EDGE_COLOR, FEA_UNDEFORMED_COLOR} from "../edgeColors";
 import {withoutEdges} from "../edgeSplit";
-import {elementLocalVertices, expandTriplesInto, paintElemField, shownElemFieldRange} from "../elemFieldPaint";
+import {elementLocalVertices, expandTriplesInto, paintElemField, shownElemFieldRange, type PaintedPoints} from "../elemFieldPaint";
 import {notifyFeaTargetGone, registerFeaTarget, type FeaOverlayTarget} from "../elementSource";
 import {edgeOwners, maskHiddenEdges, type EdgeOwners} from "../feaEdgeFilter";
 import type {LabelSource} from "../labelPlacement";
@@ -53,11 +55,13 @@ import {paintNodalField} from "../nodalFieldPaint";
 import {isPropertyField} from "../propertyColors";
 import {RangeAccumulator} from "../rangeAccumulator";
 import {isTimeHistory} from "../timeHistory";
+import {feaUnpaintedColor, onFeaUnpaintedColorChange} from "../unpaintedColor";
 import {recordLayerValues} from "../visibleValues";
 import {loadBeamSolidData, type BeamSolidData} from "./layerBeamSolids";
-import {framesKey, recordable} from "./framesKey";
+import {framesKey} from "./framesKey";
 import {colorsFromBytes, LayerFrameRecorder} from "./layerFrames";
 import {PaintedPointsLayer, ResultGroup} from "./layerGroup";
+import {elementLabels, lineObjects, linesWithout} from "./layerLines";
 import {makeLayerOverlayTarget, type LayerMeshView} from "./layerOverlayTarget";
 import {preloadFrames, prefetchFieldSteps, upcomingSteps} from "./prefetch";
 import {syncResultStores} from "./resultStores";
@@ -87,6 +91,9 @@ interface LayerSession {
     /** The elements as objects of the viewport: picked, selected and hidden one at a time. Null
      *  when the bake has no elements sidecar. */
     objects: ResultMeshObjects | null;
+    /** Where each element without faces (a beam, drawn as a line or as its section) is among the
+     *  objects, by its label. */
+    lineElements: Map<number, number> | null;
     /** The ids of the elements hidden on the viewport now. */
     hidden: Set<string>;
     /** The element edges as index pairs into the nodes, kept for the undeformed outline. */
@@ -109,6 +116,9 @@ interface LayerSession {
      *  drawn in: what a recorded frame keeps. */
     lastFaceColors: Float32Array | null;
     lastSolidColors: Float32Array | null;
+    /** The result points and the coloured lines the last paint drew; null when it drew none. */
+    lastMarkers: PaintedPoints | null;
+    lastLines: PaintedPoints | null;
     /** Goes up each time a displacement is written to the layers. */
     displacementWrites: number;
     /** The displacement the beam sections hold now, xyz per vertex of theirs. */
@@ -353,6 +363,7 @@ export function resultModelKey(sourceName: string): string {
 async function elementTable(fetcher: FeaFetcher, manifest: FeaManifest, sourceName: string): Promise<{
     drawRanges: Map<string, [number, number]>;
     objects: ResultMeshObjects;
+    lineElements: Map<number, number>;
     extras: Record<string, unknown>;
 } | null> {
     if (!manifest.mesh.elements_url) return null;
@@ -364,12 +375,16 @@ async function elementTable(fetcher: FeaFetcher, manifest: FeaManifest, sourceNa
         const hierarchy: Record<string, [string, string]> = {"fea-root": ["FEA elements", "*"]};
         const ranges: Record<string, [number, number]> = {};
         const drawing: number[] = [];
+        const lineElements = new Map<number, number>();
         for (let i = 0; i < entries.length; i++) {
             const e = entries[i];
             const id = `E${e.label}`;
             ids[i] = id;
             hierarchy[id] = [id, "fea-root"];
-            if (e.triCount <= 0) continue;
+            if (e.triCount <= 0) {
+                lineElements.set(e.label, i);
+                continue;
+            }
             // The sidecar counts triangles; the index list has three corners for each.
             const range: [number, number] = [e.triStart * 3, e.triCount * 3];
             drawRanges.set(id, range);
@@ -385,6 +400,7 @@ async function elementTable(fetcher: FeaFetcher, manifest: FeaManifest, sourceNa
         return {
             drawRanges,
             objects: {model: resultModelKey(sourceName), sourceName, ids, segments, objectOf: Int32Array.from(drawing)},
+            lineElements,
             extras: {id_hierarchy: hierarchy, draw_ranges_node0: ranges},
         };
     } catch (err) {
@@ -400,7 +416,7 @@ function makeFaces(
     replaceModel: boolean,
 ): ResultMeshLayer {
     const {mesh} = s;
-    return s.results.createResultMesh(
+    const faces = s.results.createResultMesh(
         {
             positions: local ? local.positions : mesh.positions,
             indices: local ? local.indices : mesh.indices,
@@ -411,6 +427,9 @@ function makeFaces(
         },
         {replaceModel},
     );
+    // The colour asked for the unpainted model, if one is.
+    faces.setColor(feaUnpaintedColor());
+    return faces;
 }
 
 /** Make the faces element-local, so each element can carry its own colour: once per session,
@@ -471,15 +490,15 @@ function frameShape(s: LayerSession): [number, number, number] {
     ];
 }
 
-/** Keep the frame a playback paint just put on the layers, when it is one that can be shown
- *  again from what is kept: the faces and the beam sections, no result points and no coloured
- *  lines (those are worked out anew by each paint). */
+/** Keep the frame a playback paint just put on the layers, to be shown again from what is kept:
+ *  the faces and the beam sections, and the result points and coloured lines while they are
+ *  where the recording's first frame had them. */
 function recordFrame(s: LayerSession, key: string, step: number, nFrames: number): void {
-    if (!s.lastDisplacement || !s.lastFaceColors || s.markers.drawn || s.lines.drawn) return;
+    if (!s.lastDisplacement || !s.lastFaceColors) return;
     const shape = frameShape(s);
     if (s.lastFaceColors.length !== shape[1] * 3) return;
     if (!frames) {
-        frames = new LayerFrameRecorder(key, shape, nFrames);
+        frames = new LayerFrameRecorder(key, shape, nFrames, undefined, {markers: s.lastMarkers, lines: s.lastLines});
         if (frames.capacity === 0) {
             frames.dispose();
             frames = null;
@@ -491,6 +510,8 @@ function recordFrame(s: LayerSession, key: string, step: number, nFrames: number
         colors: s.lastFaceColors,
         solidColors: shape[2] && s.solidsPainted ? s.lastSolidColors : null,
         solidDisplacement: shape[2] ? s.solidsDisplacement : null,
+        markers: s.lastMarkers,
+        lines: s.lastLines,
     });
 }
 
@@ -516,8 +537,42 @@ function showRecordedFrame(s: LayerSession, key: string, step: number, scale: nu
         s.lastSolidColors = solidColors;
     }
     if (solids && frame.solidDisplacement) moveSolids(s, frame.solidDisplacement);
+    // The result points and the coloured lines the frame had, or none.
+    const markers = frames.points("markers", frame);
+    const lines = frames.points("lines", frame);
+    const markersRemade = markers ? s.markers.show(markers) : s.markers.clear();
+    const linesRemade = lines ? showLines(s, lines) : s.lines.clear();
+    const remade = markersRemade || linesRemade;
     s.group.setInfluence(scale);
+    // Which lines stand in for which edges follows from what is drawn.
+    if (remade) applyView(s);
     return true;
+}
+
+/** Draw the coloured lines of line elements. True when their layer was made again. */
+function showLines(s: LayerSession, lines: PaintedPoints): boolean {
+    const made = s.lines.show(lines);
+    // Beams that were no objects of the viewport may be now: what is isolated applies to them.
+    if (made && lines.labels && s.objects) objectsListener?.();
+    return made;
+}
+
+let objectsListener: (() => void) | null = null;
+
+/** Call `listener` when a result shown through layers has made more of its elements objects of
+ *  the viewport (beams drawn as lines, once a field colours them). One listener. */
+export function onLayerObjectsAdded(listener: (() => void) | null): void {
+    objectsListener = listener;
+}
+
+let dummyLabels: {ids: readonly string[]; labels: ReadonlySet<number> | null} | null = null;
+
+/** The beams that only carry a mass to its centre of gravity, by label; null when there are none.
+ *  A line between such a beam's nodes is not where the element is, so it is never drawn. */
+function dummyMassLabels(): ReadonlySet<number> | null {
+    const ids = useFemConceptsStore.getState().dummyMassIds;
+    if (dummyLabels?.ids !== ids) dummyLabels = {ids, labels: ids.length ? elementLabels(ids) : null};
+    return dummyLabels.labels;
 }
 
 /** The view switches a result has, applied to the layers as they are now. */
@@ -635,13 +690,15 @@ function makeSolids(s: LayerSession, local: {positions: Float32Array; indices: U
             objectOf: Int32Array.from(solids.labels, (label) => at.get(`E${label}`) ?? -1),
         };
     }
-    return s.results.createResultMesh({
+    const layer = s.results.createResultMesh({
         positions: local ? local.positions : solids.positions,
         indices: local ? local.indices : solids.indices,
         topology: "triangles",
         matrix: s.mesh.matrix,
         objects,
     });
+    layer.setColor(feaUnpaintedColor());
+    return layer;
 }
 
 /** Make the beam sections element-local, as the faces are for an element field. */
@@ -713,7 +770,8 @@ function drawSolidEdges(s: LayerSession): void {
     const data = s.solidEdgeData, solids = s.solids;
     if (!data || !solids || data.pairs.length === 0) return;
     let pairs = data.pairs;
-    if (s.hidden.size) {
+    // Kept whole while the hidden rest is drawn as a wireframe.
+    if (s.hidden.size && !s.hiddenEdgesKept) {
         const hidden = Array.from(solids.labels, (label) => s.hidden.has(`E${label}`));
         pairs = new Uint32Array(data.pairs.length);
         // A hidden beam's edges become pairs of one vertex: nothing is drawn.
@@ -793,6 +851,7 @@ export function setLayerHiddenEdgesKept(kept: boolean): void {
     if (!s || s.hiddenEdgesKept === kept) return;
     s.hiddenEdgesKept = kept;
     redrawShellEdges(s);
+    if (s.solidEdges && s.hidden.size) drawSolidEdges(s);
 }
 
 /** Read which elements are hidden on the viewport. When that changed: an edge is drawn while an
@@ -858,9 +917,16 @@ async function openLayerSession(args: {
         for (let i = 0; i < mesh.indices.length; i++) drawn[mesh.indices[i]] = 1;
     }
 
+    const lineElements = elements?.lineElements ?? null;
     const points = (topology: "points" | "lines", sizePx: number) =>
-        // White under the painted colours, which a layer draws times its own colour.
-        new PaintedPointsLayer(group, (positions) => results.createResultMesh({positions, indices: null, topology, matrix: mesh.matrix, sizePx, color: [1, 1, 1]}));
+        new PaintedPointsLayer(group, ({positions, labels}) => results.createResultMesh({
+            // White under the painted colours, which a layer draws times its own colour.
+            positions, indices: null, topology, matrix: mesh.matrix, sizePx, color: [1, 1, 1],
+            // A line is the object its element is.
+            objects: topology === "lines" && labels && objects && lineElements
+                ? lineObjects(objects, labels, (label) => lineElements.get(label))
+                : undefined,
+        }));
     const opened: LayerSession = {
         sourceName,
         manifest,
@@ -870,6 +936,7 @@ async function openLayerSession(args: {
         basePositions: mesh.positions,
         drawRanges: elements?.drawRanges ?? null,
         objects,
+        lineElements,
         hidden: new Set(),
         edgeIndices: edges.shell && edges.beam ? concat(edges.shell, edges.beam) : (edges.shell ?? edges.beam),
         shellEdgeIndices: edges.shell,
@@ -881,6 +948,8 @@ async function openLayerSession(args: {
         lastDisplacement: null,
         lastFaceColors: null,
         lastSolidColors: null,
+        lastMarkers: null,
+        lastLines: null,
         displacementWrites: 0,
         solidsDisplacement: null,
         pinned: new Set(),
@@ -922,9 +991,31 @@ async function openLayerSession(args: {
     });
     // Elements hidden or shown on the viewport: the edges and the scale follow what is drawn.
     const offVisibility = objects ? useVisibilityStore.subscribe(() => scheduleHiddenRefresh(opened)) : () => {};
+    // The colour asked for the unpainted model: on the faces and the beam sections.
+    const offPlain = onFeaUnpaintedColorChange(() => {
+        const color = feaUnpaintedColor();
+        opened.faces.setColor(color);
+        opened.solidsLayer?.setColor(color);
+    });
+    // The dummy-mass beams became known (a result's sets are read after its first paint): the
+    // coloured lines are worked out again without them.
+    const offDummies = useFemConceptsStore.subscribe((now, before) => {
+        if (now.dummyMassIds === before.dummyMassIds || !(now.dummyMassIds.length || before.dummyMassIds.length)) return;
+        // No line drawn and none left out: nothing to work out again.
+        if (!opened.lines.drawn && !before.dummyMassIds.length) return;
+        // Frames kept with the lines as they were are of another picture.
+        frames?.dispose();
+        frames = null;
+        const {sessionActive, applyStep, stepIndex} = useFeaAnimationStore.getState();
+        if (sessionActive && applyStep) {
+            applyStep(stepIndex).catch((err) => console.warn("[fea] repaint without the dummy-mass beams failed", err));
+        }
+    });
     opened.unsubscribe = () => {
         offView();
         offVisibility();
+        offPlain();
+        offDummies();
     };
     session = opened;
     return opened;
@@ -1032,8 +1123,11 @@ async function paintElementField(args: {
         active.solidsPainted = true;
         warpSolids(active, warp);
     }
+    const lines = linesWithout(painted.lines, painted.lineVertexLabels, dummyMassLabels());
     active.markers.show(painted.markers);
-    active.lines.show(painted.lines);
+    showLines(active, lines);
+    active.lastMarkers = painted.markers.positions.length ? painted.markers : null;
+    active.lastLines = lines.positions.length ? lines : null;
     recordLayerValues(painted.values, (id) => active.hidden.has(id));
     return autoRange;
 }
@@ -1199,6 +1293,7 @@ export async function loadFeaOnLayers(
             // A nodal field has no result points and paints no line element.
             active.markers.clear();
             active.lines.clear();
+            active.lastMarkers = active.lastLines = null;
             recordLayerValues(null);
         }
         active.rangeFromShown = rangeFromShown;
@@ -1212,7 +1307,7 @@ export async function loadFeaOnLayers(
             frames.dispose();
             frames = null;
         }
-        if (playback && !isCase && recordable(paintField)) recordFrame(active, recKey, stepIndex, nSlots);
+        if (playback && !isCase) recordFrame(active, recKey, stepIndex, nSlots);
     }
 
     stage("rendering", 0.9);
