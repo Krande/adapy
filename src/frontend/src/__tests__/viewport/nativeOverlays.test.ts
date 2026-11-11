@@ -33,6 +33,7 @@ function fakeScene() {
                 setDisplacement: (xyz) => void (d.displacement = [...xyz]),
                 setInfluence: (v) => void (d.influence = v),
                 setColorsVisible: () => {},
+                setColor: () => {},
                 setVisible: () => {},
                 remove: () => void (d.removed = true),
             };

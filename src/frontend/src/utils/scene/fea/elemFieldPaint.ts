@@ -372,6 +372,8 @@ export interface PaintedPoints {
     positions: Float32Array;
     colors: Float32Array;
     displacement: Float32Array;
+    /** The element each point belongs to, where a viewport draws the points as its elements. */
+    labels?: readonly number[];
 }
 
 export interface ElemFieldPainted {

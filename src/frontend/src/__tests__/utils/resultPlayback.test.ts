@@ -19,6 +19,7 @@ function fakeLayer(): ResultMeshLayer & {influences: number[]} {
         setDisplacement() {},
         setInfluence: (v) => void influences.push(v),
         setColorsVisible() {},
+        setColor() {},
         setVisible() {},
         remove() {},
     };

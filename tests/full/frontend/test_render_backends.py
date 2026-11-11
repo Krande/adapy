@@ -835,6 +835,29 @@ async def test_fea_beams_are_drawn_as_their_sections(ws_server, backend, fem_fil
                 return _count((await _pixels(page)).crop(model), _is_coloured) < 2 * as_lines
 
             await _until(page, drawn_as_lines, f"{backend}: the beams to be drawn as lines again")
+
+            # a beam that only its line draws is still that element: the selection shows on the line,
+            # and it is hidden and shown again with the viewer's own commands
+            async def line_selected():
+                return _count((await _pixels(page)).crop(model), _is_selected) > 20
+
+            await _until(page, line_selected, f"{backend}: the selected beam's line to be drawn as selected")
+            with_line = _count((await _pixels(page)).crop(model), _is_coloured)
+            # (the palette's key is not taken while the switch has the focus)
+            await page.evaluate("document.activeElement.blur()")
+            await _command(page, "Hide selected")
+
+            async def line_hidden():
+                view = (await _pixels(page)).crop(model)
+                return _count(view, _is_selected) == 0 and _count(view, _is_coloured) < with_line - 20
+
+            await _until(page, line_hidden, f"{backend}: the beam's line to be hidden")
+            await _command(page, "Show all")
+
+            async def line_back():
+                return _count((await _pixels(page)).crop(model), _is_coloured) >= with_line - 20
+
+            await _until(page, line_back, f"{backend}: Show all to bring the beam's line back")
         finally:
             await browser.close()
 

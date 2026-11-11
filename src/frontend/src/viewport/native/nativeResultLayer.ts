@@ -20,6 +20,8 @@ export class NativeResultLayer implements ResultMeshLayer {
     private readonly morphPtr: number;
     private readonly matrixPtr: number;
     private readonly color: readonly [number, number, number];
+    /** A plain colour given in place of the layer's own (setColor). */
+    private plain: readonly [number, number, number] | null = null;
     private readonly baseFlags: number;
     /** Lines' width and points' diameter in the drawing buffer's pixels, and the layer's opacity. */
     private readonly size: number;
@@ -109,9 +111,11 @@ export class NativeResultLayer implements ResultMeshLayer {
     private push(): void {
         if (!this.alive) return;
         let flags = this.baseFlags;
-        if (this.painted && this.colorsVisible) flags |= InstanceFlag.VertexColors;
+        const painted = this.painted && this.colorsVisible;
+        if (painted) flags |= InstanceFlag.VertexColors;
         if (!this.visible) flags |= InstanceFlag.Hidden;
-        const [r, g, b] = this.color;
+        // Painted colours are drawn times the layer's own colour, so a given one waits for them to go.
+        const [r, g, b] = this.plain && !painted ? this.plain : this.color;
         this.renderer.setInstance(this.instance, this.matrixPtr, r, g, b, this.opacity, flags, this.influence, 0, 1, false, this.size, this.dash, this.gap);
         this.changed();
     }
@@ -156,6 +160,13 @@ export class NativeResultLayer implements ResultMeshLayer {
     setColorsVisible(visible: boolean): void {
         if (visible === this.colorsVisible) return;
         this.colorsVisible = visible;
+        this.push();
+    }
+
+    setColor(rgb: readonly [number, number, number] | null): void {
+        const now = this.plain;
+        if (rgb === now || (rgb && now && rgb[0] === now[0] && rgb[1] === now[1] && rgb[2] === now[2])) return;
+        this.plain = rgb ? [rgb[0], rgb[1], rgb[2]] : null;
         this.push();
     }
 

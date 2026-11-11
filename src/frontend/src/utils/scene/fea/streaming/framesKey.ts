@@ -1,8 +1,8 @@
 // FEA streaming: what a recording of played frames is valid for.
 //
 // Owns: the key a recording is kept under (the source, the field and every view setting that
-// changes the picture) and which fields can be recorded at all. Shared by the two recorders: the
-// three.js loader's (./frameRecording.ts) and the layer session's (./layerFrames.ts).
+// changes the picture), shared by the two recorders: the three.js loader's (./frameRecording.ts)
+// and the layer session's (./layerFrames.ts); and which fields the first of them can record.
 //
 // No three.js in this module or in anything it imports.
 
@@ -28,8 +28,8 @@ export function framesKey(sourceName: string, fieldName: string | null, reductio
     ]);
 }
 
-/** Fields whose paint the recorder can replay. Result-point fields also draw point
- *  markers, which it does not keep. */
+/** Fields whose paint the three.js loader's recorder can replay. Result-point fields also draw
+ *  point markers, which it does not keep (the layer session's keeps them). */
 export function recordable(field: FeaManifestField): boolean {
     return field.support !== "result_point" && field.support !== "line_result_point";
 }
