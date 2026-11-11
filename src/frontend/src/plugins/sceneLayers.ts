@@ -60,11 +60,11 @@ export function releaseOwnerLayers(owner: string): void {
 const placed = new Set<() => void>();
 let offFrame: (() => void) | null = null;
 
-/** The scene's own coordinates in `viewport`'s world, as a matrix; null when they are the same.
- *  The three.js viewport recentres what it loads; the three.js-free one draws a model where its
- *  file puts it. */
-function sceneMatrix(viewport: ViewportApi): number[] | null {
-    const offset = viewport.kind === "three" ? useSceneFrameStore.getState().offset : null;
+/** The scene's own coordinates in the viewport's world, as a matrix; null when they are the same.
+ *  Either viewport recentres what it loads and publishes by how much (viewport/api/sceneFrame,
+ *  state/sceneFrameStore). */
+function sceneMatrix(_viewport: ViewportApi): number[] | null {
+    const offset = useSceneFrameStore.getState().offset;
     if (!offset || (offset[0] === 0 && offset[1] === 0 && offset[2] === 0)) return null;
     return [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, offset[0], offset[1], offset[2], 1];
 }

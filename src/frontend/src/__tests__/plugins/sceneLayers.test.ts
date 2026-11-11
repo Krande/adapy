@@ -182,11 +182,12 @@ test("on the viewport that recentres its models, layers are placed where the mod
     assert.equal(lastLook(drawn[0]).matrix, null);
 });
 
-test("the viewport that draws a model where its file puts it places layers there too", () => {
+test("layers follow the scene's placement on the three.js-free viewport as well", () => {
+    // It recentres what it loads by the same rule and publishes the same offset.
     setSceneOffset([10, 20, 30]);
     const {drawn} = viewport("native");
     addPointLayer("p", {positions: [0, 0, 0]});
-    assert.equal(drawn[0].spec.matrix, null);
+    assert.deepEqual(Array.from(drawn[0].spec.matrix ?? []).slice(12, 15), [10, 20, 30]);
 });
 
 test("a layer's row in the Layers panel has the last word on whether it is drawn", () => {

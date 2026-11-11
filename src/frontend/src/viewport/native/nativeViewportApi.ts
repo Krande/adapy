@@ -54,8 +54,8 @@ export function createNativeViewportApi(scene: NativeScene): ViewportApi {
             const key = objectKey(model, id);
             return scene.draws(key) ? (scene.isHidden(key) ? "hidden" : "shown") : null;
         },
-        // A model is drawn where its file puts it.
-        sourceOrigin: (sourceName) => (scene.hasSource(sourceName) ? [0, 0, 0] : null),
+        // Every model on screen is placed by the scene's one offset (viewport/api/sceneFrame).
+        sourceOrigin: (sourceName) => (scene.hasSource(sourceName) ? scene.sceneOffset : null),
         unloadSource: (sourceName) => scene.unloadSource(sourceName),
         modelBounds: () => scene.modelBounds,
         saveScreenshot: () => {

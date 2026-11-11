@@ -1,6 +1,7 @@
-// Where the models' own coordinates are in the world, as plain numbers: world = model + offset. The
-// three.js viewport recentres what it loads (state/modelState's `translation`, mirrored here); the
-// three.js-free one draws a model where its file puts it, so its offset is zero. What is kept in world
+// Where the models' own coordinates are in the world, as plain numbers: world = model + offset. Either
+// viewport recentres what it loads by the one rule (viewport/api/sceneFrame) and publishes the offset
+// here: the three.js one mirrors state/modelState's `translation`, the three.js-free one its scene's
+// placement. What is kept in world
 // coordinates across page loads (the selection boxes) or sent to a source in the model's own frame
 // (a box's request) reads the offset from here, whichever viewport is on screen. No three.js.
 import {create} from "zustand";
