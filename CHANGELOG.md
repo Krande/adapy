@@ -2,6 +2,16 @@
 
 
 
+## v0.149.1 (2026-11-11)
+
+### Fix
+
+* fix(fem): a point mass on a plate or in a beam&#39;s span gets a node its elements hold (#534)
+
+Co-authored-by: Claude Opus 5.5 (1M context) &lt;noreply@anthropic.com&gt;
+Co-authored-by: Kristoffer Andersen &lt;kristoffer_andersen@outlook.com&gt; ([`988817a`](https://github.com/Krande/adapy/commit/988817a78d1a1e5bf65d41ee9b3049e212643f21))
+
+
 ## v0.149.0 (2026-11-11)
 
 ### Feature
