@@ -2,6 +2,15 @@
 
 
 
+## v0.146.0 (2026-11-11)
+
+### Feature
+
+* feat: the last three.js-only viewer features on both viewports (#531)
+
+Co-authored-by: Claude Fable 5.2 &lt;noreply@anthropic.com&gt; ([`654b6b9`](https://github.com/Krande/adapy/commit/654b6b95cbe0f09324c821d52bd2132062fd3118))
+
+
 ## v0.145.0 (2026-11-11)
 
 ### Feature
