@@ -132,6 +132,23 @@ def local_engine():
     engine_catalog._ENGINE_CAPABILITY_REGISTRY.pop("test-local-engine", None)
 
 
+def test_a_local_engines_blueprints_are_offered(app_client: TestClient, local_engine: str):
+    """Blueprints a tool registers for its engine reach the Blueprint dropdown on a
+    queue-less server, as a worker's heartbeat would carry them."""
+    from ada.topo_model import blueprint_catalog
+
+    blueprint_catalog.register_procedural_blueprint(local_engine, "frame", "Frame", description="beams only")
+    blueprint_catalog.register_procedural_blueprint(local_engine, "deck", "Deck")
+    try:
+        r = app_client.get("/api/scopes/shared/procedural-models/blueprints", params={"engine": local_engine})
+        assert [b["slug"] for b in r.json()["blueprints"]] == ["frame", "deck"]
+        # Another engine's dropdown is not given them.
+        r = app_client.get("/api/scopes/shared/procedural-models/blueprints", params={"engine": "echo"})
+        assert "frame" not in {b["slug"] for b in r.json()["blueprints"]}
+    finally:
+        blueprint_catalog._BLUEPRINT_REGISTRY.pop(local_engine, None)
+
+
 def test_an_engine_registered_in_process_is_offered_and_compiles(app_client: TestClient, local_engine: str):
     """A local viewer's tool registers its engine at import; the queue-less server lists
     it (origin "local") and compiles with it in-process."""

@@ -137,6 +137,16 @@ LOCAL_FEATURES: frozenset[str] = frozenset(
 )
 
 
+#: The catalogs a queue-less server advertises from its own process, as the worker
+#: heartbeat does (worker/registration.py): field -> (module, spec-list function).
+#: Only those that belong to the in-process procedural compile.
+_LOCAL_PROCEDURAL_SPECS: dict[str, tuple[str, str]] = {
+    "procedural_blueprint_specs": ("ada.topo_model", "procedural_blueprint_specs"),
+    "procedural_template_specs": ("ada.topo_model", "procedural_template_specs"),
+    "procedural_engine_specs": ("ada.topo_model", "procedural_engine_specs"),
+}
+
+
 @dataclass(frozen=True)
 class JobRequest:
     """One job to run, in the terms both transports understand.
@@ -767,7 +777,26 @@ class LocalJobTransport(_BaseTransport):
         # There is no pool to advertise anything. What this process registered
         # is reported through `local_specs` instead — it is online by
         # definition, being the thing that would run the job.
-        return {}
+        #
+        # Except the procedural catalogs: a queue-less server compiles procedural
+        # models itself (`procedural_build` is a local feature), so it IS the worker
+        # those catalogs describe, and answers for them exactly as a worker's
+        # heartbeat would - the built-ins plus what a preloaded tool registered
+        # (its engine's blueprints, its templates). See _LOCAL_PROCEDURAL_SPECS.
+        source = _LOCAL_PROCEDURAL_SPECS.get(spec_field)
+        if source is None:
+            return {}
+        import importlib
+
+        module, attr = source
+        try:
+            specs = getattr(importlib.import_module(module), attr)()
+        except ImportError:
+            return {}  # a slim API without the modelling stack has none to offer
+        except Exception:
+            logger.exception("local transport: failed to list %s (non-fatal)", spec_field)
+            return {}
+        return {s["slug"]: dict(s) for s in specs if isinstance(s, dict) and isinstance(s.get("slug"), str) and s["slug"]}
 
     def local_specs(self) -> list[dict] | None:
         from .plugin_registry import locally_registered_specs

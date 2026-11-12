@@ -275,11 +275,13 @@ def test_compile_preview_validates_before_the_model(app_client: TestClient):
 
 
 def test_templates_endpoint_needs_no_db(app_client: TestClient):
-    # Templates come from live-worker announcements, not the DB — so the endpoint
-    # is 200 (empty, no workers up) even on a shared-only / no-queue deployment.
+    # Templates are what the worker that would build them announces, not DB rows. A
+    # queue-less server compiles in-process, so it announces its own: the built-ins.
+    from ada.topo_model import procedural_template_specs
+
     r = app_client.get("/api/scopes/shared/procedural-templates")
     assert r.status_code == 200, r.text
-    assert r.json() == {"templates": []}
+    assert {t["id"] for t in r.json()["templates"]} == {s["slug"] for s in procedural_template_specs()}
 
 
 def test_builtin_template_specs_are_announced():
