@@ -35,6 +35,7 @@ import {
   gridOf,
   isInGrid,
   migrateLayoutDoc,
+  updateGrid,
 } from "../reducers";
 import {canPopOut} from "../popout";
 import {getPanel, isPanelAvailable, listPanels} from "../registry";
@@ -46,6 +47,7 @@ import {
   gridGroups,
   gridPanels,
   groupOf,
+  setFixedPx,
   type DockEdge,
   type GridNode,
   type GridTarget,
@@ -100,6 +102,8 @@ export interface ClassicShell extends ClassicArrangement {
   /** UI freeze (`./uiFreeze`): `false` leaves it out, `"default-on"` starts frozen. Default offered, off. */
   uiFreeze?: boolean | "default-on";
   migrate?: (doc: LayoutDoc, from: number | undefined) => LayoutDoc | null;
+  /** One panel for every mode (`UiShellLayout.globalPanels`). */
+  globalPanels?: readonly PanelId[];
 }
 
 /** The group chrome the served shell asks for; none for core's own UI. */
@@ -265,13 +269,96 @@ export function useClassicContext(): string {
   return classicContext();
 }
 
+/** The served shell's global panels (`ClassicShell.globalPanels`). */
+function globalPanelIds(): Set<PanelId> {
+  return new Set(shell?.globalPanels ?? []);
+}
+
+/** Every panel a document places: in its grid, or in a window. */
+function placedPanels(doc: LayoutDoc): PanelId[] {
+  return [...new Set([...gridPanels(gridOf(doc)), ...Object.keys(doc.floats)])];
+}
+
+/** What the mode entered opens: what was open when it was last left, else its starting list. */
+function openingPanels(): readonly PanelId[] {
+  return (shell ? classicDoc().open : undefined) ?? arrangementOf().open ?? [];
+}
+
 /**
- * Open the arrangement's starting panels: on every load, and on entering a mode.
- * Whether a panel is open is its own flag, which a reload resets, while where it
- * shows is the saved document. Call after the layout's panel controller is installed.
+ * Open the mode's panels: on every load, and on entering a mode. A mode recorded
+ * as it was left (`LayoutDoc.open`) opens what was open then and closes the rest it
+ * places; one never recorded opens its starting list. A global panel is left as it
+ * is, at its global state (`applyGlobalPanels`). Whether a panel is open is its own
+ * flag, which a reload resets, while where it shows and what was open are the saved
+ * document. Call after the layout's panel controller is installed.
  */
-export function openStartingPanels(reveal: (id: PanelId) => boolean): void {
-  for (const id of arrangementOf().open ?? []) reveal(id);
+export function openStartingPanels(
+  reveal: (id: PanelId) => boolean,
+  hide?: (id: PanelId) => boolean,
+  isOpen?: (id: PanelId) => boolean,
+): void {
+  const global = globalPanelIds();
+  const remembered = shell ? classicDoc().open : undefined;
+  if (remembered && hide && isOpen) {
+    const want = new Set(remembered);
+    for (const id of placedPanels(classicDoc())) {
+      if (!global.has(id) && !want.has(id) && isOpen(id)) hide(id);
+    }
+    for (const id of remembered) if (!global.has(id)) reveal(id);
+  } else {
+    const known = shell ? layoutStore.getState().prefs.globalPanels?.[shell.id] : undefined;
+    for (const id of arrangementOf().open ?? []) if (!global.has(id) || !known) reveal(id);
+  }
+  if (hide) applyGlobalPanels(reveal, hide);
+}
+
+/**
+ * Put the global panels in the state recorded for every mode: open or closed, and
+ * the docked group each is in at the recorded size. Nothing recorded yet: left as
+ * the mode's starting list made them.
+ */
+export function applyGlobalPanels(reveal: (id: PanelId) => boolean, hide: (id: PanelId) => boolean): void {
+  if (!shell) return;
+  const state = layoutStore.getState().prefs.globalPanels?.[shell.id];
+  if (!state) return;
+  const open = new Set(state.open);
+  for (const id of globalPanelIds()) {
+    if (open.has(id)) reveal(id);
+    else hide(id);
+    const px = state.px[id];
+    const group = groupOf(gridOf(classicDoc()), id);
+    if (typeof px === "number" && group?.fixed && group.fixed.px !== px) {
+      updateClassic((d) => updateGrid(d, (g) => setFixedPx(g, group.id, px)));
+    }
+  }
+}
+
+const sameList = (a: readonly string[] | undefined, b: readonly string[]) =>
+  !!a && a.length === b.length && a.every((x, i) => x === b[i]);
+
+/**
+ * Record the mode as it is now: which of the panels it places are open (into its
+ * document, `LayoutDoc.open`), and the global panels' state (open, and their docked
+ * size) for every mode. Run on any change to a panel's open state or the document;
+ * writes only what changed.
+ */
+export function recordOpenPanels(isOpen: (id: PanelId) => boolean): void {
+  if (!shell) return;
+  const global = globalPanelIds();
+  const doc = classicDoc();
+  const open = placedPanels(doc).filter((id) => !global.has(id) && isOpen(id)).sort();
+  if (!sameList(doc.open, open)) updateClassic((d) => ({...d, open}));
+  if (!global.size) return;
+  const before = layoutStore.getState().prefs.globalPanels?.[shell.id];
+  const px: Record<PanelId, number> = {...(before?.px ?? {})};
+  for (const id of global) {
+    const fixed = groupOf(gridOf(doc), id)?.fixed;
+    if (fixed && typeof fixed.px === "number") px[id] = fixed.px;
+  }
+  const gOpen = [...global].filter((id) => isOpen(id)).sort();
+  const samePx =
+    !!before && Object.keys(px).length === Object.keys(before.px).length && Object.entries(px).every(([k, v]) => before.px[k] === v);
+  if (!before || !sameList(before.open, gOpen) || !samePx) layoutStore.getState().setGlobalPanels(shell.id, {open: gOpen, px});
 }
 
 /**
@@ -282,10 +369,13 @@ export function openStartingPanels(reveal: (id: PanelId) => boolean): void {
 export function leaveContext(left: string, hide: (id: PanelId) => boolean, isOpen: (id: PanelId) => boolean): void {
   const before = layoutStore.getState().doc(CLASSIC_PRESET_ID, CLASSIC_ZONE_DEFS, left);
   const now = classicDoc();
-  const opening = new Set(arrangementOf().open ?? []);
+  const opening = new Set(openingPanels());
   const pinned = new Set(pinnedPanels());
+  const global = globalPanelIds();
   const placedBefore = [...gridPanels(gridOf(before)), ...Object.keys(before.floats)];
   for (const id of placedBefore) {
+    // A global panel is one panel for every mode: the mode changing does not close it.
+    if (global.has(id)) continue;
     if (placeOf(now, id) !== "home") continue;
     if (pinned.has(id)) {
       carryPinned(before, id);

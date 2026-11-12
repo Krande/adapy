@@ -85,6 +85,7 @@ import {
   classicToolbarShown,
   dropPanel,
   openStartingPanels,
+  recordOpenPanels,
   moveAction,
   shownPlace,
   useClassicDoc,
@@ -421,7 +422,22 @@ function ClassicFrame() {
     lastCtx.current = ctx;
     lastShell.current = shellId;
     adoptDockedPanels();
-    openStartingPanels(reveal);
+    openStartingPanels(reveal, hide, isPanelOpen);
+  }, [ctx, shellId]);
+  // A composed shell's mode is remembered as it is left: what is open in it (and the global panels' state),
+  // recorded on every change. After the effect above, so a switch records the mode entered once it is open.
+  React.useEffect(() => {
+    if (!shellId) return;
+    const record = () => recordOpenPanels(isPanelOpen);
+    record();
+    const unsubs: Array<() => void> = [layoutStore.subscribe(record)];
+    for (const p of listPanels()) {
+      const off = p.binding?.subscribe?.(record);
+      if (off) unsubs.push(off);
+    }
+    return () => {
+      for (const off of unsubs) off();
+    };
   }, [ctx, shellId]);
   // Plugin panels in a group or window of their own leave their region hosts.
   React.useEffect(() => setPlacedElsewhere(placedElsewhere(doc, customisable, narrow)), [doc, customisable, narrow]);

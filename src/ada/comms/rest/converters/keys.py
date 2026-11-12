@@ -406,6 +406,9 @@ HIDDEN_PREFIXES: tuple[str, ...] = (
     # the run's job only, never through the blob route, and kept when temp files are cleared: a run
     # can take hours to make.
     "_simulations/",
+    # A user's preference documents on a server with no database (routes/preferences.py): the
+    # viewer's panel layout, say. Never through the blob route.
+    "_prefs/",
 )
 
 
