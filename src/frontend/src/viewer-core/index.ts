@@ -640,7 +640,10 @@
 //          `SceneModelSource`, `PluginPlayback`, `PluginPlaybackTrack`, `PluginPlaybackState`,
 //          `PluginLayers`). `simulationsApi.fetchArtefact` on `/app` reads a run artefact's
 //          bytes, whole or from an offset.
-export const VIEWER_CORE_API_VERSION = "1.18.0";
+//   1.19.0  `registerToastSlot` / `unregisterToastSlot`: a shell's or plugin's own toasts in the
+//          app's one toast stack (layout/toastSlots.ts). `UiShellLayout.globalPanels` and
+//          `modeArrangements`; a composed shell's mode reopens what was open in it.
+export const VIEWER_CORE_API_VERSION = "1.19.0";
 
 // ---------------------------------------------------------------------------
 // Plugin declaration. `registerPlugin` is how a package announces itself —
@@ -808,6 +811,8 @@ export {
 } from "@/layout/toolRailModel";
 export type { RailPrefs, ToolRailConfig } from "@/layout/toolRailModel";
 export { VIEWPORT_ANCHORS, registerViewportOverlay, unregisterViewportOverlay } from "@/layout/viewportOverlays";
+export { registerToastSlot, unregisterToastSlot } from "@/layout/toastSlots";
+export type { ToastSlotSpec } from "@/layout/toastSlots";
 export type { ViewportAnchor, ViewportOverlaySpec } from "@/layout/viewportOverlays";
 // Shortcuts a shell or plugin adds; core's own keys are reserved (dependency-free).
 export {

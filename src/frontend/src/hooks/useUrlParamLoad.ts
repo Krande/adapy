@@ -77,7 +77,9 @@ export function useUrlParamLoad(): void {
         const scopeParam = params.get("scope");
         const derivedParam = params.get("derived");
         const proceduralParam = params.get(PROCEDURAL_PARAM);
-        if (!fileParam && !proceduralParam) return;
+        // A link with only ?scope= (a local viewer's, say) still picks the scope: else the
+        // tab keeps the one it had and Storage lists another scope than the link names.
+        if (!fileParam && !proceduralParam && !scopeParam) return;
 
         // Need the scope list before we can resolve ``?scope=user:me``.
         // AuthGate populates ``available`` from /api/me; until then the
@@ -97,6 +99,10 @@ export function useUrlParamLoad(): void {
             // and try the load anyway. Worst case the file doesn't
             // exist under the active scope and the user sees a clear
             // 404 in the conversion toast.
+        }
+        if (!fileParam && !proceduralParam) {
+            stripDeepLinkParams();
+            return;
         }
 
         if (!fileParam && proceduralParam) {
