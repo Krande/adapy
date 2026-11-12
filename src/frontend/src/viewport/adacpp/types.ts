@@ -289,7 +289,9 @@ export interface GpuDeviceLike {
 export interface GpuAdapterLike {
     readonly limits: {maxStorageBufferBindingSize: number; maxBufferSize: number} & Record<string, number>;
     readonly info?: GpuAdapterInfoLike;
-    requestDevice(desc: {label?: string; requiredLimits?: Record<string, number>}): Promise<GpuDeviceLike>;
+    /** The optional features the adapter can give a device (a set of names, as GPUSupportedFeatures). */
+    readonly features?: {has(name: string): boolean};
+    requestDevice(desc: {label?: string; requiredLimits?: Record<string, number>; requiredFeatures?: string[]}): Promise<GpuDeviceLike>;
 }
 export interface GpuLike {
     requestAdapter(opts?: {

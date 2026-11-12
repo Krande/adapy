@@ -25,6 +25,7 @@ import {useStatsStore} from "@/state/statsStore";
 import type {SourceUpAxis} from "@/utils/scene/sourceUpAxis";
 import {isNativeViewportActive, showInNativeViewport} from "@/viewport/native/nativeModel";
 import {setupModelLoaderAsync, type SetupModelPrepareHook} from "./setupModelLoader";
+import {recordModelLoad} from "./loadedModelJournal";
 
 /** Where a model's bytes come from. */
 export type ModelBytes =
@@ -205,6 +206,8 @@ export async function loadModel(source: LoadModelSource): Promise<THREE.Group | 
     } finally {
         if (objectUrl) URL.revokeObjectURL(objectUrl);
     }
+    // Remembered so that a switch to the other viewport can load the same models there.
+    recordModelLoad(source);
 
     // Register the source on the model session. Order matters on a replace:
     // setLoadedSourceName opens a fresh session (dropping any prior overlay

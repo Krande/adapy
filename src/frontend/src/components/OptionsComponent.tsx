@@ -3,26 +3,16 @@ import {CollapsibleSection} from "@/components/ui/CollapsibleSection";
 import React, {Suspense} from "react";
 import {useIsNarrow} from "@/utils/useIsMobile";
 import {runtime} from "@/runtime/config";
-import {CORE_PANEL_IDS, hide} from "@/layout/panelActions";
-import PointSizeOptions from "./options/PointSizeOptions";
-import ComputeOptions from "./options/ComputeOptions";
-import DisplayOptions from "./options/DisplayOptions";
-import AppearanceOptions from "./options/AppearanceOptions";
-import LayoutOptions from "./options/LayoutOptions";
-import ExperimentalOptions from "./options/ExperimentalOptions";
-import PerformanceOptions from "./options/PerformanceOptions";
-import SceneRestoreOptions from "./options/SceneRestoreOptions";
+import {CORE_PANEL_IDS, hide, reveal} from "@/layout/panelActions";
 import ShortcutsModal from "./options/ShortcutsModal";
-import SpaceMouseOptions from "./options/SpaceMouseOptions";
-import CameraControlsOptions from "./options/CameraControlsOptions";
-import ThemeOptions from "./options/ThemeOptions";
+import {UiShellSwitcher} from "@/plugins";
+import {BuildLine} from "./settings/BuildLine";
+import {SETTINGS_SECTIONS, type SettingsSectionId} from "./settings/settingsSections";
 
-// REST-only controls (scope picker, signed-in row, admin button) live
+// REST-only controls (scope picker, signed-in row, convert and admin buttons) live
 // here so they're reachable on phones and don't crowd the top bar.
 // Lazy-loaded so the desktop bundle stays slim.
 const RestSection = React.lazy(() => import("./options/RestSection"));
-import {UiShellSwitcher} from "@/plugins";
-import { buildLabel } from "@/utils/buildLabel";
 
 // Each section starts closed; click the header to toggle.
 const Section: React.FC<{title: string; children: React.ReactNode}> = ({title, children}) => (
@@ -32,150 +22,70 @@ const Section: React.FC<{title: string; children: React.ReactNode}> = ({title, c
 );
 
 // Two layouts:
-// * Mobile: full-height slide-in drawer from the left edge. There
-//   isn't enough room on a phone for an inline box; the drawer takes
-//   over so the user can scroll through the options.
-// * Desktop: an inline panel in the menu's info-box column, styled
-//   like ObjectInfoBox / SceneInfoBox / StorageBrowser — same
-//   semi-transparent gray, same rounded corners. The ☰ button toggles
-//   it; nothing else needs to.
-/** The Options panel's sections, by id. `build` is the build line at the top; `account` is the hosted sign-in / scope / convert / admin block. */
-export type OptionsSectionId =
-    | "build"
-    | "account"
-    | "scene"
-    | "appearance"
-    | "session"
-    | "theme"
-    | "performance"
-    | "compute"
-    | "camera"
-    | "spacemouse"
-    | "conversion"
-    | "shortcuts";
+// * Mobile: full-height slide-in drawer from the left edge.
+// * Desktop: an inline panel in the menu's info-box column, styled like the other info boxes.
+//
+// The settings themselves live in the Settings window (`core:settings`, one tab per section); the
+// panel keeps the account controls, the button that opens Settings, and the shortcut keys.
+/**
+ * The Options panel's sections, by id. `build` is the build line; `account` is the hosted sign-in /
+ * scope / convert / admin block; `interface` is the UI shell switcher (nothing unless the build
+ * carries more than one shell); `settings` is the button that opens the Settings window; the rest
+ * are the settings sections themselves, drawn collapsible here when a shell picks them.
+ */
+export type OptionsSectionId = "build" | "account" | "interface" | "settings" | "shortcuts" | SettingsSectionId;
 
 export interface OptionsBodyProps {
-    /** The sections, in this order; others are left out. Default: all, in the classic order. */
+    /** The sections, in this order; others are left out. Default: account, interface, settings, shortcuts. */
     sections?: readonly OptionsSectionId[];
     /** Sections left out (after `sections`). */
     hiddenSections?: readonly OptionsSectionId[];
 }
 
-const DEFAULT_SECTIONS: readonly OptionsSectionId[] = [
-    "build",
-    "account",
-    "scene",
-    "appearance",
-    "session",
-    "theme",
-    "performance",
-    "compute",
-    "camera",
-    "spacemouse",
-    "conversion",
-    "shortcuts",
-];
+const DEFAULT_SECTIONS: readonly OptionsSectionId[] = ["account", "interface", "settings", "shortcuts"];
 
-/** The Options panel's content: the build line and every settings section (or those a shell picks). */
+/** Opens the Settings window. */
+const SettingsButton: React.FC = () => (
+    <button
+        type="button"
+        onClick={() => void reveal(CORE_PANEL_IDS.settings)}
+        className="block w-full bg-gray-700 hover:bg-gray-600 text-white text-sm font-semibold py-1 px-2 rounded-sm"
+    >
+        Settings
+    </button>
+);
+
+/** The Options panel's content: the account controls, Settings and the shortcut keys (or the sections a shell picks). */
 export function OptionsBody({sections: picked, hiddenSections}: OptionsBodyProps) {
-    const unique_version_id = runtime.uniqueVersionId();
-    const adapy_version = runtime.adapyVersion();
-    const frontend_sha = runtime.frontendSha();
-    const viewer_image_tag = runtime.viewerImageTag();
-    const adapy_build_ref = runtime.adapyBuildRef();
-
-    const build_label = buildLabel(
-        adapy_version,
-        frontend_sha,
-        viewer_image_tag,
-        unique_version_id,
-        adapy_build_ref,
-    );
-    const versionInfo = (
-        <div className="text-xs text-gray-300">
-            Build: <span className="font-mono">{build_label}</span>
-        </div>
-    );
-
     const rest = runtime.isRestMode();
-    // Each section's content; null where it does not apply here. All but the last
-    // two (build line, shortcuts button) are followed by a rule.
-    const content: Readonly<Record<OptionsSectionId, React.ReactNode>> = {
-        build: versionInfo,
+    // Each section's content; null where it does not apply here.
+    const content: Partial<Record<OptionsSectionId, React.ReactNode>> = {
+        build: <BuildLine/>,
         account: rest ? (
             <Suspense fallback={null}>
                 <RestSection/>
             </Suspense>
         ) : null,
-        // The defaults are tuned for the common case; tucking the controls behind
-        // a disclosure keeps the drawer from feeling overwhelming.
-        scene: (
-            <Section title="Scene config">
-                <div className="space-y-4">
-                    <PointSizeOptions/>
-                    <DisplayOptions/>
-                </div>
-            </Section>
-        ),
-        // Lights, colours and the background, the same on every renderer.
-        appearance: (
-            <Section title="Appearance">
-                <AppearanceOptions/>
-            </Section>
-        ),
-        session: rest ? (
-            <Section title="Session restore">
-                <SceneRestoreOptions/>
-            </Section>
-        ) : null,
-        theme: (
-            <Section title="Theme">
-                <ThemeOptions/>
-                {/* Renders nothing unless a build actually carries more than one
-                    shell, so this costs a stock viewer no space at all. Grouped
-                    with Theme because both answer "how does this app look",
-                    and neither is a decision anyone revisits often. */}
-                <UiShellSwitcher className="mt-3"/>
-                <LayoutOptions className="mt-3"/>
-            </Section>
-        ),
-        performance: (
-            <Section title="Performance">
-                <PerformanceOptions/>
-            </Section>
-        ),
-        compute: (
-            <Section title="Calculations">
-                <ComputeOptions/>
-            </Section>
-        ),
-        camera: (
-            <Section title="Camera controls">
-                <CameraControlsOptions/>
-            </Section>
-        ),
-        spacemouse: (
-            <Section title="3D mouse">
-                <SpaceMouseOptions/>
-            </Section>
-        ),
-        // The in-browser (WASM) conversion engine only makes sense for the hosted
-        // REST viewer; the websocket/desktop and embed bundles don't expose it.
-        conversion: rest ? (
-            <Section title="Conversion engine">
-                <ExperimentalOptions/>
-            </Section>
-        ) : null,
+        interface: <UiShellSwitcher/>,
+        settings: <SettingsButton/>,
         shortcuts: <ShortcutsModal/>,
     };
+    const settingsIds = new Set<OptionsSectionId>();
+    for (const s of SETTINGS_SECTIONS) {
+        settingsIds.add(s.id);
+        content[s.id] = s.available() ? <Section title={s.title}>{s.render()}</Section> : null;
+    }
     const hidden = new Set(hiddenSections ?? []);
-    const order = (picked ?? DEFAULT_SECTIONS).filter((id) => !hidden.has(id) && content[id] !== null);
+    const order = (picked ?? DEFAULT_SECTIONS).filter((id) => !hidden.has(id) && content[id] != null);
+    // A rule only after a collapsible settings section (a shell's pick); the account block, the
+    // switcher and the buttons sit together.
+    const ruled = (id: OptionsSectionId) => settingsIds.has(id);
     return (
         <>
-            {order.map((id) => (
+            {order.map((id, i) => (
                 <React.Fragment key={id}>
                     {content[id]}
-                    {id !== "build" && id !== "shortcuts" && <hr className="border-gray-600"/>}
+                    {ruled(id) && i < order.length - 1 && <hr className="border-gray-600"/>}
                 </React.Fragment>
             ))}
         </>
@@ -209,10 +119,7 @@ function OptionsComponent() {
         );
     }
 
-    // Desktop: matches the other info boxes (Info / Group / Storage)
-    // visually so the user reads the menu-bar column as one consistent
-    // pattern. Cap max-height so a long Options list doesn't push the
-    // page; scroll inside instead.
+    // Desktop: matches the other info boxes (Info / Group / Storage) visually.
     return (
         <PanelCard className="min-w-80 max-w-sm text-sm space-y-3 max-h-[70vh] overflow-y-auto" heading="Options">
             <OptionsBody/>

@@ -362,6 +362,21 @@ export function recordOpenPanels(isOpen: (id: PanelId) => boolean): void {
 }
 
 /**
+ * Leaving a whole UI shell (an in-place switch, e.g. Classic <-> Desktop): every open panel closes,
+ * pinned ones too, except the starting panels of the shell (and mode) switched to, which it opens
+ * anyway (`openStartingPanels`, after this). So the shell switched to starts as a fresh page of it
+ * would. Without it a panel open in one shell stayed open in the other: the classic Options card
+ * floating over the Desktop UI, the Desktop UI's tree and properties left open in the classic one.
+ * Call after the switch, so the arrangement is the new shell's.
+ */
+export function leaveShell(hide: (id: PanelId) => boolean, isOpen: (id: PanelId) => boolean): void {
+  const opening = new Set(arrangementOf().open ?? []);
+  for (const {id} of listPanels()) {
+    if (!opening.has(id) && isOpen(id)) hide(id);
+  }
+}
+
+/**
  * Leaving a mode: the panels its arrangement placed (in the grid or a window)
  * go with it, unless the mode entered places or opens them too. A panel open in
  * its home stays open. Call with the context left, after the switch.

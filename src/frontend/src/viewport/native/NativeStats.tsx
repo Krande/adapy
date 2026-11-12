@@ -60,6 +60,7 @@ export const NativeStats: React.FC<{scene: NativeScene}> = ({scene}) => {
     const [summary, setSummary] = React.useState<FrameSummary | null>(null);
     const [counters, setCounters] = React.useState<AdacppStats | null>(null);
     const [heap, setHeap] = React.useState<number | null>(null);
+    const [rates, setRates] = React.useState<{callbacks: number; drawn: number; moves: number} | null>(null);
 
     React.useEffect(() => {
         if (!show) return;
@@ -70,7 +71,17 @@ export const NativeStats: React.FC<{scene: NativeScene}> = ({scene}) => {
         scene.onFrame.add(onFrame);
         // One frame now, so the counters show without waiting for the camera to move.
         scene.invalidate();
+        // Rates of the scene's running counts: animation-frame callbacks the browser ran, frames drawn,
+        // and pointer moves. Callbacks below the display rate while the camera moves: the browser made
+        // fewer frames (compositor or GPU back-pressure); callbacks at the display rate but fewer frames
+        // drawn: the scene's own scheduling skipped them; few moves: the pointer reports that slowly.
+        const c = scene.frameCounters;
+        let mark = {at: performance.now(), callbacks: c.callbacks, drawn: c.drawn, moves: c.pointerMoves};
         const refresh = () => {
+            const at = performance.now();
+            const span = (at - mark.at) / 1000;
+            if (span > 0) setRates({callbacks: (c.callbacks - mark.callbacks) / span, drawn: (c.drawn - mark.drawn) / span, moves: (c.pointerMoves - mark.moves) / span});
+            mark = {at, callbacks: c.callbacks, drawn: c.drawn, moves: c.pointerMoves};
             setSummary(summarize(ring, performance.now()));
             setCounters(scene.renderStats());
             const memory = (performance as unknown as {memory?: Heap}).memory;
@@ -100,6 +111,7 @@ export const NativeStats: React.FC<{scene: NativeScene}> = ({scene}) => {
             <canvas ref={sparkRef} style={{width: SPARK_W, height: SPARK_H}} className="my-1 block"/>
             <div>frame p50 {ms(s?.p50 ?? null)} · p95 {ms(s?.p95 ?? null)} · max {ms(s?.max ?? null)} ms</div>
             <div>cpu {ms(s?.cpuMs ?? null)} ms · gpu {ms(s?.gpuMs ?? null)} ms</div>
+            {rates && <div title="per second: animation-frame callbacks the browser ran / frames drawn / pointer moves">raf {rates.callbacks.toFixed(0)} · drawn {rates.drawn.toFixed(0)} · moves {rates.moves.toFixed(0)} /s</div>}
             {counters && (
                 <>
                     <div>tris {count(counters.trianglesDrawn)} / {count(counters.trianglesTotal)}</div>

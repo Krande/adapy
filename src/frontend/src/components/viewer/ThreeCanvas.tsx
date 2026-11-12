@@ -151,6 +151,15 @@ const ThreeCanvas: React.FC = () => {
             rendererRef.current = renderer;
         }
         const renderer = rendererRef.current;
+        // The renderer outlives this mount, but the container may not: switching to the three.js-free
+        // viewport (CanvasWrapper) unmounts this component, and the canvas leaves the page with the
+        // old container. A remount must put it into the new one, under the input surface and the
+        // overlays, or nothing three.js draws is seen (only the container's own background).
+        if (renderer.domElement.parentElement !== containerRef.current) {
+            containerRef.current.insertBefore(renderer.domElement, containerRef.current.firstChild);
+            renderer.setSize(containerRef.current.clientWidth, containerRef.current.clientHeight);
+            requestRender();
+        }
 
         ensureViewportInput(containerRef.current);
 

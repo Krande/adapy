@@ -15,6 +15,7 @@ import {startRenderer} from "@/viewport/adacpp/rendererModule";
 import {rolledUpAxis} from "@/utils/camera/roll";
 import {linearColor} from "@/utils/scene/sceneColor";
 import {useOptionsStore} from "@/state/optionsStore";
+import {usePerfStore} from "@/state/perfStore";
 import {defaultColorLinear, hexChannels, lightIntensities, useAppearanceStore} from "@/state/appearanceStore";
 import {glbUncoloured, UNCOLOURED_BLACK} from "@/utils/glb/glbUncoloured";
 import type {ObjectColorState} from "@/viewport/api/objectColors";
@@ -38,8 +39,16 @@ const FIT_BOX_SCALE = 1.6;
 const FIT_BOX_MIN_RADIUS = 1e-4;
 /** Fit and the named views move there over this long. */
 const MOVE_SECONDS = 0.25;
-/** The share of a drag's speed kept per 1/60 s once released, when the user's mapping asks for a glide. */
-const GLIDE_INERTIA = 0.8;
+/** With the user's mapping asking for a glide, the share of a drag not yet applied to the camera that
+ *  is applied per 1/60 s: OrbitControls' `dampingFactor` as the three.js viewport sets it
+ *  (bindCameraMapping.ts), so a drag eases in and glides out the same way on both viewports. */
+const DRAG_DAMPING = 0.1;
+/** How long the loop keeps a frame requested after it last drew (see NativeScene.keepAlive). */
+const LINGER_MS = 500;
+/** OrbitControls turns 2π per viewport height of drag; the renderer's cameraOrbit turns π. */
+const ORBIT_DRAG_SCALE = 2;
+/** Less than this much of a drag left to apply (drawing-buffer pixels) is applied at once. */
+const DRAG_REST_PX = 0.05;
 /** A frame after an idle spell must not advance a glide or a move by the whole spell. */
 const MAX_FRAME_SECONDS = 0.05;
 
@@ -234,6 +243,10 @@ export class NativeScene {
     /** The last frame drawn: when it started, its CPU time, and the time from its submit until the
      *  GPU finished it (an upper bound of its GPU time; read a frame or two late). Milliseconds. */
     readonly frameTiming = {at: 0, cpuMs: 0, gpuMs: 0};
+    /** Running counts, for telling where frames go missing (the stats panel turns them into rates):
+     *  animation-frame callbacks the browser ran for this scene, frames drawn, pointer moves seen, and the
+     *  browser's frame time of the last callback (the rAF timestamp, one per display frame it produced). */
+    readonly frameCounters = {callbacks: 0, drawn: 0, pointerMoves: 0, lastFrameTime: 0};
 
     private constructor(
         private readonly container: HTMLElement,
@@ -267,9 +280,19 @@ export class NativeScene {
             this.invalidate();
         }));
         renderer.setCameraControlled(true);
-        const glide = () => renderer.cameraSetDamping(useCameraControlsStore.getState().mapping.damping ? GLIDE_INERTIA : 0);
+        // A drag is smoothed here (`dragSmoothing`), as OrbitControls smooths it: the renderer's own
+        // glide, which only starts once the drag is released, would come on top of it.
+        renderer.cameraSetDamping(0);
+        const glide = () => {
+            this.dragSmoothing = useCameraControlsStore.getState().mapping.damping;
+            if (!this.dragSmoothing) this.stopDragGlide();
+        };
         glide();
         this.cleanups.push(useCameraControlsStore.subscribe(glide));
+        // The pixel ratio cap of Performance options, which the three.js viewport draws at too.
+        this.cleanups.push(usePerfStore.subscribe((now, before) => {
+            if (now.pixelRatioCap !== before.pixelRatioCap) this.invalidate();
+        }));
         const resize = new ResizeObserver(() => this.invalidate());
         resize.observe(container);
         this.cleanups.push(() => resize.disconnect());
@@ -415,6 +438,24 @@ export class NativeScene {
         for (const listener of this.onLoaded) listener();
         this.pushStates();
         return true;
+    }
+
+    /** Take every model off the screen (Clear / Remove all): the loaded models and any result mesh,
+     *  with their selection, hidden state and animation. The grid and helpers stay. */
+    clearModels(): void {
+        for (const key of [...this.models.keys()]) this.dropModel(key);
+        this.detachResultLayers();
+        this.modelKey = "";
+        this.sceneExtras = "";
+        this.extData = "";
+        this.parsedExtras = null;
+        this.selected.clear();
+        this.hidden.clear();
+        this.rebuild();
+        this.refreshAnimation();
+        for (const listener of this.onLoaded) listener();
+        this.pushStates();
+        this.invalidate();
     }
 
     /** Remove one model's geometry and everything known about its objects. */
@@ -841,6 +882,7 @@ export class NativeScene {
     /** Put the camera at `eye` looking at `target`, rolled by `roll` radians about that direction
      *  (the world's up turned about it). */
     setCameraPose(eye: readonly [number, number, number], target: readonly [number, number, number], roll: number): void {
+        this.stopDragGlide();
         const up = rolledUpAxis(eye, target, WORLD_UP, roll);
         const pose = this.renderer.cameraPose();
         this.renderer.cameraSetPose(eye[0], eye[1], eye[2], target[0], target[1], target[2], up[0], up[1], up[2], pose.fov, pose.orthographic, 0, 0);
@@ -854,6 +896,7 @@ export class NativeScene {
         const [ex, ey, ez] = pose.eye;
         // A point at the eye has no direction to look in.
         if (Math.hypot(point[0] - ex, point[1] - ey, point[2] - ez) < 1e-9) return;
+        this.stopDragGlide();
         this.renderer.cameraSetPose(
             ex, ey, ez, point[0], point[1], point[2], pose.up[0], pose.up[1], pose.up[2],
             pose.fov, pose.orthographic, pose.orthographic ? pose.orthoHeight : 0, seconds,
@@ -917,6 +960,7 @@ export class NativeScene {
 
     /** The view every viewport starts from, its clip range with it. */
     home(seconds = MOVE_SECONDS): void {
+        this.stopDragGlide();
         const {eye, target, fovDeg, near, far} = DEFAULT_VIEW;
         const pose = this.renderer.cameraPose();
         this.renderer.cameraSetPose(eye[0], eye[1], eye[2], target[0], target[1], target[2], WORLD_UP[0], WORLD_UP[1], WORLD_UP[2], fovDeg, pose.orthographic, 0, seconds);
@@ -950,6 +994,7 @@ export class NativeScene {
     /** Move the camera to `pose` and fit the clip range to what it frames; false for no pose. */
     private applyPose(pose: {eye: Vec3; target: Vec3; radius: number} | null, seconds: number): boolean {
         if (!pose) return false;
+        this.stopDragGlide();
         const current = this.renderer.cameraPose();
         const {eye, target} = pose;
         this.renderer.cameraSetPose(eye[0], eye[1], eye[2], target[0], target[1], target[2], WORLD_UP[0], WORLD_UP[1], WORLD_UP[2], current.fov, current.orthographic, 0, seconds);
@@ -1281,12 +1326,65 @@ export class NativeScene {
 
     invalidate(): void {
         this.dirty = true;
-        if (!this.raf && !this.disposed) this.raf = requestAnimationFrame(() => this.tick());
+        if (!this.raf && !this.disposed) this.raf = requestAnimationFrame((frameTime) => this.tick(frameTime));
     }
 
-    /** CSS pixels to the drawing buffer's, which is what the camera and pick count in. */
+    /** CSS pixels to the drawing buffer's, which is what the camera and pick count in. Capped as the
+     *  three.js viewport caps its own (Performance > Pixel ratio cap): a high-DPI screen would
+     *  otherwise draw up to four times the pixels here that it draws there. */
     private pixelRatio(): number {
-        return Math.min(globalThis.devicePixelRatio || 1, MAX_PIXEL_RATIO);
+        return Math.min(globalThis.devicePixelRatio || 1, usePerfStore.getState().pixelRatioCap || 1, MAX_PIXEL_RATIO);
+    }
+
+    // Drag smoothing: what a drag asked of the camera and was not yet applied, in drawing-buffer pixels.
+    // Each frame applies a share of it, so the camera follows the pointer smoothly whatever the rate the
+    // pointer reports at, and keeps going for a moment after release: OrbitControls' damping.
+    private dragSmoothing = false;
+    private readonly pendingOrbit = [0, 0];
+    private readonly pendingPan = [0, 0];
+    private lastSmoothed = 0;
+    /** A pointer is down on the view (a drag may be under way). */
+    private dragHeld = false;
+
+    /** Apply a drag's orbit or pan: smoothed over the next frames when the mapping asks for a glide. */
+    private dragCamera(kind: "orbit" | "pan", dx: number, dy: number): void {
+        if (!this.dragSmoothing) {
+            if (kind === "orbit") this.renderer.cameraOrbit(dx, dy);
+            else this.renderer.cameraPan(dx, dy);
+            return;
+        }
+        const pending = kind === "orbit" ? this.pendingOrbit : this.pendingPan;
+        pending[0] += dx;
+        pending[1] += dy;
+    }
+
+    /** A move to a pose (fit, a named view, a set pose) ends the glide of the last drag. */
+    private stopDragGlide(): void {
+        this.pendingOrbit[0] = this.pendingOrbit[1] = this.pendingPan[0] = this.pendingPan[1] = 0;
+        this.lastSmoothed = 0;
+    }
+
+    /** This frame's share of the drag not yet applied; true while some of it is left. */
+    private applyDragSmoothing(now: number): boolean {
+        const o = this.pendingOrbit, p = this.pendingPan;
+        if (!o[0] && !o[1] && !p[0] && !p[1]) {
+            this.lastSmoothed = 0;
+            return false;
+        }
+        const dt = this.lastSmoothed ? Math.min((now - this.lastSmoothed) / 1000, MAX_FRAME_SECONDS) : 1 / 60;
+        this.lastSmoothed = now;
+        // OrbitControls applies its factor per frame; per 1/60 s here, so a faster screen glides as long.
+        const share = 1 - Math.pow(1 - DRAG_DAMPING, dt * 60);
+        const step = (v: number[]): [number, number] => {
+            const all = Math.hypot(v[0], v[1]) < DRAG_REST_PX;
+            const sx = all ? v[0] : v[0] * share, sy = all ? v[1] : v[1] * share;
+            v[0] -= sx;
+            v[1] -= sy;
+            return [sx, sy];
+        };
+        if (o[0] || o[1]) this.renderer.cameraOrbit(...step(o));
+        if (p[0] || p[1]) this.renderer.cameraPan(...step(p));
+        return !!(o[0] || o[1] || p[0] || p[1]);
     }
 
     /** The drawing buffer at the container's size; the renderer's camera takes its viewport from it. */
@@ -1301,23 +1399,50 @@ export class NativeScene {
         this.renderer.resize(w, h);
     }
 
-    private tick(): void {
+    /** Until when the loop keeps asking for frames after it last drew (performance.now() ms). */
+    private lingerUntil = 0;
+
+    /**
+     * Keep a frame requested even with nothing to draw: while a drag is held, and for LINGER_MS after
+     * the last drawn frame. Something that moves the camera from an animation-frame callback of its own
+     * -- the 3D mouse's pose driver writes a pose every frame -- calls invalidate() INSIDE a frame, and
+     * a frame requested there is the next one; without a request already standing, each write was drawn
+     * a frame late and the next write had to request again, so the viewport drew every other frame
+     * (30 fps at 60 Hz). With one standing, the write lands before this frame's tick and is drawn in it.
+     * An idle callback costs microseconds; once input stops, the loop is on demand again.
+     */
+    private keepAlive(): boolean {
+        return this.dragHeld || performance.now() < this.lingerUntil;
+    }
+
+    private tick(frameTime = 0): void {
         this.raf = 0;
-        if (this.disposed || !this.dirty) return;
+        this.frameCounters.callbacks++;
+        this.frameCounters.lastFrameTime = frameTime;
+        if (this.disposed) return;
+        if (!this.dirty) {
+            // While a drag is held, or shortly after the last drawn frame, the loop keeps asking for
+            // frames: see keepAlive.
+            if (this.keepAlive()) this.raf = requestAnimationFrame((t) => this.tick(t));
+            return;
+        }
         this.dirty = false;
         const now = performance.now();
         const dt = this.lastFrame ? Math.min((now - this.lastFrame) / 1000, MAX_FRAME_SECONDS) : 0;
         this.lastFrame = now;
         try {
             this.syncSize();
-            // A move to a view, or the glide after a drag, runs for as long as the camera says it does.
-            const moving = this.renderer.cameraUpdate(dt);
+            const dragging = this.applyDragSmoothing(now);
+            // A move to a view runs for as long as the camera says it does.
+            const moving = this.renderer.cameraUpdate(dt) || dragging;
             const playing = this.beforeFrame?.(dt) ?? false;
             this.renderer.render();
+            this.frameCounters.drawn++;
+            this.lingerUntil = now + LINGER_MS;
             if (this.measureFrames) this.timeFrame(now);
             for (const listener of this.onFrame) listener();
-            if (moving) this.invalidate();
-            else if (playing) this.invalidate();
+            if (moving || playing) this.invalidate();
+            else if (this.keepAlive()) this.raf = requestAnimationFrame((t) => this.tick(t));
             else this.lastFrame = 0;
         } catch (err) {
             this.fail(err instanceof Error ? err.message : String(err));
@@ -1363,8 +1488,11 @@ export class NativeScene {
         const move = (kind: CameraAction, dx: number, dy: number) => {
             const speed = mapping().orbitSpeed;
             const px = this.pixelRatio();
-            if (kind === "orbit") camera.cameraOrbit(dx * speed * px, dy * speed * px);
-            else if (kind === "pan") camera.cameraPan(dx * px, dy * px);
+            // The renderer turns half a revolution per viewport height of orbit (see orbitBy); OrbitControls
+            // turns a full one. Matched here, for drags only, so both viewports orbit at the same speed.
+            const orbit = speed * px * ORBIT_DRAG_SCALE;
+            if (kind === "orbit") this.dragCamera("orbit", dx * orbit, dy * orbit);
+            else if (kind === "pan") this.dragCamera("pan", dx * px, dy * px);
             else if (kind === "zoom") camera.cameraZoom(Math.exp(dy * 0.005 * mapping().zoomSpeed));
         };
         const on = <K extends keyof HTMLElementEventMap>(type: K, fn: (e: HTMLElementEventMap[K]) => void, opts?: AddEventListenerOptions) => {
@@ -1380,8 +1508,11 @@ export class NativeScene {
             tap = pointers.size === 1 && e.button === 0 ? {id: e.pointerId, x: e.clientX, y: e.clientY} : null;
             const button = e.pointerType === "mouse" ? mouseButtonOf(e.button) : null;
             action = button ? dragAction(mapping(), button, e) : mapping().touch.one;
+            this.dragHeld = true;
+            if (!this.raf && !this.disposed) this.raf = requestAnimationFrame((t) => this.tick(t));
         });
         on("pointermove", (e) => {
+            this.frameCounters.pointerMoves++;
             if (taken) return taken(e);
             const prev = pointers.get(e.pointerId);
             if (!prev) return;
@@ -1407,6 +1538,7 @@ export class NativeScene {
             const t = tap;
             tap = null;
             pointers.delete(e.pointerId);
+            this.dragHeld = pointers.size > 0;
             lastPinch = 0;
             if (t && t.id === e.pointerId) {
                 const additive = e.ctrlKey || e.metaKey || e.shiftKey;
@@ -1437,6 +1569,7 @@ export class NativeScene {
             taken = null;
             tap = null;
             pointers.delete(e.pointerId);
+            this.dragHeld = pointers.size > 0;
             lastPinch = 0;
         });
         on("contextmenu", (e) => e.preventDefault());

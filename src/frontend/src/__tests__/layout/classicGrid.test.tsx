@@ -222,6 +222,33 @@ test("a shell's modes: a document and a starting grid each, and panels offered o
   assert.equal(M.offeredInMode({ modes: ["inspect"] }), true, "core's own UI has no modes: everything is offered");
 });
 
+test("leaving a whole shell closes every open panel but the starting panels of the shell switched to", () => {
+  const ids = listPanels().map((p) => p.id);
+  const openIds = new Set(ids);
+  const hidden: string[] = [];
+  const hide = (id: string) => (hidden.push(id), openIds.delete(id), true);
+  const isOpen = (id: string) => openIds.has(id);
+  try {
+    // Into a shell that opens the tree and the scene panel: those stay, everything else closes.
+    P.setClassicShell({ id: "desk-t", grid: { kind: "viewport" } as never, open: [CORE_PANEL_IDS.tree, CORE_PANEL_IDS.scene] });
+    P.leaveShell(hide, isOpen);
+    assert.deepEqual([...openIds].sort(), [CORE_PANEL_IDS.scene, CORE_PANEL_IDS.tree].sort());
+    assert.ok(hidden.includes(CORE_PANEL_IDS.options), "the classic Options panel closes");
+    // Back into core's own UI, which starts with nothing open: the rest closes too.
+    P.setClassicShell(null);
+    hidden.length = 0;
+    P.leaveShell(hide, isOpen);
+    assert.deepEqual([...openIds], []);
+    assert.deepEqual(hidden.sort(), [CORE_PANEL_IDS.scene, CORE_PANEL_IDS.tree].sort());
+    // Nothing open: nothing to hide.
+    hidden.length = 0;
+    P.leaveShell(hide, isOpen);
+    assert.deepEqual(hidden, []);
+  } finally {
+    P.setClassicShell(null);
+  }
+});
+
 test("a panel's own window: the host's actions in its title bar, the zone marks on its card, nothing in its body", () => {
   const dock = {
     panelId: "t:a",

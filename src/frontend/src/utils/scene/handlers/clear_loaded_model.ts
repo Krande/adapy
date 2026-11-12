@@ -6,7 +6,8 @@ import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
 import {getViewerRuntime} from "@/state/viewerRuntime";
 import {clearActiveFeaStreaming} from "./load_fea_streaming";
 import {requestRender} from "@/state/perfStore";
-import {disposeObject3D} from "@/utils/scene/dispose_object";
+import {clearThreeSceneModels} from "@/utils/scene/clearThreeSceneModels";
+import {activeViewport} from "@/viewport/api/viewportApi";
 
 // Tear the currently-loaded model out of the scene without loading a
 // replacement. Mirrors what `replace_model` does up to the point of
@@ -29,18 +30,11 @@ export async function clear_loaded_model(): Promise<void> {
     useSceneInfoStore.getState().setAvailableGroups([]); // drop streamed FEM/FEA groups
     useModelState.getState().translation = null;
 
-    const three_scene = getViewerRuntime().scene.current;
-    const modelKeyMap = getViewerRuntime().modelKeyMap.current;
-    if (modelKeyMap) {
-        for (const [, group] of modelKeyMap) {
-            // Free GPU buffers before detaching — group.clear()/remove() alone leaves the
-            // geometry/material in the renderer's caches, so VRAM never falls.
-            disposeObject3D(group);
-            group.clear();
-            three_scene?.remove(group);
-        }
-        modelKeyMap.clear();
-    }
+    // The models off the screen, through the viewport on screen whichever renderer it is (three.js or
+    // the three.js-free one). The three.js scene's groups go in any case: they may be left over from
+    // before a renderer switch, and would come back with the three.js viewport.
+    activeViewport()?.clearModels();
+    clearThreeSceneModels();
 
     const ms = useModelState.getState();
     ms.setModelUrl(null, null);

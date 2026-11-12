@@ -445,6 +445,19 @@ export function corePanelSpecs(): PanelSpec[] {
       frame: "host",
     },
     {
+      // Every viewer setting, one tab per section (Options' "Settings"). Not REST-only: the
+      // desktop/websocket viewer has settings too (the REST-only sections hide themselves).
+      id: CORE_PANEL_IDS.settings,
+      title: "Settings",
+      body: classicBody(CORE_PANEL_IDS.settings),
+      binding: viewerWindowBinding("settings"),
+      available: () => true,
+      constraints: { exclusiveGroup: "classic.viewer-window" },
+      content: classicContent(CORE_PANEL_IDS.settings),
+      placement: classic({ zone: CLASSIC_ZONES.window, order: 30, float: { w: 820, h: 640 } }),
+      frame: "host",
+    },
+    {
       // Simulation providers and the scope's runs. Offered once the server lists a provider
       // (the list is fetched at sign-in, see AuthGate), so a deployment without any shows no
       // button for it.
