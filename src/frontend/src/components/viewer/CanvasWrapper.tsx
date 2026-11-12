@@ -21,6 +21,7 @@ import {loadedModelJournal, replayModelJournal} from "./sceneHelpers/loadedModel
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {installViewportPanelBridge} from "./sceneHelpers/viewportPanelBridge";
 import {installSpaceMousePoseDriver} from "./sceneHelpers/spaceMousePoseDriver";
+import {installCameraHomeOnEmpty} from "./sceneHelpers/cameraHomeOnEmpty";
 import {installAnnouncedGroups} from "@/utils/groups/extensionGroups";
 import {bindViewerHistoryReset} from "@/utils/scene/viewerHistoryBindings";
 
@@ -32,6 +33,8 @@ installViewportPanelBridge();
 installAnnouncedGroups();
 // A 3D mouse moves that viewport's camera through its pose.
 installSpaceMousePoseDriver();
+// An emptied scene puts the camera of the viewport on screen back where the viewer started.
+installCameraHomeOnEmpty();
 
 /** The native viewport failed after a model was handed to it: once the three.js viewport is up, load
  *  that model there, so the fallback shows the model and not an empty scene. A result it was showing
