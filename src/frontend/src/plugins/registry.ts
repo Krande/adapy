@@ -163,10 +163,17 @@ import { isPlacedElsewhere } from "@/layout/placedElsewhere";
 //            from a byte offset, for one that is still being written.
 //          `ctx.scene.remove(owner)` takes all of it away, tracks included. Draco-compressed
 //          GLBs load.
-//   1.20.0 `notifyPluginActivationChanged()`: a plugin whose activation predicate reads its own
+// 1.19.0 — `openResultLiveLabel` on a simulation provider's UI: the open-result button's text
+//          while the run is still going ("Live" beside a "Replay"), so a handler that follows
+//          a run as it happens does not offer to replay what has not ended. Additive: without
+//          it the button reads `openResultLabel` throughout, as before, and an older core
+//          ignores it.
+//   1.20.0 `registerToastSlot` / `unregisterToastSlot` (@/viewer-core): a plugin's own toasts
+//          in the app's one toast stack.
+//   1.21.0 `notifyPluginActivationChanged()`: a plugin whose activation predicate reads its own
 //          state says when that state changed, and a placed panel showing "Nothing to show
 //          here yet" re-asks it (the panel also re-asks on every loaded-model change).
-export const PLUGIN_API_VERSION = "1.20.0";
+export const PLUGIN_API_VERSION = "1.21.0";
 
 // The named mount regions core exposes in Phase 1. Deliberately small
 // (`fem-sidebar` covers the FEM simulation panel, `top-panel` the menu bar,
@@ -989,6 +996,19 @@ export interface SimulationProviderUi {
   openResult?: (ctx: AdaPluginContext, args: SimulationOpenResultArgs) => void | Promise<void>;
   /** The button's text; "Open" when omitted. */
   openResultLabel?: string;
+  /**
+   * (1.19.0) The button's text while the run is still going, for a handler that follows it as
+   * it happens ("Live"); `openResultLabel` when omitted. See `openResultButtonLabel`.
+   */
+  openResultLiveLabel?: string;
+}
+
+/** What the Simulations panel writes on a run's open-result button. */
+export function openResultButtonLabel(
+  ui: Pick<SimulationProviderUi, "openResultLabel" | "openResultLiveLabel">,
+  active: boolean,
+): string {
+  return (active ? ui.openResultLiveLabel : undefined) ?? ui.openResultLabel ?? "Open";
 }
 
 export interface UrlParamHandler {

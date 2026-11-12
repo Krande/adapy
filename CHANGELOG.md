@@ -2,6 +2,15 @@
 
 
 
+## v0.151.0 (2026-11-12)
+
+### Feature
+
+* feat(viewer): a simulation&#39;s open-result button can say the run is live while it is going (#541)
+
+Co-authored-by: Claude Fable 5.2 &lt;noreply@anthropic.com&gt; ([`06bdc3d`](https://github.com/Krande/adapy/commit/06bdc3d7606b7a345b7f024929a1c92779a07476))
+
+
 ## v0.150.1 (2026-11-12)
 
 ### Fix

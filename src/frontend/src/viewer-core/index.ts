@@ -640,12 +640,14 @@
 //          `SceneModelSource`, `PluginPlayback`, `PluginPlaybackTrack`, `PluginPlaybackState`,
 //          `PluginLayers`). `simulationsApi.fetchArtefact` on `/app` reads a run artefact's
 //          bytes, whole or from an offset.
-//   1.19.0  `registerToastSlot` / `unregisterToastSlot`: a shell's or plugin's own toasts in the
+//   1.19.0 Kept in step with PLUGIN_API_VERSION 1.19.0 (`SimulationProviderUi.openResultLiveLabel`:
+//          the open-result button's text while a run is still going). Additive.
+//   1.20.0  `registerToastSlot` / `unregisterToastSlot`: a shell's or plugin's own toasts in the
 //          app's one toast stack (layout/toastSlots.ts). `UiShellLayout.globalPanels` and
 //          `modeArrangements`; a composed shell's mode reopens what was open in it.
-//   1.20.0  `notifyPluginActivationChanged`: a plugin says what its activation predicate reads
+//   1.21.0  `notifyPluginActivationChanged`: a plugin says what its activation predicate reads
 //          has changed; a placed panel re-asks it (and on every loaded-model change).
-export const VIEWER_CORE_API_VERSION = "1.20.0";
+export const VIEWER_CORE_API_VERSION = "1.21.0";
 
 // ---------------------------------------------------------------------------
 // Plugin declaration. `registerPlugin` is how a package announces itself —
