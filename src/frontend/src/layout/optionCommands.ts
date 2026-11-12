@@ -35,6 +35,8 @@ import {registerCommand, type CommandSpec} from "./commands";
 import {CORE_COMMAND_IDS as ID} from "./coreCommandIds";
 import {customisablePanels, customisablePanelsRequired, setCustomisablePanels} from "./customisable";
 import {CORE_PANEL_IDS, reveal as revealPanel} from "./panelActions";
+import type {SettingsSectionId} from "@/components/settings/settingsSections";
+import {showSettingsTab} from "@/components/settings/settingsTab";
 
 /** The id of the command for option `id`: `core:option.<id>`; a choice's values add `.<value>`. */
 export const optionCommandId = (id: string, value?: string): string => `core:option.${id}${value === undefined ? "" : `.${value}`}`;
@@ -291,9 +293,25 @@ export const EXISTING_COVERAGE: Readonly<Record<string, string>> = {
 /** Setters the Options panel calls that are not settings: reset buttons and local UI state. */
 export const NOT_SETTINGS: readonly string[] = ["reset", "resetCustom", "setSceneRestoreProgress"];
 
-/** Open the Options panel and focus the control marked `data-option="<focus>"` (when it is on screen). */
-export function openOption(focus: string): void {
-  void revealPanel(CORE_PANEL_IDS.options);
+/** The Settings tab that holds the controls of each group of "open" commands. */
+export const SETTINGS_TAB_OF_GROUP: Readonly<Record<string, SettingsSectionId>> = {
+  Display: "scene",
+  Appearance: "appearance",
+  Theme: "theme",
+  Performance: "performance",
+  Calculations: "compute",
+  "Camera controls": "camera",
+  "3D mouse": "spacemouse",
+};
+
+/**
+ * Open the Settings window on the tab of `group` and focus the control marked `data-option="<focus>"`.
+ * A group without a tab opens the Options panel, where a shell may draw the sections itself.
+ */
+export function openOption(focus: string, group?: string): void {
+  const tab = group ? SETTINGS_TAB_OF_GROUP[group] : undefined;
+  if (tab) showSettingsTab(tab);
+  void revealPanel(tab ? CORE_PANEL_IDS.settings : CORE_PANEL_IDS.options);
   const find = () => document.querySelector<HTMLElement>(`[data-option="${focus}"]`);
   const go = () => {
     const el = find();
@@ -301,7 +319,7 @@ export function openOption(focus: string): void {
     el.scrollIntoView?.({block: "center"});
     el.focus?.();
   };
-  // The panel mounts after the intent; its sections open on the user's click, so a control inside a closed one is not found.
+  // The window mounts after the intent, and its tab is drawn a render later.
   setTimeout(go, 60);
 }
 
@@ -317,7 +335,7 @@ export function optionCommandSpecs(): CommandSpec[] {
         out.push({...common, id: optionCommandId(d.id, c.value), label: `${d.title}: ${c.label}`, checked: () => d.get() === c.value, run: () => d.set(c.value)});
       }
     } else {
-      out.push({...common, id: optionCommandId(d.id), label: d.title, run: () => openOption(d.focus)});
+      out.push({...common, id: optionCommandId(d.id), label: d.title, run: () => openOption(d.focus, d.group)});
     }
   }
   // Commands that are not a setting's value but belong with them.

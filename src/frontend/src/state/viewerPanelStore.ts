@@ -10,7 +10,7 @@ import {AdminTabDeepLink} from "./adminPanelStore";
 
 /** One at a time by default. The attribute search is not one of these: it has its own window
  *  (`searchWindowStore`), so it can stay open beside them. */
-export type ViewerPanel = "admin" | "convert";
+export type ViewerPanel = "admin" | "convert" | "settings";
 
 type ViewerPanelState = {
     /** The window opened last (the one in front), or null when none is open. */

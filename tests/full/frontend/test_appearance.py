@@ -163,13 +163,35 @@ async def _show_result(page: Page, ws_server, fem_files) -> None:
 
 
 async def _appearance_options(page: Page) -> None:
-    """Open Options at its Appearance section, the way the palette's "Appearance: …" commands do."""
+    """Open the settings at Appearance, the way the palette's "Appearance: …" commands do: the Settings
+    window comes up on that tab."""
     await _command(page, "Appearance: brightness")
-    header = page.locator("button[aria-expanded]", has_text="Appearance").first
-    await header.wait_for(timeout=10000)
-    if await header.get_attribute("aria-expanded") == "false":
-        await header.click()
+    tab = page.locator("[role=tab]", has_text="Appearance").first
+    await tab.wait_for(timeout=10000)
+    assert (
+        await tab.get_attribute("aria-selected") == "true"
+    ), "the command opens Settings on the tab that holds the control"
     await page.locator("[data-option=brightness]").wait_for(timeout=10000)
+
+
+# The Settings window lies over the viewport. Hide the outermost element around it that holds no canvas,
+# or show it again, so a picture of the page shows what the viewport drew while the window stays open.
+SETTINGS_VISIBLE = """(visible) => {
+  let el = document.querySelector('[role=tablist][aria-label=Settings]');
+  if (!el) return false;
+  while (el.parentElement && !el.parentElement.querySelector('canvas')) el = el.parentElement;
+  el.style.visibility = visible ? '' : 'hidden';
+  return true;
+}"""
+
+
+async def _viewport_pixels(page: Page) -> Image.Image:
+    """The page without the Settings window, which stays open."""
+    assert await page.evaluate(SETTINGS_VISIBLE, False), "the Settings window is not open"
+    try:
+        return await _pixels(page)
+    finally:
+        await page.evaluate(SETTINGS_VISIBLE, True)
 
 
 async def _set_option(page: Page, option: str, value: str) -> None:
@@ -265,7 +287,7 @@ async def test_an_fea_result_is_the_same_colours_as_on_three_and_they_are_the_le
 
 @pytest.mark.parametrize("backend", ALL)
 async def test_brightness_the_default_colour_and_the_background_change_at_once(ws_server, backend):
-    """The Options panel's Appearance section, on a model that is on screen: each change is drawn at
+    """The Settings window's Appearance tab, on a model that is on screen: each change is drawn at
     once, to the same numbers on every renderer, and Reset gives the defaults back."""
     async with async_playwright() as playwright:
         browser, page, _ = await _open_viewer(playwright, ws_server, backend)
@@ -275,14 +297,20 @@ async def test_brightness_the_default_colour_and_the_background_change_at_once(w
             face = (CENTRE[0] + 40, CENTRE[1])
             corner = (VIEWPORT["width"] - 300, 120)
 
+            shots = [_pixels]  # the Settings window lies over the viewport once it is open
+
+            async def picture():
+                return await shots[0](page)
+
             async def face_is(level: float, what: str):
                 async def there():
-                    return abs(_patch(await _pixels(page), *face)[0] - level) <= CAD_LEVELS
+                    return abs(_patch(await picture(), *face)[0] - level) <= CAD_LEVELS
 
                 await _until(page, there, f"{backend}: the face to be {level:.0f} ({what})")
 
             await face_is(_lit(0.8, 1.0), "the default look")
             await _appearance_options(page)
+            shots[0] = _viewport_pixels
 
             await _set_option(page, "brightness", "0.5")
             await face_is(_lit(0.8, 1.0, brightness=0.5), "half the light")
@@ -301,21 +329,21 @@ async def test_brightness_the_default_colour_and_the_background_change_at_once(w
             await _set_option(page, "default-colour", "#ff0000")
 
             async def red():
-                return _is_red(_patch(await _pixels(page), *face))
+                return _is_red(_patch(await _viewport_pixels(page), *face))
 
             await _until(page, red, f"{backend}: the model to take the default colour")
 
             await _set_option(page, "background-colour", "#204060")
 
             async def blue_background():
-                px = _patch(await _pixels(page), *corner)
+                px = _patch(await _viewport_pixels(page), *corner)
                 return max(abs(px[0] - 0x20), abs(px[1] - 0x40), abs(px[2] - 0x60)) <= CAD_LEVELS
 
             await _until(page, blue_background, f"{backend}: the background to change")
 
             await page.locator("[data-option=appearance-reset]").click()
             await face_is(_lit(0.8, 1.0), "reset after the colours")
-            assert max(_patch(await _pixels(page), *corner)) < 80, f"{backend}: the background did not go back"
+            assert max(_patch(await _viewport_pixels(page), *corner)) < 80, f"{backend}: the background did not go back"
         finally:
             await browser.close()
 

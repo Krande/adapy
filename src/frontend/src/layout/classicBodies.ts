@@ -114,6 +114,7 @@ const LAZY_BODIES: Readonly<Record<PanelId, Loader>> = {
   // Embedded, on the tab the viewer-panel store asks for, as the in-viewer window shows it.
   [CORE_PANEL_IDS.admin]: () => import("@/components/admin/AdminPanel").then((m) => asBody(m.AdminWindowBody)),
   [CORE_PANEL_IDS.convert]: () => import("@/components/convert/ConvertPage").then((m) => asBody(m.default)),
+  [CORE_PANEL_IDS.settings]: () => import("@/components/settings/SettingsPanel").then((m) => asBody(m.SettingsBody)),
   [CORE_PANEL_IDS.simulations]: () => import("@/components/simulations/SimulationsPanel").then((m) => asBody(m.default)),
   [CORE_PANEL_IDS.layers]: () => import("@/components/layers/LayersPanel").then((m) => asBody(m.default)),
 };
@@ -129,6 +130,7 @@ const LAZY_CONTENTS: Readonly<Record<PanelId, Loader>> = {
   // The same components as their bodies, given a shell's options (`ConvertBodyProps.inViewer`, ...).
   [CORE_PANEL_IDS.admin]: () => import("@/components/admin/AdminPanel").then((m) => withOptions(m.AdminWindowBody)),
   [CORE_PANEL_IDS.convert]: () => import("@/components/convert/ConvertPage").then((m) => withOptions(m.default)),
+  [CORE_PANEL_IDS.settings]: () => import("@/components/settings/SettingsPanel").then((m) => withOptions(m.SettingsBody)),
   [CORE_PANEL_IDS.simulations]: () =>
     import("@/components/simulations/SimulationsPanel").then((m) => asBody(m.SimulationsBody)),
   [CORE_PANEL_IDS.layers]: () => import("@/components/layers/LayersPanel").then((m) => asBody(m.LayersBody)),

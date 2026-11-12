@@ -2,6 +2,15 @@
 
 
 
+## v0.150.1 (2026-11-12)
+
+### Fix
+
+* fix(viewer): renderer switching keeps the model, WebGPU camera parity and 60 fps under a 3D mouse; a tabbed Settings window (#538)
+
+Co-authored-by: Claude Fable 5.2 &lt;noreply@anthropic.com&gt; ([`482ac20`](https://github.com/Krande/adapy/commit/482ac20870ea73743cf25396dcde2df132b4bacc))
+
+
 ## v0.150.0 (2026-11-11)
 
 ### Chore

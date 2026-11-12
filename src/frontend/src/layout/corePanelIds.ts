@@ -27,6 +27,8 @@ export const CORE_PANEL_IDS = {
   console: "core:console",
   admin: "core:admin",
   convert: "core:convert",
+  /** Every viewer setting, one tab per section (Options' "Settings"). */
+  settings: "core:settings",
   /** Simulation providers and the scope's simulation runs. */
   simulations: "core:simulations",
   /** The layers drawn over the model: a switch and an opacity slider each. */
