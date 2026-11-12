@@ -29,7 +29,7 @@ import {endPlaceEntry} from "./numericEntry";
 import {endEquipEntry, endOpenEntry} from "./insertTools";
 import {onKeyDown} from "./keyboard";
 import {viewportInputElement} from "@/viewport/input";
-import {frameOpenedModel} from "./frameOpened";
+import {openedModelFramer} from "./frameOpened";
 
 export function initCellBuilderScene(
     renderer: THREE.WebGLRenderer,
@@ -62,7 +62,8 @@ export function initCellBuilderScene(
     window.addEventListener("keydown", hKeyDown, true);
 
     rebuild(ctx);
-    let framed = frameOpenedModel(ctx.cellsGroup, useCellBuilderStore.getState().active?.modelId ?? null, null);
+    const framer = openedModelFramer(ctx.cellsGroup, () => useCellBuilderStore.getState().active?.modelId ?? null);
+    framer.check();
     rebuildPorts(ctx);
     syncBuilderGrid(ctx);
     syncGizmo(ctx);
@@ -91,7 +92,7 @@ export function initCellBuilderScene(
         // to LX/LY/LZ, so refit on toggle.
         if (s.cells !== prev.cells || s.active !== prev.active || s.equipmentCad !== prev.equipmentCad) {
             rebuild(ctx);
-            framed = frameOpenedModel(ctx.cellsGroup, s.active?.modelId ?? null, framed);
+            framer.check();
         } else if (s.selection !== prev.selection || s.selectedCellIds !== prev.selectedCellIds)
             refreshFaceStyles(ctx);
         // "Show as CAD" toggles + any cell/type change re-seat the CAD previews
@@ -191,6 +192,7 @@ export function initCellBuilderScene(
     });
 
     return () => {
+        framer.dispose();
         unsub();
         unsubCompanions();
         unsubGroupView();

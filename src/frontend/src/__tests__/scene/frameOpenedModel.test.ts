@@ -37,3 +37,29 @@ test("a newly opened model is framed once, again after it is closed, never while
     withdraw();
   }
 });
+
+test("the framer keeps trying on the next frames until the viewport can frame", async () => {
+  const { openedModelFramer } = await import("@/components/viewer/cellbuilder/frameOpened");
+  let ready = false;
+  let fits = 0;
+  const withdraw = setActiveViewport({
+    fitBox: () => (ready ? (fits++, true) : false),
+  } as unknown as ViewportApi);
+  const queued: (() => void)[] = [];
+  try {
+    const cells = new THREE.Group();
+    cells.add(new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1)));
+    const framer = openedModelFramer(cells, () => "m1", (cb) => queued.push(cb), () => {});
+    framer.check();
+    assert.equal(fits, 0);
+    assert.equal(queued.length, 1, "not ready: asks again next frame");
+    ready = true;
+    queued.shift()!();
+    assert.equal(fits, 1);
+    assert.equal(queued.length, 0, "framed: stops");
+    framer.check(); // a later edit
+    assert.equal(fits, 1);
+  } finally {
+    withdraw();
+  }
+});
