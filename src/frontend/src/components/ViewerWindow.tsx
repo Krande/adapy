@@ -24,6 +24,7 @@ import {CloseGlyph, ExternalGlyph, WindowFrame, WindowHeaderActions, WindowHeade
 export const VIEWER_PANEL_TITLE: Record<ViewerPanel, string> = {
     admin: "Admin panel",
     convert: "Convert files",
+    settings: "Settings",
 };
 
 const PANEL_PATH: Partial<Record<ViewerPanel, string>> = {
