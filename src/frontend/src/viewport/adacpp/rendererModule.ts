@@ -67,6 +67,11 @@ async function loadRendererModule(): Promise<{factory: ModuleFactory; opts: obje
     return {factory: mod.default ?? mod, opts: {}, instantiationFailed: null};
 }
 
+/** The optional device features the renderer uses, those of them the adapter offers. */
+export function renderFeatures(adapter: Pick<GpuAdapterLike, "features">): string[] {
+    return ["depth32float-stencil8"].filter((f) => adapter.features?.has(f) ?? false);
+}
+
 /** A device for the renderer and the module started on it. Throws, with the reason, when the browser has
  *  no WebGPU, gives no adapter, or the module cannot start. */
 export async function startRenderer(label: string): Promise<{gpu: GpuLike; adapter: GpuAdapterLike; device: GpuDeviceLike; module: AdacppModule}> {
@@ -75,12 +80,15 @@ export async function startRenderer(label: string): Promise<{gpu: GpuLike; adapt
     const adapter = await gpu.requestAdapter({powerPreference: "high-performance"});
     if (!adapter) throw new Error("no WebGPU adapter available");
     // Large merged CAD/FEM buffers exceed the 128 MiB default storage binding: take what the adapter has.
+    // A 32-bit float depth + stencil target, where the adapter has one, so section caps (the pass that
+    // needs a stencil) keep the renderer's float depth precision; without it they fall back to 24-bit.
     const device = await adapter.requestDevice({
         label,
         requiredLimits: {
             maxStorageBufferBindingSize: adapter.limits.maxStorageBufferBindingSize,
             maxBufferSize: adapter.limits.maxBufferSize,
         },
+        requiredFeatures: renderFeatures(adapter),
     });
     const {factory, opts, instantiationFailed} = await loadRendererModule();
     const module = await startRendererModule(factory, {...opts, preinitializedWebGPUDevice: device}, instantiationFailed);

@@ -118,6 +118,10 @@ export interface ViewportApi {
     /** Take the model loaded from `sourceName` off the screen, when this viewport holds its models
      *  itself; false when it does not (the three.js scene's models are unloaded with the scene). */
     unloadSource(sourceName: string): boolean;
+    /** Take every model off the screen (Clear / Remove all), whichever renderer this viewport is:
+     *  the loaded models and any result mesh, with their selection and hidden state. The scene's
+     *  bookkeeping (tree, loaded sources, FEA session) is `clear_loaded_model`'s, which calls this. */
+    clearModels(): void;
     /** Save a picture of the view as it is now (a PNG download). */
     saveScreenshot(): void;
 

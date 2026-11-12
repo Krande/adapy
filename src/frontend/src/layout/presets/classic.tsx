@@ -79,6 +79,7 @@ import {
   classicToastAnchor,
   isOverlayPanel,
   leaveContext,
+  leaveShell,
   upgradeShellDocs,
   placedElsewhere,
   useClassicContext,
@@ -324,6 +325,7 @@ function TreeZone() {
 const VIEWER_PANEL_OF: Readonly<Record<PanelId, ViewerPanel>> = {
   [CORE_PANEL_IDS.admin]: "admin",
   [CORE_PANEL_IDS.convert]: "convert",
+  [CORE_PANEL_IDS.settings]: "settings",
 };
 
 /** The in-viewer window's own chrome: its title bar and "open in a dedicated tab". */
@@ -414,10 +416,11 @@ function ClassicFrame() {
   // and again for the shell an in-place switch brings in.
   React.useEffect(() => upgradeShellDocs(), [shellId]);
   React.useEffect(() => {
-    // Leaving a mode takes its placed panels with it. Not leaving a whole
-    // shell (an in-place switch): what is open stays open, at its place in
-    // the shell switched to.
-    if (lastCtx.current !== ctx && lastShell.current === shellId) leaveContext(lastCtx.current, hide, isPanelOpen);
+    // Leaving a mode takes its placed panels with it. Leaving a whole shell (an
+    // in-place switch) closes every open panel: the shell switched to starts
+    // with its own starting panels only, as a fresh page of it would.
+    if (lastShell.current !== shellId) leaveShell(hide, isPanelOpen);
+    else if (lastCtx.current !== ctx) leaveContext(lastCtx.current, hide, isPanelOpen);
     lastCtx.current = ctx;
     lastShell.current = shellId;
     adoptDockedPanels();

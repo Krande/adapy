@@ -228,10 +228,13 @@ test("the facade publishes the glyphs, the menu and modal, and the theme entry",
   assert.match(api, /model_info\?: FeaModelInfo/);
 });
 
-test("the Options panel has a calculation section over the compute store", () => {
-  const src = readFileSync(new URL("../../components/OptionsComponent.tsx", import.meta.url), "utf8");
-  assert.match(src, /"compute"/);
+test("the settings have a calculation section over the compute store, which the Options panel can show", () => {
+  // The sections live in one list the Settings window (tabs) and OptionsBody (a shell's pick) share.
+  const src = readFileSync(new URL("../../components/settings/settingsSections.tsx", import.meta.url), "utf8");
+  assert.match(src, /id: "compute"/);
   assert.match(src, /ComputeOptions/);
+  const options = readFileSync(new URL("../../components/OptionsComponent.tsx", import.meta.url), "utf8");
+  assert.match(options, /SETTINGS_SECTIONS/);
 });
 
 // --- UI freeze ---

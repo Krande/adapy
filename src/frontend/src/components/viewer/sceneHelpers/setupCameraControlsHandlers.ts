@@ -24,7 +24,6 @@ import {useCellBuilderStore, needsPreviewCompile} from "@/state/cellBuilderStore
 import {frameCells} from "@/utils/scene/frameCells";
 import {requestRender} from "@/state/perfStore";
 import {historyShortcutHandlers, viewportShortcutHandlers} from "@/viewport/api/viewportShortcuts";
-import {useModelState} from "@/state/modelState";
 import {bindCoreShortcuts, type CoreShortcutHandler} from "@/layout/shortcuts";
 import {installShortcutDispatcher} from "@/layout/shortcutDispatch";
 import {bindViewerHistoryReset} from "@/utils/scene/viewerHistoryBindings";
@@ -156,21 +155,10 @@ export function setupCameraControlsHandlers(
     // An undo must never reach into a scene that has since been replaced.
     const unbindHistoryReset = bindViewerHistoryReset();
 
-    // An emptied scene returns the camera to its starting pose. Subscribed to
-    // the model state rather than hooked into the unload handlers because there
-    // are several ways to unload -- the Scene panel's x, a plugin's
-    // `ctx.scene.unloadModel`, a scene-wide clear -- and this is the one place
-    // that sees all of them. Only the transition INTO empty resets, so a user
-    // who framed a detail and unloaded nothing keeps their view.
-    let wasLoaded = useModelState.getState().loadedSourceNames.size > 0;
-    const unsubscribeLoaded = useModelState.subscribe((state) => {
-        const isLoaded = state.loadedSourceNames.size > 0;
-        if (wasLoaded && !isLoaded) resetCameraHome(camera, controls);
-        wasLoaded = isLoaded;
-    });
+    // An emptied scene returning the camera to its starting pose is shared by every viewport now
+    // (./cameraHomeOnEmpty, through ViewportApi.resetCamera, which is resetCameraHome here).
 
     return () => {
-        unsubscribeLoaded();
         unbindHistoryReset();
         releaseDispatcher();
         unbindShortcuts();

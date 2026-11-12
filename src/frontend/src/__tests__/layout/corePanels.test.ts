@@ -210,6 +210,7 @@ const OTHER_BINDINGS: Array<{ id: string; flag: string; open: unknown; closed: u
   { id: CORE_PANEL_IDS.systemAdmin, flag: "systemPanelOpen", open: true, closed: false },
   { id: CORE_PANEL_IDS.admin, flag: "viewerPanelOpen", open: "admin", closed: null },
   { id: CORE_PANEL_IDS.convert, flag: "viewerPanelOpen", open: "convert", closed: null },
+  { id: CORE_PANEL_IDS.settings, flag: "viewerPanelOpen", open: "settings", closed: null },
 ];
 
 beforeEach(() => {

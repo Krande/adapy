@@ -16,10 +16,12 @@ import PlaybackTransport from "@/components/playback/PlaybackTransport";
 import {useAdacppRenderStatus} from "@/viewport/adacpp/adacppViewport";
 import {usePerfStore} from "@/state/perfStore";
 import {useViewerRefs} from "@/state/AdaViewerContext";
-import {useNativeViewport} from "@/viewport/native/nativeModel";
+import {isNativeViewportActive, useNativeViewport} from "@/viewport/native/nativeModel";
+import {loadedModelJournal, replayModelJournal} from "./sceneHelpers/loadedModelJournal";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {installViewportPanelBridge} from "./sceneHelpers/viewportPanelBridge";
 import {installSpaceMousePoseDriver} from "./sceneHelpers/spaceMousePoseDriver";
+import {installCameraHomeOnEmpty} from "./sceneHelpers/cameraHomeOnEmpty";
 import {installAnnouncedGroups} from "@/utils/groups/extensionGroups";
 import {bindViewerHistoryReset} from "@/utils/scene/viewerHistoryBindings";
 
@@ -31,6 +33,8 @@ installViewportPanelBridge();
 installAnnouncedGroups();
 // A 3D mouse moves that viewport's camera through its pose.
 installSpaceMousePoseDriver();
+// An emptied scene puts the camera of the viewport on screen back where the viewer started.
+installCameraHomeOnEmpty();
 
 /** The native viewport failed after a model was handed to it: once the three.js viewport is up, load
  *  that model there, so the fallback shows the model and not an empty scene. A result it was showing
@@ -67,6 +71,57 @@ function useNativeFallbackReload(nativeFailed: boolean): void {
   }, [nativeFailed, scene]);
 }
 
+/** The user switched between the three.js viewport and the three.js-free one: the viewport that comes
+ *  up loads the models the other was showing (sceneHelpers/loadedModelJournal.ts). The three.js scene
+ *  outlives its mount and may still hold what it showed before, but the panels (Scene tree, object
+ *  list) were told about the native viewport's models since: it is loaded again all the same, the
+ *  first load replacing what the scene holds. A failure of the native viewport is not a switch:
+ *  `useNativeFallbackReload` handles that. */
+function useModelHandOver(native: boolean): void {
+  const {scene} = useViewerRefs();
+  const shown = React.useRef<boolean | null>(null);
+  React.useEffect(() => {
+    const before = shown.current;
+    shown.current = native;
+    if (before === null || before === native) return;
+    if (!native && useNativeViewport.getState().state === "failed") return;
+    // The native viewport's last model must not come back with it on the next switch, ahead of the hand-over.
+    if (!native) useNativeViewport.setState({model: null});
+    const {entries} = loadedModelJournal();
+    if (!entries.length) return;
+    const snapshot = [...entries];
+    let cancelled = false;
+    let unsubscribe: (() => void) | null = null;
+    const ready = () => (native ? useNativeViewport.getState().state === "active" : !!scene.current && !isNativeViewportActive());
+    const start = () => {
+      unsubscribe?.();
+      unsubscribe = null;
+      void replayModelJournal(snapshot, () => !cancelled);
+    };
+    if (ready()) start();
+    else if (native) {
+      // The native viewport's chunk and WebGPU start up first; a failed start is the fallback's.
+      unsubscribe = useNativeViewport.subscribe((s) => {
+        if (s.state === "failed") {
+          unsubscribe?.();
+          unsubscribe = null;
+        } else if (ready() && !cancelled) start();
+      });
+    } else {
+      const tryLater = () => {
+        if (cancelled) return;
+        if (ready()) start();
+        else setTimeout(tryLater, 100);
+      };
+      setTimeout(tryLater, 100);
+    }
+    return () => {
+      cancelled = true;
+      unsubscribe?.();
+    };
+  }, [native, scene]);
+}
+
 export interface CanvasWrapperProps {
   /**
    * Render the built-in colour legend.
@@ -88,6 +143,7 @@ const CanvasWrapper: React.FC<CanvasWrapperProps> = ({legend = true}) => {
   const nativeFailed = useNativeViewport((s) => s.state === "failed");
   useNativeFallbackReload(nativeFailed);
   const native = renderBackend === "adacpp-native" && !nativeFailed;
+  useModelHandOver(native);
   // Models loaded and removed are undo steps on that viewport too; the three.js viewport binds
   // the same history itself while it is up.
   React.useEffect(() => (native ? bindViewerHistoryReset() : undefined), [native]);
