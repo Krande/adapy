@@ -187,3 +187,14 @@ test("the open handler is handed the run, its scope and the provider", async () 
   await openResult!.ui.openResult!(fakeCtx(), { run, scope: "user:me", provider: null });
   assert.deepEqual(seen.map((a) => [a.scope, a.run.run_id]), [["user:me", "r1"]]);
 });
+
+test("the open-result button says the run is live while it is going, when the plugin names that", async () => {
+  const { openResultButtonLabel } = await import("@/plugins/registry");
+  const both = { openResultLabel: "Replay", openResultLiveLabel: "Live" };
+  assert.equal(openResultButtonLabel(both, true), "Live");
+  assert.equal(openResultButtonLabel(both, false), "Replay");
+  // Without a live label the button reads the same throughout, as before.
+  assert.equal(openResultButtonLabel({ openResultLabel: "Replay" }, true), "Replay");
+  assert.equal(openResultButtonLabel({ openResultLiveLabel: "Live" }, false), "Open");
+  assert.equal(openResultButtonLabel({}, true), "Open");
+});
