@@ -8,6 +8,7 @@ import {pollUntilTerminal} from "@/hooks/useJobPoll";
 import {carryDeepLinkOnShellSwitch} from "@/hooks/deepLinkCarry";
 import {useModelState} from "@/state/modelState";
 import {PROCEDURAL_PARAM, openProceduralFromUrl} from "@/hooks/proceduralDeepLink";
+import {withoutDeepLinkParams} from "@/hooks/deepLinkParams";
 
 // Consume ``?scope=...&file=...`` query params on viewer mount.
 //
@@ -24,14 +25,23 @@ import {PROCEDURAL_PARAM, openProceduralFromUrl} from "@/hooks/proceduralDeepLin
 //   ?procedural — a procedural model id, opened in the cell builder instead of a
 //                 file (see proceduralDeepLink.ts; ``?mode=build`` puts the shell there)
 //
-// The query string is stripped from window.location after consumption
-// so a manual reload doesn't re-trigger the load (and doesn't leak
-// the scope id into bookmarks / shares more than the user intended).
+// The params this hook consumes are stripped from window.location after
+// consumption so a manual reload doesn't re-trigger the load (and doesn't
+// leak the scope id into bookmarks / shares more than the user intended).
+// ONLY those: the rest belong to someone else and may not have been read yet.
+// ``?mode=`` is the shell's, read when the shell installs - which can be AFTER
+// the scope list arrives here, so stripping the whole query string made a
+// ``?file=...&mode=capacity`` link open in whichever mode won that race.
 // A UI-shell switch that reloads is the exception: it puts the params back
 // into its reload URL while the file is still loaded (see deepLinkCarry.ts).
 // A switch in place keeps the scene and needs nothing.
 //
 // REST-only; in WS / desktop builds we never get here.
+
+function stripDeepLinkParams(): void {
+    const {pathname, search, hash} = window.location;
+    window.history.replaceState({}, "", `${pathname}${withoutDeepLinkParams(search)}${hash}`);
+}
 
 const SCENE_WAIT_INTERVAL_MS = 100;
 const SCENE_WAIT_MAX_MS = 15000;
@@ -88,7 +98,7 @@ export function useUrlParamLoad(): void {
         if (!fileParam && proceduralParam) {
             // A model, not a file: no scene to wait for (the cell builder draws once
             // it has the document) and nothing to carry across a shell switch.
-            window.history.replaceState({}, "", window.location.pathname);
+            stripDeepLinkParams();
             void openProceduralFromUrl(scopeKey, proceduralParam);
             return;
         }
@@ -102,9 +112,9 @@ export function useUrlParamLoad(): void {
 
         // Strip the params from the URL right away so a reload doesn't
         // re-fire. We keep the pathname (so /scopes/foo deep links
-        // would still work in the future) and just drop the search
-        // string.
-        window.history.replaceState({}, "", window.location.pathname);
+        // would still work in the future) and the params that are not
+        // ours (see DEEP_LINK_PARAMS).
+        stripDeepLinkParams();
 
         // Wait for the three.js scene to be mounted before dispatching.
         // ThreeCanvas sets ``sceneRef.current`` inside its
