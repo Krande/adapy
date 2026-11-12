@@ -163,7 +163,12 @@ import { isPlacedElsewhere } from "@/layout/placedElsewhere";
 //            from a byte offset, for one that is still being written.
 //          `ctx.scene.remove(owner)` takes all of it away, tracks included. Draco-compressed
 //          GLBs load.
-export const PLUGIN_API_VERSION = "1.18.0";
+// 1.19.0 — `openResultLiveLabel` on a simulation provider's UI: the open-result button's text
+//          while the run is still going ("Live" beside a "Replay"), so a handler that follows
+//          a run as it happens does not offer to replay what has not ended. Additive: without
+//          it the button reads `openResultLabel` throughout, as before, and an older core
+//          ignores it.
+export const PLUGIN_API_VERSION = "1.19.0";
 
 // The named mount regions core exposes in Phase 1. Deliberately small
 // (`fem-sidebar` covers the FEM simulation panel, `top-panel` the menu bar,
@@ -986,6 +991,19 @@ export interface SimulationProviderUi {
   openResult?: (ctx: AdaPluginContext, args: SimulationOpenResultArgs) => void | Promise<void>;
   /** The button's text; "Open" when omitted. */
   openResultLabel?: string;
+  /**
+   * (1.19.0) The button's text while the run is still going, for a handler that follows it as
+   * it happens ("Live"); `openResultLabel` when omitted. See `openResultButtonLabel`.
+   */
+  openResultLiveLabel?: string;
+}
+
+/** What the Simulations panel writes on a run's open-result button. */
+export function openResultButtonLabel(
+  ui: Pick<SimulationProviderUi, "openResultLabel" | "openResultLiveLabel">,
+  active: boolean,
+): string {
+  return (active ? ui.openResultLiveLabel : undefined) ?? ui.openResultLabel ?? "Open";
 }
 
 export interface UrlParamHandler {

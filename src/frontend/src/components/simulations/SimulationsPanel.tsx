@@ -20,7 +20,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import ErrorBoundary from "@/components/common/ErrorBoundary";
 import { PanelHeaderActions, usePanelHeaderActions } from "@/components/ui/PanelFrame";
 import { makePluginContext } from "@/plugins/context";
-import { resolveSimulationProviderUi, type AdaPluginContext } from "@/plugins/registry";
+import { openResultButtonLabel, resolveSimulationProviderUi, type AdaPluginContext } from "@/plugins/registry";
 import { filesApi } from "@/services/api/files";
 import {
   isActiveRun,
@@ -128,7 +128,7 @@ const RunRow: React.FC<{ scope: string; run: SimulationRun; provider: Simulation
         <span className="flex-1" />
         {opener && run.artefacts.length > 0 && (
           <button type="button" className={BUTTON} onClick={() => void open()}>
-            {opener.ui.openResultLabel ?? "Open"}
+            {openResultButtonLabel(opener.ui, active)}
           </button>
         )}
         {active && (

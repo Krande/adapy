@@ -260,7 +260,7 @@ test("the Desktop UI uses them: toolbars on both modes, labels and the colour-by
 });
 
 test("the facade publishes them, and the API version moved", () => {
-  assert.equal(V.VIEWER_CORE_API_VERSION, "1.18.0");
+  assert.equal(V.VIEWER_CORE_API_VERSION, "1.19.0");
   // The scene entry cannot load outside a browser, so its exports are read from the source.
   const scene = readFileSync(new URL("../../viewer-core/scene.ts", import.meta.url), "utf8");
   for (const name of ["registerColorBySource", "applyColorBy", "resetColorBy", "useColorByStore", "useLabelsStore"]) {
@@ -271,5 +271,5 @@ test("the facade publishes them, and the API version moved", () => {
     assert.match(facade, new RegExp(`\\b${name}\\b[^;]*from "@/layout/${from}"`), `${name} is exported`);
   }
   const reg = readFileSync(new URL("../../plugins/registry.ts", import.meta.url), "utf8");
-  assert.match(reg, /PLUGIN_API_VERSION = "1\.18\.0"/);
+  assert.match(reg, /PLUGIN_API_VERSION = "1\.19\.0"/);
 });
