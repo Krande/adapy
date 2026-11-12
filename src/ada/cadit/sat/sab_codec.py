@@ -728,11 +728,8 @@ def _short_string(tag: int, s: str) -> bytes:
 
 
 def encode_type(name: str) -> bytes:
-    parts = name.split("-")
-    out = b""
-    for p in parts[:-1]:
-        out += _short_string(T_TYPEX, p)
-    return out + _short_string(T_TYPE, parts[-1])
+    *prefix, last = name.split("-")
+    return b"".join([*(_short_string(T_TYPEX, p) for p in prefix), _short_string(T_TYPE, last)])
 
 
 def encode_token(tag, v) -> bytes:
@@ -777,11 +774,13 @@ def pack(sat_text: str) -> bytes:
     """A SAT text body -> the SAB bytes GeniE V9.3 would save for it. Refuses with
     :class:`SabUnsupported` anything outside the measured tables."""
     hdr, recs = text_records(sat_text)
-    out = pack_header(*hdr)
-    for n, r in enumerate(recs):
-        out += pack_record(r, n)
+    # The pieces are joined once, at the end. Appending each record to a growing ``bytes`` copied
+    # the whole body so far every time: quadratic, minutes for a body of a few MB.
+    parts = [pack_header(*hdr)]
+    parts.extend(pack_record(r, n) for n, r in enumerate(recs))
     # GeniE writes the end marker as ONE type token (0x0d 0x10 "End-of-ACIS-data"), hyphens kept.
-    return out + bytes([T_TYPE, len(END_TEXT)]) + END_TEXT.encode()
+    parts.append(bytes([T_TYPE, len(END_TEXT)]) + END_TEXT.encode())
+    return b"".join(parts)
 
 
 def header_end(data: bytes) -> int:
