@@ -796,7 +796,9 @@ class LocalJobTransport(_BaseTransport):
         except Exception:
             logger.exception("local transport: failed to list %s (non-fatal)", spec_field)
             return {}
-        return {s["slug"]: dict(s) for s in specs if isinstance(s, dict) and isinstance(s.get("slug"), str) and s["slug"]}
+        return {
+            s["slug"]: dict(s) for s in specs if isinstance(s, dict) and isinstance(s.get("slug"), str) and s["slug"]
+        }
 
     def local_specs(self) -> list[dict] | None:
         from .plugin_registry import locally_registered_specs

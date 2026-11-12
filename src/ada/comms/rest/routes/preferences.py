@@ -67,7 +67,9 @@ class _Prefs:
         if self.pool is not None:
             await db_module.set_user_preference(self.pool, self.sub, key, value)
             return
-        await self.storage.put_bytes(Scope.shared(), preference_file_key(self.sub, key), json.dumps(value).encode("utf-8"))
+        await self.storage.put_bytes(
+            Scope.shared(), preference_file_key(self.sub, key), json.dumps(value).encode("utf-8")
+        )
 
     async def delete(self, key: str) -> bool:
         if self.pool is not None:

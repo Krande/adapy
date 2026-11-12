@@ -29,7 +29,6 @@ from .. import auth as auth_module
 from .. import db as db_module
 from ..auth import User
 from ..job_transport import JobRequest, JobTransport
-from ..procedural_store import ProceduralStore, procedural_store
 from ..procedural import (
     procedural_build_job_key,
     procedural_detail_job_key,
@@ -39,6 +38,7 @@ from ..procedural import (
     procedural_preview_job_key,
     procedural_relocations_job_key,
 )
+from ..procedural_store import ProceduralStore, procedural_store
 from ..queue import JobQueue
 from ..scope import Scope
 from ..storage import Storage

@@ -175,7 +175,10 @@ def test_models_are_storage_files_without_a_db(app_client: TestClient, tmp_path:
     assert r.json()["revision"] == 1
     r = app_client.put(f"{base}/{model_id}", json={"doc": doc, "base_revision": 0})
     assert r.status_code == 409 and r.json()["detail"]["current_revision"] == 1
-    assert app_client.put(f"{base}/{model_id}", json={"doc": {"spaces": [{"X": 1}]}, "base_revision": 1}).status_code == 422
+    assert (
+        app_client.put(f"{base}/{model_id}", json={"doc": {"spaces": [{"X": 1}]}, "base_revision": 1}).status_code
+        == 422
+    )
     got = app_client.get(f"{base}/{model_id}").json()
     assert got["revision"] == 1 and got["doc"]["spaces"][0]["NAME"] == "Cell1"
     # The routing header is mirrored from the doc, as postgres does.
@@ -234,7 +237,10 @@ def test_compile_runs_in_process_without_a_queue(app_client: TestClient, tmp_pat
     assert again == {"job_id": None, "derived_key": started["derived_key"], "cached": True}
 
     # A preview (the uncommitted doc) compiles the same way, without a revision.
-    preview_doc = {**doc, "spaces": [*doc["spaces"], {"NAME": "Cell2", "X": 5, "Y": 0, "Z": 0, "DX": 5, "DY": 5, "DZ": 3}]}
+    preview_doc = {
+        **doc,
+        "spaces": [*doc["spaces"], {"NAME": "Cell2", "X": 5, "Y": 0, "Z": 0, "DX": 5, "DY": 5, "DZ": 3}],
+    }
     r = app_client.post(f"{base}/{model_id}/compile-preview", params={"engine": "echo"}, json={"doc": preview_doc})
     assert r.status_code == 200, r.text
     assert _wait_job(app_client, r.json()["job_id"])["status"] == "done"

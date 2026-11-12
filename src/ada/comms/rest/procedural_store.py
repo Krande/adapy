@@ -114,7 +114,10 @@ def _now() -> str:
 
 def _summary(record: dict) -> dict:
     """A record as db/procedural_models.py's ``_procedural_row_summary`` returns it."""
-    return {k: record.get(k) for k in ("id", "name", "revision", "created_by", "created_at", "updated_at", "engine", "schema_version")}
+    return {
+        k: record.get(k)
+        for k in ("id", "name", "revision", "created_by", "created_at", "updated_at", "engine", "schema_version")
+    }
 
 
 #: One lock for every file store in this process (see the module docstring).
@@ -187,7 +190,12 @@ class FileProceduralStore:
         record = await self._read(scope, model_id)
         if record is None:
             return None
-        return {**_summary(record), "scope_kind": record["scope_kind"], "scope_id": record["scope_id"], "doc": record["doc"]}
+        return {
+            **_summary(record),
+            "scope_kind": record["scope_kind"],
+            "scope_id": record["scope_id"],
+            "doc": record["doc"],
+        }
 
     async def update_doc(self, scope: Scope, model_id: str, doc: dict, base_revision: int) -> int | None:
         async with _LOCK:
@@ -199,7 +207,9 @@ class FileProceduralStore:
             record["updated_at"] = _now()
             # The routing header is mirrored from the doc, as the postgres update does.
             record["engine"] = doc.get("engine") or record.get("engine") or DEFAULT_ENGINE
-            record["schema_version"] = doc.get("schema_version") or record.get("schema_version") or DEFAULT_SCHEMA_VERSION
+            record["schema_version"] = (
+                doc.get("schema_version") or record.get("schema_version") or DEFAULT_SCHEMA_VERSION
+            )
             await self._write(scope, record)
             return record["revision"]
 

@@ -46,11 +46,18 @@ def test_every_source_the_server_accepts_is_listed():
 def test_a_gnx_is_in_the_listing():
     class _Gnx(_Storage):
         async def list(self, scope, *, skip_prefixes=()):
-            return [FileEntry(key="model.gnx", size=1, last_modified=""), FileEntry(key="notes.txt", size=1, last_modified="")]
+            return [
+                FileEntry(key="model.gnx", size=1, last_modified=""),
+                FileEntry(key="notes.txt", size=1, last_modified=""),
+            ]
 
     from ada.comms.fb_wrap_model_gen import MessageDC as _M
 
-    reply = asyncio.run(_handle_list_file_objects(_M(instance_id=1, command_type=CommandTypeDC.LIST_FILE_OBJECTS), _Gnx(), Scope.shared()))
+    reply = asyncio.run(
+        _handle_list_file_objects(
+            _M(instance_id=1, command_type=CommandTypeDC.LIST_FILE_OBJECTS), _Gnx(), Scope.shared()
+        )
+    )
     # The reply is the flatbuffer the panel decodes; the names travel in it as strings.
     assert b"model.gnx" in reply
     assert b"notes.txt" not in reply
