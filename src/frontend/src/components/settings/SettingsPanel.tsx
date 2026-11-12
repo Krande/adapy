@@ -2,13 +2,11 @@
 // tabs. Opened from the Options panel's "Settings" button (or Ctrl+K "Settings"); the Options panel
 // itself keeps only the account controls, this button and the shortcut keys.
 
-import React, {useState} from "react";
+import React, {useEffect, useState} from "react";
 
 import {BuildLine} from "./BuildLine";
 import {availableSettingsSections, type SettingsSectionId} from "./settingsSections";
-
-/** The tab last open, so reopening the window lands where the user left it (this page load). */
-let lastTab: SettingsSectionId | null = null;
+import {onSettingsTab, settingsTab, showSettingsTab} from "./settingsTab";
 
 export interface SettingsBodyProps {
     /** Tab to open on; default the one last open, else the first. */
@@ -19,12 +17,11 @@ export const SettingsBody: React.FC<SettingsBodyProps> = ({initialTab}) => {
     const sections = availableSettingsSections();
     const pick = (id: SettingsSectionId | null | undefined) =>
         sections.find((s) => s.id === id)?.id ?? sections[0]?.id ?? null;
-    const [tab, setTab] = useState<SettingsSectionId | null>(() => pick(initialTab ?? lastTab));
+    const [tab, setTab] = useState<SettingsSectionId | null>(() => pick(initialTab ?? settingsTab()));
+    // A command that opens a setting asks for its tab while the window is already open.
+    useEffect(() => onSettingsTab(() => setTab(pick(settingsTab()))), []);
     const active = sections.find((s) => s.id === tab) ?? null;
-    const select = (id: SettingsSectionId) => {
-        lastTab = id;
-        setTab(id);
-    };
+    const select = (id: SettingsSectionId) => showSettingsTab(id);
 
     return (
         <div className="h-full flex flex-col bg-gray-900 text-white overflow-hidden">

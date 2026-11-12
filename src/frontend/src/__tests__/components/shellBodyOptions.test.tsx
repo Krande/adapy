@@ -52,6 +52,24 @@ test("Settings: one tab per available section, in the classic order, the first o
   assert.match(camera, /aria-selected="true"[^>]*>Camera controls</);
 });
 
+test("a command that opens a setting has a Settings tab, and its control is on that tab", async () => {
+  const { optionDescriptors, SETTINGS_TAB_OF_GROUP } = await import("@/layout/optionCommands");
+  const { showSettingsTab, settingsTab } = await import("@/components/settings/settingsTab");
+  const pages = new Map<string, string>();
+  for (const d of optionDescriptors()) {
+    if (d.kind !== "open") continue;
+    const tab = SETTINGS_TAB_OF_GROUP[d.group];
+    assert.ok(tab, `${d.id}: the group "${d.group}" has no Settings tab`);
+    if (!pages.has(tab)) pages.set(tab, inViewer(React.createElement(SettingsBody, { initialTab: tab })));
+    if (tab === "spacemouse") continue; // its sliders are drawn only with a 3D mouse enabled, which needs a browser
+    assert.ok(pages.get(tab)!.includes(`data-option="${d.focus}"`), `${d.id}: no data-option="${d.focus}" on the ${tab} tab`);
+  }
+  // The window opens on the tab last asked for.
+  showSettingsTab("appearance");
+  assert.equal(settingsTab(), "appearance");
+  assert.match(inViewer(React.createElement(SettingsBody)), /aria-selected="true"[^>]*>Appearance</);
+});
+
 test("Simulation without its built-in tabs: plugin tabs only, and a line when there are none", () => {
   const plain = inViewer(React.createElement(SimulationBody));
   assert.match(plain, /No results loaded/);
