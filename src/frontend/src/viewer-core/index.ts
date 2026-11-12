@@ -640,7 +640,9 @@
 //          `SceneModelSource`, `PluginPlayback`, `PluginPlaybackTrack`, `PluginPlaybackState`,
 //          `PluginLayers`). `simulationsApi.fetchArtefact` on `/app` reads a run artefact's
 //          bytes, whole or from an offset.
-export const VIEWER_CORE_API_VERSION = "1.18.0";
+//   1.19.0 Kept in step with PLUGIN_API_VERSION 1.19.0 (`SimulationProviderUi.openResultLiveLabel`:
+//          the open-result button's text while a run is still going). Additive.
+export const VIEWER_CORE_API_VERSION = "1.19.0";
 
 // ---------------------------------------------------------------------------
 // Plugin declaration. `registerPlugin` is how a package announces itself —
