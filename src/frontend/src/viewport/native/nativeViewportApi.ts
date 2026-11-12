@@ -67,6 +67,7 @@ export function createNativeViewportApi(scene: NativeScene): ViewportApi {
         // Every model on screen is placed by the scene's one offset (viewport/api/sceneFrame).
         sourceOrigin: (sourceName) => (scene.hasSource(sourceName) ? scene.sceneOffset : null),
         unloadSource: (sourceName) => scene.unloadSource(sourceName),
+        clearModels: () => scene.clearModels(),
         modelBounds: () => scene.modelBounds,
         saveScreenshot: () => {
             const picture = scene.capture(SCREENSHOT_WIDTH, SCREENSHOT_HEIGHT);

@@ -440,6 +440,24 @@ export class NativeScene {
         return true;
     }
 
+    /** Take every model off the screen (Clear / Remove all): the loaded models and any result mesh,
+     *  with their selection, hidden state and animation. The grid and helpers stay. */
+    clearModels(): void {
+        for (const key of [...this.models.keys()]) this.dropModel(key);
+        this.detachResultLayers();
+        this.modelKey = "";
+        this.sceneExtras = "";
+        this.extData = "";
+        this.parsedExtras = null;
+        this.selected.clear();
+        this.hidden.clear();
+        this.rebuild();
+        this.refreshAnimation();
+        for (const listener of this.onLoaded) listener();
+        this.pushStates();
+        this.invalidate();
+    }
+
     /** Remove one model's geometry and everything known about its objects. */
     private dropModel(key: string): void {
         const model = this.models.get(key);
