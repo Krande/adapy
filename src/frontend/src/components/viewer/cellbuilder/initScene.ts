@@ -29,6 +29,7 @@ import {endPlaceEntry} from "./numericEntry";
 import {endEquipEntry, endOpenEntry} from "./insertTools";
 import {onKeyDown} from "./keyboard";
 import {viewportInputElement} from "@/viewport/input";
+import {frameOpenedModel} from "./frameOpened";
 
 export function initCellBuilderScene(
     renderer: THREE.WebGLRenderer,
@@ -61,6 +62,7 @@ export function initCellBuilderScene(
     window.addEventListener("keydown", hKeyDown, true);
 
     rebuild(ctx);
+    let framed = frameOpenedModel(ctx.cellsGroup, useCellBuilderStore.getState().active?.modelId ?? null, null);
     rebuildPorts(ctx);
     syncBuilderGrid(ctx);
     syncGizmo(ctx);
@@ -87,8 +89,10 @@ export function initCellBuilderScene(
         if (ctx.openEntry && (!s.active || !s.cells[ctx.openEntry.cellId])) endOpenEntry(ctx);
         // equipmentCad flips whether equipment boxes fit their CAD or fall back
         // to LX/LY/LZ, so refit on toggle.
-        if (s.cells !== prev.cells || s.active !== prev.active || s.equipmentCad !== prev.equipmentCad) rebuild(ctx);
-        else if (s.selection !== prev.selection || s.selectedCellIds !== prev.selectedCellIds)
+        if (s.cells !== prev.cells || s.active !== prev.active || s.equipmentCad !== prev.equipmentCad) {
+            rebuild(ctx);
+            framed = frameOpenedModel(ctx.cellsGroup, s.active?.modelId ?? null, framed);
+        } else if (s.selection !== prev.selection || s.selectedCellIds !== prev.selectedCellIds)
             refreshFaceStyles(ctx);
         // "Show as CAD" toggles + any cell/type change re-seat the CAD previews
         // (after rebuild() has re-made the boxes so applyCellVisibility hides the

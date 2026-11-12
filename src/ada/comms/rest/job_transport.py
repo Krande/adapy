@@ -123,15 +123,20 @@ FEATURE_UNAVAILABLE_DETAIL: dict[str, str] = {
 #: ``procedural_build`` too: the built-in engines and any engine a tool registers in this
 #: process compile with nothing a pool adds, and a local viewer's Build mode is otherwise a
 #: document editor that can never show its model (``local_jobs.start_procedural_build``).
+#: ``bake`` and ``result_meta`` as well: this process has ada's result readers, and a result
+#: deck put on a local viewer (a ``.sin`` from a GeniE/Sestra run) is otherwise a file that
+#: Results and Capacity cannot open (``local_jobs.start_fea_job``).
 LOCAL_FEATURES: frozenset[str] = frozenset(
     {
         "asset_build",
         "asset_publish",
+        "bake",
         "clash_check",
         "clash_detail",
         "export_selection",
         "plugin_jobs",
         "procedural_build",
+        "result_meta",
         "simulation",
     }
 )
@@ -432,6 +437,8 @@ class LocalJobTransport(_BaseTransport):
             return self._submit_simulation(req)
         if req.feature == "procedural_build":
             return self._submit_procedural_build(req)
+        if req.feature in ("bake", "result_meta"):
+            return self._submit_fea(req)
         if not req.plugin_id:
             raise HTTPException(status_code=500, detail="a local job needs a plugin_id")
         try:
@@ -473,6 +480,30 @@ class LocalJobTransport(_BaseTransport):
             source_key=req.source_key,
             derived_key=req.derived_key or "",
             conversion_options=req.conversion_options or {},
+            force_rebuild=req.force_rebuild,
+            storage=self._storage,
+            scope=req.scope,
+        )
+        return SubmittedJob(
+            job_id=job.job_id,
+            derived_key=job.derived_key,
+            status=job.status,
+            stage=job.stage,
+            progress=job.progress,
+            target_capability=None,
+            payload=job.as_json(),
+        )
+
+    def _submit_fea(self, req: JobRequest) -> SubmittedJob:
+        """A FEA bake, result inventory, or lazy combination / envelope, in this process."""
+        if req.target_format not in local_jobs.LOCAL_FEA_KINDS:
+            self.unavailable(req.feature)
+        job = local_jobs.start_fea_job(
+            target_format=req.target_format,
+            source_key=req.source_key,
+            derived_key=req.derived_key or "",
+            step=req.step,
+            field_name=req.field_name,
             force_rebuild=req.force_rebuild,
             storage=self._storage,
             scope=req.scope,

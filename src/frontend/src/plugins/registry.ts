@@ -163,7 +163,10 @@ import { isPlacedElsewhere } from "@/layout/placedElsewhere";
 //            from a byte offset, for one that is still being written.
 //          `ctx.scene.remove(owner)` takes all of it away, tracks included. Draco-compressed
 //          GLBs load.
-export const PLUGIN_API_VERSION = "1.19.0";
+//   1.20.0 `notifyPluginActivationChanged()`: a plugin whose activation predicate reads its own
+//          state says when that state changed, and a placed panel showing "Nothing to show
+//          here yet" re-asks it (the panel also re-asks on every loaded-model change).
+export const PLUGIN_API_VERSION = "1.20.0";
 
 // The named mount regions core exposes in Phase 1. Deliberately small
 // (`fem-sidebar` covers the FEM simulation panel, `top-panel` the menu bar,
@@ -1187,6 +1190,25 @@ let _contextFactory: ((pluginId: string) => AdaPluginContext) | null = null;
  * activation predicate is false (a dormant plugin's panels are not placed or
  * listed). Called once by the bootstrap; without it only disabling counts.
  */
+// What a plugin's activation predicate reads that core cannot watch -- its own results,
+// say -- changes when the plugin says so. A placed panel re-asks its predicate then.
+let _activationVersion = 0;
+const _activationListeners = new Set<() => void>();
+
+/** Tell core that what a plugin's activation predicate reads has changed (1.20.0), so a
+ *  panel waiting on it ("Nothing to show here yet") asks again. Cheap; call it freely. */
+export function notifyPluginActivationChanged(): void {
+  _activationVersion += 1;
+  for (const cb of [..._activationListeners]) cb();
+}
+
+export function subscribePluginActivation(cb: () => void): () => void {
+  _activationListeners.add(cb);
+  return () => _activationListeners.delete(cb);
+}
+
+export const pluginActivationVersion = (): number => _activationVersion;
+
 export function setPluginContextFactory(factory: ((pluginId: string) => AdaPluginContext) | null): void {
   _contextFactory = factory;
 }

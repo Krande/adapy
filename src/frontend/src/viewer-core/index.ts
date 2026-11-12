@@ -643,7 +643,9 @@
 //   1.19.0  `registerToastSlot` / `unregisterToastSlot`: a shell's or plugin's own toasts in the
 //          app's one toast stack (layout/toastSlots.ts). `UiShellLayout.globalPanels` and
 //          `modeArrangements`; a composed shell's mode reopens what was open in it.
-export const VIEWER_CORE_API_VERSION = "1.19.0";
+//   1.20.0  `notifyPluginActivationChanged`: a plugin says what its activation predicate reads
+//          has changed; a placed panel re-asks it (and on every loaded-model change).
+export const VIEWER_CORE_API_VERSION = "1.20.0";
 
 // ---------------------------------------------------------------------------
 // Plugin declaration. `registerPlugin` is how a package announces itself —
@@ -655,6 +657,7 @@ export {
   getPlugin,
   getPluginModes,
   getRegisteredPlugins,
+  notifyPluginActivationChanged,
   PLUGIN_API_VERSION,
   registerPlugin,
 } from "@/plugins/registry";
