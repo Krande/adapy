@@ -31,7 +31,7 @@ const reveal = (id: string) => (flags.set(id, true), true);
 const hide = (id: string) => (flags.set(id, false), true);
 const isOpen = (id: string) => flags.get(id) ?? false;
 
-const grid = (...panels: string[]): T.GridNode => ({
+const grid = (...panels: string[]): import("@/layout/splitTree").GridNode => ({
   kind: "split",
   id: "root",
   dir: "row",

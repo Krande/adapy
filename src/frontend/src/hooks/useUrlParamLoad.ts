@@ -9,6 +9,7 @@ import {carryDeepLinkOnShellSwitch} from "@/hooks/deepLinkCarry";
 import {useModelState} from "@/state/modelState";
 import {PROCEDURAL_PARAM, openProceduralFromUrl} from "@/hooks/proceduralDeepLink";
 import {withoutDeepLinkParams} from "@/hooks/deepLinkParams";
+import {applyViewParams} from "@/hooks/viewParams";
 
 // Consume ``?scope=...&file=...`` query params on viewer mount.
 //
@@ -24,6 +25,7 @@ import {withoutDeepLinkParams} from "@/hooks/deepLinkParams";
 //   ?scope  — optional scopeUrlPart token (``user:me`` / ``project:abc``)
 //   ?procedural — a procedural model id, opened in the cell builder instead of a
 //                 file (see proceduralDeepLink.ts; ``?mode=build`` puts the shell there)
+//   ?grid ?snap — the builder's grid step and snap distance (viewParams.ts; kept in the URL)
 //
 // The params this hook consumes are stripped from window.location after
 // consumption so a manual reload doesn't re-trigger the load (and doesn't
@@ -66,6 +68,8 @@ export function useUrlParamLoad(): void {
         if (!pluginParamsOffered.current) {
             pluginParamsOffered.current = true;
             void dispatchPluginUrlParams(window.location.search);
+            // ?grid= / ?snap=: the builder's grid for the model the link opens (viewParams.ts).
+            applyViewParams(window.location.search);
         }
 
         const params = new URLSearchParams(window.location.search);
