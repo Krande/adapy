@@ -110,9 +110,51 @@ def app_client(tmp_path: pathlib.Path):
         yield client
 
 
-def test_engine_endpoints_503_without_db(app_client: TestClient):
-    assert app_client.get("/api/scopes/shared/procedural-engines").status_code == 503
+def test_engines_without_a_db(app_client: TestClient):
+    """No database: the built-ins are listed (nothing can be registered as a row)."""
+    engines = app_client.get("/api/scopes/shared/procedural-engines").json()["procedural_engines"]
+    assert [e["slug"] for e in engines[:2]] == ["adapy-default", "echo"]
     assert app_client.post("/api/scopes/shared/procedural-engines", json={"name": "e"}).status_code == 503
+
+
+@pytest.fixture
+def local_engine():
+    """An engine a tool registers in this process (as a preloaded package does)."""
+    from ada.topo_model import engine_catalog
+
+    engine_catalog.register_procedural_engine_capabilities(
+        "test-local-engine",
+        name="Test local engine",
+        description="echo, registered in-process",
+        entrypoint="ada.topo_model.echo_engine:compile_doc",
+    )
+    yield "test-local-engine"
+    engine_catalog._ENGINE_CAPABILITY_REGISTRY.pop("test-local-engine", None)
+
+
+def test_an_engine_registered_in_process_is_offered_and_compiles(app_client: TestClient, local_engine: str):
+    """A local viewer's tool registers its engine at import; the queue-less server lists
+    it (origin "local") and compiles with it in-process."""
+    import time
+
+    engines = app_client.get("/api/scopes/shared/procedural-engines").json()["procedural_engines"]
+    mine = [e for e in engines if e["slug"] == local_engine]
+    assert len(mine) == 1 and mine[0]["origin"] == "local" and mine[0]["id"] == f"local:{local_engine}"
+    got = app_client.get(f"/api/scopes/shared/procedural-engines/local:{local_engine}").json()
+    assert got["doc"] == {"kind": "server", "entrypoint": "ada.topo_model.echo_engine:compile_doc"}
+    resolved = app_client.get(f"/api/scopes/shared/procedural-engines/local:{local_engine}/resolve").json()
+    assert resolved["ready"] is False and resolved["kind"] == "server"
+
+    base = "/api/scopes/shared/procedural-models"
+    model_id = app_client.post(base, json={"name": "with-local-engine"}).json()["id"]
+    doc = {"spaces": [{"NAME": "C1", "X": 0, "Y": 0, "Z": 0, "DX": 5, "DY": 5, "DZ": 3}], "engine": local_engine}
+    app_client.put(f"{base}/{model_id}", json={"doc": doc, "base_revision": 0})
+    job_id = app_client.post(f"{base}/{model_id}/compile").json()["job_id"]
+    deadline = time.monotonic() + 120
+    while (status := app_client.get(f"/api/convert/{job_id}").json())["status"] == "running":
+        assert time.monotonic() < deadline
+        time.sleep(0.2)
+    assert status["status"] == "done", status
 
 
 # ── live-Postgres API path ───────────────────────────────────────────

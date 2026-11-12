@@ -7,6 +7,7 @@ import {isStreamingFEAResult} from "@/utils/scene/fileKinds";
 import {pollUntilTerminal} from "@/hooks/useJobPoll";
 import {carryDeepLinkOnShellSwitch} from "@/hooks/deepLinkCarry";
 import {useModelState} from "@/state/modelState";
+import {PROCEDURAL_PARAM, openProceduralFromUrl} from "@/hooks/proceduralDeepLink";
 
 // Consume ``?scope=...&file=...`` query params on viewer mount.
 //
@@ -20,6 +21,8 @@ import {useModelState} from "@/state/modelState";
 // Params consumed:
 //   ?file   — source key under the active scope (e.g. ``cantilever.step``)
 //   ?scope  — optional scopeUrlPart token (``user:me`` / ``project:abc``)
+//   ?procedural — a procedural model id, opened in the cell builder instead of a
+//                 file (see proceduralDeepLink.ts; ``?mode=build`` puts the shell there)
 //
 // The query string is stripped from window.location after consumption
 // so a manual reload doesn't re-trigger the load (and doesn't leak
@@ -59,7 +62,8 @@ export function useUrlParamLoad(): void {
         const fileParam = params.get("file");
         const scopeParam = params.get("scope");
         const derivedParam = params.get("derived");
-        if (!fileParam) return;
+        const proceduralParam = params.get(PROCEDURAL_PARAM);
+        if (!fileParam && !proceduralParam) return;
 
         // Need the scope list before we can resolve ``?scope=user:me``.
         // AuthGate populates ``available`` from /api/me; until then the
@@ -68,14 +72,27 @@ export function useUrlParamLoad(): void {
 
         consumed.current = true;
 
+        let scopeKey = scopeUrlPart(useScopeStore.getState().current);
         if (scopeParam) {
             const target = available.find((s) => scopeUrlPart(s) === scopeParam);
-            if (target) setCurrent(target);
+            if (target) {
+                setCurrent(target);
+                scopeKey = scopeUrlPart(target);
+            }
             // Unknown scope token: leave the current selection alone
             // and try the load anyway. Worst case the file doesn't
             // exist under the active scope and the user sees a clear
             // 404 in the conversion toast.
         }
+
+        if (!fileParam && proceduralParam) {
+            // A model, not a file: no scene to wait for (the cell builder draws once
+            // it has the document) and nothing to carry across a shell switch.
+            window.history.replaceState({}, "", window.location.pathname);
+            void openProceduralFromUrl(scopeKey, proceduralParam);
+            return;
+        }
+        if (!fileParam) return;
 
         // A UI-shell switch may reload the page as well, and must bring the
         // file along: remember the params before they go (deepLinkCarry).

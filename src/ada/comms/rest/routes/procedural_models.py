@@ -4,7 +4,9 @@ compile / preview / export / import job enqueues, the compile-log and take-off
 readers, and the catalog ``sync``/``resync`` writers that live under the same
 path prefix.
 
-One postgres row per model; the doc (spaces/equipments/openings as
+One postgres row per model, or - on a server with no database (a local
+viewer) - one ``_procedural/<id>/model.json`` in the scope's storage
+(:mod:`..procedural_store`); the doc (spaces/equipments/openings as
 ada.topology pydantic dumps) is the single source of truth. Commit and
 compile are separate: PUT bumps the revision under optimistic
 concurrency, POST /compile enqueues a procedural_build worker job whose
@@ -27,6 +29,7 @@ from .. import auth as auth_module
 from .. import db as db_module
 from ..auth import User
 from ..job_transport import JobRequest, JobTransport
+from ..procedural_store import ProceduralStore, procedural_store
 from ..procedural import (
     procedural_build_job_key,
     procedural_detail_job_key,
@@ -69,6 +72,19 @@ async def get_procedural_in_scope(pool, model_id: str, scope_obj: Scope) -> dict
     return row
 
 
+def model_store(request: Request, ctx: RestContext) -> ProceduralStore:
+    """Where this server keeps procedural models: postgres, or storage files when it
+    has no database (a local viewer), see :mod:`..procedural_store`."""
+    return procedural_store(getattr(request.app.state, "db_pool", None), ctx.storage)
+
+
+async def get_model_in_scope(store: ProceduralStore, model_id: str, scope_obj: Scope) -> dict:
+    row = await store.get(scope_obj, model_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="procedural model not found")
+    return row
+
+
 async def catalog_fingerprint_for(pool, scope_obj: Scope, doc: dict) -> str | None:
     """Fingerprint of the scope's equipment + system catalogs, but ONLY when the
     model actually references catalog items — else ``None``, i.e. the model has no
@@ -76,7 +92,8 @@ async def catalog_fingerprint_for(pool, scope_obj: Scope, doc: dict) -> str | No
     equipment/system catalogs are live compile inputs the model's revision doesn't
     capture, so folding this (via the ``.catfp`` sidecar) makes a catalog edit force
     a fresh compile."""
-    if not (doc.get("equipments") or doc.get("systems")):
+    if pool is None or not (doc.get("equipments") or doc.get("systems")):
+        # No database, no catalogs: nothing the compile could have resolved from one.
         return None
     return await db_module.get_catalog_fingerprint(pool, scope_kind=scope_obj.kind, scope_id=scope_obj.id)
 
@@ -107,8 +124,7 @@ async def api_procedural_list(
 ) -> JSONResponse:
     from ..procedural import procedural_glb_key
 
-    pool = require_procedural_pool(request)
-    models = await db_module.list_procedural_models(pool, scope_kind=scope_obj.kind, scope_id=scope_obj.id)
+    models = await model_store(request, ctx).list(scope_obj)
     out = []
     for m in models:
         glb_key = procedural_glb_key(m["id"], m["revision"])
@@ -151,10 +167,10 @@ async def api_procedural_templates(
 @router.post("/scopes/{scope}/procedural-models", status_code=201)
 async def api_procedural_create(
     request: Request,
+    ctx: RestContext = Depends(rest_context),
     scope_obj: Scope = Depends(scope_from_path),
     user: User = Depends(auth_module.current_user),
 ) -> JSONResponse:
-    pool = require_procedural_pool(request)
     from ..procedural import normalize_model_name
 
     body = await request.json()
@@ -168,9 +184,7 @@ async def api_procedural_create(
         name = normalize_model_name(raw_name)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    row = await db_module.create_procedural_model(
-        pool, scope_kind=scope_obj.kind, scope_id=scope_obj.id, name=name, created_by=user.sub
-    )
+    row = await model_store(request, ctx).create(scope_obj, name=name, created_by=user.sub)
     if row is None:
         raise HTTPException(status_code=409, detail=f"a procedural model named {name!r} already exists")
     return JSONResponse(row, status_code=201)
@@ -180,6 +194,7 @@ async def api_procedural_create(
 async def api_procedural_rename(
     model_id: str,
     request: Request,
+    ctx: RestContext = Depends(rest_context),
     scope_obj: Scope = Depends(scope_from_path),
     user: User = Depends(auth_module.current_user),
 ) -> JSONResponse:
@@ -191,7 +206,7 @@ async def api_procedural_rename(
     """
     from ..procedural import normalize_model_name
 
-    pool = require_procedural_pool(request)
+    store = model_store(request, ctx)
     body = await request.json()
     raw_name = body.get("name")
     if not isinstance(raw_name, str) or not raw_name.strip():
@@ -201,7 +216,8 @@ async def api_procedural_rename(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    row = await db_module.rename_procedural_model(pool, model_id, name)
+    await get_model_in_scope(store, model_id, scope_obj)
+    row = await store.rename(scope_obj, model_id, name)
     if row is False:
         raise HTTPException(status_code=409, detail=f"a procedural model named {name!r} already exists")
     if row is None:
@@ -418,10 +434,10 @@ async def api_procedural_system_sync(
 async def api_procedural_get(
     request: Request,
     model_id: str,
+    ctx: RestContext = Depends(rest_context),
     scope_obj: Scope = Depends(scope_from_path),
 ) -> JSONResponse:
-    pool = require_procedural_pool(request)
-    row = await get_procedural_in_scope(pool, model_id, scope_obj)
+    row = await get_model_in_scope(model_store(request, ctx), model_id, scope_obj)
     return JSONResponse(
         {k: row[k] for k in ("id", "name", "doc", "revision", "created_by", "created_at", "updated_at")}
     )
@@ -436,8 +452,8 @@ async def api_procedural_commit(
 ) -> JSONResponse:
     from ..procedural import validate_doc
 
-    pool = require_procedural_pool(request)
-    row = await get_procedural_in_scope(pool, model_id, scope_obj)
+    store = model_store(request, ctx)
+    row = await get_model_in_scope(store, model_id, scope_obj)
     body = await request.json()
     doc = body.get("doc")
     base_revision = body.get("base_revision")
@@ -449,9 +465,9 @@ async def api_procedural_commit(
         normalized = validate_doc(doc)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=f"invalid procedural doc: {e}")
-    new_revision = await db_module.update_procedural_model_doc(pool, model_id, normalized, base_revision)
+    new_revision = await store.update_doc(scope_obj, model_id, normalized, base_revision)
     if new_revision is None:
-        current = await db_module.get_procedural_model(pool, model_id)
+        current = await store.get(scope_obj, model_id)
         raise HTTPException(
             status_code=409,
             detail={
@@ -497,11 +513,12 @@ async def api_procedural_commit(
 async def api_procedural_delete(
     request: Request,
     model_id: str,
+    ctx: RestContext = Depends(rest_context),
     scope_obj: Scope = Depends(scope_from_path),
 ) -> JSONResponse:
-    pool = require_procedural_pool(request)
-    await get_procedural_in_scope(pool, model_id, scope_obj)
-    ok = await db_module.archive_procedural_model(pool, model_id)
+    store = model_store(request, ctx)
+    await get_model_in_scope(store, model_id, scope_obj)
+    ok = await store.archive(scope_obj, model_id)
     if not ok:
         raise HTTPException(status_code=404, detail="procedural model not found")
     return JSONResponse({"status": "archived"})
@@ -613,8 +630,8 @@ async def api_procedural_compile(
     # Ignored (no key effect) when no detailing engine is selected.
     detailing_options = parse_detailing_options(request.query_params.get("detailing_options")) if detailing else {}
 
-    pool = require_procedural_pool(request)
-    row = await get_procedural_in_scope(pool, model_id, scope_obj)
+    pool = getattr(request.app.state, "db_pool", None)
+    row = await get_model_in_scope(model_store(request, ctx), model_id, scope_obj)
     # Absent an explicit query override, honour the engine the model declares
     # (its stored routing header, imported from the workbook's Model sheet), so
     # a file authored for a specific engine auto-routes there. "adapy-default"
@@ -655,8 +672,12 @@ async def api_procedural_compile(
     # have no DB row and run on the default pool.
     target_capability = None
     if engine and engine != "adapy-default":
-        eng = await db_module.get_procedural_engine_by_slug(
-            pool, scope_kind=scope_obj.kind, scope_id=scope_obj.id, slug=engine
+        eng = (
+            await db_module.get_procedural_engine_by_slug(
+                pool, scope_kind=scope_obj.kind, scope_id=scope_obj.id, slug=engine
+            )
+            if pool is not None
+            else None
         )
         if eng is not None:
             target_capability = (eng.get("doc") or {}).get("worker_capability")
@@ -761,6 +782,8 @@ async def api_procedural_compile(
             derived_key=derived_key,
             force_rebuild=force,
             target_capability=target_capability,
+            # A local viewer compiles in-process from the row this route just read.
+            inprocess_inputs={"model_row": row},
         )
     )
     await audit_compile_run(ctx, request, user, scope_obj, job_id=job.job_id, derived_key=derived_key)
@@ -802,8 +825,8 @@ async def api_procedural_compile_preview(
     detailing = (request.query_params.get("detailing") or "").strip() or None
     detailing_options = parse_detailing_options(request.query_params.get("detailing_options")) if detailing else {}
 
-    pool = require_procedural_pool(request)
-    row = await get_procedural_in_scope(pool, model_id, scope_obj)
+    pool = getattr(request.app.state, "db_pool", None)
+    row = await get_model_in_scope(model_store(request, ctx), model_id, scope_obj)
     # Same engine resolution as /compile, but a preview may also carry the
     # engine on the doc itself (the doc is the source of truth here). Query
     # override > doc header > model's declared engine; "adapy-default" == None.
@@ -830,8 +853,12 @@ async def api_procedural_compile_preview(
 
     target_capability = None
     if engine and engine != "adapy-default":
-        eng = await db_module.get_procedural_engine_by_slug(
-            pool, scope_kind=scope_obj.kind, scope_id=scope_obj.id, slug=engine
+        eng = (
+            await db_module.get_procedural_engine_by_slug(
+                pool, scope_kind=scope_obj.kind, scope_id=scope_obj.id, slug=engine
+            )
+            if pool is not None
+            else None
         )
         if eng is not None:
             target_capability = (eng.get("doc") or {}).get("worker_capability")
@@ -857,6 +884,8 @@ async def api_procedural_compile_preview(
             derived_key=derived_key,
             force_rebuild=force,
             target_capability=target_capability,
+            # A local viewer compiles in-process from the row this route just read.
+            inprocess_inputs={"model_row": row},
         )
     )
     await audit_compile_run(ctx, request, user, scope_obj, job_id=job.job_id, derived_key=derived_key)
@@ -886,8 +915,7 @@ async def api_procedural_compile_log(
     The response carries ``X-Compile-Run`` naming the run actually served (empty
     when it came from the legacy sibling), so a caller can tell whether the log
     it is showing belongs to the run it just triggered. An empty body means that
-    run produced no log. 503 when the procedural DB isn't configured, matching
-    the sibling procedural endpoints."""
+    run produced no log. 404 when the model is not in this scope."""
     from ..procedural import (
         PROCEDURAL_PREFIX,
         is_valid_run_id,
@@ -896,9 +924,8 @@ async def api_procedural_compile_log(
         procedural_run_pointer_key,
     )
 
-    pool = require_procedural_pool(request)
     # Scope + existence check (raises 404 when the model isn't in this scope).
-    await get_procedural_in_scope(pool, model_id, scope_obj)
+    await get_model_in_scope(model_store(request, ctx), model_id, scope_obj)
     run = (request.query_params.get("run") or "").strip()
     key = (request.query_params.get("key") or "").strip()
     if not run and not key:
@@ -950,8 +977,7 @@ async def api_procedural_stats(
 
     from ..procedural import PROCEDURAL_PREFIX, procedural_stats_key
 
-    pool = require_procedural_pool(request)
-    await get_procedural_in_scope(pool, model_id, scope_obj)
+    await get_model_in_scope(model_store(request, ctx), model_id, scope_obj)
     key = (request.query_params.get("key") or "").strip()
     if not key:
         raise HTTPException(status_code=400, detail="key (derived GLB key) query param is required")

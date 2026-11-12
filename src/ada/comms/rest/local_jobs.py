@@ -318,6 +318,105 @@ def start_plugin_job(
     return job
 
 
+class _LocalJobQueue:
+    """What a worker handler does to its queue job, done to a :class:`LocalJob` instead.
+
+    ``formats/procedural_build`` reports through ``queue.update(job_id, status=,
+    stage=, progress=, error=)``; on a queue-less server those land on the local job
+    the polling route reads, so the handler runs unchanged.
+    """
+
+    def __init__(self, job: LocalJob) -> None:
+        self.job = job
+
+    async def update(self, job_id: str, **fields: Any) -> None:
+        if "stage" in fields and fields["stage"] is not None:
+            self.job.stage = str(fields["stage"])
+        if fields.get("progress") is not None:
+            self.job.progress = max(0.0, min(1.0, float(fields["progress"])))
+        if "error" in fields:
+            self.job.error = fields["error"]
+        status = fields.get("status")
+        if status in (STATUS_DONE, STATUS_ERROR):
+            self.job.status = status
+
+
+#: The running in-process compiles, held so the loop does not drop their tasks.
+_PROCEDURAL_TASKS: set[asyncio.Task] = set()
+
+
+def start_procedural_build(
+    *,
+    model_row: dict[str, Any],
+    source_key: str,
+    derived_key: str,
+    conversion_options: dict[str, Any],
+    force_rebuild: bool,
+    storage: Any,
+    scope: Any,
+) -> LocalJob:
+    """Compile a procedural model in this process: the worker's ``procedural_build``
+    handler, run on this server's loop with the model it already read.
+
+    The queue-less half of ``procedural_build``, for a local viewer: its models live in
+    storage files (``procedural_store``) and its engines are the ones registered in
+    this process (the built-ins, and any a preloaded tool registers with
+    ``register_procedural_engine_capabilities``). The compile itself runs in the
+    loop's executor inside the handler, so the loop keeps serving while it builds.
+    """
+    from .formats.procedural_build import _run_procedural_build
+    from .queue import Job
+
+    job = LocalJob(
+        job_id=f"local-{uuid.uuid4().hex[:16]}",
+        plugin_id="procedural_build",
+        scope_kind=getattr(scope, "kind", "shared"),
+        scope_id=getattr(scope, "id", None),
+        derived_key=derived_key,
+        stage="build",
+    )
+    registry.add(job)
+    queue_job = Job(
+        job_id=job.job_id,
+        source_key=source_key,
+        derived_key=derived_key,
+        status=STATUS_RUNNING,
+        target_format="procedural_build",
+        scope_kind=job.scope_kind,
+        scope_id=job.scope_id,
+        conversion_options=conversion_options,
+        force_rebuild=force_rebuild,
+    )
+
+    async def _run() -> None:
+        try:
+            await _run_procedural_build(
+                job=queue_job,
+                scope=scope,
+                storage=storage,
+                queue=_LocalJobQueue(job),  # type: ignore[arg-type]
+                db_pool=None,
+                started_at=time.monotonic(),
+                model_row=model_row,
+                audit=False,
+            )
+        except Exception as exc:  # noqa: BLE001 — the job's failure is data, not ours
+            logger.exception("local procedural build %s failed", job.job_id)
+            job.error = f"{type(exc).__name__}: {exc}"
+            job.status = STATUS_ERROR
+            job.stage = "error"
+            return
+        if job.status == STATUS_RUNNING:
+            # The handler returned without a verdict: say so rather than poll for ever.
+            job.status = STATUS_ERROR
+            job.error = job.error or "procedural build ended without a result"
+
+    task = asyncio.get_running_loop().create_task(_run())
+    _PROCEDURAL_TASKS.add(task)
+    task.add_done_callback(_PROCEDURAL_TASKS.discard)
+    return job
+
+
 def start_asset_build(
     *,
     request: Any,

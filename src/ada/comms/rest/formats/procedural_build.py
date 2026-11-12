@@ -41,8 +41,19 @@ async def _run_procedural_build(
     queue: "JobQueue",
     db_pool: "asyncpg.Pool | None",
     started_at: float,
+    model_row: dict | None = None,
+    audit: bool = True,
 ) -> None:
     """Compile a procedural cell model (postgres-stored doc) into a GLB.
+
+    ``model_row`` is the model as the caller already read it, for a server with no
+    database: a local viewer keeps its models as storage files
+    (:mod:`..procedural_store`) and runs this in-process
+    (``local_jobs.start_procedural_build``). Without a pool there are no
+    equipment/system catalogs and no CAD links to resolve, so a doc that places
+    catalog items compiles them as the default engine does an unknown slug.
+    ``audit=False`` skips the audit row, which a queue-less server has nowhere to
+    report to.
 
     ``conversion_options`` carries ``{"model_id": ..., "revision": ...}``; the
     worker reads the doc straight from postgres (single source of truth) and
@@ -114,15 +125,16 @@ async def _run_procedural_build(
         # had already emitted — a failed run's log must stay retrievable and must
         # read as a FAILURE, distinguishable from the success that may follow it.
         await _write_run_log(f"failed at {stage}: {msg}")
-        await _audit_done(
-            db_pool,
-            job_id,
-            "error",
-            msg,
-            started_at,
-            traceback=trace,
-            metrics={"log_key": run_log["key"]} if run_log["key"] else None,
-        )
+        if audit:
+            await _audit_done(
+                db_pool,
+                job_id,
+                "error",
+                msg,
+                started_at,
+                traceback=trace,
+                metrics={"log_key": run_log["key"]} if run_log["key"] else None,
+            )
 
     if not model_id or not isinstance(revision, int):
         await _fail("build", "conversion_options.model_id and revision are required for procedural_build")
@@ -131,13 +143,13 @@ async def _run_procedural_build(
     # the derived key to go on (a cache hit, or a run that dies before writing
     # bytes) then resolves to this run rather than to whichever ran last.
     await _put_run_pointer(storage, scope, job.derived_key, job_id)
-    if db_pool is None:
+    if db_pool is None and model_row is None:
         await _fail("build", "procedural build requires DATABASE_URL on the worker")
         return
 
     from .. import db as db_module
 
-    row = await db_module.get_procedural_model(db_pool, model_id)
+    row = model_row if model_row is not None else await db_module.get_procedural_model(db_pool, model_id)
     if row is None:
         await _fail("build", f"procedural model {model_id} not found")
         return
@@ -163,9 +175,15 @@ async def _run_procedural_build(
     # no install happens — the entrypoint module is imported like any other.
     external_entrypoint: str | None = None
     if not is_default_engine(engine) and engine not in BUILTIN_ENGINES:
-        eng_row = await db_module.get_procedural_engine_by_slug(
-            db_pool, scope_kind=row["scope_kind"], scope_id=row["scope_id"], slug=engine
+        eng_row = (
+            await db_module.get_procedural_engine_by_slug(
+                db_pool, scope_kind=row["scope_kind"], scope_id=row["scope_id"], slug=engine
+            )
+            if db_pool is not None
+            else None
         )
+        # No row (or no database): an engine registered in THIS process - a local
+        # viewer's tools register theirs at import (``register_procedural_engine_capabilities``).
         eng_doc = ((eng_row or {}).get("doc") if eng_row else None) or _advertised_engine_doc(engine)
         if eng_doc is None:
             await _fail("build", f"procedural engine {engine!r} is neither registered in scope nor advertised here")
@@ -187,15 +205,17 @@ async def _run_procedural_build(
             logger.warning("procedural: source workbook %s unreadable; compiling from the doc", source_key)
 
     # Resolve placed catalog equipment (by slug) to its per-scope definition.
-    catalog = await db_module.get_equipment_docs_by_scope(
-        db_pool, scope_kind=row["scope_kind"], scope_id=row["scope_id"]
+    catalog = (
+        await db_module.get_equipment_docs_by_scope(db_pool, scope_kind=row["scope_kind"], scope_id=row["scope_id"])
+        if db_pool is not None
+        else {}
     )
 
     # When equipment_cad is on, prefetch the linked CAD assets for the catalog
     # slugs the model actually places, so the compiler can splice in real
     # geometry instead of boxes.
     cad_bytes: dict[str, tuple[bytes, str]] = {}
-    if doc.get("equipment_cad"):
+    if doc.get("equipment_cad") and db_pool is not None:
         used = {(e.get("DESCRIPTION") or "").strip() for e in (doc.get("equipments") or [])}
         cad_keys = await db_module.get_equipment_cad_keys_by_scope(
             db_pool, scope_kind=row["scope_kind"], scope_id=row["scope_id"]
@@ -365,14 +385,15 @@ async def _run_procedural_build(
     # Hand the run's log to the audit row, so the admin panel's existing per-row
     # "Log" tab (GET /admin/audit/{id}/log) serves a compile exactly as it serves
     # a conversion — no parallel surface for procedural runs.
-    await _audit_done(
-        db_pool,
-        job_id,
-        "done",
-        None,
-        started_at,
-        metrics={"log_key": run_log["key"]} if run_log["key"] else None,
-    )
+    if audit:
+        await _audit_done(
+            db_pool,
+            job_id,
+            "done",
+            None,
+            started_at,
+            metrics={"log_key": run_log["key"]} if run_log["key"] else None,
+        )
 
 
 def _serialize_structural_artifact(assembly) -> "tuple[bytes, dict]":

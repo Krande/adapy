@@ -120,8 +120,20 @@ FEATURE_UNAVAILABLE_DETAIL: dict[str, str] = {
 #: already read needs nothing a cluster adds, and "Download as" is a button on every selection.
 #: ``simulation`` like ``plugin_jobs``: a provider registered in this process runs here, so a
 #: desktop install with one simulator installed needs no queue to use it.
+#: ``procedural_build`` too: the built-in engines and any engine a tool registers in this
+#: process compile with nothing a pool adds, and a local viewer's Build mode is otherwise a
+#: document editor that can never show its model (``local_jobs.start_procedural_build``).
 LOCAL_FEATURES: frozenset[str] = frozenset(
-    {"asset_build", "asset_publish", "clash_check", "clash_detail", "export_selection", "plugin_jobs", "simulation"}
+    {
+        "asset_build",
+        "asset_publish",
+        "clash_check",
+        "clash_detail",
+        "export_selection",
+        "plugin_jobs",
+        "procedural_build",
+        "simulation",
+    }
 )
 
 
@@ -150,6 +162,11 @@ class JobRequest:
     step: int | None = None
     field_name: str | None = None
     force_rebuild: bool = False
+    #: What an IN-PROCESS run needs that a worker reads for itself, handed over by the
+    #: route that already has it. ``procedural_build``: ``{"model_row": ...}`` (a worker
+    #: reads the row from postgres; a local viewer's model is a storage file the route
+    #: just read). Never sent to a queue: :class:`QueueJobTransport` ignores it.
+    inprocess_inputs: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -403,6 +420,8 @@ class LocalJobTransport(_BaseTransport):
             return self._submit_export_selection(req)
         if req.feature == "simulation":
             return self._submit_simulation(req)
+        if req.feature == "procedural_build":
+            return self._submit_procedural_build(req)
         if not req.plugin_id:
             raise HTTPException(status_code=500, detail="a local job needs a plugin_id")
         try:
@@ -428,6 +447,34 @@ class LocalJobTransport(_BaseTransport):
             progress=job.progress,
             target_capability=None,
             payload=payload,
+        )
+
+    def _submit_procedural_build(self, req: JobRequest) -> SubmittedJob:
+        """A procedural compile in this process. Only the single-stage build: an EXTERNAL
+        detailing engine is a chained job on its own capability pool, which a local viewer
+        does not have (``resolve_detailing_engine`` finds no advertised spec without one)."""
+        if req.target_format != "procedural_build":
+            self.unavailable(req.feature)
+        row = (req.inprocess_inputs or {}).get("model_row")
+        if not isinstance(row, dict):
+            raise HTTPException(status_code=500, detail="an in-process procedural build needs the model row")
+        job = local_jobs.start_procedural_build(
+            model_row=row,
+            source_key=req.source_key,
+            derived_key=req.derived_key or "",
+            conversion_options=req.conversion_options or {},
+            force_rebuild=req.force_rebuild,
+            storage=self._storage,
+            scope=req.scope,
+        )
+        return SubmittedJob(
+            job_id=job.job_id,
+            derived_key=job.derived_key,
+            status=job.status,
+            stage=job.stage,
+            progress=job.progress,
+            target_capability=None,
+            payload=job.as_json(),
         )
 
     def _submit_asset_build(self, req: JobRequest) -> SubmittedJob:
