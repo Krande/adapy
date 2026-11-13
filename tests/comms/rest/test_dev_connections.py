@@ -87,6 +87,24 @@ def _wait_for(client: TestClient, pred, timeout: float = 120.0) -> dict:
         time.sleep(0.2)
 
 
+def _settled(client: TestClient, quiet: float = 2.0, timeout: float = 120.0) -> dict:
+    """The state once the library has gone ``quiet`` seconds (several watch cycles) without reloading."""
+    from ada.comms.rest.dev_connections import POLL_INTERVAL_S, SETTLE_S
+
+    quiet = max(quiet, 3 * (POLL_INTERVAL_S + SETTLE_S))
+    deadline = time.monotonic() + timeout
+    state = client.get("/api/dev/connections").json()
+    since = time.monotonic()
+    while time.monotonic() - since < quiet:
+        if time.monotonic() > deadline:
+            raise AssertionError(f"the library never settled; last state: {state}")
+        time.sleep(0.2)
+        now = client.get("/api/dev/connections").json()
+        if now["generation"] != state["generation"] or now["status"] != state["status"]:
+            state, since = now, time.monotonic()
+    return state
+
+
 def test_routes_absent_without_a_library(tmp_path: pathlib.Path, monkeypatch):
     monkeypatch.delenv(ENV_CONFIG, raising=False)
     with TestClient(create_app(_settings(tmp_path))) as c:
@@ -207,12 +225,14 @@ def test_the_studio_offers_its_detail_as_a_weld_assembly(client: TestClient, lib
     from ada.simulation.subjects import parse_weld_assembly
 
     _write(lib_dir, name="devrest.welded", body=WELDED_BODY.strip())
-    generation = _wait_for(client, lambda s: s["status"] in ("ready", "error"))["generation"]
     state = _wait_for(
         client, lambda s: any(x["name"] == "devrest.welded" for x in s["specs"]) and s["status"] == "ready"
     )
     assert state["status"] == "ready", state["error"]
-    del generation
+    # The first load can already see the file while the watcher's baseline predates it, so one more
+    # reload may follow. A subject's key names the library generation: let it settle first.
+    state = _settled(client)
+    assert state["status"] == "ready", state["error"]
 
     r = client.post("/api/dev/connections/subject", json={"spec_name": "devrest.welded", "inputs": {}})
     assert r.status_code == 200, r.text
