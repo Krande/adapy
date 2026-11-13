@@ -647,3 +647,38 @@ async def test_an_image_in_the_world_has_its_first_row_at_its_origin_and_each_pi
             assert (await _seen(page))["magenta"] == 0
         finally:
             await browser.close()
+
+
+@pytest.mark.parametrize("backend", WAYS)
+async def test_layers_added_to_an_empty_viewport_are_drawn_after_the_first_model_loads(ws_server, backend):
+    """A run is opened in an empty viewer: its layers are added first and its model loaded after. The
+    layers are then drawn with the model, and keep following the clock."""
+    async with async_playwright() as playwright:
+        browser, page, state = await _open_viewer(playwright, ws_server, backend, SCRIPTED_SCENE)
+        complaints: list[str] = []
+        page.on("console", lambda m: complaints.append(m.text) if m.type in ("warning", "error") else None)
+        try:
+            await page.evaluate(ADD_LAYERS)
+            await _seek(page, DURATION / 2)
+            await _load_model(page, _animated_glb(), "sliding.glb")
+            await _until(page, lambda: _block_on_screen(page), "the model to be drawn")
+            await _assert_drawing_with(page, backend, state)
+
+            half = await _seek(page, DURATION / 2)
+            assert half["magenta"] > 2000, f"{backend}: the image is not drawn after the model loaded: {half}"
+            # (the camera framed the model, so how much of each layer is in view differs by viewport)
+            assert half["cyan"] > 100 and half["yellow"] > 10, f"{backend}: the line or the points are not drawn: {half}"
+            end = await _seek(page, DURATION)
+            assert end["magenta"] > 1.2 * half["magenta"], f"{backend}: the image did not follow the clock: {half} then {end}"
+            assert end["cyan"] > half["cyan"], f"{backend}: the line did not follow the clock: {half} then {end}"
+
+            # Scrubbing on shows each moment without a complaint from the clock or the renderer.
+            shown = await page.evaluate("window.__run.shown")
+            for k in range(40):
+                await page.evaluate(f"{SCENE}.playback.seek({DURATION} * {k} / 40)")
+            await page.wait_for_timeout(500)
+            assert await page.evaluate("window.__run.shown") >= shown + 30
+            failed = [c for c in complaints if "failed to show a moment" in c or "adacpp-native" in c]
+            assert not failed, f"{backend}: {failed[:3]}"
+        finally:
+            await browser.close()
