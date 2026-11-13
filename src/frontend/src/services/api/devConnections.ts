@@ -111,6 +111,27 @@ export interface DevBuildResult {
   build_ms: number;
 }
 
+/** The detail offered as a simulation subject (`POST /dev/connections/subject`): a weld assembly
+ *  stored in the caller's scope. */
+export interface DevSubjectResult {
+  scope: string;
+  /** The subject file's blob key in `scope`. */
+  key: string;
+  /** The subject kind (`SUBJECT_KINDS` on the server): `"weld-assembly"`. */
+  kind: string;
+  welds: number;
+  /** What a person calls it: `"<spec> (<n> welds)"`. */
+  label: string;
+}
+
+/** The detail has no welds: there is nothing to simulate (HTTP 409). */
+export class DevSubjectRefused extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "DevSubjectRefused";
+  }
+}
+
 /** A builder that raised: its message and traceback (from the library's own code). `declined`
  *  when it raised NotApplicable -- it refused these members, which is not a crash. */
 export class DevBuildError extends Error {
@@ -143,6 +164,26 @@ export const devConnectionsApi = {
       throw new DevBuildError(body.error ?? "build failed", body.traceback ?? null, body.declined === true);
     }
     return jsonOrThrow<DevBuildResult>(r, `devConnections.build(${specName})`);
+  },
+
+  /** Offer the detail built from `inputs` as a simulation subject: the server stores its weld
+   *  assembly. Throws {@link DevSubjectRefused} when it has no welds and {@link DevBuildError} when
+   *  the builder raises. */
+  async subject(specName: string, inputs: ConnectionInputs): Promise<DevSubjectResult> {
+    const r = await authedFetch(`${base()}/subject`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ spec_name: specName, inputs }),
+    });
+    if (r.status === 409) {
+      const body = (await r.json().catch(() => ({}))) as { detail?: string };
+      throw new DevSubjectRefused(body.detail ?? "the detail has no welds");
+    }
+    if (r.status === 422) {
+      const body = (await r.json()) as { error?: string; traceback?: string | null; declined?: boolean };
+      throw new DevBuildError(body.error ?? "build failed", body.traceback ?? null, body.declined === true);
+    }
+    return jsonOrThrow<DevSubjectResult>(r, `devConnections.subject(${specName})`);
   },
 
   async reload(): Promise<DevConnectionsState> {

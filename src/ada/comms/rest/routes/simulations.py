@@ -45,6 +45,7 @@ from .. import pending_uploads
 from ..auth import User
 from ..job_transport import JobRequest
 from ..scope import Scope
+from ..simulation_relay import SimulationRelay, merge_providers, relay_of
 from ..simulation_runs import (
     domain_listing,
     list_providers,
@@ -62,8 +63,15 @@ KIND = "simulation_run"
 _MAX_INPUTS = 64
 
 
-async def _providers(ctx: RestContext) -> list[dict]:
-    return await list_providers(ctx.jobs, stale_after_s=ctx.queue.WORKER_STALE_AFTER_S)
+async def _providers(ctx: RestContext, request: Request) -> list[dict]:
+    """The providers a run can be started on: this deployment's, and a remote Ada Studio's when one is
+    configured (``simulation_relay``; marked ``remote: true``; a local provider wins an id clash)."""
+    local = await list_providers(ctx.jobs, stale_after_s=ctx.queue.WORKER_STALE_AFTER_S)
+    relay = relay_of(request)
+    if relay is None:
+        return local
+    remote, _ = await relay.providers()
+    return merge_providers(local, remote)
 
 
 def _require_domain(domain: str | None) -> str | None:
@@ -77,6 +85,7 @@ def _require_domain(domain: str | None) -> str | None:
 
 @router.get("/simulation/providers")
 async def api_simulation_providers(
+    request: Request,
     domain: str | None = None,
     ctx: RestContext = Depends(rest_context),
 ) -> JSONResponse:
@@ -89,12 +98,21 @@ async def api_simulation_providers(
 
     A provider stays listed, ``online: false``, after its last worker stops, until the worker
     registry prunes the row. Without a queue the providers are the ones registered in this
-    process, which runs them itself."""
+    process, which runs them itself.
+
+    With a remote Ada Studio configured (``ADA_SIMULATION_REMOTE_URL``) its providers are listed too,
+    each marked ``remote: true``, and the answer carries ``remote: {url, error}`` (``error``: why the
+    remote could not be asked, else null). A run on one is relayed to it."""
     _require_domain(domain)
-    providers = await _providers(ctx)
+    providers = await _providers(ctx, request)
     if domain is not None:
         providers = [p for p in providers if p["domain"] == domain]
-    return JSONResponse({"domains": domain_listing(), "providers": providers})
+    body: dict = {"domains": domain_listing(), "providers": providers}
+    relay = relay_of(request)
+    if relay is not None:
+        _, error = await relay.providers()
+        body["remote"] = {"url": relay.url, "error": error}
+    return JSONResponse(body)
 
 
 def _inputs_from(raw) -> list[str]:
@@ -154,7 +172,7 @@ async def api_simulation_start(
         raise HTTPException(status_code=400, detail="'provider' (a simulation provider id) is required")
     ctx.jobs.require("simulation")
 
-    provider = provider_by_id(await _providers(ctx), provider_id)
+    provider = provider_by_id(await _providers(ctx, request), provider_id)
     if provider is None:
         raise HTTPException(status_code=404, detail=f"unknown simulation provider {provider_id!r}")
     if not provider["online"]:
@@ -190,6 +208,31 @@ async def api_simulation_start(
             raise HTTPException(status_code=409, detail=pending_upload_detail(key, pending))
         if not await ctx.storage.exists(scope_obj, key):
             raise HTTPException(status_code=404, detail=f"no input file at {key!r}")
+
+    if provider.get("remote"):
+        # Handed off: the inputs go to the remote studio, the run starts there, and the record kept
+        # here points at it (simulation_relay). The run id is the remote's, so artefact keys agree.
+        relay = relay_of(request)
+        assert relay is not None  # a remote provider is only listed by a relay
+        record = await relay.start(
+            ctx.storage,
+            scope_obj,
+            provider_id=provider_id,
+            parameters=parameters,
+            kind=kind,
+            subject=subject,
+            inputs=inputs,
+        )
+        await ctx.audit(
+            request,
+            user,
+            scope_obj,
+            "simulation_run",
+            key=run_record_key(record["run_id"]),
+            target_format=KIND,
+            status="queued",
+        )
+        return JSONResponse({"run": record})
 
     record = new_run_record(
         run_id=new_run_id(),
@@ -247,6 +290,7 @@ async def api_simulation_start(
 
 @router.get("/scopes/{scope}/simulations")
 async def api_simulation_list(
+    request: Request,
     limit: int = 50,
     provider: str | None = None,
     domain: str | None = None,
@@ -270,8 +314,22 @@ async def api_simulation_list(
             continue
         if domain is not None and record["provider"].get("domain") != domain:
             continue
-        runs.append(await run_view(ctx.storage, scope_obj, ctx.jobs, record))
+        runs.append(await _view(ctx, request, scope_obj, record, strict=False))
     return JSONResponse({"runs": runs})
+
+
+async def _view(ctx: RestContext, request: Request, scope_obj: Scope, record: dict, *, strict: bool) -> dict:
+    """The run as a client sees it: its job's view here, the remote's for a relayed run."""
+    if record.get("remote"):
+        relay: SimulationRelay | None = relay_of(request)
+        if relay is None:
+            raise HTTPException(
+                status_code=502,
+                detail=f"run {record['run_id']} was handed to {record['remote'].get('url')}, "
+                "but no remote Ada Studio is configured (ADA_SIMULATION_REMOTE_URL)",
+            )
+        return await relay.view(ctx.storage, scope_obj, record, strict=strict)
+    return await run_view(ctx.storage, scope_obj, ctx.jobs, record)
 
 
 async def _require_run(ctx: RestContext, scope_obj: Scope, run_id: str) -> dict:
@@ -287,6 +345,7 @@ async def _require_run(ctx: RestContext, scope_obj: Scope, run_id: str) -> dict:
 @router.get("/scopes/{scope}/simulations/{run_id}")
 async def api_simulation_read(
     run_id: str,
+    request: Request,
     scope_obj: Scope = Depends(scope_from_path),
     ctx: RestContext = Depends(rest_context),
 ) -> JSONResponse:
@@ -297,7 +356,7 @@ async def api_simulation_read(
     list are the job's, so an artefact with ``partial: true`` can be fetched before the end;
     its ``revision`` goes up each time it is stored again."""
     record = await _require_run(ctx, scope_obj, run_id)
-    return JSONResponse({"run": await run_view(ctx.storage, scope_obj, ctx.jobs, record)})
+    return JSONResponse({"run": await _view(ctx, request, scope_obj, record, strict=True)})
 
 
 @router.post("/scopes/{scope}/simulations/{run_id}/cancel")
@@ -316,6 +375,13 @@ async def api_simulation_cancel(
     ``cancel_requested`` until the provider stops at its next check and the run ends as
     ``cancelled``. ``cancelled`` is false for a run that had already ended."""
     record = await _require_run(ctx, scope_obj, run_id)
+    if record.get("remote"):
+        relay = relay_of(request)
+        if relay is None:
+            await _view(ctx, request, scope_obj, record, strict=True)  # raises the 502 that says why
+        assert relay is not None
+        await ctx.audit(request, user, scope_obj, "simulation_cancel", key=run_record_key(run_id), target_format=KIND)
+        return JSONResponse(await relay.cancel(ctx.storage, scope_obj, record))
     view = await run_view(ctx.storage, scope_obj, ctx.jobs, record)
     if view["status"] in TERMINAL_STATUSES:
         return JSONResponse({"run": view, "cancelled": False})
