@@ -32,6 +32,7 @@ import {
 import { durationLabel, runLabel, runOutcome, startedLabel } from "@/services/simulations/runRow";
 import { defaultParameters, missingRequired } from "@/services/simulations/schemaForm";
 import { useViewerStores } from "@/state/AdaViewerContext";
+import { useRunConsoleStore } from "@/state/runConsoleStore";
 import { scopeUrlPart, useScopeStore } from "@/state/scopeStore";
 import { providersByDomain, useSimulationStore } from "@/state/simulationStore";
 import { usePluginTheme } from "@/state/themeStore";
@@ -129,6 +130,8 @@ const RunRow: React.FC<{
     setOpenError(null);
     try {
       await opener.ui.openResult(contextFor(opener.pluginId), { run, scope, provider });
+      // The run on screen is this one from here on: its console follows its activity feed.
+      useRunConsoleStore.getState().open(scope, run, label);
     } catch (err) {
       // Against this run only: one result that will not open says nothing about the next.
       setOpenError(err instanceof Error ? err.message : String(err));
@@ -308,6 +311,17 @@ export const SimulationsBody: React.FC = () => {
     void loadRuns(scope);
   }, [scope, loadProviders, loadRuns]);
 
+  const [refreshing, setRefreshing] = useState(false);
+  const refresh = async () => {
+    setRefreshing(true);
+    try {
+      // Either failing says so in its own place (providersError, runsError); neither throws.
+      await Promise.all([loadProviders(), loadRuns(scope)]);
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
   const groups = useMemo(() => providersByDomain(domains, providers), [domains, providers]);
   const shownGroups = domainFilter ? groups.filter((g) => g.domain.id === domainFilter) : groups;
   const shownRuns = domainFilter ? runs.filter((r) => r.provider.domain === domainFilter) : runs;
@@ -364,7 +378,22 @@ export const SimulationsBody: React.FC = () => {
 
       {selected && <StartForm scope={scope} provider={selected} />}
 
-      <div className="text-gray-400 uppercase tracking-wide">Runs</div>
+      <div className="flex items-center gap-2">
+        <div className="text-gray-400 uppercase tracking-wide flex-1">Runs</div>
+        {/* The store follows the runs it knows are unfinished; a run somebody else started since the
+            panel was opened (another tab, the API, a schedule) is only found by asking again. */}
+        <button
+          type="button"
+          className={BUTTON}
+          title="Look for new runs, and for providers that have come or gone"
+          aria-label="Refresh the runs"
+          disabled={refreshing}
+          data-runs-refresh
+          onClick={() => void refresh()}
+        >
+          {refreshing ? "Refreshing…" : "Refresh"}
+        </button>
+      </div>
       {runsError && <div className="text-red-300 break-words">{runsError}</div>}
       {shownRuns.length === 0 ? (
         <div className="text-gray-400">No runs in this scope yet.</div>

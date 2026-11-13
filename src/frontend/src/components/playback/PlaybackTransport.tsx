@@ -6,7 +6,11 @@
 
 import React, { useSyncExternalStore } from "react";
 
+import RunConsole from "@/components/simulations/RunConsole";
 import { playbackClock } from "@/state/playbackClock";
+import { useRunConsoleStore } from "@/state/runConsoleStore";
+
+import { clockText } from "./clockText";
 
 const SPEEDS = [0.1, 0.25, 0.5, 1, 2, 4, 8];
 const BUTTON =
@@ -14,21 +18,22 @@ const BUTTON =
   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300";
 const TOGGLE_ON = "ring-2 ring-blue-300";
 
-/** Seconds as "m:ss.s", for the readout. */
-export function clockText(seconds: number): string {
-  const whole = Math.max(0, seconds);
-  const minutes = Math.floor(whole / 60);
-  const rest = whole - minutes * 60;
-  return `${minutes}:${rest < 10 ? "0" : ""}${rest.toFixed(1)}`;
-}
+export { clockText };
 
 const getState = () => playbackClock.state();
 
 const PlaybackTransport: React.FC = () => {
   const state = useSyncExternalStore(playbackClock.subscribe, getState, getState);
-  if (state.tracks === 0) return null;
+  // The console of the run whose result is on screen (state/runConsoleStore.ts): offered while
+  // such a run is open, whether or not it has said anything yet.
+  const consoleRun = useRunConsoleStore((s) => s.run);
+  const consoleShown = useRunConsoleStore((s) => s.shown);
+  const setConsoleShown = useRunConsoleStore((s) => s.setShown);
+  if (state.tracks === 0) return <RunConsole />;
   const speeds = SPEEDS.includes(state.speed) ? SPEEDS : [...SPEEDS, state.speed].sort((a, b) => a - b);
   return (
+    <>
+    <RunConsole />
     <div
       className="absolute bottom-3 left-1/2 z-10 flex w-[min(92%,640px)] -translate-x-1/2 items-center gap-2 rounded-md bg-gray-900/80 px-2 py-1 text-xs text-white"
       data-playback-transport="true"
@@ -94,7 +99,21 @@ const PlaybackTransport: React.FC = () => {
       >
         Live
       </button>
+      {consoleRun && (
+        <button
+          type="button"
+          className={`${BUTTON} ${consoleShown ? TOGGLE_ON : ""}`}
+          title="What each actor of the run is doing and planning at this moment"
+          aria-label="Console"
+          aria-pressed={consoleShown}
+          data-run-console-toggle
+          onClick={() => setConsoleShown(!consoleShown)}
+        >
+          Console
+        </button>
+      )}
     </div>
+    </>
   );
 };
 

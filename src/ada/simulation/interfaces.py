@@ -72,6 +72,12 @@ class SimulationDomain:
 #: Roles a run of any domain may use beside its domain's own.
 COMMON_ARTEFACT_ROLES: tuple[ArtefactRole, ...] = (
     ArtefactRole("log", "The run's log, as text."),
+    ArtefactRole(
+        "activity",
+        "What each actor of the run (a robot, a solver stage, the mission itself) was doing and planning over "
+        "time: an activity feed (ada.simulation.activity), on the run's own clock. The viewer shows it as the "
+        "run's console, beside the result and while the run is still going.",
+    ),
     ArtefactRole("report", "A summary for people to read."),
     ArtefactRole("data", "Anything else; only the provider's own result handler knows what it is."),
 )
