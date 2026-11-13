@@ -91,7 +91,12 @@ test("a load tagged by the owning mode is its own painting", () => {
   assert.equal(s().requestingOwner("model.SIN"), RESULTS_OWNER); // no owning mode
 
   s().push("inspect", userView);
-  // A repaint of the source on screen is the mode's; another model is the user's.
+  // A mode that paints nothing does not own a repaint: the results' own (a step,
+  // playback, a finished bake) stay theirs, set aside under the mode.
+  assert.equal(s().requestingOwner("model.SIN"), RESULTS_OWNER);
+  // Once it paints (a property: it reports so before asking), a repaint of the source
+  // on screen is the mode's; another model is the user's.
+  s().markPainted("inspect");
   assert.equal(s().requestingOwner("model.SIN"), "inspect");
   assert.equal(s().requestingOwner("other.SIN"), RESULTS_OWNER);
   assert.equal(s().requestingOwner(null), RESULTS_OWNER);
@@ -171,6 +176,7 @@ test("an owner that takes its own painting off is suspended fresh next time", ()
   s().noteLoad("model.SIN", RESULTS_OWNER, userView);
   s().push("inspect", userView);
   // The mode paints a property of its own...
+  s().markPainted("inspect");
   const painted = view("props.material", 1, 3);
   s().noteLoad("model.SIN", s().requestingOwner("model.SIN"), painted);
   assert.equal(s().stack[1].painted, true);
@@ -193,4 +199,16 @@ test("only the owner on top can take its painting off, and never results", () =>
   s().reset();
   assert.equal(s().unmarkPainted(RESULTS_OWNER), false);
   assert.equal(s().stack[0].painted, true);
+});
+
+test("a results repaint under a mode that paints nothing stays set aside", () => {
+  s().noteLoad("model.SIN", RESULTS_OWNER, userView);
+  s().push("build", userView); // Build paints nothing
+  // The bake finishes, playback steps, the shown range repaints: the same source again.
+  const tag = s().requestingOwner("model.SIN");
+  assert.equal(tag, RESULTS_OWNER);
+  const landed = view("sesam.nodes.displacement", 0, 39);
+  assert.equal(s().noteLoad("model.SIN", tag, landed), true, "suspended: no field, no legend in Build");
+  assert.equal(s().stack[1].painted, false);
+  assert.deepEqual(s().pop(landed)?.below.view, landed, "and Results gets it back");
 });

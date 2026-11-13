@@ -29,6 +29,7 @@ import {CORE_PANEL_IDS, isPanelOpen, reveal} from "@/layout/panelActions";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {
     noteFieldSourceLoaded,
+    sceneColorOwner,
     requestingSceneColorOwner,
 } from "../fea/modeSceneColor";
 import type {FeaSessionHandle} from "@/state/modelSession";
@@ -147,10 +148,15 @@ async function loadOnResultLayers(args: LoadFeaStreamingArgs): Promise<void> {
     if (useNativeViewport.getState().model) useNativeViewport.setState({model: null});
     const ms = useModelState.getState();
     if (ms.loadedSourceName !== args.sourceName) ms.setLoadedSourceName(args.sourceName);
-    if (args.fieldName != null && !isPanelOpen(CORE_PANEL_IDS.simulation)) reveal(CORE_PANEL_IDS.simulation);
+    if (args.fieldName != null && resultsOnScreen() && !isPanelOpen(CORE_PANEL_IDS.simulation)) reveal(CORE_PANEL_IDS.simulation);
     // After the source is named: naming it empties what the previous model put in these stores.
     await registerLayerResult(args);
 }
+
+/** Whether the result view is the one on screen: no mode owns the scene colouring
+ *  (`modeSceneColor`). A result loaded under another mode (Build, Inspect, Capacity,
+ *  Convert) opens none of the result panels there; they are Results'. */
+const resultsOnScreen = (): boolean => sceneColorOwner() === null;
 
 export async function load_fea_streaming(args: LoadFeaStreamingArgs): Promise<void> {
     if (isNativeViewportActive()) return loadOnResultLayers(args);
@@ -545,7 +551,7 @@ export async function load_fea_streaming(args: LoadFeaStreamingArgs): Promise<vo
     // session they just kicked off. Idempotent — re-applying with a
     // panel already open is a no-op. Field-less FEM meshes have nothing
     // to drive there, so leave the panel as-is.
-    if (field && !isPanelOpen(CORE_PANEL_IDS.simulation)) reveal(CORE_PANEL_IDS.simulation);
+    if (field && resultsOnScreen() && !isPanelOpen(CORE_PANEL_IDS.simulation)) reveal(CORE_PANEL_IDS.simulation);
 
     stage("ready", 1.0);
 }
