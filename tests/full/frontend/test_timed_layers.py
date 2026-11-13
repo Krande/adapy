@@ -667,9 +667,13 @@ async def test_layers_added_to_an_empty_viewport_are_drawn_after_the_first_model
             half = await _seek(page, DURATION / 2)
             assert half["magenta"] > 2000, f"{backend}: the image is not drawn after the model loaded: {half}"
             # (the camera framed the model, so how much of each layer is in view differs by viewport)
-            assert half["cyan"] > 100 and half["yellow"] > 10, f"{backend}: the line or the points are not drawn: {half}"
+            assert (
+                half["cyan"] > 100 and half["yellow"] > 10
+            ), f"{backend}: the line or the points are not drawn: {half}"
             end = await _seek(page, DURATION)
-            assert end["magenta"] > 1.2 * half["magenta"], f"{backend}: the image did not follow the clock: {half} then {end}"
+            assert (
+                end["magenta"] > 1.2 * half["magenta"]
+            ), f"{backend}: the image did not follow the clock: {half} then {end}"
             assert end["cyan"] > half["cyan"], f"{backend}: the line did not follow the clock: {half} then {end}"
 
             # Scrubbing on shows each moment without a complaint from the clock or the renderer.
