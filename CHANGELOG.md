@@ -2,6 +2,13 @@
 
 
 
+## v0.153.0 (2026-11-13)
+
+### Feature
+
+* feat: run console, simulation subjects and remote hand-off; plugins pose loaded models (plugin API 1.21.0) (#547) ([`5f29cfb`](https://github.com/Krande/adapy/commit/5f29cfb9b829175aa4cfdb7416f7078f4bfeb446))
+
+
 ## v0.152.0 (2026-11-13)
 
 ### Feature
