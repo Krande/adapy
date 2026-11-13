@@ -2,6 +2,15 @@
 
 
 
+## v0.152.0 (2026-11-13)
+
+### Feature
+
+* feat: compact, scrolling runs list in the simulations panel; the docs image no longer asks for Abaqus and Sesam (#543)
+
+Co-authored-by: Claude Fable 5.2 &lt;noreply@anthropic.com&gt; ([`5c9a0f5`](https://github.com/Krande/adapy/commit/5c9a0f544de0f0862b3e33c1aa57d5a5316dded6))
+
+
 ## v0.151.2 (2026-11-13)
 
 ### Fix

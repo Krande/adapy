@@ -1,5 +1,5 @@
-// The Simulations panel (`core:simulations`): what can be simulated here, and the runs of the
-// open scope.
+// The simulations panel (`core:simulations`, titled "Robotic Simulations"): what can be simulated
+// here, and the runs of the open scope.
 //
 // Three parts, top to bottom:
 //
@@ -8,9 +8,10 @@
 //   * the start form of the chosen provider -- a plugin's parameter section when one is
 //     registered for the provider or its domain (`simulationProviders` in the plugin registry),
 //     else inputs generated from the provider's JSON Schema;
-//   * the scope's runs, newest first, each with its status, progress, a cancel button while it
-//     is going, and its result: a plugin's "open" handler when there is one, and always the
-//     artefacts as downloads.
+//   * the scope's runs, newest first, a line each: its status, what it is called, when it was
+//     started, a cancel button while it is going, and a plugin's "open" handler when there is
+//     one. A line opens to the rest (who started it, how long it took, its outcome, its
+//     artefacts as downloads), one at a time. The list scrolls within the panel.
 //
 // It knows no engine. Everything specific to one is the server's description of the provider or
 // a plugin's registration.
@@ -28,6 +29,7 @@ import {
   type SimulationProviderInfo,
   type SimulationRun,
 } from "@/services/api/simulations";
+import { durationLabel, runLabel, runOutcome, startedLabel } from "@/services/simulations/runRow";
 import { defaultParameters, missingRequired } from "@/services/simulations/schemaForm";
 import { useViewerStores } from "@/state/AdaViewerContext";
 import { scopeUrlPart, useScopeStore } from "@/state/scopeStore";
@@ -36,7 +38,17 @@ import { usePluginTheme } from "@/state/themeStore";
 
 import { SchemaForm } from "./SchemaForm";
 
+/** The panel's name, wherever it is shown. */
+export const SIMULATIONS_PANEL_TITLE = "Robotic Simulations";
+
 const BUTTON = "rounded-sm bg-gray-700 px-2 py-0.5 text-white hover:bg-gray-600 disabled:opacity-40 disabled:hover:bg-gray-700";
+const STATUS_DOT: Record<string, string> = {
+  queued: "bg-gray-400",
+  running: "bg-blue-400",
+  done: "bg-green-400",
+  error: "bg-red-400",
+  cancelled: "bg-yellow-400",
+};
 const STATUS_COLOR: Record<string, string> = {
   queued: "text-gray-300",
   running: "text-blue-300",
@@ -93,11 +105,13 @@ const ArtefactList: React.FC<{ scope: string; artefacts: readonly SimulationArte
   );
 };
 
-const RunRow: React.FC<{ scope: string; run: SimulationRun; provider: SimulationProviderInfo | null }> = ({
-  scope,
-  run,
-  provider,
-}) => {
+const RunRow: React.FC<{
+  scope: string;
+  run: SimulationRun;
+  provider: SimulationProviderInfo | null;
+  expanded: boolean;
+  onToggle: () => void;
+}> = ({ scope, run, provider, expanded, onToggle }) => {
   const cancelRun = useSimulationStore((s) => s.cancelRun);
   const contextFor = usePluginContextFor();
   const [openError, setOpenError] = useState<string | null>(null);
@@ -105,6 +119,10 @@ const RunRow: React.FC<{ scope: string; run: SimulationRun; provider: Simulation
   const opener = resolveSimulationProviderUi(baseCtx, run.provider).openResult;
   const active = isActiveRun(run);
   const percent = Math.round(Math.max(0, Math.min(1, run.progress)) * 100);
+  const status = run.cancel_requested && active ? "cancelling" : run.status;
+  const label = runLabel(run, provider);
+  const outcome = runOutcome(run);
+  const took = durationLabel(run.started_at ?? run.created_at, run.finished_at);
 
   const open = async () => {
     if (!opener?.ui.openResult) return;
@@ -118,14 +136,20 @@ const RunRow: React.FC<{ scope: string; run: SimulationRun; provider: Simulation
   };
 
   return (
-    <li className="flex flex-col gap-1 p-1 bg-gray-800/40 rounded-sm" data-run-id={run.run_id}>
-      <div className="flex items-center gap-2">
-        <span className="font-medium truncate">{provider?.title ?? run.provider.id}</span>
-        <span className={`${STATUS_COLOR[run.status] ?? "text-gray-300"} shrink-0`}>
-          {run.cancel_requested && active ? "cancelling" : run.status}
-        </span>
-        <span className="text-gray-400 truncate">{active ? run.stage : new Date(run.created_at).toLocaleString()}</span>
-        <span className="flex-1" />
+    <li className={`flex flex-col rounded-sm ${expanded ? "bg-gray-800/70" : "bg-gray-800/40"}`} data-run-id={run.run_id}>
+      <div className="flex items-center gap-1.5 px-1 py-0.5 min-w-0">
+        {/* The line itself opens and closes the rest; the buttons beside it are their own. */}
+        <button
+          type="button"
+          className="flex items-center gap-1.5 min-w-0 flex-1 text-left hover:text-white"
+          aria-expanded={expanded}
+          title={`${label}: ${status}`}
+          onClick={onToggle}
+        >
+          <span className={`h-2 w-2 rounded-full shrink-0 ${STATUS_DOT[run.status] ?? "bg-gray-400"}`} aria-hidden />
+          <span className="font-medium truncate">{label}</span>
+          <span className="text-gray-400 shrink-0">{active ? run.stage || status : startedLabel(run.created_at)}</span>
+        </button>
         {opener && run.artefacts.length > 0 && (
           <button type="button" className={BUTTON} onClick={() => void open()}>
             {openResultButtonLabel(opener.ui, active)}
@@ -143,13 +167,36 @@ const RunRow: React.FC<{ scope: string; run: SimulationRun; provider: Simulation
         )}
       </div>
       {active && (
-        <div className="h-1 bg-gray-700 rounded-sm overflow-hidden" role="progressbar" aria-valuenow={percent} aria-valuemin={0} aria-valuemax={100}>
+        <div className="h-0.5 bg-gray-700 overflow-hidden" role="progressbar" aria-valuenow={percent} aria-valuemin={0} aria-valuemax={100}>
           <div className="h-full bg-blue-400" style={{ width: `${percent}%` }} />
         </div>
       )}
-      {run.error && <div className="text-red-300 break-words">{run.error}</div>}
-      {openError && <div className="text-red-300 break-words">{openError}</div>}
-      <ArtefactList scope={scope} artefacts={run.artefacts} />
+      {/* What went wrong is said on the line's own card, open or not. */}
+      {openError && <div className="px-1 pb-0.5 text-red-300 break-words">{openError}</div>}
+      {!expanded && run.status === "error" && run.error && (
+        <div className="px-1 pb-0.5 text-red-300 truncate" title={run.error}>
+          {run.error}
+        </div>
+      )}
+      {expanded && (
+        <div className="flex flex-col gap-1 px-1 pb-1 pt-0.5 border-t border-gray-700/60" data-run-details>
+          <div className="text-gray-300">
+            <span className={STATUS_COLOR[run.status] ?? "text-gray-300"}>{status}</span>
+            {outcome && <span> · {outcome}</span>}
+          </div>
+          <div className="text-gray-400">
+            {provider?.title ?? run.provider.id} · {run.provider.engine}
+            {run.provider.version ? ` ${run.provider.version}` : ""}
+          </div>
+          <div className="text-gray-400">
+            {new Date(run.created_at).toLocaleString()}
+            {took && ` · ${took}`}
+            {run.started_by?.display && ` · ${run.started_by.display}`}
+          </div>
+          {run.error && <div className="text-red-300 break-words">{run.error}</div>}
+          <ArtefactList scope={scope} artefacts={run.artefacts} />
+        </div>
+      )}
     </li>
   );
 };
@@ -251,6 +298,8 @@ export const SimulationsBody: React.FC = () => {
 
   const [domainFilter, setDomainFilter] = useState<string>("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // The run whose line is open; one at a time, so the list stays a list.
+  const [expandedRun, setExpandedRun] = useState<string | null>(null);
 
   // Opening the panel (or changing scope) brings both lists up to date; the store then follows
   // unfinished runs on its own.
@@ -320,13 +369,16 @@ export const SimulationsBody: React.FC = () => {
       {shownRuns.length === 0 ? (
         <div className="text-gray-400">No runs in this scope yet.</div>
       ) : (
-        <ul className="flex flex-col gap-1">
+        // The list scrolls within itself: many runs do not push the panel off the screen.
+        <ul className="flex flex-col gap-0.5 max-h-[45vh] overflow-y-auto overscroll-contain pr-0.5" data-runs-list>
           {shownRuns.map((run) => (
             <RunRow
               key={run.run_id}
               scope={scope}
               run={run}
               provider={providers.find((p) => p.id === run.provider.id) ?? null}
+              expanded={run.run_id === expandedRun}
+              onToggle={() => setExpandedRun(run.run_id === expandedRun ? null : run.run_id)}
             />
           ))}
         </ul>
@@ -343,7 +395,7 @@ const SimulationsPanel: React.FC = () => {
   return (
     <div className="flex flex-col gap-2 text-xs text-white p-2 bg-gray-900/70 rounded-md min-w-[300px] max-w-[420px]">
       <div className="flex items-center gap-2">
-        <span className="font-bold">Simulations</span>
+        <span className="font-bold">{SIMULATIONS_PANEL_TITLE}</span>
         {hosted && <PanelHeaderActions />}
       </div>
       <SimulationsBody />

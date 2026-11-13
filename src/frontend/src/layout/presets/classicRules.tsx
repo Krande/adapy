@@ -124,8 +124,8 @@ export const CLASSIC_TOOLBAR: Readonly<Record<PanelId, ToolbarRecipe>> = {
     content: <CellBuilderIcon />,
   },
   [CORE_PANEL_IDS.simulations]: {
-    title: () => "Toggle simulations panel",
-    ariaLabel: () => "Toggle simulations panel",
+    title: () => "Toggle robotic simulations panel",
+    ariaLabel: () => "Toggle robotic simulations panel",
     content: <SimulationRunsIcon />,
   },
   // Left out while no layer is registered: a viewer without layers has no gap for it.

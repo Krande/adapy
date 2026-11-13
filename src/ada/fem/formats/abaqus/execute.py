@@ -1,13 +1,15 @@
 import pathlib
 import shutil
 
+from ada.fem.exceptions import FEASolverNotInstalled
 from ada.fem.formats.utils import LocalExecute
 
 
 def get_latest_version():
     abaqus_exe_path = shutil.which("abaqus")
     if abaqus_exe_path is None:
-        raise FileNotFoundError("Unable to find abaqus in the system path")
+        # As every other solver that is not there: callers that run what is installed catch this one.
+        raise FEASolverNotInstalled("Unable to find abaqus in the system path")
     # go up to parent dir called EstProducts
     for parent in pathlib.Path(abaqus_exe_path).parents:
         if parent.name == "EstProducts":
