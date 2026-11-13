@@ -462,9 +462,9 @@ export function corePanelSpecs(): PanelSpec[] {
       // (the list is fetched at sign-in, see AuthGate), so a deployment without any shows no
       // button for it.
       id: CORE_PANEL_IDS.simulations,
-      title: "Simulations",
+      title: "Robotic Simulations",
       icon: SimulationRunsIcon,
-      hint: "Toggle simulations panel",
+      hint: "Toggle robotic simulations panel",
       body: classicBody(CORE_PANEL_IDS.simulations),
       content: classicContent(CORE_PANEL_IDS.simulations),
       watch: watchStores(useSimulationStore),

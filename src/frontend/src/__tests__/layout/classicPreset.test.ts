@@ -81,8 +81,8 @@ test("the recipes' tooltips and accessible names are the classic top bar's", () 
       aria: ["Toggle procedural cellbuilder panel", "Toggle procedural cellbuilder panel"],
     },
     [CORE_PANEL_IDS.simulations]: {
-      title: ["Toggle simulations panel", "Toggle simulations panel"],
-      aria: ["Toggle simulations panel", "Toggle simulations panel"],
+      title: ["Toggle robotic simulations panel", "Toggle robotic simulations panel"],
+      aria: ["Toggle robotic simulations panel", "Toggle robotic simulations panel"],
     },
     [CORE_PANEL_IDS.layers]: {
       title: ["Toggle layers panel", "Toggle layers panel"],
