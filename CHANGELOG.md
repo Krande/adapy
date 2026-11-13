@@ -2,6 +2,16 @@
 
 
 
+## v0.151.2 (2026-11-13)
+
+### Fix
+
+* fix(sat): pack SAB bodies in linear time (#540)
+
+Co-authored-by: Claude Opus 5.5 (1M context) &lt;noreply@anthropic.com&gt;
+Co-authored-by: Kristoffer Andersen &lt;kristoffer_andersen@outlook.com&gt; ([`2b9ffab`](https://github.com/Krande/adapy/commit/2b9ffab8d76da973494e149a1d1953e31352c50b))
+
+
 ## v0.151.1 (2026-11-13)
 
 ### Fix
