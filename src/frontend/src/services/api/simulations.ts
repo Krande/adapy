@@ -61,6 +61,9 @@ export interface SimulationProviderInfo {
   readonly description: string | null;
   readonly kinds: readonly SimulationRunKind[];
   readonly parameters_schema: ParameterSchema;
+  /** The kinds of subject (`ada.simulation.subjects`, e.g. `weld-assembly`) a run of it can be
+   *  started on. Absent from a server that predates subjects: it takes none. */
+  readonly accepts?: readonly string[];
   /** The worker pool its runs go to. */
   readonly capability: string;
   /** A live worker serves it. A run cannot be started for an offline provider. */
@@ -89,10 +92,18 @@ export interface SimulationArtefact {
   readonly revision: number;
 }
 
+/** What a run is ON: the kind of subject and the storage key of its file in the run's scope. */
+export interface SimulationSubjectRef {
+  readonly kind: string;
+  readonly key: string;
+}
+
 export interface SimulationRun {
   readonly run_id: string;
   readonly provider: { readonly id: string; readonly domain: SimulationDomainId; readonly engine: string; readonly version: string };
   readonly kind: string | null;
+  /** What the run was started on; null (or absent, from a server without subjects) for none. */
+  readonly subject?: SimulationSubjectRef | null;
   readonly parameters: Readonly<Record<string, unknown>>;
   readonly inputs: readonly string[];
   readonly started_by: { readonly id: string; readonly display: string | null };
@@ -116,6 +127,9 @@ export interface StartSimulationBody {
   /** Storage keys of the run's input files, in the scope the run is started in. */
   readonly inputs?: readonly string[];
   readonly kind?: string;
+  /** What to run ON: a stored file of a subject kind the provider accepts. The server puts its
+   *  key among the inputs, so a provider reads it as `case.subject`. */
+  readonly subject?: SimulationSubjectRef;
 }
 
 /** Part of an artefact to fetch: from byte `start` (0 when left out) to byte `end` inclusive
@@ -175,7 +189,8 @@ export const simulationsApi = {
     return jsonOrThrow<SimulationProvidersResponse>(r, "listSimulationProviders");
   },
 
-  /** Start a run. The server checks the parameters against the provider's schema first. */
+  /** Start a run. The server checks the parameters against the provider's schema first, and a
+   *  `subject` against the kinds the provider accepts (400) and its file (404 / 409). */
   async startRun(scope: ScopeUrl, body: StartSimulationBody): Promise<SimulationRun> {
     const r = await authedFetch(scoped(scope), {
       method: "POST",
