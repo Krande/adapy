@@ -22,6 +22,7 @@ function fakeCtx(pluginId = ""): AdaPluginContext {
     api: { base: "/api", plugin: (id?: string) => `/api/plugins/${id ?? pluginId}` },
     stores: {} as AdaPluginContext["stores"],
     playback: {} as AdaPluginContext["playback"],
+    simulations: {} as AdaPluginContext["simulations"],
     layers: {} as AdaPluginContext["layers"],
     scene: {
       add() {},

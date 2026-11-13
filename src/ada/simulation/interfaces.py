@@ -17,6 +17,8 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, Mapping, Protocol, Union, runtime_checkable
 
+from .subjects import SUBJECT_KINDS, SubjectRef
+
 __all__ = [
     "COMMON_ARTEFACT_ROLES",
     "SIMULATION_DOMAINS",
@@ -196,6 +198,14 @@ class ProviderDescription:
     description: str = ""
     kinds: tuple[RunKind, ...] = ()
     parameters_schema: Mapping[str, Any] = field(default_factory=dict)
+    #: The kinds of subject (``ada.simulation.subjects.SUBJECT_KINDS``) a run of this provider can be
+    #: started on. A run on one is handed it as ``SimulationCase.subject``.
+    accepts: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        unknown = [a for a in self.accepts if a not in SUBJECT_KINDS]
+        if unknown:
+            raise ValueError(f"unknown subject kind {unknown[0]!r} (known: {', '.join(SUBJECT_KINDS)})")
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -204,6 +214,7 @@ class ProviderDescription:
             "description": self.description,
             "kinds": [k.to_dict() for k in self.kinds],
             "parameters_schema": dict(self.parameters_schema),
+            "accepts": list(self.accepts),
         }
 
 
@@ -222,6 +233,9 @@ class SimulationCase:
     parameters: Mapping[str, Any] = field(default_factory=dict)
     inputs: tuple[str, ...] = ()
     kind: str | None = None
+    #: What the run was started on (``ada.simulation.subjects``), or None. Its key is also in
+    #: ``inputs``, so ``ctx.fetch_input(case.subject.key)`` reads it.
+    subject: SubjectRef | None = None
 
 
 @dataclass(frozen=True)

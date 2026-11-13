@@ -176,7 +176,17 @@ import { isPlacedElsewhere } from "@/layout/placedElsewhere";
 //            `names`, as a handle whose `place(matrices)` puts each where a matrix says, in the
 //            model's own coordinates. What hangs on a node in the file moves with it.
 //          An older core has neither: a plugin asks for `poseModel` before it relies on it.
-export const PLUGIN_API_VERSION = "1.20.0";
+// 1.21.0 — simulation subjects: a run can be started ON a stored file (a part with its welds),
+//          produced by one plugin and run by a provider of another, who never know each other.
+//          Additive.
+//          - `ctx.simulations.offerSubject({kind, key, label, scope?, source?})` offers the file to
+//            the Simulations panel and returns `{withdraw}`. `kind` is one of the server's subject
+//            kinds (`weld-assembly`); the panel starts a run on it with a provider whose
+//            `accepts` lists the kind (`SimulationProviderInfo.accepts`), sending
+//            `subject: {kind, key}`; the provider reads it as `case.subject`.
+//          - `SimulationRun.subject`, `StartSimulationBody.subject` on `/app`.
+//          An older core has no `ctx.simulations`: ask for it before relying on it.
+export const PLUGIN_API_VERSION = "1.21.0";
 
 // The named mount regions core exposes in Phase 1. Deliberately small
 // (`fem-sidebar` covers the FEM simulation panel, `top-panel` the menu bar,
@@ -569,6 +579,38 @@ export interface PluginLayers {
   subscribe: (listener: () => void) => () => void;
 }
 
+// ── Simulation subjects (1.21.0) ──────────────────────────────────────────────
+
+/** Something a simulation run can be started on, offered to the Simulations panel. */
+export interface PluginSimulationSubject {
+  /** One of the server's subject kinds (`ada.simulation.subjects.SUBJECT_KINDS`): `"weld-assembly"`. */
+  kind: string;
+  /** Storage key of the stored file. */
+  key: string;
+  /** What a person calls it. */
+  label: string;
+  /** The scope the file is in (`ctx.scope()` when left out). */
+  scope?: string;
+  /** Who offered it, for a person; the plugin's id when left out. */
+  source?: string;
+}
+
+/** The offer, to take back. */
+export interface PluginSimulationSubjectHandle {
+  withdraw: () => void;
+}
+
+/** What a plugin may do with simulations beside registering a provider's UI. */
+export interface PluginSimulations {
+  /**
+   * Offer a stored file as something to simulate. The Simulations panel lists it in a "Subject"
+   * picker (the newest offer chosen first) and starts a run on it with a provider that accepts its
+   * kind. The plugin writes the file in the kind's format and need not know which provider will
+   * take it, nor the provider the plugin.
+   */
+  offerSubject: (subject: PluginSimulationSubject) => PluginSimulationSubjectHandle;
+}
+
 /** A manifest-relative byte/JSON fetcher handed to sidecar loaders. */
 export interface SidecarFetcher {
   json: (relKey: string) => Promise<unknown>;
@@ -763,6 +805,8 @@ export interface AdaPluginContext {
   playback: PluginPlayback;
   /** The plugin's rows of the Layers panel (1.18.0). */
   layers: PluginLayers;
+  /** Offer something to simulate (1.21.0). */
+  simulations: PluginSimulations;
   scope: () => string;
   /** Active theme tokens (mirrors of the `--ada-*` CSS vars) so plugin panels
    * match core's chrome in light + dark without hardcoding colours. */

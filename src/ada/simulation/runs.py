@@ -138,8 +138,10 @@ def new_run_record(
     inputs: list[str],
     started_by: Mapping[str, Any],
     kind: str | None = None,
+    subject: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """The record of a run that has just been accepted and not yet picked up."""
+    """The record of a run that has just been accepted and not yet picked up. ``subject`` is
+    ``{"kind", "key"}`` of what the run is on (``ada.simulation.subjects``)."""
     return {
         "schema": RUN_SCHEMA,
         "run_id": _checked(run_id),
@@ -150,6 +152,7 @@ def new_run_record(
             "version": str(provider.get("version") or ""),
         },
         "kind": kind,
+        "subject": {"kind": str(subject["kind"]), "key": str(subject["key"])} if subject else None,
         "parameters": dict(parameters),
         "inputs": list(inputs),
         "started_by": {"id": str(started_by.get("id") or ""), "display": started_by.get("display")},
