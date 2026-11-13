@@ -402,7 +402,7 @@ export class NativeScene {
         this.refreshAnimation();
         // A model that joins others leaves the camera where the user has it.
         if (!add) this.framed();
-        for (const listener of this.onLoaded) listener();
+        this.tellLoaded();
         if (add) this.pushStates();
         else {
             if (uncoloured) this.writeStates();
@@ -428,6 +428,18 @@ export class NativeScene {
         return black || this.defaultSegmentColor !== NativeScene.FILE_GREY;
     }
 
+    /** Tell everyone that draws beside the models that what is on screen changed. One of them
+     *  failing must not keep it from the rest: each draws its own things again after a load. */
+    private tellLoaded(): void {
+        for (const listener of this.onLoaded) {
+            try {
+                listener();
+            } catch (err) {
+                console.warn("[adacpp-native] after a load:", err);
+            }
+        }
+    }
+
     /** Take the model loaded from `sourceName` off the screen; false when there is none. */
     unloadSource(sourceName: string): boolean {
         const model = [...this.models.values()].find((m) => m.sourceName === sourceName);
@@ -435,7 +447,7 @@ export class NativeScene {
         this.dropModel(model.key);
         this.rebuild();
         this.refreshAnimation();
-        for (const listener of this.onLoaded) listener();
+        this.tellLoaded();
         this.pushStates();
         return true;
     }
@@ -453,7 +465,7 @@ export class NativeScene {
         this.hidden.clear();
         this.rebuild();
         this.refreshAnimation();
-        for (const listener of this.onLoaded) listener();
+        this.tellLoaded();
         this.pushStates();
         this.invalidate();
     }
@@ -637,7 +649,7 @@ export class NativeScene {
         if (opts.replaceModel) {
             this.bounds = boundsOf(data.positions, data.matrix);
             this.fit(0);
-            for (const listener of this.onLoaded) listener();
+            this.tellLoaded();
             for (const listener of this.onSelection) listener();
             this.onChange?.();
         }

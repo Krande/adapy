@@ -1,3 +1,4 @@
+import {ensureIndexed} from "./ensureIndexed";
 import {CustomBatchedMesh} from "../mesh_select/CustomBatchedMesh";
 import * as THREE from "three";
 import {DesignDataExtension, SimulationDataExtensionMetadata} from "@/extensions/design_and_analysis_extension";
@@ -66,6 +67,7 @@ export function convert_to_custom_batch_mesh(original: THREE.Mesh, drawRanges: M
         geometry = geometry.clone();
     }
     claimedGeometries.add(geometry);
+    ensureIndexed(geometry);
 
     const customMesh = new CustomBatchedMesh(
         geometry,
