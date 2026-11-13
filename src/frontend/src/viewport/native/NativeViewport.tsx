@@ -135,7 +135,7 @@ const NativeViewport: React.FC = () => {
         try {
             const key = `native-${model.seq}`;
             const added = model.placement === "overlay" && scene.objects.length > 0;
-            scene.load(model.bytes, key, {add: added, sourceName: model.sourceName});
+            scene.load(model.bytes, key, {add: added, sourceName: model.sourceName, posable: model.posable});
             useNativeViewport.setState({loadError: null, objectCount: scene.objects.length});
             // The Scene tree and the object info list and name this model from here on.
             // The scene read the file's JSON to find the objects without a colour: its extras are

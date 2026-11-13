@@ -168,7 +168,15 @@ import { isPlacedElsewhere } from "@/layout/placedElsewhere";
 //          a run as it happens does not offer to replay what has not ended. Additive: without
 //          it the button reads `openResultLabel` throughout, as before, and an older core
 //          ignores it.
-export const PLUGIN_API_VERSION = "1.19.0";
+// 1.20.0 — a model whose parts the plugin moves itself, for showing something while it is still
+//          happening (a file's own animation can only replay what was recorded). Additive, on
+//          both viewports.
+//          - `posable` on `SceneModelSource`: load the model for its nodes to be placed.
+//          - `ctx.scene.poseModel(owner, sourceName, names)`: the nodes of that model called
+//            `names`, as a handle whose `place(matrices)` puts each where a matrix says, in the
+//            model's own coordinates. What hangs on a node in the file moves with it.
+//          An older core has neither: a plugin asks for `poseModel` before it relies on it.
+export const PLUGIN_API_VERSION = "1.20.0";
 
 // The named mount regions core exposes in Phase 1. Deliberately small
 // (`fem-sidebar` covers the FEM simulation panel, `top-panel` the menu bar,
@@ -476,6 +484,26 @@ export interface SceneModelSource {
   // The up axis of the file's own coordinates; "z" (default) or "y" (the glTF convention). Read by
   // the three.js viewport; the three.js-free one draws the file as it is.
   sourceUpAxis?: "z" | "y";
+  // (1.20.0) The model's nodes are placed by the plugin (`poseModel`) instead of by an animation
+  // of its own. Needed for `poseModel` to find its nodes on the three.js-free viewport, which
+  // otherwise merges them; an animation the file has is then not played there.
+  posable?: boolean;
+}
+
+/** (1.20.0) The named nodes of a loaded model, placed by the plugin. See `SceneHandle.poseModel`. */
+export interface SceneModelPose {
+  // Put each node where its matrix says. `matrices` holds sixteen numbers per name, in the order
+  // the names were given: the node's place in the model's own coordinates (those of its file),
+  // column-major as in glTF. What hangs on a node in the file moves with it. A matrix of zeros
+  // hides the node. The last placement is kept and applied again to a model that is loaded under
+  // the same name later, or when the viewport is switched. The array is read during the call
+  // and not kept.
+  place: (matrices: Float32Array) => void;
+  // Per name: whether the model on screen has a node of that name that can be placed. Null while
+  // no such model is on screen.
+  found: () => readonly boolean[] | null;
+  // Stop placing. The model stays as it was last placed.
+  remove: () => void;
 }
 
 // ── The playback clock (1.18.0) ───────────────────────────────────────────────
@@ -622,6 +650,10 @@ export interface SceneHandle {
   // whichever viewport is on screen, where `loadModelFromUrl` builds a three.js scene only. A model
   // with node animation becomes a track of the playback clock. Resolves when the viewport has it.
   loadModel: (owner: string, source: SceneModelSource) => Promise<void>;
+  // (1.20.0) The nodes called `names` (as the file names them) of the model loaded as
+  // `sourceName`, for the plugin to place: a rig that follows something still going on. Load the
+  // model with `posable`. The model need not be loaded yet; `scene.remove(owner)` stops placing.
+  poseModel: (owner: string, sourceName: string, names: readonly string[]) => SceneModelPose;
   // Remove a model previously loaded through `loadModelFromUrl` (or any source
   // registered under that name), disposing its GPU resources. No-op when the
   // name is not loaded.

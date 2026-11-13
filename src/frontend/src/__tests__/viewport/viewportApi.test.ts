@@ -65,6 +65,7 @@ function recorder(kind: ViewportApi["kind"], cannot: string | null = null): {api
                 throw new Error("no images in this test");
             },
             modelAnimation: () => null,
+            modelNodes: () => null,
             setOrbitPivot: log("setOrbitPivot"),
             billboards: () => {
                 throw new Error("no billboards in this test");
