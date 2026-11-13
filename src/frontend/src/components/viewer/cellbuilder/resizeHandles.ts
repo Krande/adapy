@@ -14,6 +14,7 @@ import {BOX_FACE_SIDES, faceCenter} from "@/utils/cellbuilder/snap";
 import {HANDLE_AXIS_COLOR} from "./sceneConstants";
 import type {CellBuilderScene} from "./sceneContext";
 import {reconcileModalMove} from "./cellGizmo";
+import {syncCellDimensions} from "./cellDimensions";
 
 
 export const disposeResizeHandles = (ctx: CellBuilderScene) => {
@@ -36,8 +37,10 @@ export const rebuildResizeHandles = (ctx: CellBuilderScene) => {
         st.active && st.gizmoMode === "resize" && cell && cell.kind === "cell" && st.cellsVisible
     );
     ctx.resizeGroup.visible = show;
+    const r = cell ? Math.max(0.15, 0.1 * Math.min(cell.size[0], cell.size[1], cell.size[2])) : 0;
+    // Its three dimensions, just outside the box (a handle's radius off it).
+    syncCellDimensions(ctx, show && cell ? cell : null, r);
     if (!show || !cell) return;
-    const r = Math.max(0.15, 0.1 * Math.min(cell.size[0], cell.size[1], cell.size[2]));
     for (let fi = 0; fi < BOX_FACE_SIDES.length; fi++) {
         const side = BOX_FACE_SIDES[fi];
         const c = faceCenter(cell, fi);

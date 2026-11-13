@@ -24,6 +24,7 @@ import {clearPorts, rebuildPorts} from "./portsOverlay";
 import {installCellGizmo} from "./cellGizmo";
 import {installPortGizmo, syncPortGizmo} from "./portGizmo";
 import {disposeResizeHandles, syncGizmo} from "./resizeHandles";
+import {disposeCellDimensions} from "./cellDimensions";
 import {clearLongPress, onContextMenu, onPointerCancel, onPointerDown, onPointerMove, onPointerUp} from "./pointerTools";
 import {endPlaceEntry} from "./numericEntry";
 import {endEquipEntry, endOpenEntry} from "./insertTools";
@@ -228,6 +229,8 @@ export function initCellBuilderScene(
         (ctx.faceOverlay.material as THREE.Material).dispose();
         ctx.container.remove(ctx.faceOverlay);
         disposeResizeHandles(ctx);
+        disposeCellDimensions(ctx);
+        ctx.container.remove(ctx.dimensionGroup);
         ctx.hiddenDefaultGrids.forEach((g) => (g.visible = true));
         ctx.hiddenDefaultGrids.length = 0;
         disposeBuilderGrid(ctx);
