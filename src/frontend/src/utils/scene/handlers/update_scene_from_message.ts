@@ -13,6 +13,7 @@ import {loadGLTFfrombase64} from "../loadGLTFfrombase64";
 import {disposeObject3D} from "@/utils/scene/dispose_object";
 import {useAnimationStore} from "@/state/animationStore";
 import {runtime} from "@/runtime/config";
+import {duringSceneReplace} from "@/state/sceneReplace";
 
 
 export function load_base64_model(){
@@ -45,7 +46,13 @@ export interface ReplaceModelOptions {
     autoFitOverride?: boolean;
 }
 
-export async function replace_model(options: ReplaceModelOptions) {
+/** Tear the scene down and load `options.url` as its one model; the scene's emptying meanwhile is
+ *  part of the replace (state/sceneReplace), so the camera is left where the user has it. */
+export function replace_model(options: ReplaceModelOptions) {
+    return duringSceneReplace(() => replaceModelNow(options));
+}
+
+async function replaceModelNow(options: ReplaceModelOptions) {
     const {
         url,
         prepareHook,
