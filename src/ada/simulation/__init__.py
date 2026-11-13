@@ -14,6 +14,8 @@ no new plumbing.
 * :mod:`.schema` -- the parameter check run before a job is queued.
 * :mod:`.runs` -- the run record and where a run keeps its files.
 * :mod:`.runner` -- ``execute_run``, shared by the worker's job and the in-process one.
+* :mod:`.activity` -- the activity feed of a run: what each of its actors is doing and planning,
+  over time, for the viewer's console of the run.
 * :mod:`.testing` -- a fake provider for tests; never registered by core.
 
 Stdlib only, so the API process can import it without the modelling stack.

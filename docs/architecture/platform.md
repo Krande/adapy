@@ -365,6 +365,31 @@ start form from the parameter schema and lists runs with their artefacts. A fron
 what core cannot know through `simulationProviders` in the plugin registry: a parameter form
 section and an "open result" handler, registered for one provider id or for a whole domain.
 
+**A run's console.** A run has actors -- a robot, an arm, a solver stage, the mission that directs
+them -- and a provider that wants its run understood, not just watched, says what each is doing
+and planning as the run goes. That is the artefact with the role `activity` (a common role: any
+domain may have one): an **activity feed**, JSON Lines, append-only, stored again while it grows
+(`partial=True`). `ada.simulation.activity` has the format and a writer:
+
+```
+{"schema": "ada-activity/1", "actors": [{"id": "amr", "label": "Logistics robot", "color": "#4db3e6"}]}
+{"t": 0.2,  "actor": "amr", "kind": "state", "text": "Driving into the cell", "data": {"goal": [-0.59, 1.92, 0.35]}}
+{"t": 0.2,  "actor": "amr", "kind": "plan",  "text": "Dock beside the picker"}
+{"t": 13.4, "actor": "amr", "kind": "event", "text": "Docked 23 mm off its dock", "level": "info"}
+```
+
+`t` is seconds on the run's own clock (the one its recording and its model's animation are on); a
+`state` is what the actor is doing from then on, a `plan` what it intends (an empty text: none),
+an `event` something that happened. The viewer reads the feed itself -- no plugin is involved --
+from the moment a run's result is opened in the Simulations panel, asking for the bytes beyond
+those it has while the run is going (`state/runConsoleStore.ts`). The playback transport then has
+a **Console** button: a panel over the view with a row per actor (what it is doing and planning at
+the playback clock's moment) and the log up to that moment, where a click on a line goes to it. It
+is the same console for a replay and for a live run.
+
+The Simulations panel's **Refresh** asks for the scope's runs and the providers again: the panel
+follows the runs it knows are unfinished, and a run started elsewhere since it was opened (another
+tab, the API) is only found by asking.
 **Replaying a run in the viewer.** What a result of a run needs on screen is not specific to one
 kind of simulation, so it is in core and a plugin's `openResult` only feeds it (plugin API 1.18.0;
 how the two viewports draw it is in [A viewer without three.js](threejs_free_viewport.md)):
