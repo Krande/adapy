@@ -77,9 +77,10 @@ serve = { cmd = "python scripts/docs/docs_serve.py", env = { "PYTHONPATH" = "$PI
 # fea-doc is the deliberate regeneration: the only task that runs Abaqus and Sesam live
 # (ADAPY_VERIFICATION_RUN_LICENSED) and re-commits their snapshots. Every other build replays them.
 fea-doc = { cmd = "python -m paradoc.cli_app build verification --no-cache", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src", "PYTHONUTF8" = "1", "ADAPY_VERIFICATION_REGEN_ASSETS" = "1", "ADAPY_VERIFICATION_RUN_LICENSED" = "1" } }
-# fea-doc for the docs image: the same live run, leaving paradoc's cache for the DOCX / ODT / PDF exports
-# that follow. Run by scripts/docs/fea_report_cached.py.
-fea-doc-build = { cmd = "python -m paradoc.cli_app build verification", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src", "PYTHONUTF8" = "1", "ADAPY_VERIFICATION_REGEN_ASSETS" = "1", "ADAPY_VERIFICATION_RUN_LICENSED" = "1" } }
+# fea-doc for the docs image: the open solvers run live, Abaqus and Sesam replay their committed
+# snapshots (the image has neither, and asking for them only logged a failure per case). It leaves
+# paradoc's cache for the DOCX / ODT / PDF exports that follow. Run by scripts/docs/fea_report_cached.py.
+fea-doc-build = { cmd = "python -m paradoc.cli_app build verification", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src", "PYTHONUTF8" = "1", "ADAPY_VERIFICATION_REGEN_ASSETS" = "1" } }
 # The web report into docs/_static/fea-report (verification/paradoc.toml), reusing paradoc's analysis
 # cache, and skipped outright by pixi while its inputs are unchanged.
 fea-doc-cached = { cmd = "python -m paradoc.cli_app build verification", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src", "PYTHONUTF8" = "1" }, inputs = [

@@ -130,3 +130,31 @@ def test_only_the_newest_reports_are_kept(repo, tmp_path, paradoc_dir):
         cache = tmp_path / "cache"
         frc.os.utime(cache / keys[-1], (1000 + i, 1000 + i))
     assert sorted(p.name for p in (tmp_path / "cache").iterdir()) == sorted(keys[1:])
+
+
+def test_only_the_deliberate_regeneration_asks_for_the_licensed_solvers():
+    """The docs image has neither Abaqus nor Sesam: its build replays their committed snapshots. Asked to
+    run them, it logged a failure for every one of their cases."""
+    import pathlib
+    import tomllib
+
+    tasks = tomllib.loads((pathlib.Path(__file__).parents[2] / "pixi.toml").read_text(encoding="utf-8"))["feature"][
+        "docs"
+    ]["tasks"]
+    asking = sorted(
+        name
+        for name, task in tasks.items()
+        if isinstance(task, dict) and "ADAPY_VERIFICATION_RUN_LICENSED" in task.get("env", {})
+    )
+    assert asking == ["fea-doc"]
+
+
+def test_a_missing_abaqus_is_a_solver_that_is_not_installed(monkeypatch):
+    import pytest
+
+    from ada.fem.exceptions import FEASolverNotInstalled
+    from ada.fem.formats.abaqus import execute
+
+    monkeypatch.setattr(execute.shutil, "which", lambda name: None)
+    with pytest.raises(FEASolverNotInstalled, match="abaqus"):
+        execute.get_latest_version()
