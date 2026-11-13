@@ -642,7 +642,9 @@
 //          bytes, whole or from an offset.
 //   1.19.0 Kept in step with PLUGIN_API_VERSION 1.19.0 (`SimulationProviderUi.openResultLiveLabel`:
 //          the open-result button's text while a run is still going). Additive.
-export const VIEWER_CORE_API_VERSION = "1.19.0";
+//   1.20.0 Kept in step with PLUGIN_API_VERSION 1.20.0 (`SceneHandle.poseModel`, `posable` on a
+//          model source, the `SceneModelPose` type).
+export const VIEWER_CORE_API_VERSION = "1.20.0";
 
 // ---------------------------------------------------------------------------
 // Plugin declaration. `registerPlugin` is how a package announces itself —
@@ -696,6 +698,7 @@ export type {
   SceneLineLayer,
   SceneLineLayerSpec,
   SceneLines,
+  SceneModelPose,
   SceneModelSource,
   SceneOverlay,
   ScenePointLayer,

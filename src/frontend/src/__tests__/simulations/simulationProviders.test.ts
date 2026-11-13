@@ -58,6 +58,7 @@ function fakeCtx(): AdaPluginContext {
       findFaces: async () => [],
       focusFace: () => false,
       loadModel: async () => {},
+      poseModel: () => ({ place() {}, found: () => null, remove() {} }),
       addLineLayer: () => ({setSegments() {}, setPolyline() {}, setLook() {}, remove() {}}),
       addPointLayer: () => ({setPoints() {}, setLook() {}, remove() {}}),
       addImage: () => ({setPixels() {}, setRect() {}, setLook() {}, unavailable: () => null, remove() {}}),

@@ -6,6 +6,9 @@
 import type {ResultMeshData} from "@/viewport/api/resultLayer";
 import {NativeResultLayer} from "./nativeResultLayer";
 import {glbNamesAnimations} from "@/utils/glb/glbBufferView";
+import {makeGlbPosable, type PosableGlb} from "@/utils/glb/glbPosable";
+import type {ModelNodePoser} from "@/viewport/api/modelPose";
+import {placeInstance, planNodePlacement} from "./nodePlacement";
 import {notifyModelAnimationChange, type ModelAnimation} from "@/viewport/api/viewportApi";
 import {growObjectBounds, indexResultSegments, resultSegments} from "./resultObjects";
 import {useCameraControlsStore} from "@/state/cameraControlsStore";
@@ -131,6 +134,10 @@ interface LoadedModel {
          *  node as (instance, node slot) pairs, and room for where the nodes are placed. */
         several: {rest: Float32Array; instances: number[]; placed: Float32Array} | null;
     };
+    /** A model loaded for its nodes to be placed from outside (`modelNodes`): the renderer's set
+     *  that keeps its nodes apart (never played), what the file says of its nodes, and the
+     *  instances that draw each, as (instance, node of the file) pairs. */
+    pose?: {set: number; glb: PosableGlb; instances: number[]};
 }
 
 let canvasSerial = 0;
@@ -324,7 +331,11 @@ export class NativeScene {
     /** Show a GLB, known to the rest of the viewer as `modelKey`: instead of what is on screen, or with
      *  `add` beside it (a model already loaded under that key is replaced). Objects are known by
      *  `objectKey(modelKey, id)`. Throws when the GLB has nothing to draw. */
-    load(bytes: Uint8Array, modelKey = "", options: {add?: boolean; sourceName?: string} = {}): void {
+    load(bytes: Uint8Array, modelKey = "", options: {add?: boolean; sourceName?: string; posable?: boolean} = {}): void {
+        // A model whose nodes are placed from outside: every node is kept an instance of its own
+        // (utils/glb/glbPosable.ts). What is read below is that file; `bytes` stays the caller's.
+        const posable = options.posable && this.playsAnimations ? makeGlbPosable(bytes) : null;
+        const file = posable?.bytes ?? bytes;
         const add = !!options.add && this.models.size > 0;
         if (add) {
             this.dropModel(modelKey);
@@ -346,16 +357,16 @@ export class NativeScene {
         this.sceneExtras = "";
         this.extData = "";
         this.parsedExtras = null;
-        const p = this.module._malloc(bytes.byteLength);
-        this.module.HEAPU8.set(bytes, p);
+        const p = this.module._malloc(file.byteLength);
+        this.module.HEAPU8.set(file, p);
         let loaded;
         try {
-            const offset = this.place(p, bytes.byteLength, add);
+            const offset = this.place(p, file.byteLength, add);
             // A file with node animations keeps each moving node an instance of its own, which the
             // renderer then places by time. Asked for only when the file names animations, so every
             // other model is read exactly as before.
-            const animations = this.playsAnimations && glbNamesAnimations(bytes);
-            loaded = this.renderer.loadGlb(p, bytes.byteLength, {featureEdgeAngleDeg: FEATURE_EDGE_ANGLE_DEG, lineColor: EDGE_COLOR, sectionCaps: true, offset, animations});
+            const animations = this.playsAnimations && (posable !== null || glbNamesAnimations(bytes));
+            loaded = this.renderer.loadGlb(p, file.byteLength, {featureEdgeAngleDeg: FEATURE_EDGE_ANGLE_DEG, lineColor: EDGE_COLOR, sectionCaps: true, offset, animations});
         } finally {
             this.module._free(p);
         }
@@ -374,7 +385,12 @@ export class NativeScene {
             geometries: loaded.geometries.map((g) => g.geometry),
             bounds: loaded.bounds,
         };
-        if ((loaded.animationSet ?? -1) >= 0 && loaded.animations?.length) {
+        if (posable && (loaded.animationSet ?? -1) >= 0) {
+            // Placed from outside, not played: its animations are not the clock's.
+            const instances: number[] = [];
+            for (const g of loaded.geometries) if ((g.node ?? -1) >= 0) instances.push(g.instance, g.node!);
+            model.pose = {set: loaded.animationSet!, glb: posable, instances};
+        } else if ((loaded.animationSet ?? -1) >= 0 && loaded.animations?.length) {
             const set = loaded.animationSet!;
             model.animations = {set, durations: loaded.animations.map((a) => a.duration), several: null};
             if (loaded.animations.length > 1) {
@@ -488,9 +504,10 @@ export class NativeScene {
             this.segments.delete(instance);
         }
         for (const geometry of model.geometries) this.renderer.removeGeometry(geometry);
-        if (model.animations) {
+        const set = model.animations?.set ?? model.pose?.set;
+        if (set !== undefined) {
             try {
-                this.renderer.removeAnimations(model.animations.set);
+                this.renderer.removeAnimations(set);
             } catch (err) {
                 console.warn("[adacpp-native] releasing a model's animations:", err);
             }
@@ -561,6 +578,35 @@ export class NativeScene {
 
     /** Sixteen floats on the module heap, kept for placing instances; 0 until first needed. */
     private matrixRoom = 0;
+
+    /**
+     * The nodes called `names` of the model loaded as `sourceName`, for a caller that places them
+     * (viewport/api/modelPose.ts). Null when there is no such model, or it was not loaded as
+     * `posable`: its nodes are then merged, and there is nothing to move. Which instances a node
+     * is, and where each goes, is ./nodePlacement.ts.
+     */
+    modelNodes(sourceName: string, names: readonly string[]): ModelNodePoser | null {
+        const model = [...this.models.values()].find((m) => m.sourceName === sourceName);
+        const pose = model?.pose;
+        if (!model || !pose) return null;
+        const plan = planNodePlacement(pose.glb, names, pose.instances, (instance) => this.renderer.instanceMatrix(instance));
+        const placed = new Float64Array(16);
+        return {
+            found: plan.found,
+            alive: () => !this.disposed && this.models.get(model.key) === model,
+            place: (matrices) => {
+                if (this.disposed || this.models.get(model.key) !== model) return;
+                const p = (this.matrixRoom ||= this.module._malloc(64));
+                for (let d = 0; d < plan.driven.length; d++) {
+                    if (!placeInstance(plan.driven[d], matrices, placed)) continue;
+                    // The view is taken now: the heap may have grown.
+                    this.module.HEAPF32.set(placed, p >> 2);
+                    this.renderer.setInstanceMatrix(plan.driven[d].instance, p);
+                }
+                this.invalidate();
+            },
+        };
+    }
 
     /** The models on screen changed: what there is to play may have. */
     private refreshAnimation(): void {

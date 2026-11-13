@@ -17,6 +17,7 @@ import {linearChannel, linearColor} from "@/utils/scene/sceneColor";
 import type {ImageLayer} from "@/viewport/api/imageLayer";
 import type {OverlayLayer} from "@/viewport/api/overlayLayer";
 import {activeViewport, type ViewportApi} from "@/viewport/api/viewportApi";
+import {createModelPose} from "@/viewport/api/modelPose";
 import type {
     PluginLayers,
     PluginPlayback,
@@ -26,6 +27,7 @@ import type {
     SceneLayerRef,
     SceneLineLayer,
     SceneLineLayerSpec,
+    SceneModelPose,
     ScenePointLayer,
     ScenePointLayerSpec,
 } from "./registry";
@@ -52,6 +54,16 @@ function own(owner: string, release: () => void): () => void {
  *  through `removeOwnerOverlays`). */
 export function releaseOwnerLayers(owner: string): void {
     for (const release of [...(owned.get(owner) ?? [])]) release();
+}
+
+// ----- a model's nodes, placed by the plugin ---------------------------------------
+
+/** `SceneHandle.poseModel`: the viewport on screen places the nodes (viewport/api/modelPose.ts);
+ *  what is kept here is that the owner made it. */
+export function poseModel(owner: string, sourceName: string, names: readonly string[]): SceneModelPose {
+    const pose = createModelPose(sourceName, names);
+    const release = own(owner, () => pose.remove());
+    return {place: (matrices) => pose.place(matrices), found: () => pose.found(), remove: release};
 }
 
 // ----- where the scene's coordinates are in the viewport ---------------------------
