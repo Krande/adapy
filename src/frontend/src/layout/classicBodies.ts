@@ -113,7 +113,10 @@ const LAZY_BODIES: Readonly<Record<PanelId, Loader>> = {
   [CORE_PANEL_IDS.systemAdmin]: () => import("@/components/admin/SystemAdminPanel").then((m) => asBody(m.default)),
   // Embedded, on the tab the viewer-panel store asks for, as the in-viewer window shows it.
   [CORE_PANEL_IDS.admin]: () => import("@/components/admin/AdminPanel").then((m) => asBody(m.AdminWindowBody)),
-  [CORE_PANEL_IDS.convert]: () => import("@/components/convert/ConvertPage").then((m) => asBody(m.default)),
+  // Always inside a running viewer (the standalone /convert page renders ConvertPage itself):
+  // the converter then keeps the viewer's scope instead of switching to Personal.
+  [CORE_PANEL_IDS.convert]: () =>
+    import("@/components/convert/ConvertPage").then((m) => withOptions(m.default, { inViewer: true })),
   [CORE_PANEL_IDS.settings]: () => import("@/components/settings/SettingsPanel").then((m) => asBody(m.SettingsBody)),
   [CORE_PANEL_IDS.simulations]: () => import("@/components/simulations/SimulationsPanel").then((m) => asBody(m.default)),
   [CORE_PANEL_IDS.layers]: () => import("@/components/layers/LayersPanel").then((m) => asBody(m.default)),

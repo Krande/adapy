@@ -11,7 +11,8 @@ const { useCellBuilderStore } = await import("@/state/cellBuilderStore");
 const { capabilities } = await import("@/services/capabilities");
 
 const engine = (slug: string, origin?: "builtin" | "db" | "local") => ({ id: slug, slug, name: slug, description: null, revision: 0, origin });
-const blueprint = (slug: string, name = slug) => ({ slug, name, description: "" });
+type Blueprint = import("@/services/api/proceduralCatalog").ProceduralBlueprintOption;
+const blueprint = (slug: string, name = slug) => ({ slug, name, description: "" }) as unknown as Blueprint;
 
 const ENGINES = [engine("adapy-default", "builtin"), engine("tool-engine", "local")];
 const BLUEPRINTS: Record<string, ReturnType<typeof blueprint>[]> = {
