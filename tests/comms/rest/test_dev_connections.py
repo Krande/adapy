@@ -169,3 +169,90 @@ def test_serve_build_and_reload(client: TestClient, lib_dir: pathlib.Path):
     _write(lib_dir)
     state = _wait_for(client, lambda s: s["generation"] > generation and s["status"] != "reloading")
     assert state["status"] == "ready", state["error"]
+
+
+WELDED_BODY = """
+    import numpy as np
+    import ada
+    from ada.api.curves import CurveOpen3d
+
+    H = 0.04
+    landing_ = ada.Beam("landing_", (-0.5, 0, 0), (0.5, 0, 0), "BOX80x80x4x4")
+    incoming_ = ada.Beam("incoming_", (0, 0, H), (0, 0, 1.0), "BOX80x80x4x4")
+    part = ada.Part("welded")
+    part.add_beam(landing_)
+    part.add_beam(incoming_)
+    corners = [(-H, -H, H), (H, -H, H), (H, H, H), (-H, H, H)]
+    for i in range(4):
+        p1, p2 = corners[i], corners[(i + 1) % 4]
+        outward = (np.array(p1) + np.array(p2)) / 2 - np.array([0, 0, H])
+        profile_normal = np.cross([0, 0, -1], outward / np.linalg.norm(outward))
+        part.add_weld(
+            ada.Weld(
+                f"w{i}",
+                weld_type="FILLET",
+                members=(incoming_, landing_),
+                profile=[(0, 0), (-0.003, 0), (0, 0.003)],
+                xdir=ada.Direction(0, 0, -1),
+                sweep_curve=CurveOpen3d([p1, p2]),
+                profile_normal=ada.Direction(*profile_normal),
+                throat=0.0028,
+            )
+        )
+    return part
+"""
+
+
+def test_the_studio_offers_its_detail_as_a_weld_assembly(client: TestClient, lib_dir: pathlib.Path):
+    from ada.simulation.subjects import parse_weld_assembly
+
+    _write(lib_dir, name="devrest.welded", body=WELDED_BODY.strip())
+    generation = _wait_for(client, lambda s: s["status"] in ("ready", "error"))["generation"]
+    state = _wait_for(client, lambda s: any(x["name"] == "devrest.welded" for x in s["specs"]) and s["status"] == "ready")
+    assert state["status"] == "ready", state["error"]
+    del generation
+
+    r = client.post("/api/dev/connections/subject", json={"spec_name": "devrest.welded", "inputs": {}})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["scope"] == "user:me" and body["kind"] == "weld-assembly"
+    assert body["welds"] == 4
+    assert body["label"] == "devrest.welded (4 welds)"
+    assert body["key"].startswith("_dev/connections/devrest.welded/")
+    assert body["key"].endswith(".weld-assembly.json")
+
+    blob = client.get(f"/api/scopes/user:me/blobs/{body['key']}")
+    assert blob.status_code == 200
+    doc = parse_weld_assembly(blob.content)
+    assert len(doc["welds"]) == 4
+    assert doc["source"]["kind"] == "connection-spec" and doc["source"]["spec_name"] == "devrest.welded"
+    assert "incoming" in doc["source"]["spec_inputs"]
+
+    # The same inputs are the same key; a preview build does not delete the subject.
+    again = client.post("/api/dev/connections/subject", json={"spec_name": "devrest.welded", "inputs": {}}).json()
+    assert again["key"] == body["key"]
+    assert client.post("/api/dev/connections/build", json={"spec_name": "devrest.welded", "inputs": {}}).status_code == 200
+    assert client.get(f"/api/scopes/user:me/blobs/{body['key']}").status_code == 200
+
+    # Different inputs, another subject; only the newest ones are kept.
+    keys = {body["key"]}
+    for i in range(12):
+        t = 0.021 + 0.001 * i
+        r = client.post(
+            "/api/dev/connections/subject", json={"spec_name": "devrest.welded", "inputs": {"incoming": {"thickness": t}}}
+        )
+        assert r.status_code == 200, r.text
+        keys.add(r.json()["key"])
+    assert len(keys) == 13
+    alive = [k for k in keys if client.get(f"/api/scopes/user:me/blobs/{k}").status_code == 200]
+    assert len(alive) == 10
+    assert r.json()["key"] in alive
+
+
+def test_a_detail_without_welds_is_not_offered(client: TestClient):
+    _wait_for(client, lambda s: s["status"] == "ready")
+    r = client.post("/api/dev/connections/subject", json={"spec_name": "devrest.plate_on_box", "inputs": {}})
+    assert r.status_code == 409, r.text
+    assert "no welds" in r.json()["detail"]
+    r = client.post("/api/dev/connections/subject", json={"inputs": {}})
+    assert r.status_code == 400
