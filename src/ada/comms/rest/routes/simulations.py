@@ -38,6 +38,7 @@ from ada.simulation.runs import (
     utc_now,
 )
 from ada.simulation.schema import ParameterError, validate_parameters
+from ada.simulation.subjects import SUBJECT_KINDS
 
 from .. import auth as auth_module
 from .. import pending_uploads
@@ -82,7 +83,8 @@ async def api_simulation_providers(
     """``{"domains": [...], "providers": [...]}``. ``domains`` are the kinds of simulation
     (``fea``, ``robotics``, ``cfd``), each with its title, description and artefact roles;
     ``providers`` are ordered by domain and each carry ``id``, ``domain``, ``engine``, ``title``,
-    ``version``, ``description``, ``kinds``, ``parameters_schema``, ``capability``, ``online`` and
+    ``version``, ``description``, ``kinds``, ``parameters_schema``, ``accepts`` (the subject kinds a
+    run can be started on), ``capability``, ``online`` and
     ``workers`` (how many live workers serve it). ``?domain=`` lists one kind's providers only.
 
     A provider stays listed, ``online: false``, after its last worker stops, until the worker
@@ -106,6 +108,29 @@ def _inputs_from(raw) -> list[str]:
     return keys
 
 
+def _subject_from(raw, provider: dict) -> dict | None:
+    """``{"kind", "key"}`` of the subject a run is started on, checked: a kind core knows
+    (``ada.simulation.subjects``), which the provider accepts, and a storage key."""
+    if raw is None:
+        return None
+    if not isinstance(raw, dict) or not isinstance(raw.get("kind"), str) or not isinstance(raw.get("key"), str):
+        raise HTTPException(status_code=400, detail="'subject' must be {\"kind\": ..., \"key\": ...}")
+    kind, key = raw["kind"], raw["key"].strip().lstrip("/")
+    if kind not in SUBJECT_KINDS:
+        raise HTTPException(
+            status_code=400, detail=f"unknown subject kind {kind!r} (known: {', '.join(SUBJECT_KINDS)})"
+        )
+    if kind not in provider.get("accepts", []):
+        accepted = provider.get("accepts") or []
+        raise HTTPException(
+            status_code=400,
+            detail=f"provider {provider['id']!r} does not take a {kind} (it accepts: {accepted or 'no subject'})",
+        )
+    if not key:
+        raise HTTPException(status_code=400, detail="'subject.key' (a storage key in this scope) is required")
+    return {"kind": kind, "key": key}
+
+
 @router.post("/scopes/{scope}/simulations")
 async def api_simulation_start(
     body: dict,
@@ -114,12 +139,15 @@ async def api_simulation_start(
     ctx: RestContext = Depends(rest_context),
     user: User = Depends(auth_module.current_user),
 ) -> JSONResponse:
-    """Start a run. Body ``{provider, parameters?, inputs?, kind?}``: the provider's id, its
-    parameters, the storage keys of the run's input files in this scope, and which of the
-    provider's kinds of run. Returns ``{"run": {...}}`` -- the run record, with its ``job_id``.
+    """Start a run. Body ``{provider, parameters?, inputs?, kind?, subject?}``: the provider's id, its
+    parameters, the storage keys of the run's input files in this scope, which of the provider's
+    kinds of run, and what the run is ON (``subject: {kind, key}``, see ``ada.simulation.subjects``;
+    its key is put first among the inputs and the record keeps it as ``subject``). Returns
+    ``{"run": {...}}`` -- the run record, with its ``job_id``.
 
     Refused before anything is queued: an unknown provider (404), one no live worker serves
-    (409), parameters that do not fit the provider's schema (400, naming each problem), an input
+    (409), parameters that do not fit the provider's schema (400, naming each problem), a
+    subject of an unknown kind or one the provider does not accept (400), an input or subject
     that is missing (404) or still uploading (409)."""
     provider_id = body.get("provider")
     if not isinstance(provider_id, str) or not provider_id:
@@ -151,7 +179,11 @@ async def api_simulation_start(
     except ParameterError as exc:
         raise HTTPException(status_code=400, detail=f"invalid parameters: {exc}") from exc
 
+    subject = _subject_from(body.get("subject"), provider)
     inputs = _inputs_from(body.get("inputs"))
+    if subject is not None:
+        # The subject is one of the run's input files: the provider reads it through the context.
+        inputs = [subject["key"], *(k for k in inputs if k != subject["key"])]
     for key in inputs:
         pending = pending_uploads.get(scope_obj, key)
         if pending is not None:
@@ -166,6 +198,7 @@ async def api_simulation_start(
         inputs=inputs,
         started_by={"id": user.sub, "display": user.display_name},
         kind=kind,
+        subject=subject,
     )
     key = run_record_key(record["run_id"])
     # Written before the job exists, so whatever picks the job up finds its record.
