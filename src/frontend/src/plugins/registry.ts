@@ -170,7 +170,8 @@ import { isPlacedElsewhere } from "@/layout/placedElsewhere";
 //          ignores it.
 //   1.20.0 `registerToastSlot` / `unregisterToastSlot` (@/viewer-core): a plugin's own toasts
 //          in the app's one toast stack.
-//   1.21.0 `notifyPluginActivationChanged()`: a plugin whose activation predicate reads its own
+//   1.21.0 `setBuilderDefaults` (@/viewer-core): a shell's default Builder engine/blueprint.
+//          `notifyPluginActivationChanged()`: a plugin whose activation predicate reads its own
 //          state says when that state changed, and a placed panel showing "Nothing to show
 //          here yet" re-asks it (the panel also re-asks on every loaded-model change).
 export const PLUGIN_API_VERSION = "1.21.0";
