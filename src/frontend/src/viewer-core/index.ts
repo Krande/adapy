@@ -642,7 +642,13 @@
 //          bytes, whole or from an offset.
 //   1.19.0 Kept in step with PLUGIN_API_VERSION 1.19.0 (`SimulationProviderUi.openResultLiveLabel`:
 //          the open-result button's text while a run is still going). Additive.
-export const VIEWER_CORE_API_VERSION = "1.19.0";
+//   1.20.0 Kept in step with PLUGIN_API_VERSION 1.20.0 (`SceneHandle.poseModel`, `posable` on a
+//          model source, the `SceneModelPose` type).
+//   1.21.0 Kept in step with PLUGIN_API_VERSION 1.21.0 (`ctx.simulations.offerSubject`; the types
+//          `PluginSimulations`, `PluginSimulationSubject`, `PluginSimulationSubjectHandle`).
+//          Additive: `useSimulationSubjectStore` and `SimulationSubject` on `/app`, for core
+//          chrome that offers a subject without a plugin context.
+export const VIEWER_CORE_API_VERSION = "1.21.0";
 
 // ---------------------------------------------------------------------------
 // Plugin declaration. `registerPlugin` is how a package announces itself —
@@ -663,6 +669,9 @@ export type {
   PanelSlot,
   PluginDockId,
   PluginLayers,
+  PluginSimulations,
+  PluginSimulationSubject,
+  PluginSimulationSubjectHandle,
   PluginLayerState,
   PluginPlayback,
   PluginPlaybackState,
@@ -696,6 +705,7 @@ export type {
   SceneLineLayer,
   SceneLineLayerSpec,
   SceneLines,
+  SceneModelPose,
   SceneModelSource,
   SceneOverlay,
   ScenePointLayer,

@@ -41,7 +41,9 @@ import {
   imageUnavailable,
   makePluginLayers,
   makePluginPlayback,
+  poseModel,
 } from "./sceneLayers";
+import { makePluginSimulations } from "./pluginSimulations";
 import { releaseFeaDeformation, setFeaDeformationShown } from "@/utils/scene/fea/deformationGate";
 import { releaseFeaUnpaintedColor, setFeaUnpaintedColor } from "@/utils/scene/fea/unpaintedColor";
 import { findFaces, focusFace } from "@/utils/mesh_select/faceSearch";
@@ -182,9 +184,11 @@ function makeSceneHandle(): SceneHandle {
           : { from: "url", url: url! },
         placement: source.placement ?? "replace",
         sourceUpAxis: source.sourceUpAxis,
+        posable: source.posable,
       });
       requestRender();
     },
+    poseModel,
     unloadModel(sourceName) {
       void import("@/utils/scene/handlers/unload_any_source").then(({ unload_any_source }) => unload_any_source(sourceName));
     },
@@ -238,6 +242,7 @@ export function makePluginContext(
     scene: makeSceneHandle(),
     playback: makePluginPlayback(pluginId),
     layers: makePluginLayers(pluginId),
+    simulations: makePluginSimulations(pluginId, () => scopeUrlPart(useScopeStore.getState().current)),
     scope: () => scopeUrlPart(useScopeStore.getState().current),
     // A React caller passes the SUBSCRIBED theme (`usePluginTheme`), which is
     // what makes a plugin panel repaint on a theme switch. The fallback is a

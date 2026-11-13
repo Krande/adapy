@@ -30,6 +30,7 @@ import {createThreeOverlayLayer} from "./threeOverlays";
 import type {ImageLayer} from "./imageLayer";
 import {createThreeImageLayer} from "./threeImages";
 import {sceneNodeAnimation} from "@/utils/scene/animations/nodeAnimation";
+import {threeModelNodes} from "./threeModelPose";
 import {frameBox} from "@/components/viewer/sceneHelpers/cameraFit";
 import type {ObjectRef, ObjectVisibilityReader, SetSelectionOptions, ViewportApi} from "./viewportApi";
 
@@ -334,6 +335,8 @@ export function createThreeViewport(h: ThreeViewportHandles): ViewportApi {
         },
         // The moving parts of the loaded GLBs, each on a mixer of its own (nodeAnimation.ts).
         modelAnimation: sceneNodeAnimation,
+        // A node is an object of the loaded scene (./threeModelPose.ts).
+        modelNodes: threeModelNodes,
         setOrbitPivot: (point) =>
             void import("@/components/viewer/sceneHelpers/setupPointerHandler").then((m) => {
                 m.applyOrbitPoint(getViewerRuntime().controls.current ?? h.controls, new Vector3(point[0], point[1], point[2]));

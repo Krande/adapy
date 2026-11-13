@@ -29,6 +29,7 @@ from ada.simulation.runs import (
     run_record_key,
     utc_now,
 )
+from ada.simulation.subjects import SUBJECT_KINDS
 
 from .job_transport import JobSnapshot, JobTransport
 from .plugin_registry import locally_registered_simulation_providers
@@ -47,7 +48,17 @@ __all__ = [
 ]
 
 #: The fields of a provider every listing carries, whatever a worker advertised beside them.
-_PROVIDER_FIELDS = ("id", "domain", "engine", "title", "version", "description", "kinds", "parameters_schema")
+_PROVIDER_FIELDS = (
+    "id",
+    "domain",
+    "engine",
+    "title",
+    "version",
+    "description",
+    "kinds",
+    "parameters_schema",
+    "accepts",
+)
 
 #: How long a record may sit without a job id before it is read as never submitted: the API
 #: writes the record, then submits the job, and a process that died in between leaves one.
@@ -72,6 +83,10 @@ def _provider_entry(spec: dict, *, online: bool, workers: int) -> dict:
     entry["kinds"] = entry.get("kinds") if isinstance(entry.get("kinds"), list) else []
     schema = entry.get("parameters_schema")
     entry["parameters_schema"] = schema if isinstance(schema, dict) else {}
+    # The subject kinds it takes; a worker on an older adapy advertises none. Only kinds this API
+    # knows are listed: a run could not be started on one it does not.
+    accepts = entry.get("accepts")
+    entry["accepts"] = [a for a in accepts if a in SUBJECT_KINDS] if isinstance(accepts, list) else []
     entry["capability"] = capability_token(spec.get("capability"))
     entry["online"] = online
     entry["workers"] = workers

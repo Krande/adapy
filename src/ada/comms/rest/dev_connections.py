@@ -166,6 +166,7 @@ class DevConnections:
         self._subscribers: set[tuple[asyncio.AbstractEventLoop, asyncio.Queue]] = set()
         self._sub_lock = threading.Lock()
         self._last_keys: dict[str, str] = {}
+        self._subjects: dict[str, list[str]] = {}
         self.status = "starting"
         self.generation = 0
         self.specs: list[dict[str, Any]] = []
@@ -262,6 +263,45 @@ class DevConnections:
         finally:
             glb.unlink(missing_ok=True)
         return data, reply
+
+    def subject(self, spec_name: str, inputs: dict[str, Any]) -> tuple[bytes, dict[str, Any]]:
+        """Build ``spec_name`` and return its weld assembly (the subject file's bytes) and the
+        host's report. :class:`HostError` for a builder failure or a detail without welds (its
+        message is "ValueError: the detail has no welds"), :class:`HostUnavailable` while (re)starting."""
+        if self.status in ("starting", "restarting"):
+            raise HostUnavailable(f"the library is {self.status}")
+        path = (
+            self._tmp / f"{hashlib.sha1(spec_name.encode()).hexdigest()[:12]}-{time.monotonic_ns()}.weld-assembly.json"
+        )
+        with self._lock:
+            if not self._host.alive:
+                raise HostUnavailable(f"the library is {self.status}")
+            try:
+                reply = self._host.request("subject", spec_name=spec_name, inputs=inputs, path=str(path))
+            except TimeoutError:
+                threading.Thread(target=self._start_host, args=("restart",), daemon=True).start()
+                raise HostError(f"{spec_name}: the build did not finish in {REQUEST_TIMEOUT_S:.0f}s; restarting")
+            except HostUnavailable:
+                threading.Thread(target=self._start_host, args=("restart",), daemon=True).start()
+                raise
+        try:
+            data = path.read_bytes()
+        finally:
+            path.unlink(missing_ok=True)
+        return data, reply
+
+    #: How many subjects per spec are kept in the scope: a run may still be using an older one.
+    SUBJECTS_KEPT = 10
+
+    def remember_subject(self, spec_name: str, key: str) -> list[str]:
+        """Record the blob key of a subject offered for ``spec_name``; returns the keys beyond the
+        newest :attr:`SUBJECTS_KEPT` (to delete). Offering a key again makes it the newest."""
+        keys = self._subjects.setdefault(spec_name, [])
+        if key in keys:
+            keys.remove(key)
+        keys.append(key)
+        stale, self._subjects[spec_name] = keys[: -self.SUBJECTS_KEPT], keys[-self.SUBJECTS_KEPT :]
+        return stale
 
     def remember_key(self, spec_name: str, key: str) -> str | None:
         """Record the blob key of ``spec_name``'s newest build; returns the one it replaces."""

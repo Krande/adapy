@@ -431,6 +431,17 @@ def is_scope_state_key(key: str) -> bool:
     return key.lstrip("/").startswith(SCOPE_STATE_PREFIXES)
 
 
+def is_subject_key(key: str) -> bool:
+    """A simulation subject's file (``<name>.<kind>.json``, ``ada.simulation.subjects``): a ``.json``
+    no converter reads, put through the blob route by whatever offers the subject -- a studio
+    handing a run to this one (``ada.comms.rest.simulation_relay``) -- so the upload route exempts
+    it from the source-extension whitelist, as it does viewer-written scope state."""
+    from ada.simulation.subjects import SUBJECT_KINDS
+
+    name = key.lstrip("/").rsplit("/", 1)[-1].lower()
+    return any(name.endswith(f".{kind}.json") or name.endswith(f".{kind}.json.gz") for kind in SUBJECT_KINDS)
+
+
 def is_versions_artefact_key(key: str) -> bool:
     """``versions/<branch>/<commit>/<file>`` blobs are pre-built outputs
     pushed by CI rather than conversion sources, so the supported-source
