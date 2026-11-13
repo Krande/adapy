@@ -132,6 +132,29 @@ test("an image is made again after a load emptied the scene, as it was last", ()
     assert.deepEqual([quads[1].removed, scene.onLoaded.size], [true, 0]);
 });
 
+test("an image touched after a load emptied the scene, before the scene said so, is made again first", () => {
+    const {scene, quads, textures, layer} = fakeScene();
+    const a = layer.add({origin: [0, 0, 0], u: [1, 0, 0], v: [0, 1, 0], width: 1, height: 1, pixels: pixels(RED)});
+    const b = layer.add({origin: [0, 0, 0], u: [1, 0, 0], v: [0, 1, 0], width: 1, height: 1, pixels: pixels(BLUE)});
+    // The renderer dropped everything; the scene is still telling others (the model was recentred).
+    scene.sceneEpoch++;
+    layer.setLook(a, {matrix: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 5, 6, 7, 1]});
+    assert.deepEqual([quads.length, textures.length], [4, 4], "both images are made again");
+    assert.deepEqual(quads[0].matrix.slice(12, 15), [0.5, 0.5, 0], "the quad the renderer dropped is not written to");
+    assert.deepEqual(quads[2].matrix.slice(12, 15), [5.5, 6.5, 7]);
+    layer.setRect(b, {origin: [1, 0, 0], u: [1, 0, 0], v: [0, 1, 0]});
+    layer.setPixels(b, pixels(GREEN));
+    assert.deepEqual([textures[1].writes, textures[3].pixels], [0, GREEN], "nor its texture");
+    // The scene's own word, when it comes, has nothing left to do.
+    for (const listener of scene.onLoaded) listener();
+    assert.deepEqual([quads.length, textures.length], [4, 4]);
+    scene.sceneEpoch++;
+    layer.remove(a);
+    assert.deepEqual([quads[2].removed, textures[2].removed], [false, false], "what the renderer dropped is not removed again");
+    assert.equal(quads.length, 6);
+    assert.deepEqual([quads[4].removed, quads[5].removed], [true, false]);
+});
+
 test("a renderer module without quads draws nothing and the layer says why", () => {
     const {quads, textures, layer} = fakeScene(false);
     const handle = layer.add({origin: [0, 0, 0], u: [1, 0, 0], v: [0, 1, 0], width: 1, height: 1, pixels: pixels(RED)});
