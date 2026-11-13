@@ -233,6 +233,33 @@ class Library:
             )
         return out
 
+    def subject(self, spec_name: str, inputs: dict[str, dict[str, Any]], path: pathlib.Path) -> dict[str, Any]:
+        """Build ``spec_name`` as :meth:`build` does and write its weld assembly (a simulation
+        subject, :mod:`ada.simulation.subjects`) to ``path``. ``ValueError`` when the detail has no
+        welds; raises what the builder raises."""
+        from ada.api.connections import build_component
+        from ada.api.connections.sample import default_inputs
+        from ada.simulation.subjects import WeldAssemblyError, dump_weld_assembly, weld_assembly_from_part
+
+        spec = get_registered(spec_name).spec
+        merged = {role: {**fields, **(inputs.get(role) or {})} for role, fields in default_inputs(spec).items()}
+        extra = dict(self._kwargs_factory() or {}) if self._kwargs_factory else {}
+        with _CapturedLog() as log:
+            conn = build_component(spec_name, merged, name=spec_name.replace(".", "_"), **extra)
+        if not sum(len(p.welds) for p in conn.get_all_subparts(include_self=True)):
+            raise ValueError("the detail has no welds")
+        try:
+            assembly = weld_assembly_from_part(
+                conn,
+                stub_length=None,
+                source={"kind": "connection-spec", "spec_name": spec_name, "spec_inputs": merged},
+            )
+            data = dump_weld_assembly(assembly)
+        except WeldAssemblyError as e:
+            raise ValueError(str(e)) from e
+        pathlib.Path(path).write_bytes(data)
+        return {"inputs": merged, "log": log.lines, "welds": len(assembly["welds"]), "members": len(assembly["members"])}
+
     def build(self, spec_name: str, inputs: dict[str, dict[str, Any]], glb_path: pathlib.Path) -> dict[str, Any]:
         """Build ``spec_name`` from ``inputs`` (missing fields take the spec's defaults) into
         ``glb_path``. Raises what the builder raises; warnings it logs come back in ``log``."""

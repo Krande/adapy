@@ -64,6 +64,9 @@ export interface SimulationProviderInfo {
   /** The kinds of subject (`ada.simulation.subjects`, e.g. `weld-assembly`) a run of it can be
    *  started on. Absent from a server that predates subjects: it takes none. */
   readonly accepts?: readonly string[];
+  /** Offered by a remote Ada Studio this one hands runs to (`ada dev connections --sim-remote`): the
+   *  server relays a run on it. Absent for a provider this server runs itself. */
+  readonly remote?: boolean;
   /** The worker pool its runs go to. */
   readonly capability: string;
   /** A live worker serves it. A run cannot be started for an offline provider. */
@@ -104,6 +107,8 @@ export interface SimulationRun {
   readonly kind: string | null;
   /** What the run was started on; null (or absent, from a server without subjects) for none. */
   readonly subject?: SimulationSubjectRef | null;
+  /** Where a run handed off to a remote Ada Studio lives there; absent for one run here. */
+  readonly remote?: { readonly url: string; readonly scope: string; readonly run_id: string };
   readonly parameters: Readonly<Record<string, unknown>>;
   readonly inputs: readonly string[];
   readonly started_by: { readonly id: string; readonly display: string | null };
