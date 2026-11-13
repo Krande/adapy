@@ -341,7 +341,9 @@ def test_a_lost_remote_leaves_the_stored_run_listed_and_a_single_read_a_502(tmp_
         assert listed["run_id"] == run_id and "connection refused" in listed["remote_error"]
         r = client.get(f"/api/scopes/user:me/simulations/{run_id}")
         assert r.status_code == 502 and REMOTE_URL in r.json()["detail"]
-        assert client.get(f"/api/scopes/user:me/blobs/_simulations/{run_id}/artefacts/activity.jsonl").status_code == 502
+        assert (
+            client.get(f"/api/scopes/user:me/blobs/_simulations/{run_id}/artefacts/activity.jsonl").status_code == 502
+        )
 
 
 def test_the_settings_read_the_remote_from_the_environment(monkeypatch):

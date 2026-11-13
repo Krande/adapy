@@ -65,7 +65,9 @@ def merge_providers(local: list[dict], remote: list[dict]) -> list[dict]:
     extra = []
     for p in remote:
         if p["id"] in have:
-            logger.warning("simulation relay: remote provider %r is also registered here; the local one is used", p["id"])
+            logger.warning(
+                "simulation relay: remote provider %r is also registered here; the local one is used", p["id"]
+            )
             continue
         extra.append(p)
     return _sorted([*local, *extra])
@@ -228,7 +230,10 @@ class SimulationRelay:
         fresh = self._mirror(record, remote_run)
         if fresh != record:
             await write_run(storage, scope, fresh)
-        return {"run": {**fresh, "cancel_requested": bool(remote_run.get("cancel_requested"))}, "cancelled": bool(answer.get("cancelled"))}
+        return {
+            "run": {**fresh, "cancel_requested": bool(remote_run.get("cancel_requested"))},
+            "cancelled": bool(answer.get("cancelled")),
+        }
 
     # -- artefacts -----------------------------------------------------------------------------
 
@@ -262,6 +267,7 @@ class SimulationRelay:
             headers=out,
             background=BackgroundTask(close),
         )
+
 
 def _detail(r: httpx.Response) -> str:
     try:

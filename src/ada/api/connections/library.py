@@ -239,7 +239,11 @@ class Library:
         welds; raises what the builder raises."""
         from ada.api.connections import build_component
         from ada.api.connections.sample import default_inputs
-        from ada.simulation.subjects import WeldAssemblyError, dump_weld_assembly, weld_assembly_from_part
+        from ada.simulation.subjects import (
+            WeldAssemblyError,
+            dump_weld_assembly,
+            weld_assembly_from_part,
+        )
 
         spec = get_registered(spec_name).spec
         merged = {role: {**fields, **(inputs.get(role) or {})} for role, fields in default_inputs(spec).items()}
@@ -258,7 +262,12 @@ class Library:
         except WeldAssemblyError as e:
             raise ValueError(str(e)) from e
         pathlib.Path(path).write_bytes(data)
-        return {"inputs": merged, "log": log.lines, "welds": len(assembly["welds"]), "members": len(assembly["members"])}
+        return {
+            "inputs": merged,
+            "log": log.lines,
+            "welds": len(assembly["welds"]),
+            "members": len(assembly["members"]),
+        }
 
     def build(self, spec_name: str, inputs: dict[str, dict[str, Any]], glb_path: pathlib.Path) -> dict[str, Any]:
         """Build ``spec_name`` from ``inputs`` (missing fields take the spec's defaults) into

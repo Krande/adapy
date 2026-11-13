@@ -208,7 +208,9 @@ def test_the_studio_offers_its_detail_as_a_weld_assembly(client: TestClient, lib
 
     _write(lib_dir, name="devrest.welded", body=WELDED_BODY.strip())
     generation = _wait_for(client, lambda s: s["status"] in ("ready", "error"))["generation"]
-    state = _wait_for(client, lambda s: any(x["name"] == "devrest.welded" for x in s["specs"]) and s["status"] == "ready")
+    state = _wait_for(
+        client, lambda s: any(x["name"] == "devrest.welded" for x in s["specs"]) and s["status"] == "ready"
+    )
     assert state["status"] == "ready", state["error"]
     del generation
 
@@ -231,7 +233,9 @@ def test_the_studio_offers_its_detail_as_a_weld_assembly(client: TestClient, lib
     # The same inputs are the same key; a preview build does not delete the subject.
     again = client.post("/api/dev/connections/subject", json={"spec_name": "devrest.welded", "inputs": {}}).json()
     assert again["key"] == body["key"]
-    assert client.post("/api/dev/connections/build", json={"spec_name": "devrest.welded", "inputs": {}}).status_code == 200
+    assert (
+        client.post("/api/dev/connections/build", json={"spec_name": "devrest.welded", "inputs": {}}).status_code == 200
+    )
     assert client.get(f"/api/scopes/user:me/blobs/{body['key']}").status_code == 200
 
     # Different inputs, another subject; only the newest ones are kept.
@@ -239,7 +243,8 @@ def test_the_studio_offers_its_detail_as_a_weld_assembly(client: TestClient, lib
     for i in range(12):
         t = 0.021 + 0.001 * i
         r = client.post(
-            "/api/dev/connections/subject", json={"spec_name": "devrest.welded", "inputs": {"incoming": {"thickness": t}}}
+            "/api/dev/connections/subject",
+            json={"spec_name": "devrest.welded", "inputs": {"incoming": {"thickness": t}}},
         )
         assert r.status_code == 200, r.text
         keys.add(r.json()["key"])

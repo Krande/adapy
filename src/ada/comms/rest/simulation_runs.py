@@ -48,7 +48,17 @@ __all__ = [
 ]
 
 #: The fields of a provider every listing carries, whatever a worker advertised beside them.
-_PROVIDER_FIELDS = ("id", "domain", "engine", "title", "version", "description", "kinds", "parameters_schema", "accepts")
+_PROVIDER_FIELDS = (
+    "id",
+    "domain",
+    "engine",
+    "title",
+    "version",
+    "description",
+    "kinds",
+    "parameters_schema",
+    "accepts",
+)
 
 #: How long a record may sit without a job id before it is read as never submitted: the API
 #: writes the record, then submits the job, and a process that died in between leaves one.

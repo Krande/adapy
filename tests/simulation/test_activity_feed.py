@@ -31,7 +31,13 @@ def test_a_feed_is_written_a_whole_line_at_a_time_and_reads_back(tmp_path):
 
     lines = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
     assert lines[0] == {"schema": ACTIVITY_SCHEMA, "actors": [{"id": "mission", "label": "Mission"}]}
-    assert lines[3] == {"t": 0.2, "actor": "amr", "kind": "state", "text": "Driving into the cell", "data": {"goal": [1.0, 2.0, 0.0]}}
+    assert lines[3] == {
+        "t": 0.2,
+        "actor": "amr",
+        "kind": "state",
+        "text": "Driving into the cell",
+        "data": {"goal": [1.0, 2.0, 0.0]},
+    }
     assert "level" not in lines[1] and lines[5]["level"] == "warn"
 
     read = parse_activity(path.read_text(encoding="utf-8"))

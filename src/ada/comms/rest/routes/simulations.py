@@ -132,7 +132,7 @@ def _subject_from(raw, provider: dict) -> dict | None:
     if raw is None:
         return None
     if not isinstance(raw, dict) or not isinstance(raw.get("kind"), str) or not isinstance(raw.get("key"), str):
-        raise HTTPException(status_code=400, detail="'subject' must be {\"kind\": ..., \"key\": ...}")
+        raise HTTPException(status_code=400, detail='\'subject\' must be {"kind": ..., "key": ...}')
     kind, key = raw["kind"], raw["key"].strip().lstrip("/")
     if kind not in SUBJECT_KINDS:
         raise HTTPException(

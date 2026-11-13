@@ -117,7 +117,9 @@ class ActivityWriter:
         """Name more actors, or give one its label and colour, after the feed was begun."""
         self._line({"actors": [a.to_dict() for a in actors]})
 
-    def add(self, t: float, actor: str, text: str, *, kind: str = "event", level: str = "info", data: Any = None) -> None:
+    def add(
+        self, t: float, actor: str, text: str, *, kind: str = "event", level: str = "info", data: Any = None
+    ) -> None:
         if kind not in KINDS:
             raise ValueError(f"an activity entry's kind is one of {', '.join(KINDS)}, not {kind!r}")
         if level not in LEVELS:
@@ -178,7 +180,9 @@ def parse_activity(text: str) -> ActivityFeed:
             continue
         kind = e.get("kind") if e.get("kind") in KINDS else "event"
         level = e.get("level") if e.get("level") in LEVELS else "info"
-        feed.entries.append(ActivityEntry(float(e["t"]), e["actor"], str(e.get("text") or ""), kind, level, e.get("data")))
+        feed.entries.append(
+            ActivityEntry(float(e["t"]), e["actor"], str(e.get("text") or ""), kind, level, e.get("data"))
+        )
         known.setdefault(e["actor"], ActivityActor(e["actor"]))
     feed.actors = list(known.values())
     return feed

@@ -270,7 +270,9 @@ class DevConnections:
         message is "ValueError: the detail has no welds"), :class:`HostUnavailable` while (re)starting."""
         if self.status in ("starting", "restarting"):
             raise HostUnavailable(f"the library is {self.status}")
-        path = self._tmp / f"{hashlib.sha1(spec_name.encode()).hexdigest()[:12]}-{time.monotonic_ns()}.weld-assembly.json"
+        path = (
+            self._tmp / f"{hashlib.sha1(spec_name.encode()).hexdigest()[:12]}-{time.monotonic_ns()}.weld-assembly.json"
+        )
         with self._lock:
             if not self._host.alive:
                 raise HostUnavailable(f"the library is {self.status}")

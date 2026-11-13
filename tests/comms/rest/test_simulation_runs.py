@@ -531,7 +531,13 @@ def test_a_provider_from_an_older_worker_lists_no_accepted_kinds():
                 "last_heartbeat": now,
                 "simulation_providers": [
                     {"id": "old", "domain": "fea", "capability": "sim-old", "serving": True},
-                    {"id": "new", "domain": "fea", "capability": "sim-new", "serving": True, "accepts": ["weld-assembly", "x"]},
+                    {
+                        "id": "new",
+                        "domain": "fea",
+                        "capability": "sim-new",
+                        "serving": True,
+                        "accepts": ["weld-assembly", "x"],
+                    },
                 ],
             }
         ],
