@@ -171,3 +171,61 @@ def test_data_after_the_end_marker_is_refused(twins):
     _, records = tokenize(binary + binary[header_end(binary) :])
     with pytest.raises(SabUnsupported, match="after End-of-ACIS-data"):
         render(records)
+
+
+# -- scale -----------------------------------------------------------------------------
+
+
+def test_pack_joins_the_records_once_instead_of_growing_the_body(twins, monkeypatch):
+    """Appending each record to a growing ``bytes`` copies the body so far every time (quadratic:
+    a 50 000-record body took 22 s to pack instead of 1). A record that refuses to be added to
+    anything proves the records are only joined; the bytes are still the binary twin's."""
+    from ada.cadit.sat import sab_codec
+
+    class _JoinOnly(bytes):
+        def __add__(self, other):
+            raise AssertionError("pack concatenated a record onto the body")
+
+        __radd__ = __add__
+
+    binary, text = twins("beams_on_plate")
+    expected = pack(text)
+    original = sab_codec.pack_record
+    monkeypatch.setattr(sab_codec, "pack_record", lambda rec, index=None: _JoinOnly(original(rec, index)))
+    assert pack(text) == expected
+    assert expected[header_end(expected) :] == binary[header_end(binary) :]
+
+
+def test_a_large_body_packs_to_genie_bytes_and_renders_back_in_seconds(twins):
+    """A body of a real model's size (the 85 records of a twin, 600 times: 51 000 records, 3.9 MB
+    of SAB) packs to the twin's binary records 600 times and renders back to its text records 600
+    times. Linear, both take about a second; the bound leaves a slow CI runner room and still
+    catches a quadratic pack (22 s on the same machine)."""
+    import time
+
+    copies = 600
+    binary, text = twins("beams_on_plate")
+    header, records = text_records(text)
+    n = len(records)
+    big = "\r\n".join(
+        [*header, *(f"-{k * n + i} {r.split(' ', 1)[1]}" for k in range(copies) for i, r in enumerate(records))]
+    )
+    big += "\r\nEnd-of-ACIS-data "
+
+    t0 = time.perf_counter()
+    packed = pack(big)
+    t_pack = time.perf_counter() - t0
+    end_marker = bytes([0x0D, 16]) + b"End-of-ACIS-data"
+    twin_records = binary[header_end(binary) : -len(end_marker)]
+    assert binary.endswith(end_marker)
+    assert packed[header_end(packed) :] == twin_records * copies + end_marker
+
+    t0 = time.perf_counter()
+    rendered = render(tokenize(packed)[1])
+    t_render = time.perf_counter() - t0
+    twin_rendered = [r.split(" ", 1)[1] for r in render(tokenize(binary)[1])[:-1]]
+    assert [r.split(" ", 1)[1] for r in rendered[:-1]] == twin_rendered * copies
+    assert rendered[-1] == "End-of-ACIS-data"
+
+    assert t_pack < 10, f"packing {copies * n} records took {t_pack:.1f} s"
+    assert t_render < 10, f"rendering {copies * n} records took {t_render:.1f} s"
