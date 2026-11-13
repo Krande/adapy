@@ -387,6 +387,31 @@ a **Console** button: a panel over the view with a row per actor (what it is doi
 the playback clock's moment) and the log up to that moment, where a click on a line goes to it. It
 is the same console for a replay and for a live run.
 
+**What a run is on: subjects.** A simulation of a part with welds needs that part, and the thing
+that made the part (the connection studio, a detailing engine) is not the thing that simulates it.
+Core sits between them and they never name each other. A **subject** is a file in the scope of a
+kind core defines (`ada.simulation.subjects.SUBJECT_KINDS`, a closed set like the domains). The one
+kind so far is `weld-assembly`: a part with its welds assigned -- its members as closed triangle
+meshes, and each weld's root line with the two face normals at the seam -- as JSON of schema
+`ada-weld-assembly/1` (metres, +Z up, origin under the part; gzip allowed). A producer builds it with
+`weld_assembly_from_part(part, members=None, stub_length=None, source=None)` (`members=` for a part
+whose welds name members that live elsewhere, `stub_length=` to cut long beams back to the welds)
+and stores it with `write_weld_assembly`; a consumer reads it with `parse_weld_assembly`, which
+validates it.
+
+* A provider says which kinds it takes: `ProviderDescription.accepts`, listed with the provider
+  (`GET /simulation/providers`, and in the worker's heartbeat) as `accepts: [...]`.
+* A run is started on one: `POST /scopes/{scope}/simulations` takes `subject: {kind, key}`. The kind
+  must be known and accepted by the provider (400), the file must exist (404) and not be mid-upload
+  (409). Its key is put first among the run's `inputs` and the record keeps `subject`; the provider
+  finds it as `case.subject` (a `SubjectRef`) and reads it with `ctx.fetch_input(case.subject.key)`.
+* In the viewer, a producer **offers** a subject: a plugin calls `ctx.simulations.offerSubject(
+  {kind, key, label, scope?, source?})` (plugin API 1.21.0; it returns `{withdraw}`), core chrome uses
+  `useSimulationSubjectStore`. The Simulations panel then shows a **Subject** picker (the newest offer
+  chosen, or "(none)"), lists the providers that accept its kind first and says "does not take a
+  `<kind>`" against the rest, starts the run in the subject's scope with `subject` in the body, and
+  names the subject on the run's row.
+
 The Simulations panel's **Refresh** asks for the scope's runs and the providers again: the panel
 follows the runs it knows are unfinished, and a run started elsewhere since it was opened (another
 tab, the API) is only found by asking.
