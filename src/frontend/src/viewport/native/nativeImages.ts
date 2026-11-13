@@ -111,6 +111,10 @@ export function createNativeImageLayer(scene: NativeScene): ImageLayer {
     };
 
     // A load that empties the renderer's scene takes what was drawn here with it: make it again.
+    // The scene says so when the load is done (`onLoaded`), but an image may be asked to move
+    // before that, while the scene is still telling others of the load (the model was recentred,
+    // say). Its quad and texture are then ids the renderer no longer knows, or already knows as
+    // something else. So everything that touches them looks first (`current`).
     let epoch = scene.sceneEpoch;
     const afterLoad = (): void => {
         if (disposed || epoch === scene.sceneEpoch) return;
@@ -118,8 +122,10 @@ export function createNativeImageLayer(scene: NativeScene): ImageLayer {
         for (const item of items.values()) draw(item);
     };
     scene.onLoaded.add(afterLoad);
+    const current = afterLoad;
 
     const drop = (handle: number): void => {
+        current();
         const item = items.get(handle);
         if (!item) return;
         items.delete(handle);
@@ -136,6 +142,7 @@ export function createNativeImageLayer(scene: NativeScene): ImageLayer {
 
     return {
         add: (image: WorldImage) => {
+            current();
             const ok = validImage(image.pixels, image.width, image.height);
             const item: Item = {
                 rect: {origin: [...image.origin], u: [...image.u], v: [...image.v]},
@@ -157,6 +164,7 @@ export function createNativeImageLayer(scene: NativeScene): ImageLayer {
             return handle;
         },
         setPixels: (handle, pixels, width, height) => {
+            current();
             const item = items.get(handle);
             if (!item) return;
             const w = width ?? item.width, h = height ?? item.height;
@@ -169,12 +177,14 @@ export function createNativeImageLayer(scene: NativeScene): ImageLayer {
             else draw(item);
         },
         setRect: (handle, rect) => {
+            current();
             const item = items.get(handle);
             if (!item) return;
             item.rect = {origin: [...rect.origin], u: [...rect.u], v: [...rect.v]};
             place(item);
         },
         setLook: (handle, look) => {
+            current();
             const item = items.get(handle);
             if (!item) return;
             if (look.visible !== undefined) item.visible = look.visible;
