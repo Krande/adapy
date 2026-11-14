@@ -131,7 +131,16 @@ sequenceDiagram
   filesystem store's source is linked into the job's temp dir, not copied. Such a server
   advertises its own conversion matrix, source extensions and utilities
   (`job_transport.local_advertisement`, the computation a worker's heartbeat uses), and a
-  conversion it has no converter for is a 501. Admin audit sweeps
+  conversion it has no converter for is a 501. Every local job, thread or process, passes
+  through one FIFO queue (`local_queue.py`). It has a cap on concurrent jobs and a CPU budget
+  divided over the running jobs. A job process gets its share as `OMP_NUM_THREADS` /
+  `OPENBLAS_NUM_THREADS` / `MKL_NUM_THREADS` / `NUMEXPR_NUM_THREADS` / `ADA_STEP_STREAM_WORKERS` /
+  `ADA_DERIVED_GZIP_THREADS`, plus a CPU affinity on Linux when the budget is below the machine.
+  A queued job reports `queued (n ahead)` and is never started if it is cancelled first. A few
+  sub-second kinds take one extra lane. The limits are settings: `routes/local_jobs.py`, stored
+  in `app_settings` or `_prefs/_server/local_jobs.json`, defaulting from
+  `ADA_LOCAL_JOB_PROCESSES` / `ADA_LOCAL_JOB_CPU_BUDGET` and the `--max-jobs` / `--cpu-budget`
+  flags. They apply to the next job. Admin audit sweeps
   (`audit_conversion`) stay queue-only. The choice is made once at start-up. A queue-less server also
   answers the procedural blueprint, template and engine catalogs from its own process, and
   lists engines registered there with origin `local` (id prefix `local:`). Its in-process

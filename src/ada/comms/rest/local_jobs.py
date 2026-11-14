@@ -56,6 +56,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import IO, Any
 
+from . import local_queue
 from .plugin_registry import locally_registered_spec
 
 logger = logging.getLogger(__name__)
@@ -87,6 +88,10 @@ class LocalJob:
     artefacts_ready: dict[str, Any] | None = None
     #: The job process's pid, for a job run in one (``start_worker_job``); None for a thread.
     pid: int | None = None
+    #: What the local queue gave it when it started: its share of the CPU budget, and the CPUs it
+    #: is pinned to (empty: not pinned). See ``local_queue``.
+    threads: int | None = None
+    cpus: tuple[int, ...] = ()
 
     def as_json(self) -> dict[str, Any]:
         """The shape ``GET /api/convert/{job_id}`` returns for a queued job."""
@@ -178,6 +183,7 @@ class LocalJobRegistry:
         if job is None or job.status != STATUS_RUNNING:
             return False
         job.cancel_event.set()
+        local_queue.queue.wake()  # a queued job leaves the queue now, not on the next poll
         return True
 
 
@@ -327,7 +333,7 @@ def start_plugin_job(
     # A plain daemon thread rather than the default executor: a capacity check
     # runs for minutes to an hour, and parking that on the loop's shared pool
     # would starve every other threadpool user for the duration.
-    threading.Thread(target=_run, name=f"local-plugin-job-{plugin_id}", daemon=True).start()
+    _start_queued(job, _run, f"local-plugin-job-{plugin_id}")
     return job
 
 
@@ -366,21 +372,10 @@ _PROCEDURAL_TASKS: set[asyncio.Task] = set()
 #: envelope of a bake.
 LOCAL_FEA_KINDS: frozenset[str] = frozenset({"fea_artefacts", "fea_meta", "fea_case", "fea_envelope"})
 
+#: Worker kinds that finish in a moment (a result deck's step/field inventory): they take the
+#: local queue's light lane rather than wait behind conversions (``local_queue``).
+LIGHT_WORKER_KINDS: frozenset[str] = frozenset({"fea_meta"})
 
-#: How many job processes run at once; the rest wait their turn (stage ``queued``). A conversion
-#: or a bake can use GBs and every core, and a viewer that uploads a folder starts one per file:
-#: unbounded, a laptop would page itself to a halt. ``ADA_LOCAL_JOB_PROCESSES`` overrides.
-def _process_slots() -> int:
-    raw = os.environ.get("ADA_LOCAL_JOB_PROCESSES", "").strip()
-    if raw:
-        try:
-            return max(1, int(raw))
-        except ValueError:
-            logger.warning("ADA_LOCAL_JOB_PROCESSES=%r is not an integer; using the default", raw)
-    return max(1, min(4, (os.cpu_count() or 2) // 2))
-
-
-_PROCESS_SLOTS = threading.BoundedSemaphore(_process_slots())
 
 #: The tail of a crashed job process's output carried in the job's error.
 CRASH_TAIL_CHARS = 4000
@@ -389,7 +384,7 @@ CRASH_TAIL_CHARS = 4000
 CANCEL_GRACE_S = 5.0
 
 
-def _child_env() -> dict[str, str]:
+def _child_env(threads: int | None = None) -> dict[str, str]:
     """The server's environment, for the job process: the same interpreter must find the same
     modules (``sys.path`` as ``PYTHONPATH``, so a path a launcher or a test added is there too)
     and the same plugins (``ADA_WORKER_PRELOAD`` is inherited)."""
@@ -408,6 +403,10 @@ def _child_env() -> dict[str, str]:
     env.pop("ADA_VIEWER_API_URL", None)
     env.pop("ADA_VIEWER_TOKEN", None)
     env["WORKER_LIVENESS_FILE"] = os.devnull
+    if threads is not None:
+        # Its share of the CPU budget (local_queue): every pool the job starts sizes from these,
+        # and the conversion processes it forks inherit them.
+        env.update(local_queue.thread_env(threads))
     return env
 
 
@@ -454,18 +453,12 @@ def _apply_update(job: LocalJob, fields: dict[str, Any]) -> None:
         job.status = status
 
 
-def _run_job_process(job: LocalJob, payload: dict[str, Any]) -> None:
-    """Start the job process, relay its updates, and turn how it ended into the job's verdict.
-    Runs on its own thread, one per job, for the job's whole life."""
-    while not _PROCESS_SLOTS.acquire(timeout=0.25):
-        if job.cancel_event.is_set() or job.status != STATUS_RUNNING:
-            if job.status == STATUS_RUNNING:
-                job.status, job.stage = STATUS_CANCELLED, "cancelled"
-            return
+def _run_job_process(job: LocalJob, payload: dict[str, Any], *, light: bool = False) -> None:
+    """Wait for the job's turn in the local queue, start the job process, relay its updates, and
+    turn how it ended into the job's verdict. Runs on its own thread, one per job."""
+    if not local_queue.queue.acquire(job, light=light):
+        return  # cancelled while it waited: never started
     try:
-        if job.cancel_event.is_set():
-            job.status, job.stage = STATUS_CANCELLED, "cancelled"
-            return
         with tempfile.TemporaryFile(prefix="ada-local-job-") as log:
             _supervise(job, payload, log)
     except Exception as exc:  # noqa: BLE001 -- e.g. the interpreter could not be started
@@ -474,11 +467,24 @@ def _run_job_process(job: LocalJob, payload: dict[str, Any]) -> None:
             job.status, job.stage = STATUS_ERROR, "error"
             job.error = f"the job process could not be started: {type(exc).__name__}: {exc}"
     finally:
-        _PROCESS_SLOTS.release()
+        local_queue.queue.release(job)
+
+
+def _start_queued(job: LocalJob, target: Any, name: str, *, light: bool = False) -> None:
+    """Run a thread job's ``target`` when the local queue gives it a turn (``local_queue``)."""
+
+    def _queued() -> None:
+        if not local_queue.queue.acquire(job, light=light):
+            return
+        try:
+            target()
+        finally:
+            local_queue.queue.release(job)
+
+    threading.Thread(target=_queued, name=name, daemon=True).start()
 
 
 def _supervise(job: LocalJob, payload: dict[str, Any], log: IO[bytes]) -> None:
-    job.stage = "starting"
     kwargs: dict[str, Any] = {}
     if sys.platform == "win32":
         kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
@@ -487,10 +493,16 @@ def _supervise(job: LocalJob, payload: dict[str, Any], log: IO[bytes]) -> None:
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=log,
-        env=_child_env(),
+        env=_child_env(job.threads),
         **kwargs,
     )
     job.pid = proc.pid
+    if job.cpus and hasattr(os, "sched_setaffinity"):
+        # Before it starts its pools: threads and forked children inherit the mask.
+        try:
+            os.sched_setaffinity(proc.pid, set(job.cpus))
+        except OSError:
+            logger.debug("local job %s: could not pin to CPUs %s", job.job_id, job.cpus, exc_info=True)
     assert proc.stdin is not None and proc.stdout is not None
     try:
         proc.stdin.write((json.dumps(payload) + "\n").encode("utf-8"))
@@ -604,7 +616,11 @@ def start_worker_job(
 
     payload = {"job": asdict(queue_job), "storage": spec}
     threading.Thread(
-        target=_run_job_process, args=(job, payload), name=f"local-job-{target_format}", daemon=True
+        target=_run_job_process,
+        args=(job, payload),
+        kwargs={"light": target_format in LIGHT_WORKER_KINDS},
+        name=f"local-job-{target_format}",
+        daemon=True,
     ).start()
     return job
 
@@ -691,6 +707,14 @@ def start_procedural_build(
     )
 
     async def _run() -> None:
+        if not await asyncio.to_thread(local_queue.queue.acquire, job):
+            return
+        try:
+            await _queued_build()
+        finally:
+            local_queue.queue.release(job)
+
+    async def _queued_build() -> None:
         try:
             await _run_procedural_build(
                 job=queue_job,
@@ -840,7 +864,7 @@ def start_asset_build(
             job.stage = "error"
             logger.debug("local asset build traceback:\n%s", traceback.format_exc())
 
-    threading.Thread(target=_run, name=f"local-asset-build-{capability}", daemon=True).start()
+    _start_queued(job, _run, f"local-asset-build-{capability}")
     return job
 
 
@@ -943,7 +967,7 @@ def start_asset_publish(
             job.stage = "error"
             logger.debug("local asset publish traceback:\n%s", traceback.format_exc())
 
-    threading.Thread(target=_run, name=f"local-asset-publish-{provider_id}", daemon=True).start()
+    _start_queued(job, _run, f"local-asset-publish-{provider_id}", light=True)
     return job
 
 
@@ -1028,7 +1052,7 @@ def start_clash_check(
         finally:
             tmp.unlink(missing_ok=True)
 
-    threading.Thread(target=_run, name="local-clash-check", daemon=True).start()
+    _start_queued(job, _run, "local-clash-check")
     return job
 
 
@@ -1094,7 +1118,7 @@ def start_clash_contacts(
             job.stage = "error"
             logger.debug("local clash_contacts traceback:\n%s", traceback.format_exc())
 
-    threading.Thread(target=_run, name=f"local-clash-{mode}", daemon=True).start()
+    _start_queued(job, _run, f"local-clash-{mode}", light=mode == "detail")
     return job
 
 
@@ -1164,7 +1188,7 @@ def start_clash_check_asset(
             job.stage = "error"
             logger.debug("local clash_check_asset traceback:\n%s", traceback.format_exc())
 
-    threading.Thread(target=_run, name="local-clash-check-asset", daemon=True).start()
+    _start_queued(job, _run, "local-clash-check-asset")
     return job
 
 
@@ -1226,7 +1250,7 @@ def start_clash_check_group(
             job.stage = "error"
             logger.debug("local clash_check_group traceback:\n%s", traceback.format_exc())
 
-    threading.Thread(target=_run, name="local-clash-check-group", daemon=True).start()
+    _start_queued(job, _run, "local-clash-check-group")
     return job
 
 
@@ -1340,7 +1364,7 @@ def start_clash_detail(
             job.stage = "error"
             logger.debug("local clash_detail traceback:\n%s", traceback.format_exc())
 
-    threading.Thread(target=_run, name=f"local-clash-detail-{spec_name}", daemon=True).start()
+    _start_queued(job, _run, f"local-clash-detail-{spec_name}", light=True)
     return job
 
 
@@ -1435,7 +1459,7 @@ def start_export_selection(
             if src is not None:
                 src.unlink(missing_ok=True)
 
-    threading.Thread(target=_run, name="local-export-selection", daemon=True).start()
+    _start_queued(job, _run, "local-export-selection")
     return job
 
 
@@ -1522,7 +1546,7 @@ def start_export_selection_group(
         finally:
             out_path.unlink(missing_ok=True)
 
-    threading.Thread(target=_run, name="local-export-selection-group", daemon=True).start()
+    _start_queued(job, _run, "local-export-selection-group")
     return job
 
 
@@ -1619,5 +1643,5 @@ def start_simulation_run(
                 except Exception:  # noqa: BLE001 - the job still says what failed
                     logger.warning("local simulation run %s: the failure could not be recorded", run_id)
 
-    threading.Thread(target=_run, name=f"local-simulation-{provider_id}", daemon=True).start()
+    _start_queued(job, _run, f"local-simulation-{provider_id}")
     return job

@@ -80,7 +80,23 @@ FAKE_HANDLERS = textwrap.dedent(
             await asyncio.sleep(600)
 
 
-    for h in (_Ok(), _Fail(), _Crash(), _Slow()):
+    class _Env(SyntheticFormatHandler):
+        kind = "fake_env"
+
+        async def run(self, job, ctx):
+            import json
+
+            names = ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "ADA_STEP_STREAM_WORKERS")
+            doc = {n: os.environ.get(n) for n in names}
+            try:
+                doc["affinity"] = sorted(os.sched_getaffinity(0))
+            except AttributeError:
+                doc["affinity"] = None
+            await ctx.storage.put_bytes(ctx.scope, job.derived_key, json.dumps(doc).encode())
+            await ctx.queue.update(job.job_id, status="done", stage="ready", progress=1.0, error=None)
+
+
+    for h in (_Ok(), _Fail(), _Crash(), _Slow(), _Env()):
         register(h)
     """
 )

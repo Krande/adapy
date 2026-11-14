@@ -87,6 +87,8 @@ from .routes.deps import (  # noqa: F401 — _merge_spec re-exported for tests/i
 )
 from .routes.export_selection import router as export_selection_router
 from .routes.fea import router as fea_router
+from .routes.local_jobs import apply_launch_limits
+from .routes.local_jobs import router as local_jobs_router
 from .routes.plugin_jobs import enqueue_plugin_job
 from .routes.plugin_jobs import router as plugin_jobs_router
 from .routes.plugins import router as plugins_router
@@ -201,6 +203,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except Exception:
             logger.exception("db: pool init failed; running shared-only")
             app.state.db_pool = None
+
+        # A queue-less server runs its jobs itself, through one local queue: its limits come from
+        # the settings store, over the environment (routes/local_jobs.py).
+        if not queue.enabled:
+            await apply_launch_limits(storage, app.state.db_pool)
 
         # Grants are the only scope -> provider-collection control: once, the per-scope collection
         # matrix and the attribute shares become grants (`provider_grant_migration`). A failure is
@@ -580,6 +587,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "transport": "rest",
                 "apiBase": "/api",
                 "convertEnabled": _convert_enabled(conversion_matrix),
+                "localJobs": jobs.kind == "local",
                 "utilities": utilities,
                 "auth": {
                     "enabled": settings.auth.enabled,
@@ -666,6 +674,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     api.include_router(projects_router)
     api.include_router(preferences_router)
+    api.include_router(local_jobs_router)
 
     api.include_router(storage_router)
 
@@ -2878,6 +2887,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             'window.COMMS_MODE = "rest";\n'
             'window.API_BASE = "/api";\n'
             f"window.CONVERT_ENABLED = {'true' if _convert_enabled(conversion_matrix) else 'false'};\n"
+            # This server runs its jobs itself, through a queue whose limits the user sets
+            # (Settings > Local jobs; GET/PUT /api/local/jobs).
+            f"window.LOCAL_JOBS = {'true' if jobs.kind == 'local' else 'false'};\n"
             f"window.AUTH_ENABLED = {'true' if a.enabled else 'false'};\n"
             f"window.AUTH_ISSUER = {_json.dumps(a.issuer)};\n"
             f"window.AUTH_CLIENT_ID = {_json.dumps(a.client_id)};\n"

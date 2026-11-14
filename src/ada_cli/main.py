@@ -134,6 +134,7 @@ def _cmd_serve_api(args: argparse.Namespace) -> int:
     from ada.comms.rest.__main__ import run
 
     _use_viewer_bundle(args.viewer)
+    _use_local_job_opts(args)
     run()
     return 0
 
@@ -142,6 +143,7 @@ def _cmd_desktop(args: argparse.Namespace) -> int:
     from ada_cli.desktop import main_run
 
     _use_viewer_bundle(args.viewer)
+    _use_local_job_opts(args)
     return main_run(args)
 
 
@@ -428,6 +430,49 @@ def _add_viewer_bundle_opt(p: argparse.ArgumentParser) -> None:
     )
 
 
+def _add_local_job_opts(p: argparse.ArgumentParser) -> None:
+    """The queue-less server's job limits (it runs every job in its own environment)."""
+    p.add_argument(
+        "--max-jobs",
+        default=None,
+        type=int,
+        metavar="N",
+        help="Without a job queue: how many jobs run at once; the rest wait in order. Wins over the saved "
+        "setting and is saved. Same as $ADA_LOCAL_JOB_PROCESSES; unset: the saved setting, else half the cores "
+        "(at most 4).",
+    )
+    p.add_argument(
+        "--cpu-budget",
+        default=None,
+        metavar="CORES",
+        help="Without a job queue: the CPU the running jobs share -- cores (4), a fraction (0.5) or a "
+        "percentage (50%%). Wins over the saved setting and is saved. Same as $ADA_LOCAL_JOB_CPU_BUDGET; unset: "
+        "the saved setting, else every core.",
+    )
+
+
+def _use_local_job_opts(args: argparse.Namespace) -> None:
+    """Hand the flags to the server through its environment (it may run in a child process)."""
+    from ada.comms.rest.local_queue import (
+        ENV_CPU_BUDGET,
+        ENV_MAX_PARALLEL,
+        parse_cpu_budget,
+        parse_max_parallel,
+    )
+
+    max_jobs = getattr(args, "max_jobs", None)
+    cpu_budget = getattr(args, "cpu_budget", None)
+    try:
+        if max_jobs is not None:
+            parse_max_parallel(max_jobs)
+            os.environ[ENV_MAX_PARALLEL] = str(max_jobs)
+        if cpu_budget is not None:
+            parse_cpu_budget(cpu_budget)
+            os.environ[ENV_CPU_BUDGET] = str(cpu_budget)
+    except ValueError as exc:
+        raise SystemExit(f"ada: {exc}") from exc
+
+
 def _add_viewers(sub: argparse._SubParsersAction) -> None:
     p = sub.add_parser("viewers", help="List the installed viewer bundles (`--viewer`, $ADA_VIEWER_BUNDLE).")
     p.set_defaults(func=_cmd_viewers)
@@ -634,6 +679,7 @@ def _add_serve(sub: argparse._SubParsersAction) -> None:
 
     api = serve_sub.add_parser("api", help="Run the REST API (uvicorn).")
     _add_viewer_bundle_opt(api)
+    _add_local_job_opts(api)
     api.set_defaults(func=_cmd_serve_api)
 
     worker = serve_sub.add_parser("worker", help="Run the conversion worker (NATS JetStream consumer).")
@@ -653,6 +699,7 @@ def _add_desktop(sub: argparse._SubParsersAction) -> None:
         ),
     )
     _add_viewer_bundle_opt(p)
+    _add_local_job_opts(p)
     add_arguments(p)
     p.set_defaults(func=_cmd_desktop)
 

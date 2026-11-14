@@ -193,8 +193,19 @@ the same pipeline a worker runs, so a crash or an out-of-memory in a CAD reader 
 and not the viewer. Plugins on `ADA_WORKER_PRELOAD` or the `ada.plugins` entry points are loaded
 there too, so a tool that starts the viewer from its own environment
 (`python -m ada.comms.rest`) offers exactly the conversions and job kinds that environment can
-run. `ADA_LOCAL_JOB_PROCESSES` caps how many job processes run at once (default: half the cores,
-at most 4). What still needs a queue: admin audit sweeps (they measure worker pools), and job
+run.
+
+Every local job, of every kind, waits its turn in one queue: first in, first out, with a cap on
+how many run at once, and a CPU budget the running jobs share (each job process gets its share as
+its thread count, and on Linux its own CPUs). A waiting job shows `queued (n ahead)`. Cancelling it
+removes it before it starts. Jobs that take a moment (reading a result deck's inventory,
+detailing a few joints, a publish) get one extra lane so they never wait behind conversions. Set
+the limits under Settings > Local jobs, at launch (`ada serve api --max-jobs 2 --cpu-budget 50%`,
+the same flags on `ada desktop`), or with `ADA_LOCAL_JOB_PROCESSES` / `ADA_LOCAL_JOB_CPU_BUDGET`.
+The budget is a core count (`4`), a fraction (`0.5`) or a percentage (`50%`). Defaults: half the
+cores, at most 4 jobs, and every core. The settings are kept in the server's storage (or its
+database). A launch value wins for that run and is saved. A change applies to the next job that
+starts. What still needs a queue: admin audit sweeps (they measure worker pools), and job
 kinds that write back to a database or chain onto another pool.
 
 The development stack, with NATS, the API and one worker in Docker, is for working on the
