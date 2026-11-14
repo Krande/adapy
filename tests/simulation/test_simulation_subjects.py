@@ -26,11 +26,13 @@ from ada.simulation.runner import execute_run
 from ada.simulation.runs import new_run_id, new_run_record
 from ada.simulation.subjects import (
     WELD_ASSEMBLY_SCHEMA,
+    WELD_ASSEMBLY_SCHEMA_CURVED,
     WeldAssemblyError,
     crop_prism,
     dump_weld_assembly,
     parse_weld_assembly,
     weld_assembly_from_part,
+    weld_seam,
     write_weld_assembly,
 )
 from ada.simulation.testing import FakeSimulationProvider
@@ -114,7 +116,9 @@ def test_a_subject_reference_reads_back_from_a_record_and_ignores_what_is_not_on
 
 
 def test_the_assembly_has_every_weld_with_its_normals(assembly):
+    # Every seam straight: the document is a /1 one, as it always was, without the per-point fields.
     assert assembly["schema"] == "ada-weld-assembly/1" and assembly["units"] == "m"
+    assert not any("tangents" in w or "closed" in w for w in assembly["welds"])
     assert assembly["source"] == {"kind": "connection-spec", "spec_name": "x"}
     assert [w["id"] for w in assembly["welds"]] == ["weld1", "weld2", "weld3", "weld4"]
     for weld in assembly["welds"]:
@@ -225,7 +229,7 @@ def test_an_assembly_round_trips_through_its_file_plain_or_gzipped(assembly):
 @pytest.mark.parametrize(
     "change,needle",
     [
-        (lambda d: d.update(schema="weld-job/2"), "not a ada-weld-assembly/1 document"),
+        (lambda d: d.update(schema="weld-job/2"), "not a ada-weld-assembly/1 or ada-weld-assembly/2 document"),
         (lambda d: d.update(units="mm"), "units must be 'm'"),
         (lambda d: d.update(welds=[]), "no welds"),
         (lambda d: d.update(members=[]), "no members"),
@@ -347,3 +351,170 @@ def test_the_run_record_keeps_the_subject_and_the_case_is_handed_it():
 
     execute_run(provider, plain, storage, scope="user:me")
     assert seen["subject"] is None
+
+
+# ---- curved and closed seams: a tubular joint's saddle ---------------------------------------------
+
+R_CHORD, R_BRACE = 0.1, 0.05  # TUB100x8 and TUB50x5: the section names give the outer radius in mm
+
+
+def _saddle_points(n: int = 48) -> list:
+    """Where a brace (radius R_BRACE, axis +Z through the origin) meets a chord (radius R_CHORD, axis X):
+    round the brace, at the height of the chord's surface. Closed: the first point repeats at the end."""
+    out = []
+    for k in range(n + 1):
+        a = 2 * np.pi * k / n
+        x, y = R_BRACE * np.cos(a), R_BRACE * np.sin(a)
+        out.append((float(x), float(y), float(np.sqrt(R_CHORD**2 - y**2))))
+    return out
+
+
+def _saddle_part(*, with_box: bool = False):
+    chord = ada.Beam("chord", (-0.4, 0, 0), (0.4, 0, 0), "TUB100x8")
+    brace = ada.Beam("brace", (0, 0, 0), (0, 0, 0.5), "TUB50x5")
+    conn = ada.Connection("tubular", spec_name="sample.tubular")
+    conn.add_beam(chord)
+    conn.add_beam(brace)
+    conn.add_weld(
+        ada.Weld(
+            "saddle",
+            weld_type="FILLET",
+            members=(brace, chord),
+            profile=[(0, 0), (-0.003, 0), (0, 0.003)],
+            xdir=ada.Direction(0, 0, -1),
+            sweep_curve=CurveOpen3d(_saddle_points()),
+            throat=0.003,
+        )
+    )
+    if with_box:  # a straight seam besides it: a stub on the chord's far end
+        landing, incoming = _beams()
+        conn.add_beam(landing)
+        conn.add_beam(incoming)
+        conn.add_weld(_welds(incoming, landing)[0])
+    return conn
+
+
+@pytest.fixture(scope="module")
+def saddle() -> dict:
+    return weld_assembly_from_part(_saddle_part(), stub_length=None)
+
+
+def test_a_saddle_seam_is_a_closed_line_with_its_frames_point_by_point(saddle):
+    assert saddle["schema"] == WELD_ASSEMBLY_SCHEMA_CURVED == "ada-weld-assembly/2"
+    (weld,) = saddle["welds"]
+    assert weld["closed"] is True
+    points = np.array(weld["points"])
+    assert len(points) == 48  # the first point is not repeated at the end
+    tangents, n_a, n_b = (np.array(weld[k]) for k in ("tangents", "normals_a", "normals_b"))
+    assert tangents.shape == n_a.shape == n_b.shape == points.shape
+    for v in (tangents, n_a, n_b):
+        assert np.allclose(np.linalg.norm(v, axis=1), 1.0, atol=1e-5)
+    # The direction of travel follows the line, round the loop and across its start: no zero, no flip.
+    steps = np.roll(points, -1, axis=0) - points
+    assert np.all(np.einsum("ij,ij->i", tangents, steps) > 0)
+    assert np.all(np.einsum("ij,ij->i", tangents, np.roll(tangents, -1, axis=0)) > np.cos(np.radians(15)))
+    # Part frame: the brace stands up (+Z), the chord along +X. The face the seam lies on is the chord's
+    # surface, whose normal leans out from its axis; the other is the brace's side, square to its axis.
+    centre = points.mean(axis=0)
+    chord_axis_z = points[:, 2].max() - R_CHORD
+    radial_chord = points - np.array([0.0, 0.0, chord_axis_z]) * [0, 0, 1] - points * [1, 0, 0]
+    radial_chord = radial_chord / np.linalg.norm(radial_chord, axis=1)[:, None]
+    assert np.all(np.einsum("ij,ij->i", n_a, radial_chord) > np.cos(np.radians(6)))
+    radial_brace = (points - centre) * [1, 1, 0]
+    radial_brace = radial_brace / np.linalg.norm(radial_brace, axis=1)[:, None]
+    assert np.all(np.einsum("ij,ij->i", n_b, radial_brace) > np.cos(np.radians(6)))
+    assert np.allclose(np.einsum("ij,ij->i", tangents, n_a), 0.0, atol=1e-5)
+    # The one normal pair a /1 reader would take is the middle point's.
+    assert weld["normal_a"] == weld["normals_a"][24] and weld["normal_b"] == weld["normals_b"][24]
+    assert parse_weld_assembly(dump_weld_assembly(saddle)) == saddle
+    assert weld_seam(weld)["closed"] is True and weld_seam(weld)["tangents"] == weld["tangents"]
+
+
+def test_with_a_curved_seam_a_straight_one_is_written_point_by_point_too():
+    doc = weld_assembly_from_part(_saddle_part(with_box=True), stub_length=None)
+    assert doc["schema"] == WELD_ASSEMBLY_SCHEMA_CURVED
+    straight = doc["welds"][1]
+    assert straight["closed"] is False and len(straight["points"]) == 2
+    p = np.array(straight["points"])
+    t = (p[1] - p[0]) / np.linalg.norm(p[1] - p[0])
+    assert np.allclose(straight["tangents"], [t, t], atol=1e-6)
+    assert straight["normals_a"] == [straight["normal_a"]] * 2 and straight["normals_b"] == [straight["normal_b"]] * 2
+
+
+def test_a_straight_weld_of_a_v1_document_is_the_two_point_case_of_a_seam(assembly):
+    weld = assembly["welds"][0]
+    seam = weld_seam(weld)
+    p = np.array(weld["points"])
+    assert seam["closed"] is False and seam["points"] == weld["points"]
+    assert np.allclose(seam["tangents"], [(p[-1] - p[0]) / np.linalg.norm(p[-1] - p[0])] * len(p))
+    assert seam["normals_a"] == [weld["normal_a"]] * len(p) and seam["normals_b"] == [weld["normal_b"]] * len(p)
+
+
+@pytest.mark.parametrize(
+    "change,needle",
+    [
+        (lambda w: w.pop("closed"), "closed must be true or false"),
+        (lambda w: w.pop("tangents"), "tangents must be one"),
+        (lambda w: w.update(normals_a=w["normals_a"][:-1]), "normals_a must be one"),
+        (lambda w: w["normals_b"].__setitem__(0, [0.0, 0.0, 2.0]), "normals_b must be unit"),
+        (lambda w: w["points"].__setitem__(1, list(w["points"][0])), "zero-length step"),
+        (
+            lambda w: (
+                w["points"].append(list(w["points"][0]))
+                or w["tangents"].append(w["tangents"][0])
+                or w["normals_a"].append(w["normals_a"][0])
+                or w["normals_b"].append(w["normals_b"][0])
+            ),
+            "zero-length step",
+        ),
+        (
+            lambda w: w.update(
+                points=w["points"][:2],
+                tangents=w["tangents"][:2],
+                normals_a=w["normals_a"][:2],
+                normals_b=w["normals_b"][:2],
+            ),
+            "closed and must have at least 3",
+        ),
+    ],
+)
+def test_a_curved_seam_without_its_frames_is_refused_with_the_reason(saddle, change, needle):
+    broken = json.loads(json.dumps(saddle))
+    change(broken["welds"][0])
+    with pytest.raises(WeldAssemblyError, match=needle):
+        parse_weld_assembly(json.dumps(broken).encode())
+
+
+def test_an_arc_of_a_sweep_curve_is_sampled_along_the_arc():
+    # A corner of a seam rounded off (a radius at the middle point: line, arc, line): its line is the arc
+    # in steps of at most SEAM_SPACING, not the corner of its control points.
+    from ada.simulation.subjects import SEAM_SPACING
+
+    chord = ada.Beam("chord", (-0.4, 0, 0), (0.4, 0, 0), "BOX80x80x4x4")
+    brace = ada.Beam("brace", (0, 0, H), (0, 0, 0.5), "TUB50x5")
+    conn = ada.Connection("arc", spec_name="x")
+    conn.add_beam(chord)
+    conn.add_beam(brace)
+    conn.add_weld(
+        ada.Weld(
+            "corner",
+            weld_type="FILLET",
+            members=(brace, chord),
+            profile=[(0, 0), (-0.003, 0), (0, 0.003)],
+            xdir=ada.Direction(0, 0, -1),
+            sweep_curve=CurveOpen3d([(0.05, -0.05, H), (0.05, 0.05, H, 0.03), (-0.05, 0.05, H)]),
+            throat=0.003,
+        )
+    )
+    doc = weld_assembly_from_part(conn, stub_length=None)
+    (weld,) = doc["welds"]
+    p = np.array(weld["points"])
+    assert doc["schema"] == WELD_ASSEMBLY_SCHEMA_CURVED and weld["closed"] is False
+    steps = np.linalg.norm(np.diff(p, axis=0), axis=1)
+    assert len(p) > 4 and np.all(steps[1:-1] <= SEAM_SPACING + 1e-9)
+    # The corner is cut: no point is within the radius' worth of it.
+    corner = p[np.argmax(p[:, 0] + p[:, 1])]
+    assert np.linalg.norm(p - corner, axis=1).max() > 0.05
+    assert np.all(np.linalg.norm(p[1:-1] - p[1:-1].mean(axis=0), axis=1) < 0.03)
+    tangents = np.array(weld["tangents"])
+    assert np.all(np.einsum("ij,ij->i", tangents[:-1], tangents[1:]) > 0.5)

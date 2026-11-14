@@ -393,7 +393,15 @@ Core sits between them and they never name each other. A **subject** is a file i
 kind core defines (`ada.simulation.subjects.SUBJECT_KINDS`, a closed set like the domains). The one
 kind so far is `weld-assembly`: a part with its welds assigned -- its members as closed triangle
 meshes, and each weld's root line with the two face normals at the seam -- as JSON of schema
-`ada-weld-assembly/1` (metres, +Z up, origin under the part; gzip allowed). A producer builds it with
+`ada-weld-assembly/1` (metres, +Z up, origin under the part; gzip allowed), or `ada-weld-assembly/2`
+once a seam is curved or closed (a tubular joint's saddle weld runs round the brace): every weld then
+carries `closed` and, per point of its line, `tangents`, `normals_a` and `normals_b`, a straight seam
+being the two-point case with one tangent and the same normals throughout. The writer keeps to `/1`
+while every seam is straight, so a reader of `/1` only ever refuses a curved seam rather than taking it
+for a line from its first point to its last; `weld_seam(weld)` gives a weld of either as the per-point
+form. A curved seam's line is the weld's sweep curve (an arc sampled every 10 mm / 10 deg), its
+normals the members' surfaces at each point (from their meshes, else from the profile's direction).
+A producer builds it with
 `weld_assembly_from_part(part, members=None, stub_length=None, source=None)` (`members=` for a part
 whose welds name members that live elsewhere, `stub_length=` to cut long beams back to the welds)
 and stores it with `write_weld_assembly`; a consumer reads it with `parse_weld_assembly`, which
