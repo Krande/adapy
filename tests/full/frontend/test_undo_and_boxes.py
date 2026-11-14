@@ -17,10 +17,10 @@ from .test_render_backends import (
     _is_selected,
     _model_on_screen,
     _open_viewer,
-    _until_ready_for_a_scene,
     _pixels,
     _row_of_boxes,
     _until,
+    _until_ready_for_a_scene,
 )
 
 
