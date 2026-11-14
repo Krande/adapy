@@ -42,6 +42,7 @@ import {
   acceptingFirst,
   chosenSubject,
   doesNotTake,
+  formSubject,
   NO_SUBJECT,
   providerAccepts,
   subjectId,
@@ -287,6 +288,7 @@ const StartForm: React.FC<{ scope: string; provider: SimulationProviderInfo; sub
             onChange: setParameters,
             inputs,
             onInputsChange: setInputs,
+            subject: formSubject(provider, subject),
           })}
         </ErrorBoundary>
       ) : (

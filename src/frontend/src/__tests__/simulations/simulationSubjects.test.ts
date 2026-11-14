@@ -170,3 +170,12 @@ test("a run is started with the subject in its body, from the store down to the 
   assert.match(calls[0].url, /\/scopes\/user%3Ame\/simulations$/);
   assert.deepEqual(calls[0].body, { provider: "robot", subject });
 });
+
+test("a provider's parameter form is told the subject only when the provider takes its kind", () => {
+  const detail = { kind: "weld-assembly", key: "_connections/a.weld-assembly.json", label: "box joint (4 welds)" };
+  assert.deepEqual(subjects.formSubject({ accepts: ["weld-assembly"] }, detail), detail);
+  // It cannot take it (or an older server lists no `accepts`): the form is not told, so it keeps its own fields.
+  assert.equal(subjects.formSubject({ accepts: ["fe-model"] }, detail), null);
+  assert.equal(subjects.formSubject({}, detail), null);
+  assert.equal(subjects.formSubject({ accepts: ["weld-assembly"] }, null), null);
+});
