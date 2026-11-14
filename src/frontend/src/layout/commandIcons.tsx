@@ -141,6 +141,8 @@ export const OrthographicIcon = glyph(
   </>,
   "Orthographic",
 );
+/** Ground grid: a grid laid flat. */
+export const GroundGridIcon = glyph(<path d="M3 15l5-6h13l-5 6Z M7.2 10.2h13 M4.7 13.2h13 M9.5 9l-4 6 M13.5 9l-4 6 M17.5 9l-4 6" />, "GroundGrid");
 export const StatsIcon = glyph(<path d="M4 20V10M10 20V4M16 20v-7M21 20H3" />, "Stats");
 export const GalleryIcon = glyph(
   <>
@@ -409,6 +411,7 @@ export const CORE_COMMAND_ICONS: Readonly<Record<string, React.FC>> = {
   [cameraViewCommandId("isometric")]: ViewIcon,
   [C.edges]: EdgesIcon,
   [C.orthographic]: OrthographicIcon,
+  [C.groundGrid]: GroundGridIcon,
   [C.stats]: StatsIcon,
   [C.gallery]: GalleryIcon,
   [C.fullscreen]: FullscreenIcon,

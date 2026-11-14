@@ -25,6 +25,7 @@ import {useSectionStore, type SectionPlane} from "@/state/sectionStore";
 import {useObjectInfoStore} from "@/state/objectInfoStore";
 import {useOptionsStore} from "@/state/optionsStore";
 import {useProjectionStore} from "@/state/projectionStore";
+import {useGroundGridStore} from "@/state/groundGridStore";
 import {requestRender} from "@/state/perfStore";
 import {THEME_PRESETS, useThemeStore, type ThemePresetId} from "@/state/themeStore";
 import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
@@ -436,6 +437,17 @@ export function coreCommandSpecs(): CommandSpec[] {
       disabledReason: () => noViewport() ?? activeViewport()?.unavailable("orthographic") ?? null,
       run: () => {
         useProjectionStore.getState().toggleOrthographic();
+        requestRender();
+      },
+    },
+    {
+      id: ID.groundGrid,
+      label: "Ground grid",
+      group: "View",
+      checked: () => useGroundGridStore.getState().visible,
+      disabledReason: noViewport,
+      run: () => {
+        useGroundGridStore.getState().toggle();
         requestRender();
       },
     },

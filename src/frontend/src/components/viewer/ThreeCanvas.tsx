@@ -40,6 +40,7 @@ import {AdacppViewport, useAdacppRenderStatus} from "@/viewport/adacpp/adacppVie
 import {ensureViewportInput} from "@/viewport/input";
 import {setPickingViewport} from "@/viewport/picking";
 import {controlsTarget, installOrthographicView} from "@/utils/scene/orthographicProjection";
+import {useGroundGridStore} from "@/state/groundGridStore";
 import {bindLocalFileDrop} from "@/utils/scene/handlers/open_local_file";
 
 
@@ -195,6 +196,12 @@ const ThreeCanvas: React.FC = () => {
 
         // === Helpers ===
         const grid_helper = addDynamicGridHelper(owned);
+        // Shown or not as the "Ground grid" toggle says (state/groundGridStore).
+        grid_helper.visible = useGroundGridStore.getState().visible;
+        const unsubGrid = useGroundGridStore.subscribe((s) => {
+            grid_helper.visible = s.visible;
+            requestRender();
+        });
 
         let gizmo: OrientationGizmo | null = null;
         if (containerRef.current && camera && controls) {
@@ -367,6 +374,7 @@ const ThreeCanvas: React.FC = () => {
             unbindCameraMapping();
             releaseViewport();
             orthoView.release();
+            unsubGrid();
             // renderer.dispose();
             // containerRef.current?.removeChild(renderer.domElement);
             if (gizmo && containerRef.current?.contains(gizmo)) {
