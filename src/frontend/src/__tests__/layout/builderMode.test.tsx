@@ -146,7 +146,10 @@ test("the Build menu names the builder's commands, only where the shell has the 
 
 test("the API version moved with the Build mode", () => {
   const index = readFileSync(new URL("../../viewer-core/index.ts", import.meta.url), "utf8");
-  assert.match(index, /VIEWER_CORE_API_VERSION = "1\.21\.0"/);
+  // At least the Build mode's version (1.18.0); later additions move it on.
+  const at = (re: RegExp, text: string) => (text.match(re)?.[1] ?? "0.0.0").split(".").map(Number);
+  const geq = (v: number[]) => v[0] > 1 || (v[0] === 1 && v[1] >= 18);
+  assert.ok(geq(at(/VIEWER_CORE_API_VERSION = "([\d.]+)"/, index)));
   const reg = readFileSync(new URL("../../plugins/registry.ts", import.meta.url), "utf8");
-  assert.match(reg, /PLUGIN_API_VERSION = "1\.21\.0"/);
+  assert.ok(geq(at(/PLUGIN_API_VERSION = "([\d.]+)"/, reg)));
 });

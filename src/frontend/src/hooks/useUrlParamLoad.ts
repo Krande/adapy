@@ -7,6 +7,9 @@ import {isStreamingFEAResult} from "@/utils/scene/fileKinds";
 import {pollUntilTerminal} from "@/hooks/useJobPoll";
 import {carryDeepLinkOnShellSwitch} from "@/hooks/deepLinkCarry";
 import {useModelState} from "@/state/modelState";
+import {PROCEDURAL_PARAM, openProceduralFromUrl} from "@/hooks/proceduralDeepLink";
+import {withoutDeepLinkParams} from "@/hooks/deepLinkParams";
+import {applyViewParams} from "@/hooks/viewParams";
 
 // Consume ``?scope=...&file=...`` query params on viewer mount.
 //
@@ -20,15 +23,30 @@ import {useModelState} from "@/state/modelState";
 // Params consumed:
 //   ?file   — source key under the active scope (e.g. ``cantilever.step``)
 //   ?scope  — optional scopeUrlPart token (``user:me`` / ``project:abc``)
+//   ?procedural — a procedural model id, opened in the cell builder (see
+//                 proceduralDeepLink.ts; ``?mode=build`` puts the shell there). With
+//                 ``?file=`` as well, both open: the file in the scene, the model in
+//                 the builder - they are separate states, and dropping either would
+//                 lose a link's half without a word.
+//   ?grid ?snap — the builder's grid step and snap distance (viewParams.ts; kept in the URL)
 //
-// The query string is stripped from window.location after consumption
-// so a manual reload doesn't re-trigger the load (and doesn't leak
-// the scope id into bookmarks / shares more than the user intended).
+// The params this hook consumes are stripped from window.location after
+// consumption so a manual reload doesn't re-trigger the load (and doesn't
+// leak the scope id into bookmarks / shares more than the user intended).
+// ONLY those: the rest belong to someone else and may not have been read yet.
+// ``?mode=`` is the shell's, read when the shell installs - which can be AFTER
+// the scope list arrives here, so stripping the whole query string made a
+// ``?file=...&mode=capacity`` link open in whichever mode won that race.
 // A UI-shell switch that reloads is the exception: it puts the params back
 // into its reload URL while the file is still loaded (see deepLinkCarry.ts).
 // A switch in place keeps the scene and needs nothing.
 //
 // REST-only; in WS / desktop builds we never get here.
+
+function stripDeepLinkParams(): void {
+    const {pathname, search, hash} = window.location;
+    window.history.replaceState({}, "", `${pathname}${withoutDeepLinkParams(search)}${hash}`);
+}
 
 const SCENE_WAIT_INTERVAL_MS = 100;
 const SCENE_WAIT_MAX_MS = 15000;
@@ -53,13 +71,18 @@ export function useUrlParamLoad(): void {
         if (!pluginParamsOffered.current) {
             pluginParamsOffered.current = true;
             void dispatchPluginUrlParams(window.location.search);
+            // ?grid= / ?snap=: the builder's grid for the model the link opens (viewParams.ts).
+            applyViewParams(window.location.search);
         }
 
         const params = new URLSearchParams(window.location.search);
         const fileParam = params.get("file");
         const scopeParam = params.get("scope");
         const derivedParam = params.get("derived");
-        if (!fileParam) return;
+        const proceduralParam = params.get(PROCEDURAL_PARAM);
+        // A link with only ?scope= (a local viewer's, say) still picks the scope: else the
+        // tab keeps the one it had and Storage lists another scope than the link names.
+        if (!fileParam && !proceduralParam && !scopeParam) return;
 
         // Need the scope list before we can resolve ``?scope=user:me``.
         // AuthGate populates ``available`` from /api/me; until then the
@@ -68,13 +91,31 @@ export function useUrlParamLoad(): void {
 
         consumed.current = true;
 
+        let scopeKey = scopeUrlPart(useScopeStore.getState().current);
         if (scopeParam) {
             const target = available.find((s) => scopeUrlPart(s) === scopeParam);
-            if (target) setCurrent(target);
+            if (target) {
+                setCurrent(target);
+                scopeKey = scopeUrlPart(target);
+            }
             // Unknown scope token: leave the current selection alone
             // and try the load anyway. Worst case the file doesn't
             // exist under the active scope and the user sees a clear
             // 404 in the conversion toast.
+        }
+        if (!fileParam && !proceduralParam) {
+            stripDeepLinkParams();
+            return;
+        }
+
+        if (proceduralParam) {
+            // A model: no scene to wait for (the cell builder draws once it has the
+            // document) and nothing to carry across a shell switch.
+            void openProceduralFromUrl(scopeKey, proceduralParam);
+        }
+        if (!fileParam) {
+            stripDeepLinkParams();
+            return;
         }
 
         // A UI-shell switch may reload the page as well, and must bring the
@@ -85,9 +126,9 @@ export function useUrlParamLoad(): void {
 
         // Strip the params from the URL right away so a reload doesn't
         // re-fire. We keep the pathname (so /scopes/foo deep links
-        // would still work in the future) and just drop the search
-        // string.
-        window.history.replaceState({}, "", window.location.pathname);
+        // would still work in the future) and the params that are not
+        // ours (see DEEP_LINK_PARAMS).
+        stripDeepLinkParams();
 
         // Wait for the three.js scene to be mounted before dispatching.
         // ThreeCanvas sets ``sceneRef.current`` inside its

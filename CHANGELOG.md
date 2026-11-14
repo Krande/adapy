@@ -2,6 +2,16 @@
 
 
 
+## v0.154.0 (2026-11-14)
+
+### Feature
+
+* feat(rest): procedural models on a local viewer without database or queue (#539)
+
+Co-authored-by: Claude Opus 5.5 (1M context) &lt;noreply@anthropic.com&gt;
+Co-authored-by: krande &lt;kristoffer_andersen@outlook.com&gt; ([`2a0f87c`](https://github.com/Krande/adapy/commit/2a0f87c37c12eb42eb7750cc8ca07c0e74e3ec90))
+
+
 ## v0.153.0 (2026-11-13)
 
 ### Feature

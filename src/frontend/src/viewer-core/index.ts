@@ -648,7 +648,13 @@
 //          `PluginSimulations`, `PluginSimulationSubject`, `PluginSimulationSubjectHandle`).
 //          Additive: `useSimulationSubjectStore` and `SimulationSubject` on `/app`, for core
 //          chrome that offers a subject without a plugin context.
-export const VIEWER_CORE_API_VERSION = "1.21.0";
+//   1.22.0  `registerToastSlot` / `unregisterToastSlot`: a shell's or plugin's own toasts in the
+//          app's one toast stack (layout/toastSlots.ts). `UiShellLayout.globalPanels` and
+//          `modeArrangements`; a composed shell's mode reopens what was open in it.
+//   1.23.0  `setBuilderDefaults`: a shell's default engine and blueprint for a Builder model
+//          whose doc names none. `notifyPluginActivationChanged`: a plugin says what its activation predicate reads
+//          has changed; a placed panel re-asks it (and on every loaded-model change).
+export const VIEWER_CORE_API_VERSION = "1.23.0";
 
 // ---------------------------------------------------------------------------
 // Plugin declaration. `registerPlugin` is how a package announces itself —
@@ -660,6 +666,7 @@ export {
   getPlugin,
   getPluginModes,
   getRegisteredPlugins,
+  notifyPluginActivationChanged,
   PLUGIN_API_VERSION,
   registerPlugin,
 } from "@/plugins/registry";
@@ -821,6 +828,11 @@ export {
 } from "@/layout/toolRailModel";
 export type { RailPrefs, ToolRailConfig } from "@/layout/toolRailModel";
 export { VIEWPORT_ANCHORS, registerViewportOverlay, unregisterViewportOverlay } from "@/layout/viewportOverlays";
+export { registerToastSlot, unregisterToastSlot } from "@/layout/toastSlots";
+export type { ToastSlotSpec } from "@/layout/toastSlots";
+// The Builder's default engine and blueprint for a model whose doc names none (dependency-free).
+export { setBuilderDefaults } from "@/state/cellbuilder/builderDefaults";
+export type { BuilderDefaults } from "@/state/cellbuilder/builderDefaults";
 export type { ViewportAnchor, ViewportOverlaySpec } from "@/layout/viewportOverlays";
 // Shortcuts a shell or plugin adds; core's own keys are reserved (dependency-free).
 export {

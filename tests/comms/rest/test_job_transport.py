@@ -130,7 +130,7 @@ def test_every_feature_has_a_message_and_only_plugin_jobs_runs_locally():
 
     assert set(get_args(TransportFeature)) == set(FEATURE_UNAVAILABLE_DETAIL)
     assert all(FEATURE_UNAVAILABLE_DETAIL.values())
-    # Six kinds run without a queue, for the same reason: a single-node viewer
+    # Eight kinds run without a queue, for the same reason: a single-node viewer
     # with the model in its own scope must be able to run the thing the UI
     # offers. `asset_build` joined `plugin_jobs` with Decision 1's build
     # delivery -- a 503 there would make `build` a delivery kind that only
@@ -140,8 +140,23 @@ def test_every_feature_has_a_message_and_only_plugin_jobs_runs_locally():
     # spec want no kernel this process does not already have), and
     # `export_selection` with the selected-object panel's "Download as".
     # `simulation` like `plugin_jobs`: a provider registered in this process runs here.
+    # `procedural_build` so a local viewer's Build mode can show the model it edits:
+    # the built-in engines, and any a tool registers in this process, compile here.
+    # `bake` and `result_meta` so a result deck on a local viewer opens in Results and
+    # Capacity: this process has the readers a worker bakes with.
     assert LOCAL_FEATURES == frozenset(
-        {"asset_build", "asset_publish", "clash_check", "clash_detail", "export_selection", "plugin_jobs", "simulation"}
+        {
+            "asset_build",
+            "asset_publish",
+            "bake",
+            "clash_check",
+            "clash_detail",
+            "export_selection",
+            "plugin_jobs",
+            "procedural_build",
+            "result_meta",
+            "simulation",
+        }
     )
 
 
@@ -154,16 +169,13 @@ def test_every_feature_has_a_message_and_only_plugin_jobs_runs_locally():
 #: back out of FEATURE_UNAVAILABLE_DETAIL would pass for any rewrite of the
 #: table, which is the one thing this is guarding against.
 PREEXISTING_503 = {
-    "bake": "bake disabled (no NATS configured)",
     "bbox_inference": "bbox inference disabled (no NATS configured)",
     "component_build": "component build disabled (no NATS configured)",
     "conversion": "conversion disabled (no NATS configured)",
     "job_status_report": "no job queue configured",
-    "procedural_build": "procedural build disabled (no NATS configured)",
     "procedural_export": "procedural export disabled (no NATS configured)",
     "procedural_import": "procedural import disabled (no NATS configured)",
     "procedural_relocations": "procedural relocations disabled (no NATS configured)",
-    "result_meta": "result-meta disabled (no NATS configured)",
     "utilities": "utilities disabled (no NATS configured)",
     "worker_registry": "worker registry requires a NATS-backed queue",
 }
