@@ -700,6 +700,12 @@ export interface SceneHandle {
   // registered under that name), disposing its GPU resources. No-op when the
   // name is not loaded.
   unloadModel: (sourceName: string) => void;
+  // Empty the scene before showing something of the plugin's own (a replay): every loaded model,
+  // and what core drew over them (the connection builder's member axes and weld labels, a clash
+  // run's markers, an FEA session), as "clear the scene" does. Overlays plugins added with `add` /
+  // `addLines` stay theirs to remove. Additive and optional: an older core has no `clearScene`, so
+  // ask for it before calling it.
+  clearScene?: () => Promise<void>;
 
   // ── Renderer-neutral overlays (1.9.0). Core builds and owns the scene objects; they draw
   // the same under three.js and the WebGPU renderer, move and clip with the model, and go
