@@ -1,65 +1,27 @@
 import React from "react";
 
-import {localJobsApi, type LocalJobsView} from "@/services/api/localJobs";
+import { budgetCoresText, budgetText, queueSummary, settingsFromDrafts } from "./localJobs";
+import { useLocalJobs } from "./useLocalJobs";
 
 // The local job queue's limits, on a server with no job queue of its own (it runs conversions,
 // bakes and checks in its own environment). How many jobs run at once, and the CPU they share:
 // each running job is given its share of the budget as its thread count. A change applies to the
-// next job that starts.
-
-/** The CPU budget field's text for a view: what was set, or empty for every core. */
-export function budgetText(view: LocalJobsView): string {
-    return view.cpu_budget ?? "";
-}
-
-/** "2 running, 3 queued" -- the queue's state in one line. */
-export function queueSummary(view: LocalJobsView): string {
-    const parts = [`${view.running.length} running`];
-    if (view.queued.length) parts.push(`${view.queued.length} queued`);
-    return parts.join(", ");
-}
+// next job that starts. Loading and saving are in useLocalJobs.ts, the text in localJobs.ts.
 
 const LocalJobsOptions: React.FC = () => {
-    const [view, setView] = React.useState<LocalJobsView | null>(null);
+    const {view, error, isSaving, save} = useLocalJobs();
     const [maxDraft, setMaxDraft] = React.useState("");
     const [budgetDraft, setBudgetDraft] = React.useState("");
-    const [error, setError] = React.useState<string | null>(null);
-    const [saving, setSaving] = React.useState(false);
 
-    const show = React.useCallback((v: LocalJobsView) => {
-        setView(v);
-        setMaxDraft(String(v.max_parallel));
-        setBudgetDraft(budgetText(v));
-    }, []);
-
+    // The fields show what is in force after every load and save.
     React.useEffect(() => {
-        let alive = true;
-        localJobsApi
-            .get()
-            .then((v) => alive && show(v))
-            .catch((e) => alive && setError(String(e?.message ?? e)));
-        return () => {
-            alive = false;
-        };
-    }, [show]);
+        if (!view) return;
+        setMaxDraft(String(view.max_parallel));
+        setBudgetDraft(budgetText(view));
+    }, [view]);
 
-    const save = async () => {
-        setSaving(true);
-        setError(null);
-        try {
-            const max = maxDraft.trim();
-            const budget = budgetDraft.trim();
-            show(
-                await localJobsApi.set({
-                    max_parallel: max === "" ? null : Number(max),
-                    cpu_budget: budget === "" ? null : budget,
-                }),
-            );
-        } catch (e) {
-            setError(String((e as Error)?.message ?? e));
-        } finally {
-            setSaving(false);
-        }
+    const handleApply = () => {
+        void save(settingsFromDrafts(maxDraft, budgetDraft));
     };
 
     if (!view) {
@@ -94,16 +56,14 @@ const LocalJobsOptions: React.FC = () => {
                     value={budgetDraft}
                     onChange={(e) => setBudgetDraft(e.target.value)}
                 />
-                <span className="text-gray-500">
-                    {view.cpu_budget_cores.toFixed(view.cpu_budget_cores % 1 ? 1 : 0)} of {view.host_cores} cores
-                </span>
+                <span className="text-gray-500">{budgetCoresText(view)}</span>
             </label>
             <div className="flex items-center gap-2">
                 <button
                     type="button"
-                    disabled={saving}
+                    disabled={isSaving}
                     className="rounded-sm bg-blue-600 px-2 py-0.5 text-white hover:bg-blue-500 disabled:opacity-50"
-                    onClick={() => void save()}
+                    onClick={handleApply}
                 >
                     Apply
                 </button>

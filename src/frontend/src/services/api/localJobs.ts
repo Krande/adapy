@@ -4,7 +4,7 @@
 
 import { runtime } from "@/runtime/config";
 
-import { ApiError, authedFetch, jsonOrThrow, readDetail } from "./client";
+import { authedFetch, jsonOrThrow } from "./client";
 
 export interface LocalJobsView {
   max_parallel: number;
@@ -36,9 +36,8 @@ export const localJobsApi = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(settings),
     });
-    if (!r.ok) {
-      throw new ApiError("localJobs.set", r.status, await readDetail(r));
-    }
-    return (await r.json()) as LocalJobsView;
+    // jsonOrThrow puts the server's sentence ("max_parallel must be between 1 and 256") in the
+    // error's message, which is what Settings shows.
+    return jsonOrThrow<LocalJobsView>(r, "localJobs.set");
   },
 };
