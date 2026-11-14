@@ -654,7 +654,9 @@
 //   1.23.0  `setBuilderDefaults`: a shell's default engine and blueprint for a Builder model
 //          whose doc names none. `notifyPluginActivationChanged`: a plugin says what its activation predicate reads
 //          has changed; a placed panel re-asks it (and on every loaded-model change).
-export const VIEWER_CORE_API_VERSION = "1.23.0";
+//   1.24.0 Kept in step with PLUGIN_API_VERSION 1.24.0 (`SimulationParameterFormArgs.subject`,
+//          `ctx.scene.clearScene`). Additive.
+export const VIEWER_CORE_API_VERSION = "1.24.0";
 
 // ---------------------------------------------------------------------------
 // Plugin declaration. `registerPlugin` is how a package announces itself —

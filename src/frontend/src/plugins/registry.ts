@@ -192,7 +192,12 @@ import { isPlacedElsewhere } from "@/layout/placedElsewhere";
 //          `notifyPluginActivationChanged()`: a plugin whose activation predicate reads its own
 //          state says when that state changed, and a placed panel showing "Nothing to show
 //          here yet" re-asks it (the panel also re-asks on every loaded-model change).
-export const PLUGIN_API_VERSION = "1.23.0";
+// 1.24.0 — additive, both optional: an older core has neither.
+//          - `SimulationParameterFormArgs.subject` ({kind, key, label} or null): the subject the
+//            run will be started on, so a provider's form can leave out fields that name the part.
+//          - `ctx.scene.clearScene()`: empties the scene as the Scene tab's Remove all does, for a
+//            plugin about to show something of its own (a replay).
+export const PLUGIN_API_VERSION = "1.24.0";
 
 // The named mount regions core exposes in Phase 1. Deliberately small
 // (`fem-sidebar` covers the FEM simulation panel, `top-panel` the menu bar,
