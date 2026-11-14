@@ -40,6 +40,7 @@ export const CORE_COMMAND_IDS = {
   viewRight: "core:view.right",
   viewIsometric: "core:view.isometric",
   edges: "core:edges",
+  orthographic: "core:view.orthographic",
   stats: "core:stats",
   gallery: "core:gallery",
   fullscreen: "core:fullscreen",

@@ -24,6 +24,7 @@ import {useBBoxSelectionStore} from "@/state/bboxSelectionStore";
 import {useSectionStore, type SectionPlane} from "@/state/sectionStore";
 import {useObjectInfoStore} from "@/state/objectInfoStore";
 import {useOptionsStore} from "@/state/optionsStore";
+import {useProjectionStore} from "@/state/projectionStore";
 import {requestRender} from "@/state/perfStore";
 import {THEME_PRESETS, useThemeStore, type ThemePresetId} from "@/state/themeStore";
 import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
@@ -426,6 +427,19 @@ export function coreCommandSpecs(): CommandSpec[] {
         run: () => activeViewport()?.setView(view),
       }),
     ),
+    {
+      id: ID.orthographic,
+      label: "Orthographic view",
+      group: "View",
+      checked: () => useProjectionStore.getState().orthographic,
+      // The three.js viewport draws it (utils/scene/orthographicProjection.ts).
+      disabledReason: () =>
+        noViewport() ?? (activeViewport()?.kind === "native" ? "The native viewport draws in perspective only" : null),
+      run: () => {
+        useProjectionStore.getState().toggle();
+        requestRender();
+      },
+    },
     {
       id: ID.edges,
       label: "Geometry edges",

@@ -7,6 +7,7 @@ import {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
 import {selectedMaterial} from "@/utils/default_materials";
 import {lightIntensities, useAppearanceStore} from "@/state/appearanceStore";
 import {resultDrawnFlat} from "@/utils/scene/fea/threeResultLook";
+import {isOrthographic} from "@/utils/scene/orthographicProjection";
 import {quadMatrix} from "@/viewport/native/nativeImages";
 import {InstanceFlag, NO_TEXTURE, SegmentFlag, SpriteFlag, Topology, type AdacppModule, type WebRendererApi} from "./types";
 
@@ -324,7 +325,8 @@ export class SceneSync {
         const heap = this.module.HEAPF32;
         heap.set(camera.matrixWorldInverse.elements, this.viewPtr >> 2);
         heap.set(camera.projectionMatrix.elements, this.projPtr >> 2);
-        this.r.setCamera(this.viewPtr, this.projPtr, !!(camera as THREE.OrthographicCamera).isOrthographicCamera);
+        // The three.js viewport's camera may draw orthographically (orthographicProjection.ts).
+        this.r.setCamera(this.viewPtr, this.projPtr, isOrthographic(camera));
         this.lastSyncMs = performance.now() - t0;
     }
 
