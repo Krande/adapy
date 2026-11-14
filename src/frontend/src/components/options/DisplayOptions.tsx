@@ -4,6 +4,9 @@ import {useColorStore} from "@/state/colorLegendStore";
 import {useModelState} from "@/state/modelState";
 import {toggleColorLegend} from "@/layout/resultViewActions";
 import {refreshEdgeOverlays} from "@/utils/scene/refreshEdgeOverlays";
+import {useProjectionStore} from "@/state/projectionStore";
+import {useGroundGridStore} from "@/state/groundGridStore";
+import {requestRender} from "@/state/perfStore";
 
 const Toggle: React.FC<{
     checked: boolean;
@@ -28,6 +31,9 @@ const DisplayOptions: React.FC = () => {
     } = useOptionsStore();
     const {showLegend} = useColorStore();
     const {zIsUp, setZIsUp, defaultOrbitController, setDefaultOrbitController} = useModelState();
+    // The view toggles a shell may also put on a toolbar (core:view.orthographic, core:view.ground-grid).
+    const orthographic = useProjectionStore((s) => s.orthographic);
+    const groundGrid = useGroundGridStore((s) => s.visible);
 
     return (
         <div className="space-y-2">
@@ -35,6 +41,24 @@ const DisplayOptions: React.FC = () => {
                 section — it's a perf-diagnosis toggle, not a display
                 preference. */}
             <Toggle checked={showLegend} onChange={toggleColorLegend}>Show Color Legend</Toggle>
+            <Toggle
+                checked={orthographic}
+                onChange={() => {
+                    useProjectionStore.getState().toggle();
+                    requestRender();
+                }}
+            >
+                Orthographic View
+            </Toggle>
+            <Toggle
+                checked={groundGrid}
+                onChange={() => {
+                    useGroundGridStore.getState().toggle();
+                    requestRender();
+                }}
+            >
+                Ground Grid
+            </Toggle>
             <Toggle
                 checked={showEdges}
                 onChange={() => {
