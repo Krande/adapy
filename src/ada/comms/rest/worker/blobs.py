@@ -5,6 +5,7 @@ the reduced-SIF / streamed-SIN source paths, sibling sidecars and the SIF index.
 from __future__ import annotations
 
 import asyncio
+import os
 import pathlib
 import time
 from dataclasses import dataclass
@@ -213,6 +214,38 @@ class SourceFetch:
     progressive: object | None = None
 
 
+#: ``fetch_source``'s mode when the source was linked where it lies in a filesystem store.
+MODE_LOCAL_LINK = "local-link"
+
+
+async def _link_local_source(storage: Storage, scope: Scope, key: str, dest: pathlib.Path) -> str | None:
+    """Put a filesystem store's object at ``dest`` without copying it: a hard link, else a
+    symlink. ``MODE_LOCAL_LINK``, or None when the store is not a filesystem, the object is not
+    there or is gzip-at-rest (the reader needs the decoded bytes), or neither link can be made.
+
+    Safe for the reason the source cache's hard links are: readers never write to their source.
+    What a reader writes BESIDE it (an index, an export database) lands in the job's own temp dir,
+    not in the store.
+    """
+    local_path = getattr(storage, "local_path", None)
+    if local_path is None:
+        return None
+    try:
+        path = local_path(scope, key)
+        if path is None or not path.is_file() or await storage.is_gzip_stored(scope, key):
+            return None
+    except Exception:
+        return None
+    for link in (os.link, os.symlink):
+        try:
+            dest.unlink(missing_ok=True)
+            link(path, dest)
+            return MODE_LOCAL_LINK
+        except OSError:
+            continue
+    return None
+
+
 async def fetch_source(storage: Storage, scope: Scope, job: Job, src_path: pathlib.Path) -> SourceFetch:
     """Stream the job's source (+ known sibling sidecars) to ``src_path``.
 
@@ -242,8 +275,12 @@ async def fetch_source(storage: Storage, scope: Scope, job: Job, src_path: pathl
         sif_reduced = await _try_reduced_sif_source(storage, scope, job.source_key, job.step, src_path)
     elif src_suffix.lower() == ".sin" and job.target_format == "glb":
         sin_source_uri = await _try_sin_stream_uri(storage, scope, job.source_key)
+    if not sif_reduced and sin_source_uri is None:
+        # A filesystem store (a local viewer's): the object IS a file -- link it, never copy a
+        # multi-GB deck into a temp dir and a cache. None on any other store.
+        source_fetch_mode = await _link_local_source(storage, scope, job.source_key, src_path)
     progressive = None
-    if src_suffix.lower() == ".sin" and job.target_format == "fea_artefacts":
+    if source_fetch_mode is None and src_suffix.lower() == ".sin" and job.target_format == "fea_artefacts":
         # Decode while it downloads (see SourceFetch.progressive). None -- a cache
         # hit, a gzip-at-rest object -- falls through to the plain fetch below.
         try:
@@ -259,7 +296,7 @@ async def fetch_source(storage: Storage, scope: Scope, job: Job, src_path: pathl
             progressive = None
         if progressive is not None:
             source_fetch_mode = "progressive"
-    if not sif_reduced and sin_source_uri is None and progressive is None:
+    if not sif_reduced and sin_source_uri is None and progressive is None and source_fetch_mode is None:
         # Cross-job source cache: an audit sweep converts the same
         # source to many targets, and re-downloading a multi-hundred-
         # MB source per target costs 30-60 s each time. Falls back to

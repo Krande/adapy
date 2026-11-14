@@ -198,7 +198,7 @@ async def audit_dispatch(
                         source_key=source_key,
                         target_format="parity",
                         scope=scope_obj,
-                        feature="conversion",
+                        feature="audit_conversion",
                         target_capability=worker_pool,
                         force_rebuild=force_rebuild,
                         # Parity produces no derived blob — pass an explicit derived_key so
@@ -294,7 +294,7 @@ async def audit_dispatch(
                     source_key=source_key,
                     target_format=target_format,
                     scope=scope_obj,
-                    feature="conversion",
+                    feature="audit_conversion",
                     target_capability=worker_pool,
                     force_rebuild=force_rebuild,
                 )
@@ -390,7 +390,7 @@ async def admin_audit_run_create(
     is_wasm = isinstance(worker_pool, str) and worker_pool.strip().lower() == WASM_POOL
     # The browser engine needs no NATS; only worker-pool runs do.
     if not is_wasm:
-        ctx.jobs.require("conversion")
+        ctx.jobs.require("audit_conversion")
     note = body.get("note") or None
     force_rebuild = bool(body.get("force_rebuild") or False)
     # validate_only: a validation-phase run — enqueue only the per-source
@@ -555,7 +555,7 @@ async def admin_audit_run_re_dispatch(
     worker_pool = prior["worker_pool"]
     is_wasm = isinstance(worker_pool, str) and worker_pool.strip().lower() == WASM_POOL
     if not is_wasm:
-        ctx.jobs.require("conversion")
+        ctx.jobs.require("audit_conversion")
 
     s = parse_scope(scope_str, user)
     s = await resolve_project_scope(pool, s)
@@ -626,7 +626,7 @@ async def admin_audit_run_rerun_cell(
     worker_pool = prior["worker_pool"]
     if isinstance(worker_pool, str) and worker_pool.strip().lower() == WASM_POOL:
         raise HTTPException(status_code=400, detail="cannot re-run a single cell of a wasm run from the server")
-    ctx.jobs.require("conversion")
+    ctx.jobs.require("audit_conversion")
 
     s = parse_scope(prior["scope"], user)
     s = await resolve_project_scope(pool, s)
@@ -644,7 +644,7 @@ async def admin_audit_run_rerun_cell(
                 source_key=key,
                 target_format=target,
                 scope=s,
-                feature="conversion",
+                feature="audit_conversion",
                 target_capability=worker_pool,
                 force_rebuild=True,
             )
@@ -683,7 +683,7 @@ async def admin_audit_run_validate(
     if not await scope_can_access(user, s, pool):
         raise HTTPException(status_code=403, detail="forbidden")
     if run["worker_pool"] != WASM_POOL:
-        ctx.jobs.require("conversion")
+        ctx.jobs.require("audit_conversion")
 
     claimed = await db_module.claim_run_for_validation(pool, run_id)
     if claimed is None:

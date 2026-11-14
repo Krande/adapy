@@ -331,6 +331,46 @@ def _flush_std() -> None:
             pass
 
 
+#: Set in the environment of a process that is ITSELF an isolated job: the child a queue-less
+#: server starts for each heavy job (:mod:`ada.comms.rest.local_runner`). Two things follow.
+#: Without ``os.fork`` (Windows) :func:`run_isolated` runs ``fn`` in this process instead of
+#: refusing, because the crash boundary already exists one level up -- a native fault takes down
+#: the job's process, not the server. And on Linux a forked grandchild asks to die with its
+#: parent, so cancelling the job (terminating that process) cannot leave a conversion running.
+LOCAL_RUNNER_ENV = "ADA_LOCAL_RUNNER_CHILD"
+
+#: The forked children this process is waiting on. Each one called ``setsid``, so signalling
+#: this process alone would orphan them; :func:`kill_live_children` is how a job runner that is
+#: being cancelled takes them along.
+_LIVE_CHILDREN: set[int] = set()
+
+
+def kill_live_children() -> None:
+    """SIGKILL every forked child :func:`run_isolated` is still waiting on (and its group)."""
+    sig = getattr(signal, "SIGKILL", signal.SIGTERM)
+    for pid in list(_LIVE_CHILDREN):
+        _signal_child(pid, sig)
+
+
+def _runs_inline() -> bool:
+    """True where :func:`run_isolated` runs ``fn`` in-process: no fork, inside a job runner."""
+    return not HAVE_POSIX_FORK and os.environ.get(LOCAL_RUNNER_ENV) == "1"
+
+
+def _die_with_parent() -> None:
+    """In a forked child of a job runner (Linux): be SIGKILLed when the runner goes, so a
+    cancelled job cannot leave its conversion running. Best effort; elsewhere a no-op."""
+    if os.environ.get(LOCAL_RUNNER_ENV) != "1" or not sys.platform.startswith("linux"):
+        return
+    try:
+        import ctypes
+
+        PR_SET_PDEATHSIG = 1
+        ctypes.CDLL(None, use_errno=True).prctl(PR_SET_PDEATHSIG, int(signal.SIGKILL), 0, 0, 0)
+    except Exception:
+        pass
+
+
 @dataclasses.dataclass
 class IsolatedResult:
     """What :func:`run_isolated` hands back.
@@ -476,7 +516,19 @@ async def run_isolated(
 
     ``label`` names the work in the watchdog's own error messages ("conversion ran out of
     memory ..."); ``child_name`` + ``crash_hint`` word the killed-by-signal message.
+
+    Without ``os.fork`` this refuses, except inside a job runner (``LOCAL_RUNNER_ENV``), where
+    ``fn`` runs in this process: see :func:`_run_inline`.
     """
+    if _runs_inline():
+        return await _run_inline(
+            fn,
+            work_prefix=work_prefix,
+            on_progress=on_progress,
+            profile_in_child=profile_in_child,
+            env_overrides=env_overrides,
+            serve=serve,
+        )
     _require_posix()
     child_name = child_name or label
 
@@ -522,6 +574,7 @@ async def run_isolated(
                 os.setsid()
             except OSError:
                 pass
+            _die_with_parent()
 
             # Per-job env overrides scoped to the child only — the
             # parent (and sibling jobs) keep their pristine env. Used
@@ -614,6 +667,7 @@ async def run_isolated(
             os._exit(3)
 
     # ── parent ──
+    _LIVE_CHILDREN.add(pid)
     os.close(progr_w)
     _set_nonblocking(progr_r)
     if serve is not None:
@@ -796,6 +850,7 @@ async def run_isolated(
 
             await asyncio.sleep(0.1)
     finally:
+        _LIVE_CHILDREN.discard(pid)
         # A request still in flight belongs to a child that no longer exists.
         for task in list(serving):
             task.cancel()
@@ -945,6 +1000,125 @@ async def run_isolated(
     )
 
 
+class _InlineChild:
+    """:class:`IsolatedChild`'s contract for ``fn`` running on a thread of this process."""
+
+    def __init__(self, work_dir: pathlib.Path, loop: asyncio.AbstractEventLoop, progress, serve):
+        self.work_dir = work_dir
+        self._loop = loop
+        self._progress = progress
+        self._serve = serve
+
+    def progress(self, stage: str, frac: float) -> None:
+        try:
+            self._loop.call_soon_threadsafe(self._progress.put_nowait, (str(stage), float(frac)))
+        except (RuntimeError, TypeError, ValueError):
+            pass
+
+    def call(self, op: str, **args: Any) -> Any:
+        if self._serve is None:
+            raise RuntimeError(f"isolated child asked the parent for {op!r}, but this run serves no requests")
+        return asyncio.run_coroutine_threadsafe(self._serve(op, args), self._loop).result()
+
+
+async def _run_inline(
+    fn: Callable[[IsolatedChild], None],
+    *,
+    work_prefix: str,
+    on_progress: Optional[Callable[[str, float], Awaitable[None]]],
+    profile_in_child: bool,
+    env_overrides: Optional[dict[str, str]],
+    serve: Optional[ServeFn],
+) -> IsolatedResult:
+    """:func:`run_isolated` without a fork, for a process that is already the isolation boundary.
+
+    Only ever reached inside a job runner (``LOCAL_RUNNER_ENV``) on a platform with no
+    ``os.fork``: that process runs one job and exists to be killed, so the crash isolation, the
+    cancel and the timeout belong to whoever started it. What is kept is the contract ``fn``
+    sees -- a work dir, ``progress``, ``call`` -- and the result's shape.
+    """
+    work_dir = pathlib.Path(tempfile.mkdtemp(prefix=work_prefix))
+    loop = asyncio.get_running_loop()
+    if env_overrides:
+        # The runner's own environment: it runs this one job and then exits.
+        for k, v in env_overrides.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[str(k)] = str(v)
+    progress: asyncio.Queue = asyncio.Queue()
+    child = _InlineChild(work_dir, loop, progress, serve)
+    profile_path = work_dir / ".profile.prof"
+
+    def _target() -> None:
+        profiler = None
+        if profile_in_child:
+            import cProfile
+
+            profiler = cProfile.Profile()
+            profiler.enable()
+        try:
+            fn(child)  # type: ignore[arg-type]
+        finally:
+            if profiler is not None:
+                profiler.disable()
+                try:
+                    profiler.dump_stats(str(profile_path))
+                except Exception:
+                    pass
+
+    async def _forward(stage: str, frac: float) -> None:
+        if on_progress is None:
+            return
+        try:
+            await on_progress(stage, frac)
+        except Exception:
+            logger.exception("on_progress callback raised; continuing")
+
+    task = asyncio.ensure_future(asyncio.to_thread(_target))
+    while not task.done():
+        try:
+            stage, frac = await asyncio.wait_for(progress.get(), timeout=0.1)
+        except asyncio.TimeoutError:
+            continue
+        await _forward(stage, frac)
+    while not progress.empty():
+        await _forward(*progress.get_nowait())
+
+    profile_bytes: Optional[bytes] = None
+    if profile_path.exists():
+        try:
+            profile_bytes = profile_path.read_bytes()
+            profile_path.unlink()
+        except OSError:
+            pass
+    exc = task.exception()
+    if exc is None:
+        return IsolatedResult(
+            work_dir=work_dir,
+            error=None,
+            traceback=None,
+            exit_code=0,
+            signal_name=None,
+            samples=[],
+            final_metrics={},
+            profile_bytes=profile_bytes,
+        )
+    shutil.rmtree(work_dir, ignore_errors=True)
+    return IsolatedResult(
+        work_dir=None,
+        error=f"{type(exc).__name__}: {exc}",
+        traceback="".join(traceback.format_exception(exc)),
+        exit_code=2,
+        signal_name=None,
+        samples=[],
+        final_metrics={},
+        error_type=type(exc).__name__,
+        error_message=str(exc),
+        profile_bytes=profile_bytes,
+    )
+
+
 async def run_isolated_convert(
     convert_fn: Callable[..., "bytes | pathlib.Path"],
     src_path: pathlib.Path,
@@ -967,7 +1141,8 @@ async def run_isolated_convert(
     (take-off, tessellation tallies). Watchdog semantics -- ``timeout_s``, ``cancel_check``, the RSS
     limit, ``signal_name`` "TIMEOUT"/"CANCELLED"/"OOM" -- are :func:`run_isolated`'s.
     """
-    _require_posix()
+    if not _runs_inline():
+        _require_posix()
     convert_kwargs = convert_kwargs or {}
 
     def _convert_in_child(child: IsolatedChild) -> None:

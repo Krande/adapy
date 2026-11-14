@@ -176,15 +176,7 @@ how it is built.
 
 ## Run it yourself
 
-The quickest local setup is the development stack: NATS, the API and one worker, with local
-storage and no login:
-
-```bash
-pixi run up            # docker compose: deploy/docker-compose.dev.yml
-```
-
-Without Docker, run the API straight from the `viewer-api` environment and serve the built
-frontend from it:
+Run the API from any environment that has ada-py, and serve the built frontend from it:
 
 ```bash
 pixi run -e frontend wbuild-serve                  # builds src/frontend/dist
@@ -193,9 +185,35 @@ ADA_VIEWER_LOCAL_PATH=./viewer-data \
 pixi run -e viewer-api viewer-api                  # http://localhost:8080
 ```
 
-Without a job queue (`ADA_VIEWER_NATS_URL` unset) the API runs the clash check, asset builds
-and exports in-process, but cannot convert files. Start a worker
-(`pixi run -e viewer-api viewer-worker`, with NATS) for conversions and FE bakes.
+Without a job queue (`ADA_VIEWER_NATS_URL` unset) everything runs in the environment the API
+was started from: file conversions (IFC, STEP, SAT, FEM, ... to GLB and the other targets), FE
+result bakes, utilities and component builds, the clash check, asset builds and exports. The
+heavy jobs (conversions and bakes) each run in a child process of the same interpreter, through
+the same pipeline a worker runs, so a crash or an out-of-memory in a CAD reader fails that job
+and not the viewer. Plugins on `ADA_WORKER_PRELOAD` or the `ada.plugins` entry points are loaded
+there too, so a tool that starts the viewer from its own environment
+(`python -m ada.comms.rest`) offers exactly the conversions and job kinds that environment can
+run.
+
+Every local job, of every kind, waits its turn in one queue: first in, first out, with a cap on
+how many run at once, and a CPU budget the running jobs share (each job process gets its share as
+its thread count, and on Linux its own CPUs). A waiting job shows `queued (n ahead)`. Cancelling it
+removes it before it starts. Jobs that take a moment (reading a result deck's inventory,
+detailing a few joints, a publish) get one extra lane so they never wait behind conversions. Set
+the limits under Settings > Local jobs, at launch (`ada serve api --max-jobs 2 --cpu-budget 50%`,
+the same flags on `ada desktop`), or with `ADA_LOCAL_JOB_PROCESSES` / `ADA_LOCAL_JOB_CPU_BUDGET`.
+The budget is a core count (`4`), a fraction (`0.5`) or a percentage (`50%`). Defaults: half the
+cores, at most 4 jobs, and every core. The settings are kept in the server's storage (or its
+database). A launch value wins for that run and is saved. A change applies to the next job that
+starts. What still needs a queue: admin audit sweeps (they measure worker pools), and job
+kinds that write back to a database or chain onto another pool.
+
+The development stack, with NATS, the API and one worker in Docker, is for working on the
+queue and worker path itself:
+
+```bash
+pixi run up            # docker compose: deploy/docker-compose.dev.yml
+```
 
 ### As a desktop app
 

@@ -11,6 +11,7 @@ import ComputeOptions from "@/components/options/ComputeOptions";
 import DisplayOptions from "@/components/options/DisplayOptions";
 import ExperimentalOptions from "@/components/options/ExperimentalOptions";
 import LayoutOptions from "@/components/options/LayoutOptions";
+import LocalJobsOptions from "@/components/options/LocalJobsOptions";
 import PerformanceOptions from "@/components/options/PerformanceOptions";
 import PointSizeOptions from "@/components/options/PointSizeOptions";
 import SceneRestoreOptions from "@/components/options/SceneRestoreOptions";
@@ -27,7 +28,8 @@ export type SettingsSectionId =
     | "compute"
     | "camera"
     | "spacemouse"
-    | "conversion";
+    | "conversion"
+    | "jobs";
 
 export interface SettingsSection {
     id: SettingsSectionId;
@@ -74,6 +76,8 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
     {id: "spacemouse", title: "3D mouse", available: always, render: () => <SpaceMouseOptions/>},
     // The in-browser (WASM) conversion engine only makes sense for the hosted REST viewer.
     {id: "conversion", title: "Conversion engine", available: restOnly, render: () => <ExperimentalOptions/>},
+    // A server with no job queue runs every job itself: how many at once, and the CPU they share.
+    {id: "jobs", title: "Local jobs", available: () => runtime.localJobs(), render: () => <LocalJobsOptions/>},
 ];
 
 /** The sections that apply in this viewer. */

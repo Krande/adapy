@@ -105,8 +105,11 @@ sequenceDiagram
         W->>S: write _derived/… artefacts
         W->>Q: KV put job status = done
     else LocalJobTransport (no NATS)
-        A->>A: LocalJobRegistry runs it in a thread
-        A->>S: write _derived/…
+        A->>A: LocalJobRegistry starts a job process<br/>(python -m ada.comms.rest.local_runner)
+        A->>S: (job process) read source
+        A->>A: (job process) worker pipeline → formats[kind]
+        A->>S: (job process) write _derived/…
+        A->>A: progress / verdict over the job process's stdout
     end
     loop until done
         B->>A: GET /api/convert/{job_id}
@@ -116,9 +119,29 @@ sequenceDiagram
 ```
 
 - **Transport** (`job_transport.py`): `QueueJobTransport` (NATS) or `LocalJobTransport`
-  (in-process threads for a set of `LOCAL_FEATURES`: asset build/publish, clash
-  check/detail, export selection, plugin jobs, simulation runs, procedural builds, and FEA
-  `bake` / `result_meta`). The choice is made once at start-up. A queue-less server also
+  for a set of `LOCAL_FEATURES`. The light kinds run on threads of the API (asset
+  build/publish, clash check/detail, export selection, plugin jobs, simulation runs,
+  procedural builds). A worker's kinds (`conversion`, FEA `bake` / `result_meta`,
+  `utilities`, `component_build`) run in a child process of the same interpreter
+  (`local_jobs.start_worker_job` → `local_runner.py`): the worker's own `_process_one`
+  with no database, a queue that is the child's stdout pipe, and storage reopened from
+  `Storage.process_spec()`. The child inherits the environment and `sys.path` and loads the
+  same plugins (`plugin_registry.load_local_plugins`). Cancel terminates it, and its forked
+  conversion children die with it. A crash is a job error with the tail of its output. A
+  filesystem store's source is linked into the job's temp dir, not copied. Such a server
+  advertises its own conversion matrix, source extensions and utilities
+  (`job_transport.local_advertisement`, the computation a worker's heartbeat uses), and a
+  conversion it has no converter for is a 501. Every local job, thread or process, passes
+  through one FIFO queue (`local_queue.py`). It has a cap on concurrent jobs and a CPU budget
+  divided over the running jobs. A job process gets its share as `OMP_NUM_THREADS` /
+  `OPENBLAS_NUM_THREADS` / `MKL_NUM_THREADS` / `NUMEXPR_NUM_THREADS` / `ADA_STEP_STREAM_WORKERS` /
+  `ADA_DERIVED_GZIP_THREADS`, plus a CPU affinity on Linux when the budget is below the machine.
+  A queued job reports `queued (n ahead)` and is never started if it is cancelled first. A few
+  sub-second kinds take one extra lane. The limits are settings: `routes/local_jobs.py`, stored
+  in `app_settings` or `_prefs/_server/local_jobs.json`, defaulting from
+  `ADA_LOCAL_JOB_PROCESSES` / `ADA_LOCAL_JOB_CPU_BUDGET` and the `--max-jobs` / `--cpu-budget`
+  flags. They apply to the next job. Admin audit sweeps
+  (`audit_conversion`) stay queue-only. The choice is made once at start-up. A queue-less server also
   answers the procedural blueprint, template and engine catalogs from its own process, and
   lists engines registered there with origin `local` (id prefix `local:`). Its in-process
   procedural compile takes over root logging and `sys.stdout` while it runs, which is why

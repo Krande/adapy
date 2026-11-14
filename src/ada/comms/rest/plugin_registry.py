@@ -31,7 +31,7 @@ def local_plugin_registry() -> ModuleType | None:
     return plugins
 
 
-def discover_local_plugins(role: Literal["api", "worker"]) -> None:
+def discover_local_plugins(role: Literal["api", "worker", "local-runner"]) -> None:
     """Run the ``ada.plugins`` entry-point discovery, logging (not raising) on
     failure. Isolated per plugin inside ``discover_plugins`` itself; this wraps
     the registry being absent or discovery blowing up as a whole. ``role``
@@ -44,6 +44,27 @@ def discover_local_plugins(role: Literal["api", "worker"]) -> None:
         registry.discover_plugins()
     except Exception:
         logger.exception("%s: ada.plugins discovery failed (non-fatal)", role)
+
+
+def load_local_plugins(role: Literal["api", "local-runner"]) -> None:
+    """``ADA_WORKER_PRELOAD`` then the ``ada.plugins`` entry points, each failure logged and
+    skipped -- the API's way (a worker dies on a failed preload instead, on purpose).
+
+    The API and the process a queue-less server runs a heavy job in
+    (``ada.comms.rest.local_runner``) both call this, so the job sees every plugin the server
+    advertised it for.
+    """
+    import importlib
+    import os
+
+    preload = os.environ.get("ADA_WORKER_PRELOAD", "").strip()
+    for mod_name in (m.strip() for m in preload.split(",") if m.strip()):
+        logger.info("%s: preloading %s", role, mod_name)
+        try:
+            importlib.import_module(mod_name)
+        except Exception:
+            logger.exception("%s: preloading %s failed (non-fatal); its jobs will 501", role, mod_name)
+    discover_local_plugins(role)
 
 
 def locally_registered_specs() -> list[dict]:
