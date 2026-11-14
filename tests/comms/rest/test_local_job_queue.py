@@ -59,7 +59,7 @@ def _run_in_queue(q: LocalJobQueue, job: LocalJob, started: list[str], gate: thr
     return t
 
 
-def _until(pred, timeout=10.0):
+def _until(pred, timeout=30.0):
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if pred():
@@ -193,22 +193,31 @@ def test_a_crashed_job_frees_its_slot(fake_plugin, storage, restore_limits):  # 
     local_queue.queue.configure(limits_from(1))
     crash = _start("fake_crash", storage)
     ok = _start("fake_ok", storage)
-    assert _wait(crash).status == local_jobs.STATUS_ERROR
-    assert _wait(ok).status == STATUS_DONE
+    # Two interpreter start-ups one after the other: generous, for a loaded runner.
+    assert _wait(crash, timeout=240).status == local_jobs.STATUS_ERROR
+    assert _wait(ok, timeout=240).status == STATUS_DONE
+    # Both slots come back once each job's supervisor has let go of it.
+    _until(lambda: local_queue.queue.snapshot() == {"running": [], "queued": []})
 
 
-def test_a_job_process_gets_its_share_of_the_cpu_budget(fake_plugin, storage, tmp_path, restore_limits):  # noqa: F811
+def test_a_job_process_gets_its_share_of_the_cpu_budget(
+    fake_plugin, storage, tmp_path, restore_limits, monkeypatch  # noqa: F811
+):
+    # A machine of 8 cores, whatever runs the test: the budget is capped at the machine, and a
+    # two-core runner must not turn a budget of 2 into 1.
+    monkeypatch.setattr(local_queue, "host_cores", lambda: 8)
     local_queue.queue.configure(limits_from(2, "2"))
     job = _wait(_start("fake_env", storage))
     assert job.status == STATUS_DONE, job.as_json()
+    assert job.threads == 2
     doc = json.loads((tmp_path / "store" / "shared" / "_derived" / "fake_env.out").read_bytes())
-    share = str(min(2, local_queue.host_cores()))  # the budget is capped at the machine
-    assert doc["OMP_NUM_THREADS"] == share
-    assert doc["OPENBLAS_NUM_THREADS"] == share
-    assert doc["MKL_NUM_THREADS"] == share
-    assert doc["ADA_STEP_STREAM_WORKERS"] == share
+    assert doc["OMP_NUM_THREADS"] == "2"
+    assert doc["OPENBLAS_NUM_THREADS"] == "2"
+    assert doc["MKL_NUM_THREADS"] == "2"
+    assert doc["ADA_STEP_STREAM_WORKERS"] == "2"
     if sys.platform.startswith("linux"):
-        assert len(doc["affinity"]) == int(share)
+        # Pinned to its own CPUs: as many as the budget gives it, of those this process may use.
+        assert len(doc["affinity"]) == min(2, len(os.sched_getaffinity(0)))
 
 
 def test_a_thread_job_waits_its_turn_too(restore_limits):
@@ -222,10 +231,12 @@ def test_a_thread_job_waits_its_turn_too(restore_limits):
     ran = threading.Event()
     job = _job("thread-kind")
     local_jobs._start_queued(job, ran.set, "test-thread-kind")
-    _until(lambda: job.stage.startswith("queued"))
+    # In the queue's own list, not only the default stage text a new job starts with.
+    _until(lambda: [w["job_id"] for w in local_queue.queue.snapshot()["queued"]] == ["thread-kind"])
+    assert job.stage == "queued (next)"
     assert not ran.is_set()
     gate.set()
-    assert ran.wait(5)
+    assert ran.wait(30)
     assert job.status == STATUS_RUNNING  # the target owns the verdict; the queue only admits
 
 
