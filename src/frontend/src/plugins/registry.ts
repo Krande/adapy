@@ -193,7 +193,8 @@ import { isPlacedElsewhere } from "@/layout/placedElsewhere";
 //          state says when that state changed, and a placed panel showing "Nothing to show
 //          here yet" re-asks it (the panel also re-asks on every loaded-model change).
 // 1.24.0 — kept in step with viewer-core 1.24.0: `CORE_COMMAND_IDS.orthographic`
-//          (`core:view.orthographic`), a command a plugin may run or place. Additive.
+//          (`core:view.orthographic`) and `CORE_COMMAND_IDS.groundGrid`
+//          (`core:view.ground-grid`), commands a plugin may run or place. Additive.
 export const PLUGIN_API_VERSION = "1.24.0";
 
 // The named mount regions core exposes in Phase 1. Deliberately small

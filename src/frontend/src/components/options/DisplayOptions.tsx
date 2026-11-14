@@ -44,7 +44,7 @@ const DisplayOptions: React.FC = () => {
             <Toggle
                 checked={orthographic}
                 onChange={() => {
-                    useProjectionStore.getState().toggle();
+                    useProjectionStore.getState().toggleOrthographic();
                     requestRender();
                 }}
             >

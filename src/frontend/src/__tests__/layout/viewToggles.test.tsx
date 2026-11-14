@@ -21,6 +21,7 @@ const { AdaViewerProvider } = await import("@/state/AdaViewerContext");
 const { useGroundGridStore } = await import("@/state/groundGridStore");
 const { useProjectionStore } = await import("@/state/projectionStore");
 const { setActiveViewport } = await import("@/viewport/api/viewportApi");
+const { NATIVE_ORTHOGRAPHIC_UNAVAILABLE } = await import("@/viewport/native/nativeViewportApi");
 
 const html = (el: React.ReactElement) => renderToStaticMarkup(React.createElement(AdaViewerProvider, null, el));
 
@@ -44,7 +45,7 @@ test("the ground grid and orthographic view are in core's menus, not on its shar
 test("the ground grid toggles and is remembered in the browser", () => {
   C.resetCommands();
   registerCoreCommands();
-  const release = setActiveViewport({ kind: "three" } as never);
+  const release = setActiveViewport({ kind: "three", unavailable: () => null } as never);
   try {
     useGroundGridStore.getState().setVisible(true);
     assert.equal(C.getCommand(ID.groundGrid)?.checked?.(), true);
@@ -60,12 +61,15 @@ test("the ground grid toggles and is remembered in the browser", () => {
   }
 });
 
-test("the orthographic view is greyed on the native viewport, which draws in perspective only", () => {
+test("the orthographic view is greyed, with the viewport's reason, where the viewport has none", () => {
   C.resetCommands();
   registerCoreCommands();
-  const release = setActiveViewport({ kind: "native" } as never);
+  const release = setActiveViewport({
+    kind: "native",
+    unavailable: (f: string) => (f === "orthographic" ? NATIVE_ORTHOGRAPHIC_UNAVAILABLE : null),
+  } as never);
   try {
-    assert.match(C.getCommand(ID.orthographic)?.disabledReason?.() ?? "", /perspective only/);
+    assert.equal(C.getCommand(ID.orthographic)?.disabledReason?.(), NATIVE_ORTHOGRAPHIC_UNAVAILABLE);
   } finally {
     release();
   }

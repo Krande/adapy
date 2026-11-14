@@ -25,11 +25,15 @@ stiffeners and decks, organised the way the model's parts are.
 
 ![An IFC model opened from storage, with its object tree](screenshots/ada-studio/model.png)
 
-The view is in perspective. **Orthographic view**, the first button of the section toolbar and
-in the Desktop UI's **View → Camera** menu, draws it with parallel edges instead: the model is
+The view is in perspective. **Orthographic view**, in the Desktop UI's **View → Camera** menu and
+the classic UI's **Settings → Scene config**, draws it with parallel edges instead: the model is
 as tall at the orbit target as it was, zoom and the named views work as before, and labels keep
 their size on screen. The choice is remembered in this browser. The three.js-free viewport has
 no orthographic view yet, so the command is greyed there and its tooltip says so.
+
+**Ground grid**, in **View → Display** and **Settings → Scene config**, shows or hides the grid on
+the ground plane, also remembered in this browser. Section planes do not cut the grid, so turn it
+off for a clean plan cut. A UI shell may also put both toggles on its own toolbar.
 
 A load that replaces the model on screen keeps the camera where you had it: a compile showing
 its result again, for one. The camera goes back to its starting view only when the scene is

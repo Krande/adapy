@@ -655,9 +655,12 @@
 //          whose doc names none. `notifyPluginActivationChanged`: a plugin says what its activation predicate reads
 //          has changed; a placed panel re-asks it (and on every loaded-model change).
 //   1.24.0 Kept in step with PLUGIN_API_VERSION 1.24.0. Additive: `CORE_COMMAND_IDS.orthographic`
-//          (`core:view.orthographic`, the Orthographic view toggle: the section toolbar's first
-//          button and the Desktop UI's Camera menu). Offered disabled, with the reason, on a
-//          viewport whose `unavailable("orthographic")` answers one (the three.js-free viewport).
+//          (`core:view.orthographic`, the Orthographic view toggle) and `CORE_COMMAND_IDS.groundGrid`
+//          (`core:view.ground-grid`, the ground grid toggle). Core puts them in its menus (the
+//          Desktop UI's View, the classic UI's Settings > Scene config), not on the section toolbar
+//          the shells share: a shell places them on its own toolbar if it wants. Orthographic view
+//          is offered disabled, with the reason, on a viewport whose `unavailable("orthographic")`
+//          answers one (the three.js-free viewport).
 export const VIEWER_CORE_API_VERSION = "1.24.0";
 
 // ---------------------------------------------------------------------------
