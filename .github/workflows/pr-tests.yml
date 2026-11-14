@@ -31,7 +31,11 @@ jobs:
           - run: pixi run lint-check
 
     test:
-        runs-on: ${{ matrix.os }}
+        # ubuntu-latest moved to Ubuntu 26.04, where Playwright installs no browsers ("Playwright does
+        # not support chromium on ubuntu26.04-x64") and the tests env's pre-install fails before any
+        # test runs. The Linux legs run on 24.04 until Playwright supports it; the matrix value (and
+        # with it the check names branch protection knows) stays ubuntu-latest.
+        runs-on: ${{ matrix.os == 'ubuntu-latest' && 'ubuntu-24.04' || matrix.os }}
         defaults:
           run:
             shell: bash -l {0}
@@ -97,7 +101,8 @@ jobs:
     # builds neither code-aster nor medcoupling for it.
     test-fem:
         name: FEM solvers (Calculix, Code_Aster)
-        runs-on: ${{ matrix.os }}
+        # 24.04 for the Linux leg, as `test` above (Playwright has no browsers for 26.04).
+        runs-on: ${{ matrix.os == 'ubuntu-latest' && 'ubuntu-24.04' || matrix.os }}
         defaults:
           run:
             shell: bash -l {0}
@@ -128,7 +133,8 @@ jobs:
     # a second OS would repeat the comparison rather than extend it.
     test-xkernel:
         name: Cross-kernel CAD parity (ada-cpp vs pythonocc)
-        runs-on: ubuntu-latest
+        # 24.04, as `test` above: its env has the `tests` feature, whose pre-install installs Playwright's browsers.
+        runs-on: ubuntu-24.04
         steps:
         - uses: actions/checkout@v7
           with:
