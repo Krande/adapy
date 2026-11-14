@@ -310,6 +310,11 @@ def _member_mesh(member):
         mesh = mesh.to_geometry() if hasattr(mesh, "to_geometry") else mesh.dump(concatenate=True)
     vertices = np.asarray(mesh.vertices, dtype=float)
     faces = np.asarray(mesh.faces, dtype=int)
+    if len(faces):
+        # A tessellation's sliver -- three corners in one place -- is no surface: a consumer that asks for
+        # the closest point on it gets nonsense (a collision check took every point to be on it).
+        tri = vertices[faces]
+        faces = faces[np.linalg.norm(np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0]), axis=1) > 1e-12]
     if len(vertices) == 0 or len(faces) == 0:
         raise WeldAssemblyError(f"member {getattr(member, 'name', '?')!r} has no geometry")
     return vertices, faces

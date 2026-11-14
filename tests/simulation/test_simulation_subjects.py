@@ -430,6 +430,13 @@ def test_a_saddle_seam_is_a_closed_line_with_its_frames_point_by_point(saddle):
     assert weld_seam(weld)["closed"] is True and weld_seam(weld)["tangents"] == weld["tangents"]
 
 
+def test_a_member_mesh_has_no_triangle_without_area(saddle):
+    for m in saddle["members"]:
+        tri = np.array(m["vertices"])[np.array(m["faces"])]
+        area = np.linalg.norm(np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0]), axis=1)
+        assert area.min() > 1e-12
+
+
 def test_with_a_curved_seam_a_straight_one_is_written_point_by_point_too():
     doc = weld_assembly_from_part(_saddle_part(with_box=True), stub_length=None)
     assert doc["schema"] == WELD_ASSEMBLY_SCHEMA_CURVED
