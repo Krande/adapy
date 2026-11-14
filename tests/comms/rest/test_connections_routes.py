@@ -15,14 +15,14 @@ from ada.comms.rest.routes import connections as routes  # noqa: E402
 from ada.comms.rest.scope import Scope  # noqa: E402
 
 WELD = {
-    "slug": "box.box_to_box",
-    "name": "box.box_to_box",
+    "slug": "pool_a.box_joint",
+    "name": "pool_a.box_joint",
     "tags": ["box"],
     "priority": 10,
-    "roles": {"name": "box.box_to_box", "tags": ["box"], "priority": 10, "roles": [{"role": "incoming"}]},
-    "defaults": {"incoming": {"section": "BOX200x200x10"}},
-    "module": "weld_gen.connections.design.box.box_to_box",
-    "capability": "weld-gen",
+    "roles": {"name": "pool_a.box_joint", "tags": ["box"], "priority": 10, "roles": [{"role": "incoming"}]},
+    "defaults": {"incoming": {"section": "BOX200x10"}},
+    "module": "weld_gen.connections.design.pool_a.box_joint",
+    "capability": "pool-a",
 }
 BUILTIN = {
     "slug": "builtin.girder_gusset",
@@ -87,21 +87,21 @@ PROJECT = Scope("project", "11111111-1111-1111-1111-111111111111")
 
 
 def test_a_capability_the_admin_did_not_name_is_offered_everywhere():
-    assert routes.scope_offers(None, PROJECT, "weld-gen")
-    assert routes.scope_offers({"other": ["shared"]}, PROJECT, "weld-gen")
+    assert routes.scope_offers(None, PROJECT, "pool-a")
+    assert routes.scope_offers({"other": ["shared"]}, PROJECT, "pool-a")
     # core's built-ins always are
-    assert routes.scope_offers({"weld-gen": []}, PROJECT, None)
+    assert routes.scope_offers({"pool-a": []}, PROJECT, None)
 
 
 def test_a_named_capability_is_offered_only_in_its_scopes():
-    setting = {"weld-gen": [PROJECT.wire()]}
-    assert routes.scope_offers(setting, PROJECT, "weld-gen")
-    assert not routes.scope_offers(setting, Scope("shared"), "weld-gen")
-    assert not routes.scope_offers(setting, Scope.user("alice"), "weld-gen")
+    setting = {"pool-a": [PROJECT.wire()]}
+    assert routes.scope_offers(setting, PROJECT, "pool-a")
+    assert not routes.scope_offers(setting, Scope("shared"), "pool-a")
+    assert not routes.scope_offers(setting, Scope.user("alice"), "pool-a")
     # `user` stands for every personal scope
-    assert routes.scope_offers({"weld-gen": ["user"]}, Scope.user("alice"), "weld-gen")
+    assert routes.scope_offers({"pool-a": ["user"]}, Scope.user("alice"), "pool-a")
     # an empty list offers it nowhere
-    assert not routes.scope_offers({"weld-gen": []}, PROJECT, "weld-gen")
+    assert not routes.scope_offers({"pool-a": []}, PROJECT, "pool-a")
 
 
 async def test_the_specs_are_the_workers_in_the_dev_librarys_shape(no_setting):
@@ -109,27 +109,27 @@ async def test_the_specs_are_the_workers_in_the_dev_librarys_shape(no_setting):
     resp = await routes.api_connections(request=_Request(), scope_obj=PROJECT, ctx=ctx)
     state = json.loads(resp.body)
     assert state["status"] == "ready" and state["error"] is None
-    assert [s["name"] for s in state["specs"]] == ["box.box_to_box", "builtin.girder_gusset"]
-    weld = state["specs"][0]
+    assert [s["name"] for s in state["specs"]] == ["builtin.girder_gusset", "pool_a.box_joint"]
+    weld = state["specs"][1]
     assert weld["defaults"] == WELD["defaults"] and weld["schema"]["defaults"] == WELD["defaults"]
     assert weld["schema"]["roles"] == [{"role": "incoming"}]
-    assert weld["capability"] == "weld-gen" and weld["in_library"] is False and weld["source"] is None
+    assert weld["capability"] == "pool-a" and weld["in_library"] is False and weld["source"] is None
 
     # The generation follows what is offered: same specs, same generation; a change, a new one.
     again = json.loads((await routes.api_connections(request=_Request(), scope_obj=PROJECT, ctx=ctx)).body)
     assert again["generation"] == state["generation"]
-    ctx.jobs.specs = {WELD["slug"]: {**WELD, "defaults": {"incoming": {"section": "BOX300x300x10"}}}}
+    ctx.jobs.specs = {WELD["slug"]: {**WELD, "defaults": {"incoming": {"section": "BOX300x10"}}}}
     changed = json.loads((await routes.api_connections(request=_Request(), scope_obj=PROJECT, ctx=ctx)).body)
     assert changed["generation"] != state["generation"]
 
 
 async def test_the_admins_assignment_hides_a_pools_specs_elsewhere(no_setting):
     ctx = SimpleNamespace(jobs=_Jobs({WELD["slug"]: WELD, BUILTIN["slug"]: BUILTIN}))
-    req = _Request(setting={"weld-gen": [PROJECT.wire()]})
+    req = _Request(setting={"pool-a": [PROJECT.wire()]})
     shared = json.loads((await routes.api_connections(request=req, scope_obj=Scope("shared"), ctx=ctx)).body)
     assert [s["name"] for s in shared["specs"]] == ["builtin.girder_gusset"]
     project = json.loads((await routes.api_connections(request=req, scope_obj=PROJECT, ctx=ctx)).body)
-    assert "box.box_to_box" in [s["name"] for s in project["specs"]]
+    assert "pool_a.box_joint" in [s["name"] for s in project["specs"]]
 
 
 async def test_a_build_runs_on_the_specs_pool_and_answers_with_its_report(no_setting, monkeypatch):
@@ -137,7 +137,7 @@ async def test_a_build_runs_on_the_specs_pool_and_answers_with_its_report(no_set
     storage = _Storage()
     jobs = _Jobs({WELD["slug"]: WELD})
     ctx = SimpleNamespace(jobs=jobs, storage=storage)
-    body = {"spec_name": "box.box_to_box", "inputs": {"incoming": {"section": "BOX300x300x10"}}}
+    body = {"spec_name": "pool_a.box_joint", "inputs": {"incoming": {"section": "BOX300x10"}}}
 
     # What the worker leaves beside the GLB.
     async def _submit(req, *, before_dispatch=None):
@@ -155,7 +155,7 @@ async def test_a_build_runs_on_the_specs_pool_and_answers_with_its_report(no_set
     assert resp.status_code == 200, out
     [req] = jobs.submitted
     assert req.target_format == "component_build" and req.feature == "component_build"
-    assert req.target_capability == "weld-gen"
+    assert req.target_capability == "pool-a"
     assert req.conversion_options["mode"] == "report" and req.conversion_options["inputs"] == body["inputs"]
     # Built in the caller's own scope, as `ada dev connections` builds.
     assert req.scope == Scope.user("alice") and out["scope"] == routes.BUILD_SCOPE
@@ -178,7 +178,7 @@ async def test_a_failed_build_answers_as_the_dev_route_does(no_setting, monkeypa
         return SimpleNamespace(job_id="job-1", derived_key=req.derived_key)
 
     jobs.submit = _submit
-    body = {"spec_name": "box.box_to_box", "inputs": {}}
+    body = {"spec_name": "pool_a.box_joint", "inputs": {}}
     resp = await routes.api_connections_build(request=_Request(body), scope_obj=PROJECT, ctx=ctx, user=USER)
     assert resp.status_code == 422
     out = json.loads(resp.body)
@@ -189,7 +189,7 @@ async def test_a_spec_no_online_pool_offers_in_this_scope_is_not_built(no_settin
     from fastapi import HTTPException
 
     ctx = SimpleNamespace(jobs=_Jobs({WELD["slug"]: WELD}), storage=_Storage())
-    req = _Request({"spec_name": "box.box_to_box"}, setting={"weld-gen": ["shared"]})
+    req = _Request({"spec_name": "pool_a.box_joint"}, setting={"pool-a": ["shared"]})
     with pytest.raises(HTTPException) as e:
         await routes.api_connections_build(request=req, scope_obj=PROJECT, ctx=ctx, user=USER)
     assert e.value.status_code == 404

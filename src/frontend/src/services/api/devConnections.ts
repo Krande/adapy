@@ -1,9 +1,14 @@
-// The connection library `ada dev connections` serves live: its state, builds
-// from the connection builder's inputs, and the reload events it pushes.
-// Local viewer only (`runtime.devConnections()`); see
-// src/ada/comms/rest/routes/dev_connections.py.
+// The connection builder's server: its specs, builds from the builder's inputs,
+// and the updates it is told about. Two backends answer in one shape:
+//
+//   * `ada dev connections` (a local viewer, `runtime.devConnections()`): a library
+//     served live, its reloads pushed as events (routes/dev_connections.py);
+//   * a deployed studio: the specs the live workers' code registers, offered in the
+//     current scope as the admin assigned them, and built on the workers' pools
+//     (routes/connections.py). Nothing pushes there, so the state is polled.
 
 import { runtime } from "@/runtime/config";
+import { scopeUrlPart, useScopeStore } from "@/state/scopeStore";
 
 import type { ContactRunDoc } from "@/services/clash/contactRuns";
 
@@ -22,6 +27,10 @@ export interface DevConnectionSpec {
   source: { file: string; line: number } | null;
   /** Registered by the library's own modules (not by a package it imports). */
   in_library: boolean;
+  /** Deployed studio only: the worker pool that builds it (null: core's own, any worker). */
+  capability?: string | null;
+  /** Deployed studio only: its pool is online but not taking jobs. */
+  unavailable?: boolean;
 }
 
 export interface DevConnectionsError {
@@ -145,7 +154,20 @@ export class DevBuildError extends Error {
   }
 }
 
-const base = () => `${runtime.apiBase()}/dev/connections`;
+/** Which server the builder talks to. */
+export type ConnectionsBackend = "dev" | "deployed";
+
+export function connectionsBackend(): ConnectionsBackend {
+  return runtime.devConnections() ? "dev" : "deployed";
+}
+
+/** How often a deployed studio asks again what is offered (a worker came or went, new code). */
+export const DEPLOYED_POLL_MS = 30_000;
+
+const base = () =>
+  connectionsBackend() === "dev"
+    ? `${runtime.apiBase()}/dev/connections`
+    : `${runtime.apiBase()}/scopes/${encodeURIComponent(scopeUrlPart(useScopeStore.getState().current))}/connections`;
 
 export const devConnectionsApi = {
   async state(): Promise<DevConnectionsState> {
@@ -187,6 +209,8 @@ export const devConnectionsApi = {
   },
 
   async reload(): Promise<DevConnectionsState> {
+    // A deployed studio has no library to reload: asking again is what reloading means there.
+    if (connectionsBackend() === "deployed") return devConnectionsApi.state();
     return jsonOrThrow<DevConnectionsState>(await authedFetch(`${base()}/reload`, { method: "POST" }), "devConnections.reload");
   },
 
@@ -197,8 +221,11 @@ export const devConnectionsApi = {
     );
   },
 
-  /** Follow the library's state; returns the unsubscribe. EventSource reconnects on its own. */
+  /** Follow the library's state; returns the unsubscribe. EventSource reconnects on its own. On a
+   *  deployed studio the state is asked for now, every {@link DEPLOYED_POLL_MS}, and whenever the
+   *  scope changes; an event is emitted when what is offered changed (its generation). */
   subscribe(onEvent: (e: DevConnectionsEvent) => void, onError?: () => void): () => void {
+    if (connectionsBackend() === "deployed") return pollDeployed(onEvent, onError);
     const source = new EventSource(`${base()}/events`);
     source.onmessage = (msg) => {
       try {
@@ -211,3 +238,32 @@ export const devConnectionsApi = {
     return () => source.close();
   },
 };
+
+function pollDeployed(onEvent: (e: DevConnectionsEvent) => void, onError?: () => void): () => void {
+  let last: { generation: number; scope: string } | null = null;
+  let stopped = false;
+  const ask = async () => {
+    const scope = scopeUrlPart(useScopeStore.getState().current);
+    try {
+      const state = await devConnectionsApi.state();
+      if (stopped) return;
+      if (!last || last.generation !== state.generation || last.scope !== scope) {
+        last = { generation: state.generation, scope };
+        onEvent({ ...state, type: "state", reason: null });
+      }
+    } catch (err) {
+      console.warn("connections: could not read the offered specs", err);
+      if (!stopped) onError?.();
+    }
+  };
+  void ask();
+  const timer = setInterval(() => void ask(), DEPLOYED_POLL_MS);
+  const unsubscribeScope = useScopeStore.subscribe((s, prev) => {
+    if (scopeUrlPart(s.current) !== scopeUrlPart(prev.current)) void ask();
+  });
+  return () => {
+    stopped = true;
+    clearInterval(timer);
+    unsubscribeScope();
+  };
+}

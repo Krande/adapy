@@ -13,6 +13,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import CollapsibleSection from "@/components/common/CollapsibleSection";
 import type { ComponentSpecRoleSchema } from "@/services/api/components";
 import type { ConnectionInputs, DevBuildResult, DevConnectionSpec } from "@/services/api/devConnections";
+import { connectionsBackend } from "@/services/api/devConnections";
 import {
   reloadLibrary,
   requestBuild,
@@ -227,19 +228,21 @@ const LibraryHeader: React.FC = () => {
           className="text-gray-300 hover:text-white disabled:text-gray-600"
           onClick={run(reloadLibrary)}
           disabled={busy || !connected}
-          title="Reload the library now"
+          title={connectionsBackend() === "dev" ? "Reload the library now" : "Ask again which specs the workers offer"}
         >
           Reload
         </button>
-        <button
-          type="button"
-          className="text-gray-300 hover:text-white disabled:text-gray-600"
-          onClick={run(restartLibrary)}
-          disabled={busy || !connected}
-          title="Start a fresh library process (re-reads ada_connections.toml)"
-        >
-          Restart
-        </button>
+        {connectionsBackend() === "dev" && (
+          <button
+            type="button"
+            className="text-gray-300 hover:text-white disabled:text-gray-600"
+            onClick={run(restartLibrary)}
+            disabled={busy || !connected}
+            title="Start a fresh library process (re-reads ada_connections.toml)"
+          >
+            Restart
+          </button>
+        )}
       </div>
       {library.changed.length > 0 && (
         <div className="text-gray-500 truncate" title={library.changed.join("\n")}>
