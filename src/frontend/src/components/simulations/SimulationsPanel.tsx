@@ -51,6 +51,7 @@ import {
 import { usePluginTheme } from "@/state/themeStore";
 
 import { SchemaForm } from "./SchemaForm";
+import { SimulationsFrame } from "./SimulationsFrame";
 
 /** The panel's name, wherever it is shown. */
 export const SIMULATIONS_PANEL_TITLE = "Robotic Simulations";
@@ -493,8 +494,9 @@ export const SimulationsBody: React.FC = () => {
       {shownRuns.length === 0 ? (
         <div className="text-gray-400">No runs in this scope yet.</div>
       ) : (
-        // The list scrolls within itself: many runs do not push the panel off the screen.
-        <ul className="flex flex-col gap-0.5 max-h-[45vh] overflow-y-auto overscroll-contain pr-0.5" data-runs-list>
+        // The list scrolls within itself: many runs do not push the panel off the screen. On a phone
+        // the whole sheet scrolls instead (one scroller, not one inside another).
+        <ul className="flex flex-col gap-0.5 sm:max-h-[45vh] sm:overflow-y-auto overscroll-contain pr-0.5" data-runs-list>
           {shownRuns.map((run) => (
             <RunRow
               key={run.run_id}
@@ -511,19 +513,24 @@ export const SimulationsBody: React.FC = () => {
   );
 };
 
-/** The panel in the classic UI's card: shown while its flag is set. */
+/** The panel in its classic frame (a bottom sheet on phones): shown while its flag is set. */
 const SimulationsPanel: React.FC = () => {
   const open = useSimulationStore((s) => s.panelOpen);
+  const setPanelOpen = useSimulationStore((s) => s.setPanelOpen);
   const hosted = usePanelHeaderActions().length > 0;
   if (!open) return null;
   return (
-    <div className="flex flex-col gap-2 text-xs text-white p-2 bg-gray-900/70 rounded-md min-w-[300px] max-w-[420px]">
-      <div className="flex items-center gap-2">
-        <span className="font-bold">{SIMULATIONS_PANEL_TITLE}</span>
-        {hosted && <PanelHeaderActions />}
-      </div>
+    <SimulationsFrame
+      onDismiss={() => setPanelOpen(false)}
+      header={
+        <>
+          <span className="font-bold">{SIMULATIONS_PANEL_TITLE}</span>
+          {hosted && <PanelHeaderActions />}
+        </>
+      }
+    >
       <SimulationsBody />
-    </div>
+    </SimulationsFrame>
   );
 };
 
