@@ -1542,6 +1542,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         api.include_router(dev_connections_router)
 
+    # The connection builder on a deployed studio (routes/connections.py): the specs the live
+    # workers' code registers, built on their pools. ``/scopes/{scope}/connections...`` has no
+    # parameterised sibling to collide with.
+    from .routes.connections import router as connections_router
+
+    api.include_router(connections_router)
+
     # ── Equipment-type & system-template catalogs (per-scope) ────────
     #
     # Admin-authored, reusable definitions the cellbuilder places by slug.
