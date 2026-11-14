@@ -12,6 +12,8 @@ export interface NativeModel {
     displayName?: string;
     /** Beside the models on screen ("overlay"), or instead of them. */
     placement: "replace" | "overlay";
+    /** Its nodes are to be placed from outside (viewport/api/modelPose.ts): each is kept apart. */
+    posable?: boolean;
     /** Bumped per load, so the same file loaded again is still a change. */
     seq: number;
 }
@@ -57,9 +59,10 @@ export async function showInNativeViewport(
     sourceName: string,
     placement: "replace" | "overlay" = "replace",
     displayName?: string,
+    posable?: boolean,
 ): Promise<void> {
     const response = await fetch(url, requestHeaders ? {headers: requestHeaders} : undefined);
     if (!response.ok) throw new Error(`loading the model failed: ${response.status} ${response.statusText}`);
     const bytes = new Uint8Array(await response.arrayBuffer());
-    useNativeViewport.setState({model: {bytes, sourceName, displayName, placement, seq: ++seq}});
+    useNativeViewport.setState({model: {bytes, sourceName, displayName, placement, posable, seq: ++seq}});
 }

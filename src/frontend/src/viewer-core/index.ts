@@ -642,13 +642,19 @@
 //          bytes, whole or from an offset.
 //   1.19.0 Kept in step with PLUGIN_API_VERSION 1.19.0 (`SimulationProviderUi.openResultLiveLabel`:
 //          the open-result button's text while a run is still going). Additive.
-//   1.20.0  `registerToastSlot` / `unregisterToastSlot`: a shell's or plugin's own toasts in the
+//   1.20.0 Kept in step with PLUGIN_API_VERSION 1.20.0 (`SceneHandle.poseModel`, `posable` on a
+//          model source, the `SceneModelPose` type).
+//   1.21.0 Kept in step with PLUGIN_API_VERSION 1.21.0 (`ctx.simulations.offerSubject`; the types
+//          `PluginSimulations`, `PluginSimulationSubject`, `PluginSimulationSubjectHandle`).
+//          Additive: `useSimulationSubjectStore` and `SimulationSubject` on `/app`, for core
+//          chrome that offers a subject without a plugin context.
+//   1.22.0  `registerToastSlot` / `unregisterToastSlot`: a shell's or plugin's own toasts in the
 //          app's one toast stack (layout/toastSlots.ts). `UiShellLayout.globalPanels` and
 //          `modeArrangements`; a composed shell's mode reopens what was open in it.
-//   1.21.0  `setBuilderDefaults`: a shell's default engine and blueprint for a Builder model
+//   1.23.0  `setBuilderDefaults`: a shell's default engine and blueprint for a Builder model
 //          whose doc names none. `notifyPluginActivationChanged`: a plugin says what its activation predicate reads
 //          has changed; a placed panel re-asks it (and on every loaded-model change).
-export const VIEWER_CORE_API_VERSION = "1.21.0";
+export const VIEWER_CORE_API_VERSION = "1.23.0";
 
 // ---------------------------------------------------------------------------
 // Plugin declaration. `registerPlugin` is how a package announces itself —
@@ -670,6 +676,9 @@ export type {
   PanelSlot,
   PluginDockId,
   PluginLayers,
+  PluginSimulations,
+  PluginSimulationSubject,
+  PluginSimulationSubjectHandle,
   PluginLayerState,
   PluginPlayback,
   PluginPlaybackState,
@@ -703,6 +712,7 @@ export type {
   SceneLineLayer,
   SceneLineLayerSpec,
   SceneLines,
+  SceneModelPose,
   SceneModelSource,
   SceneOverlay,
   ScenePointLayer,

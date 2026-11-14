@@ -38,7 +38,9 @@ class FakeSimulationProvider:
         domain: str = "robotics",
         engine: str = "fake",
         on_step: Callable[[int], None] | None = None,
+        accepts: tuple[str, ...] = (),
     ) -> None:
+        self.accepts = accepts
         self.id = provider_id
         self.domain = domain
         self.engine = engine
@@ -50,6 +52,7 @@ class FakeSimulationProvider:
             version="1.0.0",
             description="Counts steps. For tests.",
             kinds=(RunKind("count", "Count steps"),),
+            accepts=self.accepts,
             parameters_schema={
                 "type": "object",
                 "properties": {
@@ -96,4 +99,7 @@ class FakeSimulationProvider:
             for role in roles
             if not case.parameters.get("skip_role") == role
         ]
-        return SimulationResult(artefacts=tuple(finals), summary={"steps": steps, "inputs": input_sizes})
+        summary: dict = {"steps": steps, "inputs": input_sizes}
+        if case.subject is not None:
+            summary["subject"] = case.subject.to_dict()
+        return SimulationResult(artefacts=tuple(finals), summary=summary)

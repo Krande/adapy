@@ -10,6 +10,21 @@ export function runLabel(run: Pick<SimulationRun, "parameters" | "summary" | "pr
   return text(run.parameters?.label) || text(run.summary?.label) || provider?.title || run.provider.id;
 }
 
+/** What a run was started on, for a person: the label it was offered under while it still is, else
+ *  the file's own name. Empty for a run that has no subject. */
+export function runSubjectLabel(
+  run: Pick<SimulationRun, "subject">,
+  scope: string,
+  offered: ReadonlyArray<{ readonly key: string; readonly scope: string; readonly label: string }>,
+): string {
+  const subject = run.subject;
+  if (!subject) return "";
+  const offer = offered.find((o) => o.key === subject.key && o.scope === scope);
+  if (offer?.label.trim()) return offer.label.trim();
+  const file = subject.key.split("/").pop() ?? subject.key;
+  return file.replace(/\.(weld-assembly\.)?json(\.gz)?$/, "");
+}
+
 /** The one-line outcome a finished run's summary carries, when it has one. */
 export function runOutcome(run: Pick<SimulationRun, "summary">): string {
   return text(run.summary?.status);

@@ -29,6 +29,7 @@ function fakeCtx(): AdaPluginContext {
     api: { base: "/api", plugin: (id?: string) => `/api/plugins/${id ?? ""}` },
     stores: {} as AdaPluginContext["stores"],
     playback: {} as AdaPluginContext["playback"],
+    simulations: {} as AdaPluginContext["simulations"],
     layers: {} as AdaPluginContext["layers"],
     scene: {
       add() {},
@@ -58,6 +59,7 @@ function fakeCtx(): AdaPluginContext {
       findFaces: async () => [],
       focusFace: () => false,
       loadModel: async () => {},
+      poseModel: () => ({ place() {}, found: () => null, remove() {} }),
       addLineLayer: () => ({setSegments() {}, setPolyline() {}, setLook() {}, remove() {}}),
       addPointLayer: () => ({setPoints() {}, setLook() {}, remove() {}}),
       addImage: () => ({setPixels() {}, setRect() {}, setLook() {}, unavailable: () => null, remove() {}}),
