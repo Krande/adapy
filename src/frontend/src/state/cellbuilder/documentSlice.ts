@@ -46,6 +46,10 @@ export interface DocumentSlice {
    * look at". */
   active: { modelId: string; name: string; revision: number } | null;
   dirty: boolean;
+  /** The open model's doc named no engine / no blueprint, and the user has not picked
+   *  one since: the selection is a default the shell's `builderDefaults` may set. */
+  engineIsDefault: boolean;
+  blueprintIsDefault: boolean;
   committing: boolean;
   conflict: string | null;
   open: (
@@ -64,6 +68,8 @@ export const createDocumentSlice: CellBuilderSlice<DocumentSlice> = (set, get) =
   return {
     active: null,
     dirty: false,
+    engineIsDefault: false,
+    blueprintIsDefault: false,
     committing: false,
     conflict: null,
     open: (modelId, name, revision, doc) => {
@@ -87,6 +93,8 @@ export const createDocumentSlice: CellBuilderSlice<DocumentSlice> = (set, get) =
         // Reflect the engine this model was built for in the dropdown (a
         // capability-engine example opens on that engine, not the adapy-default default).
         selectedEngine: doc.engine || "adapy-default",
+        engineIsDefault: !doc.engine,
+        blueprintIsDefault: !doc.blueprint_name,
         // Detailing selection now rides on the document (a template can default it
         // to adapy-default); absent = "none" (structural-only). Its per-joint
         // options are reconciled from the advertised specs by fetchDetailingEngines

@@ -1,6 +1,7 @@
 """Procedural cell models: API CRUD + revision concurrency + validation.
 
-* No-DB path tests (always run): endpoints 503 without a database; the doc
+* No-DB path tests (always run): without a database (a local viewer) the models
+  are storage files (``procedural_store``) and compile in-process; the doc
   validator and key conventions work standalone.
 * Live-Postgres tests (skipped unless ``ADA_TEST_POSTGRES_URL`` is set):
   migration 022 applies, CRUD round-trips, optimistic concurrency conflicts.
@@ -147,34 +148,184 @@ def app_client(tmp_path: pathlib.Path):
         yield client
 
 
-def test_endpoints_503_without_db(app_client: TestClient):
-    assert app_client.get("/api/scopes/shared/procedural-models").status_code == 503
-    assert app_client.post("/api/scopes/shared/procedural-models", json={"name": "m"}).status_code == 503
-    assert app_client.get("/api/scopes/shared/procedural-models/x").status_code == 503
-    # The compile-log endpoint 503s the same way (it needs the DB to scope-check
-    # the model) — the key query param isn't even reached without a pool.
+def test_models_are_storage_files_without_a_db(app_client: TestClient, tmp_path: pathlib.Path):
+    """A local viewer (no DATABASE_URL) keeps each model as _procedural/<id>/model.json,
+    with the same CRUD and optimistic concurrency as the postgres path."""
+    base = "/api/scopes/shared/procedural-models"
+    assert app_client.get(base).json() == {"models": []}
+    r = app_client.post(base, json={"name": "decks/level-3"})
+    assert r.status_code == 201, r.text
+    model = r.json()
+    model_id = model["id"]
+    assert model["revision"] == 0 and model["doc"]["spaces"] == []
+    assert model["engine"] == "adapy-default"
+    stored = tmp_path / "shared" / "_procedural" / model_id / "model.json"
+    assert stored.is_file()
+    # Hidden from the file browser, like the model's artifacts.
+    assert is_hidden_key(f"_procedural/{model_id}/model.json")
+    files = app_client.get("/api/scopes/shared/files").json()
+    assert not any("model.json" in str(f) for f in files.get("files", files))
+
+    assert app_client.post(base, json={"name": "decks/level-3"}).status_code == 409
+    assert [m["id"] for m in app_client.get(base).json()["models"]] == [model_id]
+
+    doc = {"spaces": [{"NAME": "Cell1", "X": 0, "Y": 0, "Z": 0, "DX": 5, "DY": 5, "DZ": 3}], "engine": "echo"}
+    r = app_client.put(f"{base}/{model_id}", json={"doc": doc, "base_revision": 0})
+    assert r.status_code == 200, r.text
+    assert r.json()["revision"] == 1
+    r = app_client.put(f"{base}/{model_id}", json={"doc": doc, "base_revision": 0})
+    assert r.status_code == 409 and r.json()["detail"]["current_revision"] == 1
     assert (
-        app_client.get(
-            "/api/scopes/shared/procedural-models/x/compile-log",
-            params={"key": "_procedural/x/r1.glb"},
-        ).status_code
-        == 503
+        app_client.put(f"{base}/{model_id}", json={"doc": {"spaces": [{"X": 1}]}, "base_revision": 1}).status_code
+        == 422
     )
-    # The stats + stats/export endpoints 503 the same way (both scope-check via DB).
-    assert (
-        app_client.get(
-            "/api/scopes/shared/procedural-models/x/stats",
-            params={"key": "_procedural/x/r1.glb"},
-        ).status_code
-        == 503
+    got = app_client.get(f"{base}/{model_id}").json()
+    assert got["revision"] == 1 and got["doc"]["spaces"][0]["NAME"] == "Cell1"
+    # The routing header is mirrored from the doc, as postgres does.
+    assert app_client.get(base).json()["models"][0]["engine"] == "echo"
+
+    other = app_client.post(base, json={"name": "other"}).json()
+    assert app_client.patch(f"{base}/{model_id}/name", json={"name": "other"}).status_code == 409
+    assert app_client.patch(f"{base}/{model_id}/name", json={"name": "decks/level-4"}).json()["name"] == "decks/level-4"
+    # Malformed ids and other scopes are not found, never a 500.
+    assert app_client.get(f"{base}/x").status_code == 404
+    assert app_client.get(f"/api/scopes/user:me/procedural-models/{model_id}").status_code == 404
+
+    log = f"{base}/{model_id}/compile-log"
+    assert app_client.get(log).status_code == 400
+    assert app_client.get(log, params={"key": f"_procedural/{model_id}/r1.glb"}).text == ""
+    assert app_client.get(f"{base}/x/compile-log", params={"key": "_procedural/x/r1.glb"}).status_code == 404
+
+    assert app_client.delete(f"{base}/{model_id}").status_code == 200
+    assert app_client.get(f"{base}/{model_id}").status_code == 404
+    assert [m["id"] for m in app_client.get(base).json()["models"]] == [other["id"]]
+
+
+def _wait_job(client: TestClient, job_id: str, timeout: float = 120.0) -> dict:
+    import time
+
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        status = client.get(f"/api/convert/{job_id}").json()
+        if status["status"] in ("done", "error", "cancelled"):
+            return status
+        time.sleep(0.2)
+    raise AssertionError(f"job {job_id} did not finish: {status}")
+
+
+def test_compile_runs_in_process_without_a_queue(app_client: TestClient, tmp_path: pathlib.Path):
+    """No queue: the compile is the worker's procedural_build handler, run in this
+    process on the model row the route read (local_jobs.start_procedural_build)."""
+    base = "/api/scopes/shared/procedural-models"
+    model_id = app_client.post(base, json={"name": "local-compile"}).json()["id"]
+    doc = {"spaces": [{"NAME": "Cell1", "X": 0, "Y": 0, "Z": 0, "DX": 5, "DY": 5, "DZ": 3}]}
+    app_client.put(f"{base}/{model_id}", json={"doc": doc, "base_revision": 0})
+
+    r = app_client.post(f"{base}/{model_id}/compile", params={"engine": "echo"})
+    assert r.status_code == 200, r.text
+    started = r.json()
+    assert started["job_id"].startswith("local-") and started["cached"] is False
+    status = _wait_job(app_client, started["job_id"])
+    assert status["status"] == "done", status
+    glb = tmp_path / "shared" / pathlib.PurePosixPath(started["derived_key"])
+    assert glb.is_file() and glb.stat().st_size > 0
+    # The run's log is there, under the run's id.
+    log = app_client.get(f"{base}/{model_id}/compile-log", params={"run": started["job_id"]})
+    assert "ok" in log.text
+    # Compiled once: the next compile of the same revision is the cached artifact.
+    again = app_client.post(f"{base}/{model_id}/compile", params={"engine": "echo"}).json()
+    assert again == {"job_id": None, "derived_key": started["derived_key"], "cached": True}
+
+    # A preview (the uncommitted doc) compiles the same way, without a revision.
+    preview_doc = {
+        **doc,
+        "spaces": [*doc["spaces"], {"NAME": "Cell2", "X": 5, "Y": 0, "Z": 0, "DX": 5, "DY": 5, "DZ": 3}],
+    }
+    r = app_client.post(f"{base}/{model_id}/compile-preview", params={"engine": "echo"}, json={"doc": preview_doc})
+    assert r.status_code == 200, r.text
+    assert _wait_job(app_client, r.json()["job_id"])["status"] == "done"
+    assert app_client.get(f"{base}/{model_id}").json()["revision"] == 1
+
+
+def test_a_compile_without_catalogs_stamps_no_catalog_fingerprint(
+    app_client: TestClient, tmp_path: pathlib.Path, monkeypatch
+):
+    """An in-process build with no pool resolves no equipment/system catalog, so it must
+    not bind its artifact to a catalog fingerprint: that would cache a catalog-less GLB
+    as current for the catalog (a database-backed, queue-less server's route takes the
+    fingerprint from postgres)."""
+    from ada.comms.rest.procedural import procedural_catalog_fp_key
+    from ada.comms.rest.routes import procedural_models as routes
+
+    async def _fp(pool, scope_obj, doc):
+        return "catalog-fp-1"
+
+    monkeypatch.setattr(routes, "catalog_fingerprint_for", _fp)
+    base = "/api/scopes/shared/procedural-models"
+    model_id = app_client.post(base, json={"name": "catalog-fp"}).json()["id"]
+    doc = {"spaces": [{"NAME": "Cell1", "X": 0, "Y": 0, "Z": 0, "DX": 5, "DY": 5, "DZ": 3}]}
+    app_client.put(f"{base}/{model_id}", json={"doc": doc, "base_revision": 0})
+    started = app_client.post(f"{base}/{model_id}/compile", params={"engine": "echo"}).json()
+    assert _wait_job(app_client, started["job_id"])["status"] == "done"
+    assert (tmp_path / "shared" / pathlib.PurePosixPath(started["derived_key"])).is_file()
+    assert not (tmp_path / "shared" / pathlib.PurePosixPath(procedural_catalog_fp_key(started["derived_key"]))).exists()
+    # So the cached GLB is not taken as built from that catalog.
+    again = app_client.post(f"{base}/{model_id}/compile", params={"engine": "echo"}).json()
+    assert again["cached"] is False
+
+
+def test_the_local_transport_compiles_with_the_routes_pool(monkeypatch):
+    """A server with a database but no queue compiles in-process WITH its pool, so the
+    build resolves the catalogs the route fingerprinted."""
+    from ada.comms.rest import job_transport, local_jobs
+    from ada.comms.rest.job_transport import JobRequest, LocalJobTransport
+    from ada.comms.rest.scope import Scope
+
+    seen: dict = {}
+
+    def _start(**kwargs):
+        seen.update(kwargs)
+        return local_jobs.LocalJob(
+            job_id="local-x", plugin_id="procedural_build", scope_kind="shared", scope_id=None, derived_key="k"
+        )
+
+    monkeypatch.setattr(job_transport.local_jobs, "start_procedural_build", _start)
+    transport = LocalJobTransport(object())  # type: ignore[arg-type]
+    pool = object()
+    transport._submit_procedural_build(
+        JobRequest(
+            source_key="s",
+            target_format="procedural_build",
+            scope=Scope.shared(),
+            feature="procedural_build",
+            derived_key="k",
+            inprocess_inputs={"model_row": {"id": "m"}, "db_pool": pool},
+        )
     )
-    assert (
-        app_client.get(
-            "/api/scopes/shared/procedural-models/x/stats/export",
-            params={"key": "_procedural/x/r1.glb", "fmt": "xlsx"},
-        ).status_code
-        == 503
-    )
+    assert seen["db_pool"] is pool and seen["model_row"] == {"id": "m"}
+
+
+def test_a_queued_server_without_a_db_keeps_procedural_models_503(app_client: TestClient, monkeypatch):
+    """The file store is for a server that also compiles what it stores. With a queue the
+    workers read models from postgres, so without one the routes stay 503 as before."""
+    from ada.comms.rest.procedural_store import FileProceduralStore, procedural_store
+    from ada.comms.rest.queue import JobQueue
+
+    assert procedural_store(None, object(), local=False) is None
+    assert isinstance(procedural_store(None, object(), local=True), FileProceduralStore)
+    monkeypatch.setattr(JobQueue, "enabled", property(lambda self: True))
+    base = "/api/scopes/shared/procedural-models"
+    assert app_client.get(base).status_code == 503
+    assert app_client.post(base, json={"name": "x"}).status_code == 503
+
+
+def test_a_failed_local_compile_says_why(app_client: TestClient):
+    base = "/api/scopes/shared/procedural-models"
+    model_id = app_client.post(base, json={"name": "no-engine"}).json()["id"]
+    r = app_client.post(f"{base}/{model_id}/compile", params={"engine": "not-installed-here"})
+    status = _wait_job(app_client, r.json()["job_id"])
+    assert status["status"] == "error"
+    assert "not-installed-here" in (status["error"] or "")
 
 
 def test_procedural_stats_key_shape():
@@ -190,23 +341,25 @@ def test_procedural_stats_key_shape():
     assert procedural_stats_key("_procedural/x/preview/deadbeef.glb") == "_procedural/x/preview/deadbeef.stats.json"
 
 
-def test_compile_preview_validates_before_db(app_client: TestClient):
+def test_compile_preview_validates_before_the_model(app_client: TestClient):
     # The preview endpoint validates the body up front (a preview carries the
-    # doc inline), so a bad/missing doc fails fast even without a database; a
-    # valid doc then 503s on the missing pool.
+    # doc inline), so a bad/missing doc fails fast; a valid doc for a model
+    # that does not exist is then 404.
     base = "/api/scopes/shared/procedural-models/x/compile-preview"
     assert app_client.post(base, json={}).status_code == 400  # no doc
     assert app_client.post(base, json={"doc": {"spaces": "nope"}}).status_code == 422  # invalid
     good = {"doc": {"spaces": [{"NAME": "C1", "X": 0, "Y": 0, "Z": 0, "DX": 5, "DY": 5, "DZ": 3}]}}
-    assert app_client.post(base, json=good).status_code == 503  # valid, but no DB
+    assert app_client.post(base, json=good).status_code == 404  # valid, but no such model
 
 
 def test_templates_endpoint_needs_no_db(app_client: TestClient):
-    # Templates come from live-worker announcements, not the DB — so the endpoint
-    # is 200 (empty, no workers up) even on a shared-only / no-queue deployment.
+    # Templates are what the worker that would build them announces, not DB rows. A
+    # queue-less server compiles in-process, so it announces its own: the built-ins.
+    from ada.topo_model import procedural_template_specs
+
     r = app_client.get("/api/scopes/shared/procedural-templates")
     assert r.status_code == 200, r.text
-    assert r.json() == {"templates": []}
+    assert {t["id"] for t in r.json()["templates"]} == {s["slug"] for s in procedural_template_specs()}
 
 
 def test_builtin_template_specs_are_announced():
@@ -279,9 +432,10 @@ def test_crud_roundtrip_and_revision_conflict(pg_client: TestClient):
         # wrong scope -> 404
         assert pg_client.get(f"/api/scopes/user:me/procedural-models/{model_id}").status_code == 404
 
-        # compile without NATS -> 503 (no cached blob yet)
+        # compile without NATS runs in-process from the row (local_jobs.start_procedural_build)
         r = pg_client.post(f"/api/scopes/shared/procedural-models/{model_id}/compile")
-        assert r.status_code == 503
+        assert r.status_code == 200, r.text
+        assert r.json()["job_id"].startswith("local-")
 
         # compile-log: the key query param is required, must belong to the model's
         # hidden prefix, and a missing log returns an empty 200 (not an error).

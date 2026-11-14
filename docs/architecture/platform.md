@@ -80,7 +80,7 @@ flowchart TB
 | Settings | `config.py` | `Settings` with `S3Config`, `LocalConfig`, `QueueConfig`, `AuthConfig`; read from `ADA_VIEWER_*` and `DATABASE_URL`. |
 | Routers | `routes/*.py` | **Projects** (`/me`, `/projects`), **storage** (files, overlays, blobs, rename/move, derived, upload-url / upload-complete / upload-progress, download-url), **source nodes**, **assets** (providers, index, tree, attributes, geometry roll-up, build, publish, staging, unpublish), **fea** (`fea/artefacts`, `fea/artefact`, `fea/manifest`, `result-meta`), **clash** (clash-check, clash-detail, passes, checkers, geometry providers, connection specs), **export_selection**, **simulations** (providers, runs, cancel), **plugins / plugin_jobs / procedural_models**, **admin** (projects, users, settings, storage, compression, workers, corpora, plugin jobs) and **audit** (runs, schedules, perf + issue bot). Shared context lives in `deps.py` (`RestContext`). |
 | Auth | `auth.py`, `scope.py` | Provider-agnostic OIDC JWT verification against the discovered JWKS. Admin role from a group claim. Users are upserted lazily by `sub`. The CLI uses minted tokens. With auth disabled, a synthetic local user is used. Access is scoped to *shared*, *project* or *user*. |
-| Database | `db/pool.py`, `db/migrations.py`, `migrations/*.sql` | PostgreSQL via asyncpg. Numbered SQL migrations are applied under an advisory lock. Tables: users, projects, members, audit (log, runs, schedules, parity, issue rechecks), app settings, profiling stats, corpora, worker packages, procedural models / equipment types / system templates / engines, source nodes, plugin job schedules. **Optional:** without a DB the API runs shared-only and DB-backed routes return 503. |
+| Database | `db/pool.py`, `db/migrations.py`, `migrations/*.sql` | PostgreSQL via asyncpg. Numbered SQL migrations are applied under an advisory lock. Tables: users, projects, members, audit (log, runs, schedules, parity, issue rechecks), app settings, profiling stats, corpora, worker packages, procedural models / equipment types / system templates / engines, source nodes, plugin job schedules. **Optional:** without a DB the API runs shared-only and DB-backed routes return 503, with two exceptions that fall back to hidden files in storage: user preferences (`_prefs/<user hash>/<key>.json` in the shared scope, `routes/preferences.py`; never served by the blob routes), and procedural models (`_procedural/<id>/model.json`, `procedural_store.py`), the latter only on a queue-less server, which also compiles them in-process. With a queue but no DB, procedural models stay 503. |
 | Storage | `storage.py` | obstore `S3Store` (S3, Garage) or `LocalStore` (`ADA_VIEWER_STORAGE_KIND`), with gzip helpers. Sources and derived artefacts share one key space (`_derived/...`). |
 
 ## Jobs
@@ -117,8 +117,12 @@ sequenceDiagram
 
 - **Transport** (`job_transport.py`): `QueueJobTransport` (NATS) or `LocalJobTransport`
   (in-process threads for a set of `LOCAL_FEATURES`: asset build/publish, clash
-  check/detail, export selection, plugin jobs, simulation runs). The choice is made once at
-  start-up.
+  check/detail, export selection, plugin jobs, simulation runs, procedural builds, and FEA
+  `bake` / `result_meta`). The choice is made once at start-up. A queue-less server also
+  answers the procedural blueprint, template and engine catalogs from its own process, and
+  lists engines registered there with origin `local` (id prefix `local:`). Its in-process
+  procedural compile takes over root logging and `sys.stdout` while it runs, which is why
+  it is meant for single-user (desktop) servers.
 - **Queue** (`queue.py`, `JobQueue`): a JetStream stream with WORK_QUEUE retention. The
   message body is just the job id. Status and the worker registry live in a KV bucket.
   Jobs go to capability subjects, so a worker only pulls what it can do.

@@ -288,6 +288,7 @@ async def api_scope_blob_get(
     from ..simulation_runs import read_run
 
     storage = ctx.storage
+    _reject_preference_key(key)
     # An artefact of a run handed off to a remote Ada Studio is read from the remote, ranges and all.
     relay = relay_of(request)
     if relay is not None and is_simulation_key(key):
@@ -380,6 +381,7 @@ async def api_scope_blob_put(
         raise HTTPException(status_code=403, detail="cannot write to _derived/")
     if is_simulation_key(clean):
         raise HTTPException(status_code=403, detail="cannot write to _simulations/")
+    _reject_preference_key(clean)
     # ``versions/`` (CI-pushed build outputs) and ``assets/`` (published datasets) are stored
     # blobs, not conversion inputs, so the accepted-source extension whitelist does not apply
     # to them. Two predicates rather than one because they part company on deletability — see
@@ -458,6 +460,16 @@ def _require_personal(scope_obj: Scope) -> None:
         )
 
 
+def _reject_preference_key(key: str) -> None:
+    """``_prefs/`` holds each user's own preference files (routes/preferences.py); only
+    ``/me/preferences`` reaches them, for the caller's own. 404 rather than 403, so the
+    blob routes do not even say whether a user has stored something."""
+    from ..converter import is_preference_key
+
+    if is_preference_key(key):
+        raise HTTPException(status_code=404, detail="not found")
+
+
 def _reject_protected_key(key: str) -> None:
     # Note the absence of is_published_asset_key here, and keep it absent.
     # ``assets/`` blobs are exempt from the upload extension whitelist the same way
@@ -508,6 +520,7 @@ async def api_scope_blob_delete(
     ctx: RestContext = Depends(rest_context),
 ) -> JSONResponse:
     clean = key.lstrip("/")
+    _reject_preference_key(clean)
     if not _member_may_delete(scope_obj, clean):
         _require_personal(scope_obj)
     if not clean:
@@ -761,6 +774,7 @@ async def api_scope_upload_url(
         raise HTTPException(status_code=403, detail="cannot write to _derived/")
     if is_simulation_key(key):
         raise HTTPException(status_code=403, detail="cannot write to _simulations/")
+    _reject_preference_key(key)
     # ``versions/`` (CI-pushed build outputs) and ``assets/`` (published datasets) are stored
     # blobs, not conversion inputs, so the accepted-source extension whitelist does not apply
     # to them. Two predicates rather than one because they part company on deletability — see
@@ -835,6 +849,7 @@ async def api_scope_upload_complete(
         raise HTTPException(status_code=403, detail="cannot write to _derived/")
     if is_simulation_key(key):
         raise HTTPException(status_code=403, detail="cannot write to _simulations/")
+    _reject_preference_key(key)
     # ``versions/`` (CI-pushed build outputs) and ``assets/`` (published datasets) are stored
     # blobs, not conversion inputs, so the accepted-source extension whitelist does not apply
     # to them. Two predicates rather than one because they part company on deletability — see
@@ -926,6 +941,7 @@ async def api_scope_download_url(
     key = (body.get("key") or "").strip().lstrip("/")
     if not key:
         raise HTTPException(status_code=400, detail="key required")
+    _reject_preference_key(key)
     # A read like GET /blobs: a granted dataset's blob is presigned where it lies, the store.
     read_scope = await _read_scope(ctx, request, scope_obj, key)
     meta = await storage.head(read_scope, key)

@@ -369,6 +369,13 @@ def is_simulation_key(key: str) -> bool:
     return key.lstrip("/").startswith("_simulations/")
 
 
+def is_preference_key(key: str) -> bool:
+    """A key under the per-user preference files (routes/preferences.py, a server with no
+    database). Private to the user they belong to: the blob routes refuse them outright,
+    since a scope's members may read its blobs but not each other's preferences."""
+    return key.lstrip("/").startswith(PREFERENCES_PREFIX)
+
+
 def is_derived_key(key: str) -> bool:
     return key.lstrip("/").startswith("_derived/")
 
@@ -391,6 +398,9 @@ def is_derived_key(key: str) -> bool:
 # whole answer). Hiding them would not degrade such a client, it would silently blank it — every
 # published dataset would read as "never published" with no error anywhere. If the listing really
 # has to shrink, add a prefix filter to the route rather than making the keys invisible.
+#: Per-user preference files on a server with no database (routes/preferences.py).
+PREFERENCES_PREFIX = "_prefs/"
+
 HIDDEN_PREFIXES: tuple[str, ...] = (
     "_derived/",
     "_overlays/",
@@ -406,6 +416,9 @@ HIDDEN_PREFIXES: tuple[str, ...] = (
     # the run's job only, never through the blob route, and kept when temp files are cleared: a run
     # can take hours to make.
     "_simulations/",
+    # A user's preference documents on a server with no database (routes/preferences.py): the
+    # viewer's panel layout, say. Never through the blob route (``is_preference_key``).
+    PREFERENCES_PREFIX,
 )
 
 

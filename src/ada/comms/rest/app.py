@@ -1943,13 +1943,59 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     _BUILTIN_ENGINE_SLUGS = {e["slug"] for e in _BUILTIN_ENGINES}
     _BUILTIN_ENGINE_BY_ID = {e["id"]: e for e in _BUILTIN_ENGINES}
 
+    def _local_engine_specs() -> dict[str, dict]:
+        """Engines registered in THIS process, on a server with no queue (a local viewer).
+
+        A worker advertises the engines it can run on its heartbeat; a queue-less server
+        has no workers, and compiles in-process (``local_jobs.start_procedural_build``),
+        so the engines it can run are the ones its own process registered - a tool's
+        package does that at import (``register_procedural_engine_capabilities`` with a
+        name and an entrypoint, via ``ADA_WORKER_PRELOAD`` or an ``ada.plugins`` entry
+        point). Only offerable specs, as for workers. ``{}`` with a queue, and on a slim
+        API without ``ada.topo_model``.
+        """
+        if queue.enabled:
+            return {}
+        try:
+            from ada.comms.engine_specs import is_offerable
+            from ada.topo_model.engine_catalog import procedural_engine_specs
+        except Exception:
+            return {}
+        return {s["slug"]: s for s in procedural_engine_specs() if s.get("slug") and is_offerable(s)}
+
+    _LOCAL_ENGINE_PREFIX = "local:"
+
+    def _local_engine(engine_id: str) -> dict | None:
+        """The descriptor of a ``local:<slug>`` engine id, or None."""
+        if not engine_id.startswith(_LOCAL_ENGINE_PREFIX):
+            return None
+        spec = _local_engine_specs().get(engine_id[len(_LOCAL_ENGINE_PREFIX) :])
+        if spec is None:
+            return None
+        return {
+            "id": engine_id,
+            "slug": spec["slug"],
+            "name": spec["name"],
+            "description": spec.get("description", ""),
+            "revision": 0,
+            "origin": "local",
+            "supports_grouping": bool(spec.get("supports_grouping", False)),
+            "doc": {"kind": "server", "entrypoint": spec["entrypoint"]},
+        }
+
     @api.get("/scopes/{scope}/procedural-engines")
     async def api_procedural_engines_list(
         request: Request,
         scope_obj: Scope = Depends(_scope_from_path),
     ) -> JSONResponse:
-        pool = _require_catalog_pool(request)
-        engines = await db_module.list_procedural_engines(pool, scope_kind=scope_obj.kind, scope_id=scope_obj.id)
+        # No database (a local viewer): no registered rows, but the built-ins and the
+        # engines this process registered are still the honest answer.
+        pool = getattr(request.app.state, "db_pool", None)
+        engines = (
+            await db_module.list_procedural_engines(pool, scope_kind=scope_obj.kind, scope_id=scope_obj.id)
+            if pool is not None
+            else []
+        )
         for e in engines:
             e["origin"] = "db"
         # Built-ins first, then the scope's registered engines.
@@ -1999,7 +2045,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             for slug, spec in sorted(engine_caps.items())
             if slug not in known and is_offerable(spec)
         ]
-        return JSONResponse({"procedural_engines": [*summaries, *engines, *advertised]})
+        known |= {e["slug"] for e in advertised}
+        local = [
+            {k: v for k, v in d.items() if k != "doc"}
+            for slug in sorted(_local_engine_specs())
+            if slug not in known and (d := _local_engine(f"{_LOCAL_ENGINE_PREFIX}{slug}")) is not None
+        ]
+        return JSONResponse({"procedural_engines": [*summaries, *engines, *advertised, *local]})
 
     @api.post("/scopes/{scope}/procedural-engines", status_code=201)
     async def api_procedural_engines_create(
@@ -2041,6 +2093,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     ) -> JSONResponse:
         if engine_id in _BUILTIN_ENGINE_IDS:
             return JSONResponse(_BUILTIN_ENGINE_BY_ID[engine_id])
+        local = _local_engine(engine_id)
+        if local is not None:
+            return JSONResponse(local)
         pool = _require_catalog_pool(request)
         row = await _get_engine_in_scope(pool, engine_id, scope_obj)
         return JSONResponse(
@@ -2067,6 +2122,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         if engine_id in _BUILTIN_ENGINE_IDS:
             return _builtin(_BUILTIN_ENGINE_BY_ID[engine_id])
+        local = _local_engine(engine_id)
+        if local is not None:
+            # Compiled by this server, never in the browser.
+            return JSONResponse({"kind": "server", "entrypoint": local["doc"]["entrypoint"], "ready": False})
         pool = _require_catalog_pool(request)
         row = await _get_engine_in_scope(pool, engine_id, scope_obj)
         doc = row.get("doc") or {}

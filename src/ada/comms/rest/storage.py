@@ -263,6 +263,19 @@ class Storage:
             return key
         return f"{prefix}/{key}"
 
+    def local_path(self, scope: Scope, key: str) -> pathlib.Path | None:
+        """The object's own file when this is a filesystem store, else None.
+
+        For a reader that wants a path: a local viewer's multi-GB result deck is read
+        where it lies rather than streamed into a temporary copy. The caller checks
+        the file exists and is not gzip-at-rest (``is_gzip_stored``)."""
+        if not isinstance(self._store, LocalStore):
+            return None
+        root = getattr(self._store, "prefix", None)
+        if root is None:
+            return None
+        return pathlib.Path(str(root)).joinpath(*self._full_key(scope, key).split("/"))
+
     def _strip_scope_prefix(self, scope: Scope, full: str) -> str:
         prefix = self._scope_prefix(scope)
         if prefix and full.startswith(prefix + "/"):

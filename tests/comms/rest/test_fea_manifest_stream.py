@@ -34,6 +34,16 @@ from .test_fea_manifest import (  # noqa: F401  (env shim runs on import)
 )
 
 
+@pytest.fixture(autouse=True)
+def _nothing_rebakes(monkeypatch: pytest.MonkeyPatch) -> None:
+    """These pin the freshness verdict, which a server that can rebake acts on at once
+    (a queue-less one bakes in-process): here it has nothing to rebake with, so a stale
+    bake is served and the verdict is what the test reads."""
+    from ada.comms.rest import job_transport
+
+    monkeypatch.setattr(job_transport.LocalJobTransport, "_features", job_transport.LOCAL_FEATURES - {"bake"})
+
+
 @pytest.fixture
 def app_client(tmp_path: pathlib.Path):
     app = create_app(_settings(tmp_path))

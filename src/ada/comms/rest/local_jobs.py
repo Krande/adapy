@@ -318,6 +318,221 @@ def start_plugin_job(
     return job
 
 
+class _LocalJobQueue:
+    """What a worker handler does to its queue job, done to a :class:`LocalJob` instead.
+
+    ``formats/procedural_build`` and ``formats/fea`` report through ``queue.update(job_id,
+    status=, stage=, progress=, error=, artefacts_ready=)``; on a queue-less server those
+    land on the local job the polling route reads, so the handler runs unchanged.
+    """
+
+    enabled = False
+
+    def __init__(self, job: LocalJob) -> None:
+        self.job = job
+
+    async def update(self, job_id: str, **fields: Any) -> None:
+        if "stage" in fields and fields["stage"] is not None:
+            self.job.stage = str(fields["stage"])
+        if fields.get("progress") is not None:
+            self.job.progress = max(0.0, min(1.0, float(fields["progress"])))
+        if "error" in fields:
+            self.job.error = fields["error"]
+        if fields.get("artefacts_ready") is not None:
+            self.job.artefacts_ready = dict(fields["artefacts_ready"])
+        status = fields.get("status")
+        if status in (STATUS_DONE, STATUS_ERROR):
+            self.job.status = status
+
+
+#: The running in-process compiles and bakes, held so the loop does not drop their tasks.
+_PROCEDURAL_TASKS: set[asyncio.Task] = set()
+
+#: The FEA result kinds a queue-less server runs in-process (``formats/fea``): the
+#: streaming-viewer bake, the step/field inventory, and a lazy load combination or
+#: envelope of a bake.
+LOCAL_FEA_KINDS: frozenset[str] = frozenset({"fea_artefacts", "fea_meta", "fea_case", "fea_envelope"})
+
+
+async def _source_path(storage: Any, scope: Any, key: str, work: pathlib.Path) -> pathlib.Path:
+    """A result deck as a file: where it lies in a filesystem store (a local viewer's
+    deck is GBs, and hard-linked there, not copied), else streamed into ``work``."""
+    local = storage.local_path(scope, key) if hasattr(storage, "local_path") else None
+    if local is not None and local.is_file() and not await storage.is_gzip_stored(scope, key):
+        return local
+    dest = work / ("source" + pathlib.PurePosixPath(key).suffix)
+    await storage.stream_to_path(scope, key, dest)
+    return dest
+
+
+def start_fea_job(
+    *,
+    target_format: str,
+    source_key: str,
+    derived_key: str,
+    step: int | None,
+    field_name: str | None,
+    force_rebuild: bool,
+    storage: Any,
+    scope: Any,
+) -> LocalJob:
+    """Bake (or read the inventory of, or combine) a FEA result in this process: the
+    worker's own ``formats/fea`` handler, run on this server's loop.
+
+    The queue-less half of the ``bake`` and ``result_meta`` features, for a local viewer:
+    without it a result deck put there (a ``.sin`` from a GeniE/Sestra run) is a file
+    Results and Capacity cannot open. The heavy part runs in the handler's executor, so
+    the loop keeps serving -- and the preliminary manifest a bake ships mesh first is
+    served while the job runs, as on a cluster.
+    """
+    import shutil
+    import tempfile
+
+    from .formats import registry as formats
+    from .formats.registry import JobContext
+    from .queue import Job
+
+    if target_format not in LOCAL_FEA_KINDS:
+        raise ValueError(f"not a local FEA job: {target_format!r}")
+    job = LocalJob(
+        job_id=f"local-{uuid.uuid4().hex[:16]}",
+        plugin_id=target_format,
+        scope_kind=getattr(scope, "kind", "shared"),
+        scope_id=getattr(scope, "id", None),
+        derived_key=derived_key,
+        stage="queued",
+    )
+    registry.add(job)
+    queue_job = Job(
+        job_id=job.job_id,
+        source_key=source_key,
+        derived_key=derived_key,
+        status=STATUS_RUNNING,
+        target_format=target_format,
+        scope_kind=job.scope_kind,
+        scope_id=job.scope_id,
+        step=step,
+        field=field_name,
+        force_rebuild=force_rebuild,
+    )
+    handler = formats.resolve(queue_job)
+    local_queue = _LocalJobQueue(job)
+
+    async def _progress(stage: str, progress: float) -> None:
+        await local_queue.update(job.job_id, stage=stage, progress=progress)
+
+    async def _run() -> None:
+        work = pathlib.Path(tempfile.mkdtemp(prefix="local-fea-"))
+        try:
+            src_path = None
+            if handler.needs_source:
+                job.stage = "reading source"
+                src_path = await _source_path(storage, scope, source_key, work)
+            ctx = JobContext(
+                scope=scope,
+                storage=storage,
+                queue=local_queue,  # type: ignore[arg-type]
+                db_pool=None,
+                started_at=time.monotonic(),
+                src_path=src_path,
+                on_progress=_progress,
+            )
+            await handler.run(queue_job, ctx)
+        except Exception as exc:  # noqa: BLE001 — the job's failure is data, not ours
+            logger.exception("local %s %s failed", target_format, job.job_id)
+            job.error = f"{type(exc).__name__}: {exc}"
+            job.status = STATUS_ERROR
+            job.stage = "error"
+            return
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
+        if job.status == STATUS_RUNNING:
+            job.status = STATUS_ERROR
+            job.error = job.error or f"{target_format} ended without a result"
+
+    task = asyncio.get_running_loop().create_task(_run())
+    _PROCEDURAL_TASKS.add(task)
+    task.add_done_callback(_PROCEDURAL_TASKS.discard)
+    return job
+
+
+def start_procedural_build(
+    *,
+    model_row: dict[str, Any],
+    source_key: str,
+    derived_key: str,
+    conversion_options: dict[str, Any],
+    force_rebuild: bool,
+    storage: Any,
+    scope: Any,
+    db_pool: Any = None,
+) -> LocalJob:
+    """Compile a procedural model in this process: the worker's ``procedural_build``
+    handler, run on this server's loop with the model it already read.
+
+    ``db_pool`` is the server's pool when it has a database but no queue: the compile
+    then resolves the scope's equipment/system catalogs and CAD links as a worker
+    would, so the catalog fingerprint the route stamps describes what was built.
+
+    The queue-less half of ``procedural_build``, for a local viewer: its models live in
+    storage files (``procedural_store``) and its engines are the ones registered in
+    this process (the built-ins, and any a preloaded tool registers with
+    ``register_procedural_engine_capabilities``). The compile itself runs in the
+    loop's executor inside the handler, so the loop keeps serving while it builds.
+    """
+    from .formats.procedural_build import _run_procedural_build
+    from .queue import Job
+
+    job = LocalJob(
+        job_id=f"local-{uuid.uuid4().hex[:16]}",
+        plugin_id="procedural_build",
+        scope_kind=getattr(scope, "kind", "shared"),
+        scope_id=getattr(scope, "id", None),
+        derived_key=derived_key,
+        stage="build",
+    )
+    registry.add(job)
+    queue_job = Job(
+        job_id=job.job_id,
+        source_key=source_key,
+        derived_key=derived_key,
+        status=STATUS_RUNNING,
+        target_format="procedural_build",
+        scope_kind=job.scope_kind,
+        scope_id=job.scope_id,
+        conversion_options=conversion_options,
+        force_rebuild=force_rebuild,
+    )
+
+    async def _run() -> None:
+        try:
+            await _run_procedural_build(
+                job=queue_job,
+                scope=scope,
+                storage=storage,
+                queue=_LocalJobQueue(job),  # type: ignore[arg-type]
+                db_pool=db_pool,
+                started_at=time.monotonic(),
+                model_row=model_row,
+                audit=False,
+            )
+        except Exception as exc:  # noqa: BLE001 — the job's failure is data, not ours
+            logger.exception("local procedural build %s failed", job.job_id)
+            job.error = f"{type(exc).__name__}: {exc}"
+            job.status = STATUS_ERROR
+            job.stage = "error"
+            return
+        if job.status == STATUS_RUNNING:
+            # The handler returned without a verdict: say so rather than poll for ever.
+            job.status = STATUS_ERROR
+            job.error = job.error or "procedural build ended without a result"
+
+    task = asyncio.get_running_loop().create_task(_run())
+    _PROCEDURAL_TASKS.add(task)
+    task.add_done_callback(_PROCEDURAL_TASKS.discard)
+    return job
+
+
 def start_asset_build(
     *,
     request: Any,

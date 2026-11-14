@@ -109,6 +109,12 @@ def _infer_file_type(key: str, extra_source_exts: frozenset[str] | None = None) 
     # the other source formats use kicks in.
     if extra_source_exts and ext in extra_source_exts:
         return FileTypeDC.IFC
+    # Any other source the server accepts (``is_supported_source``: every registered
+    # converter's sources, bundles, streaming FEA decks) lists the same way. The sets
+    # above are hand-kept and had drifted from it: a GeniE workspace (.gnx) uploaded
+    # through "Upload and open" was stored and converted, then missing from Storage.
+    if is_supported_source(key):
+        return FileTypeDC.IFC
     return None
 
 

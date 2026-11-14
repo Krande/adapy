@@ -33,7 +33,7 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 from ada.config import logger
 
 from .. import auth as auth_module
-from .. import pending_uploads
+from .. import local_jobs, pending_uploads
 from ..auth import User
 from ..converter import (
     FEA_MANIFEST_HEAD_BYTES,
@@ -530,6 +530,12 @@ async def _preliminary_stale_reason(ctx: RestContext, job_id: str) -> str | None
     finding it still preliminary means the final upload did not land."""
     if not job_id:
         return "preliminary manifest of an unknown bake"
+    # A queue-less server bakes in-process (local_jobs.start_fea_job): its job is there.
+    local = local_jobs.registry.get(job_id)
+    if local is not None:
+        if local.status == "running":
+            return None
+        return f"preliminary manifest of a bake that is not running ({local.status})"
     try:
         job = await ctx.queue.get(job_id) if ctx.queue.enabled else None
     except Exception:

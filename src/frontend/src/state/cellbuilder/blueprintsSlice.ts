@@ -16,6 +16,7 @@ import type {BuilderCell} from "./types";
 import type {CellBuilderSlice} from "./state";
 import {currentScopePart} from "./shared";
 import {makeWithHistory} from "./historySlice";
+import {defaultBlueprint} from "./builderDefaults";
 
 export interface BlueprintsSlice {
   /** Blueprint compile options round-tripped as doc.blueprint (whitelisted
@@ -83,7 +84,7 @@ export const createBlueprintsSlice: CellBuilderSlice<BlueprintsSlice> = (set, ge
       set((s) =>
         slug === s.selectedBlueprint
           ? {}
-          : { selectedBlueprint: slug, dirty: true },
+          : { selectedBlueprint: slug, dirty: true, blueprintIsDefault: false },
       ),
 
     setBlueprintOption: (name, value) =>
@@ -93,17 +94,20 @@ export const createBlueprintsSlice: CellBuilderSlice<BlueprintsSlice> = (set, ge
       })),
 
     fetchBlueprints: async () => {
+      const engine = get().selectedEngine;
       try {
         const blueprints = await capabilities.procedural.listBlueprints(
           currentScopePart(),
-          get().selectedEngine,
+          engine,
         );
+        // The engine changed while this was in flight: its own fetch answers.
+        if (get().selectedEngine !== engine) return;
         set((s) => ({
           blueprints,
-          selectedBlueprint: resolveSelectedBlueprint(
-            blueprints,
-            s.selectedBlueprint,
-          ),
+          // A doc that names no blueprint takes the shell's default for this engine.
+          selectedBlueprint:
+            (s.blueprintIsDefault ? defaultBlueprint(s.selectedEngine, blueprints) : null) ??
+            resolveSelectedBlueprint(blueprints, s.selectedBlueprint),
         }));
       } catch (e) {
         console.warn("cellbuilder: blueprints fetch failed", e);

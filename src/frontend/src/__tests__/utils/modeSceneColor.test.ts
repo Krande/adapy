@@ -57,9 +57,10 @@ test("leaving restores the legend exactly, over whatever the mode painted", () =
 test("a mode that loaded another field gets the user's view put back", () => {
   noteFieldSourceLoaded("model.SIN"); // the page opened on this model
   notifyActiveModeSceneColor({ id: "inspect", ownsSceneColor: true });
-  // The property painter selected its own single-step field. It goes through
-  // the FEA loader like every other field change, so the landing is reported
-  // and tagged with the mode that asked for it.
+  // The property painter selected its own single-step field. It reports that it
+  // paints, then goes through the FEA loader like every other field change, so
+  // the landing is tagged with the mode that asked for it.
+  noteOwnerPainted();
   useFeaAnimationStore.setState({
     fieldName: "props.plate_thickness",
     stepIndex: 0,
@@ -107,6 +108,7 @@ test("re-entering an owning mode puts back what it was showing", () => {
   // The property painter loads its own field and shows its own legend, through
   // the same loader the user's own picks go through — which is what reports the
   // landing as this mode's painting.
+  noteOwnerPainted();
   useFeaAnimationStore.setState({ fieldName: "props.material", stepIndex: 0 });
   useColorStore.setState({ min: 1, max: 3, showLegend: true });
   noteFieldSourceLoaded("model.SIN");
@@ -183,7 +185,8 @@ test("a model loaded under an owning mode is set aside, and is what leaving show
 test("a reload of the same source is the owning mode's own painting", () => {
   noteFieldSourceLoaded("model.SIN"); // the page opened on this model
   notifyActiveModeSceneColor({ id: "inspect", ownsSceneColor: true });
-  // Inspect paints by property through the same loader.
+  // Inspect paints by property through the same loader, having said it paints.
+  noteOwnerPainted();
   simulateLoad("props.material", 1, 3);
   noteFieldSourceLoaded("model.SIN");
   assert.equal(useColorStore.getState().showLegend, true);
@@ -240,6 +243,7 @@ test("a loader repaint of the same source counts as the mode's own painting", ()
   noteFieldSourceLoaded("model.SIN"); // the page opened on this model
   notifyActiveModeSceneColor({ id: "inspect", ownsSceneColor: true });
   // The painter repainted through the loader and kept the field's name.
+  noteOwnerPainted();
   useColorStore.setState({ min: 1, max: 3, showLegend: true });
   noteFieldSourceLoaded("model.SIN");
 
@@ -299,4 +303,24 @@ test("noteOwnerPainted outside an owning mode changes nothing", () => {
   notifyActiveModeSceneColor({ id: "capacity", ownsSceneColor: true });
   // First entry: painted nothing yet, so it suspends.
   assert.equal(useColorStore.getState().showLegend, false);
+});
+
+// Results' colours and legend belong to Results. A field shown there, then every
+// other mode in turn, each with a results repaint of the same source arriving while
+// it is active (a finished bake, a playback step, a shown-range repaint): none of them
+// shows the field's legend, and Results gets it back each time.
+test("a field shown in Results stays out of every other mode", () => {
+  simulateLoad("sesam.nodes.displacement", 0, 39);
+  noteFieldSourceLoaded("model.SIN");
+  assert.equal(useColorStore.getState().showLegend, true);
+  for (const mode of ["build", "inspect", "capacity", "convert", "build", "capacity", "inspect"]) {
+    notifyActiveModeSceneColor({ id: mode, ownsSceneColor: true });
+    assert.equal(useColorStore.getState().showLegend, false, `${mode}: no legend on entry`);
+    // A repaint of the same source requested and landing while the mode is active.
+    useColorStore.setState({ min: 0, max: 39, showLegend: true });
+    noteFieldSourceLoaded("model.SIN");
+    assert.equal(useColorStore.getState().showLegend, false, `${mode}: no legend after a results repaint`);
+    notifyActiveModeSceneColor({ id: "results" });
+    assert.equal(useColorStore.getState().showLegend, true, `back in Results from ${mode}: the legend is back`);
+  }
 });
