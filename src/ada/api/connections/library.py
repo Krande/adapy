@@ -210,93 +210,132 @@ class Library:
 
     def specs(self) -> list[dict[str, Any]]:
         """Every registered spec as the studio's form needs it, plus where its builder lives."""
-        from ada.api.connections.sample import default_inputs
-
-        out = []
-        for reg in sorted(all_registered(), key=lambda r: r.spec.name):
-            fn = getattr(reg.fn, "__wrapped__", reg.fn)
-            schema = spec_to_form_schema(reg.spec)
-            try:
-                defaults = default_inputs(reg.spec)
-            except Exception:  # noqa: BLE001 - a spec whose defaults cannot be derived still lists
-                defaults = reg.spec.defaults or {}
-            schema["defaults"] = defaults
-            out.append(
-                {
-                    "name": reg.spec.name,
-                    "schema": schema,
-                    "defaults": defaults,
-                    "module": getattr(reg.fn, "__module__", None),
-                    "source": _source_location(fn),
-                    "in_library": self._owns(getattr(reg.fn, "__module__", "") or ""),
-                }
-            )
-        return out
+        return spec_entries(self._owns)
 
     def subject(self, spec_name: str, inputs: dict[str, dict[str, Any]], path: pathlib.Path) -> dict[str, Any]:
-        """Build ``spec_name`` as :meth:`build` does and write its weld assembly (a simulation
-        subject, :mod:`ada.simulation.subjects`) to ``path``. ``ValueError`` when the detail has no
-        welds; raises what the builder raises."""
-        from ada.api.connections import build_component
-        from ada.api.connections.sample import default_inputs
-        from ada.simulation.subjects import (
-            WeldAssemblyError,
-            dump_weld_assembly,
-            weld_assembly_from_part,
-        )
-
-        spec = get_registered(spec_name).spec
-        merged = {role: {**fields, **(inputs.get(role) or {})} for role, fields in default_inputs(spec).items()}
-        extra = dict(self._kwargs_factory() or {}) if self._kwargs_factory else {}
-        with _CapturedLog() as log:
-            conn = build_component(spec_name, merged, name=spec_name.replace(".", "_"), **extra)
-        if not sum(len(p.welds) for p in conn.get_all_subparts(include_self=True)):
-            raise ValueError("the detail has no welds")
-        try:
-            assembly = weld_assembly_from_part(
-                conn,
-                stub_length=None,
-                source={"kind": "connection-spec", "spec_name": spec_name, "spec_inputs": merged},
-            )
-            data = dump_weld_assembly(assembly)
-        except WeldAssemblyError as e:
-            raise ValueError(str(e)) from e
-        pathlib.Path(path).write_bytes(data)
-        return {
-            "inputs": merged,
-            "log": log.lines,
-            "welds": len(assembly["welds"]),
-            "members": len(assembly["members"]),
-        }
+        """Build ``spec_name`` as :meth:`build` does and write its weld assembly to ``path``
+        (:func:`build_subject`)."""
+        return build_subject(spec_name, inputs, path, self._extra_kwargs())
 
     def build(self, spec_name: str, inputs: dict[str, dict[str, Any]], glb_path: pathlib.Path) -> dict[str, Any]:
-        """Build ``spec_name`` from ``inputs`` (missing fields take the spec's defaults) into
-        ``glb_path``. Raises what the builder raises; warnings it logs come back in ``log``."""
-        from ada.api.connections import build_component
-        from ada.api.connections.sample import default_inputs
+        """Build ``spec_name`` from ``inputs`` into ``glb_path`` (:func:`build_with_report`)."""
+        return build_with_report(spec_name, inputs, glb_path, self._extra_kwargs())
 
-        spec = get_registered(spec_name).spec
-        merged = {role: {**fields, **(inputs.get(role) or {})} for role, fields in default_inputs(spec).items()}
-        extra = dict(self._kwargs_factory() or {}) if self._kwargs_factory else {}
-        with _CapturedLog() as log:
-            conn = build_component(spec_name, merged, name=spec_name.replace(".", "_"), **extra)
-            conn.to_gltf(glb_path)
-        parts = conn.get_all_subparts(include_self=True)
-        run, contacts_by_weld, clash_note = _measure_joint(glb_path, conn)
-        return {
-            "inputs": merged,
-            "log": log.lines,
-            "counts": {
-                "beams": sum(len(p.beams) for p in parts),
-                "plates": sum(len(p.plates) for p in parts),
-                "welds": sum(len(p.welds) for p in parts),
-            },
-            "properties": _joint_properties(conn, list(merged), contacts_by_weld),
-            # The clash the joint is: the members' measured contact in the built GLB, as a
-            # convex-contact run (``ada.clash.sidecar``) the studio's Clashes view reads.
-            "clash_run": run,
-            "clash_note": clash_note,
-        }
+    def _extra_kwargs(self) -> dict[str, Any]:
+        return dict(self._kwargs_factory() or {}) if self._kwargs_factory else {}
+
+
+# -- building a spec, with what the studio shows of it -------------------------------------------
+#
+# Module-level, not Library methods: the same build answers ``ada dev connections`` (a library held
+# in a child process) and a worker's ``component_build`` job in report mode (the specs the worker's
+# installed packages registered), so the studio's connection builder reads one shape from both.
+
+
+def spec_entries(owns: Callable[[str], bool] | None = None) -> list[dict[str, Any]]:
+    """Every registered spec as the studio's form needs it, plus where its builder lives.
+    ``owns(module)`` says whether a builder's module is the served library's own (``in_library``)."""
+    from ada.api.connections.sample import default_inputs
+
+    out = []
+    for reg in sorted(all_registered(), key=lambda r: r.spec.name):
+        fn = getattr(reg.fn, "__wrapped__", reg.fn)
+        schema = spec_to_form_schema(reg.spec)
+        try:
+            defaults = default_inputs(reg.spec)
+        except Exception:  # noqa: BLE001 - a spec whose defaults cannot be derived still lists
+            defaults = reg.spec.defaults or {}
+        schema["defaults"] = defaults
+        module = getattr(reg.fn, "__module__", None)
+        out.append(
+            {
+                "name": reg.spec.name,
+                "schema": schema,
+                "defaults": defaults,
+                "module": module,
+                "source": _source_location(fn),
+                "in_library": bool(owns and owns(module or "")),
+            }
+        )
+    return out
+
+
+def _merged_inputs(spec_name: str, inputs: dict[str, dict[str, Any]]) -> tuple[Any, dict[str, dict[str, Any]]]:
+    from ada.api.connections.sample import default_inputs
+
+    spec = get_registered(spec_name).spec
+    return spec, {role: {**fields, **(inputs.get(role) or {})} for role, fields in default_inputs(spec).items()}
+
+
+def build_with_report(
+    spec_name: str,
+    inputs: dict[str, dict[str, Any]],
+    glb_path: pathlib.Path,
+    extra_kwargs: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Build ``spec_name`` from ``inputs`` (missing fields take the spec's defaults) into
+    ``glb_path``. Raises what the builder raises; warnings it logs come back in ``log``."""
+    from ada.api.connections import build_component
+
+    _, merged = _merged_inputs(spec_name, inputs)
+    with _CapturedLog() as log:
+        conn = build_component(spec_name, merged, name=spec_name.replace(".", "_"), **(extra_kwargs or {}))
+        conn.to_gltf(glb_path)
+    parts = conn.get_all_subparts(include_self=True)
+    run, contacts_by_weld, clash_note = _measure_joint(glb_path, conn)
+    return {
+        "inputs": merged,
+        "log": log.lines,
+        "counts": {
+            "beams": sum(len(p.beams) for p in parts),
+            "plates": sum(len(p.plates) for p in parts),
+            "welds": sum(len(p.welds) for p in parts),
+        },
+        "properties": _joint_properties(conn, list(merged), contacts_by_weld),
+        # The clash the joint is: the members' measured contact in the built GLB, as a
+        # convex-contact run (``ada.clash.sidecar``) the studio's Clashes view reads.
+        "clash_run": run,
+        "clash_note": clash_note,
+    }
+
+
+def build_subject(
+    spec_name: str,
+    inputs: dict[str, dict[str, Any]],
+    path: pathlib.Path,
+    extra_kwargs: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Build ``spec_name`` as :func:`build_with_report` does and write its weld assembly (a
+    simulation subject, :mod:`ada.simulation.subjects`) to ``path``. ``ValueError`` when the detail
+    has no welds; raises what the builder raises."""
+    from ada.api.connections import build_component
+    from ada.simulation.subjects import (
+        WeldAssemblyError,
+        dump_weld_assembly,
+        weld_assembly_from_part,
+    )
+
+    _, merged = _merged_inputs(spec_name, inputs)
+    with _CapturedLog() as log:
+        conn = build_component(spec_name, merged, name=spec_name.replace(".", "_"), **(extra_kwargs or {}))
+    if not sum(len(p.welds) for p in conn.get_all_subparts(include_self=True)):
+        raise ValueError("the detail has no welds")
+    try:
+        assembly = weld_assembly_from_part(
+            conn,
+            stub_length=None,
+            source={"kind": "connection-spec", "spec_name": spec_name, "spec_inputs": merged},
+        )
+        data = dump_weld_assembly(assembly)
+    except WeldAssemblyError as e:
+        raise ValueError(str(e)) from e
+    pathlib.Path(path).write_bytes(data)
+    return {
+        "inputs": merged,
+        "log": log.lines,
+        "welds": len(assembly["welds"]),
+        "members": len(assembly["members"]),
+    }
 
 
 def _joint_members(conn) -> list:

@@ -53,6 +53,21 @@ async def _run_component_build(
         await _audit_done(db_pool, job_id, "error", "missing spec_name", started_at)
         return
 
+    mode = opts.get("mode")
+    if mode in ("report", "subject"):
+        await _run_reported_build(
+            job=job,
+            scope=scope,
+            storage=storage,
+            queue=queue,
+            db_pool=db_pool,
+            started_at=started_at,
+            spec_name=spec_name,
+            inputs=inputs,
+            mode=mode,
+        )
+        return
+
     from ada.api.connections import build_component
 
     loop = asyncio.get_running_loop()
@@ -124,6 +139,88 @@ async def _run_component_build(
         progress=1.0,
         error=None,
     )
+    await _audit_done(db_pool, job_id, "done", None, started_at)
+
+
+#: Beside the build's derived key: what the studio's connection builder shows of it, or why it failed.
+REPORT_SUFFIX = ".report.json"
+ERROR_SUFFIX = ".error.json"
+
+
+async def _run_reported_build(
+    *,
+    job: Job,
+    scope,
+    storage: "Storage",
+    queue: "JobQueue",
+    db_pool: "asyncpg.Pool | None",
+    started_at: float,
+    spec_name: str,
+    inputs: dict,
+    mode: str,
+) -> None:
+    """The connection builder's build (``mode: "report"``) or simulation subject (``"subject"``),
+    exactly as ``ada dev connections`` makes them (``ada.api.connections.library``): the GLB (or
+    the weld assembly) at the job's derived key, ``<key>.report.json`` beside it with the members,
+    welds, measured clash and the builder's log -- and on a failure ``<key>.error.json`` with the
+    builder's traceback and whether it declined the members (NotApplicable), so the studio can tell
+    a refusal from a crash."""
+    import json as _json
+
+    from ada.api.connections.library import (
+        build_subject,
+        build_with_report,
+        format_user_traceback,
+        is_declined,
+    )
+
+    job_id = job.job_id
+    loop = asyncio.get_running_loop()
+    suffix = ".glb" if mode == "report" else ".json"
+
+    def _build() -> tuple[bytes, dict]:
+        out = new_temp_path(suffix=suffix)
+        try:
+            if mode == "report":
+                report = build_with_report(spec_name, inputs, out)
+            else:
+                report = build_subject(spec_name, inputs, out)
+            return out.read_bytes(), report
+        finally:
+            out.unlink(missing_ok=True)
+
+    await queue.update(job_id, stage="build", progress=0.40)
+    try:
+        data, report = await loop.run_in_executor(None, _build)
+    except Exception as exc:  # noqa: BLE001 - every failure is reported to the studio
+        logger.info("worker: connection build of %s failed: %s", spec_name, exc)
+        failure = {
+            "error": str(exc) or type(exc).__name__,
+            "traceback": format_user_traceback(exc),
+            "declined": is_declined(exc),
+        }
+        try:
+            await storage.put_bytes(scope, job.derived_key + ERROR_SUFFIX, _json.dumps(failure).encode("utf-8"))
+        except Exception:  # noqa: BLE001 - the job's error still says what went wrong
+            logger.exception("worker: could not store the failure of %s", spec_name)
+        await queue.update(job_id, status=JOB_STATUS_ERROR, stage="build", error=failure["error"])
+        await _audit_done(db_pool, job_id, "error", failure["error"], started_at, traceback=failure["traceback"])
+        return
+
+    try:
+        await queue.update(job_id, stage="upload", progress=0.90)
+        # gzip at rest, as the other builds: the browser decompresses on the fly.
+        await storage.put_bytes(scope, job.derived_key, data, content_encoding="gzip")
+        await storage.put_bytes(
+            scope, job.derived_key + REPORT_SUFFIX, _json.dumps(report, default=str).encode("utf-8")
+        )
+    except Exception as exc:
+        logger.exception("worker: connection build upload failed for %s", spec_name)
+        await queue.update(job_id, status=JOB_STATUS_ERROR, stage="upload", error=str(exc))
+        await _audit_done(db_pool, job_id, "error", str(exc), started_at, traceback=tb_module.format_exc())
+        return
+
+    await queue.update(job_id, status=JOB_STATUS_DONE, stage="ready", progress=1.0, error=None)
     await _audit_done(db_pool, job_id, "done", None, started_at)
 
 
