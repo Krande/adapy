@@ -15,7 +15,7 @@ const M = await import("@/layout/shellModes");
 const O = await import("@/layout/viewportOverlays");
 const P = await import("@/layout/presets/classicPlace");
 const { layoutStore } = await import("@/layout/layoutStore");
-const { registerPanel } = await import("@/layout/registry");
+const { registerPanel, getPanel } = await import("@/layout/registry");
 const { CLASSIC_ZONES, layoutDocKey } = await import("@/layout/layout");
 const { gridOf } = await import("@/layout/reducers");
 const { groupOf, VIEWPORT_NODE } = await import("@/layout/splitTree");
@@ -191,7 +191,6 @@ test("a mode's cover and a shell's overlay panels", () => {
     assert.equal(P.classicCover(), null);
     assert.deepEqual(P.classicOverlays(), { pluginPanels: "bottom-left" });
     registerPanel({ id: "plug:hud", title: "HUD", body, content: body, placement: { classic: { zone: CLASSIC_ZONES.menuColumn, order: 1 }, docked: { zone: "overlay" } } }, "plug");
-    const { getPanel } = await_registry;
     assert.equal(P.isOverlayPanel(getPanel("plug:hud")!), true);
     assert.ok(P.placedElsewhere(P.classicDoc(), true, false).includes("plug:hud"), "its region host leaves it out");
   } finally {
@@ -200,5 +199,3 @@ test("a mode's cover and a shell's overlay panels", () => {
     layoutStore.setState({ prefs: { v: 1, docs: {} } });
   }
 });
-
-const await_registry = await import("@/layout/registry");
