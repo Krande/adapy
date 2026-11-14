@@ -152,7 +152,8 @@ def test_a_light_job_does_not_wait_behind_heavy_ones():
     gate.set()
 
 
-def test_the_cpu_budget_is_divided_over_the_running_jobs():
+def test_the_cpu_budget_is_divided_over_the_running_jobs(monkeypatch):
+    monkeypatch.setattr(local_queue, "host_cores", lambda: 8)
     q = LocalJobQueue(limits_from(4, "4"))
     gate = threading.Event()
     started: list[str] = []
@@ -201,12 +202,13 @@ def test_a_job_process_gets_its_share_of_the_cpu_budget(fake_plugin, storage, tm
     job = _wait(_start("fake_env", storage))
     assert job.status == STATUS_DONE, job.as_json()
     doc = json.loads((tmp_path / "store" / "shared" / "_derived" / "fake_env.out").read_bytes())
-    assert doc["OMP_NUM_THREADS"] == "2"
-    assert doc["OPENBLAS_NUM_THREADS"] == "2"
-    assert doc["MKL_NUM_THREADS"] == "2"
-    assert doc["ADA_STEP_STREAM_WORKERS"] == "2"
-    if sys.platform.startswith("linux") and len(os.sched_getaffinity(0)) >= 2:
-        assert len(doc["affinity"]) == 2
+    share = str(min(2, local_queue.host_cores()))  # the budget is capped at the machine
+    assert doc["OMP_NUM_THREADS"] == share
+    assert doc["OPENBLAS_NUM_THREADS"] == share
+    assert doc["MKL_NUM_THREADS"] == share
+    assert doc["ADA_STEP_STREAM_WORKERS"] == share
+    if sys.platform.startswith("linux"):
+        assert len(doc["affinity"]) == int(share)
 
 
 def test_a_thread_job_waits_its_turn_too(restore_limits):
