@@ -176,6 +176,16 @@ _LOCAL_PROCEDURAL_SPECS: dict[str, tuple[str, str]] = {
 }
 
 
+#: The catalogs a queue-less server advertises from its own process, as the worker
+#: heartbeat does (worker/registration.py): field -> (module, spec-list function).
+#: Only those that belong to the in-process procedural compile.
+_LOCAL_PROCEDURAL_SPECS: dict[str, tuple[str, str]] = {
+    "procedural_blueprint_specs": ("ada.topo_model", "procedural_blueprint_specs"),
+    "procedural_template_specs": ("ada.topo_model", "procedural_template_specs"),
+    "procedural_engine_specs": ("ada.topo_model", "procedural_engine_specs"),
+}
+
+
 @dataclass(frozen=True)
 class JobRequest:
     """One job to run, in the terms both transports understand.
