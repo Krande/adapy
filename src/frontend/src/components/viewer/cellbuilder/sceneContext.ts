@@ -173,6 +173,12 @@ export function createCellBuilderScene(
     const resizeGroup = new THREE.Group();
     resizeGroup.visible = false;
     container.add(resizeGroup);
+    // The resized cell's dimension lines (cellDimensions.ts): their own group, so the
+    // resize handles' raycast never picks a line or a label.
+    const dimensionGroup = new THREE.Group();
+    dimensionGroup.visible = false;
+    dimensionGroup.userData.__excludeFromFit = true;
+    container.add(dimensionGroup);
     // On-canvas numeric readout (a screen-space sprite, like snapMarker).
     const readoutCanvas = document.createElement("canvas");
     readoutCanvas.width = 256;
@@ -229,6 +235,7 @@ export function createCellBuilderScene(
         portGizmoHelper,
         portRaycaster,
         resizeGroup,
+        dimensionGroup,
         readoutCanvas,
         readoutTex,
         readout,
