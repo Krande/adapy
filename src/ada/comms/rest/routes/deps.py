@@ -7,8 +7,10 @@ closure (the queue) is an explicit parameter instead.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import pathlib
+import time
 from dataclasses import dataclass
 
 from fastapi import Depends, HTTPException, Request
@@ -228,6 +230,56 @@ async def audit_event(
         )
     except Exception:
         logger.exception("audit insert failed (action=%s)", action)
+
+
+#: How often the watcher below looks at a local job it is waiting on.
+LOCAL_AUDIT_POLL_S = 1.0
+
+#: The watchers in flight, held so the loop does not drop them.
+_LOCAL_AUDIT_TASKS: set[asyncio.Task] = set()
+
+
+def audit_local_job_outcome(request: Request | None, jobs: JobTransport, job_id: str, *, pool=None) -> None:
+    """Move a local job's audit row off ``queued`` when the job ends, on a server with a database.
+
+    Behind a queue the worker writes the outcome (``worker/audit.py``). A queue-less server runs
+    the job in a process of its own that has no database, and the status-report route needs a
+    queue, so without this the row a route wrote at submit stays ``queued`` for ever and reads as
+    a job nothing will run. The server holds the verdict, so the server writes it: the status,
+    the error, and the run time from when the job left the local queue. No-op without a database
+    or behind a queue.
+    """
+    if pool is None and request is not None:
+        pool = getattr(request.app.state, "db_pool", None)
+    if pool is None or jobs.kind != "local":
+        return
+    task = asyncio.get_running_loop().create_task(_finish_local_audit(pool, job_id))
+    _LOCAL_AUDIT_TASKS.add(task)
+    task.add_done_callback(_LOCAL_AUDIT_TASKS.discard)
+
+
+async def _finish_local_audit(pool, job_id: str) -> None:
+    from .. import local_jobs
+
+    job = local_jobs.registry.get(job_id)
+    if job is None:
+        return
+    # registry.get also runs the registry's age sweep, so a job abandoned there ends here too.
+    while local_jobs.registry.get(job_id) is not None and job.status == local_jobs.STATUS_RUNNING:
+        await asyncio.sleep(LOCAL_AUDIT_POLL_S)
+    if job.status == local_jobs.STATUS_RUNNING:
+        return  # evicted while running: the registry has no verdict to give
+    started = job.run_started_at if job.run_started_at is not None else job.started_at
+    try:
+        await db_module.update_audit_by_job(
+            pool,
+            job_id=job_id,
+            status=job.status,
+            error=job.error,
+            duration_ms=int(max(0.0, time.time() - started) * 1000),
+        )
+    except Exception:  # noqa: BLE001 -- best effort, as every audit write: the job itself is done
+        logger.exception("audit: could not record the outcome of local job %s", job_id)
 
 
 def require_catalog_pool(request: Request):

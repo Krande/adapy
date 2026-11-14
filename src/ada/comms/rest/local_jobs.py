@@ -1,4 +1,4 @@
-"""In-process plugin jobs, for a viewer running without a worker pool.
+"""In-process jobs, for a viewer running without a worker pool.
 
 THIS IS THE ENGINE, NOT THE CONTRACT. Nothing outside
 :mod:`ada.comms.rest.job_transport` calls into here: a route submits a
@@ -28,11 +28,12 @@ it. Those run in a CHILD PROCESS of this interpreter instead (``start_worker_job
 :mod:`ada.comms.rest.local_runner`), through the worker's own pipeline, and report back over a
 pipe into the same registry.
 
-Deliberately NOT a queue. One dict, one executor, no persistence, no retries, no
-cross-process anything. A single-node convenience with the failure modes of one:
-jobs die with the process, and a second job runs concurrently with the first
-rather than queueing behind it. Anything that wants more than that wants NATS,
-which is the thing this stands in for rather than replaces.
+Deliberately NOT a job queue in NATS's sense: one dict, no persistence, no retries, no
+cross-process anything beyond a job's own process. A single-node convenience with the failure
+modes of one: jobs die with the server. What it does have is a line to wait in --
+:mod:`local_queue`, FIFO under a cap and a CPU budget, which every job here passes through
+before it starts. Anything that wants more than that wants NATS, which is the thing this stands
+in for rather than replaces.
 """
 
 from __future__ import annotations
@@ -92,6 +93,8 @@ class LocalJob:
     #: is pinned to (empty: not pinned). See ``local_queue``.
     threads: int | None = None
     cpus: tuple[int, ...] = ()
+    #: When the local queue let it start (``time.time()``); None while it waits.
+    run_started_at: float | None = None
 
     def as_json(self) -> dict[str, Any]:
         """The shape ``GET /api/convert/{job_id}`` returns for a queued job."""

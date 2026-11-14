@@ -34,6 +34,7 @@ from __future__ import annotations
 import os
 import sys
 import threading
+import time
 from dataclasses import dataclass
 from typing import Any
 
@@ -66,6 +67,7 @@ def host_cores() -> int:
 
 
 def default_max_parallel(cores: int | None = None) -> int:
+    """The cap when none is set: half the cores, at least 1 and at most 4."""
     return max(1, min(4, (cores or host_cores()) // 2))
 
 
@@ -278,6 +280,7 @@ class LocalJobQueue:
                     self._assign_locked(t)
                     job.threads = t.threads
                     job.cpus = t.cpus
+                    job.run_started_at = time.time()
                     job.stage = "starting"
                     self._positions_locked()
                     self._cond.notify_all()
@@ -285,6 +288,7 @@ class LocalJobQueue:
                 self._cond.wait(self.POLL_S)
 
     def release(self, job: Any) -> None:
+        """Free ``job``'s slot (however it ended) and let the next waiter in."""
         with self._cond:
             self._running.pop(job.job_id, None)
             self._cond.notify_all()
@@ -295,6 +299,7 @@ class LocalJobQueue:
             self._cond.notify_all()
 
     def snapshot(self) -> dict[str, Any]:
+        """What runs and what waits now, for ``GET /api/local/jobs``."""
         with self._cond:
             return {
                 "running": [

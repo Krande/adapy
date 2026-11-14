@@ -80,7 +80,7 @@ flowchart TB
 | Settings | `config.py` | `Settings` with `S3Config`, `LocalConfig`, `QueueConfig`, `AuthConfig`; read from `ADA_VIEWER_*` and `DATABASE_URL`. |
 | Routers | `routes/*.py` | **Projects** (`/me`, `/projects`), **storage** (files, overlays, blobs, rename/move, derived, upload-url / upload-complete / upload-progress, download-url), **source nodes**, **assets** (providers, index, tree, attributes, geometry roll-up, build, publish, staging, unpublish), **fea** (`fea/artefacts`, `fea/artefact`, `fea/manifest`, `result-meta`), **clash** (clash-check, clash-detail, passes, checkers, geometry providers, connection specs), **export_selection**, **simulations** (providers, runs, cancel), **plugins / plugin_jobs / procedural_models**, **admin** (projects, users, settings, storage, compression, workers, corpora, plugin jobs) and **audit** (runs, schedules, perf + issue bot). Shared context lives in `deps.py` (`RestContext`). |
 | Auth | `auth.py`, `scope.py` | Provider-agnostic OIDC JWT verification against the discovered JWKS. Admin role from a group claim. Users are upserted lazily by `sub`. The CLI uses minted tokens. With auth disabled, a synthetic local user is used. Access is scoped to *shared*, *project* or *user*. |
-| Database | `db/pool.py`, `db/migrations.py`, `migrations/*.sql` | PostgreSQL via asyncpg. Numbered SQL migrations are applied under an advisory lock. Tables: users, projects, members, audit (log, runs, schedules, parity, issue rechecks), app settings, profiling stats, corpora, worker packages, procedural models / equipment types / system templates / engines, source nodes, plugin job schedules. **Optional:** without a DB the API runs shared-only and DB-backed routes return 503, with two exceptions that fall back to hidden files in storage: user preferences (`_prefs/<user hash>/<key>.json` in the shared scope, `routes/preferences.py`; never served by the blob routes), and procedural models (`_procedural/<id>/model.json`, `procedural_store.py`), the latter only on a queue-less server, which also compiles them in-process. With a queue but no DB, procedural models stay 503. |
+| Database | `db/pool.py`, `db/migrations.py`, `migrations/*.sql` | PostgreSQL via asyncpg. Numbered SQL migrations are applied under an advisory lock. Tables: users, projects, members, audit (log, runs, schedules, parity, issue rechecks), app settings, profiling stats, corpora, worker packages, procedural models / equipment types / system templates / engines, source nodes, plugin job schedules. **Optional:** without a DB the API runs shared-only and DB-backed routes return 503, with three exceptions that fall back to hidden files in storage: user preferences (`_prefs/<user hash>/<key>.json` in the shared scope, `routes/preferences.py`; never served by the blob routes), a queue-less server's local job limits (`_prefs/_server/local_jobs.json`, `routes/local_jobs.py`; also never served), and procedural models (`_procedural/<id>/model.json`, `procedural_store.py`), the latter only on a queue-less server, which also compiles them in-process. With a queue but no DB, procedural models stay 503. |
 | Storage | `storage.py` | obstore `S3Store` (S3, Garage) or `LocalStore` (`ADA_VIEWER_STORAGE_KIND`), with gzip helpers. Sources and derived artefacts share one key space (`_derived/...`). |
 
 ## Jobs
@@ -134,8 +134,8 @@ sequenceDiagram
   conversion it has no converter for is a 501. Every local job, thread or process, passes
   through one FIFO queue (`local_queue.py`). It has a cap on concurrent jobs and a CPU budget
   divided over the running jobs. A job process gets its share as `OMP_NUM_THREADS` /
-  `OPENBLAS_NUM_THREADS` / `MKL_NUM_THREADS` / `NUMEXPR_NUM_THREADS` / `ADA_STEP_STREAM_WORKERS` /
-  `ADA_DERIVED_GZIP_THREADS`, plus a CPU affinity on Linux when the budget is below the machine.
+  `OPENBLAS_NUM_THREADS` / `MKL_NUM_THREADS` / `NUMEXPR_NUM_THREADS` / `VECLIB_MAXIMUM_THREADS` /
+  `ADA_STEP_STREAM_WORKERS` / `ADA_DERIVED_GZIP_THREADS`, plus a CPU affinity on Linux when the budget is below the machine.
   A queued job reports `queued (n ahead)` and is never started if it is cancelled first. A few
   sub-second kinds take one extra lane. The limits are settings: `routes/local_jobs.py`, stored
   in `app_settings` or `_prefs/_server/local_jobs.json`, defaulting from
@@ -478,7 +478,10 @@ is empty when there is nothing new, and `total` is the artefact's size at that m
 ### Audit and issue bot
 
 Every conversion leaves an audit row: its outcome, conversion provenance and the profiler
-summary parsed from the child process log (`worker/audit.py`). Admins schedule audit runs on a
+summary parsed from the child process log (`worker/audit.py`). On a queue-less server with a
+database the job process has no database, so the server records the outcome itself when the job
+ends: status, error and run time (`routes/deps.py` `audit_local_job_outcome`), without the
+provenance and profiler summary. Admins schedule audit runs on a
 cron (`routes/admin_audit_schedules.py`, fired by the scheduler background task) and inspect
 runs and performance (`admin_audit_runs.py`, `admin_audit_perf.py`). `audit_issue.py`
 fingerprints failures and files or updates issues on GitHub or Forgejo (`issue_client.py`).

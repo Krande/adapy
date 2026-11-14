@@ -219,8 +219,8 @@ def test_build_runs_locally_when_queue_disabled(app_client: TestClient):
 
 def test_build_400_on_missing_spec_name(app_client: TestClient):
     r = app_client.post("/api/components/build", json={"inputs": {}})
-    # Validation answers 400; 503 only where nothing can build components.
-    assert r.status_code in (400, 503)
+    # A queue-less server builds components itself, so the request is validated: 400.
+    assert r.status_code == 400, r.text
 
 
 def test_build_400_on_bad_inputs_type(app_client: TestClient):

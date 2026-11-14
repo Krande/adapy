@@ -290,3 +290,94 @@ def test_a_queue_less_server_converts_a_file_itself(tmp_path):
         # The second ask is the cached answer, as behind a queue.
         again = client.post("/api/scopes/shared/convert", json={"source_key": src, "target_format": "glb"})
         assert again.status_code == 200 and again.json()["cached"] is True
+
+
+# --------------------------------------------------------------------------
+# The audit row, the source fast path, and the no-fork path
+# --------------------------------------------------------------------------
+
+
+async def test_the_server_records_a_local_jobs_outcome_in_its_audit_row(fake_plugin, storage, monkeypatch):
+    """With a database but no queue, nothing in the job process can move the row the route wrote
+    at submit; the server does, once the job has ended."""
+    import asyncio
+
+    from ada.comms.rest import db as db_module
+    from ada.comms.rest.routes import deps
+
+    recorded: list[dict] = []
+
+    async def _update(pool, **fields):
+        recorded.append(fields)
+
+    monkeypatch.setattr(db_module, "update_audit_by_job", _update)
+    monkeypatch.setattr(deps, "LOCAL_AUDIT_POLL_S", 0.05)
+
+    for kind, status in (("fake_ok", local_jobs.STATUS_DONE), ("fake_fail", local_jobs.STATUS_ERROR)):
+        job = _start(kind, storage)
+        deps.audit_local_job_outcome(None, LocalJobTransport(storage), job.job_id, pool=object())
+        await asyncio.wait_for(asyncio.gather(*deps._LOCAL_AUDIT_TASKS), timeout=120)
+        assert recorded[-1]["job_id"] == job.job_id
+        assert recorded[-1]["status"] == status
+        assert recorded[-1]["duration_ms"] >= 0
+    assert "the deck has no elements" in recorded[-1]["error"]
+
+
+async def test_no_audit_watcher_without_a_database_or_behind_a_queue(storage):
+    from ada.comms.rest.routes import deps
+
+    deps.audit_local_job_outcome(None, LocalJobTransport(storage), "local-x", pool=None)
+
+    class _Queue:
+        kind = "queue"
+
+    deps.audit_local_job_outcome(None, _Queue(), "job-x", pool=object())  # type: ignore[arg-type]
+    assert not deps._LOCAL_AUDIT_TASKS
+
+
+async def test_a_filesystem_stores_source_is_linked_not_copied(storage, tmp_path):
+    from ada.comms.rest.worker.blobs import MODE_LOCAL_LINK, _link_local_source
+
+    await storage.put_bytes(Scope.shared(), "m/deck.inp", b"*NODE\n")
+    dest = tmp_path / "work" / "source.inp"
+    dest.parent.mkdir()
+    assert await _link_local_source(storage, Scope.shared(), "m/deck.inp", dest) == MODE_LOCAL_LINK
+    stored = tmp_path / "store" / "shared" / "m" / "deck.inp"
+    assert dest.read_bytes() == b"*NODE\n"
+    assert os.path.samefile(dest, stored)
+    # Not there: the caller fetches it the ordinary way.
+    assert await _link_local_source(storage, Scope.shared(), "m/absent.inp", tmp_path / "work" / "x.inp") is None
+
+
+async def test_without_fork_a_job_runner_runs_the_isolated_work_inline(monkeypatch):
+    """On a platform with no ``os.fork`` (Windows), inside a job runner, ``run_isolated`` runs the
+    work in the runner itself -- the runner is the crash boundary -- with the same contract."""
+    from ada.comms.rest import subprocess_convert as sc
+
+    monkeypatch.setattr(sc, "HAVE_POSIX_FORK", False)
+    monkeypatch.setenv(sc.LOCAL_RUNNER_ENV, "1")
+
+    seen: list[tuple[str, float]] = []
+
+    async def _progress(stage, frac):
+        seen.append((stage, frac))
+
+    def _work(child):
+        child.progress("halfway", 0.5)
+        (child.work_dir / "out.txt").write_text(f"pid={os.getpid()}")
+
+    ok = await sc.run_isolated(_work, on_progress=_progress)
+    assert ok.error is None and ok.exit_code == 0
+    assert (ok.work_dir / "out.txt").read_text() == f"pid={os.getpid()}"
+    assert seen == [("halfway", 0.5)]
+
+    def _fails(child):
+        raise ValueError("no elements")
+
+    bad = await sc.run_isolated(_fails)
+    assert bad.error == "ValueError: no elements" and bad.work_dir is None and bad.exit_code == 2
+
+    # Outside a job runner the platform rule stands: no fork, no isolated run.
+    monkeypatch.delenv(sc.LOCAL_RUNNER_ENV)
+    with pytest.raises(Exception, match="(?i)linux"):
+        await sc.run_isolated(_work)

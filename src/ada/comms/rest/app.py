@@ -70,6 +70,7 @@ from .routes.deps import (  # noqa: F401 — _merge_spec re-exported for tests/i
     RestContext,
     SystemUser,
     _merge_spec,
+    audit_local_job_outcome,
     human_bytes,
     is_accepted_source,
     live_worker_specs,
@@ -1121,6 +1122,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             status="queued",
             job_id=job.job_id,
         )
+        # Without a queue no worker moves that row on; the server does, when the job ends.
+        audit_local_job_outcome(request, jobs, job.job_id)
         payload = dict(job.payload)
         payload.setdefault("source_key", source_key)
         payload.setdefault("target_format", target_format)
@@ -1215,6 +1218,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             status="queued",
             job_id=job.job_id,
         )
+        audit_local_job_outcome(request, jobs, job.job_id)
         payload = dict(job.payload)
         payload.setdefault("source_key", source_key)
         payload.setdefault("target_format", "utility")

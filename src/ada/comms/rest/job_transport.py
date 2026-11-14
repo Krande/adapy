@@ -176,16 +176,6 @@ _LOCAL_PROCEDURAL_SPECS: dict[str, tuple[str, str]] = {
 }
 
 
-#: The catalogs a queue-less server advertises from its own process, as the worker
-#: heartbeat does (worker/registration.py): field -> (module, spec-list function).
-#: Only those that belong to the in-process procedural compile.
-_LOCAL_PROCEDURAL_SPECS: dict[str, tuple[str, str]] = {
-    "procedural_blueprint_specs": ("ada.topo_model", "procedural_blueprint_specs"),
-    "procedural_template_specs": ("ada.topo_model", "procedural_template_specs"),
-    "procedural_engine_specs": ("ada.topo_model", "procedural_engine_specs"),
-}
-
-
 @dataclass(frozen=True)
 class JobRequest:
     """One job to run, in the terms both transports understand.
@@ -289,9 +279,10 @@ class JobTransport(Protocol):
         A transport with NO dispatch step does not call it, and that is the
         contract rather than an oversight: the in-process job is already
         running by the time ``submit`` returns, so there is no window to
-        sequence against -- and nothing in that deployment would move such a
-        row off ``queued`` afterwards either, since the status-report route
-        needs the queue it does not have.
+        sequence against. Nothing in the job moves such a row off ``queued``
+        afterwards either (the status-report route needs a queue); a route
+        that writes one asks ``routes.deps.audit_local_job_outcome`` to record
+        the outcome when the job ends, as the convert and utility routes do.
         """
 
     def inprocess(self, job_id: str) -> JobSnapshot | None:
@@ -936,7 +927,7 @@ def local_advertisement() -> dict[str, list]:
         from .worker.registration import base_advertisement
 
         advert = base_advertisement()
-    except Exception:
+    except Exception:  # noqa: BLE001 -- an empty advertisement offers nothing this process would 501 on
         logger.exception("local transport: could not evaluate what this process converts (non-fatal)")
         return {"source_exts": [], "conversions": [], "utilities": []}
     return {"source_exts": advert.source_exts, "conversions": advert.conversions, "utilities": advert.utilities}
