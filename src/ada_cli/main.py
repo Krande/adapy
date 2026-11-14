@@ -131,19 +131,19 @@ def _use_viewer_bundle(name: str | None) -> None:
 
 
 def _cmd_serve_api(args: argparse.Namespace) -> int:
+    _use_local_job_opts(args)  # a bad value is refused before the server stack is imported
     from ada.comms.rest.__main__ import run
 
     _use_viewer_bundle(args.viewer)
-    _use_local_job_opts(args)
     run()
     return 0
 
 
 def _cmd_desktop(args: argparse.Namespace) -> int:
+    _use_local_job_opts(args)
     from ada_cli.desktop import main_run
 
     _use_viewer_bundle(args.viewer)
-    _use_local_job_opts(args)
     return main_run(args)
 
 
@@ -452,25 +452,36 @@ def _add_local_job_opts(p: argparse.ArgumentParser) -> None:
 
 
 def _use_local_job_opts(args: argparse.Namespace) -> None:
-    """Hand the flags to the server through its environment (it may run in a child process)."""
+    """Hand the flags to the server through its environment (it may run in a child process).
+
+    A value out of range is a usage error (exit 2, as docs/cli.md says): changing the command line
+    fixes it.
+    """
     from ada.comms.rest.local_queue import (
         ENV_CPU_BUDGET,
         ENV_MAX_PARALLEL,
         parse_cpu_budget,
         parse_max_parallel,
     )
+    from ada_cli import CliUsageError
 
     max_jobs = getattr(args, "max_jobs", None)
     cpu_budget = getattr(args, "cpu_budget", None)
-    try:
-        if max_jobs is not None:
-            parse_max_parallel(max_jobs)
-            os.environ[ENV_MAX_PARALLEL] = str(max_jobs)
-        if cpu_budget is not None:
-            parse_cpu_budget(cpu_budget)
-            os.environ[ENV_CPU_BUDGET] = str(cpu_budget)
-    except ValueError as exc:
-        raise SystemExit(f"ada: {exc}") from exc
+    for flag, value, parse in (
+        ("--max-jobs", max_jobs, parse_max_parallel),
+        ("--cpu-budget", cpu_budget, parse_cpu_budget),
+    ):
+        if value is None:
+            continue
+        try:
+            parse(value)
+        except ValueError as exc:
+            raise CliUsageError(f"{flag}: {exc}") from None
+    # Only once both are valid, so a refused command line leaves the environment as it was.
+    if max_jobs is not None:
+        os.environ[ENV_MAX_PARALLEL] = str(max_jobs)
+    if cpu_budget is not None:
+        os.environ[ENV_CPU_BUDGET] = str(cpu_budget)
 
 
 def _add_viewers(sub: argparse._SubParsersAction) -> None:
