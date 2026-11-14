@@ -1,0 +1,3157 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="A python library for structural analysis and design, focused on interoperability between IFC and Finite Element formats.">
+      
+      
+        <meta name="author" content="Kristoffer H. Andersen">
+      
+      
+        <link rel="canonical" href="https://krande.github.io/adapy/architecture/threejs_free_viewport/">
+      
+      
+        <link rel="prev" href="../frontend/">
+      
+      
+        <link rel="next" href="../docs_pipeline/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="zensical-0.0.68">
+    
+    
+      
+        <title>A viewer without three.js - ADA - Advanced Design & Analysis</title>
+      
+    
+    
+      
+        
+      
+      <link rel="stylesheet" href="../../assets/stylesheets/modern/main.595f2bf5.min.css">
+      
+        
+          
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/modern/palette.b27955a4.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,500,500i,700,700i%7CJetBrains+Mono:400,400i,700,700i&amp;display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../_static/extra.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_scope.pathname.endsWith("/")||(__md_scope=new URL(__md_scope.pathname+"/",location)),__md_hash=e=>[...e].reduce(((e,t)=>(e<<5)-e+t.charCodeAt(0)),0),__md_get=(e,t=localStorage,_=__md_scope)=>JSON.parse(t.getItem(_.pathname+"."+e)),__md_set=(e,t,_=localStorage,a=__md_scope)=>{try{_.setItem(a.pathname+"."+e,JSON.stringify(t))}catch(e){}},document.documentElement.setAttribute("data-platform",navigator.platform)</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer" aria-hidden="true"></label>
+    <div data-md-component="skip">
+      <a href="#__skip" class="md-skip">
+        Skip to content
+      </a>
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="ADA - Advanced Design &amp; Analysis" class="md-header__button md-logo" aria-label="ADA - Advanced Design & Analysis" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-book-open" viewBox="0 0 24 24"><path d="M12 5v16M20.001 19A2 2 0 0 0 22 17V5a2 2 0 0 0-1.999-2L16 3.002A5 5 0 0 0 12 5a5 5 0 0 0-4-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 1.999 2H8a5 5 0 0 1 4 2 5 5 0 0 1 4-2z"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer" aria-label="Navigation">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-menu" viewBox="0 0 24 24"><path d="M4 5h16M4 12h16M4 19h16"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            ADA - Advanced Design & Analysis
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              A viewer without three.js
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-moon" viewBox="0 0 24 24"><path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search" aria-label="Search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-search" viewBox="0 0 24 24"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog" aria-label="Search">
+  <button type="button" class="md-search__button">
+    Search
+  </button>
+</div>
+      
+    
+    <div class="md-header__source">
+      
+        <a href="https://github.com/Krande/adapy" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    Krande/adapy
+  </div>
+</a>
+      
+    </div>
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="ADA - Advanced Design &amp; Analysis" class="md-nav__button md-logo" aria-label="ADA - Advanced Design & Analysis" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-book-open" viewBox="0 0 24 24"><path d="M12 5v16M20.001 19A2 2 0 0 0 22 17V5a2 2 0 0 0-1.999-2L16 3.002A5 5 0 0 0 12 5a5 5 0 0 0-4-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 1.999 2H8a5 5 0 0 1 4 2 5 5 0 0 1 4-2z"/></svg>
+
+    </a>
+    ADA - Advanced Design & Analysis
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/Krande/adapy" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    Krande/adapy
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Home
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Features
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_2">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Features
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../ada_studio/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Ada Studio
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../procedural_modelling/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Procedural modelling
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../dexpi/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  From P&amp;ID to 3D model
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../path_to_software_agnosticism/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Path to Software Agnosticism
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../meshing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Build mesh recipes, not meshes
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../drawings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Drawings
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Command line interface
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Primitives
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_3">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Primitives
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/design/primitives/box/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Box
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/design/primitives/sphere/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Sphere
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/design/primitives/cylinder/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Cylinder
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/design/primitives/cone/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Cone
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/design/primitives/extrusion/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Extrusion
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/design/primitives/revolve/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Revolution
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/design/primitives/sweeps/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Sweeps
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/design/primitives/beams/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Beams
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/design/primitives/plates/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Plates
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/design/primitives/pipe/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Pipe
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Modelling
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_4">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Modelling
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/design/boolean_operations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Boolean Operations
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/design/parts_and_assemblies/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Parts and Assemblies
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/design/placement/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Placement of parts and objects
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/design/sections/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Sections in ADA
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  FEA
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_5">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  FEA
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../fea/software/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  FEA Software
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../fea/verification/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  FEA Verification Report
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" checked>
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Architecture
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6" id="__nav_6_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="true">
+            <label class="md-nav__title" for="__nav_6">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Architecture
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../core_model/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Core object model
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../topology_engine/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Topology engine
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../geometry_and_visualisation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Geometry &amp; visualisation
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../interop/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Interoperability
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../fea/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  FEA
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../platform/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Viewer platform
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../frontend/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Frontend
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  A viewer without three.js
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="././" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  A viewer without three.js
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#why-it-is-a-second-viewport-not-a-switch" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Why it is a second viewport, not a switch
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-first-slice" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        The first slice
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="The first slice">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#keeping-the-chunk-free-of-threejs" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Keeping the chunk free of three.js
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#fea-results-on-both-viewports" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        FEA results on both viewports
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#overlays-on-both-viewports" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Overlays on both viewports
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-a-model-says-beside-its-geometry" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        What a model says beside its geometry
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#box-selection-on-both-viewports" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Box selection on both viewports
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#undo-and-redo-on-both-viewports" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Undo and redo on both viewports
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#layers-that-change-over-time-and-one-clock" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Layers that change over time, and one clock
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#appearance-on-every-renderer" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Appearance on every renderer
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Appearance on every renderer">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-was-different-and-why" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        What was different, and why
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-a-result-colour-is-now" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        What a result colour is now
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-settings" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        The settings
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#colours-given-to-objects" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Colours given to objects
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-the-next-slices-have-to-settle" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        What the next slices have to settle
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../docs_pipeline/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Docs pipeline
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Code
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_7">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Code
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../code/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Code Documentation
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Profiling
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_8">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Profiling
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../profiling/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Profiling Dashboard
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  
+                    
+                    
+                    
+                      
+                    
+                    
+                      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+                      <div class="md-sidebar-button__wrapper">
+                        <label class="md-sidebar-button" for="__toc"></label>
+                      </div>
+                    
+                  
+                  <div class="md-sidebar__inner">
+                    
+
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#why-it-is-a-second-viewport-not-a-switch" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Why it is a second viewport, not a switch
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-first-slice" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        The first slice
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="The first slice">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#keeping-the-chunk-free-of-threejs" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Keeping the chunk free of three.js
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#fea-results-on-both-viewports" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        FEA results on both viewports
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#overlays-on-both-viewports" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Overlays on both viewports
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-a-model-says-beside-its-geometry" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        What a model says beside its geometry
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#box-selection-on-both-viewports" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Box selection on both viewports
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#undo-and-redo-on-both-viewports" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Undo and redo on both viewports
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#layers-that-change-over-time-and-one-clock" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Layers that change over time, and one clock
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#appearance-on-every-renderer" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Appearance on every renderer
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Appearance on every renderer">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-was-different-and-why" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        What was different, and why
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-a-result-colour-is-now" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        What a result colour is now
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-settings" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        The settings
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#colours-given-to-objects" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Colours given to objects
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-the-next-slices-have-to-settle" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        What the next slices have to settle
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                <a id="__skip" tabindex="-1"></a>
+                
+                  
+
+  
+    <a href="https://github.com/Krande/adapy/edit/main/docs/architecture/threejs_free_viewport.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-file-pen" viewBox="0 0 24 24"><path d="M12.659 22H18a2 2 0 0 0 2-2V8a2.4 2.4 0 0 0-.706-1.706l-3.588-3.588A2.4 2.4 0 0 0 14 2H6a2 2 0 0 0-2 2v9.34"/><path d="M14 2v5a1 1 0 0 0 1 1h5M10.378 12.622a1 1 0 0 1 3 3.003L8.36 20.637a2 2 0 0 1-.854.506l-2.867.837a.5.5 0 0 1-.62-.62l.836-2.869a2 2 0 0 1 .506-.853z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="a-viewer-without-threejs">A viewer without three.js<a class="headerlink" href="#a-viewer-without-threejs" title="Permanent link">&para;</a></h1>
+<p>The browser viewer draws through one of three paths, chosen in Options &gt; Performance &gt; Renderer or
+with <code>?renderer=</code> in the URL:</p>
+<table>
+<thead>
+<tr>
+<th>Choice</th>
+<th><code>?renderer=</code></th>
+<th>What draws</th>
+<th>What three.js still does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>three.js (WebGL)</td>
+<td><code>three</code></td>
+<td><code>THREE.WebGLRenderer</code></td>
+<td>everything</td>
+</tr>
+<tr>
+<td>adacpp WebGPU</td>
+<td><code>adacpp</code></td>
+<td>adacpp's WebGPU renderer (<code>adacpp_render.wasm</code>)</td>
+<td>scene graph, loading, controls; optionally labels, point picking and capture (see below)</td>
+</tr>
+<tr>
+<td>adacpp WebGPU, no three.js</td>
+<td><code>native</code></td>
+<td>adacpp's WebGPU renderer</td>
+<td>nothing in the viewport's own chunk</td>
+</tr>
+</tbody>
+</table>
+<p>This page is about the third. It records why it is a separate viewport, what the first slice
+contains, and what each later slice has to settle. The code is <code>src/frontend/src/viewport/native</code>.</p>
+<h2 id="why-it-is-a-second-viewport-not-a-switch">Why it is a second viewport, not a switch<a class="headerlink" href="#why-it-is-a-second-viewport-not-a-switch" title="Permanent link">&para;</a></h2>
+<p>About 160 non-test modules under <code>src/frontend/src</code> import three.js, and only about two dozen of
+them touch the <code>WebGLRenderer</code>. The rest use three.js as the <strong>data model</strong>: <code>CustomBatchedMesh</code>
+holds a model's merged buffers and draw ranges, stores hold <code>THREE.Object3D</code>s and <code>THREE.Plane</code>s,
+and the scene helpers add meshes, lines and sprites to one <code>THREE.Scene</code>. The adacpp WebGPU path
+keeps all of that and mirrors the scene into the renderer each frame (<code>viewport/adacpp/sceneSync.ts</code>).</p>
+<p>So there are two different questions:</p>
+<ul>
+<li><strong>Can the picture be made without WebGL?</strong> Yes, with the existing data model. That is the
+  <code>adacpp</code> choice with its hand-over switches: labels, point picking and capture move to adacpp one
+  at a time, and "WebGPU only" constructs no <code>WebGLRenderer</code> at all (<code>viewport/nullRenderer.ts</code>).
+  three.js is still loaded and still owns the scene.</li>
+<li><strong>Can the viewer run without three.js?</strong> Only with another data model. No set of switches gets
+  there, because every feature is written against <code>THREE.Scene</code>. That is what <code>native</code> explores.</li>
+</ul>
+<h2 id="the-first-slice">The first slice<a class="headerlink" href="#the-first-slice" title="Permanent link">&para;</a></h2>
+<p><code>NativeViewport</code> is mounted by <code>CanvasWrapper</code> <strong>instead of</strong> <code>ThreeCanvas</code> and the scene
+controllers. It is loaded lazily, and its chunk imports no three.js.</p>
+<div class="ada-diagram">flowchart LR
+    LOAD["loadModel()&lt;br/&gt;storage / bytes / url"] --&gt;|GLB bytes| STORE["nativeModel.ts&lt;br/&gt;zustand store"]
+    STORE --&gt; VIEW["NativeViewport.tsx&lt;br/&gt;object list, hide / show"]
+    VIEW --&gt; SCENE["nativeScene.ts&lt;br/&gt;NativeScene"]
+    SCENE --&gt;|loadGlb, setSegmentStates, pick, camera*| R["adacpp WebRenderer&lt;br/&gt;(wasm, WebGPU)"]
+    R --&gt;|objects, segment -&gt; object| SCENE
+    INPUT["viewport input surface"] --&gt; SCENE</div>
+<table>
+<thead>
+<tr>
+<th>Part</th>
+<th>How the slice does it</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Loading</td>
+<td><code>loadModel</code> resolves the source as it always does, then hands the GLB <strong>bytes</strong> to the store instead of calling <code>GLTFLoader</code>. <code>NativeScene.load</code> passes them to the renderer's own reader (<code>WebRendererApi.loadGlb</code>), the one the offscreen posters and the WebGPU embed use.</td>
+</tr>
+<tr>
+<td>Scene model</td>
+<td>None on the JavaScript side. The reader merges primitives per topology and material and keeps each adapy draw range as a <strong>segment</strong>, and <code>loadGlb</code> returns the model's objects (id, name, parent, bounds, triangle count) and which object each segment draws.</td>
+</tr>
+<tr>
+<td>Several models</td>
+<td>The scene holds any number of models. An object is known by one key made of its model's key and its id (<code>objectKey</code>), so two models may use the same ids. A load asked for as an addition joins the others, leaves the camera where it is and adds a root to the Scene tree; unloading a source removes that model's geometry (<code>ViewportApi.unloadSource</code>).</td>
+</tr>
+<tr>
+<td>Per-object state</td>
+<td>Two sets, selected and hidden, written to the renderer as segment state (<code>setSegmentStates</code>). Hidden wins over selected.</td>
+</tr>
+<tr>
+<td>Camera and input</td>
+<td>The renderer's own camera (<code>setCameraControlled</code>). The viewport maps input from the viewport's input surface (<code>viewport/input.ts</code>, the same element the three.js controls use) to semantic operations: orbit, pan, zoom, zoom towards the cursor, fit to a box, look from a direction. Fit and the named views move there over a short time, and a drag glides to a stop when the camera settings say so.</td>
+</tr>
+<tr>
+<td>Picking</td>
+<td><code>WebRendererApi.pick</code> at the pointer, mapped through the reader's segment table to an object id.</td>
+</tr>
+<tr>
+<td>Tree and object info</td>
+<td>The viewer's own Scene tree and object info. The viewport announces the model it loaded and what a click picked (<code>onModelLoaded</code>, <code>onViewportPick</code>); the panels' side (<code>sceneHelpers/viewportPanelBridge.ts</code>) builds the tree from the GLB's scene extras and names the picked object. A tree row and a viewport object are the same thing by <code>ObjectRef</code>: the model's key and the object's id in it.</td>
+</tr>
+<tr>
+<td>FEA results</td>
+<td>Drawn through <strong>result layers</strong> (see below): the mesh from the bake's GLB as typed arrays, a nodal field as per-vertex colours, the deformed shape as a morph whose influence is the deformation scale. The Simulation panel, the result commands and the colour legend are the viewer's own.</td>
+</tr>
+<tr>
+<td>Screenshots and the orientation gizmo</td>
+<td><code>saveScreenshot</code> draws the view at the screenshot's size and saves the canvas' picture. The world's axes in the corner are an SVG drawn from the camera's pose (<code>NativeOrientationGizmo.tsx</code>); an axis end looks at the model from there.</td>
+</tr>
+<tr>
+<td>Failure</td>
+<td>If WebGPU or the module cannot start, or the device is lost, the state becomes <code>failed</code> with the reason, <code>CanvasWrapper</code> mounts the three.js viewport, and the model that was handed over is loaded there. The Performance panel shows the reason.</td>
+</tr>
+</tbody>
+</table>
+<p>What the main viewer does beyond this is listed in the viewport itself under "Not available in
+this mode", so nothing looks broken by omission.</p>
+<p>React reads the selection through <code>viewport/api/useViewportSelection.ts</code> (its count, the selected
+objects, a token that changes with it), so a panel written against it follows whichever viewport is
+on screen.</p>
+<h3 id="keeping-the-chunk-free-of-threejs">Keeping the chunk free of three.js<a class="headerlink" href="#keeping-the-chunk-free-of-threejs" title="Permanent link">&para;</a></h3>
+<p><code>src/__tests__/viewport/nativeViewportImports.test.ts</code> walks the import graph from
+<code>NativeViewport.tsx</code> (static imports, re-exports and <code>import()</code>; type-only imports are erased by
+the build and do not count) and fails on the first import of <code>three</code>, printing the chain that
+leads to it. Shared code the chunk needs was moved out of modules that import three.js rather than
+duplicated: starting the renderer lives in <code>viewport/adacpp/rendererModule.ts</code>, used by both WebGPU
+viewports.</p>
+<p>The end-to-end test <code>tests/full/frontend/test_render_backends.py</code> runs the slice in Chromium
+(load, pick, select, hide, show all) and asserts that the page created no WebGL context.</p>
+<h2 id="fea-results-on-both-viewports">FEA results on both viewports<a class="headerlink" href="#fea-results-on-both-viewports" title="Permanent link">&para;</a></h2>
+<p>A shown result is three things, and only the last differs between the viewports:</p>
+<div class="ada-diagram">flowchart LR
+    BAKE["bake&lt;br/&gt;mesh GLB, field blobs"] --&gt; PAINT["nodalFieldPaint.ts&lt;br/&gt;values -&gt; colours, displacement&lt;br/&gt;(typed arrays)"]
+    PAINT --&gt; LAYER["ResultMeshLayer&lt;br/&gt;setColors / setDisplacement / setInfluence"]
+    STORE["feaAnimationStore&lt;br/&gt;step, factor, scale, playing"] --&gt; DRIVER["feaAnimationDriver.ts&lt;br/&gt;playbackActions.ts"]
+    DRIVER --&gt;|influence per frame| LAYER
+    LAYER --&gt; T["three.js&lt;br/&gt;colour attribute, morph target 0,&lt;br/&gt;morphTargetInfluences[0]"]
+    LAYER --&gt; N["adacpp renderer&lt;br/&gt;updateColors, updateMorph,&lt;br/&gt;setInstance(morphInfluence)"]</div>
+<table>
+<thead>
+<tr>
+<th>Part</th>
+<th>Where</th>
+<th>What it is</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>The numbers</td>
+<td><code>utils/scene/fea/nodalFieldPaint.ts</code></td>
+<td>One step of a nodal field as two typed arrays: RGB per node from the colour map and the range (the field's, the measured one, pinned ends, bands), and the un-scaled displacement per node. One pass, no allocation.</td>
+</tr>
+<tr>
+<td>What a viewport draws</td>
+<td><code>viewport/api/resultLayer.ts</code></td>
+<td><code>ResultMeshLayer</code>: colours, displacement, and the <strong>influence</strong> (the drawn shape is <code>base + influence * displacement</code>), and a plain colour for while the painted ones are not shown. <code>ViewportApi.results.createResultMesh</code> makes one from positions and indices.</td>
+</tr>
+<tr>
+<td>three.js</td>
+<td><code>utils/scene/fea/threeResultLayer.ts</code></td>
+<td>The layer over a mesh: the streaming loader's result mesh is wrapped (<code>threeResultLayer</code>), so its selection, overlays and beam sections are as before.</td>
+</tr>
+<tr>
+<td>adacpp renderer</td>
+<td><code>viewport/native/nativeResultLayer.ts</code></td>
+<td>One geometry with colours and a morph, one instance. Colours and displacement are written into buffers kept on the module heap, so a step allocates nothing.</td>
+</tr>
+<tr>
+<td>Playing</td>
+<td><code>feaAnimationDriver.ts</code>, <code>playbackActions.ts</code>, <code>resultInfluence.ts</code></td>
+<td>The oscillator and the transport write one number per frame to the layer in <code>feaAnimationStore.resultLayer</code>. No vertex data moves while a mode shape plays.</td>
+</tr>
+<tr>
+<td>Controls and legend</td>
+<td><code>utils/scene/fea/streaming/resultStores.ts</code></td>
+<td>A painted result is registered the same way from either loader: the session, the step count, the derived deformation scale, the legend's range.</td>
+</tr>
+<tr>
+<td>The loader without a scene</td>
+<td><code>utils/scene/fea/streaming/layerSession.ts</code></td>
+<td>Reads the mesh GLB as typed arrays (<code>utils/glb/glbMesh.ts</code>), draws faces and element edges as layers, paints a nodal or an element field, registers the step callback. <code>load_fea_streaming</code> hands a load to it while the three.js-free viewport is on screen.</td>
+</tr>
+<tr>
+<td>Element fields</td>
+<td><code>utils/scene/fea/elemFieldPaint.ts</code></td>
+<td>One step of an element (integration point) field as typed arrays: a colour per render vertex, the displacement per node, the result-point markers, the coloured lines of line elements, and each element's painted value. An element's colour is its own, so the mesh it is painted on is element-local (a vertex per triangle corner). <code>applyElemField.ts</code> writes the same output to the three.js mesh.</td>
+</tr>
+<tr>
+<td>Elements as objects</td>
+<td><code>viewport/api/resultLayer.ts</code> (<code>ResultMeshObjects</code>), <code>viewport/native/resultObjects.ts</code></td>
+<td>A result mesh says which objects it is made of: a model key, its object ids, and the part of the index list each draws. The three.js-free scene makes them the renderer's segments and registers the model beside the loaded ones, so pick, select, hide, show, isolate and fit go through <code>ViewportApi</code> as for any model, and <code>onModelLoaded</code> carries the hierarchy the Scene tree lists. The selection is a per-segment colour, so the other elements keep their result colours.</td>
+</tr>
+<tr>
+<td>Beam sections</td>
+<td><code>utils/scene/fea/streaming/layerBeamSolids.ts</code></td>
+<td>The beam solids of a bake as typed arrays, from the compact artefact (expanded by the compute capability) or the mesh GLB with its sidecars. Drawn as one more layer when asked for; each section is the object its element is.</td>
+</tr>
+<tr>
+<td>What a layer can be</td>
+<td><code>viewport/api/resultLayer.ts</code></td>
+<td>Triangles, lines or points, with a width or diameter in pixels and an opacity: result points are a layer of points, the coloured lines of line elements and the undeformed outline are layers of lines. <code>streaming/layerGroup.ts</code> holds a result's layers as one for the controls and the playback driver.</td>
+</tr>
+<tr>
+<td>Number labels</td>
+<td><code>utils/scene/fea/labelPlacement.ts</code>, <code>layout/NumberLabels.tsx</code></td>
+<td>What is worth a label and where it goes, from a <code>LabelSource</code> (elements, their vertices, where each vertex is now) and a projector. <code>ViewportApi.projectToScreen</code> projects a batch of world points to CSS pixels and depth, and <code>onCameraChange</code> says when to do it again; the three.js mesh (<code>numberLabels.ts</code>) and the layer session are the two sources.</td>
+</tr>
+</tbody>
+</table>
+<p>| Edges of beam sections | <code>utils/scene/fea/beamSolidFeatureEdges.ts</code>, <code>streaming/layerSession.ts</code> | The corners of each section and the outline of each end, worked out from the beam solids' arrays (in a worker where one can be started) and drawn as a layer of lines over the sections' own vertices: they take the sections' displacement, and a hidden beam's are left out. "Solid edges" shows and hides them. |
+| Sets and properties | <code>utils/scene/fea/streaming/manifestStores.ts</code>, <code>utils/scene/fea/layerIsolation.ts</code> | The manifest's sets, dummy-mass beams and FEA input concepts go into the stores the three.js loader fills, so the Scene tree lists "Sets" and "Properties" for either. A set is a list of element ids, and the elements are the viewport's objects: isolating, hiding and showing a set go through <code>ViewportApi</code> (<code>isolate</code>, <code>hide</code>, <code>show</code> take any iterable of refs, read once, so a set of thousands is one reused ref). "Show the rest as wireframe" keeps the edges of the hidden elements, and of the hidden beam sections, in the edge colour they have, as on the three.js viewport. The scene actions pick this module or the three.js one (<code>feaIsolation.ts</code>) by how the result is drawn. |
+| Beams drawn as lines | <code>utils/scene/fea/streaming/layerLines.ts</code> | The coloured lines of line elements are objects of the viewport too: each line is a segment of its layer and the object its element is, so hiding, showing, isolating and selecting an element reach a beam that only a line draws, and an isolation in force is applied again when a field first colours them. The lines of the dummy-mass beams are never drawn, as on the three.js viewport: such a line runs to the mass, where the element is not. |
+| Recorded frames | <code>utils/scene/fea/streaming/layerFrames.ts</code>, <code>framesKey.ts</code> | A frame a play has painted is kept as plain data (the displacement per node, the colours of the faces and of the beam sections as bytes, the colours and displacement of the result points and of the coloured lines) under the key the three.js recorder uses, and written to the layers on the next pass without reading or painting the step. Where the points and lines are is kept once: a frame that has them elsewhere (a value that is not a number leaves its point out) is painted again instead. Out of the step cache's budget, as there. |
+| A plugin's view of the result | <code>utils/scene/fea/deformationGate.ts</code>, <code>unpaintedColor.ts</code> | Who holds the result undeformed (<code>setFeaDeformationShown</code>) and who asked for which colour of the unpainted model (<code>setFeaUnpaintedColor</code>) is kept once, without three.js. The gate has the last word before each frame of either viewport: on the three.js one it writes the meshes' morph influence (<code>threeDeformationGate.ts</code>), on a result drawn through layers the influence of every layer, 0 while held and the user's own when let go. The colour goes to the base material of the three.js meshes (<code>threeUnpaintedColor.ts</code>), or to the plain colour of the face and beam-section layers, which shows while nothing paints them and is given back when no one asks. |</p>
+<p>| A click on a line | <code>utils/scene/fea/streaming/layerLinePick.ts</code>, <code>viewport/api/objectAt.ts</code> | The renderer picks triangles, so a beam drawn only as a line is found on the screen: the lines are plain data, projected through the viewport, and the one within a few pixels of the cursor is the click's when it is in front of the surface the renderer's own pick found (with the allowance the three.js viewport gives a stiffener lying on its plate). The viewport asks whoever registered a finder after its own pick. |
+| Fading the grid | <code>utils/scene/fea/edgeFade.ts</code> | "Fade edges when zoomed out": how opaque the element grid is drawn, from how far apart its edges are on screen where the user is looking. The three.js viewport sets its line material's opacity before each frame; the layer session sets the opacity of its grid layer (<code>ResultMeshLayer.setOpacity</code>), and of the beam sections' edges with it, when the camera or the setting changes. |</p>
+<p>Both viewports paint with the same kernels, and the layer session does what the three.js
+viewport's own loader does.</p>
+<p>The "FEM groups" picker of the Scene panel is on both: a set's members are element ids, which are
+the result's objects, and <code>utils/groups/selectGroup.ts</code> selects them through
+<code>ViewportApi.setSelection</code> (one reused ref for the whole set). For a GLB the groups come from its
+<code>ADA_EXT_data</code> extension, which the three.js-free viewport announces as JSON text with the model
+(<code>utils/groups/extensionGroups.ts</code> lists them), and the members are object names the model's
+hierarchy resolves to ids.</p>
+<h2 id="overlays-on-both-viewports">Overlays on both viewports<a class="headerlink" href="#overlays-on-both-viewports" title="Permanent link">&para;</a></h2>
+<p>What a feature draws over the model without it being part of the model is plain data handed to
+the viewport on screen, by handle:</p>
+<div class="ada-diagram">flowchart LR
+    PLUGIN["plugin&lt;br/&gt;ctx.scene.addLines, addLabels,&lt;br/&gt;addElementOutlines, paintFeaElements"] --&gt; VERBS["plugins/sceneOverlays.ts&lt;br/&gt;colours, frames, owners"]
+    VERBS --&gt;|segments, points| OL["ViewportApi.overlays(name)&lt;br/&gt;OverlayLayer"]
+    VERBS --&gt;|images| BB["ViewportApi.billboards(name)&lt;br/&gt;BillboardLayer"]
+    VERBS --&gt;|elements, positions now| TARGET["elementSource.ts&lt;br/&gt;activeFeaTarget()"]
+    TARGET --&gt; MESH["meshOverlayTarget.ts&lt;br/&gt;the three.js result mesh"]
+    TARGET --&gt; LAYERS["layerOverlayTarget.ts&lt;br/&gt;the layer session"]
+    TICK["beforeDraw.ts&lt;br/&gt;once per frame"] --&gt; VERBS</div>
+<table>
+<thead>
+<tr>
+<th>Part</th>
+<th>Where</th>
+<th>What it is</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Lines and points</td>
+<td><code>viewport/api/overlayLayer.ts</code></td>
+<td><code>OverlayLayer</code>: line segments or points in the world (or in a frame given as a matrix), one colour or a colour each, a width or a size in pixels, dashes, over the model or depth-tested, cut by the section planes or not. <code>addLines</code> / <code>addPoints</code> return a handle; <code>setPositions</code> moves what it draws.</td>
+</tr>
+<tr>
+<td>three.js</td>
+<td><code>viewport/api/threeOverlays.ts</code></td>
+<td>Wide lines (<code>LineSegments2</code>) and points in the scene, as plugin lines were always drawn; the adacpp WebGPU viewport mirrors them.</td>
+</tr>
+<tr>
+<td>adacpp renderer</td>
+<td><code>viewport/native/nativeOverlays.ts</code></td>
+<td>A geometry of the renderer per overlay, through the scene's result layers with the look of an annotation (<code>ResultMeshData.overlay</code>: unlit, never picked, over the model or just in front of the faces it lies on). A move is written as the geometry's morph, and what is drawn is made again after a load emptied the scene.</td>
+</tr>
+<tr>
+<td>Labels</td>
+<td><code>viewport/api/billboards.ts</code></td>
+<td>A plugin's labels are billboards of constant size on screen, cut by the section planes at their anchor (<code>clipped</code>), their image sampled without mipmaps (<code>crisp</code>).</td>
+</tr>
+<tr>
+<td>The result under them</td>
+<td><code>utils/scene/fea/elementSource.ts</code></td>
+<td><code>activeFeaTarget()</code>: the FEA result on screen as <code>ElementGeometry</code> (each element's range of the index list, a vertex where it is drawn now, a version that changes when that may have, where the mesh stands), and the element-level verbs only the result can do (paint, hide, isolate). Two results register themselves: the three.js loader's mesh and the layer session.</td>
+</tr>
+<tr>
+<td>Following the result</td>
+<td><code>viewport/api/beforeDraw.ts</code></td>
+<td>Each viewport's frame loop runs the listeners before it draws. An outline or a pinned label compares the geometry's version and writes new positions only when it changed.</td>
+</tr>
+<tr>
+<td>Painted elements</td>
+<td><code>meshOverlayTarget.ts</code>, <code>streaming/layerOverlayTarget.ts</code></td>
+<td>On the three.js mesh, a copy of its triangles with the mesh's morph and its influences (as before). On the layer session, the painted elements' triangles as one more result layer, a vertex per corner, pinned to the session so each step's displacement and the deformation scale reach it.</td>
+</tr>
+</tbody>
+</table>
+<p>The plugin-facing verbs are unchanged. What differs between the viewports: on the three.js-free
+one, lines drawn over the model are not ordered among themselves by when they were added, dashes
+are measured once (not again after the line moved), and hiding elements through a plugin clears
+the selection as any hide does there. An overlay is drawn by the viewport that was on screen when
+it was added; it is not carried over when the other viewport takes its place.</p>
+<h2 id="what-a-model-says-beside-its-geometry">What a model says beside its geometry<a class="headerlink" href="#what-a-model-says-beside-its-geometry" title="Permanent link">&para;</a></h2>
+<p>A model's <code>ADA_EXT_data</code> extension carries what is not geometry: the concepts of an analysis model
+(masses, supports, constraints, load scenarios, placed equipment) and what links a design model to
+the analysis models made from it. Both are read and shown without a scene object.</p>
+<table>
+<thead>
+<tr>
+<th>Part</th>
+<th>Where</th>
+<th>What it is</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>The extension</td>
+<td><code>state/sourceExtensions.ts</code>, <code>sceneHelpers/viewportPanelBridge.ts</code></td>
+<td>The three.js loader keeps a model's extension on its scene group. The three.js-free viewport announces the text with the model, and it is parsed once and kept by source name. A streamed result has no extension: its manifest fills the same stores.</td>
+</tr>
+<tr>
+<td>The glyphs</td>
+<td><code>utils/fem/conceptGlyphs.ts</code></td>
+<td>Plain data from the concepts that are switched on: triangles (spheres, diamonds, boxes, arrow heads) with a colour per vertex and line segments, grouped by how they are drawn (over the model, or behind what is in front of them), and a table of what a click can hit.</td>
+</tr>
+<tr>
+<td>Drawing them</td>
+<td><code>components/viewer/FemConceptsController.tsx</code>, <code>viewport/api/overlayLayer.ts</code></td>
+<td>One controller follows the viewport on screen and draws the glyphs as its overlay: <code>addMesh</code> (unlit triangles) beside the lines and points an overlay already had. three.js draws a mesh, the adacpp renderer a result layer in the look of an annotation.</td>
+</tr>
+<tr>
+<td>Clicking them</td>
+<td><code>utils/fem/conceptPicking.ts</code></td>
+<td>A click is resolved on the screen against the pick table, through <code>ViewportApi.projectToScreen</code>: a ball by its projected radius, a line by its distance in pixels, a box by the faces it shows, with the depth under the cursor. Each viewport asks before it picks an object (the three.js click handler; <code>NativeScene.clickFirst</code>). A point glyph wins outright; an equipment box only when it is nearer than the surface under the cursor.</td>
+</tr>
+<tr>
+<td>The link</td>
+<td><code>state/lineageStore.ts</code>, <code>utils/lineage/registerLineageFromExtension.ts</code>, <code>utils/glb/glbBufferView.ts</code></td>
+<td>Which design object an element was meshed from, and back, keyed by the design's id. Registered from the extension by either viewport; the ids of a large group are in a buffer view, which the three.js loader's parser or a small GLB reader hands over. A result drawn through result layers registers from its manifest.</td>
+</tr>
+<tr>
+<td>Following it</td>
+<td><code>utils/scene/crossModelSelect.ts</code></td>
+<td>"Select in CAD" and "Select FEA elements" find the other model by its root row of the Scene tree, resolve the names against that model's hierarchy and make the objects the viewport's selection. The three.js viewport keeps its own path over its scene objects.</td>
+</tr>
+</tbody>
+</table>
+<p>A click names the file of the model that was picked (<code>utils/tree_view/modelSource.ts</code>, by the
+model's root row of the Scene tree), on either viewport, so a link is offered for an object of any
+loaded model and not only of the one loaded last.</p>
+<h2 id="box-selection-on-both-viewports">Box selection on both viewports<a class="headerlink" href="#box-selection-on-both-viewports" title="Permanent link">&para;</a></h2>
+<p>A selection box is plain data, and so are its rules; only "which objects are in it" is the
+viewport's to answer.</p>
+<div class="ada-diagram">flowchart LR
+    STORE["bboxSelectionStore&lt;br/&gt;boxes, the active one"] --&gt; APPLY["applyBoxSelection.ts&lt;br/&gt;box around the selection,&lt;br/&gt;apply a box, screen rectangle"]
+    APPLY --&gt;|objectsInBox, objectsInScreenRect,&lt;br/&gt;selectionBounds, setSelection| API["ViewportApi"]
+    API --&gt; T["three.js&lt;br/&gt;triangles and cached range bounds"]
+    API --&gt; N["NativeScene&lt;br/&gt;each object's box"]
+    STORE --&gt; TC["BBoxSelectionController&lt;br/&gt;meshes, TransformControls"]
+    STORE --&gt; NC["native/boxSelectionGizmo.ts&lt;br/&gt;helper lines and faces, SVG handles"]</div>
+<table>
+<thead>
+<tr>
+<th>Part</th>
+<th>Where</th>
+<th>What it is</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>The boxes</td>
+<td><code>state/bboxSelectionStore.ts</code></td>
+<td>Bounds, mode ("partially within", "fully within"), colour, opacity, visibility, and which box is the active one. No three.js. A change to the boxes records itself as an undo step, as a change to the section planes does.</td>
+</tr>
+<tr>
+<td>The rules</td>
+<td><code>utils/bboxSelection/boxMath.ts</code>, <code>screenRect.ts</code>, <code>boxHandles.ts</code></td>
+<td>A box against a box or a triangle; a rectangle on the screen against a box's picture (a window takes what is wholly inside, a crossing what touches); a box's edges, faces and handles, and the pointer's place along a handle's axis. Plain numbers, unit-tested.</td>
+</tr>
+<tr>
+<td>What a viewport answers</td>
+<td><code>viewport/api/boxSelection.ts</code></td>
+<td><code>objectsInBox(box, mode)</code>, <code>objectsInScreenRect(rect, mode)</code> and <code>selectionBounds()</code>, all members of <code>ViewportApi</code>. The first two return an <code>ObjectSet</code>: iterable as object refs (one ref reused), and taken back by the same viewport's <code>setSelection</code> without a lookup per object. Hidden objects and ones a section plane cuts away whole are never in an answer.</td>
+</tr>
+<tr>
+<td>Applying</td>
+<td><code>utils/bboxSelection/applyBoxSelection.ts</code></td>
+<td>A box around the selection, the selection a box makes, the selection a screen rectangle adds, and "the active box's selection follows its bounds and mode". Used by the commands (<code>Box around selection</code>, <code>Selection box takes only what is fully within</code>, <code>Reselect with selection box</code>, <code>Remove selection boxes</code>), the Scene panel, the tree's menu and both viewports' controllers.</td>
+</tr>
+<tr>
+<td>three.js</td>
+<td><code>utils/bboxSelection/threeBoxSelection.ts</code>, <code>BBoxSelectionController.tsx</code></td>
+<td>As before the interface: an object on a box's boundary is decided on its triangles, one that straddles a screen rectangle on its vertices or triangles. Boxes are meshes, the handles spheres, the move gizmo <code>TransformControls</code>.</td>
+</tr>
+<tr>
+<td>adacpp renderer</td>
+<td><code>viewport/native/nativeBoxSelection.ts</code>, <code>boxSelectionGizmo.ts</code></td>
+<td>Decided on each object's box from the GLB reader. A box's edges are helper lines and its faces see-through triangles of the renderer; the face handles and the move arrows are an SVG placed from the camera after each frame, and a press is hit-tested against them before the camera sees it. Shift and a drag draws the rectangle; a right-click on a box opens its menu.</td>
+</tr>
+</tbody>
+</table>
+<p>Where the three.js-free viewport's answer is coarser, because it keeps no triangles on the
+JavaScript side:</p>
+<ul>
+<li><strong>Partially within a box.</strong> An object is taken when its box touches the selection box. The
+  three.js viewport looks at the triangles of an object on the boundary, so it leaves out a slanted
+  or L-shaped object whose box reaches in while the object itself does not. "Fully within" is the
+  same on both: an object is inside exactly when its box is.</li>
+<li><strong>A rectangle on the screen.</strong> A window takes an object when the picture of its box is wholly
+  inside, so it can miss a slanted object that is itself inside while its box's corner sticks out;
+  a crossing takes an object when the picture of its box touches, so it can take one that only its
+  box's corner reaches.</li>
+<li><strong>An object with children that draws something itself.</strong> The reader reports one box per object,
+  of the object and everything below it, so such an object is judged by the larger box.</li>
+</ul>
+<p>Two more things about boxes are the same on both viewports:</p>
+<ul>
+<li><strong>Kept across reloads.</strong> <code>utils/bboxSelection/boxPersistence.ts</code> keeps the boxes of a scope in the
+  browser, bound by whichever viewport draws them. A box is in world coordinates, and the two
+  viewports place a model differently: the three.js one recentres what it loads, the three.js-free
+  one draws a model where its file puts it. The offset in use is published as plain numbers
+  (<code>state/sceneFrameStore.ts</code>: mirrored from the three.js model state, zero on the three.js-free
+  viewport) and stored with the boxes, so a box moves by the difference and stays over the same
+  object, on a reload and from one viewport to the other.</li>
+<li><strong>"Request from source".</strong> What a box holds is asked of the viewport on screen (<code>objectsInBox</code>),
+  read as object refs and folded to whole levels of the Scene tree (<code>captureObjects</code> in
+  <code>utils/groups/groupScene.ts</code>); where each loaded model's own frame is in the world comes from the
+  viewport too (<code>sourceOrigin</code>). Finding candidates, the plan and the request are then the same code
+  for both. Putting what was requested into the scene (<code>boxSiteLoad.ts</code>) loads whole sites and hides
+  the rest by tree row. Holding a model invisible while it loads is the three.js loader's, so on the
+  three.js-free viewport a site would be drawn whole until the rest is hidden; that last step has
+  not been exercised there against a live source.</li>
+</ul>
+<h2 id="undo-and-redo-on-both-viewports">Undo and redo on both viewports<a class="headerlink" href="#undo-and-redo-on-both-viewports" title="Permanent link">&para;</a></h2>
+<p>One history (<code>state/viewerHistoryStore.ts</code>), filled by <code>recordViewerAction</code> in
+<code>utils/scene/viewerHistory.ts</code>, which imports no three.js. What is selected and what is hidden is
+the viewport's own, so the history asks the viewport on screen:</p>
+<div class="ada-diagram">flowchart LR
+    ACT["an action&lt;br/&gt;(command, key, click, drag)"] --&gt; REC["recordViewerAction(kind, fn)"]
+    REC --&gt;|"captureState({selection, visibility})"| API["ViewportApi"]
+    REC --&gt;|"fn()"| ACT2["the change"]
+    REC --&gt;|"stateChange(before)"| API
+    REC --&gt; ENTRY["entry&lt;br/&gt;before, after, store slices, object info"]
+    ENTRY --&gt;|"undo: restoreState(before)&lt;br/&gt;redo: restoreState(after)"| API
+    API --&gt; T["three.js&lt;br/&gt;hidden ranges per mesh, selection store"]
+    API --&gt; N["NativeScene&lt;br/&gt;selected and hidden key sets"]</div>
+<table>
+<thead>
+<tr>
+<th>Part</th>
+<th>Where</th>
+<th>What it is</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>The interface</td>
+<td><code>viewport/api/viewportState.ts</code></td>
+<td><code>captureState(what)</code> notes the state before an action, <code>stateChange(before)</code> says what the action changed (and gives the state after it on request), <code>restoreState(state)</code> goes to one end of a step. A state is opaque outside the viewport that made it. An action that cannot hide or show anything asks for the selection only, and the viewport then does not look at what is hidden.</td>
+</tr>
+<tr>
+<td>The history</td>
+<td><code>utils/scene/viewerHistory.ts</code></td>
+<td>One entry per user action: the two ends of the viewport's step, the store slices it was given (section planes, selection boxes, FEA isolation) and the object info's name. Nested actions are one entry, actions with the same coalesce key in quick succession (a drag) are one entry, and nothing records while an entry is applied. The section and box stores record through it directly.</td>
+</tr>
+<tr>
+<td>three.js</td>
+<td><code>utils/scene/threeViewportState.ts</code></td>
+<td>As before the interface: the hidden ranges per mesh are copied before an action that can hide, and the entry keeps the difference per model by its scene name; the selection is kept as element ids per model. Entries survive a model being removed and loaded again.</td>
+</tr>
+<tr>
+<td>adacpp renderer</td>
+<td><code>viewport/native/nativeViewportHistory.ts</code></td>
+<td>The selected keys as a copy, and the keys a step hid and showed. <code>setSelection</code>, <code>clearSelection</code>, <code>hide</code>, <code>show</code>, <code>isolate</code>, <code>showAll</code>, <code>hideSelected</code>, <code>hideOthers</code> and a click in the view are each one step. A key names a model and an object in it; keys of a model no longer on screen are skipped. A model's key is new with each load, so a state also notes the source of each model on screen: once a model has been removed and loaded again, its keys are read as the keys it has now.</td>
+</tr>
+<tr>
+<td>Models loaded and removed</td>
+<td><code>utils/scene/modelHistory.ts</code>, <code>utils/scene/modelViews.ts</code>, <code>viewport/api/sourceViews.ts</code></td>
+<td>One entry per change of the loaded models, on both viewports. Undo and redo load through the load queue and remove through the unload handler, which hand the model to the viewport on screen; no bytes are kept, only how to fetch the model again. What was hidden and selected in a removed model is kept with the entry by object id: read from the three.js scene, or asked of the three.js-free viewport, which also notes it for the models a replacing load is about to empty out.</td>
+</tr>
+<tr>
+<td>Keys and commands</td>
+<td><code>viewport/api/viewportShortcuts.ts</code>, <code>layout/coreCommands.ts</code></td>
+<td>Undo and Redo (Ctrl+Z, Ctrl+Y, Ctrl+Shift+Z) are bound by each viewport to the same history.</td>
+</tr>
+</tbody>
+</table>
+<p>A model that replaces the scene keeps the history on both viewports: the replaced model's removal
+and the new model's load are two entries, and the entries before them work again once an undo has
+brought the model back.</p>
+<h2 id="layers-that-change-over-time-and-one-clock">Layers that change over time, and one clock<a class="headerlink" href="#layers-that-change-over-time-and-one-clock" title="Permanent link">&para;</a></h2>
+<p>Replaying something recorded (a run of a machine, a simulation) is a model that moves and data
+drawn around it that is different at every moment: a map on the ground, a planned path, a range
+scan. None of that is specific to one kind of recording, and none of it is a viewport's own:</p>
+<div class="ada-diagram">flowchart LR
+    PLUGIN["plugin&lt;br/&gt;ctx.scene.addImage, addLineLayer, addPointLayer&lt;br/&gt;ctx.playback.addTrack"] --&gt; VERBS["plugins/sceneLayers.ts&lt;br/&gt;colours, the scene offset, owners"]
+    VERBS --&gt;|segments, points| OL["ViewportApi.overlays(name)&lt;br/&gt;setGeometry, setLook"]
+    VERBS --&gt;|pixels| IL["ViewportApi.images(name)&lt;br/&gt;ImageLayer"]
+    VERBS --&gt; REG["state/layerRegistry.ts&lt;br/&gt;rows of the Layers panel"]
+    CLOCK["state/playbackClock.ts&lt;br/&gt;duration, time, playing, speed"] --&gt;|"show(t)"| TRACKS["tracks"]
+    TRACKS --&gt; VERBS
+    TRACKS --&gt; ANIM["ViewportApi.modelAnimation()&lt;br/&gt;showTime(t)"]
+    FRAME["each viewport's frame loop&lt;br/&gt;tick(now)"] --&gt; CLOCK</div>
+<table>
+<thead>
+<tr>
+<th>Part</th>
+<th>Where</th>
+<th>What it is</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>The clock</td>
+<td><code>state/playbackClock.ts</code></td>
+<td>Duration, time, playing, speed, loop and "follow the end". Something timed registers a track (<code>{id, duration, show(t)}</code>) and is shown whenever the time changes. The clock has no timer: each viewport's frame loop calls <code>tick</code> (the three.js render loop, <code>NativeScene.beforeFrame</code>), and <code>tick</code> answers whether another frame is wanted, so the three.js-free viewport's loop is awake only while the clock plays. Paused, a frame pays one comparison. The duration is the longest track's; a shorter track holds its last moment. A track's duration may grow (a recording still being written), and following the end keeps the time there.</td>
+</tr>
+<tr>
+<td>A model's animation</td>
+<td><code>ViewportApi.modelAnimation()</code>, <code>state/modelAnimationTrack.ts</code></td>
+<td>The node animation of the models on screen as <code>{duration, showTime(t)}</code>, registered as a track of the clock when a model that has one is loaded and removed with the model. Every animation of every such model is shown at the same time, each no further than its own end. three.js: a mixer per model, rooted at the model, evaluated at the clock's time (<code>utils/scene/animations/nodeAnimation.ts</code>); the clip controls of the Simulation panel are as they were. adacpp renderer: a file that names animations is read with its moving nodes as instances of their own, and <code>NativeScene</code> asks the renderer to place them at a time (<code>setAnimationTime</code>). A file with one animation is one call per frame. The renderer poses a model from one animation at a time, so a file with several is asked for each in turn and a node is put where the animation that moves it has it; two animations that move the same node, or a node and its parent, are not combined. A moving part is picked, selected and hidden where it is drawn; its box (what a fit and a label go by) is the one the reader measured.</td>
+</tr>
+<tr>
+<td>A model placed from outside</td>
+<td><code>viewport/api/modelPose.ts</code>, <code>ViewportApi.modelNodes()</code></td>
+<td>A model whose parts are moved by something that is still happening (a run being followed), where a file's own animation only replays what was recorded. A caller holds a <code>ModelPose</code> for a model's name and a list of node names and gives it a matrix per node (the node's place in the model's own coordinates, column-major; zeros hide it); the pose outlives the model being loaded again and the viewport being switched, placing each new one as the last was. Each viewport answers <code>modelNodes</code> with its adapter. three.js (<code>threeModelPose.ts</code>): a node is the object of the loaded scene the file names, and placing it sets that object's matrix under the object that carries the file's coordinates. adacpp renderer (<code>native/nodePlacement.ts</code>, <code>NativeScene.modelNodes</code>): the renderer merges a file's nodes unless an animation moves them, so a model loaded as <code>posable</code> is given one that names every node and moves none (<code>utils/glb/glbPosable.ts</code>); a node is then the instances that draw it and what hangs on it, each kept where it is on the node, and where an instance was put at rest says where the file's coordinates are in the renderer's. Such a model's animations are not played. The plugin's verb is <code>scene.poseModel</code> (plugin API 1.20.0).</td>
+</tr>
+<tr>
+<td>Lines and points that change</td>
+<td><code>viewport/api/overlayLayer.ts</code></td>
+<td><code>setGeometry(handle, positions, count, colors)</code> replaces what a handle draws with another number of segments or points, and <code>setLook</code> changes its visibility, opacity, colour and matrix. three.js keeps the buffer while the new data fits and draws a range of it; a larger one is a new geometry and the old one is disposed, so nothing is left on the GPU. The adacpp renderer cannot change a geometry's vertex count: the data is written as the geometry's morph, the vertices beyond it are put on the last one drawn (a segment without length, a point under its twin), and only data that no longer fits makes a larger geometry.</td>
+</tr>
+<tr>
+<td>Images in the world</td>
+<td><code>viewport/api/imageLayer.ts</code></td>
+<td><code>ImageLayer</code>: a rectangle given as an origin and two edges, textured with RGBA bytes (sRGB, straight alpha) that are replaced in place, with an opacity, depth-tested or on top, blended or one flat square per pixel. Row 0 lies along the first edge at the origin and column 0 along the second: the rectangle says how the rows lie, and no buffer is flipped. Any size the GPU takes, on both viewports.</td>
+</tr>
+<tr>
+<td>three.js</td>
+<td><code>viewport/api/threeImages.ts</code></td>
+<td>A quad with a <code>DataTexture</code>, sRGB decoded by the GPU, without mipmaps. New pixels of the same size are written into the texture; another size is another texture.</td>
+</tr>
+<tr>
+<td>adacpp renderer</td>
+<td><code>viewport/native/nativeImages.ts</code></td>
+<td>A textured quad of the renderer per image: the pixels as a texture without a mip chain, written in place, each pixel's own alpha drawn, sampled blended or flat. The renderer has a texture's first row on the quad's upper edge, so the quad's own y axis is placed against the rectangle's second edge and no row is moved. Quads and textures go when a load empties the renderer's scene; the layer keeps each image's pixels and makes them again. The adacpp WebGPU viewport that mirrors the three.js scene draws the three.js mesh as the same kind of quad (<code>viewport/adacpp/sceneSync.ts</code>).</td>
+</tr>
+<tr>
+<td>The Layers panel</td>
+<td><code>state/layerRegistry.ts</code>, <code>components/layers/LayersPanel.tsx</code></td>
+<td>What draws a named layer joins the registry with a function that applies the layer's look. The panel (<code>core:layers</code>) lists a row per layer with a switch and an opacity slider, remembers both per layer id in the browser, and is offered only while a layer is registered.</td>
+</tr>
+<tr>
+<td>The transport</td>
+<td><code>components/playback/PlaybackTransport.tsx</code></td>
+<td>Play and pause, a scrub bar, the time, the speed, loop and "live", over the bottom of either viewport while the clock has a track.</td>
+</tr>
+<tr>
+<td>The plugin's verbs</td>
+<td><code>plugins/sceneLayers.ts</code></td>
+<td><code>addLineLayer</code>, <code>addPointLayer</code>, <code>addImage</code>, <code>ctx.playback</code> and <code>ctx.layers</code>. Coordinates are the model's own: the three.js viewport recentres what it loads (<code>state/sceneFrameStore.ts</code>), so the layers are moved by the same offset there, again whenever it changes, and a point given at a model coordinate is drawn on the model on either viewport. Everything a plugin made goes with <code>removeOwnerOverlays</code>.</td>
+</tr>
+</tbody>
+</table>
+<p>The FEA result playback is not on the clock. A mode shape is an oscillator with a period, not a
+timeline, and a time history is a row of steps fetched one at a time, the next asked for when the
+last has been painted; <code>feaAnimationDriver.ts</code> and the Simulation panel's transport drive them as
+before, from the same two frame loops. Its own transport is unchanged, and the clock's transport is
+drawn only while the clock has a track.</p>
+<p>A double-click (or two taps) on the model makes the point under it what the camera orbits about, on
+both viewports. The three.js viewport moves the pivot of its controls; the renderer's camera orbits
+about what it looks at, so the three.js-free viewport turns to look at the point
+(<code>NativeScene.setOrbitPivot</code>, also <code>ViewportApi.setOrbitPivot</code>). A click with a modifier adds to the
+selection and is never half of a double-click there.</p>
+<h2 id="appearance-on-every-renderer">Appearance on every renderer<a class="headerlink" href="#appearance-on-every-renderer" title="Permanent link">&para;</a></h2>
+<p>The same model is the same picture whichever of the three draws it, and what a user changes about
+its look changes on all of them. Both are one module each: the settings
+(<code>state/appearanceStore.ts</code>) and the colours given to objects (<code>viewport/api/objectColors.ts</code>).
+Neither imports three.js.</p>
+<div class="ada-diagram">flowchart LR
+    OPT["Options &gt; Appearance&lt;br/&gt;palette: Appearance: …"] --&gt; STORE["appearanceStore&lt;br/&gt;default colour, background,&lt;br/&gt;brightness, ambient share, shade results"]
+    STORE --&gt;|"AmbientLight / DirectionalLight intensity,&lt;br/&gt;scene.background, material colour, one uniform"| T["three.js"]
+    STORE --&gt;|"setLighting, instance flags&lt;br/&gt;(the scene's materials are mirrored)"| M["adacpp mirror&lt;br/&gt;sceneSync.ts"]
+    STORE --&gt;|"setLighting, setBackground,&lt;br/&gt;segment colours, instance flags"| N["NativeScene"]
+    CMD["Set colour of selection…&lt;br/&gt;Reset colours, the tree's menu"] --&gt; API["ViewportApi.setObjectColors(refs, colour)"]
+    API --&gt;|"colour attribute of the batched mesh"| T
+    API --&gt;|"segment colours (setSegmentStates)"| N
+    T -.-&gt;|"the same attribute"| M</div>
+<h3 id="what-was-different-and-why">What was different, and why<a class="headerlink" href="#what-was-different-and-why" title="Permanent link">&para;</a></h3>
+<p>Measured on the same models in headless Chromium (the page's pixels, sRGB levels of 255), before
+anything was changed:</p>
+<table>
+<thead>
+<tr>
+<th>What</th>
+<th>three.js</th>
+<th>adacpp mirror</th>
+<th>three.js-free</th>
+<th>Cause</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Background</td>
+<td>57</td>
+<td>57</td>
+<td>57</td>
+<td>the same</td>
+</tr>
+<tr>
+<td>CAD, a face towards the camera</td>
+<td>223</td>
+<td>223</td>
+<td>223</td>
+<td>the same lights and material</td>
+</tr>
+<tr>
+<td>CAD, a face at 55 degrees (the default view)</td>
+<td>196</td>
+<td>196</td>
+<td>196</td>
+<td></td>
+</tr>
+<tr>
+<td>CAD, a face seen at a grazing angle</td>
+<td>162</td>
+<td>162</td>
+<td>162</td>
+<td></td>
+</tr>
+<tr>
+<td>FEA result, near the largest value (its colour-map colour: 255, 30, 0)</td>
+<td>101, 27, 0</td>
+<td>101, 27, 0</td>
+<td>228, 71, 0</td>
+<td>see below</td>
+</tr>
+<tr>
+<td>FEA result, mid range (0, 201, 255)</td>
+<td>0, 82, 92</td>
+<td>0, 81, 92</td>
+<td>0, 204, 227</td>
+<td></td>
+</tr>
+<tr>
+<td>FEA result, near the smallest value (0, 3, 255)</td>
+<td>0, 4, 91</td>
+<td>0, 4, 91</td>
+<td>0, 24, 226</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<p>The colours in brackets are what three.js draws at those pixels now, from vertex colours kept as
+floats; the first was also read off the legend's bar at the same value.</p>
+<p>A CAD model was already the same picture: the renderer's lit path is three.js'
+<code>MeshStandardMaterial</code> for one ambient light and one headlight (Lambert diffuse, a GGX highlight,
+linear light in, sRGB out, no tone mapping), with the same two intensities, and both sides of a
+face are lit from the side the camera is on. The FEA result was not, for three reasons:</p>
+<ol>
+<li><strong>A metal on one, a matte surface on the other.</strong> The bake's mesh GLB names no metalness, and
+   glTF's default is fully metallic. three.js drew the result with that material: no diffuse
+   light at all, only the headlight's highlight, about a ninth of the colour in linear light. The
+   layer session draws its faces as a matte surface.</li>
+<li><strong>sRGB numbers used as linear light.</strong> A colour map's channels are sRGB, the numbers the legend
+   writes into CSS. Both viewports took them as linear light and encoded the picture to sRGB again,
+   so even a fully lit colour was lighter than its swatch (128 came out as 188).</li>
+<li><strong>Lighting.</strong> Both lit the result, so a colour depended on how its face was turned: between a
+   half and 0.95 of it on the three.js-free viewport.</li>
+</ol>
+<h3 id="what-a-result-colour-is-now">What a result colour is now<a class="headerlink" href="#what-a-result-colour-is-now" title="Permanent link">&para;</a></h3>
+<p>A colour read against a legend has to be the legend's colour, on every renderer and whichever way
+the face is turned. So:</p>
+<ul>
+<li>The paint kernels hand over <strong>linear light</strong> (<code>linearColormap</code> in <code>utils/scene/fea/colormaps.ts</code>,
+  a table, no <code>pow</code> per vertex), which is what <code>ResultMeshLayer.setColors</code> always said it took.</li>
+<li>A <strong>painted result is drawn flat</strong>: the three.js-free viewport sets the instance's <code>Unlit</code> flag
+  while the colours show; three.js keeps its material and replaces the lit colour by the colour
+  itself where vertex colours are on (<code>utils/scene/fea/threeResultLook.ts</code>, one shared uniform);
+  the mirror reads that as <code>Unlit</code>. Unpainted, the faces are lit like any model.</li>
+<li>A result's faces are a <strong>matte surface</strong> on three.js too (metalness 0, roughness 1), so the
+  unpainted model and a shaded result are the same there.</li>
+<li><strong>"Shade FEA results"</strong> (off by default) lights a painted result like the model, for a user who
+  wants the shape more than the exact colour. It is the same picture on all three.</li>
+</ul>
+<p>After, at the same three pixels (the shaded rows are from another load, which the three.js-free
+viewport framed a few pixels differently):</p>
+<table>
+<thead>
+<tr>
+<th>What</th>
+<th>three.js</th>
+<th>adacpp mirror</th>
+<th>three.js-free</th>
+<th>Colour-map colour</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Near the largest value</td>
+<td>255, 30, 0</td>
+<td>255, 29, 0</td>
+<td>255, 29, 0</td>
+<td>255, 30, 0</td>
+</tr>
+<tr>
+<td>Mid range</td>
+<td>0, 201, 255</td>
+<td>0, 198, 255</td>
+<td>0, 201, 255</td>
+<td>0, 201, 255</td>
+</tr>
+<tr>
+<td>Near the smallest value</td>
+<td>0, 3, 255</td>
+<td>0, 2, 255</td>
+<td>0, 2, 255</td>
+<td>0, 3, 255</td>
+</tr>
+<tr>
+<td>Shaded ("Shade FEA results"), near the largest value</td>
+<td>226, 36, 17</td>
+<td>226, 34, 17</td>
+<td>226, 40, 17</td>
+<td></td>
+</tr>
+<tr>
+<td>Shaded, near the smallest value</td>
+<td>13, 15, 226</td>
+<td>13, 13, 226</td>
+<td>13, 15, 226</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<p>Over the whole painted surface the colours of two renderers are within 3 levels of each other
+(each channel's values taken in order of size, the mean distance: 0.5 between three.js and its
+mirror, 2.8 between three.js and the three.js-free viewport), flat or shaded; a shaded result is
+15 to 23 from a flat one. A CAD model is within one level, pixel for pixel. The browser tests
+(<code>tests/full/frontend/test_appearance.py</code>) assert both with room to spare, and that the lit
+levels are the ones the two lights give.</p>
+<p>Two things are left, both the renderer's to finish:</p>
+<ul>
+<li>The adacpp renderer keeps vertex colours as 8 bits of <strong>linear</strong> light a channel. That moves the
+  darkest channel values by up to 6.4 levels (under 0.7 on average over a colour map); three.js
+  keeps floats. Vertex colours kept as sRGB and decoded in the shader would make them exact.</li>
+<li>Inside an element both renderers blend the nodes' colours in linear light, and the legend's bar
+  blends in sRGB: at a node the colour is the legend's, between nodes it is up to a few levels
+  lighter (4 on average on a coarse mesh). Banded contours have one colour per band and are exact.
+  Decoding in the fragment shader would settle this too, on both.</li>
+</ul>
+<h3 id="the-settings">The settings<a class="headerlink" href="#the-settings" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Setting</th>
+<th>Default</th>
+<th>three.js</th>
+<th>adacpp renderer (both WebGPU paths)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Default colour: what geometry without a colour of its own is drawn in</td>
+<td><code>#e7e7e7</code> (0.8 linear, the grey ada writes)</td>
+<td>the colour of each material marked as having none (<code>defaultBlackColor.ts</code>): black, or exactly ada's grey</td>
+<td>the mirror follows the materials; <code>NativeScene</code> reads the GLB's materials once at load (<code>utils/glb/glbUncoloured.ts</code>) and draws those objects with the default colour as their segments' colour</td>
+</tr>
+<tr>
+<td>Background</td>
+<td><code>#393939</code></td>
+<td><code>scene.background</code></td>
+<td><code>setBackground</code></td>
+</tr>
+<tr>
+<td>Brightness: multiplies both lights</td>
+<td>1</td>
+<td>the two lights' intensities</td>
+<td><code>setLighting(ambient, headlight)</code></td>
+</tr>
+<tr>
+<td>Ambient share: how the light is split between the ambient light and the headlight</td>
+<td>0.529 (pi / 2 of pi / 2 + 1.4)</td>
+<td>the two lights' intensities</td>
+<td><code>setLighting</code></td>
+</tr>
+<tr>
+<td>Shade FEA results</td>
+<td>off</td>
+<td>one uniform</td>
+<td>the instance's <code>Unlit</code> flag</td>
+</tr>
+</tbody>
+</table>
+<p>The defaults are the look the viewer had, to the number. A change is applied when the store
+changes, by a subscription: a light is two numbers, a colour is three on a material or one pass over
+the segment states, and no geometry is touched. Nothing is read per frame. They are kept in the
+browser (<code>ada-appearance</code>), shown under Options &gt; Appearance with a Reset, and each is a command of
+the palette (<code>core:option.*</code>, <code>layout/optionCommands.ts</code>).</p>
+<p>The edges are not a setting. three.js smooths a one-pixel line and the adacpp renderer does not,
+which is the difference left between two pictures of a model with its edges; an edge colour would
+need the renderer to change the colour of an instance it loaded.</p>
+<h3 id="colours-given-to-objects">Colours given to objects<a class="headerlink" href="#colours-given-to-objects" title="Permanent link">&para;</a></h3>
+<p><code>ViewportApi.setObjectColors(refs, colour)</code> gives objects a colour (sRGB, <code>"#rrggbb"</code>) in place of
+the model's own; <code>null</code> for <code>refs</code> is every object, <code>null</code> for the colour takes it back. <code>refs</code> is
+read once and no ref is kept, as for <code>setSelection</code>.</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>Stored as</th>
+<th>Drawn by</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>three.js</td>
+<td>a packed colour per draw range on the <code>CustomBatchedMesh</code> (<code>setUserColors</code>)</td>
+<td>the mesh's one colour attribute: while any range has a colour, the material is white and every vertex carries its colour, the mesh's own or the user's. No material and no group per object.</td>
+</tr>
+<tr>
+<td>adacpp mirror</td>
+<td>the same</td>
+<td>the same attribute, uploaded when its version changes</td>
+</tr>
+<tr>
+<td>three.js-free</td>
+<td>a packed colour per object on the model (<code>NativeScene.setObjectColors</code>)</td>
+<td>each segment's colour, written with its hidden and selected state in the one pass <code>setSegmentStates</code> already was</td>
+</tr>
+</tbody>
+</table>
+<p>A given colour is the object's base colour: it is lit by the object's own material, hiding,
+isolating and section planes do not look at it, and the selection is drawn over it (its overlay on
+three.js; on the adacpp renderer hidden wins, then the selection, then the given colour, then the
+default colour). It is linear light in 8 bits on the adacpp renderer, as vertex colours are.</p>
+<p><strong>The elements of an FEA result are never recoloured.</strong> A result's colours are the result's,
+painted or not (the plain colour of an unpainted result is <code>setFeaUnpaintedColor</code>). A call that
+names only such elements changes nothing and returns 0, and the dialog says why. On three.js any
+mesh whose vertex colours are someone else's (a file's own, a colouring by property) is left alone
+the same way.</p>
+<p>Each call is one undo step: the history keeps the colours before and after it as a state only the
+viewport that made it reads (<code>captureObjectColors</code> / <code>restoreObjectColors</code>, a copy of the packed
+colours of the meshes or models that have any), through the history's store slices. The commands
+are "Set colour of selection…" (a dialog; with nothing selected it says the colour goes to every
+object) and "Reset colours", which gives every object its own colour back and also ends a
+colouring by property; the Scene tree's menu has "Set colour…" and "Model's own colour" for its
+selection. Per-object opacity is not offered: a segment's colour in the renderer has
+no alpha of its own.</p>
+<p>Recolouring 10,000 objects, measured in the unit tests on stand-ins for the GPU: 1.8 ms on the
+three.js mesh, 2.2 ms on the three.js-free scene, one upload each, nothing made per object.</p>
+<h2 id="what-the-next-slices-have-to-settle">What the next slices have to settle<a class="headerlink" href="#what-the-next-slices-have-to-settle" title="Permanent link">&para;</a></h2>
+<p>These are open design points, ordered by how much of the viewer depends on them.</p>
+<ol>
+<li><strong>The interface features program against.</strong> A feature that reaches into <code>THREE.Scene</code> exists on
+   one viewport only. <code>src/frontend/src/viewport/api</code> is the interface both stand behind:
+   <code>ViewportApi</code> (the selection as object refs and its changes, hiding, showing and isolating
+   objects, how each is drawn, the model's box, what a box or a screen rectangle takes, its undoable state, fit, named views, reset, orbit and pan by step), implemented by <code>threeViewport.ts</code> over the three.js scene and by
+   <code>native/nativeViewportApi.ts</code> over <code>NativeScene</code>. The viewport on screen registers itself
+   (<code>setActiveViewport</code>); commands ask <code>activeViewport()</code>, and the keys are bound once for both in
+   <code>viewportShortcuts.ts</code>. A viewport says what it cannot do yet (<code>unavailable(feature)</code>), and the
+   command is offered disabled with that reason. The interface grows one feature area at a time:
+   a colour per object is on it (see "Appearance on every renderer"); still to come are an
+   object's transparency and its bounds.
+   Overlay geometry (lines, points) by handle is <code>overlays(name)</code>. An area not on it yet still goes straight to
+   three.js and is absent on the three.js-free viewport.</li>
+<li><strong>Where per-object state lives.</strong> <code>CustomBatchedMesh</code> owns hidden and selected ranges, and a
+   number of scene objects update themselves in <code>onBeforeRender</code>, which <code>SceneSync</code> replays every
+   frame. Without three.js there is no such hook: state has to live in stores keyed by object id,
+   and whatever follows the camera or the animation has to be driven from the frame loop.</li>
+<li><strong>The model beyond geometry.</strong> <code>GLTFLoader</code> also gives the main viewer the node hierarchy, the
+   <code>ADA_EXT_data</code> extension (design / simulation objects, FEA metadata) and animations (node
+   animation is on the interface as <code>modelAnimation()</code>, which both viewports answer: see "Layers
+   that change over time, and one clock"; what is left there is the box of a part that has moved,
+   and two animations of one file that move the same node). The native
+   path gets the hierarchy from the reader, which also hands back the extension data as JSON text:
+   it is announced with the model (<code>LoadedModelInfo.adaExtData</code>), and the panels' side keeps it by
+   source name (<code>state/sourceExtensions.ts</code>) and reads the analysis concepts and the design-to-analysis
+   link from it (see "What a model says beside its geometry"). A streamed FEA result does not come through the reader at all: its mesh is
+   read as typed arrays and drawn through result layers (above), which name the elements as the
+   mesh's objects, so they are picked, selected and hidden like a loaded model's.</li>
+<li><strong>Section planes and caps.</strong> The planes are plain data in <code>state/sectionStore</code> (no three.js),
+   and both viewports cut by them, so the section commands and the panel's sliders work on either.
+   On the three.js-free viewport the reader flags single-sided surfaces as closed solids, so their
+   cut is filled, and <code>native/sectionGizmo.ts</code> draws the active plane's outline and an arrow that
+   drags it (helper lines on top, hit-tested on screen).</li>
+<li><strong>Labels and markers.</strong> Both viewports draw them from plain data. A feature asks the viewport
+   on screen for a layer of billboards (<code>ViewportApi.billboards(name)</code>, <code>viewport/api/billboards.ts</code>)
+   and adds camera-facing images to it by handle: a world position, an image painted on a plain
+   canvas, and a height in world units or in pixels. The three.js viewport draws each as a
+   <code>THREE.Sprite</code> (<code>threeBillboards.ts</code>), the three.js-free one as a sprite of the renderer with the
+   canvas' pixels as its texture (<code>native/nativeBillboards.ts</code>); a load empties the renderer's scene,
+   so that layer keeps the pixels and makes its sprites again. Where an object is comes from the
+   viewport too (<code>objectsCentre</code>), as does a change of selection (<code>onSelectionChange</code>). The type
+   icons of a procedural model and the names of the selected objects ("Object names") are drawn
+   this way, by controllers that follow the viewport on screen (<code>followActiveViewport</code>). The number labels
+   of an FEA result are HTML placed through the viewport (<code>projectToScreen</code>, <code>onCameraChange</code>), on
+   either one. A plugin's labels (<code>addLabels</code>), which can pin to FEA elements and are cut by
+   section planes at their anchor, are billboards too (see "Overlays on both viewports").</li>
+<li><strong>Controls parity.</strong> The renderer's camera covers orbit, pan, zoom, zoom towards the cursor, fit
+   to the model or the selection, named views and the user's input mapping. Still the main
+   viewer's only: the orientation gizmo, orthographic projection as a setting, and 3D-mouse input.</li>
+<li><strong>Uses of three.js outside the main viewport.</strong> The equipment preview, the cell builder, the
+   robot (STL) loader, the FEA GLB assembly (<code>GLTFLoader</code> / <code>GLTFExporter</code> used to build data, not
+   to draw) and the three.js embed each need a decision of their own: ported, exempt, or dropped.</li>
+</ol>
+<p>The slice is there to make these concrete on real models before any of them is decided.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-circle-arrow-up" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m16 12-4-4-4 4M12 16V8"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="../frontend/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Frontend">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-arrow-left" viewBox="0 0 24 24"><path d="m12 19-7-7 7-7M19 12H5"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                Frontend
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../docs_pipeline/" class="md-footer__link md-footer__link--next" aria-label="Next: Docs pipeline">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                Docs pipeline
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      &copy; Kristoffer H. Andersen
+    </div>
+  
+  
+    Made with
+    <a href="https://zensical.org/" target="_blank" rel="noopener">
+      Zensical
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog" role="status" aria-atomic="true">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      
+      
+        
+        
+      <script id="__config" type="application/json">{"annotate":null,"base":"../..","features":["content.action.edit","content.code.copy","content.tabs.link","navigation.indexes","navigation.sections","navigation.top","navigation.footer","search.highlight","toc.follow"],"redirect":null,"search":"../../assets/javascripts/workers/search.7d14d953.min.js","tags":null,"translations":{"clipboard.copied":"Copied to clipboard","clipboard.copy":"Copy to clipboard","clipboard.error":"Could not copy to clipboard","search.result.more.one":"1 more on this page","search.result.more.other":"# more on this page","search.result.none":"No matching documents","search.result.one":"1 matching document","search.result.other":"# matching documents","search.result.placeholder":"Type to start searching","search.result.term.missing":"Missing","select.version":"Select version"},"version":null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.3c842f4c.min.js"></script>
+      
+        <script src="../../_static/diagrams.js"></script>
+      
+    
+  </body>
+</html>
