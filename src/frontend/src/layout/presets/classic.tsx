@@ -300,8 +300,10 @@ function ClassicMenu({viewport}: {viewport: Rect | null}) {
   const top = Math.round(viewport?.top ?? 0);
   return (
     <div className="relative w-full h-full">
+      {/* Capped by the viewport, not the parent: this overlay's host is sized by its absolute
+          children (0 px wide), so `max-w-full` would collapse the top bar's scrolling row. */}
       <div
-        className="absolute left-0 top-0 z-10 max-w-full py-2 gap-2 flex flex-col pointer-events-none transition-[padding] duration-150"
+        className="absolute left-0 top-0 z-10 max-w-[100vw] py-2 gap-2 flex flex-col pointer-events-none transition-[padding] duration-150"
         style={top > 0 ? {paddingLeft: `${menuShiftPx}px`, paddingTop: `${top + 8}px`} : {paddingLeft: `${menuShiftPx}px`}}
       >
         {classicToolbarShown() && <ClassicToolbar />}
