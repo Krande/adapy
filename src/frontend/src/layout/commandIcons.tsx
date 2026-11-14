@@ -133,6 +133,14 @@ export const EdgesIcon = glyph(
   </>,
   "Edges",
 );
+/** Orthographic view: a box drawn with parallel edges (no vanishing point). */
+export const OrthographicIcon = glyph(
+  <>
+    <rect x="4" y="8" width="12" height="12" />
+    <path d="M4 8l4-4h12v12l-4 4M16 8l4-4M16 8v0" />
+  </>,
+  "Orthographic",
+);
 export const StatsIcon = glyph(<path d="M4 20V10M10 20V4M16 20v-7M21 20H3" />, "Stats");
 export const GalleryIcon = glyph(
   <>
@@ -400,6 +408,7 @@ export const CORE_COMMAND_ICONS: Readonly<Record<string, React.FC>> = {
   [cameraViewCommandId("right")]: SideViewIcon,
   [cameraViewCommandId("isometric")]: ViewIcon,
   [C.edges]: EdgesIcon,
+  [C.orthographic]: OrthographicIcon,
   [C.stats]: StatsIcon,
   [C.gallery]: GalleryIcon,
   [C.fullscreen]: FullscreenIcon,
