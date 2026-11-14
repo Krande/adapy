@@ -151,6 +151,13 @@ async def _open_viewer(playwright, ws_server, backend: str, init_script: str | N
     if query != "three" and not await page.evaluate(HAS_ADAPTER):
         await browser.close()
         pytest.skip("this Chromium offers no WebGPU adapter")
+    await _until_ready_for_a_scene(page, ws_server, empty_pixels)
+    return browser, page, state
+
+
+async def _until_ready_for_a_scene(page: Page, ws_server, empty_pixels: int = 500000) -> None:
+    """Wait until the viewer page is live on the websocket and its viewport is up: after it opens, and
+    again after a reload, whose page has to connect anew before a model sent to it reaches it."""
     async with WebSocketClientAsync(ws_server.host, ws_server.port, "local") as ws_client:
         for _ in range(100):
             if await ws_client.check_target_liveness(target_id=1):
@@ -161,7 +168,6 @@ async def _open_viewer(playwright, ws_server, backend: str, init_script: str | N
     # Live on the socket is not yet ready for a scene: the viewport (grid, gizmo) has to be up, or the
     # first model sent is dropped.
     await _until(page, lambda: _viewport_ready(page, empty_pixels), "the empty viewport")
-    return browser, page, state
 
 
 async def _assert_backend(page: Page, backend: str, state: str) -> None:
