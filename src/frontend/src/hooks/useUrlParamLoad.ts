@@ -23,8 +23,11 @@ import {applyViewParams} from "@/hooks/viewParams";
 // Params consumed:
 //   ?file   — source key under the active scope (e.g. ``cantilever.step``)
 //   ?scope  — optional scopeUrlPart token (``user:me`` / ``project:abc``)
-//   ?procedural — a procedural model id, opened in the cell builder instead of a
-//                 file (see proceduralDeepLink.ts; ``?mode=build`` puts the shell there)
+//   ?procedural — a procedural model id, opened in the cell builder (see
+//                 proceduralDeepLink.ts; ``?mode=build`` puts the shell there). With
+//                 ``?file=`` as well, both open: the file in the scene, the model in
+//                 the builder - they are separate states, and dropping either would
+//                 lose a link's half without a word.
 //   ?grid ?snap — the builder's grid step and snap distance (viewParams.ts; kept in the URL)
 //
 // The params this hook consumes are stripped from window.location after
@@ -105,14 +108,15 @@ export function useUrlParamLoad(): void {
             return;
         }
 
-        if (!fileParam && proceduralParam) {
-            // A model, not a file: no scene to wait for (the cell builder draws once
-            // it has the document) and nothing to carry across a shell switch.
-            stripDeepLinkParams();
+        if (proceduralParam) {
+            // A model: no scene to wait for (the cell builder draws once it has the
+            // document) and nothing to carry across a shell switch.
             void openProceduralFromUrl(scopeKey, proceduralParam);
+        }
+        if (!fileParam) {
+            stripDeepLinkParams();
             return;
         }
-        if (!fileParam) return;
 
         // A UI-shell switch may reload the page as well, and must bring the
         // file along: remember the params before they go (deepLinkCarry).
