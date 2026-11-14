@@ -31,7 +31,7 @@ const UnsavedModelRow: React.FC<{name: string}> = ({name}) => {
             <ProceduralModelIcon className="shrink-0"/>
             <span className="truncate text-sm">{name}</span>
             <span className="text-[10px] text-amber-400 border border-amber-400/50 rounded-sm px-1">
-                unsaved
+                not saved
             </span>
         </div>
     );

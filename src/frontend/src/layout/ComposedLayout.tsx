@@ -153,6 +153,10 @@ export function installShell(spec: UiShellSpec | null, baseline?: ShellRegistrat
   setShellModes(modes, initialShellMode(modes, asked, readMode(spec.id), spec.layout?.defaultMode));
   const byMode: Record<string, ClassicArrangement> = {};
   for (const m of spec.layout?.modes ?? []) byMode[m.id] = {grid: m.grid, open: m.open, docks: m.docks, cover: m.viewportCover};
+  // A plugin's mode the shell has an arrangement for (it does not declare the mode itself).
+  for (const [id, m] of Object.entries(spec.layout?.modeArrangements ?? {})) {
+    if (!byMode[id]) byMode[id] = {grid: m.grid, open: m.open, docks: m.docks, cover: m.viewportCover};
+  }
   setClassicShell(
     {
       id: spec.id,
@@ -166,6 +170,7 @@ export function installShell(spec: UiShellSpec | null, baseline?: ShellRegistrat
       version: spec.layout?.version,
       migrate: spec.layout?.migrate,
       customisablePanels: spec.layout?.customisablePanels,
+      globalPanels: spec.layout?.globalPanels,
       uiFreeze: spec.chrome?.uiFreeze,
     },
     listShellModes().map((m) => m.id),

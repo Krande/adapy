@@ -24,6 +24,7 @@ import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
 import {useStatsStore} from "@/state/statsStore";
 import type {SourceUpAxis} from "@/utils/scene/sourceUpAxis";
 import {isNativeViewportActive, showInNativeViewport} from "@/viewport/native/nativeModel";
+import {refreshModelPoses} from "@/viewport/api/modelPose";
 import {setupModelLoaderAsync, type SetupModelPrepareHook} from "./setupModelLoader";
 import {recordModelLoad} from "./loadedModelJournal";
 
@@ -59,6 +60,12 @@ export interface LoadModelSource {
     /** Override the post-load auto-fit (undefined = scene config; false = never). */
     autoFitOverride?: boolean;
     sourceUpAxis?: SourceUpAxis;
+    /**
+     * The model's nodes are to be placed from outside (viewport/api/modelPose.ts) instead of by an
+     * animation of its own. The three.js-free viewport keeps every node apart for it; the three.js
+     * viewport needs nothing told, a node there is an object of the scene either way.
+     */
+    posable?: boolean;
     /** Record admin load metrics for this load. Defaults on for stored blobs,
      *  off for bytes the viewer already has. */
     metrics?: boolean;
@@ -83,7 +90,8 @@ async function loadFrom(
         // As a replace does on the three.js viewport: a result that was shown ends with its model.
         const {clearActiveFeaStreaming} = await import("@/utils/scene/fea/streaming/teardown");
         clearActiveFeaStreaming();
-        const show = () => showInNativeViewport(url, requestHeaders, sourceName, placement, source.displayName);
+        const show = () =>
+            showInNativeViewport(url, requestHeaders, sourceName, placement, source.displayName, source.posable);
         if (placement === "replace") {
             const {duringSceneReplace} = await import("@/state/sceneReplace");
             await duringSceneReplace(show);
@@ -228,6 +236,8 @@ export async function loadModel(source: LoadModelSource): Promise<THREE.Group | 
     if (group && sourceName) ms.registerLoadedSource(sourceName, group);
     // The three.js-free viewport took the model and built no group: the source is loaded all the same.
     else if (!group && sourceName && isNativeViewportActive()) ms.registerLoadedSourceName(sourceName);
+    // Whoever places this model's nodes places them in the model that is here now.
+    refreshModelPoses();
     // The take-off the conversion wrote beside this model's GLB, for the model that is now the
     // ACTIVE one -- which is the question the Stats and Take-off panels answer. Keyed on that
     // rather than on `placement`: the storage browser loads every file as an "overlay" (it keeps

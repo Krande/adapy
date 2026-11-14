@@ -14,6 +14,7 @@ import type {ImageLayer} from "./imageLayer";
 import type {ViewportBoxSelection} from "./boxSelection";
 import type {ViewportUndoState} from "./viewportState";
 import type {ViewportObjectColors} from "./objectColors";
+import type {ModelNodePoser} from "./modelPose";
 
 export type ViewportKind = "three" | "native";
 
@@ -156,6 +157,10 @@ export interface ViewportApi {
     /** The node animation of the models on screen; null when none of them has one. The same object
      *  until the models change. */
     modelAnimation(): ModelAnimation | null;
+    /** The nodes called `names` of the model loaded as `sourceName`, for a caller that places them
+     *  itself (./modelPose.ts); null when no such model is on screen, or this viewport cannot place
+     *  its nodes. Callers hold a `ModelPose`, which asks again when the model or the viewport changes. */
+    modelNodes(sourceName: string, names: readonly string[]): ModelNodePoser | null;
     /** Orbit about `point` from now on (what a double-click on the model does). */
     setOrbitPivot(point: Point3): void;
     /** Frame the camera on a box in the world (min xyz, max xyz), keeping the direction it looks

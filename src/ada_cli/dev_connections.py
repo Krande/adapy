@@ -31,6 +31,10 @@ from ada_cli import desktop
 
 #: Mirrors ada.comms.rest.dev_connections.ENV_CONFIG (not imported: that pulls in the REST app).
 ENV_CONFIG = "ADA_DEV_CONNECTIONS"
+#: Mirror ``ada.comms.rest.config.load_settings``: the remote Ada Studio simulation runs are handed to.
+ENV_SIM_REMOTE = "ADA_SIMULATION_REMOTE_URL"
+ENV_SIM_TOKEN = "ADA_SIMULATION_REMOTE_TOKEN"
+ENV_SIM_SCOPE = "ADA_SIMULATION_REMOTE_SCOPE"
 #: Offset from the ``ada desktop`` default port: above ``ada desktop --dev``'s Vite ports.
 PORT_OFFSET = 1000
 
@@ -58,6 +62,25 @@ def add_arguments(p: argparse.ArgumentParser) -> None:
     src = p.add_mutually_exclusive_group()
     src.add_argument("--static", default=None, metavar="DIR", help="Serve this built viewer directory.")
     src.add_argument("--zip", default=None, metavar="FILE", help="Serve this single-file viewer zip.")
+    p.add_argument(
+        "--sim-remote",
+        default=None,
+        metavar="URL",
+        help="Hand simulation runs to this Ada Studio (its origin, e.g. https://studio.example.com): its "
+        f"providers are listed beside any local ones and a run on one is relayed to it. Env: {ENV_SIM_REMOTE}.",
+    )
+    p.add_argument(
+        "--sim-token",
+        default=None,
+        metavar="TOKEN",
+        help=f"Bearer token for the remote Ada Studio's API (default: ${ENV_SIM_TOKEN}).",
+    )
+    p.add_argument(
+        "--sim-scope",
+        default=None,
+        metavar="SCOPE",
+        help=f"The remote scope the run's files and record live in (default: ${ENV_SIM_SCOPE}, else user:me).",
+    )
     win = p.add_mutually_exclusive_group()
     win.add_argument("--browser", action="store_true", help="Open the default browser, not the ada-desktop window.")
     win.add_argument("--no-window", action="store_true", help="Print the URL and wait for Ctrl+C.")
@@ -81,6 +104,26 @@ def _load_library(path: str):
         raise CliUsageError(str(e)) from None
 
 
+def _set_remote(args: argparse.Namespace) -> None:
+    """Pass the remote Ada Studio (flags win over the environment) to the API process, which reads it
+    from ``ADA_SIMULATION_REMOTE_*``. Without one the run is unchanged."""
+    from ada_cli import CliUsageError
+
+    url = (args.sim_remote or os.environ.get(ENV_SIM_REMOTE, "")).strip().rstrip("/")
+    if not url:
+        if args.sim_token or args.sim_scope:
+            raise CliUsageError("--sim-token and --sim-scope need --sim-remote URL")
+        return
+    if not url.startswith(("http://", "https://")):
+        raise CliUsageError(f"--sim-remote {url!r}: expected an http(s) URL")
+    os.environ[ENV_SIM_REMOTE] = url
+    if args.sim_token:
+        os.environ[ENV_SIM_TOKEN] = args.sim_token
+    if args.sim_scope:
+        os.environ[ENV_SIM_SCOPE] = args.sim_scope
+    _print(f"  simulation runs on the providers of {url} are handed off to it")
+
+
 def _port(cli_port: int | None) -> int:
     if cli_port is not None:
         if desktop.probe_port(cli_port) != "free":
@@ -96,6 +139,7 @@ def run(args: argparse.Namespace) -> int:
     what = ", ".join([*cfg.packages, *([cfg.loader] if cfg.loader else [])])
     _print(f"  loads {what}; watches {', '.join(str(w) for w in cfg.watch)}")
     os.environ[ENV_CONFIG] = str(cfg.path)
+    _set_remote(args)
 
     if args.dev:
         return desktop.run_dev(_desktop_dev_args(args))

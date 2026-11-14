@@ -6,7 +6,10 @@ Mounted only when ``ADA_DEV_CONNECTIONS`` names a library (see :mod:`..dev_conne
 * ``POST /dev/connections/build``   — ``{spec_name, inputs}`` → the built GLB, stored in the
   caller's personal scope; returns ``{scope, key, inputs, log, counts, generation}``. A builder
   that raises is a 422 ``{error, traceback, declined}`` (``declined``: it raised NotApplicable)
-* ``POST /dev/connections/reload``  — reload now (the watcher does this on every change)
+* ``POST /dev/connections/subject`` — the same request: the detail as a simulation subject (a weld
+  assembly) stored in the caller's scope; returns ``{scope, key, kind, welds, label}``; 409 when the
+  detail has no welds
+* ``POST /dev/connections/reload`` — reload now (the watcher does this on every change)
 * ``POST /dev/connections/restart`` — a fresh library host, re-reading ``ada_connections.toml``
 * ``GET  /dev/connections/events``  — server-sent ``state`` events, one per status change
 """
@@ -42,6 +45,13 @@ def _dev(request: Request) -> DevConnections:
     if dev is None:
         raise HTTPException(status_code=404, detail="no connection library is being served")
     return dev
+
+
+def _digest(report: dict) -> str:
+    """What names a build's blob: the library generation and the merged inputs."""
+    return hashlib.sha256(
+        json.dumps({"g": report.get("generation"), "i": report.get("inputs")}, sort_keys=True).encode()
+    ).hexdigest()[:16]
 
 
 @router.get("/dev/connections")
@@ -83,10 +93,7 @@ async def api_dev_connections_build(
         )
     build_ms = round((time.perf_counter() - t0) * 1000)
 
-    digest = hashlib.sha256(
-        json.dumps({"g": report.get("generation"), "i": report.get("inputs")}, sort_keys=True).encode()
-    ).hexdigest()[:16]
-    key = f"_dev/connections/{spec_name}/{digest}.glb"
+    key = f"_dev/connections/{spec_name}/{_digest(report)}.glb"
     scope = Scope.user(user.sub)
     await ctx.storage.put_bytes(scope, key, glb)
     previous = dev.remember_key(spec_name, key)
@@ -111,6 +118,69 @@ async def api_dev_connections_build(
             "clash_note": report.get("clash_note"),
             "generation": dev.generation,
             "build_ms": build_ms,
+        }
+    )
+
+
+@router.post("/dev/connections/subject")
+async def api_dev_connections_subject(
+    request: Request,
+    ctx: RestContext = Depends(rest_context),
+    user: User = Depends(auth_module.current_user),
+) -> JSONResponse:
+    """Offer the detail as a simulation subject: a weld assembly stored in the caller's scope.
+
+    ``{spec_name, inputs}`` as for a build → ``{scope, key, kind, welds, label}``. 409 when the
+    detail has no welds; 422 (as a build) when the builder raises. Unlike the preview GLB the file
+    is kept past the next build (a run may still be using it): the newest ``SUBJECTS_KEPT`` per spec.
+    """
+    from ada.simulation.subjects import WELD_ASSEMBLY_KIND
+
+    dev = _dev(request)
+    body = await request.json()
+    spec_name = body.get("spec_name")
+    if not isinstance(spec_name, str) or not spec_name:
+        raise HTTPException(status_code=400, detail="spec_name (str) is required")
+    inputs = body.get("inputs") or {}
+    if not isinstance(inputs, dict):
+        raise HTTPException(status_code=400, detail="inputs must be an object")
+
+    try:
+        data, report = await run_in_threadpool(dev.subject, spec_name, inputs)
+    except HostUnavailable as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except HostError as e:
+        if "the detail has no welds" in e.error:
+            raise HTTPException(status_code=409, detail="the detail has no welds")
+        return JSONResponse(
+            status_code=422,
+            content={
+                "spec_name": spec_name,
+                "error": e.error,
+                "traceback": e.traceback,
+                "declined": bool(e.extra.get("declined")),
+                "generation": dev.generation,
+            },
+        )
+
+    digest = _digest(report)
+    key = f"_dev/connections/{spec_name}/{digest}.weld-assembly.json"
+    scope = Scope.user(user.sub)
+    await ctx.storage.put_bytes(scope, key, data, content_encoding="gzip")  # gzip at rest, as the run records
+    for stale in dev.remember_subject(spec_name, key):
+        try:
+            await ctx.storage.delete(scope, stale)
+        except Exception:  # noqa: BLE001 - an old subject left behind is harmless
+            logger.debug("dev-connections: could not delete %s", stale)
+    welds = int(report.get("welds") or 0)
+    return JSONResponse(
+        {
+            "scope": BUILD_SCOPE,
+            "key": key,
+            "kind": WELD_ASSEMBLY_KIND,
+            "welds": welds,
+            "label": f"{spec_name} ({welds} weld{'s' if welds != 1 else ''})",
+            "generation": dev.generation,
         }
     )
 

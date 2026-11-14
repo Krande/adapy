@@ -114,6 +114,8 @@ export function createNativeViewportApi(scene: NativeScene): ViewportApi {
         },
         // The renderer places the animated nodes of the loaded GLBs by time (NativeScene).
         modelAnimation: () => scene.modelAnimation,
+        // A node is the instances that draw it and what hangs on it (NativeScene.modelNodes).
+        modelNodes: (sourceName, names) => scene.modelNodes(sourceName, names),
         setOrbitPivot: (point) => scene.setOrbitPivot(point),
         fitBox: (min, max) => scene.fitBox([min[0], min[1], min[2], max[0], max[1], max[2]]),
         // Box selection, decided on each object's box (./nativeBoxSelection.ts says where that is coarser).

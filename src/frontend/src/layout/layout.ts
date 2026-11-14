@@ -109,6 +109,21 @@ export interface LayoutDoc {
   known: PanelId[];
   /** The composed shell's `layout.version` the document was made under. */
   shellVersion?: number;
+  /**
+   * The panels open in this document's mode when it was last on screen (a composed
+   * shell's mode). Entering the mode opens these again rather than the mode's
+   * starting `open` list, so a mode looks as it was left. Absent: never recorded,
+   * the starting list. Global panels (`UiShellLayout.globalPanels`) are not in it.
+   */
+  open?: PanelId[];
+}
+
+/** A composed shell's global panels (`UiShellLayout.globalPanels`): one state for every mode. */
+export interface GlobalPanelsPrefs {
+  /** Which of them are open. */
+  open: PanelId[];
+  /** The width (or height) in px of the docked group each one is in, where it is fixed. */
+  px: Record<PanelId, number>;
 }
 
 /** A whole arrangement of zones around the viewport. */
@@ -177,6 +192,8 @@ export interface LayoutPrefs {
   rail?: Record<string, RailPrefs>;
   /** The marking menu on or off, by UI shell id, where the user chose (`./markingMenuModel`). Absent: the shell's default. */
   markingMenuByShell?: Record<string, boolean>;
+  /** A composed shell's global panels, open state and size, by shell id. Absent: each mode's starting state. */
+  globalPanels?: Record<string, GlobalPanelsPrefs>;
 }
 
 /**

@@ -143,6 +143,19 @@ class AuthConfig:
 
 
 @dataclass(frozen=True)
+class SimulationRemote:
+    """An Ada Studio this one hands simulation runs to (``ADA_SIMULATION_REMOTE_*``): a studio with
+    no simulation workers of its own (``ada dev connections``) lists the remote's providers and
+    relays a run on one of them (:mod:`ada.comms.rest.simulation_relay`). ``url`` is the remote's
+    origin, ``token`` a bearer for its API (empty: none sent), ``scope`` the remote scope the run's
+    files and record live in."""
+
+    url: str
+    token: str = ""
+    scope: str = "user:me"
+
+
+@dataclass(frozen=True)
 class Settings:
     storage_kind: str  # "s3" | "local"
     s3: S3Config | None
@@ -169,6 +182,9 @@ class Settings:
     # It also needs a loopback ``host``, so a token that leaked into a deployed
     # environment still enables nothing there.
     local_shutdown_token: str = ""
+    # Where runs on a provider this studio does not have are handed off. None (every deployment
+    # but a studio set up for it) means they are not.
+    simulation_remote: SimulationRemote | None = None
 
 
 def _bool(v: str | None, default: bool) -> bool:
@@ -247,6 +263,16 @@ def load_settings() -> Settings:
     # built with a default UI keeps it unless a deployment says otherwise.
     ui_default = os.environ.get("ADA_VIEWER_UI_DEFAULT", "").strip()
     local_shutdown_token = os.environ.get("ADA_VIEWER_LOCAL_SHUTDOWN_TOKEN", "").strip()
+    remote_url = os.environ.get("ADA_SIMULATION_REMOTE_URL", "").strip().rstrip("/")
+    simulation_remote = (
+        SimulationRemote(
+            url=remote_url,
+            token=os.environ.get("ADA_SIMULATION_REMOTE_TOKEN", "").strip(),
+            scope=os.environ.get("ADA_SIMULATION_REMOTE_SCOPE", "").strip() or "user:me",
+        )
+        if remote_url
+        else None
+    )
 
     if kind == "s3":
         s3 = S3Config(
@@ -271,6 +297,7 @@ def load_settings() -> Settings:
             database_url=database_url,
             ui_default=ui_default,
             local_shutdown_token=local_shutdown_token,
+            simulation_remote=simulation_remote,
         )
 
     if kind == "local":
@@ -290,6 +317,7 @@ def load_settings() -> Settings:
             database_url=database_url,
             ui_default=ui_default,
             local_shutdown_token=local_shutdown_token,
+            simulation_remote=simulation_remote,
         )
 
     raise ValueError(f"Unsupported ADA_VIEWER_STORAGE_KIND: {kind!r} (expected 's3' or 'local')")

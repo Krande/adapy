@@ -10,6 +10,9 @@ On start it writes one ``{"event": "ready", ...}`` line (the load result and the
 * ``{"id": 1, "op": "specs"}`` → ``{"id": 1, "ok": true, "generation": n, "specs": [...]}``
 * ``{"id": 2, "op": "build", "spec_name": ..., "inputs": {...}, "glb_path": ...}``
   → ``{"id": 2, "ok": true, "inputs": {...}, "log": [...], "counts": {...}}``
+* ``{"id": 4, "op": "subject", "spec_name": ..., "inputs": {...}, "path": ...}`` writes the detail's weld
+  assembly (a simulation subject) to ``path`` → ``{"ok": true, "inputs": {...}, "welds": n}``; a detail
+  without welds fails with ``ValueError: the detail has no welds``
 * ``{"id": 3, "op": "reload"}`` → ``{"id": 3, "ok": true, "load": {...}, "specs": [...]}``
 
 A failed request answers ``{"id": n, "ok": false, "error": ..., "traceback": ..., "declined": bool}``;
@@ -90,6 +93,9 @@ def main(argv: list[str] | None = None) -> int:
                 reply = {"load": asdict(load), "generation": library.generation, "specs": _specs()}
             elif op == "build":
                 reply = library.build(req["spec_name"], req.get("inputs") or {}, pathlib.Path(req["glb_path"]))
+                reply["generation"] = library.generation
+            elif op == "subject":
+                reply = library.subject(req["spec_name"], req.get("inputs") or {}, pathlib.Path(req["path"]))
                 reply["generation"] = library.generation
             elif op == "quit":
                 _send(out, {"id": req_id, "ok": True})

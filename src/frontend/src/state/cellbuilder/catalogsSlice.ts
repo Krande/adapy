@@ -14,6 +14,7 @@ import type {ResyncSummary} from "./types";
 import type {CellBuilderSlice} from "./state";
 import {currentScopePart, setProceduralToast} from "./shared";
 import {makeWithHistory} from "./historySlice";
+import {defaultEngine} from "./builderDefaults";
 
 export interface CatalogsSlice {
   /** Equipment types for the add-equipment dropdown: code archetypes ∪ the
@@ -213,7 +214,8 @@ export const createCatalogsSlice: CellBuilderSlice<CatalogsSlice> = (set, get) =
     // reconciles the selection (to the new engine's default if the current one
     // isn't offered).
     setSelectedEngine: (slug) => {
-      set({ selectedEngine: slug || "adapy-default" });
+      // The user's choice: no default replaces it.
+      set({ selectedEngine: slug || "adapy-default", engineIsDefault: false });
       void get().fetchBlueprints();
     },
 
@@ -224,6 +226,13 @@ export const createCatalogsSlice: CellBuilderSlice<CatalogsSlice> = (set, get) =
           "engines",
         );
         set({ engines });
+        // A model whose doc names no engine takes the shell's default, when offered.
+        const s = get();
+        const preferred = s.active && s.engineIsDefault ? defaultEngine(engines) : null;
+        if (preferred && preferred !== s.selectedEngine) {
+          set({ selectedEngine: preferred });
+          void get().fetchBlueprints();
+        }
       } catch (e) {
         console.warn("cellbuilder: engines fetch failed", e);
         set({ engines: [] });

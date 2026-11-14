@@ -46,6 +46,7 @@ from .runs import (
     run_record_key,
     utc_now,
 )
+from .subjects import SubjectRef
 
 logger = logging.getLogger(__name__)
 
@@ -342,6 +343,7 @@ def execute_run(
         parameters=dict(record.get("parameters") or {}),
         inputs=tuple(record.get("inputs") or ()),
         kind=record.get("kind"),
+        subject=SubjectRef.from_dict(record.get("subject")),
     )
     workdir = pathlib.Path(tempfile.mkdtemp(prefix="ada-sim-"))
     ctx = _RunContext(

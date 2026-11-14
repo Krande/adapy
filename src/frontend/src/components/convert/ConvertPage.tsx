@@ -13,22 +13,28 @@ import {useScopeStore} from "@/state/scopeStore";
 // scope bootstrap come from `AuthGate` upstream; this component
 // assumes a current scope is selectable from `useScopeStore`.
 
-// Auto-pick the user's own scope when /convert mounts and the user
-// hasn't explicitly chosen one yet. Mirrors the "auto-mint a
-// personal scope on first visit" behaviour without needing a new
-// server endpoint — the user scope is already in `me.scopes`.
-function useEnsureUserScope(): void {
+// Auto-pick the user's own scope when the standalone /convert page mounts and the
+// user hasn't explicitly chosen one yet. Mirrors the "auto-mint a personal scope on
+// first visit" behaviour without needing a new server endpoint — the user scope is
+// already in `me.scopes`.
+//
+// Not inside a running viewer (`inViewer`): there the scope is the viewer's, picked by
+// the user or by the link that opened it (`?scope=shared`), and the Storage list was
+// fetched for it. Switching it here behind the list's back left Storage listing one
+// scope while loads went to the other - a file shown in Storage that 404s when opened.
+function useEnsureUserScope(enabled: boolean): void {
     const available = useScopeStore((s) => s.available);
     const current = useScopeStore((s) => s.current);
     const setCurrent = useScopeStore((s) => s.setCurrent);
 
     useEffect(() => {
+        if (!enabled) return;
         if (current && current.kind === "user") return;
         const userScope = available.find((s) => s.kind === "user");
         if (userScope) {
             setCurrent(userScope);
         }
-    }, [available, current, setCurrent]);
+    }, [enabled, available, current, setCurrent]);
 }
 
 export interface ConvertBodyProps {
@@ -38,7 +44,7 @@ export interface ConvertBodyProps {
 }
 
 const ConvertPage: React.FC<ConvertBodyProps> = ({inViewer = false}) => {
-    useEnsureUserScope();
+    useEnsureUserScope(!inViewer);
     const rows = useConvertPageStore((s) => s.rows);
     const current = useScopeStore((s) => s.current);
 

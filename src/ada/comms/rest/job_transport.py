@@ -120,9 +120,36 @@ FEATURE_UNAVAILABLE_DETAIL: dict[str, str] = {
 #: already read needs nothing a cluster adds, and "Download as" is a button on every selection.
 #: ``simulation`` like ``plugin_jobs``: a provider registered in this process runs here, so a
 #: desktop install with one simulator installed needs no queue to use it.
+#: ``procedural_build`` too: the built-in engines and any engine a tool registers in this
+#: process compile with nothing a pool adds, and a local viewer's Build mode is otherwise a
+#: document editor that can never show its model (``local_jobs.start_procedural_build``).
+#: ``bake`` and ``result_meta`` as well: this process has ada's result readers, and a result
+#: deck put on a local viewer (a ``.sin`` from a GeniE/Sestra run) is otherwise a file that
+#: Results and Capacity cannot open (``local_jobs.start_fea_job``).
 LOCAL_FEATURES: frozenset[str] = frozenset(
-    {"asset_build", "asset_publish", "clash_check", "clash_detail", "export_selection", "plugin_jobs", "simulation"}
+    {
+        "asset_build",
+        "asset_publish",
+        "bake",
+        "clash_check",
+        "clash_detail",
+        "export_selection",
+        "plugin_jobs",
+        "procedural_build",
+        "result_meta",
+        "simulation",
+    }
 )
+
+
+#: The catalogs a queue-less server advertises from its own process, as the worker
+#: heartbeat does (worker/registration.py): field -> (module, spec-list function).
+#: Only those that belong to the in-process procedural compile.
+_LOCAL_PROCEDURAL_SPECS: dict[str, tuple[str, str]] = {
+    "procedural_blueprint_specs": ("ada.topo_model", "procedural_blueprint_specs"),
+    "procedural_template_specs": ("ada.topo_model", "procedural_template_specs"),
+    "procedural_engine_specs": ("ada.topo_model", "procedural_engine_specs"),
+}
 
 
 @dataclass(frozen=True)
@@ -150,6 +177,13 @@ class JobRequest:
     step: int | None = None
     field_name: str | None = None
     force_rebuild: bool = False
+    #: What an IN-PROCESS run needs that a worker reads for itself, handed over by the
+    #: route that already has it. ``procedural_build``: ``{"model_row": ..., "db_pool": ...}``
+    #: (a worker reads the row from postgres; a local viewer's model is a storage file the
+    #: route just read). ``db_pool`` is the route's pool or None: a server with a database
+    #: but no queue compiles against the same catalogs its catalog fingerprint describes.
+    #: Never sent to a queue: :class:`QueueJobTransport` ignores it.
+    inprocess_inputs: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -403,6 +437,10 @@ class LocalJobTransport(_BaseTransport):
             return self._submit_export_selection(req)
         if req.feature == "simulation":
             return self._submit_simulation(req)
+        if req.feature == "procedural_build":
+            return self._submit_procedural_build(req)
+        if req.feature in ("bake", "result_meta"):
+            return self._submit_fea(req)
         if not req.plugin_id:
             raise HTTPException(status_code=500, detail="a local job needs a plugin_id")
         try:
@@ -428,6 +466,59 @@ class LocalJobTransport(_BaseTransport):
             progress=job.progress,
             target_capability=None,
             payload=payload,
+        )
+
+    def _submit_procedural_build(self, req: JobRequest) -> SubmittedJob:
+        """A procedural compile in this process. Only the single-stage build: an EXTERNAL
+        detailing engine is a chained job on its own capability pool, which a local viewer
+        does not have (``resolve_detailing_engine`` finds no advertised spec without one)."""
+        if req.target_format != "procedural_build":
+            self.unavailable(req.feature)
+        row = (req.inprocess_inputs or {}).get("model_row")
+        if not isinstance(row, dict):
+            raise HTTPException(status_code=500, detail="an in-process procedural build needs the model row")
+        job = local_jobs.start_procedural_build(
+            model_row=row,
+            source_key=req.source_key,
+            derived_key=req.derived_key or "",
+            conversion_options=req.conversion_options or {},
+            force_rebuild=req.force_rebuild,
+            storage=self._storage,
+            scope=req.scope,
+            db_pool=(req.inprocess_inputs or {}).get("db_pool"),
+        )
+        return SubmittedJob(
+            job_id=job.job_id,
+            derived_key=job.derived_key,
+            status=job.status,
+            stage=job.stage,
+            progress=job.progress,
+            target_capability=None,
+            payload=job.as_json(),
+        )
+
+    def _submit_fea(self, req: JobRequest) -> SubmittedJob:
+        """A FEA bake, result inventory, or lazy combination / envelope, in this process."""
+        if req.target_format not in local_jobs.LOCAL_FEA_KINDS:
+            self.unavailable(req.feature)
+        job = local_jobs.start_fea_job(
+            target_format=req.target_format,
+            source_key=req.source_key,
+            derived_key=req.derived_key or "",
+            step=req.step,
+            field_name=req.field_name,
+            force_rebuild=req.force_rebuild,
+            storage=self._storage,
+            scope=req.scope,
+        )
+        return SubmittedJob(
+            job_id=job.job_id,
+            derived_key=job.derived_key,
+            status=job.status,
+            stage=job.stage,
+            progress=job.progress,
+            target_capability=None,
+            payload=job.as_json(),
         )
 
     def _submit_asset_build(self, req: JobRequest) -> SubmittedJob:
@@ -720,7 +811,28 @@ class LocalJobTransport(_BaseTransport):
         # There is no pool to advertise anything. What this process registered
         # is reported through `local_specs` instead — it is online by
         # definition, being the thing that would run the job.
-        return {}
+        #
+        # Except the procedural catalogs: a queue-less server compiles procedural
+        # models itself (`procedural_build` is a local feature), so it IS the worker
+        # those catalogs describe, and answers for them exactly as a worker's
+        # heartbeat would - the built-ins plus what a preloaded tool registered
+        # (its engine's blueprints, its templates). See _LOCAL_PROCEDURAL_SPECS.
+        source = _LOCAL_PROCEDURAL_SPECS.get(spec_field)
+        if source is None:
+            return {}
+        import importlib
+
+        module, attr = source
+        try:
+            specs = getattr(importlib.import_module(module), attr)()
+        except ImportError:
+            return {}  # a slim API without the modelling stack has none to offer
+        except Exception:
+            logger.exception("local transport: failed to list %s (non-fatal)", spec_field)
+            return {}
+        return {
+            s["slug"]: dict(s) for s in specs if isinstance(s, dict) and isinstance(s.get("slug"), str) and s["slug"]
+        }
 
     def local_specs(self) -> list[dict] | None:
         from .plugin_registry import locally_registered_specs
