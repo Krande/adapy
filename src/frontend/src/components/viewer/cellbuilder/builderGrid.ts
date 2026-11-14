@@ -11,6 +11,7 @@ import * as THREE from "three";
 import {useCellBuilderStore} from "@/state/cellBuilderStore";
 import {useModelState} from "@/state/modelState";
 import {requestRender} from "@/state/perfStore";
+import {useGroundGridStore} from "@/state/groundGridStore";
 import type {CellBuilderScene} from "./sceneContext";
 
 // While a procedural model is open, the scene's static 1 m helper grid is
@@ -41,7 +42,8 @@ export const syncBuilderGrid = (ctx: CellBuilderScene) => {
             }
         }
     } else if (!wantGrid && ctx.hiddenDefaultGrids.length > 0) {
-        ctx.hiddenDefaultGrids.forEach((g) => (g.visible = true));
+        // Back as the "Ground grid" toggle has it (it may have been turned off meanwhile).
+        ctx.hiddenDefaultGrids.forEach((g) => (g.visible = useGroundGridStore.getState().visible));
         ctx.hiddenDefaultGrids.length = 0;
     }
 

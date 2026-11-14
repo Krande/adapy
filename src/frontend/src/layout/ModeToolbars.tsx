@@ -23,6 +23,7 @@ import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {useModelState} from "@/state/modelState";
 import {useOptionsStore} from "@/state/optionsStore";
 import {useProjectionStore} from "@/state/projectionStore";
+import {useGroundGridStore} from "@/state/groundGridStore";
 import {useSectionStore} from "@/state/sectionStore";
 import {hasEmbeddedDoc, useCellBuilderStore} from "@/state/cellBuilderStore";
 import {useColorByStore} from "@/state/colorByStore";
@@ -134,12 +135,13 @@ export function sectionOffset(
   return {axis, sign, offset: plane ? -plane.constant * sign : 0, lo, hi};
 }
 
-/** The view: perspective or orthographic; then the section planes: one per axis, on / off,
+/** The view: perspective or orthographic, the ground grid; then the section planes: one per axis, on / off,
  *  flip, the offset along the axis, remove all. (The strip every mode shows.) */
 export function SectionToolbar({className = BAR}: {className?: string}) {
   // Re-render on every change to the planes, and to the projection.
   useStore(useSectionStore);
   useProjectionStore((s) => s.orthographic);
+  useGroundGridStore((s) => s.visible);
   const box = useModelState((s) => s.boundingBox);
   const plane = workingPlane();
   const {sign, offset, lo, hi} = sectionOffset(plane, box);
@@ -147,6 +149,7 @@ export function SectionToolbar({className = BAR}: {className?: string}) {
   return (
     <div className={className} role="group" aria-label="Section plane" data-mode-toolbar="section">
       <CommandButton id={ID.orthographic} />
+      <CommandButton id={ID.groundGrid} />
       {DIVIDER}
       {([ID.sectionX, ID.sectionY, ID.sectionZ] as const).map((id) => (
         <CommandButton key={id} id={id}>

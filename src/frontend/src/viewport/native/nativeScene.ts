@@ -15,6 +15,7 @@ import {startRenderer} from "@/viewport/adacpp/rendererModule";
 import {rolledUpAxis} from "@/utils/camera/roll";
 import {linearColor} from "@/utils/scene/sceneColor";
 import {useOptionsStore} from "@/state/optionsStore";
+import {useGroundGridStore} from "@/state/groundGridStore";
 import {usePerfStore} from "@/state/perfStore";
 import {defaultColorLinear, hexChannels, lightIntensities, useAppearanceStore} from "@/state/appearanceStore";
 import {glbUncoloured, UNCOLOURED_BLACK} from "@/utils/glb/glbUncoloured";
@@ -300,6 +301,14 @@ export class NativeScene {
             if (!this.disposed) this.fail(`WebGPU device lost: ${info.message}`);
         });
         this.addGrid();
+        // The "Ground grid" toggle (state/groundGridStore).
+        this.cleanups.push(
+            useGroundGridStore.subscribe((s, prev) => {
+                if (s.visible === prev.visible) return;
+                this.addGrid();
+                this.invalidate();
+            }),
+        );
         this.home(0);
         this.bindInput();
     }
@@ -1058,6 +1067,8 @@ export class NativeScene {
      *  again after each. */
     private addGrid(): void {
         for (const handle of this.gridHandles) this.removeLines(handle);
+        this.gridHandles = [];
+        if (!useGroundGridStore.getState().visible) return;
         const flags = InstanceFlag.Unlit | InstanceFlag.NoPick | InstanceFlag.Underlay;
         const {lines, centre} = groundGridLines(true);
         this.gridHandles = [

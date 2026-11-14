@@ -41,6 +41,7 @@ export const CORE_COMMAND_IDS = {
   viewIsometric: "core:view.isometric",
   edges: "core:edges",
   orthographic: "core:view.orthographic",
+  groundGrid: "core:view.ground-grid",
   stats: "core:stats",
   gallery: "core:gallery",
   fullscreen: "core:fullscreen",

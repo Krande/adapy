@@ -25,6 +25,7 @@ import {useSectionStore, type SectionPlane} from "@/state/sectionStore";
 import {useObjectInfoStore} from "@/state/objectInfoStore";
 import {useOptionsStore} from "@/state/optionsStore";
 import {useProjectionStore} from "@/state/projectionStore";
+import {useGroundGridStore} from "@/state/groundGridStore";
 import {requestRender} from "@/state/perfStore";
 import {THEME_PRESETS, useThemeStore, type ThemePresetId} from "@/state/themeStore";
 import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
@@ -437,6 +438,17 @@ export function coreCommandSpecs(): CommandSpec[] {
         noViewport() ?? (activeViewport()?.kind === "native" ? "The native viewport draws in perspective only" : null),
       run: () => {
         useProjectionStore.getState().toggle();
+        requestRender();
+      },
+    },
+    {
+      id: ID.groundGrid,
+      label: "Ground grid",
+      group: "View",
+      checked: () => useGroundGridStore.getState().visible,
+      disabledReason: noViewport,
+      run: () => {
+        useGroundGridStore.getState().toggle();
         requestRender();
       },
     },

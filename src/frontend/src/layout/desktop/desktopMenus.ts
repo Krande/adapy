@@ -87,7 +87,7 @@ export function desktopMenus({ modes, workspaces, shells, themes }: DesktopMenuI
         { label: "Camera", items: [C.fitAll, C.fitSelection, C.resetCamera, SEP, ...CAMERA_VIEWS.map(cameraViewCommandId), SEP, C.orthographic] },
         {
           label: "Display",
-          items: [C.edges, C.feaToggleResultColors, C.feaToggleElementEdges, C.feaToggleUndeformed, C.warp, C.beamSections, SEP, C.stats, C.gallery, SEP, C.toggleMarkingMenu],
+          items: [C.edges, C.groundGrid, C.feaToggleResultColors, C.feaToggleElementEdges, C.feaToggleUndeformed, C.warp, C.beamSections, SEP, C.stats, C.gallery, SEP, C.toggleMarkingMenu],
         },
         { label: "Labels and colours", items: [C.labelsNodes, C.labelsElements, C.labelsValues, C.labelsNames, C.typeIcons, SEP, C.colorByNext, C.colorByModel, C.colorByReset] },
         { label: "Section", items: [C.sectionX, C.sectionY, C.sectionZ, SEP, C.sectionToggle, C.sectionFlip, C.sectionClear] },
