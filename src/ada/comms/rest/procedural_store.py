@@ -21,7 +21,7 @@ exports, xlsx import) still says so.
 ONE PROCESS. A local viewer is one server process, so a process-wide lock is enough to
 make the name check and the revision bump atomic. The file store is not meant for a
 deployment with several API replicas sharing a bucket: that is what postgres is for, and
-:func:`procedural_store` only picks files when there is no pool.
+:func:`procedural_store` only picks files when there is no pool and no queue.
 """
 
 from __future__ import annotations
@@ -236,9 +236,20 @@ class FileProceduralStore:
             return True
 
 
-def procedural_store(pool: Any, storage: Storage) -> ProceduralStore:
-    """Postgres when this server has a pool, the scope's storage when it has none."""
-    return DbProceduralStore(pool) if pool is not None else FileProceduralStore(storage)
+def procedural_store(pool: Any, storage: Storage, *, local: bool = True) -> ProceduralStore | None:
+    """Postgres when this server has a pool; the scope's storage when it has none AND
+    runs its jobs in-process (``local``: no queue); else None.
+
+    The file store is for the server that also compiles what it stores. A server with
+    a queue but no database hands ``procedural_build`` to workers, which read the model
+    from postgres and could never compile a file-stored one - so there the routes keep
+    answering 503, as before the file store existed. That also keeps the in-process
+    compile (which takes over root logging and ``sys.stdout`` while it runs) on the
+    single-user servers it was written for.
+    """
+    if pool is not None:
+        return DbProceduralStore(pool)
+    return FileProceduralStore(storage) if local else None
 
 
 __all__ = [

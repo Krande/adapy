@@ -339,7 +339,10 @@ async def _run_procedural_build(
 
     # Bind this artifact to the catalog state it was built from, so a later catalog
     # edit invalidates the (revision/doc-hash-stamped) cache and forces a recompile.
-    await _write_catalog_fp_sidecar(storage, scope, job.derived_key, job.conversion_options)
+    # Only when it WAS built from one: without a pool no catalog was resolved, and
+    # stamping a fingerprint would cache a catalog-less build as current for it.
+    if db_pool is not None:
+        await _write_catalog_fp_sidecar(storage, scope, job.derived_key, job.conversion_options)
 
     # Take-off stats sidecar (default-engine builds only): a gzip-at-rest
     # ``.stats.json`` sibling of the GLB (procedural_stats_key). Best-effort — a

@@ -178,9 +178,11 @@ class JobRequest:
     field_name: str | None = None
     force_rebuild: bool = False
     #: What an IN-PROCESS run needs that a worker reads for itself, handed over by the
-    #: route that already has it. ``procedural_build``: ``{"model_row": ...}`` (a worker
-    #: reads the row from postgres; a local viewer's model is a storage file the route
-    #: just read). Never sent to a queue: :class:`QueueJobTransport` ignores it.
+    #: route that already has it. ``procedural_build``: ``{"model_row": ..., "db_pool": ...}``
+    #: (a worker reads the row from postgres; a local viewer's model is a storage file the
+    #: route just read). ``db_pool`` is the route's pool or None: a server with a database
+    #: but no queue compiles against the same catalogs its catalog fingerprint describes.
+    #: Never sent to a queue: :class:`QueueJobTransport` ignores it.
     inprocess_inputs: dict[str, Any] | None = None
 
 
@@ -483,6 +485,7 @@ class LocalJobTransport(_BaseTransport):
             force_rebuild=req.force_rebuild,
             storage=self._storage,
             scope=req.scope,
+            db_pool=(req.inprocess_inputs or {}).get("db_pool"),
         )
         return SubmittedJob(
             job_id=job.job_id,

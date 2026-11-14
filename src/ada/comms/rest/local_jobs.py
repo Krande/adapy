@@ -465,9 +465,14 @@ def start_procedural_build(
     force_rebuild: bool,
     storage: Any,
     scope: Any,
+    db_pool: Any = None,
 ) -> LocalJob:
     """Compile a procedural model in this process: the worker's ``procedural_build``
     handler, run on this server's loop with the model it already read.
+
+    ``db_pool`` is the server's pool when it has a database but no queue: the compile
+    then resolves the scope's equipment/system catalogs and CAD links as a worker
+    would, so the catalog fingerprint the route stamps describes what was built.
 
     The queue-less half of ``procedural_build``, for a local viewer: its models live in
     storage files (``procedural_store``) and its engines are the ones registered in
@@ -506,7 +511,7 @@ def start_procedural_build(
                 scope=scope,
                 storage=storage,
                 queue=_LocalJobQueue(job),  # type: ignore[arg-type]
-                db_pool=None,
+                db_pool=db_pool,
                 started_at=time.monotonic(),
                 model_row=model_row,
                 audit=False,

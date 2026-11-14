@@ -74,8 +74,12 @@ async def get_procedural_in_scope(pool, model_id: str, scope_obj: Scope) -> dict
 
 def model_store(request: Request, ctx: RestContext) -> ProceduralStore:
     """Where this server keeps procedural models: postgres, or storage files when it
-    has no database (a local viewer), see :mod:`..procedural_store`."""
-    return procedural_store(getattr(request.app.state, "db_pool", None), ctx.storage)
+    has neither a database nor a queue (a local viewer), see :mod:`..procedural_store`.
+    A queue but no database is 503, as it was: its workers could not compile a file."""
+    store = procedural_store(getattr(request.app.state, "db_pool", None), ctx.storage, local=not ctx.queue.enabled)
+    if store is None:
+        raise HTTPException(status_code=503, detail="procedural models disabled (no database configured)")
+    return store
 
 
 async def get_model_in_scope(store: ProceduralStore, model_id: str, scope_obj: Scope) -> dict:
@@ -782,8 +786,9 @@ async def api_procedural_compile(
             derived_key=derived_key,
             force_rebuild=force,
             target_capability=target_capability,
-            # A local viewer compiles in-process from the row this route just read.
-            inprocess_inputs={"model_row": row},
+            # A queue-less server compiles in-process from the row this route just read,
+            # with the pool (if any) the catalog fingerprint above was taken from.
+            inprocess_inputs={"model_row": row, "db_pool": pool},
         )
     )
     await audit_compile_run(ctx, request, user, scope_obj, job_id=job.job_id, derived_key=derived_key)
@@ -884,8 +889,9 @@ async def api_procedural_compile_preview(
             derived_key=derived_key,
             force_rebuild=force,
             target_capability=target_capability,
-            # A local viewer compiles in-process from the row this route just read.
-            inprocess_inputs={"model_row": row},
+            # A queue-less server compiles in-process from the row this route just read,
+            # with the pool (if any) the catalog fingerprint above was taken from.
+            inprocess_inputs={"model_row": row, "db_pool": pool},
         )
     )
     await audit_compile_run(ctx, request, user, scope_obj, job_id=job.job_id, derived_key=derived_key)

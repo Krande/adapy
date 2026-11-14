@@ -247,6 +247,78 @@ def test_compile_runs_in_process_without_a_queue(app_client: TestClient, tmp_pat
     assert app_client.get(f"{base}/{model_id}").json()["revision"] == 1
 
 
+def test_a_compile_without_catalogs_stamps_no_catalog_fingerprint(
+    app_client: TestClient, tmp_path: pathlib.Path, monkeypatch
+):
+    """An in-process build with no pool resolves no equipment/system catalog, so it must
+    not bind its artifact to a catalog fingerprint: that would cache a catalog-less GLB
+    as current for the catalog (a database-backed, queue-less server's route takes the
+    fingerprint from postgres)."""
+    from ada.comms.rest.procedural import procedural_catalog_fp_key
+    from ada.comms.rest.routes import procedural_models as routes
+
+    async def _fp(pool, scope_obj, doc):
+        return "catalog-fp-1"
+
+    monkeypatch.setattr(routes, "catalog_fingerprint_for", _fp)
+    base = "/api/scopes/shared/procedural-models"
+    model_id = app_client.post(base, json={"name": "catalog-fp"}).json()["id"]
+    doc = {"spaces": [{"NAME": "Cell1", "X": 0, "Y": 0, "Z": 0, "DX": 5, "DY": 5, "DZ": 3}]}
+    app_client.put(f"{base}/{model_id}", json={"doc": doc, "base_revision": 0})
+    started = app_client.post(f"{base}/{model_id}/compile", params={"engine": "echo"}).json()
+    assert _wait_job(app_client, started["job_id"])["status"] == "done"
+    assert (tmp_path / "shared" / pathlib.PurePosixPath(started["derived_key"])).is_file()
+    assert not (tmp_path / "shared" / pathlib.PurePosixPath(procedural_catalog_fp_key(started["derived_key"]))).exists()
+    # So the cached GLB is not taken as built from that catalog.
+    again = app_client.post(f"{base}/{model_id}/compile", params={"engine": "echo"}).json()
+    assert again["cached"] is False
+
+
+def test_the_local_transport_compiles_with_the_routes_pool(monkeypatch):
+    """A server with a database but no queue compiles in-process WITH its pool, so the
+    build resolves the catalogs the route fingerprinted."""
+    from ada.comms.rest import job_transport, local_jobs
+    from ada.comms.rest.job_transport import JobRequest, LocalJobTransport
+    from ada.comms.rest.scope import Scope
+
+    seen: dict = {}
+
+    def _start(**kwargs):
+        seen.update(kwargs)
+        return local_jobs.LocalJob(
+            job_id="local-x", plugin_id="procedural_build", scope_kind="shared", scope_id=None, derived_key="k"
+        )
+
+    monkeypatch.setattr(job_transport.local_jobs, "start_procedural_build", _start)
+    transport = LocalJobTransport(object())  # type: ignore[arg-type]
+    pool = object()
+    transport._submit_procedural_build(
+        JobRequest(
+            source_key="s",
+            target_format="procedural_build",
+            scope=Scope.shared(),
+            feature="procedural_build",
+            derived_key="k",
+            inprocess_inputs={"model_row": {"id": "m"}, "db_pool": pool},
+        )
+    )
+    assert seen["db_pool"] is pool and seen["model_row"] == {"id": "m"}
+
+
+def test_a_queued_server_without_a_db_keeps_procedural_models_503(app_client: TestClient, monkeypatch):
+    """The file store is for a server that also compiles what it stores. With a queue the
+    workers read models from postgres, so without one the routes stay 503 as before."""
+    from ada.comms.rest.procedural_store import FileProceduralStore, procedural_store
+    from ada.comms.rest.queue import JobQueue
+
+    assert procedural_store(None, object(), local=False) is None
+    assert isinstance(procedural_store(None, object(), local=True), FileProceduralStore)
+    monkeypatch.setattr(JobQueue, "enabled", property(lambda self: True))
+    base = "/api/scopes/shared/procedural-models"
+    assert app_client.get(base).status_code == 503
+    assert app_client.post(base, json={"name": "x"}).status_code == 503
+
+
 def test_a_failed_local_compile_says_why(app_client: TestClient):
     base = "/api/scopes/shared/procedural-models"
     model_id = app_client.post(base, json={"name": "no-engine"}).json()["id"]
