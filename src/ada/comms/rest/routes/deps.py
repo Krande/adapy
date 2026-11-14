@@ -21,7 +21,7 @@ from .. import failure_capture, pending_uploads
 from ..auth import User
 from ..config import Settings
 from ..converter import is_supported_source
-from ..job_transport import JobTransport
+from ..job_transport import JobTransport, local_advertisement
 from ..qualification import CAPABILITY_REQUIREMENTS_KEY
 from ..queue import JobQueue
 from ..scope import Scope
@@ -570,9 +570,11 @@ async def worker_advertised_exts(queue: JobQueue, worker_registry: dict) -> list
     on NATS.
     """
     # Below the transport, like live_worker_specs: an extension allowlist is a
-    # property of the registry snapshot, not a job anyone can submit.
+    # property of the registry snapshot, not a job anyone can submit. Without a
+    # queue this process is the worker (its job processes run what it registered),
+    # so it answers for itself.
     if not queue.enabled:
-        return []
+        return sorted({str(e).lower() for e in local_advertisement()["source_exts"]})
     workers = worker_registry["workers"]
     out: set[str] = set()
     for w in workers:

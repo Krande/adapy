@@ -176,15 +176,7 @@ how it is built.
 
 ## Run it yourself
 
-The quickest local setup is the development stack: NATS, the API and one worker, with local
-storage and no login:
-
-```bash
-pixi run up            # docker compose: deploy/docker-compose.dev.yml
-```
-
-Without Docker, run the API straight from the `viewer-api` environment and serve the built
-frontend from it:
+Run the API from any environment that has ada-py, and serve the built frontend from it:
 
 ```bash
 pixi run -e frontend wbuild-serve                  # builds src/frontend/dist
@@ -193,9 +185,24 @@ ADA_VIEWER_LOCAL_PATH=./viewer-data \
 pixi run -e viewer-api viewer-api                  # http://localhost:8080
 ```
 
-Without a job queue (`ADA_VIEWER_NATS_URL` unset) the API runs the clash check, asset builds
-and exports in-process, but cannot convert files. Start a worker
-(`pixi run -e viewer-api viewer-worker`, with NATS) for conversions and FE bakes.
+Without a job queue (`ADA_VIEWER_NATS_URL` unset) everything runs in the environment the API
+was started from: file conversions (IFC, STEP, SAT, FEM, ... to GLB and the other targets), FE
+result bakes, utilities and component builds, the clash check, asset builds and exports. The
+heavy jobs (conversions and bakes) each run in a child process of the same interpreter, through
+the same pipeline a worker runs, so a crash or an out-of-memory in a CAD reader fails that job
+and not the viewer. Plugins on `ADA_WORKER_PRELOAD` or the `ada.plugins` entry points are loaded
+there too, so a tool that starts the viewer from its own environment
+(`python -m ada.comms.rest`) offers exactly the conversions and job kinds that environment can
+run. `ADA_LOCAL_JOB_PROCESSES` caps how many job processes run at once (default: half the cores,
+at most 4). What still needs a queue: admin audit sweeps (they measure worker pools), and job
+kinds that write back to a database or chain onto another pool.
+
+The development stack, with NATS, the API and one worker in Docker, is for working on the
+queue and worker path itself:
+
+```bash
+pixi run up            # docker compose: deploy/docker-compose.dev.yml
+```
 
 ### As a desktop app
 

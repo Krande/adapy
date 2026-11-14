@@ -14,12 +14,15 @@ THE SHAPE. A :class:`JobTransport` is "the thing that runs jobs here". There are
 two, chosen once at app build time and carried on ``RestContext.jobs``:
 
 * :class:`QueueJobTransport` — a NATS-backed pool. Runs every job kind.
-* :class:`LocalJobTransport` — no queue. Runs PLUGIN jobs in-process and
-  reports every other kind as unavailable, because no local path exists for
-  them (a conversion needs a worker's CAD stack; a procedural build needs the
-  engine's pool). That asymmetry is the honest one: it is a statement about
-  what a single-node viewer can actually do, not about which branch someone
-  remembered to write.
+* :class:`LocalJobTransport` — no queue. Runs what this process can run
+  itself: plugin jobs and the lighter kinds on a thread (:mod:`local_jobs`), and
+  every worker kind whose handler is here -- conversions, FEA bakes, utilities,
+  component builds -- in a child process of this interpreter, through the
+  worker's own pipeline (:mod:`local_runner`). A local viewer is started from an
+  environment that has the same readers and plugins a worker has, so it is the
+  worker. What it reports as unavailable is what needs something it does not
+  have: a database a job writes back to, a pool a job is chained onto, or a
+  sweep that measures worker pools.
 
 Three things a route needs, and one call each:
 
@@ -41,6 +44,7 @@ job run" is answered.
 from __future__ import annotations
 
 import logging
+import pathlib
 from collections.abc import Awaitable, Callable
 from dataclasses import asdict, dataclass, field
 from typing import Any, Literal, NoReturn, Protocol, runtime_checkable
@@ -61,6 +65,7 @@ logger = logging.getLogger(__name__)
 TransportFeature = Literal[
     "asset_build",
     "asset_publish",
+    "audit_conversion",
     "bake",
     "bbox_inference",
     "clash_check",
@@ -91,6 +96,9 @@ FEATURE_UNAVAILABLE_DETAIL: dict[str, str] = {
     "bbox_inference": "bbox inference disabled (no NATS configured)",
     "component_build": "component build disabled (no NATS configured)",
     "conversion": "conversion disabled (no NATS configured)",
+    # An admin audit sweep's conversions: they measure worker pools and write their results to
+    # audit rows, so they need both. Worded as the conversion gate the routes always answered.
+    "audit_conversion": "conversion disabled (no NATS configured)",
     "job_status_report": "no job queue configured",
     "asset_build": "asset builds disabled (no NATS configured)",
     "asset_publish": "asset publishing disabled (no NATS configured)",
@@ -126,6 +134,11 @@ FEATURE_UNAVAILABLE_DETAIL: dict[str, str] = {
 #: ``bake`` and ``result_meta`` as well: this process has ada's result readers, and a result
 #: deck put on a local viewer (a ``.sin`` from a GeniE/Sestra run) is otherwise a file that
 #: Results and Capacity cannot open (``local_jobs.start_fea_job``).
+#: ``conversion``, ``utilities`` and ``component_build`` because the environment a local viewer
+#: is started from has the readers and plugins a worker has: a file put there converts to GLB (and
+#: IFC, STEP, ...) without a queue or a worker image, by the same handler a worker runs, in a
+#: child process so a native crash takes the job down and not the viewer
+#: (``local_jobs.start_worker_job``). The bakes run there too.
 LOCAL_FEATURES: frozenset[str] = frozenset(
     {
         "asset_build",
@@ -133,13 +146,24 @@ LOCAL_FEATURES: frozenset[str] = frozenset(
         "bake",
         "clash_check",
         "clash_detail",
+        "component_build",
+        "conversion",
         "export_selection",
         "plugin_jobs",
         "procedural_build",
         "result_meta",
         "simulation",
+        "utilities",
     }
 )
+
+#: The job kind each worker-process feature submits, beyond ``conversion`` (whose kinds are the
+#: converter registry's targets). A request naming another kind under one of these features is a
+#: route's mistake and refused as the feature being unavailable here.
+_WORKER_PROCESS_KINDS: dict[str, frozenset[str]] = {
+    "utilities": frozenset({"utility"}),
+    "component_build": frozenset({"component_build"}),
+}
 
 
 #: The catalogs a queue-less server advertises from its own process, as the worker
@@ -404,7 +428,8 @@ class QueueJobTransport(_BaseTransport):
 
 
 class LocalJobTransport(_BaseTransport):
-    """No queue: plugin jobs run HERE, everything else is unavailable.
+    """No queue: what this process can run runs HERE (threads, or a job process for a worker's
+    kinds -- see the module docstring); everything else is unavailable.
 
     The storage handed in is the one :mod:`local_jobs` gives the plugin
     through the same synchronous facade a worker would — the plugin cannot
@@ -441,6 +466,8 @@ class LocalJobTransport(_BaseTransport):
             return self._submit_procedural_build(req)
         if req.feature in ("bake", "result_meta"):
             return self._submit_fea(req)
+        if req.feature == "conversion" or req.feature in _WORKER_PROCESS_KINDS:
+            return self._submit_worker_job(req)
         if not req.plugin_id:
             raise HTTPException(status_code=500, detail="a local job needs a plugin_id")
         try:
@@ -498,28 +525,59 @@ class LocalJobTransport(_BaseTransport):
         )
 
     def _submit_fea(self, req: JobRequest) -> SubmittedJob:
-        """A FEA bake, result inventory, or lazy combination / envelope, in this process."""
+        """A FEA bake, result inventory, or lazy combination / envelope, in a job process."""
         if req.target_format not in local_jobs.LOCAL_FEA_KINDS:
             self.unavailable(req.feature)
-        job = local_jobs.start_fea_job(
-            target_format=req.target_format,
-            source_key=req.source_key,
-            derived_key=req.derived_key or "",
-            step=req.step,
-            field_name=req.field_name,
-            force_rebuild=req.force_rebuild,
-            storage=self._storage,
-            scope=req.scope,
-        )
-        return SubmittedJob(
-            job_id=job.job_id,
-            derived_key=job.derived_key,
-            status=job.status,
-            stage=job.stage,
-            progress=job.progress,
-            target_capability=None,
-            payload=job.as_json(),
-        )
+        try:
+            job = local_jobs.start_fea_job(
+                target_format=req.target_format,
+                source_key=req.source_key,
+                derived_key=req.derived_key or "",
+                step=req.step,
+                field_name=req.field_name,
+                force_rebuild=req.force_rebuild,
+                storage=self._storage,
+                scope=req.scope,
+            )
+        except LookupError as exc:
+            raise HTTPException(status_code=501, detail=str(exc)) from exc
+        return _submitted_from_local(job)
+
+    def _submit_worker_job(self, req: JobRequest) -> SubmittedJob:
+        """A worker's job kind -- a conversion, a utility, a component build -- in a child
+        process of this interpreter, through the worker's pipeline (``local_jobs.start_worker_job``).
+
+        501, not 503, when this process cannot: the deployment runs these, this environment
+        lacks the converter (or the handler) for this one. The message names what is missing.
+        """
+        if req.feature == "conversion":
+            targets = local_conversion_targets(req.source_key)
+            if req.target_format not in targets:
+                ext = pathlib.PurePosixPath(req.source_key).suffix.lower() or req.source_key
+                raise HTTPException(
+                    status_code=501,
+                    detail=(
+                        f"this server cannot convert {ext} to {req.target_format!r}: no converter for it is "
+                        f"registered in its environment (it can: {', '.join(targets) or 'none'})"
+                    ),
+                )
+        elif req.target_format not in _WORKER_PROCESS_KINDS[req.feature]:
+            self.unavailable(req.feature)
+        try:
+            job = local_jobs.start_worker_job(
+                target_format=req.target_format,
+                source_key=req.source_key,
+                derived_key=req.derived_key or "",
+                storage=self._storage,
+                scope=req.scope,
+                step=req.step,
+                field_name=req.field_name,
+                conversion_options=req.conversion_options,
+                force_rebuild=req.force_rebuild,
+            )
+        except LookupError as exc:
+            raise HTTPException(status_code=501, detail=str(exc)) from exc
+        return _submitted_from_local(job)
 
     def _submit_asset_build(self, req: JobRequest) -> SubmittedJob:
         """The build kind's local engine. Its identity travels in
@@ -843,6 +901,51 @@ class LocalJobTransport(_BaseTransport):
         return None
 
 
+def _submitted_from_local(job: local_jobs.LocalJob) -> SubmittedJob:
+    return SubmittedJob(
+        job_id=job.job_id,
+        derived_key=job.derived_key,
+        status=job.status,
+        stage=job.stage,
+        progress=job.progress,
+        target_capability=None,
+        payload=job.as_json(),
+    )
+
+
+def local_advertisement() -> dict[str, list]:
+    """What a queue-less server can convert and run in its own environment, in the shape a
+    worker's heartbeat carries (``source_exts``, ``conversions``, ``utilities``): the very
+    computation a worker advertises with (``worker.registration.base_advertisement``), so the
+    frontend offers on a local viewer exactly what its job processes will do.
+
+    Computed on each call -- a plugin can register a converter after start-up -- and empty, never
+    raising, where the worker's modules are not importable (a slim API).
+    """
+    try:
+        from .worker.registration import base_advertisement
+
+        advert = base_advertisement()
+    except Exception:
+        logger.exception("local transport: could not evaluate what this process converts (non-fatal)")
+        return {"source_exts": [], "conversions": [], "utilities": []}
+    return {"source_exts": advert.source_exts, "conversions": advert.conversions, "utilities": advert.utilities}
+
+
+def local_conversion_targets(source_key: str) -> list[str]:
+    """The targets this process converts ``source_key`` to, per :func:`local_advertisement`. A
+    bundle (``.zip``) answers for the Abaqus deck it unpacks to, as ``supported_targets_for`` does."""
+    from .converters.keys import _BUNDLE_EXTS
+
+    ext = pathlib.PurePosixPath(source_key).suffix.lower()
+    if ext in _BUNDLE_EXTS:
+        ext = ".inp"
+    for row in local_advertisement()["conversions"]:
+        if row.get("from") == ext:
+            return sorted(str(t) for t in row.get("to") or [])
+    return []
+
+
 def _submitted_from_job(job) -> SubmittedJob:
     return SubmittedJob(
         job_id=job.job_id,
@@ -860,5 +963,5 @@ def build_transport(queue: JobQueue, storage: Storage, worker_registry: dict) ->
     request ever has to ask which shape the deployment is."""
     if queue.enabled:
         return QueueJobTransport(queue, worker_registry)
-    logger.info("no job queue configured — plugin jobs will run in-process (see ada.comms.rest.local_jobs)")
+    logger.info("no job queue configured — jobs run in this environment (see ada.comms.rest.local_jobs)")
     return LocalJobTransport(storage)

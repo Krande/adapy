@@ -265,15 +265,25 @@ def _simulation_providers_for_heartbeat(capabilities: list[str]) -> list[dict]:
     return out
 
 
-async def build_registration(queue: JobQueue) -> Registration:
-    """Evaluate what this worker advertises and serves. Run once at startup, after
+@dataclass
+class BaseAdvertisement:
+    """What a process can convert and run itself: the base half of a worker's heartbeat.
+
+    The same answer for a worker and for a queue-less server, which runs these jobs in its own
+    environment (``ada.comms.rest.local_runner``) and so advertises exactly what this computes --
+    the env gates (``ADA_WORKER_BASE_CONVERSIONS``, ``ADA_WORKER_EXT_ALLOW``) included.
+    """
+
+    source_exts: list[str]
+    source_ext_set: set[str]
+    ext_allow_set: set[str] | None
+    conversions: list[dict]
+    utilities: list[dict]
+
+
+def base_advertisement() -> BaseAdvertisement:
+    """Evaluate this process's source extensions, conversion matrix and utilities, after
     ``ADA_WORKER_PRELOAD`` / plugin discovery populated the registries."""
-    image_tag = os.environ.get("ADA_IMAGE_TAG", "").strip()
-    # Stash on the module-level slot so ``_audit_done`` can stamp it
-    # onto every audit_log row without threading through callers.
-    state._WORKER_IMAGE_TAG = image_tag or None
-    worker_id = _worker_id()
-    capabilities = _declared_capabilities()
     # An extra-capability pool builds FROM / runs an independent adapy and still
     # advertises the full base converter matrix, so it wins base conversion jobs (gxml->glb, ...)
     # it has no business running — and when that image is stale it produces outdated output (e.g.
@@ -327,14 +337,6 @@ async def build_registration(queue: JobQueue) -> Registration:
     # job lookup needs to hit this; sorting is only for the wire
     # registration above.
     source_ext_set = registered_exts
-    started_at = time.time()
-
-    if image_tag:
-        try:
-            await queue.set_meta("worker_image_tag", image_tag)
-            logger.info("worker: published image tag %s", image_tag)
-        except Exception:
-            logger.exception("worker: failed to publish image tag (non-fatal)")
 
     # Conversion matrix this worker advertises to the API. Take the
     # full registry (every ``@converter`` registration adapy + any
@@ -370,6 +372,36 @@ async def build_registration(queue: JobQueue) -> Registration:
     from ..utility import UtilityRegistry
 
     utilities = UtilityRegistry.specs()
+
+    return BaseAdvertisement(
+        source_exts=source_exts,
+        source_ext_set=source_ext_set,
+        ext_allow_set=ext_allow_set,
+        conversions=conversions,
+        utilities=utilities,
+    )
+
+
+async def build_registration(queue: JobQueue) -> Registration:
+    """Evaluate what this worker advertises and serves. Run once at startup, after
+    ``ADA_WORKER_PRELOAD`` / plugin discovery populated the registries."""
+    image_tag = os.environ.get("ADA_IMAGE_TAG", "").strip()
+    # Stash on the module-level slot so ``_audit_done`` can stamp it
+    # onto every audit_log row without threading through callers.
+    state._WORKER_IMAGE_TAG = image_tag or None
+    worker_id = _worker_id()
+    capabilities = _declared_capabilities()
+    advert = base_advertisement()
+    source_exts, source_ext_set, ext_allow_set = advert.source_exts, advert.source_ext_set, advert.ext_allow_set
+    conversions, utilities = advert.conversions, advert.utilities
+    started_at = time.time()
+
+    if image_tag:
+        try:
+            await queue.set_meta("worker_image_tag", image_tag)
+            logger.info("worker: published image tag %s", image_tag)
+        except Exception:
+            logger.exception("worker: failed to publish image tag (non-fatal)")
 
     # Catalogs this worker can compile / place / build, advertised (with full
     # catalog-shaped specs) so the viewer's cellbuilder dropdowns union the
