@@ -47,8 +47,8 @@ test("a model that cannot be fetched opens nothing and throws nothing", async ()
 test("the deep link strips what it read and leaves the rest (the shell's ?mode=)", async () => {
   const { withoutDeepLinkParams } = await import("@/hooks/deepLinkParams");
   assert.equal(
-    withoutDeepLinkParams("?ui=asa&scope=shared&file=a%2Fb.SIN&mode=capacity"),
-    "?ui=asa&mode=capacity",
+    withoutDeepLinkParams("?ui=demo&scope=shared&file=a%2Fb.SIN&mode=capacity"),
+    "?ui=demo&mode=capacity",
   );
   assert.equal(withoutDeepLinkParams("?scope=shared&procedural=abc&mode=build"), "?mode=build");
   assert.equal(withoutDeepLinkParams("?scope=shared&file=x.glb&derived=_derived%2Fx.glb"), "");
