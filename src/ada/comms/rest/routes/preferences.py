@@ -22,6 +22,7 @@ from fastapi.responses import JSONResponse
 from .. import auth as auth_module
 from .. import db as db_module
 from ..auth import User
+from ..converters.keys import PREFERENCES_PREFIX
 from ..scope import Scope
 from .deps import RestContext, rest_context
 
@@ -38,7 +39,7 @@ def check_preference_key(key: str) -> str:
     return key
 
 
-PREFS_PREFIX = "_prefs/"
+PREFS_PREFIX = PREFERENCES_PREFIX
 
 
 def preference_file_key(sub: str, key: str) -> str:

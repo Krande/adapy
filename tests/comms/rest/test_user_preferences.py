@@ -103,7 +103,7 @@ def test_without_a_database_preferences_are_storage_files(tmp_path, stored):
     restart on another port (the browser's storage is per origin)."""
     with TestClient(create_app(_settings(tmp_path))) as c:
         assert c.get("/api/me/preferences/layout").json() == {"key": "layout", "value": None}
-        layout = {"v": 1, "docs": {"classic:asa/inspect": {"open": ["core:storage"]}}}
+        layout = {"v": 1, "docs": {"classic:demo/inspect": {"open": ["core:storage"]}}}
         assert c.put("/api/me/preferences/layout", json={"value": layout}).status_code == 200
         assert c.get("/api/me/preferences/layout").json()["value"] == layout
         files = list((tmp_path / "shared" / "_prefs").rglob("*.json"))
@@ -117,6 +117,26 @@ def test_without_a_database_preferences_are_storage_files(tmp_path, stored):
         assert c.delete("/api/me/preferences/layout").json() == {"removed": False}
         assert c.put("/api/me/preferences/layout", json={"value": None}).json()["value"] is None
     assert stored == {}, "the database helpers are not touched without a pool"
+
+
+def test_preference_files_are_not_reachable_through_the_blob_routes(tmp_path, stored):
+    """``_prefs/`` is each user's own: a scope member may read the scope's blobs, but not
+    another user's preferences by guessing the hashed path. Only /me/preferences reads them."""
+    with TestClient(create_app(_settings(tmp_path))) as c:
+        layout = {"v": 1, "docs": {}}
+        assert c.put("/api/me/preferences/layout", json={"value": layout}).status_code == 200
+        [stored_file] = (tmp_path / "shared" / "_prefs").rglob("layout.json")
+        key = stored_file.relative_to(tmp_path / "shared").as_posix()
+        assert key.startswith("_prefs/")
+        blob = f"/api/scopes/shared/blobs/{key}"
+        assert c.get(blob).status_code == 404
+        assert c.get(blob, headers={"Range": "bytes=0-3"}).status_code == 404
+        assert c.get(blob, params={"range_start": "0", "range_end": "3"}).status_code == 404
+        assert c.put(blob, content=b'{"v": 2}').status_code == 404
+        assert c.delete(blob).status_code == 404
+        assert c.post("/api/scopes/shared/upload-url", json={"key": key, "size": 8}).status_code in (404, 503)
+        # Untouched, and still the caller's through their own route.
+        assert c.get("/api/me/preferences/layout").json()["value"] == layout
 
 
 class _RecordingConn:
