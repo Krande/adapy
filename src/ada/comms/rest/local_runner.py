@@ -91,8 +91,8 @@ def _exit_when_the_server_goes(stdin: IO[bytes]) -> None:
     try:
         while stdin.read(65536):
             pass
-    except Exception:
-        pass
+    except (OSError, ValueError):
+        pass  # a closed or broken stdin is the same news as end-of-file: the server is gone
     _abort(1)
 
 
@@ -144,8 +144,8 @@ def main() -> None:
     try:
         proto.flush()
         sys.stderr.flush()
-    except Exception:
-        pass
+    except (OSError, ValueError):
+        pass  # the server is gone; nothing is left to tell it
     # Not sys.exit: a native thread pool a reader left behind must not hold the process open.
     os._exit(0)
 

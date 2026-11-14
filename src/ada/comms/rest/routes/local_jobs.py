@@ -51,9 +51,14 @@ async def read_stored(storage: Any, pool: Any) -> dict[str, Any]:
             if value not in (None, ""):
                 out[field] = value
         return out
+    if not await storage.exists(Scope.shared(), SETTINGS_FILE_KEY):
+        return out  # nothing saved yet
+    raw = await storage.get_bytes(Scope.shared(), SETTINGS_FILE_KEY)
     try:
-        doc = json.loads(await storage.get_bytes(Scope.shared(), SETTINGS_FILE_KEY))
-    except Exception:
+        doc = json.loads(raw)
+    except ValueError:
+        # A damaged file is reported, then treated as unset: the next save rewrites it whole.
+        logger.warning("local jobs: %s is not JSON; ignoring the saved limits", SETTINGS_FILE_KEY)
         return out
     if isinstance(doc, dict):
         out.update({k: doc[k] for k in ("max_parallel", "cpu_budget") if doc.get(k) not in (None, "")})
@@ -61,6 +66,7 @@ async def read_stored(storage: Any, pool: Any) -> dict[str, Any]:
 
 
 async def write_stored(storage: Any, pool: Any, values: dict[str, Any], *, updated_by: str | None) -> None:
+    """Save the raw values (``None`` clears a field) where :func:`read_stored` reads them."""
     if pool is not None:
         for field, key in (("max_parallel", SETTING_MAX_PARALLEL), ("cpu_budget", SETTING_CPU_BUDGET)):
             value = values.get(field)
@@ -86,7 +92,7 @@ async def load_limits(storage: Any, pool: Any) -> None:
     except ValueError:
         logger.warning("local jobs: the stored limits are not valid; using the environment's", exc_info=True)
         local_queue.queue.configure(local_queue.env_limits())
-    except Exception:
+    except Exception:  # noqa: BLE001 -- the server must start; the environment's limits apply
         logger.exception("local jobs: could not read the stored limits; using the environment's")
         local_queue.queue.configure(local_queue.env_limits())
 
@@ -99,7 +105,8 @@ async def apply_launch_limits(storage: Any, pool: Any) -> None:
     env = local_queue.env_limits()
     try:
         stored = await read_stored(storage, pool)
-    except Exception:
+    except Exception:  # noqa: BLE001 -- the launch values still apply, and are saved below
+        logger.exception("local jobs: could not read the saved limits; keeping only the launch values")
         stored = {}
     if env.max_parallel_raw is not None:
         stored["max_parallel"] = env.max_parallel_raw
@@ -107,7 +114,7 @@ async def apply_launch_limits(storage: Any, pool: Any) -> None:
         stored["cpu_budget"] = env.cpu_budget_raw
     try:
         await write_stored(storage, pool, stored, updated_by="launch")
-    except Exception:
+    except Exception:  # noqa: BLE001 -- the launch values apply to this run all the same
         logger.exception("local jobs: could not save the launch limits (they apply to this run)")
     local_queue.queue.configure(_limits(stored))
 

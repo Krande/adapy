@@ -62,7 +62,7 @@ def load_local_plugins(role: Literal["api", "local-runner"]) -> None:
         logger.info("%s: preloading %s", role, mod_name)
         try:
             importlib.import_module(mod_name)
-        except Exception:
+        except Exception:  # noqa: BLE001 -- the API's choice: a missing plugin is a 501, not a dead server
             logger.exception("%s: preloading %s failed (non-fatal); its jobs will 501", role, mod_name)
     discover_local_plugins(role)
 

@@ -234,7 +234,8 @@ async def _link_local_source(storage: Storage, scope: Scope, key: str, dest: pat
         path = local_path(scope, key)
         if path is None or not path.is_file() or await storage.is_gzip_stored(scope, key):
             return None
-    except Exception:
+    except Exception:  # noqa: BLE001 -- a fast path: the plain fetch below gives the same bytes
+        logger.debug("source %s: not linked from the filesystem store; fetching it", key, exc_info=True)
         return None
     for link in (os.link, os.symlink):
         try:

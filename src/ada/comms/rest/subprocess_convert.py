@@ -367,7 +367,9 @@ def _die_with_parent() -> None:
 
         PR_SET_PDEATHSIG = 1
         ctypes.CDLL(None, use_errno=True).prctl(PR_SET_PDEATHSIG, int(signal.SIGKILL), 0, 0, 0)
-    except Exception:
+    except (OSError, AttributeError):
+        # No libc to load, or no prctl in it. The runner's SIGTERM handler still kills this child
+        # (kill_live_children); only a SIGKILLed runner would leave it running.
         pass
 
 
@@ -1064,15 +1066,16 @@ async def _run_inline(
                 profiler.disable()
                 try:
                     profiler.dump_stats(str(profile_path))
-                except Exception:
-                    pass
+                except OSError:
+                    # The profile is decoration: the job's own result or error is what counts.
+                    logger.debug("could not write the inline run's profile", exc_info=True)
 
     async def _forward(stage: str, frac: float) -> None:
         if on_progress is None:
             return
         try:
             await on_progress(stage, frac)
-        except Exception:
+        except Exception:  # noqa: BLE001 -- progress is commentary; it must not fail the job
             logger.exception("on_progress callback raised; continuing")
 
     task = asyncio.ensure_future(asyncio.to_thread(_target))

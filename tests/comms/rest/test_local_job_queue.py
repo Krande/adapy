@@ -268,3 +268,30 @@ def test_the_settings_file_is_not_served_by_the_blob_routes(tmp_path, restore_li
         client.put("/api/local/jobs/settings", json={"max_parallel": 2})
         r = client.get("/api/scopes/shared/blobs/_prefs/_server/local_jobs.json")
         assert r.status_code in (403, 404)
+
+
+def test_behind_a_queue_the_local_job_routes_are_not_there():
+    """The workers' own limits apply there; the routes 404 rather than set something unused."""
+    from types import SimpleNamespace
+
+    from fastapi import HTTPException
+
+    from ada.comms.rest.routes.local_jobs import _require_local
+
+    _require_local(SimpleNamespace(jobs=SimpleNamespace(kind="local")))  # type: ignore[arg-type]
+    with pytest.raises(HTTPException) as exc:
+        _require_local(SimpleNamespace(jobs=SimpleNamespace(kind="queue")))  # type: ignore[arg-type]
+    assert exc.value.status_code == 404
+
+
+def test_a_damaged_settings_file_reads_as_unset(tmp_path, restore_limits):
+    import asyncio
+
+    from ada.comms.rest.routes.local_jobs import SETTINGS_FILE_KEY, read_stored
+    from ada.comms.rest.scope import Scope
+    from ada.comms.rest.storage import Storage
+
+    store = Storage.from_spec({"storage_kind": "local", "s3": None, "local": {"path": str(tmp_path), "prefix": ""}})
+    assert asyncio.run(read_stored(store, None)) == {}
+    asyncio.run(store.put_bytes(Scope.shared(), SETTINGS_FILE_KEY, b"{not json"))
+    assert asyncio.run(read_stored(store, None)) == {}
