@@ -51,7 +51,13 @@ export type {
   SimulationDomain,
   SimulationProviderInfo,
   SimulationRun,
+  SimulationSubjectRef,
+  StartSimulationBody,
 } from "@/services/api/simulations";
+// What a run can be started ON (1.21.0): core chrome that has no plugin context offers a subject
+// through the store; a plugin uses `ctx.simulations.offerSubject`.
+export { useSimulationSubjectStore } from "@/state/simulationSubjects";
+export type { SimulationSubject } from "@/state/simulationSubjects";
 
 // ---------------------------------------------------------------------------
 // Finishing a tracked job: register, at module load, what to do once a job of a

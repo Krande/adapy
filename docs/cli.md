@@ -671,8 +671,19 @@ fallback when the shell is not installed), `--no-window`, `--binary PATH`,
 `--title`, and `--dev` (run the viewer from the source checkout with
 hot reload, as `ada desktop --dev`).
 
+With welds, the detail can be simulated: the Connection tab's **Simulate...**
+button offers it as a *weld assembly* subject and opens the Simulations panel,
+where the providers that accept one can run on it. The studio has no simulation
+workers of its own, so point it at an Ada Studio that has them with
+`--sim-remote URL` (and `--sim-token TOKEN`, or `ADA_SIMULATION_REMOTE_TOKEN`;
+`--sim-scope SCOPE` for the remote scope the run lives in, default `user:me`):
+the remote's providers are listed beside the local ones, and a run on one
+uploads its files to the remote, starts there, and is followed from here (the
+replay, live view and console read it through this studio).
+
 ```
 ada dev connections --dir path/to/my_project/connections
+ada dev connections --dir path/to/connections --sim-remote https://studio.example.com --sim-token $TOKEN
 ```
 
 ## `ada viewers`

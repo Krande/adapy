@@ -1,8 +1,11 @@
 // The simulations panel (`core:simulations`, titled "Robotic Simulations"): what can be simulated
 // here, and the runs of the open scope.
 //
-// Three parts, top to bottom:
+// Four parts, top to bottom:
 //
+//   * when something offered a subject (`useSimulationSubjectStore`, `ctx.simulations.offerSubject`),
+//     a "Subject" picker, the newest offer chosen: a run is started ON it, in its scope, by a
+//     provider that accepts its kind (those are listed first; the others say "does not take a ...");
 //   * the providers the server lists, grouped by domain (the kind of simulation), with a filter
 //     by domain; one that no live worker serves is shown as offline and cannot be started;
 //   * the start form of the chosen provider -- a plugin's parameter section when one is
@@ -29,11 +32,22 @@ import {
   type SimulationProviderInfo,
   type SimulationRun,
 } from "@/services/api/simulations";
-import { durationLabel, runLabel, runOutcome, startedLabel } from "@/services/simulations/runRow";
+import { durationLabel, runLabel, runOutcome, runSubjectLabel, startedLabel } from "@/services/simulations/runRow";
 import { defaultParameters, missingRequired } from "@/services/simulations/schemaForm";
 import { useViewerStores } from "@/state/AdaViewerContext";
+import { useRunConsoleStore } from "@/state/runConsoleStore";
 import { scopeUrlPart, useScopeStore } from "@/state/scopeStore";
 import { providersByDomain, useSimulationStore } from "@/state/simulationStore";
+import {
+  acceptingFirst,
+  chosenSubject,
+  doesNotTake,
+  NO_SUBJECT,
+  providerAccepts,
+  subjectId,
+  useSimulationSubjectStore,
+  type SimulationSubject,
+} from "@/state/simulationSubjects";
 import { usePluginTheme } from "@/state/themeStore";
 
 import { SchemaForm } from "./SchemaForm";
@@ -121,6 +135,8 @@ const RunRow: React.FC<{
   const percent = Math.round(Math.max(0, Math.min(1, run.progress)) * 100);
   const status = run.cancel_requested && active ? "cancelling" : run.status;
   const label = runLabel(run, provider);
+  const offered = useSimulationSubjectStore((s) => s.offered);
+  const subjectLabel = runSubjectLabel(run, scope, offered);
   const outcome = runOutcome(run);
   const took = durationLabel(run.started_at ?? run.created_at, run.finished_at);
 
@@ -129,6 +145,8 @@ const RunRow: React.FC<{
     setOpenError(null);
     try {
       await opener.ui.openResult(contextFor(opener.pluginId), { run, scope, provider });
+      // The run on screen is this one from here on: its console follows its activity feed.
+      useRunConsoleStore.getState().open(scope, run, label);
     } catch (err) {
       // Against this run only: one result that will not open says nothing about the next.
       setOpenError(err instanceof Error ? err.message : String(err));
@@ -148,6 +166,11 @@ const RunRow: React.FC<{
         >
           <span className={`h-2 w-2 rounded-full shrink-0 ${STATUS_DOT[run.status] ?? "bg-gray-400"}`} aria-hidden />
           <span className="font-medium truncate">{label}</span>
+          {subjectLabel && (
+            <span className="text-gray-300 truncate min-w-0" title={`On ${subjectLabel}`} data-run-subject>
+              on {subjectLabel}
+            </span>
+          )}
           <span className="text-gray-400 shrink-0">{active ? run.stage || status : startedLabel(run.created_at)}</span>
         </button>
         {opener && run.artefacts.length > 0 && (
@@ -188,6 +211,11 @@ const RunRow: React.FC<{
             {provider?.title ?? run.provider.id} · {run.provider.engine}
             {run.provider.version ? ` ${run.provider.version}` : ""}
           </div>
+          {subjectLabel && (
+            <div className="text-gray-400">
+              On {subjectLabel} <span className="text-gray-500">· {run.subject?.kind}</span>
+            </div>
+          )}
           <div className="text-gray-400">
             {new Date(run.created_at).toLocaleString()}
             {took && ` · ${took}`}
@@ -201,7 +229,11 @@ const RunRow: React.FC<{
   );
 };
 
-const StartForm: React.FC<{ scope: string; provider: SimulationProviderInfo }> = ({ scope, provider }) => {
+const StartForm: React.FC<{ scope: string; provider: SimulationProviderInfo; subject: SimulationSubject | null }> = ({
+  scope,
+  provider,
+  subject,
+}) => {
   const startRun = useSimulationStore((s) => s.startRun);
   const starting = useSimulationStore((s) => s.starting);
   const startError = useSimulationStore((s) => s.startError);
@@ -219,6 +251,8 @@ const StartForm: React.FC<{ scope: string; provider: SimulationProviderInfo }> =
 
   const custom = resolveSimulationProviderUi(contextFor(""), provider).parameters;
   const missing = missingRequired(provider.parameters_schema, parameters);
+  // A subject is chosen and this provider cannot take its kind: not startable, and says why.
+  const cannotTake = subject !== null && !providerAccepts(provider, subject.kind);
 
   return (
     <div className="flex flex-col gap-1.5 p-1 bg-gray-800/40 rounded-sm">
@@ -261,23 +295,32 @@ const StartForm: React.FC<{ scope: string; provider: SimulationProviderInfo }> =
         <button
           type="button"
           className={BUTTON}
-          disabled={starting || !provider.online || missing.length > 0}
+          disabled={starting || !provider.online || missing.length > 0 || cannotTake}
           title={
             !provider.online
               ? "No worker serving this provider is online"
-              : missing.length > 0
-                ? `Fill in: ${missing.join(", ")}`
-                : undefined
+              : cannotTake
+                ? `${provider.title} ${doesNotTake(subject!.kind)}`
+                : missing.length > 0
+                  ? `Fill in: ${missing.join(", ")}`
+                  : undefined
           }
           onClick={() =>
-            void startRun(scope, { provider: provider.id, parameters, inputs, ...(kind ? { kind } : {}) })
+            void startRun(scope, {
+              provider: provider.id,
+              parameters,
+              inputs,
+              ...(kind ? { kind } : {}),
+              ...(subject ? { subject: { kind: subject.kind, key: subject.key } } : {}),
+            })
           }
         >
-          {starting ? "Starting…" : "Start"}
+          {starting ? "Starting…" : subject && !cannotTake ? `Start on ${subject.label}` : "Start"}
         </button>
         {!provider.online && (
           <span className="text-yellow-300">offline{provider.unavailable_reason ? `: ${provider.unavailable_reason}` : ""}</span>
         )}
+        {cannotTake && <span className="text-yellow-300">{doesNotTake(subject!.kind)}</span>}
       </div>
       {startError && <div className="text-red-300 break-words">{startError}</div>}
     </div>
@@ -294,7 +337,14 @@ export const SimulationsBody: React.FC = () => {
   const runsError = useSimulationStore((s) => s.runsError);
   const loadProviders = useSimulationStore((s) => s.loadProviders);
   const loadRuns = useSimulationStore((s) => s.loadRuns);
-  const scope = scopeUrlPart(useScopeStore((s) => s.current));
+  const currentScope = scopeUrlPart(useScopeStore((s) => s.current));
+  const offered = useSimulationSubjectStore((s) => s.offered);
+  const withdraw = useSimulationSubjectStore((s) => s.withdraw);
+  // The offer chosen in the picker; null until one is, which reads as the newest offer.
+  const [chosenId, setChosenId] = useState<string | null>(null);
+  const subject = chosenSubject(offered, chosenId);
+  // A run on a subject belongs to the scope its file is in; the runs listed are that scope's.
+  const scope = subject?.scope ?? currentScope;
 
   const [domainFilter, setDomainFilter] = useState<string>("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -307,6 +357,17 @@ export const SimulationsBody: React.FC = () => {
     void loadProviders();
     void loadRuns(scope);
   }, [scope, loadProviders, loadRuns]);
+
+  const [refreshing, setRefreshing] = useState(false);
+  const refresh = async () => {
+    setRefreshing(true);
+    try {
+      // Either failing says so in its own place (providersError, runsError); neither throws.
+      await Promise.all([loadProviders(), loadRuns(scope)]);
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   const groups = useMemo(() => providersByDomain(domains, providers), [domains, providers]);
   const shownGroups = domainFilter ? groups.filter((g) => g.domain.id === domainFilter) : groups;
@@ -333,6 +394,49 @@ export const SimulationsBody: React.FC = () => {
         </label>
       )}
 
+      {offered.length > 0 && (
+        <div className="flex flex-col gap-0.5" data-subject-picker>
+          <div className="flex items-center gap-2">
+            <label className="text-gray-300 shrink-0" htmlFor="sim-subject">
+              Subject
+            </label>
+            <select
+              id="sim-subject"
+              className="text-gray-100 bg-gray-700 border border-gray-600 rounded-sm px-1 py-0.5 flex-1 min-w-0"
+              value={subject ? subjectId(subject) : NO_SUBJECT}
+              onChange={(e) => setChosenId(e.target.value)}
+            >
+              {offered.map((o) => (
+                <option key={subjectId(o)} value={subjectId(o)} title={o.source ? `${o.kind} · ${o.source}` : o.kind}>
+                  {o.label}
+                </option>
+              ))}
+              <option value={NO_SUBJECT}>(none)</option>
+            </select>
+            {subject && (
+              <button
+                type="button"
+                className={BUTTON}
+                title="Take this subject off the list (its file stays where it is)"
+                aria-label="Withdraw the subject"
+                onClick={() => {
+                  withdraw(subject.key, subject.scope);
+                  setChosenId(null);
+                }}
+              >
+                ×
+              </button>
+            )}
+          </div>
+          {subject && (
+            <div className="text-gray-400">
+              {subject.kind}
+              {subject.source ? ` · ${subject.source}` : ""} · providers that take it are listed first
+            </div>
+          )}
+        </div>
+      )}
+
       {providersError && <div className="text-red-300 break-words">{providersError}</div>}
       {providersLoaded && groups.length === 0 && !providersError && (
         <div className="text-gray-400">No simulation providers are registered on this server.</div>
@@ -342,7 +446,7 @@ export const SimulationsBody: React.FC = () => {
           <div className="text-gray-400 uppercase tracking-wide" title={group.domain.description}>
             {group.domain.title}
           </div>
-          {group.providers.map((p) => (
+          {acceptingFirst(group.providers, subject).map((p) => (
             <button
               key={p.id}
               type="button"
@@ -356,15 +460,35 @@ export const SimulationsBody: React.FC = () => {
               <span className="truncate">{p.title}</span>
               <span className="text-gray-400 truncate">{p.engine}</span>
               <span className="flex-1" />
+              {subject && !providerAccepts(p, subject.kind) && (
+                <span className="text-gray-400 shrink-0" data-cannot-take>
+                  {doesNotTake(subject.kind)}
+                </span>
+              )}
               {!p.online && <span className="text-yellow-300 shrink-0">offline</span>}
             </button>
           ))}
         </div>
       ))}
 
-      {selected && <StartForm scope={scope} provider={selected} />}
+      {selected && <StartForm scope={scope} provider={selected} subject={subject} />}
 
-      <div className="text-gray-400 uppercase tracking-wide">Runs</div>
+      <div className="flex items-center gap-2">
+        <div className="text-gray-400 uppercase tracking-wide flex-1">Runs</div>
+        {/* The store follows the runs it knows are unfinished; a run somebody else started since the
+            panel was opened (another tab, the API, a schedule) is only found by asking again. */}
+        <button
+          type="button"
+          className={BUTTON}
+          title="Look for new runs, and for providers that have come or gone"
+          aria-label="Refresh the runs"
+          disabled={refreshing}
+          data-runs-refresh
+          onClick={() => void refresh()}
+        >
+          {refreshing ? "Refreshing…" : "Refresh"}
+        </button>
+      </div>
       {runsError && <div className="text-red-300 break-words">{runsError}</div>}
       {shownRuns.length === 0 ? (
         <div className="text-gray-400">No runs in this scope yet.</div>

@@ -369,6 +369,56 @@ start form from the parameter schema and lists runs with their artefacts. A fron
 what core cannot know through `simulationProviders` in the plugin registry: a parameter form
 section and an "open result" handler, registered for one provider id or for a whole domain.
 
+**A run's console.** A run has actors -- a robot, an arm, a solver stage, the mission that directs
+them -- and a provider that wants its run understood, not just watched, says what each is doing
+and planning as the run goes. That is the artefact with the role `activity` (a common role: any
+domain may have one): an **activity feed**, JSON Lines, append-only, stored again while it grows
+(`partial=True`). `ada.simulation.activity` has the format and a writer:
+
+```
+{"schema": "ada-activity/1", "actors": [{"id": "amr", "label": "Logistics robot", "color": "#4db3e6"}]}
+{"t": 0.2,  "actor": "amr", "kind": "state", "text": "Driving into the cell", "data": {"goal": [-0.59, 1.92, 0.35]}}
+{"t": 0.2,  "actor": "amr", "kind": "plan",  "text": "Dock beside the picker"}
+{"t": 13.4, "actor": "amr", "kind": "event", "text": "Docked 23 mm off its dock", "level": "info"}
+```
+
+`t` is seconds on the run's own clock (the one its recording and its model's animation are on); a
+`state` is what the actor is doing from then on, a `plan` what it intends (an empty text: none),
+an `event` something that happened. The viewer reads the feed itself -- no plugin is involved --
+from the moment a run's result is opened in the Simulations panel, asking for the bytes beyond
+those it has while the run is going (`state/runConsoleStore.ts`). The playback transport then has
+a **Console** button: a panel over the view with a row per actor (what it is doing and planning at
+the playback clock's moment) and the log up to that moment, where a click on a line goes to it. It
+is the same console for a replay and for a live run.
+
+**What a run is on: subjects.** A simulation of a part with welds needs that part, and the thing
+that made the part (the connection studio, a detailing engine) is not the thing that simulates it.
+Core sits between them and they never name each other. A **subject** is a file in the scope of a
+kind core defines (`ada.simulation.subjects.SUBJECT_KINDS`, a closed set like the domains). The one
+kind so far is `weld-assembly`: a part with its welds assigned -- its members as closed triangle
+meshes, and each weld's root line with the two face normals at the seam -- as JSON of schema
+`ada-weld-assembly/1` (metres, +Z up, origin under the part; gzip allowed). A producer builds it with
+`weld_assembly_from_part(part, members=None, stub_length=None, source=None)` (`members=` for a part
+whose welds name members that live elsewhere, `stub_length=` to cut long beams back to the welds)
+and stores it with `write_weld_assembly`; a consumer reads it with `parse_weld_assembly`, which
+validates it.
+
+* A provider says which kinds it takes: `ProviderDescription.accepts`, listed with the provider
+  (`GET /simulation/providers`, and in the worker's heartbeat) as `accepts: [...]`.
+* A run is started on one: `POST /scopes/{scope}/simulations` takes `subject: {kind, key}`. The kind
+  must be known and accepted by the provider (400), the file must exist (404) and not be mid-upload
+  (409). Its key is put first among the run's `inputs` and the record keeps `subject`; the provider
+  finds it as `case.subject` (a `SubjectRef`) and reads it with `ctx.fetch_input(case.subject.key)`.
+* In the viewer, a producer **offers** a subject: a plugin calls `ctx.simulations.offerSubject(
+  {kind, key, label, scope?, source?})` (plugin API 1.21.0; it returns `{withdraw}`), core chrome uses
+  `useSimulationSubjectStore`. The Simulations panel then shows a **Subject** picker (the newest offer
+  chosen, or "(none)"), lists the providers that accept its kind first and says "does not take a
+  `<kind>`" against the rest, starts the run in the subject's scope with `subject` in the body, and
+  names the subject on the run's row.
+
+The Simulations panel's **Refresh** asks for the scope's runs and the providers again: the panel
+follows the runs it knows are unfinished, and a run started elsewhere since it was opened (another
+tab, the API) is only found by asking.
 **Replaying a run in the viewer.** What a result of a run needs on screen is not specific to one
 kind of simulation, so it is in core and a plugin's `openResult` only feeds it (plugin API 1.18.0;
 how the two viewports draw it is in [A viewer without three.js](threejs_free_viewport.md)):
@@ -376,6 +426,7 @@ how the two viewports draw it is in [A viewer without three.js](threejs_free_vie
 | On `ctx` | Does |
 |---|---|
 | `scene.loadModel(owner, {bytes \| url, sourceName, displayName?, placement?, sourceUpAxis?})` | Loads a GLB as the scene's model on whichever viewport is on screen. `sourceName` is its identity (what `unloadModel` takes); `displayName` is what its root row in the Scene tree is called. Draco- and meshopt-compressed meshes load on both viewports, decoded by what the bundle carries. A model with node animation becomes a track of the playback clock by itself, with time zero at the animation's start; a file's several animations are shown together. |
+| `scene.poseModel(owner, sourceName, names)` (1.20.0) | The nodes called `names` of the model loaded as `sourceName` with `posable: true`, for the plugin to place: `{place(matrices), found(), remove()}`. `matrices` holds sixteen numbers per name -- the node's place in the model's own coordinates, column-major as in glTF; what hangs on a node moves with it, a matrix of zeros hides it. For showing something while it is still happening: a model's own animation can only replay what was recorded. The last placement is applied again to a model loaded later under the same name, and when the viewport is switched. |
 | `scene.addImage(owner, {origin, u, v, width, height, pixels, opacity?, visible?, throughModel?, nearest?, layer?})` | An image lying in the world: RGBA bytes (sRGB, straight alpha) on the rectangle from `origin` along `u` and `v`. Row 0 lies along `u` at the origin and column 0 along `v`, so with the origin at the least x and y, `u` along +x and `v` along +y, row 0 is the min-y edge and column 0 the min-x edge. Returns `{setPixels, setRect, setLook, unavailable, remove}`. `scene.imageUnavailable(width, height)` says beforehand whether the viewport on screen draws that size. |
 | `scene.addLineLayer(owner, {segments? \| polyline?, color?, widthPx?, opacity?, visible?, throughModel?, layer?})` | Lines whose number changes: `{setSegments(segments, count?), setPolyline(points, count?), setLook, remove}`. |
 | `scene.addPointLayer(owner, {positions?, colors?, color?, sizePx?, opacity?, visible?, throughModel?, layer?})` | Points whose number changes: `{setPoints(positions, count?, colors?), setLook, remove}`. |

@@ -283,10 +283,19 @@ async def api_scope_blob_get(
     user: User = Depends(auth_module.current_user),
     ctx: RestContext = Depends(rest_context),
 ) -> Response:
-    from ..converter import is_derived_key
+    from ..converter import is_derived_key, is_simulation_key
+    from ..simulation_relay import relay_of
+    from ..simulation_runs import read_run
 
     storage = ctx.storage
     _reject_preference_key(key)
+    # An artefact of a run handed off to a remote Ada Studio is read from the remote, ranges and all.
+    relay = relay_of(request)
+    if relay is not None and is_simulation_key(key):
+        run_id = key.lstrip("/").split("/")[1] if key.lstrip("/").count("/") >= 2 else None
+        record = await read_run(storage, scope_obj, run_id) if run_id else None
+        if record is not None and record.get("remote"):
+            return await relay.proxy_blob(record, key, request)
     # A granted provider dataset's blob -- a delivery's mesh ``url``, a build's derived key -- is
     # read from the provider store through THIS scope's route, so the viewer never names the store
     # (``provider_store.resolve_blob``: the grant AND the store's copy, else the scope's own). The
@@ -359,6 +368,7 @@ async def api_scope_blob_put(
         is_published_asset_key,
         is_scope_state_key,
         is_simulation_key,
+        is_subject_key,
         is_versions_artefact_key,
     )
 
@@ -381,6 +391,7 @@ async def api_scope_blob_put(
         not is_versions_artefact_key(clean)
         and not is_published_asset_key(clean)
         and not is_scope_state_key(clean)
+        and not is_subject_key(clean)
         and not await is_accepted_source(ctx.queue, ctx.worker_registry, clean)
     ):
         raise HTTPException(status_code=415, detail=f"unsupported file type: {clean}")

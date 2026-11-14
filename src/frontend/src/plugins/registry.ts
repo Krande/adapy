@@ -168,13 +168,31 @@ import { isPlacedElsewhere } from "@/layout/placedElsewhere";
 //          a run as it happens does not offer to replay what has not ended. Additive: without
 //          it the button reads `openResultLabel` throughout, as before, and an older core
 //          ignores it.
-//   1.20.0 `registerToastSlot` / `unregisterToastSlot` (@/viewer-core): a plugin's own toasts
+// 1.20.0 — a model whose parts the plugin moves itself, for showing something while it is still
+//          happening (a file's own animation can only replay what was recorded). Additive, on
+//          both viewports.
+//          - `posable` on `SceneModelSource`: load the model for its nodes to be placed.
+//          - `ctx.scene.poseModel(owner, sourceName, names)`: the nodes of that model called
+//            `names`, as a handle whose `place(matrices)` puts each where a matrix says, in the
+//            model's own coordinates. What hangs on a node in the file moves with it.
+//          An older core has neither: a plugin asks for `poseModel` before it relies on it.
+// 1.21.0 — simulation subjects: a run can be started ON a stored file (a part with its welds),
+//          produced by one plugin and run by a provider of another, who never know each other.
+//          Additive.
+//          - `ctx.simulations.offerSubject({kind, key, label, scope?, source?})` offers the file to
+//            the Simulations panel and returns `{withdraw}`. `kind` is one of the server's subject
+//            kinds (`weld-assembly`); the panel starts a run on it with a provider whose
+//            `accepts` lists the kind (`SimulationProviderInfo.accepts`), sending
+//            `subject: {kind, key}`; the provider reads it as `case.subject`.
+//          - `SimulationRun.subject`, `StartSimulationBody.subject` on `/app`.
+//          An older core has no `ctx.simulations`: ask for it before relying on it.
+// 1.22.0 — `registerToastSlot` / `unregisterToastSlot` (@/viewer-core): a plugin's own toasts
 //          in the app's one toast stack.
-//   1.21.0 `setBuilderDefaults` (@/viewer-core): a shell's default Builder engine/blueprint.
+// 1.23.0 — `setBuilderDefaults` (@/viewer-core): a shell's default Builder engine/blueprint.
 //          `notifyPluginActivationChanged()`: a plugin whose activation predicate reads its own
 //          state says when that state changed, and a placed panel showing "Nothing to show
 //          here yet" re-asks it (the panel also re-asks on every loaded-model change).
-export const PLUGIN_API_VERSION = "1.21.0";
+export const PLUGIN_API_VERSION = "1.23.0";
 
 // The named mount regions core exposes in Phase 1. Deliberately small
 // (`fem-sidebar` covers the FEM simulation panel, `top-panel` the menu bar,
@@ -482,6 +500,26 @@ export interface SceneModelSource {
   // The up axis of the file's own coordinates; "z" (default) or "y" (the glTF convention). Read by
   // the three.js viewport; the three.js-free one draws the file as it is.
   sourceUpAxis?: "z" | "y";
+  // (1.20.0) The model's nodes are placed by the plugin (`poseModel`) instead of by an animation
+  // of its own. Needed for `poseModel` to find its nodes on the three.js-free viewport, which
+  // otherwise merges them; an animation the file has is then not played there.
+  posable?: boolean;
+}
+
+/** (1.20.0) The named nodes of a loaded model, placed by the plugin. See `SceneHandle.poseModel`. */
+export interface SceneModelPose {
+  // Put each node where its matrix says. `matrices` holds sixteen numbers per name, in the order
+  // the names were given: the node's place in the model's own coordinates (those of its file),
+  // column-major as in glTF. What hangs on a node in the file moves with it. A matrix of zeros
+  // hides the node. The last placement is kept and applied again to a model that is loaded under
+  // the same name later, or when the viewport is switched. The array is read during the call
+  // and not kept.
+  place: (matrices: Float32Array) => void;
+  // Per name: whether the model on screen has a node of that name that can be placed. Null while
+  // no such model is on screen.
+  found: () => readonly boolean[] | null;
+  // Stop placing. The model stays as it was last placed.
+  remove: () => void;
 }
 
 // ── The playback clock (1.18.0) ───────────────────────────────────────────────
@@ -545,6 +583,38 @@ export interface PluginLayers {
   setVisible: (id: string, visible: boolean) => void;
   setOpacity: (id: string, opacity: number) => void;
   subscribe: (listener: () => void) => () => void;
+}
+
+// ── Simulation subjects (1.21.0) ──────────────────────────────────────────────
+
+/** Something a simulation run can be started on, offered to the Simulations panel. */
+export interface PluginSimulationSubject {
+  /** One of the server's subject kinds (`ada.simulation.subjects.SUBJECT_KINDS`): `"weld-assembly"`. */
+  kind: string;
+  /** Storage key of the stored file. */
+  key: string;
+  /** What a person calls it. */
+  label: string;
+  /** The scope the file is in (`ctx.scope()` when left out). */
+  scope?: string;
+  /** Who offered it, for a person; the plugin's id when left out. */
+  source?: string;
+}
+
+/** The offer, to take back. */
+export interface PluginSimulationSubjectHandle {
+  withdraw: () => void;
+}
+
+/** What a plugin may do with simulations beside registering a provider's UI. */
+export interface PluginSimulations {
+  /**
+   * Offer a stored file as something to simulate. The Simulations panel lists it in a "Subject"
+   * picker (the newest offer chosen first) and starts a run on it with a provider that accepts its
+   * kind. The plugin writes the file in the kind's format and need not know which provider will
+   * take it, nor the provider the plugin.
+   */
+  offerSubject: (subject: PluginSimulationSubject) => PluginSimulationSubjectHandle;
 }
 
 /** A manifest-relative byte/JSON fetcher handed to sidecar loaders. */
@@ -628,6 +698,10 @@ export interface SceneHandle {
   // whichever viewport is on screen, where `loadModelFromUrl` builds a three.js scene only. A model
   // with node animation becomes a track of the playback clock. Resolves when the viewport has it.
   loadModel: (owner: string, source: SceneModelSource) => Promise<void>;
+  // (1.20.0) The nodes called `names` (as the file names them) of the model loaded as
+  // `sourceName`, for the plugin to place: a rig that follows something still going on. Load the
+  // model with `posable`. The model need not be loaded yet; `scene.remove(owner)` stops placing.
+  poseModel: (owner: string, sourceName: string, names: readonly string[]) => SceneModelPose;
   // Remove a model previously loaded through `loadModelFromUrl` (or any source
   // registered under that name), disposing its GPU resources. No-op when the
   // name is not loaded.
@@ -737,6 +811,8 @@ export interface AdaPluginContext {
   playback: PluginPlayback;
   /** The plugin's rows of the Layers panel (1.18.0). */
   layers: PluginLayers;
+  /** Offer something to simulate (1.21.0). */
+  simulations: PluginSimulations;
   scope: () => string;
   /** Active theme tokens (mirrors of the `--ada-*` CSS vars) so plugin panels
    * match core's chrome in light + dark without hardcoding colours. */
@@ -1216,7 +1292,7 @@ let _contextFactory: ((pluginId: string) => AdaPluginContext) | null = null;
 let _activationVersion = 0;
 const _activationListeners = new Set<() => void>();
 
-/** Tell core that what a plugin's activation predicate reads has changed (1.20.0), so a
+/** Tell core that what a plugin's activation predicate reads has changed (1.23.0), so a
  *  panel waiting on it ("Nothing to show here yet") asks again. Cheap; call it freely. */
 export function notifyPluginActivationChanged(): void {
   _activationVersion += 1;

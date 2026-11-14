@@ -14,6 +14,10 @@ no new plumbing.
 * :mod:`.schema` -- the parameter check run before a job is queued.
 * :mod:`.runs` -- the run record and where a run keeps its files.
 * :mod:`.runner` -- ``execute_run``, shared by the worker's job and the in-process one.
+* :mod:`.activity` -- the activity feed of a run: what each of its actors is doing and planning,
+  over time, for the viewer's console of the run.
+* :mod:`.subjects` -- what a run can be started on: the kinds of subject (``weld-assembly``), their
+  file format, and the converter from a built part. A provider lists the kinds it ``accepts``.
 * :mod:`.testing` -- a fake provider for tests; never registered by core.
 
 Stdlib only, so the API process can import it without the modelling stack.
@@ -47,8 +51,13 @@ from .registry import (
     unregister_simulation_provider,
 )
 from .schema import ParameterError, validate_parameters
+from .subjects import SUBJECT_KINDS, SubjectKind, SubjectRef, subject_kind
 
 __all__ = [
+    "SUBJECT_KINDS",
+    "SubjectKind",
+    "SubjectRef",
+    "subject_kind",
     "COMMON_ARTEFACT_ROLES",
     "SIMULATION_DOMAINS",
     "ArtefactRole",

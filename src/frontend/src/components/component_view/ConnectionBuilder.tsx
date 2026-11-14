@@ -12,7 +12,7 @@ import React, { useEffect, useMemo, useState } from "react";
 
 import CollapsibleSection from "@/components/common/CollapsibleSection";
 import type { ComponentSpecRoleSchema } from "@/services/api/components";
-import type { DevBuildResult, DevConnectionSpec } from "@/services/api/devConnections";
+import type { ConnectionInputs, DevBuildResult, DevConnectionSpec } from "@/services/api/devConnections";
 import {
   reloadLibrary,
   requestBuild,
@@ -20,6 +20,7 @@ import {
   selectPreviewObjects,
   startConnectionBuilderSession,
 } from "@/services/devConnections/connectionBuilderSession";
+import { simulateAvailability, simulateDetail } from "@/services/devConnections/simulateDetail";
 import {
   type ConnectionBuildState,
   effectiveInputs,
@@ -140,6 +141,7 @@ export const ConnectionBuilderBody: React.FC = () => {
             >
               Defaults
             </button>
+            <SimulateButton specName={spec.name} inputs={values} libraryStatus={library.status} />
           </div>
           <BuildStatus build={build} specName={spec.name} />
         </>
@@ -150,6 +152,48 @@ export const ConnectionBuilderBody: React.FC = () => {
       {/* The last joint built for this spec stays up while the next one builds. */}
       {spec && lastResult?.spec_name === spec.name && <JointSections result={lastResult} />}
     </div>
+  );
+};
+
+/** "Simulate…": offer the detail as a simulation subject and open the Simulations panel. Enabled
+ *  while the last build of this spec has welds; says why it is not otherwise. */
+const SimulateButton: React.FC<{ specName: string; inputs: ConnectionInputs; libraryStatus: string }> = ({
+  specName,
+  inputs,
+  libraryStatus,
+}) => {
+  const lastResult = useConnectionBuilderStore((s) => s.lastResult);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const availability = simulateAvailability(libraryStatus, specName, lastResult, busy);
+  const onClick = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await simulateDetail(specName, inputs);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <>
+      <button
+        type="button"
+        className="bg-gray-700 hover:bg-gray-600 disabled:text-gray-500 text-white rounded-sm px-3 py-1"
+        onClick={() => void onClick()}
+        disabled={!availability.enabled}
+        title={availability.reason ?? "Offer this detail as a simulation subject and open the Simulations panel"}
+      >
+        Simulate…
+      </button>
+      {error && (
+        <span className="text-red-400 truncate" title={error}>
+          {error}
+        </span>
+      )}
+    </>
   );
 };
 

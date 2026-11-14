@@ -114,7 +114,9 @@ class _StubQueue:
 
 def test_the_heartbeat_advertises_a_provider_and_whether_this_worker_serves_it(monkeypatch):
     monkeypatch.setenv("ADA_WORKER_CAPABILITIES", "base")
-    register_simulation_provider(FakeSimulationProvider(PROVIDER, domain="fea", engine="fake-solver"))
+    register_simulation_provider(
+        FakeSimulationProvider(PROVIDER, domain="fea", engine="fake-solver", accepts=("weld-assembly",))
+    )
     queue = _StubQueue()
 
     async def run():
@@ -137,6 +139,7 @@ def test_the_heartbeat_advertises_a_provider_and_whether_this_worker_serves_it(m
     assert after["title"] == "Fake simulation" and after["version"] == "1.0.0"
     assert after["kinds"] == [{"id": "count", "title": "Count steps", "description": ""}]
     assert after["parameters_schema"]["required"] == ["steps"]
+    assert after["accepts"] == ["weld-assembly"]
     # Advertised from the first heartbeat, served only once the pool is subscribed.
     assert before["serving"] is False and after["serving"] is True
     assert CAPABILITY in queue.registered[-1]["capabilities"]
@@ -461,6 +464,87 @@ def test_parameters_are_checked_before_anything_is_queued(client):
     assert _start(client, {"steps": 1}, inputs="missing.glb").status_code == 400
     assert client.post(f"/api/scopes/{SCOPE}/simulations", json={"parameters": {}}).status_code == 400
     assert client.get(f"/api/scopes/{SCOPE}/simulations").json() == {"runs": []}
+
+
+def test_a_run_is_started_on_a_subject_the_provider_accepts(client):
+    register_simulation_provider(FakeSimulationProvider(PROVIDER, accepts=("weld-assembly",)))
+    listed = client.get("/api/simulation/providers").json()["providers"]
+    assert listed[0]["accepts"] == ["weld-assembly"]
+    (client.scope_dir / "parts").mkdir()
+    (client.scope_dir / "parts" / "joint.json").write_bytes(b"{}")
+    (client.scope_dir / "parts" / "other.json").write_bytes(b"[]")
+
+    subject = {"kind": "weld-assembly", "key": "/parts/joint.json"}
+    r = _start(client, {"steps": 1}, subject=subject, inputs=["parts/other.json", "parts/joint.json"])
+    assert r.status_code == 200, r.text
+    started = r.json()["run"]
+    # The subject is recorded, and is the first of the inputs (once).
+    assert started["subject"] == {"kind": "weld-assembly", "key": "parts/joint.json"}
+    assert started["inputs"] == ["parts/joint.json", "parts/other.json"]
+    done = _wait_ended(client, started["run_id"])
+    assert done["status"] == "done" and done["subject"] == started["subject"]
+    # The provider's case carried it: the fake reports it in its summary.
+    assert done["summary"]["subject"] == started["subject"]
+
+    # A run without one has none.
+    plain = _start(client, {"steps": 1}).json()["run"]
+    assert plain["subject"] is None
+
+
+def test_a_subject_that_cannot_be_served_is_refused_before_anything_is_queued(client):
+    register_simulation_provider(FakeSimulationProvider(PROVIDER, accepts=("weld-assembly",)))
+    register_simulation_provider(FakeSimulationProvider("fake-plain"))
+    (client.scope_dir / "joint.json").write_bytes(b"{}")
+    good = {"kind": "weld-assembly", "key": "joint.json"}
+
+    refused = client.post(
+        f"/api/scopes/{SCOPE}/simulations",
+        json={"provider": "fake-plain", "parameters": {"steps": 1}, "subject": good},
+    )
+    assert refused.status_code == 400 and "does not take a weld-assembly" in refused.json()["detail"]
+
+    unknown = _start(client, {"steps": 1}, subject={"kind": "mesh", "key": "joint.json"})
+    assert unknown.status_code == 400 and "unknown subject kind 'mesh'" in unknown.json()["detail"]
+    for bad in ("joint.json", {"kind": "weld-assembly"}, {"kind": "weld-assembly", "key": ""}):
+        assert _start(client, {"steps": 1}, subject=bad).status_code == 400
+
+    missing = _start(client, {"steps": 1}, subject={"kind": "weld-assembly", "key": "nope.json"})
+    assert missing.status_code == 404 and "nope.json" in missing.json()["detail"]
+
+    from ada.comms.rest import pending_uploads
+
+    scope = Scope.user("local-dev")
+    pending_uploads.mark_pending(scope, "joint.json", user_id="local-dev")
+    try:
+        assert _start(client, {"steps": 1}, subject=good).status_code == 409
+    finally:
+        pending_uploads.mark_complete(scope, "joint.json")
+    assert client.get(f"/api/scopes/{SCOPE}/simulations").json() == {"runs": []}
+
+
+def test_a_provider_from_an_older_worker_lists_no_accepted_kinds():
+    now = time.time()
+    entries = providers_from_workers(
+        [
+            {
+                "worker_id": "w",
+                "last_heartbeat": now,
+                "simulation_providers": [
+                    {"id": "old", "domain": "fea", "capability": "sim-old", "serving": True},
+                    {
+                        "id": "new",
+                        "domain": "fea",
+                        "capability": "sim-new",
+                        "serving": True,
+                        "accepts": ["weld-assembly", "x"],
+                    },
+                ],
+            }
+        ],
+        now=now,
+        stale_after_s=60,
+    )
+    assert {e["id"]: e["accepts"] for e in entries} == {"old": [], "new": ["weld-assembly"]}
 
 
 def test_a_provider_nobody_registered_is_a_clear_error_not_a_queued_run(client):

@@ -371,6 +371,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     _dev_path = _dev_connections_path()
     app.state.dev_connections = DevConnections(_dev_path) if _dev_path else None
+    # Runs handed off to a remote Ada Studio (simulation_relay.py), when the settings name one.
+    from .simulation_relay import SimulationRelay
+
+    app.state.simulation_relay = (
+        SimulationRelay(settings.simulation_remote) if settings.simulation_remote is not None else None
+    )
     # Cached worker-registry snapshot, refreshed off the request path by
     # ``_worker_registry_refresh_loop``. ``queue.list_workers()`` is an
     # N+1 over NATS KV (list keys, then one round-trip per worker key);
