@@ -206,21 +206,20 @@ def test_specs_ignores_other_branches(app_client: TestClient, tmp_path: pathlib.
 # ── POST /api/components/build ───────────────────────────────────────
 
 
-def test_build_503_when_queue_disabled(app_client: TestClient):
-    """No NATS configured in tests → queue.enabled is False → 503."""
+def test_build_runs_locally_when_queue_disabled(app_client: TestClient):
+    """No NATS configured in tests: the server runs the build itself, in a job process of its own
+    environment (job_transport / local_runner), and answers with a pollable local job."""
     r = app_client.post(
         "/api/components/build",
         json={"spec_name": "box.box_to_box", "inputs": {"incoming": {"section": "X"}}},
     )
-    assert r.status_code == 503, r.text
-    assert "disabled" in r.json()["detail"].lower()
+    assert r.status_code == 200, r.text
+    assert r.json()["job_id"].startswith("local-")
 
 
 def test_build_400_on_missing_spec_name(app_client: TestClient):
     r = app_client.post("/api/components/build", json={"inputs": {}})
-    # 503 fires first (queue disabled) before validation in this test
-    # setup. The validation paths are exercised by deployed integration
-    # tests where queue.enabled is True.
+    # Validation answers 400; 503 only where nothing can build components.
     assert r.status_code in (400, 503)
 
 

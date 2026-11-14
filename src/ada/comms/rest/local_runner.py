@@ -97,13 +97,18 @@ def _exit_when_the_server_goes(stdin: IO[bytes]) -> None:
 
 
 async def _run(payload: dict, proto: IO[str]) -> None:
-    from ada.comms.rest import formats  # noqa: F401 -- registers every handler
     from ada.comms.rest.queue import Job
     from ada.comms.rest.storage import Storage
-    from ada.comms.rest.worker.process import _process_one
 
     job = Job(**payload["job"])
     queue = PipeQueue(job, proto)
+    try:
+        # The worker's half of ada: absent from a slim API image, which never starts this.
+        from ada.comms.rest import formats  # noqa: F401 -- registers every handler
+        from ada.comms.rest.worker.process import _process_one
+    except ImportError as exc:
+        queue.send(status="error", stage="error", error=f"this environment cannot run worker jobs: {exc}")
+        return
     storage = Storage.from_spec(payload["storage"])
     try:
         await _process_one(job.job_id, queue, storage, None, None)  # type: ignore[arg-type]

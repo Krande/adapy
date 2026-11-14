@@ -535,6 +535,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     by_name.setdefault(spec["name"], spec)
         return [by_name[n] for n in sorted(by_name)]
 
+    def _convert_enabled(conversion_matrix: list[dict]) -> bool:
+        """Whether this server converts files. Behind a queue, the workers do. Without one, this
+        process does -- when it has anything to convert with (a slim API image has no converters,
+        and offering conversions it would 501 on is worse than not offering them)."""
+        return jobs.supports("conversion") and (queue.enabled or bool(conversion_matrix))
+
     # /api/config is *almost* public (the SPA fetches it before it has
     # a token, to learn whether auth is enabled and what the issuer is)
     # — but it never leaks user data, so we serve it unauthenticated.
@@ -573,7 +579,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             {
                 "transport": "rest",
                 "apiBase": "/api",
-                "convertEnabled": jobs.supports("conversion"),
+                "convertEnabled": _convert_enabled(conversion_matrix),
                 "utilities": utilities,
                 "auth": {
                     "enabled": settings.auth.enabled,
@@ -2871,7 +2877,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         body = (
             'window.COMMS_MODE = "rest";\n'
             'window.API_BASE = "/api";\n'
-            f"window.CONVERT_ENABLED = {'true' if jobs.supports('conversion') else 'false'};\n"
+            f"window.CONVERT_ENABLED = {'true' if _convert_enabled(conversion_matrix) else 'false'};\n"
             f"window.AUTH_ENABLED = {'true' if a.enabled else 'false'};\n"
             f"window.AUTH_ISSUER = {_json.dumps(a.issuer)};\n"
             f"window.AUTH_CLIENT_ID = {_json.dumps(a.client_id)};\n"

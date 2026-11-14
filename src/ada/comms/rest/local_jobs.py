@@ -562,8 +562,12 @@ def start_worker_job(
     kind, or its storage cannot be opened from another process -- a 501 the caller can read
     beats a job id that errors two polls later.
     """
-    from . import formats
     from .queue import Job
+
+    try:
+        from . import formats
+    except ImportError as exc:
+        raise LookupError(f"this environment cannot run worker jobs ({exc})") from exc
 
     queue_job = Job(
         job_id=f"local-{uuid.uuid4().hex[:16]}",
