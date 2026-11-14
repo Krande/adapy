@@ -1034,6 +1034,22 @@ export interface SimulationParameterFormArgs {
   /** The storage keys of the run's input files so far, and how to replace them. */
   inputs: readonly string[];
   onInputsChange: (next: string[]) => void;
+  /**
+   * The subject the run will be started on (e.g. a detail the connection builder offered), when one
+   * is chosen and this provider takes its kind; null otherwise. A form whose own fields name the part
+   * another way (a connection picked from a list) should leave those out while there is one: the run
+   * already says what it works on. Absent on a core before it was passed.
+   */
+  subject?: SimulationFormSubject | null;
+}
+
+/** The subject a parameter form is told about: what it is and what a person calls it. */
+export interface SimulationFormSubject {
+  /** One of the server's subject kinds, e.g. `"weld-assembly"`. */
+  kind: string;
+  /** Storage key of its file, in the run's scope. */
+  key: string;
+  label: string;
 }
 
 /** What an "open result" handler is given. */

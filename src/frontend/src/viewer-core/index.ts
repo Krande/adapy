@@ -713,6 +713,7 @@ export type {
   SidecarFetcher,
   SimulationOpenResultArgs,
   SimulationParameterFormArgs,
+  SimulationFormSubject,
   SimulationProviderUi,
   TopBarButtonSpec,
   UrlParamHandler,
