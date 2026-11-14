@@ -26,6 +26,7 @@ import {usePerfStore, requestRender} from "@/state/perfStore";
 import {useSceneRestoreStore} from "@/state/sceneRestoreStore";
 import {useSpaceMouseStore, type SpaceMouseButtonAction} from "@/state/spaceMouseStore";
 import {useThemeStore} from "@/state/themeStore";
+import {useToolbarButtonsStore} from "@/state/toolbarButtonsStore";
 import {useViewMetricsStore} from "@/state/viewMetricsStore";
 import {feaControlActions} from "@/utils/scene/fea/feaControls";
 import {COLORMAP_NAMES} from "@/utils/scene/fea/colormaps";
@@ -275,6 +276,9 @@ export function optionDescriptors(): OptionDescriptor[] {
     {kind: "toggle", id: "customisable-panels", title: "Customisable panels", group: "Layout", keywords: ["float", "dock", "windows", "layout", ...GEN],
       setters: ["setCustomisablePanels"], get: () => customisablePanels(), set: (v) => setCustomisablePanels(v),
       when: () => !customisablePanelsRequired()},
+    // --- Theme: the classic top bar's buttons (one switch per button, so the list is opened, not toggled) ---
+    {kind: "open", id: "toolbar-buttons", title: "Top bar buttons…", group: "Theme", keywords: ["toolbar", "top bar", "buttons", "hide", "show", "layout", ...GEN],
+      setters: ["setButtonShown"], focus: "toolbar-buttons"},
   ];
   return list;
 }
@@ -363,6 +367,11 @@ export function optionCommandSpecs(): CommandSpec[] {
       id: "core:option.theme-reset-custom", label: "Theme: reset custom panel colours", group: "Theme", keywords: ["color", "colour", "panels"],
       disabledReason: () => (useThemeStore.getState().customBg || useThemeStore.getState().customText ? null : "No custom colours are set"),
       run: () => useThemeStore.getState().resetCustom(),
+    },
+    {
+      id: "core:option.toolbar-buttons-show-all", label: "Top bar: show all buttons", group: "Theme", keywords: ["toolbar", "top bar", "buttons", "restore", "reset"],
+      disabledReason: () => (useToolbarButtonsStore.getState().hidden.length ? null : "Every top bar button is shown"),
+      run: () => useToolbarButtonsStore.getState().showAll(),
     },
     {
       id: "core:storage-refresh", label: "Refresh the file list", group: "File", keywords: ["storage", "reload", "files", "server"],

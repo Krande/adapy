@@ -35,6 +35,7 @@ import {hasEmbeddedDoc, useCellBuilderStore} from "@/state/cellBuilderStore";
 import {useObjectInfoStore} from "@/state/objectInfoStore";
 import {useTreeViewStore} from "@/state/treeViewStore";
 import {useViewerPanelStore, type ViewerPanel} from "@/state/viewerPanelStore";
+import {isToolbarButtonShown, useToolbarButtonsStore} from "@/state/toolbarButtonsStore";
 import {useIsWide} from "@/utils/useIsMobile";
 
 import {PanelHeaderActionsProvider} from "@/components/ui/PanelFrame";
@@ -144,19 +145,35 @@ function ClassicToolbar() {
   const customisable = useCustomisablePanels();
   // Core's buttons; plugin buttons are drawn by their own host at their slot,
   // where activation predicates (which need a plugin context) are evaluated.
-  const panels = listToolbarPanels().filter((p) => p.owner === CORE_PANEL_OWNER);
+  // Buttons the user turned off (Settings > Theme) leave the row; their panels stay as they are.
+  const hidden = useToolbarButtonsStore((s) => s.hidden);
+  const shown = (id: PanelId) => isToolbarButtonShown(hidden, id);
+  const panels = listToolbarPanels().filter((p) => p.owner === CORE_PANEL_OWNER && shown(p.id));
   const states = usePanelStates(panels, env);
-  const before = panels.filter((p) => p.toolbar!.order < PLUGIN_TOOLBAR_ORDER);
-  const after = panels.filter((p) => p.toolbar!.order >= PLUGIN_TOOLBAR_ORDER);
+  // Pinned, outside the scrolling row: the Options button (the way to Settings) at the start, and
+  // the connection status menu (its dropdown would be clipped by a scroll box) and the minimised
+  // tray at the end. Everything else scrolls sideways when the bar is wider than the screen.
+  const pinStart = (p: RegisteredPanel) => p.id === CORE_PANEL_IDS.options;
+  const pinEnd = (p: RegisteredPanel) => !!CLASSIC_TOOLBAR[p.id]?.statusMenu;
+  const scrolling = panels.filter((p) => !pinStart(p) && !pinEnd(p));
+  const before = scrolling.filter((p) => p.toolbar!.order < PLUGIN_TOOLBAR_ORDER);
+  const after = scrolling.filter((p) => p.toolbar!.order >= PLUGIN_TOOLBAR_ORDER);
   const button = (p: RegisteredPanel) => <ToolbarButton key={p.id} panel={p} state={states.get(p.id)!} env={env} customisable={customisable} />;
+  const start = panels.filter(pinStart);
+  const end = panels.filter(pinEnd);
   return (
     <div
-      className={"flex flex-row items-center gap-2 px-2 max-w-full overflow-x-auto pointer-events-auto"}
+      className={"flex flex-row items-center gap-2 px-2 max-w-full min-w-0 pointer-events-auto [&>*]:shrink-0"}
       {...(customisable ? {[ZONE_ATTR]: "toolbar"} : {})}
     >
-      {before.map(button)}
-      <PluginTopBarButtons navBtnClass={(active) => navBtnClass(active)} />
-      {after.map(button)}
+      {start.map(button)}
+      {/* The row scrolls (swipe / trackpad) rather than wrapping or running off-screen, with no scrollbar. */}
+      <div className="flex flex-row items-center gap-2 min-w-0 shrink! overflow-x-auto overflow-y-hidden overscroll-x-contain scrollbar-none [&>*]:shrink-0" data-toolbar-scroll="">
+        {before.map(button)}
+        <PluginTopBarButtons navBtnClass={(active) => navBtnClass(active)} isShown={shown} />
+        {after.map(button)}
+      </div>
+      {end.map(button)}
       {/* No palette button: Ctrl+K opens it, and the shortcuts dialog lists it. */}
       {customisable && <MinimisedTray />}
     </div>
@@ -284,7 +301,7 @@ function ClassicMenu({viewport}: {viewport: Rect | null}) {
   return (
     <div className="relative w-full h-full">
       <div
-        className="absolute left-0 top-0 z-10 py-2 gap-2 flex flex-col pointer-events-none transition-[padding] duration-150"
+        className="absolute left-0 top-0 z-10 max-w-full py-2 gap-2 flex flex-col pointer-events-none transition-[padding] duration-150"
         style={top > 0 ? {paddingLeft: `${menuShiftPx}px`, paddingTop: `${top + 8}px`} : {paddingLeft: `${menuShiftPx}px`}}
       >
         {classicToolbarShown() && <ClassicToolbar />}
