@@ -1,5 +1,7 @@
-// The view strip's toggles: orthographic view and the ground grid -- commands that flip their
-// setting, remembered in the browser, and buttons on the strip every mode shows.
+// The view toggles: orthographic view and the ground grid -- commands that flip their setting,
+// remembered in the browser. Core puts them in its menus (Desktop UI: View, classic UI: the
+// Display options); a shell may add them to its own toolbar (the docked UI does). Core's
+// section strip, which the shells share, does not carry them.
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -13,6 +15,8 @@ const { CORE_COMMAND_IDS: ID } = await import("@/layout/coreCommandIds");
 const { CORE_COMMAND_ICONS } = await import("@/layout/commandIcons");
 const { registerCoreCommands } = await import("@/layout/coreCommands");
 const T = await import("@/layout/ModeToolbars");
+const { desktopMenus, menuCommandIds } = await import("@/layout/desktop/desktopMenus");
+const DisplayOptions = (await import("@/components/options/DisplayOptions")).default;
 const { AdaViewerProvider } = await import("@/state/AdaViewerContext");
 const { useGroundGridStore } = await import("@/state/groundGridStore");
 const { useProjectionStore } = await import("@/state/projectionStore");
@@ -20,17 +24,21 @@ const { setActiveViewport } = await import("@/viewport/api/viewportApi");
 
 const html = (el: React.ReactElement) => renderToStaticMarkup(React.createElement(AdaViewerProvider, null, el));
 
-test("the ground grid and orthographic view are commands on the strip every mode shows", () => {
+test("the ground grid and orthographic view are in core's menus, not on its shared strip", () => {
   C.resetCommands();
   registerCoreCommands();
   for (const id of [ID.groundGrid, ID.orthographic]) {
     assert.ok(C.getCommand(id), `${id} registered`);
-    assert.ok(CORE_COMMAND_ICONS[id], `${id} has an icon`);
+    assert.ok(CORE_COMMAND_ICONS[id], `${id} has an icon (for a shell's toolbar)`);
   }
   const strip = html(React.createElement(T.SectionToolbar));
-  assert.match(strip, /data-command="core:view\.orthographic"/);
-  assert.match(strip, /data-command="core:view\.ground-grid"/);
-  assert.ok(strip.indexOf("core:view.ground-grid") < strip.indexOf("core:section.x"), "before the section planes");
+  assert.doesNotMatch(strip, /core:view\.orthographic|core:view\.ground-grid/);
+  const ids = menuCommandIds(desktopMenus({ modes: [], workspaces: [], shells: [], themes: [] } as never));
+  assert.ok(ids.includes(ID.orthographic), "Desktop UI: View > Camera");
+  assert.ok(ids.includes(ID.groundGrid), "Desktop UI: View > Display");
+  const options = html(React.createElement(DisplayOptions));
+  assert.match(options, /Orthographic View/, "classic UI: the Display options");
+  assert.match(options, /Ground Grid/);
 });
 
 test("the ground grid toggles and is remembered in the browser", () => {
