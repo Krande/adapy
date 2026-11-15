@@ -10,10 +10,13 @@ adapter at all skips the WebGPU legs with that reason.
 import asyncio
 import io
 import json
+import time
 
 import pytest
 from PIL import Image
-from playwright.async_api import Page, async_playwright
+from playwright.async_api import Page
+from playwright.async_api import TimeoutError as PlaywrightTimeoutError
+from playwright.async_api import async_playwright
 
 import ada
 from ada.comms.web.serve import start_serving
@@ -31,6 +34,7 @@ CHROMIUM_ARGS = [
     "--use-vulkan=swiftshader",
 ]
 VIEWPORT = {"width": 1280, "height": 800}
+SCREENSHOT_TIMEOUT_MS = 60000
 CENTRE = (VIEWPORT["width"] // 2, VIEWPORT["height"] // 2)
 
 # renderer query value, stored performance switches, what the viewer must report it draws with
@@ -63,7 +67,10 @@ def _model() -> ada.Assembly:
 
 
 async def _pixels(page: Page) -> Image.Image:
-    return Image.open(io.BytesIO(await page.screenshot())).convert("RGB")
+    # A software-rendered page on a loaded runner can take a while to give a frame: twice Playwright's
+    # 30 s, and no caret or CSS animation to wait out.
+    shot = await page.screenshot(animations="disabled", caret="hide", timeout=SCREENSHOT_TIMEOUT_MS)
+    return Image.open(io.BytesIO(shot)).convert("RGB")
 
 
 def _count(image: Image.Image, predicate) -> int:
@@ -115,12 +122,25 @@ async def _click(page: Page, x: int, y: int) -> None:
 
 
 async def _until(page: Page, check, what: str, seconds: float = 20.0):
-    for _ in range(int(seconds / 0.25)):
-        value = await check()
+    """``check()`` once it is truthy, asking every half second for ``seconds`` of wall clock.
+
+    A check that times out itself (a screenshot of a page busy redrawing) is "not yet", not a failure:
+    the page is still working on what is waited for.
+    """
+    deadline = time.monotonic() + seconds
+    last_error = None
+    while True:
+        try:
+            value = await check()
+        except PlaywrightTimeoutError as exc:
+            value, last_error = None, exc
         if value:
             return value
-        await page.wait_for_timeout(250)
-    raise AssertionError(f"timed out waiting for {what}")
+        if time.monotonic() >= deadline:
+            break
+        await page.wait_for_timeout(500)
+    why = f" (last check timed out: {last_error})" if last_error else ""
+    raise AssertionError(f"timed out waiting for {what}{why}")
 
 
 async def _steady(page: Page, box: tuple[int, int, int, int], seconds: float = 20.0) -> Image.Image:
