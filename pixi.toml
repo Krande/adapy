@@ -160,6 +160,9 @@ test-core = { cmd = "pytest tests/core --durations=0", depends-on = ["fetch-dexp
 # `outputs` lets pixi skip even that. CI caches the directory on the same key, so the download
 # happens about once per corpus change rather than once per job.
 fetch-dexpi = { cmd = "python scripts/codegen/fetch_dexpi_testcases.py", outputs = ["files/dexpi_files/_external"] }
+# The Playwright browser tests (marked `browser` automatically, Linux only): CI runs them in their own
+# job (pr-tests.yml `browser`), so test-quick there deselects them with -m "not browser".
+test-browser = { cmd = "pytest tests/full/frontend -m browser --durations=0", depends-on = ["pre-install"], env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 test-full = { cmd = "pytest tests/full --durations=0", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 test-cov = { cmd = "pytest tests --ignore=tests/profiling --ignore=tests/fem --ignore=tests/comms/rest --cov=src/ada --cov-report=html --cov-report=term --durations=0", depends-on = ["pre-install"], env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 
