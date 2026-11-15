@@ -661,6 +661,8 @@
 //          the shells share: a shell places them on its own toolbar if it wants. Orthographic view
 //          is offered disabled, with the reason, on a viewport whose `unavailable("orthographic")`
 //          answers one (every built-in viewport, the three.js-free one included, has it).
+//          `CommandSpec.watch`: subscribe to what a command's `checked`/`disabledReason` read;
+//          a `CommandButton` redraws when it fires (core's view toggles and section commands have one).
 export const VIEWER_CORE_API_VERSION = "1.24.0";
 
 // ---------------------------------------------------------------------------

@@ -43,6 +43,13 @@ export interface CommandSpec {
   disabledReason?(): string | null;
   /** Ticked in a menu (a toggle's state). */
   checked?(): boolean;
+  /**
+   * Subscribe to what `checked` and `disabledReason` read (a store's `subscribe`); returns the
+   * unsubscribe. A toolbar button (`CommandButton`) then redraws when that changes, from wherever
+   * it was changed (a menu, a key, another panel). Without it the button shows the state of its
+   * last render.
+   */
+  watch?(onChange: () => void): () => void;
 }
 
 export interface RegisteredCommand extends CommandSpec {

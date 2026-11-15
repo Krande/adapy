@@ -91,6 +91,9 @@ export function workingPlane(): SectionPlane | undefined {
   return planes.find((p) => p.id === activeId) ?? planes[planes.length - 1];
 }
 
+/** A section command's tick and reason read the planes: its button redraws when they change. */
+const watchSections = (onChange: () => void) => useSectionStore.subscribe(onChange);
+
 type FeaState = ReturnType<typeof useFeaAnimationStore.getState>;
 
 /** A switch of how a loaded FEA result is drawn: ticked while on, offered once a result is loaded. */
@@ -439,6 +442,7 @@ export function coreCommandSpecs(): CommandSpec[] {
       label: "Orthographic view",
       group: "View",
       checked: () => useProjectionStore.getState().orthographic,
+      watch: (onChange) => useProjectionStore.subscribe(onChange),
       // Every viewport draws it: the three.js one on either renderer (utils/scene/orthographicProjection.ts),
       // the three.js-free one with the renderer's own camera (viewport/native/nativeScene.ts).
       disabledReason: () => noViewport() ?? activeViewport()?.unavailable("orthographic") ?? null,
@@ -452,6 +456,7 @@ export function coreCommandSpecs(): CommandSpec[] {
       label: "Ground grid",
       group: "View",
       checked: () => useGroundGridStore.getState().visible,
+      watch: (onChange) => useGroundGridStore.subscribe(onChange),
       disabledReason: noViewport,
       run: () => {
         useGroundGridStore.getState().toggle();
@@ -671,6 +676,7 @@ export function coreCommandSpecs(): CommandSpec[] {
       label: "Section plane on / off",
       group: "Section",
       checked: () => workingPlane()?.enabled === true,
+      watch: watchSections,
       // With no plane yet, the first press cuts through the model on Z.
       run: () => {
         const s = useSectionStore.getState();
@@ -684,6 +690,7 @@ export function coreCommandSpecs(): CommandSpec[] {
       label: "Flip section plane",
       group: "Section",
       disabledReason: () => (workingPlane() ? null : "No section plane"),
+      watch: watchSections,
       run: () => {
         const p = workingPlane();
         if (p) useSectionStore.getState().flip(p.id);
@@ -694,6 +701,7 @@ export function coreCommandSpecs(): CommandSpec[] {
       label: "Remove section planes",
       group: "Section",
       disabledReason: () => (useSectionStore.getState().planes.length ? null : "No section plane"),
+      watch: watchSections,
       run: () => useSectionStore.getState().clearAll(),
     },
     // Selection boxes: on whichever viewport is on screen (utils/bboxSelection/applyBoxSelection).
