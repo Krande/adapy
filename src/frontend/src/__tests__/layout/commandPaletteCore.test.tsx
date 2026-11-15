@@ -132,3 +132,29 @@ test("a command that only means something with modes says why it cannot run in c
   const spec = coreCommandSpecs().find((s) => s.id === CORE_COMMAND_IDS.resetAllLayouts)!;
   assert.equal(spec.disabledReason?.(), "This user interface has no modes");
 });
+
+test("the palette says why the highlighted command cannot run, and starts on one that can", async () => {
+  const off = { label: "Fit selection", disabledReason: () => "Nothing selected" };
+  const on = { label: "Fit all", disabledReason: () => null };
+  assert.equal(P.firstRunnableHit([off, on, off]), 1, "the best match that can run");
+  assert.equal(P.firstRunnableHit([off, off]), 0, "none can: the first, whose reason is then shown");
+  assert.equal(P.firstRunnableHit([]), 0);
+  assert.equal(P.paletteStatus(off), "Fit selection: Nothing selected");
+  assert.equal(P.paletteStatus(on), "");
+  assert.equal(P.paletteStatus(undefined), "");
+
+  shells();
+  const root = await mount();
+  try {
+    await act(async () => P.openCommandPalette());
+    await flush();
+    const status = dom.miniDocument.querySelectorAll('[role="status"]').filter((e) => e.getAttribute("data-palette-status") !== null);
+    assert.equal(status.length, 1, "a status line under the input");
+    assert.equal(status[0].getAttribute("aria-live"), "polite", "read out, not only a hover title");
+    await close();
+  } finally {
+    await act(async () => root.unmount());
+    localStorage.removeItem(U.UI_SHELL_STORAGE_KEY);
+    U.resetUiShells();
+  }
+});
