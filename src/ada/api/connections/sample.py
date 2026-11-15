@@ -6,14 +6,23 @@ orchestration to feed registered connection handlers without requiring
 a real model context (clash data, parent assembly, etc.).
 
 Inputs shape mirrors `spec_to_form_schema(spec)`: a per-role dict keyed
-by the role's lowercase enum value. A beam role takes a `section`, a
-plate role a `thickness` (and optionally `width` / `height`), and either
-takes an `angle_deg` where the role carries an angle criterion.
+by the role's lowercase enum value. A beam role takes a `section` and
+optionally a `length`, a plate role a `thickness` (and optionally `width` /
+`height`), and either takes an `angle_deg` where the role carries an angle
+criterion.
 
     inputs = {
-        "incoming": {"section": "SHS200x10", "angle_deg": 90.0},
-        "landing":  {"section": "BOX200x200x10x10"},
+        "incoming": {"section": "SHS200x10", "angle_deg": 90.0, "length": 0.6},
+        "landing":  {"section": "BOX200x200x10x10", "length": 1.5},
     }
+
+A beam's `length` [m] is the member's own length as built: the anchor (the
+landing member) runs that long through the joint point, centred on it
+(default 2 m); every other beam runs that far from the joint point out to its
+free end (default 1 m). It is positive and at most `MEMBER_LENGTH_RANGE_M`'s
+upper end. A spec whose own `synth_sample` decides a member's extent may
+declare that role's `length` as None in its `defaults`: the form then shows
+it empty, and None reads as the default here.
 
 `default_inputs(spec)` returns inputs that satisfy the spec: its declared
 `defaults` where it has them, else a representative value per field.
@@ -25,6 +34,7 @@ import math
 from typing import TYPE_CHECKING, Any
 
 from ada.api.connections.spec import (
+    MEMBER_LENGTH_RANGE_M,
     ConnectionSpec,
     MemberCriteria,
     MemberKind,
@@ -38,6 +48,11 @@ if TYPE_CHECKING:
 
 
 _SAMPLE_LENGTH_M = 1.0
+
+#: A beam's default ``length``: the anchor runs ``_SAMPLE_LENGTH_M`` either side of the joint point,
+#: every other beam ``_SAMPLE_LENGTH_M`` out of it.
+DEFAULT_ANCHOR_LENGTH_M = 2 * _SAMPLE_LENGTH_M
+DEFAULT_MEMBER_LENGTH_M = _SAMPLE_LENGTH_M
 
 #: Plate extent when the inputs name only a thickness.
 _DEFAULT_PLATE_WIDTH_M = 0.4
@@ -101,11 +116,12 @@ def build_sample(spec: ConnectionSpec, inputs: dict[str, dict[str, Any]]) -> dic
         # lands on a single point (both n2's at origin) and the
         # connection handler has no contact surface to trace welds along.
         anchor_is_plate = False
+        half = 0.5 * member_length(anchor_inputs, anchor_crit, anchor=True)
         anchor = _sample_beam(
             anchor_crit,
             _resolve_section(anchor_inputs, anchor_crit),
-            n1=(-_SAMPLE_LENGTH_M, 0.0, 0.0),
-            n2=(_SAMPLE_LENGTH_M, 0.0, 0.0),
+            n1=(-half, 0.0, 0.0),
+            n2=(half, 0.0, 0.0),
             corners=_corner_radii(anchor_inputs, anchor_crit),
         )
         members[anchor_role] = anchor
@@ -130,7 +146,8 @@ def build_sample(spec: ConnectionSpec, inputs: dict[str, dict[str, Any]]) -> dic
             direction = _direction_in_xy_plane(angle_deg)
         # Incoming starts at the joint point and extends OUTWARD; its n1
         # (origin) is the contact end that meets the anchor's surface.
-        n2 = tuple(c * _SAMPLE_LENGTH_M for c in direction)
+        length = member_length(role_inputs, role_crit, anchor=False)
+        n2 = tuple(c * length for c in direction)
         members[role_crit.role] = _sample_beam(
             role_crit, section, n1=(0.0, 0.0, 0.0), n2=n2, corners=_corner_radii(role_inputs, role_crit)
         )
@@ -138,26 +155,45 @@ def build_sample(spec: ConnectionSpec, inputs: dict[str, dict[str, Any]]) -> dic
     return {crit.role: members[crit.role] for crit in spec.roles}
 
 
+def member_length(role_inputs: dict[str, Any], role_crit: MemberCriteria, *, anchor: bool) -> float:
+    """A beam role's ``length`` [m] from its inputs: the default where they name none (the anchor's
+    or another member's), else the value given, refused unless it is a positive number of at most
+    ``MEMBER_LENGTH_RANGE_M``'s upper end."""
+    default = DEFAULT_ANCHOR_LENGTH_M if anchor else DEFAULT_MEMBER_LENGTH_M
+    if role_inputs.get("length") is None:
+        return default
+    value = _positive_number(role_inputs, "length", role_crit, default=default)
+    if value > MEMBER_LENGTH_RANGE_M[1]:
+        raise ValueError(
+            f"role {role_crit.role.value!r}: 'length' {value:g} m is over the {MEMBER_LENGTH_RANGE_M[1]:g} m "
+            "a member may be"
+        )
+    return value
+
+
 def default_inputs(spec: ConnectionSpec) -> dict[str, dict[str, Any]]:
     """Inputs ``build_sample`` accepts for ``spec``: its declared ``defaults``, with every field
     they leave out filled by a representative value (a section from the role's ``section_in``
-    family, a 20 mm plate, 90° or the middle of the role's angle range)."""
+    family, a beam's default length, a 20 mm plate, 90° or the middle of the role's angle range)."""
     declared = spec.defaults or {}
     out: dict[str, dict[str, Any]] = {}
+    anchor_role = _resolve_anchor_role(spec) if spec.roles else None
     for crit in spec.roles:
         key = crit.role.value
         role_inputs = dict(declared.get(key) or {})
         for field in role_input_fields(crit):
             if field in role_inputs:
                 continue
-            value = _default_field(spec, crit, field)
+            value = _default_field(spec, crit, field, anchor=crit.role is anchor_role)
             if value is not None:
                 role_inputs[field] = value
         out[key] = role_inputs
     return out
 
 
-def _default_field(spec: ConnectionSpec, crit: MemberCriteria, field: str) -> Any:
+def _default_field(spec: ConnectionSpec, crit: MemberCriteria, field: str, *, anchor: bool = False) -> Any:
+    if field == "length":
+        return DEFAULT_ANCHOR_LENGTH_M if anchor else DEFAULT_MEMBER_LENGTH_M
     if field == "section":
         for family in sorted(crit.section_in or ()):
             section = _REPRESENTATIVE_SECTIONS.get(family.upper())
@@ -238,7 +274,7 @@ def _positive_number(role_inputs: dict[str, Any], key: str, role_crit: MemberCri
         raise ValueError(f"role {role_crit.role.value!r}: missing {key!r} in inputs")
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ValueError(f"role {role_crit.role.value!r}: {key!r} must be numeric, got {type(value).__name__}")
-    if value <= 0:
+    if not math.isfinite(value) or value <= 0:
         raise ValueError(f"role {role_crit.role.value!r}: {key!r} must be positive, got {value}")
     return float(value)
 

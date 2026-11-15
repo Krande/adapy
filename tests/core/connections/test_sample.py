@@ -241,7 +241,7 @@ def test_default_inputs_fill_what_the_spec_leaves_out():
     spec = _beam_on_plate_spec()
     defaults = default_inputs(spec)
     assert defaults == {
-        "incoming": {"section": "BOX300x300x12x12", "angle_deg": 90.0},
+        "incoming": {"section": "BOX300x300x12x12", "length": 1.0, "angle_deg": 90.0},
         "landing": {"thickness": 0.02, "width": 0.4, "height": 0.3},
     }
     # ... and they build.
@@ -263,8 +263,8 @@ def test_default_inputs_keep_declared_defaults():
         defaults={"landing": {"section": "HEB300"}},
     )
     assert default_inputs(spec) == {
-        "incoming": {"section": "IPE300", "angle_deg": 40.0},  # 90° is out of range: the middle
-        "landing": {"section": "HEB300"},
+        "incoming": {"section": "IPE300", "length": 1.0, "angle_deg": 40.0},  # 90° is out of range: the middle
+        "landing": {"section": "HEB300", "length": 2.0},  # the anchor runs either side of the joint
     }
 
 
@@ -356,3 +356,60 @@ def test_a_corner_radius_set_after_an_outline_was_built_is_not_lost():
     assert _arcs(build_section_profile(beam.section, True).outer_curve) == 0
     beam.section.r = 0.015
     assert _arcs(build_section_profile(beam.section, True).outer_curve) == 4
+
+
+# ── member lengths ─────────────────────────────────────────────────────────────────────────────
+
+
+def test_beam_lengths_default_to_the_sample_lengths():
+    """No ``length``: the landing runs 1 m either side of the joint point, the incoming 1 m out of it, as they did
+    before the input existed -- and ``default_inputs`` says so."""
+    spec = _box_to_box_spec()
+    assert default_inputs(spec)["landing"]["length"] == 2.0
+    assert default_inputs(spec)["incoming"]["length"] == 1.0
+    members = build_sample(spec, _inputs(90.0))
+    assert members[MemberRole.LANDING].length == pytest.approx(2.0)
+    assert members[MemberRole.INCOMING].length == pytest.approx(1.0)
+
+
+def test_beam_lengths_are_what_the_inputs_set():
+    inputs = _inputs(45.0)
+    inputs["landing"]["length"] = 0.8
+    inputs["incoming"]["length"] = 0.35
+    members = build_sample(_box_to_box_spec(), inputs)
+    landing, incoming = members[MemberRole.LANDING], members[MemberRole.INCOMING]
+    # The landing stays centred on the joint point; the incoming still starts there, at its angle.
+    assert tuple(landing.n1.p) == pytest.approx((-0.4, 0.0, 0.0))
+    assert tuple(landing.n2.p) == pytest.approx((0.4, 0.0, 0.0))
+    assert tuple(incoming.n1.p) == pytest.approx((0.0, 0.0, 0.0))
+    assert incoming.length == pytest.approx(0.35)
+    assert incoming.n2.p[0] == pytest.approx(incoming.n2.p[1])
+
+
+@pytest.mark.parametrize("bad", [0, -0.5, float("nan"), "1.0", True])
+def test_a_length_must_be_a_positive_number(bad):
+    inputs = _inputs()
+    inputs["incoming"]["length"] = bad
+    with pytest.raises(ValueError, match="'length'"):
+        build_sample(_box_to_box_spec(), inputs)
+
+
+def test_a_length_has_an_upper_bound():
+    from ada.api.connections.spec import MEMBER_LENGTH_RANGE_M
+
+    inputs = _inputs()
+    inputs["landing"]["length"] = MEMBER_LENGTH_RANGE_M[1]
+    assert build_sample(_box_to_box_spec(), inputs)[MemberRole.LANDING].length == pytest.approx(
+        MEMBER_LENGTH_RANGE_M[1]
+    )
+    inputs["landing"]["length"] = MEMBER_LENGTH_RANGE_M[1] + 0.1
+    with pytest.raises(ValueError, match="'length' .* is over"):
+        build_sample(_box_to_box_spec(), inputs)
+
+
+def test_a_beam_standing_on_a_plate_takes_its_length():
+    members = build_sample(
+        _beam_on_plate_spec(),
+        {"incoming": {"section": "BOX300x300x12x12", "angle_deg": 90.0, "length": 0.5}, "landing": {"thickness": 0.02}},
+    )
+    assert members[MemberRole.INCOMING].length == pytest.approx(0.5)

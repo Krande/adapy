@@ -130,3 +130,26 @@ def test_no_built_in_spec_matches_the_hp_only_groups():
     assert hp_groups, "expected the HP-mixed groups to be present on the pinned demo"
     for group in hp_groups:
         assert group.applicable == ()
+
+
+# ── the connection builder builds them too ───────────────────────────
+
+
+@pytest.mark.parametrize("spec_name", BUILTIN_SPEC_NAMES)
+def test_a_built_in_spec_builds_in_the_connection_builder_without_a_clash_point(spec_name, tmp_path):
+    """The connection builder passes no ``centre``: the joint is where the sample members meet.
+    Without the default both builders raised TypeError there."""
+    from ada.api.connections import build_component
+    from ada.api.connections.library import build_subject
+    from ada.api.connections.sample import default_inputs
+
+    register_builtin_specs()
+    inputs = default_inputs(get_registered(spec_name).spec)
+    assert build_component(spec_name, inputs) is not None
+    if spec_name == GIRDER_GUSSET_SPEC.name:
+        # Its welds are straight extrusions with no sweep curve: the subject reads their two points.
+        assert build_subject(spec_name, inputs, tmp_path / "subject.json")["welds"] == 2
+    else:
+        # The box joint welds nothing, so as a simulation subject it is "no welds", not a crash.
+        with pytest.raises(ValueError, match="no welds"):
+            build_subject(spec_name, inputs, tmp_path / "subject.json")

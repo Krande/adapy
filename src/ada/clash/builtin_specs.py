@@ -133,19 +133,26 @@ def _accepted(joint_cls, config: dict) -> dict:
     return {k: v for k, v in config.items() if k in accepted and v is not None}
 
 
-def _build_girder_gusset(*, landing, incoming, centre, name: str | None = None, **config):
+def _joint_point(centre):
+    """Where the joint is. The clash flows pass the measured point; the connection builder and its
+    simulation subjects pass none, and their sample members all meet at the origin
+    (``ada.api.connections.sample.build_sample``)."""
+    return (0.0, 0.0, 0.0) if centre is None else centre
+
+
+def _build_girder_gusset(*, landing, incoming, centre=None, name: str | None = None, **config):
     from ada.topo_model.detail_joints import GirderJoint
 
     joint = GirderJoint(
         name or f"gusset_{getattr(landing, 'name', 'a')}_{getattr(incoming, 'name', 'b')}",
         [landing, incoming],
-        centre,
+        _joint_point(centre),
         **_accepted(GirderJoint, config),
     )
     return joint.connection
 
 
-def _build_box_joint(*, landing, incoming, centre, name: str | None = None, **config):
+def _build_box_joint(*, landing, incoming, centre=None, name: str | None = None, **config):
     from ada.topo_model.detailing import BoxJoint
 
     # `incoming` / `landing` are REQUIRED keyword arguments of this joint (it cuts the one with
@@ -154,7 +161,7 @@ def _build_box_joint(*, landing, incoming, centre, name: str | None = None, **co
     joint = BoxJoint(
         name or f"box_{getattr(landing, 'name', 'a')}_{getattr(incoming, 'name', 'b')}",
         [landing, incoming],
-        centre,
+        _joint_point(centre),
         incoming=incoming,
         landing=landing,
         **_accepted(BoxJoint, config),
