@@ -30,8 +30,8 @@ from .converter import (
     supported_targets_for,
 )
 from .handlers import dispatch
-from .job_transport import build_transport
-from .plugin_registry import discover_local_plugins
+from .job_transport import JobRequest, build_transport, local_advertisement
+from .plugin_registry import load_local_plugins
 from .queue import JobQueue
 from .routes.admin_audit_perf import router as admin_audit_perf_router
 from .routes.admin_audit_perf import run_issue_bot_for, run_issue_bot_for_conversion
@@ -70,6 +70,7 @@ from .routes.deps import (  # noqa: F401 — _merge_spec re-exported for tests/i
     RestContext,
     SystemUser,
     _merge_spec,
+    audit_local_job_outcome,
     human_bytes,
     is_accepted_source,
     live_worker_specs,
@@ -87,6 +88,8 @@ from .routes.deps import (  # noqa: F401 — _merge_spec re-exported for tests/i
 )
 from .routes.export_selection import router as export_selection_router
 from .routes.fea import router as fea_router
+from .routes.local_jobs import apply_launch_limits
+from .routes.local_jobs import router as local_jobs_router
 from .routes.plugin_jobs import enqueue_plugin_job
 from .routes.plugin_jobs import router as plugin_jobs_router
 from .routes.plugins import router as plugins_router
@@ -176,17 +179,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # and carry on. The failure then degrades to what it actually is, "that
         # capability is missing", and shows up as a 501 from the plugin-job
         # endpoint rather than as an API that will not start.
-        preload = os.environ.get("ADA_WORKER_PRELOAD", "").strip()
-        if preload:
-            import importlib as _importlib
-
-            for mod_name in (m.strip() for m in preload.split(",") if m.strip()):
-                logger.info("api: preloading %s", mod_name)
-                try:
-                    _importlib.import_module(mod_name)
-                except Exception:
-                    logger.exception("api: preloading %s failed (non-fatal); its plugin jobs will 501", mod_name)
-        discover_local_plugins("api")
+        load_local_plugins("api")
 
         # Connect to NATS lazily; a missing URL just disables the queue.
         if queue.enabled:
@@ -211,6 +204,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except Exception:
             logger.exception("db: pool init failed; running shared-only")
             app.state.db_pool = None
+
+        # A queue-less server runs its jobs itself, through one local queue: its limits come from
+        # the settings store, over the environment (routes/local_jobs.py).
+        if not queue.enabled:
+            await apply_launch_limits(storage, app.state.db_pool)
 
         # Grants are the only scope -> provider-collection control: once, the per-scope collection
         # matrix and the attribute shares become grants (`provider_grant_migration`). A failure is
@@ -468,12 +466,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         Returns a sorted list of ``{"from": ".step", "to": ["glb",
         "ifc", ...]}`` entries — same shape ConverterRegistry.matrix()
-        produces, just aggregated across workers. Empty list when
-        the queue is disabled (dev / desktop mode) or no worker has
-        registered yet.
+        produces, just aggregated across workers. Empty list when no
+        worker has registered yet. Without a queue, what THIS process
+        converts: its job processes are the worker (job_transport).
         """
         if not queue.enabled:
-            return []
+            return local_advertisement()["conversions"]
         workers = _worker_registry["workers"]
         merged: dict[str, set[str]] = {}
         # from → target → option-name → option-dict. Per-job knob schemas are unioned across workers
@@ -532,11 +530,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         Each worker publishes ``utilities: [{name, description, kwargs, inputs,
         affects, returns}, ...]`` on its NATS KV record (see worker.py). We dedupe
         by name (first writer wins) so the SPA's Utilities panel lists each once,
-        regardless of how many worker pods advertise it. Empty when the queue is
-        disabled or no worker has registered yet.
+        regardless of how many worker pods advertise it. Empty when no worker
+        has registered yet; without a queue, the utilities this process registered.
         """
         if not queue.enabled:
-            return []
+            return local_advertisement()["utilities"]
         workers = _worker_registry["workers"]
         by_name: dict[str, dict] = {}
         for w in workers:
@@ -544,6 +542,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 if isinstance(spec, dict) and isinstance(spec.get("name"), str):
                     by_name.setdefault(spec["name"], spec)
         return [by_name[n] for n in sorted(by_name)]
+
+    def _convert_enabled(conversion_matrix: list[dict]) -> bool:
+        """Whether this server converts files. Behind a queue, the workers do. Without one, this
+        process does -- when it has anything to convert with (a slim API image has no converters,
+        and offering conversions it would 501 on is worse than not offering them)."""
+        return jobs.supports("conversion") and (queue.enabled or bool(conversion_matrix))
 
     # /api/config is *almost* public (the SPA fetches it before it has
     # a token, to learn whether auth is enabled and what the issuer is)
@@ -583,7 +587,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             {
                 "transport": "rest",
                 "apiBase": "/api",
-                "convertEnabled": queue.enabled,
+                "convertEnabled": _convert_enabled(conversion_matrix),
+                "localJobs": jobs.kind == "local",
                 "utilities": utilities,
                 "auth": {
                     "enabled": settings.auth.enabled,
@@ -670,6 +675,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     api.include_router(projects_router)
     api.include_router(preferences_router)
+    api.include_router(local_jobs_router)
 
     api.include_router(storage_router)
 
@@ -1034,8 +1040,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             )
         if not await storage.exists(scope_obj, source_key):
             raise HTTPException(status_code=404, detail=f"source not found: {source_key}")
-        if not queue.enabled:
-            raise HTTPException(status_code=503, detail="conversion disabled (no NATS configured)")
+        jobs.require("conversion")
 
         # A re-conversion (gallery "Re-convert") always re-runs and writes to the SEPARATE
         # ``_reconvert/`` namespace, so it never overwrites the ``_derived/`` audit product in a
@@ -1076,17 +1081,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             )
 
         try:
-            job = await queue.enqueue(
-                source_key,
-                target_format,
-                scope_kind=scope_obj.kind,
-                scope_id=scope_obj.id,
-                step=step,
-                field=field,
-                conversion_options=conversion_options,
-                derived_key=derived_key if reconvert else None,
-                force_rebuild=reconvert,
+            # Without a queue this runs here, in a job process of this environment (the
+            # worker's pipeline: job_transport / local_runner); with one, a worker picks it up.
+            job = await jobs.submit(
+                JobRequest(
+                    source_key=source_key,
+                    target_format=target_format,
+                    scope=scope_obj,
+                    feature="conversion",
+                    step=step,
+                    field_name=field,
+                    conversion_options=conversion_options,
+                    derived_key=derived_key,
+                    force_rebuild=reconvert,
+                )
             )
+        except HTTPException:
+            raise
         except Exception as exc:
             logger.exception("enqueue failed")
             await _audit(
@@ -1111,7 +1122,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             status="queued",
             job_id=job.job_id,
         )
-        payload = asdict(job)
+        # Without a queue no worker moves that row on; the server does, when the job ends.
+        audit_local_job_outcome(request, jobs, job.job_id)
+        payload = dict(job.payload)
+        payload.setdefault("source_key", source_key)
+        payload.setdefault("target_format", target_format)
         payload["cached"] = False
         return JSONResponse(payload, status_code=202)
 
@@ -1162,20 +1177,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             )
         if not await storage.exists(scope_obj, source_key):
             raise HTTPException(status_code=404, detail=f"source not found: {source_key}")
-        if not queue.enabled:
-            raise HTTPException(status_code=503, detail="utilities disabled (no NATS configured)")
+        jobs.require("utilities")
 
         derived_key = viewops_key_for(source_key, utility_name)
         try:
-            job = await queue.enqueue(
-                source_key,
-                "utility",
-                scope_kind=scope_obj.kind,
-                scope_id=scope_obj.id,
-                conversion_options={"utility_name": utility_name, "kwargs": raw_kwargs},
-                derived_key=derived_key,
-                force_rebuild=True,
+            job = await jobs.submit(
+                JobRequest(
+                    source_key=source_key,
+                    target_format="utility",
+                    scope=scope_obj,
+                    feature="utilities",
+                    conversion_options={"utility_name": utility_name, "kwargs": raw_kwargs},
+                    derived_key=derived_key,
+                    force_rebuild=True,
+                )
             )
+        except HTTPException:
+            raise
         except Exception as exc:
             logger.exception("utility enqueue failed")
             await _audit(
@@ -1200,7 +1218,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             status="queued",
             job_id=job.job_id,
         )
-        payload = asdict(job)
+        audit_local_job_outcome(request, jobs, job.job_id)
+        payload = dict(job.payload)
+        payload.setdefault("source_key", source_key)
+        payload.setdefault("target_format", "utility")
         payload["utility_name"] = utility_name
         return JSONResponse(payload, status_code=202)
 
@@ -1381,8 +1402,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         Result GLB lands at the job's derived_key and is fetchable via
         ``GET /api/scopes/{scope}/blobs/{derived_key}``.
         """
-        if not queue.enabled:
-            raise HTTPException(status_code=503, detail="component build disabled (no NATS configured)")
+        jobs.require("component_build")
         body = await request.json()
         spec_name = body.get("spec_name")
         if not isinstance(spec_name, str) or not spec_name:
@@ -1427,19 +1447,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 if isinstance(manifest_cap, str) and manifest_cap.strip():
                     target_capability = manifest_cap.strip().lower()
 
-        job = await queue.enqueue(
-            source_key,
-            target_format="component_build",
-            scope_kind=scope_obj.kind,
-            scope_id=scope_obj.id,
-            conversion_options={
-                "spec_name": spec_name,
-                "inputs": inputs,
-                "name": component_name,
-                "extra_handler_kwargs": extra_kwargs,
-            },
-            derived_key=derived_key,
-            target_capability=target_capability,
+        job = await jobs.submit(
+            JobRequest(
+                source_key=source_key,
+                target_format="component_build",
+                scope=scope_obj,
+                feature="component_build",
+                conversion_options={
+                    "spec_name": spec_name,
+                    "inputs": inputs,
+                    "name": component_name,
+                    "extra_handler_kwargs": extra_kwargs,
+                },
+                derived_key=derived_key,
+                target_capability=target_capability,
+            )
         )
         return JSONResponse({"job_id": job.job_id, "derived_key": derived_key})
 
@@ -1950,13 +1972,59 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     _BUILTIN_ENGINE_SLUGS = {e["slug"] for e in _BUILTIN_ENGINES}
     _BUILTIN_ENGINE_BY_ID = {e["id"]: e for e in _BUILTIN_ENGINES}
 
+    def _local_engine_specs() -> dict[str, dict]:
+        """Engines registered in THIS process, on a server with no queue (a local viewer).
+
+        A worker advertises the engines it can run on its heartbeat; a queue-less server
+        has no workers, and compiles in-process (``local_jobs.start_procedural_build``),
+        so the engines it can run are the ones its own process registered - a tool's
+        package does that at import (``register_procedural_engine_capabilities`` with a
+        name and an entrypoint, via ``ADA_WORKER_PRELOAD`` or an ``ada.plugins`` entry
+        point). Only offerable specs, as for workers. ``{}`` with a queue, and on a slim
+        API without ``ada.topo_model``.
+        """
+        if queue.enabled:
+            return {}
+        try:
+            from ada.comms.engine_specs import is_offerable
+            from ada.topo_model.engine_catalog import procedural_engine_specs
+        except Exception:
+            return {}
+        return {s["slug"]: s for s in procedural_engine_specs() if s.get("slug") and is_offerable(s)}
+
+    _LOCAL_ENGINE_PREFIX = "local:"
+
+    def _local_engine(engine_id: str) -> dict | None:
+        """The descriptor of a ``local:<slug>`` engine id, or None."""
+        if not engine_id.startswith(_LOCAL_ENGINE_PREFIX):
+            return None
+        spec = _local_engine_specs().get(engine_id[len(_LOCAL_ENGINE_PREFIX) :])
+        if spec is None:
+            return None
+        return {
+            "id": engine_id,
+            "slug": spec["slug"],
+            "name": spec["name"],
+            "description": spec.get("description", ""),
+            "revision": 0,
+            "origin": "local",
+            "supports_grouping": bool(spec.get("supports_grouping", False)),
+            "doc": {"kind": "server", "entrypoint": spec["entrypoint"]},
+        }
+
     @api.get("/scopes/{scope}/procedural-engines")
     async def api_procedural_engines_list(
         request: Request,
         scope_obj: Scope = Depends(_scope_from_path),
     ) -> JSONResponse:
-        pool = _require_catalog_pool(request)
-        engines = await db_module.list_procedural_engines(pool, scope_kind=scope_obj.kind, scope_id=scope_obj.id)
+        # No database (a local viewer): no registered rows, but the built-ins and the
+        # engines this process registered are still the honest answer.
+        pool = getattr(request.app.state, "db_pool", None)
+        engines = (
+            await db_module.list_procedural_engines(pool, scope_kind=scope_obj.kind, scope_id=scope_obj.id)
+            if pool is not None
+            else []
+        )
         for e in engines:
             e["origin"] = "db"
         # Built-ins first, then the scope's registered engines.
@@ -2006,7 +2074,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             for slug, spec in sorted(engine_caps.items())
             if slug not in known and is_offerable(spec)
         ]
-        return JSONResponse({"procedural_engines": [*summaries, *engines, *advertised]})
+        known |= {e["slug"] for e in advertised}
+        local = [
+            {k: v for k, v in d.items() if k != "doc"}
+            for slug in sorted(_local_engine_specs())
+            if slug not in known and (d := _local_engine(f"{_LOCAL_ENGINE_PREFIX}{slug}")) is not None
+        ]
+        return JSONResponse({"procedural_engines": [*summaries, *engines, *advertised, *local]})
 
     @api.post("/scopes/{scope}/procedural-engines", status_code=201)
     async def api_procedural_engines_create(
@@ -2048,6 +2122,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     ) -> JSONResponse:
         if engine_id in _BUILTIN_ENGINE_IDS:
             return JSONResponse(_BUILTIN_ENGINE_BY_ID[engine_id])
+        local = _local_engine(engine_id)
+        if local is not None:
+            return JSONResponse(local)
         pool = _require_catalog_pool(request)
         row = await _get_engine_in_scope(pool, engine_id, scope_obj)
         return JSONResponse(
@@ -2074,6 +2151,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         if engine_id in _BUILTIN_ENGINE_IDS:
             return _builtin(_BUILTIN_ENGINE_BY_ID[engine_id])
+        local = _local_engine(engine_id)
+        if local is not None:
+            # Compiled by this server, never in the browser.
+            return JSONResponse({"kind": "server", "entrypoint": local["doc"]["entrypoint"], "ready": False})
         pool = _require_catalog_pool(request)
         row = await _get_engine_in_scope(pool, engine_id, scope_obj)
         doc = row.get("doc") or {}
@@ -2816,7 +2897,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         body = (
             'window.COMMS_MODE = "rest";\n'
             'window.API_BASE = "/api";\n'
-            f"window.CONVERT_ENABLED = {'true' if queue.enabled else 'false'};\n"
+            f"window.CONVERT_ENABLED = {'true' if _convert_enabled(conversion_matrix) else 'false'};\n"
+            # This server runs its jobs itself, through a queue whose limits the user sets
+            # (Settings > Local jobs; GET/PUT /api/local/jobs).
+            f"window.LOCAL_JOBS = {'true' if jobs.kind == 'local' else 'false'};\n"
             f"window.AUTH_ENABLED = {'true' if a.enabled else 'false'};\n"
             f"window.AUTH_ISSUER = {_json.dumps(a.issuer)};\n"
             f"window.AUTH_CLIENT_ID = {_json.dumps(a.client_id)};\n"

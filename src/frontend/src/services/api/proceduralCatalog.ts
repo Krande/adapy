@@ -112,8 +112,9 @@ export interface ProceduralEngineSummary {
   name: string;
   description: string | null;
   revision: number;
-  /** "builtin" for the always-present adapy engine, "db" for registered ones. */
-  origin?: "builtin" | "db";
+  /** "builtin" for the always-present adapy engine, "db" for registered ones, "local" for
+   *  one registered in a queue-less server's own process. */
+  origin?: "builtin" | "db" | "local";
   /**
    * Whether this engine understands the cellbuilder's cell GROUPS (a group is one
    * structure compiled with its own blueprint). Advertised per engine by the

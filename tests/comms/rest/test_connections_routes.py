@@ -21,7 +21,7 @@ WELD = {
     "priority": 10,
     "roles": {"name": "pool_a.box_joint", "tags": ["box"], "priority": 10, "roles": [{"role": "incoming"}]},
     "defaults": {"incoming": {"section": "BOX200x10"}},
-    "module": "weld_gen.connections.design.pool_a.box_joint",
+    "module": "example_pool.connections.box_joint",
     "capability": "pool-a",
 }
 BUILTIN = {

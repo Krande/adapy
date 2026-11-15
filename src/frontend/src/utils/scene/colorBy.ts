@@ -23,6 +23,7 @@ import {loadedSourceGroups} from "@/state/modelState";
 import {requestRender} from "@/state/perfStore";
 import {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
 import {categoryColor, isPropertyField} from "@/utils/scene/fea/propertyColors";
+import {noteOwnerPainted} from "@/utils/scene/fea/modeSceneColor";
 import {selectFeaResultComponent} from "@/utils/scene/fea/resultSelection";
 
 export const COLOR_BY_MODEL = "model";
@@ -140,6 +141,9 @@ export async function applyColorBy(id: string): Promise<void> {
                 previousField: fea.fieldName && cur && !isPropertyField(cur) ? {fieldName: fea.fieldName, reduction: fea.reduction} : null,
             });
         }
+        // The mode on top paints this (a property, in Inspect): say so before the load, so
+        // the loader credits the repaint to it rather than setting it aside as a result.
+        noteOwnerPainted();
         await selectFeaResultComponent(name);
         useFeaAnimationStore.getState().setResultColorsVisible(true);
         useColorStore.getState().setShowLegend(true);

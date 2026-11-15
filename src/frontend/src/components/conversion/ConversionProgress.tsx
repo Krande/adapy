@@ -1,4 +1,5 @@
 import React, {useEffect, useState, useSyncExternalStore} from "react";
+import {listToastSlots, subscribeToastSlots, toastSlotsVersion} from "@/layout/toastSlots";
 import {useConversionStore} from "@/state/conversionStore";
 import {useCompressionStore} from "@/state/compressionStore";
 import {useMeStore} from "@/state/meStore";
@@ -937,6 +938,8 @@ const TOAST_ANCHOR_CLASS: Readonly<Record<ToastAnchor, string>> = {
 };
 
 const ConversionProgress: React.FC<ConversionProgressProps> = ({isClaimed: hostClaimed, anchor = "bottom-right"}) => {
+    // Shells' and plugins' toast slots: re-render when one is added or removed.
+    useSyncExternalStore(subscribeToastSlots, toastSlotsVersion, toastSlotsVersion);
     useSyncExternalStore(subscribeLoadClaims, loadClaimsVersion, loadClaimsVersion);
     const isClaimed = eitherClaimed(isLoadClaimed, hostClaimed);
     const jobs = useConversionStore((s) => s.jobs);
@@ -1015,7 +1018,8 @@ const ConversionProgress: React.FC<ConversionProgressProps> = ({isClaimed: hostC
     // so an empty container is invisible. The toast + sweeps only
     // render when there's actually something to show.
     const isAdmin = useMeStore.getState().isAdmin;
-    if (allVisible.length === 0 && visibleSweeps.length === 0 && !loadQueueActive && !isAdmin) {
+    const toastSlots = listToastSlots();
+    if (allVisible.length === 0 && visibleSweeps.length === 0 && !loadQueueActive && !isAdmin && toastSlots.length === 0) {
         return null;
     }
 
@@ -1035,6 +1039,10 @@ const ConversionProgress: React.FC<ConversionProgressProps> = ({isClaimed: hostC
             style={galleryBarHeight > 0 && anchor.startsWith("bottom") ? {bottom: galleryBarHeight + 16} : undefined}
         >
             <AuditActivityBadge/>
+            {/* Shells' and plugins' own toasts (`registerToastSlot`), in the same stack. */}
+            {toastSlots.map((slot) => (
+                <React.Fragment key={`slot:${slot.id}`}>{slot.render()}</React.Fragment>
+            ))}
             {visibleSweeps.map(([scopeLabel, state]) => (
                 <CompressionToast
                     key={`compress:${scopeLabel}`}

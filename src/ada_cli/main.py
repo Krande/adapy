@@ -131,6 +131,7 @@ def _use_viewer_bundle(name: str | None) -> None:
 
 
 def _cmd_serve_api(args: argparse.Namespace) -> int:
+    _use_local_job_opts(args)  # a bad value is refused before the server stack is imported
     from ada.comms.rest.__main__ import run
 
     _use_viewer_bundle(args.viewer)
@@ -139,6 +140,7 @@ def _cmd_serve_api(args: argparse.Namespace) -> int:
 
 
 def _cmd_desktop(args: argparse.Namespace) -> int:
+    _use_local_job_opts(args)
     from ada_cli.desktop import main_run
 
     _use_viewer_bundle(args.viewer)
@@ -428,6 +430,60 @@ def _add_viewer_bundle_opt(p: argparse.ArgumentParser) -> None:
     )
 
 
+def _add_local_job_opts(p: argparse.ArgumentParser) -> None:
+    """The queue-less server's job limits (it runs every job in its own environment)."""
+    p.add_argument(
+        "--max-jobs",
+        default=None,
+        type=int,
+        metavar="N",
+        help="Without a job queue: how many jobs run at once; the rest wait in order. Wins over the saved "
+        "setting and is saved. Same as $ADA_LOCAL_JOB_PROCESSES; unset: the saved setting, else half the cores "
+        "(at most 4).",
+    )
+    p.add_argument(
+        "--cpu-budget",
+        default=None,
+        metavar="CORES",
+        help="Without a job queue: the CPU the running jobs share -- cores (4), a fraction (0.5) or a "
+        "percentage (50%%). Wins over the saved setting and is saved. Same as $ADA_LOCAL_JOB_CPU_BUDGET; unset: "
+        "the saved setting, else every core.",
+    )
+
+
+def _use_local_job_opts(args: argparse.Namespace) -> None:
+    """Hand the flags to the server through its environment (it may run in a child process).
+
+    A value out of range is a usage error (exit 2, as docs/cli.md says): changing the command line
+    fixes it.
+    """
+    from ada.comms.rest.local_queue import (
+        ENV_CPU_BUDGET,
+        ENV_MAX_PARALLEL,
+        parse_cpu_budget,
+        parse_max_parallel,
+    )
+    from ada_cli import CliUsageError
+
+    max_jobs = getattr(args, "max_jobs", None)
+    cpu_budget = getattr(args, "cpu_budget", None)
+    for flag, value, parse in (
+        ("--max-jobs", max_jobs, parse_max_parallel),
+        ("--cpu-budget", cpu_budget, parse_cpu_budget),
+    ):
+        if value is None:
+            continue
+        try:
+            parse(value)
+        except ValueError as exc:
+            raise CliUsageError(f"{flag}: {exc}") from None
+    # Only once both are valid, so a refused command line leaves the environment as it was.
+    if max_jobs is not None:
+        os.environ[ENV_MAX_PARALLEL] = str(max_jobs)
+    if cpu_budget is not None:
+        os.environ[ENV_CPU_BUDGET] = str(cpu_budget)
+
+
 def _add_viewers(sub: argparse._SubParsersAction) -> None:
     p = sub.add_parser("viewers", help="List the installed viewer bundles (`--viewer`, $ADA_VIEWER_BUNDLE).")
     p.set_defaults(func=_cmd_viewers)
@@ -634,6 +690,7 @@ def _add_serve(sub: argparse._SubParsersAction) -> None:
 
     api = serve_sub.add_parser("api", help="Run the REST API (uvicorn).")
     _add_viewer_bundle_opt(api)
+    _add_local_job_opts(api)
     api.set_defaults(func=_cmd_serve_api)
 
     worker = serve_sub.add_parser("worker", help="Run the conversion worker (NATS JetStream consumer).")
@@ -653,6 +710,7 @@ def _add_desktop(sub: argparse._SubParsersAction) -> None:
         ),
     )
     _add_viewer_bundle_opt(p)
+    _add_local_job_opts(p)
     add_arguments(p)
     p.set_defaults(func=_cmd_desktop)
 

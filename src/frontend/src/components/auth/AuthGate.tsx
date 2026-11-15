@@ -7,6 +7,7 @@ import {useMeStore} from "@/state/meStore";
 import {subscribeSpecsToScope} from "@/state/componentSpecsStore";
 import {useSimulationStore} from "@/state/simulationStore";
 import {loadInitialServerState} from "@/utils/websocket/initWebSocket";
+import {subscribeFileListToScope} from "@/utils/scope/scopeChange";
 
 // Gates the REST-mode app behind a verified bearer token. When auth
 // is disabled (default in dev / desktop) it's a transparent
@@ -60,6 +61,8 @@ const AuthGate: React.FC<{children: React.ReactNode}> = ({children}) => {
                 // button visibility and the panel dropdown both
                 // refresh whenever the user switches scopes.
                 subscribeSpecsToScope();
+                // And the Storage list, so it never lists another scope than the one loads use.
+                subscribeFileListToScope();
                 // Which simulation providers the server lists decides whether the
                 // Simulations panel is offered at all, so ask once, now that a
                 // token is in hand. A failure only leaves the panel unoffered.

@@ -140,7 +140,7 @@ test("an open model missing from the saved list gets an unsaved row", () => {
     try {
         const html = render();
         assert.match(html, /aria-label="Close Draft model"/);
-        assert.match(html, />unsaved</);
+        assert.match(html, />not saved</);
     } finally {
         setServerState(useCellBuilderStore, { active: null });
     }

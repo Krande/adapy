@@ -7,7 +7,7 @@ import React from "react";
 
 import { PluginPanelMount } from "@/plugins/PluginSlots";
 import { makePluginContext } from "@/plugins/context";
-import { disablePlugin, type PanelSlot } from "@/plugins/registry";
+import { disablePlugin, subscribePluginActivation, type PanelSlot } from "@/plugins/registry";
 import { useViewerStores } from "@/state/AdaViewerContext";
 import { usePluginTheme } from "@/state/themeStore";
 import type { PanelProps } from "./panel";
@@ -30,6 +30,10 @@ export function makePluginPanelBody(
  * grid, a window). Its region host shows a buttonless panel only while its
  * activation predicate holds; here the place stays, so it says there is nothing
  * to show instead.
+ *
+ * The predicate is asked again whenever the loaded models change and whenever a
+ * plugin calls `notifyPluginActivationChanged`: a place restored before its model
+ * or its results exist (a mode reopened on a cold load) must not stay empty.
  */
 export function makePluginPanelContent(
   pluginId: string,
@@ -39,13 +43,27 @@ export function makePluginPanelContent(
     const stores = useViewerStores();
     const theme = usePluginTheme();
     const ctx = makePluginContext(pluginId, stores, theme);
-    let active = true;
-    try {
-      active = slot.activationPredicate ? slot.activationPredicate(ctx) : true;
-    } catch (err) {
-      disablePlugin(pluginId, `panel "${slot.id}" activationPredicate threw: ${String(err)}`);
-      active = false;
-    }
+    const subscribe = React.useCallback(
+      (cb: () => void) => {
+        const offModels = stores.useModelState.subscribe(cb);
+        const offPlugins = subscribePluginActivation(cb);
+        return () => {
+          offModels();
+          offPlugins();
+        };
+      },
+      [stores],
+    );
+    const isActive = (): boolean => {
+      if (!slot.activationPredicate) return true;
+      try {
+        return !!slot.activationPredicate(ctx);
+      } catch (err) {
+        disablePlugin(pluginId, `panel "${slot.id}" activationPredicate threw: ${String(err)}`);
+        return false;
+      }
+    };
+    const active = React.useSyncExternalStore(subscribe, isActive, isActive);
     if (!active) return <div className="p-2 text-xs italic text-gray-400">Nothing to show here yet.</div>;
     return <PluginPanelMount ctx={ctx} panel={slot} />;
   };

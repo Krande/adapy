@@ -50,6 +50,8 @@ declare global {
         COMMS_MODE?: "rest" | "ws" | string;
         API_BASE?: string;
         CONVERT_ENABLED?: boolean;
+        // A queue-less server: it runs every job itself, through a queue whose limits the user sets.
+        LOCAL_JOBS?: boolean;
         // OIDC bootstrap (REST mode). When AUTH_ENABLED is false the
         // others are unused; the SPA renders without an auth gate.
         AUTH_ENABLED?: boolean;
@@ -152,6 +154,9 @@ export const runtime = {
 
     // A local viewer this page may stop (see services/localViewer.ts).
     localShutdownAvailable: (): boolean => w().ADA_LOCAL_SHUTDOWN === true,
+
+    // A server with no job queue, which runs jobs itself (see services/api/localJobs.ts).
+    localJobs: (): boolean => w().LOCAL_JOBS === true,
 
     // A connection library served live by `ada dev connections` (see services/devConnections).
     devConnections: (): boolean => w().ADA_DEV_CONNECTIONS === true,

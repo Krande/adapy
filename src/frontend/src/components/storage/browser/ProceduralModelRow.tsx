@@ -3,6 +3,16 @@ import type {ProceduralModelSummary} from "@/services/viewerApi";
 import {RowKebabMenu} from "@/components/common/RowKebabMenu";
 import type {KebabMenuItem} from "@/components/common/PositionedMenu";
 import ProceduralModelIcon from "../../icons/ProceduralModelIcon";
+import {useCellBuilderStore} from "@/state/cellBuilderStore";
+
+// The open model's uncommitted edits: the same state the Build toolbar's "unsaved" shows,
+// so Storage and the toolbar never disagree on whether there is something to commit.
+const DirtyBadge: React.FC = () =>
+    useCellBuilderStore((s) => s.dirty) ? (
+        <span className="text-[10px] text-amber-400 border border-amber-400/50 rounded-sm px-1" title="Edits not committed yet">
+            unsaved
+        </span>
+    ) : null;
 
 // ──────────────────────────────────────────────────────────────────
 // ProceduralModelRow: a procedural model rendered as a leaf of the storage
@@ -94,6 +104,7 @@ const ProceduralModelRow: React.FC<{
         <span className="text-[10px] text-purple-300 border border-purple-400/50 rounded-sm px-1">
             r{model.revision}
         </span>
+        {active && <DirtyBadge/>}
         {/* The same kebab files and folders carry. An operator filing a model
             beside them should not meet a different control for "move". */}
         <span className="ml-auto shrink-0" onClick={(e) => e.stopPropagation()}>

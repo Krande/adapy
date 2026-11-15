@@ -2,6 +2,41 @@
 
 
 
+## v0.156.0 (2026-11-15)
+
+### Feature
+
+* feat(connections): the connection builder works from the workers&#39; specs; curved and closed weld seams (#551)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`349967e`](https://github.com/Krande/adapy/commit/349967e1ed395ed3db6e9240f4b05514e6bbfefa))
+
+
+## v0.155.0 (2026-11-15)
+
+### Chore
+
+* chore: wait for a reloaded page before resending the model; browser tests once, Linux only (#553)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`e48eb6a`](https://github.com/Krande/adapy/commit/e48eb6a3e2db7e5dd04132623590edfc6f4a536f))
+
+### Feature
+
+* feat(rest): a queue-less server runs conversions and bakes in its own environment (#549)
+
+Co-authored-by: oleandor &lt;oleandor@gmail.com&gt;
+Co-authored-by: Claude Opus 5.5 (1M context) &lt;noreply@anthropic.com&gt; ([`267e08c`](https://github.com/Krande/adapy/commit/267e08cb88f055c02ed53349f8996ebffa4b48e1))
+
+
+## v0.154.0 (2026-11-14)
+
+### Feature
+
+* feat(rest): procedural models on a local viewer without database or queue (#539)
+
+Co-authored-by: Claude Opus 5.5 (1M context) &lt;noreply@anthropic.com&gt;
+Co-authored-by: krande &lt;kristoffer_andersen@outlook.com&gt; ([`2a0f87c`](https://github.com/Krande/adapy/commit/2a0f87c37c12eb42eb7750cc8ca07c0e74e3ec90))
+
+
 ## v0.153.0 (2026-11-13)
 
 ### Feature

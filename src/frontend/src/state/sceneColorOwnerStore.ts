@@ -106,8 +106,12 @@ export interface SceneColorOwnerState {
 
   /**
    * The owner a load requested now should be tagged with: the owning mode on
-   * top when the load repaints the source already on screen, `results` in
-   * every other case (no owning mode, or a different or first source). Taken
+   * top when the load repaints the source already on screen AND that mode is
+   * painting (it reported a paint, `markPainted`, before asking), `results` in
+   * every other case - no owning mode, a different or first source, or a mode
+   * that paints nothing (Build, Convert, an unpainted Inspect): the results'
+   * own repaints (a step, playback, a finished bake's full manifest) go on
+   * under such a mode and must stay set aside there, not become its colours. Taken
    * when the load is REQUESTED, so a load in flight keeps the tag of whoever
    * asked for it regardless of which mode is active when it lands.
    */
@@ -236,7 +240,7 @@ export const useSceneColorOwnerStore = create<SceneColorOwnerState>((set, get) =
     const state = get();
     const top = state.stack[state.stack.length - 1];
     if (top.id === RESULTS_OWNER) return RESULTS_OWNER;
-    return source !== null && source === state.loadedSource ? top.id : RESULTS_OWNER;
+    return source !== null && source === state.loadedSource && top.painted ? top.id : RESULTS_OWNER;
   },
 
   noteLoad: (source, owner, onScreen) => {

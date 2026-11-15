@@ -2,9 +2,10 @@
 
 The bake itself runs in the worker container (the API container is
 intentionally slim and lacks ada.fem). These tests cover the API's
-half of the flow: cache hit, validation guards, and the enqueue
-short-circuit when no NATS is configured. The full bake-and-poll
-loop is exercised against a real worker in deployed environments.
+half of the flow: cache hit, validation guards, and a server without a
+queue: a local viewer bakes in-process (``local_jobs.start_fea_job``),
+exercised here end to end on a small SIN; a server that cannot bake at all
+serves a stale bake rather than nothing.
 """
 
 from __future__ import annotations
@@ -25,6 +26,7 @@ os.environ.setdefault("ADA_VIEWER_LOCAL_PATH", tempfile.mkdtemp(prefix="ada-test
 
 from fastapi.testclient import TestClient  # noqa: E402
 
+from ada.comms.rest import job_transport  # noqa: E402
 from ada.comms.rest.app import create_app  # noqa: E402
 from ada.comms.rest.config import (  # noqa: E402
     AuthConfig,
@@ -126,16 +128,75 @@ def test_fea_manifest_returns_cached(app_client: TestClient, tmp_path: pathlib.P
     assert body["fields"][0]["name_canonical"] == "DEPL"
 
 
-def test_fea_manifest_returns_503_when_queue_disabled(app_client: TestClient):
-    """No cached manifest + no NATS configured → 503. The bake has to
-    run in the worker; the API can't fall back to in-process baking
-    because the slim API container lacks ada.fem."""
+@pytest.fixture
+def no_local_bake(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A server that cannot bake at all: no queue, and no in-process bake either."""
+    monkeypatch.setattr(job_transport.LocalJobTransport, "_features", job_transport.LOCAL_FEATURES - {"bake"})
+
+
+def test_fea_manifest_returns_503_when_nothing_can_bake(app_client: TestClient, no_local_bake: None):
+    """No cached manifest and nothing to bake with → 503."""
 
     src = f"models/{uuid.uuid4().hex}.rmed"
     _upload(app_client, src, b"rmed-bytes")
 
     r = app_client.get("/api/scopes/shared/fea/manifest", params={"key": src})
     assert r.status_code == 503, r.text
+
+
+def _wait_job(client: TestClient, job_id: str, timeout: float = 180.0) -> dict:
+    import time
+
+    deadline = time.monotonic() + timeout
+    status: dict = {}
+    while time.monotonic() < deadline:
+        status = client.get(f"/api/convert/{job_id}").json()
+        if status["status"] in ("done", "error", "cancelled"):
+            return status
+        time.sleep(0.2)
+    raise AssertionError(f"job {job_id} did not finish: {status}")
+
+
+SIN_FIXTURE = (
+    pathlib.Path(__file__).parents[3]
+    / "files/fem_files/cantilever/sesam/static/shell/STATIC_SHELL_CANTILEVER_SESAMR1.SIN"
+)
+
+
+def test_a_queue_less_server_bakes_a_sin_in_process(app_client: TestClient, tmp_path: pathlib.Path):
+    """A local viewer: the deck is a file in its storage (put there, not uploaded), the
+    bake runs in this process and reads it where it lies, and the manifest follows."""
+
+    src = "cantilever-0a1b2c3d/R1.SIN"
+    placed = tmp_path / "shared" / src
+    placed.parent.mkdir(parents=True)
+    placed.write_bytes(SIN_FIXTURE.read_bytes())
+
+    r = app_client.get("/api/scopes/shared/fea/manifest", params={"key": src})
+    assert r.status_code == 202, r.text
+    started = r.json()
+    assert started["job_id"].startswith("local-")
+    status = _wait_job(app_client, started["job_id"])
+    assert status["status"] == "done", status
+
+    r = app_client.get("/api/scopes/shared/fea/manifest", params={"key": src})
+    assert r.status_code == 200, r.text
+    manifest = r.json()
+    assert manifest["fields"], manifest
+    assert (tmp_path / "shared" / f"_derived/{src}.fea/fea.mesh.glb").is_file()
+    # The source was read in place: nothing but the deck itself beside it.
+    assert sorted(p.name for p in placed.parent.iterdir()) == ["R1.SIN"]
+
+
+def test_a_local_bake_that_fails_says_why(app_client: TestClient):
+    src = f"models/{uuid.uuid4().hex}.rmed"
+    _upload(app_client, src, b"rmed-bytes")
+
+    r = app_client.get("/api/scopes/shared/fea/manifest", params={"key": src})
+    assert r.status_code == 202, r.text
+    status = _wait_job(app_client, r.json()["job_id"])
+    assert status["status"] == "error"
+    assert status["error"]
 
 
 def test_fea_manifest_rejects_unsupported_extension(app_client: TestClient):
@@ -191,7 +252,9 @@ def test_stale_reason_flags_a_source_newer_than_its_bake():
     assert fea_manifest_stale_reason(fresh, _head("2026-09-02T10:00:00"), _head(older)) is None
 
 
-def test_fea_manifest_serves_stale_when_queue_disabled(app_client: TestClient, tmp_path: pathlib.Path):
+def test_fea_manifest_serves_stale_when_nothing_can_bake(
+    app_client: TestClient, tmp_path: pathlib.Path, no_local_bake: None
+):
     """A stale bake with no worker to rebuild it: serving the older results
     beats a 503, and the operator learns why from the log."""
 
@@ -205,7 +268,9 @@ def test_fea_manifest_serves_stale_when_queue_disabled(app_client: TestClient, t
     assert r.json()["src"] == src
 
 
-def test_fea_manifest_treats_reuploaded_source_as_stale(app_client: TestClient, tmp_path: pathlib.Path):
+def test_fea_manifest_treats_reuploaded_source_as_stale(
+    app_client: TestClient, tmp_path: pathlib.Path, no_local_bake: None
+):
     """Re-uploading a deck under the same name outdates its bake. With the
     queue disabled the stale bake still serves (previous test's rule); the
     staleness decision itself is what this pins, via the same code path the
@@ -231,7 +296,7 @@ def test_fea_manifest_treats_reuploaded_source_as_stale(app_client: TestClient, 
     _upload(app_client, src, b"re-solved-bytes")
 
     r = app_client.get("/api/scopes/shared/fea/manifest", params={"key": src})
-    # Queue disabled → the stale manifest is served rather than 503; the
+    # Nothing to rebake with → the stale manifest is served rather than 503; the
     # freshness verdict is covered directly:
     assert r.status_code == 200, r.text
 
