@@ -28,8 +28,9 @@ stiffeners and decks, organised the way the model's parts are.
 The view is in perspective. **Orthographic view**, in the Desktop UI's **View → Camera** menu and
 the classic UI's **Settings → Scene config**, draws it with parallel edges instead: the model is
 as tall at the orbit target as it was, zoom and the named views work as before, and labels keep
-their size on screen. The choice is remembered in this browser. The three.js-free viewport has
-no orthographic view yet, so the command is greyed there and its tooltip says so.
+their size on screen. A fit (**Fit all**, **Fit selection**, a named view) frames the model by its
+outline as seen from the camera, so it fills the view with a small margin. The choice is
+remembered in this browser, and applies on every viewport, the three.js-free one included.
 
 **Ground grid**, in **View → Display** and **Settings → Scene config**, shows or hides the grid on
 the ground plane, also remembered in this browser. Section planes do not cut the grid, so turn it

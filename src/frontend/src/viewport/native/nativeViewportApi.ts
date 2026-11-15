@@ -20,10 +20,6 @@ import {parseHexColor} from "@/viewport/api/objectColors";
 const ORBIT_STEP_RAD = (15 * Math.PI) / 180;
 const PAN_STEP_FRACTION = 0.1;
 const MOVE_SECONDS = 0.25;
-/** Why the Orthographic view command is offered disabled here. The renderer's camera can project
- *  orthographically, but this viewport's screen-sized labels and their clicks are worked out for a
- *  perspective camera only (nativeBillboards.ts). */
-export const NATIVE_ORTHOGRAPHIC_UNAVAILABLE = "The three.js-free viewport has no orthographic view yet";
 /** A screenshot's size, as the three.js viewport's. */
 const SCREENSHOT_WIDTH = 1920;
 const SCREENSHOT_HEIGHT = 1080;
@@ -37,7 +33,9 @@ export function createNativeViewportApi(scene: NativeScene): ViewportApi {
     // Each call that changes the selection or what is hidden is one undo step (./nativeViewportHistory.ts).
     return withNativeHistory(scene, {
         kind: "native",
-        unavailable: (feature) => (feature === "orthographic" ? NATIVE_ORTHOGRAPHIC_UNAVAILABLE : null),
+        // Every feature: the renderer's camera projects orthographically too (NativeScene follows the
+        // projection setting), and the billboards are sized and clicked for either projection.
+        unavailable: () => null,
         selectionCount: () => scene.selectionSize,
         selection: () => scene.selectedIds.map(splitObjectKey),
         selectionToken: () => scene.selectionVersion,

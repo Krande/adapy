@@ -1,5 +1,6 @@
 // The Orthographic view command: it flips the one projection setting, shows its state, and is
 // offered disabled, with the viewport's own reason, on a viewport that has no orthographic view.
+// Every viewport has one now, the three.js-free one included.
 
 import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
@@ -10,7 +11,7 @@ const { coreCommandSpecs } = await import("@/layout/coreCommands");
 const { CORE_COMMAND_IDS: ID } = await import("@/layout/coreCommandIds");
 const { followProjection, useProjectionStore } = await import("@/state/projectionStore");
 const { setActiveViewport } = await import("@/viewport/api/viewportApi");
-const { createNativeViewportApi, NATIVE_ORTHOGRAPHIC_UNAVAILABLE } = await import("@/viewport/native/nativeViewportApi");
+const { createNativeViewportApi } = await import("@/viewport/native/nativeViewportApi");
 type Api = import("@/viewport/api/viewportApi").ViewportApi;
 type Scene = import("@/viewport/native/nativeScene").NativeScene;
 
@@ -34,13 +35,23 @@ test("the command toggles the projection and shows it as checked", () => {
   }
 });
 
-test("the three.js-free viewport says it has no orthographic view, and the command carries that reason", () => {
+test("the command carries a viewport's reason when it has no orthographic view", () => {
+  const reason = "no orthographic view here";
+  const release = setActiveViewport({ kind: "three", unavailable: (f: string) => (f === "orthographic" ? reason : null) } as unknown as Api);
+  try {
+    assert.equal(command().disabledReason?.(), reason);
+  } finally {
+    release();
+  }
+});
+
+test("the three.js-free viewport has an orthographic view: the command is offered there", () => {
   const api = createNativeViewportApi({} as unknown as Scene);
-  assert.equal(api.unavailable("orthographic"), NATIVE_ORTHOGRAPHIC_UNAVAILABLE);
+  assert.equal(api.unavailable("orthographic"), null);
   assert.equal(api.unavailable("fit-selection"), null);
   const release = setActiveViewport(api);
   try {
-    assert.equal(command().disabledReason?.(), NATIVE_ORTHOGRAPHIC_UNAVAILABLE);
+    assert.equal(command().disabledReason?.() ?? null, null);
   } finally {
     release();
   }

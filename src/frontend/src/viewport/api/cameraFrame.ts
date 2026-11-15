@@ -104,6 +104,78 @@ export function namedViewPose(
     return {eye: along(target, back, distance), target, radius: null};
 }
 
+// The orthographic view (utils/scene/orthographicProjection.ts, and adacpp's camera on the
+// three.js-free viewport) is as tall at the target as the perspective view: half its height is
+// distance * tan(fov / 2). So it is sized by where the camera stands, and a fit that works out a
+// perspective distance frames loosely there: a sphere round the box, seen along the box's longest
+// diagonal, is wider than the box looks from most directions. An orthographic fit sizes the view
+// from the box as it lies on the view plane instead, and then stands the camera at the distance
+// that gives that height.
+
+/** The room an orthographic fit leaves round the box's outline: adacpp's default fit margin. */
+export const ORTHO_FIT_MARGIN = 1.15;
+
+const sub3 = (a: ArrayLike<number>, b: ArrayLike<number>): Vec3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+const dot3 = (a: ArrayLike<number>, b: ArrayLike<number>): number => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+const cross3 = (a: ArrayLike<number>, b: ArrayLike<number>): Vec3 => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+
+/** The screen's right and up in the world, for a camera looking along `direction` with `upHint`
+ *  (its up on screen, or the world's up axis) deciding its roll; null when the two are parallel. */
+export function screenAxes(direction: ArrayLike<number>, upHint: ArrayLike<number>): {right: Vec3; up: Vec3} | null {
+    const right = cross3(direction, upHint);
+    const l = Math.hypot(right[0], right[1], right[2]);
+    if (!(l > 1e-9)) return null;
+    const r: Vec3 = [right[0] / l, right[1] / l, right[2] / l];
+    const up = cross3(r, direction);
+    const u = Math.hypot(up[0], up[1], up[2]) || 1;
+    return {right: r, up: [up[0] / u, up[1] / u, up[2] / u]};
+}
+
+/** Half the width and half the height `box` covers on the view plane, about its centre. With no
+ *  screen axes (a view along `upHint`), the box's widest extent across the view, both ways. */
+export function projectedHalfExtents(box: Box6, direction: ArrayLike<number>, upHint: ArrayLike<number>): {x: number; y: number} {
+    const c: Vec3 = [(box[0] + box[3]) / 2, (box[1] + box[4]) / 2, (box[2] + box[5]) / 2];
+    const axes = screenAxes(direction, upHint);
+    let x = 0, y = 0;
+    for (let i = 0; i < 8; i++) {
+        const corner = sub3([i & 1 ? box[3] : box[0], i & 2 ? box[4] : box[1], i & 4 ? box[5] : box[2]], c);
+        if (axes) {
+            x = Math.max(x, Math.abs(dot3(corner, axes.right)));
+            y = Math.max(y, Math.abs(dot3(corner, axes.up)));
+        } else {
+            const along = dot3(corner, direction);
+            const across = Math.sqrt(Math.max(0, dot3(corner, corner) - along * along));
+            x = y = Math.max(x, across);
+        }
+    }
+    return {x, y};
+}
+
+/** Frame `box` in an orthographic view looking along `direction` (unit, from the camera towards what
+ *  it sees), `upHint` deciding the roll: the target at the box's centre, the view's half-height that
+ *  of the box's outline on the view plane (the narrower way decides) times `margin`, and the camera
+ *  at the distance that gives that half-height (distance * tan(fov / 2) / zoom). `minHalfHeight`
+ *  keeps a tiny box from filling the view. `radius` is the box's sphere, for the clip range. Null for
+ *  an empty box or a box of no size. */
+export function orthoFramePose(
+    box: Box6,
+    direction: ArrayLike<number>,
+    upHint: ArrayLike<number>,
+    fovDeg: number,
+    aspect: number,
+    margin = ORTHO_FIT_MARGIN,
+    minHalfHeight = 0,
+    zoom = 1,
+): {eye: Vec3; target: Vec3; radius: number; halfHeight: number} | null {
+    if (!(box[0] <= box[3] && box[1] <= box[4] && box[2] <= box[5])) return null;
+    const {center, radius} = boundingSphere(box);
+    if (!(radius > 0)) return null;
+    const half = projectedHalfExtents(box, direction, upHint);
+    const halfHeight = Math.max(Math.max(half.y, half.x / Math.max(aspect || 1, 1e-3)) * margin, minHalfHeight, 1e-6);
+    const distance = (halfHeight * (zoom || 1)) / Math.tan((fovDeg * Math.PI) / 360);
+    return {eye: along(center, direction, distance), target: center, radius, halfHeight};
+}
+
 /** `distance` back from `center`, against `direction`. */
 function along(center: Vec3, direction: ArrayLike<number>, distance: number): Vec3 {
     return [center[0] - direction[0] * distance, center[1] - direction[1] * distance, center[2] - direction[2] * distance];

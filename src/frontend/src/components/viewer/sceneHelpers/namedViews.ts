@@ -7,11 +7,11 @@
 // (from -Y), the usual drawing convention; the Y-up directions are the same views turned the way
 // a Y-up glTF is turned into this viewer's Z-up world ((x, y, z) -> (x, z, -y)).
 import * as THREE from "three";
-import CameraControls from "camera-controls";
+import type CameraControls from "camera-controls";
 import {OrbitControls} from "three/examples/jsm/controls/OrbitControls";
 
 import {applyAdaptiveClipping} from "@/components/viewer/sceneHelpers/adaptiveClipping";
-import {sceneFitBox} from "@/components/viewer/sceneHelpers/cameraFit";
+import {orthoFitPose, sceneFitBox} from "@/components/viewer/sceneHelpers/cameraFit";
 
 import {CAMERA_VIEWS, type CameraView} from "@/layout/coreCommandIds";
 import {namedViewDirection} from "@/utils/camera/namedViewDirection";
@@ -33,24 +33,29 @@ export function applyNamedView(
     zIsUp = true,
 ): void {
     const box = sceneFitBox(scene);
-    const target = controls instanceof CameraControls ? controls.getTarget(new THREE.Vector3()) : controls.target;
-    const pose = namedViewPose(
-        box ? [box.min.x, box.min.y, box.min.z, box.max.x, box.max.y, box.max.z] : null,
-        namedViewDirection(view, zIsUp),
-        camera.fov,
-        camera.aspect,
-        {eye: camera.position.toArray(), target: target.toArray()},
-    );
+    const target = controls instanceof OrbitControls ? controls.target : controls.getTarget(new THREE.Vector3());
+    const towardCamera = namedViewDirection(view, zIsUp);
+    const lookAlong = [-towardCamera[0], -towardCamera[1], -towardCamera[2]];
+    // In the orthographic view the model's outline on the view plane frames it (cameraFit `orthoFitPose`).
+    const pose =
+        (box && orthoFitPose(camera, box, undefined, 0, lookAlong, zIsUp ? [0, 0, 1] : [0, 1, 0])) ??
+        namedViewPose(
+            box ? [box.min.x, box.min.y, box.min.z, box.max.x, box.max.y, box.max.z] : null,
+            towardCamera,
+            camera.fov,
+            camera.aspect,
+            {eye: camera.position.toArray(), target: target.toArray()},
+        );
     if (pose.radius !== null) applyAdaptiveClipping(camera, controls, pose.radius);
     const [px, py, pz] = pose.eye, [cx, cy, cz] = pose.target;
-    if (controls instanceof CameraControls) {
-        void controls.setLookAt(px, py, pz, cx, cy, cz, true);
-        camera.updateProjectionMatrix();
-    } else {
+    if (controls instanceof OrbitControls) {
         camera.position.set(px, py, pz);
         camera.lookAt(cx, cy, cz);
         controls.target.set(cx, cy, cz);
         camera.updateProjectionMatrix();
         controls.update();
+    } else {
+        void controls.setLookAt(px, py, pz, cx, cy, cz, true);
+        camera.updateProjectionMatrix();
     }
 }

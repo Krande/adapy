@@ -6,8 +6,10 @@
 // swap the camera: the same camera gets an orthographic PROJECTION, as tall at the controls'
 // target as the perspective view is there (2 * distance * tan(fov / 2)). Switching therefore
 // keeps the view direction, the target and the framing; and everything that moves the camera
-// keeps working as it did - zoom (a dolly) changes the distance and so the height, a fit or a
-// named view frames as before, a pan moves by the same amount.
+// keeps working as it did - zoom (a dolly) changes the distance and so the height, a pan moves by
+// the same amount. A fit or a named view stands the camera at the distance that gives the height
+// the box's outline on the view plane needs (viewport/api/cameraFrame `orthoFramePose`, through
+// cameraFit `orthoFitPose`): a perspective fit's distance would frame loosely here.
 //
 // What a projection alone does not carry, done here:
 //  - the projection follows the distance every frame (a dolly does not ask for it). The frame

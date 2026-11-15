@@ -21,7 +21,8 @@ const { AdaViewerProvider } = await import("@/state/AdaViewerContext");
 const { useGroundGridStore } = await import("@/state/groundGridStore");
 const { useProjectionStore } = await import("@/state/projectionStore");
 const { setActiveViewport } = await import("@/viewport/api/viewportApi");
-const { NATIVE_ORTHOGRAPHIC_UNAVAILABLE } = await import("@/viewport/native/nativeViewportApi");
+/** What a viewport without an orthographic view would answer (no built-in one is such now). */
+const NO_ORTHOGRAPHIC = "This viewport has no orthographic view";
 
 const html = (el: React.ReactElement) => renderToStaticMarkup(React.createElement(AdaViewerProvider, null, el));
 
@@ -66,10 +67,10 @@ test("the orthographic view is greyed, with the viewport's reason, where the vie
   registerCoreCommands();
   const release = setActiveViewport({
     kind: "native",
-    unavailable: (f: string) => (f === "orthographic" ? NATIVE_ORTHOGRAPHIC_UNAVAILABLE : null),
+    unavailable: (f: string) => (f === "orthographic" ? NO_ORTHOGRAPHIC : null),
   } as never);
   try {
-    assert.equal(C.getCommand(ID.orthographic)?.disabledReason?.(), NATIVE_ORTHOGRAPHIC_UNAVAILABLE);
+    assert.equal(C.getCommand(ID.orthographic)?.disabledReason?.(), NO_ORTHOGRAPHIC);
   } finally {
     release();
   }

@@ -660,7 +660,7 @@
 //          Desktop UI's View, the classic UI's Settings > Scene config), not on the section toolbar
 //          the shells share: a shell places them on its own toolbar if it wants. Orthographic view
 //          is offered disabled, with the reason, on a viewport whose `unavailable("orthographic")`
-//          answers one (the three.js-free viewport).
+//          answers one (every built-in viewport, the three.js-free one included, has it).
 export const VIEWER_CORE_API_VERSION = "1.24.0";
 
 // ---------------------------------------------------------------------------

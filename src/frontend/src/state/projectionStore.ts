@@ -1,8 +1,9 @@
 // The 3D view's projection: perspective (the default) or orthographic. One setting for the
 // page, remembered in this browser through the store's `persist` middleware. The three.js
-// viewport follows it (utils/scene/orthographicProjection.ts). The three.js-free viewport says
-// it has no orthographic view yet (`ViewportApi.unavailable("orthographic")`), and the command
-// is offered disabled there. No three.js here, so that chunk may import it.
+// viewport follows it (utils/scene/orthographicProjection.ts), and so does the three.js-free one,
+// with the adacpp renderer's own camera (viewport/native/nativeScene.ts). A viewport without an
+// orthographic view says so (`ViewportApi.unavailable("orthographic")`), and the command is then
+// offered disabled. No three.js here, so that chunk may import it.
 
 import {create} from "zustand";
 import {persist} from "zustand/middleware";

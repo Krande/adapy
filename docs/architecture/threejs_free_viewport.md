@@ -507,11 +507,13 @@ These are open design points, ordered by how much of the viewer depends on them.
    section planes at their anchor, are billboards too (see "Overlays on both viewports").
 6. **Controls parity.** The renderer's camera covers orbit, pan, zoom, zoom towards the cursor, fit
    to the model or the selection, named views and the user's input mapping. Still the main
-   viewer's only: the orientation gizmo, orthographic projection as a setting, and 3D-mouse input.
-   The projection setting is plain data (`state/projectionStore`). This viewport answers
-   `unavailable("orthographic")`, so the Orthographic view command is offered disabled here. The
-   renderer's camera can project orthographically (`cameraSetOrthographic`); what is missing is
-   sizing the screen-sized billboards, and hit-testing their clicks, for that projection.
+   viewer's only: the orientation gizmo and 3D-mouse input. The projection setting is plain data
+   (`state/projectionStore`), which this viewport follows with the renderer's own camera
+   (`cameraSetOrthographic`). In the orthographic view the screen-sized billboards are scaled by
+   the view's height in the world before each frame (`NativeScene.onBeforeDraw`), their clicks are
+   hit-tested for that projection (`BillboardCamera.orthoHeight`), and the clip range is the
+   renderer's own, which spans the scene on both sides of the camera. A fit there uses the shared
+   orthographic fit (`viewport/api/cameraFrame` `orthoFramePose`), as on the three.js viewport.
 7. **Uses of three.js outside the main viewport.** The equipment preview, the cell builder, the
    robot (STL) loader, the FEA GLB assembly (`GLTFLoader` / `GLTFExporter` used to build data, not
    to draw) and the three.js embed each need a decision of their own: ported, exempt, or dropped.

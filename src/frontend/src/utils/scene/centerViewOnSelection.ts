@@ -6,7 +6,8 @@ import {OrbitControls} from 'three/examples/jsm/controls/OrbitControls';
 import CameraControls from 'camera-controls';
 import {getViewerRuntime} from "@/state/viewerRuntime";
 import {applyAdaptiveClipping} from "@/components/viewer/sceneHelpers/adaptiveClipping";
-import {selectionFramePose} from "@/viewport/api/cameraFrame";
+import {ORTHO_FIT_MARGIN, selectionFramePose} from "@/viewport/api/cameraFrame";
+import {orthoFitPose} from "@/components/viewer/sceneHelpers/cameraFit";
 
 export const centerViewOnSelection = (
     controls: OrbitControls | CameraControls,
@@ -150,10 +151,12 @@ export function center_on_bounding_box(boundingBox: THREE.Box3, camera: Camera, 
     camera.getWorldDirection(direction).normalize();
 
     let newPosition: THREE.Vector3;
+    // In the orthographic view, the selection's outline on the view plane frames it (cameraFit `orthoFitPose`).
+    const orthoPose = orthoFitPose(camera, boundingBox, ORTHO_FIT_MARGIN / fillFactor);
     if (camera instanceof THREE.PerspectiveCamera) {
         // The selection fit every viewport shares (viewport/api/cameraFrame).
         const b = boundingBox;
-        const pose = selectionFramePose([b.min.x, b.min.y, b.min.z, b.max.x, b.max.y, b.max.z], direction.toArray(), camera.fov, fillFactor);
+        const pose = orthoPose ?? selectionFramePose([b.min.x, b.min.y, b.min.z, b.max.x, b.max.y, b.max.z], direction.toArray(), camera.fov, fillFactor);
         if (!pose) return;
         newPosition = new THREE.Vector3(...pose.eye);
     } else if (camera instanceof THREE.OrthographicCamera) {
@@ -184,6 +187,9 @@ export function center_on_bounding_box(boundingBox: THREE.Box3, camera: Camera, 
     if (controls instanceof OrbitControls) {
         controls.target.copy(center);
         controls.update();
+    } else if (orthoPose) {
+        // fitToSphere works out a perspective distance; the orthographic fit has placed the camera.
+        void (controls as CameraControls).setLookAt(newPosition.x, newPosition.y, newPosition.z, center.x, center.y, center.z, true);
     } else {  // CameraControls
         const cameraControls = controls as CameraControls;
         const sphere = new THREE.Sphere(center, radius / fillFactor);
