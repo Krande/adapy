@@ -146,6 +146,10 @@ def test_a_built_in_spec_builds_in_the_connection_builder_without_a_clash_point(
     register_builtin_specs()
     inputs = default_inputs(get_registered(spec_name).spec)
     assert build_component(spec_name, inputs) is not None
-    # Neither built-in welds anything, so as a simulation subject it is "no welds", not a crash.
-    with pytest.raises(ValueError, match="no welds"):
-        build_subject(spec_name, inputs, tmp_path / "subject.json")
+    if spec_name == GIRDER_GUSSET_SPEC.name:
+        # Its welds are straight extrusions with no sweep curve: the subject reads their two points.
+        assert build_subject(spec_name, inputs, tmp_path / "subject.json")["welds"] == 2
+    else:
+        # The box joint welds nothing, so as a simulation subject it is "no welds", not a crash.
+        with pytest.raises(ValueError, match="no welds"):
+            build_subject(spec_name, inputs, tmp_path / "subject.json")
