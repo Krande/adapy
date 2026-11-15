@@ -911,7 +911,19 @@ def shell_command_remote(
 
 
 #: Flags that only mean something for the local viewer; with a remote server they would be ignored silently.
-LOCAL_ONLY_FLAGS = ("port", "data", "static", "zip", "viewer", "dev", "frontend_url", "dev_port")
+LOCAL_ONLY_FLAGS = (
+    "port",
+    "data",
+    "static",
+    "zip",
+    "viewer",
+    "dev",
+    "frontend_url",
+    "dev_port",
+    # The local viewer's job limits: a hosted server's workers have their own.
+    "max_jobs",
+    "cpu_budget",
+)
 
 
 def refuse_local_only(args: argparse.Namespace, flags: tuple[str, ...]) -> None:

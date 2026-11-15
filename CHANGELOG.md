@@ -2,6 +2,22 @@
 
 
 
+## v0.155.0 (2026-11-15)
+
+### Chore
+
+* chore: wait for a reloaded page before resending the model; browser tests once, Linux only (#553)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`e48eb6a`](https://github.com/Krande/adapy/commit/e48eb6a3e2db7e5dd04132623590edfc6f4a536f))
+
+### Feature
+
+* feat(rest): a queue-less server runs conversions and bakes in its own environment (#549)
+
+Co-authored-by: oleandor &lt;oleandor@gmail.com&gt;
+Co-authored-by: Claude Opus 5.5 (1M context) &lt;noreply@anthropic.com&gt; ([`267e08c`](https://github.com/Krande/adapy/commit/267e08cb88f055c02ed53349f8996ebffa4b48e1))
+
+
 ## v0.154.0 (2026-11-14)
 
 ### Feature
