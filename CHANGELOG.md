@@ -2,6 +2,15 @@
 
 
 
+## v0.156.0 (2026-11-15)
+
+### Feature
+
+* feat(connections): the connection builder works from the workers&#39; specs; curved and closed weld seams (#551)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`349967e`](https://github.com/Krande/adapy/commit/349967e1ed395ed3db6e9240f4b05514e6bbfefa))
+
+
 ## v0.155.0 (2026-11-15)
 
 ### Chore
