@@ -82,9 +82,18 @@ def _connection_specs_for_heartbeat(capabilities: list[str]) -> list[dict]:
     own = sorted({t for c in capabilities if (t := capability_token(c)) and t != "base"})
     own_capability = own[0] if len(own) == 1 else None
 
+    from ada.api.connections.sample import default_inputs
+
     out: list[dict] = []
     for reg in all_registered():
         spec = reg.spec
+        try:
+            # The connection builder's starting inputs (every field the spec's own defaults leave
+            # out filled in), so a studio that lists specs from here builds what `ada dev
+            # connections` would.
+            defaults = default_inputs(spec)
+        except Exception:  # noqa: BLE001 - a spec whose defaults cannot be derived still lists
+            defaults = spec.defaults or {}
         out.append(
             {
                 "slug": spec.name,
@@ -92,6 +101,8 @@ def _connection_specs_for_heartbeat(capabilities: list[str]) -> list[dict]:
                 "tags": sorted(spec.tags),
                 "priority": spec.priority,
                 "roles": spec_to_form_schema(spec),
+                "defaults": defaults,
+                "module": getattr(reg.fn, "__module__", None),
                 # The spec's own attribution wins where it has one, as for passes and checkers.
                 "capability": (
                     None if spec.name in BUILTIN_SPEC_NAMES else (getattr(spec, "capability", None) or own_capability)

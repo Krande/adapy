@@ -38,6 +38,7 @@ import {useFemConceptsStore} from "@/state/femConceptsStore";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {useStatsStore} from "@/state/statsStore";
 import {useClashCheckStore} from "@/state/clashCheckStore";
+import {useConnectionsOfferStore} from "@/state/connectionsOfferStore";
 import {useIsMobile} from "@/utils/useIsMobile";
 import {isMirroredWindow} from "@/layout/sceneActions";
 
@@ -101,12 +102,14 @@ const SceneBody: React.FC<SceneBodyProps> = ({tabs: tabIds, hiddenTabs, femTab =
     const feaSessionActive = useFeaAnimationStore((s) => s.sessionActive);
 
     const isMobile = useIsMobile();
+    const connectionsOffered = useConnectionsOfferStore((s) => s.offered);
 
     const ctxAvailable: Partial<Record<SceneTab, boolean>> = {
         joints: hasJoints,
         fem: hasFemConcepts || feaSessionActive,
-        // The joint being developed, on a viewer `ada dev connections` started.
-        connection: runtime.devConnections(),
+        // The connection builder: on a viewer `ada dev connections` started, or while this scope
+        // offers specs the workers registered.
+        connection: runtime.devConnections() || connectionsOffered,
     };
     // A pop-out window has the Model tab: the others (overlays, tools, clip, mesh, clashes, joints)
     // read and change the scene itself, which only the main window has.
