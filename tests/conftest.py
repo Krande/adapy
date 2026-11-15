@@ -3,6 +3,7 @@ import importlib.util
 import os
 import pathlib
 import shutil
+import sys
 import tempfile
 
 import pytest
@@ -163,6 +164,10 @@ def pytest_collection_modifyitems(config, items):
     for item in items:
         if needs_occ.intersection(getattr(item, "fixturenames", ())):
             item.add_marker(pytest.mark.pyocc)
+        # Derived the same way: a test drives a browser when its module imports Playwright.
+        module = getattr(item, "module", None)
+        if module is not None and any(hasattr(module, n) for n in ("async_playwright", "sync_playwright")):
+            item.add_marker(pytest.mark.browser)
 
     # DESELECT, don't skip. An environment without pythonocc was never going to run these, and a
     # skip reports that as a hole in the suite -- one that is never read, never acted on, and
@@ -182,6 +187,10 @@ def pytest_collection_modifyitems(config, items):
     # that kernel is no more "skipped" there than a pythonocc test is here.
     if importlib.util.find_spec("adacpp") is None:
         absent.add("adacpp")
+    # The browser (Playwright) tests are Linux-only: on the Windows and macOS runners they render in
+    # software and took most of the run (~60 of 73 minutes on Windows) for no coverage Linux lacks.
+    if sys.platform != "linux":
+        absent.add("browser")
     # An escape hatch, for asking "would these actually run here?" -- which is the only way to
     # catch a test marked for a capability it does not really need. Without it the deselection is
     # invisible to inspection: `-m adacpp` selects nothing, because the deselection already ran.
