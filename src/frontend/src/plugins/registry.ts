@@ -201,7 +201,8 @@ import { isPlacedElsewhere } from "@/layout/placedElsewhere";
 //          (`core:view.orthographic`) and `CORE_COMMAND_IDS.groundGrid`
 //          (`core:view.ground-grid`), commands a plugin may run or place. `CommandSpec.watch`:
 //          a command says when its tick or reason changes, and its toolbar button redraws.
-//          `CORE_COMMAND_IDS.sectionGizmo` (`core:section-gizmo`): show or hide the section gizmo. Additive.
+//          `CORE_COMMAND_IDS.sectionGizmo` (`core:section-gizmo`): show or hide the section gizmo.
+//          A shell's `modeArrangements[id].toolbar` adds its controls to a plugin's mode. Additive.
 export const PLUGIN_API_VERSION = "1.25.0";
 
 // The named mount regions core exposes in Phase 1. Deliberately small

@@ -667,6 +667,8 @@
 //          a `CommandButton` redraws when it fires (core's view toggles and section commands have one).
 //          `CORE_COMMAND_IDS.sectionGizmo` (`core:section-gizmo`): show or hide the section plane's
 //          outline and drag arrow, on core's section strip (the classic Clip panel's "Show gizmo").
+//          `UiShellSpec.layout.modeArrangements[id].toolbar`: a shell's own controls for a
+//          plugin's mode, drawn after the plugin's toolbar.
 export const VIEWER_CORE_API_VERSION = "1.25.0";
 
 // ---------------------------------------------------------------------------

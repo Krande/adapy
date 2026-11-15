@@ -71,9 +71,11 @@ export interface UiShellLayout {
   /**
    * Arrangements for modes the shell does not declare itself - a plugin's (the
    * capacity check's "capacity", say) - by mode id. Without one, such a mode
-   * starts from the shell's arrangement (`grid` / `open` / `docks` above).
+   * starts from the shell's arrangement (`grid` / `open` / `docks` above). Its
+   * `toolbar` is the shell's own controls for that mode, drawn after the plugin's
+   * (a report of the check's results, say); it runs in the mode plugin's context.
    */
-  modeArrangements?: Record<string, Pick<UiShellMode, "grid" | "open" | "docks" | "viewportCover">>;
+  modeArrangements?: Record<string, Pick<UiShellMode, "grid" | "open" | "docks" | "viewportCover" | "toolbar">>;
   /**
    * Panels that are one panel for every mode rather than part of each mode's
    * arrangement (a file browser, say): open or closed, and their docked size, are

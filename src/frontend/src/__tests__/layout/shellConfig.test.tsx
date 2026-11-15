@@ -177,3 +177,39 @@ test("a plugin's mode holds the FEA model undeformed unless it opts in", () => {
     resetRegistry();
   }
 });
+
+test("a shell's arrangement for a plugin's mode adds its own tools after the plugin's", () => {
+  resetRegistry();
+  registerPlugin({
+    id: "mode-plugin",
+    version: "1.0.0",
+    coreApiRange: ">=1.0 <2.0",
+    modes: [
+      { id: "check", label: "Check", toolbar: () => React.createElement("span", null, "plugin tools") },
+      { id: "bare", label: "Bare" },
+      { id: "untouched", label: "Untouched", toolbar: () => "alone" },
+    ],
+  });
+  try {
+    const modes = shellModes({
+      id: "s",
+      label: "S",
+      layout: {
+        modes: [{ id: "own", label: "Own" }],
+        modeArrangements: {
+          check: { toolbar: () => React.createElement("span", null, "shell tools") },
+          bare: { toolbar: () => "shell only" },
+        },
+      },
+    });
+    const draw = (id: string) => {
+      const t = modes.find((m) => m.id === id)!.toolbar;
+      return t ? renderToStaticMarkup(React.createElement(React.Fragment, null, t({} as never))) : null;
+    };
+    assert.equal(draw("check"), "<span>plugin tools</span><span>shell tools</span>", "the plugin's, then the shell's");
+    assert.equal(draw("bare"), "shell only", "a mode without tools of its own gets the shell's");
+    assert.equal(draw("untouched"), "alone");
+  } finally {
+    resetRegistry();
+  }
+});
