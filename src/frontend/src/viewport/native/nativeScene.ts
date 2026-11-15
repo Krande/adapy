@@ -24,7 +24,7 @@ import {defaultColorLinear, hexChannels, lightIntensities, useAppearanceStore} f
 import {glbUncoloured, UNCOLOURED_BLACK} from "@/utils/glb/glbUncoloured";
 import type {ObjectColorState} from "@/viewport/api/objectColors";
 import {placeModel, type Box6, type Vec3} from "@/viewport/api/sceneFrame";
-import {boundingSphere, clipRangeFor, DEFAULT_VIEW, framePose, namedViewPose, ORTHO_FIT_MARGIN, orthoFramePose, selectionFramePose} from "@/viewport/api/cameraFrame";
+import {boundingSphere, clipRangeFor, DEFAULT_VIEW, framePose, namedViewPose, ORTHO_FIT_BOX_MARGIN, ORTHO_FIT_MARGIN, orthoFramePose, selectionFramePose} from "@/viewport/api/cameraFrame";
 import {followProjection} from "@/state/projectionStore";
 import {GROUND_GRID, groundGridLines} from "@/viewport/api/groundGrid";
 import {InstanceFlag, SegmentFlag, Topology, type AdacppModule, type AdacppStats, type CameraPoseInfo, type GpuDeviceLike, type LoadedGlbObjects, type RawPick, type WebRendererApi} from "@/viewport/adacpp/types";
@@ -1035,7 +1035,7 @@ export class NativeScene {
     /** Frame a box in the world (min xyz, max xyz) with room around it; false for an empty one. */
     fitBox(box: Bounds, seconds = MOVE_SECONDS): boolean {
         return this.applyPose(
-            this.orthoFit(box, ORTHO_FIT_MARGIN * FIT_BOX_SCALE, FIT_BOX_MIN_RADIUS) ??
+            this.orthoFit(box, ORTHO_FIT_BOX_MARGIN, FIT_BOX_MIN_RADIUS) ??
                 framePose(box, this.viewDirection(), this.fovDeg(), this.aspect(), FIT_BOX_SCALE, FIT_BOX_MIN_RADIUS),
             seconds,
         );

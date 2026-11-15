@@ -5,7 +5,7 @@ import * as THREE from "three";
 import CameraControls from "camera-controls";
 import {OrbitControls} from "three/examples/jsm/controls/OrbitControls";
 import {applyAdaptiveClipping} from "@/components/viewer/sceneHelpers/adaptiveClipping";
-import {framePose, ORTHO_FIT_MARGIN, orthoFramePose, wholeSphereDistance} from "@/viewport/api/cameraFrame";
+import {framePose, ORTHO_FIT_BOX_MARGIN, ORTHO_FIT_MARGIN, orthoFramePose, wholeSphereDistance} from "@/viewport/api/cameraFrame";
 import type {Box6} from "@/viewport/api/sceneFrame";
 import {isOrthographic} from "@/utils/scene/orthographicProjection";
 
@@ -32,6 +32,9 @@ export function orthoFitPose(
 // objects when fitting the camera. setFromObject ignores `visible`, so the
 // gizmo — which scales with camera distance — would otherwise blow up the box
 // and fling the camera off into empty space (the "solid grey" screen).
+/** frameBox's default room round a box in perspective. */
+const FRAME_BOX_SCALE = 1.6;
+
 export const isExcludedFromFit = (obj: THREE.Object3D): boolean => {
     let cur: THREE.Object3D | null = obj;
     while (cur) {
@@ -43,16 +46,18 @@ export const isExcludedFromFit = (obj: THREE.Object3D): boolean => {
 
 // Frame the camera on an explicit world-space box (a single face, a sub-selection) reusing the same
 // FOV-based sphere fit as zoomToAll. distanceScale > 1 leaves breathing room around a tiny target so a
-// small face doesn't fill the whole viewport with the near surface.
+// small face doesn't fill the whole viewport with the near surface. The orthographic view frames the
+// box's outline instead, with its own margin (ORTHO_FIT_BOX_MARGIN), scaled as distanceScale is from
+// its default.
 export const frameBox = (
     box: THREE.Box3,
     camera: THREE.PerspectiveCamera,
     controls: OrbitControls | CameraControls,
-    distanceScale = 1.6,
+    distanceScale = FRAME_BOX_SCALE,
 ) => {
     if (box.isEmpty()) return;
     const pose =
-        orthoFitPose(camera, box, ORTHO_FIT_MARGIN * distanceScale, 1e-4) ??
+        orthoFitPose(camera, box, (ORTHO_FIT_BOX_MARGIN * distanceScale) / FRAME_BOX_SCALE, 1e-4) ??
         framePose(box6(box), camera.getWorldDirection(new THREE.Vector3()).toArray(), camera.fov, camera.aspect, distanceScale, 1e-4);
     if (!pose) return;
     applyAdaptiveClipping(camera, controls, pose.radius);

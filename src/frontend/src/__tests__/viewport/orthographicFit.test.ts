@@ -16,7 +16,7 @@ const storage = {
 (globalThis as unknown as Record<string, unknown>).localStorage ??= storage;
 (globalThis as unknown as Record<string, unknown>).sessionStorage ??= storage;
 
-const { framePose, ORTHO_FIT_MARGIN, orthoFramePose, projectedHalfExtents, sphereFitDistance } = await import("@/viewport/api/cameraFrame");
+const { framePose, ORTHO_FIT_BOX_MARGIN, ORTHO_FIT_MARGIN, orthoFramePose, projectedHalfExtents, sphereFitDistance } = await import("@/viewport/api/cameraFrame");
 const { bindOrthographic, orthoHalfHeight } = await import("@/utils/scene/orthographicProjection");
 const { frameBox, orthoFitPose, zoomToAll } = await import("@/components/viewer/sceneHelpers/cameraFit");
 const { center_on_bounding_box } = await import("@/utils/scene/centerViewOnSelection");
@@ -181,8 +181,9 @@ test("the long, thin model fills an orthographic fit much more than the perspect
 test("a framed box and a named view in the orthographic view are sized from the box's outline", () => {
   const { scene, camera, controls, add, release } = rig();
   frameBox(box3(BEAM), camera, controls);
-  // frameBox leaves its usual extra room (1.6) on top of the margin.
-  near(reach(camera, BEAM).x, 1 / (ORTHO_FIT_MARGIN * 1.6), 1e-4);
+  // A box's outline, with a box fit's margin: not the perspective fit's extra distance on top of it.
+  near(reach(camera, BEAM).x, 1 / ORTHO_FIT_BOX_MARGIN, 1e-4);
+  assert.ok(ORTHO_FIT_BOX_MARGIN < ORTHO_FIT_MARGIN * 1.6, "tighter than it was");
   add(BEAM);
   // The right view looks along -x: the beam end on, its cross-section decides.
   applyNamedView("right", scene, camera, controls, true);

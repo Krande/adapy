@@ -115,6 +115,12 @@ export function namedViewPose(
 /** The room an orthographic fit leaves round the box's outline: adacpp's default fit margin. */
 export const ORTHO_FIT_MARGIN = 1.15;
 
+/** The room an orthographic fit of a box (a face, a selection: `frameBox`, a viewport's `fitBox`)
+ *  leaves round its outline. A little more than the model's, so the target reads as framed rather
+ *  than cropped; not the perspective fit's extra distance (1.6), which is room for a sphere seen
+ *  from its nearest side and would leave the outline at little more than half the view. */
+export const ORTHO_FIT_BOX_MARGIN = 1.3;
+
 const sub3 = (a: ArrayLike<number>, b: ArrayLike<number>): Vec3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
 const dot3 = (a: ArrayLike<number>, b: ArrayLike<number>): number => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 const cross3 = (a: ArrayLike<number>, b: ArrayLike<number>): Vec3 => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];

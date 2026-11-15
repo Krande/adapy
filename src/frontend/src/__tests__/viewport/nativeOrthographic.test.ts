@@ -24,7 +24,7 @@ globals.cancelAnimationFrame = () => {};
 const {NativeScene} = await import("@/viewport/native/nativeScene");
 const {createNativeBillboardLayer} = await import("@/viewport/native/nativeBillboards");
 const {useProjectionStore} = await import("@/state/projectionStore");
-const {DEFAULT_VIEW, ORTHO_FIT_MARGIN} = await import("@/viewport/api/cameraFrame");
+const {DEFAULT_VIEW, ORTHO_FIT_BOX_MARGIN} = await import("@/viewport/api/cameraFrame");
 const {billboardsAt, screenScale} = await import("@/viewport/api/billboards");
 type Scene = import("@/viewport/native/nativeScene").NativeScene;
 
@@ -107,12 +107,12 @@ test("a fit in the orthographic view frames a long, thin box and a cube to the m
     scene.setCameraPose([0, -30, 0], [0, 0, 0], 0);
     const beam = [-10, -0.1, -0.1, 10, 0.1, 0.1];
     assert.ok(scene.fitBox(beam as never, 0));
-    // fitBox leaves its usual extra room (1.6) on top of the margin; the length across the width decides.
-    near(reach(cam, beam, aspect).x, 1 / (ORTHO_FIT_MARGIN * 1.6), 1e-9);
+    // A box fit's margin round the outline; the length across the width decides.
+    near(reach(cam, beam, aspect).x, 1 / ORTHO_FIT_BOX_MARGIN, 1e-9);
     assert.deepEqual(clips.at(-1), [0, 0], "a fit keeps the orthographic clip range");
     const cube = [-1, -1, -1, 1, 1, 1];
     scene.fitBox(cube as never, 0);
-    near(reach(cam, cube, aspect).y, 1 / (ORTHO_FIT_MARGIN * 1.6), 1e-9);
+    near(reach(cam, cube, aspect).y, 1 / ORTHO_FIT_BOX_MARGIN, 1e-9);
     // A named view frames the whole model's outline too: no model here, so it turns about the target.
     scene.viewFrom([1, 0, 0], 0);
     near(cam.eye[1], 0, 1e-9);
