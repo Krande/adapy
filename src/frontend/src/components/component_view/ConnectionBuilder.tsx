@@ -271,6 +271,19 @@ const RoleEditor: React.FC<{
       {fields.includes("section") && (
         <SectionField role={role} value={value.section as string | undefined} onCommit={(v) => onField("section", v)} />
       )}
+      {fields.includes("length") && (
+        <MillimetreField
+          label="length"
+          title={
+            role.role === "landing"
+              ? "The member's length, centred on the joint."
+              : "The member's length, from the joint out to its free end."
+          }
+          max={role.length_range ? role.length_range.max_m : undefined}
+          metres={value.length as number | undefined}
+          onCommit={(m) => onField("length", m)}
+        />
+      )}
       {(["thickness", "width", "height"] as const)
         .filter((f) => fields.includes(f))
         .map((f) => (
@@ -408,23 +421,29 @@ const MillimetreField: React.FC<{
   label: string;
   metres: number | undefined;
   onCommit: (m: number) => void;
-}> = ({ label, metres, onCommit }) => {
-  const shown = metres === undefined ? "" : String(Math.round(metres * 1e4) / 10);
+  /** The largest value accepted [m]; larger input is not committed. */
+  max?: number;
+  title?: string;
+}> = ({ label, metres, onCommit, max, title }) => {
+  // A spec may leave a value to its builder (null): shown empty, not as 0.
+  const shown = typeof metres === "number" ? String(Math.round(metres * 1e4) / 10) : "";
   const [draft, setDraft] = useState(shown);
   useEffect(() => setDraft(shown), [shown]);
   return (
-    <label className="flex items-center gap-2">
+    <label className="flex items-center gap-2" title={title}>
       <span className="text-gray-400 w-16 shrink-0">{label}</span>
       <input
         type="number"
         min={0}
+        max={max === undefined ? undefined : max * 1000}
         step={1}
+        placeholder={typeof metres === "number" ? undefined : "auto"}
         className={`${input} w-24`}
         value={draft}
         onChange={(e) => {
           setDraft(e.target.value);
           const mm = parseFloat(e.target.value);
-          if (Number.isFinite(mm) && mm > 0) onCommit(mm / 1000);
+          if (Number.isFinite(mm) && mm > 0 && (max === undefined || mm <= max * 1000)) onCommit(mm / 1000);
         }}
         onBlur={() => setDraft(shown)}
       />
