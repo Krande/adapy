@@ -697,6 +697,20 @@ export function coreCommandSpecs(): CommandSpec[] {
       },
     },
     {
+      id: ID.sectionGizmo,
+      label: "Show section gizmo",
+      group: "Section",
+      keywords: ["outline", "arrow", "handle", "drag"],
+      checked: () => useSectionStore.getState().gizmoVisible,
+      disabledReason: () => (workingPlane() ? null : "No section plane"),
+      watch: watchSections,
+      run: () => {
+        const s = useSectionStore.getState();
+        s.setGizmoVisible(!s.gizmoVisible);
+        requestRender();
+      },
+    },
+    {
       id: ID.sectionClear,
       label: "Remove section planes",
       group: "Section",

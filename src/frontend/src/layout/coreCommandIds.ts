@@ -84,6 +84,8 @@ export const CORE_COMMAND_IDS = {
   sectionZ: "core:section.z",
   sectionToggle: "core:section-toggle",
   sectionFlip: "core:section-flip",
+  /** Show or hide the working plane's outline and drag arrow (the cut stays). */
+  sectionGizmo: "core:section-gizmo",
   sectionClear: "core:section-clear",
   /** Selection boxes: one around the selection (it selects what it touches or holds), the active box's rule (partially or fully within), select again what it takes, remove all. */
   selectionBoxAdd: "core:selection-box.add",

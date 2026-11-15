@@ -663,6 +663,8 @@
 //          answers one (every built-in viewport, the three.js-free one included, has it).
 //          `CommandSpec.watch`: subscribe to what a command's `checked`/`disabledReason` read;
 //          a `CommandButton` redraws when it fires (core's view toggles and section commands have one).
+//          `CORE_COMMAND_IDS.sectionGizmo` (`core:section-gizmo`): show or hide the section plane's
+//          outline and drag arrow, on core's section strip (the classic Clip panel's "Show gizmo").
 export const VIEWER_CORE_API_VERSION = "1.24.0";
 
 // ---------------------------------------------------------------------------

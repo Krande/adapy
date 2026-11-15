@@ -437,6 +437,7 @@ export const CORE_COMMAND_ICONS: Readonly<Record<string, React.FC>> = {
   [C.sectionZ]: SectionIcon,
   [C.sectionToggle]: SectionIcon,
   [C.sectionFlip]: FlipIcon,
+  [C.sectionGizmo]: TranslateIcon,
   [C.sectionClear]: ClearSelectionIcon,
   [C.feaToggleUndeformed]: UndeformedIcon,
   [C.feaToggleElementEdges]: ElementEdgesIcon,

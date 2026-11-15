@@ -151,6 +151,7 @@ export function SectionToolbar({className = BAR}: {className?: string}) {
       {DIVIDER}
       <CommandButton id={ID.sectionToggle} />
       <CommandButton id={ID.sectionFlip} />
+      <CommandButton id={ID.sectionGizmo} />
       {plane && box && span > 0 && (
         <input
           type="range"

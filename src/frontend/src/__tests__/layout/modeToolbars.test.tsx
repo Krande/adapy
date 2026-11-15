@@ -37,7 +37,7 @@ function setup(): void {
 
 const NEW_COMMANDS = [
   ID.playPause, ID.stopResults, ID.stepBack, ID.stepForward,
-  ID.sectionX, ID.sectionY, ID.sectionZ, ID.sectionToggle, ID.sectionFlip, ID.sectionClear,
+  ID.sectionX, ID.sectionY, ID.sectionZ, ID.sectionToggle, ID.sectionFlip, ID.sectionGizmo, ID.sectionClear,
   ID.feaToggleUndeformed, ID.feaToggleElementEdges, ID.feaToggleResultColors,
 ];
 
@@ -108,8 +108,19 @@ test("section commands add, switch, flip and clear the plane the toolbar edits",
   assert.equal(C.getCommand(ID.sectionToggle)!.checked?.(), true);
   run(ID.sectionFlip);
   assert.deepEqual(planes()[0].normal, [-1, -0, -0]);
+  // The gizmo (outline and drag arrow) hides and shows; the cut stays.
+  const gizmo = C.getCommand(ID.sectionGizmo)!;
+  assert.equal(gizmo.disabledReason?.(), null);
+  assert.equal(gizmo.checked?.(), true);
+  run(ID.sectionGizmo);
+  assert.equal(useSectionStore.getState().gizmoVisible, false);
+  assert.equal(gizmo.checked?.(), false);
+  assert.equal(planes()[0].enabled, true);
+  run(ID.sectionGizmo);
+  assert.equal(useSectionStore.getState().gizmoVisible, true);
   run(ID.sectionClear);
   assert.equal(planes().length, 0);
+  assert.equal(C.getCommand(ID.sectionGizmo)!.disabledReason?.(), "No section plane");
   run(ID.sectionToggle); // with none, the first press adds a Z plane
   assert.deepEqual(planes()[0].normal, [0, 0, 1]);
   useSectionStore.getState().clearAll();
@@ -141,6 +152,7 @@ test("the toolbars render their controls, and a button for a missing command is 
   const section = html(React.createElement(T.SectionToolbar));
   assert.match(section, /data-mode-toolbar="section"/);
   assert.match(section, /data-command="core:section\.x"/);
+  assert.match(section, /data-command="core:section-gizmo"/, "the gizmo switch, in every shell that places the strip");
   const rep = html(React.createElement(T.RepresentationToolbar));
   assert.match(rep, /data-command="core:edges"/);
   assert.match(rep, /data-command="core:fea-toggle-undeformed"/);
