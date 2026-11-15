@@ -493,6 +493,22 @@ def is_published_asset_key(key: str) -> bool:
     return key.lstrip("/").startswith(PUBLISHED_ASSET_PREFIX)
 
 
+# Prefix for images a user keeps beside their models (a screenshot of a view, a figure for a
+# report): ``images/<any path>/<file>.<png|jpg|jpeg|webp>``. A stored blob like ``assets/``, not a
+# conversion source, so the upload gates exempt it from the source-extension whitelist; unlike
+# ``assets/`` the exemption is for image extensions only, so the prefix is no back door for any
+# file type. Visible in the plain file listing (they are the user's files) and kept out of the
+# convert page's source list (nothing converts an image). The ``_derived/`` guard still applies.
+IMAGE_ASSET_PREFIX = "images/"
+IMAGE_ASSET_EXTS: frozenset[str] = frozenset({".png", ".jpg", ".jpeg", ".webp"})
+
+
+def is_image_asset_key(key: str) -> bool:
+    """``images/.../<file>.png`` (or ``.jpg``, ``.jpeg``, ``.webp``): an image a user keeps in the scope."""
+    clean = key.lstrip("/")
+    return clean.startswith(IMAGE_ASSET_PREFIX) and _ext(clean) in IMAGE_ASSET_EXTS
+
+
 def is_supported_source(key: str) -> bool:
     ext = _ext(key)
     return ext in ConverterRegistry.all_sources() or ext in _BUNDLE_EXTS or ext in _STREAMING_FEA_EXTS
