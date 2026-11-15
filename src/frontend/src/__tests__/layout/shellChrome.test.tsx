@@ -199,3 +199,37 @@ test("a mode's cover and a shell's overlay panels", () => {
     layoutStore.setState({ prefs: { v: 1, docs: {} } });
   }
 });
+
+test("a reset opens the active mode's starting panels again, one closed since included", async () => {
+  const R = await import("@/layout/reveal");
+  M.setShellModes([{ id: "a", label: "A", order: 0 }], "a");
+  P.setClassicShell({ id: "rs", open: ["c:p", "c:q"] }, ["a"]);
+  const revealed: string[] = [];
+  R.setPanelController({ isOpen: () => false, reveal: (id) => (revealed.push(id), true), hide: () => true });
+  try {
+    // Closed and remembered so: the arrangement records it, and a reset drops that record.
+    P.resetArrangement();
+    assert.deepEqual(revealed, ["c:p", "c:q"]);
+  } finally {
+    R.setPanelController(null);
+    M.setShellModes([]);
+    P.setClassicShell(null);
+    layoutStore.setState({ prefs: { v: 1, docs: {} } });
+  }
+});
+
+test("a mode that opens the Builder at the start offers it with no model, whatever the mode is called", async () => {
+  const { corePanelSpecs } = await import("@/layout/corePanels");
+  const { CORE_PANEL_IDS } = await import("@/layout/corePanelIds");
+  const builder = corePanelSpecs().find((p) => p.id === CORE_PANEL_IDS.cellbuilder)!;
+  try {
+    M.setShellModes([{ id: "inspect", label: "Inspect", order: 0, open: ["core:outliner"] }, { id: "topology-input", label: "Input", order: 1, open: [CORE_PANEL_IDS.cellbuilder] }], "inspect");
+    assert.equal(builder.available?.({} as never), false, "not in a mode that does not open it");
+    M.setShellMode("topology-input");
+    assert.equal(builder.available?.({} as never), true, "the docked UI's Topology > Input");
+    M.setShellModes([{ id: "build", label: "Build", order: 0 }], "build");
+    assert.equal(builder.available?.({} as never), true, "the Desktop UI's Build, as before");
+  } finally {
+    M.setShellModes([]);
+  }
+});

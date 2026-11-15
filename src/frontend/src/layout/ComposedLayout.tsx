@@ -65,6 +65,7 @@ export function shellModes(spec: UiShellSpec): ShellMode[] {
     toolbar: m.toolbar,
     toolbars: m.toolbars,
     requires: m.requires,
+    open: m.open,
   }));
   const theirs: ShellMode[] = getPluginModes()
     .filter(({mode}) => !own.some((m) => m.id === mode.id))

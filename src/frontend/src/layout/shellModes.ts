@@ -28,6 +28,8 @@ export interface ShellMode {
   toolbars?: readonly string[];
   /** Offered only while this holds (`UiShellMode.requires`; `./modeRequirements`). */
   requires?: "builder";
+  /** The panels the mode opens at the start (`UiShellMode.open`). */
+  open?: readonly string[];
 }
 
 /** Core's own mode toolbars (`./ModeToolbars`), by the id a mode's `toolbars` names. */
@@ -62,6 +64,11 @@ export function listShellModes(): readonly ShellMode[] {
 /** The active mode's id; null when the shell has no modes. */
 export function activeShellMode(): string | null {
   return active;
+}
+
+/** Does the active mode open panel `id` at the start (its `open` list)? */
+export function activeModeOpens(id: string): boolean {
+  return !!modes.find((m) => m.id === active)?.open?.includes(id);
 }
 
 /** Switch mode. An id the shell does not have is ignored (and returns false). */
