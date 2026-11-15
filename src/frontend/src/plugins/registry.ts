@@ -192,12 +192,17 @@ import { isPlacedElsewhere } from "@/layout/placedElsewhere";
 //          `notifyPluginActivationChanged()`: a plugin whose activation predicate reads its own
 //          state says when that state changed, and a placed panel showing "Nothing to show
 //          here yet" re-asks it (the panel also re-asks on every loaded-model change).
-// 1.24.0 — kept in step with viewer-core 1.24.0: `CORE_COMMAND_IDS.orthographic`
+// 1.24.0 — additive, both optional: an older core has neither.
+//          - `SimulationParameterFormArgs.subject` ({kind, key, label} or null): the subject the
+//            run will be started on, so a provider's form can leave out fields that name the part.
+//          - `ctx.scene.clearScene()`: empties the scene as the Scene tab's Remove all does, for a
+//            plugin about to show something of its own (a replay).
+// 1.25.0 — kept in step with viewer-core 1.25.0: `CORE_COMMAND_IDS.orthographic`
 //          (`core:view.orthographic`) and `CORE_COMMAND_IDS.groundGrid`
 //          (`core:view.ground-grid`), commands a plugin may run or place. `CommandSpec.watch`:
 //          a command says when its tick or reason changes, and its toolbar button redraws.
 //          `CORE_COMMAND_IDS.sectionGizmo` (`core:section-gizmo`): show or hide the section gizmo. Additive.
-export const PLUGIN_API_VERSION = "1.24.0";
+export const PLUGIN_API_VERSION = "1.25.0";
 
 // The named mount regions core exposes in Phase 1. Deliberately small
 // (`fem-sidebar` covers the FEM simulation panel, `top-panel` the menu bar,
@@ -711,6 +716,12 @@ export interface SceneHandle {
   // registered under that name), disposing its GPU resources. No-op when the
   // name is not loaded.
   unloadModel: (sourceName: string) => void;
+  // Empty the scene before showing something of the plugin's own (a replay): every loaded model,
+  // and what core drew over them (the connection builder's member axes and weld labels, a clash
+  // run's markers, an FEA session), as "clear the scene" does. Overlays plugins added with `add` /
+  // `addLines` stay theirs to remove. Additive and optional: an older core has no `clearScene`, so
+  // ask for it before calling it.
+  clearScene?: () => Promise<void>;
 
   // ── Renderer-neutral overlays (1.9.0). Core builds and owns the scene objects; they draw
   // the same under three.js and the WebGPU renderer, move and clip with the model, and go
@@ -1045,6 +1056,22 @@ export interface SimulationParameterFormArgs {
   /** The storage keys of the run's input files so far, and how to replace them. */
   inputs: readonly string[];
   onInputsChange: (next: string[]) => void;
+  /**
+   * The subject the run will be started on (e.g. a detail the connection builder offered), when one
+   * is chosen and this provider takes its kind; null otherwise. A form whose own fields name the part
+   * another way (a connection picked from a list) should leave those out while there is one: the run
+   * already says what it works on. Absent on a core before it was passed.
+   */
+  subject?: SimulationFormSubject | null;
+}
+
+/** The subject a parameter form is told about: what it is and what a person calls it. */
+export interface SimulationFormSubject {
+  /** One of the server's subject kinds, e.g. `"weld-assembly"`. */
+  kind: string;
+  /** Storage key of its file, in the run's scope. */
+  key: string;
+  label: string;
 }
 
 /** What an "open result" handler is given. */

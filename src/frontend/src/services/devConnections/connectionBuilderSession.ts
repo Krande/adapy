@@ -22,13 +22,13 @@ import { contactRunToResult, useClashCheckStore } from "@/state/clashCheckStore"
 import { effectiveInputs, useConnectionBuilderStore } from "@/state/connectionBuilderStore";
 import { useModelState } from "@/state/modelState";
 import { renderConnectionOverlay } from "@/utils/scene/connectionOverlay";
+import { forgetPreviewIfUnloaded, previewOnShow, setPreviewOnShow, PREVIEW_SOURCE_PREFIX } from "./previewOnShow";
 import { tintWelds } from "@/utils/scene/connectionWeldTint";
 import { selectInOtherModel } from "@/utils/scene/crossModelSelect";
 import { overlay_file_in_scene } from "@/utils/scene/handlers/overlay_file_in_scene";
 import { unload_any_source } from "@/utils/scene/handlers/unload_any_source";
 
-/** Scene source names of builder previews start with this. */
-export const PREVIEW_SOURCE_PREFIX = "connection-preview:";
+export { PREVIEW_SOURCE_PREFIX };
 
 /** Whether the loaded source `name` is a connection-builder preview. */
 export function isConnectionPreview(name: string | null | undefined): boolean {
@@ -76,6 +76,13 @@ export function startConnectionBuilderSession(): void {
     () => store.getState().setConnected(false),
   );
 
+  // The preview's annotations (member axes, weld labels) and its clash live beside the model, not
+  // in it: when the preview leaves the scene by any route -- the scene cleared for a replay, the
+  // Sources tab, another model replacing it -- they go with it.
+  useModelState.subscribe((s, prev) => {
+    if (s.loadedSourceNames !== prev.loadedSourceNames) forgetPreviewIfUnloaded(s.loadedSourceNames);
+  });
+
   // Selection and input edits rebuild; the library's own updates are handled above. A toggled
   // overlay redraws over the preview on show.
   store.subscribe((s, prev) => {
@@ -95,10 +102,10 @@ export function startConnectionBuilderSession(): void {
  *  welds' colour (`connectionWeldTint`). */
 function drawOverlay(tint = true): void {
   const s = useConnectionBuilderStore.getState();
-  renderConnectionOverlay(currentPreview, s.lastResult, s.overlays);
+  renderConnectionOverlay(previewOnShow(), s.lastResult, s.overlays);
   if (!tint) return;
   const welds = s.lastResult?.properties.welds.map((w) => w.name) ?? [];
-  void tintWelds(currentPreview, welds, {
+  void tintWelds(previewOnShow(), welds, {
     colour: s.overlays.tintWelds ? s.overlays.weldColour : null,
     hidden: !s.overlays.showWelds,
   });
@@ -145,7 +152,7 @@ async function buildSelected(): Promise<void> {
       return;
     }
     dropPreviews(sourceName);
-    currentPreview = sourceName;
+    setPreviewOnShow(sourceName);
     showClash(result, sourceName);
     buildMsBySpec.set(specName, Date.now() - startedAt);
     useConnectionBuilderStore.getState().setBuild({ status: "done", result });
@@ -159,8 +166,6 @@ async function buildSelected(): Promise<void> {
   }
 }
 
-/** The scene source name of the preview on show; what select-in-scene and the clash run name. */
-let currentPreview: string | null = null;
 
 /**
  * The joint's clash in Scene > Clashes: the build's convex-contact run, read as any run of the
@@ -190,8 +195,9 @@ function showClash(result: DevBuildResult, sourceName: string): void {
 
 /** Select objects of the preview on show (members, welds) by name. */
 export function selectPreviewObjects(names: string[]): void {
-  if (!currentPreview) return;
-  void selectInOtherModel({ file: currentPreview, nodeNames: names });
+  const file = previewOnShow();
+  if (!file) return;
+  void selectInOtherModel({ file, nodeNames: names });
 }
 
 /** Unload every builder preview but `keep`. */

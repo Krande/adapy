@@ -114,8 +114,8 @@ export const CLASSIC_TOOLBAR: Readonly<Record<PanelId, ToolbarRecipe>> = {
   },
   [CORE_PANEL_IDS.simulation]: {title: () => "Toggle simulation panel", content: <ToggleControlsIcon />},
   [CORE_PANEL_IDS.componentControls]: {
-    title: () => "Toggle connection-component panel",
-    ariaLabel: () => "Toggle connection-component panel",
+    title: () => "Toggle connection builder",
+    ariaLabel: () => "Toggle connection builder",
     content: <ComponentIcon />,
   },
   [CORE_PANEL_IDS.cellbuilder]: {

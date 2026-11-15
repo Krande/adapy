@@ -654,7 +654,9 @@
 //   1.23.0  `setBuilderDefaults`: a shell's default engine and blueprint for a Builder model
 //          whose doc names none. `notifyPluginActivationChanged`: a plugin says what its activation predicate reads
 //          has changed; a placed panel re-asks it (and on every loaded-model change).
-//   1.24.0 Kept in step with PLUGIN_API_VERSION 1.24.0. Additive: `CORE_COMMAND_IDS.orthographic`
+//   1.24.0 Kept in step with PLUGIN_API_VERSION 1.24.0 (`SimulationParameterFormArgs.subject`,
+//          `ctx.scene.clearScene`). Additive.
+//   1.25.0 Kept in step with PLUGIN_API_VERSION 1.25.0. Additive: `CORE_COMMAND_IDS.orthographic`
 //          (`core:view.orthographic`, the Orthographic view toggle) and `CORE_COMMAND_IDS.groundGrid`
 //          (`core:view.ground-grid`, the ground grid toggle). Core puts them in its menus (the
 //          Desktop UI's View, the classic UI's Settings > Scene config), not on the section toolbar
@@ -665,7 +667,7 @@
 //          a `CommandButton` redraws when it fires (core's view toggles and section commands have one).
 //          `CORE_COMMAND_IDS.sectionGizmo` (`core:section-gizmo`): show or hide the section plane's
 //          outline and drag arrow, on core's section strip (the classic Clip panel's "Show gizmo").
-export const VIEWER_CORE_API_VERSION = "1.24.0";
+export const VIEWER_CORE_API_VERSION = "1.25.0";
 
 // ---------------------------------------------------------------------------
 // Plugin declaration. `registerPlugin` is how a package announces itself —
@@ -731,6 +733,7 @@ export type {
   SidecarFetcher,
   SimulationOpenResultArgs,
   SimulationParameterFormArgs,
+  SimulationFormSubject,
   SimulationProviderUi,
   TopBarButtonSpec,
   UrlParamHandler,

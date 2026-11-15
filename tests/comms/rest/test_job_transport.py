@@ -144,6 +144,9 @@ def test_every_feature_has_a_message_and_only_plugin_jobs_runs_locally():
     # the built-in engines, and any a tool registers in this process, compile here.
     # `bake` and `result_meta` so a result deck on a local viewer opens in Results and
     # Capacity: this process has the readers a worker bakes with.
+    # `conversion`, `utilities` and `component_build` because the environment a local viewer is
+    # started from has the converters a worker has: they run in a job process of that
+    # environment, through the worker's own pipeline (local_runner).
     assert LOCAL_FEATURES == frozenset(
         {
             "asset_build",
@@ -151,11 +154,14 @@ def test_every_feature_has_a_message_and_only_plugin_jobs_runs_locally():
             "bake",
             "clash_check",
             "clash_detail",
+            "component_build",
+            "conversion",
             "export_selection",
             "plugin_jobs",
             "procedural_build",
             "result_meta",
             "simulation",
+            "utilities",
         }
     )
 
@@ -170,13 +176,12 @@ def test_every_feature_has_a_message_and_only_plugin_jobs_runs_locally():
 #: table, which is the one thing this is guarding against.
 PREEXISTING_503 = {
     "bbox_inference": "bbox inference disabled (no NATS configured)",
-    "component_build": "component build disabled (no NATS configured)",
-    "conversion": "conversion disabled (no NATS configured)",
+    # An admin audit sweep measures worker pools: the gate its routes always answered.
+    "audit_conversion": "conversion disabled (no NATS configured)",
     "job_status_report": "no job queue configured",
     "procedural_export": "procedural export disabled (no NATS configured)",
     "procedural_import": "procedural import disabled (no NATS configured)",
     "procedural_relocations": "procedural relocations disabled (no NATS configured)",
-    "utilities": "utilities disabled (no NATS configured)",
     "worker_registry": "worker registry requires a NATS-backed queue",
 }
 
@@ -205,10 +210,12 @@ async def test_submitting_an_unsupported_job_kind_refuses_it_by_feature():
 
     with pytest.raises(HTTPException) as exc:
         await LocalJobTransport(None).submit(
-            JobRequest(source_key="x.step", target_format="glb", scope=Scope.shared(), feature="conversion")
+            JobRequest(
+                source_key="x.step", target_format="equipment_bbox", scope=Scope.shared(), feature="bbox_inference"
+            )
         )
     assert exc.value.status_code == 503
-    assert exc.value.detail == "conversion disabled (no NATS configured)"
+    assert exc.value.detail == "bbox inference disabled (no NATS configured)"
 
 
 # --------------------------------------------------------------------------

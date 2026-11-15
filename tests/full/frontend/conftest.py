@@ -3,6 +3,7 @@ import contextlib
 import http.server
 import os
 import subprocess
+import sys
 import threading
 from dataclasses import dataclass
 
@@ -48,6 +49,8 @@ class MockWSClient:
 @pytest.fixture(scope="session", autouse=True)
 def ensure_playwright_installed():
     """For every browser test in this directory, whichever file runs first."""
+    if sys.platform != "linux":
+        return  # the browser tests are deselected off Linux (tests/conftest.py)
     with sync_playwright() as playwright:
         try:
             # Try getting the executable path of Chromium
