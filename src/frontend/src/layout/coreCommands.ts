@@ -131,6 +131,12 @@ const activeSelectionBox = () => {
 };
 // With no 3D view there is nothing selected either, and that is the reason a user recognises.
 const nothingSelected = () => ((activeViewport()?.selectionCount() ?? 0) === 0 ? "Nothing selected" : null);
+/** Cells selected in the open procedural builder: Fit selection frames them (fitSelectionView), though
+ *  they are not the viewer's selection (selectionCount()). */
+const builderHasSelection = () => {
+  const cb = useCellBuilderStore.getState();
+  return cb.active !== null && cb.selection !== null && cb.selectedCellIds.length > 0;
+};
 
 /** The procedural builder takes Ctrl+Z / Ctrl+Y for its own history while it is open. */
 const builderOwnsHistory = () => (useCellBuilderStore.getState().active !== null ? "The procedural builder has its own undo" : null);
@@ -409,7 +415,7 @@ export function coreCommandSpecs(): CommandSpec[] {
       label: "Fit selection",
       group: "View",
       shortcut: "core:fit-selection",
-      disabledReason: () => noViewport() ?? activeViewport()?.unavailable("fit-selection") ?? nothingSelected(),
+      disabledReason: () => noViewport() ?? activeViewport()?.unavailable("fit-selection") ?? (builderHasSelection() ? null : nothingSelected()),
       run: () => activeViewport()?.fitSelection(),
     },
     {
