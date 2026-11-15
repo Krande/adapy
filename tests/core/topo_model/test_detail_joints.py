@@ -37,7 +37,9 @@ def test_girder_joint_pass_adds_joints_part_with_plate_and_welds():
     plates = list(joints_part.get_all_physical_objects(by_type=ada.Plate))
     welds = list(joints_part.get_all_welds())
     assert len(plates) == 1, f"expected one gusset plate, got {len(plates)}"
-    assert len(welds) == 2, f"expected two weld beads, got {len(welds)}"
+    # An L corner: G2 ends at G1, so an end plate with a fillet on each flange either side of it --
+    # the plate to G1's top and bottom flanges, G2's top and bottom flanges to the plate.
+    assert len(welds) == 4, f"expected four weld beads, got {len(welds)}"
 
 
 def test_sim_assembly_has_no_joints_part():
