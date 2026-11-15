@@ -174,15 +174,18 @@ async def _open_viewer(playwright, ws_server, backend: str, init_script: str | N
     if query != "three" and not await page.evaluate(HAS_ADAPTER):
         await browser.close()
         pytest.skip("this Chromium offers no WebGPU adapter")
-    await _until_ready_for_a_scene(page, ws_server, empty_pixels)
+    await _until_ready_for_a_scene(page, ws_server, empty_pixels, f"the {backend} viewer", console)
     return browser, page, state
 
 
-async def _until_ready_for_a_scene(page: Page, ws_server, empty_pixels: int = 500000) -> None:
+async def _until_ready_for_a_scene(
+    page: Page, ws_server, empty_pixels: int = 500000, what: str = "the viewer", console: list[str] | None = None
+) -> None:
     """Wait until the viewer page is live on the websocket and its viewport is up: after it opens, and
-    again after a reload, whose page has to connect anew before a model sent to it reaches it."""
+    again after a reload, whose page has to connect anew before a model sent to it reaches it. `what`
+    names the page in a timeout's message, which `console` (the page's, `capture_console`) follows."""
     async with WebSocketClientAsync(ws_server.host, ws_server.port, "local") as ws_client:
-        await wait_until_live(ws_client, f"the {backend} viewer", target_id=1, console=console)
+        await wait_until_live(ws_client, what, target_id=1, console=console)
     # Live on the socket is not yet ready for a scene: the viewport (grid, gizmo) has to be up, or the
     # first model sent is dropped.
     await _until(page, lambda: _viewport_ready(page, empty_pixels), "the empty viewport")
