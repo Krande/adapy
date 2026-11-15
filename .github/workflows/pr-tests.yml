@@ -86,8 +86,42 @@ jobs:
             done
             dpkg -s mesa-vulkan-drivers > /dev/null
 
+        # The browser tests have their own job (`browser` below), so they run once, in parallel.
         - name: Runs Tests
-          run: pixi run -e tests test-quick
+          run: pixi run -e tests test-quick -m "not browser"
+
+    # The Playwright browser tests (tests/full/frontend), Linux only: on the Windows and macOS
+    # runners they render in software, took most of the run, and covered nothing Linux doesn't.
+    browser:
+        name: Browser tests (Playwright)
+        runs-on: ubuntu-latest
+        defaults:
+          run:
+            shell: bash -l {0}
+        steps:
+        - uses: actions/checkout@v7
+          with:
+            ref: ${{ github.event.pull_request.head.sha || github.ref }}
+
+        - uses: prefix-dev/setup-pixi@v0.11.3
+          with:
+            pixi-version: v0.81.0
+            environments: tests
+            cache: true
+
+        # Software Vulkan, so the adacpp WebGPU viewport has an adapter: see the `test` job.
+        - name: Install offscreen render deps (wgpu software Vulkan)
+          run: |
+            for i in 1 2 3; do
+              sudo apt-get update && sudo apt-get install -y --no-install-recommends mesa-vulkan-drivers libvulkan1 && break
+              echo "apt failed (attempt $i): switching to another mirror"
+              printf 'https://mirrors.kernel.org/ubuntu/\tpriority:1\n' | sudo tee /etc/apt/apt-mirrors.txt
+              sleep 10
+            done
+            dpkg -s mesa-vulkan-drivers > /dev/null
+
+        - name: Run browser tests
+          run: pixi run -e tests test-browser
 
     # The FEM half: tests/fem writes decks and runs the free solvers on them (Calculix and
     # Code_Aster; Abaqus and Sestra legs skip where they are not installed). Linux AND Windows,

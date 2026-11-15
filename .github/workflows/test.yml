@@ -66,8 +66,9 @@ jobs:
       - name: Run Build latest web
         run: pixi run wbuild
 
+      # The browser tests run once, in pr-tests.yml's `browser` job.
       - name: Run Tests
-        run: pixi run -e tests test-full
+        run: pixi run -e tests test-full -m "not browser"
 
   test-fem:
     name: Test ada-py-fem

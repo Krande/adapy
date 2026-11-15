@@ -20,6 +20,7 @@ from .test_render_backends import (
     _pixels,
     _row_of_boxes,
     _until,
+    _until_ready_for_a_scene,
 )
 
 
@@ -156,7 +157,9 @@ async def test_a_selection_box_is_one_step_and_survives_a_reload(ws_server, back
             # reload: the box comes back with the page, and is over the same object once the model is
             await page.reload()
             await _until(page, lambda: page.evaluate("document.readyState === 'complete'"), "the page to load")
-            await page.wait_for_timeout(1500)
+            # The reloaded page connects to the websocket anew, and a model sent before it has (or
+            # before its viewport is up) is lost: wait as for a page just opened, not a fixed while.
+            await _until_ready_for_a_scene(page, ws_server)
             await _show_row_of_boxes(page, ws_server)
             if backend == NATIVE:
                 assert await page.evaluate("document.documentElement.dataset.nativeViewport") == "active"
