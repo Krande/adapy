@@ -19,6 +19,8 @@ import ada
 from ada.comms.web.serve import start_serving
 from ada.comms.wsock.client_async import WebSocketClientAsync
 
+from ._live import capture_console, wait_until_live
+
 # WebGPU in headless Chromium, with or without a GPU in the machine: Vulkan on the bundled software
 # implementation (SwiftShader). Without `--use-vulkan=swiftshader` a machine with no GPU (a CI runner)
 # still offers an adapter, but the device is destroyed right after its first frame.
@@ -140,6 +142,7 @@ async def _open_viewer(playwright, ws_server, backend: str, init_script: str | N
     query, perf, state = BACKENDS.get(backend, (backend, {}, "off"))
     browser = await playwright.chromium.launch(headless=True, args=CHROMIUM_ARGS)
     page = await browser.new_page(viewport=VIEWPORT)
+    console = capture_console(page)
     await page.add_init_script(COUNT_WEBGL)
     if init_script:
         await page.add_init_script(init_script)
@@ -152,12 +155,7 @@ async def _open_viewer(playwright, ws_server, backend: str, init_script: str | N
         await browser.close()
         pytest.skip("this Chromium offers no WebGPU adapter")
     async with WebSocketClientAsync(ws_server.host, ws_server.port, "local") as ws_client:
-        for _ in range(100):
-            if await ws_client.check_target_liveness(target_id=1):
-                break
-            await asyncio.sleep(0.1)
-        else:
-            raise AssertionError("the viewer never became live on the websocket")
+        await wait_until_live(ws_client, f"the {backend} viewer", target_id=1, console=console)
     # Live on the socket is not yet ready for a scene: the viewport (grid, gizmo) has to be up, or the
     # first model sent is dropped.
     await _until(page, lambda: _viewport_ready(page, empty_pixels), "the empty viewport")
