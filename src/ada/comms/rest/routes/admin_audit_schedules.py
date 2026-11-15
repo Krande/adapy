@@ -180,7 +180,7 @@ async def admin_audit_schedules_fire_now(
     still fires as planned. Useful for testing a freshly-created
     schedule or for backfilling after fixing a broken corpus.
     """
-    ctx.jobs.require("conversion")
+    ctx.jobs.require("audit_conversion")
     pool = require_pool(request)
     row = await db_module.get_audit_schedule(pool, schedule_id)
     if row is None or row["archived_at"] is not None:

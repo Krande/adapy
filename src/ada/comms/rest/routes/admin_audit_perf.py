@@ -534,7 +534,7 @@ async def start_issue_recheck(
             entry["fps"][fp] = cells
 
     if runs:
-        ctx.jobs.require("conversion")
+        ctx.jobs.require("audit_conversion")
     started: list[dict] = []
     for (scope_str, worker_pool), entry in runs.items():
         kind, _, ident = scope_str.partition(":")

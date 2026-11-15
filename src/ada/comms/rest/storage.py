@@ -35,7 +35,7 @@ import subprocess
 import time
 import zlib
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import timedelta
 from typing import AsyncIterator
 
@@ -43,7 +43,7 @@ import obstore as obs
 from obstore.exceptions import NotFoundError as _ObstoreNotFound
 from obstore.store import LocalStore, S3Store
 
-from .config import Settings
+from .config import LocalConfig, S3Config, Settings
 from .scope import Scope
 
 logger = logging.getLogger(__name__)
@@ -201,12 +201,53 @@ class Storage:
         self._presign_store = presign_store if presign_store is not None else store
         # Trim trailing slashes so callers can treat it as a directory.
         self._prefix = prefix.strip("/")
+        # How this store was configured, when it was (``from_settings``): what a job process
+        # needs to open the same store (``process_spec``).
+        self._spec: dict | None = None
+
+    def process_spec(self) -> dict | None:
+        """A JSON-able description another process can open this same store from
+        (``from_spec``), or None when it cannot be described.
+
+        A queue-less server runs each heavy job in a child process of its own environment
+        (``ada.comms.rest.local_runner``); the child reads the source and writes the results
+        through this store directly, as a worker does, rather than relaying the bytes through the
+        server. A store built from settings carries them; a bare filesystem store is described by
+        its root; anything else (a test double) is not describable.
+        """
+        if self._spec is not None:
+            return dict(self._spec)
+        root = getattr(self._store, "prefix", None) if isinstance(self._store, LocalStore) else None
+        if root is None:
+            return None
+        return {"storage_kind": "local", "s3": None, "local": {"path": str(root), "prefix": self._prefix}}
+
+    @classmethod
+    def from_spec(cls, spec: dict) -> "Storage":
+        """The store ``process_spec`` described."""
+        s3 = S3Config(**spec["s3"]) if spec.get("s3") else None
+        local = LocalConfig(**spec["local"]) if spec.get("local") else None
+        return cls._from_config(str(spec.get("storage_kind") or "local"), s3, local)
 
     @classmethod
     def from_settings(cls, settings: Settings) -> "Storage":
-        if settings.storage_kind == "s3":
-            assert settings.s3 is not None
-            cfg = settings.s3
+        return cls._from_config(settings.storage_kind, settings.s3, settings.local)
+
+    @classmethod
+    def _from_config(cls, storage_kind: str, s3: S3Config | None, local: LocalConfig | None) -> "Storage":
+        inst = cls._build(storage_kind, s3, local)
+        inst._spec = {
+            "storage_kind": storage_kind,
+            "s3": asdict(s3) if s3 is not None else None,
+            "local": asdict(local) if local is not None else None,
+        }
+        return inst
+
+    @classmethod
+    def _build(cls, storage_kind: str, s3: S3Config | None, local: LocalConfig | None) -> "Storage":
+        if storage_kind == "s3":
+            assert s3 is not None
+            cfg = s3
             kwargs: dict[str, object] = {
                 "region": cfg.region,
                 "virtual_hosted_style_request": cfg.virtual_hosted_style,
@@ -245,8 +286,8 @@ class Storage:
 
             return cls(store, prefix=cfg.prefix, presign_store=presign_store)
 
-        assert settings.local is not None
-        return cls(LocalStore(settings.local.path), prefix=settings.local.prefix)
+        assert local is not None
+        return cls(LocalStore(local.path), prefix=local.prefix)
 
     def _scope_prefix(self, scope: Scope) -> str:
         """Combine the deployment-level base prefix with the scope's

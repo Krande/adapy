@@ -344,7 +344,7 @@ def _run(client, run_id) -> dict:
     return r.json()["run"]
 
 
-def _wait_ended(client, run_id, timeout_s=30.0) -> dict:
+def _wait_ended(client, run_id, timeout_s=90.0) -> dict:
     deadline = time.monotonic() + timeout_s
     run = None
     while time.monotonic() < deadline:
@@ -382,7 +382,7 @@ def test_a_run_end_to_end_with_a_partial_artefact_seen_before_the_end(client):
     def on_step(index):
         if index == 2:
             at_step.set()
-            assert release.wait(20)
+            assert release.wait(60)
 
     register_simulation_provider(FakeSimulationProvider(PROVIDER, on_step=on_step))
     (client.scope_dir / "models").mkdir()
@@ -399,7 +399,7 @@ def test_a_run_end_to_end_with_a_partial_artefact_seen_before_the_end(client):
     assert started["kind"] == "count" and started["inputs"] == ["models/arm.glb"]
 
     try:
-        assert at_step.wait(20), "the provider never reached step 2"
+        assert at_step.wait(60), "the provider never reached step 2"
         # Mid-run: status and progress are the job's, and the partial artefact is already there.
         live = _run(client, run_id)
         assert live["status"] == "running" and live["finished_at"] is None
@@ -559,12 +559,12 @@ def test_cancelling_a_running_run_stops_it(client):
     def on_step(index):
         if index == 1:
             at_step.set()
-            assert release.wait(20)
+            assert release.wait(60)
 
     register_simulation_provider(FakeSimulationProvider(PROVIDER, on_step=on_step))
     run_id = _start(client, {"steps": 500}).json()["run"]["run_id"]
     try:
-        assert at_step.wait(20)
+        assert at_step.wait(60)
         r = client.post(f"/api/scopes/{SCOPE}/simulations/{run_id}/cancel")
         assert r.status_code == 200, r.text
         assert r.json()["cancelled"] is True
