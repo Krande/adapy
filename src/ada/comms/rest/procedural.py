@@ -710,4 +710,19 @@ def validate_doc(doc: dict) -> dict:
     # `TopoEquipment(**e)` reconstruction (adapy-default compile.py + a capability
     # engine's procedural_engine) raise, silently dropping equipment/openings. Dropping
     # None-valued keys lets field defaults reapply cleanly on reconstruction.
-    return model.model_dump(mode="json", exclude_none=True)
+    out = model.model_dump(mode="json", exclude_none=True)
+    return _keep_unset_include(doc, out)
+
+
+def _keep_unset_include(doc: dict, out: dict) -> dict:
+    """In a procedural doc a missing ``INCLUDE`` means included; only an explicit false excludes.
+    The entity models default it to False (their meaning outside a doc), so the dump writes
+    ``INCLUDE: false`` for a space, equipment or opening that never set it: drop it again there, as
+    the shallow normalizer leaves it, so nothing reads as excluded that nobody excluded."""
+    for key in ("spaces", "equipments", "openings"):
+        given = doc.get(key) or []
+        dumped = out.get(key) or []
+        for src, entry in zip(given, dumped):
+            if isinstance(src, dict) and src.get("INCLUDE") is None and isinstance(entry, dict):
+                entry.pop("INCLUDE", None)
+    return out

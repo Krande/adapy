@@ -533,11 +533,21 @@ def test_compile_missing_coords_raises():
         compile_procedural_doc({"spaces": [{"NAME": "Cell1"}]}, blueprint_name="none")
 
 
-def test_from_dict_leaves_out_an_unticked_structure():
-    # The viewer's Model panel unticks a structure with `include: false` on its group: its spaces and
-    # the equipment placed in them are left out of the compile. A single entity's INCLUDE is not read
-    # by the built-in engine (a normalized doc says false for everything that never set it).
+def test_from_dict_leaves_out_what_the_doc_excludes():
+    # The viewer's Compile builds only what is included: an entity with INCLUDE false (the workbook's
+    # column, or the Model panel's checkbox) is left out, a missing INCLUDE means included. A group
+    # with include false (an unticked structure) takes its spaces and the equipment in them with it.
     from ada.topo_model.builder import ProceduralBuilder
+
+    built = ProceduralBuilder.from_dict(DOC, name="m")
+    assert [s.NAME for s in built.spaces] == ["Cell1", "Cell2"] and [e.NAME for e in built.equipments] == ["P1"]
+
+    no_pump = {**DOC, "equipments": [{**DOC["equipments"][0], "INCLUDE": False}]}
+    assert ProceduralBuilder.from_dict(no_pump, name="m").equipments == []
+
+    no_cell1 = {**DOC, "spaces": [{**DOC["spaces"][0], "INCLUDE": False}, DOC["spaces"][1]]}
+    b = ProceduralBuilder.from_dict(no_cell1, name="m")
+    assert [s.NAME for s in b.spaces] == ["Cell2"] and b.equipments == [], "the pump sat in Cell1"
 
     grouped = {
         **DOC,
@@ -548,11 +558,18 @@ def test_from_dict_leaves_out_an_unticked_structure():
         ],
     }
     b = ProceduralBuilder.from_dict(grouped, name="m")
-    assert [s.NAME for s in b.spaces] == ["Cell2"] and b.equipments == [], "the pump sat in Cell1, in A"
+    assert [s.NAME for s in b.spaces] == ["Cell2"] and b.equipments == []
+    assert _is_glb(compile_procedural_doc(no_pump, name="m"))
 
-    ticked = {**grouped, "groups": [{"name": "A", "blueprint": "steel_stru"}, {"name": "B", "blueprint": "steel_stru"}]}
-    assert [s.NAME for s in ProceduralBuilder.from_dict(ticked, name="m").spaces] == ["Cell1", "Cell2"]
 
-    normalized = {**DOC, "spaces": [{**s, "INCLUDE": False} for s in DOC["spaces"]]}
-    assert len(ProceduralBuilder.from_dict(normalized, name="m").spaces) == 2, "an entity INCLUDE false is not read"
-    assert _is_glb(compile_procedural_doc(grouped, name="m"))
+def test_the_doc_normalizer_keeps_an_unset_include_unset():
+    # In a procedural doc a missing INCLUDE means included: validate_doc must not write the entity
+    # models' default (False) for it, or every such item would read as excluded. An explicit value stays.
+    procedural = pytest.importorskip("ada.comms.rest.procedural")
+    out = procedural.validate_doc({**DOC, "spaces": [DOC["spaces"][0], {**DOC["spaces"][1], "INCLUDE": False}]})
+    assert "INCLUDE" not in out["spaces"][0] and out["spaces"][1]["INCLUDE"] is False
+    assert "INCLUDE" not in out["equipments"][0]
+    assert [
+        s.NAME
+        for s in __import__("ada.topo_model.builder", fromlist=["x"]).ProceduralBuilder.from_dict(out, name="m").spaces
+    ] == ["Cell1"]
