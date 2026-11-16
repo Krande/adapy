@@ -18,6 +18,8 @@ export interface DragState {
     axis: 0 | 1 | 2;
     positiveFace: boolean;
     startBox: CellBox;
+    /** The box's rotation at drag start (equipment): its faces move along its own axes. */
+    rotation?: Vec3;
     // line through the face center along the face axis, world coords
     lineOrigin: THREE.Vector3;
     lineDir: THREE.Vector3;

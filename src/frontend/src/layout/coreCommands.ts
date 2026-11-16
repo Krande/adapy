@@ -73,6 +73,7 @@ import {openFemConcepts, toggleColorLegend, toggleDataTable} from "./resultViewA
 import {markingMenuMounted, openMarkingMenu, servedMarkingMenu, setMarkingMenuOn} from "./markingMenuState";
 import {activeRail, openRailCustomise} from "./toolRailState";
 import {FEA_ELEMENT_SETS_ID, FEA_SETS_ROOT_ID, elementSetFromRowId} from "@/utils/scene/fea/feaTreeRows";
+import {equipmentCadFitted, resizeRefusal} from "@/utils/cellbuilder/cellResize";
 
 /** Element sets the FEA rows list (here, or the main window's in a pop-out). */
 function feaSetCount(): number {
@@ -155,12 +156,19 @@ function selectedComponentKind(s: BuilderState): "cell" | "equipment" | "loft" |
   return s.selection ? (s.cells[s.selection.cellId]?.kind ?? null) : null;
 }
 
-/** Which components a gizmo works on (the G / R / S keys): rotate is for equipment, resize for cells. */
+/** Which components a gizmo works on (the G / R / S keys): rotate is for equipment; resize
+ *  for spaces, openings and equipment, and a selected component it refuses says why. */
 const GIZMO_TARGETS: Readonly<Record<GizmoKind, {kinds: readonly string[]; need: string}>> = {
   translate: {kinds: ["cell", "equipment", "loft", "opening"], need: "Select a cell or equipment to move"},
   rotate: {kinds: ["equipment"], need: "Select equipment to rotate"},
-  resize: {kinds: ["cell"], need: "Select a cell to resize"},
+  resize: {kinds: ["cell", "equipment", "opening"], need: "Select a cell, an opening or equipment to resize"},
 };
+
+/** Why the resize gizmo refuses the selected component (a loft band, a CAD-fitted equipment), or null. */
+function resizeRefusedFor(s: BuilderState): string | null {
+  const cell = s.selection ? s.cells[s.selection.cellId] : undefined;
+  return cell ? resizeRefusal(cell.kind, {cadFitted: equipmentCadFitted(cell, s)}) : null;
+}
 
 /** One builder gizmo: pressing it brings it up on the selection, pressing it again puts it away. */
 function builderGizmo(id: string, label: string, kind: GizmoKind): CommandSpec {
@@ -174,7 +182,11 @@ function builderGizmo(id: string, label: string, kind: GizmoKind): CommandSpec {
       const s = useCellBuilderStore.getState();
       const target = GIZMO_TARGETS[kind];
       const k = selectedComponentKind(s);
-      return builderReadOnly() ?? (k && target.kinds.includes(k) ? null : target.need);
+      return (
+        builderReadOnly() ??
+        (kind === "resize" ? resizeRefusedFor(s) : null) ??
+        (k && target.kinds.includes(k) ? null : target.need)
+      );
     },
     run: () => {
       const s = useCellBuilderStore.getState();

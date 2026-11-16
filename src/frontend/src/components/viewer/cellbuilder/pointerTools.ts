@@ -11,26 +11,34 @@ import * as THREE from "three";
 import {useCellBuilderStore, type BuilderCell} from "@/state/cellBuilderStore";
 import {requestRender} from "@/state/perfStore";
 import {getViewerRuntime} from "@/state/viewerRuntime";
-import {BOX_FACE_SIDES, applyFaceOffset, edgeHitOnFace, quantize, snapBox, type CellBox, type EdgeHit, type Vec3} from "@/utils/cellbuilder/snap";
+import {BOX_FACE_SIDES, edgeHitOnFace, quantize, snapBox, type CellBox, type EdgeHit, type Vec3} from "@/utils/cellbuilder/snap";
 import {DRAG_START_PX, GHOST_COLOR, LONG_PRESS_MOVE_PX, LONG_PRESS_MS, OPENING_COLOR, addModeSize} from "./sceneConstants";
 import {offsetVec, worldToModel, type CellBuilderScene} from "./sceneContext";
 import {lineParamFromRay} from "./geometryHelpers";
 import {refreshEdgeOverlays, refreshFaceStyles} from "./overlays";
 import {applyCellTranslate, cellCenterModel, computeMove, endModalMove, equipContainedIn, showSnapMarker} from "./cellGizmo";
 import {pickPort} from "./portGizmo";
+import {resizable} from "./resizeHandles";
+import {boxFrameMatrix, isRotated, resizeBoxFace} from "@/utils/cellbuilder/cellResize";
 import {viewportInputElement} from "@/viewport/input";
 
 export const startFaceDrag = (ctx: CellBuilderScene, cell: BuilderCell, faceIndex: number, ev: PointerEvent, immediate: boolean): boolean => {
-    // Equipment is sized by its type — never face-drag-resized in the scene.
-    if (cell.kind !== "cell") return false;
+    // A loft band or a CAD-fitted equipment box is not resized (cellResize.ts).
+    if (!resizable(ctx, cell)) return false;
     const side = BOX_FACE_SIDES[faceIndex];
     if (!side) return false;
+    // A rotated equipment's faces move along its own axes: the drag line runs through
+    // its (rotated) centre along the turned axis.
+    const rotation = cell.kind === "equipment" && isRotated(cell.rotation) ? ([...cell.rotation] as Vec3) : undefined;
+    const frame = boxFrameMatrix(cell, rotation);
     const center = new THREE.Vector3(
         cell.origin[0] + cell.size[0] / 2,
         cell.origin[1] + cell.size[1] / 2,
         cell.origin[2] + cell.size[2] / 2,
-    ).add(offsetVec(ctx));
-    const lineDir = new THREE.Vector3(side.axis === 0 ? 1 : 0, side.axis === 1 ? 1 : 0, side.axis === 2 ? 1 : 0);
+    )
+        .applyMatrix4(frame)
+        .add(offsetVec(ctx));
+    const lineDir = new THREE.Vector3(side.axis === 0 ? 1 : 0, side.axis === 1 ? 1 : 0, side.axis === 2 ? 1 : 0).transformDirection(frame);
     const startT = lineParamFromRay(ctx.raycaster.ray, center, lineDir);
     if (startT === null) return false;
     ctx.drag = {
@@ -39,6 +47,7 @@ export const startFaceDrag = (ctx: CellBuilderScene, cell: BuilderCell, faceInde
         axis: side.axis,
         positiveFace: side.positive,
         startBox: {origin: [...cell.origin], size: [...cell.size]},
+        rotation,
         lineOrigin: center,
         lineDir,
         startT,
@@ -295,7 +304,12 @@ export const onPointerDown = (ctx: CellBuilderScene, ev: PointerEvent) => {
     // Resize enabled: begin a pending face-drag that becomes a real drag
     // after DRAG_START_PX of travel, or a selection click on a bare
     // pointerup. Stop propagation so the drag owns the pointer, not orbit.
-    if (!startFaceDrag(ctx, cell, hit.face.materialIndex, ev, false)) return;
+    // A component that does not resize (a loft band, a CAD-fitted box) still selects
+    // on a tap, as with face-drag resizing off.
+    if (!startFaceDrag(ctx, cell, hit.face.materialIndex, ev, false)) {
+        ctx.pendingSelect = {cellId, faceIndex: hit.face.materialIndex, x: ev.clientX, y: ev.clientY};
+        return;
+    }
     ev.stopPropagation();
 };
 
@@ -414,7 +428,7 @@ export const onPointerMove = (ctx: CellBuilderScene, ev: PointerEvent) => {
         // signed face displacement along +axis; applyFaceOffset knows which
         // face moves (positive face scales size, negative face shifts origin)
         const offset = quantize(t - ctx.drag.startT, st.gridStep);
-        const next = applyFaceOffset(ctx.drag.startBox, ctx.drag.axis, ctx.drag.positiveFace, offset, st.gridStep || 0.1);
+        const next = resizeBoxFace(ctx.drag.startBox, ctx.drag.rotation, ctx.drag.axis, ctx.drag.positiveFace, offset, st.gridStep || 0.1);
         st.updateCell(ctx.drag.cellId, {origin: next.origin, size: next.size});
         ev.stopPropagation();
         return;

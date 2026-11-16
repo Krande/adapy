@@ -1,13 +1,15 @@
 /**
  * The selected cell's three dimensions while the RESIZE (S) gizmo is on.
  *
- * One dimension line per axis, along an edge of the box facing the camera and set just
- * outside it: dashed, an arrowhead at each end, the length in the middle ("6.875m"), in
- * the axis colour of the resize handles (X red, Y green, Z blue). The labels are
- * screen-space sprites drawn over everything, so they stay readable at any zoom and are
- * never hidden behind the box. Rebuilt with the resize handles (`syncGizmo` runs on every
- * cell change, so the numbers follow a drag live, snapped), and moved to the edges facing
- * the camera as it orbits.
+ * One dimension line per axis, along an edge of the box facing the camera and
+ * set just outside it: dashed, an arrowhead at each end, the length in the middle
+ * ("6.875m"), in the axis colour of the resize handles (X red, Y green, Z blue). A rotated
+ * equipment box gets them in its own (rotated) frame. Rebuilt with the resize handles
+ * (`syncGizmo` runs on every cell change, so the numbers follow a drag live, snapped), and
+ * moved to the edges facing the camera as it orbits.
+ *
+ * The labels are screen-space sprites drawn over everything, so they stay readable at any
+ * zoom and are never hidden behind the box.
  */
 
 import * as THREE from "three";
@@ -101,9 +103,99 @@ function labelTexture(text: string, color: number): THREE.CanvasTexture {
     return tex;
 }
 
-/** Remove and free the dimension lines. */
-export function disposeCellDimensions(ctx: CellBuilderScene): void {
-    const group = ctx.dimensionGroup;
+/** One drawn dimension line: the dashed shaft, its arrowheads and its label. */
+interface DimensionPart {
+    axis: 0 | 1 | 2;
+    line: THREE.Line;
+    heads: THREE.Mesh[];
+    headLen: number;
+    label: THREE.Sprite;
+    /** Arrowheads at both ends (a dimension) or only at the far end (a move). */
+    bothEnds: boolean;
+}
+
+/**
+ * Add a dimension line along `axis` to `group`: dashed, arrowheaded, labelled `text`, in
+ * the axis colour. `scale` (the box's largest size) sets the dash and arrowhead sizes.
+ */
+function addDimension(
+    group: THREE.Group,
+    axis: 0 | 1 | 2,
+    length: number,
+    text: string,
+    scale: number,
+    bothEnds: boolean,
+): DimensionPart {
+    const color = HANDLE_AXIS_COLOR[axis];
+    const geom = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
+    const line = new THREE.Line(
+        geom,
+        new THREE.LineDashedMaterial({
+            color,
+            dashSize: Math.max(0.05, scale / 40),
+            gapSize: Math.max(0.035, scale / 60),
+            depthTest: false,
+            transparent: true,
+        }),
+    );
+    line.renderOrder = LINE_RENDER_ORDER;
+    line.frustumCulled = false;
+    // Arrowheads: cones pointing out along the axis, sized to the box (and to the line,
+    // so a short one keeps a visible shaft).
+    const headLen = Math.min(Math.max(0.12, scale / 25), Math.abs(length) * 0.3);
+    const head = (): THREE.Mesh => {
+        const cone = new THREE.Mesh(
+            new THREE.ConeGeometry(headLen * 0.35, headLen, 12),
+            new THREE.MeshBasicMaterial({color, depthTest: false, transparent: true}),
+        );
+        cone.renderOrder = LINE_RENDER_ORDER;
+        return cone;
+    };
+    const heads = bothEnds ? [head(), head()] : [head()];
+    const label = new THREE.Sprite(
+        new THREE.SpriteMaterial({
+            map: labelTexture(text, color),
+            depthTest: false,
+            transparent: true,
+            sizeAttenuation: false,
+            toneMapped: false,
+        }),
+    );
+    label.scale.set(LABEL_SCALE[0], LABEL_SCALE[1], 1);
+    label.renderOrder = LABEL_RENDER_ORDER;
+    for (const o of [line, ...heads, label]) {
+        o.userData.__excludeFromFit = true;
+        group.add(o);
+    }
+    return {axis, line, heads, headLen, label, bothEnds};
+}
+
+/** Put a drawn dimension line from `from` to `to`, its arrowheads pointing out of the ends. */
+function placeDimension(part: DimensionPart, from: Vec3, to: Vec3): void {
+    const {axis, line, heads, headLen, label} = part;
+    const pos = line.geometry.getAttribute("position");
+    pos.setXYZ(0, ...from);
+    pos.setXYZ(1, ...to);
+    pos.needsUpdate = true;
+    line.geometry.computeBoundingSphere();
+    line.computeLineDistances();
+    const a = new THREE.Vector3(...from);
+    const b = new THREE.Vector3(...to);
+    const dir = to[axis] >= from[axis] ? 1 : -1;
+    const up = new THREE.Vector3(0, 1, 0);
+    const along = new THREE.Vector3().setComponent(axis, (dir * headLen) / 2);
+    const far = heads[heads.length - 1];
+    far.position.copy(b).sub(along);
+    far.quaternion.setFromUnitVectors(up, new THREE.Vector3().setComponent(axis, dir));
+    if (part.bothEnds) {
+        heads[0].position.copy(a).add(along);
+        heads[0].quaternion.setFromUnitVectors(up, new THREE.Vector3().setComponent(axis, -dir));
+    }
+    label.position.copy(a).add(b).multiplyScalar(0.5);
+}
+
+/** Remove and free everything drawn in `group`. */
+function disposeGroup(group: THREE.Group): void {
     for (let i = group.children.length - 1; i >= 0; i--) {
         const o = group.children[i];
         if (o instanceof THREE.Sprite) {
@@ -119,93 +211,48 @@ export function disposeCellDimensions(ctx: CellBuilderScene): void {
     group.visible = false;
 }
 
-const eyeIn = (ctx: CellBuilderScene): Vec3 | null => {
+/** Remove and free the resize dimension lines. */
+export function disposeCellDimensions(ctx: CellBuilderScene): void {
+    disposeGroup(ctx.dimensionGroup);
+}
+
+/** The camera position in `group`'s own frame (the cell's frame for a rotated box). */
+const eyeIn = (group: THREE.Group): Vec3 | null => {
     const cam = getViewerRuntime().camera.current;
     if (!cam) return null;
-    const p = ctx.dimensionGroup.parent
-        ? ctx.dimensionGroup.parent.worldToLocal(cam.getWorldPosition(new THREE.Vector3()))
-        : cam.getWorldPosition(new THREE.Vector3());
+    group.updateWorldMatrix(true, false);
+    const p = group.worldToLocal(cam.getWorldPosition(new THREE.Vector3()));
     return [p.x, p.y, p.z];
 };
 
-/** Show the dimension lines of `cell`, or none (null). */
-export function syncCellDimensions(ctx: CellBuilderScene, cell: CellBox | null, gap: number): void {
+/**
+ * Show the dimension lines of `cell`, or none (null). `frame` places the box's own
+ * (unrotated) frame in the scene: identity for an axis-aligned box, its rotation about the
+ * footprint centre for a rotated equipment.
+ */
+export function syncCellDimensions(
+    ctx: CellBuilderScene,
+    cell: CellBox | null,
+    gap: number,
+    frame: THREE.Matrix4 = new THREE.Matrix4(),
+): void {
     disposeCellDimensions(ctx);
     if (!cell) return;
-    const eye = eyeIn(ctx);
-    if (!eye) return;
     const group = ctx.dimensionGroup;
+    group.matrixAutoUpdate = false;
+    group.matrix.copy(frame);
+    const eye = eyeIn(group);
+    if (!eye) return;
     const maxSize = Math.max(...cell.size);
     const lines = dimensionLines(cell, eye, gap);
-    const parts: {line: THREE.Line; heads: [THREE.Mesh, THREE.Mesh]; headLen: number; label: THREE.Sprite}[] = [];
-    for (const d of lines) {
-        const color = HANDLE_AXIS_COLOR[d.axis];
-        const geom = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(...d.from), new THREE.Vector3(...d.to)]);
-        const line = new THREE.Line(
-            geom,
-            new THREE.LineDashedMaterial({
-                color,
-                dashSize: Math.max(0.05, maxSize / 40),
-                gapSize: Math.max(0.035, maxSize / 60),
-                depthTest: false,
-                transparent: true,
-            }),
-        );
-        line.computeLineDistances();
-        line.renderOrder = LINE_RENDER_ORDER;
-        line.frustumCulled = false;
-        // Arrowheads: cones pointing out along the axis, sized to the box (and to the line,
-        // so a thin cell keeps a visible shaft).
-        const headLen = Math.min(Math.max(0.12, maxSize / 25), d.length * 0.3);
-        const head = (outward: number): THREE.Mesh => {
-            const cone = new THREE.Mesh(
-                new THREE.ConeGeometry(headLen * 0.35, headLen, 12),
-                new THREE.MeshBasicMaterial({color, depthTest: false, transparent: true}),
-            );
-            cone.renderOrder = LINE_RENDER_ORDER;
-            cone.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3().setComponent(d.axis, outward));
-            return cone;
-        };
-        const heads: [THREE.Mesh, THREE.Mesh] = [head(-1), head(1)];
-        const label = new THREE.Sprite(
-            new THREE.SpriteMaterial({
-                map: labelTexture(formatLength(d.length), color),
-                depthTest: false,
-                transparent: true,
-                sizeAttenuation: false,
-                toneMapped: false,
-            }),
-        );
-        label.scale.set(LABEL_SCALE[0], LABEL_SCALE[1], 1);
-        label.renderOrder = LABEL_RENDER_ORDER;
-        for (const o of [line, ...heads, label]) {
-            o.userData.__excludeFromFit = true;
-            group.add(o);
-        }
-        parts.push({line, heads, headLen, label});
-    }
-    const place = (ds: DimensionLine[]) => {
-        ds.forEach((d, i) => {
-            const {line, heads, headLen, label} = parts[i];
-            const pos = line.geometry.getAttribute("position");
-            pos.setXYZ(0, ...d.from);
-            pos.setXYZ(1, ...d.to);
-            pos.needsUpdate = true;
-            line.computeLineDistances();
-            const a = new THREE.Vector3(...d.from);
-            const b = new THREE.Vector3(...d.to);
-            const along = new THREE.Vector3().setComponent(d.axis, headLen / 2);
-            heads[0].position.copy(a).add(along);
-            heads[1].position.copy(b).sub(along);
-            label.position.copy(a).add(b).multiplyScalar(0.5);
-        });
-    };
+    const parts = lines.map((d) => addDimension(group, d.axis, d.length, formatLength(d.length), maxSize, true));
+    const place = (ds: DimensionLine[]) => ds.forEach((d, i) => placeDimension(parts[i], d.from, d.to));
     place(lines);
     // Follow the camera round the box: the first line checks, before each frame, whether
     // another edge faces the camera now, and moves all three there (one more frame).
     let key = lines.map((d) => d.sides.join()).join("|");
     parts[0].line.onBeforeRender = () => {
-        const now = eyeIn(ctx);
+        const now = eyeIn(group);
         if (!now) return;
         const next = dimensionLines(cell, now, gap);
         const nextKey = next.map((d) => d.sides.join()).join("|");

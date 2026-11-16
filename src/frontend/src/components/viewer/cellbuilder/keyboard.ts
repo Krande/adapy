@@ -15,6 +15,7 @@ import {bandFaceIds} from "@/utils/cellbuilder/loft";
 import {BOX_FACE_SIDES, faceCenter, neighbourFaceInDirection, type Vec3} from "@/utils/cellbuilder/snap";
 import type {CellBuilderScene} from "./sceneContext";
 import {endModalMove} from "./cellGizmo";
+import {resizable} from "./resizeHandles";
 import {commitNumEntry, commitPlaceEntry, endNumEntry, endPlaceEntry, loftMemberByName, parseTyped, refreshNumEntry, refreshPlaceEntry} from "./numericEntry";
 import {commitOpenEntry, cycleEquipHost, endEquipEntry, endOpenEntry, refreshEquipEntry, refreshOpenEntry, setLoftActive, startCellExtrude, startEquipInsert, startLoftExtend, startLoftResize, startOpeningOnFace} from "./insertTools";
 
@@ -471,7 +472,8 @@ export const onKeyDown = (ctx: CellBuilderScene, ev: KeyboardEvent) => {
             }
         }
         // G/R/S activate the translate / rotate / resize gizmo (Blender keys):
-        // rotate is equipment-only, resize is cell-only (matches the menus).
+        // rotate is equipment-only; resize takes spaces, openings and equipment, not an
+        // equipment box fitted to its CAD model (matches the menus, cellResize.ts).
         if (!ev.shiftKey && cell && cell.kind !== "loft") {
             if (k === "g") {
                 st.setGizmoMode("translate");
@@ -485,7 +487,7 @@ export const onKeyDown = (ctx: CellBuilderScene, ev: KeyboardEvent) => {
                 ev.stopPropagation();
                 return;
             }
-            if (k === "s" && cell.kind === "cell") {
+            if (k === "s" && resizable(ctx, cell)) {
                 st.setGizmoMode("resize");
                 ev.preventDefault();
                 ev.stopPropagation();

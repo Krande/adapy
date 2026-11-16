@@ -154,7 +154,7 @@ export const CORE_SHORTCUTS: readonly CoreShortcutDef[] = [
   },
   { id: "core:builder-translate", keys: "G", label: "Translate gizmo (cell or equipment selected)", group: BUILDER, local: true },
   { id: "core:builder-rotate", keys: "R", label: "Rotate gizmo (equipment only)", group: BUILDER, local: true },
-  { id: "core:builder-resize", keys: "S", label: "Resize gizmo (cell only)", group: BUILDER, local: true },
+  { id: "core:builder-resize", keys: "S", label: "Resize gizmo (cell, opening or equipment)", group: BUILDER, local: true },
   { id: "core:builder-lock-x", keys: "X", label: "Lock the active gizmo to the X axis (press again to release)", group: BUILDER, local: true },
   { id: "core:builder-lock-y", keys: "Y", label: "Lock the active gizmo to the Y axis (press again to release)", group: BUILDER, local: true },
   { id: "core:builder-lock-z", keys: "Z", label: "Lock the active gizmo to the Z axis (press again to release)", group: BUILDER, local: true },

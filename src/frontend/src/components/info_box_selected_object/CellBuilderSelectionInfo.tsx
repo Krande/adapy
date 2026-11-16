@@ -6,6 +6,7 @@ import {
   type BuilderSelection,
 } from "@/state/cellBuilderStore";
 import { axisLabel, BOX_FACE_SIDES } from "@/utils/cellbuilder/snap";
+import { equipmentCadFitted, resizeRefusal } from "@/utils/cellbuilder/cellResize";
 import { bandFaceIds, type LoftBand } from "@/utils/cellbuilder/loft";
 import {
   addMetadataKey,
@@ -688,6 +689,9 @@ const SelectionSection: React.FC<{ selection: BuilderSelection }> = ({
   const setGizmoMode = useCellBuilderStore((s) => s.setGizmoMode);
   const insertOpeningOnFace = useCellBuilderStore((s) => s.insertOpeningOnFace);
   const setCellEnclosed = useCellBuilderStore((s) => s.setCellEnclosed);
+  // Whether an equipment's box follows its CAD model (no Resize then).
+  const equipmentCad = useCellBuilderStore((s) => s.equipmentCad);
+  const equipmentTypes = useCellBuilderStore((s) => s.equipmentTypes);
   // Cell grouping (per-group blueprints). Each of these is a stable reference
   // (array/string/function that only changes on mutation), so selecting them
   // directly is safe — see the unstable-selector note above.
@@ -766,18 +770,19 @@ const SelectionSection: React.FC<{ selection: BuilderSelection }> = ({
           >
             <span className="text-gray-300">gizmo</span>
             {
-              // Equipment is sized by its type — offer Move + Rotate, no Resize.
-              (cell.kind === "cell"
-                ? ([
-                    ["translate", "Move"],
-                    ["resize", "Resize"],
-                    ["none", "Off"],
-                  ] as const)
-                : ([
-                    ["translate", "Move"],
-                    ["rotate", "Rotate"],
-                    ["none", "Off"],
-                  ] as const)
+              // Move for all; Rotate for equipment; Resize for spaces, openings and
+              // equipment unless its box is fitted to its CAD model (cellResize.ts).
+              (
+                [
+                  ["translate", "Move"],
+                  ...(cell.kind === "equipment" ? ([["rotate", "Rotate"]] as const) : []),
+                  ...(resizeRefusal(cell.kind, {
+                    cadFitted: equipmentCadFitted(cell, { equipmentCad, equipmentTypes }),
+                  }) === null
+                    ? ([["resize", "Resize"]] as const)
+                    : []),
+                  ["none", "Off"],
+                ] as const
               ).map(([m, label]) => (
                 <button
                   key={m}
@@ -797,8 +802,8 @@ const SelectionSection: React.FC<{ selection: BuilderSelection }> = ({
           </div>
           {selection.kind === "face" && side && (
             <>
-              {/* Face-extend resizes the box — cells only; equipment is sized
-                  by its type. */}
+              {/* Face-extend grows a space's box (openings and equipment
+                  resize with the S gizmo). */}
               {cell.kind === "cell" && (
                 <div className="flex items-center gap-1">
                   <span className="text-gray-300">Extend by</span>
