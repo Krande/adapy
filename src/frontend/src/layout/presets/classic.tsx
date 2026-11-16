@@ -431,7 +431,8 @@ function ClassicFrame() {
   // recorded on every change. After the effect above, so a switch records the mode entered once it is open.
   React.useEffect(() => {
     if (!shellId) return;
-    const record = () => recordOpenPanels(isPanelOpen);
+    // For this context only: a recorder still subscribed after the context changed writes nothing.
+    const record = () => recordOpenPanels(isPanelOpen, ctx);
     record();
     const unsubs: Array<() => void> = [layoutStore.subscribe(record)];
     for (const p of listPanels()) {
