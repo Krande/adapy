@@ -2,6 +2,15 @@
 
 
 
+## v0.157.0 (2026-11-16)
+
+### Feature
+
+* feat: built-in specs and member lengths in the connection builder; straight weld seams in subjects (#556)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`6cf2fe7`](https://github.com/Krande/adapy/commit/6cf2fe70b3f83082801227e03c5583431871c65e))
+
+
 ## v0.156.0 (2026-11-15)
 
 ### Feature
