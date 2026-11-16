@@ -267,11 +267,12 @@ async def _run_procedural_relocations(
 
     # Resolve placed catalog equipment (by slug) to its per-scope definition, so a
     # candidate move keeps the equipment's real bbox/ports (matching the compile).
-    catalog = (
-        await db_module.get_equipment_docs_by_scope(db_pool, scope_kind=row["scope_kind"], scope_id=row["scope_id"])
-        if db_pool is not None
-        else {}
-    )
+    # From postgres, or (an in-process job on a server with no database: the model row was handed
+    # in) from the scope's catalog files (catalog_store.py), as the compile does.
+    from ..catalog_store import catalog_store
+
+    catalogs = catalog_store(db_pool, storage, local=model_row is not None)
+    catalog = await catalogs.equipment_docs(scope) if catalogs is not None else {}
 
     def _do_propose() -> bytes:
         result = propose_relocations(row["doc"], equipment_resolver=catalog.get)

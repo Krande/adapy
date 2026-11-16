@@ -177,19 +177,18 @@ async def _run_procedural_export_model(
     # Resolve placed catalog equipment (by slug) to its per-scope definition so the
     # equipment is faithful — an ada.Equipment with the catalog's bbox/mass/ports/IFC
     # class (IfcPump/IfcTank/…) and a Genie prism_shape — instead of an anonymous box.
-    catalog = (
-        await db_module.get_equipment_docs_by_scope(db_pool, scope_kind=row["scope_kind"], scope_id=row["scope_id"])
-        if db_pool is not None
-        else {}
-    )
+    # From postgres, or (an in-process job on a server with no database: the model row was handed
+    # in) from the scope's catalog files (catalog_store.py), as the compile does.
+    from ..catalog_store import catalog_store
+
+    catalogs = catalog_store(db_pool, storage, local=model_row is not None)
+    catalog = await catalogs.equipment_docs(scope) if catalogs is not None else {}
     # IFC + CAD-on: prefetch the linked CAD assets for the placed slugs so the
     # compiler can splice real geometry in place of the placeholder box body.
     cad_bytes: dict[str, tuple[bytes, str, bool]] = {}
-    if cad_equipment and db_pool is not None:
+    if cad_equipment and catalogs is not None:
         used = {(e.get("DESCRIPTION") or "").strip() for e in (doc.get("equipments") or [])}
-        cad_keys = await db_module.get_equipment_cad_keys_by_scope(
-            db_pool, scope_kind=row["scope_kind"], scope_id=row["scope_id"]
-        )
+        cad_keys = await catalogs.equipment_cad_keys(scope)
         for slug, cad_key in cad_keys.items():
             if slug and slug in used and cad_key:
                 try:
