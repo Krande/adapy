@@ -143,7 +143,7 @@ export function typePickerItems(
 ): TypePickerItem[] {
   return types.map((t) => ({
     key: t.slug,
-    label: `${t.name} (${t.origin === "code" ? "code" : "db"})`,
+    label: `${t.name} (${t.origin === "code" ? "code" : "catalog"})`,
     slug: t.slug,
     origin: t.origin,
   }));
