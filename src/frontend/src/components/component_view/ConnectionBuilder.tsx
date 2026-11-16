@@ -1,8 +1,8 @@
 // ConnectionBuilder — the studio side of `ada dev connections`, the Scene panel's
 // Connection tab: pick a spec from the served connection library, edit each member
-// (a beam's section, a plate's thickness and extent, the angle between them) and see
-// the joint rebuilt, on every edit here and on every saved change to the library's
-// files. Under the inputs, the joint that was built: its clash (also loaded into
+// (a beam's section, a plate's thickness and extent, the angle between them), build
+// the joint, and from then on see it rebuilt on every edit here and on every saved
+// change to the library's files. Nothing is built before Build is pressed. Under the inputs, the joint that was built: its clash (also loaded into
 // Scene > Clashes), its members and its welds -- each selectable in the scene.
 //
 // State lives in connectionBuilderStore; the live loop (event stream, debounced
@@ -15,8 +15,8 @@ import type { ComponentSpecRoleSchema } from "@/services/api/components";
 import type { ConnectionInputs, DevBuildResult, DevConnectionSpec } from "@/services/api/devConnections";
 import { connectionsBackend } from "@/services/api/devConnections";
 import {
+  buildNow,
   reloadLibrary,
-  requestBuild,
   restartLibrary,
   selectPreviewObjects,
   startConnectionBuilderSession,
@@ -55,6 +55,7 @@ export const ConnectionBuilderBody: React.FC = () => {
   const resetInputs = useConnectionBuilderStore((s) => s.resetInputs);
   const build = useConnectionBuilderStore((s) => s.build);
   const lastResult = useConnectionBuilderStore((s) => s.lastResult);
+  const live = useConnectionBuilderStore((s) => s.live);
 
   const spec: DevConnectionSpec | null = useMemo(
     () => library?.specs.find((x) => x.name === selectedSpec) ?? null,
@@ -127,11 +128,16 @@ export const ConnectionBuilderBody: React.FC = () => {
             <button
               type="button"
               className="bg-blue-600 hover:bg-blue-500 disabled:bg-gray-600 text-white rounded-sm px-3 py-1"
-              onClick={() => requestBuild(0)}
+              onClick={() => buildNow()}
               disabled={library.status !== "ready"}
-              title="Rebuild now (edits and saved changes rebuild on their own)"
+              title={
+                live
+                  ? "Rebuild now (edits and saved changes rebuild on their own)"
+                  : "Build the joint and show it in the scene; after that, edits and saved changes rebuild it"
+              }
+              data-connection-build
             >
-              Rebuild
+              {live ? "Rebuild" : "Build"}
             </button>
             <button
               type="button"
@@ -144,6 +150,9 @@ export const ConnectionBuilderBody: React.FC = () => {
             </button>
             <SimulateButton specName={spec.name} inputs={values} libraryStatus={library.status} />
           </div>
+          {!live && build.status === "idle" && (
+            <div className="text-[var(--ada-panel-text-muted)]">Nothing is built or placed in the scene until you press Build.</div>
+          )}
           <BuildStatus build={build} specName={spec.name} />
         </>
       )}

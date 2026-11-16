@@ -3,9 +3,10 @@
 //   * follow the served library's state (/api/dev/connections/events) into
 //     the store, and keep a valid spec selected across reloads (a spec that
 //     was renamed or removed falls back to the library's first);
-//   * rebuild the selected spec whenever the library reloads, the selection
-//     changes, or an input changes (debounced, so dragging a slider does not
-//     queue a build per pixel);
+//   * once a build has been asked for (`buildNow`: the panel's Build button, or the boot of
+//     `ada dev connections`), rebuild the selected spec whenever the library reloads, the
+//     selection changes, or an input changes (debounced, so dragging a slider does not queue a
+//     build per pixel). Until then nothing is built: opening the panel only lists the specs;
 //   * load each finished build into the scene, and only then drop the one it
 //     replaces, so the view never flashes empty and the camera stays put.
 //
@@ -71,7 +72,7 @@ export function startConnectionBuilderSession(): void {
       store.getState().setLibrary(event);
       keepSelectionValid(event);
       const reloaded = prev === null || prev.generation !== event.generation;
-      if (reloaded && event.status === "ready") requestBuild(0);
+      if (reloaded && event.status === "ready") rebuildIfLive(0);
     },
     () => store.getState().setConnected(false),
   );
@@ -86,8 +87,8 @@ export function startConnectionBuilderSession(): void {
   // Selection and input edits rebuild; the library's own updates are handled above. A toggled
   // overlay redraws over the preview on show.
   store.subscribe((s, prev) => {
-    if (s.selectedSpec !== prev.selectedSpec) requestBuild(0);
-    else if (s.inputsBySpec !== prev.inputsBySpec) requestBuild(INPUT_DEBOUNCE_MS);
+    if (s.selectedSpec !== prev.selectedSpec) rebuildIfLive(0);
+    else if (s.inputsBySpec !== prev.inputsBySpec) rebuildIfLive(INPUT_DEBOUNCE_MS);
     if (s.overlays !== prev.overlays) {
       const tintChanged =
         s.overlays.tintWelds !== prev.overlays.tintWelds ||
@@ -120,8 +121,19 @@ function keepSelectionValid(state: DevConnectionsState): void {
   s.selectSpec(first.name);
 }
 
+/** Build the selected spec now, because it was asked for; from here on the loop rebuilds on its own. */
+export function buildNow(): void {
+  useConnectionBuilderStore.getState().setLive(true);
+  requestBuild(0);
+}
+
+/** The loop's own rebuild: only once a build has been asked for (see `buildNow`). */
+function rebuildIfLive(delayMs: number): void {
+  if (useConnectionBuilderStore.getState().live) requestBuild(delayMs);
+}
+
 /** Rebuild the selected spec after `delayMs` (0: now); a newer request supersedes this one. */
-export function requestBuild(delayMs: number): void {
+function requestBuild(delayMs: number): void {
   if (debounce) clearTimeout(debounce);
   debounce = setTimeout(() => {
     debounce = null;
