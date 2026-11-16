@@ -2,6 +2,15 @@
 
 
 
+## v0.157.1 (2026-11-16)
+
+### Fix
+
+* fix(viewer): themed simulation and connection panels; the connection builder builds only when asked (#559)
+
+Co-authored-by: Claude Fable 5.2 &lt;noreply@anthropic.com&gt; ([`a76910a`](https://github.com/Krande/adapy/commit/a76910a4163fb6600e1965c4d40330d50e57fa17))
+
+
 ## v0.157.0 (2026-11-16)
 
 ### Feature
