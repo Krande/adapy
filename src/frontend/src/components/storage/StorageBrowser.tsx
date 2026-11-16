@@ -283,7 +283,8 @@ export const StorageBody: React.FC<StorageBodyProps> = ({
             count: selection.size,
             hasVersions: keys.some((k) => k.replace(/^\/+/, "").startsWith("versions/")),
             busy: bulkBusy !== null,
-            canLoad: selection.size - models.length + models.filter((m) => !!m.latest_glb_key).length > 0,
+            // A model is shown by its topology, compiled or not: every selected row loads.
+            canLoad: selection.size > 0,
             onLoad: onLoadSelected,
             onUnload: onUnloadSelected,
             onMove: canMutate ? onMoveSelected : undefined,
@@ -434,7 +435,7 @@ export const StorageBody: React.FC<StorageBodyProps> = ({
                 onCreateFolder={onCreateFolder}
                 proceduralByName={proceduralByName}
                 activeProcedural={activeProcedural}
-                openProceduralModel={procedural.openProceduralModel}
+                openProceduralModel={procedural.makeProceduralActive}
                 isProceduralLoaded={isProceduralLoaded}
                 toggleProceduralLoaded={toggleProceduralLoaded}
                 proceduralMenuItems={proceduralMenuItems}

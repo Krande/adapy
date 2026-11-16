@@ -27,6 +27,12 @@ const DirtyBadge: React.FC = () =>
 //
 // What it shares with a file is its PLACE: the name carries the folder path,
 // so the tree puts it exactly where an operator filed it.
+//
+// ONE CONTROL. The checkbox is the whole story of a model's presence: ticked, the
+// model is in the scene - as the one the builder edits when no other is, else
+// beside it (a companion); unticked, it is out of the scene and out of the
+// builder. Clicking the row makes it the edited one. There is no separate
+// "open" or "stop editing": those were the checkbox said twice.
 const ProceduralModelRow: React.FC<{
     model: ProceduralModelSummary;
     displayName: string;
@@ -39,10 +45,8 @@ const ProceduralModelRow: React.FC<{
     onSelectToggle: (name: string, shiftKey?: boolean) => void;
     rowKey: string;
     focused: boolean;
-    /** This model's compiled result is currently in the scene. */
+    /** This model is in the scene: edited, or shown beside the edited one. */
     isLoaded: boolean;
-    /** False until the model has a compiled result to show. */
-    canLoad: boolean;
     onToggleLoaded: (model: ProceduralModelSummary, next: boolean) => void;
 }> = ({
     model,
@@ -57,7 +61,6 @@ const ProceduralModelRow: React.FC<{
     rowKey,
     focused,
     isLoaded,
-    canLoad,
     onToggleLoaded,
 }) => (
     <div
@@ -74,27 +77,25 @@ const ProceduralModelRow: React.FC<{
         style={{paddingLeft: `${0.5 + indentLevel * 0.75}rem`}}
         onClick={onOpen}
         onContextMenu={onOpenContextMenu}
-        title={`Procedural cell model (${model.name}) — click to open in the cellbuilder`}
+        title={`Procedural model (${model.name}) — click to edit it in the builder`}
     >
         {/* Same meaning as a file's checkbox: put this in the scene. NOT the
             multi-select — that is the row tint, exactly as it is for a file.
-            Disabled until the model has been compiled once, because there is
-            no result to show and a tickable box with nothing behind it is a
-            promise the row cannot keep. */}
+            Always tickable: a model that has never compiled is still a topology
+            the builder draws and edits. */}
         <input
             type="checkbox"
-            className="h-5 w-5 shrink-0 cursor-pointer disabled:cursor-not-allowed"
+            className="h-5 w-5 shrink-0 cursor-pointer"
             checked={isLoaded}
-            disabled={!canLoad}
-            aria-label={isLoaded ? `Unload ${model.name} from scene` : `Load ${model.name} into scene`}
+            aria-label={isLoaded ? `Remove ${model.name} from the scene` : `Show ${model.name} in the scene`}
             onClick={(e) => e.stopPropagation()}
             onChange={() => void onToggleLoaded(model, !isLoaded)}
             title={
-                !canLoad
-                    ? "No compiled result yet — open the model and compile once."
-                    : isLoaded
-                      ? "Unload from scene (keeps the model)"
-                      : "Load the compiled result into the scene, and edit this model"
+                isLoaded
+                    ? active
+                        ? "Remove from the scene and close it in the builder (the model is kept)"
+                        : "Remove from the scene (the model is kept)"
+                    : "Show in the scene: edited in the builder, or beside the model being edited"
             }
         />
         <ProceduralModelIcon className="shrink-0"/>

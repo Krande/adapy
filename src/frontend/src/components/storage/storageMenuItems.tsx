@@ -258,15 +258,14 @@ export interface ProceduralMenuContext extends PlacementMenuContext {
     /** False when the model has never compiled — simulation and detail then do
      *  not exist and must not be offered. */
     hasCompiled?: boolean;
-    onOpen: () => void;
     /** True when this model is the one the cellbuilder is editing. */
     isActive?: boolean;
-    /** Make this the edited model. Exactly one can be active at a time. */
+    /** Make this the edited model (showing it if it is not), the one edited so far
+     *  staying in the scene beside it. Exactly one is edited at a time. */
     onMakeActive?: () => void;
-    /** Stop editing, leaving whatever is in the scene in the scene. */
-    onDeactivate?: () => void;
-    /** Load this model's last compiled result into the scene. Present only
-     *  when there IS one; a model that has never compiled has nothing to show. */
+    /** Show this model's last compiled result in the scene beside the model being
+     *  edited. Present only when there IS one; a model that has never compiled has
+     *  nothing to show. */
     onViewResult?: () => void;
     onCopyPath?: () => void;
     onRename?: () => void;
@@ -284,36 +283,29 @@ export interface ProceduralMenuContext extends PlacementMenuContext {
  *
  * What it does NOT offer is the file half — load into the scene, download,
  * convert. A model is a database row; those controls would promise operations
- * that cannot work on it. Rename and Move are the two that genuinely mean the
- * same thing here as for a file, and both are the SAME server call, because the
- * model's name is its path. */
+ * that cannot work on it. Nor does it repeat the row's checkbox: ticking shows
+ * the model (and edits it, when nothing else is being edited), unticking
+ * removes it and closes the builder — "open" and "stop editing" were that box
+ * said twice. What is left is what the box cannot say: WHICH of several shown
+ * models is the edited one, and how a shown one is drawn. Rename and Move are
+ * the two that genuinely mean the same thing here as for a file, and both are
+ * the SAME server call, because the model's name is its path. */
 export function buildProceduralMenuItems(
     displayName: string,
     ctx: ProceduralMenuContext,
 ): KebabMenuItem[] {
     const items: KebabMenuItem[] = [];
-    items.push({
-        key: "open",
-        label: "Open in cellbuilder",
-        onClick: ctx.onOpen,
-    });
-    // ACTIVE vs IN THE SCENE are two different things, and the menu keeps them
-    // apart. Several models' compiled results can sit in the scene at once —
-    // each loads under its own source name — but only one can be ACTIVE,
-    // because the cellbuilder edits one document. "View compiled result" adds
-    // to the scene; "Make active" changes what you are editing.
-    if (ctx.isActive && ctx.onDeactivate) {
-        items.push({
-            key: "deactivate",
-            label: "Stop editing (keep in scene)",
-            title: "Closes the cellbuilder. Anything already loaded stays in the scene.",
-            onClick: ctx.onDeactivate,
-        });
-    } else if (ctx.onMakeActive) {
+    // EDITED vs IN THE SCENE are two different things. Several models can sit in
+    // the scene at once — each loads under its own source name — but only one
+    // can be edited, because the cellbuilder edits one document. The checkbox
+    // (and "Show compiled result") add to the scene; "Edit this model" changes
+    // what you are editing. The edited model has no entry here: unticking it is
+    // how editing stops.
+    if (!ctx.isActive && ctx.onMakeActive) {
         items.push({
             key: "make-active",
-            label: "Make active",
-            title: "Edit this model in the cellbuilder. Only one model is active at a time.",
+            label: "Edit this model",
+            title: "Edit this model in the builder; the one edited so far stays in the scene beside it.",
             onClick: ctx.onMakeActive,
         });
     }
@@ -339,11 +331,11 @@ export function buildProceduralMenuItems(
         show("topology", "Show topology", true, "Draw this model's cells, read-only, beside the one you are editing.");
         show("simulation", "Show simulation", !!ctx.hasCompiled, "Load this model's compiled result.");
         show("detail", "Show detail", !!ctx.hasCompiled, "Load this model's detailed result.");
-    } else if (ctx.onViewResult) {
+    } else if (!ctx.isActive && ctx.onViewResult) {
         items.push({
             key: "view-result",
-            label: "View compiled result",
-            title: "Load this model's last compiled result into the scene, without making it active.",
+            label: "Show compiled result",
+            title: "Show this model's last compiled result in the scene, beside the model being edited.",
             onClick: ctx.onViewResult,
         });
     }
