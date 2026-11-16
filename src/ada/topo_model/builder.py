@@ -78,6 +78,38 @@ def _strip_none(d):
     return {k: v for k, v in d.items() if v is not None} if isinstance(d, dict) else d
 
 
+def _included(d) -> bool:
+    """A doc entity is built unless it says ``INCLUDE: false`` (the workbook's INCLUDE column, or the
+    viewer's Model panel checkbox). An entity the viewer authored carries no INCLUDE and is built,
+    though the entity classes default INCLUDE to False."""
+    return not (isinstance(d, dict) and d.get("INCLUDE") is False)
+
+
+def _without_excluded(doc: dict) -> dict:
+    """The doc with what the build leaves out dropped: entities with ``INCLUDE: false``, and the
+    spaces of a group with ``include: false`` (the Model panel's structure row) plus the equipment
+    and openings in them (by ``STRUCTURE_NAME`` or ``SPACE_NAME``)."""
+    out_groups = {g.get("name") for g in doc.get("groups") or [] if isinstance(g, dict) and g.get("include") is False}
+    spaces = [
+        s for s in doc.get("spaces", []) if _included(s) and not (out_groups and s.get("STRUCTURE_NAME") in out_groups)
+    ]
+    dropped = {s.get("NAME") for s in doc.get("spaces", [])} - {s.get("NAME") for s in spaces}
+
+    def placed(d: dict) -> bool:
+        if not _included(d):
+            return False
+        if out_groups and d.get("STRUCTURE_NAME") in out_groups:
+            return False
+        return not (dropped and d.get("SPACE_NAME") in dropped)
+
+    return {
+        **doc,
+        "spaces": spaces,
+        "equipments": [e for e in doc.get("equipments", []) if placed(e)],
+        "openings": [o for o in doc.get("openings", []) if placed(o)],
+    }
+
+
 @dataclass
 class ProceduralBuilder:
     """Root of a procedural cell-model compile.
@@ -208,6 +240,7 @@ class ProceduralBuilder:
         mapping of ``spaces``/``equipments``/``openings``/``systems`` entity
         dumps plus the ``blueprint``/``design_rules``/``equipment_cad`` scalars.
         All dict parsing (and its validation) happens here, once."""
+        doc = _without_excluded(doc)
         return cls(
             spaces=[TopoSpace(**_strip_none(s)) for s in doc.get("spaces", [])],
             equipments=[TopoEquipment(**_strip_none(e)) for e in doc.get("equipments", [])],

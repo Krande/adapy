@@ -146,6 +146,11 @@ export const CORE_COMMAND_IDS = {
   builderRepDetail: "core:builder-rep-detail",
   builderSuperimpose: "core:builder-superimpose",
   builderSideBySide: "core:builder-side-by-side",
+  /** How the builder draws what the build leaves out (INCLUDE false, or its structure's): faint with
+   * dashed edges (the default), hidden, or like the rest. One of three, remembered in the browser. */
+  builderIncludeDimmed: "core:builder-include.dimmed",
+  builderIncludeOnly: "core:builder-include.included",
+  builderIncludeAll: "core:builder-include.all",
 } as const;
 
 export type CoreCommandId = (typeof CORE_COMMAND_IDS)[keyof typeof CORE_COMMAND_IDS];

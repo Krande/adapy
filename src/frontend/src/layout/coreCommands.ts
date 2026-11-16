@@ -26,6 +26,7 @@ import {useObjectInfoStore} from "@/state/objectInfoStore";
 import {useOptionsStore} from "@/state/optionsStore";
 import {useProjectionStore} from "@/state/projectionStore";
 import {useGroundGridStore} from "@/state/groundGridStore";
+import {useIncludeViewStore} from "@/state/includeViewStore";
 import {requestRender} from "@/state/perfStore";
 import {THEME_PRESETS, useThemeStore, type ThemePresetId} from "@/state/themeStore";
 import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
@@ -1031,6 +1032,23 @@ export function coreCommandSpecs(): CommandSpec[] {
       disabledReason: noBuilderModel,
       run: () => useCellBuilderStore.getState().setSideBySide(!useCellBuilderStore.getState().sideBySide),
     },
+    // What the build leaves out (utils/cellbuilder/include): one of three views, a radio group.
+    ...([
+      [ID.builderIncludeDimmed, "dimmed", "Included, with excluded dimmed"],
+      [ID.builderIncludeOnly, "included", "Included only"],
+      [ID.builderIncludeAll, "all", "All, excluded drawn like the rest"],
+    ] as const).map(
+      ([id, view, label]): CommandSpec => ({
+        id,
+        label,
+        group: "Build",
+        keywords: ["include", "exclude", "excluded", "INCLUDE"],
+        checked: () => useIncludeViewStore.getState().view === view,
+        watch: (onChange) => useIncludeViewStore.subscribe(onChange),
+        disabledReason: noBuilderModel,
+        run: () => useIncludeViewStore.getState().setView(view),
+      }),
+    ),
   ];
   for (const [id, preset] of Object.entries(THEME_PRESETS)) {
     specs.push({

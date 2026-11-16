@@ -669,6 +669,9 @@
 //          outline and drag arrow, on core's section strip (the classic Clip panel's "Show gizmo").
 //          `UiShellSpec.layout.modeArrangements[id].toolbar`: a shell's own controls for a
 //          plugin's mode, drawn after the plugin's toolbar.
+//          `CORE_COMMAND_IDS.builderIncludeDimmed` / `builderIncludeOnly` / `builderIncludeAll`: the
+//          builder's include view (what the build leaves out drawn faint and dashed, hidden, or like
+//          the rest), one of three, remembered in the browser.
 export const VIEWER_CORE_API_VERSION = "1.25.0";
 
 // ---------------------------------------------------------------------------

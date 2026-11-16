@@ -478,6 +478,9 @@ export const CORE_COMMAND_ICONS: Readonly<Record<string, React.FC>> = {
   [C.builderRepDetail]: DetailViewIcon,
   [C.builderSuperimpose]: OverlayIcon,
   [C.builderSideBySide]: SideBySideIcon,
+  [C.builderIncludeDimmed]: HideOthersIcon,
+  [C.builderIncludeOnly]: HideIcon,
+  [C.builderIncludeAll]: ShowAllIcon,
 };
 
 

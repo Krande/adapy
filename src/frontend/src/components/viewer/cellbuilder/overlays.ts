@@ -15,7 +15,7 @@ import {useCellBuilderStore} from "@/state/cellBuilderStore";
 import {requestRender} from "@/state/perfStore";
 import {cellGroupTint} from "@/utils/cellbuilder/groupView";
 import {BOX_FACE_SIDES, edgeEndpoints, type EdgeHit, type Vec3} from "@/utils/cellbuilder/snap";
-import {BASE_OPACITY, EXCLUDED_FACE_COLOR, HOVER_FACE_COLOR, LOFT_OPACITY, SELECTED_FACE_COLOR, colorForKind} from "./sceneConstants";
+import {BASE_OPACITY, EXCLUDED_DIM, EXCLUDED_FACE_COLOR, HOVER_FACE_COLOR, LOFT_OPACITY, SELECTED_FACE_COLOR, colorForKind} from "./sceneConstants";
 import type {CellBuilderScene} from "./sceneContext";
 
 // Fat-line overlays for edge hover/selection (thickness in pixels; a plain
@@ -125,6 +125,8 @@ export const refreshFaceStyles = (ctx: CellBuilderScene) => {
         const tint = cell.kind === "loft" ? null : cellGroupTint(cell, allCells);
         const base = tint ?? colorForKind(cell.kind);
         const cellSelected = sel?.cellId === cellId || selectedSet.has(cellId);
+        // Left out of the build, in the include view that dims it (meshRebuild): faint.
+        const dim = (mesh.userData.__includeLook as {dimmed?: boolean} | undefined)?.dimmed ? EXCLUDED_DIM : 1;
         // Loft band (Phase 3b): per-face pickable when built with material
         // groups (one per side panel + cap) — highlight the picked panel and
         // dim excluded ones. A mismatched-count band has a single material
@@ -159,7 +161,7 @@ export const refreshFaceStyles = (ctx: CellBuilderScene) => {
                     }
                     mats[fi].wireframe = isExcluded;
                     mats[fi].color.setHex(color);
-                    mats[fi].opacity = opacity;
+                    mats[fi].opacity = opacity * dim;
                     mats[fi].depthTest = !through; // selected face draws through
                     if (through) hasThroughFace = true;
                 }
@@ -173,7 +175,7 @@ export const refreshFaceStyles = (ctx: CellBuilderScene) => {
                     opacity = 0.6;
                 }
                 m.color.setHex(color);
-                m.opacity = opacity;
+                m.opacity = opacity * dim;
             }
             const loftEdges = mesh.children[0] as THREE.LineSegments | undefined;
             if (loftEdges) {
@@ -200,7 +202,7 @@ export const refreshFaceStyles = (ctx: CellBuilderScene) => {
                 opacity = 0.6;
             }
             mats[fi].color.setHex(color);
-            mats[fi].opacity = opacity;
+            mats[fi].opacity = opacity * dim;
         }
         const edgeLines = mesh.children[0] as THREE.LineSegments | undefined;
         if (edgeLines) {

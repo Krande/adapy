@@ -531,3 +531,34 @@ def test_compile_empty_doc_raises():
 def test_compile_missing_coords_raises():
     with pytest.raises(ValueError, match="missing coordinates"):
         compile_procedural_doc({"spaces": [{"NAME": "Cell1"}]}, blueprint_name="none")
+
+
+def test_from_dict_leaves_out_what_the_doc_excludes():
+    # The viewer's Compile builds only what is included: an entity with INCLUDE false (the
+    # workbook's column, or the Model panel's checkbox) is left out; one without INCLUDE (authored
+    # in the viewer) is built. A group with include false (an unticked structure) takes its spaces
+    # and the equipment placed in them with it.
+    from ada.topo_model.builder import ProceduralBuilder
+
+    built = ProceduralBuilder.from_dict(DOC, name="m")
+    assert [s.NAME for s in built.spaces] == ["Cell1", "Cell2"] and [e.NAME for e in built.equipments] == ["P1"]
+
+    no_pump = {**DOC, "equipments": [{**DOC["equipments"][0], "INCLUDE": False}]}
+    assert ProceduralBuilder.from_dict(no_pump, name="m").equipments == []
+
+    no_cell1 = {**DOC, "spaces": [{**DOC["spaces"][0], "INCLUDE": False}, DOC["spaces"][1]]}
+    b = ProceduralBuilder.from_dict(no_cell1, name="m")
+    assert [s.NAME for s in b.spaces] == ["Cell2"] and b.equipments == [], "the pump sat in Cell1"
+
+    grouped = {
+        **DOC,
+        "spaces": [{**DOC["spaces"][0], "STRUCTURE_NAME": "A"}, {**DOC["spaces"][1], "STRUCTURE_NAME": "B"}],
+        "groups": [
+            {"name": "A", "blueprint": "steel_stru", "include": False},
+            {"name": "B", "blueprint": "steel_stru"},
+        ],
+    }
+    b = ProceduralBuilder.from_dict(grouped, name="m")
+    assert [s.NAME for s in b.spaces] == ["Cell2"] and b.equipments == []
+    # compile still produces geometry from what is left
+    assert _is_glb(compile_procedural_doc(no_pump, name="m"))

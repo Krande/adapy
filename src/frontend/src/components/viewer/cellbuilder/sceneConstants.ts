@@ -59,6 +59,11 @@ export const colorForKind = (kind: BuilderCell["kind"]): number =>
             ? LOFT_COLOR
             : EQUIPMENT_COLOR;
 export const BASE_OPACITY = 0.3;
+/** What the build leaves out (utils/cellbuilder/include), in the include view that dims it: its
+ * faces at this share of their opacity, its edges dashed (m). */
+export const EXCLUDED_DIM = 0.3;
+export const EXCLUDED_DASH = 0.25;
+export const EXCLUDED_GAP = 0.18;
 export const LOFT_OPACITY = 0.35;
 export const DRAG_START_PX = 4;
 // Resize-handle sphere colour per axis (X red, Y green, Z blue).

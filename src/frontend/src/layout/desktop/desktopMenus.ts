@@ -112,7 +112,7 @@ export function desktopMenus({ modes, workspaces, shells, themes }: DesktopMenuI
   if (modes.some((m) => m.id === "build")) {
     menus.push({
       label: "Build",
-      items: [C.builderNew, SEP, C.builderUndo, C.builderRedo, SEP, C.builderAddCell, C.builderAddLoft, C.builderAddOpening, C.builderAddEquipment, SEP, C.builderTranslate, C.builderRotate, C.builderResize, SEP, C.builderRepTopology, C.builderRepSimulation, C.builderRepDetail, C.builderSuperimpose, C.builderSideBySide, SEP, C.builderCompile, C.builderRecompile, C.builderCompileBrowser, SEP, C.builderCommit, C.builderClose, SEP, panel(P.cellbuilder), panel(P.componentList)],
+      items: [C.builderNew, SEP, C.builderUndo, C.builderRedo, SEP, C.builderAddCell, C.builderAddLoft, C.builderAddOpening, C.builderAddEquipment, SEP, C.builderTranslate, C.builderRotate, C.builderResize, SEP, C.builderRepTopology, C.builderRepSimulation, C.builderRepDetail, C.builderSuperimpose, C.builderSideBySide, SEP, C.builderIncludeDimmed, C.builderIncludeOnly, C.builderIncludeAll, SEP, C.builderCompile, C.builderRecompile, C.builderCompileBrowser, SEP, C.builderCommit, C.builderClose, SEP, panel(P.cellbuilder), panel(P.componentList)],
     });
   }
   menus.push(

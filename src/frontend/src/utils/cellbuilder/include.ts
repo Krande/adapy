@@ -107,3 +107,13 @@ export function isItemBuilt(
 ): boolean {
   return itemIncludeState(item, cells, groups, loftMembers) === "included";
 }
+
+/** How the builder draws a component in include view `view` (state/includeViewStore): hidden, or
+ * drawn, faint with dashed edges when it is left out of the build and the view dims those. */
+export function includeLook(
+  state: IncludeState,
+  view: "dimmed" | "included" | "all",
+): {visible: boolean; dimmed: boolean} {
+  if (state === "included" || view === "all") return {visible: true, dimmed: false};
+  return view === "included" ? {visible: false, dimmed: false} : {visible: true, dimmed: true};
+}

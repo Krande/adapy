@@ -12,6 +12,7 @@ import * as THREE from "three";
 import {useCellBuilderStore} from "@/state/cellBuilderStore";
 import {useCompanionModelStore} from "@/state/companionModelStore";
 import {useGroupViewStore} from "@/state/cellbuilder/groupViewStore";
+import {useIncludeViewStore} from "@/state/includeViewStore";
 import {useModelState} from "@/state/modelState";
 import {requestRender} from "@/state/perfStore";
 import {getViewerRuntime} from "@/state/viewerRuntime";
@@ -95,6 +96,9 @@ export function initCellBuilderScene(
         if (s.cells !== prev.cells || s.active !== prev.active || s.equipmentCad !== prev.equipmentCad) {
             rebuild(ctx);
             framer.check();
+        } else if (s.groups !== prev.groups || s.loftMembers !== prev.loftMembers) {
+            // A structure's INCLUDE (its group) or a loft member's changes what is drawn as left out.
+            rebuild(ctx);
         } else if (s.selection !== prev.selection || s.selectedCellIds !== prev.selectedCellIds)
             refreshFaceStyles(ctx);
         // "Show as CAD" toggles + any cell/type change re-seat the CAD previews
@@ -178,6 +182,10 @@ export function initCellBuilderScene(
     });
     // Colour by group (Groups section) restyles the boxes; it is view state kept
     // outside the cellbuilder store, so it needs its own subscription.
+    // The include view (what the build leaves out: dimmed, hidden or drawn like the rest).
+    const unsubIncludeView = useIncludeViewStore.subscribe((s, prev) => {
+        if (s.view !== prev.view) rebuild(ctx);
+    });
     const unsubGroupView = useGroupViewStore.subscribe((s, prev) => {
         if (s.colourByGroup !== prev.colourByGroup || s.colours !== prev.colours) refreshFaceStyles(ctx);
     });
@@ -198,6 +206,7 @@ export function initCellBuilderScene(
         unsub();
         unsubCompanions();
         unsubGroupView();
+        unsubIncludeView();
         unsubModel();
         el.removeEventListener("pointerdown", hPointerDown, true);
         el.removeEventListener("pointermove", hPointerMove, true);
