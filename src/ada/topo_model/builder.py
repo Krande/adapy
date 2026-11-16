@@ -78,29 +78,23 @@ def _strip_none(d):
     return {k: v for k, v in d.items() if v is not None} if isinstance(d, dict) else d
 
 
-def _included(d) -> bool:
-    """A doc entity is built unless it says ``INCLUDE: false`` (the workbook's INCLUDE column, or the
-    viewer's Model panel checkbox). An entity the viewer authored carries no INCLUDE and is built,
-    though the entity classes default INCLUDE to False."""
-    return not (isinstance(d, dict) and d.get("INCLUDE") is False)
-
-
 def _without_excluded(doc: dict) -> dict:
-    """The doc with what the build leaves out dropped: entities with ``INCLUDE: false``, and the
-    spaces of a group with ``include: false`` (the Model panel's structure row) plus the equipment
-    and openings in them (by ``STRUCTURE_NAME`` or ``SPACE_NAME``)."""
+    """The doc without the structures the build leaves out: the spaces of a group with
+    ``include: false`` (the viewer's Model panel, a structure row unticked) and the equipment and
+    openings in them (by ``STRUCTURE_NAME`` or ``SPACE_NAME``).
+
+    A single entity's ``INCLUDE`` is NOT read here: the entity classes default it to False, so a
+    doc normalized through them (``validate_doc``) says ``INCLUDE: false`` for everything that never
+    set it, and an unticked item cannot be told from one nobody touched. An engine whose docs always
+    carry it (param_models' pm-engine, from the workbook) honours it itself."""
     out_groups = {g.get("name") for g in doc.get("groups") or [] if isinstance(g, dict) and g.get("include") is False}
-    spaces = [
-        s for s in doc.get("spaces", []) if _included(s) and not (out_groups and s.get("STRUCTURE_NAME") in out_groups)
-    ]
+    if not out_groups:
+        return doc
+    spaces = [s for s in doc.get("spaces", []) if s.get("STRUCTURE_NAME") not in out_groups]
     dropped = {s.get("NAME") for s in doc.get("spaces", [])} - {s.get("NAME") for s in spaces}
 
     def placed(d: dict) -> bool:
-        if not _included(d):
-            return False
-        if out_groups and d.get("STRUCTURE_NAME") in out_groups:
-            return False
-        return not (dropped and d.get("SPACE_NAME") in dropped)
+        return d.get("STRUCTURE_NAME") not in out_groups and d.get("SPACE_NAME") not in dropped
 
     return {
         **doc,
