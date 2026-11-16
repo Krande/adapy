@@ -202,3 +202,39 @@ test("opening a model from Storage does not close it when Storage is a global pa
     layoutStore.setState({ prefs: { v: 1, docs: {} } });
   }
 });
+
+// A plain reload of a mode visited before closed the docked file browser and saved it closed,
+// nothing clicked: the saved prefs go through `migrateLayoutPrefs` when they load, and it left
+// the global panels out. The frame then found nothing recorded for them, opened the mode as it
+// was left (a global panel is not part of a mode's record) and recorded the browser as closed.
+test("a reload keeps the global panels as the user left them", async () => {
+  const { migrateLayoutPrefs, LAYOUT_PREFS_VERSION } = await import("@/layout/layoutStore");
+  /** The reload: every panel's flag reset, the saved prefs loaded through the migration, the mode entered. */
+  const reload = (saved: unknown) => {
+    flags.clear();
+    layoutStore.setState({ prefs: migrateLayoutPrefs(JSON.parse(JSON.stringify(saved))) });
+    enter("one", null);
+  };
+  withShell(() => {
+    enter("one", null);
+    reveal("m:files");
+    P.recordOpenPanels(isOpen, P.classicContext());
+    assert.deepEqual(layoutStore.getState().prefs.globalPanels?.mem?.open, ["m:files"]);
+    assert.deepEqual(P.classicDoc().open, ["m:a"], "the mode is remembered too");
+
+    reload(layoutStore.getState().prefs);
+    assert.equal(isOpen("m:files"), true, "open, as the user left it");
+    assert.deepEqual(layoutStore.getState().prefs.globalPanels?.mem?.open, ["m:files"]);
+
+    // The user closes it: a reload keeps it closed.
+    hide("m:files");
+    P.recordOpenPanels(isOpen, P.classicContext());
+    reload(layoutStore.getState().prefs);
+    assert.equal(isOpen("m:files"), false, "the user closed it: it stays closed");
+    assert.deepEqual(layoutStore.getState().prefs.globalPanels?.mem?.open, []);
+  });
+  // Garbage in the saved state is dropped, the rest kept.
+  const p = migrateLayoutPrefs({ v: LAYOUT_PREFS_VERSION, docs: {}, globalPanels: { a: { open: ["x", "x", 3], px: { x: 300, y: "wide" } }, b: "no", c: { px: {} } } });
+  assert.deepEqual(p.globalPanels, { a: { open: ["x"], px: { x: 300 } } });
+  assert.equal(migrateLayoutPrefs({ v: LAYOUT_PREFS_VERSION, docs: {} }).globalPanels, undefined);
+});

@@ -114,7 +114,30 @@ export function migrateLayoutPrefs(raw: unknown): LayoutPrefs {
     for (const [shell, on] of Object.entries(r.markingMenuByShell)) if (typeof on === "boolean") byShell[shell] = on;
     if (Object.keys(byShell).length) prefs.markingMenuByShell = byShell;
   }
+  // A shell's global panels (open, and their docked size), as the user left them. Left out
+  // here, a reload read "never recorded" and wrote the panels' state over as closed.
+  if (r.globalPanels && typeof r.globalPanels === "object") {
+    const global: Record<string, GlobalPanelsPrefs> = {};
+    for (const [shell, saved] of Object.entries(r.globalPanels)) {
+      const ok = migrateGlobalPanels(saved);
+      if (ok) global[shell] = ok;
+    }
+    if (Object.keys(global).length) prefs.globalPanels = global;
+  }
   return prefs;
+}
+
+/** One shell's saved global panels made safe: a list of ids and a number per id, or nothing. */
+function migrateGlobalPanels(raw: unknown): GlobalPanelsPrefs | null {
+  if (!raw || typeof raw !== "object") return null;
+  const g = raw as Partial<GlobalPanelsPrefs>;
+  if (!Array.isArray(g.open)) return null;
+  const open = [...new Set(g.open.filter((x): x is string => typeof x === "string"))];
+  const px: Record<string, number> = {};
+  if (g.px && typeof g.px === "object") {
+    for (const [id, v] of Object.entries(g.px)) if (typeof v === "number" && Number.isFinite(v)) px[id] = v;
+  }
+  return { open, px };
 }
 
 /** Prefs held in memory only: what a host without a backend gets. */
