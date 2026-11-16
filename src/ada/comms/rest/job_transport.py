@@ -168,11 +168,17 @@ _WORKER_PROCESS_KINDS: dict[str, frozenset[str]] = {
 
 #: The catalogs a queue-less server advertises from its own process, as the worker
 #: heartbeat does (worker/registration.py): field -> (module, spec-list function).
-#: Only those that belong to the in-process procedural compile.
+#: Only those that belong to the in-process procedural compile: what it builds from, and
+#: the equipment/system/cell/opening types and design rulesets the Builder places.
 _LOCAL_PROCEDURAL_SPECS: dict[str, tuple[str, str]] = {
     "procedural_blueprint_specs": ("ada.topo_model", "procedural_blueprint_specs"),
     "procedural_template_specs": ("ada.topo_model", "procedural_template_specs"),
     "procedural_engine_specs": ("ada.topo_model", "procedural_engine_specs"),
+    "procedural_equipment_specs": ("ada.topo_model.equipment", "equipment_archetype_specs"),
+    "procedural_system_specs": ("ada.api.systems", "system_type_specs"),
+    "procedural_cell_specs": ("ada.topo_model", "procedural_cell_type_specs"),
+    "procedural_opening_specs": ("ada.topo_model", "procedural_opening_type_specs"),
+    "procedural_design_rulesets": ("ada.topo_model", "design_ruleset_specs"),
 }
 
 
