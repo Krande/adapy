@@ -179,6 +179,12 @@ export function createCellBuilderScene(
     dimensionGroup.visible = false;
     dimensionGroup.userData.__excludeFromFit = true;
     container.add(dimensionGroup);
+    // How far the moved cell has travelled (G): the start outline and one offset line per
+    // axis (cellDimensions.ts), apart from the resize dimensions.
+    const moveMeasureGroup = new THREE.Group();
+    moveMeasureGroup.visible = false;
+    moveMeasureGroup.userData.__excludeFromFit = true;
+    container.add(moveMeasureGroup);
     // On-canvas numeric readout (a screen-space sprite, like snapMarker).
     const readoutCanvas = document.createElement("canvas");
     readoutCanvas.width = 256;
@@ -236,6 +242,7 @@ export function createCellBuilderScene(
         portRaycaster,
         resizeGroup,
         dimensionGroup,
+        moveMeasureGroup,
         readoutCanvas,
         readoutTex,
         readout,
@@ -256,6 +263,9 @@ export function createCellBuilderScene(
          * the member steps in exact grid multiples. Null between drags. */
         loftDragLast: null as THREE.Vector3 | null,
         modalMove: null as ModalMove | null,
+        /** The cell being moved (gizmo drag or modal move) and its box when the move
+         * began, measured live by the move dimension lines. Null when nothing moves. */
+        moveMeasure: null as {cellId: string; start: CellBox} | null,
         /** Equipment captured to ride along with the space cell being translated. */
         translateEquip: [] as string[],
         /** Outward world direction of the edited port at rotate-drag start; the

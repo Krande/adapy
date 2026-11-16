@@ -1,15 +1,22 @@
 /**
- * The selected cell's three dimensions while the RESIZE (S) gizmo is on.
+ * Dimension lines in the builder scene: the selected cell's three dimensions while the
+ * RESIZE (S) gizmo is on, and how far a cell has travelled while it is MOVED (G).
  *
- * One dimension line per axis, along an edge of the box facing the camera and
+ * Resize: one dimension line per axis, along an edge of the box facing the camera and
  * set just outside it: dashed, an arrowhead at each end, the length in the middle
  * ("6.875m"), in the axis colour of the resize handles (X red, Y green, Z blue). A rotated
  * equipment box gets them in its own (rotated) frame. Rebuilt with the resize handles
  * (`syncGizmo` runs on every cell change, so the numbers follow a drag live, snapped), and
  * moved to the edges facing the camera as it orbits.
  *
+ * Move: from the box centre at the start of the move to where it is now, one leg per axis
+ * that changed (X, then Y, then Z, so the legs chain from the start to the end), each
+ * arrowed at its far end and labelled with the signed offset ("+3.25m"), with a faint
+ * outline of the box where it started. Shown while a gizmo drag or an axis-locked modal
+ * move is in progress, gone when it ends or is cancelled.
+ *
  * The labels are screen-space sprites drawn over everything, so they stay readable at any
- * zoom and are never hidden behind the box.
+ * zoom and are never hidden behind the box. Both share the drawing below.
  */
 
 import * as THREE from "three";
@@ -23,6 +30,12 @@ import type {CellBuilderScene} from "./sceneContext";
 export function formatLength(metres: number): string {
     const rounded = Math.round(metres * 1000) / 1000;
     return `${Object.is(rounded, -0) ? 0 : rounded}m`;
+}
+
+/** "+3.25m" / "-1.5m": a signed offset, formatted as `formatLength`. */
+export function formatOffset(metres: number): string {
+    const rounded = Math.round(metres * 1000) / 1000;
+    return `${rounded > 0 ? "+" : ""}${formatLength(metres)}`;
 }
 
 export interface DimensionLine {
@@ -60,6 +73,39 @@ export function dimensionLines(cell: CellBox, eye: Vec3, gap: number): Dimension
         from[axis] = cell.origin[axis];
         to[axis] = cell.origin[axis] + cell.size[axis];
         out.push({axis, from, to, length: cell.size[axis], sides});
+    }
+    return out;
+}
+
+export interface MoveLine {
+    axis: 0 | 1 | 2;
+    from: Vec3;
+    to: Vec3;
+    /** Signed travel along `axis`, metres. */
+    offset: number;
+}
+
+const boxCentre = (b: CellBox): Vec3 => [
+    b.origin[0] + b.size[0] / 2,
+    b.origin[1] + b.size[1] / 2,
+    b.origin[2] + b.size[2] / 2,
+];
+
+/**
+ * The legs of a move from `start` to `current`: from the start box's centre, one leg per
+ * axis whose offset shows (at least half a millimetre), in X, Y, Z order, each starting
+ * where the one before ended, so together they run from the start centre to the current one.
+ */
+export function moveLines(start: CellBox, current: CellBox): MoveLine[] {
+    const at = boxCentre(start);
+    const end = boxCentre(current);
+    const out: MoveLine[] = [];
+    for (const axis of [0, 1, 2] as const) {
+        const offset = end[axis] - at[axis];
+        if (Math.round(offset * 1000) === 0) continue;
+        const from: Vec3 = [...at];
+        at[axis] = end[axis];
+        out.push({axis, from, to: [...at], offset});
     }
     return out;
 }
@@ -216,6 +262,11 @@ export function disposeCellDimensions(ctx: CellBuilderScene): void {
     disposeGroup(ctx.dimensionGroup);
 }
 
+/** Remove and free the move measure. */
+export function disposeMoveMeasure(ctx: CellBuilderScene): void {
+    disposeGroup(ctx.moveMeasureGroup);
+}
+
 /** The camera position in `group`'s own frame (the cell's frame for a rotated box). */
 const eyeIn = (group: THREE.Group): Vec3 | null => {
     const cam = getViewerRuntime().camera.current;
@@ -261,5 +312,45 @@ export function syncCellDimensions(
         place(next);
         requestRender();
     };
+    group.visible = true;
+}
+
+/** The start box's outline while a move is measured: faint, so it never reads as a cell. */
+const GHOST_OPACITY = 0.45;
+const GHOST_COLOR = 0x9ca3af;
+
+/**
+ * Show how far a box has moved from `start` to `current` (or nothing, `start` null): one
+ * leg per changed axis, labelled with its signed offset, and an outline of the start box
+ * (`frame` places it, as in `syncCellDimensions`, for a rotated equipment).
+ */
+export function syncMoveMeasure(
+    ctx: CellBuilderScene,
+    start: CellBox | null,
+    current: CellBox | null,
+    frame: THREE.Matrix4 = new THREE.Matrix4(),
+): void {
+    disposeMoveMeasure(ctx);
+    if (!start || !current) return;
+    const legs = moveLines(start, current);
+    if (!legs.length) return;
+    const group = ctx.moveMeasureGroup;
+    const maxSize = Math.max(...start.size);
+    for (const leg of legs) {
+        const part = addDimension(group, leg.axis, leg.offset, formatOffset(leg.offset), maxSize, false);
+        placeDimension(part, leg.from, leg.to);
+    }
+    const box = new THREE.BoxGeometry(...start.size);
+    const ghost = new THREE.LineSegments(
+        new THREE.EdgesGeometry(box),
+        new THREE.LineBasicMaterial({color: GHOST_COLOR, transparent: true, opacity: GHOST_OPACITY, depthTest: false}),
+    );
+    box.dispose();
+    const c = boxCentre(start);
+    ghost.matrixAutoUpdate = false;
+    ghost.matrix.copy(frame).multiply(new THREE.Matrix4().makeTranslation(c[0], c[1], c[2]));
+    ghost.renderOrder = LINE_RENDER_ORDER - 1;
+    ghost.userData.__excludeFromFit = true;
+    group.add(ghost);
     group.visible = true;
 }

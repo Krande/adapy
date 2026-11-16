@@ -25,7 +25,7 @@ import {clearPorts, rebuildPorts} from "./portsOverlay";
 import {installCellGizmo} from "./cellGizmo";
 import {installPortGizmo, syncPortGizmo} from "./portGizmo";
 import {disposeResizeHandles, syncGizmo} from "./resizeHandles";
-import {disposeCellDimensions} from "./cellDimensions";
+import {disposeCellDimensions, disposeMoveMeasure} from "./cellDimensions";
 import {useGroundGridStore} from "@/state/groundGridStore";
 import {clearLongPress, onContextMenu, onPointerCancel, onPointerDown, onPointerMove, onPointerUp} from "./pointerTools";
 import {endPlaceEntry} from "./numericEntry";
@@ -241,6 +241,8 @@ export function initCellBuilderScene(
         disposeResizeHandles(ctx);
         disposeCellDimensions(ctx);
         ctx.container.remove(ctx.dimensionGroup);
+        disposeMoveMeasure(ctx);
+        ctx.container.remove(ctx.moveMeasureGroup);
         ctx.hiddenDefaultGrids.forEach((g) => (g.visible = useGroundGridStore.getState().visible));
         ctx.hiddenDefaultGrids.length = 0;
         disposeBuilderGrid(ctx);

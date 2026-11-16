@@ -3,7 +3,8 @@
  *
  * Owns: the TransformControls proxy that drives the selected cell, the
  * Blender-style modal move (lock an axis, the cell tracks the pointer, click
- * confirms / Escape cancels), pointer-driven vertex magnetism with its
+ * confirms / Escape cancels), the move measure (how far the moved cell has
+ * come, drawn by cellDimensions.ts), pointer-driven vertex magnetism with its
  * on-screen marker, and carrying a space cell's contained equipment along.
  */
 
@@ -15,6 +16,40 @@ import {boxCorners, originFromCenter, quantize, type Vec3} from "@/utils/cellbui
 import {HANDLE_AXIS_COLOR, SNAP_PX} from "./sceneConstants";
 import {offsetVec, type CellBuilderScene} from "./sceneContext";
 import {viewportInputElement} from "@/viewport/input";
+import {boxFrameMatrix} from "@/utils/cellbuilder/cellResize";
+import {syncMoveMeasure} from "./cellDimensions";
+
+// --- Move measure ----------------------------------------------------------
+// While a cell is moved (a gizmo drag or the axis-locked modal move), dimension
+// lines show how far it is from where the move began (cellDimensions.ts). The
+// start is captured when the move begins and dropped when it ends or is
+// cancelled; syncGizmo redraws the lines on every cell change, so they follow
+// the snapped position live.
+export const beginMoveMeasure = (ctx: CellBuilderScene, cell: BuilderCell) => {
+    // A loft band moves its whole member, not this box: not measured.
+    if (cell.kind === "loft") return;
+    // A new leg of the same grab (another axis lock) keeps measuring from the first start.
+    if (ctx.moveMeasure?.cellId === cell.id) return;
+    ctx.moveMeasure = {cellId: cell.id, start: {origin: [...cell.origin], size: [...cell.size]}};
+};
+
+export const endMoveMeasure = (ctx: CellBuilderScene) => {
+    ctx.moveMeasure = null;
+    syncMoveMeasure(ctx, null, null);
+};
+
+/** Draw the move measure for the current state, or clear it once nothing is being moved. */
+export const reconcileMoveMeasure = (ctx: CellBuilderScene) => {
+    const mm = ctx.moveMeasure;
+    if (!mm) return syncMoveMeasure(ctx, null, null);
+    const st = useCellBuilderStore.getState();
+    const cell = st.cells[mm.cellId];
+    if (!cell || !st.active || st.gizmoMode !== "translate" || st.selection?.cellId !== mm.cellId) {
+        return endMoveMeasure(ctx);
+    }
+    // A rotated equipment's start outline is turned as the box is (moving never rotates it).
+    syncMoveMeasure(ctx, mm.start, cell, boxFrameMatrix(mm.start, cell.kind === "equipment" ? cell.rotation : null));
+};
 
 
 // --- Blender-style axis-locked modal move ---------------------------------
@@ -175,6 +210,7 @@ export const startModalMove = (ctx: CellBuilderScene, cell: BuilderCell, axis: 0
         startT: null,
         startBox: {origin: [...cell.origin], size: [...cell.size]},
     };
+    beginMoveMeasure(ctx, cell);
     showGuideLine(ctx, axis, centerModel);
     viewportInputElement(ctx.renderer).style.cursor = "move";
 };
@@ -195,6 +231,7 @@ export const endModalMove = (ctx: CellBuilderScene, cancel: boolean) => {
         useCellBuilderStore.getState().endTransaction();
     }
     ctx.translateEquip = [];
+    endMoveMeasure(ctx);
     ctx.gizmo.enabled = true;
     ctx.guideLine.visible = false;
     ctx.snapMarker.visible = false;
@@ -247,11 +284,13 @@ export function installCellGizmo(ctx: CellBuilderScene): void {
             const sel = st.selection;
             const cell = sel ? st.cells[sel.cellId] : null;
             ctx.translateEquip = cell && st.gizmoMode === "translate" ? equipContainedIn(ctx, cell) : [];
+            if (cell && st.gizmoMode === "translate") beginMoveMeasure(ctx, cell);
         } else {
             st.endTransaction();
             ctx.loftDragLast = null;
             ctx.translateEquip = [];
             showSnapMarker(ctx, null); // drag ended — clear the snap indicator
+            endMoveMeasure(ctx);
         }
         requestRender();
     });

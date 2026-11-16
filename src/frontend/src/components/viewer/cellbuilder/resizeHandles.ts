@@ -15,7 +15,7 @@ import {getViewerRuntime} from "@/state/viewerRuntime";
 import {BOX_FACE_SIDES, faceCenter} from "@/utils/cellbuilder/snap";
 import {HANDLE_AXIS_COLOR} from "./sceneConstants";
 import type {CellBuilderScene} from "./sceneContext";
-import {reconcileModalMove} from "./cellGizmo";
+import {reconcileModalMove, reconcileMoveMeasure} from "./cellGizmo";
 import {syncCellDimensions} from "./cellDimensions";
 
 
@@ -151,6 +151,8 @@ export const syncGizmo = (ctx: CellBuilderScene) => {
     // After the widget visibility is set, let the axis-locked modal move take
     // over (it re-hides the helper it doesn't need).
     reconcileModalMove(ctx);
+    // How far the moved cell has come, following the (snapped) move live.
+    reconcileMoveMeasure(ctx);
     requestRender();
 };
 

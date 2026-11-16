@@ -1,9 +1,11 @@
-// The resized cell's dimension lines: the length labels, and which edges they go on.
+// The resized cell's dimension lines (the length labels, and which edges they go on) and the
+// moved cell's offsets (signed labels, one leg per changed axis).
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-const { dimensionLines, formatLength } = await import("@/components/viewer/cellbuilder/cellDimensions");
+const mod = await import("@/components/viewer/cellbuilder/cellDimensions");
+const { dimensionLines, formatLength } = mod;
 
 test("lengths in metres, at most three decimals, no trailing zeros", () => {
   assert.equal(formatLength(6.875), "6.875m");
@@ -29,4 +31,32 @@ test("one line per axis, on the edge facing the eye, just outside the box", () =
   assert.equal(moved[1].from[0], -0.2);
   assert.equal(moved[2].from[0], -0.2);
   assert.notDeepEqual(moved.map((l) => l.sides), lines.map((l) => l.sides));
+});
+
+test("a move's offsets are signed, at most three decimals", () => {
+  const { formatOffset } = mod;
+  assert.equal(formatOffset(3.25), "+3.25m");
+  assert.equal(formatOffset(-1.5), "-1.5m");
+  assert.equal(formatOffset(0.1 + 0.2), "+0.3m");
+  assert.equal(formatOffset(2.12345), "+2.123m");
+  assert.equal(formatOffset(-0.0001), "0m", "no sign on nothing");
+});
+
+test("a move measures one leg per changed axis, chained from the start centre to the current one", () => {
+  const { moveLines } = mod;
+  const start = { origin: [0, 0, 0] as [number, number, number], size: [2, 4, 2] as [number, number, number] };
+  assert.deepEqual(moveLines(start, start), [], "not moved: no lines");
+  // Along X only.
+  const x = moveLines(start, { origin: [3.25, 0, 0], size: start.size });
+  assert.deepEqual(x, [{ axis: 0, from: [1, 2, 1], to: [4.25, 2, 1], offset: 3.25 }]);
+  // X and Z (back and up): two legs, the second starting where the first ends.
+  const xz = moveLines(start, { origin: [-1.5, 0, 3], size: start.size });
+  assert.deepEqual(xz.map((l) => l.axis), [0, 2]);
+  assert.deepEqual(xz[0].to, xz[1].from);
+  assert.deepEqual(xz[1].to, [-0.5, 2, 4], "ends at the current centre");
+  assert.deepEqual(xz.map((l) => l.offset), [-1.5, 3]);
+  // All three, and float dust below a millimetre is not a leg.
+  const xyz = moveLines(start, { origin: [1, -2, 0.5], size: start.size });
+  assert.deepEqual(xyz.map((l) => l.axis), [0, 1, 2]);
+  assert.deepEqual(moveLines(start, { origin: [0.0004, 0, 0], size: start.size }), []);
 });
