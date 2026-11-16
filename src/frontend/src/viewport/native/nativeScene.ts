@@ -331,7 +331,7 @@ export class NativeScene {
     /** Show a GLB, known to the rest of the viewer as `modelKey`: instead of what is on screen, or with
      *  `add` beside it (a model already loaded under that key is replaced). Objects are known by
      *  `objectKey(modelKey, id)`. Throws when the GLB has nothing to draw. */
-    load(bytes: Uint8Array, modelKey = "", options: {add?: boolean; sourceName?: string; posable?: boolean} = {}): void {
+    load(bytes: Uint8Array, modelKey = "", options: {add?: boolean; sourceName?: string; posable?: boolean; keepCamera?: boolean} = {}): void {
         // A model whose nodes are placed from outside: every node is kept an instance of its own
         // (utils/glb/glbPosable.ts). What is read below is that file; `bytes` stays the caller's.
         const posable = options.posable && this.playsAnimations ? makeGlbPosable(bytes) : null;
@@ -417,7 +417,7 @@ export class NativeScene {
         this.rebuild();
         this.refreshAnimation();
         // A model that joins others leaves the camera where the user has it.
-        if (!add) this.framed();
+        if (!add) this.framed(options.keepCamera);
         this.tellLoaded();
         if (add) this.pushStates();
         else {
@@ -1041,10 +1041,11 @@ export class NativeScene {
     }
 
     /** A replacing load: the clip range follows the model, and the camera frames it when the user
-     *  has auto-fit on, as on the three.js viewport. */
-    private framed(): void {
+     *  has auto-fit on, as on the three.js viewport. `keepCamera`: the camera stays (the same thing
+     *  loaded again), only the clip range follows. */
+    private framed(keepCamera = false): void {
         if (!this.bounds) return;
-        if (useOptionsStore.getState().autoFit) return this.fit(0);
+        if (!keepCamera && useOptionsStore.getState().autoFit) return this.fit(0);
         const range = clipRangeFor(boundingSphere(this.bounds).radius);
         if (range) this.renderer.cameraSetClipRange?.(range.near, range.far);
     }

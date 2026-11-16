@@ -404,7 +404,10 @@ def _weld_line(weld):
     point is then not repeated at its end."""
     import numpy as np
 
-    curve = getattr(weld, "sweep_curve", None)
+    # The SWEEP's curve: ``Weld.sweep_curve`` is the argument as given, which may be a list of points
+    # (``PrimSweep`` makes the curve of it).
+    sweep = weld.geometry if getattr(weld, "sweep_curve", None) is not None else None
+    curve = getattr(sweep, "sweep_curve", None)
     if curve is None:
         # A straight weld is an extrusion between its two points, with no sweep curve.
         if weld.p1 is None or weld.p2 is None:

@@ -197,7 +197,11 @@ import { isPlacedElsewhere } from "@/layout/placedElsewhere";
 //            run will be started on, so a provider's form can leave out fields that name the part.
 //          - `ctx.scene.clearScene()`: empties the scene as the Scene tab's Remove all does, for a
 //            plugin about to show something of its own (a replay).
-export const PLUGIN_API_VERSION = "1.24.0";
+// 1.25.0 — `keepCamera` on `SceneModelSource`: the camera stays where it is when the model is
+//          loaded, instead of framing it as the user's auto-fit setting says. For a model loaded
+//          again in another form (a finer mesh of the same thing). Additive: an older core
+//          ignores it and frames the model as before.
+export const PLUGIN_API_VERSION = "1.25.0";
 
 // The named mount regions core exposes in Phase 1. Deliberately small
 // (`fem-sidebar` covers the FEM simulation panel, `top-panel` the menu bar,
@@ -509,6 +513,9 @@ export interface SceneModelSource {
   // of its own. Needed for `poseModel` to find its nodes on the three.js-free viewport, which
   // otherwise merges them; an animation the file has is then not played there.
   posable?: boolean;
+  // (1.25.0) Leave the camera where it is instead of framing the model (auto-fit), on both
+  // viewports: for the same thing loaded again, so the view the user has is kept.
+  keepCamera?: boolean;
 }
 
 /** (1.20.0) The named nodes of a loaded model, placed by the plugin. See `SceneHandle.poseModel`. */
