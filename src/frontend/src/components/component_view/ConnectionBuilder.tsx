@@ -41,7 +41,7 @@ const SECTION_SUGGESTIONS: Record<string, string[]> = {
   FB: ["FB100x10", "FB200x20"],
 };
 
-const input = "text-[var(--ada-panel-text)] bg-[var(--ada-panel-surface)] border border-[var(--ada-panel-border)] [color-scheme:var(--ada-panel-color-scheme,normal)] [&_option]:bg-[Canvas] [&_option]:text-[CanvasText] rounded-sm px-1 py-0.5 min-w-0";
+const input = "text-gray-100 bg-gray-700 border border-gray-600 rounded-sm px-1 py-0.5 min-w-0";
 
 /** The connection builder's content: library status, spec picker, member inputs, build result. */
 export const ConnectionBuilderBody: React.FC = () => {

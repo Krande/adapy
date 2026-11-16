@@ -266,7 +266,7 @@ const StartForm: React.FC<{ scope: string; provider: SimulationProviderInfo; sub
         <label className="flex items-center gap-2">
           <span className="text-[var(--ada-panel-text)] w-28 shrink-0">Kind of run</span>
           <select
-            className="text-[var(--ada-panel-text)] bg-[var(--ada-panel-surface)] border border-[var(--ada-panel-border)] [color-scheme:var(--ada-panel-color-scheme,normal)] [&_option]:bg-[Canvas] [&_option]:text-[CanvasText] rounded-sm px-1 py-0.5 flex-1 min-w-0"
+            className="text-gray-100 bg-gray-700 border border-gray-600 rounded-sm px-1 py-0.5 flex-1 min-w-0"
             value={kind}
             onChange={(e) => setKind(e.target.value)}
           >
@@ -383,7 +383,7 @@ export const SimulationsBody: React.FC = () => {
         <label className="flex items-center gap-2">
           <span className="text-[var(--ada-panel-text)]">Kind</span>
           <select
-            className="text-[var(--ada-panel-text)] bg-[var(--ada-panel-surface)] border border-[var(--ada-panel-border)] [color-scheme:var(--ada-panel-color-scheme,normal)] [&_option]:bg-[Canvas] [&_option]:text-[CanvasText] rounded-sm px-1 py-0.5"
+            className="text-gray-100 bg-gray-700 border border-gray-600 rounded-sm px-1 py-0.5"
             value={domainFilter}
             onChange={(e) => setDomainFilter(e.target.value)}
           >
@@ -405,7 +405,7 @@ export const SimulationsBody: React.FC = () => {
             </label>
             <select
               id="sim-subject"
-              className="text-[var(--ada-panel-text)] bg-[var(--ada-panel-surface)] border border-[var(--ada-panel-border)] [color-scheme:var(--ada-panel-color-scheme,normal)] [&_option]:bg-[Canvas] [&_option]:text-[CanvasText] rounded-sm px-1 py-0.5 flex-1 min-w-0"
+              className="text-gray-100 bg-gray-700 border border-gray-600 rounded-sm px-1 py-0.5 flex-1 min-w-0"
               value={subject ? subjectId(subject) : NO_SUBJECT}
               onChange={(e) => setChosenId(e.target.value)}
             >
