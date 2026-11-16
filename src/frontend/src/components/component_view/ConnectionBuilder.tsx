@@ -41,7 +41,7 @@ const SECTION_SUGGESTIONS: Record<string, string[]> = {
   FB: ["FB100x10", "FB200x20"],
 };
 
-const input = "text-gray-100 bg-gray-700 border border-gray-600 rounded-sm px-1 py-0.5 min-w-0";
+const input = "text-[var(--ada-panel-text)] bg-[var(--ada-panel-surface)] border border-[var(--ada-panel-border)] [color-scheme:var(--ada-panel-color-scheme,normal)] [&_option]:bg-[Canvas] [&_option]:text-[CanvasText] rounded-sm px-1 py-0.5 min-w-0";
 
 /** The connection builder's content: library status, spec picker, member inputs, build result. */
 export const ConnectionBuilderBody: React.FC = () => {
@@ -62,7 +62,7 @@ export const ConnectionBuilderBody: React.FC = () => {
   );
 
   if (!library) {
-    return <div className="text-gray-400">{connected ? "Loading the connection library…" : "Connecting…"}</div>;
+    return <div className="text-[var(--ada-panel-text-muted)]">{connected ? "Loading the connection library…" : "Connecting…"}</div>;
   }
 
   const own = library.specs.filter((x) => x.in_library);
@@ -79,7 +79,7 @@ export const ConnectionBuilderBody: React.FC = () => {
       <CollapsibleSection title="Inputs" defaultOpen>
       <div className="flex flex-col gap-2">
       <div className="flex items-center gap-2">
-        <span className="text-gray-300 shrink-0">Connection</span>
+        <span className="text-[var(--ada-panel-text)] shrink-0">Connection</span>
         <select
           className={`${input} flex-1 truncate`}
           value={selectedSpec ?? ""}
@@ -111,7 +111,7 @@ export const ConnectionBuilderBody: React.FC = () => {
       {spec && (
         <>
           {spec.source && (
-            <div className="text-gray-500 truncate" title={spec.source.file}>
+            <div className="text-[var(--ada-panel-text-muted)] truncate" title={spec.source.file}>
               {shortPath(spec.source.file, library.library.root)}:{spec.source.line}
             </div>
           )}
@@ -123,7 +123,7 @@ export const ConnectionBuilderBody: React.FC = () => {
               onField={(field, value) => setRoleField(spec.name, role.role, field, value)}
             />
           ))}
-          <div className="flex items-center gap-2 pt-1 border-t border-gray-700">
+          <div className="flex items-center gap-2 pt-1 border-t border-[var(--ada-panel-border)]">
             <button
               type="button"
               className="bg-blue-600 hover:bg-blue-500 disabled:bg-gray-600 text-white rounded-sm px-3 py-1"
@@ -135,7 +135,7 @@ export const ConnectionBuilderBody: React.FC = () => {
             </button>
             <button
               type="button"
-              className="bg-gray-700 hover:bg-gray-600 text-white rounded-sm px-3 py-1"
+              className="bg-[var(--ada-panel-surface)] hover:bg-[color-mix(in_srgb,var(--ada-panel-text)_20%,transparent)] text-[var(--ada-panel-text)] rounded-sm px-3 py-1"
               onClick={() => resetInputs(spec.name)}
               disabled={!inputsBySpec[spec.name]}
               title="Back to the spec's defaults"
@@ -182,7 +182,7 @@ const SimulateButton: React.FC<{ specName: string; inputs: ConnectionInputs; lib
     <>
       <button
         type="button"
-        className="bg-gray-700 hover:bg-gray-600 disabled:text-gray-500 text-white rounded-sm px-3 py-1"
+        className="bg-[var(--ada-panel-surface)] hover:bg-[color-mix(in_srgb,var(--ada-panel-text)_20%,transparent)] disabled:opacity-40 text-[var(--ada-panel-text)] rounded-sm px-3 py-1"
         onClick={() => void onClick()}
         disabled={!availability.enabled}
         title={availability.reason ?? "Offer this detail as a simulation subject and open the Simulations panel"}
@@ -190,7 +190,7 @@ const SimulateButton: React.FC<{ specName: string; inputs: ConnectionInputs; lib
         Simulate…
       </button>
       {error && (
-        <span className="text-red-400 truncate" title={error}>
+        <span className="text-[var(--ada-fail)] truncate" title={error}>
           {error}
         </span>
       )}
@@ -221,11 +221,11 @@ const LibraryHeader: React.FC = () => {
         <span className="font-medium truncate" title={library.library.config}>
           {library.library.name}
         </span>
-        <span className={`${color} rounded px-1.5 text-[10px] uppercase tracking-wide`}>{status}</span>
+        <span className={`${color} rounded px-1.5 text-[10px] text-white uppercase tracking-wide`}>{status}</span>
         <span className="flex-1" />
         <button
           type="button"
-          className="text-gray-300 hover:text-white disabled:text-gray-600"
+          className="text-[var(--ada-panel-text-muted)] hover:text-[var(--ada-panel-text)] disabled:opacity-40"
           onClick={run(reloadLibrary)}
           disabled={busy || !connected}
           title={connectionsBackend() === "dev" ? "Reload the library now" : "Ask again which specs the workers offer"}
@@ -235,7 +235,7 @@ const LibraryHeader: React.FC = () => {
         {connectionsBackend() === "dev" && (
           <button
             type="button"
-            className="text-gray-300 hover:text-white disabled:text-gray-600"
+            className="text-[var(--ada-panel-text-muted)] hover:text-[var(--ada-panel-text)] disabled:opacity-40"
             onClick={run(restartLibrary)}
             disabled={busy || !connected}
             title="Start a fresh library process (re-reads ada_connections.toml)"
@@ -245,7 +245,7 @@ const LibraryHeader: React.FC = () => {
         )}
       </div>
       {library.changed.length > 0 && (
-        <div className="text-gray-500 truncate" title={library.changed.join("\n")}>
+        <div className="text-[var(--ada-panel-text-muted)] truncate" title={library.changed.join("\n")}>
           reloaded after: {library.changed.join(", ")}
         </div>
       )}
@@ -260,12 +260,12 @@ const RoleEditor: React.FC<{
 }> = ({ role, value, onField }) => {
   const fields = role.fields ?? (role.kind === "PLATE" ? ["thickness", "width", "height"] : ["section"]);
   return (
-    <div className="flex flex-col gap-1 p-1 bg-gray-800/40 rounded-sm">
-      <div className="text-gray-300 font-medium">
+    <div className="flex flex-col gap-1 p-1 bg-[var(--ada-panel-surface)] rounded-sm">
+      <div className="text-[var(--ada-panel-text)] font-medium">
         {role.role}
-        {role.kind ? <span className="text-gray-500"> · {role.kind.toLowerCase()}</span> : null}
+        {role.kind ? <span className="text-[var(--ada-panel-text-muted)]"> · {role.kind.toLowerCase()}</span> : null}
         {role.section_in && role.kind !== "PLATE" ? (
-          <span className="text-gray-500"> · {role.section_in.join(" | ")}</span>
+          <span className="text-[var(--ada-panel-text-muted)]"> · {role.section_in.join(" | ")}</span>
         ) : null}
       </div>
       {fields.includes("section") && (
@@ -308,7 +308,7 @@ const BeamOptions: React.FC<{
     <div className="flex flex-col gap-1">
       <button
         type="button"
-        className="self-start text-gray-400 hover:text-white"
+        className="self-start text-[var(--ada-panel-text-muted)] hover:text-[var(--ada-panel-text)]"
         aria-expanded={open}
         onClick={() => setOpen(!open)}
       >
@@ -351,7 +351,7 @@ const OptionalMillimetreField: React.FC<{
   };
   return (
     <label className="flex items-center gap-2" title={title}>
-      <span className="text-gray-400 w-16 shrink-0">{label}</span>
+      <span className="text-[var(--ada-panel-text-muted)] w-16 shrink-0">{label}</span>
       <input
         type="number"
         min={0}
@@ -365,7 +365,7 @@ const OptionalMillimetreField: React.FC<{
           if (e.key === "Enter") commit(draft);
         }}
       />
-      <span className="text-gray-500">mm</span>
+      <span className="text-[var(--ada-panel-text-muted)]">mm</span>
     </label>
   );
 };
@@ -392,7 +392,7 @@ const SectionField: React.FC<{
   };
   return (
     <label className="flex items-center gap-2">
-      <span className="text-gray-400 w-16 shrink-0">section</span>
+      <span className="text-[var(--ada-panel-text-muted)] w-16 shrink-0">section</span>
       <input
         className={`${input} flex-1`}
         list={listId}
@@ -431,7 +431,7 @@ const MillimetreField: React.FC<{
   useEffect(() => setDraft(shown), [shown]);
   return (
     <label className="flex items-center gap-2" title={title}>
-      <span className="text-gray-400 w-16 shrink-0">{label}</span>
+      <span className="text-[var(--ada-panel-text-muted)] w-16 shrink-0">{label}</span>
       <input
         type="number"
         min={0}
@@ -447,7 +447,7 @@ const MillimetreField: React.FC<{
         }}
         onBlur={() => setDraft(shown)}
       />
-      <span className="text-gray-500">mm</span>
+      <span className="text-[var(--ada-panel-text-muted)]">mm</span>
     </label>
   );
 };
@@ -465,7 +465,7 @@ const AngleField: React.FC<{
   };
   return (
     <label className="flex items-center gap-2">
-      <span className="text-gray-400 w-16 shrink-0">angle°</span>
+      <span className="text-[var(--ada-panel-text-muted)] w-16 shrink-0">angle°</span>
       <input
         type="range"
         min={min}
@@ -502,10 +502,10 @@ const BuildProgress: React.FC<{
   const fraction = build.expectedMs ? Math.min(0.95, elapsed / build.expectedMs) : null;
   return (
     <div className="flex flex-col gap-1">
-      <div className="flex items-center gap-2 text-gray-300">
+      <div className="flex items-center gap-2 text-[var(--ada-panel-text)]">
         <span className="inline-block w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin shrink-0" />
         <span>Building {build.specName === specName ? "" : build.specName}…</span>
-        <span className="text-gray-500 tabular-nums">
+        <span className="text-[var(--ada-panel-text-muted)] tabular-nums">
           {(elapsed / 1000).toFixed(1)} s{build.expectedMs ? ` / ~${(build.expectedMs / 1000).toFixed(1)} s` : ""}
         </span>
       </div>
@@ -544,13 +544,13 @@ const BuildStatus: React.FC<{ build: ConnectionBuildState; specName: string }> =
   const warnings = result.log.filter((l) => l.level !== "INFO");
   return (
     <div className="flex flex-col gap-1">
-      <div className="text-green-400">
+      <div className="text-[var(--ada-pass)]">
         Built in {result.build_ms} ms{counts ? ` · ${counts}` : ""}
       </div>
       {warnings.length > 0 && (
         <ul className="flex flex-col gap-0.5 max-h-32 overflow-auto">
           {warnings.map((l, i) => (
-            <li key={i} className={l.level === "WARNING" ? "text-yellow-300" : "text-red-300"} title={l.logger}>
+            <li key={i} className={l.level === "WARNING" ? "text-[var(--ada-warn)]" : "text-[var(--ada-fail)]"} title={l.logger}>
               {l.level.toLowerCase()}: {l.message}
             </li>
           ))}
@@ -573,22 +573,22 @@ const ErrorBox: React.FC<{
   return (
     <div
       className={`flex flex-col gap-1 p-1 border rounded-sm ${
-        notice ? "border-yellow-800 bg-yellow-950/40" : "border-red-800 bg-red-950/50"
+        notice ? "border-[var(--ada-warn)] bg-[color-mix(in_srgb,var(--ada-warn)_12%,transparent)]" : "border-[var(--ada-fail)] bg-[color-mix(in_srgb,var(--ada-fail)_12%,transparent)]"
       }`}
     >
       <div className="flex items-center gap-2">
-        <span className={`${notice ? "text-yellow-200" : "text-red-300"} font-medium flex-1 min-w-0 break-words`}>
+        <span className={`${notice ? "text-[var(--ada-warn)]" : "text-[var(--ada-fail)]"} font-medium flex-1 min-w-0 break-words`}>
           {title}: {error}
         </span>
         {traceback && (
-          <button type="button" className="text-gray-400 hover:text-white shrink-0" onClick={() => setOpen(!open)}>
+          <button type="button" className="text-[var(--ada-panel-text-muted)] hover:text-[var(--ada-panel-text)] shrink-0" onClick={() => setOpen(!open)}>
             {open ? "hide" : "traceback"}
           </button>
         )}
       </div>
-      {hint && <div className="text-gray-400">{hint}</div>}
+      {hint && <div className="text-[var(--ada-panel-text-muted)]">{hint}</div>}
       {traceback && open && (
-        <pre className="text-[10px] leading-tight text-red-200 whitespace-pre overflow-auto max-h-64">{traceback}</pre>
+        <pre className="text-[10px] leading-tight text-[var(--ada-panel-text)] whitespace-pre overflow-auto max-h-64">{traceback}</pre>
       )}
     </div>
   );
@@ -627,20 +627,20 @@ const JointSections: React.FC<{ result: DevBuildResult }> = ({ result }) => (
 const ClashSummary: React.FC<{ result: DevBuildResult }> = ({ result }) => {
   const run = result.clash_run;
   if (!run) {
-    return <div className="text-gray-400">Not measured{result.clash_note ? `: ${result.clash_note}` : "."}</div>;
+    return <div className="text-[var(--ada-panel-text-muted)]">Not measured{result.clash_note ? `: ${result.clash_note}` : "."}</div>;
   }
   if (run.contacts.length === 0) {
-    return <div className="text-yellow-300">The members do not touch: no contact between them in the built joint.</div>;
+    return <div className="text-[var(--ada-warn)]">The members do not touch: no contact between them in the built joint.</div>;
   }
   const nameOf = (k: number) => run.members[k]?.name ?? `#${k}`;
   return (
     <div className="flex flex-col gap-1.5">
       {run.contacts.map((c) => (
-        <div key={c.id} className="flex flex-col gap-0.5 p-1 bg-gray-800/40 rounded-sm">
-          <div className="text-gray-200">
+        <div key={c.id} className="flex flex-col gap-0.5 p-1 bg-[var(--ada-panel-surface)] rounded-sm">
+          <div className="text-[var(--ada-panel-text)]">
             {c.roles ? (
               <>
-                <span className="text-amber-300">{nameOf(c.roles.incoming)}</span> lands on{" "}
+                <span className="text-[var(--ada-warn)]">{nameOf(c.roles.incoming)}</span> lands on{" "}
                 <span className="text-teal-300">{nameOf(c.roles.landing)}</span>
               </>
             ) : (
@@ -663,7 +663,7 @@ const ClashSummary: React.FC<{ result: DevBuildResult }> = ({ result }) => {
       ))}
       <button
         type="button"
-        className="self-start text-blue-300 hover:text-blue-200"
+        className="self-start text-[var(--ada-accent)] hover:underline"
         onClick={() => useSceneInfoStore.getState().setMode("clashes")}
         title="The run in Scene > Clashes: select the clash, show its contact patches and normals in 3D"
       >
@@ -679,12 +679,12 @@ const MembersList: React.FC<{ result: DevBuildResult }> = ({ result }) => (
       <button
         key={m.name}
         type="button"
-        className="flex flex-col gap-0.5 p-1 bg-gray-800/40 hover:bg-gray-700/50 rounded-sm text-left"
+        className="flex flex-col gap-0.5 p-1 bg-[var(--ada-panel-surface)] hover:bg-[color-mix(in_srgb,var(--ada-panel-text)_20%,transparent)] rounded-sm text-left"
         onClick={() => selectPreviewObjects([m.name])}
         title="Select in the scene"
       >
-        <span className="text-gray-200">
-          {m.role ?? m.name} <span className="text-gray-500">· {m.type.toLowerCase()}</span>
+        <span className="text-[var(--ada-panel-text)]">
+          {m.role ?? m.name} <span className="text-[var(--ada-panel-text-muted)]">· {m.type.toLowerCase()}</span>
         </span>
         {m.section && <Row label="section" value={m.section.name ?? m.section.type ?? "–"} />}
         {m.section && <Row label="h × w" value={`${mm(m.section.h)} × ${mm(m.section.w_top)}`} />}
@@ -699,32 +699,32 @@ const MembersList: React.FC<{ result: DevBuildResult }> = ({ result }) => (
 
 const WeldsList: React.FC<{ result: DevBuildResult }> = ({ result }) => {
   const welds = result.properties.welds;
-  if (welds.length === 0) return <div className="text-gray-400">The builder made no welds.</div>;
+  if (welds.length === 0) return <div className="text-[var(--ada-panel-text-muted)]">The builder made no welds.</div>;
   return (
     <div className="flex flex-col gap-1">
       {welds.map((w) => (
         <button
           key={w.name}
           type="button"
-          className="flex flex-col gap-0.5 p-1 bg-gray-800/40 hover:bg-gray-700/50 rounded-sm text-left"
+          className="flex flex-col gap-0.5 p-1 bg-[var(--ada-panel-surface)] hover:bg-[color-mix(in_srgb,var(--ada-panel-text)_20%,transparent)] rounded-sm text-left"
           onClick={() => selectPreviewObjects([w.name])}
           title="Select in the scene"
         >
-          <span className="text-gray-200 flex items-center gap-1.5">
+          <span className="text-[var(--ada-panel-text)] flex items-center gap-1.5">
             {w.symbol_svg && (
               // The core-generated symbol (ada.api.weld_symbols), inline so it takes the text colour.
               <span
-                className="inline-flex shrink-0 text-gray-300"
+                className="inline-flex shrink-0 text-[var(--ada-panel-text)]"
                 aria-hidden="true"
                 dangerouslySetInnerHTML={{ __html: w.symbol_svg }}
               />
             )}
             {w.name}
-            <span className="text-gray-500" title={w.weld_type ?? undefined}>
+            <span className="text-[var(--ada-panel-text-muted)]" title={w.weld_type ?? undefined}>
               · {weldTypeName(w.weld_type)}
             </span>
             {w.joins_its_members === false && (
-              <span className="text-red-300" title={`touches: ${w.touches.join(", ") || "nothing"}`}>
+              <span className="text-[var(--ada-fail)]" title={`touches: ${w.touches.join(", ") || "nothing"}`}>
                 {" "}
                 · does not touch {w.members.filter((m) => !w.touches.includes(m)).join(", ")}
               </span>
@@ -747,8 +747,8 @@ const WeldsList: React.FC<{ result: DevBuildResult }> = ({ result }) => {
 
 const Row: React.FC<{ label: string; value: string }> = ({ label, value }) => (
   <div className="flex gap-2">
-    <span className="text-gray-500 w-24 shrink-0">{label}</span>
-    <span className="text-gray-200 min-w-0 truncate" title={value}>
+    <span className="text-[var(--ada-panel-text-muted)] w-24 shrink-0">{label}</span>
+    <span className="text-[var(--ada-panel-text)] min-w-0 truncate" title={value}>
       {value}
     </span>
   </div>
