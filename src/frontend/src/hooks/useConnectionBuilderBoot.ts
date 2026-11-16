@@ -2,13 +2,15 @@
 //
 // `ada dev connections`: on a viewer serving a connection library, start the
 // builder's live loop and open the Scene panel on its Connection tab, once, at
-// startup.
+// startup. That server exists to show the library's joints, so the loop builds
+// from the start.
 //
 // A deployed studio: ask whether the current scope offers any specs (the
 // workers' own, as the admin assigned them) once a scope is known -- which is
 // after sign-in -- and on every scope change; the Connection tab shows while it
-// does. The loop starts the first time somebody opens that tab, not at load:
-// nobody pays for builds they did not ask for.
+// does. The loop starts the first time somebody opens that tab, not at load,
+// and builds nothing until its Build button is pressed: nobody pays for builds
+// they did not ask for, and an opened panel puts nothing in the scene.
 //
 // The loop's first build is asked for as soon as the library reports in, which
 // on a cold start is before ThreeCanvas has mounted its scene; a model loaded
@@ -29,6 +31,7 @@ import {
   startConnectionBuilderSession,
 } from "@/services/devConnections/connectionBuilderSession";
 import { useViewerRefs } from "@/state/AdaViewerContext";
+import { useConnectionBuilderStore } from "@/state/connectionBuilderStore";
 import { useSceneInfoStore } from "@/state/sceneInfoStore";
 
 const SCENE_WAIT_INTERVAL_MS = 100;
@@ -38,6 +41,7 @@ export function useConnectionBuilderBoot(): void {
   const { scene: sceneRef } = useViewerRefs();
   useEffect(() => {
     if (!runtime.devConnections()) return startDeployed(() => sceneRef.current != null);
+    useConnectionBuilderStore.getState().setLive(true);
     startConnectionBuilderSession();
     useSceneInfoStore.getState().setMode("connection");
     reveal(CORE_PANEL_IDS.scene);

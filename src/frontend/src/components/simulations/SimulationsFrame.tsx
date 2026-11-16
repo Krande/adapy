@@ -11,11 +11,15 @@ import { SheetHandle } from "@/components/ui/SheetHandle";
 import { useBottomSheet } from "@/utils/useBottomSheet";
 
 export const SIMULATIONS_FRAME_CLASS =
-  "flex flex-col gap-2 text-xs text-white overflow-hidden " +
-  // phone: docked to the bottom edge, full width, the body scrolling within the sheet
-  "fixed inset-x-0 bottom-0 z-30 w-full max-h-[82vh] px-2 pb-2 bg-gray-900/95 rounded-t-2xl " +
-  // desktop: the card in the menu column, as it has always been
-  "sm:static sm:z-auto sm:w-auto sm:max-h-none sm:p-2 sm:bg-gray-900/70 sm:rounded-md " +
+  // The active panel theme's colours, like the other column cards (`PANEL_SURFACE`): the bodies
+  // drawn in it, core's and a plugin's, read the same variables.
+  "flex flex-col gap-2 text-xs overflow-hidden bg-[var(--ada-panel-bg)] text-[var(--ada-panel-text)] " +
+  // phone: docked to the bottom edge, full width, the body scrolling within the sheet; a theme's
+  // background may be translucent, so the scene behind the sheet is blurred
+  "fixed inset-x-0 bottom-0 z-30 w-full max-h-[82vh] px-2 pb-2 rounded-t-2xl backdrop-blur-md " +
+  // desktop: the card in the menu column
+  "sm:static sm:z-auto sm:w-auto sm:max-h-none sm:p-2 sm:rounded-md sm:backdrop-blur-none " +
+  "sm:border sm:border-[var(--ada-panel-border)] sm:shadow-lg " +
   "sm:min-w-[300px] sm:max-w-[420px] sm:overflow-visible";
 
 export interface SimulationsFrameProps {

@@ -19,8 +19,12 @@ test("on a phone the frame is a bottom sheet; from sm up, the card it was", () =
   for (const k of ["fixed", "inset-x-0", "bottom-0", "z-30", "w-full", "max-h-[82vh]", "rounded-t-2xl", "overflow-hidden"]) {
     assert.ok(c.has(k), k);
   }
-  // The desktop card, exactly as before the sheet: in the column, translucent, 300-420 px wide.
-  for (const k of ["sm:static", "sm:z-auto", "sm:w-auto", "sm:max-h-none", "sm:p-2", "sm:bg-gray-900/70", "sm:rounded-md",
+  // On the active panel theme's colours at every width, never a fixed grey.
+  for (const k of ["bg-[var(--ada-panel-bg)]", "text-[var(--ada-panel-text)]"]) assert.ok(c.has(k), k);
+  assert.ok(![...c].some((k) => /(?:bg|text)-(?:gray|white)/.test(k)), "no fixed colour on the frame");
+  // The desktop card: in the column, bordered like the other cards, 300-420 px wide.
+  for (const k of ["sm:static", "sm:z-auto", "sm:w-auto", "sm:max-h-none", "sm:p-2", "sm:rounded-md",
+    "sm:border", "sm:border-[var(--ada-panel-border)]",
     "sm:min-w-[300px]", "sm:max-w-[420px]", "sm:overflow-visible"]) {
     assert.ok(c.has(k), k);
   }
