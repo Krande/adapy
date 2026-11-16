@@ -2,6 +2,7 @@ import React, {useEffect, useMemo, useRef, useState} from "react";
 import {viewerApi, type ProceduralModelSummary, type ProceduralTemplate} from "@/services/viewerApi";
 import type {KebabMenuItem} from "@/components/common/PositionedMenu";
 import {CORE_PANEL_IDS, hide} from "@/layout/panelActions";
+import {isGlobalPanel} from "@/layout/presets/classicPlace";
 import {useCellBuilderStore, cellsFromDoc} from "@/state/cellBuilderStore";
 import {
     companionSourceName,
@@ -27,6 +28,16 @@ import type {FolderPicker} from "./useUploads";
 // not a blob — no rename/move through storage; delete archives the row
 // server-side. Also the start-from templates and the companion (side-by-side)
 // model handling.
+
+/**
+ * Opening a model from a row gets the storage overview out of the way - unless Storage is
+ * a global panel of the served shell (a docked file browser beside the view): closing it
+ * there is remembered for every mode and the next visit, as if the user had closed it.
+ */
+export function collapseStorageOnOpen(): void {
+    if (!isGlobalPanel(CORE_PANEL_IDS.storage)) hide(CORE_PANEL_IDS.storage);
+}
+
 export function useProceduralModels(p: {
     scopeKey: string;
     loadedSourceNames: ReadonlySet<string>;
@@ -91,7 +102,7 @@ export function useProceduralModels(p: {
             // menu does not: the operator is arranging several and needs the
             // list to keep arranging them.
             if (opts?.collapsePanel !== false) {
-                hide(CORE_PANEL_IDS.storage);
+                collapseStorageOnOpen();
             }
         } catch (e) {
             void alertDialog({title: "Failed to open procedural model", body: errorText(e), tone: "danger"});
@@ -154,7 +165,7 @@ export function useProceduralModels(p: {
         const prev = cb.active;
         if (prev?.modelId === m.id) {
             // Already the edited one: a row click means "show me it".
-            if (opts?.collapsePanel) hide(CORE_PANEL_IDS.storage);
+            if (opts?.collapsePanel) collapseStorageOnOpen();
             return;
         }
 
