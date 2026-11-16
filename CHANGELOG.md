@@ -2,6 +2,15 @@
 
 
 
+## v0.158.0 (2026-11-16)
+
+### Feature
+
+* feat(viewer): choose which classic top bar buttons show; the row scrolls on a phone (#560)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`824fc03`](https://github.com/Krande/adapy/commit/824fc03316f870d1403a61596abc6a6c1c69b093))
+
+
 ## v0.157.1 (2026-11-16)
 
 ### Fix
