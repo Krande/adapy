@@ -39,7 +39,8 @@ export interface FileTreeListProps {
     onCreateFolder: (parent: string, rawName: string) => void;
     proceduralByName: Map<string, ProceduralModelSummary>;
     activeProcedural: string | null;
-    openProceduralModel: (m: ProceduralModelSummary) => Promise<void>;
+    /** A row click: make this the edited model (the one edited so far stays in the scene). */
+    openProceduralModel: (m: ProceduralModelSummary, opts?: {collapsePanel?: boolean}) => Promise<void>;
     isProceduralLoaded: (m: ProceduralModelSummary) => boolean;
     toggleProceduralLoaded: (m: ProceduralModelSummary, next: boolean) => Promise<void>;
     proceduralMenuItems: (m: ProceduralModelSummary, displayName: string) => KebabMenuItem[];
@@ -175,11 +176,10 @@ const FileTreeList: React.FC<FileTreeListProps> = (props) => {
                                                     displayName={node.displayName}
                                                     indentLevel={depth}
                                                     active={activeProcedural === model.id}
-                                                    onOpen={() => void openProceduralModel(model)}
+                                                    onOpen={() => void openProceduralModel(model, {collapsePanel: true})}
                                                     isSelected={selection.has(model.name)}
                                                     onSelectToggle={onRowSelectToggle}
                                                     isLoaded={isProceduralLoaded(model)}
-                                                    canLoad={!!model.latest_glb_key}
                                                     onToggleLoaded={(m, next) =>
                                                         void toggleProceduralLoaded(m, next)
                                                     }

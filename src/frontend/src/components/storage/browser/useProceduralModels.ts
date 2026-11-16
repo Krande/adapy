@@ -148,10 +148,15 @@ export function useProceduralModels(p: {
      * editable without changing what is visible. Before companions existed this
      * necessarily closed the previous model, which is what made two models look
      * impossible. */
-    const makeProceduralActive = async (m: ProceduralModelSummary) => {
+    const makeProceduralActive = async (m: ProceduralModelSummary, opts?: {collapsePanel?: boolean}) => {
         const cb = useCellBuilderStore.getState();
         const store = useCompanionModelStore.getState();
         const prev = cb.active;
+        if (prev?.modelId === m.id) {
+            // Already the edited one: a row click means "show me it".
+            if (opts?.collapsePanel) hide(CORE_PANEL_IDS.storage);
+            return;
+        }
 
         // The incoming model must stop being a companion before it is drawn as
         // the editable one, or its cells render twice.
@@ -165,7 +170,7 @@ export function useProceduralModels(p: {
             store.remove(m.id);
         }
 
-        await openProceduralModel(m, {collapsePanel: false});
+        await openProceduralModel(m, {collapsePanel: opts?.collapsePanel === true});
 
         if (prev && prev.modelId !== m.id) {
             const detail = await viewerApi.getProceduralModel(scopeKey, prev.modelId);
@@ -210,19 +215,28 @@ export function useProceduralModels(p: {
         setSourceOffset(sourceName, {x: c.offsetX});
     };
 
+    /** Take a model out of the scene altogether: the builder closes when it is the
+     *  edited one, a companion is removed, and whatever representation of it was
+     *  loaded (its compiled result, its detail model) goes with it. */
+    const unloadProcedural = async (m: ProceduralModelSummary) => {
+        const cb = useCellBuilderStore.getState();
+        if (cb.active?.modelId === m.id) cb.close();
+        if (useCompanionModelStore.getState().companions[m.id]) {
+            await removeCompanion(m);
+        }
+        for (const rep of ["simulation", "detail"] as const) {
+            await unload_any_source(companionSourceName(m.name, rep)).catch(() => undefined);
+        }
+    };
+
+    // The checkbox is the model's presence, nothing less: unticked, the model is
+    // out of the scene AND out of the builder. "Stop editing but keep it in the
+    // scene" is not a box state; a second model made active does that (the first
+    // stays as a companion), and so does hiding its compiled result from the menu.
     const toggleProceduralLoaded = async (m: ProceduralModelSummary, next: boolean) => {
-        const sourceName = proceduralSourceName(m);
         try {
             if (!next) {
-                // Unticking removes it from the scene and nothing else: editing
-                // a model whose result is not shown is a normal thing to do
-                // (edit topology, then compile), so this must not close the
-                // cellbuilder behind the operator's back.
-                if (useCompanionModelStore.getState().companions[m.id]) {
-                    await removeCompanion(m);
-                    return;
-                }
-                await unload_any_source(sourceName).catch(() => undefined);
+                await unloadProcedural(m);
                 return;
             }
             // First model in: it becomes the one being EDITED — there is
@@ -240,12 +254,13 @@ export function useProceduralModels(p: {
         }
     };
 
+    /** Show a model's compiled result beside the edited model: a companion drawn as
+     *  its simulation result, so the menu's representation switch applies to it. */
     const viewProceduralResult = async (m: ProceduralModelSummary) => {
         if (!m.latest_glb_key) return;
         try {
-            await useCellBuilderStore
-                .getState()
-                .viewResult(m.latest_glb_key, "sim", proceduralSourceName(m));
+            if (!useCompanionModelStore.getState().companions[m.id]) await addCompanion(m);
+            await setCompanionRep(m, "simulation");
         } catch (e) {
             void alertDialog({title: "Failed to load compiled result", body: errorText(e), tone: "danger"});
         }
@@ -358,14 +373,12 @@ export function useProceduralModels(p: {
     const proceduralMenuItems = (m: ProceduralModelSummary, displayName: string): KebabMenuItem[] =>
         buildProceduralMenuItems(displayName, {
             canMutate,
-            onOpen: () => void openProceduralModel(m),
             ...placementItems(proceduralSourceName(m), m.name),
             isActive: activeProcedural === m.id,
             companionRep: companions[m.id]?.rep ?? null,
             hasCompiled: !!m.latest_glb_key,
             onShowRep: (rep) => void setCompanionRep(m, rep),
             onMakeActive: () => void makeProceduralActive(m),
-            onDeactivate: () => useCellBuilderStore.getState().close(),
             onViewResult: m.latest_glb_key ? () => void viewProceduralResult(m) : undefined,
             onCopyPath: () => void writeToClipboard(m.name),
             onRename: () => void renameProceduralModel(m),
@@ -406,6 +419,7 @@ export function useProceduralModels(p: {
         setTemplatesOpen,
         templatesBtnRef,
         openProceduralModel,
+        makeProceduralActive,
         proceduralSourceName,
         isProceduralLoaded,
         companions,

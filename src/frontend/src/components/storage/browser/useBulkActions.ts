@@ -102,9 +102,7 @@ export function useBulkActions(p: {
         const {models} = splitSelection(Array.from(selection));
         void (async () => {
             for (const m of models) {
-                if (m.latest_glb_key && !isProceduralLoaded(m)) {
-                    await toggleProceduralLoaded(m, true);
-                }
+                if (!isProceduralLoaded(m)) await toggleProceduralLoaded(m, true);
             }
         })();
         clearSelection();

@@ -6,14 +6,16 @@ import { buildProceduralMenuItems } from "@/components/storage/storageMenuItems"
 // A procedural model is filed beside real files in the storage tree, so "how do
 // I move this" must not have a different answer depending on what the row is
 // backed by. Same kebab, same right-click, same Rename/Move wording.
+//
+// The row's CHECKBOX is the model's presence (in the scene and the builder, or
+// neither); the menu never repeats it. What the menu adds is what a box cannot
+// say: which of several shown models is the edited one, how a shown one is drawn.
 
 const noop = () => {};
 const full = () =>
   buildProceduralMenuItems("module-a", {
     canMutate: true,
-    onOpen: noop,
     onMakeActive: noop,
-    onDeactivate: noop,
     onViewResult: noop,
     onCopyPath: noop,
     onRename: noop,
@@ -28,15 +30,17 @@ test("it offers the same organise actions a file does", () => {
   }
 });
 
-test("open is first, because the row's primary action is opening it", () => {
-  assert.equal(full()[0].key, "open");
+test("editing is first, because that is what a model is for", () => {
+  assert.equal(full()[0].key, "make-active");
 });
 
-test("it offers NO file-only actions", () => {
+test("it offers NO file-only actions, and does not repeat the checkbox", () => {
   // A model is a database row: load into the scene, download and convert would
-  // promise operations that cannot work on it.
+  // promise operations that cannot work on it. "Open" and "Stop editing" were
+  // the checkbox said twice: ticking shows (and edits) the model, unticking
+  // removes it and closes the builder.
   const keys = full().map((i) => i.key);
-  for (const k of ["toggle-load", "load-streamer", "download"]) {
+  for (const k of ["toggle-load", "load-streamer", "download", "open", "deactivate"]) {
     assert.ok(!keys.includes(k), `${k} must not be offered on a model`);
   }
 });
@@ -47,77 +51,77 @@ test("delete is destructive and separated", () => {
   assert.equal(del?.separatorBefore, true, "delete must not sit flush against move");
 });
 
-test("a read-only scope keeps Open and Copy but loses the mutations", () => {
+test("a read-only scope keeps Edit and Copy but loses the mutations", () => {
   const items = buildProceduralMenuItems("module-a", {
     canMutate: false,
-    onOpen: noop,
+    onMakeActive: noop,
     onCopyPath: noop,
     onRename: noop,
     onMoveToFolder: noop,
     onDelete: noop,
   });
   const keys = items.map((i) => i.key);
-  assert.deepEqual(keys, ["open", "copy-path"]);
+  assert.deepEqual(keys, ["make-active", "copy-path"]);
 });
 
-// ── active vs in-the-scene ─────────────────────────────────────────
+// ── edited vs in-the-scene ─────────────────────────────────────────
 
-test("an inactive model offers Make active", () => {
-  const keys = full().map((i) => i.key);
-  assert.ok(keys.includes("make-active"));
-  assert.ok(!keys.includes("deactivate"), "cannot offer both at once");
+test("a model that is not the edited one offers Edit this model", () => {
+  const item = full().find((i) => i.key === "make-active");
+  assert.ok(item);
+  assert.equal(item.label, "Edit this model");
+  assert.match(String(item.title), /stays in the scene/i, "the one edited so far is not dropped");
 });
 
-test("the active model offers Stop editing instead", () => {
-  // Exactly one model is active, so the entry is a toggle rather than a
-  // command that could be issued twice.
+test("the edited model offers neither Edit nor Show compiled result", () => {
+  // Exactly one model is edited; its presence is the checkbox (unticking it
+  // closes the builder), so the menu has nothing to say about editing it.
   const items = buildProceduralMenuItems("module-a", {
     canMutate: true,
     isActive: true,
-    onOpen: noop,
     onMakeActive: noop,
-    onDeactivate: noop,
+    onViewResult: noop,
+    onCopyPath: noop,
   });
-  const keys = items.map((i) => i.key);
-  assert.ok(keys.includes("deactivate"));
-  assert.ok(!keys.includes("make-active"));
+  assert.deepEqual(items.map((i) => i.key), ["copy-path"]);
 });
 
-test("stopping editing does not claim to unload the scene", () => {
-  // Several results can sit in the scene at once; deactivating edits one
-  // document and must not imply it removes anything.
-  const items = buildProceduralMenuItems("module-a", {
-    canMutate: true,
-    isActive: true,
-    onOpen: noop,
-    onDeactivate: noop,
-  });
-  const d = items.find((i) => i.key === "deactivate");
-  assert.match(String(d?.label), /keep in scene/i);
-});
-
-test("a model that never compiled offers no View compiled result", () => {
+test("a model that never compiled offers no Show compiled result", () => {
   // The entry appears only when there is a derived key to load; otherwise it
   // would be a button with nothing behind it.
   const items = buildProceduralMenuItems("module-a", {
     canMutate: true,
-    onOpen: noop,
     onMakeActive: noop,
   });
   assert.ok(!items.map((i) => i.key).includes("view-result"));
 });
 
-test("View compiled result is offered without making the model active", () => {
+test("Show compiled result is offered without making the model the edited one", () => {
   // This is what "several in the scene, one being edited" is made of.
   const keys = full().map((i) => i.key);
   assert.ok(keys.includes("view-result"));
   assert.ok(keys.includes("make-active"), "the two must be separate choices");
+  assert.equal(full().find((i) => i.key === "view-result")?.label, "Show compiled result");
+});
+
+test("a shown companion chooses how it is drawn instead", () => {
+  const items = buildProceduralMenuItems("module-a", {
+    canMutate: true,
+    companionRep: "topology",
+    hasCompiled: true,
+    onShowRep: noop,
+    onMakeActive: noop,
+    onViewResult: noop,
+  });
+  const keys = items.map((i) => i.key);
+  assert.deepEqual(keys, ["make-active", "show-topology", "show-simulation", "show-detail"]);
+  assert.ok(!keys.includes("view-result"), "the representation switch replaces it");
 });
 
 test("a handler that is not supplied yields no entry", () => {
   // Otherwise the menu would show an action that does nothing when clicked.
-  const items = buildProceduralMenuItems("module-a", { canMutate: true, onOpen: noop });
-  assert.deepEqual(items.map((i) => i.key), ["open"]);
+  const items = buildProceduralMenuItems("module-a", { canMutate: true });
+  assert.deepEqual(items, []);
 });
 
 // ── selection semantics (the part that can silently 404) ───────────
@@ -158,36 +162,6 @@ test("a name that merely looks like a model is treated as a file", () => {
   const { models, fileKeys } = splitSelection(["module-b.step"], new Set(["module-b"]));
   assert.deepEqual(models, []);
   assert.deepEqual(fileKeys, ["module-b.step"]);
-});
-
-/** Mirrors the toolbar: a model is loadable once it has a compiled result. */
-function loadableCount(
-  selection: string[],
-  models: Map<string, { latest_glb_key?: string | null }>,
-) {
-  const picked = selection.map((k) => models.get(k)).filter(Boolean) as {
-    latest_glb_key?: string | null;
-  }[];
-  return selection.length - picked.length + picked.filter((m) => !!m.latest_glb_key).length;
-}
-
-test("a compiled model counts as loadable", () => {
-  // The checkbox means "put this in the scene", the same as on a file, so a
-  // selection of compiled models must offer an ENABLED Load.
-  const models = new Map([
-    ["m1", { latest_glb_key: "derived/m1.glb" }],
-    ["m2", { latest_glb_key: "derived/m2.glb" }],
-  ]);
-  assert.equal(loadableCount(["m1", "m2"], models), 2);
-  assert.equal(loadableCount(["m1", "a.step"], models), 2);
-});
-
-test("a model that never compiled is not loadable", () => {
-  // Nothing to show, so the box must not be tickable and the count must not
-  // promise it — a control with nothing behind it is worse than a disabled one.
-  const models = new Map([["m1", { latest_glb_key: null }]]);
-  assert.equal(loadableCount(["m1"], models), 0);
-  assert.equal(loadableCount(["m1", "a.step"], models), 1);
 });
 
 test("the scene source name is derived from the model, not from what is active", () => {
