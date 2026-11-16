@@ -246,14 +246,18 @@ def _advertised_engine_doc(engine: str | None) -> dict | None:
     return None
 
 
-async def _resolve_engine_manifest(db_pool: "asyncpg.Pool", row: dict, engine: str | None) -> dict | None:
+async def _resolve_engine_manifest(db_pool: "asyncpg.Pool | None", row: dict, engine: str | None) -> dict | None:
     """The registry manifest doc for a NON-default, non-builtin engine (its
     ``entrypoint``/``worker_capability``/xlsx-sibling fields), resolved by slug in
-    the model's scope. ``None`` for the default/built-in engines."""
+    the model's scope. ``None`` for the default/built-in engines. Without a pool
+    (a local viewer) it is the engine registered in THIS process, as the build
+    resolves it."""
     from ada.topo_model.engines import BUILTIN_ENGINES, is_default_engine
 
     if is_default_engine(engine) or engine in BUILTIN_ENGINES:
         return None
+    if db_pool is None:
+        return _advertised_engine_doc(engine)
     eng_row = await db_module.get_procedural_engine_by_slug(
         db_pool, scope_kind=row["scope_kind"], scope_id=row["scope_id"], slug=engine
     )

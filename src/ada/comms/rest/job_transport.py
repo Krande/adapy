@@ -139,6 +139,9 @@ FEATURE_UNAVAILABLE_DETAIL: dict[str, str] = {
 #: IFC, STEP, ...) without a queue or a worker image, by the same handler a worker runs, in a
 #: child process so a native crash takes the job down and not the viewer
 #: (``local_jobs.start_worker_job``). The bakes run there too.
+#: ``procedural_export``, ``procedural_import`` and ``procedural_relocations`` with
+#: ``procedural_build``: the same engines write and read their workbooks in this process, on a
+#: model kept in the file store (``local_jobs.start_procedural_model_job`` / ``start_procedural_import``).
 LOCAL_FEATURES: frozenset[str] = frozenset(
     {
         "asset_build",
@@ -151,6 +154,9 @@ LOCAL_FEATURES: frozenset[str] = frozenset(
         "export_selection",
         "plugin_jobs",
         "procedural_build",
+        "procedural_export",
+        "procedural_import",
+        "procedural_relocations",
         "result_meta",
         "simulation",
         "utilities",
@@ -465,6 +471,8 @@ class LocalJobTransport(_BaseTransport):
             return self._submit_simulation(req)
         if req.feature == "procedural_build":
             return self._submit_procedural_build(req)
+        if req.feature in ("procedural_export", "procedural_import", "procedural_relocations"):
+            return self._submit_procedural_model_job(req)
         if req.feature in ("bake", "result_meta"):
             return self._submit_fea(req)
         if req.feature == "conversion" or req.feature in _WORKER_PROCESS_KINDS:
@@ -524,6 +532,39 @@ class LocalJobTransport(_BaseTransport):
             target_capability=None,
             payload=job.as_json(),
         )
+
+    def _submit_procedural_model_job(self, req: JobRequest) -> SubmittedJob:
+        """A procedural Excel/IFC/Genie export, a relocation proposal, or an Excel import into
+        a new model, in this process (``local_jobs.start_procedural_model_job`` /
+        ``start_procedural_import``)."""
+        inputs = req.inprocess_inputs or {}
+        if req.target_format == "procedural_import_xlsx":
+            job = local_jobs.start_procedural_import(
+                source_key=req.source_key,
+                derived_key=req.derived_key or "",
+                conversion_options=req.conversion_options or {},
+                storage=self._storage,
+                scope=req.scope,
+                db_pool=inputs.get("db_pool"),
+            )
+            return _submitted_from_local(job)
+        if req.target_format not in local_jobs.LOCAL_PROCEDURAL_MODEL_KINDS:
+            self.unavailable(req.feature)
+        row = inputs.get("model_row")
+        if not isinstance(row, dict):
+            raise HTTPException(status_code=500, detail="an in-process procedural job needs the model row")
+        job = local_jobs.start_procedural_model_job(
+            target_format=req.target_format,
+            model_row=row,
+            source_key=req.source_key,
+            derived_key=req.derived_key or "",
+            conversion_options=req.conversion_options or {},
+            force_rebuild=req.force_rebuild,
+            storage=self._storage,
+            scope=req.scope,
+            db_pool=inputs.get("db_pool"),
+        )
+        return _submitted_from_local(job)
 
     def _submit_fea(self, req: JobRequest) -> SubmittedJob:
         """A FEA bake, result inventory, or lazy combination / envelope, in a job process."""

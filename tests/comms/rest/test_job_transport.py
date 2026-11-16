@@ -141,7 +141,9 @@ def test_every_feature_has_a_message_and_only_plugin_jobs_runs_locally():
     # `export_selection` with the selected-object panel's "Download as".
     # `simulation` like `plugin_jobs`: a provider registered in this process runs here.
     # `procedural_build` so a local viewer's Build mode can show the model it edits:
-    # the built-in engines, and any a tool registers in this process, compile here.
+    # the built-in engines, and any a tool registers in this process, compile here; and
+    # `procedural_export`, `procedural_import` and `procedural_relocations` on the same model
+    # (its file store) with the same engines.
     # `bake` and `result_meta` so a result deck on a local viewer opens in Results and
     # Capacity: this process has the readers a worker bakes with.
     # `conversion`, `utilities` and `component_build` because the environment a local viewer is
@@ -159,6 +161,9 @@ def test_every_feature_has_a_message_and_only_plugin_jobs_runs_locally():
             "export_selection",
             "plugin_jobs",
             "procedural_build",
+            "procedural_export",
+            "procedural_import",
+            "procedural_relocations",
             "result_meta",
             "simulation",
             "utilities",
@@ -179,9 +184,6 @@ PREEXISTING_503 = {
     # An admin audit sweep measures worker pools: the gate its routes always answered.
     "audit_conversion": "conversion disabled (no NATS configured)",
     "job_status_report": "no job queue configured",
-    "procedural_export": "procedural export disabled (no NATS configured)",
-    "procedural_import": "procedural import disabled (no NATS configured)",
-    "procedural_relocations": "procedural relocations disabled (no NATS configured)",
     "worker_registry": "worker registry requires a NATS-backed queue",
 }
 

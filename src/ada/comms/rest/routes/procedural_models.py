@@ -54,24 +54,6 @@ from .deps import (
 router = APIRouter()
 
 
-def require_procedural_pool(request: Request):
-    pool = getattr(request.app.state, "db_pool", None)
-    if pool is None:
-        raise HTTPException(status_code=503, detail="procedural models disabled (no database configured)")
-    return pool
-
-
-async def get_procedural_in_scope(pool, model_id: str, scope_obj: Scope) -> dict:
-    try:
-        row = await db_module.get_procedural_model(pool, model_id)
-    except Exception:
-        # malformed UUID etc. — treat as not found, not a 500
-        row = None
-    if row is None or row["scope_kind"] != scope_obj.kind or (row["scope_id"] or None) != (scope_obj.id or None):
-        raise HTTPException(status_code=404, detail="procedural model not found")
-    return row
-
-
 def model_store(request: Request, ctx: RestContext) -> ProceduralStore:
     """Where this server keeps procedural models: postgres, or storage files when it
     has neither a database nor a queue (a local viewer), see :mod:`..procedural_store`.
@@ -1021,8 +1003,7 @@ async def api_procedural_stats_export(
 
     from ..procedural import PROCEDURAL_PREFIX, procedural_stats_key
 
-    pool = require_procedural_pool(request)
-    row = await get_procedural_in_scope(pool, model_id, scope_obj)
+    row = await get_model_in_scope(model_store(request, ctx), model_id, scope_obj)
     key = (request.query_params.get("key") or "").strip()
     fmt = (request.query_params.get("fmt") or "xlsx").strip().lower()
     tab = (request.query_params.get("tab") or "overview").strip().lower()
@@ -1075,8 +1056,8 @@ async def api_procedural_propose_relocations(
     are proposals only; applying them is a separate, explicit user action."""
     from ..procedural import procedural_relocations_key
 
-    pool = require_procedural_pool(request)
-    row = await get_procedural_in_scope(pool, model_id, scope_obj)
+    pool = getattr(request.app.state, "db_pool", None)
+    row = await get_model_in_scope(model_store(request, ctx), model_id, scope_obj)
     derived_key = procedural_relocations_key(row["id"])
 
     ctx.jobs.require("procedural_relocations")
@@ -1090,6 +1071,7 @@ async def api_procedural_propose_relocations(
             conversion_options={"model_id": row["id"], "revision": row["revision"]},
             derived_key=derived_key,
             force_rebuild=True,
+            inprocess_inputs={"model_row": row, "db_pool": pool},
         )
     )
     return JSONResponse({"job_id": job.job_id, "derived_key": derived_key})
@@ -1113,6 +1095,10 @@ async def procedural_engine_capability(queue: JobQueue, pool, scope_obj: Scope, 
     the default / built-in engines (base pool)."""
     if not engine or engine == "adapy-default" or engine in ("echo",):
         return None
+    if pool is None:
+        # No database: no registered engines, and a queue-less server runs the export
+        # in-process, where the capability names no pool.
+        return await advertised_engine_capability(queue, engine) if queue.enabled else None
     eng = await db_module.get_procedural_engine_by_slug(
         pool, scope_kind=scope_obj.kind, scope_id=scope_obj.id, slug=engine
     )
@@ -1138,8 +1124,8 @@ async def api_procedural_export_xlsx(
     force = (request.query_params.get("force") or "").strip().lower() in ("1", "true", "yes")
     engine = (request.query_params.get("engine") or "").strip() or None
 
-    pool = require_procedural_pool(request)
-    row = await get_procedural_in_scope(pool, model_id, scope_obj)
+    pool = getattr(request.app.state, "db_pool", None)
+    row = await get_model_in_scope(model_store(request, ctx), model_id, scope_obj)
     # Honour the model's declared engine unless overridden (as /compile does);
     # "adapy-default" collapses to the bare (built-in) key.
     if engine is None:
@@ -1166,6 +1152,8 @@ async def api_procedural_export_xlsx(
             derived_key=derived_key,
             force_rebuild=force,
             target_capability=target_capability,
+            # A queue-less server exports in-process from the row this route just read.
+            inprocess_inputs={"model_row": row, "db_pool": pool},
         )
     )
     return JSONResponse({"job_id": job.job_id, "derived_key": derived_key, "cached": False})
@@ -1199,8 +1187,8 @@ async def api_procedural_export_model(
     cad_raw = (request.query_params.get("cad") or "").strip().lower()
     cad_equipment = fmt == "ifc" and cad_raw not in ("0", "false", "no")
 
-    pool = require_procedural_pool(request)
-    row = await get_procedural_in_scope(pool, model_id, scope_obj)
+    pool = getattr(request.app.state, "db_pool", None)
+    row = await get_model_in_scope(model_store(request, ctx), model_id, scope_obj)
     engine = (row.get("engine") or "").strip()
     if engine and engine != "adapy-default":
         raise HTTPException(
@@ -1241,6 +1229,7 @@ async def api_procedural_export_model(
             derived_key=derived_key,
             force_rebuild=force,
             target_capability=None,
+            inprocess_inputs={"model_row": row, "db_pool": pool},
         )
     )
     return JSONResponse({"job_id": job.job_id, "derived_key": derived_key, "cached": False})
@@ -1310,7 +1299,9 @@ async def api_procedural_import_xlsx(
     ``model_id``."""
     from ..procedural import PROCEDURAL_PREFIX, procedural_import_result_key
 
-    pool = require_procedural_pool(request)
+    # The store the new model lands in: postgres, or (no database, no queue) the file store.
+    model_store(request, ctx)
+    pool = getattr(request.app.state, "db_pool", None)
     body = await request.json()
     source_key = (body.get("source_key") or "").strip()
     engine = (body.get("engine") or "").strip() or None
@@ -1342,6 +1333,7 @@ async def api_procedural_import_xlsx(
             derived_key=derived_key,
             force_rebuild=True,
             target_capability=target_capability,
+            inprocess_inputs={"db_pool": pool},
         )
     )
     return JSONResponse({"job_id": job.job_id, "derived_key": derived_key}, status_code=201)
