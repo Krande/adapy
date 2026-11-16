@@ -79,6 +79,7 @@ from .routes.deps import (  # noqa: F401 — _merge_spec re-exported for tests/i
     pending_upload_detail,
     publish_capability_requirements,
     require_catalog_pool,
+    require_catalog_store,
     require_pool,
     resolve_project_scope,
     scope_from_header,
@@ -1489,13 +1490,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         """Read a setting from the publicly-readable namespace. Returns
         ``{"key": k, "value": v}`` with v=null when unset, exactly like the admin
         getter. 403 for any key outside the namespace, so this can never be used
-        to read an admin-only setting."""
+        to read an admin-only setting. A server with no database has no settings:
+        every key reads as unset (200, value null), so the viewer's per-load reads
+        stay quiet."""
         if not key.startswith(PUBLIC_SETTING_PREFIX):
             raise HTTPException(
                 status_code=403,
                 detail=f"only {PUBLIC_SETTING_PREFIX}* settings are readable here",
             )
-        pool = _require_pool(request)
+        pool = getattr(request.app.state, "db_pool", None)
+        if pool is None:
+            return JSONResponse({"key": key, "value": None})
         value = await db_module.get_setting(pool, key)
         return JSONResponse({"key": key, "value": value})
 
@@ -1582,21 +1587,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     _require_catalog_pool = require_catalog_pool
 
-    async def _get_equipment_in_scope(pool, type_id: str, scope_obj: Scope) -> dict:
-        try:
-            row = await db_module.get_equipment_type(pool, type_id)
-        except Exception:
-            row = None
-        if row is None or row["scope_kind"] != scope_obj.kind or (row["scope_id"] or None) != (scope_obj.id or None):
+    def _catalogs(request: Request):
+        # Postgres, or the scope's storage files on a local viewer (catalog_store.py).
+        return require_catalog_store(request, storage, queue)
+
+    async def _get_equipment_in_scope(store, type_id: str, scope_obj: Scope) -> dict:
+        row = await store.get_equipment(scope_obj, type_id)
+        if row is None:
             raise HTTPException(status_code=404, detail="equipment type not found")
         return row
 
-    async def _get_system_in_scope(pool, template_id: str, scope_obj: Scope) -> dict:
-        try:
-            row = await db_module.get_system_template(pool, template_id)
-        except Exception:
-            row = None
-        if row is None or row["scope_kind"] != scope_obj.kind or (row["scope_id"] or None) != (scope_obj.id or None):
+    async def _get_system_in_scope(store, template_id: str, scope_obj: Scope) -> dict:
+        row = await store.get_system(scope_obj, template_id)
+        if row is None:
             raise HTTPException(status_code=404, detail="system template not found")
         return row
 
@@ -1616,8 +1619,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     ) -> JSONResponse:
         from .catalog import equipment_preview_glb_key
 
-        pool = _require_catalog_pool(request)
-        types = await db_module.list_equipment_types(pool, scope_kind=scope_obj.kind, scope_id=scope_obj.id)
+        types = await _catalogs(request).list_equipment(scope_obj)
         for t in types:
             key = equipment_preview_glb_key(t["id"])
             t["preview_glb_key"] = key if await storage.exists(scope_obj, key) else None
@@ -1631,7 +1633,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     ) -> JSONResponse:
         from .catalog import slugify
 
-        pool = _require_catalog_pool(request)
+        store = _catalogs(request)
         body = await request.json()
         name = body.get("name")
         if not isinstance(name, str) or not name.strip():
@@ -1640,10 +1642,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if not slug:
             raise HTTPException(status_code=400, detail="could not derive a slug from name/slug")
         desc = body.get("description")
-        row = await db_module.create_equipment_type(
-            pool,
-            scope_kind=scope_obj.kind,
-            scope_id=scope_obj.id,
+        row = await store.create_equipment(
+            scope_obj,
             slug=slug,
             name=name.strip(),
             description=desc if isinstance(desc, str) else None,
@@ -1661,8 +1661,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     ) -> JSONResponse:
         from .catalog import equipment_preview_glb_key
 
-        pool = _require_catalog_pool(request)
-        row = await _get_equipment_in_scope(pool, type_id, scope_obj)
+        row = await _get_equipment_in_scope(_catalogs(request), type_id, scope_obj)
         key = equipment_preview_glb_key(type_id)
         out = {
             k: row[k]
@@ -1677,12 +1676,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         type_id: str,
         scope_obj: Scope = Depends(_scope_from_path),
     ) -> JSONResponse:
-        import asyncpg
-
         from .catalog import slugify, validate_equipment_doc
+        from .catalog_store import CatalogSlugTaken
 
-        pool = _require_catalog_pool(request)
-        row = await _get_equipment_in_scope(pool, type_id, scope_obj)
+        store = _catalogs(request)
+        row = await _get_equipment_in_scope(store, type_id, scope_obj)
         body = await request.json()
         name = body.get("name")
         doc = body.get("doc")
@@ -1702,8 +1700,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except ValueError as e:
             raise HTTPException(status_code=422, detail=f"invalid equipment doc: {e}")
         try:
-            new_rev = await db_module.update_equipment_type(
-                pool,
+            new_rev = await store.update_equipment(
+                scope_obj,
                 type_id,
                 slug=slug,
                 name=name.strip(),
@@ -1711,10 +1709,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 doc=normalized,
                 base_revision=base_revision,
             )
-        except asyncpg.UniqueViolationError:
+        except CatalogSlugTaken:
             raise HTTPException(status_code=409, detail=f"an equipment type with slug {slug!r} already exists")
         if new_rev is None:
-            current = await db_module.get_equipment_type(pool, type_id)
+            current = await store.get_equipment(scope_obj, type_id)
             raise HTTPException(
                 status_code=409,
                 detail={"message": "revision conflict", "current_revision": current["revision"] if current else None},
@@ -1727,9 +1725,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         type_id: str,
         scope_obj: Scope = Depends(_scope_from_path),
     ) -> JSONResponse:
-        pool = _require_catalog_pool(request)
-        await _get_equipment_in_scope(pool, type_id, scope_obj)
-        ok = await db_module.archive_equipment_type(pool, type_id)
+        store = _catalogs(request)
+        await _get_equipment_in_scope(store, type_id, scope_obj)
+        ok = await store.archive_equipment(scope_obj, type_id)
         if not ok:
             raise HTTPException(status_code=404, detail="equipment type not found")
         return JSONResponse({"status": "archived"})
@@ -1747,8 +1745,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         from .catalog import equipment_cad_key
 
-        pool = _require_catalog_pool(request)
-        await _get_equipment_in_scope(pool, type_id, scope_obj)
+        store = _catalogs(request)
+        await _get_equipment_in_scope(store, type_id, scope_obj)
         ext = os.path.splitext(filename)[1].lower()
         if ext not in _CATALOG_CAD_EXTS:
             raise HTTPException(status_code=415, detail=f"unsupported CAD type {ext!r}; one of {_CATALOG_CAD_EXTS}")
@@ -1757,7 +1755,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail="empty body")
         key = equipment_cad_key(type_id, ext)
         await storage.put_bytes(scope_obj, key, data)
-        await db_module.set_equipment_type_cad(pool, type_id, key)
+        await store.set_equipment_cad(scope_obj, type_id, key)
         return JSONResponse({"cad_key": key}, status_code=201)
 
     @api.post("/scopes/{scope}/equipment-types/{type_id}/cad-from-scope", status_code=201)
@@ -1771,8 +1769,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         from .catalog import equipment_cad_key
 
-        pool = _require_catalog_pool(request)
-        await _get_equipment_in_scope(pool, type_id, scope_obj)
+        store = _catalogs(request)
+        await _get_equipment_in_scope(store, type_id, scope_obj)
         body = await request.json()
         source = (body.get("source_key") or "").strip().lstrip("/")
         if not source:
@@ -1786,7 +1784,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail=f"source not found in scope: {source}")
         key = equipment_cad_key(type_id, ext)
         await storage.put_bytes(scope_obj, key, data)
-        await db_module.set_equipment_type_cad(pool, type_id, key)
+        await store.set_equipment_cad(scope_obj, type_id, key)
         return JSONResponse({"cad_key": key}, status_code=201)
 
     @api.post("/scopes/{scope}/equipment-types/{type_id}/infer-bbox")
@@ -1796,19 +1794,26 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         scope_obj: Scope = Depends(_scope_from_path),
     ) -> JSONResponse:
         """Enqueue a worker job to read the linked CAD asset, infer the bbox
-        into the doc and render a preview GLB for the sidecar viewer."""
+        into the doc and render a preview GLB for the sidecar viewer.
+
+        A local viewer (no queue, no database) has no worker: it infers here, in a
+        thread, and answers ``{"job_id": null, "status": "done", "bbox", "derived_key"}``
+        once the bbox is in the doc and the preview is stored."""
         from .catalog import equipment_preview_glb_key
 
-        pool = _require_catalog_pool(request)
-        row = await _get_equipment_in_scope(pool, type_id, scope_obj)
+        store = _catalogs(request)
+        row = await _get_equipment_in_scope(store, type_id, scope_obj)
         if not row.get("cad_key"):
             raise HTTPException(status_code=400, detail="equipment type has no linked CAD asset to infer from")
-        if not queue.enabled:
-            raise HTTPException(status_code=503, detail="bbox inference disabled (no NATS configured)")
         # The type's Z-up assumption (default True = verbatim) travels to the
         # worker so inference measures/previews in the frame the user selected.
         cad_z_up = bool((row.get("doc") or {}).get("cad_z_up", True))
         derived_key = equipment_preview_glb_key(type_id)
+        if not queue.enabled and getattr(request.app.state, "db_pool", None) is None:
+            bbox = await _infer_bbox_here(store, scope_obj, type_id, row["cad_key"], cad_z_up, derived_key)
+            return JSONResponse({"job_id": None, "status": "done", "bbox": bbox, "derived_key": derived_key})
+        if not queue.enabled:
+            raise HTTPException(status_code=503, detail="bbox inference disabled (no NATS configured)")
         job = await queue.enqueue(
             f"_synthetic/equipment/{type_id}/bbox",
             target_format="equipment_bbox",
@@ -1819,6 +1824,31 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         return JSONResponse({"job_id": job.job_id, "derived_key": derived_key})
 
+    async def _infer_bbox_here(store, scope_obj: Scope, type_id: str, cad_key: str, z_up: bool, derived_key: str):
+        """The ``equipment_bbox`` job's work (formats/equipment.py), in this process."""
+        import asyncio
+        import pathlib
+
+        try:
+            from .formats.equipment import _infer_equipment_geometry
+        except ImportError as exc:  # a slim install without the CAD readers
+            raise HTTPException(status_code=503, detail=f"bbox inference unavailable here: {exc}")
+        try:
+            data = await storage.get_bytes(scope_obj, cad_key)
+        except Exception:
+            raise HTTPException(status_code=404, detail=f"CAD asset not found in scope: {cad_key}")
+        ext = pathlib.PurePosixPath(cad_key).suffix.lower()
+        try:
+            bbox, preview = await asyncio.get_running_loop().run_in_executor(
+                None, lambda: _infer_equipment_geometry(data, ext, z_up=z_up)
+            )
+        except Exception as exc:  # noqa: BLE001 -- the reader's message is what the user needs
+            logger.exception("local equipment_bbox failed for %s", type_id)
+            raise HTTPException(status_code=422, detail=f"could not infer a bounding box: {exc}")
+        await storage.put_bytes(scope_obj, derived_key, preview, content_encoding="gzip")
+        await store.apply_inferred_bbox(scope_obj, type_id, bbox)
+        return bbox
+
     # ── System templates ─────────────────────────────────────────────
 
     @api.get("/scopes/{scope}/system-templates")
@@ -1826,8 +1856,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         request: Request,
         scope_obj: Scope = Depends(_scope_from_path),
     ) -> JSONResponse:
-        pool = _require_catalog_pool(request)
-        templates = await db_module.list_system_templates(pool, scope_kind=scope_obj.kind, scope_id=scope_obj.id)
+        templates = await _catalogs(request).list_systems(scope_obj)
         return JSONResponse({"system_templates": templates})
 
     @api.post("/scopes/{scope}/system-templates", status_code=201)
@@ -1838,7 +1867,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     ) -> JSONResponse:
         from .catalog import slugify
 
-        pool = _require_catalog_pool(request)
+        store = _catalogs(request)
         body = await request.json()
         name = body.get("name")
         if not isinstance(name, str) or not name.strip():
@@ -1847,10 +1876,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if not slug:
             raise HTTPException(status_code=400, detail="could not derive a slug from name/slug")
         desc = body.get("description")
-        row = await db_module.create_system_template(
-            pool,
-            scope_kind=scope_obj.kind,
-            scope_id=scope_obj.id,
+        row = await store.create_system(
+            scope_obj,
             slug=slug,
             name=name.strip(),
             description=desc if isinstance(desc, str) else None,
@@ -1866,8 +1893,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         template_id: str,
         scope_obj: Scope = Depends(_scope_from_path),
     ) -> JSONResponse:
-        pool = _require_catalog_pool(request)
-        row = await _get_system_in_scope(pool, template_id, scope_obj)
+        row = await _get_system_in_scope(_catalogs(request), template_id, scope_obj)
         return JSONResponse(
             {k: row[k] for k in ("id", "slug", "name", "description", "doc", "revision", "created_by", "updated_at")}
         )
@@ -1878,12 +1904,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         template_id: str,
         scope_obj: Scope = Depends(_scope_from_path),
     ) -> JSONResponse:
-        import asyncpg
-
         from .catalog import slugify, validate_system_doc
+        from .catalog_store import CatalogSlugTaken
 
-        pool = _require_catalog_pool(request)
-        row = await _get_system_in_scope(pool, template_id, scope_obj)
+        store = _catalogs(request)
+        row = await _get_system_in_scope(store, template_id, scope_obj)
         body = await request.json()
         name = body.get("name")
         doc = body.get("doc")
@@ -1903,8 +1928,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except ValueError as e:
             raise HTTPException(status_code=422, detail=f"invalid system doc: {e}")
         try:
-            new_rev = await db_module.update_system_template(
-                pool,
+            new_rev = await store.update_system(
+                scope_obj,
                 template_id,
                 slug=slug,
                 name=name.strip(),
@@ -1912,10 +1937,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 doc=normalized,
                 base_revision=base_revision,
             )
-        except asyncpg.UniqueViolationError:
+        except CatalogSlugTaken:
             raise HTTPException(status_code=409, detail=f"a system template with slug {slug!r} already exists")
         if new_rev is None:
-            current = await db_module.get_system_template(pool, template_id)
+            current = await store.get_system(scope_obj, template_id)
             raise HTTPException(
                 status_code=409,
                 detail={"message": "revision conflict", "current_revision": current["revision"] if current else None},
@@ -1928,9 +1953,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         template_id: str,
         scope_obj: Scope = Depends(_scope_from_path),
     ) -> JSONResponse:
-        pool = _require_catalog_pool(request)
-        await _get_system_in_scope(pool, template_id, scope_obj)
-        ok = await db_module.archive_system_template(pool, template_id)
+        store = _catalogs(request)
+        await _get_system_in_scope(store, template_id, scope_obj)
+        ok = await store.archive_system(scope_obj, template_id)
         if not ok:
             raise HTTPException(status_code=404, detail="system template not found")
         return JSONResponse({"status": "archived"})

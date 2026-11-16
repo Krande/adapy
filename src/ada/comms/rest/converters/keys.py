@@ -407,6 +407,8 @@ HIDDEN_PREFIXES: tuple[str, ...] = (
     "_reconvert/",
     "_procedural/",
     "_equipment/",
+    # The equipment/system catalogs of a server with no database (catalog_store.py).
+    "_catalogs/",
     "_engines/",
     "_groups/",
     # Convex-contact clash runs (ada.clash.sidecar). Not client-written through the blob route: a

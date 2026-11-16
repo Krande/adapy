@@ -99,14 +99,15 @@ def test_non_public_key_refused_for_non_admin_too(monkeypatch, tmp_path):
         assert client.get("/api/settings/profile_conversions").status_code == 403
 
 
-def test_public_key_reaches_the_db_gate(tmp_path):
-    """A key inside the namespace passes the prefix check and falls through to
-    the pool requirement — 503, not 403. That ordering is the point: the prefix
-    decides access, the DB decides availability."""
+def test_public_key_reads_unset_without_a_db(tmp_path):
+    """A key inside the namespace passes the prefix check; a server with no
+    database has no settings, so it reads as unset (200, null) rather than 503 -
+    the viewer reads these on every load. The prefix still decides access."""
     app = create_app(_settings(tmp_path))
     with TestClient(app) as client:
         r = client.get("/api/settings/public.some_plugin.binding")
-        assert r.status_code == 503, r.text
+        assert r.status_code == 200, r.text
+        assert r.json() == {"key": "public.some_plugin.binding", "value": None}
 
 
 def test_public_key_is_readable_by_a_non_admin(monkeypatch, tmp_path):
@@ -116,7 +117,7 @@ def test_public_key_is_readable_by_a_non_admin(monkeypatch, tmp_path):
     app = create_app(_settings(tmp_path))
     with TestClient(app) as client:
         r = client.get("/api/settings/public.some_plugin.binding")
-        assert r.status_code == 503, r.text
+        assert r.status_code == 200, r.text
         # ...whereas the admin getter refuses this user outright.
         assert client.get("/api/admin/settings/public.some_plugin.binding").status_code == 403
 

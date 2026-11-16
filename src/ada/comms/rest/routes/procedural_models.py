@@ -28,6 +28,7 @@ from ada.config import logger
 from .. import auth as auth_module
 from .. import db as db_module
 from ..auth import User
+from ..catalog_store import CatalogStore, DbCatalogStore, catalog_store
 from ..job_transport import JobRequest, JobTransport
 from ..procedural import (
     procedural_build_job_key,
@@ -46,7 +47,6 @@ from .deps import (
     DIRECT_UPLOAD_THRESHOLD_BYTES,
     RestContext,
     advertised_engine_capability,
-    require_catalog_pool,
     rest_context,
     scope_from_path,
 )
@@ -71,17 +71,34 @@ async def get_model_in_scope(store: ProceduralStore, model_id: str, scope_obj: S
     return row
 
 
-async def catalog_fingerprint_for(pool, scope_obj: Scope, doc: dict) -> str | None:
+async def catalog_fingerprint_for(pool, scope_obj: Scope, doc: dict, store: CatalogStore | None = None) -> str | None:
     """Fingerprint of the scope's equipment + system catalogs, but ONLY when the
     model actually references catalog items — else ``None``, i.e. the model has no
     catalog dependency and its cache stays purely revision/doc-hash keyed. The
     equipment/system catalogs are live compile inputs the model's revision doesn't
     capture, so folding this (via the ``.catfp`` sidecar) makes a catalog edit force
-    a fresh compile."""
-    if pool is None or not (doc.get("equipments") or doc.get("systems")):
-        # No database, no catalogs: nothing the compile could have resolved from one.
+    a fresh compile. ``store`` (:func:`catalogs_here`) answers for the catalogs the
+    build resolves, a local viewer's files included; without it, the ``pool``."""
+    if store is None and pool is not None:
+        store = DbCatalogStore(pool)
+    if store is None or not (doc.get("equipments") or doc.get("systems")):
+        # No catalogs: nothing the compile could have resolved from one.
         return None
-    return await db_module.get_catalog_fingerprint(pool, scope_kind=scope_obj.kind, scope_id=scope_obj.id)
+    return await store.fingerprint(scope_obj)
+
+
+def catalogs_here(request: Request, ctx: RestContext) -> CatalogStore | None:
+    """The catalogs this server's builds resolve: postgres, a local viewer's files
+    (no database, no queue: :mod:`..catalog_store`), or None."""
+    return catalog_store(getattr(request.app.state, "db_pool", None), ctx.storage, local=not ctx.queue.enabled)
+
+
+def require_catalogs(request: Request, ctx: RestContext) -> CatalogStore:
+    """:func:`catalogs_here`, or 503 (a queue but no database)."""
+    store = catalogs_here(request, ctx)
+    if store is None:
+        raise HTTPException(status_code=503, detail="catalogs disabled (no database configured)")
+    return store
 
 
 async def catalog_cache_stale(storage: Storage, scope_obj: Scope, derived_key: str, catalog_fp: str | None) -> bool:
@@ -224,7 +241,7 @@ async def api_procedural_equipment_sync(
     never imports ``ada``."""
     from ..catalog import validate_equipment_doc
 
-    pool = require_catalog_pool(request)
+    store = require_catalogs(request, ctx)
     body = await request.json()
     slug = body.get("slug")
     if not isinstance(slug, str) or not slug:
@@ -238,19 +255,11 @@ async def api_procedural_equipment_sync(
         raise HTTPException(status_code=422, detail=f"invalid archetype doc: {e}")
     name = spec.get("name") or slug
     desc = "Synced from built-in archetype"
-    created = await db_module.create_equipment_type(
-        pool,
-        scope_kind=scope_obj.kind,
-        scope_id=scope_obj.id,
-        slug=slug,
-        name=name,
-        description=desc,
-        created_by=user.sub,
-    )
+    created = await store.create_equipment(scope_obj, slug=slug, name=name, description=desc, created_by=user.sub)
     if created is None:
         raise HTTPException(status_code=409, detail=f"equipment type {slug!r} already exists in this scope")
-    new_rev = await db_module.update_equipment_type(
-        pool,
+    new_rev = await store.update_equipment(
+        scope_obj,
         created["id"],
         slug=slug,
         name=name,
@@ -284,14 +293,11 @@ async def api_procedural_equipment_resync(
         validate_equipment_doc,
     )
 
-    pool = require_catalog_pool(request)
+    store = require_catalogs(request, ctx)
     specs = await ctx.jobs.advertised_specs("procedural_equipment_specs")
     if not specs:
         raise HTTPException(status_code=503, detail="no live worker advertising equipment archetypes")
-    existing = {
-        t["slug"]: t
-        for t in await db_module.list_equipment_types(pool, scope_kind=scope_obj.kind, scope_id=scope_obj.id)
-    }
+    existing = {t["slug"]: t for t in await store.list_equipment(scope_obj)}
     created: list[str] = []
     updated: list[str] = []
     unchanged: list[str] = []
@@ -312,7 +318,7 @@ async def api_procedural_equipment_resync(
         name = spec.get("name") or slug
         cur = existing.get(slug)
         if cur is not None:
-            full = await db_module.get_equipment_type(pool, cur["id"])
+            full = await store.get_equipment(scope_obj, cur["id"])
             stored_doc = (full or {}).get("doc") or {}
             # A CAD-backed type's inferred geometry + aligned ports must survive
             # the resync (which runs on every model open); see resync_target_doc.
@@ -323,8 +329,8 @@ async def api_procedural_equipment_resync(
             changes[slug] = summarize_equipment_doc_changes(
                 stored_doc, (full or {}).get("name") or slug, target_doc, name
             )
-            await db_module.update_equipment_type(
-                pool,
+            await store.update_equipment(
+                scope_obj,
                 cur["id"],
                 slug=slug,
                 name=name,
@@ -334,10 +340,8 @@ async def api_procedural_equipment_resync(
             )
             updated.append(slug)
         else:
-            row = await db_module.create_equipment_type(
-                pool,
-                scope_kind=scope_obj.kind,
-                scope_id=scope_obj.id,
+            row = await store.create_equipment(
+                scope_obj,
                 slug=slug,
                 name=name,
                 description="Synced from built-in archetype",
@@ -346,8 +350,8 @@ async def api_procedural_equipment_resync(
             if row is None:
                 skipped.append(slug)
                 continue
-            await db_module.update_equipment_type(
-                pool,
+            await store.update_equipment(
+                scope_obj,
                 row["id"],
                 slug=slug,
                 name=name,
@@ -374,7 +378,7 @@ async def api_procedural_system_sync(
     so this works without a live worker."""
     from ..catalog import builtin_system_specs, validate_system_doc
 
-    pool = require_catalog_pool(request)
+    store = require_catalogs(request, ctx)
     body = await request.json()
     slug = body.get("slug")
     if not isinstance(slug, str) or not slug:
@@ -390,19 +394,11 @@ async def api_procedural_system_sync(
         raise HTTPException(status_code=422, detail=f"invalid system-kind doc: {e}")
     name = spec.get("name") or slug
     desc = "Synced from built-in system kind"
-    created = await db_module.create_system_template(
-        pool,
-        scope_kind=scope_obj.kind,
-        scope_id=scope_obj.id,
-        slug=slug,
-        name=name,
-        description=desc,
-        created_by=user.sub,
-    )
+    created = await store.create_system(scope_obj, slug=slug, name=name, description=desc, created_by=user.sub)
     if created is None:
         raise HTTPException(status_code=409, detail=f"system template {slug!r} already exists in this scope")
-    new_rev = await db_module.update_system_template(
-        pool,
+    new_rev = await store.update_system(
+        scope_obj,
         created["id"],
         slug=slug,
         name=name,
@@ -634,7 +630,7 @@ async def api_procedural_compile(
     # derived key is unchanged. Fingerprint them (only when the model places
     # catalog items) and, on a hit, rebuild if the cached artifact predates the
     # current catalog state (sidecar mismatch).
-    catalog_fp = await catalog_fingerprint_for(pool, scope_obj, row.get("doc") or {})
+    catalog_fp = await catalog_fingerprint_for(pool, scope_obj, row.get("doc") or {}, catalogs_here(request, ctx))
 
     # Resolve the selected detailing engine. An EXTERNAL (Tier-B) engine
     # (inprocess=False) runs as a chained ``procedural_detail``
@@ -829,7 +825,7 @@ async def api_procedural_compile_preview(
     # The preview key is content-keyed on the DOC, but catalog equipment/systems
     # are resolved live at compile — so a catalog edit must invalidate a cached
     # preview too (same reasoning as /compile). Fingerprint the referenced catalogs.
-    catalog_fp = await catalog_fingerprint_for(pool, scope_obj, normalized)
+    catalog_fp = await catalog_fingerprint_for(pool, scope_obj, normalized, catalogs_here(request, ctx))
 
     if not force and await ctx.storage.exists(scope_obj, derived_key):
         if not await catalog_cache_stale(ctx.storage, scope_obj, derived_key, catalog_fp):

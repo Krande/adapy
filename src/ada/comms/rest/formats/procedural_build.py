@@ -204,22 +204,21 @@ async def _run_procedural_build(
         except Exception:
             logger.warning("procedural: source workbook %s unreadable; compiling from the doc", source_key)
 
-    # Resolve placed catalog equipment (by slug) to its per-scope definition.
-    catalog = (
-        await db_module.get_equipment_docs_by_scope(db_pool, scope_kind=row["scope_kind"], scope_id=row["scope_id"])
-        if db_pool is not None
-        else {}
-    )
+    # Resolve placed catalog equipment (by slug) to its per-scope definition: from
+    # postgres, or - an in-process build on a server with no database (the model row
+    # was handed in) - from the scope's catalog files (catalog_store.py).
+    from ..catalog_store import catalog_store
+
+    catalogs = catalog_store(db_pool, storage, local=model_row is not None)
+    catalog = await catalogs.equipment_docs(scope) if catalogs is not None else {}
 
     # When equipment_cad is on, prefetch the linked CAD assets for the catalog
     # slugs the model actually places, so the compiler can splice in real
     # geometry instead of boxes.
     cad_bytes: dict[str, tuple[bytes, str]] = {}
-    if doc.get("equipment_cad") and db_pool is not None:
+    if doc.get("equipment_cad") and catalogs is not None:
         used = {(e.get("DESCRIPTION") or "").strip() for e in (doc.get("equipments") or [])}
-        cad_keys = await db_module.get_equipment_cad_keys_by_scope(
-            db_pool, scope_kind=row["scope_kind"], scope_id=row["scope_id"]
-        )
+        cad_keys = await catalogs.equipment_cad_keys(scope)
         for slug, cad_key in cad_keys.items():
             if slug and slug in used and cad_key:
                 try:
@@ -339,9 +338,9 @@ async def _run_procedural_build(
 
     # Bind this artifact to the catalog state it was built from, so a later catalog
     # edit invalidates the (revision/doc-hash-stamped) cache and forces a recompile.
-    # Only when it WAS built from one: without a pool no catalog was resolved, and
+    # Only when it WAS built from one: without a catalog store none was resolved, and
     # stamping a fingerprint would cache a catalog-less build as current for it.
-    if db_pool is not None:
+    if catalogs is not None:
         await _write_catalog_fp_sidecar(storage, scope, job.derived_key, job.conversion_options)
 
     # Take-off stats sidecar (default-engine builds only): a gzip-at-rest

@@ -290,6 +290,18 @@ def require_catalog_pool(request: Request):
     return pool
 
 
+def require_catalog_store(request: Request, storage: Storage, queue: JobQueue):
+    """Where this server keeps the equipment/system catalogs: postgres, or storage files
+    when it has neither a database nor a queue (a local viewer, :mod:`..catalog_store`).
+    A queue but no database is 503, as it was."""
+    from ..catalog_store import catalog_store
+
+    store = catalog_store(getattr(request.app.state, "db_pool", None), storage, local=not queue.enabled)
+    if store is None:
+        raise HTTPException(status_code=503, detail="catalogs disabled (no database configured)")
+    return store
+
+
 def require_pool(request: Request):
     """The DB pool, or 503 — the generic gate most ``/api/*`` routes need."""
     pool = getattr(request.app.state, "db_pool", None)

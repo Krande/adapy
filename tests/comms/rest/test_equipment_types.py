@@ -1,7 +1,8 @@
 """Equipment-type & system-template catalogs: API CRUD + validation.
 
-* No-DB path (always runs): endpoints 503 without a database; the doc
-  validators + key conventions work standalone.
+* No-DB path (always runs): endpoints 503 with a queue but no database; the
+  doc validators + key conventions work standalone. The local viewer's file
+  catalogs are tested in test_local_catalogs.py.
 * Live-Postgres tests (skipped unless ``ADA_TEST_POSTGRES_URL`` is set):
   migrations 023/024 apply, CRUD round-trips, slug + revision conflicts,
   CAD copy-from-scope, cross-scope isolation, dropdown union.
@@ -162,7 +163,12 @@ def app_client(tmp_path: pathlib.Path):
         yield client
 
 
-def test_endpoints_503_without_db(app_client: TestClient):
+def test_endpoints_503_with_a_queue_but_no_db(app_client: TestClient, monkeypatch):
+    """Without a database a local viewer keeps the catalogs as files
+    (test_local_catalogs.py); a server with a queue but no database has neither."""
+    from ada.comms.rest.queue import JobQueue
+
+    monkeypatch.setattr(JobQueue, "enabled", property(lambda self: True))
     assert app_client.get("/api/scopes/shared/equipment-types").status_code == 503
     assert app_client.post("/api/scopes/shared/equipment-types", json={"name": "Pump"}).status_code == 503
     assert app_client.get("/api/scopes/shared/system-templates").status_code == 503
