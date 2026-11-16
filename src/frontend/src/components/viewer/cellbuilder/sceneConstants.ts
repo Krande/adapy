@@ -10,6 +10,8 @@
 import type {BuilderCell} from "@/state/cellBuilderStore";
 import type {Vec3} from "@/utils/cellbuilder/snap";
 
+/** Marks the gizmo HUD's delta field: Escape in it cancels a live axis-locked move (keyboard.ts). */
+export const GIZMO_DELTA_FIELD_ATTR = "data-gizmo-delta";
 export const CELL_COLOR = 0x3b82f6;
 export const EQUIPMENT_COLOR = 0xf97316;
 export const GHOST_COLOR = 0x22c55e;
