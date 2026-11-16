@@ -131,9 +131,9 @@ async def _run_procedural_export_model(
     Compiles the postgres-stored doc to an in-process adapy assembly (built-in
     engine only) at the format's LOD, serializes it, and stores the bytes at
     ``job.derived_key``. A synthetic sibling of :func:`_run_procedural_export_xlsx`
-    (and takes the same ``model_row``/``audit``). Without a pool there is no
-    equipment catalog to resolve, so placed equipment exports as the compile
-    builds an unknown slug."""
+    (and takes the same ``model_row``/``audit``). Without a pool the equipment (and
+    (and, for gxml, the systems) are resolved from the scope's file catalog
+    (catalog_store.py), as the compile does."""
     job_id = job.job_id
     opts = job.conversion_options or {}
     model_id = opts.get("model_id")

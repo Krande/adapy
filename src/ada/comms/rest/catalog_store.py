@@ -334,16 +334,17 @@ class FileCatalogStore:
         return f"{self._dir(kind)}{entry_id}.json"
 
     async def _load(self, scope: Scope, kind: CatalogKind, entry_id: str) -> dict | None:
-        """The record, archived or not; ``None`` when absent, malformed or out of scope."""
+        """The record, archived or not; ``None`` when absent, malformed or out of scope. The id is read
+        as postgres reads a uuid (its case does not matter); the file is the lower-case spelling."""
         try:
-            uuid.UUID(str(entry_id))
+            entry_id = str(uuid.UUID(str(entry_id)))
         except ValueError:
             return None
         try:
             record = json.loads(await self.storage.get_bytes(scope, self._key(kind, entry_id)))
         except Exception:
             return None
-        if not isinstance(record, dict) or not _in_scope(record, scope):
+        if not isinstance(record, dict) or not _in_scope(record, scope) or record.get("id") != entry_id:
             return None
         return record
 
@@ -354,13 +355,16 @@ class FileCatalogStore:
     async def _write(self, scope: Scope, kind: CatalogKind, record: dict) -> None:
         await self.storage.put_bytes(scope, self._key(kind, record["id"]), json.dumps(record).encode("utf-8"))
 
-    async def _all(self, scope: Scope, kind: CatalogKind) -> list[dict]:
-        """Every record of the catalog, archived ones included."""
+    async def _all(self, scope: Scope, kind: CatalogKind, *, strict: bool = False) -> list[dict]:
+        """Every record of the catalog, archived ones included. A listing that fails reads as empty,
+        or raises with ``strict`` (the seeding must not take a failed listing for an empty catalog)."""
         prefix = self._dir(kind)
         out: list[dict] = []
         try:
             entries = await self.storage.list_prefix(scope, prefix)
         except Exception:
+            if strict:
+                raise
             return out
         for entry in entries:
             name = entry.key[len(prefix) :] if entry.key.startswith(prefix) else ""
@@ -397,7 +401,11 @@ class FileCatalogStore:
     async def _seed(self, scope: Scope, kind: CatalogKind) -> None:
         """Write the defaults into a catalog that has no entry at all (archived included)."""
         async with _LOCK:
-            if await self._all(scope, kind):
+            try:
+                if await self._all(scope, kind, strict=True):
+                    return
+            except Exception:  # noqa: BLE001 -- a listing that failed is not an empty catalog
+                logger.exception("catalog store: could not list the %s catalog of %s; not seeding it", kind, scope)
                 return
             defaults = default_equipment_types() if kind == "equipment" else default_system_templates()
             try:
@@ -450,7 +458,7 @@ class FileCatalogStore:
             record = await self._read(scope, kind, entry_id)
             if record is None or record["revision"] != base_revision:
                 return None
-            if any(r["slug"] == slug and r["id"] != entry_id for r in await self._live(scope, kind)):
+            if any(r["slug"] == slug and r["id"] != record["id"] for r in await self._live(scope, kind)):
                 raise CatalogSlugTaken(slug)
             record.update(slug=slug, name=name, description=description, doc=doc, updated_at=_now())
             record["revision"] += 1
@@ -476,7 +484,11 @@ class FileCatalogStore:
         return {r["slug"]: r["doc"] for r in await self._entries(scope, "equipment")}
 
     async def equipment_cad_keys(self, scope: Scope) -> dict[str, str]:
-        return {r["slug"]: r["cad_key"] for r in await self._entries(scope, "equipment") if r.get("cad_key")}
+        return {
+            r["slug"]: r["cad_key"]
+            for r in await self._entries(scope, "equipment")
+            if isinstance(r.get("cad_key"), str)
+        }
 
     async def get_equipment(self, scope: Scope, type_id: str) -> dict | None:
         record = await self._read(scope, "equipment", type_id)

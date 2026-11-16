@@ -1200,7 +1200,7 @@ async def api_procedural_export_model(
     derived_key = procedural_model_export_key(row["id"], row["revision"], fmt, cad_equipment=cad_equipment)
     # Equipment (and, for gxml, systems) are resolved live from the catalog at
     # export — so a catalog edit must invalidate a cached export too.
-    catalog_fp = await catalog_fingerprint_for(pool, scope_obj, row.get("doc") or {})
+    catalog_fp = await catalog_fingerprint_for(pool, scope_obj, row.get("doc") or {}, catalogs_here(request, ctx))
     if not force and await ctx.storage.exists(scope_obj, derived_key):
         if not await catalog_cache_stale(ctx.storage, scope_obj, derived_key, catalog_fp):
             return JSONResponse({"job_id": None, "derived_key": derived_key, "cached": True})

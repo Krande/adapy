@@ -91,7 +91,8 @@ def _without_excluded(doc: dict) -> dict:
     equipment and openings in the spaces left out (by ``STRUCTURE_NAME`` or ``SPACE_NAME``)."""
     out_groups = {g.get("name") for g in doc.get("groups") or [] if isinstance(g, dict) and g.get("include") is False}
     spaces = [s for s in doc.get("spaces", []) if _included(s) and s.get("STRUCTURE_NAME") not in out_groups]
-    dropped = {s.get("NAME") for s in doc.get("spaces", [])} - {s.get("NAME") for s in spaces}
+    # A dropped space with no NAME must not read as "every free-placed item" (SPACE_NAME None).
+    dropped = ({s.get("NAME") for s in doc.get("spaces", [])} - {s.get("NAME") for s in spaces}) - {None}
 
     def placed(d: dict) -> bool:
         return _included(d) and d.get("STRUCTURE_NAME") not in out_groups and d.get("SPACE_NAME") not in dropped

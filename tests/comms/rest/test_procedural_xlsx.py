@@ -170,7 +170,7 @@ def test_export_xlsx_runs_in_process_without_a_db(app_client: TestClient, tmp_pa
 
 
 def test_export_model_runs_in_process_without_a_db(app_client: TestClient, tmp_path: pathlib.Path):
-    """IFC / Genie export of a file-stored model, in this process, with no equipment catalog."""
+    """IFC / Genie export of a file-stored model, in this process, equipment from the file catalog."""
     model_id = _model(app_client, "local-model-export")
     r = app_client.post(f"{BASE}/{model_id}/export-model", params={"format": "gxml"})
     assert r.status_code == 200, r.text
@@ -357,3 +357,26 @@ def test_import_enqueue_validates_source_key(app_client: TestClient):
     assert r.status_code == 400
     r = app_client.post(f"{BASE}/import-xlsx", json={"source_key": "_procedural/_import/t/source.xlsx", "name": ""})
     assert r.status_code == 400
+
+
+def test_a_local_model_export_is_bound_to_the_file_catalogs_fingerprint(app_client: TestClient, monkeypatch):
+    """The in-process IFC / Genie export resolves equipment from the scope's catalog FILES, so, as
+    the compile does, it binds its artifact to the fingerprint the route took of them: a catalog
+    edit makes the cached export stale."""
+    from ada.comms.rest.routes import procedural_models as routes
+
+    async def _fp(pool, scope_obj, doc, store=None):
+        assert store is not None  # the file catalogs, not only the (absent) pool
+        return "catalog-fp-1"
+
+    monkeypatch.setattr(routes, "catalog_fingerprint_for", _fp)
+    model_id = _model(app_client, "local-export-catalog-fp")
+    started = app_client.post(f"{BASE}/{model_id}/export-model", params={"format": "gxml"}).json()
+    assert _wait_job(app_client, started["job_id"])["status"] == "done"
+    assert app_client.post(f"{BASE}/{model_id}/export-model", params={"format": "gxml"}).json()["cached"] is True
+
+    async def _fp2(pool, scope_obj, doc, store=None):
+        return "catalog-fp-2"
+
+    monkeypatch.setattr(routes, "catalog_fingerprint_for", _fp2)
+    assert app_client.post(f"{BASE}/{model_id}/export-model", params={"format": "gxml"}).json()["cached"] is False

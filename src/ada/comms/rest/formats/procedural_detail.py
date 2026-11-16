@@ -228,8 +228,8 @@ async def _run_procedural_relocations(
     the worker never mutates the model.
 
     ``model_row``/``audit`` as for :func:`_run_procedural_build`: a server with no
-    database hands in the model from its file store and has no audit row; it has no
-    equipment catalog either, so placed equipment keeps the doc's own box."""
+    database hands in the model from its file store and has no audit row; its equipment
+    comes from the scope's file catalog (catalog_store.py), as with postgres."""
     import json
 
     job_id = job.job_id

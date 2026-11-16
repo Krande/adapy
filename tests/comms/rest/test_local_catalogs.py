@@ -320,3 +320,22 @@ def test_a_plain_box_compiles_locally_with_the_catalog_mass(client: TestClient, 
 
     sidecar = tmp_path / "shared" / pathlib.PurePosixPath(procedural_catalog_fp_key(started["derived_key"]))
     assert sidecar.is_file()
+
+
+def test_an_entry_id_reads_as_postgres_reads_a_uuid(client: TestClient):
+    """The file store keys an entry by its id; postgres compares uuids whatever their case, so an
+    upper-cased id must find the same record (and an update under it must not take the record for
+    another entry with the same slug)."""
+    et = client.post(EQ, json={"name": "Cased Pump"}).json()
+    tid = et["id"]
+    upper = tid.upper()
+    assert upper != tid
+    got = client.get(f"{EQ}/{upper}")
+    assert got.status_code == 200 and got.json()["id"] == tid
+    r = client.put(
+        f"{EQ}/{upper}", json={"name": "Cased Pump", "slug": et["slug"], "doc": et["doc"], "base_revision": 0}
+    )
+    assert r.status_code == 200, r.text
+    assert r.json() == {"id": tid, "revision": 1}
+    assert client.get(f"{EQ}/{tid}").json()["revision"] == 1
+    assert client.get(f"{EQ}/not-a-uuid").status_code == 404

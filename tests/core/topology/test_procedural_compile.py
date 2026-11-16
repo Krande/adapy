@@ -573,3 +573,18 @@ def test_the_doc_normalizer_keeps_an_unset_include_unset():
         s.NAME
         for s in __import__("ada.topo_model.builder", fromlist=["x"]).ProceduralBuilder.from_dict(out, name="m").spaces
     ] == ["Cell1"]
+
+
+def test_an_unnamed_excluded_space_does_not_take_the_free_placed_items_with_it():
+    # The items of a dropped space go with it by SPACE_NAME. A dropped space with no NAME must not
+    # read as the "space" of every item placed in none (SPACE_NAME absent).
+    from ada.topo_model.builder import _without_excluded
+
+    doc = {
+        "spaces": [DOC["spaces"][0], {"X": 9, "Y": 0, "Z": 0, "DX": 1, "DY": 1, "DZ": 1, "INCLUDE": False}],
+        "equipments": [DOC["equipments"][0], {"NAME": "free", "X": 20, "Y": 0, "Z": 0, "LX": 1, "LY": 1, "LZ": 1}],
+        "openings": [],
+    }
+    out = _without_excluded(doc)
+    assert [s["NAME"] for s in out["spaces"]] == ["Cell1"]
+    assert [e["NAME"] for e in out["equipments"]] == ["P1", "free"]
