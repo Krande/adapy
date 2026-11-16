@@ -9,7 +9,6 @@
 import * as THREE from "three";
 import {useCellBuilderStore, type BuilderCell} from "@/state/cellBuilderStore";
 import {boxFrameMatrix, equipmentCadFitted, resizeRefusal} from "@/utils/cellbuilder/cellResize";
-import {displayBoxForCell} from "./cadPreview";
 import {requestRender} from "@/state/perfStore";
 import {getViewerRuntime} from "@/state/viewerRuntime";
 import {BOX_FACE_SIDES, faceCenter} from "@/utils/cellbuilder/snap";
@@ -19,13 +18,14 @@ import {reconcileModalMove, reconcileMoveMeasure} from "./cellGizmo";
 import {syncCellDimensions} from "./cellDimensions";
 
 
-/** Whether the resize gizmo takes `cell` (see `resizeRefusal`), CAD fit read off the scene too. */
-export const resizable = (ctx: CellBuilderScene, cell: BuilderCell): boolean => {
-    const cadFitted =
-        cell.kind === "equipment" &&
-        (equipmentCadFitted(cell, useCellBuilderStore.getState()) || displayBoxForCell(ctx, cell).cadFitted);
-    return resizeRefusal(cell.kind, {cadFitted}) === null;
-};
+/**
+ * Whether the resize gizmo takes `cell` (see `resizeRefusal`). The one reading the menus, the
+ * commands and the scene share (`equipmentCadFitted`, store-only): the scene's own fit of a box
+ * to a loaded mesh of the cell's name is not read here, since a compiled result names every
+ * equipment's body after its cell, and that made the scene refuse what the menus offered.
+ */
+export const resizable = (_ctx: CellBuilderScene, cell: BuilderCell): boolean =>
+    resizeRefusal(cell.kind, {cadFitted: equipmentCadFitted(cell, useCellBuilderStore.getState())}) === null;
 
 export const disposeResizeHandles =(ctx: CellBuilderScene) => {
     for (let i = ctx.resizeGroup.children.length - 1; i >= 0; i--) {
@@ -51,7 +51,6 @@ export const rebuildResizeHandles = (ctx: CellBuilderScene) => {
     const frame = cell ? boxFrameMatrix(cell, cell.kind === "equipment" ? cell.rotation : null) : new THREE.Matrix4();
     ctx.resizeGroup.matrixAutoUpdate = false;
     ctx.resizeGroup.matrix.copy(frame);
-    ctx.resizeGroup.updateMatrixWorld(true);
     const r = cell ? Math.max(0.15, 0.1 * Math.min(cell.size[0], cell.size[1], cell.size[2])) : 0;
     // Its three dimensions, just outside the box (a handle's radius off it).
     syncCellDimensions(ctx, show && cell ? cell : null, r, frame);
@@ -74,6 +73,8 @@ export const rebuildResizeHandles = (ctx: CellBuilderScene) => {
         mesh.userData.__cellId = cell.id;
         ctx.resizeGroup.add(mesh);
     }
+    // With the handles in: a pointer that raycasts them before the next render finds them in the frame.
+    ctx.resizeGroup.updateMatrixWorld(true);
 };
 
 // Reconcile the gizmos with the current selection/mode. Skipped repositioning

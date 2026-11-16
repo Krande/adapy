@@ -28,6 +28,15 @@ import {disposeResizeHandles, syncGizmo} from "./resizeHandles";
 import {disposeCellDimensions, disposeMoveMeasure} from "./cellDimensions";
 import {useGroundGridStore} from "@/state/groundGridStore";
 import {clearLongPress, onContextMenu, onPointerCancel, onPointerDown, onPointerMove, onPointerUp} from "./pointerTools";
+import {itemIncludeState} from "@/utils/cellbuilder/include";
+
+type BuilderState = ReturnType<typeof useCellBuilderStore.getState>;
+
+/** Every cell's include state, as one string: what a groups or loft-members change may alter in the drawing. */
+const includeStates = (s: BuilderState): string =>
+    Object.values(s.cells)
+        .map((c) => `${c.id}:${itemIncludeState(c, s.cells, s.groups, s.loftMembers)}`)
+        .join("\n");
 import {endPlaceEntry} from "./numericEntry";
 import {endEquipEntry, endOpenEntry} from "./insertTools";
 import {onKeyDown} from "./keyboard";
@@ -96,8 +105,13 @@ export function initCellBuilderScene(
         if (s.cells !== prev.cells || s.active !== prev.active || s.equipmentCad !== prev.equipmentCad) {
             rebuild(ctx);
             framer.check();
-        } else if (s.groups !== prev.groups || s.loftMembers !== prev.loftMembers) {
-            // A structure's INCLUDE (its group) or a loft member's changes what is drawn as left out.
+        } else if (
+            (s.groups !== prev.groups || s.loftMembers !== prev.loftMembers) &&
+            includeStates(s) !== includeStates(prev)
+        ) {
+            // A structure's INCLUDE (its group) or a loft member's changes what is drawn as left
+            // out. Only then: `groups` is replaced on every blueprint edit too, and a rebuild
+            // remakes every mesh.
             rebuild(ctx);
         } else if (s.selection !== prev.selection || s.selectedCellIds !== prev.selectedCellIds)
             refreshFaceStyles(ctx);

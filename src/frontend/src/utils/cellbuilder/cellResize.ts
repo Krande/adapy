@@ -30,8 +30,8 @@ export function resizeRefusal(kind: BuilderCellKind, opts: {cadFitted?: boolean}
 
 /**
  * Whether an equipment's box is fitted to its CAD model: "Use CAD models" is on and its
- * type (by slug, then name) has a CAD asset linked. Store-only, so the menus can ask it;
- * the scene also treats a box it actually fitted to a loaded CAD mesh as fitted.
+ * type (by slug, then name) has a CAD asset linked. Store-only, and the one reading the
+ * menus, the commands and the scene's resize handles share.
  */
 export function equipmentCadFitted(
     cell: {kind: BuilderCellKind; equipmentType?: string},
