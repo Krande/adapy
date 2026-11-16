@@ -185,6 +185,7 @@ function makeSceneHandle(): SceneHandle {
         placement: source.placement ?? "replace",
         sourceUpAxis: source.sourceUpAxis,
         posable: source.posable,
+        autoFitOverride: source.keepCamera ? false : undefined,
       });
       requestRender();
     },

@@ -656,7 +656,8 @@
 //          has changed; a placed panel re-asks it (and on every loaded-model change).
 //   1.24.0 Kept in step with PLUGIN_API_VERSION 1.24.0 (`SimulationParameterFormArgs.subject`,
 //          `ctx.scene.clearScene`). Additive.
-export const VIEWER_CORE_API_VERSION = "1.24.0";
+//   1.25.0 Kept in step with PLUGIN_API_VERSION 1.25.0 (`SceneModelSource.keepCamera`). Additive.
+export const VIEWER_CORE_API_VERSION = "1.25.0";
 
 // ---------------------------------------------------------------------------
 // Plugin declaration. `registerPlugin` is how a package announces itself —

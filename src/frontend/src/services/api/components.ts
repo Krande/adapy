@@ -15,10 +15,12 @@ export interface ComponentSpecRoleSchema {
   angle_to_role: string | null;
   angle_range: { min_deg: number; max_deg: number } | null;
   has_predicate: boolean;
-  /** The inputs the preview reads for this role: `section` for a beam,
-   *  `thickness` / `width` / `height` for a plate, plus `angle_deg` where
-   *  the role carries an angle. Absent on manifests baked before it. */
+  /** The inputs the preview reads for this role: `section` and `length` for
+   *  a beam, `thickness` / `width` / `height` for a plate, plus `angle_deg`
+   *  where the role carries an angle. Absent on manifests baked before it. */
   fields?: string[];
+  /** The range a beam's `length` may take [m], where the role has one. */
+  length_range?: { min_m: number; max_m: number };
 }
 
 /** Form-shaped view of a ConnectionSpec. */

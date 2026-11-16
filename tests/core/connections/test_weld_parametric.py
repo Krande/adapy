@@ -1,3 +1,5 @@
+import math
+
 import pytest
 
 from ada import Beam
@@ -36,8 +38,12 @@ def test_weldprofileenum_alias_kept():
 
 
 def test_build_profile_fillet_symmetric():
+    """The throat is a (EN ISO 2553): an equal-leg fillet's legs are z = a * sqrt(2), so the throat --
+    the height of the right triangle on its hypotenuse -- comes back as a."""
     pts = build_profile(WeldType.FILLET, throat=0.005)
-    assert pts == [(0, 0), (-0.005, 0), (0, 0.005)]
+    z = 0.005 * math.sqrt(2.0)
+    assert pts == [(0, 0), (-z, 0), (0, z)]
+    assert math.isclose(z / math.sqrt(2.0), 0.005)
 
 
 def test_build_profile_fillet_asymmetric_legs():
@@ -47,7 +53,8 @@ def test_build_profile_fillet_asymmetric_legs():
 
 def test_build_profile_accepts_string_type():
     pts = build_profile("FILLET", throat=0.005)
-    assert pts == [(0, 0), (-0.005, 0), (0, 0.005)]
+    z = 0.005 * math.sqrt(2.0)
+    assert pts == [(0, 0), (-z, 0), (0, z)]
 
 
 def test_build_profile_unimplemented_raises():
