@@ -39,7 +39,7 @@ const ToolbarButtonsOptions: React.FC<{className?: string}> = ({className}) => {
                 <span>
                     Top bar buttons
                     <span className="block text-[10px] text-gray-400">
-                        The classic layout&apos;s top row. A hidden button&apos;s panel stays as it is; the Options button always shows.
+                        {"The classic layout's top row. A hidden button's panel stays as it is; the Options button always shows."}
                     </span>
                 </span>
                 {anyHidden && (
