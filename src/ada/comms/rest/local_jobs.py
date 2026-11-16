@@ -157,9 +157,9 @@ class LocalJobRegistry:
             # STATUS_ERROR, not a status of its own: the frontend polls one loop
             # for both paths and only knows what the queue spells. The nuance
             # goes in `stage`, which is free text either way.
-            job.status = STATUS_ERROR
-            job.stage = "timeout"
             job.error = f"job exceeded the {self.MAX_RUNTIME_S}s in-process limit and was abandoned"
+            job.stage = "timeout"
+            job.status = STATUS_ERROR
 
     def add(self, job: LocalJob) -> None:
         with self._lock:
@@ -328,9 +328,9 @@ def start_plugin_job(
                 job.stage = "cancelled"
                 return
             logger.exception("local plugin job %s (%s) failed", job.job_id, plugin_id)
-            job.status = STATUS_ERROR
             job.error = f"{type(exc).__name__}: {exc}"
             job.stage = "error"
+            job.status = STATUS_ERROR
             logger.debug("local plugin job traceback:\n%s", traceback.format_exc())
 
     # A plain daemon thread rather than the default executor: a capacity check
@@ -467,8 +467,8 @@ def _run_job_process(job: LocalJob, payload: dict[str, Any], *, light: bool = Fa
     except Exception as exc:  # noqa: BLE001 -- e.g. the interpreter could not be started
         logger.exception("local job %s: could not run its process", job.job_id)
         if job.status == STATUS_RUNNING:
-            job.status, job.stage = STATUS_ERROR, "error"
             job.error = f"the job process could not be started: {type(exc).__name__}: {exc}"
+            job.status, job.stage = STATUS_ERROR, "error"
     finally:
         local_queue.queue.release(job)
 
@@ -548,13 +548,14 @@ def _supervise(job: LocalJob, payload: dict[str, Any], log: IO[bytes]) -> None:
     if cancelled:
         job.status, job.stage = STATUS_CANCELLED, "cancelled"
         return
-    job.status, job.stage = STATUS_ERROR, "error"
+    # The error is written before the status: a poller that sees STATUS_ERROR reads the error too.
     if code == 0:
         job.error = job.error or f"{job.plugin_id} ended without a result"
-        return
-    tail = _tail(log)
-    logger.error("local job %s (%s): the job process %s\n%s", job.job_id, job.plugin_id, _describe_exit(code), tail)
-    job.error = f"the job process {_describe_exit(code)}" + (f"; its last output:\n{tail}" if tail else "")
+    else:
+        tail = _tail(log)
+        logger.error("local job %s (%s): the job process %s\n%s", job.job_id, job.plugin_id, _describe_exit(code), tail)
+        job.error = f"the job process {_describe_exit(code)}" + (f"; its last output:\n{tail}" if tail else "")
+    job.status, job.stage = STATUS_ERROR, "error"
 
 
 def start_worker_job(
@@ -737,8 +738,8 @@ def start_procedural_build(
             return
         if job.status == STATUS_RUNNING:
             # The handler returned without a verdict: say so rather than poll for ever.
-            job.status = STATUS_ERROR
             job.error = job.error or "procedural build ended without a result"
+            job.status = STATUS_ERROR
 
     task = asyncio.get_running_loop().create_task(_run())
     _PROCEDURAL_TASKS.add(task)
@@ -862,9 +863,9 @@ def start_asset_build(
                 job.stage = "cancelled"
                 return
             logger.exception("local asset build %s (%s) failed", job.job_id, capability)
-            job.status = STATUS_ERROR
             job.error = f"{type(exc).__name__}: {exc}"
             job.stage = "error"
+            job.status = STATUS_ERROR
             logger.debug("local asset build traceback:\n%s", traceback.format_exc())
 
     _start_queued(job, _run, f"local-asset-build-{capability}")
@@ -965,9 +966,9 @@ def start_asset_publish(
             if job.status != STATUS_RUNNING:
                 return
             logger.exception("local asset publish %s (%s) failed", job.job_id, provider_id)
-            job.status = STATUS_ERROR
             job.error = f"{type(exc).__name__}: {exc}"
             job.stage = "error"
+            job.status = STATUS_ERROR
             logger.debug("local asset publish traceback:\n%s", traceback.format_exc())
 
     _start_queued(job, _run, f"local-asset-publish-{provider_id}", light=True)
@@ -1048,9 +1049,9 @@ def start_clash_check(
                 job.status, job.stage = STATUS_CANCELLED, "cancelled"
                 return
             logger.exception("local clash_check %s failed", job.job_id)
-            job.status = STATUS_ERROR
             job.error = f"{type(exc).__name__}: {exc}"
             job.stage = "error"
+            job.status = STATUS_ERROR
             logger.debug("local clash_check traceback:\n%s", traceback.format_exc())
         finally:
             tmp.unlink(missing_ok=True)
@@ -1116,9 +1117,9 @@ def start_clash_contacts(
                 job.status, job.stage = STATUS_CANCELLED, "cancelled"
                 return
             logger.exception("local clash_contacts %s failed", job.job_id)
-            job.status = STATUS_ERROR
             job.error = f"{type(exc).__name__}: {exc}"
             job.stage = "error"
+            job.status = STATUS_ERROR
             logger.debug("local clash_contacts traceback:\n%s", traceback.format_exc())
 
     _start_queued(job, _run, f"local-clash-{mode}", light=mode == "detail")
@@ -1186,9 +1187,9 @@ def start_clash_check_asset(
                 job.status, job.stage = STATUS_CANCELLED, "cancelled"
                 return
             logger.exception("local clash_check_asset %s failed", job.job_id)
-            job.status = STATUS_ERROR
             job.error = f"{type(exc).__name__}: {exc}"
             job.stage = "error"
+            job.status = STATUS_ERROR
             logger.debug("local clash_check_asset traceback:\n%s", traceback.format_exc())
 
     _start_queued(job, _run, "local-clash-check-asset")
@@ -1248,9 +1249,9 @@ def start_clash_check_group(
                 job.status, job.stage = STATUS_CANCELLED, "cancelled"
                 return
             logger.exception("local clash_check_group %s failed", job.job_id)
-            job.status = STATUS_ERROR
             job.error = f"{type(exc).__name__}: {exc}"
             job.stage = "error"
+            job.status = STATUS_ERROR
             logger.debug("local clash_check_group traceback:\n%s", traceback.format_exc())
 
     _start_queued(job, _run, "local-clash-check-group")
@@ -1362,9 +1363,9 @@ def start_clash_detail(
                 job.status, job.stage = STATUS_CANCELLED, "cancelled"
                 return
             logger.exception("local clash_detail %s (%s) failed", job.job_id, spec_name)
-            job.status = STATUS_ERROR
             job.error = f"{type(exc).__name__}: {exc}"
             job.stage = "error"
+            job.status = STATUS_ERROR
             logger.debug("local clash_detail traceback:\n%s", traceback.format_exc())
 
     _start_queued(job, _run, f"local-clash-detail-{spec_name}", light=True)
