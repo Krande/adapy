@@ -69,6 +69,19 @@ export interface UiShellLayout {
    */
   modes?: UiShellMode[];
   /**
+   * Arrangements for modes the shell does not declare itself - a plugin's (the
+   * capacity check's "capacity", say) - by mode id. Without one, such a mode
+   * starts from the shell's arrangement (`grid` / `open` / `docks` above).
+   */
+  modeArrangements?: Record<string, Pick<UiShellMode, "grid" | "open" | "docks" | "viewportCover">>;
+  /**
+   * Panels that are one panel for every mode rather than part of each mode's
+   * arrangement (a file browser, say): open or closed, and their docked size, are
+   * the same in every mode, and stay as they are when the mode changes. Each
+   * mode's grid still says where they go. Remembered with the arrangements.
+   */
+  globalPanels?: string[];
+  /**
    * The id of the mode used when there is no `?mode=` and none stored from an
    * earlier visit. Absent, or not one of the modes: the first by order.
    */

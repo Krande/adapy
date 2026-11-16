@@ -385,6 +385,11 @@ def test_remote_mode_refuses_local_only_flags_and_files():
         d.run_remote(_ns(port=40000), s)
     with pytest.raises(CliUsageError, match="FILE"):
         d.run_remote(_ns(words=["m.ifc"]), s)
+    # The local viewer's job limits mean nothing to a hosted server's workers.
+    with pytest.raises(CliUsageError, match="--max-jobs"):
+        d.run_remote(_ns(max_jobs=2), s)
+    with pytest.raises(CliUsageError, match="--cpu-budget"):
+        d.run_remote(_ns(cpu_budget="50%"), s)
 
 
 def test_servers_command_add_list_remove(tmp_path, monkeypatch, capsys):

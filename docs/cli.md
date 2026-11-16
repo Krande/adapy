@@ -482,12 +482,21 @@ ada audit loads-summary --since-days 7
 ## `ada serve`
 
 Run one of the long-lived server processes. Both are configured through the
-environment; `api` also takes `--viewer`.
+environment; `api` also takes `--viewer`, `--max-jobs` and `--cpu-budget`.
 
 `ada serve api`
 :   Run the REST API under uvicorn. `--viewer NAME` serves an installed viewer
     bundle instead of the built-in viewer (see `ada viewers`); an explicit
     `ADA_VIEWER_STATIC_PATH` still wins.
+
+`--max-jobs N` / `--cpu-budget CORES`
+:   Only without a job queue (`ADA_VIEWER_NATS_URL` unset), where the API runs
+    every job itself: how many jobs run at once (1-256; the rest wait in order),
+    and the CPU the running jobs share, as cores (`4`), a fraction (`0.5`) or a
+    percentage (`50%`). They set `ADA_LOCAL_JOB_PROCESSES` /
+    `ADA_LOCAL_JOB_CPU_BUDGET`, win over the value saved under Settings > Local
+    jobs, and are saved. Unset: the saved value, else half the cores (at most 4)
+    and every core. A value out of range is a usage error (exit 2).
 
 `ada serve worker`
 :   Run the conversion worker (a NATS JetStream consumer).
@@ -531,6 +540,9 @@ ada desktop --no-window          # the viewer only; open the printed URL in a br
 `--viewer NAME`
 :   Serve an installed viewer bundle (see `ada viewers`) instead of the
     built-in viewer.
+
+`--max-jobs N` / `--cpu-budget CORES`
+:   The local viewer's job limits, as for `ada serve api`.
 
 `--static DIR` / `--zip FILE`
 :   Serve a built viewer directory, or a single-file viewer zip. The default
@@ -588,7 +600,7 @@ ada desktop servers remove work
 :   The deployment to open: an `https` URL, or the name of a saved server.
     Default: `$ADA_DESKTOP_SERVER`. The origin the window will trust is printed
     first. `FILE` and the local-viewer flags (`--port`, `--data`, `--static`,
-    `--zip`, `--viewer`) cannot be combined with it. With `--dev` it means
+    `--zip`, `--viewer`, `--max-jobs`, `--cpu-budget`) cannot be combined with it. With `--dev` it means
     `--backend`.
 
 `--local`

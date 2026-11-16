@@ -185,12 +185,20 @@ function makeSceneHandle(): SceneHandle {
         placement: source.placement ?? "replace",
         sourceUpAxis: source.sourceUpAxis,
         posable: source.posable,
+        autoFitOverride: source.keepCamera ? false : undefined,
       });
       requestRender();
     },
     poseModel,
     unloadModel(sourceName) {
       void import("@/utils/scene/handlers/unload_any_source").then(({ unload_any_source }) => unload_any_source(sourceName));
+    },
+    async clearScene() {
+      // The Scene tab's "Remove all": queued loads, models, an open procedural model, and (through
+      // the loaded-sources list) what core drew over them.
+      const { clearScene } = await import("@/utils/scene/handlers/clear_scene");
+      await clearScene();
+      requestRender();
     },
     addLines,
     addLineLayer,

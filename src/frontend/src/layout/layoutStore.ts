@@ -14,7 +14,7 @@
 
 import { createStore, type StoreApi } from "zustand/vanilla";
 
-import { layoutDocKey, type LayoutDoc, type LayoutPersistence, type LayoutPrefs, type ZoneDef } from "./layout";
+import { layoutDocKey, type LayoutDoc, type LayoutPersistence, type LayoutPrefs, type ZoneDef, type GlobalPanelsPrefs } from "./layout";
 import type { PresetId } from "./panel";
 import { emptyLayoutDoc, migrateLayoutDoc } from "./reducers";
 import { setShortcutOverrides } from "./shortcuts";
@@ -47,6 +47,8 @@ export interface LayoutStoreState {
   resetKeyOverrides(): void;
   /** Pin or unpin a panel in a composed shell (by shell id). */
   setPinned(shell: string, panel: string, pinned: boolean): void;
+  /** A composed shell's global panels' state (`GlobalPanelsPrefs`); null forgets it. */
+  setGlobalPanels(shell: string, state: GlobalPanelsPrefs | null): void;
   /** Forget a saved document: the next read starts from the preset's (or shell's) starting one. */
   removeDoc(preset: PresetId, context?: string): void;
   /** Save (`docs`) or delete (null) a named workspace of a composed shell. */
@@ -232,6 +234,13 @@ export function createLayoutStore(): StoreApi<LayoutStoreState> {
         const prefs = get().prefs;
         if (prefs.uiFreezeByShell?.[shell] === on) return;
         setPrefs({ ...prefs, uiFreezeByShell: { ...prefs.uiFreezeByShell, [shell]: on } });
+      },
+      setGlobalPanels(shell, state) {
+        const prefs = get().prefs;
+        const all = { ...prefs.globalPanels };
+        if (state) all[shell] = state;
+        else delete all[shell];
+        setPrefs({ ...prefs, globalPanels: all });
       },
       setPinned(shell, panel, pinned) {
         const prefs = get().prefs;

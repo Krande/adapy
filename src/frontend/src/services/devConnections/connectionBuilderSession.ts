@@ -3,9 +3,10 @@
 //   * follow the served library's state (/api/dev/connections/events) into
 //     the store, and keep a valid spec selected across reloads (a spec that
 //     was renamed or removed falls back to the library's first);
-//   * rebuild the selected spec whenever the library reloads, the selection
-//     changes, or an input changes (debounced, so dragging a slider does not
-//     queue a build per pixel);
+//   * once a build has been asked for (`buildNow`: the panel's Build button, or the boot of
+//     `ada dev connections`), rebuild the selected spec whenever the library reloads, the
+//     selection changes, or an input changes (debounced, so dragging a slider does not queue a
+//     build per pixel). Until then nothing is built: opening the panel only lists the specs;
 //   * load each finished build into the scene, and only then drop the one it
 //     replaces, so the view never flashes empty and the camera stays put.
 //
@@ -22,13 +23,13 @@ import { contactRunToResult, useClashCheckStore } from "@/state/clashCheckStore"
 import { effectiveInputs, useConnectionBuilderStore } from "@/state/connectionBuilderStore";
 import { useModelState } from "@/state/modelState";
 import { renderConnectionOverlay } from "@/utils/scene/connectionOverlay";
+import { forgetPreviewIfUnloaded, previewOnShow, setPreviewOnShow, PREVIEW_SOURCE_PREFIX } from "./previewOnShow";
 import { tintWelds } from "@/utils/scene/connectionWeldTint";
 import { selectInOtherModel } from "@/utils/scene/crossModelSelect";
 import { overlay_file_in_scene } from "@/utils/scene/handlers/overlay_file_in_scene";
 import { unload_any_source } from "@/utils/scene/handlers/unload_any_source";
 
-/** Scene source names of builder previews start with this. */
-export const PREVIEW_SOURCE_PREFIX = "connection-preview:";
+export { PREVIEW_SOURCE_PREFIX };
 
 /** Whether the loaded source `name` is a connection-builder preview. */
 export function isConnectionPreview(name: string | null | undefined): boolean {
@@ -71,16 +72,23 @@ export function startConnectionBuilderSession(): void {
       store.getState().setLibrary(event);
       keepSelectionValid(event);
       const reloaded = prev === null || prev.generation !== event.generation;
-      if (reloaded && event.status === "ready") requestBuild(0);
+      if (reloaded && event.status === "ready") rebuildIfLive(0);
     },
     () => store.getState().setConnected(false),
   );
 
+  // The preview's annotations (member axes, weld labels) and its clash live beside the model, not
+  // in it: when the preview leaves the scene by any route -- the scene cleared for a replay, the
+  // Sources tab, another model replacing it -- they go with it.
+  useModelState.subscribe((s, prev) => {
+    if (s.loadedSourceNames !== prev.loadedSourceNames) forgetPreviewIfUnloaded(s.loadedSourceNames);
+  });
+
   // Selection and input edits rebuild; the library's own updates are handled above. A toggled
   // overlay redraws over the preview on show.
   store.subscribe((s, prev) => {
-    if (s.selectedSpec !== prev.selectedSpec) requestBuild(0);
-    else if (s.inputsBySpec !== prev.inputsBySpec) requestBuild(INPUT_DEBOUNCE_MS);
+    if (s.selectedSpec !== prev.selectedSpec) rebuildIfLive(0);
+    else if (s.inputsBySpec !== prev.inputsBySpec) rebuildIfLive(INPUT_DEBOUNCE_MS);
     if (s.overlays !== prev.overlays) {
       const tintChanged =
         s.overlays.tintWelds !== prev.overlays.tintWelds ||
@@ -95,10 +103,10 @@ export function startConnectionBuilderSession(): void {
  *  welds' colour (`connectionWeldTint`). */
 function drawOverlay(tint = true): void {
   const s = useConnectionBuilderStore.getState();
-  renderConnectionOverlay(currentPreview, s.lastResult, s.overlays);
+  renderConnectionOverlay(previewOnShow(), s.lastResult, s.overlays);
   if (!tint) return;
   const welds = s.lastResult?.properties.welds.map((w) => w.name) ?? [];
-  void tintWelds(currentPreview, welds, {
+  void tintWelds(previewOnShow(), welds, {
     colour: s.overlays.tintWelds ? s.overlays.weldColour : null,
     hidden: !s.overlays.showWelds,
   });
@@ -113,8 +121,19 @@ function keepSelectionValid(state: DevConnectionsState): void {
   s.selectSpec(first.name);
 }
 
+/** Build the selected spec now, because it was asked for; from here on the loop rebuilds on its own. */
+export function buildNow(): void {
+  useConnectionBuilderStore.getState().setLive(true);
+  requestBuild(0);
+}
+
+/** The loop's own rebuild: only once a build has been asked for (see `buildNow`). */
+function rebuildIfLive(delayMs: number): void {
+  if (useConnectionBuilderStore.getState().live) requestBuild(delayMs);
+}
+
 /** Rebuild the selected spec after `delayMs` (0: now); a newer request supersedes this one. */
-export function requestBuild(delayMs: number): void {
+function requestBuild(delayMs: number): void {
   if (debounce) clearTimeout(debounce);
   debounce = setTimeout(() => {
     debounce = null;
@@ -145,7 +164,7 @@ async function buildSelected(): Promise<void> {
       return;
     }
     dropPreviews(sourceName);
-    currentPreview = sourceName;
+    setPreviewOnShow(sourceName);
     showClash(result, sourceName);
     buildMsBySpec.set(specName, Date.now() - startedAt);
     useConnectionBuilderStore.getState().setBuild({ status: "done", result });
@@ -159,8 +178,6 @@ async function buildSelected(): Promise<void> {
   }
 }
 
-/** The scene source name of the preview on show; what select-in-scene and the clash run name. */
-let currentPreview: string | null = null;
 
 /**
  * The joint's clash in Scene > Clashes: the build's convex-contact run, read as any run of the
@@ -190,8 +207,9 @@ function showClash(result: DevBuildResult, sourceName: string): void {
 
 /** Select objects of the preview on show (members, welds) by name. */
 export function selectPreviewObjects(names: string[]): void {
-  if (!currentPreview) return;
-  void selectInOtherModel({ file: currentPreview, nodeNames: names });
+  const file = previewOnShow();
+  if (!file) return;
+  void selectInOtherModel({ file, nodeNames: names });
 }
 
 /** Unload every builder preview but `keep`. */

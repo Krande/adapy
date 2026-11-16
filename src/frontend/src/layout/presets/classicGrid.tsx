@@ -74,6 +74,7 @@ import {
 import {useUiFrozen} from "../uiFreeze";
 import {PANEL_ACTIONS_ATTR, ZONE_ATTR, ZONE_PANEL_ATTR} from "../zoneKeys";
 import {compactActions} from "./groupCompact";
+import {childViewSides, preferAfter, viewSideOfDivider, type ViewSides} from "./viewSide";
 import {
   GRID_GROUP_ATTR,
   GRID_ROOT_ATTR,
@@ -152,6 +153,8 @@ export const CLASSIC_GRID_OPS: GridOps = {
 };
 
 const GridOpsContext = React.createContext<GridOps>(CLASSIC_GRID_OPS);
+/** Where the 3D view is, along each direction, relative to the split being drawn (./viewSide). */
+const ViewSidesContext = React.createContext<ViewSides>({});
 
 /** Draw the grid below with `ops` instead of the classic frame's. */
 export const GridOpsProvider: React.FC<{ops: GridOps; children?: React.ReactNode}> = ({ops, children}) => (
@@ -391,6 +394,7 @@ function minAlong(node: ShownNode, dir: "row" | "col"): number {
 function GridSplit(props: NodeProps & {split: ShownSplit}) {
   const {split} = props;
   const {update: updateClassic} = useGridOps();
+  const sides = React.useContext(ViewSidesContext);
   const ref = useRef<HTMLDivElement>(null);
   // While a divider is dragged, the shown sizes; stored on release.
   const [live, setLive] = useState<number[] | null>(null);
@@ -400,12 +404,14 @@ function GridSplit(props: NodeProps & {split: ShownSplit}) {
   const row = split.dir === "row";
   const fixedChild = (c: ShownNode) => (c.kind !== "viewport" && c.fixed && !(c.kind === "group" && c.collapsed) ? c : null);
   const collapsed = (c: ShownNode) => c.kind === "group" && !!c.collapsed;
-  /** The divider after child `i` resizes a fixed neighbour in px (`sign` +1: the one before it). */
+  /** The divider after child `i` resizes a fixed neighbour in px (`sign` +1: the one before it):
+   *  the one whose edge facing the 3D view it is, when both are fixed (./viewSide). */
   const fixedAt = (i: number): {node: NonNullable<ReturnType<typeof fixedChild>>; sign: 1 | -1} | null => {
     const a = fixedChild(split.children[i]);
-    if (a) return {node: a, sign: 1};
     const b = fixedChild(split.children[i + 1]);
-    return b ? {node: b, sign: -1} : null;
+    const before = a ? {node: a, sign: 1 as const} : null;
+    const after = b ? {node: b, sign: -1 as const} : null;
+    return preferAfter(viewSideOfDivider(split.children, i, sides[split.dir])) ? (after ?? before) : (before ?? after);
   };
   const resizeFixed = (i: number, px: number, done: boolean) => {
     const f = fixedAt(i)!;
@@ -490,7 +496,9 @@ function GridSplit(props: NodeProps & {split: ShownSplit}) {
         className={`relative flex min-w-0 min-h-0 ${row ? "h-full" : "w-full"}`}
         style={px !== null ? {flex: `0 0 ${px}px`} : flexOf(sizes[i] / fracSum)}
       >
-        <GridNodeView {...props} node={c} along={split.dir} />
+        <ViewSidesContext.Provider value={childViewSides(split.children, split.dir, i, sides)}>
+          <GridNodeView {...props} node={c} along={split.dir} />
+        </ViewSidesContext.Provider>
       </div>,
     );
   });
@@ -670,7 +678,7 @@ function GroupTab({
       tabIndex={selected ? 0 : -1}
       {...{[GRID_TAB_ATTR]: panel.id, [ZONE_PANEL_ATTR]: panel.id}}
       {...(dragging ? dropAttrs(gridZone(group.id), {[DROP_INDEX_ATTR]: String(index), [DROP_AXIS_ATTR]: "x"}) : {})}
-      className={`relative shrink-0 max-w-[14rem] truncate select-none rounded-sm px-2 py-1 text-xs ${frozen ? "" : "cursor-grab"} ${groupTabClass(selected)}`}
+      className={`relative min-w-[1.75rem] shrink max-w-[14rem] truncate select-none rounded-sm px-2 py-1 text-xs ${frozen ? "" : "cursor-grab"} ${groupTabClass(selected)}`}
       title={panel.title}
       onClick={() => updateClassic((d) => updateGrid(d, (g) => setActiveTab(g, panel.id)))}
       onKeyDown={(e) => {
@@ -788,7 +796,7 @@ function tabLabel(p: RegisteredPanel, icons: boolean): React.ReactNode {
   if (!icons || !p.icon) return p.title;
   const Icon = p.icon;
   return (
-    <span className="inline-flex items-center gap-1.5">
+    <span className="flex min-w-0 items-center gap-1.5">
       <span aria-hidden="true" className="inline-flex h-4 w-4 shrink-0 items-center justify-center [&_svg]:h-4 [&_svg]:w-4">
         <Icon />
       </span>
@@ -797,8 +805,11 @@ function tabLabel(p: RegisteredPanel, icons: boolean): React.ReactNode {
   );
 }
 
-/** A panel's body in its group: padded and scrolled by the host, or edge to edge (`capabilities.fill`). */
-const bodyClass = (p: RegisteredPanel) => (p.capabilities.fill ? "overflow-hidden" : "overflow-auto p-2");
+/** A panel's body in its group: padded and scrolled by the host, or edge to edge (`capabilities.fill`).
+ *  Up and down only: a group narrower than its content clips it rather than growing a
+ *  sideways scrollbar, as its header truncates its tabs (with the full title as a tooltip)
+ *  and folds its actions into one menu. */
+const bodyClass = (p: RegisteredPanel) => (p.capabilities.fill ? "overflow-hidden" : "overflow-y-auto overflow-x-hidden p-2");
 
 function GridGroup({
   group,
@@ -850,7 +861,7 @@ function GridGroup({
           role="tablist"
           aria-label={groupLabel(group.panels)}
           {...(dragging ? dropAttrs(zone, {[DROP_INDEX_ATTR]: String(panels.length)}) : {})}
-          className="flex min-w-0 flex-1 self-stretch items-center gap-0.5 overflow-x-auto"
+          className="flex min-w-0 flex-1 self-stretch items-center gap-0.5 overflow-hidden"
         >
           {panels.map((p, i) => (
             <GroupTab

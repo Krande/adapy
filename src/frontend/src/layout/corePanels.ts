@@ -28,7 +28,7 @@ import { runtime } from "@/runtime/config";
 import { useAnimationStore } from "@/state/animationStore";
 import { hasEmbeddedDoc, useCellBuilderStore } from "@/state/cellBuilderStore";
 import { useComponentControlsStore } from "@/state/componentControlsStore";
-import { useComponentSpecsStore } from "@/state/componentSpecsStore";
+import { useConnectionsOfferStore } from "@/state/connectionsOfferStore";
 import { useConsoleLogStore } from "@/state/consoleLogStore";
 import { useEquipmentCatalogStore } from "@/state/equipmentCatalogStore";
 import { useFeaAnimationStore } from "@/state/feaAnimationStore";
@@ -308,19 +308,21 @@ export function corePanelSpecs(): PanelSpec[] {
       placement: classic({ zone: CLASSIC_ZONES.menuColumn, parent: CORE_PANEL_IDS.simulation, as: "section" }),
     },
     {
+      // The connection builder (it replaced the baked-spec "Connection components" panel): offered
+      // on `ada dev connections`, and wherever the scope offers specs the workers' code registers.
       id: CORE_PANEL_IDS.componentControls,
-      title: "Connection components",
+      title: "Connection builder",
       icon: ComponentIcon,
-      hint: "Toggle connection-component panel",
+      hint: "Toggle connection builder",
       body: classicBody(CORE_PANEL_IDS.componentControls),
       content: classicContent(CORE_PANEL_IDS.componentControls),
-      watch: watchStores(useComponentSpecsStore),
+      watch: watchStores(useConnectionsOfferStore),
       binding: bindStoreFlag(
         useComponentControlsStore,
         (s) => s.isVisible,
         (open, s) => s.setIsVisible(open),
       ),
-      available: () => useComponentSpecsStore.getState().hasSpecs,
+      available: () => runtime.devConnections() || useConnectionsOfferStore.getState().offered,
       placement: column(70),
       toolbar: { order: 90 },
     },

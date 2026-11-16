@@ -186,7 +186,22 @@ import { isPlacedElsewhere } from "@/layout/placedElsewhere";
 //            `subject: {kind, key}`; the provider reads it as `case.subject`.
 //          - `SimulationRun.subject`, `StartSimulationBody.subject` on `/app`.
 //          An older core has no `ctx.simulations`: ask for it before relying on it.
-export const PLUGIN_API_VERSION = "1.21.0";
+// 1.22.0 — `registerToastSlot` / `unregisterToastSlot` (@/viewer-core): a plugin's own toasts
+//          in the app's one toast stack.
+// 1.23.0 — `setBuilderDefaults` (@/viewer-core): a shell's default Builder engine/blueprint.
+//          `notifyPluginActivationChanged()`: a plugin whose activation predicate reads its own
+//          state says when that state changed, and a placed panel showing "Nothing to show
+//          here yet" re-asks it (the panel also re-asks on every loaded-model change).
+// 1.24.0 — additive, both optional: an older core has neither.
+//          - `SimulationParameterFormArgs.subject` ({kind, key, label} or null): the subject the
+//            run will be started on, so a provider's form can leave out fields that name the part.
+//          - `ctx.scene.clearScene()`: empties the scene as the Scene tab's Remove all does, for a
+//            plugin about to show something of its own (a replay).
+// 1.25.0 — `keepCamera` on `SceneModelSource`: the camera stays where it is when the model is
+//          loaded, instead of framing it as the user's auto-fit setting says. For a model loaded
+//          again in another form (a finer mesh of the same thing). Additive: an older core
+//          ignores it and frames the model as before.
+export const PLUGIN_API_VERSION = "1.25.0";
 
 // The named mount regions core exposes in Phase 1. Deliberately small
 // (`fem-sidebar` covers the FEM simulation panel, `top-panel` the menu bar,
@@ -498,6 +513,9 @@ export interface SceneModelSource {
   // of its own. Needed for `poseModel` to find its nodes on the three.js-free viewport, which
   // otherwise merges them; an animation the file has is then not played there.
   posable?: boolean;
+  // (1.25.0) Leave the camera where it is instead of framing the model (auto-fit), on both
+  // viewports: for the same thing loaded again, so the view the user has is kept.
+  keepCamera?: boolean;
 }
 
 /** (1.20.0) The named nodes of a loaded model, placed by the plugin. See `SceneHandle.poseModel`. */
@@ -700,6 +718,12 @@ export interface SceneHandle {
   // registered under that name), disposing its GPU resources. No-op when the
   // name is not loaded.
   unloadModel: (sourceName: string) => void;
+  // Empty the scene before showing something of the plugin's own (a replay): every loaded model,
+  // and what core drew over them (the connection builder's member axes and weld labels, a clash
+  // run's markers, an FEA session), as "clear the scene" does. Overlays plugins added with `add` /
+  // `addLines` stay theirs to remove. Additive and optional: an older core has no `clearScene`, so
+  // ask for it before calling it.
+  clearScene?: () => Promise<void>;
 
   // ── Renderer-neutral overlays (1.9.0). Core builds and owns the scene objects; they draw
   // the same under three.js and the WebGPU renderer, move and clip with the model, and go
@@ -1034,6 +1058,22 @@ export interface SimulationParameterFormArgs {
   /** The storage keys of the run's input files so far, and how to replace them. */
   inputs: readonly string[];
   onInputsChange: (next: string[]) => void;
+  /**
+   * The subject the run will be started on (e.g. a detail the connection builder offered), when one
+   * is chosen and this provider takes its kind; null otherwise. A form whose own fields name the part
+   * another way (a connection picked from a list) should leave those out while there is one: the run
+   * already says what it works on. Absent on a core before it was passed.
+   */
+  subject?: SimulationFormSubject | null;
+}
+
+/** The subject a parameter form is told about: what it is and what a person calls it. */
+export interface SimulationFormSubject {
+  /** One of the server's subject kinds, e.g. `"weld-assembly"`. */
+  kind: string;
+  /** Storage key of its file, in the run's scope. */
+  key: string;
+  label: string;
 }
 
 /** What an "open result" handler is given. */
@@ -1281,6 +1321,25 @@ let _contextFactory: ((pluginId: string) => AdaPluginContext) | null = null;
  * activation predicate is false (a dormant plugin's panels are not placed or
  * listed). Called once by the bootstrap; without it only disabling counts.
  */
+// What a plugin's activation predicate reads that core cannot watch -- its own results,
+// say -- changes when the plugin says so. A placed panel re-asks its predicate then.
+let _activationVersion = 0;
+const _activationListeners = new Set<() => void>();
+
+/** Tell core that what a plugin's activation predicate reads has changed (1.23.0), so a
+ *  panel waiting on it ("Nothing to show here yet") asks again. Cheap; call it freely. */
+export function notifyPluginActivationChanged(): void {
+  _activationVersion += 1;
+  for (const cb of [..._activationListeners]) cb();
+}
+
+export function subscribePluginActivation(cb: () => void): () => void {
+  _activationListeners.add(cb);
+  return () => _activationListeners.delete(cb);
+}
+
+export const pluginActivationVersion = (): number => _activationVersion;
+
 export function setPluginContextFactory(factory: ((pluginId: string) => AdaPluginContext) | null): void {
   _contextFactory = factory;
 }

@@ -90,7 +90,15 @@ BOX_JOINT_SPEC = ConnectionSpec(
             role=MemberRole.LANDING, kind=MemberKind.BEAM, section_in=_BOX_FAMILY, member_types=_GIRDER_ONLY
         ),
         MemberCriteria(
-            role=MemberRole.INCOMING, kind=MemberKind.BEAM, section_in=_BOX_FAMILY, member_types=_GIRDER_ONLY
+            role=MemberRole.INCOMING,
+            kind=MemberKind.BEAM,
+            section_in=_BOX_FAMILY,
+            member_types=_GIRDER_ONLY,
+            # A box joint is one box landing on another's side (`collect_box_joints` finds an END on
+            # the other member, and a collinear pair never crosses). Without an angle the connection
+            # builder laid the incoming ALONG the landing, inside it.
+            angle_to_role=MemberRole.LANDING,
+            angle_range=AngleRange(min_deg=30.0, max_deg=150.0),
         ),
     ),
     tags=frozenset({"builtin", "box"}),
@@ -133,19 +141,36 @@ def _accepted(joint_cls, config: dict) -> dict:
     return {k: v for k, v in config.items() if k in accepted and v is not None}
 
 
-def _build_girder_gusset(*, landing, incoming, centre, name: str | None = None, **config):
+def _joint_point(centre, landing, incoming):
+    """Where the joint is: the point the clash flow measured, else where the members' axes meet
+    (the connection builder and its simulation subjects pass none).
+
+    Only the joint's RECORD and a through crossing's marker are placed by it: a joint whose incoming
+    ends at the landing is placed from the members' own geometry (``GirderJoint``), so the point
+    cannot put the plate and welds inside the steel, whichever flow it came from."""
+    if centre is not None:
+        return centre
+    from ada.core.clash_check import beam_cross_check
+
+    res = beam_cross_check(landing, incoming, 1.0)
+    if res is not None:
+        return tuple(float(v) for v in res[0])
+    return tuple(float(v) for v in incoming.n1.p)
+
+
+def _build_girder_gusset(*, landing, incoming, centre=None, name: str | None = None, **config):
     from ada.topo_model.detail_joints import GirderJoint
 
     joint = GirderJoint(
         name or f"gusset_{getattr(landing, 'name', 'a')}_{getattr(incoming, 'name', 'b')}",
         [landing, incoming],
-        centre,
+        _joint_point(centre, landing, incoming),
         **_accepted(GirderJoint, config),
     )
     return joint.connection
 
 
-def _build_box_joint(*, landing, incoming, centre, name: str | None = None, **config):
+def _build_box_joint(*, landing, incoming, centre=None, name: str | None = None, **config):
     from ada.topo_model.detailing import BoxJoint
 
     # `incoming` / `landing` are REQUIRED keyword arguments of this joint (it cuts the one with
@@ -154,11 +179,13 @@ def _build_box_joint(*, landing, incoming, centre, name: str | None = None, **co
     joint = BoxJoint(
         name or f"box_{getattr(landing, 'name', 'a')}_{getattr(incoming, 'name', 'b')}",
         [landing, incoming],
-        centre,
+        _joint_point(centre, landing, incoming),
         incoming=incoming,
         landing=landing,
         **_accepted(BoxJoint, config),
     )
+    # The cut IS the joint: without it the incoming runs on into the landing.
+    joint.apply()
     return getattr(joint, "connection", joint)
 
 

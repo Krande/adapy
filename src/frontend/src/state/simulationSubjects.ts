@@ -69,6 +69,16 @@ export function providerAccepts(provider: { readonly accepts?: readonly string[]
   return (provider.accepts ?? []).includes(kind);
 }
 
+/** The subject a provider's parameter form is told about: the chosen one when the provider takes its
+ *  kind, else none -- a run it cannot take is not started on it, so the form must not act as if. */
+export function formSubject(
+  provider: { readonly accepts?: readonly string[] },
+  subject: Pick<SimulationSubject, "kind" | "key" | "label"> | null,
+): { kind: string; key: string; label: string } | null {
+  if (!subject || !providerAccepts(provider, subject.kind)) return null;
+  return { kind: subject.kind, key: subject.key, label: subject.label };
+}
+
 /** What the panel says against a provider that cannot take the chosen subject. */
 export function doesNotTake(kind: string): string {
   return `does not take a ${kind}`;

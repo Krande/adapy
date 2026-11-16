@@ -29,7 +29,7 @@ import SceneBody from "@/components/info_box_scene/SceneBody";
 import { WebsocketStatusBody, WebsocketStatusBox } from "@/components/WebsocketStatusMenu";
 import SimulationControls, { SimulationBody } from "@/components/simulation/SimulationControls";
 import SimulationDataInfoPanel from "@/components/simulation/SimulationDataInfoPanel";
-import ComponentControls, { ComponentControlsBody } from "@/components/component_view/ComponentControls";
+import ConnectionBuilderPanel, { ConnectionBuilderPanelContent } from "@/components/component_view/ConnectionBuilderPanel";
 import ConsolePanel, { ConsoleBody } from "@/components/console/ConsolePanel";
 import CellBuilderPanel, { CellBuilderBody } from "@/components/viewer/CellBuilderPanel";
 import { ComponentListBody, ComponentListPanel } from "@/components/viewer/cellbuilder/panel/ComponentList";
@@ -76,7 +76,7 @@ export const CLASSIC_PANEL_COMPONENTS: Readonly<Record<PanelId, React.ComponentT
   [CORE_PANEL_IDS.wsStatus]: asBody(WebsocketStatusBox),
   [CORE_PANEL_IDS.simulation]: asBody(SimulationControls),
   [CORE_PANEL_IDS.feaTable]: asBody(SimulationDataInfoPanel),
-  [CORE_PANEL_IDS.componentControls]: asBody(ComponentControls),
+  [CORE_PANEL_IDS.componentControls]: asBody(ConnectionBuilderPanel),
   [CORE_PANEL_IDS.console]: asBody(ConsolePanel),
   [CORE_PANEL_IDS.cellbuilder]: asBody(CellBuilderPanel),
   [CORE_PANEL_IDS.componentList]: asBody(ComponentListPanel),
@@ -92,7 +92,7 @@ export const CLASSIC_PANEL_CONTENTS: Readonly<Record<PanelId, React.ComponentTyp
   [CORE_PANEL_IDS.wsStatus]: withOptions(WebsocketStatusBody),
   [CORE_PANEL_IDS.simulation]: withOptions(SimulationBody),
   [CORE_PANEL_IDS.feaTable]: withOptions(SimulationDataInfoPanel),
-  [CORE_PANEL_IDS.componentControls]: withOptions(ComponentControlsBody),
+  [CORE_PANEL_IDS.componentControls]: asBody(ConnectionBuilderPanelContent),
   [CORE_PANEL_IDS.console]: asBody(ConsoleBody),
   [CORE_PANEL_IDS.cellbuilder]: withOptions(CellBuilderBody),
   [CORE_PANEL_IDS.componentList]: asBody(ComponentListBody),
@@ -113,7 +113,10 @@ const LAZY_BODIES: Readonly<Record<PanelId, Loader>> = {
   [CORE_PANEL_IDS.systemAdmin]: () => import("@/components/admin/SystemAdminPanel").then((m) => asBody(m.default)),
   // Embedded, on the tab the viewer-panel store asks for, as the in-viewer window shows it.
   [CORE_PANEL_IDS.admin]: () => import("@/components/admin/AdminPanel").then((m) => asBody(m.AdminWindowBody)),
-  [CORE_PANEL_IDS.convert]: () => import("@/components/convert/ConvertPage").then((m) => asBody(m.default)),
+  // Always inside a running viewer (the standalone /convert page renders ConvertPage itself):
+  // the converter then keeps the viewer's scope instead of switching to Personal.
+  [CORE_PANEL_IDS.convert]: () =>
+    import("@/components/convert/ConvertPage").then((m) => withOptions(m.default, { inViewer: true })),
   [CORE_PANEL_IDS.settings]: () => import("@/components/settings/SettingsPanel").then((m) => asBody(m.SettingsBody)),
   [CORE_PANEL_IDS.simulations]: () => import("@/components/simulations/SimulationsPanel").then((m) => asBody(m.default)),
   [CORE_PANEL_IDS.layers]: () => import("@/components/layers/LayersPanel").then((m) => asBody(m.default)),
