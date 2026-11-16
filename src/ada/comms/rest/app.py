@@ -1490,13 +1490,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         """Read a setting from the publicly-readable namespace. Returns
         ``{"key": k, "value": v}`` with v=null when unset, exactly like the admin
         getter. 403 for any key outside the namespace, so this can never be used
-        to read an admin-only setting."""
+        to read an admin-only setting. A server with no database has no settings:
+        every key reads as unset (200, value null), so the viewer's per-load reads
+        stay quiet."""
         if not key.startswith(PUBLIC_SETTING_PREFIX):
             raise HTTPException(
                 status_code=403,
                 detail=f"only {PUBLIC_SETTING_PREFIX}* settings are readable here",
             )
-        pool = _require_pool(request)
+        pool = getattr(request.app.state, "db_pool", None)
+        if pool is None:
+            return JSONResponse({"key": key, "value": None})
         value = await db_module.get_setting(pool, key)
         return JSONResponse({"key": key, "value": value})
 
