@@ -424,24 +424,31 @@ const DOCK_EDGE: Readonly<Record<string, DockEdge>> = {left: "left", bottom: "bo
 /**
  * In a composed shell, place each plugin panel that names a dock, once (the
  * document's `known`): into the group the shell maps that dock to, else at that
- * edge of the view. After that it is the user's to move. Floating and overlay
- * docks are left to their region. Core's own UI places nothing this way.
+ * edge of the view. After that it is the user's to move. A floating dock is
+ * given a window of the layout, once, in core's own UI as well; an overlay
+ * dock is left to its region.
  */
 export function adoptDockedPanels(): void {
-  if (!shell) return;
-  const docks = arrangementOf().docks ?? {};
+  // A dock in the grid is a composed shell's to map; a window is any layout's.
+  const docks = shell ? (arrangementOf().docks ?? {}) : null;
   // Per mode: a panel offered only in other modes is adopted when one of those is entered.
   // An unavailable one (a dormant or disabled plugin's) is placed when it becomes available.
-  const candidates = listPanels().filter(
-    (p) => p.owner !== CORE_PANEL_OWNER && dockOf(p) !== null && canDock(p) && offeredInMode(p) && isPanelAvailable(p, {}),
-  );
+  const candidates = listPanels().filter((p) => {
+    if (p.owner === CORE_PANEL_OWNER || !offeredInMode(p) || !isPanelAvailable(p, {})) return false;
+    const dock = dockOf(p);
+    return dock === "float" ? canFloat(p) : docks !== null && dock !== null && canDock(p);
+  });
   if (!candidates.length) return;
+  // A set, not reset per call: the store may run the update more than once.
+  const floated = new Set<PanelId>();
   updateClassic((d) => {
     const {doc, adopted} = adoptNewPanels(d, candidates.map((p) => p.id));
     let out = doc;
     for (const id of adopted) {
       const dock = dockOf(getPanel(id)!)!;
-      if (dock === "float" || dock === "overlay") continue;
+      // A floating dock starts in a window of the layout, below; an overlay stays with its region.
+      if (dock === "float") floated.add(id);
+      if (dock === "float" || dock === "overlay" || !docks) continue;
       const group = docks[dock];
       const target: GridTarget =
         group && findNode(gridOf(out), group) ? {node: group, edge: "center"} : {node: VIEWPORT_NODE, edge: DOCK_EDGE[dock] ?? "right"};
@@ -449,6 +456,8 @@ export function adoptDockedPanels(): void {
     }
     return out;
   });
+  // Where it floats the first time; it shows there once it is opened.
+  for (const id of floated) floatOut(id);
 }
 
 /** Plugin panels shown in a place of the layout's own (a group, a window) rather than their region. */

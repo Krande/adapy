@@ -38,7 +38,7 @@ import {useViewerPanelStore, type ViewerPanel} from "@/state/viewerPanelStore";
 import {isToolbarButtonShown, useToolbarButtonsStore} from "@/state/toolbarButtonsStore";
 import {useIsWide} from "@/utils/useIsMobile";
 
-import {PanelHeaderActionsProvider} from "@/components/ui/PanelFrame";
+import {PanelFrame, PanelHeaderActionsProvider} from "@/components/ui/PanelFrame";
 import {panelBodyAttrsFor} from "@/components/ui/panelChrome";
 
 import {CLASSIC_PANEL_COMPONENTS, CLASSIC_PANEL_CONTENTS} from "../classicBodies";
@@ -246,6 +246,27 @@ function ColumnPanel({
   );
 }
 
+/**
+ * A plugin panel that code opens (`PanelSlot.toggled`), at home in the panel column: it has no
+ * top-bar button to be closed by, so the column frames it as it frames a window -- its title,
+ * and with panels customisable Float and Move, then Close.
+ */
+function PluginColumnFrame({panelId, customisable, doc, children}: {panelId: PanelId; customisable: boolean; doc: LayoutDoc; children: React.ReactNode}) {
+  const panel = getPanel(panelId);
+  if (!panel) return <>{children}</>;
+  return (
+    <PanelFrame
+      panelId={panel.id}
+      title={panel.title}
+      host={{kind: "stack", zone: CLASSIC_ZONES.menuColumn}}
+      actions={customisable ? columnActions(panel, doc) : NO_ACTIONS}
+      onClose={() => void hide(panel.id)}
+    >
+      {children}
+    </PanelFrame>
+  );
+}
+
 function ClassicColumn({proceduralActive}: {proceduralActive: boolean}) {
   const {preset, env} = useLayout();
   const customisable = useCustomisablePanels();
@@ -276,7 +297,14 @@ function ClassicColumn({proceduralActive}: {proceduralActive: boolean}) {
       {...(customisable ? {[ZONE_ATTR]: "column"} : {})}
     >
       {panels.filter((p) => order(p) < PLUGIN_MENU_COLUMN_ORDER).map(render)}
-      <PluginPanelRegion region="top-panel" />
+      <PluginPanelRegion
+        region="top-panel"
+        frame={(slot, mounted) => (
+          <PluginColumnFrame panelId={slot.id} customisable={customisable} doc={doc}>
+            {mounted}
+          </PluginColumnFrame>
+        )}
+      />
       {panels.filter((p) => order(p) >= PLUGIN_MENU_COLUMN_ORDER).map(render)}
     </div>
   );

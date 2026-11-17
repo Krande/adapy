@@ -87,7 +87,11 @@ function pluginVisibilityBinding(panelId: string): PanelBinding {
 function classicPlacement(slot: PanelSlot): PanelPlacement {
   switch (slot.region) {
     case "top-panel":
-      return { zone: CLASSIC_ZONES.menuColumn, order: PLUGIN_MENU_COLUMN_ORDER + (slot.order ?? 0) };
+      return {
+        zone: CLASSIC_ZONES.menuColumn,
+        order: PLUGIN_MENU_COLUMN_ORDER + (slot.order ?? 0),
+        ...(slot.floatSize ? { float: slot.floatSize } : {}),
+      };
     case "fem-sidebar":
       return {
         zone: CLASSIC_ZONES.menuColumn,
@@ -125,7 +129,7 @@ export function panelSpecFromSlot(
   const isToolbar = slot.region === "top-panel" && !!slot.topBarButton;
   return {
     id: slot.id,
-    title: slot.asTab?.label ?? slot.topBarButton?.label ?? local,
+    title: slot.asTab?.label ?? slot.topBarButton?.label ?? slot.title ?? local,
     icon: slot.topBarButton?.icon,
     hint: slot.topBarButton?.label,
     body: () =>
