@@ -320,11 +320,14 @@ def _rdresref(ires, icalty, complx=0):
     return [float(ires), 1.0, float(ires), float(icalty), float(complx), 1.0, 10.0, float(ires), 0.0]
 
 
-def test_a_stale_slot_read_as_an_rdrescmb_record_is_left_out(caplog):
+def test_a_stale_slot_read_as_an_rdrescmb_record_is_left_out():
     """The RDRESCMB pointer table is read one slot past its dimension; on a 0-based table that slot can hold a
     stale word pointing at another type's record. Here it is the RDRESREF record of case 6, which as a
-    recipe reads "6 = 6.0 x case 10" and would replace the real recipe of case 6."""
+    recipe reads "6 = 6.0 x case 10" and would replace the real recipe of case 6. (The warning is caught with a
+    handler on the ``ada`` logger, not caplog: ada.config sets ``propagate = False`` on it.)"""
     import logging
+
+    from ada.config import logger
 
     basic = [_rdresref(i, 0) for i in (1, 2, 3, 4)]
     combos = [_rdresref(i, 100) for i in (5, 6, 7, 8)]
@@ -339,13 +342,23 @@ def test_a_stale_slot_read_as_an_rdrescmb_record_is_left_out(caplog):
             stale,
         ],
     )
-    with caplog.at_level(logging.WARNING):
+    records: list[logging.LogRecord] = []
+
+    class _Collect(logging.Handler):
+        def emit(self, record):
+            records.append(record)
+
+    handler = _Collect(logging.WARNING)
+    logger.addHandler(handler)
+    try:
         terms = read_result_combination_terms(sin)
+    finally:
+        logger.removeHandler(handler)
 
     assert sorted(terms) == [5, 6, 7, 8]
     assert terms[6] == CombinationRecipe(complex=False, terms=((1, 1.0, 0.0), (2, 1.3, 0.0)))
     assert read_result_combinations(sin)[6] == {1: 1.0, 2: 1.3}
-    assert any("RDRESCMB record" in r.getMessage() and "10.0, 6.0" in r.getMessage() for r in caplog.records)
+    assert any("RDRESCMB record" in r.getMessage() and "10.0, 6.0" in r.getMessage() for r in records)
 
 
 @pytest.mark.parametrize(
