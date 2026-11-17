@@ -224,18 +224,24 @@ export type { ScenePick, ScenePickOptions, ScenePickSession } from "./scenePicks
 //          plugin's own in a dialog. `available` says per scope whether the kind is there at all.
 //          Additive: a plugin built against it and loaded into 1.27.0 would register into nothing,
 //          and its assets would be in no list with no line naming the mismatch.
-export const PLUGIN_API_VERSION = "1.28.0";
+// 1.29.0 — the `connection-builder` region: a plugin's tab in the connection builder panel
+//          (`core:component-controls`), after the builder's own. Every panel of the region is a
+//          tab; `asTab` gives its label, order and badge. With no such panel the builder panel
+//          has no tab strip and is what it was. Additive: an older core mounts the region
+//          nowhere, so a plugin that needs its tab seen raises its floor to this.
+export const PLUGIN_API_VERSION = "1.29.0";
 
 // The named mount regions core exposes in Phase 1. Deliberately small
 // (`fem-sidebar` covers the FEM simulation panel, `top-panel` the menu bar,
-// `admin` the /admin page's tab strip); more are added on demand rather than
-// up-front.
+// `admin` the /admin page's tab strip, `connection-builder` the connection
+// builder panel's); more are added on demand rather than up-front.
 export type PluginRegion =
   | "fem-sidebar"
   | "top-panel"
   | "scene-info"
   | "storage-detail"
-  | "admin";
+  | "admin"
+  | "connection-builder";
 
 // ---------------------------------------------------------------------------
 // Placement (1.1.0)
@@ -957,6 +963,10 @@ export interface PanelSlot {
   // `admin` panels are ALWAYS tabs (the admin page is a tab strip), so there
   // `asTab` is optional and only supplies the label; without it the namespaced
   // panel id is shown.
+  //
+  // `connection-builder` panels (1.29.0) are always tabs too, of the connection
+  // builder panel, after the builder's own: `asTab` supplies the label, order
+  // and badge; without it the panel's `title`, else its id, is the label.
   asTab?: {
     label: string;
     order?: number;
@@ -1573,6 +1583,25 @@ export function findSimulationTabById(panelId: string): SimulationTabEntry | nul
     }
   }
   return null;
+}
+
+/** `connection-builder` panels (1.29.0): a plugin's tabs in the connection builder panel,
+ * filtered by activation exactly like `getPanelsForRegion` and ordered by
+ * `(asTab.order ?? order ?? 0, id)`. Core appends these after the builder's own tab. Every
+ * panel of the region is a tab; one without `asTab` is labelled by its `title`, else its id.
+ * Empty when no plugin has one (the panel then has no tab strip, as before the region). */
+export function getConnectionBuilderTabs(ctx: AdaPluginContext): SimulationTabEntry[] {
+  const entries = getPanelsForRegion("connection-builder", ctx).map(({ pluginId, panel }) => ({
+    pluginId,
+    panel,
+    asTab: panel.asTab ?? { label: panel.title ?? panel.id, order: panel.order },
+  }));
+  entries.sort(
+    (a, b) =>
+      (a.asTab.order ?? a.panel.order ?? 0) - (b.asTab.order ?? b.panel.order ?? 0) ||
+      a.panel.id.localeCompare(b.panel.id),
+  );
+  return entries;
 }
 
 /** One plugin-contributed admin tab. */

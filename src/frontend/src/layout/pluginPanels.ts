@@ -99,6 +99,14 @@ function classicPlacement(slot: PanelSlot): PanelPlacement {
         as: slot.asTab ? "tab" : "inline",
         order: slot.asTab ? (slot.asTab.order ?? 0) : (slot.order ?? 0),
       };
+    case "connection-builder":
+      // Always a tab of the connection builder panel, after the builder's own.
+      return {
+        zone: CLASSIC_ZONES.menuColumn,
+        parent: "core:component-controls",
+        as: "tab",
+        order: slot.asTab?.order ?? slot.order ?? 0,
+      };
     case "admin":
       return { zone: CLASSIC_ZONES.window, parent: "core:admin", as: "tab", order: slot.order ?? 0 };
     case "scene-info":

@@ -12,6 +12,7 @@ import { hide, isPanelOpen, reveal, toggle } from "@/layout/reveal";
 import { usePluginUiStore } from "@/plugins/pluginUiStore";
 import {
   disablePlugin,
+  getConnectionBuilderTabs,
   getPanelsForRegion,
   getRegisteredPlugins,
   getSimulationTabs,
@@ -89,6 +90,46 @@ test("asTab: a tab inside the Simulation panel, titled by the tab label", () => 
     as: "inline",
     order: 7,
   });
+});
+
+test("connection-builder: every panel is a tab of the connection builder panel, ordered and labelled", () => {
+  registerPlugin({
+    id: "cb",
+    panels: [
+      { id: "late", region: "connection-builder", render, asTab: { label: "Later", order: 9 } },
+      { id: "plain", region: "connection-builder", render, title: "Plain", order: 2 },
+      { id: "bare", region: "connection-builder", render },
+      { id: "gated", region: "connection-builder", render, asTab: { label: "Gated" }, activationPredicate: () => false },
+      { id: "top", region: "top-panel", render },
+    ],
+  });
+  const tab = getPanel("cb:late");
+  assert.equal(tab?.title, "Later");
+  assert.deepEqual(tab?.placement?.classic, {
+    zone: "classic.menu-column",
+    parent: "core:component-controls",
+    as: "tab",
+    order: 9,
+  });
+  assert.equal(tab?.binding, undefined, "its host opens and closes it");
+  assert.equal(tab?.toolbar, undefined);
+  assert.equal(tab?.content, undefined, "a tab without a dock stays where its host puts it");
+  assert.deepEqual(getPanel("cb:plain")?.placement?.classic?.order, 2);
+
+  const ctx = {} as never;
+  assert.deepEqual(
+    getConnectionBuilderTabs(ctx).map((t) => [t.panel.id, t.asTab.label]),
+    [["cb:bare", "cb:bare"], ["cb:plain", "Plain"], ["cb:late", "Later"]],
+  );
+  // A tab the layout shows in a group or window of its own leaves the strip.
+  try {
+    setPlacedElsewhere(["cb:late"]);
+    assert.deepEqual(getConnectionBuilderTabs(ctx).map((t) => t.panel.id), ["cb:bare", "cb:plain"]);
+  } finally {
+    setPlacedElsewhere([]);
+  }
+  disablePlugin("cb", "test");
+  assert.deepEqual(getConnectionBuilderTabs(ctx), []);
 });
 
 test("the other regions map to their classic hosts", () => {
