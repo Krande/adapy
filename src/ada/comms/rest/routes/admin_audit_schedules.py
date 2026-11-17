@@ -7,7 +7,7 @@
     POST   /admin/audit/schedules/{id}/fire  fire-now (bypasses cron)
 
 The actual firing happens via the scheduler background task
-(``_scheduler_loop``, still inside ``create_app``). These endpoints just
+(``scheduler_loop`` in ``background_tasks.py``). These endpoints just
 CRUD the rows + offer the manual "fire this schedule right now" override,
 via :func:`~.admin_audit_runs.audit_dispatch` (also called from that
 background task and from the audit-runs routes — see that module's

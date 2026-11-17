@@ -66,21 +66,7 @@ def _put(client: TestClient, key: str, data: bytes) -> None:
     """Stage bytes under the shared scope, bypassing the public PUT
     so we can install arbitrary derived-blob layouts. The blob_put
     endpoint refuses writes to ``_derived/`` for safety."""
-    storage = None
-    for route in client.app.routes:
-        ep = getattr(route, "endpoint", None)
-        if ep is None:
-            continue
-        cell = getattr(ep, "__closure__", None)
-        if not cell:
-            continue
-        for c in cell:
-            v = c.cell_contents
-            if v.__class__.__name__ == "Storage":
-                storage = v
-                break
-        if storage is not None:
-            break
+    storage = client.app.state.rest.storage
     asyncio.run(storage.put_bytes(Scope.shared(), key, data))
 
 

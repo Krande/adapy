@@ -80,14 +80,8 @@ def db():
 
 
 def _storage(client: TestClient):
-    """Pull the app's Storage out of a route closure (same trick as the wasm test)."""
-    for route in client.app.routes:
-        ep = getattr(route, "endpoint", None)
-        for c in getattr(ep, "__closure__", None) or ():
-            v = c.cell_contents
-            if v.__class__.__name__ == "Storage":
-                return v
-    raise RuntimeError("storage not found on app")
+    """The Storage the app was built with (its per-app services, ``app.state.rest``)."""
+    return client.app.state.rest.storage
 
 
 async def _finish_run(p, *, scope="shared", worker_pool=None, auto_validate=False, n=1):
