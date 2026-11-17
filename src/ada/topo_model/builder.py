@@ -59,7 +59,12 @@ from .compile import (
     _space_to_box,
     _stream_tessellation,
 )
-from .engines import DEFAULT_ENGINE_SLUG, PROCEDURAL_SCHEMA_VERSION, EngineBinding, honours_entity_include
+from .engines import (
+    DEFAULT_ENGINE_SLUG,
+    PROCEDURAL_SCHEMA_VERSION,
+    EngineBinding,
+    honours_entity_include,
+)
 
 __all__ = ["ProceduralBuilder"]
 
