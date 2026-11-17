@@ -210,7 +210,13 @@ export type { ScenePick, ScenePickOptions, ScenePickSession } from "./scenePicks
 //          the clicks back. `ScenePick` names what was clicked: model, object id, name, source
 //          file, and the point in the model's own coordinates. Additive: an older core has no
 //          such verb, so a plugin asks for it first.
-export const PLUGIN_API_VERSION = "1.26.0";
+// 1.27.0 — the playback transport takes buttons, and a panel can be opened by code:
+//          - `registerPlaybackAction` / `unregisterPlaybackAction` / `notifyPlaybackActionsChanged`
+//            (@/viewer-core): a shell's or plugin's buttons in the bar with play, the scrub bar and
+//            the run's Console -- what shows and hides the things that follow the clock.
+//          - `PanelSlot.toggled`: a panel with no top-bar button that code opens and closes.
+//          Additive: an older core has neither, so a plugin asks for them first.
+export const PLUGIN_API_VERSION = "1.27.0";
 
 // The named mount regions core exposes in Phase 1. Deliberately small
 // (`fem-sidebar` covers the FEM simulation panel, `top-panel` the menu bar,
@@ -910,6 +916,13 @@ export interface PanelSlot {
   activationPredicate?: ActivationPredicate;
   render: (ctx: AdaPluginContext) => React.ReactNode;
   topBarButton?: TopBarButtonSpec;
+  /**
+   * Opened and closed by code, with no top-bar button (1.27.0): a button of the plugin's own
+   * elsewhere -- an action of the playback transport, say -- shows and hides it with `toggle` /
+   * `reveal` / `hide` (`@/viewer-core`). It has the open state a top-bar panel has, so it is drawn
+   * only while open, keeps its place in a layout while closed, and starts closed.
+   */
+  toggled?: boolean;
   /**
    * May open in a browser window of its own (1.13.0). Only for a panel that works
    * without the 3D scene: the new window boots canvas-less, with stores of its own.

@@ -235,3 +235,18 @@ test("a panel the layout places elsewhere leaves its region host", () => {
   }
   assert.deepEqual(getPanelsForRegion("top-panel", ctx).map((p) => p.panel.id), ["e:a", "e:b"]);
 });
+
+test("toggled: opened and closed by code, with no top-bar button and no toolbar entry", () => {
+  usePluginUiStore.setState({ visible: {} });
+  registerPlugin({ id: "tg", panels: [{ id: "cam", region: "top-panel", dock: "right", render, toggled: true }] });
+  const p = getPanel("tg:cam");
+  assert.ok(p?.binding, "it has an open state of its own");
+  assert.equal(p?.toolbar, undefined);
+  assert.equal(listToolbarPanels().some((x) => x.id === "tg:cam"), false);
+  // Closed until code opens it; the same store a top-bar panel's button writes.
+  assert.equal(isPanelOpen("tg:cam"), false);
+  toggle("tg:cam");
+  assert.equal(usePluginUiStore.getState().isVisible("tg:cam"), true);
+  hide("tg:cam");
+  assert.equal(isPanelOpen("tg:cam"), false);
+});

@@ -658,7 +658,10 @@
 //          `ctx.scene.clearScene`). Additive.
 //   1.25.0 Kept in step with PLUGIN_API_VERSION 1.25.0 (`SceneModelSource.keepCamera`). Additive.
 //   1.26.0 Kept in step with PLUGIN_API_VERSION 1.26.0 (`ctx.scene.pickObjects`, `ScenePick`). Additive.
-export const VIEWER_CORE_API_VERSION = "1.26.0";
+//   1.27.0 Kept in step with PLUGIN_API_VERSION 1.27.0: `registerPlaybackAction` /
+//          `unregisterPlaybackAction` / `notifyPlaybackActionsChanged` (layout/playbackActions.ts),
+//          and `PanelSlot.toggled`. Additive.
+export const VIEWER_CORE_API_VERSION = "1.27.0";
 
 // ---------------------------------------------------------------------------
 // Plugin declaration. `registerPlugin` is how a package announces itself —
@@ -837,6 +840,9 @@ export type { RailPrefs, ToolRailConfig } from "@/layout/toolRailModel";
 export { VIEWPORT_ANCHORS, registerViewportOverlay, unregisterViewportOverlay } from "@/layout/viewportOverlays";
 export { registerToastSlot, unregisterToastSlot } from "@/layout/toastSlots";
 export type { ToastSlotSpec } from "@/layout/toastSlots";
+// Buttons in the playback transport, beside play and the run's Console (dependency-free).
+export { notifyPlaybackActionsChanged, registerPlaybackAction, unregisterPlaybackAction } from "@/layout/playbackActions";
+export type { PlaybackActionSpec } from "@/layout/playbackActions";
 // The Builder's default engine and blueprint for a model whose doc names none (dependency-free).
 export { setBuilderDefaults } from "@/state/cellbuilder/builderDefaults";
 export type { BuilderDefaults } from "@/state/cellbuilder/builderDefaults";

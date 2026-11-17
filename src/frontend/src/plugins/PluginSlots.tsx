@@ -94,7 +94,9 @@ export const PluginPanelRegion: React.FC<{ region: PluginRegion; excludeTabs?: b
   return (
     <>
       {panels
-        .filter(({ panel }) => !panel.topBarButton || visible[panel.id])
+        // A panel with an open state of its own -- a top-bar button's, or one code opens
+        // (`toggled`) -- is drawn while it is open; any other whenever it is active.
+        .filter(({ panel }) => !(panel.topBarButton || panel.toggled) || visible[panel.id])
         .map(({ pluginId, panel }) => (
           <PluginPanelMount
             key={panel.id}

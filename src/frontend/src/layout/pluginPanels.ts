@@ -140,7 +140,7 @@ export function panelSpecFromSlot(
     // A slot with a top-bar button is opened and closed by that button. One
     // without is shown whenever its activation predicate holds, so it has no
     // visibility of its own to bind.
-    binding: slot.topBarButton ? pluginVisibilityBinding(slot.id) : undefined,
+    binding: slot.topBarButton || slot.toggled ? pluginVisibilityBinding(slot.id) : undefined,
     // Activation predicates need a plugin context, which only a mounted host
     // has; the region hosts keep evaluating them. Here: not disabled.
     available: () => !isDisabled(),
