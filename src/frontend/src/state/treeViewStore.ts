@@ -1,4 +1,5 @@
 import {create} from 'zustand';
+import {setSelectedTreeRowsSource} from "@/utils/scene/visibilityActions";
 import {TreeApi} from "react-arborist";
 import {TreeNodeData} from "../components/tree_view/CustomNode";
 import {labelRoots, readRootLabelMode, writeRootLabelMode, type RootLabelMode} from "@/utils/tree_view/rootLabels";
@@ -145,3 +146,10 @@ export const useTreeViewStore = create<TreeViewState>((set) => ({
         });
     },
 }));
+
+// Show selected (utils/scene/visibilityActions) reads the tree's selected rows from here: a level picked in
+// the tree brings back everything hidden under it.
+setSelectedTreeRowsSource(() => {
+    const tree = useTreeViewStore.getState().tree as {selectedNodes?: readonly {data: TreeNodeData}[]} | null;
+    return (tree?.selectedNodes ?? []).map((n) => n.data);
+});

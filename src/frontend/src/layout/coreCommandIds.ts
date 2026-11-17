@@ -27,6 +27,7 @@ export const CORE_COMMAND_IDS = {
   hideSelected: "core:hide-selected",
   hideOthers: "core:hide-others",
   showAll: "core:show-all",
+  showSelected: "core:show-selected",
   fitAll: "core:fit-all",
   fitSelection: "core:fit-selection",
   resetCamera: "core:reset-camera",

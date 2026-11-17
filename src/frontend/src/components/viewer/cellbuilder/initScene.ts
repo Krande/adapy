@@ -43,6 +43,7 @@ import {onKeyDown} from "./keyboard";
 import {viewportInputElement} from "@/viewport/input";
 import {openedModelFramer} from "./frameOpened";
 import {shownInScene} from "./cellBoxSelect";
+import {setBuilderVisibilityHost} from "@/state/cellbuilder/builderVisibility";
 
 export function initCellBuilderScene(
     renderer: THREE.WebGLRenderer,
@@ -61,6 +62,18 @@ export function initCellBuilderScene(
     // selected back in Input). What a press or a key started (a drag, a typed entry) still gets
     // its keys and moves, and a release and a cancel always reach it, to end it.
     const shown = () => shownInScene(ctx.cellsGroup);
+    // The hide / show commands act on the selected cells while they are drawn (state/cellbuilder/builderVisibility).
+    const unprobe = setBuilderVisibilityHost({
+        cellsShown: () => useCellBuilderStore.getState().active !== null && shown(),
+        selected: () => {
+            const st = useCellBuilderStore.getState();
+            return st.selectedCellIds.length ? [...st.selectedCellIds] : st.selection ? [st.selection.cellId] : [];
+        },
+        all: () => Object.keys(useCellBuilderStore.getState().cells),
+        hide: (ids) => useCellBuilderStore.getState().hideCells([...ids]),
+        unhide: (ids) => useCellBuilderStore.getState().unhideCells([...ids]),
+        unhideAll: () => useCellBuilderStore.getState().unhideAllCells(),
+    });
     const busy = () =>
         ctx.drag !== null || ctx.modalMove !== null || ctx.numEntry !== null || ctx.placeEntry !== null || ctx.equipEntry !== null || ctx.openEntry !== null;
     // Stable handler identities, so add/removeEventListener pair up.
@@ -238,6 +251,7 @@ export function initCellBuilderScene(
         el.removeEventListener("pointerup", hPointerUp, true);
         el.removeEventListener("pointercancel", hPointerCancel, true);
         el.removeEventListener("contextmenu", hContextMenu);
+        unprobe();
         window.removeEventListener("keydown", hKeyDown, true);
         const runtimeCtl = getViewerRuntime().controls.current;
         if (runtimeCtl) runtimeCtl.enabled = true;

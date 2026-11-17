@@ -31,7 +31,7 @@ export const GENIE_PROFILE_ID = "genie";
  * such command: View from X (F6 moves the focus between the viewer's areas; the right view keeps Alt + 6),
  * Isometric View (F5 reloads the page), Camera Back / Forward (Alt + arrows go back and forward in the
  * browser's history), Rotate / Zoom / Pan as tools (F2 / F3 / F4: the right button does all three), Spin
- * Model (F10), Add selection (Alt + Plus) and Show complement (Alt + Q). Undo (Ctrl + Z) and Redo
+ * Model (F10) and Show complement (Alt + Q). Add selection (Alt + Plus) is the viewer's Show selected. Undo (Ctrl + Z) and Redo
  * (Ctrl + Y) are the viewer's keys already.
  */
 export const GENIE_KEYS: Readonly<KeyOverrides> = {
@@ -42,6 +42,7 @@ export const GENIE_KEYS: Readonly<KeyOverrides> = {
     "core:hide-selected": "Alt+-",
     "core:hide-others": "Alt+S",
     "core:show-all": "Alt+A",
+    "core:show-selected": "Alt+Plus",
 };
 
 export const BUILT_IN_PROFILES: readonly ControlsProfile[] = [

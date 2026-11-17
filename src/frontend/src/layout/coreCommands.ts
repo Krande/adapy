@@ -10,6 +10,7 @@
 // The scene-side actions are imported when run, so registering the commands
 // costs no scene code.
 
+import {hasVisibilitySelection, hideOthers, hideSelection, showAll, showSelection} from "@/utils/scene/visibilityActions";
 import {useMemo} from "react";
 import {useStore} from "zustand";
 
@@ -390,16 +391,25 @@ export function coreCommandSpecs(): CommandSpec[] {
       label: "Hide selected",
       group: "Edit",
       shortcut: "core:hide-selected",
-      disabledReason: nothingSelected,
-      run: () => activeViewport()?.hideSelected(),
+      disabledReason: () => (hasVisibilitySelection() ? null : nothingSelected()),
+      run: () => void hideSelection(),
     },
     {
       id: ID.hideOthers,
       label: "Hide others",
       group: "Edit",
       shortcut: "core:hide-others",
-      disabledReason: nothingSelected,
-      run: () => activeViewport()?.hideOthers(),
+      disabledReason: () => (hasVisibilitySelection() ? null : nothingSelected()),
+      run: () => void hideOthers(),
+    },
+    {
+      id: ID.showSelected,
+      label: "Show selected",
+      group: "Edit",
+      keywords: ["unhide", "add selection", "bring back", "visible"],
+      shortcut: "core:show-selected",
+      disabledReason: () => (hasVisibilitySelection() ? null : nothingSelected()),
+      run: () => void showSelection(),
     },
     {
       id: ID.showAll,
@@ -407,7 +417,7 @@ export function coreCommandSpecs(): CommandSpec[] {
       group: "Edit",
       shortcut: "core:show-all",
       disabledReason: noViewport,
-      run: () => activeViewport()?.showAll(),
+      run: () => void showAll(),
     },
     // View
     {

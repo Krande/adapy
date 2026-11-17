@@ -54,6 +54,13 @@ export const CORE_SHORTCUTS: readonly CoreShortcutDef[] = [
   { id: "core:group-selection", keys: "Shift+G", label: "Save the selection as a named group (shared in the scope)", group: VIEWER },
   { id: "core:show-all", keys: "Shift+U", label: "Unhide everything", group: VIEWER, keepDefault: true },
   {
+    id: "core:show-selected",
+    keys: "Shift+S",
+    label: "Show the selection again (a level picked in the tree brings back everything hidden under it)",
+    group: VIEWER,
+    keepDefault: true,
+  },
+  {
     id: "core:undo",
     keys: "Ctrl+Z",
     label: "Undo the last hide / show / isolate, selection change, model load or removal, selection box or section plane edit",
