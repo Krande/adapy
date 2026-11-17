@@ -2,18 +2,21 @@
 // time, the speed, loop, and "live" for a recording that is still growing. Drawn over the bottom of
 // the view on either viewport, and only while a track is registered: with nothing timed on screen
 // it renders nothing. The FEA result playback has its own controls in the Simulation panel.
+// The console of the run on screen is a panel of the layout (`core:run-console`): the transport
+// has the button that opens it, and ends the console when the result leaves the screen.
 // No three.js in this module.
 
-import React, { useSyncExternalStore } from "react";
+import React, { useEffect, useRef, useSyncExternalStore } from "react";
 
 import StopIcon from "@/components/icons/StopIcon";
-import RunConsole from "@/components/simulations/RunConsole";
+import { CORE_PANEL_IDS } from "@/layout/corePanelIds";
 import {
   listPlaybackActions,
   playbackActionState,
   playbackActionsVersion,
   subscribePlaybackActions,
 } from "@/layout/playbackActions";
+import { isPanelOpen, toggle } from "@/layout/reveal";
 import { usePluginUiStore } from "@/plugins/pluginUiStore";
 import { playbackClock } from "@/state/playbackClock";
 import { useRunConsoleStore } from "@/state/runConsoleStore";
@@ -40,17 +43,30 @@ const getState = () => playbackClock.state();
 const PlaybackTransport: React.FC = () => {
   const state = useSyncExternalStore(playbackClock.subscribe, getState, getState);
   // The console of the run whose result is on screen (state/runConsoleStore.ts): offered while
-  // such a run is open, whether or not it has said anything yet.
+  // such a run is open, whether or not it has said anything yet. It is a panel of the layout,
+  // opened and closed through it; its flag is read so the button follows a close from elsewhere.
   const consoleRun = useRunConsoleStore((s) => s.run);
-  const consoleShown = useRunConsoleStore((s) => s.shown);
-  const setConsoleShown = useRunConsoleStore((s) => s.setShown);
+  useRunConsoleStore((s) => s.shown);
+  const consoleShown = isPanelOpen(CORE_PANEL_IDS.runConsole);
+  // The result left the screen (nothing timed is on it): the console is of nothing. Here, not in
+  // the console: the transport is mounted whether the console is open, closed or docked.
+  const closeConsole = useRunConsoleStore((s) => s.close);
+  const tracks = state.tracks;
+  const hadTracks = useRef(false);
+  useEffect(() => {
+    if (tracks > 0) hadTracks.current = true;
+    else if (hadTracks.current && consoleRun) {
+      hadTracks.current = false;
+      closeConsole();
+    }
+  }, [tracks, consoleRun, closeConsole]);
   // Buttons a shell or a plugin added (layout/playbackActions.ts): asked again when the list
   // changes, when one says so, and when a plugin panel opens or closes -- which is what most of
   // them toggle, and what the panel's own close button changes behind their back.
   useSyncExternalStore(subscribePlaybackActions, playbackActionsVersion, playbackActionsVersion);
   usePluginUiStore((s) => s.visible);
   const [, pressedAgain] = React.useReducer((n: number) => n + 1, 0);
-  if (state.tracks === 0) return <RunConsole />;
+  if (state.tracks === 0) return null;
   const actions = listPlaybackActions()
     .map((spec) => ({ spec, shown: playbackActionState(spec) }))
     .filter((a) => a.shown !== null);
@@ -77,8 +93,6 @@ const PlaybackTransport: React.FC = () => {
   );
   const speeds = SPEEDS.includes(state.speed) ? SPEEDS : [...SPEEDS, state.speed].sort((a, b) => a - b);
   return (
-    <>
-    <RunConsole />
     <div
       // One row where it fits. On a phone the scrub bar takes a row of its own (`order` and
       // `basis-full`) and the buttons wrap under it, so none of them is squeezed off the bar.
@@ -155,14 +169,13 @@ const PlaybackTransport: React.FC = () => {
           aria-label="Console"
           aria-pressed={consoleShown}
           data-run-console-toggle
-          onClick={() => setConsoleShown(!consoleShown)}
+          onClick={() => void toggle(CORE_PANEL_IDS.runConsole)}
         >
           Console
         </button>
       )}
       {actions.filter((a) => a.spec.beside !== "play").map(actionButton)}
     </div>
-    </>
   );
 };
 

@@ -235,10 +235,13 @@ function ColumnPanel({
   const mount = <PanelMount panel={panel} provided={CLASSIC_PANEL_COMPONENTS[panel.id]} props={props} />;
   const Wrap = COLUMN_WRAP[panel.id];
   const wrapped = Wrap ? <Wrap>{mount}</Wrap> : mount;
+  // Here although it has a window (it starts in one, and the page is too narrow for it,
+  // `shownPlace`): it is not offered the moves, which would put it where it already is.
+  const movable = customisable && !doc.floats[panel.id];
   // Always provided (it draws no DOM), so turning the setting on or off never remounts a panel.
   return (
     <PanelHeaderActionsProvider
-      actions={customisable ? columnActions(panel, doc) : NO_ACTIONS}
+      actions={movable ? columnActions(panel, doc) : NO_ACTIONS}
       panelId={customisable ? panel.id : undefined}
     >
       {wrapped}

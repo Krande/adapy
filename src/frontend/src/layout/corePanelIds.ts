@@ -33,6 +33,8 @@ export const CORE_PANEL_IDS = {
   simulations: "core:simulations",
   /** The layers drawn over the model: a switch and an opacity slider each. */
   layers: "core:layers",
+  /** The console of the run whose result is on screen: what its actors are doing, and its log. */
+  runConsole: "core:run-console",
 } as const;
 
 export type CorePanelId = (typeof CORE_PANEL_IDS)[keyof typeof CORE_PANEL_IDS];

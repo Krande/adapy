@@ -62,6 +62,8 @@ import TreeViewIcon from "@/components/icons/TreeViewIcon";
 import LayersIcon from "@/components/icons/LayersIcon";
 import { layerCount, subscribeLayers } from "@/state/layerRegistry";
 import { useLayersPanelStore } from "@/state/layersPanelStore";
+import { playbackClock } from "@/state/playbackClock";
+import { useRunConsoleStore } from "@/state/runConsoleStore";
 import { bindStoreFlag, watchStores } from "./bindings";
 import { CLASSIC_PRESET_ID, CLASSIC_ZONES } from "./layout";
 import type { PanelBinding, PanelBodyLoader, PanelPlacement, PanelProps, PanelSpec } from "./panel";
@@ -112,6 +114,26 @@ const simulationOffered = () => {
       femHasConcepts: hasFemConcepts(useFemConceptsStore.getState()),
     }),
   });
+};
+
+/** A run's result is on screen: the run is named and something timed is on the playback clock. */
+const runConsoleOffered = () => useRunConsoleStore.getState().run !== null && playbackClock.state().tracks > 0;
+/** Notifies when that changed, not on every tick of the clock. */
+const watchRunConsole = (cb: () => void): (() => void) => {
+  let was = runConsoleOffered();
+  const check = () => {
+    const now = runConsoleOffered();
+    if (now !== was) {
+      was = now;
+      cb();
+    }
+  };
+  const offStore = useRunConsoleStore.subscribe(check);
+  const offClock = playbackClock.subscribe(check);
+  return () => {
+    offStore();
+    offClock();
+  };
 };
 
 /** An in-viewer window: admin or convert, one at a time unless the layout lets both float. */
@@ -501,6 +523,34 @@ export function corePanelSpecs(): PanelSpec[] {
       available: () => layerCount() > 0,
       constraints: { requiresCanvas: true },
       placement: column(120),
+    },
+    {
+      // The console of the run whose result is on screen (state/runConsoleStore). No top-bar
+      // button: the playback transport's "Console" button opens it. It starts in a window over
+      // the top right of the view, where it was drawn before it was a panel, and is the user's
+      // to dock or stack from there.
+      id: CORE_PANEL_IDS.runConsole,
+      title: "Run console",
+      hint: "Toggle the console of the run on screen",
+      body: classicBody(CORE_PANEL_IDS.runConsole),
+      content: classicContent(CORE_PANEL_IDS.runConsole),
+      watch: watchRunConsole,
+      binding: bindStoreFlag(
+        useRunConsoleStore,
+        (s) => s.shown,
+        (open, s) => s.setShown(open),
+      ),
+      available: () => runConsoleOffered(),
+      // The log scrolls within the room the panel is given.
+      capabilities: { fill: true },
+      constraints: { requiresCanvas: true },
+      placement: classic({
+        zone: CLASSIC_ZONES.menuColumn,
+        order: 130,
+        startFloated: true,
+        float: { w: 440, h: 480 },
+        floatAt: { right: 12, top: 56, maxHeight: 0.62 },
+      }),
     },
   ];
 }

@@ -26,6 +26,7 @@ import {TransformedHost} from "@/components/ui/OverlayPortal";
 import {DockGlyph, FloatGlyph, MinimiseGlyph, PanelFrame} from "@/components/ui/PanelFrame";
 import {panelBodyAttrsFor} from "@/components/ui/panelChrome";
 import {navBtnClass} from "@/components/navButton";
+import {useIsNarrow} from "@/utils/useIsMobile";
 
 import {DROP_ATTR, dockDragStore, endDockDragAt, moveDockDrag} from "../dockDrag";
 import {CLASSIC_ZONES, type LayoutDoc} from "../layout";
@@ -48,6 +49,7 @@ import {
   homeOf,
   moveAction,
   popoutActions,
+  shownPlace,
   updateClassic,
   useClassicDoc,
 } from "./classicPlace";
@@ -169,7 +171,9 @@ export function UndockedLayer({
 }) {
   const {env} = useLayout();
   const doc = useClassicDoc();
-  const floated = panels.filter((p) => isUndocked(doc, p.id) && !doc.minimised.includes(p.id));
+  const narrow = useIsNarrow();
+  // In its window right now: one that starts in a window is at home below `wide` (`shownPlace`).
+  const floated = panels.filter((p) => shownPlace(doc, p.id, true, narrow) === "float" && !doc.minimised.includes(p.id));
   const states = usePanelStates(floated, env);
   return (
     <>

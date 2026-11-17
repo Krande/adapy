@@ -31,6 +31,7 @@ import SimulationControls, { SimulationBody } from "@/components/simulation/Simu
 import SimulationDataInfoPanel from "@/components/simulation/SimulationDataInfoPanel";
 import ConnectionBuilderPanel, { ConnectionBuilderPanelContent } from "@/components/component_view/ConnectionBuilderPanel";
 import ConsolePanel, { ConsoleBody } from "@/components/console/ConsolePanel";
+import RunConsole, { RunConsoleBody } from "@/components/simulations/RunConsole";
 import CellBuilderPanel, { CellBuilderBody } from "@/components/viewer/CellBuilderPanel";
 import { ComponentListBody, ComponentListPanel } from "@/components/viewer/cellbuilder/panel/ComponentList";
 
@@ -80,6 +81,7 @@ export const CLASSIC_PANEL_COMPONENTS: Readonly<Record<PanelId, React.ComponentT
   [CORE_PANEL_IDS.console]: asBody(ConsolePanel),
   [CORE_PANEL_IDS.cellbuilder]: asBody(CellBuilderPanel),
   [CORE_PANEL_IDS.componentList]: asBody(ComponentListPanel),
+  [CORE_PANEL_IDS.runConsole]: asBody(RunConsole),
 };
 
 /** Each core panel's content without its classic frame. */
@@ -96,6 +98,7 @@ export const CLASSIC_PANEL_CONTENTS: Readonly<Record<PanelId, React.ComponentTyp
   [CORE_PANEL_IDS.console]: asBody(ConsoleBody),
   [CORE_PANEL_IDS.cellbuilder]: withOptions(CellBuilderBody),
   [CORE_PANEL_IDS.componentList]: asBody(ComponentListBody),
+  [CORE_PANEL_IDS.runConsole]: asBody(RunConsoleBody),
 };
 
 type Loader = () => Promise<React.ComponentType<PanelProps>>;
