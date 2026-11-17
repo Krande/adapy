@@ -91,7 +91,7 @@ async function loadFrom(
         const {clearActiveFeaStreaming} = await import("@/utils/scene/fea/streaming/teardown");
         clearActiveFeaStreaming();
         const show = () =>
-            showInNativeViewport(url, requestHeaders, sourceName, placement, source.displayName, source.posable);
+            showInNativeViewport(url, requestHeaders, sourceName, placement, source.displayName, source.posable, source.autoFitOverride === false);
         if (placement === "replace") {
             const {duringSceneReplace} = await import("@/state/sceneReplace");
             await duringSceneReplace(show);

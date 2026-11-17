@@ -196,14 +196,19 @@ def unregister_modules(prefixes: Iterable[str]) -> list[str]:
     return removed
 
 
+#: The range a beam role's ``length`` input may take [m]: positive, and no longer than a sample
+#: joint has any use for (a stock length).
+MEMBER_LENGTH_RANGE_M = (0.0, 12.0)
+
+
 def role_input_fields(role: MemberCriteria) -> list[str]:
-    """The per-role inputs ``build_sample`` reads for ``role``: a section for a beam (and its outer
-    and inner corner radii, where the role takes box sections), the thickness and extent for a
-    plate, and an angle wherever the role carries an angle criterion."""
+    """The per-role inputs ``build_sample`` reads for ``role``: a section and a length for a beam (and
+    its outer and inner corner radii, where the role takes box sections), the thickness and extent
+    for a plate, and an angle wherever the role carries an angle criterion."""
     if role.kind is MemberKind.PLATE:
         fields = ["thickness", "width", "height"]
     else:
-        fields = ["section"]
+        fields = ["section", "length"]
         if role.section_in is None or "BOX" in {s.upper() for s in role.section_in}:
             fields += ["corner_radius", "corner_radius_inner"]
     if role.angle_to_role is not None or role.angle_range is not None:
@@ -230,6 +235,11 @@ def spec_to_form_schema(spec: ConnectionSpec) -> dict[str, Any]:
                 ),
                 "has_predicate": role.predicate is not None,
                 "fields": role_input_fields(role),
+                **(
+                    {"length_range": {"min_m": MEMBER_LENGTH_RANGE_M[0], "max_m": MEMBER_LENGTH_RANGE_M[1]}}
+                    if "length" in role_input_fields(role)
+                    else {}
+                ),
             }
             for role in spec.roles
         ],

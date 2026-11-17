@@ -80,6 +80,10 @@ def resolve_remote_config(
         return ""
 
     base = _first(url, "ADAPY_API_BASE", "ADAPY_BASE_URL", "ADAPY_VIEWER_URL").rstrip("/")
+    # A bare host (``viewer.example.com``) is the common copy-paste; the viewer is behind TLS,
+    # so default the scheme to https:// as ``ada audit`` does.
+    if base and "://" not in base:
+        base = f"https://{base}"
     tok = _first(token, "ADAPY_API_TOKEN", "ADAPY_VIEWER_TOKEN")
     scp = _first(scope, "ADAPY_API_SCOPE", "ADAPY_VIEWER_SCOPE")
     return base, tok, scp

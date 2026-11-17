@@ -18,6 +18,7 @@ import PointSizeOptions from "@/components/options/PointSizeOptions";
 import SceneRestoreOptions from "@/components/options/SceneRestoreOptions";
 import SpaceMouseOptions from "@/components/options/SpaceMouseOptions";
 import ThemeOptions from "@/components/options/ThemeOptions";
+import ToolbarButtonsOptions from "@/components/options/ToolbarButtonsOptions";
 
 /** The settings sections, by id. The same ids as `OptionsSectionId`'s settings sections. */
 export type SettingsSectionId =
@@ -68,6 +69,7 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
                 <ThemeOptions/>
                 {/* The UI shell switcher is the Options panel's own ("interface"), not a setting. */}
                 <LayoutOptions className="mt-3"/>
+                <ToolbarButtonsOptions className="mt-3"/>
             </>
         ),
     },

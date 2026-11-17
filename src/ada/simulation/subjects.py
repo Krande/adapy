@@ -404,9 +404,19 @@ def _weld_line(weld):
     point is then not repeated at its end."""
     import numpy as np
 
-    curve = weld.geometry.sweep_curve
-    raw = [[float(p[0]), float(p[1]), float(p[2])] for p in curve.points3d]
-    segments = getattr(curve, "segments", None) or []
+    # The SWEEP's curve: ``Weld.sweep_curve`` is the argument as given, which may be a list of points
+    # (``PrimSweep`` makes the curve of it).
+    sweep = weld.geometry if getattr(weld, "sweep_curve", None) is not None else None
+    curve = getattr(sweep, "sweep_curve", None)
+    if curve is None:
+        # A straight weld is an extrusion between its two points, with no sweep curve.
+        if weld.p1 is None or weld.p2 is None:
+            raise WeldAssemblyError(f"weld {weld.name!r} has no path")
+        raw = [[float(v) for v in weld.p1.p], [float(v) for v in weld.p2.p]]
+        curve = None
+    else:
+        raw = [[float(p[0]), float(p[1]), float(p[2])] for p in curve.points3d]
+    segments = (getattr(curve, "segments", None) or []) if curve is not None else []
     if segments and any(type(seg).__name__ == "ArcSegment" for seg in segments):
         sampled = [np.asarray(segments[0].p1, dtype=float)]
         for seg in segments:

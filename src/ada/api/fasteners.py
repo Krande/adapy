@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -114,8 +115,10 @@ def build_profile(
         weld_type = WeldType.from_str(weld_type)
 
     if weld_type is WeldType.FILLET:
-        l1 = leg1 if leg1 is not None else throat
-        l2 = leg2 if leg2 is not None else throat
+        # `throat` is the throat a (EN ISO 2553); an equal-leg fillet's legs are z = a * sqrt(2).
+        leg = throat * math.sqrt(2.0)
+        l1 = leg1 if leg1 is not None else leg
+        l2 = leg2 if leg2 is not None else leg
         return [(0, 0), (-l1, 0), (0, l2)]
 
     raise NotImplementedError(

@@ -46,6 +46,11 @@ type ConnectionBuilderState = {
   selectedSpec: string | null;
   selectSpec: (name: string | null) => void;
 
+  /** Whether the loop builds on its own (an edit, another spec, a reloaded library). Off until a
+   *  build is asked for: an opened panel puts nothing in the scene by itself. */
+  live: boolean;
+  setLive: (v: boolean) => void;
+
   /** What the user changed, per spec: role -> field -> value. Unset fields take the spec's defaults. */
   inputsBySpec: Record<string, ConnectionInputs>;
   setRoleField: (spec: string, role: string, field: string, value: unknown) => void;
@@ -144,6 +149,9 @@ export const useConnectionBuilderStore = create<ConnectionBuilderState>((set, ge
     set({ selectedSpec });
     save(get());
   },
+
+  live: false,
+  setLive: (live) => set({ live }),
 
   inputsBySpec: {},
   setRoleField: (spec, role, field, value) => {

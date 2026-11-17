@@ -57,7 +57,7 @@ import { SimulationsFrame } from "./SimulationsFrame";
 /** The panel's name, wherever it is shown. */
 export const SIMULATIONS_PANEL_TITLE = "Robotic Simulations";
 
-const BUTTON = "rounded-sm bg-gray-700 px-2 py-0.5 text-white hover:bg-gray-600 disabled:opacity-40 disabled:hover:bg-gray-700";
+const BUTTON = "rounded-sm bg-[var(--ada-panel-surface)] px-2 py-0.5 text-[var(--ada-panel-text)] hover:bg-[color-mix(in_srgb,var(--ada-panel-text)_20%,transparent)] disabled:opacity-40 disabled:hover:bg-[var(--ada-panel-surface)]";
 const STATUS_DOT: Record<string, string> = {
   queued: "bg-gray-400",
   running: "bg-blue-400",
@@ -66,11 +66,11 @@ const STATUS_DOT: Record<string, string> = {
   cancelled: "bg-yellow-400",
 };
 const STATUS_COLOR: Record<string, string> = {
-  queued: "text-gray-300",
-  running: "text-blue-300",
-  done: "text-green-300",
-  error: "text-red-300",
-  cancelled: "text-yellow-300",
+  queued: "text-[var(--ada-panel-text)]",
+  running: "text-[var(--ada-accent)]",
+  done: "text-[var(--ada-pass)]",
+  error: "text-[var(--ada-fail)]",
+  cancelled: "text-[var(--ada-warn)]",
 };
 
 /** "12.3 kB" for a download link; empty when the size is not known. */
@@ -97,7 +97,7 @@ const ArtefactList: React.FC<{ scope: string; artefacts: readonly SimulationArte
         <li key={a.name} className="flex items-center gap-2">
           <button
             type="button"
-            className="text-blue-300 hover:underline truncate text-left"
+            className="text-[var(--ada-accent)] hover:underline truncate text-left"
             title={`Download ${a.name}`}
             onClick={() => {
               setError(null);
@@ -109,14 +109,14 @@ const ArtefactList: React.FC<{ scope: string; artefacts: readonly SimulationArte
           >
             {a.name}
           </button>
-          <span className="text-gray-400 shrink-0">
+          <span className="text-[var(--ada-panel-text-muted)] shrink-0">
             {a.role}
             {a.partial ? " · partial" : ""}
             {a.size != null ? ` · ${sizeLabel(a.size)}` : ""}
           </span>
         </li>
       ))}
-      {error && <li className="text-red-300 break-words">{error}</li>}
+      {error && <li className="text-[var(--ada-fail)] break-words">{error}</li>}
     </ul>
   );
 };
@@ -156,12 +156,12 @@ const RunRow: React.FC<{
   };
 
   return (
-    <li className={`flex flex-col rounded-sm ${expanded ? "bg-gray-800/70" : "bg-gray-800/40"}`} data-run-id={run.run_id}>
+    <li className={`flex flex-col rounded-sm ${expanded ? "bg-[color-mix(in_srgb,var(--ada-panel-text)_20%,transparent)]" : "bg-[var(--ada-panel-surface)]"}`} data-run-id={run.run_id}>
       <div className="flex items-center gap-1.5 px-1 py-0.5 min-w-0">
         {/* The line itself opens and closes the rest; the buttons beside it are their own. */}
         <button
           type="button"
-          className="flex items-center gap-1.5 min-w-0 flex-1 text-left hover:text-white"
+          className="flex items-center gap-1.5 min-w-0 flex-1 text-left hover:text-[var(--ada-panel-text)]"
           aria-expanded={expanded}
           title={`${label}: ${status}`}
           onClick={onToggle}
@@ -169,11 +169,11 @@ const RunRow: React.FC<{
           <span className={`h-2 w-2 rounded-full shrink-0 ${STATUS_DOT[run.status] ?? "bg-gray-400"}`} aria-hidden />
           <span className="font-medium truncate">{label}</span>
           {subjectLabel && (
-            <span className="text-gray-300 truncate min-w-0" title={`On ${subjectLabel}`} data-run-subject>
+            <span className="text-[var(--ada-panel-text)] truncate min-w-0" title={`On ${subjectLabel}`} data-run-subject>
               on {subjectLabel}
             </span>
           )}
-          <span className="text-gray-400 shrink-0">{active ? run.stage || status : startedLabel(run.created_at)}</span>
+          <span className="text-[var(--ada-panel-text-muted)] shrink-0">{active ? run.stage || status : startedLabel(run.created_at)}</span>
         </button>
         {opener && run.artefacts.length > 0 && (
           <button type="button" className={BUTTON} onClick={() => void open()}>
@@ -192,38 +192,38 @@ const RunRow: React.FC<{
         )}
       </div>
       {active && (
-        <div className="h-0.5 bg-gray-700 overflow-hidden" role="progressbar" aria-valuenow={percent} aria-valuemin={0} aria-valuemax={100}>
+        <div className="h-0.5 bg-[var(--ada-panel-surface)] overflow-hidden" role="progressbar" aria-valuenow={percent} aria-valuemin={0} aria-valuemax={100}>
           <div className="h-full bg-blue-400" style={{ width: `${percent}%` }} />
         </div>
       )}
       {/* What went wrong is said on the line's own card, open or not. */}
-      {openError && <div className="px-1 pb-0.5 text-red-300 break-words">{openError}</div>}
+      {openError && <div className="px-1 pb-0.5 text-[var(--ada-fail)] break-words">{openError}</div>}
       {!expanded && run.status === "error" && run.error && (
-        <div className="px-1 pb-0.5 text-red-300 truncate" title={run.error}>
+        <div className="px-1 pb-0.5 text-[var(--ada-fail)] truncate" title={run.error}>
           {run.error}
         </div>
       )}
       {expanded && (
-        <div className="flex flex-col gap-1 px-1 pb-1 pt-0.5 border-t border-gray-700/60" data-run-details>
-          <div className="text-gray-300">
-            <span className={STATUS_COLOR[run.status] ?? "text-gray-300"}>{status}</span>
+        <div className="flex flex-col gap-1 px-1 pb-1 pt-0.5 border-t border-[var(--ada-panel-border)]" data-run-details>
+          <div className="text-[var(--ada-panel-text)]">
+            <span className={STATUS_COLOR[run.status] ?? "text-[var(--ada-panel-text)]"}>{status}</span>
             {outcome && <span> · {outcome}</span>}
           </div>
-          <div className="text-gray-400">
+          <div className="text-[var(--ada-panel-text-muted)]">
             {provider?.title ?? run.provider.id} · {run.provider.engine}
             {run.provider.version ? ` ${run.provider.version}` : ""}
           </div>
           {subjectLabel && (
-            <div className="text-gray-400">
-              On {subjectLabel} <span className="text-gray-500">· {run.subject?.kind}</span>
+            <div className="text-[var(--ada-panel-text-muted)]">
+              On {subjectLabel} <span className="text-[var(--ada-panel-text-muted)]">· {run.subject?.kind}</span>
             </div>
           )}
-          <div className="text-gray-400">
+          <div className="text-[var(--ada-panel-text-muted)]">
             {new Date(run.created_at).toLocaleString()}
             {took && ` · ${took}`}
             {run.started_by?.display && ` · ${run.started_by.display}`}
           </div>
-          {run.error && <div className="text-red-300 break-words">{run.error}</div>}
+          {run.error && <div className="text-[var(--ada-fail)] break-words">{run.error}</div>}
           <ArtefactList scope={scope} artefacts={run.artefacts} />
         </div>
       )}
@@ -257,14 +257,14 @@ const StartForm: React.FC<{ scope: string; provider: SimulationProviderInfo; sub
   const cannotTake = subject !== null && !providerAccepts(provider, subject.kind);
 
   return (
-    <div className="flex flex-col gap-1.5 p-1 bg-gray-800/40 rounded-sm">
-      <div className="text-gray-300">
-        {provider.title} <span className="text-gray-500">· {provider.engine}{provider.version ? ` ${provider.version}` : ""}</span>
+    <div className="flex flex-col gap-1.5 p-1 bg-[var(--ada-panel-surface)] rounded-sm">
+      <div className="text-[var(--ada-panel-text)]">
+        {provider.title} <span className="text-[var(--ada-panel-text-muted)]">· {provider.engine}{provider.version ? ` ${provider.version}` : ""}</span>
       </div>
-      {provider.description && <div className="text-gray-400">{provider.description}</div>}
+      {provider.description && <div className="text-[var(--ada-panel-text-muted)]">{provider.description}</div>}
       {provider.kinds.length > 1 && (
         <label className="flex items-center gap-2">
-          <span className="text-gray-300 w-28 shrink-0">Kind of run</span>
+          <span className="text-[var(--ada-panel-text)] w-28 shrink-0">Kind of run</span>
           <select
             className="text-gray-100 bg-gray-700 border border-gray-600 rounded-sm px-1 py-0.5 flex-1 min-w-0"
             value={kind}
@@ -321,11 +321,11 @@ const StartForm: React.FC<{ scope: string; provider: SimulationProviderInfo; sub
           {starting ? "Starting…" : subject && !cannotTake ? `Start on ${subject.label}` : "Start"}
         </button>
         {!provider.online && (
-          <span className="text-yellow-300">offline{provider.unavailable_reason ? `: ${provider.unavailable_reason}` : ""}</span>
+          <span className="text-[var(--ada-warn)]">offline{provider.unavailable_reason ? `: ${provider.unavailable_reason}` : ""}</span>
         )}
-        {cannotTake && <span className="text-yellow-300">{doesNotTake(subject!.kind)}</span>}
+        {cannotTake && <span className="text-[var(--ada-warn)]">{doesNotTake(subject!.kind)}</span>}
       </div>
-      {startError && <div className="text-red-300 break-words">{startError}</div>}
+      {startError && <div className="text-[var(--ada-fail)] break-words">{startError}</div>}
     </div>
   );
 };
@@ -378,10 +378,10 @@ export const SimulationsBody: React.FC = () => {
   const selected = providers.find((p) => p.id === selectedId) ?? null;
 
   return (
-    <div className="flex flex-col gap-2 text-xs text-white min-w-0">
+    <div className="flex flex-col gap-2 text-xs text-[var(--ada-panel-text)] min-w-0">
       {groups.length > 1 && (
         <label className="flex items-center gap-2">
-          <span className="text-gray-300">Kind</span>
+          <span className="text-[var(--ada-panel-text)]">Kind</span>
           <select
             className="text-gray-100 bg-gray-700 border border-gray-600 rounded-sm px-1 py-0.5"
             value={domainFilter}
@@ -400,7 +400,7 @@ export const SimulationsBody: React.FC = () => {
       {offered.length > 0 && (
         <div className="flex flex-col gap-0.5" data-subject-picker>
           <div className="flex items-center gap-2">
-            <label className="text-gray-300 shrink-0" htmlFor="sim-subject">
+            <label className="text-[var(--ada-panel-text)] shrink-0" htmlFor="sim-subject">
               Subject
             </label>
             <select
@@ -432,7 +432,7 @@ export const SimulationsBody: React.FC = () => {
             )}
           </div>
           {subject && (
-            <div className="text-gray-400">
+            <div className="text-[var(--ada-panel-text-muted)]">
               {subject.kind}
               {subject.source ? ` · ${subject.source}` : ""} · providers that take it are listed first
             </div>
@@ -440,13 +440,13 @@ export const SimulationsBody: React.FC = () => {
         </div>
       )}
 
-      {providersError && <div className="text-red-300 break-words">{providersError}</div>}
+      {providersError && <div className="text-[var(--ada-fail)] break-words">{providersError}</div>}
       {providersLoaded && groups.length === 0 && !providersError && (
-        <div className="text-gray-400">No simulation providers are registered on this server.</div>
+        <div className="text-[var(--ada-panel-text-muted)]">No simulation providers are registered on this server.</div>
       )}
       {shownGroups.map((group) => (
         <div key={group.domain.id} className="flex flex-col gap-0.5">
-          <div className="text-gray-400 uppercase tracking-wide" title={group.domain.description}>
+          <div className="text-[var(--ada-panel-text-muted)] uppercase tracking-wide" title={group.domain.description}>
             {group.domain.title}
           </div>
           {acceptingFirst(group.providers, subject).map((p) => (
@@ -455,20 +455,20 @@ export const SimulationsBody: React.FC = () => {
               type="button"
               aria-pressed={p.id === selectedId}
               className={`flex items-center gap-2 px-1 py-0.5 rounded-sm text-left ${
-                p.id === selectedId ? "bg-gray-600" : "hover:bg-gray-700"
+                p.id === selectedId ? "bg-[color-mix(in_srgb,var(--ada-panel-text)_20%,transparent)]" : "hover:bg-[var(--ada-panel-surface)]"
               }`}
               onClick={() => setSelectedId(p.id === selectedId ? null : p.id)}
             >
               <span className={`h-2 w-2 rounded-full shrink-0 ${p.online ? "bg-green-400" : "bg-gray-500"}`} />
               <span className="truncate">{p.title}</span>
-              <span className="text-gray-400 truncate">{p.engine}</span>
+              <span className="text-[var(--ada-panel-text-muted)] truncate">{p.engine}</span>
               <span className="flex-1" />
               {subject && !providerAccepts(p, subject.kind) && (
-                <span className="text-gray-400 shrink-0" data-cannot-take>
+                <span className="text-[var(--ada-panel-text-muted)] shrink-0" data-cannot-take>
                   {doesNotTake(subject.kind)}
                 </span>
               )}
-              {!p.online && <span className="text-yellow-300 shrink-0">offline</span>}
+              {!p.online && <span className="text-[var(--ada-warn)] shrink-0">offline</span>}
             </button>
           ))}
         </div>
@@ -477,7 +477,7 @@ export const SimulationsBody: React.FC = () => {
       {selected && <StartForm scope={scope} provider={selected} subject={subject} />}
 
       <div className="flex items-center gap-2">
-        <div className="text-gray-400 uppercase tracking-wide flex-1">Runs</div>
+        <div className="text-[var(--ada-panel-text-muted)] uppercase tracking-wide flex-1">Runs</div>
         {/* The store follows the runs it knows are unfinished; a run somebody else started since the
             panel was opened (another tab, the API, a schedule) is only found by asking again. */}
         <button
@@ -492,9 +492,9 @@ export const SimulationsBody: React.FC = () => {
           {refreshing ? "Refreshing…" : "Refresh"}
         </button>
       </div>
-      {runsError && <div className="text-red-300 break-words">{runsError}</div>}
+      {runsError && <div className="text-[var(--ada-fail)] break-words">{runsError}</div>}
       {shownRuns.length === 0 ? (
-        <div className="text-gray-400">No runs in this scope yet.</div>
+        <div className="text-[var(--ada-panel-text-muted)]">No runs in this scope yet.</div>
       ) : (
         // The list scrolls within itself: many runs do not push the panel off the screen. On a phone
         // the whole sheet scrolls instead (one scroller, not one inside another).

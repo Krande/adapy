@@ -656,7 +656,8 @@
 //          has changed; a placed panel re-asks it (and on every loaded-model change).
 //   1.24.0 Kept in step with PLUGIN_API_VERSION 1.24.0 (`SimulationParameterFormArgs.subject`,
 //          `ctx.scene.clearScene`). Additive.
-//   1.25.0 Kept in step with PLUGIN_API_VERSION 1.25.0. Additive: `CORE_COMMAND_IDS.orthographic`
+//   1.25.0 Kept in step with PLUGIN_API_VERSION 1.25.0 (`SceneModelSource.keepCamera`). Additive.
+//   1.26.0 Kept in step with PLUGIN_API_VERSION 1.26.0. Additive: `CORE_COMMAND_IDS.orthographic`
 //          (`core:view.orthographic`, the Orthographic view toggle) and `CORE_COMMAND_IDS.groundGrid`
 //          (`core:view.ground-grid`, the ground grid toggle). Core puts them in its menus (the
 //          Desktop UI's View, the classic UI's Settings > Scene config), not on the section toolbar
@@ -681,7 +682,7 @@
 //          `itemIncludeState`, `blueprintColour`, `blueprintsInUse`, `structureColour`,
 //          `useModelPanelViewStore`), so a shell's Model panel needs no deep import. The camera mapping's
 //          `select` action (the selection rectangle) and controls profiles (Settings > Controls).
-export const VIEWER_CORE_API_VERSION = "1.25.0";
+export const VIEWER_CORE_API_VERSION = "1.26.0";
 
 // ---------------------------------------------------------------------------
 // Plugin declaration. `registerPlugin` is how a package announces itself —

@@ -525,3 +525,92 @@ def test_an_arc_of_a_sweep_curve_is_sampled_along_the_arc():
     assert np.all(np.linalg.norm(p[1:-1] - p[1:-1].mean(axis=0), axis=1) < 0.03)
     tangents = np.array(weld["tangents"])
     assert np.all(np.einsum("ij,ij->i", tangents[:-1], tangents[1:]) > 0.5)
+
+
+# ---- a spec built on the sample members --------------------------------------------------------
+
+
+def _register_sampled_tee():
+    """A test spec on ``build_sample``'s members: a box incoming at 90° to a box landing, cut back to
+    the landing's side face, with one closed fillet round it there (a sweep curve)."""
+    from ada.api.connections.spec import (
+        AngleRange,
+        ConnectionSpec,
+        MemberCriteria,
+        MemberKind,
+        MemberRole,
+        register_connection,
+    )
+
+    spec = ConnectionSpec(
+        name="test.sampled_tee",
+        roles=(
+            MemberCriteria(role=MemberRole.LANDING, kind=MemberKind.BEAM, section_in=frozenset({"BOX"})),
+            MemberCriteria(
+                role=MemberRole.INCOMING,
+                kind=MemberKind.BEAM,
+                section_in=frozenset({"BOX"}),
+                angle_to_role=MemberRole.LANDING,
+                angle_range=AngleRange(min_deg=60.0, max_deg=120.0),
+            ),
+        ),
+        defaults={
+            "landing": {"section": "BOX300x300x12x12"},
+            "incoming": {"section": "BOX200x200x10x10", "angle_deg": 90.0},
+        },
+    )
+
+    @register_connection(spec)
+    def build(*, landing, incoming, as_points=False, **_):
+        (_, _, _), (_, y, _) = landing.bbox().minmax
+        incoming.add_boolean(ada.PrimBox("cut", (-2, -2, -2), (2, float(y), 2)))
+        w = 0.1
+        loop = [(-w, y, -w), (w, y, -w), (w, y, w), (-w, y, w), (-w, y, -w)]
+        conn = ada.Connection("tee")
+        conn.add_weld(
+            ada.Weld(
+                "round",
+                members=(incoming, landing),
+                xdir=(0, -1, 0),  # into the landing's side face, the face the seam lies on
+                throat=0.005,
+                sweep_curve=[tuple(map(float, p)) for p in loop] if as_points else CurveOpen3d(loop),
+            )
+        )
+        return conn
+
+    return spec
+
+
+@pytest.mark.parametrize("as_points", [False, True], ids=["curve", "points"])
+@pytest.mark.parametrize("lengths", [None, (0.8, 0.4)], ids=["default", "short"])
+def test_a_sampled_specs_sweep_weld_stays_on_its_members_in_the_part_frame(lengths, as_points):
+    """Whatever the members' lengths, and whether the sweep was given as a curve or as points: the
+    seam lies on both members, in the model and in the subject's part frame."""
+    from ada.api.connections import build_component
+    from ada.api.connections.sample import default_inputs
+    from ada.api.connections.spec import _clear_registry
+    from ada.simulation.subjects import _distance_to_triangles, _member_mesh, _weld_line
+
+    _clear_registry()
+    try:
+        spec = _register_sampled_tee()
+        inputs = default_inputs(spec)
+        if lengths:
+            inputs["landing"]["length"], inputs["incoming"]["length"] = lengths
+        conn = build_component(spec.name, inputs, as_points=as_points)
+        (weld,) = conn.get_all_welds()
+        points, closed = _weld_line(weld)
+        assert closed and len(points) == 4
+        for member in weld.members:
+            vertices, faces = _member_mesh(member)
+            gap = max(float(_distance_to_triangles(p, vertices[faces])[0].min()) for p in points)
+            assert gap < 1e-6, f"{gap * 1e3:.1f} mm off {member.name}"
+
+        doc = weld_assembly_from_part(conn)
+        meshes = {m["name"]: np.asarray(m["vertices"])[np.asarray(m["faces"])] for m in doc["members"]}
+        (seam,) = doc["welds"]
+        for name in seam["members"]:
+            gap = max(float(_distance_to_triangles(p, meshes[name])[0].min()) for p in np.asarray(seam["points"]))
+            assert gap < 1e-5, f"{gap * 1e3:.1f} mm off {name} in the part frame"
+    finally:
+        _clear_registry()
