@@ -14,7 +14,7 @@ import {useViewerStores} from "@/state/AdaViewerContext";
 import {usePluginTheme} from "@/state/themeStore";
 
 // The kinds of stored asset plugins add to the storage browser (`storageAssetTypes`, plugin API
-// 1.28.0): a section per kind under the file list, filled by the plugin, and the "+" menu's
+// 1.26.0): a section per kind under the file list, filled by the plugin, and the "+" menu's
 // entries that open a plugin's upload form in a dialog. Core draws the frame and never learns
 // what a kind is.
 

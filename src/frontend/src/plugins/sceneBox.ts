@@ -1,4 +1,4 @@
-// A box a plugin places in the scene (`ctx.scene.placeBox`, plugin API 1.30.0).
+// A box a plugin places in the scene (`ctx.scene.placeBox`, plugin API 1.26.0).
 //
 // A tool that asks the user where something stands -- "put the machine's envelope here, turned so" --
 // needs more than a click: a thing to look at, and handles to move and turn it by. This is that: core

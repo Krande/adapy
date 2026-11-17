@@ -1,4 +1,4 @@
-/** The `storageAssetTypes` slot (plugin API 1.28.0): a plugin's kinds of stored asset in the
+/** The `storageAssetTypes` slot (plugin API 1.26.0): a plugin's kinds of stored asset in the
  * storage browser.
  *
  * Two halves. The registry's: which types a scope has, in which order, and what a type that

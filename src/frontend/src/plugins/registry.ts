@@ -163,7 +163,7 @@ export type { PlaceBoxOptions, PlacedBox, PlacedBoxMode, PlacedBoxPose } from ".
 //            A loaded model's node animation is a track of the same clock, so it and a plugin's
 //            layers show the same moment.
 //          - `ctx.scene.loadModel`: a GLB from bytes or a URL as the scene's model, on whichever
-//            viewport is on screen (`loadModelFromUrl` built a three.js scene only until 1.29; it now
+//            viewport is on screen (`loadModelFromUrl` built a three.js scene only until 1.26; it now
 //            takes the same path).
 //          - `simulationsApi.fetchArtefact` (@/viewer-core/app): a run artefact's bytes, whole or
 //            from a byte offset, for one that is still being written.
@@ -207,41 +207,40 @@ export type { PlaceBoxOptions, PlacedBox, PlacedBoxMode, PlacedBoxPose } from ".
 //          loaded, instead of framing it as the user's auto-fit setting says. For a model loaded
 //          again in another form (a finer mesh of the same thing). Additive: an older core
 //          ignores it and frames the model as before.
-// 1.26.0 — `ctx.scene.pickObjects(owner, {onPick})`: a plugin takes the scene's clicks on objects
-//          for a while (a tool that asks the user to point at things), on either viewport. A click
-//          it takes selects nothing and is no undo step; `end()` (or `scene.remove(owner)`) gives
-//          the clicks back. `ScenePick` names what was clicked: model, object id, name, source
-//          file, and the point in the model's own coordinates. Additive: an older core has no
-//          such verb, so a plugin asks for it first.
-// 1.27.0 — the playback transport takes buttons, and a panel can be opened by code:
+// 1.26.0 — what a tool of a plugin's own needs of the viewer. All additive: an older core has
+//          none of it, so a plugin asks for a verb first, or names this version where a slot must
+//          be seen.
+//          - `ctx.scene.pickObjects(owner, {onPick})`: a plugin takes the scene's clicks on
+//            objects for a while (a tool that asks the user to point at things), on either
+//            viewport. A click it takes selects nothing and is no undo step; `end()` (or
+//            `scene.remove(owner)`) gives the clicks back. `ScenePick` names what was clicked:
+//            model, object id, name, source file, and the point in the model's own coordinates.
+//          - `ctx.scene.placeBox(owner, {box, position, yawDeg?, constrain?, snap?, onChange, ...})`:
+//            a plugin puts a simple box in the scene with a transform gizmo on it, for a tool that
+//            asks the user where something stands, and is told the box's pose (position and turn
+//            about Z, in the scene's own coordinates) as the user moves it. The gizmo answers the
+//            cell builder's keys by the builder's rules -- G move, R turn, X / Y / Z lock an axis,
+//            Escape / Enter -- and snaps as it does; its handles are drawn through the viewport
+//            interface, so it works on either viewport. `set` moves the box from the plugin's
+//            side; `end()` (or `scene.remove(owner)`) takes it away.
+//          - `ctx.scene.loadModelFromUrl` goes through the loader that knows both viewports (it
+//            built a three.js scene only).
 //          - `registerPlaybackAction` / `unregisterPlaybackAction` / `notifyPlaybackActionsChanged`
 //            (@/viewer-core): a shell's or plugin's buttons in the bar with play, the scrub bar and
 //            the run's Console -- what shows and hides the things that follow the clock.
-//          - `PanelSlot.toggled`: a panel with no top-bar button that code opens and closes.
-//          - `PanelSlot.title` and `floatSize`; a slot with `dock: "float"` now starts in a window
-//            of the layout (once; after that it is where the user left it), in core's own UI too.
-//          Additive: an older core has neither, so a plugin asks for them first.
-// 1.28.0 — `storageAssetTypes`: a plugin adds a kind of stored asset to the storage browser, beside
-//          the scope's files: a section the plugin fills with what the open scope has of that kind,
-//          and, when it gives `upload`, an entry of the browser's "+" menu that opens a form of the
-//          plugin's own in a dialog. `available` says per scope whether the kind is there at all.
-//          Additive: a plugin built against it and loaded into 1.27.0 would register into nothing,
-//          and its assets would be in no list with no line naming the mismatch.
-// 1.29.0 — the `connection-builder` region: a plugin's tab in the connection builder panel
-//          (`core:component-controls`), after the builder's own. Every panel of the region is a
-//          tab; `asTab` gives its label, order and badge. With no such panel the builder panel
-//          has no tab strip and is what it was. Additive: an older core mounts the region
-//          nowhere, so a plugin that needs its tab seen raises its floor to this.
-// 1.30.0 — `ctx.scene.placeBox(owner, {box, position, yawDeg?, constrain?, snap?, onChange, ...})`:
-//          a plugin puts a simple box in the scene with a transform gizmo on it, for a tool that
-//          asks the user where something stands, and is told the box's pose (position and turn
-//          about Z, in the scene's own coordinates) as the user moves it. The gizmo answers the
-//          cell builder's keys by the builder's rules -- G move, R turn, X / Y / Z lock an axis,
-//          Escape / Enter -- and snaps as it does; its handles are drawn through the viewport
-//          interface, so it works on either viewport. `set` moves the box from the plugin's side;
-//          `end()` (or `scene.remove(owner)`) takes it away. Additive: an older core has no such
-//          verb, so a plugin asks for it first.
-export const PLUGIN_API_VERSION = "1.30.0";
+//          - `PanelSlot.toggled`: a panel with no top-bar button that code opens and closes;
+//            `PanelSlot.title` and `floatSize`; a slot with `dock: "float"` starts in a window of
+//            the layout (once; after that it is where the user left it), in core's own UI too.
+//          - `storageAssetTypes`: a plugin adds a kind of stored asset to the storage browser,
+//            beside the scope's files: a section the plugin fills with what the open scope has of
+//            that kind, and, when it gives `upload`, an entry of the browser's "+" menu that opens
+//            a form of the plugin's own in a dialog. `available` says per scope whether the kind
+//            is there at all.
+//          - the `connection-builder` region: a plugin's tab in the connection builder panel
+//            (`core:component-controls`), after the builder's own. Every panel of the region is a
+//            tab; `asTab` gives its label, order and badge. With no such panel the builder panel
+//            has no tab strip and is what it was.
+export const PLUGIN_API_VERSION = "1.26.0";
 
 // The named mount regions core exposes in Phase 1. Deliberately small
 // (`fem-sidebar` covers the FEM simulation panel, `top-panel` the menu bar,
@@ -820,7 +819,7 @@ export interface SceneHandle {
   // selecting what was clicked (return false to let one through). For a tool that asks the user to
   // point at objects. Works on either viewport; `remove(owner)` ends it too.
   pickObjects: (owner: string, options: ScenePickOptions) => ScenePickSession;
-  // (1.30.0) Put a simple box in the scene with a transform gizmo on it until `end()`: the user moves
+  // (1.26.0) Put a simple box in the scene with a transform gizmo on it until `end()`: the user moves
   // and turns it with the cell builder's gizmo keys (G, R, X / Y / Z, Escape / Enter), and each change
   // is handed to `onChange` as the box's pose in the scene's own coordinates. `set` moves it from the
   // plugin's side. For a tool that asks where something stands. Works on either viewport;
@@ -949,17 +948,17 @@ export interface PanelSlot {
   render: (ctx: AdaPluginContext) => React.ReactNode;
   topBarButton?: TopBarButtonSpec;
   /**
-   * Opened and closed by code, with no top-bar button (1.27.0): a button of the plugin's own
+   * Opened and closed by code, with no top-bar button (1.26.0): a button of the plugin's own
    * elsewhere -- an action of the playback transport, say -- shows and hides it with `toggle` /
    * `reveal` / `hide` (`@/viewer-core`). It has the open state a top-bar panel has, so it is drawn
    * only while open, keeps its place in a layout while closed, and starts closed. In the panel
    * column core frames it -- its `title`, float, move and close -- as nothing else there closes it.
    */
   toggled?: boolean;
-  /** The panel's name in a window's title bar, a group's tab and a menu (1.27.0). Default: a
+  /** The panel's name in a window's title bar, a group's tab and a menu (1.26.0). Default: a
    *  top-bar button's or tab's label, else its id. */
   title?: string;
-  /** With `dock: "float"`: the size of its window the first time (1.27.0). */
+  /** With `dock: "float"`: the size of its window the first time (1.26.0). */
   floatSize?: { w: number; h: number };
   /**
    * May open in a browser window of its own (1.13.0). Only for a panel that works
@@ -982,7 +981,7 @@ export interface PanelSlot {
   // `asTab` is optional and only supplies the label; without it the namespaced
   // panel id is shown.
   //
-  // `connection-builder` panels (1.29.0) are always tabs too, of the connection
+  // `connection-builder` panels (1.26.0) are always tabs too, of the connection
   // builder panel, after the builder's own: `asTab` supplies the label, order
   // and badge; without it the panel's `title`, else its id, is the label.
   asTab?: {
@@ -1191,7 +1190,7 @@ export function openResultButtonLabel(
 }
 
 // ---------------------------------------------------------------------------
-// Storage asset types (1.28.0)
+// Storage asset types (1.26.0)
 //
 // The storage browser lists a scope's files. Some of what a scope has is not a file a person
 // uploaded and opens: it is an asset of several stored files under one name and version, kept
@@ -1260,7 +1259,7 @@ export interface PluginSpec {
   // UI for simulation providers, by provider id or by domain (1.17.0). Read by core's
   // Simulations panel.
   simulationProviders?: SimulationProviderUi[];
-  // Kinds of stored asset in the storage browser, each with its own list and upload form (1.28.0).
+  // Kinds of stored asset in the storage browser, each with its own list and upload form (1.26.0).
   storageAssetTypes?: StorageAssetType[];
   // Whole activities (1.1.0). Consumed by a shell that has modes; ignored by one
   // that does not, including core's own UI.
@@ -1603,7 +1602,7 @@ export function findSimulationTabById(panelId: string): SimulationTabEntry | nul
   return null;
 }
 
-/** `connection-builder` panels (1.29.0): a plugin's tabs in the connection builder panel,
+/** `connection-builder` panels (1.26.0): a plugin's tabs in the connection builder panel,
  * filtered by activation exactly like `getPanelsForRegion` and ordered by
  * `(asTab.order ?? order ?? 0, id)`. Core appends these after the builder's own tab. Every
  * panel of the region is a tab; one without `asTab` is labelled by its `title`, else its id.

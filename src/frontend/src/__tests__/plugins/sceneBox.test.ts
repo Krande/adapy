@@ -1,4 +1,4 @@
-// `ctx.scene.placeBox` (plugin API 1.30.0): a box a plugin places in the scene, moved and turned with
+// `ctx.scene.placeBox` (plugin API 1.26.0): a box a plugin places in the scene, moved and turned with
 // the transform gizmo's keys and handles, on whichever viewport is on screen.
 import assert from "node:assert/strict";
 import {afterEach, test} from "node:test";

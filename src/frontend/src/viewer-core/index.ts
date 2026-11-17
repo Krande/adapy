@@ -657,19 +657,18 @@
 //   1.24.0 Kept in step with PLUGIN_API_VERSION 1.24.0 (`SimulationParameterFormArgs.subject`,
 //          `ctx.scene.clearScene`). Additive.
 //   1.25.0 Kept in step with PLUGIN_API_VERSION 1.25.0 (`SceneModelSource.keepCamera`). Additive.
-//   1.26.0 Kept in step with PLUGIN_API_VERSION 1.26.0 (`ctx.scene.pickObjects`, `ScenePick`). Additive.
-//   1.27.0 Kept in step with PLUGIN_API_VERSION 1.27.0: `registerPlaybackAction` /
-//          `unregisterPlaybackAction` / `notifyPlaybackActionsChanged` (layout/playbackActions.ts),
-//          and `PanelSlot.toggled`. Additive.
-//   1.28.0 Kept in step with PLUGIN_API_VERSION 1.28.0: `PluginSpec.storageAssetTypes` (a plugin's kinds of
-//          stored asset in the storage browser, each with its list and its upload form) and its types
-//          (`StorageAssetType`, `StorageAssetTypeArgs`, `StorageAssetUpload`). Additive.
-//   1.29.0 Kept in step with PLUGIN_API_VERSION 1.29.0: the `connection-builder` region (a plugin's
-//          tab in the connection builder panel) and `getConnectionBuilderTabs` on
-//          `@/viewer-core/plugins`, for a shell that draws that panel itself. Additive.
-//   1.30.0 Kept in step with PLUGIN_API_VERSION 1.30.0 (`ctx.scene.placeBox`; the types `PlaceBoxOptions`,
-//          `PlacedBox`, `PlacedBoxMode`, `PlacedBoxPose`). Additive.
-export const VIEWER_CORE_API_VERSION = "1.30.0";
+//   1.26.0 Kept in step with PLUGIN_API_VERSION 1.26.0. Additive:
+//          - `ctx.scene.pickObjects`, `ScenePick`; `ctx.scene.placeBox` and the types
+//            `PlaceBoxOptions`, `PlacedBox`, `PlacedBoxMode`, `PlacedBoxPose`.
+//          - `registerPlaybackAction` / `unregisterPlaybackAction` / `notifyPlaybackActionsChanged`
+//            (layout/playbackActions.ts), and `PanelSlot.toggled`.
+//          - `PluginSpec.storageAssetTypes` (a plugin's kinds of stored asset in the storage
+//            browser, each with its list and its upload form) and its types (`StorageAssetType`,
+//            `StorageAssetTypeArgs`, `StorageAssetUpload`).
+//          - the `connection-builder` region (a plugin's tab in the connection builder panel) and
+//            `getConnectionBuilderTabs` on `@/viewer-core/plugins`, for a shell that draws that
+//            panel itself.
+export const VIEWER_CORE_API_VERSION = "1.26.0";
 
 // ---------------------------------------------------------------------------
 // Plugin declaration. `registerPlugin` is how a package announces itself —
