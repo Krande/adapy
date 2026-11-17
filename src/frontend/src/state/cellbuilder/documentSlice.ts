@@ -14,7 +14,7 @@ import type {ProceduralDoc} from "@/services/viewerApi";
 import {groupToStructureName, normalizeGroups} from "@/utils/cellbuilder/groups";
 import type {CellBuilderSlice} from "./state";
 import {currentScopePart} from "./shared";
-import {cellsFromDoc, containingCellName, DOC_SCHEMA_VERSION, groupsFromDoc, loftMembersFromDoc, systemsFromDoc} from "./docCodec";
+import {cellsFromDoc, containingCellName, DOC_SCHEMA_VERSION, docExtras, groupsFromDoc, loftMembersFromDoc, systemsFromDoc} from "./docCodec";
 
 /** Is a procedural document loaded for VIEWING with no editable session behind
  * it -- the GLB-embedded document on the websocket path (`loadFromDoc`)?
@@ -45,6 +45,9 @@ export interface DocumentSlice {
    * mean "there is somewhere to save this", not merely "there is something to
    * look at". */
   active: { modelId: string; name: string; revision: number } | null;
+  /** The loaded doc's top-level keys the builder does not own (docCodec.docExtras): written back
+   *  untouched by toDoc, so a commit keeps an engine's own lists (pm's `modifications`). */
+  docExtras: Record<string, unknown>;
   dirty: boolean;
   /** The open model's doc named no engine / no blueprint, and the user has not picked
    *  one since: the selection is a default the shell's `builderDefaults` may set. */
@@ -67,6 +70,7 @@ export interface DocumentSlice {
 export const createDocumentSlice: CellBuilderSlice<DocumentSlice> = (set, get) => {
   return {
     active: null,
+    docExtras: {},
     dirty: false,
     engineIsDefault: false,
     blueprintIsDefault: false,
@@ -84,6 +88,7 @@ export const createDocumentSlice: CellBuilderSlice<DocumentSlice> = (set, get) =
         systems: systemsFromDoc(doc),
         groups: groupsFromDoc(doc),
         activeGroup: null,
+        docExtras: docExtras(doc),
         blueprintOptions: doc.blueprint ?? {},
         equipmentCad: Boolean(doc.equipment_cad),
         designRules: doc.design_rules ?? "standard",
@@ -161,6 +166,7 @@ export const createDocumentSlice: CellBuilderSlice<DocumentSlice> = (set, get) =
       get().hideDetail();
       set({
         active: null,
+        docExtras: {},
         cells: {},
         loftMembers: [],
         systems: {},
@@ -276,6 +282,8 @@ export const createDocumentSlice: CellBuilderSlice<DocumentSlice> = (set, get) =
       // grouping-unaware engine ignores the key regardless).
       const groups = normalizeGroups(get().groups);
       return {
+        // What the builder does not own, as it came: the keys below override it.
+        ...get().docExtras,
         // The schema this doc is written in: from 1.1 an entity's INCLUDE false leaves it out of the build.
         schema_version: DOC_SCHEMA_VERSION,
         grid: {},
@@ -318,6 +326,7 @@ export const createDocumentSlice: CellBuilderSlice<DocumentSlice> = (set, get) =
         systems,
         groups: groupsFromDoc(doc),
         activeGroup: null,
+        docExtras: docExtras(doc),
         blueprintOptions: doc.blueprint ?? {},
         equipmentCad: Boolean(doc.equipment_cad),
         designRules: doc.design_rules ?? "standard",

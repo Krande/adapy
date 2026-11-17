@@ -49,6 +49,32 @@ const OPENING_OWN_KEYS = new Set([
   "DZ",
 ]);
 
+/** The doc's top-level keys the builder writes (toDoc), each whenever it has one: everything else in a
+ * loaded doc is someone else's -- an engine's own lists (pm's `modifications`), `engine`, `structures`
+ * -- and goes back as it came (`docExtras`). Writing only these dropped the rest on every commit. */
+export const BUILDER_DOC_KEYS: ReadonlySet<string> = new Set([
+  "schema_version",
+  "grid",
+  "blueprint",
+  "blueprint_name",
+  "design_rules",
+  "detailing",
+  "equipment_cad",
+  "spaces",
+  "equipments",
+  "systems",
+  "openings",
+  "loft_members",
+  "groups",
+]);
+
+/** The loaded doc's keys the builder does not write, to write back untouched. */
+export function docExtras(doc: object | null | undefined): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(doc ?? {})) if (!BUILDER_DOC_KEYS.has(k) && v !== undefined) out[k] = v;
+  return out;
+}
+
 /** The doc schema the builder writes (ada.topo_model.engines.PROCEDURAL_SCHEMA_VERSION). */
 export const DOC_SCHEMA_VERSION = "1.1";
 
