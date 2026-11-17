@@ -14,6 +14,7 @@ import {revealPickInTrees} from "@/utils/tree_view/revealPick";
 import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
 import {getViewerRuntime} from "@/state/viewerRuntime";
 import {SimulationDataExtensionMetadata} from "@/extensions/design_and_analysis_extension";
+import {offerScenePick, scenePicksHeld} from "@/plugins/scenePicks";
 
 export async function handleClickMesh(
     intersect: THREE.Intersection,
@@ -63,6 +64,20 @@ export async function handleClickMesh(
             }
         }
         [rangeId] = drawRange;
+    }
+
+    // A plugin holding the scene's clicks (`ctx.scene.pickObjects`) is handed this one first: a
+    // click it takes selects nothing, highlights nothing and is no undo step.
+    if (scenePicksHeld()) {
+        const taken = offerScenePick({
+            model: mesh.unique_key,
+            id: rangeId,
+            name: (await queryNameFromRangeId(mesh.unique_key, rangeId)) ?? null,
+            sourceName: sourceOfModel(mesh.unique_key) ?? null,
+            point: [clickPosition.x, clickPosition.y, clickPosition.z],
+            additive: shiftKey,
+        });
+        if (taken) return;
     }
 
     const facePicking = useOptionsStore.getState().faceLevelPicking;

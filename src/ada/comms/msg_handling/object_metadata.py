@@ -89,17 +89,41 @@ def material_to_dict(material: Material | None) -> dict | None:
     return out
 
 
+def beam_axis(beam) -> dict | None:
+    """Where a beam lies: its two end points and its up direction, in the model's coordinates.
+
+    ``{"n1": [x, y, z], "n2": [x, y, z], "up": [x, y, z]}``, or None for something that does not say (a
+    FEM line element's section has no axis of its own here). With the section this is all of a straight
+    member: enough for a viewer to tell which end of one member meets another, and for a member to be
+    made again from its metadata."""
+    try:
+        n1, n2, up = beam.n1.p, beam.n2.p, beam.up
+        return {
+            "n1": [float(v) for v in n1],
+            "n2": [float(v) for v in n2],
+            "up": [float(v) for v in up],
+        }
+    except Exception:  # noqa: BLE001 - metadata never fails a scene for what it cannot say
+        return None
+
+
 def beam_metadata(
     name: str,
     section: Section | None,
     material: Material | None,
+    beam=None,
 ) -> dict:
-    return {
+    """``beam``, when given, adds ``axis`` (:func:`beam_axis`): its end points and up direction."""
+    meta = {
         "type": "Beam",
         "name": name,
         "section": section_to_dict(section),
         "material": material_to_dict(material),
     }
+    axis = beam_axis(beam) if beam is not None else None
+    if axis is not None:
+        meta["axis"] = axis
+    return meta
 
 
 def curved_plate_metadata(
@@ -141,6 +165,7 @@ def _register_beam(scene: SceneBackend, file_name: str, beam) -> None:
         name=name,
         section=getattr(beam, "section", None),
         material=getattr(beam, "material", None),
+        beam=beam,
     )
 
 

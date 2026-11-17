@@ -657,7 +657,8 @@
 //   1.24.0 Kept in step with PLUGIN_API_VERSION 1.24.0 (`SimulationParameterFormArgs.subject`,
 //          `ctx.scene.clearScene`). Additive.
 //   1.25.0 Kept in step with PLUGIN_API_VERSION 1.25.0 (`SceneModelSource.keepCamera`). Additive.
-export const VIEWER_CORE_API_VERSION = "1.25.0";
+//   1.26.0 Kept in step with PLUGIN_API_VERSION 1.26.0 (`ctx.scene.pickObjects`, `ScenePick`). Additive.
+export const VIEWER_CORE_API_VERSION = "1.26.0";
 
 // ---------------------------------------------------------------------------
 // Plugin declaration. `registerPlugin` is how a package announces itself —
@@ -705,6 +706,9 @@ export type {
   SceneElementPaint,
   SceneFace,
   SceneHandle,
+  ScenePick,
+  ScenePickOptions,
+  ScenePickSession,
   SceneLabel,
   SceneImage,
   SceneImageRect,

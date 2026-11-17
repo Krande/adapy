@@ -17,6 +17,9 @@ import { registerUiShell, type UiShellSpec } from "./uiShells";
 import { panelSpecFromSlot } from "@/layout/pluginPanels";
 import { registerPanel, removePanelsOwnedBy } from "@/layout/registry";
 import { isPlacedElsewhere } from "@/layout/placedElsewhere";
+import type { ScenePickOptions, ScenePickSession } from "./scenePicks";
+
+export type { ScenePick, ScenePickOptions, ScenePickSession } from "./scenePicks";
 
 // Bumped on a breaking change to any slot interface below. A plugin declares the
 // core range it was built against via `coreApiRange`; an out-of-range plugin is
@@ -201,7 +204,12 @@ import { isPlacedElsewhere } from "@/layout/placedElsewhere";
 //          loaded, instead of framing it as the user's auto-fit setting says. For a model loaded
 //          again in another form (a finer mesh of the same thing). Additive: an older core
 //          ignores it and frames the model as before.
-export const PLUGIN_API_VERSION = "1.25.0";
+// 1.26.0 — `ctx.scene.pickObjects(owner, {onPick})`: a plugin takes the scene's clicks on objects
+//          for a while (a tool that asks the user to point at things), on either viewport. A click
+//          it takes selects nothing and is no undo step; `end()` (or `scene.remove(owner)`) gives
+//          the clicks back. `ScenePick` names what was clicked: model, object id, name, source
+//          file, point. Additive: an older core has no such verb, so a plugin asks for it first.
+export const PLUGIN_API_VERSION = "1.26.0";
 
 // The named mount regions core exposes in Phase 1. Deliberately small
 // (`fem-sidebar` covers the FEM simulation panel, `top-panel` the menu bar,
@@ -775,6 +783,10 @@ export interface SceneHandle {
   // Highlight `face`, name it in the info box and frame it (unless `frame: false`); null clears
   // the highlight. False when its model is no longer loaded.
   focusFace: (face: SceneFace | null, opts?: { frame?: boolean }) => boolean;
+  // (1.26.0) Take the scene's clicks on objects until `end()`: each is handed to `onPick` instead of
+  // selecting what was clicked (return false to let one through). For a tool that asks the user to
+  // point at objects. Works on either viewport; `remove(owner)` ends it too.
+  pickObjects: (owner: string, options: ScenePickOptions) => ScenePickSession;
 }
 
 /** An axis-aligned world-space box. */

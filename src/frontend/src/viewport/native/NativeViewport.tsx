@@ -26,6 +26,9 @@ import {useNativeViewport} from "./nativeModel";
 import {glbBufferViews} from "@/utils/glb/glbBufferView";
 import {takeConceptClick} from "@/utils/fem/conceptPicking";
 import {linearHexText} from "@/utils/scene/sceneColor";
+import {offerScenePick, scenePicksHeld} from "@/plugins/scenePicks";
+import {useTreeViewStore} from "@/state/treeViewStore";
+import {sourceOfModel} from "@/utils/tree_view/modelSource";
 
 const NativeViewport: React.FC = () => {
     const hostRef = React.useRef<HTMLDivElement>(null);
@@ -70,9 +73,25 @@ const NativeViewport: React.FC = () => {
             const api = createNativeViewportApi(scene);
             const withdraw = setActiveViewport(api);
             // A glyph of an analysis concept (a mass, a support, a load) is asked before the model.
-            scene.clickFirst = (clientX, clientY, additive) => {
+            scene.clickFirst = async (clientX, clientY, additive) => {
                 const view = host.getBoundingClientRect();
-                return takeConceptClick(api, clientX - view.left, clientY - view.top, additive, async () => (await scene.pickHit(clientX, clientY))?.world ?? null);
+                if (await takeConceptClick(api, clientX - view.left, clientY - view.top, additive, async () => (await scene.pickHit(clientX, clientY))?.world ?? null)) return true;
+                // Then a plugin holding the scene's clicks (`ctx.scene.pickObjects`): the object
+                // under the cursor is handed to it, and a click it takes selects nothing.
+                if (!scenePicksHeld()) return false;
+                const hit = await scene.pickHit(clientX, clientY);
+                const key = scene.objectOver?.(clientX, clientY, hit?.world ?? null) ?? hit?.id ?? null;
+                if (!key) return false;
+                const ref = splitObjectKey(key);
+                return offerScenePick({
+                    model: ref.model,
+                    id: ref.id,
+                    name: useTreeViewStore.getState().findNodeByRangeId(ref.model, ref.id)?.name ?? null,
+                    sourceName: sourceOfModel(ref.model) ?? null,
+                    // This viewport's hit is in its own drawn frame, not the model's file coordinates.
+                    point: null,
+                    additive,
+                });
             };
             // The viewport's keys (hide, show all, fit, named views, orbit and pan by key), while it is up.
             const unbind = bindCoreShortcuts(viewportShortcutHandlers((run) => ({run})));

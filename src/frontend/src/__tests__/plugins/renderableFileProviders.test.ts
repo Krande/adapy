@@ -76,6 +76,7 @@ function fakeCtx(): AdaPluginContext {
       addPointLayer: () => ({setPoints() {}, setLook() {}, remove() {}}),
       addImage: () => ({setPixels() {}, setRect() {}, setLook() {}, unavailable: () => null, remove() {}}),
       imageUnavailable: () => null,
+      pickObjects: () => ({ end() {} }),
     },
     scope: () => "user:me",
     trackJob: () => "",

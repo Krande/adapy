@@ -99,7 +99,7 @@ def build_design_data_extension(part_or_assembly: Part | Assembly, *, face_nodes
             object_guids[obj.name] = obj.guid
         if object_metadata is not None and obj.name:
             if isinstance(obj, Beam):
-                object_metadata[obj.name] = beam_metadata(obj.name, obj.section, obj.material)
+                object_metadata[obj.name] = beam_metadata(obj.name, obj.section, obj.material, beam=obj)
             elif isinstance(obj, PlateCurved):
                 object_metadata[obj.name] = curved_plate_metadata(obj.name, obj.t, obj.material)
             elif isinstance(obj, Plate):
