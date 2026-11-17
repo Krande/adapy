@@ -6,6 +6,11 @@
 // is loaded alone (its own row, built by itself) wherever the source delivers per node; a source
 // that can only be delivered whole is loaded once and everything but its members is hidden
 // (`./groupSources`, `planGroupLoads`). One member failing never stops the others.
+//
+// THE CAMERA. The group's loads never move it themselves (`holdCamera`: no per-model fit). Into an
+// EMPTY scene the members are framed once, together, when the load is over; into a scene that
+// already holds something the camera stays where the user has it. A cancelled load, or one that
+// put nothing in the scene, frames nothing.
 
 import { LoadCancelled, OVERRIDE_CONCURRENCY } from "@/assets/delivery";
 
@@ -41,6 +46,13 @@ export interface GroupLoadEnv {
   showOnly(sourceName: string, members: readonly GroupMember[]): Promise<number>;
   /** Resolves once the models loaded under `sourceNames` are in the scene tree (or it gave up). */
   settle(sourceNames: readonly string[]): Promise<void>;
+  /** Whether nothing is loaded in the scene. Asked once, before the first load. */
+  sceneEmpty(): boolean;
+  /** Keep the models this load brings in from moving the camera as each arrives. Resolves the
+   *  function that ends it. */
+  holdCamera(): Promise<() => void>;
+  /** Frame what is selected -- the group's members, selected after the loads. */
+  frameSelection(): void;
   onStage?(stage: string): void;
   /** How a failure reads to a person. */
   reasonFor?(e: unknown): string;
@@ -57,6 +69,8 @@ export interface GroupLoadOutcome {
   readonly failed: readonly { readonly source: string; readonly members: readonly GroupMember[]; readonly reason: string }[];
   /** The selection made afterwards. */
   readonly selection: GroupSelectionOutcome;
+  /** The camera was moved to frame the members (the scene was empty before the load). */
+  readonly framed: boolean;
 }
 
 const describe = (m: GroupMember): string =>
@@ -94,14 +108,18 @@ export async function runGroupLoad(group: SavedGroup, env: GroupLoadEnv): Promis
     }
   }
   const plan = planGroupLoads(before.notLoaded, rows, (key) => perNode.has(key));
+  const total = plan.alone.length + plan.whole.length;
+  if (total === 0) return { loaded: 0, already: sourcesToLoad(group.members).size - sources.size, hidden: 0, failed: [], selection: before, framed: false };
+  const wasEmpty = env.sceneEmpty();
+  const releaseCamera = await env.holdCamera();
 
   const failed: { source: string; members: readonly GroupMember[]; reason: string }[] = [];
   const names: string[] = [];
   let loaded = 0;
   let hidden = 0;
   let cancelled = false;
-  const total = plan.alone.length + plan.whole.length;
   let n = 0;
+  try {
 
   // Members alone: their builds run a few at a time, ahead of the scene; the scene takes one model
   // at a time, in group order.
@@ -158,7 +176,14 @@ export async function runGroupLoad(group: SavedGroup, env: GroupLoadEnv): Promis
   // Selected again AFTER the loads, once their trees are there, so the members that just arrived
   // are in it.
   if (names.length) await env.settle(names);
+  } finally {
+    releaseCamera();
+  }
   const selection = loaded ? env.select(group) : before;
+  // One frame, on the members (selected just now -- in a document loaded whole, the rest is hidden
+  // and not selected), and only when the load started with an empty scene.
+  const framed = wasEmpty && !cancelled && names.length > 0 && selection.ranges > 0;
+  if (framed) env.frameSelection();
   const already = sourcesToLoad(group.members).size - sources.size;
-  return { loaded, already, hidden, failed, selection };
+  return { loaded, already, hidden, failed, selection, framed };
 }

@@ -16,6 +16,7 @@ import type { ScopeUrl } from "@/services/api/client";
 import { getSingletonViewerStores } from "@/state/AdaViewerContext";
 import { requestRender } from "@/state/perfStore";
 import { providerName } from "@/state/providerNamesStore";
+import { activeViewport } from "@/viewport/api/viewportApi";
 
 import { memberKey, type GroupMember, type SavedGroup } from "./savedGroups";
 import { runGroupLoad, type GroupLoadOutcome, type StartedLoad } from "./groupLoadRun";
@@ -63,6 +64,19 @@ export async function loadSavedGroup(
     showOnly: showOnlyMembers,
     settle: async (names) => {
       await whenSourcesInTree(names);
+    },
+    sceneEmpty: () => getSingletonViewerStores().useModelState.getState().loadedSourceNames.size === 0,
+    // A bulk-load session that holds the camera: the three.js loader then skips its fit after each
+    // model (the viewport without a three.js scene only ever frames the first model of an empty
+    // scene, and the frame at the end comes after it). Imported on use: it pulls three.js in.
+    holdCamera: async () => {
+      const { beginBulkLoad, endBulkLoad } = await import("@/utils/scene/loadingView");
+      const session = beginBulkLoad(scope, "assets:group", { hold: true, save: false });
+      return () => endBulkLoad(session);
+    },
+    frameSelection: () => {
+      activeViewport()?.fitSelection();
+      requestRender();
     },
   });
   requestRender();

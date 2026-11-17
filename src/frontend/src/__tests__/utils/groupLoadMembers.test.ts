@@ -108,6 +108,7 @@ const GROUP = (members: GroupMember[]): SavedGroup => ({ id: "g1", name: "con1",
 function fakeEnv(over: Partial<GroupLoadEnv> = {}) {
   const calls: string[] = [];
   const inScene = new Set<string>();
+  const camera = { sceneEmpty: true, held: 0, frames: [] as string[] };
   const env: GroupLoadEnv = {
     select: (group) => ({
       ranges: group.members.filter((m) => inScene.has(memberKey(m))).length,
@@ -124,6 +125,7 @@ function fakeEnv(over: Partial<GroupLoadEnv> = {}) {
       return {
         ready: Promise.resolve(),
         finish: async () => {
+          assert.equal(camera.held, 1, "no model arrives while the camera is free to follow it");
           calls.push(`scene:${load.target.subject}#${load.target.node}`);
           for (const m of load.members) inScene.add(memberKey(m));
           return `assets:p/c/${load.target.subject}@r1#${load.target.node}`;
@@ -131,6 +133,7 @@ function fakeEnv(over: Partial<GroupLoadEnv> = {}) {
       };
     },
     loadWhole: async (t) => {
+      assert.equal(camera.held, 1, "no document arrives while the camera is free to follow it");
       const name = t.kind === "file" ? t.source_key : `assets:p/c/${t.subject}@r1`;
       calls.push(`whole:${name}`);
       return name;
@@ -141,9 +144,17 @@ function fakeEnv(over: Partial<GroupLoadEnv> = {}) {
       return 40;
     },
     settle: async (names) => void calls.push(`settle:${names.length}`),
+    sceneEmpty: () => camera.sceneEmpty,
+    holdCamera: async () => {
+      camera.held += 1;
+      return () => void (camera.held -= 1);
+    },
+    frameSelection: () => {
+      camera.frames.push(`after:${calls.filter((c) => c.startsWith("scene:") || c.startsWith("whole:")).length}:held=${camera.held}`);
+    },
     ...over,
   };
-  return { env, calls, inScene };
+  return { env, calls, inScene, camera };
 }
 
 test("a group's load asks for exactly its members, never the document they are in", async () => {
@@ -177,17 +188,17 @@ test("members in several documents: each per-node member alone, each whole docum
 });
 
 test("a member that cannot be loaded is named, and the others still load", async () => {
-  const base = fakeEnv();
   const { env, calls } = fakeEnv({
-    startMember: (load) =>
-      load.target.node === "n2"
-        ? { ready: Promise.resolve(), finish: async () => Promise.reject(new Error("asset build error: no solid")) }
-        : base.env.startMember(load),
     loadWhole: async (t) => {
       if (t.kind === "node") throw new Error("404 no published revision");
       return t.source_key;
     },
   });
+  const start = env.startMember;
+  env.startMember = (load) =>
+    load.target.node === "n2"
+      ? { ready: Promise.resolve(), finish: async () => Promise.reject(new Error("asset build error: no solid")) }
+      : start(load);
   const out = await runGroupLoad(GROUP([B1, B2, B3, PLATE, WALL]), env);
   assert.deepEqual(
     out.failed.map((f) => [f.members.map((m) => m.element), f.reason]),
@@ -247,6 +258,60 @@ test("builds run ahead a few at a time; a cancelled load stops the rest and fini
   assert.deepEqual(out.failed, [], "a cancelled load is not a failure");
   assert.deepEqual(finished, ["e0", "e1", "e2"], "the one started ahead is finished off; none after it is started");
   assert.deepEqual(started, ["e0", "e1", "e2"]);
+});
+
+// --- the camera ----------------------------------------------------------------------------------
+
+test("into an empty scene the members are framed once, at the end, after the camera hold is over", async () => {
+  const { env, camera } = fakeEnv();
+  const out = await runGroupLoad(GROUP([B1, B2, PLATE]), env);
+  assert.deepEqual(camera.frames, ["after:3:held=0"], "one frame, after all three loads, the per-model hold released");
+  assert.equal(out.framed, true);
+});
+
+test("into a scene that already holds something the camera is never moved", async () => {
+  const { env, camera } = fakeEnv();
+  camera.sceneEmpty = false;
+  const out = await runGroupLoad(GROUP([B1, B2, PLATE]), env);
+  assert.equal(out.loaded, 3);
+  assert.deepEqual(camera.frames, []);
+  assert.equal(camera.held, 0, "and the hold on the per-model fit is released");
+  assert.equal(out.framed, false);
+});
+
+test("a cancelled load, a load where everything failed, and a group already in the scene frame nothing", async () => {
+  const cancelled = fakeEnv({
+    startMember: (load) => ({
+      ready: Promise.resolve(),
+      finish: async () => {
+        if (load.target.node === "n2") throw new LoadCancelled();
+        cancelled.inScene.add(memberKey(load.members[0]));
+        return `assets:p/c/S@r1#${load.target.node}`;
+      },
+    }),
+  });
+  assert.equal((await runGroupLoad(GROUP([B1, B2, B3]), cancelled.env)).loaded, 1);
+  assert.deepEqual([cancelled.camera.frames, cancelled.camera.held], [[], 0]);
+
+  const failing = fakeEnv({
+    startMember: () => ({ ready: Promise.resolve(), finish: async () => Promise.reject(new Error("no worker")) }),
+    loadWhole: async () => Promise.reject(new Error("404")),
+  });
+  const out = await runGroupLoad(GROUP([B1, PLATE]), failing.env);
+  assert.equal(out.failed.length, 2);
+  assert.deepEqual([failing.camera.frames, failing.camera.held, out.framed], [[], 0, false]);
+
+  const there = fakeEnv();
+  there.inScene.add(memberKey(B1));
+  await runGroupLoad(GROUP([B1]), there.env);
+  assert.deepEqual([there.camera.frames, there.camera.held], [[], 0], "nothing to load: the camera is not even held");
+});
+
+test("a document loaded whole is framed on its members: the frame follows the selection made after the rest is hidden", async () => {
+  const { env, calls, camera } = fakeEnv({ frameSelection: () => void calls.push("frame") });
+  await runGroupLoad(GROUP([WALL]), env);
+  assert.deepEqual(calls, ["whole:proj/a.ifc", "only:proj/a.ifc:Wall", "settle:1", "frame"]);
+  assert.equal(camera.held, 0);
 });
 
 // --- finding a member that was loaded alone ------------------------------------------------------
