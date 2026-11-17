@@ -140,3 +140,23 @@ test("bound to the setting, the frame loop keeps the view in step with a dolly: 
   assert.ok(!isOrthographic(camera), "released: the camera no longer follows the setting");
   useProjectionStore.getState().setOrthographic(false);
 });
+
+test("a render that narrows the projection (the GPU mesh picker's pick matrix) keeps it; a dolly still remakes it", () => {
+  const { camera, scene, set, release } = rig(10);
+  set(true);
+  const render = () => scene.onBeforeRender(null as never, scene, camera, null as never, null as never, null as never);
+  render();
+  // The picker steers the view to one pixel, then renders: the renderer asks the scene first.
+  const pick = new THREE.Matrix4().makeScale(400, 300, 1).setPosition(-150, 90, 0);
+  const narrowed = camera.projectionMatrix.clone().premultiply(pick);
+  camera.projectionMatrix.copy(narrowed);
+  render();
+  assert.deepEqual(camera.projectionMatrix.elements, narrowed.elements, "the pick draws what is under the pointer, not the whole view");
+  // A dolly between frames is still followed.
+  camera.position.set(0, 0, 5);
+  camera.updateMatrixWorld();
+  render();
+  near(new THREE.Vector3(0, orthoHalfHeight(5, 60), 0).project(camera).y, 1);
+  set(false);
+  release();
+});

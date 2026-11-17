@@ -1055,6 +1055,9 @@ class GpuMeshPicker {
         const clickX = (clientX - rect.left) * dpr;
         const clickY = (rect.bottom - clientY) * dpr;
         const pickMat = this.buildPickMatrix(canvasW, canvasH, clickX, clickY);
+        // The projection as it is drawn now (an orthographic view follows the camera's distance),
+        // so nothing remakes it during the pick's render and drops the pick matrix.
+        camera.updateProjectionMatrix();
         const origProj = this._origProj.copy(camera.projectionMatrix);
         camera.projectionMatrix.premultiply(pickMat);
 

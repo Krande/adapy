@@ -137,17 +137,31 @@ export function bindOrthographic(
 ): () => void {
     patchRaycaster();
     patchSprites();
-    const apply = () => {
+    /** What the projection was last made from: the mode, the distance and the camera's own settings. */
+    let made: number[] = [];
+    const inputs = (): number[] => {
         const t = target();
-        updateProjection(camera, orthographic(), t ? camera.position.distanceTo(t) : camera.position.length());
+        const distance = t ? camera.position.distanceTo(t) : camera.position.length();
+        return [orthographic() ? 1 : 0, distance, camera.fov, camera.aspect, camera.zoom, camera.far];
+    };
+    const apply = () => {
+        made = inputs();
+        updateProjection(camera, made[0] === 1, made[1]);
     };
     // Whoever asks for the projection (a resize, a fit, the clip range) gets the right one.
     const own = camera.updateProjectionMatrix;
     camera.updateProjectionMatrix = apply;
-    // And every frame, before the renderer reads it: a dolly moves the camera without asking.
+    // And every frame, before the renderer reads it: a dolly moves the camera without asking. Only
+    // when something it is made from has changed: a render that narrows the projection on purpose
+    // (the GPU mesh picker's pick matrix, round the clicked pixel) keeps it. Made again on every
+    // render, the pick drew the whole view into its one pixel, and every click in an orthographic
+    // view took what was at the middle of the screen.
     const before = scene.onBeforeRender;
     scene.onBeforeRender = function (this: THREE.Scene, ...args: Parameters<THREE.Scene["onBeforeRender"]>) {
-        if (args[2] === camera && (orthographic() || camera.userData[ORTHO] === true)) apply();
+        if (args[2] === camera && (orthographic() || camera.userData[ORTHO] === true)) {
+            const now = inputs();
+            if (now.some((v, i) => v !== made[i])) apply();
+        }
         before.apply(this, args);
     };
     apply();
