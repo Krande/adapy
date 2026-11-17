@@ -38,6 +38,8 @@ export interface FileTreeListProps {
     setNewFolderAt: (at: string | null) => void;
     onCreateFolder: (parent: string, rawName: string) => void;
     proceduralByName: Map<string, ProceduralModelSummary>;
+    /** model name -> the key of the workbook it was made from, shown on its row (not as a row). */
+    sourceByModel?: Map<string, string>;
     activeProcedural: string | null;
     /** A row click: make this the edited model (the one edited so far stays in the scene). */
     openProceduralModel: (m: ProceduralModelSummary, opts?: {collapsePanel?: boolean}) => Promise<void>;
@@ -80,7 +82,7 @@ const FileTreeList: React.FC<FileTreeListProps> = (props) => {
     const {
         files, regularFiles, versionBranches, visibleTree, pendingFolders, sidecars, showModified, fillHeight, loadProgressFor,
         listScrollRef, onListKeyDown, handleDropOnFolder, showRootDropStrip, newFolderAt,
-        setNewFolderAt, onCreateFolder, proceduralByName, activeProcedural, openProceduralModel,
+        setNewFolderAt, onCreateFolder, proceduralByName, sourceByModel, activeProcedural, openProceduralModel,
         isProceduralLoaded, toggleProceduralLoaded, proceduralMenuItems, fileMenuItems,
         versionFileMenuItems, folderMenuItems, openCtxMenu, selection, onRowSelectToggle,
         toggleSelection, focusedKey, setFocusedKey, viewingName, loadedSourceNames, conversionJobs,
@@ -185,6 +187,7 @@ const FileTreeList: React.FC<FileTreeListProps> = (props) => {
                                                     }
                                                     rowKey={`file:${model.name}`}
                                                     focused={focusedKey === `file:${model.name}`}
+                                                    source={sourceByModel?.get(model.name) ?? null}
                                                     menuItems={proceduralMenuItems(model, node.displayName)}
                                                     onOpenContextMenu={(e) =>
                                                         openCtxMenu(

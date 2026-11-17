@@ -8,6 +8,7 @@ import {useLoadQueueStore} from "@/state/loadQueueStore";
 import {useCellBuilderStore} from "@/state/cellBuilderStore";
 import {request_list_of_files_from_server} from "@/utils/server_info/handlers/request_list_of_files_from_server";
 import {buildFileTree, collectFolderPaths, partitionUiHidden} from "@/utils/storage/fileTree";
+import {sourceWorkbooks} from "@/utils/storage/modelSource";
 import {useBuildSidecars} from "@/hooks/useBuildSidecars";
 import type {KebabMenuItem} from "@/components/common/PositionedMenu";
 import {alertDialog, confirmDialog, errorText} from "@/plugins/dialogs";
@@ -255,15 +256,24 @@ export const StorageBody: React.FC<StorageBodyProps> = ({
     // Synthesised AFTER classifyFiles: they are not version-branch artefacts,
     // and nothing downstream reads fileType on them — the renderer switches on
     // the name being a known model and draws a model row instead.
+    //
+    // A model's SOURCE WORKBOOK (`<folder>/<stem>.xlsx` beside the model `<folder>/<stem>`:
+    // the file a tool made the model from, which Save writes back into) is the model to the
+    // person, so it is not a row of its own: the model's row names it (utils/storage/modelSource).
+    const sourceByModel = useMemo(
+        () => sourceWorkbooks(proceduralModels.map((m) => m.name), classifiedRegular.map((f) => f.name)),
+        [classifiedRegular, proceduralModels],
+    );
     const regularFiles = useMemo(() => {
+        const sources = new Set(sourceByModel.values());
         const synthetic: ServerFileEntry[] = proceduralModels.map((m) => ({
             name: m.name,
             fileType: 0 as ServerFileEntry["fileType"],
             filepath: m.name,
             lastModified: "",
         }));
-        return [...classifiedRegular, ...synthetic];
-    }, [classifiedRegular, proceduralModels]);
+        return [...classifiedRegular.filter((f) => !sources.has(f.name)), ...synthetic];
+    }, [classifiedRegular, proceduralModels, sourceByModel]);
     const regular = regularFiles;
     const visibleTree = buildFileTree(regularFiles, (f) => f.name, pendingFolders);
 
@@ -434,6 +444,7 @@ export const StorageBody: React.FC<StorageBodyProps> = ({
                 setNewFolderAt={setNewFolderAt}
                 onCreateFolder={onCreateFolder}
                 proceduralByName={proceduralByName}
+                sourceByModel={sourceByModel}
                 activeProcedural={activeProcedural}
                 openProceduralModel={procedural.makeProceduralActive}
                 isProceduralLoaded={isProceduralLoaded}
