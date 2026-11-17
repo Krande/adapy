@@ -145,7 +145,7 @@ const ResizableTreeView: React.FC = () => {
                 <button
                     type="button"
                     onClick={() => setIsTreeCollapsed(true)}
-                    className="grid shrink-0 place-items-center h-7 w-7 rounded-md text-gray-400 hover:text-white hover:bg-white/10"
+                    className="grid place-items-center h-7 w-7 rounded-md text-gray-400 hover:text-white hover:bg-white/10 shrink-0"
                     aria-label="Close selection tree"
                     title="Close (Shift+T)"
                 >
