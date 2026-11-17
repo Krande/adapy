@@ -6,6 +6,7 @@ import {cacheAndBuildTree} from "@/state/model_worker/cacheModelUtils";
 import {useModelState} from "@/state/modelState";
 import {useLineageStore} from "@/state/lineageStore";
 import {useObjectInfoStore} from "@/state/objectInfoStore";
+import {setScenePickDescriber} from "@/plugins/scenePicks";
 import {clearSourceExtensions, setSourceExtension} from "@/state/sourceExtensions";
 import {useTreeViewStore} from "@/state/treeViewStore";
 import {query_ws_server_mesh_info} from "@/utils/mesh_select/handlers/send_mesh_selected_info_callback";
@@ -75,4 +76,10 @@ export function installViewportPanelBridge(): void {
     installed = true;
     onModelLoaded(listModel);
     onViewportPick(showPick);
+    // A plugin holding the scene's clicks (`ctx.scene.pickObjects`) is told an object's name and
+    // file; the three.js-free viewport knows only its model and id, and the trees are read here.
+    setScenePickDescriber((model, id) => ({
+        name: useTreeViewStore.getState().findNodeByRangeId(model, id)?.name ?? null,
+        sourceName: sourceOfModel(model) ?? null,
+    }));
 }

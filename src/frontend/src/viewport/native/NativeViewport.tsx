@@ -26,9 +26,7 @@ import {useNativeViewport} from "./nativeModel";
 import {glbBufferViews} from "@/utils/glb/glbBufferView";
 import {takeConceptClick} from "@/utils/fem/conceptPicking";
 import {linearHexText} from "@/utils/scene/sceneColor";
-import {offerScenePick, scenePicksHeld} from "@/plugins/scenePicks";
-import {useTreeViewStore} from "@/state/treeViewStore";
-import {sourceOfModel} from "@/utils/tree_view/modelSource";
+import {describeScenePick, offerScenePick, scenePicksHeld} from "@/plugins/scenePicks";
 
 const NativeViewport: React.FC = () => {
     const hostRef = React.useRef<HTMLDivElement>(null);
@@ -86,8 +84,8 @@ const NativeViewport: React.FC = () => {
                 return offerScenePick({
                     model: ref.model,
                     id: ref.id,
-                    name: useTreeViewStore.getState().findNodeByRangeId(ref.model, ref.id)?.name ?? null,
-                    sourceName: sourceOfModel(ref.model) ?? null,
+                    // Its name and file come from the trees, which this chunk does not import.
+                    ...describeScenePick(ref.model, ref.id),
                     // This viewport's hit is in its own drawn frame, not the model's file coordinates.
                     point: null,
                     additive,

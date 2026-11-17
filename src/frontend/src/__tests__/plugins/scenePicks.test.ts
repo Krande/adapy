@@ -2,7 +2,15 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { endScenePicks, offerScenePick, pickObjects, scenePicksHeld, type ScenePick } from "@/plugins/scenePicks";
+import {
+  describeScenePick,
+  endScenePicks,
+  offerScenePick,
+  pickObjects,
+  scenePicksHeld,
+  setScenePickDescriber,
+  type ScenePick,
+} from "@/plugins/scenePicks";
 
 const beam = (name: string): ScenePick => ({
   model: "m1",
@@ -68,4 +76,11 @@ test("removing an owner from the scene ends its picks, and a holder that throws 
   } finally {
     console.error = errors;
   }
+});
+
+test("an object's name and file come from whoever reads the trees, and are null until somebody does", () => {
+  assert.deepEqual(describeScenePick("m1", "r1"), { name: null, sourceName: null });
+  setScenePickDescriber((model, id) => ({ name: `${model}/${id}`, sourceName: "model.glb" }));
+  assert.deepEqual(describeScenePick("m1", "r1"), { name: "m1/r1", sourceName: "model.glb" });
+  setScenePickDescriber(null);
 });

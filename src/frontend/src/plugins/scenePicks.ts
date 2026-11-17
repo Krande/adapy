@@ -76,6 +76,20 @@ export function offerScenePick(pick: ScenePick): boolean {
   return false;
 }
 
+/** What a viewport that knows an object only by its model and id cannot say itself: its name and
+ *  the file its model was loaded from. Set once per page by whoever reads the trees (the viewport's
+ *  panel bridge), so a viewport's own chunk imports none of that. */
+let describe: ((model: string, id: string) => { name: string | null; sourceName: string | null }) | null = null;
+
+export function setScenePickDescriber(fn: typeof describe): void {
+  describe = fn;
+}
+
+/** The name and source file of the object `id` of `model`; both null where nobody can say. */
+export function describeScenePick(model: string, id: string): { name: string | null; sourceName: string | null } {
+  return describe?.(model, id) ?? { name: null, sourceName: null };
+}
+
 /** End every pick `owner` holds (`ctx.scene.remove(owner)`). */
 export function endScenePicks(owner: string): void {
   for (let i = holders.length - 1; i >= 0; i--) if (holders[i].owner === owner) holders.splice(i, 1);
