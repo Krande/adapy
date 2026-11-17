@@ -36,7 +36,7 @@ import {CORE_COMMAND_IDS as ID} from "./coreCommandIds";
 import {customisablePanels, customisablePanelsRequired, setCustomisablePanels} from "./customisable";
 import {CORE_PANEL_IDS, reveal as revealPanel} from "./panelActions";
 import type {SettingsSectionId} from "@/components/settings/settingsSections";
-import {showSettingsTab} from "@/components/settings/settingsTab";
+import {settingsHost, showSettingsTab} from "@/components/settings/settingsTab";
 
 /** The id of the command for option `id`: `core:option.<id>`; a choice's values add `.<value>`. */
 export const optionCommandId = (id: string, value?: string): string => `core:option.${id}${value === undefined ? "" : `.${value}`}`;
@@ -204,8 +204,6 @@ export function optionDescriptors(): OptionDescriptor[] {
     }),
     // --- 3D mouse ---
     // --- Camera controls ---
-    {kind: "open", id: "controls-profile", title: "Controls profile…", group: "Camera controls", keywords: [...CAM_KEYS, "profile", "genie", "keys", "shortcuts", "selection"],
-      setters: [], focus: "controls-profile"},
     {kind: "choice", id: "camera-preset", title: "Camera controls", group: "Camera controls", keywords: [...CAM_KEYS, "preset"],
       setters: ["setCameraPreset"], choices: CAMERA_PRESET_IDS.map((id) => ({value: id, label: CAMERA_PRESETS[id].label})),
       get: () => presetOf(cam().mapping), set: (v) => { const id = CAMERA_PRESET_IDS.find((x) => x === v); if (id) cam().setCameraPreset(id); }},
@@ -312,8 +310,12 @@ export const SETTINGS_TAB_OF_GROUP: Readonly<Record<string, SettingsSectionId>> 
  */
 export function openOption(focus: string, group?: string): void {
   const tab = group ? SETTINGS_TAB_OF_GROUP[group] : undefined;
-  if (tab) showSettingsTab(tab);
-  void revealPanel(tab ? CORE_PANEL_IDS.settings : CORE_PANEL_IDS.options);
+  const host = settingsHost();
+  if (tab && host) host(tab);
+  else {
+    if (tab) showSettingsTab(tab);
+    void revealPanel(tab ? CORE_PANEL_IDS.settings : CORE_PANEL_IDS.options);
+  }
   const find = () => document.querySelector<HTMLElement>(`[data-option="${focus}"]`);
   const go = () => {
     const el = find();

@@ -26,6 +26,12 @@ export { STORAGE_MODIFIED_MIN_PX, StorageBody } from "@/components/storage/Stora
 export type { StorageBodyProps } from "@/components/storage/StorageBrowser";
 export { OptionsBody } from "@/components/OptionsComponent";
 export type { OptionsBodyProps, OptionsSectionId } from "@/components/OptionsComponent";
+// The settings sections (one per Settings page: id, title, whether it applies here, its controls), and the
+// seam a shell's own Settings window registers on, so core's "open this setting" commands open it.
+export { SETTINGS_SECTIONS, availableSettingsSections } from "@/components/settings/settingsSections";
+export type { SettingsSection, SettingsSectionId } from "@/components/settings/settingsSections";
+export { setSettingsHost } from "@/components/settings/settingsTab";
+export type { SettingsHost } from "@/components/settings/settingsTab";
 // The calculation options (cores, memory, mode: `useComputeStore`), also the Options panel's "compute" section.
 export { default as ComputeOptionsBody } from "@/components/options/ComputeOptions";
 // The procedural model's cells, lofts, openings and equipment as a list (the `core:component-list` panel's content).

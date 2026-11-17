@@ -672,6 +672,12 @@
 //          `CORE_COMMAND_IDS.builderIncludeDimmed` / `builderIncludeOnly` / `builderIncludeAll`: the
 //          builder's include view (what the build leaves out drawn faint and dashed, hidden, or like
 //          the rest), one of three, remembered in the browser.
+//          On `/layout`: `SETTINGS_SECTIONS` / `availableSettingsSections` (the Settings pages:
+//          id, title, availability, controls); `setSettingsHost` (root and `/layout`), for a shell that shows Settings
+//          in its own window: core's "open this setting" commands and the Options panel's Settings
+//          button then open the shell's window on the page. `OptionsBodyProps.flat` draws the settings
+//          sections open, without their collapsible header (one page per section). The camera mapping's
+//          `select` action (the selection rectangle) and controls profiles (Settings > Controls).
 export const VIEWER_CORE_API_VERSION = "1.25.0";
 
 // ---------------------------------------------------------------------------
@@ -1007,6 +1013,10 @@ export {
   registerPanel,
 } from "@/layout/registry";
 export { hide, isPanelOpen, reveal, setRevealElsewhere, toggle } from "@/layout/reveal";
+// A shell that shows Settings in its own window registers it here, so core's "open this setting" commands
+// and the Options panel's Settings button open that window (on the setting's page). Light: no panels.
+export { setSettingsHost } from "@/components/settings/settingsTab";
+export type { SettingsHost } from "@/components/settings/settingsTab";
 export type { PanelController } from "@/layout/reveal";
 export {
   listSceneTreeRoots,

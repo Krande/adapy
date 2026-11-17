@@ -8,6 +8,7 @@ import ShortcutsModal from "./options/ShortcutsModal";
 import {UiShellSwitcher} from "@/plugins";
 import {BuildLine} from "./settings/BuildLine";
 import {SETTINGS_SECTIONS, type SettingsSectionId} from "./settings/settingsSections";
+import {settingsHost} from "./settings/settingsTab";
 
 // REST-only controls (scope picker, signed-in row, convert and admin buttons) live
 // here so they're reachable on phones and don't crowd the top bar.
@@ -40,15 +41,22 @@ export interface OptionsBodyProps {
     sections?: readonly OptionsSectionId[];
     /** Sections left out (after `sections`). */
     hiddenSections?: readonly OptionsSectionId[];
+    /** The settings sections drawn open, without their collapsible header: for a shell that shows one
+     *  section per page (its own Settings window), where a header to click open is a second click. */
+    flat?: boolean;
 }
 
 const DEFAULT_SECTIONS: readonly OptionsSectionId[] = ["account", "interface", "settings", "shortcuts"];
 
-/** Opens the Settings window. */
+/** Opens the Settings window: the shell's, when it has one (`setSettingsHost`). */
 const SettingsButton: React.FC = () => (
     <button
         type="button"
-        onClick={() => void reveal(CORE_PANEL_IDS.settings)}
+        onClick={() => {
+            const host = settingsHost();
+            if (host) host(null);
+            else void reveal(CORE_PANEL_IDS.settings);
+        }}
         className="block w-full bg-gray-700 hover:bg-gray-600 text-white text-sm font-semibold py-1 px-2 rounded-sm"
     >
         Settings
@@ -56,7 +64,7 @@ const SettingsButton: React.FC = () => (
 );
 
 /** The Options panel's content: the account controls, Settings and the shortcut keys (or the sections a shell picks). */
-export function OptionsBody({sections: picked, hiddenSections}: OptionsBodyProps) {
+export function OptionsBody({sections: picked, hiddenSections, flat = false}: OptionsBodyProps) {
     const rest = runtime.isRestMode();
     // Each section's content; null where it does not apply here.
     const content: Partial<Record<OptionsSectionId, React.ReactNode>> = {
@@ -73,13 +81,13 @@ export function OptionsBody({sections: picked, hiddenSections}: OptionsBodyProps
     const settingsIds = new Set<OptionsSectionId>();
     for (const s of SETTINGS_SECTIONS) {
         settingsIds.add(s.id);
-        content[s.id] = s.available() ? <Section title={s.title}>{s.render()}</Section> : null;
+        content[s.id] = !s.available() ? null : flat ? <div data-settings-section={s.id}>{s.render()}</div> : <Section title={s.title}>{s.render()}</Section>;
     }
     const hidden = new Set(hiddenSections ?? []);
     const order = (picked ?? DEFAULT_SECTIONS).filter((id) => !hidden.has(id) && content[id] != null);
     // A rule only after a collapsible settings section (a shell's pick); the account block, the
     // switcher and the buttons sit together.
-    const ruled = (id: OptionsSectionId) => settingsIds.has(id);
+    const ruled = (id: OptionsSectionId) => settingsIds.has(id) && !flat;
     return (
         <>
             {order.map((id, i) => (

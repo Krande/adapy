@@ -140,6 +140,9 @@ test("the root entry point re-exports only the dependency-free leaves", () => {
   "@/layout/statusItems",
     "@/layout/toastSlots",
     "@/state/cellbuilder/builderDefaults",
+    // `setSettingsHost`: a module of plain state (a type-only import), so a shell registers its Settings
+    // window without loading the panels.
+    "@/components/settings/settingsTab",
   ];
   const specs = importSpecifiers(readFileSync(join(facadeDir, "index.ts"), "utf8"));
   const offenders = specs.filter((s) => !DEP_FREE_LEAVES.includes(s));

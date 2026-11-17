@@ -40,6 +40,35 @@ test("Options: a shell picks and orders its sections; settings sections stay col
   assert.match(hidden, /Theme/);
 });
 
+test("Options, flat: a settings section drawn open, without the header to click (a shell's one-page-per-section Settings)", () => {
+  const flat = renderToStaticMarkup(React.createElement(OptionsBody, { sections: ["scene"], flat: true }));
+  assert.match(flat, /data-settings-section="scene"/);
+  assert.doesNotMatch(flat, /Scene config/, "no collapsible header");
+  assert.match(flat, /<input/, "its controls are there at once");
+  const folded = renderToStaticMarkup(React.createElement(OptionsBody, { sections: ["scene"] }));
+  assert.match(folded, /Scene config/);
+  assert.doesNotMatch(folded, /data-settings-section/);
+});
+
+test("a shell's own Settings window: core's open-a-setting commands open it on the setting's page", async () => {
+  const { setSettingsHost } = await import("@/components/settings/settingsTab");
+  const { openOption } = await import("@/layout/optionCommands");
+  const asked: (string | null)[] = [];
+  const undo = setSettingsHost((tab) => void asked.push(tab));
+  const doc = document as unknown as { querySelector?: unknown };
+  const had = doc.querySelector;
+  doc.querySelector = () => null;
+  try {
+    openOption("camera-drag", "Camera controls");
+    openOption("point-size", "Display");
+    assert.deepEqual(asked, ["camera", "scene"]);
+    await new Promise((r) => setTimeout(r, 80)); // the focus step finds nothing, quietly
+  } finally {
+    undo();
+    doc.querySelector = had;
+  }
+});
+
 test("Settings: one tab per available section, in the classic order, the first open, the build line below", () => {
   const html = renderToStaticMarkup(React.createElement(SettingsBody));
   const tabs = [...html.matchAll(/role="tab"[^>]*>([^<]+)</g)].map((m) => m[1]);
