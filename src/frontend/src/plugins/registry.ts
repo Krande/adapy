@@ -161,7 +161,8 @@ export type { ScenePick, ScenePickOptions, ScenePickSession } from "./scenePicks
 //            A loaded model's node animation is a track of the same clock, so it and a plugin's
 //            layers show the same moment.
 //          - `ctx.scene.loadModel`: a GLB from bytes or a URL as the scene's model, on whichever
-//            viewport is on screen (`loadModelFromUrl` builds a three.js scene only).
+//            viewport is on screen (`loadModelFromUrl` built a three.js scene only until 1.29; it now
+//            takes the same path).
 //          - `simulationsApi.fetchArtefact` (@/viewer-core/app): a run artefact's bytes, whole or
 //            from a byte offset, for one that is still being written.
 //          `ctx.scene.remove(owner)` takes all of it away, tracks included. Draco-compressed
