@@ -279,10 +279,15 @@ def test_equipment_crud_and_conflicts(pg_client: TestClient):
         dropdown = pg_client.get("/api/scopes/shared/procedural-models/equipment-types").json()["equipment_types"]
         entry = next((e for e in dropdown if e["slug"] == "big-pump"), None)
         assert entry is not None and entry["origin"] == "catalog" and entry["id"] == tid
-        # syncing a code archetype needs a live worker advertising it -> 404 here
+        # A code archetype syncs from what the worker advertises; a server without a queue IS the
+        # worker (it compiles in-process), so it answers with the built-in archetypes itself.
+        r = pg_client.post("/api/scopes/shared/procedural-models/equipment-types/sync", json={"slug": "pump"})
+        assert r.status_code == 201, r.text
+        assert pg_client.delete(f"/api/scopes/shared/equipment-types/{r.json()['id']}").status_code == 200
+        # an archetype nobody advertises -> 404
         assert (
             pg_client.post(
-                "/api/scopes/shared/procedural-models/equipment-types/sync", json={"slug": "pump"}
+                "/api/scopes/shared/procedural-models/equipment-types/sync", json={"slug": "teleporter"}
             ).status_code
             == 404
         )
