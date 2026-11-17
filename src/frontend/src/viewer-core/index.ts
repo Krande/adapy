@@ -668,7 +668,10 @@
 //          - the `connection-builder` region (a plugin's tab in the connection builder panel) and
 //            `getConnectionBuilderTabs` on `@/viewer-core/plugins`, for a shell that draws that
 //            panel itself.
-export const VIEWER_CORE_API_VERSION = "1.26.0";
+//   1.27.0 Kept in step with PLUGIN_API_VERSION 1.27.0. Additive: `ctx.scene.contactBetween` and
+//          the types `SceneObjectRef`, `SceneContactOptions`, `SceneContact`, `SceneContactPatch`,
+//          `SceneContactAnswer`.
+export const VIEWER_CORE_API_VERSION = "1.27.0";
 
 // ---------------------------------------------------------------------------
 // Plugin declaration. `registerPlugin` is how a package announces itself —
@@ -716,6 +719,11 @@ export type {
   SceneColor,
   SceneColorFieldProvider,
   SceneColorFieldResult,
+  SceneContact,
+  SceneContactAnswer,
+  SceneContactOptions,
+  SceneContactPatch,
+  SceneObjectRef,
   SceneElementOutline,
   SceneElementPaint,
   SceneFace,

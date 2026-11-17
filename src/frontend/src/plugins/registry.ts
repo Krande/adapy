@@ -19,8 +19,16 @@ import { registerPanel, removePanelsOwnedBy } from "@/layout/registry";
 import { isPlacedElsewhere } from "@/layout/placedElsewhere";
 import type { ScenePickOptions, ScenePickSession } from "./scenePicks";
 import type { PlaceBoxOptions, PlacedBox } from "./sceneBox";
+import type { SceneContactAnswer, SceneContactOptions, SceneObjectRef } from "./sceneContact";
 
 export type { ScenePick, ScenePickOptions, ScenePickSession } from "./scenePicks";
+export type {
+  SceneContact,
+  SceneContactAnswer,
+  SceneContactOptions,
+  SceneContactPatch,
+  SceneObjectRef,
+} from "./sceneContact";
 export type { PlaceBoxOptions, PlacedBox, PlacedBoxMode, PlacedBoxPose } from "./sceneBox";
 
 // Bumped on a breaking change to any slot interface below. A plugin declares the
@@ -240,7 +248,13 @@ export type { PlaceBoxOptions, PlacedBox, PlacedBoxMode, PlacedBoxPose } from ".
 //            (`core:component-controls`), after the builder's own. Every panel of the region is a
 //            tab; `asTab` gives its label, order and badge. With no such panel the builder panel
 //            has no tab strip and is what it was.
-export const PLUGIN_API_VERSION = "1.26.0";
+// 1.27.0 — `ctx.scene.contactBetween(a, b, options?)`: where two objects of the loaded models
+//          touch -- the nearest points, the normal, the distance and the contact patches (the
+//          polygons where their convex hulls meet), in the scene's own coordinates -- measured by
+//          the viewer's clash module on the models' stored GLBs, so it answers the same on either
+//          viewport. For a tool that places something where two objects meet. Additive: an older
+//          core has no `contactBetween`, so a plugin asks for it first.
+export const PLUGIN_API_VERSION = "1.27.0";
 
 // The named mount regions core exposes in Phase 1. Deliberately small
 // (`fem-sidebar` covers the FEM simulation panel, `top-panel` the menu bar,
@@ -825,6 +839,12 @@ export interface SceneHandle {
   // plugin's side. For a tool that asks where something stands. Works on either viewport;
   // `remove(owner)` ends it too.
   placeBox: (owner: string, options: PlaceBoxOptions) => PlacedBox;
+  // (1.27.0) Where two objects of the loaded models touch: `{contact}` (null when they do not touch
+  // within the security margin) or `{unavailable}` with the reason (a model whose geometry is not a
+  // stored GLB the viewer can read again). The patches are the polygons where the two objects'
+  // convex hulls meet, in the scene's own coordinates. Measured by the viewer's clash module on the
+  // stored GLBs, not on what a viewport holds: the same answer on either viewport.
+  contactBetween: (a: SceneObjectRef, b: SceneObjectRef, options?: SceneContactOptions) => Promise<SceneContactAnswer>;
 }
 
 /** An axis-aligned world-space box. */
