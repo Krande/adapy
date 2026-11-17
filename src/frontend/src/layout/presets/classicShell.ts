@@ -40,7 +40,7 @@ export interface ClassicShell extends ClassicArrangement {
   /** Group chrome: extra header actions, and panel icons in the tabs. */
   groups?: {actions?: readonly GroupActionId[]; tabIcons?: boolean};
   /** HUDs over the view: core's legend and the `overlay`-dock plugin panels, by anchor. */
-  overlays?: {legend?: ViewportAnchor; pluginPanels?: ViewportAnchor};
+  overlays?: {legend?: ViewportAnchor; pluginPanels?: ViewportAnchor; builder?: boolean};
   /** The corner of the layout the progress toast sits in. */
   toastAnchor?: "bottom-right" | "bottom-left" | "top-right" | "top-left";
   /** The arrangements' version, and how a saved one of another version is brought up to date. */
@@ -60,7 +60,7 @@ export function classicGroupChrome(): {actions: readonly GroupActionId[]; tabIco
 }
 
 /** Where the served shell puts HUDs over the view; none for core's own UI. */
-export function classicOverlays(): {legend?: ViewportAnchor; pluginPanels?: ViewportAnchor} | null {
+export function classicOverlays(): {legend?: ViewportAnchor; pluginPanels?: ViewportAnchor; builder?: boolean} | null {
   return shell?.overlays ?? null;
 }
 
