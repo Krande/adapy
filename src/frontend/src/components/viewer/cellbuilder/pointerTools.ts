@@ -21,6 +21,7 @@ import {pickPort} from "./portGizmo";
 import {resizable} from "./resizeHandles";
 import {boxFrameMatrix, isRotated, resizeBoxFace} from "@/utils/cellbuilder/cellResize";
 import {viewportInputElement} from "@/viewport/input";
+import {isAdditiveClick} from "@/utils/mesh_select/additiveClick";
 
 export const startFaceDrag = (ctx: CellBuilderScene, cell: BuilderCell, faceIndex: number, ev: PointerEvent, immediate: boolean): boolean => {
     // A loft band or a CAD-fitted equipment box is not resized (cellResize.ts).
@@ -341,10 +342,11 @@ export const resolveClickSelection = (ctx: CellBuilderScene, target: {cellId: st
         st.setSelection({kind: "face", cellId: cell.id, faceIndex: target.faceIndex});
         return;
     }
-    // Whole-cell pick: add-mode toggles the cell in the multi-select set (so
-    // several cells can be copied/hidden at once); otherwise it's a single
-    // selection.
-    if (st.cellAddMode) {
+    // Whole-cell pick: add-mode, or a Ctrl / Cmd click as on the scene's objects,
+    // toggles the cell in the multi-select set (so several cells can be
+    // copied/hidden at once); otherwise it's a single selection. (A Shift click
+    // never gets here: the Shift press is the scene's rectangle, cellBoxSelect.)
+    if (st.cellAddMode || isAdditiveClick(ev)) {
         st.toggleCellSelection(cell.id);
     } else {
         st.setSelection({kind: "cell", cellId: cell.id});

@@ -32,6 +32,7 @@ import {selectInScreenRect} from "@/utils/bboxSelection/applyBoxSelection";
 import {drawMarquee, marqueeElement} from "@/utils/bboxSelection/marquee";
 import {ndcRect, screenBoxMode} from "@/utils/bboxSelection/screenBox";
 import {pickMeshAt, pickPointAt} from "@/viewport/picking";
+import {builderLayerEditing, selectCellsInScreenRect, toggleCellAt} from "@/components/viewer/cellbuilder/cellBoxSelect";
 
 // A second click/tap inside this window + radius counts as a double.
 // 350ms matches the OS-level double-tap threshold on iOS / Android and
@@ -64,7 +65,10 @@ export function setupPointerHandler(
     // a crossing. Taken in the capture phase, before the camera controls on the canvas see the
     // press -- three's OrbitControls would otherwise pan on Shift (Ctrl keeps panning). A Shift
     // press that does not move is still a Shift+click: the click below adds what is under it.
-    let marquee: {start: {x: number; y: number}; el: HTMLDivElement | null} | null = null;
+    // While the cell builder edits its cells the rectangle selects cells (`cellBoxSelect`); a
+    // procedural model merely open behind the mode (its layer hidden) does not take the gesture
+    // from the model on screen.
+    let marquee: {start: {x: number; y: number}; el: HTMLDivElement | null; cells: THREE.Object3D | null} | null = null;
     let swallowClick = false;
     const endMarquee = () => {
         marquee?.el?.remove();
@@ -81,12 +85,23 @@ export function setupPointerHandler(
     };
     const onMarqueeUp = (e: PointerEvent) => {
         if (!marquee) return;
-        const {start, el} = marquee;
+        const {start, el, cells} = marquee;
         endMarquee();
-        if (!el) return; // never moved: the click that follows is a Shift+click
+        const view = renderer.domElement.getBoundingClientRect();
+        if (!el) {
+            // Never moved: a Shift+click. On a cell (the press never reached the builder) it toggles
+            // the cell; anywhere else the click that follows adds what is under it.
+            if (cells) {
+                const at = {x: ((e.clientX - view.left) / view.width) * 2 - 1, y: 1 - ((e.clientY - view.top) / view.height) * 2};
+                swallowClick = toggleCellAt(cells, camera, at);
+            }
+            return;
+        }
         swallowClick = true;
-        const rect = renderer.domElement.getBoundingClientRect();
-        selectInScreenRect(ndcRect(start, {x: e.clientX, y: e.clientY}, rect), screenBoxMode(start.x, e.clientX));
+        const rect = ndcRect(start, {x: e.clientX, y: e.clientY}, view);
+        const mode = screenBoxMode(start.x, e.clientX);
+        if (cells) selectCellsInScreenRect(cells, camera, rect, mode);
+        else selectInScreenRect(rect, mode);
     };
     signal.addEventListener("abort", endMarquee);
 
@@ -94,10 +109,9 @@ export function setupPointerHandler(
         pointerDownPos = {x: e.clientX, y: e.clientY};
         swallowClick = false;
         if (e.button !== 0 || !e.shiftKey || e.ctrlKey || e.metaKey || e.altKey) return;
-        if (useCellBuilderStore.getState().active !== null) return; // its own Shift gestures
         e.stopPropagation();
         endMarquee();
-        marquee = {start: {x: e.clientX, y: e.clientY}, el: null};
+        marquee = {start: {x: e.clientX, y: e.clientY}, el: null, cells: builderLayerEditing(scene)};
         window.addEventListener("pointermove", onMarqueeMove);
         window.addEventListener("pointerup", onMarqueeUp);
     }, {signal, capture: true});

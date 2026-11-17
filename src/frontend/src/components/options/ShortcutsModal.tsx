@@ -32,11 +32,13 @@ const POINTER_GESTURES: ShortcutGroup = {
   shortcuts: [
     {
       keys: ["Shift", "Left-drag"],
-      description: "Box select, added to the selection: dragged rightwards a window (wholly inside), leftwards a crossing (touching)",
+      description:
+        "Box select, added to the selection: dragged rightwards a window (wholly inside), leftwards a crossing (touching). In the cell builder it selects cells",
     },
     {
       keys: ["Ctrl / \u2318 / Shift", "Left-click"],
-      description: "Add the clicked element to the selection, or take it out if it is selected -- as Ctrl+click does in the tree",
+      description:
+        "Add the clicked element (in the cell builder, the cell) to the selection, or take it out if it is selected -- as Ctrl+click does in the tree",
     },
     { keys: ["Ctrl", "Left-drag"], description: "Pan the view" },
   ],
