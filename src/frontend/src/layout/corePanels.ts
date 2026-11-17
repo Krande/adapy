@@ -483,7 +483,9 @@ export function corePanelSpecs(): PanelSpec[] {
     },
     {
       // The layers drawn over the model (state/layerRegistry). Offered while something has
-      // registered one, so a viewer with no layers shows no button for it.
+      // registered one. It has no button in the top bar: what draws layers opens it from beside
+      // what it shows (a button of the playback transport, say), and it is in the palette and
+      // the panel menus like any panel.
       id: CORE_PANEL_IDS.layers,
       title: "Layers",
       icon: LayersIcon,
@@ -499,7 +501,6 @@ export function corePanelSpecs(): PanelSpec[] {
       available: () => layerCount() > 0,
       constraints: { requiresCanvas: true },
       placement: column(120),
-      toolbar: { order: 120 },
     },
   ];
 }
