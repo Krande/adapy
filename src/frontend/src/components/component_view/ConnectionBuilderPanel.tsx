@@ -9,6 +9,10 @@
 // A plugin's tab in the connection builder (region `connection-builder`) is shown here, after the
 // builder's own tab; with no such tab the panel has no tab strip. The Scene panel's Connection tab
 // stays the builder alone.
+//
+// The panel is named "Connections" (it was "Connection builder"): it is where everything about
+// connections is reached. Where the builder itself is not offered -- the scope offers no specs --
+// the panel is still there for the plugins' tabs, and the builder's own tab is left out.
 
 import React, { useEffect } from "react";
 
@@ -32,12 +36,14 @@ import {
 } from "@/services/devConnections/connectionBuilderSession";
 import { useViewerStores } from "@/state/AdaViewerContext";
 import { useComponentControlsStore } from "@/state/componentControlsStore";
+import { useConnectionsOfferStore } from "@/state/connectionsOfferStore";
+import { runtime } from "@/runtime/config";
 import { BUILDER_TAB, useConnectionBuilderTabStore } from "@/state/connectionBuilderTabStore";
 import { usePluginTheme } from "@/state/themeStore";
 
 import { ConnectionBuilderBody } from "./ConnectionBuilder";
 
-export const CONNECTION_BUILDER_TITLE = "Connection builder";
+export const CONNECTION_BUILDER_TITLE = "Connections";
 
 /** The builder's own tab, as the strip names it. */
 export const BUILDER_TAB_LABEL = "Builder";
@@ -57,18 +63,22 @@ const BuilderTabStrip: React.FC<{
   activeTab: string;
   onSelect: (id: string) => void;
   ctxFor: (pluginId: string) => AdaPluginContext;
-}> = ({ tabs, activeTab, onSelect, ctxFor }) => (
+  /** Whether the builder's own tab is there: not where the builder is not offered. */
+  builder: boolean;
+}> = ({ tabs, activeTab, onSelect, ctxFor, builder }) => (
   <div
     className="flex flex-wrap gap-0.5 border-b border-white/15"
     role="tablist"
-    aria-label="Connection builder section"
+    aria-label="Connections section"
   >
-    <SimTabButton
-      id={BUILDER_TAB}
-      label={BUILDER_TAB_LABEL}
-      active={activeTab === BUILDER_TAB}
-      onClick={() => onSelect(BUILDER_TAB)}
-    />
+    {builder && (
+      <SimTabButton
+        id={BUILDER_TAB}
+        label={BUILDER_TAB_LABEL}
+        active={activeTab === BUILDER_TAB}
+        onClick={() => onSelect(BUILDER_TAB)}
+      />
+    )}
     {tabs.map((t) => {
       let badge: number | string | null = null;
       try {
@@ -103,16 +113,24 @@ export const ConnectionBuilderPanelContent: React.FC = () => {
   const picked = useConnectionBuilderTabStore((s) => s.tab);
   const select = useConnectionBuilderTabStore((s) => s.select);
 
+  // The builder's own tab is there where the builder is offered (`connectionBuilderOffered`).
+  const offered = useConnectionsOfferStore((s) => s.offered);
+  const builder = runtime.devConnections() || offered;
+
   const tabs = getConnectionBuilderTabs(makePluginContext("", stores, theme));
   // No plugin tab: the builder alone, with no strip.
-  if (tabs.length === 0) return <BuilderTab />;
+  if (tabs.length === 0) {
+    return builder ? <BuilderTab /> : <div className="text-xs text-gray-400">Nothing about connections is offered in this scope.</div>;
+  }
 
-  // A tab that went away (its plugin deactivated or disabled) falls back to the builder.
-  const active = tabs.find((t) => t.panel.id === picked);
+  // A tab that went away (its plugin deactivated or disabled) falls back to the builder, or
+  // where there is none to the first tab there is.
+  const active = tabs.find((t) => t.panel.id === picked) ?? (builder ? undefined : tabs[0]);
   return (
     <div className="flex flex-col gap-2 min-w-0">
       <BuilderTabStrip
         tabs={tabs}
+        builder={builder}
         activeTab={active ? active.panel.id : BUILDER_TAB}
         onSelect={select}
         ctxFor={(pid) => makePluginContext(pid, stores, theme)}

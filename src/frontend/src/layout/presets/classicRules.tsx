@@ -115,8 +115,9 @@ export const CLASSIC_TOOLBAR: Readonly<Record<PanelId, ToolbarRecipe>> = {
   },
   [CORE_PANEL_IDS.simulation]: {title: () => "Toggle simulation panel", content: <ToggleControlsIcon />},
   [CORE_PANEL_IDS.componentControls]: {
-    title: () => "Toggle connection builder",
-    ariaLabel: () => "Toggle connection builder",
+    // Renamed with the panel: the committed viewer bundle still says "Toggle connection builder".
+    title: () => "Toggle connections",
+    ariaLabel: () => "Toggle connections",
     content: <ComponentIcon />,
   },
   [CORE_PANEL_IDS.cellbuilder]: {

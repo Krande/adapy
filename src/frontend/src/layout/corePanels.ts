@@ -67,6 +67,7 @@ import { useRunConsoleStore } from "@/state/runConsoleStore";
 import { bindStoreFlag, watchStores } from "./bindings";
 import { CLASSIC_PRESET_ID, CLASSIC_ZONES } from "./layout";
 import type { PanelBinding, PanelBodyLoader, PanelPlacement, PanelProps, PanelSpec } from "./panel";
+import { hasConnectionBuilderTabs, subscribePluginActivation } from "@/plugins/registry";
 import { getPanel, registerPanel } from "./registry";
 import { activeShellMode, subscribeShellModes } from "./shellModes";
 
@@ -330,21 +331,30 @@ export function corePanelSpecs(): PanelSpec[] {
       placement: classic({ zone: CLASSIC_ZONES.menuColumn, parent: CORE_PANEL_IDS.simulation, as: "section" }),
     },
     {
-      // The connection builder (it replaced the baked-spec "Connection components" panel): offered
-      // on `ada dev connections`, and wherever the scope offers specs the workers' code registers.
+      // Connections: the connection builder (it replaced the baked-spec "Connection components"
+      // panel) and the plugins' tabs beside it. The builder is offered on `ada dev connections`
+      // and wherever the scope offers specs the workers' code registers; the panel also where a
+      // plugin has a tab for it, the builder's own tab then left out.
       id: CORE_PANEL_IDS.componentControls,
-      title: "Connection builder",
+      title: "Connections",
       icon: ComponentIcon,
-      hint: "Toggle connection builder",
+      hint: "Toggle connections",
       body: classicBody(CORE_PANEL_IDS.componentControls),
       content: classicContent(CORE_PANEL_IDS.componentControls),
-      watch: watchStores(useConnectionsOfferStore),
+      watch: (changed) => {
+        const offer = useConnectionsOfferStore.subscribe(changed);
+        const plugins = subscribePluginActivation(changed);
+        return () => {
+          offer();
+          plugins();
+        };
+      },
       binding: bindStoreFlag(
         useComponentControlsStore,
         (s) => s.isVisible,
         (open, s) => s.setIsVisible(open),
       ),
-      available: () => runtime.devConnections() || useConnectionsOfferStore.getState().offered,
+      available: () => connectionBuilderOffered() || hasConnectionBuilderTabs(),
       placement: column(70),
       toolbar: { order: 90 },
     },
@@ -553,6 +563,12 @@ export function corePanelSpecs(): PanelSpec[] {
       }),
     },
   ];
+}
+
+/** Whether the connection builder itself is offered here: on `ada dev connections`, or where the
+ *  scope offers specs. The connections panel may be offered without it, for a plugin's tab. */
+export function connectionBuilderOffered(): boolean {
+  return runtime.devConnections() || useConnectionsOfferStore.getState().offered;
 }
 
 /** The facts `available` reads, from the runtime config. */

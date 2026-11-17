@@ -1604,6 +1604,16 @@ export function getConnectionBuilderTabs(ctx: AdaPluginContext): SimulationTabEn
   return entries;
 }
 
+/** Whether a plugin that is not disabled has a `connection-builder` panel at all. Asked where
+ * there is no plugin context to ask the activation predicates with (a panel's `available`): the
+ * connections panel is offered where the builder is, and wherever a plugin has a tab for it. */
+export function hasConnectionBuilderTabs(): boolean {
+  for (const p of _registry.values()) {
+    if (!p.disabled && p.panels.some((panel) => panel.region === "connection-builder")) return true;
+  }
+  return false;
+}
+
 /** One plugin-contributed admin tab. */
 export interface AdminTabEntry {
   pluginId: string;

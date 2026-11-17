@@ -13,6 +13,8 @@ const { ConnectionBuilderPanelContent } = await import("@/components/component_v
 const { ConnectionBuilderBody } = await import("@/components/component_view/ConnectionBuilder");
 const { BUILDER_TAB, useConnectionBuilderTabStore } = await import("@/state/connectionBuilderTabStore");
 const { resetPanelRegistry } = await import("@/layout/registry");
+const { useConnectionsOfferStore } = await import("@/state/connectionsOfferStore");
+const { hasConnectionBuilderTabs } = await import("@/plugins/registry");
 const { getRegisteredPlugins, registerPlugin, resetRegistry } = await import("@/plugins/registry");
 
 const within = (node: React.ReactElement) =>
@@ -23,6 +25,8 @@ beforeEach(() => {
   resetRegistry();
   resetPanelRegistry();
   setServerState(useConnectionBuilderTabStore, { tab: BUILDER_TAB });
+  // The scope offers specs: the builder is there.
+  setServerState(useConnectionsOfferStore, { offered: true });
 });
 
 test("no plugin tab: the panel is the builder alone, with no tab strip", () => {
@@ -43,7 +47,7 @@ test("a plugin's tab: a strip with the builder first, and the tab on show is the
     ],
   });
   let html = panel();
-  assert.match(html, /role="tablist" aria-label="Connection builder section"/);
+  assert.match(html, /role="tablist" aria-label="Connections section"/);
   const labels = [...html.matchAll(/role="tab" aria-selected="(true|false)"[^>]*>(?:<span[^>]*><\/span>)?([^<]+)/g)].map((m) => [m[2], m[1]]);
   assert.deepEqual(labels, [["Builder", "true"], ["First", "false"], ["Extra", "false"]]);
   assert.match(html, />3<\/span>/, "the tab's badge");
@@ -69,4 +73,28 @@ test("a picked tab that went away falls back to the builder; a throwing badge di
   assert.match(html, /Connecting/);
   assert.match(String(getRegisteredPlugins().find((p) => p.id === "bad")?.disabled), /tab badge threw/);
   assert.ok(!getRegisteredPlugins().find((p) => p.id === "gone")?.disabled);
+});
+
+test("where the builder is not offered its tab is left out, and the panel is the plugins' tabs", () => {
+  setServerState(useConnectionsOfferStore, { offered: false });
+  assert.equal(hasConnectionBuilderTabs(), false);
+  assert.match(panel(), /Nothing about connections is offered in this scope/);
+  registerPlugin({
+    id: "demo",
+    panels: [
+      { id: "b", region: "connection-builder", asTab: { label: "Second", order: 2 }, render: () => "the second tab" },
+      { id: "a", region: "connection-builder", asTab: { label: "First", order: 1 }, render: () => "the first tab" },
+    ],
+  });
+  assert.equal(hasConnectionBuilderTabs(), true);
+  // The picked tab is the builder's, which is not there: the first tab there is shows.
+  let html = panel();
+  const labels = [...html.matchAll(/role="tab" aria-selected="(true|false)"[^>]*>(?:<span[^>]*><\/span>)?([^<]+)/g)].map((m) => [m[2], m[1]]);
+  assert.deepEqual(labels, [["First", "true"], ["Second", "false"]]);
+  assert.match(html, /the first tab/);
+  assert.doesNotMatch(html, /Builder|Connecting|the second tab/);
+  setServerState(useConnectionBuilderTabStore, { tab: "demo:b" });
+  html = panel();
+  assert.match(html, /aria-selected="true"[^>]*>Second/);
+  assert.match(html, /the second tab/);
 });

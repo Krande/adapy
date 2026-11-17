@@ -73,8 +73,8 @@ test("the recipes' tooltips and accessible names are the classic top bar's", () 
     [CORE_PANEL_IDS.scene]: { title: ["Toggle scene info", "Toggle scene info"], aria: ["Toggle scene info", "Toggle scene info"] },
     [CORE_PANEL_IDS.simulation]: { title: ["Toggle simulation panel", "Toggle simulation panel"] },
     [CORE_PANEL_IDS.componentControls]: {
-      title: ["Toggle connection builder", "Toggle connection builder"],
-      aria: ["Toggle connection builder", "Toggle connection builder"],
+      title: ["Toggle connections", "Toggle connections"],
+      aria: ["Toggle connections", "Toggle connections"],
     },
     [CORE_PANEL_IDS.cellbuilder]: {
       title: ["Toggle procedural cellbuilder panel", "Toggle procedural cellbuilder panel"],
