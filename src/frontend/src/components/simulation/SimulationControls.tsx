@@ -37,6 +37,7 @@ import { GltfClipControls } from "./simulationControls/GltfClipControls";
 
 export { type SimulationControlsProps, type ResultControlsOptions, type SimulationBodyProps } from "./simulationControls/types";
 export { useSimulationTabs, type SimulationTabs } from "./simulationControls/useSimulationTabs";
+export { SimTabButton } from "./simulationControls/tabs";
 
 /** The Simulation panel's content -- its tab strip and the active tab -- over tab state its host keeps. */
 export const SimulationContent: React.FC<{sim: SimulationTabs} & ResultControlsOptions> = ({sim, ...display}) => {

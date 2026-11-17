@@ -95,6 +95,9 @@ export interface SearchOrigin {
   shared?: boolean;
   /** Read only because an admin searched every scope -- there is no share into this one. */
   admin?: boolean;
+  /** Read from the provider store (`scope: "providers"`, no `scope_wire`) through a grant an admin
+   *  gave the searched scope: its tree and geometry are served by the searched scope's own routes. */
+  granted?: boolean;
 }
 
 /** One matching node. `node_id` is the id the provider's published tree uses for it, which is what

@@ -37,7 +37,9 @@ import type {
 /** How to take away each thing an owner made, until it is taken away. */
 const owned = new Map<string, Set<() => void>>();
 
-function own(owner: string, release: () => void): () => void {
+/** Keep `release` as something `owner` made: the returned function takes it away, once, and so does
+ *  `releaseOwnerLayers(owner)`. What else a plugin puts in the scene is kept here too (./sceneBox.ts). */
+export function own(owner: string, release: () => void): () => void {
     let set = owned.get(owner);
     if (!set) owned.set(owner, (set = new Set()));
     const held = set;

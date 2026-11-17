@@ -469,6 +469,24 @@ test("collection names come from the names route, and a known collection needs n
   assert.ok(!calls.includes("index:*"), "a refresh reads names only");
 });
 
+test("a scope whose collections are all granted from the provider store opens the first one", async () => {
+  const { api, calls } = makeApi();
+  // The names route lists granted collections; the unscoped index, the scope's own walk, holds none.
+  const granted: AssetsApiLike = {
+    ...api,
+    listCollections: async () => ["plant-a", "old-b"],
+    getAssetIndex: async (scope, collection) =>
+      collection ? api.getAssetIndex(scope, collection) : (calls.push("index:*"), { collections: {}, malformed: [] }),
+  };
+  const loader = createAssetBrowserLoader(useAssetBrowserStore, granted);
+  await loader.loadCollections(SCOPE);
+  const s = useAssetBrowserStore.getState();
+  assert.deepEqual(s.collections, ["old-b", "plant-a"]);
+  assert.equal(s.collection, "old-b", "the first name, as the picker would show it");
+  assert.ok(calls.includes("index:old-b"), "and it is opened, not only named");
+  assert.equal(s.indexLoading, false);
+});
+
 test("the cached tree is drawn before any read, then revalidated and rewritten", async () => {
   const { api, calls } = makeApi();
   const seeded = await api.getAssetIndex(SCOPE, "plant-a");

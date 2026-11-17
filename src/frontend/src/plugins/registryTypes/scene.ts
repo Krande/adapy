@@ -2,6 +2,8 @@
 // models it draws. Types only: part of the plugin API `../registry` versions and re-exports.
 
 import type { ColorScale } from "@/utils/colorScale";
+import type { ScenePickOptions, ScenePickSession } from "../scenePicks";
+import type { PlaceBoxOptions, PlacedBox } from "../sceneBox";
 
 /** Values a color-field provider returns for core to paint + legend. */
 export interface SceneColorFieldResult {
@@ -371,6 +373,16 @@ export interface SceneHandle {
   // Highlight `face`, name it in the info box and frame it (unless `frame: false`); null clears
   // the highlight. False when its model is no longer loaded.
   focusFace: (face: SceneFace | null, opts?: { frame?: boolean }) => boolean;
+  // (1.26.0) Take the scene's clicks on objects until `end()`: each is handed to `onPick` instead of
+  // selecting what was clicked (return false to let one through). For a tool that asks the user to
+  // point at objects. Works on either viewport; `remove(owner)` ends it too.
+  pickObjects: (owner: string, options: ScenePickOptions) => ScenePickSession;
+  // (1.26.0) Put a simple box in the scene with a transform gizmo on it until `end()`: the user moves
+  // and turns it with the cell builder's gizmo keys (G, R, X / Y / Z, Escape / Enter), and each change
+  // is handed to `onChange` as the box's pose in the scene's own coordinates. `set` moves it from the
+  // plugin's side. For a tool that asks where something stands. Works on either viewport;
+  // `remove(owner)` ends it too.
+  placeBox: (owner: string, options: PlaceBoxOptions) => PlacedBox;
 }
 
 /** An axis-aligned world-space box. */

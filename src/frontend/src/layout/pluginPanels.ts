@@ -87,13 +87,25 @@ function pluginVisibilityBinding(panelId: string): PanelBinding {
 function classicPlacement(slot: PanelSlot): PanelPlacement {
   switch (slot.region) {
     case "top-panel":
-      return { zone: CLASSIC_ZONES.menuColumn, order: PLUGIN_MENU_COLUMN_ORDER + (slot.order ?? 0) };
+      return {
+        zone: CLASSIC_ZONES.menuColumn,
+        order: PLUGIN_MENU_COLUMN_ORDER + (slot.order ?? 0),
+        ...(slot.floatSize ? { float: slot.floatSize } : {}),
+      };
     case "fem-sidebar":
       return {
         zone: CLASSIC_ZONES.menuColumn,
         parent: "core:simulation",
         as: slot.asTab ? "tab" : "inline",
         order: slot.asTab ? (slot.asTab.order ?? 0) : (slot.order ?? 0),
+      };
+    case "connection-builder":
+      // Always a tab of the connection builder panel, after the builder's own.
+      return {
+        zone: CLASSIC_ZONES.menuColumn,
+        parent: "core:component-controls",
+        as: "tab",
+        order: slot.asTab?.order ?? slot.order ?? 0,
       };
     case "admin":
       return { zone: CLASSIC_ZONES.window, parent: "core:admin", as: "tab", order: slot.order ?? 0 };
@@ -125,7 +137,7 @@ export function panelSpecFromSlot(
   const isToolbar = slot.region === "top-panel" && !!slot.topBarButton;
   return {
     id: slot.id,
-    title: slot.asTab?.label ?? slot.topBarButton?.label ?? local,
+    title: slot.asTab?.label ?? slot.topBarButton?.label ?? slot.title ?? local,
     icon: slot.topBarButton?.icon,
     hint: slot.topBarButton?.label,
     body: () =>
@@ -140,7 +152,7 @@ export function panelSpecFromSlot(
     // A slot with a top-bar button is opened and closed by that button. One
     // without is shown whenever its activation predicate holds, so it has no
     // visibility of its own to bind.
-    binding: slot.topBarButton ? pluginVisibilityBinding(slot.id) : undefined,
+    binding: slot.topBarButton || slot.toggled ? pluginVisibilityBinding(slot.id) : undefined,
     // Activation predicates need a plugin context, which only a mounted host
     // has; the region hosts keep evaluating them. Here: not disabled.
     available: () => !isDisabled(),

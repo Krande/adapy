@@ -340,12 +340,14 @@ export function originBadge(origin: SearchOrigin, projectName?: (id: string) => 
 
 /** The scope to reveal a hit in (its path form, for `revealInSourceScope`): null for the scope's
  *  own hits (reveal here), the origin's for a shared one -- or `blocked` with the reason when the
- *  origin has no path form this caller can use. */
+ *  origin has no path form this caller can use. A GRANTED hit lies in the provider store, which
+ *  nobody names, but the searched scope's own tree and geometry routes resolve it there through
+ *  the grant: it is revealed here, like the scope's own. */
 export function hitRevealScope(
   hit: SearchOrigin,
   projectName?: (id: string) => string | undefined,
 ): { scope: string | null } | { blocked: string } {
-  if (!isShared(hit)) return { scope: null };
+  if (!isShared(hit) || hit.granted === true) return { scope: null };
   if (hit.scope_wire) return { scope: hit.scope_wire };
   return { blocked: `Shared into this scope from ${originLabel(hit.scope, projectName)}, which cannot be opened from here` };
 }

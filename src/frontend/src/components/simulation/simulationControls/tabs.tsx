@@ -109,7 +109,8 @@ export const SimTabStrip: React.FC<{
     </div>
 );
 
-const SimTabButton: React.FC<{
+/** One tab of a panel's tab strip: the Simulation panel's, and the connection builder's. */
+export const SimTabButton: React.FC<{
     id: string;
     label: string;
     active: boolean;

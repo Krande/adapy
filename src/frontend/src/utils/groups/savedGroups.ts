@@ -424,6 +424,22 @@ export function rootMatchesTarget(root: TreeNodeData, target: GroupMemberTarget,
   );
 }
 
+/** Whether the loaded model at `root` is of the same published subject as `target` but was loaded
+ *  at ANOTHER node of it: one member's own model (a group's load puts each member in the scene
+ *  alone), or the subject loaded from higher up or lower down than when the member was stored. */
+function rootSharesSubject(root: TreeNodeData, target: GroupMemberTarget, loaded: readonly LoadedRef[]): boolean {
+  const sourceName = root.source_name;
+  if (target.kind !== "node" || !sourceName || !sourceName.startsWith("assets:")) return false;
+  const ref = refOfSourceName(sourceName, loaded);
+  if (!ref) return false;
+  return (
+    ref.provider === target.provider &&
+    ref.collection === target.collection &&
+    ref.subject === target.subject &&
+    (ref.node ?? ref.subject) !== (target.node ?? target.subject)
+  );
+}
+
 function endsWith(a: readonly string[], b: readonly string[]): boolean {
   if (b.length > a.length) return false;
   for (let i = 1; i <= b.length; i++) if (a[a.length - i] !== b[b.length - i]) return false;
@@ -448,7 +464,12 @@ export interface MemberResolution {
  *  `element: null` is the model's root row. Otherwise rows NAMED `element` whose path below the
  *  root matches -- exactly first; failing that, a path that ends with the stored one (the model
  *  is loaded from higher up now) or that the stored one ends with (from lower down). Several
- *  rows with the same name and path are all selected: the member cannot tell them apart either. */
+ *  rows with the same name and path are all selected: the member cannot tell them apart either.
+ *
+ *  A member whose own model is not loaded is still found in another model of the SAME SUBJECT
+ *  (`rootSharesSubject`): the model that IS the member -- its root row carries the member's name,
+ *  which is how a group's load names a member it loads alone -- or one that holds a row of that
+ *  name and path. Only when neither is in the scene is the member not loaded. */
 export function resolveMembers(
   members: readonly GroupMember[],
   idx: TreeIndices,
@@ -481,30 +502,49 @@ export function resolveMembers(
   };
   const notLoaded: GroupMember[] = [];
   const notFound: GroupMember[] = [];
+  /** Rows NAMED `element` under `candidates` whose path fits `member`'s: the exact ones, else the
+   *  loose ones. */
+  const namedRows = (member: GroupMember, element: string, candidates: readonly TreeNodeData[]): TreeNodeData[] => {
+    const exact: TreeNodeData[] = [];
+    const loose: TreeNodeData[] = [];
+    for (const root of candidates) {
+      for (const row of indexFor(root).get(element) ?? []) {
+        const path = pathBelow(row, root, idx);
+        if (sameList(path, member.path)) exact.push(row);
+        else if (endsWith(path, member.path) || endsWith(member.path, path)) loose.push(row);
+      }
+    }
+    return exact.length ? exact : loose;
+  };
   for (const member of members) {
     const matching = roots.filter((r) => rootMatchesTarget(r, member.target, loaded));
     if (matching.length === 0) {
-      notLoaded.push(member);
+      // Not its own model -- but the member may be in the scene alone, or in the subject loaded
+      // at another node.
+      const element = member.element;
+      const others = element === null ? [] : roots.filter((r) => rootSharesSubject(r, member.target, loaded));
+      const alone = others.filter((r) => r.top_name === element);
+      const hits = alone.length || element === null ? alone : namedRows(member, element, others);
+      if (hits.length === 0) notLoaded.push(member);
+      else hits.forEach(add);
       continue;
     }
     if (member.element === null) {
       matching.forEach(add);
       continue;
     }
-    const exact: TreeNodeData[] = [];
-    const loose: TreeNodeData[] = [];
-    for (const root of matching) {
-      for (const row of indexFor(root).get(member.element) ?? []) {
-        const path = pathBelow(row, root, idx);
-        if (sameList(path, member.path)) exact.push(row);
-        else if (endsWith(path, member.path) || endsWith(member.path, path)) loose.push(row);
-      }
-    }
-    const hits = exact.length ? exact : loose;
+    const hits = namedRows(member, member.element, matching);
     if (hits.length === 0) notFound.push(member);
     else hits.forEach(add);
   }
   return { rows, notLoaded, notFound };
+}
+
+/** The geometry rows of the model at `root` that are NOT at or below `keep` -- what is hidden so a
+ *  model loaded whole shows only the rows a group names in it. */
+export function rowsOutside(root: TreeNodeData, keep: readonly TreeNodeData[]): TreeNodeData[] {
+  const kept = new Set(geometryRowsUnder(keep).map((r) => r.id));
+  return geometryRowsUnder([root]).filter((r) => !kept.has(r.id));
 }
 
 /** Every geometry-bearing row at or below `rows`, each once. */
@@ -552,7 +592,12 @@ export function groupScenePartsOf(
       if (!root || row.rangeId == null) continue;
       let part = byRoot.get(root.id);
       if (!part) {
-        part = { root, target: member.target, elements: [], seen: new Set() };
+        // The model the rows are IN: the member's own, else the one it was found in (a member
+        // loaded alone, the subject loaded at another node), so a run names the model it measured.
+        const target = rootMatchesTarget(root, member.target, loaded)
+          ? member.target
+          : (root.source_name ? targetForSource(root.source_name, loaded) : null) ?? member.target;
+        part = { root, target, elements: [], seen: new Set() };
         byRoot.set(root.id, part);
       }
       const element = String(row.rangeId);

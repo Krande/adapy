@@ -292,6 +292,18 @@ test("a shared hit is badged with its origin and exported from here, read there"
   assert.match(hitExportNote({ scope: "projects/p2", shared: true, admin: true }, names) ?? "", /admin search .* from plant-a/);
 });
 
+test("a hit granted from the provider store is revealed in the searched scope, not blocked", () => {
+  // As the server reports a granted store partition: another scope's, with no path form.
+  const granted = { scope: "providers", scope_wire: null, shared: true, granted: true };
+  assert.deepEqual(hitRevealScope(granted), { scope: null });
+  // An admin's all_scopes read of a dataset the scope also holds a grant on: still through the grant.
+  assert.deepEqual(hitRevealScope({ ...granted, admin: true }), { scope: null });
+  // The store read WITHOUT a grant (an admin's all_scopes alone) has no route from this scope.
+  assert.ok("blocked" in hitRevealScope({ scope: "providers", scope_wire: null, shared: true, admin: true }));
+  // It is still badged as coming from elsewhere.
+  assert.equal(originBadge(granted), "from providers");
+});
+
 test("a partition is picked by the server's counts key, own and other scopes' apart", () => {
   assert.equal(partitionKey({ provider: "v", collection: "alpha" }), "v/alpha");
   assert.equal(partitionKey({ provider: "v", collection: "alpha", scope: "projects/p1", shared: false }), "v/alpha");

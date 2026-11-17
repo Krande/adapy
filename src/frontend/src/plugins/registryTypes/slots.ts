@@ -12,14 +12,15 @@ import type { PluginLayers, PluginPlayback, PluginSimulations } from "./playback
 
 // The named mount regions core exposes. Deliberately small
 // (`fem-sidebar` covers the FEM simulation panel, `top-panel` the menu bar,
-// `admin` the /admin page's tab strip); more are added on demand rather than
-// up-front.
+// `admin` the /admin page's tab strip, `connection-builder` the connection
+// builder panel's); more are added on demand rather than up-front.
 export type PluginRegion =
   | "fem-sidebar"
   | "top-panel"
   | "scene-info"
   | "storage-detail"
-  | "admin";
+  | "admin"
+  | "connection-builder";
 
 // ---------------------------------------------------------------------------
 // Placement (1.1.0)
@@ -221,6 +222,19 @@ export interface PanelSlot {
   render: (ctx: AdaPluginContext) => React.ReactNode;
   topBarButton?: TopBarButtonSpec;
   /**
+   * Opened and closed by code, with no top-bar button (1.26.0): a button of the plugin's own
+   * elsewhere -- an action of the playback transport, say -- shows and hides it with `toggle` /
+   * `reveal` / `hide` (`@/viewer-core`). It has the open state a top-bar panel has, so it is drawn
+   * only while open, keeps its place in a layout while closed, and starts closed. In the panel
+   * column core frames it -- its `title`, float, move and close -- as nothing else there closes it.
+   */
+  toggled?: boolean;
+  /** The panel's name in a window's title bar, a group's tab and a menu (1.26.0). Default: a
+   *  top-bar button's or tab's label, else its id. */
+  title?: string;
+  /** With `dock: "float"`: the size of its window the first time (1.26.0). */
+  floatSize?: { w: number; h: number };
+  /**
    * May open in a browser window of its own (1.13.0). Only for a panel that works
    * without the 3D scene: the new window boots canvas-less, with stores of its own.
    * Applies to a panel that stands on its own (`top-panel`, or one naming a `dock`).
@@ -240,6 +254,10 @@ export interface PanelSlot {
   // `admin` panels are ALWAYS tabs (the admin page is a tab strip), so there
   // `asTab` is optional and only supplies the label; without it the namespaced
   // panel id is shown.
+  //
+  // `connection-builder` panels (1.26.0) are always tabs too, of the connection
+  // builder panel, after the builder's own: `asTab` supplies the label, order
+  // and badge; without it the panel's `title`, else its id, is the label.
   asTab?: {
     label: string;
     order?: number;
@@ -437,6 +455,52 @@ export interface SimulationProviderUi {
   openResultLiveLabel?: string;
 }
 
+// ---------------------------------------------------------------------------
+// Storage asset types (1.26.0)
+//
+// The storage browser lists a scope's files. Some of what a scope has is not a file a person
+// uploaded and opens: it is an asset of several stored files under one name and version, kept
+// under `assets/` (which the browser's file list leaves out) or reached through a grant, and
+// only the plugin that defines the kind can say which there are and what one is. This slot is
+// where it says so: core gives the kind a section of the browser and an entry of its "+" menu,
+// and the plugin fills both. Core never learns what the kind is.
+// ---------------------------------------------------------------------------
+
+/** What an asset type's callbacks are told. */
+export interface StorageAssetTypeArgs {
+  /** The scope the storage browser shows. */
+  scope: string;
+}
+
+/** A form of the plugin's, opened from the storage browser's "+" menu. */
+export interface StorageAssetUpload {
+  /** The menu entry's text ("Upload a material library…"). */
+  label: string;
+  /** The dialog's title; `label` without a trailing ellipsis when omitted. */
+  title?: string;
+  /** The form. `close` closes the dialog; the plugin calls it when it is done. */
+  render: (ctx: AdaPluginContext, args: StorageAssetTypeArgs & { close: () => void }) => React.ReactNode;
+}
+
+/** A kind of stored asset a plugin adds to the storage browser. */
+export interface StorageAssetType {
+  id: string; // namespaced on register
+  /** The section's heading: what the kind is called, in the plural. */
+  label: string;
+  /** Sort key among the asset types; ties broken by id. */
+  order?: number;
+  /**
+   * Whether the open scope has this kind at all. False leaves out the section and the "+" entry.
+   * Asked on every render of the browser: cheap, synchronous, no I/O. A plugin whose answer
+   * arrives later says so with `notifyPluginActivationChanged`, and the browser asks again.
+   */
+  available?: (ctx: AdaPluginContext, args: StorageAssetTypeArgs) => boolean;
+  /** The section's body: the scope's assets of this kind, as the plugin lists them. */
+  render: (ctx: AdaPluginContext, args: StorageAssetTypeArgs) => React.ReactNode;
+  /** Adding one: an entry of the "+" menu that opens the plugin's form in a dialog. */
+  upload?: StorageAssetUpload;
+}
+
 export interface UrlParamHandler {
   params: string[];
   // Return true when the plugin consumed the params (core stops offering them).
@@ -461,6 +525,8 @@ export interface PluginSpec {
   // UI for simulation providers, by provider id or by domain (1.17.0). Read by core's
   // Simulations panel.
   simulationProviders?: SimulationProviderUi[];
+  // Kinds of stored asset in the storage browser, each with its own list and upload form (1.26.0).
+  storageAssetTypes?: StorageAssetType[];
   // Whole activities (1.1.0). Consumed by a shell that has modes; ignored by one
   // that does not, including core's own UI.
   modes?: PluginModeSpec[];
@@ -483,6 +549,7 @@ export interface RegisteredPlugin {
   renderableFileProviders: RenderableFileProvider[];
   urlParamHandlers: UrlParamHandler[];
   simulationProviders: SimulationProviderUi[];
+  storageAssetTypes: StorageAssetType[];
   modes: PluginModeSpec[];
   // Ids of the UI shells this plugin contributed (the shells themselves live in
   // the shell registry); kept for introspection / audit.

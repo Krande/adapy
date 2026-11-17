@@ -367,6 +367,7 @@ const GroupDetails: React.FC<{ scope: string; group: SavedGroup; shared: boolean
       .then((out) => {
         const parts: string[] = [];
         parts.push(`${out.loaded} model${out.loaded === 1 ? "" : "s"} loaded${out.already ? `, ${out.already} already in the scene` : ""}`);
+        if (out.hidden) parts.push(`${out.hidden} other object${out.hidden === 1 ? "" : "s"} of the loaded documents hidden`);
         parts.push(`${out.selection.ranges} object${out.selection.ranges === 1 ? "" : "s"} selected`);
         if (out.failed.length) {
           parts.push(
@@ -428,7 +429,8 @@ const GroupDetails: React.FC<{ scope: string; group: SavedGroup; shared: boolean
           disabled={!shared || !!loading}
           title={
             shared
-              ? "Load the models this group's members live in -- from what is already published or stored, e.g. geometry requested in an earlier session -- then select the group"
+              ? // Was: "Load the models this group's members live in -- from what is already published or stored, e.g. geometry requested in an earlier session -- then select the group"
+                "Load this group's members -- each alone where its source delivers one node by itself, else its document with everything but the members hidden -- from what is already published or stored, then select the group"
               : "Loading published geometry needs the server, and this viewer is not connected to one"
           }
           onClick={loadIntoScene}

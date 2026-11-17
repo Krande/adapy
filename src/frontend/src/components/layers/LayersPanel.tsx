@@ -4,7 +4,7 @@
 
 import React, { useSyncExternalStore } from "react";
 
-import { PanelHeaderActions, usePanelHeaderActions } from "@/components/ui/PanelFrame";
+import { PanelCard } from "@/components/ui/PanelFrame";
 import { listLayers, setLayerOpacity, setLayerVisible, subscribeLayers, type LayerEntry } from "@/state/layerRegistry";
 import { useLayersPanelStore } from "@/state/layersPanelStore";
 
@@ -45,7 +45,7 @@ export const LayersBody: React.FC = () => {
     groups.set(key, [...(groups.get(key) ?? []), layer]);
   }
   return (
-    <div className="flex flex-col gap-2 text-xs text-white" data-layers-panel="true">
+    <div className="flex flex-col gap-2 text-xs text-[var(--ada-panel-text)]" data-layers-panel="true">
       {[...groups].map(([group, rows]) => (
         <div key={group} className="flex flex-col gap-1">
           {group && <div className="text-gray-400 uppercase tracking-wide">{group}</div>}
@@ -60,19 +60,16 @@ export const LayersBody: React.FC = () => {
   );
 };
 
-/** The panel in the classic UI's card: shown while its flag is set. */
+/** The panel in the classic UI's card: shown while its flag is set. The card is the panel
+ *  column's own (`PanelCard`): the theme's panel colours and border, and the header's actions,
+ *  as every other panel there has -- it had a background of its own, darker than the theme's. */
 const LayersPanel: React.FC = () => {
   const open = useLayersPanelStore((s) => s.panelOpen);
-  const hosted = usePanelHeaderActions().length > 0;
   if (!open) return null;
   return (
-    <div className="flex flex-col gap-2 text-xs text-white p-2 bg-gray-900/70 rounded-md min-w-[300px] max-w-[420px]">
-      <div className="flex items-center gap-2">
-        <span className="font-bold">Layers</span>
-        {hosted && <PanelHeaderActions />}
-      </div>
+    <PanelCard className="flex flex-col gap-2 min-w-[300px] max-w-[420px]" heading="Layers">
       <LayersBody />
-    </div>
+    </PanelCard>
   );
 };
 

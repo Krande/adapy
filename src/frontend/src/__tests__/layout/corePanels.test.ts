@@ -188,12 +188,6 @@ const MENU_TOGGLES: Array<{ pressed: string; id: string; flag: string; onClick: 
     onClick: () => useSimulationStore.getState().setPanelOpen(!useSimulationStore.getState().panelOpen),
   },
   {
-    pressed: "layersPanelOpen",
-    id: CORE_PANEL_IDS.layers,
-    flag: "layersPanelOpen",
-    onClick: () => useLayersPanelStore.getState().setPanelOpen(!useLayersPanelStore.getState().panelOpen),
-  },
-  {
     pressed: "showWebsocketInfoBox",
     id: CORE_PANEL_IDS.wsStatus,
     flag: "showWebsocketInfoBox",
@@ -384,4 +378,15 @@ test("panelActions registers the catalogue on first use", () => {
   assert.equal(panelActions.isPanelOpen(CORE_PANEL_IDS.scene), true);
   panelActions.hide(CORE_PANEL_IDS.scene);
   assert.equal(useSceneInfoStore.getState().show_scene_info_box, false);
+});
+
+test("the Layers panel has no top-bar button: it is opened from beside what draws the layers", () => {
+  const layers = getPanel(CORE_PANEL_IDS.layers)!;
+  assert.equal(layers.toolbar, undefined);
+  assert.equal(listToolbarPanels().some((p) => p.id === CORE_PANEL_IDS.layers), false);
+  // Still a panel with an open state of its own, for a button elsewhere and the palette.
+  useLayersPanelStore.setState({ panelOpen: false });
+  layers.binding!.setOpen(true);
+  assert.equal(useLayersPanelStore.getState().panelOpen, true);
+  useLayersPanelStore.setState({ panelOpen: false });
 });
