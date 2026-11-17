@@ -21,7 +21,7 @@ test("Options: by default the Settings button and the shortcut keys, no settings
   assert.match(plain, /Shortcut Keys/);
   assert.ok(plain.indexOf(">Settings<") < plain.indexOf("Shortcut Keys"), "Settings above the shortcut keys");
   // The settings themselves are the Settings window's; the build line moved there too.
-  assert.doesNotMatch(plain, /Scene config|Performance|3D mouse|Camera controls|Build:/);
+  assert.doesNotMatch(plain, /Scene config|Performance|3D mouse|>Controls<|Build:/);
 });
 
 test("Options: a shell picks and orders its sections; settings sections stay collapsible here", () => {
@@ -44,12 +44,12 @@ test("Settings: one tab per available section, in the classic order, the first o
   const html = renderToStaticMarkup(React.createElement(SettingsBody));
   const tabs = [...html.matchAll(/role="tab"[^>]*>([^<]+)</g)].map((m) => m[1]);
   // The REST-only sections (Session restore, Conversion engine) are left out outside REST mode.
-  assert.deepEqual(tabs, ["Scene config", "Appearance", "Theme", "Performance", "Calculations", "Camera controls", "3D mouse"]);
+  assert.deepEqual(tabs, ["Scene config", "Appearance", "Theme", "Performance", "Calculations", "Controls", "3D mouse"]);
   assert.match(html, /aria-selected="true"[^>]*>Scene config</);
   assert.match(html, /role="tabpanel" aria-label="Scene config"/);
   assert.match(html, /Build:/);
   const camera = renderToStaticMarkup(React.createElement(SettingsBody, { initialTab: "camera" }));
-  assert.match(camera, /aria-selected="true"[^>]*>Camera controls</);
+  assert.match(camera, /aria-selected="true"[^>]*>Controls</);
 });
 
 test("a command that opens a setting has a Settings tab, and its control is on that tab", async () => {

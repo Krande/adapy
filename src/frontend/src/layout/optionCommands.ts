@@ -204,6 +204,8 @@ export function optionDescriptors(): OptionDescriptor[] {
     }),
     // --- 3D mouse ---
     // --- Camera controls ---
+    {kind: "open", id: "controls-profile", title: "Controls profile…", group: "Camera controls", keywords: [...CAM_KEYS, "profile", "genie", "keys", "shortcuts", "selection"],
+      setters: [], focus: "controls-profile"},
     {kind: "choice", id: "camera-preset", title: "Camera controls", group: "Camera controls", keywords: [...CAM_KEYS, "preset"],
       setters: ["setCameraPreset"], choices: CAMERA_PRESET_IDS.map((id) => ({value: id, label: CAMERA_PRESETS[id].label})),
       get: () => presetOf(cam().mapping), set: (v) => { const id = CAMERA_PRESET_IDS.find((x) => x === v); if (id) cam().setCameraPreset(id); }},

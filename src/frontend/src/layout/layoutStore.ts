@@ -45,6 +45,8 @@ export interface LayoutStoreState {
   setKeyOverride(id: string, chord: string | null | undefined): void;
   /** Every shortcut back to its default. */
   resetKeyOverrides(): void;
+  /** All the user's keys at once (a controls profile's): exactly these overrides, every other shortcut on its default. */
+  replaceKeyOverrides(overrides: Readonly<Record<string, string | null>>): void;
   /** Pin or unpin a panel in a composed shell (by shell id). */
   setPinned(shell: string, panel: string, pinned: boolean): void;
   /** A composed shell's global panels' state (`GlobalPanelsPrefs`); null forgets it. */
@@ -252,6 +254,12 @@ export function createLayoutStore(): StoreApi<LayoutStoreState> {
         const { keyOverrides, ...rest } = get().prefs;
         if (!keyOverrides) return;
         setPrefs(rest);
+      },
+      replaceKeyOverrides(overrides) {
+        const { keyOverrides: _old, ...rest } = get().prefs;
+        const next: Record<string, string | null> = {};
+        for (const [id, chord] of Object.entries(overrides)) if (chord === null || (typeof chord === "string" && chord.trim())) next[id] = chord;
+        setPrefs(Object.keys(next).length ? { ...rest, keyOverrides: next } : rest);
       },
       setUiFreeze(on, shell = "core") {
         const prefs = get().prefs;
