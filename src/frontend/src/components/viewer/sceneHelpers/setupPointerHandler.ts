@@ -19,7 +19,6 @@ import CameraControls from "camera-controls";
 import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
 import {useTreeViewStore} from "@/state/treeViewStore";
 import {useSceneMenuStore} from "@/state/sceneMenuStore";
-import {useCellBuilderStore} from "@/state/cellBuilderStore";
 import {selectedLeafNodes} from "@/utils/tree_view/treeNavigation";
 import {useFemConceptsStore} from "@/state/femConceptsStore";
 import {useObjectInfoStore} from "@/state/objectInfoStore";
@@ -171,8 +170,9 @@ export function setupPointerHandler(
     // the selection keeps the selection (as in the tree); anything else is selected first, by the
     // same picking a left click does. Nothing under the cursor: no menu, and the selection stays.
     container.addEventListener("contextmenu", async (e: MouseEvent) => {
-        // The cell builder has its own right-click menu (ports) while it is active.
-        if (useCellBuilderStore.getState().active !== null) return;
+        // A right-click on a cell or a port is the cell builder's menu: its handler, on the input
+        // surface below, stops the event. Anything else is the scene's, also while a procedural
+        // model is open behind the mode.
         e.preventDefault();
         if (pointerDownPos) {
             const dx = e.clientX - pointerDownPos.x;

@@ -517,7 +517,9 @@ export const onPointerCancel = (ctx: CellBuilderScene, ev: PointerEvent) => {
     finalizeDrag(ctx, ev, true);
 };
 
-// Desktop: right-click over a cell opens the same context menu.
+// Desktop: right-click over a cell opens the same context menu. A menu opened
+// here stops the event, so the scene's own menu (setupPointerHandler) does not
+// open as well; a right-click on anything else is the scene's.
 export const onContextMenu = (ctx: CellBuilderScene, ev: MouseEvent) => {
     const st = useCellBuilderStore.getState();
     if (!st.active) return;
@@ -527,12 +529,14 @@ export const onContextMenu = (ctx: CellBuilderScene, ev: MouseEvent) => {
     const port = pickPort(ctx);
     if (port) {
         ev.preventDefault();
+        ev.stopPropagation();
         st.openPortMenu(ev.clientX, ev.clientY, port.cellId, port.portName);
         return;
     }
     const hit = pickBuilderMesh(ctx);
     if (!hit) return;
     ev.preventDefault();
+    ev.stopPropagation();
     const cellId = hit.object.userData.__cellId as string;
     st.openContextMenu(ev.clientX, ev.clientY, cellId);
 };

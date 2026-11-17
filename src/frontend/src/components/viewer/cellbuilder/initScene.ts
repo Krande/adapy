@@ -42,6 +42,7 @@ import {endEquipEntry, endOpenEntry} from "./insertTools";
 import {onKeyDown} from "./keyboard";
 import {viewportInputElement} from "@/viewport/input";
 import {openedModelFramer} from "./frameOpened";
+import {shownInScene} from "./cellBoxSelect";
 
 export function initCellBuilderScene(
     renderer: THREE.WebGLRenderer,
@@ -53,13 +54,22 @@ export function initCellBuilderScene(
     installCellGizmo(ctx);
     installPortGizmo(ctx);
 
+    // The builder takes the pointer and its keys only while its cells are drawn. A shell may keep
+    // the procedural model open behind a mode that hides them (the docked UI's Output without a
+    // comparison, its FEM modes): there a click, a right-click and Ctrl+Z / Shift+H / Delete / G
+    // ... are the viewer's, not the hidden cells' (a Delete left to the builder deleted the cell
+    // selected back in Input). What a press or a key started (a drag, a typed entry) still gets
+    // its keys and moves, and a release and a cancel always reach it, to end it.
+    const shown = () => shownInScene(ctx.cellsGroup);
+    const busy = () =>
+        ctx.drag !== null || ctx.modalMove !== null || ctx.numEntry !== null || ctx.placeEntry !== null || ctx.equipEntry !== null || ctx.openEntry !== null;
     // Stable handler identities, so add/removeEventListener pair up.
-    const hPointerDown = (ev: PointerEvent) => onPointerDown(ctx, ev);
-    const hPointerMove = (ev: PointerEvent) => onPointerMove(ctx, ev);
+    const hPointerDown = (ev: PointerEvent) => void (shown() && onPointerDown(ctx, ev));
+    const hPointerMove = (ev: PointerEvent) => void ((shown() || busy()) && onPointerMove(ctx, ev));
     const hPointerUp = (ev: PointerEvent) => onPointerUp(ctx, ev);
     const hPointerCancel = (ev: PointerEvent) => onPointerCancel(ctx, ev);
-    const hContextMenu = (ev: MouseEvent) => onContextMenu(ctx, ev);
-    const hKeyDown = (ev: KeyboardEvent) => onKeyDown(ctx, ev);
+    const hContextMenu = (ev: MouseEvent) => void (shown() && onContextMenu(ctx, ev));
+    const hKeyDown = (ev: KeyboardEvent) => void ((shown() || busy()) && onKeyDown(ctx, ev));
 
     const el = viewportInputElement(ctx.renderer);
     // Capture phase so a grab on a builder face wins over the scene's own
