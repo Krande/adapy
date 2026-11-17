@@ -1,8 +1,9 @@
 /**
- * Shift + left drag while the cell builder edits its cells: the rectangle selects CELLS (and
- * equipment, openings, loft members), not the scene's objects -- rightwards a window (a cell
- * wholly inside), leftwards a crossing (a cell that touches it), added to the builder's
- * multi-select set like the scene's rectangle adds to the scene's selection.
+ * The selection rectangle (a drag the camera mapping calls "select": Shift + left by default) while the
+ * cell builder edits its cells selects CELLS (and equipment, openings, loft members), not the scene's
+ * objects -- rightwards a window (a cell wholly inside), leftwards a crossing (a cell that touches it),
+ * added to the builder's multi-select set or replacing it, as the scene's rectangle does with the scene's
+ * selection.
  *
  * "Edits its cells" is the builder's layer as it is drawn: a procedural model open, its cells
  * shown, in the topology representation, and the layer itself visible. A mode that hides the
@@ -73,35 +74,15 @@ export function cellsInScreenRect(
     return out;
 }
 
-/** A Shift+click (a press that did not move) while the builder edits its cells: the cell under the
- *  pointer goes into the multi-select set, or out of it, as Shift+click does on the scene's objects.
- *  `ndc` is the pointer in the view's normalised device coordinates. Returns whether a cell was hit. */
-export function toggleCellAt(layer: THREE.Object3D, camera: THREE.Camera, ndc: {x: number; y: number}): boolean {
-    const st = useCellBuilderStore.getState();
-    if (st.selectMode === "none") return false;
-    const meshes: THREE.Object3D[] = [];
-    layer.traverse((o) => {
-        if (typeof o.userData.__cellId === "string" && (o as THREE.Mesh).isMesh && shownInScene(o)) meshes.push(o);
-    });
-    camera.updateMatrixWorld();
-    const ray = new THREE.Raycaster();
-    ray.setFromCamera(new THREE.Vector2(ndc.x, ndc.y), camera);
-    const hit = ray.intersectObjects(meshes, false)[0];
-    if (!hit) return false;
-    st.toggleCellSelection(hit.object.userData.__cellId as string);
-    requestRender();
-    return true;
-}
-
-/** Add the cells the rectangle takes to the builder's selection (the first one selected stays the
- *  primary). Returns how many it took. */
-export function selectCellsInScreenRect(layer: THREE.Object3D, camera: THREE.Camera, rect: NdcRect, mode: ScreenBoxMode): number {
+/** The cells the rectangle takes, added to the builder's selection (the first one selected stays the
+ *  primary) or, with `add` false, in place of it. Returns how many it took. */
+export function selectCellsInScreenRect(layer: THREE.Object3D, camera: THREE.Camera, rect: NdcRect, mode: ScreenBoxMode, add = true): number {
     camera.updateMatrixWorld();
     const viewProj = new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse).elements;
     const taken = cellsInScreenRect(drawnCellBounds(layer), viewProj, rect, mode);
-    if (taken.length) {
+    if (taken.length || !add) {
         const st = useCellBuilderStore.getState();
-        st.selectCells([...st.selectedCellIds, ...taken]);
+        st.selectCells(add ? [...st.selectedCellIds, ...taken] : taken);
         requestRender();
     }
     return taken.length;

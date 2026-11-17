@@ -1,8 +1,9 @@
-// Shift + left drag on the three.js viewport: a rectangle, rightwards a window (wholly inside),
-// leftwards a crossing (touching), added to the selection. It selects the scene's objects in every
-// mode -- also while a procedural model is open behind the mode with its layer hidden, which used to
-// turn the gesture off altogether -- and the builder's CELLS while the builder edits them. Driven
-// through the real pointer handler with a stand-in container, window and viewport.
+// The selection rectangle on the three.js viewport: a drag the camera mapping calls "select" (Shift +
+// left by default, any left drag in the GeniE controls), rightwards a window (wholly inside), leftwards a
+// crossing (touching); held with Shift or Ctrl it adds to the selection, else it replaces it. It selects
+// the scene's objects in every mode -- also while a procedural model is open behind the mode with its
+// layer hidden, which used to turn the gesture off altogether -- and the builder's CELLS while the builder
+// edits them. Driven through the real pointer handler with a stand-in container, window and viewport.
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -14,6 +15,8 @@ const { setupPointerHandler } = await import("@/components/viewer/sceneHelpers/s
 const { BUILDER_LAYER, builderLayerEditing, cellsInScreenRect, drawnCellBounds } = await import("@/components/viewer/cellbuilder/cellBoxSelect");
 const { useCellBuilderStore } = await import("@/state/cellBuilderStore");
 const { setActiveViewport } = await import("@/viewport/api/viewportApi");
+const { useCameraControlsStore } = await import("@/state/cameraControlsStore");
+const { CAMERA_PRESETS, cloneMapping } = await import("@/utils/camera/cameraMapping");
 const { rectTakesBounds } = await import("@/utils/bboxSelection/screenRect");
 const { KeySet } = await import("@/viewport/native/nativeBoxSelection");
 const { objectKey } = await import("@/viewport/native/nativeScene");
@@ -101,16 +104,18 @@ function handler(scene: InstanceType<typeof THREE.Scene>) {
   const fire = (fns: Iterable<Fn> | undefined, e: object) => {
     for (const fn of [...(fns ?? [])]) fn(e);
   };
-  const event = (p: { x: number; y: number }) => ({
-    button: 0, shiftKey: true, ctrlKey: false, metaKey: false, altKey: false, clientX: p.x, clientY: p.y,
+  type Mods = { shiftKey?: boolean; ctrlKey?: boolean; button?: number };
+  const event = (p: { x: number; y: number }, mods: Mods) => ({
+    button: 0, shiftKey: false, ctrlKey: false, metaKey: false, altKey: false, pointerType: "mouse", ...mods, clientX: p.x, clientY: p.y,
     stopPropagation() {}, preventDefault() {},
   });
   return {
-    drag(from: { x: number; y: number }, to: { x: number; y: number }) {
-      fire(own.get("pointerdown"), event(from));
-      fire(onWindow.get("pointermove"), event({ x: (from.x + to.x) / 2, y: (from.y + to.y) / 2 }));
-      fire(onWindow.get("pointermove"), event(to));
-      fire(onWindow.get("pointerup"), event(to));
+    /** A drag with Shift held, unless `mods` says otherwise. */
+    drag(from: { x: number; y: number }, to: { x: number; y: number }, mods: Mods = { shiftKey: true }) {
+      fire(own.get("pointerdown"), event(from, mods));
+      fire(onWindow.get("pointermove"), event({ x: (from.x + to.x) / 2, y: (from.y + to.y) / 2 }, mods));
+      fire(onWindow.get("pointermove"), event(to, mods));
+      fire(onWindow.get("pointerup"), event(to, mods));
     },
     done() {
       detach();
@@ -214,18 +219,58 @@ test("Shift+drag in the builder (Topology Input) selects cells: a window, then a
     assert.deepEqual(useCellBuilderStore.getState().selectedCellIds, ["A", "B"]);
     assert.deepEqual(useCellBuilderStore.getState().selection, { kind: "cell", cellId: "A" }, "the first stays the primary");
     assert.equal(v.calls.length, 0, "the scene's selection is left alone");
-    // A press that never moves is a Shift+click, not a rectangle: off a cell nothing changes, on
-    // one it takes the cell out of the selection, or puts it in.
+    // A press that never moves is a click (the builder's own), not a rectangle.
     h.drag(RIGHTWARDS[0], RIGHTWARDS[0]);
     assert.deepEqual(useCellBuilderStore.getState().selectedCellIds, ["A", "B"]);
-    const onA = { x: 120, y: 80 };
-    h.drag(onA, onA);
-    assert.deepEqual(useCellBuilderStore.getState().selectedCellIds, ["B"]);
-    h.drag(onA, onA);
-    assert.deepEqual(useCellBuilderStore.getState().selectedCellIds, ["B", "A"]);
   } finally {
     h.done();
     withdraw();
     closeModel();
+  }
+});
+
+test("the GeniE controls: a plain left drag draws the rectangle and replaces the selection; Shift or Ctrl adds; the right button never selects", () => {
+  const { scene } = stage();
+  const v = viewport();
+  const withdraw = setActiveViewport(v.api);
+  const before = useCameraControlsStore.getState().mapping;
+  useCameraControlsStore.getState().setMapping(cloneMapping(CAMERA_PRESETS.genie.mapping));
+  const h = handler(scene);
+  try {
+    h.drag(...RIGHTWARDS, {});
+    h.drag(...LEFTWARDS, { shiftKey: true });
+    h.drag(...RIGHTWARDS, { ctrlKey: true });
+    // The right button orbits, Shift + right zooms, Ctrl + right pans: none of them selects.
+    h.drag(...RIGHTWARDS, { button: 2 });
+    h.drag(...RIGHTWARDS, { button: 2, shiftKey: true });
+    assert.deepEqual(v.calls, [
+      { mode: "window", ids: ["A"], add: false },
+      { mode: "crossing", ids: ["A", "B"], add: true },
+      { mode: "window", ids: ["A"], add: true },
+    ]);
+    // In the builder, a plain drag replaces the cell selection.
+    openModel({ selectedCellIds: ["C"], selection: { kind: "cell", cellId: "C" } });
+    h.drag(...LEFTWARDS, {});
+    assert.deepEqual(useCellBuilderStore.getState().selectedCellIds, ["A", "B"]);
+  } finally {
+    h.done();
+    withdraw();
+    closeModel();
+    useCameraControlsStore.getState().setMapping(before);
+  }
+});
+
+test("the default controls: a plain or Ctrl + left drag is the camera's, not a rectangle", () => {
+  const { scene } = stage();
+  const v = viewport();
+  const withdraw = setActiveViewport(v.api);
+  const h = handler(scene);
+  try {
+    h.drag(...RIGHTWARDS, {});
+    h.drag(...RIGHTWARDS, { ctrlKey: true });
+    assert.equal(v.calls.length, 0);
+  } finally {
+    h.done();
+    withdraw();
   }
 });

@@ -221,6 +221,11 @@ export const onPointerDown = (ctx: CellBuilderScene, ev: PointerEvent) => {
     if (!st.active || ev.button !== 0) return;
     setPointer(ctx, ev);
 
+    // A press on a translate / rotate gizmo's handle (a cell's or a port's) is the gizmo's. The gizmo
+    // listens on this same element and still gets it; stopped here, no selection rectangle starts
+    // behind it (setupPointerHandler draws one where the camera mapping calls a left drag "select").
+    if ((ctx.gizmo.object && ctx.gizmo.axis) || (ctx.portGizmo.object && ctx.portGizmo.axis)) ev.stopPropagation();
+
     // Axis-locked modal move active: a left-click confirms the placement and
     // drops the axis lock (back to the 3-axis gizmo). No handle grab needed.
     if (ctx.modalMove) {
@@ -342,10 +347,9 @@ export const resolveClickSelection = (ctx: CellBuilderScene, target: {cellId: st
         st.setSelection({kind: "face", cellId: cell.id, faceIndex: target.faceIndex});
         return;
     }
-    // Whole-cell pick: add-mode, or a Ctrl / Cmd click as on the scene's objects,
-    // toggles the cell in the multi-select set (so several cells can be
-    // copied/hidden at once); otherwise it's a single selection. (A Shift click
-    // never gets here: the Shift press is the scene's rectangle, cellBoxSelect.)
+    // Whole-cell pick: add-mode, or a Shift / Ctrl / Cmd click as on the scene's
+    // objects, toggles the cell in the multi-select set (so several cells can be
+    // copied/hidden at once); otherwise it's a single selection.
     if (st.cellAddMode || isAdditiveClick(ev)) {
         st.toggleCellSelection(cell.id);
     } else {

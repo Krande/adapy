@@ -209,7 +209,7 @@ export function optionDescriptors(): OptionDescriptor[] {
       get: () => presetOf(cam().mapping), set: (v) => { const id = CAMERA_PRESET_IDS.find((x) => x === v); if (id) cam().setCameraPreset(id); }},
     ...MOUSE_BUTTONS.map((button): ChoiceOption => ({
       kind: "choice", id: `camera-drag-${button}`, title: `Camera: ${button} drag`, group: "Camera controls", keywords: [...CAM_KEYS, "button", "drag"],
-      setters: ["setDragAction"], choices: CAMERA_ACTIONS.map((a) => ({value: a, label: a === "none" ? "Nothing" : a[0].toUpperCase() + a.slice(1)})),
+      setters: ["setDragAction"], choices: CAMERA_ACTIONS.map((a) => ({value: a, label: a === "none" ? "Nothing" : a === "select" ? "Box select" : a[0].toUpperCase() + a.slice(1)})),
       get: () => cam().mapping.drag[button].none,
       set: (v) => { const a = CAMERA_ACTIONS.find((x) => x === v); if (a) cam().setDragAction(button, "none", a); },
     })),

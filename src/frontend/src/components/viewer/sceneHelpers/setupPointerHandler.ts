@@ -31,7 +31,9 @@ import {selectInScreenRect} from "@/utils/bboxSelection/applyBoxSelection";
 import {drawMarquee, marqueeElement} from "@/utils/bboxSelection/marquee";
 import {ndcRect, screenBoxMode} from "@/utils/bboxSelection/screenBox";
 import {pickMeshAt, pickPointAt} from "@/viewport/picking";
-import {builderLayerEditing, selectCellsInScreenRect, toggleCellAt} from "@/components/viewer/cellbuilder/cellBoxSelect";
+import {builderLayerEditing, selectCellsInScreenRect} from "@/components/viewer/cellbuilder/cellBoxSelect";
+import {useCameraControlsStore} from "@/state/cameraControlsStore";
+import {mouseButtonOf, selectsByDrag} from "@/utils/camera/cameraMapping";
 
 // A second click/tap inside this window + radius counts as a double.
 // 350ms matches the OS-level double-tap threshold on iOS / Android and
@@ -60,14 +62,17 @@ export function setupPointerHandler(
     const listeners = new AbortController();
     const {signal} = listeners;
 
-    // SHIFT + LEFT DRAG draws a selection rectangle (`screenBox`): rightwards a window, leftwards
-    // a crossing. Taken in the capture phase, before the camera controls on the canvas see the
-    // press -- three's OrbitControls would otherwise pan on Shift (Ctrl keeps panning). A Shift
-    // press that does not move is still a Shift+click: the click below adds what is under it.
+    // A DRAG THE MAPPING CALLS "select" (Shift + left by default, any left drag in the GeniE controls)
+    // draws a selection rectangle (`screenBox`): rightwards a window, leftwards a crossing. Held with
+    // Shift or Ctrl it adds to the selection, else it replaces it. The camera controls are told the
+    // drag is not theirs (bindCameraMapping), and the rectangle starts as the press bubbles up from the
+    // input surface: whatever takes a press there first -- a selection box's handle, a cell builder
+    // gizmo, a builder face drag -- stops it, and no rectangle is drawn behind it. A press that does not
+    // move is a click, handled as any other (a builder cell, or the click handler below).
     // While the cell builder edits its cells the rectangle selects cells (`cellBoxSelect`); a
     // procedural model merely open behind the mode (its layer hidden) does not take the gesture
     // from the model on screen.
-    let marquee: {start: {x: number; y: number}; el: HTMLDivElement | null; cells: THREE.Object3D | null} | null = null;
+    let marquee: {start: {x: number; y: number}; el: HTMLDivElement | null; cells: THREE.Object3D | null; add: boolean} | null = null;
     let swallowClick = false;
     const endMarquee = () => {
         marquee?.el?.remove();
@@ -84,36 +89,31 @@ export function setupPointerHandler(
     };
     const onMarqueeUp = (e: PointerEvent) => {
         if (!marquee) return;
-        const {start, el, cells} = marquee;
+        const {start, el, cells, add} = marquee;
         endMarquee();
-        const view = renderer.domElement.getBoundingClientRect();
-        if (!el) {
-            // Never moved: a Shift+click. On a cell (the press never reached the builder) it toggles
-            // the cell; anywhere else the click that follows adds what is under it.
-            if (cells) {
-                const at = {x: ((e.clientX - view.left) / view.width) * 2 - 1, y: 1 - ((e.clientY - view.top) / view.height) * 2};
-                swallowClick = toggleCellAt(cells, camera, at);
-            }
-            return;
-        }
+        if (!el) return; // never moved: the click that follows selects, as any click does
         swallowClick = true;
-        const rect = ndcRect(start, {x: e.clientX, y: e.clientY}, view);
+        const rect = ndcRect(start, {x: e.clientX, y: e.clientY}, renderer.domElement.getBoundingClientRect());
         const mode = screenBoxMode(start.x, e.clientX);
-        if (cells) selectCellsInScreenRect(cells, camera, rect, mode);
-        else selectInScreenRect(rect, mode);
+        if (cells) selectCellsInScreenRect(cells, camera, rect, mode, add);
+        else selectInScreenRect(rect, mode, add);
     };
     signal.addEventListener("abort", endMarquee);
 
+    // Every press, whoever then takes it: where a click started.
     container.addEventListener("pointerdown", (e) => {
         pointerDownPos = {x: e.clientX, y: e.clientY};
         swallowClick = false;
-        if (e.button !== 0 || !e.shiftKey || e.ctrlKey || e.metaKey || e.altKey) return;
-        e.stopPropagation();
+    }, {signal, capture: true});
+    container.addEventListener("pointerdown", (e) => {
+        const button = e.pointerType === "mouse" || e.pointerType === "" ? mouseButtonOf(e.button) : null;
+        if (!button || !selectsByDrag(useCameraControlsStore.getState().mapping, button, e)) return;
         endMarquee();
-        marquee = {start: {x: e.clientX, y: e.clientY}, el: null, cells: builderLayerEditing(scene)};
+        const add = e.shiftKey || e.ctrlKey || e.metaKey;
+        marquee = {start: {x: e.clientX, y: e.clientY}, el: null, cells: builderLayerEditing(scene), add};
         window.addEventListener("pointermove", onMarqueeMove);
         window.addEventListener("pointerup", onMarqueeUp);
-    }, {signal, capture: true});
+    }, {signal});
 
     container.addEventListener("click", async (e: MouseEvent) => {
         if (swallowClick) {

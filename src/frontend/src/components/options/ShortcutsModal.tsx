@@ -5,12 +5,14 @@ import { CORE_SHORTCUT_GROUPS } from "@/layout/coreShortcutTable";
 import { commandRank } from "@/layout/commands";
 import { assignKeys, chordFromEvent, keyRows, resetAllKeyBindings, setKeyBinding, type KeyRow } from "@/layout/keyBindings";
 import { listShortcuts, shortcutBindingsVersion, subscribeShortcutBindings, type RegisteredShortcut } from "@/layout/shortcuts";
+import { useCameraControlsStore } from "@/state/cameraControlsStore";
+import { DRAG_MODIFIERS, MOUSE_BUTTONS, type CameraAction, type CameraMapping, type DragModifier } from "@/utils/camera/cameraMapping";
 
 // The keyboard shortcuts drawn here all come from the shortcut registry
 // (`layout/shortcuts`): core's own keys (`layout/coreShortcutTable`), a shell's
 // and plugins', and non-core panels' toggles, grouped by the context in which
-// they are live. Adding a shortcut is a registry entry, never an edit here. Only
-// the pointer gestures below are written out, because they are not keys.
+// they are live. Adding a shortcut is a registry entry, never an edit here. The
+// pointer gestures below are not keys: they are read from the camera mapping in force.
 
 export interface Shortcut {
   /** One or more key tokens rendered as separate <kbd> chips, e.g.
@@ -26,23 +28,39 @@ export interface ShortcutGroup {
   shortcuts: Shortcut[];
 }
 
-const POINTER_GESTURES: ShortcutGroup = {
-  context: "Mouse",
-  when: "Active over the 3D view",
-  shortcuts: [
-    {
-      keys: ["Shift", "Left-drag"],
-      description:
-        "Box select, added to the selection: dragged rightwards a window (wholly inside), leftwards a crossing (touching). In the cell builder it selects cells",
-    },
+const DRAG_LABEL: Record<Exclude<CameraAction, "none">, string> = {
+  orbit: "Orbit the view",
+  pan: "Pan the view",
+  zoom: "Zoom the view",
+  select:
+    "Box select: dragged rightwards a window (wholly inside), leftwards a crossing (touching); held with Shift or Ctrl it adds to the selection. In the cell builder it selects cells",
+};
+const MODIFIER_KEY: Record<DragModifier, string | null> = { none: null, shift: "Shift", ctrl: "Ctrl / \u2318", alt: "Alt" };
+
+/** The mouse as the camera mapping in force has it (Settings > Controls): every drag that does something,
+ *  the wheel, and the clicks. */
+export function pointerGestures(mapping: CameraMapping): ShortcutGroup {
+  const shortcuts: Shortcut[] = [];
+  for (const button of MOUSE_BUTTONS) {
+    for (const modifier of DRAG_MODIFIERS) {
+      const action = mapping.drag[button][modifier];
+      if (action === "none") continue;
+      const drag = `${button[0].toUpperCase()}${button.slice(1)}-drag`;
+      const mod = MODIFIER_KEY[modifier];
+      shortcuts.push({ keys: mod ? [mod, drag] : [drag], description: DRAG_LABEL[action] });
+    }
+  }
+  if (mapping.wheel.zoom) shortcuts.push({ keys: ["Wheel"], description: mapping.wheel.toCursor ? "Zoom towards the pointer" : "Zoom the view" });
+  shortcuts.push(
     {
       keys: ["Ctrl / \u2318 / Shift", "Left-click"],
       description:
         "Add the clicked element (in the cell builder, the cell) to the selection, or take it out if it is selected -- as Ctrl+click does in the tree",
     },
-    { keys: ["Ctrl", "Left-drag"], description: "Pan the view" },
-  ],
-};
+    { keys: ["Right-click"], description: "The Scene's menu for what is under the pointer" },
+  );
+  return { context: "Mouse", when: "Over the 3D view, as Settings > Controls sets them (the controls profile)", shortcuts };
+}
 
 const DEFAULT_WHEN = "Active whenever the viewer has focus (ignored while typing in a field)";
 
@@ -173,6 +191,7 @@ const ChordCapture: React.FC<{ row: KeyRow; onAssign: (keys: string) => void }> 
 /** The dialog itself, open while mounted: every command with its key, editable. */
 const ShortcutsDialog: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   useSyncExternalStore(subscribeShortcutBindings, shortcutBindingsVersion, shortcutBindingsVersion);
+  const gestures = pointerGestures(useCameraControlsStore((s) => s.mapping));
   const [query, setQuery] = useState("");
   const [problem, setProblem] = useState<{ row: KeyRow; keys: string; reason: string; holder?: RegisteredShortcut } | null>(null);
   const rows = keyRows();
@@ -279,10 +298,10 @@ const ShortcutsDialog: React.FC<{ onClose: () => void }> = ({ onClose }) => {
               ))}
             </ul>
             <section>
-              <h3 className="text-sm font-semibold text-blue-300">{POINTER_GESTURES.context}</h3>
-              <p className="mb-2 text-xs text-gray-400">{POINTER_GESTURES.when}</p>
+              <h3 className="text-sm font-semibold text-blue-300">{gestures.context}</h3>
+              <p className="mb-2 text-xs text-gray-400">{gestures.when}</p>
               <ul className="divide-y divide-gray-800 rounded-sm border border-gray-800">
-                {POINTER_GESTURES.shortcuts.map((sc, i) => (
+                {gestures.shortcuts.map((sc, i) => (
                   <li key={i} className="flex items-center justify-between gap-4 px-3 py-1.5">
                     <span className="text-sm text-gray-200">{sc.description}</span>
                     <KeyCombo keys={sc.keys} />
