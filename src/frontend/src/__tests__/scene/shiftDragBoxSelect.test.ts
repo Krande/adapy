@@ -12,7 +12,7 @@ await import("../fixtures/panelRealm");
 
 const THREE = await import("three");
 const { setupPointerHandler } = await import("@/components/viewer/sceneHelpers/setupPointerHandler");
-const { BUILDER_LAYER, builderLayerEditing, cellsInScreenRect, drawnCellBounds } = await import("@/components/viewer/cellbuilder/cellBoxSelect");
+const { BUILDER_LAYER, builderLayerEditing, cellsInScreenRect, claimPress, drawnCellBounds } = await import("@/components/viewer/cellbuilder/cellBoxSelect");
 const { useCellBuilderStore } = await import("@/state/cellBuilderStore");
 const { setActiveViewport } = await import("@/viewport/api/viewportApi");
 const { useCameraControlsStore } = await import("@/state/cameraControlsStore");
@@ -104,7 +104,7 @@ function handler(scene: InstanceType<typeof THREE.Scene>) {
   const fire = (fns: Iterable<Fn> | undefined, e: object) => {
     for (const fn of [...(fns ?? [])]) fn(e);
   };
-  type Mods = { shiftKey?: boolean; ctrlKey?: boolean; button?: number };
+  type Mods = { shiftKey?: boolean; ctrlKey?: boolean; button?: number; claimed?: boolean };
   const event = (p: { x: number; y: number }, mods: Mods) => ({
     button: 0, shiftKey: false, ctrlKey: false, metaKey: false, altKey: false, pointerType: "mouse", ...mods, clientX: p.x, clientY: p.y,
     stopPropagation() {}, preventDefault() {},
@@ -112,7 +112,10 @@ function handler(scene: InstanceType<typeof THREE.Scene>) {
   return {
     /** A drag with Shift held, unless `mods` says otherwise. */
     drag(from: { x: number; y: number }, to: { x: number; y: number }, mods: Mods = { shiftKey: true }) {
-      fire(own.get("pointerdown"), event(from, mods));
+      const down = event(from, mods);
+      // A builder gizmo takes the press before it bubbles up (pointerTools: claimPress).
+      if (mods.claimed) claimPress(down as unknown as Event);
+      fire(own.get("pointerdown"), down);
       fire(onWindow.get("pointermove"), event({ x: (from.x + to.x) / 2, y: (from.y + to.y) / 2 }, mods));
       fire(onWindow.get("pointermove"), event(to, mods));
       fire(onWindow.get("pointerup"), event(to, mods));
@@ -272,5 +275,24 @@ test("the default controls: a plain or Ctrl + left drag is the camera's, not a r
   } finally {
     h.done();
     withdraw();
+  }
+});
+
+test("a press a builder gizmo took (a translate handle) draws no rectangle, and is not stopped", () => {
+  const { scene } = stage();
+  const v = viewport();
+  const withdraw = setActiveViewport(v.api);
+  const before = useCameraControlsStore.getState().mapping;
+  useCameraControlsStore.getState().setMapping(cloneMapping(CAMERA_PRESETS.genie.mapping));
+  const h = handler(scene);
+  try {
+    h.drag(...RIGHTWARDS, { claimed: true });
+    assert.equal(v.calls.length, 0, "the gizmo drags; no selection");
+    h.drag(...RIGHTWARDS, {});
+    assert.equal(v.calls.length, 1, "an unclaimed press still draws it");
+  } finally {
+    h.done();
+    withdraw();
+    useCameraControlsStore.getState().setMapping(before);
   }
 });

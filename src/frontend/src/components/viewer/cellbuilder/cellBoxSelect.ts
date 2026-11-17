@@ -18,6 +18,21 @@ import {useCellBuilderStore} from "@/state/cellBuilderStore";
 import {requestRender} from "@/state/perfStore";
 import {rectTakesBounds, type NdcRect, type ScreenBoxMode} from "@/utils/bboxSelection/screenRect";
 
+/** Presses the builder has taken for a gizmo of its own (a translate / rotate handle): no selection
+ *  rectangle starts behind them. Marked, not stopped: the gizmo listens on the same element, and a press
+ *  stopped in the capture pass there never reaches its listener. */
+const claimed = new WeakSet<Event>();
+
+/** The builder takes this press (`setupPointerHandler` then draws no rectangle for it). */
+export function claimPress(ev: Event): void {
+    claimed.add(ev);
+}
+
+/** Has the builder taken this press. */
+export function pressClaimed(ev: Event): boolean {
+    return claimed.has(ev);
+}
+
 /** The name of the builder's layer in the scene (sceneContext's container). */
 export const BUILDER_LAYER = "__cellbuilder__";
 

@@ -31,7 +31,7 @@ import {selectInScreenRect} from "@/utils/bboxSelection/applyBoxSelection";
 import {drawMarquee, marqueeElement} from "@/utils/bboxSelection/marquee";
 import {ndcRect, screenBoxMode} from "@/utils/bboxSelection/screenBox";
 import {pickMeshAt, pickPointAt} from "@/viewport/picking";
-import {builderLayerEditing, selectCellsInScreenRect} from "@/components/viewer/cellbuilder/cellBoxSelect";
+import {builderLayerEditing, pressClaimed, selectCellsInScreenRect} from "@/components/viewer/cellbuilder/cellBoxSelect";
 import {useCameraControlsStore} from "@/state/cameraControlsStore";
 import {mouseButtonOf, selectsByDrag} from "@/utils/camera/cameraMapping";
 
@@ -108,6 +108,7 @@ export function setupPointerHandler(
     container.addEventListener("pointerdown", (e) => {
         const button = e.pointerType === "mouse" || e.pointerType === "" ? mouseButtonOf(e.button) : null;
         if (!button || !selectsByDrag(useCameraControlsStore.getState().mapping, button, e)) return;
+        if (pressClaimed(e)) return; // a builder gizmo's handle: the gizmo's drag
         endMarquee();
         const add = e.shiftKey || e.ctrlKey || e.metaKey;
         marquee = {start: {x: e.clientX, y: e.clientY}, el: null, cells: builderLayerEditing(scene), add};
