@@ -47,9 +47,11 @@ export function createSphericalPointMaterial(params: {
 
             float pixelSize = pointSize;
             if (uWorldSize) {
-                // Convert world diameter to pixel diameter: scale / -mvPosition.z
-                float scale = uViewportHeight / (2.0 * tan(radians(uFov) * 0.5));
-                pixelSize = uWorldPointSize * scale / max(-mvPosition.z, 0.1); // Prevent division by tiny numbers
+                // World diameter to pixels: pixels per world unit from the projection (P[1][1] is
+                // 1 / tan(fov / 2) in perspective, 1 / half-height in an orthographic view), over the
+                // depth in perspective (w = -z) and over 1 in an orthographic view, where a point keeps
+                // its size at any depth. GpuPointPicker sizes its points the same way.
+                pixelSize = uWorldPointSize * projectionMatrix[1][1] * 0.5 * uViewportHeight / max(gl_Position.w, 0.1); // Prevent division by tiny numbers
                 pixelSize = min(pixelSize, 1000.0); // Cap maximum point size
             }
             gl_PointSize = pixelSize;
