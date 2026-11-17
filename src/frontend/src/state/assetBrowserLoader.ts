@@ -173,8 +173,12 @@ export function createAssetBrowserLoader(
       let keep = current && names.includes(current) ? current : null;
       // Only a first open with nothing remembered pays for the unscoped index, to pick by newest publish.
       if (!keep && names.length) {
-        keep = defaultCollection(all ?? indexFromWire(await api.getAssetIndex(scope)));
+        const newest = defaultCollection(all ?? indexFromWire(await api.getAssetIndex(scope)));
         if (!alive(gen, scope, null)) return;
+        // The unscoped index walks the scope's own keys only: a collection granted from the
+        // provider store is named by the names route and absent from it. With no own publish to
+        // pick by, the first name opens -- else the picker shows it chosen over an empty tree.
+        keep = newest && names.includes(newest) ? newest : names[0];
       }
       const cur = store.getState();
       cur.setCollection(keep);
