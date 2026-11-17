@@ -14,7 +14,7 @@ import {registerLineageFromExtension} from "@/utils/lineage/registerLineageFromE
 import {sourceOfModel} from "@/utils/tree_view/modelSource";
 import {revealPickInTrees} from "@/utils/tree_view/revealPick";
 import {announcedExtension} from "@/viewport/api/modelExtension";
-import {onModelLoaded, onViewportPick, type LoadedModelInfo, type ViewportPick} from "@/viewport/api/viewportApi";
+import {onModelLoaded, onViewportPick, pickCoordinate, type LoadedModelInfo, type ViewportPick} from "@/viewport/api/viewportApi";
 
 function listModel(info: LoadedModelInfo): void {
     let extras: Record<string, unknown> = info.extras ?? {};
@@ -50,6 +50,9 @@ function keepExtension(info: LoadedModelInfo): void {
 function showPick(pick: ViewportPick): void {
     const info = useObjectInfoStore.getState();
     info.setClickedFace(null);
+    // The clicked coordinate of the Selected Object panel, as a click in the other viewport sets it;
+    // none for empty space, or for an object the viewport found without a surface point.
+    info.setClickCoordinate(pickCoordinate(pick));
     if (!pick.ref) {
         info.setName(null);
         info.setSelectedNodeId(null);

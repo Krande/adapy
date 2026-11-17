@@ -271,6 +271,16 @@ export interface LoadedModelInfo {
 /** A click in a viewport: the object under it, or null for empty space. */
 export interface ViewportPick {
     ref: ObjectRef | null;
+    /** Where on the object, in the model's own coordinates, when the viewport says (what the
+     *  Selected Object panel shows as the clicked coordinate); absent or null when it does not. */
+    point?: [number, number, number] | null;
+}
+
+/** The clicked coordinate a pick names: its point on an object, else none. */
+export function pickCoordinate(pick: ViewportPick): {x: number; y: number; z: number} | null {
+    if (!pick.ref || !pick.point) return null;
+    const [x, y, z] = pick.point;
+    return {x, y, z};
 }
 
 function channel<T>(): {on: (listener: (value: T) => void) => () => void; emit: (value: T) => void} {

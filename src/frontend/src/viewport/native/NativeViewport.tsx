@@ -65,7 +65,12 @@ const NativeViewport: React.FC = () => {
                 const fea = useFeaAnimationStore.getState();
                 return clockPlaying || (fea.isPlaying && fea.sessionActive);
             };
-            scene.onPick = (key) => notifyViewportPick({ref: key ? splitObjectKey(key) : null});
+            scene.onPick = (key, world) =>
+                notifyViewportPick({
+                    ref: key ? splitObjectKey(key) : null,
+                    // In the model's own coordinates, as the other viewport reports its clicks.
+                    point: world ? modelPoint(world, scene.sceneOffset) : null,
+                });
             sceneRef.current = scene;
             if (scene.failure) return fail(scene.failure);
             const api = createNativeViewportApi(scene);
