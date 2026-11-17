@@ -72,10 +72,12 @@ export const PluginPanelMount: React.FC<{ ctx: AdaPluginContext; panel: PanelSlo
  * `excludeTabs` drops panels that opted into a Simulation tab (carry `asTab`) so
  * the region can coexist with the tabbed Simulation host without double-rendering
  * them — the tab host mounts those, this mounts the rest. */
-export const PluginPanelRegion: React.FC<{ region: PluginRegion; excludeTabs?: boolean }> = ({
-  region,
-  excludeTabs,
-}) => {
+export const PluginPanelRegion: React.FC<{
+  region: PluginRegion;
+  excludeTabs?: boolean;
+  /** The host's frame around a panel that has none of its own to be closed by (`toggled`). */
+  frame?: (panel: PanelSlot, mounted: React.ReactNode) => React.ReactNode;
+}> = ({ region, excludeTabs, frame }) => {
   const stores = useViewerStores();
   // Subscribe to visibility so a top-bar toggle re-renders this region.
   const visible = usePluginUiStore((s) => s.visible);
@@ -94,14 +96,19 @@ export const PluginPanelRegion: React.FC<{ region: PluginRegion; excludeTabs?: b
   return (
     <>
       {panels
-        .filter(({ panel }) => !panel.topBarButton || visible[panel.id])
-        .map(({ pluginId, panel }) => (
-          <PluginPanelMount
-            key={panel.id}
-            ctx={makePluginContext(pluginId, stores, theme)}
-            panel={panel}
-          />
-        ))}
+        // A panel with an open state of its own -- a top-bar button's, or one code opens
+        // (`toggled`) -- is drawn while it is open; any other whenever it is active.
+        .filter(({ panel }) => !(panel.topBarButton || panel.toggled) || visible[panel.id])
+        .map(({ pluginId, panel }) => {
+          const mounted = (
+            <PluginPanelMount
+              key={panel.id}
+              ctx={makePluginContext(pluginId, stores, theme)}
+              panel={panel}
+            />
+          );
+          return frame && panel.toggled ? <React.Fragment key={panel.id}>{frame(panel, mounted)}</React.Fragment> : mounted;
+        })}
     </>
   );
 };

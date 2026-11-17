@@ -23,7 +23,7 @@ test("on a phone the frame is a bottom sheet; from sm up, the card it was", () =
   for (const k of ["bg-[var(--ada-panel-bg)]", "text-[var(--ada-panel-text)]"]) assert.ok(c.has(k), k);
   assert.ok(![...c].some((k) => /(?:bg|text)-(?:gray|white)/.test(k)), "no fixed colour on the frame");
   // The desktop card: in the column, bordered like the other cards, 300-420 px wide.
-  for (const k of ["sm:static", "sm:z-auto", "sm:w-auto", "sm:max-h-none", "sm:p-2", "sm:rounded-md",
+  for (const k of ["sm:static", "sm:z-auto", "sm:w-auto", "sm:max-h-[calc(100dvh-5.5rem)]", "sm:p-2", "sm:rounded-md",
     "sm:border", "sm:border-[var(--ada-panel-border)]",
     "sm:min-w-[300px]", "sm:max-w-[420px]", "sm:overflow-visible"]) {
     assert.ok(c.has(k), k);
@@ -42,5 +42,6 @@ test("the frame draws the grab handle (phones only) above its pinned heading", (
   assert.ok(handle > 0 && title > handle, "the handle comes first, then the heading");
   assert.match(html, /class="sm:hidden -mb-2 shrink-0 flex justify-center/);
   // The body scrolls within the sheet on a phone, and the runs list only scrolls by itself from sm up.
-  assert.match(html, /flex-1 min-h-0 overflow-y-auto overscroll-contain sm:overflow-visible/);
+  // The body scrolls under the pinned heading on a phone and on desktop alike.
+  assert.match(html, /class="flex-1 min-h-0 overflow-y-auto overscroll-contain" data-simulations-body/);
 });

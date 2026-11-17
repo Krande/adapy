@@ -139,6 +139,7 @@ test("the root entry point re-exports only the dependency-free leaves", () => {
     "@/layout/toolRailModel",
   "@/layout/statusItems",
     "@/layout/toastSlots",
+    "@/layout/playbackActions",
     "@/state/cellbuilder/builderDefaults",
     // `setSettingsHost`: a module of plain state (a type-only import), so a shell registers its Settings
     // window without loading the panels.

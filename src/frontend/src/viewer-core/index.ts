@@ -657,7 +657,18 @@
 //   1.24.0 Kept in step with PLUGIN_API_VERSION 1.24.0 (`SimulationParameterFormArgs.subject`,
 //          `ctx.scene.clearScene`). Additive.
 //   1.25.0 Kept in step with PLUGIN_API_VERSION 1.25.0 (`SceneModelSource.keepCamera`). Additive.
-//   1.26.0 Kept in step with PLUGIN_API_VERSION 1.26.0. Additive: `CORE_COMMAND_IDS.orthographic`
+//   1.26.0 Kept in step with PLUGIN_API_VERSION 1.26.0. Additive:
+//          - `ctx.scene.pickObjects`, `ScenePick`; `ctx.scene.placeBox` and the types
+//            `PlaceBoxOptions`, `PlacedBox`, `PlacedBoxMode`, `PlacedBoxPose`.
+//          - `registerPlaybackAction` / `unregisterPlaybackAction` / `notifyPlaybackActionsChanged`
+//            (layout/playbackActions.ts), and `PanelSlot.toggled`.
+//          - `PluginSpec.storageAssetTypes` (a plugin's kinds of stored asset in the storage
+//            browser, each with its list and its upload form) and its types (`StorageAssetType`,
+//            `StorageAssetTypeArgs`, `StorageAssetUpload`).
+//          - the `connection-builder` region (a plugin's tab in the connection builder panel) and
+//            `getConnectionBuilderTabs` on `@/viewer-core/plugins`, for a shell that draws that
+//            panel itself.
+//   1.27.0 Kept in step with PLUGIN_API_VERSION 1.27.0. Additive: `CORE_COMMAND_IDS.orthographic`
 //          (`core:view.orthographic`, the Orthographic view toggle) and `CORE_COMMAND_IDS.groundGrid`
 //          (`core:view.ground-grid`, the ground grid toggle). Core puts them in its menus (the
 //          Desktop UI's View, the classic UI's Settings > Scene config), not on the section toolbar
@@ -682,7 +693,7 @@
 //          `itemIncludeState`, `blueprintColour`, `blueprintsInUse`, `structureColour`,
 //          `useModelPanelViewStore`), so a shell's Model panel needs no deep import. The camera mapping's
 //          `select` action (the selection rectangle) and controls profiles (Settings > Controls).
-export const VIEWER_CORE_API_VERSION = "1.26.0";
+export const VIEWER_CORE_API_VERSION = "1.27.0";
 
 // ---------------------------------------------------------------------------
 // Plugin declaration. `registerPlugin` is how a package announces itself —
@@ -702,6 +713,10 @@ export type {
   ActivationPredicate,
   AdaPluginContext,
   PanelSlot,
+  PlaceBoxOptions,
+  PlacedBox,
+  PlacedBoxMode,
+  PlacedBoxPose,
   PluginDockId,
   PluginLayers,
   PluginSimulations,
@@ -730,6 +745,9 @@ export type {
   SceneElementPaint,
   SceneFace,
   SceneHandle,
+  ScenePick,
+  ScenePickOptions,
+  ScenePickSession,
   SceneLabel,
   SceneImage,
   SceneImageRect,
@@ -750,6 +768,9 @@ export type {
   SimulationParameterFormArgs,
   SimulationFormSubject,
   SimulationProviderUi,
+  StorageAssetType,
+  StorageAssetTypeArgs,
+  StorageAssetUpload,
   TopBarButtonSpec,
   UrlParamHandler,
 } from "@/plugins/registry";
@@ -858,6 +879,9 @@ export type { RailPrefs, ToolRailConfig } from "@/layout/toolRailModel";
 export { VIEWPORT_ANCHORS, registerViewportOverlay, unregisterViewportOverlay } from "@/layout/viewportOverlays";
 export { registerToastSlot, unregisterToastSlot } from "@/layout/toastSlots";
 export type { ToastSlotSpec } from "@/layout/toastSlots";
+// Buttons in the playback transport, beside play and the run's Console (dependency-free).
+export { notifyPlaybackActionsChanged, registerPlaybackAction, unregisterPlaybackAction } from "@/layout/playbackActions";
+export type { PlaybackActionSpec } from "@/layout/playbackActions";
 // The Builder's default engine and blueprint for a model whose doc names none (dependency-free).
 export { setBuilderDefaults } from "@/state/cellbuilder/builderDefaults";
 export type { BuilderDefaults } from "@/state/cellbuilder/builderDefaults";

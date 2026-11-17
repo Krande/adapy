@@ -8,6 +8,7 @@ import { useObjectInfoStore } from "@/state/objectInfoStore";
 import { useTreeViewStore } from "@/state/treeViewStore";
 import { requestRender } from "@/state/perfStore";
 
+import { modelRootOf } from "@/utils/export/selectionExport";
 import { buildTreeIndices, type TreeIndices } from "@/utils/tree_view/treeGraph";
 import { activeViewport, type ObjectRef } from "@/viewport/api/viewportApi";
 
@@ -19,6 +20,7 @@ import {
   membersForRows,
   resolveMembers,
   rootMatchesTarget,
+  rowsOutside,
   type CapturedMembers,
   type GroupMember,
   type GroupMemberTarget,
@@ -274,4 +276,47 @@ export function selectSavedGroup(group: SavedGroup): GroupSelectionOutcome {
   info.setSelectedNodeId(rows.length === 1 ? rows[0].id : null);
   requestRender();
   return { ranges: selected, notLoaded, notFound };
+}
+
+/** How long a model that was just loaded is waited for in the scene tree: the tree is built after
+ *  the model arrives (on the viewport without a three.js scene, after the load call returned). */
+const TREE_WAIT_MS = 20_000;
+const TREE_POLL_MS = 250;
+
+function rootOfSource(sourceName: string): TreeNodeData | null {
+  return (indices()?.root.children ?? []).find((r) => r.source_name === sourceName) ?? null;
+}
+
+/** Resolves true once every model loaded under `sourceNames` has its root row in the scene tree;
+ *  false when `waitMs` passed first. */
+export async function whenSourcesInTree(sourceNames: readonly string[], waitMs = TREE_WAIT_MS): Promise<boolean> {
+  for (let waited = 0; ; waited += TREE_POLL_MS) {
+    if (sourceNames.every((n) => rootOfSource(n))) return true;
+    if (waited >= waitMs) return false;
+    await new Promise((r) => setTimeout(r, TREE_POLL_MS));
+  }
+}
+
+/** Hide everything in the model loaded under `sourceName` that is not one of `members` (their
+ *  rows, subtrees included): a document that can only be loaded whole then shows only the members,
+ *  the tree marks the rest hidden, and it is one "show" away there. One undo step, on whichever
+ *  viewport is on screen. Resolves how many objects were hidden; rejects when the model's tree did
+ *  not arrive, so nothing could be hidden. */
+export async function showOnlyMembers(sourceName: string, members: readonly GroupMember[]): Promise<number> {
+  if (!(await whenSourcesInTree([sourceName]))) {
+    throw new Error("its scene tree was not built in time, so nothing was hidden");
+  }
+  const idx = indices();
+  const root = rootOfSource(sourceName);
+  if (!idx || !root) return 0;
+  const { rows } = resolveMembers(members, idx, useAssetBrowserStore.getState().loaded);
+  const mine = rows.filter((r) => modelRootOf(r, idx)?.id === root.id);
+  const refs = rowsOutside(root, mine)
+    .filter((r) => r.rangeId != null && !!r.node_name && !!r.model_key)
+    .map(refOf);
+  if (refs.length) {
+    activeViewport()?.hide(refs);
+    requestRender();
+  }
+  return refs.length;
 }

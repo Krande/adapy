@@ -446,24 +446,40 @@ const DOCK_EDGE: Readonly<Record<string, DockEdge>> = {left: "left", bottom: "bo
 /**
  * In a composed shell, place each plugin panel that names a dock, once (the
  * document's `known`): into the group the shell maps that dock to, else at that
- * edge of the view. After that it is the user's to move. Floating and overlay
- * docks are left to their region. Core's own UI places nothing this way.
+ * edge of the view. After that it is the user's to move. A floating dock is
+ * given a window of the layout, once, in core's own UI as well; an overlay
+ * dock is left to its region. A panel that asks to start in a window
+ * (`PanelPlacement.startFloated`), core's own included, is given one the same way.
  */
 export function adoptDockedPanels(): void {
-  if (!shell) return;
-  const docks = arrangementOf().docks ?? {};
+  // A dock in the grid is a composed shell's to map; a window is any layout's.
+  const docks = shell ? (arrangementOf().docks ?? {}) : null;
   // Per mode: a panel offered only in other modes is adopted when one of those is entered.
   // An unavailable one (a dormant or disabled plugin's) is placed when it becomes available.
-  const candidates = listPanels().filter(
-    (p) => p.owner !== CORE_PANEL_OWNER && dockOf(p) !== null && canDock(p) && offeredInMode(p) && isPanelAvailable(p, {}),
-  );
+  const candidates = listPanels().filter((p) => {
+    if (!offeredInMode(p)) return false;
+    // Placed whether or not it is offered right now: its window is where it shows once it is.
+    if (startsFloated(p)) return canFloat(p);
+    if (p.owner === CORE_PANEL_OWNER || !isPanelAvailable(p, {})) return false;
+    const dock = dockOf(p);
+    return dock === "float" ? canFloat(p) : docks !== null && dock !== null && canDock(p);
+  });
   if (!candidates.length) return;
+  // A set, not reset per call: the store may run the update more than once.
+  const floated = new Set<PanelId>();
   updateClassic((d) => {
     const {doc, adopted} = adoptNewPanels(d, candidates.map((p) => p.id));
     let out = doc;
     for (const id of adopted) {
-      const dock = dockOf(getPanel(id)!)!;
-      if (dock === "float" || dock === "overlay") continue;
+      const p = getPanel(id)!;
+      if (startsFloated(p)) {
+        floated.add(id);
+        continue;
+      }
+      const dock = dockOf(p)!;
+      // A floating dock starts in a window of the layout, below; an overlay stays with its region.
+      if (dock === "float") floated.add(id);
+      if (dock === "float" || dock === "overlay" || !docks) continue;
       const group = docks[dock];
       const target: GridTarget =
         group && findNode(gridOf(out), group) ? {node: group, edge: "center"} : {node: VIEWPORT_NODE, edge: DOCK_EDGE[dock] ?? "right"};
@@ -471,6 +487,8 @@ export function adoptDockedPanels(): void {
     }
     return out;
   });
+  // Where it floats the first time; it shows there once it is opened.
+  for (const id of floated) floatOut(id);
 }
 
 /** Plugin panels shown in a place of the layout's own (a group, a window) rather than their region. */
@@ -526,6 +544,11 @@ export function homeOf(panel: Pick<RegisteredPanel, "placement">): Home | null {
   return null;
 }
 
+/** Does the panel ask to start in a window of the layout (`PanelPlacement.startFloated`). */
+export function startsFloated(panel: Pick<RegisteredPanel, "placement"> | undefined): boolean {
+  return !!panel?.placement?.[CLASSIC_PRESET_ID]?.startFloated;
+}
+
 /** The dock a plugin panel asks for (`PanelSlot.dock`), if any. */
 export function dockOf(panel: Pick<RegisteredPanel, "placement">): string | null {
   return panel.placement?.[DOCKED_PRESET_ID]?.zone ?? null;
@@ -569,12 +592,16 @@ export function placeOf(doc: LayoutDoc, id: PanelId): Place {
 
 /**
  * Where a panel shows right now: with the setting off, at home; below `wide`,
- * where there is no room for the grid, a panel of the grid at home too.
+ * where there is no room for the grid, a panel of the grid at home too. So is a
+ * panel that starts in a window (`startsFloated`): a window takes the whole
+ * screen there, which is the user's to ask for of a panel they floated, not what
+ * a panel that opens beside the view is to do by itself.
  */
 export function shownPlace(doc: LayoutDoc, id: PanelId, customisable: boolean, narrow: boolean): Place {
   if (!customisable) return "home";
   const p = placeOf(doc, id);
-  return p === "grid" && narrow ? "home" : p;
+  if (!narrow) return p;
+  return p === "grid" || (p === "float" && startsFloated(getPanel(id))) ? "home" : p;
 }
 
 /** The label of the move back home. */
@@ -597,8 +624,9 @@ const GRAB = {x: 60, y: 16};
 /**
  * Float a panel: where it last floated, else at its first-open size near the top
  * right, stepped down and left past the windows already open; or, given `at`,
- * with its title bar under that pointer. A panel at home in a window goes back
- * to that window.
+ * with its title bar under that pointer. A panel that says where its first
+ * window goes (`PanelPlacement.floatAt`) floats there instead of near the top
+ * right. A panel at home in a window goes back to that window.
  */
 export function floatOut(id: PanelId, at?: {x: number; y: number}): void {
   const p = getPanel(id);
@@ -607,12 +635,16 @@ export function floatOut(id: PanelId, at?: {x: number; y: number}): void {
     updateClassic((d) => dockPanel(d, id));
     return;
   }
-  const size = p.placement?.[CLASSIC_PRESET_ID]?.float ?? FIRST_SIZE;
+  const placement = p.placement?.[CLASSIC_PRESET_ID];
+  const size = placement?.float ?? FIRST_SIZE;
+  const own = placement?.floatAt;
   const vw = typeof window !== "undefined" ? window.innerWidth : 1280;
   const vh = typeof window !== "undefined" ? window.innerHeight : 800;
-  const r = defaultRect({width: vw, height: vh}, {width: size.w, height: size.h}, FLOAT_MIN_SIZE);
+  const height = own?.maxHeight ? Math.min(size.h, Math.round(vh * own.maxHeight)) : size.h;
+  const r = defaultRect({width: vw, height: vh}, {width: size.w, height}, FLOAT_MIN_SIZE);
   updateClassic((d) => {
     if (at) return floatPanelAt(d, id, {x: Math.max(0, at.x - GRAB.x), y: Math.max(0, at.y - GRAB.y), w: r.width, h: r.height});
+    if (own) return floatPanel(d, id, {x: Math.max(0, vw - r.width - own.right), y: own.top, w: r.width, h: r.height});
     const step = Object.keys(d.floats).length * CASCADE;
     return floatPanel(d, id, {x: Math.max(0, vw - r.width - 80 - step), y: r.y + step, w: r.width, h: r.height});
   });

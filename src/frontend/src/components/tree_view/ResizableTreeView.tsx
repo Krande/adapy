@@ -3,8 +3,8 @@ import AssetBrowser, { AssetBrowserTabs, assetsTabAvailable } from '@/components
 import { useViewerStores } from "@/state/AdaViewerContext";
 import { PanelHeaderActions } from "@/components/ui/PanelFrame";
 
-const MIN_WIDTH = 200;
-const MAX_WIDTH = 560;
+import { drawerMinWidth, headerContentWidth, MAX_WIDTH } from "./treeDrawerWidth";
+
 /** Sources' first width. Its toolbar and its rows (a name, a kind, the provider marks) need
  *  more room than the scene tree's default; each tab then keeps whatever width it is dragged to. */
 const SOURCES_DEFAULT_WIDTH = 440;
@@ -52,6 +52,37 @@ const ResizableTreeView: React.FC = () => {
     useEffect(() => {
         if (!isTreeCollapsed) setEverOpened(true);
     }, [isTreeCollapsed]);
+    // THE DRAWER IS NEVER NARROWER THAN ITS OWN HEADER. The header holds the tabs, the panel's
+    // actions (float, move, a window of its own -- there only while panels are customisable and
+    // not frozen) and the close button. Its buttons do not shrink, so in a drawer narrower than
+    // their sum they were drawn past its right edge, over the view. The least width is therefore
+    // measured from what the header holds now, and it changes when the actions come and go.
+    const [header, setHeader] = useState<HTMLDivElement | null>(null);
+    const [minWidth, setMinWidth] = useState(() => drawerMinWidth(0));
+    useLayoutEffect(() => {
+        if (!header || typeof ResizeObserver === "undefined") return;
+        const measure = () => {
+            const style = getComputedStyle(header);
+            const padding = (parseFloat(style.paddingLeft) || 0) + (parseFloat(style.paddingRight) || 0);
+            // The tabs may be clipped (they give way before the buttons do): their content's width,
+            // not the room they were left.
+            const parts = Array.from(header.children).map((child) => Math.max(child.scrollWidth, child.getBoundingClientRect().width));
+            setMinWidth(drawerMinWidth(headerContentWidth(parts, padding)));
+        };
+        measure();
+        const observer = new ResizeObserver(measure);
+        for (const child of Array.from(header.children)) observer.observe(child);
+        const mutations = new MutationObserver(measure);
+        mutations.observe(header, { childList: true, subtree: true });
+        return () => {
+            observer.disconnect();
+            mutations.disconnect();
+        };
+    }, [header]);
+    // One width is shown and stored (the top bar shifts by it): widened here when it is under the least.
+    useLayoutEffect(() => {
+        if (treeViewWidth < minWidth) setTreeViewWidth(minWidth);
+    }, [treeViewWidth, minWidth, setTreeViewWidth]);
     if (!everOpened && isTreeCollapsed) return null;
 
     const handleMouseDown = (e: React.MouseEvent) => {
@@ -69,7 +100,7 @@ const ResizableTreeView: React.FC = () => {
 
         const handleMouseMove = (moveEvent: MouseEvent) => {
             if (!isResizing.current) return;
-            const newWidth = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, startWidth + moveEvent.clientX - startX));
+            const newWidth = Math.min(MAX_WIDTH, Math.max(minWidth, startWidth + moveEvent.clientX - startX));
             setTreeViewWidth(newWidth);
         };
         const handleMouseUp = () => {
@@ -97,15 +128,24 @@ const ResizableTreeView: React.FC = () => {
                 also closes the drawer on desktop, but the in-panel close
                 gives mobile users an obvious way back to the viewer when
                 the drawer covers most of the screen. */}
-            <div className="flex items-center justify-between h-11 pl-2.5 pr-1.5 border-b border-gray-700/80 text-white text-sm shrink-0">
+            <div
+                ref={setHeader}
+                className="flex items-center justify-between h-11 pl-2.5 pr-1.5 border-b border-gray-700/80 text-white text-sm shrink-0 overflow-hidden"
+            >
                 {/* With a server the title slot carries the Scene | Sources tabs;
-                    without one (notebook, websocket) the drawer is unchanged. */}
-                {assetsTabAvailable() ? <AssetBrowserTabs /> : <span className="font-semibold px-1">Selection</span>}
-                <PanelHeaderActions />
+                    without one (notebook, websocket) the drawer is unchanged. Where the drawer
+                    cannot be as wide as its header (a phone: it is capped at 85vw) the tabs give
+                    way and are clipped, never the buttons. */}
+                <div className="min-w-0 overflow-hidden">
+                    {assetsTabAvailable() ? <AssetBrowserTabs /> : <span className="font-semibold px-1">Selection</span>}
+                </div>
+                <div className="flex shrink-0 items-center">
+                    <PanelHeaderActions />
+                </div>
                 <button
                     type="button"
                     onClick={() => setIsTreeCollapsed(true)}
-                    className="grid place-items-center h-7 w-7 rounded-md text-gray-400 hover:text-white hover:bg-white/10"
+                    className="grid place-items-center h-7 w-7 rounded-md text-gray-400 hover:text-white hover:bg-white/10 shrink-0"
                     aria-label="Close selection tree"
                     title="Close (Shift+T)"
                 >

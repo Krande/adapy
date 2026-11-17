@@ -2,6 +2,15 @@
 
 
 
+## v0.159.0 (2026-11-17)
+
+### Feature
+
+* feat(viewer): a plugin can take the scene&#39;s clicks (plugin API 1.26.0); a granted search hit can be shown and loaded (#561)
+
+Co-authored-by: Claude Fable 5.2 &lt;noreply@anthropic.com&gt; ([`e1173a2`](https://github.com/Krande/adapy/commit/e1173a22a75ae88e84e67d6db85a05fba0cfa853))
+
+
 ## v0.158.0 (2026-11-16)
 
 ### Feature

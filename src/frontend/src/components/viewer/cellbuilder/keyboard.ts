@@ -13,6 +13,7 @@ import {requestRender} from "@/state/perfStore";
 import {getViewerRuntime} from "@/state/viewerRuntime";
 import {bandFaceIds} from "@/utils/cellbuilder/loft";
 import {BOX_FACE_SIDES, faceCenter, neighbourFaceInDirection, type Vec3} from "@/utils/cellbuilder/snap";
+import {gizmoAxisOfKey, gizmoModeOfKey, isTextEntry, toggledAxisLock} from "@/utils/gizmo/transformKeys";
 import type {CellBuilderScene} from "./sceneContext";
 import {endModalMove} from "./cellGizmo";
 import {resizable} from "./resizeHandles";
@@ -26,8 +27,7 @@ export const onKeyDown = (ctx: CellBuilderScene, ev: KeyboardEvent) => {
 
     // Undo / redo — but not while typing in a form field (let the field's
     // own text undo win there).
-    const target = ev.target as HTMLElement | null;
-    const inField = !!target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName);
+    const inField = isTextEntry(ev.target);
 
     // An interactive extrude/station preview is live: capture numeric entry
     // so digits mean depth (not cell-type), Enter commits, Esc cancels,
@@ -476,20 +476,13 @@ export const onKeyDown = (ctx: CellBuilderScene, ev: KeyboardEvent) => {
         // rotate is equipment-only; resize takes spaces, openings and equipment, not an
         // equipment box fitted to its CAD model (matches the menus, cellResize.ts).
         if (!ev.shiftKey && cell && cell.kind !== "loft") {
-            if (k === "g") {
-                st.setGizmoMode("translate");
-                ev.preventDefault();
-                ev.stopPropagation();
-                return;
-            }
-            if (k === "r" && cell.kind === "equipment") {
-                st.setGizmoMode("rotate");
-                ev.preventDefault();
-                ev.stopPropagation();
-                return;
-            }
-            if (k === "s" && resizable(ctx, cell)) {
-                st.setGizmoMode("resize");
+            const mode = gizmoModeOfKey(k);
+            if (
+                mode === "translate" ||
+                (mode === "rotate" && cell.kind === "equipment") ||
+                (mode === "resize" && resizable(ctx, cell))
+            ) {
+                st.setGizmoMode(mode);
                 ev.preventDefault();
                 ev.stopPropagation();
                 return;
@@ -498,12 +491,9 @@ export const onKeyDown = (ctx: CellBuilderScene, ev: KeyboardEvent) => {
         // X/Y/Z lock the active translate/rotate gizmo to that axis (press the
         // same axis again to release). The HUD's numeric field then applies
         // along it.
-        if (
-            (st.gizmoMode === "translate" || st.gizmoMode === "rotate") &&
-            (k === "x" || k === "y" || k === "z")
-        ) {
-            const axis = k === "x" ? 0 : k === "y" ? 1 : 2;
-            st.setGizmoAxisLock(st.gizmoAxisLock === axis ? null : axis);
+        const axis = gizmoAxisOfKey(k);
+        if ((st.gizmoMode === "translate" || st.gizmoMode === "rotate") && axis !== null) {
+            st.setGizmoAxisLock(toggledAxisLock(st.gizmoAxisLock, axis));
             ev.preventDefault();
             ev.stopPropagation();
             return;
@@ -727,7 +717,8 @@ export const onKeyDown = (ctx: CellBuilderScene, ev: KeyboardEvent) => {
     // that move's own numeric entry (focused as the axis locked), so this is the move's
     // Escape - the cell back where it began, the measure gone, the lock dropped - not only
     // the field's blur. Escape in any other field blurs the field and leaves the move.
-    const moveField = inField && !!ctx.modalMove && !!target?.hasAttribute(GIZMO_DELTA_FIELD_ATTR);
+    const moveField =
+        inField && !!ctx.modalMove && !!(ev.target as HTMLElement | null)?.hasAttribute?.(GIZMO_DELTA_FIELD_ATTR);
     // Escape while typing in a field (the HUD's numeric inputs) blurs the
     // field — don't also unwind the selection/gizmo underneath.
     if (inField && !moveField) return;

@@ -198,7 +198,7 @@ export class NativeScene {
     /** Selection, visibility or the object list changed. */
     onChange: (() => void) | null = null;
     /** A click picked an object (its id), or empty space (null); the selection is already updated. */
-    onPick: ((id: string | null) => void) | null = null;
+    onPick: ((id: string | null, world: [number, number, number] | null) => void) | null = null;
     /** The key the loaded model is known by outside the viewport. */
     modelKey = "";
     /** The loaded GLB's scene extras, as JSON text. */
@@ -850,12 +850,13 @@ export class NativeScene {
     pickStep: ((picked: boolean, change: () => void) => void) | null = null;
 
     /** What a click does: `id` (the object under it, null for empty space) becomes the selection, or
-     *  with `additive` joins or leaves it; then the click is announced (`onPick`). */
-    pickSelect(id: string | null, additive: boolean): void {
+     *  with `additive` joins or leaves it; then the click is announced (`onPick`), with the point of
+     *  the surface that was hit, in the world, when the click hit one. */
+    pickSelect(id: string | null, additive: boolean, world: [number, number, number] | null = null): void {
         const change = () => this.select(id, additive && !!id);
         if (this.pickStep) this.pickStep(!!id, change);
         else change();
-        this.onPick?.(id);
+        this.onPick?.(id, id ? world : null);
     }
 
     /** Whether a model loaded from `sourceName` is on screen. */
@@ -1686,7 +1687,9 @@ export class NativeScene {
                     const hit = await this.pickHit(clientX, clientY);
                     // What is drawn in a way the renderer's pick does not see (a line), when it is in front.
                     const over = this.objectOver?.(clientX, clientY, hit?.world ?? null) ?? null;
-                    this.pickSelect(over ?? hit?.id ?? null, additive);
+                    // The hit's point belongs to the object the renderer picked: one found only as a
+                    // drawn line (`over`) has no surface point to name.
+                    this.pickSelect(over ?? hit?.id ?? null, additive, over ? null : (hit?.world ?? null));
                 })();
             }
         });

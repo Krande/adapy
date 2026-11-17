@@ -44,6 +44,8 @@ import {
   poseModel,
 } from "./sceneLayers";
 import { makePluginSimulations } from "./pluginSimulations";
+import { endScenePicks, pickObjects } from "./scenePicks";
+import { placeBox } from "./sceneBox";
 import { releaseFeaDeformation, setFeaDeformationShown } from "@/utils/scene/fea/deformationGate";
 import { releaseFeaUnpaintedColor, setFeaUnpaintedColor } from "@/utils/scene/fea/unpaintedColor";
 import { findFaces, focusFace } from "@/utils/mesh_select/faceSearch";
@@ -52,7 +54,6 @@ import {
   getActiveFeaSelectedRangeIds,
   setActiveFeaSelectedRangeIds,
 } from "@/utils/scene/handlers/load_fea_streaming";
-import { useModelState } from "@/state/modelState";
 import { getSingletonViewerStores, type AdaViewerStores } from "@/state/AdaViewerContext";
 import type {
   AdaPluginContext,
@@ -103,6 +104,7 @@ function makeSceneHandle(): SceneHandle {
           if (child.userData?.__pluginOwner === owner) scene!.remove(child);
         }
         removeOwnerOverlays(owner);
+        endScenePicks(owner);
         releaseFeaDeformation(owner);
         releaseFeaUnpaintedColor(owner);
         usePluginColorScaleStore.getState().show(owner, null);
@@ -132,42 +134,26 @@ function makeSceneHandle(): SceneHandle {
     getSelectedFeaRangeIds: () => getActiveFeaSelectedRangeIds(),
     setSelectedFeaRanges: (rangeIds, additive) => setActiveFeaSelectedRangeIds(rangeIds, additive),
     async loadModelFromUrl(owner, url, opts) {
-      // Dynamic import for the same reason overlay_file_in_scene is dynamically
-      // imported at its call sites: the loader pulls in three + GLTFLoader +
-      // the meshopt decoder, and this module is on the boot path.
-      const { setupModelLoaderAsync } = await import(
-        "@/components/viewer/sceneHelpers/setupModelLoader"
-      );
+      // ONE PATH FOR BOTH RENDERERS. This built a three.js scene itself, so with the three.js-free
+      // viewport on screen it logged "Scene reference is null", added nothing, and left the source
+      // registered as loaded. It now goes through core's own loader (`loadModel` below uses the
+      // same), which hands the URL -- and the caller's headers -- to whichever viewport is on
+      // screen, registers the source, and remembers the load for a switch of viewport.
+      // Imported on use: the loader pulls in three + GLTFLoader, and this module is on the boot path.
+      const { loadModel } = await import("@/components/viewer/sceneHelpers/loadModel");
       const sourceName =
         opts?.sourceName || url.split("?")[0].split("/").pop() || `${owner}-model`;
-      // The same load profiling the viewer's own file loads get (admin, opt-in; null otherwise):
-      // models loaded through a plugin or a provider were invisible to it.
-      const { beginLoadMetrics } = await import("@/utils/scene/loadMetrics");
-      const metrics = beginLoadMetrics({
-        scope: scopeUrlPart(useScopeStore.getState().current),
-        key: `${owner}:${sourceName}`,
+      await loadModel({
         sourceName,
-        transport: url.startsWith("blob:") ? "blob" : url.startsWith("http") && !url.startsWith(location.origin) ? "presigned" : "relayed",
+        displayName: opts?.displayName,
+        bytes: { from: "url", url, headers: opts?.headers },
+        // The model joins what is in the scene, as it always did here.
+        placement: "overlay",
+        translate: opts?.translate ?? true,
+        sourceUpAxis: opts?.sourceUpAxis ?? "z",
+        // The same load profiling the viewer's own file loads get (admin, opt-in).
+        metrics: true,
       });
-      let group: Awaited<ReturnType<typeof setupModelLoaderAsync>>;
-      try {
-        group = await setupModelLoaderAsync({
-          modelUrl: url,
-          translate: opts?.translate ?? true,
-          sourceName,
-          displayName: opts?.displayName,
-          requestHeaders: opts?.headers,
-          sourceUpAxis: opts?.sourceUpAxis ?? "z",
-          metrics,
-        });
-      } catch (e) {
-        metrics?.fail(e instanceof Error ? e.message : String(e), e instanceof Error ? e.stack : undefined);
-        throw e;
-      }
-      // Register the source -> group mapping so the model shows up in the
-      // loaded-sources list and `unloadModel` can drop just this one, exactly as
-      // core's own overlay path does.
-      useModelState.getState().registerLoadedSource(sourceName, group);
       requestRender();
     },
     async loadModel(owner, source) {
@@ -225,6 +211,8 @@ function makeSceneHandle(): SceneHandle {
     frameAll,
     findFaces,
     focusFace: (face, opts) => focusFace(face, { frame: opts?.frame }),
+    pickObjects,
+    placeBox,
   };
 }
 
