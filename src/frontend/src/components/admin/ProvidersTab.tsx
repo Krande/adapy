@@ -28,6 +28,7 @@ import {sortProjectsBy} from "@/utils/sortProjects";
 
 import AdminSection from "./AdminSection";
 import ClashSpecProvidersSection from "./ClashSpecProvidersSection";
+import ConnectionScopesSection from "./ConnectionScopesSection";
 import ProviderAccessSection from "./ProviderAccessSection";
 import ProviderSchedulesSection from "./ProviderSchedulesSection";
 import ProviderSplitsSection from "./ProviderSplitsSection";
@@ -400,6 +401,9 @@ const ProvidersTab: React.FC = () => {
                 the providers a live pool offers does each scope use. Kept in its own component --
                 it shares the scope rows and nothing else. */}
             <ClashSpecProvidersSection rows={rows.filter((r) => !r.stale)} />
+
+            {/* Which scopes the connection builder offers each pool's specs in. */}
+            <ConnectionScopesSection rows={rows.filter((r) => !r.stale)} />
 
             {/* The jobs each provider declares for scheduling (`asset_schedules`), per collection --
                 replaces the generic plugin-job schedules under Audit. */}

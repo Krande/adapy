@@ -127,3 +127,18 @@ test("a model that joins is placed by the scene's offset; a locked translation l
     assert.deepEqual(locked.scene.sceneOffset, [0, 0, 0]);
     useOptionsStore.setState({lockTranslation: false});
 });
+
+test("a replacing load frames the model with auto-fit on, and keeps the camera when told to", () => {
+    useOptionsStore.setState({lockTranslation: false, autoFit: true});
+    const framed = makeScene();
+    const before = framed.poses.length;
+    framed.scene.load(new Uint8Array(8), "m1");
+    assert.ok(framed.poses.length > before, "auto-fit moves the camera");
+
+    const kept = makeScene();
+    const start = kept.poses.length;
+    const clipsStart = kept.clips.length;
+    kept.scene.load(new Uint8Array(8), "m1", {keepCamera: true});
+    assert.equal(kept.poses.length, start, "the camera stays");
+    assert.ok(kept.clips.length > clipsStart, "the clip range still follows the model");
+});

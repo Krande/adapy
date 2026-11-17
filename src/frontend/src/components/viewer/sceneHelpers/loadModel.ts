@@ -34,8 +34,10 @@ export type ModelBytes =
      *  when the backend can vend one, else the authed streaming `/blobs` GET. */
     | {from: "storage"; scope: string; glbKey: string}
     /** An already-usable URL: a `blob:` from a websocket frame, or any URL the
-     *  caller has resolved itself. Never revoked here — the caller owns it. */
-    | {from: "url"; url: string}
+     *  caller has resolved itself. Never revoked here — the caller owns it.
+     *  `headers` go with the request on either viewport (a relayed blob's
+     *  authorization; a presigned or `blob:` URL needs none). */
+    | {from: "url"; url: string; headers?: Record<string, string>}
     /** GLB bytes already in memory (an in-browser compile). Wrapped in a blob
      *  URL for the duration of the load and revoked after. */
     | {from: "bytes"; bytes: Uint8Array};
@@ -90,7 +92,7 @@ async function loadFrom(
         // As a replace does on the three.js viewport: a result that was shown ends with its model.
         const {clearActiveFeaStreaming} = await import("@/utils/scene/fea/streaming/teardown");
         clearActiveFeaStreaming();
-        await showInNativeViewport(url, requestHeaders, sourceName, placement, source.displayName, source.posable);
+        await showInNativeViewport(url, requestHeaders, sourceName, placement, source.displayName, source.posable, source.autoFitOverride === false);
         return undefined;
     }
     if (placement === "overlay") {
@@ -202,7 +204,7 @@ export async function loadModel(source: LoadModelSource): Promise<THREE.Group | 
             );
             group = await loadFrom(source, objectUrl, undefined, metrics);
         } else {
-            group = await loadFrom(source, bytes.url, undefined, metrics);
+            group = await loadFrom(source, bytes.url, bytes.headers, metrics);
         }
     } catch (e) {
         metrics?.fail(

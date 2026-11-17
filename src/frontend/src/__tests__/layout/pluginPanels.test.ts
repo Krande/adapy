@@ -12,6 +12,7 @@ import { hide, isPanelOpen, reveal, toggle } from "@/layout/reveal";
 import { usePluginUiStore } from "@/plugins/pluginUiStore";
 import {
   disablePlugin,
+  getConnectionBuilderTabs,
   getPanelsForRegion,
   getRegisteredPlugins,
   getSimulationTabs,
@@ -89,6 +90,46 @@ test("asTab: a tab inside the Simulation panel, titled by the tab label", () => 
     as: "inline",
     order: 7,
   });
+});
+
+test("connection-builder: every panel is a tab of the connection builder panel, ordered and labelled", () => {
+  registerPlugin({
+    id: "cb",
+    panels: [
+      { id: "late", region: "connection-builder", render, asTab: { label: "Later", order: 9 } },
+      { id: "plain", region: "connection-builder", render, title: "Plain", order: 2 },
+      { id: "bare", region: "connection-builder", render },
+      { id: "gated", region: "connection-builder", render, asTab: { label: "Gated" }, activationPredicate: () => false },
+      { id: "top", region: "top-panel", render },
+    ],
+  });
+  const tab = getPanel("cb:late");
+  assert.equal(tab?.title, "Later");
+  assert.deepEqual(tab?.placement?.classic, {
+    zone: "classic.menu-column",
+    parent: "core:component-controls",
+    as: "tab",
+    order: 9,
+  });
+  assert.equal(tab?.binding, undefined, "its host opens and closes it");
+  assert.equal(tab?.toolbar, undefined);
+  assert.equal(tab?.content, undefined, "a tab without a dock stays where its host puts it");
+  assert.deepEqual(getPanel("cb:plain")?.placement?.classic?.order, 2);
+
+  const ctx = {} as never;
+  assert.deepEqual(
+    getConnectionBuilderTabs(ctx).map((t) => [t.panel.id, t.asTab.label]),
+    [["cb:bare", "cb:bare"], ["cb:plain", "Plain"], ["cb:late", "Later"]],
+  );
+  // A tab the layout shows in a group or window of its own leaves the strip.
+  try {
+    setPlacedElsewhere(["cb:late"]);
+    assert.deepEqual(getConnectionBuilderTabs(ctx).map((t) => t.panel.id), ["cb:bare", "cb:plain"]);
+  } finally {
+    setPlacedElsewhere([]);
+  }
+  disablePlugin("cb", "test");
+  assert.deepEqual(getConnectionBuilderTabs(ctx), []);
 });
 
 test("the other regions map to their classic hosts", () => {
@@ -234,4 +275,19 @@ test("a panel the layout places elsewhere leaves its region host", () => {
     setPlacedElsewhere([]);
   }
   assert.deepEqual(getPanelsForRegion("top-panel", ctx).map((p) => p.panel.id), ["e:a", "e:b"]);
+});
+
+test("toggled: opened and closed by code, with no top-bar button and no toolbar entry", () => {
+  usePluginUiStore.setState({ visible: {} });
+  registerPlugin({ id: "tg", panels: [{ id: "cam", region: "top-panel", dock: "right", render, toggled: true }] });
+  const p = getPanel("tg:cam");
+  assert.ok(p?.binding, "it has an open state of its own");
+  assert.equal(p?.toolbar, undefined);
+  assert.equal(listToolbarPanels().some((x) => x.id === "tg:cam"), false);
+  // Closed until code opens it; the same store a top-bar panel's button writes.
+  assert.equal(isPanelOpen("tg:cam"), false);
+  toggle("tg:cam");
+  assert.equal(usePluginUiStore.getState().isVisible("tg:cam"), true);
+  hide("tg:cam");
+  assert.equal(isPanelOpen("tg:cam"), false);
 });

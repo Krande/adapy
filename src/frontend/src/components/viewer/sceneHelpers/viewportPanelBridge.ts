@@ -6,6 +6,7 @@ import {cacheAndBuildTree} from "@/state/model_worker/cacheModelUtils";
 import {useModelState} from "@/state/modelState";
 import {useLineageStore} from "@/state/lineageStore";
 import {useObjectInfoStore} from "@/state/objectInfoStore";
+import {setScenePickDescriber} from "@/plugins/scenePicks";
 import {clearSourceExtensions, setSourceExtension} from "@/state/sourceExtensions";
 import {useTreeViewStore} from "@/state/treeViewStore";
 import {query_ws_server_mesh_info} from "@/utils/mesh_select/handlers/send_mesh_selected_info_callback";
@@ -13,7 +14,7 @@ import {registerLineageFromExtension} from "@/utils/lineage/registerLineageFromE
 import {sourceOfModel} from "@/utils/tree_view/modelSource";
 import {revealPickInTrees} from "@/utils/tree_view/revealPick";
 import {announcedExtension} from "@/viewport/api/modelExtension";
-import {onModelLoaded, onViewportPick, type LoadedModelInfo, type ViewportPick} from "@/viewport/api/viewportApi";
+import {onModelLoaded, onViewportPick, pickCoordinate, type LoadedModelInfo, type ViewportPick} from "@/viewport/api/viewportApi";
 
 function listModel(info: LoadedModelInfo): void {
     let extras: Record<string, unknown> = info.extras ?? {};
@@ -49,6 +50,9 @@ function keepExtension(info: LoadedModelInfo): void {
 function showPick(pick: ViewportPick): void {
     const info = useObjectInfoStore.getState();
     info.setClickedFace(null);
+    // The clicked coordinate of the Selected Object panel, as a click in the other viewport sets it;
+    // none for empty space, or for an object the viewport found without a surface point.
+    info.setClickCoordinate(pickCoordinate(pick));
     if (!pick.ref) {
         info.setName(null);
         info.setSelectedNodeId(null);
@@ -75,4 +79,10 @@ export function installViewportPanelBridge(): void {
     installed = true;
     onModelLoaded(listModel);
     onViewportPick(showPick);
+    // A plugin holding the scene's clicks (`ctx.scene.pickObjects`) is told an object's name and
+    // file; the three.js-free viewport knows only its model and id, and the trees are read here.
+    setScenePickDescriber((model, id) => ({
+        name: useTreeViewStore.getState().findNodeByRangeId(model, id)?.name ?? null,
+        sourceName: sourceOfModel(model) ?? null,
+    }));
 }

@@ -70,6 +70,16 @@ body {
     -moz-osx-font-smoothing: grayscale;
 }
 
+/* A scroll box with no visible scrollbar (the classic top bar's button row on a phone): it still
+   scrolls by swipe, trackpad and wheel. */
+@utility scrollbar-none {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    &::-webkit-scrollbar {
+        display: none;
+    }
+}
+
 .scrollbar::-webkit-scrollbar {
     width: 10px;
 }

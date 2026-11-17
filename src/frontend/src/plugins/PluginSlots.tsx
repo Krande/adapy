@@ -72,10 +72,12 @@ export const PluginPanelMount: React.FC<{ ctx: AdaPluginContext; panel: PanelSlo
  * `excludeTabs` drops panels that opted into a Simulation tab (carry `asTab`) so
  * the region can coexist with the tabbed Simulation host without double-rendering
  * them — the tab host mounts those, this mounts the rest. */
-export const PluginPanelRegion: React.FC<{ region: PluginRegion; excludeTabs?: boolean }> = ({
-  region,
-  excludeTabs,
-}) => {
+export const PluginPanelRegion: React.FC<{
+  region: PluginRegion;
+  excludeTabs?: boolean;
+  /** The host's frame around a panel that has none of its own to be closed by (`toggled`). */
+  frame?: (panel: PanelSlot, mounted: React.ReactNode) => React.ReactNode;
+}> = ({ region, excludeTabs, frame }) => {
   const stores = useViewerStores();
   // Subscribe to visibility so a top-bar toggle re-renders this region.
   const visible = usePluginUiStore((s) => s.visible);
@@ -94,23 +96,31 @@ export const PluginPanelRegion: React.FC<{ region: PluginRegion; excludeTabs?: b
   return (
     <>
       {panels
-        .filter(({ panel }) => !panel.topBarButton || visible[panel.id])
-        .map(({ pluginId, panel }) => (
-          <PluginPanelMount
-            key={panel.id}
-            ctx={makePluginContext(pluginId, stores, theme)}
-            panel={panel}
-          />
-        ))}
+        // A panel with an open state of its own -- a top-bar button's, or one code opens
+        // (`toggled`) -- is drawn while it is open; any other whenever it is active.
+        .filter(({ panel }) => !(panel.topBarButton || panel.toggled) || visible[panel.id])
+        .map(({ pluginId, panel }) => {
+          const mounted = (
+            <PluginPanelMount
+              key={panel.id}
+              ctx={makePluginContext(pluginId, stores, theme)}
+              panel={panel}
+            />
+          );
+          return frame && panel.toggled ? <React.Fragment key={panel.id}>{frame(panel, mounted)}</React.Fragment> : mounted;
+        })}
     </>
   );
 };
 
 /** Top-bar buttons contributed by plugins (region "top-panel", panels carrying a
- * `topBarButton`). Each toggles its panel's visibility in the plugin UI store. */
-export const PluginTopBarButtons: React.FC<{ navBtnClass: (active: boolean) => string }> = ({
-  navBtnClass,
-}) => {
+ * `topBarButton`). Each toggles its panel's visibility in the plugin UI store.
+ * `isShown` leaves out the buttons a host's user turned off (the classic top
+ * bar's "Top bar buttons" setting); their panels keep their visibility. */
+export const PluginTopBarButtons: React.FC<{
+  navBtnClass: (active: boolean) => string;
+  isShown?: (panelId: string) => boolean;
+}> = ({ navBtnClass, isShown }) => {
   const stores = useViewerStores();
   const visible = usePluginUiStore((s) => s.visible);
   const toggle = usePluginUiStore((s) => s.toggle);
@@ -119,7 +129,7 @@ export const PluginTopBarButtons: React.FC<{ navBtnClass: (active: boolean) => s
   const baseCtx = makePluginContext("", stores, theme);
   // Every button, wherever the layout shows its panel: it is what opens and closes it.
   const panels = getPanelsForRegion("top-panel", baseCtx, { includePlacedElsewhere: true }).filter(
-    ({ panel }) => panel.topBarButton,
+    ({ panel }) => panel.topBarButton && (!isShown || isShown(panel.id)),
   );
   if (panels.length === 0) return null;
 

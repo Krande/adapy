@@ -196,7 +196,7 @@ export class NativeScene {
     /** Selection, visibility or the object list changed. */
     onChange: (() => void) | null = null;
     /** A click picked an object (its id), or empty space (null); the selection is already updated. */
-    onPick: ((id: string | null) => void) | null = null;
+    onPick: ((id: string | null, world: [number, number, number] | null) => void) | null = null;
     /** The key the loaded model is known by outside the viewport. */
     modelKey = "";
     /** The loaded GLB's scene extras, as JSON text. */
@@ -331,7 +331,7 @@ export class NativeScene {
     /** Show a GLB, known to the rest of the viewer as `modelKey`: instead of what is on screen, or with
      *  `add` beside it (a model already loaded under that key is replaced). Objects are known by
      *  `objectKey(modelKey, id)`. Throws when the GLB has nothing to draw. */
-    load(bytes: Uint8Array, modelKey = "", options: {add?: boolean; sourceName?: string; posable?: boolean} = {}): void {
+    load(bytes: Uint8Array, modelKey = "", options: {add?: boolean; sourceName?: string; posable?: boolean; keepCamera?: boolean} = {}): void {
         // A model whose nodes are placed from outside: every node is kept an instance of its own
         // (utils/glb/glbPosable.ts). What is read below is that file; `bytes` stays the caller's.
         const posable = options.posable && this.playsAnimations ? makeGlbPosable(bytes) : null;
@@ -417,7 +417,7 @@ export class NativeScene {
         this.rebuild();
         this.refreshAnimation();
         // A model that joins others leaves the camera where the user has it.
-        if (!add) this.framed();
+        if (!add) this.framed(options.keepCamera);
         this.tellLoaded();
         if (add) this.pushStates();
         else {
@@ -829,12 +829,13 @@ export class NativeScene {
     pickStep: ((picked: boolean, change: () => void) => void) | null = null;
 
     /** What a click does: `id` (the object under it, null for empty space) becomes the selection, or
-     *  with `additive` joins or leaves it; then the click is announced (`onPick`). */
-    pickSelect(id: string | null, additive: boolean): void {
+     *  with `additive` joins or leaves it; then the click is announced (`onPick`), with the point of
+     *  the surface that was hit, in the world, when the click hit one. */
+    pickSelect(id: string | null, additive: boolean, world: [number, number, number] | null = null): void {
         const change = () => this.select(id, additive && !!id);
         if (this.pickStep) this.pickStep(!!id, change);
         else change();
-        this.onPick?.(id);
+        this.onPick?.(id, id ? world : null);
     }
 
     /** Whether a model loaded from `sourceName` is on screen. */
@@ -1041,10 +1042,11 @@ export class NativeScene {
     }
 
     /** A replacing load: the clip range follows the model, and the camera frames it when the user
-     *  has auto-fit on, as on the three.js viewport. */
-    private framed(): void {
+     *  has auto-fit on, as on the three.js viewport. `keepCamera`: the camera stays (the same thing
+     *  loaded again), only the clip range follows. */
+    private framed(keepCamera = false): void {
         if (!this.bounds) return;
-        if (useOptionsStore.getState().autoFit) return this.fit(0);
+        if (!keepCamera && useOptionsStore.getState().autoFit) return this.fit(0);
         const range = clipRangeFor(boundingSphere(this.bounds).radius);
         if (range) this.renderer.cameraSetClipRange?.(range.near, range.far);
     }
@@ -1619,7 +1621,9 @@ export class NativeScene {
                     const hit = await this.pickHit(clientX, clientY);
                     // What is drawn in a way the renderer's pick does not see (a line), when it is in front.
                     const over = this.objectOver?.(clientX, clientY, hit?.world ?? null) ?? null;
-                    this.pickSelect(over ?? hit?.id ?? null, additive);
+                    // The hit's point belongs to the object the renderer picked: one found only as a
+                    // drawn line (`over`) has no surface point to name.
+                    this.pickSelect(over ?? hit?.id ?? null, additive, over ? null : (hit?.world ?? null));
                 })();
             }
         });

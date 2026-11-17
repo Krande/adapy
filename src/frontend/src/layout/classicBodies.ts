@@ -29,8 +29,9 @@ import SceneBody from "@/components/info_box_scene/SceneBody";
 import { WebsocketStatusBody, WebsocketStatusBox } from "@/components/WebsocketStatusMenu";
 import SimulationControls, { SimulationBody } from "@/components/simulation/SimulationControls";
 import SimulationDataInfoPanel from "@/components/simulation/SimulationDataInfoPanel";
-import ComponentControls, { ComponentControlsBody } from "@/components/component_view/ComponentControls";
+import ConnectionBuilderPanel, { ConnectionBuilderPanelContent } from "@/components/component_view/ConnectionBuilderPanel";
 import ConsolePanel, { ConsoleBody } from "@/components/console/ConsolePanel";
+import RunConsole, { RunConsoleBody } from "@/components/simulations/RunConsole";
 import CellBuilderPanel, { CellBuilderBody } from "@/components/viewer/CellBuilderPanel";
 import { ComponentListBody, ComponentListPanel } from "@/components/viewer/cellbuilder/panel/ComponentList";
 
@@ -76,10 +77,11 @@ export const CLASSIC_PANEL_COMPONENTS: Readonly<Record<PanelId, React.ComponentT
   [CORE_PANEL_IDS.wsStatus]: asBody(WebsocketStatusBox),
   [CORE_PANEL_IDS.simulation]: asBody(SimulationControls),
   [CORE_PANEL_IDS.feaTable]: asBody(SimulationDataInfoPanel),
-  [CORE_PANEL_IDS.componentControls]: asBody(ComponentControls),
+  [CORE_PANEL_IDS.componentControls]: asBody(ConnectionBuilderPanel),
   [CORE_PANEL_IDS.console]: asBody(ConsolePanel),
   [CORE_PANEL_IDS.cellbuilder]: asBody(CellBuilderPanel),
   [CORE_PANEL_IDS.componentList]: asBody(ComponentListPanel),
+  [CORE_PANEL_IDS.runConsole]: asBody(RunConsole),
 };
 
 /** Each core panel's content without its classic frame. */
@@ -92,10 +94,11 @@ export const CLASSIC_PANEL_CONTENTS: Readonly<Record<PanelId, React.ComponentTyp
   [CORE_PANEL_IDS.wsStatus]: withOptions(WebsocketStatusBody),
   [CORE_PANEL_IDS.simulation]: withOptions(SimulationBody),
   [CORE_PANEL_IDS.feaTable]: withOptions(SimulationDataInfoPanel),
-  [CORE_PANEL_IDS.componentControls]: withOptions(ComponentControlsBody),
+  [CORE_PANEL_IDS.componentControls]: asBody(ConnectionBuilderPanelContent),
   [CORE_PANEL_IDS.console]: asBody(ConsoleBody),
   [CORE_PANEL_IDS.cellbuilder]: withOptions(CellBuilderBody),
   [CORE_PANEL_IDS.componentList]: asBody(ComponentListBody),
+  [CORE_PANEL_IDS.runConsole]: asBody(RunConsoleBody),
 };
 
 type Loader = () => Promise<React.ComponentType<PanelProps>>;

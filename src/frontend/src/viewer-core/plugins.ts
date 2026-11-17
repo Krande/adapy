@@ -24,6 +24,7 @@ export {
   // same idea for the results sidebar and was already on the contract; this is
   // the admin half that was missed.
   getAdminTabs,
+  getConnectionBuilderTabs,
   getPanelsForRegion,
   getResultSidecarLoaders,
   getSceneColorFieldProviders,

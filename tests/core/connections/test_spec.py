@@ -55,9 +55,12 @@ def test_form_schema_lists_each_roles_input_fields():
     incoming, landing = spec_to_form_schema(spec)["roles"]
     assert incoming["fields"] == ["thickness", "width", "height"]
     # Any section, so possibly a box: its corner radii too.
-    assert landing["fields"] == ["section", "corner_radius", "corner_radius_inner", "angle_deg"]
+    assert landing["fields"] == ["section", "length", "corner_radius", "corner_radius_inner", "angle_deg"]
+    # A beam's length takes a bounded range, which the form is told; a plate has none.
+    assert landing["length_range"] == {"min_m": 0.0, "max_m": 12.0}
+    assert "length_range" not in incoming
     i_only = MemberCriteria(role=MemberRole.LANDING, kind=MemberKind.BEAM, section_in=frozenset({"I"}))
-    assert role_input_fields(i_only) == ["section"]
+    assert role_input_fields(i_only) == ["section", "length"]
 
 
 @pytest.fixture(autouse=True)

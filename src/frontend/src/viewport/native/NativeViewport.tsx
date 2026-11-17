@@ -26,6 +26,7 @@ import {useNativeViewport} from "./nativeModel";
 import {glbBufferViews} from "@/utils/glb/glbBufferView";
 import {takeConceptClick} from "@/utils/fem/conceptPicking";
 import {linearHexText} from "@/utils/scene/sceneColor";
+import {describeScenePick, modelPoint, offerScenePick, scenePicksHeld} from "@/plugins/scenePicks";
 
 const NativeViewport: React.FC = () => {
     const hostRef = React.useRef<HTMLDivElement>(null);
@@ -64,15 +65,37 @@ const NativeViewport: React.FC = () => {
                 const fea = useFeaAnimationStore.getState();
                 return clockPlaying || (fea.isPlaying && fea.sessionActive);
             };
-            scene.onPick = (key) => notifyViewportPick({ref: key ? splitObjectKey(key) : null});
+            scene.onPick = (key, world) =>
+                notifyViewportPick({
+                    ref: key ? splitObjectKey(key) : null,
+                    // In the model's own coordinates, as the other viewport reports its clicks.
+                    point: world ? modelPoint(world, scene.sceneOffset) : null,
+                });
             sceneRef.current = scene;
             if (scene.failure) return fail(scene.failure);
             const api = createNativeViewportApi(scene);
             const withdraw = setActiveViewport(api);
             // A glyph of an analysis concept (a mass, a support, a load) is asked before the model.
-            scene.clickFirst = (clientX, clientY, additive) => {
+            scene.clickFirst = async (clientX, clientY, additive) => {
                 const view = host.getBoundingClientRect();
-                return takeConceptClick(api, clientX - view.left, clientY - view.top, additive, async () => (await scene.pickHit(clientX, clientY))?.world ?? null);
+                if (await takeConceptClick(api, clientX - view.left, clientY - view.top, additive, async () => (await scene.pickHit(clientX, clientY))?.world ?? null)) return true;
+                // Then a plugin holding the scene's clicks (`ctx.scene.pickObjects`): the object
+                // under the cursor is handed to it, and a click it takes selects nothing.
+                if (!scenePicksHeld()) return false;
+                const hit = await scene.pickHit(clientX, clientY);
+                const key = scene.objectOver?.(clientX, clientY, hit?.world ?? null) ?? hit?.id ?? null;
+                if (!key) return false;
+                const ref = splitObjectKey(key);
+                return offerScenePick({
+                    model: ref.model,
+                    id: ref.id,
+                    // Its name and file come from the trees, which this chunk does not import.
+                    ...describeScenePick(ref.model, ref.id),
+                    // Where on it, in the model's own coordinates: this viewport places its models
+                    // at world = model + offset. An object found only as a drawn line has no surface hit.
+                    point: hit ? modelPoint(hit.world, scene.sceneOffset) : null,
+                    additive,
+                });
             };
             // The viewport's keys (hide, show all, fit, named views, orbit and pan by key), while it is up.
             const unbind = bindCoreShortcuts(viewportShortcutHandlers((run) => ({run})));
@@ -135,7 +158,7 @@ const NativeViewport: React.FC = () => {
         try {
             const key = `native-${model.seq}`;
             const added = model.placement === "overlay" && scene.objects.length > 0;
-            scene.load(model.bytes, key, {add: added, sourceName: model.sourceName, posable: model.posable});
+            scene.load(model.bytes, key, {add: added, sourceName: model.sourceName, posable: model.posable, keepCamera: model.keepCamera});
             useNativeViewport.setState({loadError: null, objectCount: scene.objects.length});
             // The Scene tree and the object info list and name this model from here on.
             // The scene read the file's JSON to find the objects without a colour: its extras are

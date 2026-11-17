@@ -272,3 +272,27 @@ test("a panel's own window: the host's actions in its title bar, the zone marks 
     );
   assert.equal(win(dock), win(null));
 });
+
+test("a plugin panel whose dock is a window starts floated, once, in core's own UI too", () => {
+  registerPanel(
+    { id: "pl:win", title: "Win", body, content: body, placement: { classic: { zone: CLASSIC_ZONES.menuColumn, order: 1, float: { w: 300, h: 200 } }, docked: { zone: "float" } } },
+    "pl",
+  );
+  registerPanel({ id: "pl:edge", title: "Edge", body, content: body, placement: { classic: { zone: CLASSIC_ZONES.menuColumn, order: 1 }, docked: { zone: "right" } } }, "pl");
+  assert.equal(P.classicContext() === "shell-t", false, "no composed shell here");
+  // A window is placed in the page: the test realm's has no size of its own.
+  const page = globalThis as unknown as { window?: { innerWidth?: number; innerHeight?: number } };
+  page.window = Object.assign(page.window ?? {}, { innerWidth: 1280, innerHeight: 800 });
+  P.adoptDockedPanels();
+  const f = P.classicDoc().floats["pl:win"];
+  assert.ok(f, "given a window of the layout");
+  assert.deepEqual([f.w, f.h], [300, 200]);
+  assert.equal(P.placeOf(P.classicDoc(), "pl:win"), "float");
+  // A dock in the grid is a composed shell's to map: core's own UI leaves that panel at home, unadopted.
+  assert.equal(P.placeOf(P.classicDoc(), "pl:edge"), "home");
+  assert.equal(P.classicDoc().known.includes("pl:edge"), false);
+  // Once only: sent back to the column by the user, it stays there.
+  P.backHome("pl:win");
+  P.adoptDockedPanels();
+  assert.equal(P.placeOf(P.classicDoc(), "pl:win"), "home");
+});

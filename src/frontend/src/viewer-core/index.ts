@@ -654,7 +654,21 @@
 //   1.23.0  `setBuilderDefaults`: a shell's default engine and blueprint for a Builder model
 //          whose doc names none. `notifyPluginActivationChanged`: a plugin says what its activation predicate reads
 //          has changed; a placed panel re-asks it (and on every loaded-model change).
-export const VIEWER_CORE_API_VERSION = "1.23.0";
+//   1.24.0 Kept in step with PLUGIN_API_VERSION 1.24.0 (`SimulationParameterFormArgs.subject`,
+//          `ctx.scene.clearScene`). Additive.
+//   1.25.0 Kept in step with PLUGIN_API_VERSION 1.25.0 (`SceneModelSource.keepCamera`). Additive.
+//   1.26.0 Kept in step with PLUGIN_API_VERSION 1.26.0. Additive:
+//          - `ctx.scene.pickObjects`, `ScenePick`; `ctx.scene.placeBox` and the types
+//            `PlaceBoxOptions`, `PlacedBox`, `PlacedBoxMode`, `PlacedBoxPose`.
+//          - `registerPlaybackAction` / `unregisterPlaybackAction` / `notifyPlaybackActionsChanged`
+//            (layout/playbackActions.ts), and `PanelSlot.toggled`.
+//          - `PluginSpec.storageAssetTypes` (a plugin's kinds of stored asset in the storage
+//            browser, each with its list and its upload form) and its types (`StorageAssetType`,
+//            `StorageAssetTypeArgs`, `StorageAssetUpload`).
+//          - the `connection-builder` region (a plugin's tab in the connection builder panel) and
+//            `getConnectionBuilderTabs` on `@/viewer-core/plugins`, for a shell that draws that
+//            panel itself.
+export const VIEWER_CORE_API_VERSION = "1.26.0";
 
 // ---------------------------------------------------------------------------
 // Plugin declaration. `registerPlugin` is how a package announces itself —
@@ -674,6 +688,10 @@ export type {
   ActivationPredicate,
   AdaPluginContext,
   PanelSlot,
+  PlaceBoxOptions,
+  PlacedBox,
+  PlacedBoxMode,
+  PlacedBoxPose,
   PluginDockId,
   PluginLayers,
   PluginSimulations,
@@ -702,6 +720,9 @@ export type {
   SceneElementPaint,
   SceneFace,
   SceneHandle,
+  ScenePick,
+  ScenePickOptions,
+  ScenePickSession,
   SceneLabel,
   SceneImage,
   SceneImageRect,
@@ -720,7 +741,11 @@ export type {
   SidecarFetcher,
   SimulationOpenResultArgs,
   SimulationParameterFormArgs,
+  SimulationFormSubject,
   SimulationProviderUi,
+  StorageAssetType,
+  StorageAssetTypeArgs,
+  StorageAssetUpload,
   TopBarButtonSpec,
   UrlParamHandler,
 } from "@/plugins/registry";
@@ -829,6 +854,9 @@ export type { RailPrefs, ToolRailConfig } from "@/layout/toolRailModel";
 export { VIEWPORT_ANCHORS, registerViewportOverlay, unregisterViewportOverlay } from "@/layout/viewportOverlays";
 export { registerToastSlot, unregisterToastSlot } from "@/layout/toastSlots";
 export type { ToastSlotSpec } from "@/layout/toastSlots";
+// Buttons in the playback transport, beside play and the run's Console (dependency-free).
+export { notifyPlaybackActionsChanged, registerPlaybackAction, unregisterPlaybackAction } from "@/layout/playbackActions";
+export type { PlaybackActionSpec } from "@/layout/playbackActions";
 // The Builder's default engine and blueprint for a model whose doc names none (dependency-free).
 export { setBuilderDefaults } from "@/state/cellbuilder/builderDefaults";
 export type { BuilderDefaults } from "@/state/cellbuilder/builderDefaults";

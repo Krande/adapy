@@ -73,8 +73,8 @@ test("the recipes' tooltips and accessible names are the classic top bar's", () 
     [CORE_PANEL_IDS.scene]: { title: ["Toggle scene info", "Toggle scene info"], aria: ["Toggle scene info", "Toggle scene info"] },
     [CORE_PANEL_IDS.simulation]: { title: ["Toggle simulation panel", "Toggle simulation panel"] },
     [CORE_PANEL_IDS.componentControls]: {
-      title: ["Toggle connection-component panel", "Toggle connection-component panel"],
-      aria: ["Toggle connection-component panel", "Toggle connection-component panel"],
+      title: ["Toggle connections", "Toggle connections"],
+      aria: ["Toggle connections", "Toggle connections"],
     },
     [CORE_PANEL_IDS.cellbuilder]: {
       title: ["Toggle procedural cellbuilder panel", "Toggle procedural cellbuilder panel"],
@@ -83,10 +83,6 @@ test("the recipes' tooltips and accessible names are the classic top bar's", () 
     [CORE_PANEL_IDS.simulations]: {
       title: ["Toggle robotic simulations panel", "Toggle robotic simulations panel"],
       aria: ["Toggle robotic simulations panel", "Toggle robotic simulations panel"],
-    },
-    [CORE_PANEL_IDS.layers]: {
-      title: ["Toggle layers panel", "Toggle layers panel"],
-      aria: ["Toggle layers panel", "Toggle layers panel"],
     },
   };
   for (const [id, r] of Object.entries(CLASSIC_TOOLBAR)) {
