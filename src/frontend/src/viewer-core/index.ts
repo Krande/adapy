@@ -661,7 +661,10 @@
 //   1.27.0 Kept in step with PLUGIN_API_VERSION 1.27.0: `registerPlaybackAction` /
 //          `unregisterPlaybackAction` / `notifyPlaybackActionsChanged` (layout/playbackActions.ts),
 //          and `PanelSlot.toggled`. Additive.
-export const VIEWER_CORE_API_VERSION = "1.27.0";
+//   1.28.0 Kept in step with PLUGIN_API_VERSION 1.28.0: `PluginSpec.storageAssetTypes` (a plugin's kinds of
+//          stored asset in the storage browser, each with its list and its upload form) and its types
+//          (`StorageAssetType`, `StorageAssetTypeArgs`, `StorageAssetUpload`). Additive.
+export const VIEWER_CORE_API_VERSION = "1.28.0";
 
 // ---------------------------------------------------------------------------
 // Plugin declaration. `registerPlugin` is how a package announces itself —
@@ -732,6 +735,9 @@ export type {
   SimulationParameterFormArgs,
   SimulationFormSubject,
   SimulationProviderUi,
+  StorageAssetType,
+  StorageAssetTypeArgs,
+  StorageAssetUpload,
   TopBarButtonSpec,
   UrlParamHandler,
 } from "@/plugins/registry";

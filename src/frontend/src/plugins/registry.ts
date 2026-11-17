@@ -215,8 +215,16 @@ export type { ScenePick, ScenePickOptions, ScenePickSession } from "./scenePicks
 //            (@/viewer-core): a shell's or plugin's buttons in the bar with play, the scrub bar and
 //            the run's Console -- what shows and hides the things that follow the clock.
 //          - `PanelSlot.toggled`: a panel with no top-bar button that code opens and closes.
+//          - `PanelSlot.title` and `floatSize`; a slot with `dock: "float"` now starts in a window
+//            of the layout (once; after that it is where the user left it), in core's own UI too.
 //          Additive: an older core has neither, so a plugin asks for them first.
-export const PLUGIN_API_VERSION = "1.27.0";
+// 1.28.0 — `storageAssetTypes`: a plugin adds a kind of stored asset to the storage browser, beside
+//          the scope's files: a section the plugin fills with what the open scope has of that kind,
+//          and, when it gives `upload`, an entry of the browser's "+" menu that opens a form of the
+//          plugin's own in a dialog. `available` says per scope whether the kind is there at all.
+//          Additive: a plugin built against it and loaded into 1.27.0 would register into nothing,
+//          and its assets would be in no list with no line naming the mismatch.
+export const PLUGIN_API_VERSION = "1.28.0";
 
 // The named mount regions core exposes in Phase 1. Deliberately small
 // (`fem-sidebar` covers the FEM simulation panel, `top-panel` the menu bar,
@@ -920,9 +928,15 @@ export interface PanelSlot {
    * Opened and closed by code, with no top-bar button (1.27.0): a button of the plugin's own
    * elsewhere -- an action of the playback transport, say -- shows and hides it with `toggle` /
    * `reveal` / `hide` (`@/viewer-core`). It has the open state a top-bar panel has, so it is drawn
-   * only while open, keeps its place in a layout while closed, and starts closed.
+   * only while open, keeps its place in a layout while closed, and starts closed. In the panel
+   * column core frames it -- its `title`, float, move and close -- as nothing else there closes it.
    */
   toggled?: boolean;
+  /** The panel's name in a window's title bar, a group's tab and a menu (1.27.0). Default: a
+   *  top-bar button's or tab's label, else its id. */
+  title?: string;
+  /** With `dock: "float"`: the size of its window the first time (1.27.0). */
+  floatSize?: { w: number; h: number };
   /**
    * May open in a browser window of its own (1.13.0). Only for a panel that works
    * without the 3D scene: the new window boots canvas-less, with stores of its own.
@@ -1148,6 +1162,52 @@ export function openResultButtonLabel(
   return (active ? ui.openResultLiveLabel : undefined) ?? ui.openResultLabel ?? "Open";
 }
 
+// ---------------------------------------------------------------------------
+// Storage asset types (1.28.0)
+//
+// The storage browser lists a scope's files. Some of what a scope has is not a file a person
+// uploaded and opens: it is an asset of several stored files under one name and version, kept
+// under `assets/` (which the browser's file list leaves out) or reached through a grant, and
+// only the plugin that defines the kind can say which there are and what one is. This slot is
+// where it says so: core gives the kind a section of the browser and an entry of its "+" menu,
+// and the plugin fills both. Core never learns what the kind is.
+// ---------------------------------------------------------------------------
+
+/** What an asset type's callbacks are told. */
+export interface StorageAssetTypeArgs {
+  /** The scope the storage browser shows. */
+  scope: string;
+}
+
+/** A form of the plugin's, opened from the storage browser's "+" menu. */
+export interface StorageAssetUpload {
+  /** The menu entry's text ("Upload a material library…"). */
+  label: string;
+  /** The dialog's title; `label` without a trailing ellipsis when omitted. */
+  title?: string;
+  /** The form. `close` closes the dialog; the plugin calls it when it is done. */
+  render: (ctx: AdaPluginContext, args: StorageAssetTypeArgs & { close: () => void }) => React.ReactNode;
+}
+
+/** A kind of stored asset a plugin adds to the storage browser. */
+export interface StorageAssetType {
+  id: string; // namespaced on register
+  /** The section's heading: what the kind is called, in the plural. */
+  label: string;
+  /** Sort key among the asset types; ties broken by id. */
+  order?: number;
+  /**
+   * Whether the open scope has this kind at all. False leaves out the section and the "+" entry.
+   * Asked on every render of the browser: cheap, synchronous, no I/O. A plugin whose answer
+   * arrives later says so with `notifyPluginActivationChanged`, and the browser asks again.
+   */
+  available?: (ctx: AdaPluginContext, args: StorageAssetTypeArgs) => boolean;
+  /** The section's body: the scope's assets of this kind, as the plugin lists them. */
+  render: (ctx: AdaPluginContext, args: StorageAssetTypeArgs) => React.ReactNode;
+  /** Adding one: an entry of the "+" menu that opens the plugin's form in a dialog. */
+  upload?: StorageAssetUpload;
+}
+
 export interface UrlParamHandler {
   params: string[];
   // Return true when the plugin consumed the params (core stops offering them).
@@ -1172,6 +1232,8 @@ export interface PluginSpec {
   // UI for simulation providers, by provider id or by domain (1.17.0). Read by core's
   // Simulations panel.
   simulationProviders?: SimulationProviderUi[];
+  // Kinds of stored asset in the storage browser, each with its own list and upload form (1.28.0).
+  storageAssetTypes?: StorageAssetType[];
   // Whole activities (1.1.0). Consumed by a shell that has modes; ignored by one
   // that does not, including core's own UI.
   modes?: PluginModeSpec[];
@@ -1194,6 +1256,7 @@ export interface RegisteredPlugin {
   renderableFileProviders: RenderableFileProvider[];
   urlParamHandlers: UrlParamHandler[];
   simulationProviders: SimulationProviderUi[];
+  storageAssetTypes: StorageAssetType[];
   modes: PluginModeSpec[];
   // Ids of the UI shells this plugin contributed (the shells themselves live in
   // the shell registry); kept for introspection / audit.
@@ -1297,6 +1360,13 @@ export function registerPlugin(spec: PluginSpec): void {
       return false;
     })
     .map((u) => ({ ...u, id: namespaced(id, u.id) }));
+  const storageAssetTypes = (spec.storageAssetTypes ?? [])
+    .filter((t) => {
+      if (t?.id && t.label && typeof t.render === "function") return true;
+      console.warn(`[plugins] plugin "${id}": storage asset type "${t?.id}" has no id, label or render; ignored`);
+      return false;
+    })
+    .map((t) => ({ ...t, id: namespaced(id, t.id) }));
   // UI shells go to their own registry (core mounts exactly one), but are
   // registered here so a plugin still has ONE entry point: registerPlugin().
   const uiShellIds: string[] = [];
@@ -1318,6 +1388,7 @@ export function registerPlugin(spec: PluginSpec): void {
     renderableFileProviders,
     urlParamHandlers,
     simulationProviders,
+    storageAssetTypes,
     // NOT namespaced, unlike panels and colour fields. A mode id is user-facing —
     // a panel writes `modes: ["capacity"]` and a shell may accept `?mode=capacity`
     // — so it has to be the word the author chose. Collisions are the same
@@ -1628,6 +1699,33 @@ export function getUrlParamHandlers(
     for (const handler of p.urlParamHandlers) out.push({ pluginId: p.id, handler });
   }
   return out;
+}
+
+/**
+ * The storage asset types of the active plugins that the scope has, ordered by `(order ?? 0, id)`.
+ * Activation predicates are honoured, and each type's own `available`. A throwing `available`
+ * disables its plugin for the session, as every other predicate of this registry does.
+ */
+export function getStorageAssetTypes(
+  ctx: AdaPluginContext,
+  args: StorageAssetTypeArgs,
+): Array<{ pluginId: string; type: StorageAssetType }> {
+  const out: Array<{ pluginId: string; type: StorageAssetType; order: number }> = [];
+  for (const p of _registry.values()) {
+    const pctx: AdaPluginContext = { ...ctx, pluginId: p.id };
+    if (!isActive(p, pctx)) continue;
+    for (const type of p.storageAssetTypes) {
+      try {
+        if (type.available && !type.available(pctx, args)) continue;
+      } catch (err) {
+        disablePlugin(p.id, `storage asset type "${type.id}" available() threw: ${String(err)}`);
+        break;
+      }
+      out.push({ pluginId: p.id, type, order: type.order ?? 0 });
+    }
+  }
+  out.sort((a, b) => a.order - b.order || a.type.id.localeCompare(b.type.id));
+  return out.map(({ pluginId, type }) => ({ pluginId, type }));
 }
 
 /** One capability of the simulation seam, resolved for a provider. */

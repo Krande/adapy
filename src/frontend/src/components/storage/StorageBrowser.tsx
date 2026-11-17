@@ -27,6 +27,7 @@ import {BulkBusy, useBulkActions} from "./browser/useBulkActions";
 import {useDragAndMenus} from "./browser/useDragAndMenus";
 import {useListKeyboardNav} from "./browser/useListKeyboardNav";
 import {useRowLoads} from "./browser/useRowLoads";
+import {useStorageAssetTypes} from "./browser/AssetTypeSections";
 import {selectionMenuItems, type SelectionMenuContext} from "./storageMenuItems";
 import type {ProceduralModelSummary} from "@/services/viewerApi";
 
@@ -359,6 +360,10 @@ export const StorageBody: React.FC<StorageBodyProps> = ({
         toggleSelection(name);
     };
 
+    // What plugins add beside the files: their kinds of stored asset, each a section under the list
+    // and, where it can be added to, an entry of the "+" menu.
+    const assetTypes = useStorageAssetTypes(scopeKey);
+
     const existingFolderPaths = Array.from(
         new Set([...collectFolderPaths(files, (f) => f.name), ...pendingFolders]),
     ).sort((a, b) => a.localeCompare(b));
@@ -394,6 +399,7 @@ export const StorageBody: React.FC<StorageBodyProps> = ({
                 onHideAll={onHideAll}
                 onClose={onClose}
                 scopePicker={scopePicker}
+                addItems={assetTypes.addItems}
             />
             {inSelectionMode && selectionActions === "toolbar" && (
                 <SelectionToolbar
@@ -469,6 +475,8 @@ export const StorageBody: React.FC<StorageBodyProps> = ({
                 toggleFolder={toggleFolder}
                 setGitHistoryOpen={setGitHistoryOpen}
             />
+            {assetTypes.sections}
+            {assetTypes.dialog}
             <BrowserDialogs
                 ctxMenu={ctxMenu}
                 setCtxMenu={setCtxMenu}
