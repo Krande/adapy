@@ -19,7 +19,8 @@ export interface ScenePick {
   name: string | null;
   /** The file the model was loaded from, when it is known. */
   sourceName: string | null;
-  /** Where on the object, in the model's own coordinates; null where the viewport does not say. */
+  /** Where on the object, in the model's own coordinates, on either viewport; null only for an
+   *  object that was found without a surface hit (one drawn as a line). */
   point: [number, number, number] | null;
   /** The click carried the key that adds to a selection (shift, ctrl, cmd). */
   additive: boolean;
@@ -88,6 +89,12 @@ export function setScenePickDescriber(fn: typeof describe): void {
 /** The name and source file of the object `id` of `model`; both null where nobody can say. */
 export function describeScenePick(model: string, id: string): { name: string | null; sourceName: string | null } {
   return describe?.(model, id) ?? { name: null, sourceName: null };
+}
+
+/** A point of a viewport's world in the model's own coordinates, for a viewport that places its
+ *  models at world = model + offset. */
+export function modelPoint(world: readonly number[], offset: readonly number[]): [number, number, number] {
+  return [world[0] - offset[0], world[1] - offset[1], world[2] - offset[2]];
 }
 
 /** End every pick `owner` holds (`ctx.scene.remove(owner)`). */

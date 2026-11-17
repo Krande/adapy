@@ -26,7 +26,7 @@ import {useNativeViewport} from "./nativeModel";
 import {glbBufferViews} from "@/utils/glb/glbBufferView";
 import {takeConceptClick} from "@/utils/fem/conceptPicking";
 import {linearHexText} from "@/utils/scene/sceneColor";
-import {describeScenePick, offerScenePick, scenePicksHeld} from "@/plugins/scenePicks";
+import {describeScenePick, modelPoint, offerScenePick, scenePicksHeld} from "@/plugins/scenePicks";
 
 const NativeViewport: React.FC = () => {
     const hostRef = React.useRef<HTMLDivElement>(null);
@@ -86,8 +86,9 @@ const NativeViewport: React.FC = () => {
                     id: ref.id,
                     // Its name and file come from the trees, which this chunk does not import.
                     ...describeScenePick(ref.model, ref.id),
-                    // This viewport's hit is in its own drawn frame, not the model's file coordinates.
-                    point: null,
+                    // Where on it, in the model's own coordinates: this viewport places its models
+                    // at world = model + offset. An object found only as a drawn line has no surface hit.
+                    point: hit ? modelPoint(hit.world, scene.sceneOffset) : null,
                     additive,
                 });
             };

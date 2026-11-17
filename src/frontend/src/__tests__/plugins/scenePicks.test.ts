@@ -5,6 +5,7 @@ import { test } from "node:test";
 import {
   describeScenePick,
   endScenePicks,
+  modelPoint,
   offerScenePick,
   pickObjects,
   scenePicksHeld,
@@ -83,4 +84,10 @@ test("an object's name and file come from whoever reads the trees, and are null 
   setScenePickDescriber((model, id) => ({ name: `${model}/${id}`, sourceName: "model.glb" }));
   assert.deepEqual(describeScenePick("m1", "r1"), { name: "m1/r1", sourceName: "model.glb" });
   setScenePickDescriber(null);
+});
+
+test("a viewport that draws its models moved gives the clicked point in the model's own coordinates", () => {
+  // world = model + offset: a model recentred by (-100, -50, 0) and clicked at (2, 3, 4) on screen.
+  assert.deepEqual(modelPoint([2, 3, 4], [-100, -50, 0]), [102, 53, 4]);
+  assert.deepEqual(modelPoint([2, 3, 4], [0, 0, 0]), [2, 3, 4]);
 });

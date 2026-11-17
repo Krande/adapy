@@ -208,7 +208,8 @@ export type { ScenePick, ScenePickOptions, ScenePickSession } from "./scenePicks
 //          for a while (a tool that asks the user to point at things), on either viewport. A click
 //          it takes selects nothing and is no undo step; `end()` (or `scene.remove(owner)`) gives
 //          the clicks back. `ScenePick` names what was clicked: model, object id, name, source
-//          file, point. Additive: an older core has no such verb, so a plugin asks for it first.
+//          file, and the point in the model's own coordinates. Additive: an older core has no
+//          such verb, so a plugin asks for it first.
 export const PLUGIN_API_VERSION = "1.26.0";
 
 // The named mount regions core exposes in Phase 1. Deliberately small
