@@ -45,6 +45,7 @@ import {
 } from "./sceneLayers";
 import { makePluginSimulations } from "./pluginSimulations";
 import { endScenePicks, pickObjects } from "./scenePicks";
+import { placeBox } from "./sceneBox";
 import { releaseFeaDeformation, setFeaDeformationShown } from "@/utils/scene/fea/deformationGate";
 import { releaseFeaUnpaintedColor, setFeaUnpaintedColor } from "@/utils/scene/fea/unpaintedColor";
 import { findFaces, focusFace } from "@/utils/mesh_select/faceSearch";
@@ -211,6 +212,7 @@ function makeSceneHandle(): SceneHandle {
     findFaces,
     focusFace: (face, opts) => focusFace(face, { frame: opts?.frame }),
     pickObjects,
+    placeBox,
   };
 }
 

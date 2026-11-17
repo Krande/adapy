@@ -18,8 +18,10 @@ import { panelSpecFromSlot } from "@/layout/pluginPanels";
 import { registerPanel, removePanelsOwnedBy } from "@/layout/registry";
 import { isPlacedElsewhere } from "@/layout/placedElsewhere";
 import type { ScenePickOptions, ScenePickSession } from "./scenePicks";
+import type { PlaceBoxOptions, PlacedBox } from "./sceneBox";
 
 export type { ScenePick, ScenePickOptions, ScenePickSession } from "./scenePicks";
+export type { PlaceBoxOptions, PlacedBox, PlacedBoxMode, PlacedBoxPose } from "./sceneBox";
 
 // Bumped on a breaking change to any slot interface below. A plugin declares the
 // core range it was built against via `coreApiRange`; an out-of-range plugin is
@@ -230,7 +232,16 @@ export type { ScenePick, ScenePickOptions, ScenePickSession } from "./scenePicks
 //          tab; `asTab` gives its label, order and badge. With no such panel the builder panel
 //          has no tab strip and is what it was. Additive: an older core mounts the region
 //          nowhere, so a plugin that needs its tab seen raises its floor to this.
-export const PLUGIN_API_VERSION = "1.29.0";
+// 1.30.0 — `ctx.scene.placeBox(owner, {box, position, yawDeg?, constrain?, snap?, onChange, ...})`:
+//          a plugin puts a simple box in the scene with a transform gizmo on it, for a tool that
+//          asks the user where something stands, and is told the box's pose (position and turn
+//          about Z, in the scene's own coordinates) as the user moves it. The gizmo answers the
+//          cell builder's keys by the builder's rules -- G move, R turn, X / Y / Z lock an axis,
+//          Escape / Enter -- and snaps as it does; its handles are drawn through the viewport
+//          interface, so it works on either viewport. `set` moves the box from the plugin's side;
+//          `end()` (or `scene.remove(owner)`) takes it away. Additive: an older core has no such
+//          verb, so a plugin asks for it first.
+export const PLUGIN_API_VERSION = "1.30.0";
 
 // The named mount regions core exposes in Phase 1. Deliberately small
 // (`fem-sidebar` covers the FEM simulation panel, `top-panel` the menu bar,
@@ -809,6 +820,12 @@ export interface SceneHandle {
   // selecting what was clicked (return false to let one through). For a tool that asks the user to
   // point at objects. Works on either viewport; `remove(owner)` ends it too.
   pickObjects: (owner: string, options: ScenePickOptions) => ScenePickSession;
+  // (1.30.0) Put a simple box in the scene with a transform gizmo on it until `end()`: the user moves
+  // and turns it with the cell builder's gizmo keys (G, R, X / Y / Z, Escape / Enter), and each change
+  // is handed to `onChange` as the box's pose in the scene's own coordinates. `set` moves it from the
+  // plugin's side. For a tool that asks where something stands. Works on either viewport;
+  // `remove(owner)` ends it too.
+  placeBox: (owner: string, options: PlaceBoxOptions) => PlacedBox;
 }
 
 /** An axis-aligned world-space box. */

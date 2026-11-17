@@ -667,7 +667,9 @@
 //   1.29.0 Kept in step with PLUGIN_API_VERSION 1.29.0: the `connection-builder` region (a plugin's
 //          tab in the connection builder panel) and `getConnectionBuilderTabs` on
 //          `@/viewer-core/plugins`, for a shell that draws that panel itself. Additive.
-export const VIEWER_CORE_API_VERSION = "1.29.0";
+//   1.30.0 Kept in step with PLUGIN_API_VERSION 1.30.0 (`ctx.scene.placeBox`; the types `PlaceBoxOptions`,
+//          `PlacedBox`, `PlacedBoxMode`, `PlacedBoxPose`). Additive.
+export const VIEWER_CORE_API_VERSION = "1.30.0";
 
 // ---------------------------------------------------------------------------
 // Plugin declaration. `registerPlugin` is how a package announces itself —
@@ -687,6 +689,10 @@ export type {
   ActivationPredicate,
   AdaPluginContext,
   PanelSlot,
+  PlaceBoxOptions,
+  PlacedBox,
+  PlacedBoxMode,
+  PlacedBoxPose,
   PluginDockId,
   PluginLayers,
   PluginSimulations,

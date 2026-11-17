@@ -160,6 +160,14 @@ for (const module of ["utils/groups/selectGroup.ts", "utils/groups/extensionGrou
     });
 }
 
+// A box a plugin places in the scene: its maths, the gizmo's key rules (which the cell builder's key
+// handler reads too) and the placement itself go through the viewport interface.
+for (const module of ["utils/gizmo/transformKeys.ts", "utils/gizmo/boxPose.ts", "plugins/sceneBox.ts"]) {
+    test(`${module} imports no three.js`, () => {
+        walkFreeOfThree(join(ROOT, "src", module));
+    });
+}
+
 test("the walk sees what a build would bundle", () => {
     const imports = runtimeImports(`
         import * as THREE from "three";
