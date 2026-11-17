@@ -28,6 +28,8 @@ from pydantic import BaseModel
 __all__ = [
     "DEFAULT_ENGINE_SLUG",
     "PROCEDURAL_SCHEMA_VERSION",
+    "ENTITY_INCLUDE_SCHEMA",
+    "honours_entity_include",
     "EngineBinding",
     "BUILTIN_ENGINES",
     "is_default_engine",
@@ -45,7 +47,30 @@ DEFAULT_ENGINE_SLUG = "adapy-default"
 # bumped when the doc shape (sheets/entities/columns) changes incompatibly. It is
 # independent of the xlsx serializer's own wire-format version. MAJOR.MINOR: a
 # minor bump is additive (older reader still works); a major bump is a break.
-PROCEDURAL_SCHEMA_VERSION = "1.0"
+#
+# 1.1: an entity's ``INCLUDE: false`` (space, equipment, opening) leaves it out of the build. Before
+# 1.1 the entity models' default False was dumped into every stored doc and no compile read it, so a
+# 1.0 (or unstamped) doc's entity INCLUDE is ignored: see :func:`honours_entity_include`.
+PROCEDURAL_SCHEMA_VERSION = "1.1"
+
+#: The first doc schema whose entities' ``INCLUDE: false`` means "left out of the build".
+ENTITY_INCLUDE_SCHEMA = "1.1"
+
+
+def _version(v: object) -> tuple[int, ...] | None:
+    try:
+        return tuple(int(p) for p in str(v).split("."))
+    except ValueError:
+        return None
+
+
+def honours_entity_include(schema_version: object) -> bool:
+    """Does a doc of this schema mean its entities' ``INCLUDE: false``? Only from 1.1: an older or
+    unstamped doc carries the models' default False on entities nobody excluded (``validate_doc`` and
+    ``to_doc`` dumped it, and the compile ignored it), so reading it now would drop them. A structure's
+    ``groups[].include: false`` is new with the flag and read at every version."""
+    have, need = _version(schema_version), _version(ENTITY_INCLUDE_SCHEMA)
+    return have is not None and need is not None and have >= need
 
 
 class EngineBinding(BaseModel):

@@ -16,6 +16,7 @@ const { useModelPanelViewStore } = await import("@/state/modelPanelViewStore");
 type Doc = import("@/services/viewerApi").ProceduralDoc;
 
 const doc: Doc = {
+  schema_version: "1.1",
   grid: {},
   blueprint: {},
   spaces: [

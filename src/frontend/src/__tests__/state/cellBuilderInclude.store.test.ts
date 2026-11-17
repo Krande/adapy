@@ -14,6 +14,7 @@ import type { ProceduralDoc } from "@/services/viewerApi";
 await import("../fixtures/panelRealm");
 
 const doc: ProceduralDoc = {
+  schema_version: "1.1",
   grid: {},
   blueprint: {},
   spaces: [
@@ -64,6 +65,20 @@ test("INCLUDE round-trips loadFromDoc -> toDoc; absent reads as included and is 
   s.getState().loadFromDoc({ ...doc, equipments: doc.equipments.map(({ INCLUDE: _i, ...e }) => e) });
   assert.equal(written(s).tank, true);
   assert.equal(s.getState().dirty, false, "loading is not an edit");
+});
+
+test("a doc before schema 1.1 builds everything: its INCLUDE false is the old default, not a choice", async () => {
+  // Every doc stored before 1.1 carried INCLUDE false on items nobody excluded (the entity models'
+  // default, dumped by the doc normalizer, read by no build). Unstamped or 1.0, it loads all included,
+  // and the next save writes the 1.1 stamp without the stale flags.
+  const s = await store();
+  for (const stamp of [{ schema_version: undefined }, { schema_version: "1.0" }]) {
+    s.getState().loadFromDoc({ ...doc, ...stamp });
+    assert.equal(Object.values(written(s)).every(Boolean), true, JSON.stringify(written(s)));
+  }
+  assert.equal(s.getState().toDoc().schema_version, "1.1");
+  s.getState().loadFromDoc(doc);
+  assert.equal(written(s).tank, false, "a 1.1 doc's false is a choice");
 });
 
 test("one item: setCellsIncluded is an undoable, dirtying document edit", async () => {

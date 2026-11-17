@@ -59,7 +59,7 @@ from .compile import (
     _space_to_box,
     _stream_tessellation,
 )
-from .engines import DEFAULT_ENGINE_SLUG, PROCEDURAL_SCHEMA_VERSION, EngineBinding
+from .engines import DEFAULT_ENGINE_SLUG, PROCEDURAL_SCHEMA_VERSION, EngineBinding, honours_entity_include
 
 __all__ = ["ProceduralBuilder"]
 
@@ -86,16 +86,22 @@ def _included(d) -> bool:
 
 
 def _without_excluded(doc: dict) -> dict:
-    """The doc without what the build leaves out: entities with ``INCLUDE: false``, and the spaces of
-    a group with ``include: false`` (the viewer's Model panel, a structure row unticked) plus the
-    equipment and openings in the spaces left out (by ``STRUCTURE_NAME`` or ``SPACE_NAME``)."""
+    """The doc without what the build leaves out: entities with ``INCLUDE: false`` (a doc of schema 1.1
+    or later, :func:`~ada.topo_model.engines.honours_entity_include`), and the spaces of a group with
+    ``include: false`` (the viewer's Model panel, a structure row unticked) plus the equipment and
+    openings in the spaces left out (by ``STRUCTURE_NAME`` or ``SPACE_NAME``)."""
+    flags = honours_entity_include(doc.get("schema_version"))
+
+    def own(d) -> bool:
+        return _included(d) if flags else True
+
     out_groups = {g.get("name") for g in doc.get("groups") or [] if isinstance(g, dict) and g.get("include") is False}
-    spaces = [s for s in doc.get("spaces", []) if _included(s) and s.get("STRUCTURE_NAME") not in out_groups]
+    spaces = [s for s in doc.get("spaces", []) if own(s) and s.get("STRUCTURE_NAME") not in out_groups]
     # A dropped space with no NAME must not read as "every free-placed item" (SPACE_NAME None).
     dropped = ({s.get("NAME") for s in doc.get("spaces", [])} - {s.get("NAME") for s in spaces}) - {None}
 
     def placed(d: dict) -> bool:
-        return _included(d) and d.get("STRUCTURE_NAME") not in out_groups and d.get("SPACE_NAME") not in dropped
+        return own(d) and d.get("STRUCTURE_NAME") not in out_groups and d.get("SPACE_NAME") not in dropped
 
     return {
         **doc,
@@ -205,6 +211,12 @@ class ProceduralBuilder:
         self.loft_members = [
             m if isinstance(m, TopoLoftMember) else TopoLoftMember(**_strip_none(m)) for m in self.loft_members
         ]
+        # What a builder holds is built: from_dict has left out what the doc excludes, and an entity made in
+        # code without INCLUDE (its class defaults it to False) is built all the same. Say so on the entity,
+        # so to_doc / to_excel -> from_dict keeps it (copies: the caller's objects are left as they were).
+        self.spaces = [s if s.INCLUDE else s.model_copy(update={"INCLUDE": True}) for s in self.spaces]
+        self.equipments = [e if e.INCLUDE else e.model_copy(update={"INCLUDE": True}) for e in self.equipments]
+        self.openings = [o if o.INCLUDE else o.model_copy(update={"INCLUDE": True}) for o in self.openings]
         # Whitelist the structural options so an unknown key can't reach SteelStru.
         self.blueprint_options = {k: v for k, v in dict(self.blueprint_options).items() if k in _BLUEPRINT_OPTION_KEYS}
         # Resolve a named/absent ruleset to a DesignRules; keep the slug for round-trip.

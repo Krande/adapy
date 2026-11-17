@@ -711,6 +711,10 @@ def validate_doc(doc: dict) -> dict:
     # engine's procedural_engine) raise, silently dropping equipment/openings. Dropping
     # None-valued keys lets field defaults reapply cleanly on reconstruction.
     out = model.model_dump(mode="json", exclude_none=True)
+    # An unstamped doc is a 1.0 one (as the shallow normalizer says), not one of this build's schema: the
+    # stamp decides whether its entities' INCLUDE is read (ada.topo_model.engines.honours_entity_include).
+    if not doc.get("schema_version"):
+        out["schema_version"] = "1.0"
     return _keep_unset_include(doc, out)
 
 
