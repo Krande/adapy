@@ -6,6 +6,7 @@
 
 import React, { useSyncExternalStore } from "react";
 
+import StopIcon from "@/components/icons/StopIcon";
 import RunConsole from "@/components/simulations/RunConsole";
 import {
   listPlaybackActions,
@@ -49,6 +50,27 @@ const PlaybackTransport: React.FC = () => {
   const actions = listPlaybackActions()
     .map((spec) => ({ spec, shown: playbackActionState(spec) }))
     .filter((a) => a.shown !== null);
+  const actionButton = ({ spec, shown }: (typeof actions)[number]) => (
+    <button
+      key={spec.id}
+      type="button"
+      className={`${BUTTON} ${shown!.pressed ? TOGGLE_ON : ""}`}
+      title={spec.title ?? spec.label}
+      aria-label={spec.label}
+      aria-pressed={shown!.pressed}
+      data-playback-action={spec.id}
+      onClick={() => {
+        try {
+          spec.run();
+        } catch (err) {
+          console.error(`[playback] action "${spec.id}" threw`, err);
+        }
+        pressedAgain();
+      }}
+    >
+      {spec.icon === "stop" ? <StopIcon /> : spec.label}
+    </button>
+  );
   const speeds = SPEEDS.includes(state.speed) ? SPEEDS : [...SPEEDS, state.speed].sort((a, b) => a - b);
   return (
     <>
@@ -74,6 +96,7 @@ const PlaybackTransport: React.FC = () => {
       >
         {state.playing ? "❚❚" : "▶"}
       </button>
+      {actions.filter((a) => a.spec.beside === "play").map(actionButton)}
       <input
         type="range"
         className="order-first h-8 min-w-0 flex-1 basis-full sm:order-none sm:h-auto sm:basis-0"
@@ -133,27 +156,7 @@ const PlaybackTransport: React.FC = () => {
           Console
         </button>
       )}
-      {actions.map(({ spec, shown }) => (
-        <button
-          key={spec.id}
-          type="button"
-          className={`${BUTTON} ${shown!.pressed ? TOGGLE_ON : ""}`}
-          title={spec.title ?? spec.label}
-          aria-label={spec.label}
-          aria-pressed={shown!.pressed}
-          data-playback-action={spec.id}
-          onClick={() => {
-            try {
-              spec.run();
-            } catch (err) {
-              console.error(`[playback] action "${spec.id}" threw`, err);
-            }
-            pressedAgain();
-          }}
-        >
-          {spec.label}
-        </button>
-      ))}
+      {actions.filter((a) => a.spec.beside !== "play").map(actionButton)}
     </div>
     </>
   );
