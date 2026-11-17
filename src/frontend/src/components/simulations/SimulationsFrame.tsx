@@ -1,6 +1,8 @@
 // The Robotic Simulations panel's classic frame: the menu-column card on desktop, and on phones a
 // bottom sheet like the Scene panel's (`useBottomSheet`): drag the handle to resize it, flick it
-// down to close it. The heading stays pinned; the body scrolls under it.
+// down to close it. The heading stays pinned; the body scrolls under it -- on desktop too, where the
+// card is never taller than the window: a start form of many fields was cut off below the screen's
+// edge with no way to reach its end.
 //
 // Its own module, with nothing but the sheet behind it, so it renders under `node --test` without
 // the panel's stores and services.
@@ -17,8 +19,8 @@ export const SIMULATIONS_FRAME_CLASS =
   // phone: docked to the bottom edge, full width, the body scrolling within the sheet; a theme's
   // background may be translucent, so the scene behind the sheet is blurred
   "fixed inset-x-0 bottom-0 z-30 w-full max-h-[82vh] px-2 pb-2 rounded-t-2xl backdrop-blur-md " +
-  // desktop: the card in the menu column
-  "sm:static sm:z-auto sm:w-auto sm:max-h-none sm:p-2 sm:rounded-md sm:backdrop-blur-none " +
+  // desktop: the card in the menu column, at most the window's height less the top bar and a margin
+  "sm:static sm:z-auto sm:w-auto sm:max-h-[calc(100dvh-5.5rem)] sm:p-2 sm:rounded-md sm:backdrop-blur-none " +
   "sm:border sm:border-[var(--ada-panel-border)] sm:shadow-lg " +
   "sm:min-w-[300px] sm:max-w-[420px] sm:overflow-visible";
 
@@ -37,7 +39,11 @@ export const SimulationsFrame: React.FC<SimulationsFrameProps> = ({ header, onDi
       {/* phone grab handle: drag to resize the sheet, flick down to close it */}
       <SheetHandle grab={grab} className="sm:hidden -mb-2" />
       <div className="shrink-0 flex items-center gap-2">{header}</div>
-      <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain sm:overflow-visible">{children}</div>
+      {/* It scrolled on a phone only: the committed viewer bundle still has the body as
+          "flex-1 min-h-0 overflow-y-auto overscroll-contain sm:overflow-visible". */}
+      <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain" data-simulations-body>
+        {children}
+      </div>
     </div>
   );
 };

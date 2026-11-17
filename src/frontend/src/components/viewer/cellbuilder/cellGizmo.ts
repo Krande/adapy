@@ -12,6 +12,7 @@ import {useCellBuilderStore, type BuilderCell} from "@/state/cellBuilderStore";
 import {requestRender} from "@/state/perfStore";
 import {getViewerRuntime} from "@/state/viewerRuntime";
 import {boxCorners, originFromCenter, quantize, type Vec3} from "@/utils/cellbuilder/snap";
+import {gizmoMoveStep} from "@/utils/gizmo/transformKeys";
 import {HANDLE_AXIS_COLOR, SNAP_PX} from "./sceneConstants";
 import {offsetVec, type CellBuilderScene} from "./sceneContext";
 import {viewportInputElement} from "@/viewport/input";
@@ -136,7 +137,7 @@ export const computeMove = (
     axis: 0 | 1 | 2 | null,
 ): {origin: Vec3; target: Vec3 | null} => {
     const st = useCellBuilderStore.getState();
-    const step = st.gridStep > 0 ? st.gridStep : 0.1;
+    const step = gizmoMoveStep(st.gridStep);
     if (st.gizmoVertexSnap && axis !== null) {
         const target = nearestCornerToPointer(ctx, cell.id);
         if (target) {
@@ -262,7 +263,7 @@ export function installCellGizmo(ctx: CellBuilderScene): void {
         const cell = st.cells[sel.cellId];
         if (!cell) return;
         if (st.gizmoMode === "translate") {
-            const step = st.gridStep > 0 ? st.gridStep : 0.1;
+            const step = gizmoMoveStep(st.gridStep);
             // Loft band: move the WHOLE member (not this one bay) by a grid-
             // quantized incremental delta. loftDragLast tracks the applied
             // position so the member steps in exact grid multiples with no drift.

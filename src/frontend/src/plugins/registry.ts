@@ -17,6 +17,11 @@ import { registerUiShell, type UiShellSpec } from "./uiShells";
 import { panelSpecFromSlot } from "@/layout/pluginPanels";
 import { registerPanel, removePanelsOwnedBy } from "@/layout/registry";
 import { isPlacedElsewhere } from "@/layout/placedElsewhere";
+import type { ScenePickOptions, ScenePickSession } from "./scenePicks";
+import type { PlaceBoxOptions, PlacedBox } from "./sceneBox";
+
+export type { ScenePick, ScenePickOptions, ScenePickSession } from "./scenePicks";
+export type { PlaceBoxOptions, PlacedBox, PlacedBoxMode, PlacedBoxPose } from "./sceneBox";
 
 // Bumped on a breaking change to any slot interface below. A plugin declares the
 // core range it was built against via `coreApiRange`; an out-of-range plugin is
@@ -158,7 +163,8 @@ import { isPlacedElsewhere } from "@/layout/placedElsewhere";
 //            A loaded model's node animation is a track of the same clock, so it and a plugin's
 //            layers show the same moment.
 //          - `ctx.scene.loadModel`: a GLB from bytes or a URL as the scene's model, on whichever
-//            viewport is on screen (`loadModelFromUrl` builds a three.js scene only).
+//            viewport is on screen (`loadModelFromUrl` built a three.js scene only until 1.26; it now
+//            takes the same path).
 //          - `simulationsApi.fetchArtefact` (@/viewer-core/app): a run artefact's bytes, whole or
 //            from a byte offset, for one that is still being written.
 //          `ctx.scene.remove(owner)` takes all of it away, tracks included. Draco-compressed
@@ -201,18 +207,52 @@ import { isPlacedElsewhere } from "@/layout/placedElsewhere";
 //          loaded, instead of framing it as the user's auto-fit setting says. For a model loaded
 //          again in another form (a finer mesh of the same thing). Additive: an older core
 //          ignores it and frames the model as before.
-export const PLUGIN_API_VERSION = "1.25.0";
+// 1.26.0 — what a tool of a plugin's own needs of the viewer. All additive: an older core has
+//          none of it, so a plugin asks for a verb first, or names this version where a slot must
+//          be seen.
+//          - `ctx.scene.pickObjects(owner, {onPick})`: a plugin takes the scene's clicks on
+//            objects for a while (a tool that asks the user to point at things), on either
+//            viewport. A click it takes selects nothing and is no undo step; `end()` (or
+//            `scene.remove(owner)`) gives the clicks back. `ScenePick` names what was clicked:
+//            model, object id, name, source file, and the point in the model's own coordinates.
+//          - `ctx.scene.placeBox(owner, {box, position, yawDeg?, constrain?, snap?, onChange, ...})`:
+//            a plugin puts a simple box in the scene with a transform gizmo on it, for a tool that
+//            asks the user where something stands, and is told the box's pose (position and turn
+//            about Z, in the scene's own coordinates) as the user moves it. The gizmo answers the
+//            cell builder's keys by the builder's rules -- G move, R turn, X / Y / Z lock an axis,
+//            Escape / Enter -- and snaps as it does; its handles are drawn through the viewport
+//            interface, so it works on either viewport. `set` moves the box from the plugin's
+//            side; `end()` (or `scene.remove(owner)`) takes it away.
+//          - `ctx.scene.loadModelFromUrl` goes through the loader that knows both viewports (it
+//            built a three.js scene only).
+//          - `registerPlaybackAction` / `unregisterPlaybackAction` / `notifyPlaybackActionsChanged`
+//            (@/viewer-core): a shell's or plugin's buttons in the bar with play, the scrub bar and
+//            the run's Console -- what shows and hides the things that follow the clock.
+//          - `PanelSlot.toggled`: a panel with no top-bar button that code opens and closes;
+//            `PanelSlot.title` and `floatSize`; a slot with `dock: "float"` starts in a window of
+//            the layout (once; after that it is where the user left it), in core's own UI too.
+//          - `storageAssetTypes`: a plugin adds a kind of stored asset to the storage browser,
+//            beside the scope's files: a section the plugin fills with what the open scope has of
+//            that kind, and, when it gives `upload`, an entry of the browser's "+" menu that opens
+//            a form of the plugin's own in a dialog. `available` says per scope whether the kind
+//            is there at all.
+//          - the `connection-builder` region: a plugin's tab in the connection builder panel
+//            (`core:component-controls`), after the builder's own. Every panel of the region is a
+//            tab; `asTab` gives its label, order and badge. With no such panel the builder panel
+//            has no tab strip and is what it was.
+export const PLUGIN_API_VERSION = "1.26.0";
 
 // The named mount regions core exposes in Phase 1. Deliberately small
 // (`fem-sidebar` covers the FEM simulation panel, `top-panel` the menu bar,
-// `admin` the /admin page's tab strip); more are added on demand rather than
-// up-front.
+// `admin` the /admin page's tab strip, `connection-builder` the connection
+// builder panel's); more are added on demand rather than up-front.
 export type PluginRegion =
   | "fem-sidebar"
   | "top-panel"
   | "scene-info"
   | "storage-detail"
-  | "admin";
+  | "admin"
+  | "connection-builder";
 
 // ---------------------------------------------------------------------------
 // Placement (1.1.0)
@@ -775,6 +815,16 @@ export interface SceneHandle {
   // Highlight `face`, name it in the info box and frame it (unless `frame: false`); null clears
   // the highlight. False when its model is no longer loaded.
   focusFace: (face: SceneFace | null, opts?: { frame?: boolean }) => boolean;
+  // (1.26.0) Take the scene's clicks on objects until `end()`: each is handed to `onPick` instead of
+  // selecting what was clicked (return false to let one through). For a tool that asks the user to
+  // point at objects. Works on either viewport; `remove(owner)` ends it too.
+  pickObjects: (owner: string, options: ScenePickOptions) => ScenePickSession;
+  // (1.26.0) Put a simple box in the scene with a transform gizmo on it until `end()`: the user moves
+  // and turns it with the cell builder's gizmo keys (G, R, X / Y / Z, Escape / Enter), and each change
+  // is handed to `onChange` as the box's pose in the scene's own coordinates. `set` moves it from the
+  // plugin's side. For a tool that asks where something stands. Works on either viewport;
+  // `remove(owner)` ends it too.
+  placeBox: (owner: string, options: PlaceBoxOptions) => PlacedBox;
 }
 
 /** An axis-aligned world-space box. */
@@ -898,6 +948,19 @@ export interface PanelSlot {
   render: (ctx: AdaPluginContext) => React.ReactNode;
   topBarButton?: TopBarButtonSpec;
   /**
+   * Opened and closed by code, with no top-bar button (1.26.0): a button of the plugin's own
+   * elsewhere -- an action of the playback transport, say -- shows and hides it with `toggle` /
+   * `reveal` / `hide` (`@/viewer-core`). It has the open state a top-bar panel has, so it is drawn
+   * only while open, keeps its place in a layout while closed, and starts closed. In the panel
+   * column core frames it -- its `title`, float, move and close -- as nothing else there closes it.
+   */
+  toggled?: boolean;
+  /** The panel's name in a window's title bar, a group's tab and a menu (1.26.0). Default: a
+   *  top-bar button's or tab's label, else its id. */
+  title?: string;
+  /** With `dock: "float"`: the size of its window the first time (1.26.0). */
+  floatSize?: { w: number; h: number };
+  /**
    * May open in a browser window of its own (1.13.0). Only for a panel that works
    * without the 3D scene: the new window boots canvas-less, with stores of its own.
    * Applies to a panel that stands on its own (`top-panel`, or one naming a `dock`).
@@ -917,6 +980,10 @@ export interface PanelSlot {
   // `admin` panels are ALWAYS tabs (the admin page is a tab strip), so there
   // `asTab` is optional and only supplies the label; without it the namespaced
   // panel id is shown.
+  //
+  // `connection-builder` panels (1.26.0) are always tabs too, of the connection
+  // builder panel, after the builder's own: `asTab` supplies the label, order
+  // and badge; without it the panel's `title`, else its id, is the label.
   asTab?: {
     label: string;
     order?: number;
@@ -1122,6 +1189,52 @@ export function openResultButtonLabel(
   return (active ? ui.openResultLiveLabel : undefined) ?? ui.openResultLabel ?? "Open";
 }
 
+// ---------------------------------------------------------------------------
+// Storage asset types (1.26.0)
+//
+// The storage browser lists a scope's files. Some of what a scope has is not a file a person
+// uploaded and opens: it is an asset of several stored files under one name and version, kept
+// under `assets/` (which the browser's file list leaves out) or reached through a grant, and
+// only the plugin that defines the kind can say which there are and what one is. This slot is
+// where it says so: core gives the kind a section of the browser and an entry of its "+" menu,
+// and the plugin fills both. Core never learns what the kind is.
+// ---------------------------------------------------------------------------
+
+/** What an asset type's callbacks are told. */
+export interface StorageAssetTypeArgs {
+  /** The scope the storage browser shows. */
+  scope: string;
+}
+
+/** A form of the plugin's, opened from the storage browser's "+" menu. */
+export interface StorageAssetUpload {
+  /** The menu entry's text ("Upload a material library…"). */
+  label: string;
+  /** The dialog's title; `label` without a trailing ellipsis when omitted. */
+  title?: string;
+  /** The form. `close` closes the dialog; the plugin calls it when it is done. */
+  render: (ctx: AdaPluginContext, args: StorageAssetTypeArgs & { close: () => void }) => React.ReactNode;
+}
+
+/** A kind of stored asset a plugin adds to the storage browser. */
+export interface StorageAssetType {
+  id: string; // namespaced on register
+  /** The section's heading: what the kind is called, in the plural. */
+  label: string;
+  /** Sort key among the asset types; ties broken by id. */
+  order?: number;
+  /**
+   * Whether the open scope has this kind at all. False leaves out the section and the "+" entry.
+   * Asked on every render of the browser: cheap, synchronous, no I/O. A plugin whose answer
+   * arrives later says so with `notifyPluginActivationChanged`, and the browser asks again.
+   */
+  available?: (ctx: AdaPluginContext, args: StorageAssetTypeArgs) => boolean;
+  /** The section's body: the scope's assets of this kind, as the plugin lists them. */
+  render: (ctx: AdaPluginContext, args: StorageAssetTypeArgs) => React.ReactNode;
+  /** Adding one: an entry of the "+" menu that opens the plugin's form in a dialog. */
+  upload?: StorageAssetUpload;
+}
+
 export interface UrlParamHandler {
   params: string[];
   // Return true when the plugin consumed the params (core stops offering them).
@@ -1146,6 +1259,8 @@ export interface PluginSpec {
   // UI for simulation providers, by provider id or by domain (1.17.0). Read by core's
   // Simulations panel.
   simulationProviders?: SimulationProviderUi[];
+  // Kinds of stored asset in the storage browser, each with its own list and upload form (1.26.0).
+  storageAssetTypes?: StorageAssetType[];
   // Whole activities (1.1.0). Consumed by a shell that has modes; ignored by one
   // that does not, including core's own UI.
   modes?: PluginModeSpec[];
@@ -1168,6 +1283,7 @@ export interface RegisteredPlugin {
   renderableFileProviders: RenderableFileProvider[];
   urlParamHandlers: UrlParamHandler[];
   simulationProviders: SimulationProviderUi[];
+  storageAssetTypes: StorageAssetType[];
   modes: PluginModeSpec[];
   // Ids of the UI shells this plugin contributed (the shells themselves live in
   // the shell registry); kept for introspection / audit.
@@ -1271,6 +1387,13 @@ export function registerPlugin(spec: PluginSpec): void {
       return false;
     })
     .map((u) => ({ ...u, id: namespaced(id, u.id) }));
+  const storageAssetTypes = (spec.storageAssetTypes ?? [])
+    .filter((t) => {
+      if (t?.id && t.label && typeof t.render === "function") return true;
+      console.warn(`[plugins] plugin "${id}": storage asset type "${t?.id}" has no id, label or render; ignored`);
+      return false;
+    })
+    .map((t) => ({ ...t, id: namespaced(id, t.id) }));
   // UI shells go to their own registry (core mounts exactly one), but are
   // registered here so a plugin still has ONE entry point: registerPlugin().
   const uiShellIds: string[] = [];
@@ -1292,6 +1415,7 @@ export function registerPlugin(spec: PluginSpec): void {
     renderableFileProviders,
     urlParamHandlers,
     simulationProviders,
+    storageAssetTypes,
     // NOT namespaced, unlike panels and colour fields. A mode id is user-facing —
     // a panel writes `modes: ["capacity"]` and a shell may accept `?mode=capacity`
     // — so it has to be the word the author chose. Collisions are the same
@@ -1478,6 +1602,35 @@ export function findSimulationTabById(panelId: string): SimulationTabEntry | nul
   return null;
 }
 
+/** `connection-builder` panels (1.26.0): a plugin's tabs in the connection builder panel,
+ * filtered by activation exactly like `getPanelsForRegion` and ordered by
+ * `(asTab.order ?? order ?? 0, id)`. Core appends these after the builder's own tab. Every
+ * panel of the region is a tab; one without `asTab` is labelled by its `title`, else its id.
+ * Empty when no plugin has one (the panel then has no tab strip, as before the region). */
+export function getConnectionBuilderTabs(ctx: AdaPluginContext): SimulationTabEntry[] {
+  const entries = getPanelsForRegion("connection-builder", ctx).map(({ pluginId, panel }) => ({
+    pluginId,
+    panel,
+    asTab: panel.asTab ?? { label: panel.title ?? panel.id, order: panel.order },
+  }));
+  entries.sort(
+    (a, b) =>
+      (a.asTab.order ?? a.panel.order ?? 0) - (b.asTab.order ?? b.panel.order ?? 0) ||
+      a.panel.id.localeCompare(b.panel.id),
+  );
+  return entries;
+}
+
+/** Whether a plugin that is not disabled has a `connection-builder` panel at all. Asked where
+ * there is no plugin context to ask the activation predicates with (a panel's `available`): the
+ * connections panel is offered where the builder is, and wherever a plugin has a tab for it. */
+export function hasConnectionBuilderTabs(): boolean {
+  for (const p of _registry.values()) {
+    if (!p.disabled && p.panels.some((panel) => panel.region === "connection-builder")) return true;
+  }
+  return false;
+}
+
 /** One plugin-contributed admin tab. */
 export interface AdminTabEntry {
   pluginId: string;
@@ -1602,6 +1755,33 @@ export function getUrlParamHandlers(
     for (const handler of p.urlParamHandlers) out.push({ pluginId: p.id, handler });
   }
   return out;
+}
+
+/**
+ * The storage asset types of the active plugins that the scope has, ordered by `(order ?? 0, id)`.
+ * Activation predicates are honoured, and each type's own `available`. A throwing `available`
+ * disables its plugin for the session, as every other predicate of this registry does.
+ */
+export function getStorageAssetTypes(
+  ctx: AdaPluginContext,
+  args: StorageAssetTypeArgs,
+): Array<{ pluginId: string; type: StorageAssetType }> {
+  const out: Array<{ pluginId: string; type: StorageAssetType; order: number }> = [];
+  for (const p of _registry.values()) {
+    const pctx: AdaPluginContext = { ...ctx, pluginId: p.id };
+    if (!isActive(p, pctx)) continue;
+    for (const type of p.storageAssetTypes) {
+      try {
+        if (type.available && !type.available(pctx, args)) continue;
+      } catch (err) {
+        disablePlugin(p.id, `storage asset type "${type.id}" available() threw: ${String(err)}`);
+        break;
+      }
+      out.push({ pluginId: p.id, type, order: type.order ?? 0 });
+    }
+  }
+  out.sort((a, b) => a.order - b.order || a.type.id.localeCompare(b.type.id));
+  return out.map(({ pluginId, type }) => ({ pluginId, type }));
 }
 
 /** One capability of the simulation seam, resolved for a provider. */

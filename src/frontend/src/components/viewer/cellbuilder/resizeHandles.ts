@@ -11,6 +11,7 @@ import {useCellBuilderStore} from "@/state/cellBuilderStore";
 import {requestRender} from "@/state/perfStore";
 import {getViewerRuntime} from "@/state/viewerRuntime";
 import {BOX_FACE_SIDES, faceCenter} from "@/utils/cellbuilder/snap";
+import {GIZMO_ROTATE_SNAP_DEG} from "@/utils/gizmo/transformKeys";
 import {HANDLE_AXIS_COLOR} from "./sceneConstants";
 import type {CellBuilderScene} from "./sceneContext";
 import {reconcileModalMove} from "./cellGizmo";
@@ -97,7 +98,7 @@ export const syncGizmo = (ctx: CellBuilderScene) => {
         // Rings snap to 15°; the manual panel supplies exact angles. The
         // proxy sits at the footprint centre (the compiler's pivot) and is
         // seeded from the cell's current rotation so the gizmo starts aligned.
-        ctx.gizmo.setRotationSnap(THREE.MathUtils.degToRad(15));
+        ctx.gizmo.setRotationSnap(THREE.MathUtils.degToRad(GIZMO_ROTATE_SNAP_DEG));
         if (!ctx.gizmo.dragging) {
             ctx.gizmoProxy.position.set(
                 cell.origin[0] + cell.size[0] / 2,

@@ -57,6 +57,8 @@ function fakeCtx(pluginId = ""): AdaPluginContext {
       addPointLayer: () => ({setPoints() {}, setLook() {}, remove() {}}),
       addImage: () => ({setPixels() {}, setRect() {}, setLook() {}, unavailable: () => null, remove() {}}),
       imageUnavailable: () => null,
+      pickObjects: () => ({ end() {} }),
+      placeBox: () => ({ set() {}, pose: () => ({ position: [0, 0, 0], yawDeg: 0 }), setMode() {}, end() {} }),
     },
     scope: () => "user:me",
     // Required by AdaPluginContext since plugin API 1.3.0. A stub: these fixtures

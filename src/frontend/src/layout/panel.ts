@@ -110,6 +110,19 @@ export interface PanelPlacement {
   size?: { w?: number; h?: number };
   /** First-open rect when the panel is floated. */
   float?: { w: number; h: number };
+  /**
+   * Where that first window goes: this far in from the page's right edge and down from its
+   * top, and no taller than `maxHeight` of the page's height (a fraction). Omitted: near the
+   * top right, stepped past the windows already open.
+   */
+  floatAt?: { right: number; top: number; maxHeight?: number };
+  /**
+   * The panel starts in a window of the layout rather than in `zone`: it is given the window
+   * once, the first time the layout sees it, and from then on it is where the user left it.
+   * `zone` stays its home: where "back" puts it, and where it shows while panels are not
+   * customisable or the page is too narrow for a window beside the view.
+   */
+  startFloated?: boolean;
   /** The panel that hosts this one, when it is a tab or section of another panel. */
   parent?: PanelId;
   /** How the parent hosts it. Only meaningful with `parent`. */

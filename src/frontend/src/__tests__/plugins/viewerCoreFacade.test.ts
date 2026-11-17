@@ -139,6 +139,7 @@ test("the root entry point re-exports only the dependency-free leaves", () => {
     "@/layout/toolRailModel",
   "@/layout/statusItems",
     "@/layout/toastSlots",
+    "@/layout/playbackActions",
     "@/state/cellbuilder/builderDefaults",
   ];
   const specs = importSpecifiers(readFileSync(join(facadeDir, "index.ts"), "utf8"));

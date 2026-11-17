@@ -49,6 +49,8 @@ export interface BrowserHeaderProps {
     onClose?: () => void;
     /** The scope line is a picker. */
     scopePicker?: boolean;
+    /** More entries of the "+" menu, after core's own. */
+    addItems?: KebabMenuItem[];
 }
 
 const BrowserHeader: React.FC<BrowserHeaderProps> = ({
@@ -80,6 +82,7 @@ const BrowserHeader: React.FC<BrowserHeaderProps> = ({
     onHideAll,
     onClose,
     scopePicker,
+    addItems,
 }) => {
     const scopes = useScopeStore((s) => s.available);
     // Gear menu: settings and maintenance for the scope. The + menu only adds to storage.
@@ -228,6 +231,8 @@ const BrowserHeader: React.FC<BrowserHeaderProps> = ({
                                         setTemplatesOpen(true);
                                     },
                                 },
+                                // What plugins add: an upload form per kind of stored asset.
+                                ...(addItems ?? []),
                             ]}
                             onClose={() => setPlusOpen(false)}
                             ignoreOutsideRef={plusBtnRef}

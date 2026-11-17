@@ -9,7 +9,6 @@ import AttributeSearchIcon from "@/components/icons/AttributeSearchIcon";
 import CellBuilderIcon from "@/components/icons/CellBuilderIcon";
 import ComponentIcon from "@/components/icons/ComponentIcon";
 import InfoIcon from "@/components/icons/InfoIcon";
-import LayersIcon from "@/components/icons/LayersIcon";
 import SceneIcon from "@/components/icons/SceneIcon";
 import SimulationRunsIcon from "@/components/icons/SimulationRunsIcon";
 import StorageIcon from "@/components/icons/StorageIcon";
@@ -69,6 +68,8 @@ const MOUNT: Readonly<Record<PanelId, (c: MountCtx) => boolean>> = {
   [CORE_PANEL_IDS.admin]: ({state, env}) => env.restMode === true && state.open,
   [CORE_PANEL_IDS.convert]: ({state, env}) => env.restMode === true && state.open,
   [CORE_PANEL_IDS.simulations]: ({state, env}) => env.restMode === true && state.open,
+  // Its flag is the user's and outlives the run: it is drawn only while there is a run to show.
+  [CORE_PANEL_IDS.runConsole]: ({state}) => state.open && state.available,
 };
 
 /** Is the classic UI mounting this panel right now. */
@@ -114,8 +115,9 @@ export const CLASSIC_TOOLBAR: Readonly<Record<PanelId, ToolbarRecipe>> = {
   },
   [CORE_PANEL_IDS.simulation]: {title: () => "Toggle simulation panel", content: <ToggleControlsIcon />},
   [CORE_PANEL_IDS.componentControls]: {
-    title: () => "Toggle connection builder",
-    ariaLabel: () => "Toggle connection builder",
+    // Renamed with the panel: the committed viewer bundle still says "Toggle connection builder".
+    title: () => "Toggle connections",
+    ariaLabel: () => "Toggle connections",
     content: <ComponentIcon />,
   },
   [CORE_PANEL_IDS.cellbuilder]: {
@@ -127,13 +129,6 @@ export const CLASSIC_TOOLBAR: Readonly<Record<PanelId, ToolbarRecipe>> = {
     title: () => "Toggle robotic simulations panel",
     ariaLabel: () => "Toggle robotic simulations panel",
     content: <SimulationRunsIcon />,
-  },
-  // Left out while no layer is registered: a viewer without layers has no gap for it.
-  [CORE_PANEL_IDS.layers]: {
-    title: () => "Toggle layers panel",
-    ariaLabel: () => "Toggle layers panel",
-    content: <LayersIcon />,
-    omitWhenUnavailable: true,
   },
   [CORE_PANEL_IDS.wsStatus]: {title: () => "Connection", content: null, omitWhenUnavailable: true, statusMenu: true},
 };
