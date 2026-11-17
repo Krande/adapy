@@ -94,30 +94,8 @@ test("flat: every component in document order, with its effective state", () => 
   assert.equal(states.pumpA, "included");
 });
 
-test("by structure: each structure's components, spaces first, then No structure", () => {
-  const nodes = buildModelTree("structure", { cells, groups });
-  assert.deepEqual(labels(nodes), ["Topside(5)", "Jacket(2)", "No structure(2)"]);
-  const topside = group(nodes, "Topside");
-  assert.deepEqual(labels(topside.children), ["deckA", "deckB", "pumpA", "tankB", "doorA"]);
-  assert.equal(topside.include, "on");
-  assert.equal(topside.state, "included");
-  assert.equal(topside.group?.name, "Topside");
-  assert.ok(topside.children.every((n) => n.depth === 1));
-
-  const jacket = group(nodes, "Jacket");
-  assert.deepEqual(labels(jacket.children), ["leg", "clamp"]);
-  assert.equal(jacket.include, "off", "a structure's mark is its own INCLUDE");
-  assert.equal(jacket.state, "excluded-by-structure");
-  assert.ok(jacket.children.every((n) => n.state === "excluded-by-structure"));
-
-  const none = group(nodes, "No structure");
-  assert.deepEqual(labels(none.children), ["loose", "buoy"]);
-  assert.equal(none.include, "on", "a gathering row cascades over its components");
-  assert.equal(none.group, null);
-});
-
-test("by structure and cell: structure -> space -> what is placed in it; Unassigned for the rest", () => {
-  const nodes = buildModelTree("cell", { cells, groups });
+test("the structure tree: structure -> space -> what is placed in it; Unassigned for the rest", () => {
+  const nodes = buildModelTree("tree", { cells, groups });
   assert.deepEqual(labels(nodes), ["Topside(5)", "Jacket(2)", "No structure(2)"]);
   const topside = group(nodes, "Topside");
   assert.deepEqual(labels(topside.children), ["deckA(3)", "deckB(2)"]);
@@ -149,11 +127,9 @@ test("with no structure defined the structure layer is left out", () => {
       .filter((c) => c.id !== "clamp")
       .map((c) => [c.id, { ...c, group: undefined, params: { ...c.params, STRUCTURE_NAME: undefined } }]),
   );
-  const byStructure = buildModelTree("structure", { cells: plain, groups: [] });
-  assert.deepEqual(labels(byStructure), ["deckA", "deckB", "leg", "loose", "pumpA", "tankB", "buoy", "doorA"], "the flat list, spaces first, openings last");
-  const byCell = buildModelTree("cell", { cells: plain, groups: [] });
-  assert.deepEqual(labels(byCell), ["deckA(3)", "deckB(2)", "leg(1)", "loose(1)", "Unassigned(1)"]);
-  assert.ok(byCell.every((n) => n.depth === 0));
+  const tree = buildModelTree("tree", { cells: plain, groups: [] });
+  assert.deepEqual(labels(tree), ["deckA(3)", "deckB(2)", "leg(1)", "loose(1)", "Unassigned(1)"]);
+  assert.ok(tree.every((n) => n.depth === 0));
 });
 
 test("cascade marks: on, off, mixed", () => {
@@ -172,7 +148,7 @@ test("a loft band belongs to its member's structure", () => {
   const members = [{ NAME: "riser", STRUCTURE_NAME: "Jacket" }];
   assert.equal(itemStructure(band, cells, groups, members), "Jacket");
   assert.equal(itemStructure(band, cells, groups, []), undefined);
-  const nodes = buildModelTree("cell", { cells: { ...cells, riser_bay0: band }, groups, loftMembers: members });
+  const nodes = buildModelTree("tree", { cells: { ...cells, riser_bay0: band }, groups, loftMembers: members });
   const jacket = group(nodes, "Jacket");
   assert.deepEqual(labels(group(jacket.children, "Unassigned").children), ["riser_bay0", "clamp"]);
 });

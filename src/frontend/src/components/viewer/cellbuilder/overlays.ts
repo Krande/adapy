@@ -11,8 +11,10 @@ import * as THREE from "three";
 import {LineSegments2} from "three/examples/jsm/lines/LineSegments2";
 import {LineSegmentsGeometry} from "three/examples/jsm/lines/LineSegmentsGeometry";
 import {LineMaterial} from "three/examples/jsm/lines/LineMaterial";
-import {useCellBuilderStore} from "@/state/cellBuilderStore";
+import {useCellBuilderStore, type BuilderCell} from "@/state/cellBuilderStore";
 import {requestRender} from "@/state/perfStore";
+import {hexToNumber, structureColour} from "@/utils/cellbuilder/blueprintColours";
+import type {CellGroup} from "@/utils/cellbuilder/groups";
 import {cellGroupTint} from "@/utils/cellbuilder/groupView";
 import {BOX_FACE_SIDES, edgeEndpoints, type EdgeHit, type Vec3} from "@/utils/cellbuilder/snap";
 import {BASE_OPACITY, EXCLUDED_DIM, EXCLUDED_FACE_COLOR, HOVER_FACE_COLOR, LOFT_OPACITY, SELECTED_FACE_COLOR, colorForKind} from "./sceneConstants";
@@ -108,6 +110,17 @@ export const updateFaceOverlay = (ctx: CellBuilderScene) => {
     ctx.faceOverlay.visible = true;
 };
 
+/** The colour a builder object draws in before selection / hover tints: colour
+ * by group (Groups section, display only) when it is on; else, for a space in a
+ * structure, its structure's BLUEPRINT colour (utils/cellbuilder/blueprintColours);
+ * else the kind colour. Equipment, openings and lofts keep their kind colours. */
+export const baseColourFor = (cell: BuilderCell, allCells: readonly BuilderCell[], groups: readonly CellGroup[]): number => {
+    const tint = cell.kind === "loft" ? null : cellGroupTint(cell, allCells);
+    if (tint !== null) return tint;
+    if (cell.kind === "cell" && cell.group) return hexToNumber(structureColour(groups, cell.group));
+    return colorForKind(cell.kind);
+};
+
 // Recompute every face material's color/opacity from base + selection +
 // hover state. Cheap (6 materials per box) and keeps one source of truth.
 export const refreshFaceStyles = (ctx: CellBuilderScene) => {
@@ -120,10 +133,7 @@ export const refreshFaceStyles = (ctx: CellBuilderScene) => {
     for (const [cellId, mesh] of ctx.meshById) {
         const cell = st.cells[cellId];
         if (!cell) continue;
-        // Colour by group (Groups section) replaces the kind colour for anything
-        // in a group; selection / hover tints still win below.
-        const tint = cell.kind === "loft" ? null : cellGroupTint(cell, allCells);
-        const base = tint ?? colorForKind(cell.kind);
+        const base = baseColourFor(cell, allCells, st.groups);
         const cellSelected = sel?.cellId === cellId || selectedSet.has(cellId);
         // Left out of the build, in the include view that dims it (meshRebuild): faint.
         const dim = (mesh.userData.__includeLook as {dimmed?: boolean} | undefined)?.dimmed ? EXCLUDED_DIM : 1;

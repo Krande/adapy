@@ -1,18 +1,17 @@
-// How the Model panel (the procedural component list) arranges its rows: flat, by
-// structure, or by structure and cell -- the user's choice remembered in this browser,
-// like the ground grid. Which group rows are folded is session state. A viewer
-// preference, never part of the document: it changes nothing that is built.
+// How the Model panel (the procedural component list) arranges its rows: flat, or as
+// the structure tree -- the user's choice remembered in this browser, like the ground
+// grid. Which group rows are folded is session state. A viewer preference, never part
+// of the document: it changes nothing that is built.
 
 import {create} from "zustand";
 
-import {DEFAULT_MODEL_VIEW, isModelView, type ModelView} from "@/utils/cellbuilder/modelTree";
+import {DEFAULT_MODEL_VIEW, modelViewFromStored, type ModelView} from "@/utils/cellbuilder/modelTree";
 
 const KEY = "ada:model-panel-view";
 
 const read = (): ModelView => {
     try {
-        const raw = window.localStorage.getItem(KEY);
-        return isModelView(raw) ? raw : DEFAULT_MODEL_VIEW;
+        return modelViewFromStored(window.localStorage.getItem(KEY));
     } catch {
         return DEFAULT_MODEL_VIEW;
     }

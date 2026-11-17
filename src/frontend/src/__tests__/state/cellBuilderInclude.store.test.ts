@@ -102,7 +102,7 @@ test("a space cascades: the space and everything placed in it, one undo step; mi
   st().loadFromDoc(doc);
   const { buildModelTree } = await tree();
   const deckA = () => {
-    const nodes = buildModelTree("cell", { cells: st().cells, groups: st().groups });
+    const nodes = buildModelTree("tree", { cells: st().cells, groups: st().groups });
     const topside = nodes.find((n) => n.type === "group" && n.label === "Topside");
     assert.ok(topside && topside.type === "group");
     const row = topside.children.find((n) => n.type === "group" && n.label === "deckA");
@@ -151,7 +151,7 @@ test("a structure: its own INCLUDE (the Structures sheet); its components read a
   assert.equal(state("deckA"), "included");
   assert.equal(state("tank"), "excluded", "its own flag is reported first");
 
-  const nodes = buildModelTree("structure", { cells: st().cells, groups: st().groups });
+  const nodes = buildModelTree("tree", { cells: st().cells, groups: st().groups });
   const jacket = nodes.find((n) => n.type === "group" && n.label === "Jacket");
   assert.ok(jacket && jacket.type === "group");
   assert.equal(jacket.include, "off");
