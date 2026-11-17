@@ -676,7 +676,10 @@
 //          id, title, availability, controls); `setSettingsHost` (root and `/layout`), for a shell that shows Settings
 //          in its own window: core's "open this setting" commands and the Options panel's Settings
 //          button then open the shell's window on the page. `OptionsBodyProps.flat` draws the settings
-//          sections open, without their collapsible header (one page per section). The camera mapping's
+//          sections open, without their collapsible header (one page per section). On the root: the Model
+//          panel's helpers (`buildModelTree`, `MODEL_VIEWS`, `nodeItemIds`, `isItemIncluded`,
+//          `itemIncludeState`, `blueprintColour`, `blueprintsInUse`, `structureColour`,
+//          `useModelPanelViewStore`), so a shell's Model panel needs no deep import. The camera mapping's
 //          `select` action (the selection rectangle) and controls profiles (Settings > Controls).
 export const VIEWER_CORE_API_VERSION = "1.25.0";
 
@@ -1017,6 +1020,15 @@ export { hide, isPanelOpen, reveal, setRevealElsewhere, toggle } from "@/layout/
 // and the Options panel's Settings button open that window (on the setting's page). Light: no panels.
 export { setSettingsHost } from "@/components/settings/settingsTab";
 export type { SettingsHost } from "@/components/settings/settingsTab";
+// The procedural model as the Model panel shows it: its tree (flat, or structure > space > component),
+// the components' and structures' include flags, the structures' blueprint colours, and the Model panel's
+// remembered view. Pure helpers (and one small store), so a shell draws its own Model panel from them.
+export { DEFAULT_MODEL_VIEW, MODEL_VIEWS, buildModelTree, nodeItemIds } from "@/utils/cellbuilder/modelTree";
+export type { GroupNode as ModelGroupNode, IncludeMark, ItemNode, ModelNode, ModelTreeInput, ModelView } from "@/utils/cellbuilder/modelTree";
+export { isItemIncluded, itemIncludeState } from "@/utils/cellbuilder/include";
+export type { IncludeState } from "@/utils/cellbuilder/include";
+export { blueprintColour, blueprintsInUse, structureColour } from "@/utils/cellbuilder/blueprintColours";
+export { useModelPanelViewStore } from "@/state/modelPanelViewStore";
 export type { PanelController } from "@/layout/reveal";
 export {
   listSceneTreeRoots,
