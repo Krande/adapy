@@ -1,18 +1,17 @@
 /**
  * The Model panel's TREE: the procedural model's components arranged the way the
- * panel's "View" option asks -- flat, by structure, or by structure and cell.
+ * panel's "View" option asks -- flat, or as the structure tree.
  *
  * Pure: builder cells + groups in, nodes out. The panel (core's `ComponentList`
  * and a shell's own copy) renders the nodes; nothing here knows the store.
  *
- *   flat        every component, in document order (the list as it always was)
- *   structure   Structure -> its components (spaces, lofts, equipment, openings)
- *   cell        Structure -> space -> the equipment and openings placed in it;
- *               components in no space under "Unassigned"
+ *   flat   every component, in document order (the list as it always was)
+ *   tree   Structure -> space -> the equipment and openings placed in it;
+ *          components in no space under "Unassigned"
  *
  * Components in no structure gather under "No structure". The structure layer is
- * left out altogether while the model defines no structure (then "by structure"
- * is the flat list and "by cell" starts at the spaces).
+ * left out altogether while the model defines no structure (then the tree starts
+ * at the spaces).
  *
  * A group row carries the ids of everything under it (select / frame / cascade)
  * and an include MARK for its checkbox: a structure's is the structure's own
@@ -24,18 +23,24 @@ import type {BuilderCell} from "@/state/cellbuilder/types";
 import {isGroupIncluded, type CellGroup} from "./groups";
 import {isItemIncluded, itemCell, itemIncludeState, itemStructure, type IncludeState} from "./include";
 
-export type ModelView = "flat" | "structure" | "cell";
+export type ModelView = "flat" | "tree";
 
 export const MODEL_VIEWS: readonly {id: ModelView; label: string; hint: string}[] = [
   {id: "flat", label: "Flat", hint: "Every component in one list"},
-  {id: "structure", label: "By structure", hint: "Each structure and the components in it"},
-  {id: "cell", label: "By structure and cell", hint: "Each structure, its spaces, and what is placed in each space"},
+  {id: "tree", label: "Structure tree", hint: "Each structure, its spaces, and what is placed in each space"},
 ];
 
 export const DEFAULT_MODEL_VIEW: ModelView = "flat";
 
 export function isModelView(v: unknown): v is ModelView {
-  return v === "flat" || v === "structure" || v === "cell";
+  return v === "flat" || v === "tree";
+}
+
+/** A remembered view, including the two grouped views this panel once had
+ * ("structure", "cell"): both read as the structure tree. */
+export function modelViewFromStored(raw: unknown): ModelView {
+  if (isModelView(raw)) return raw;
+  return raw === "structure" || raw === "cell" ? "tree" : DEFAULT_MODEL_VIEW;
 }
 
 /** What a group row's checkbox shows. */
@@ -122,7 +127,6 @@ export function buildModelTree(view: ModelView, input: ModelTreeInput): ModelNod
 
   const structureChildren = (members: BuilderCell[], structure: string | undefined, depth: number, dimmed: boolean): ModelNode[] => {
     const state: IncludeState = dimmed ? "excluded-by-structure" : "included";
-    if (view === "structure") return ordered(members).map((c) => item(c, depth));
     const spaces = members.filter((c) => c.kind === "cell");
     const rest = members.filter((c) => c.kind !== "cell");
     const placed = new Set<string>();

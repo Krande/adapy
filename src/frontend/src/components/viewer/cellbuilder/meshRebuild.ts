@@ -19,7 +19,7 @@ import {BOX_FACE_SIDES} from "@/utils/cellbuilder/snap";
 import {BASE_OPACITY, EXCLUDED_DASH, EXCLUDED_GAP, LOFT_COLOR, LOFT_OPACITY, colorForKind} from "./sceneConstants";
 import type {CellBuilderScene} from "./sceneContext";
 import {ringsEdgesGeometry, sweptBandGeometry, sweptBandGroupedGeometry} from "./geometryHelpers";
-import {disposeMesh, refreshFaceStyles} from "./overlays";
+import {baseColourFor, disposeMesh, refreshFaceStyles} from "./overlays";
 import {displayBoxForCell} from "./cadPreview";
 
 /** Draw every companion showing topology as plain, non-interactive boxes.
@@ -89,7 +89,8 @@ export const rebuild = (ctx: CellBuilderScene) => {
     // says: faint with dashed edges, hidden, or like the rest (state/includeViewStore).
     const view = useIncludeViewStore.getState().view;
     if (st.active) {
-        for (const cell of Object.values(st.cells)) {
+        const allCells = Object.values(st.cells);
+        for (const cell of allCells) {
             const look = includeLook(itemIncludeState(cell, st.cells, st.groups, st.loftMembers), view);
             // Loft band: a read-only swept proxy drawn from its two profile
             // rings, with the two station rings as the edge overlay. Same
@@ -139,7 +140,8 @@ export const rebuild = (ctx: CellBuilderScene) => {
             // declared LX/LY/LZ); everything else uses its declared box.
             const {box: dbox, cadFitted} = displayBoxForCell(ctx, cell);
             const geo = new THREE.BoxGeometry(...dbox.size);
-            const color = colorForKind(cell.kind);
+            // A space draws in its structure's blueprint colour (or the group tint); see overlays.ts.
+            const color = baseColourFor(cell, allCells, st.groups);
             // One material per BoxGeometry group (+X,-X,+Y,-Y,+Z,-Z) so a
             // single face can highlight on hover/selection.
             const mats = BOX_FACE_SIDES.map(

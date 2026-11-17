@@ -1,4 +1,4 @@
-// The Model panel (core's component list) drawn in its three views over a two-structure
+// The Model panel (core's component list) drawn in its two views over a two-structure
 // model: the View option, the group rows with their counts and INCLUDE marks, the item
 // rows dimmed by their effective include state, and the per-row actions kept.
 
@@ -65,7 +65,8 @@ test("flat (the default): every component, no group rows, the View option on top
   assert.match(html, /data-model-view-active="flat"/);
   assert.match(html, /aria-label="Model view"/);
   assert.match(html, /<option[^>]*value="flat"[^>]*>Flat</);
-  assert.match(html, /<option[^>]*value="cell"[^>]*>By structure and cell</);
+  assert.match(html, /<option[^>]*value="tree"[^>]*>Structure tree</);
+  assert.doesNotMatch(html, /By structure/, "the one grouped view is the structure tree");
   assert.equal(rows(html), 6);
   assert.deepEqual(groupsOf(html), []);
   // The per-row actions are still there.
@@ -87,21 +88,8 @@ test("rows carry their effective include state and dim when not built; the check
   assert.match(html, /title="Left out of the build \(INCLUDE = false\)"/);
 });
 
-test("by structure: a row per structure with its count and its own INCLUDE mark; No structure gathers the rest", () => {
-  setView("structure");
-  const html = list();
-  assert.deepEqual(groupsOf(html), ["structure:Topside=on", "structure:Jacket=off", "none:=on"]);
-  assert.match(html, />Topside<\/span><span class="text-gray-400">\(4\)</);
-  assert.match(html, />Jacket<\/span><span class="text-gray-400">\(1\)</);
-  assert.match(html, />No structure<\/span><span class="text-gray-400">\(1\)</);
-  assert.match(html, /aria-label="Include structure Jacket in build"[^>]*aria-checked="false"/);
-  assert.match(html, /aria-label="Frame Topside"/);
-  assert.match(html, /aria-expanded="true"/);
-  assert.equal(rows(html), 6, "every component is listed under a structure");
-});
-
-test("by structure and cell: structure -> space -> its equipment and openings; mixed where they differ", () => {
-  setView("cell");
+test("the structure tree: structure -> space -> its equipment and openings; mixed where they differ", () => {
+  setView("tree");
   const html = list();
   const deckA = Object.values(useCellBuilderStore.getState().cells).find((c) => c.name === "deckA")!.id;
   assert.deepEqual(groupsOf(html), [
@@ -115,20 +103,25 @@ test("by structure and cell: structure -> space -> its equipment and openings; m
   assert.match(html, /aria-label="Include space deckA in build"[^>]*aria-checked="mixed"/);
   assert.match(html, />deckA<\/span><span class="text-gray-400">\(4\)</, "the space and the three things in it");
   assert.match(html, />Unassigned<\/span><span class="text-gray-400">\(1\)</);
-  // Depth shows as indentation: the pump sits two levels in.
-  assert.match(html, /data-component-row="[^"]+" data-include-state="included"[^>]*padding-left:26px/);
+  assert.match(html, /aria-label="Include structure Jacket in build"[^>]*aria-checked="false"/);
+  assert.match(html, /aria-label="Frame Topside"/);
+  // Depth shows as indentation, one INDENT_STEP (24px) per level: the structure at 2px, its
+  // space at 26px, the pump in the space at 50px -- each name one step in from its parent's.
+  assert.match(html, /data-component-group="structure:Topside"[^>]*><div[^>]*padding-left:2px/);
+  assert.match(html, new RegExp(`data-component-group="cell:${deckA}"[^>]*><div[^>]*padding-left:26px`));
+  assert.match(html, /data-component-row="[^"]+" data-include-state="included"[^>]*padding-left:50px/);
   assert.equal(rows(html), 4, "spaces are group rows here, the other four are items");
 });
 
 test("a folded group row hides its children; the choice of view is remembered in this browser", () => {
-  setView("structure");
-  fold("structure:Jacket", true);
+  setView("tree");
+  fold("structure:Topside", true);
   const html = list();
-  assert.match(html, /aria-label="Expand Jacket"/);
-  assert.equal(rows(html), 5, "the leg is folded away");
-  fold("structure:Jacket", false);
-  assert.equal(rows(list()), 6);
-  assert.equal(globalThis.localStorage.getItem("ada:model-panel-view"), "structure");
+  assert.match(html, /aria-label="Expand Topside"/);
+  assert.equal(rows(html), 1, "the Topside's rows are folded away; the buoy stays");
+  fold("structure:Topside", false);
+  assert.equal(rows(list()), 4);
+  assert.equal(globalThis.localStorage.getItem("ada:model-panel-view"), "tree");
   setView("flat");
   assert.equal(globalThis.localStorage.getItem("ada:model-panel-view"), null, "the default leaves no key");
 });

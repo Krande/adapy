@@ -191,8 +191,9 @@ export function initCellBuilderScene(
             applyCellVisibility(ctx);
             requestRender();
         }
-        // Colour by group follows the groups (rename / add / remove re-palettes).
-        if (s.groups !== prev.groups && useGroupViewStore.getState().colourByGroup) refreshFaceStyles(ctx);
+        // The cell colours follow the groups: a blueprint change recolours its structure,
+        // and colour by group re-palettes on a rename / add / remove.
+        if (s.groups !== prev.groups) refreshFaceStyles(ctx);
         if (
             s.mode !== prev.mode &&
             s.mode !== "add-cell" &&

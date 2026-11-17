@@ -4,14 +4,21 @@
  * delete one.
  *
  * The "View" option (remembered in this browser, `useModelPanelViewStore`) arranges
- * the rows flat, by structure, or by structure and cell -- the arrangement is
- * `buildModelTree` (utils/cellbuilder/modelTree). A group row selects everything
- * under it (Fit selection then frames it, or its ⌖ does both), folds, shows its
- * count, and carries a checkbox: a structure's is the structure's own INCLUDE,
- * a space's cascades over the space and what is placed in it (mixed when they
- * differ). A row's checkbox is the component's INCLUDE in the document -- the same
- * flag the compile, the workbook export and any dimmed/excluded view read
+ * the rows flat or as the structure tree -- the arrangement is `buildModelTree`
+ * (utils/cellbuilder/modelTree). A group row selects everything under it (Fit
+ * selection then frames it, or its ⌖ does both), folds, shows its count, and
+ * carries a checkbox: a structure's is the structure's own INCLUDE, a space's
+ * cascades over the space and what is placed in it (mixed when they differ). A
+ * row's checkbox is the component's INCLUDE in the document -- the same flag the
+ * compile, the workbook export and any dimmed/excluded view read
  * (utils/cellbuilder/include) -- so ticking it is an undoable document edit.
+ *
+ * Every row has the same shape -- fold arrow (or its blank), checkbox, swatch,
+ * name -- and indents one `INDENT_STEP` per depth, so a space sits one step in
+ * from its structure and the equipment in it one step further. A structure's
+ * and a space's swatch is the structure's BLUEPRINT colour, the one the scene
+ * draws the space in (utils/cellbuilder/blueprintColours); a legend names the
+ * blueprints in use when there is more than one.
  *
  * Shown inside the Build tab's "Cells & equipment" section, and on its own as the
  * `core:component-list` panel (`ComponentListBody`), so a shell can dock the list
@@ -24,7 +31,8 @@ import {PanelCard} from "@/components/ui/PanelFrame";
 import {useSceneActions} from "@/layout/sceneActions";
 import {hasEmbeddedDoc, useCellBuilderStore} from "@/state/cellBuilderStore";
 import {useModelPanelViewStore} from "@/state/modelPanelViewStore";
-import {isGroupIncluded} from "@/utils/cellbuilder/groups";
+import {blueprintColour, blueprintsInUse, structureColour} from "@/utils/cellbuilder/blueprintColours";
+import {isGroupIncluded, type CellGroup} from "@/utils/cellbuilder/groups";
 import {isItemIncluded, type IncludeState} from "@/utils/cellbuilder/include";
 import {
   buildModelTree,
@@ -43,7 +51,7 @@ export function useComponentCount(): number {
   return useCellBuilderStore((s) => Object.keys(s.cells).length);
 }
 
-/** The "View: …" selector: flat / by structure / by structure and cell. */
+/** The "View: …" selector: flat / structure tree. */
 export const ModelViewSelect: React.FC<{className?: string}> = ({className = ""}) => {
   const view = useModelPanelViewStore((s) => s.view);
   const setView = useModelPanelViewStore((s) => s.setView);
@@ -67,7 +75,41 @@ export const ModelViewSelect: React.FC<{className?: string}> = ({className = ""}
   );
 };
 
-const KIND_COLOUR: Record<string, string> = {cell: "#3b82f6", loft: "#14b8a6", equipment: "#f97316", opening: "#f97316"};
+/** The kind colours of the scene (sceneConstants) as the rows' swatches; a space's
+ * swatch is its structure's blueprint colour instead (`structureColour`). */
+const KIND_COLOUR: Record<string, string> = {cell: "#3b82f6", loft: "#14b8a6", equipment: "#f97316", opening: "#ef4444"};
+
+/** Pixels per tree level: the structure's name to its space's name, and the
+ * space's to the name of a unit placed in it. */
+export const INDENT_STEP = 24;
+
+/** The name a blueprint shows under: the engine's display name, else the slug. */
+const useBlueprintName = () => {
+  const blueprints = useCellBuilderStore((s) => s.blueprints);
+  return React.useCallback((slug: string) => blueprints.find((b) => b.slug === slug)?.name ?? slug, [blueprints]);
+};
+
+const Swatch: React.FC<{colour: string; title?: string}> = ({colour, title}) => (
+  <span className="inline-block w-2 h-2 rounded-sm shrink-0" style={{background: colour}} title={title} data-swatch={colour} />
+);
+
+/** The blueprints the structures use, each with its colour -- shown while there
+ * is more than one, so the cells' colours can be read. */
+export const BlueprintLegend: React.FC<{groups: readonly CellGroup[]; className?: string}> = ({groups, className = ""}) => {
+  const nameOf = useBlueprintName();
+  const used = blueprintsInUse(groups);
+  if (used.length < 2) return null;
+  return (
+    <div className={`flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] text-gray-400 ${className}`} data-blueprint-legend="" title="Cells are coloured by their structure's blueprint">
+      {used.map((bp) => (
+        <span key={bp} className="flex items-center gap-1" data-legend-blueprint={bp}>
+          <Swatch colour={blueprintColour(bp)} />
+          {nameOf(bp)}
+        </span>
+      ))}
+    </div>
+  );
+};
 
 /** The row's look for its include state: dimmed when it is not built. */
 const stateClass = (state: IncludeState) => (state === "included" ? "" : "opacity-50");
@@ -111,7 +153,11 @@ const MarkCheckbox: React.FC<{
   );
 };
 
-const indent = (depth: number): React.CSSProperties => ({paddingLeft: `${depth * 12 + 2}px`});
+const indent = (depth: number): React.CSSProperties => ({paddingLeft: `${depth * INDENT_STEP + 2}px`});
+
+/** Where a group row has its fold arrow, an item row has this blank, so the names
+ * of a space and of the equipment in it stand one indent step apart. */
+const FoldBlank: React.FC = () => <span className="shrink-0 w-3" aria-hidden="true" />;
 
 const ItemRow: React.FC<{node: ItemNode}> = ({node}) => {
   const c = node.cell;
@@ -120,6 +166,9 @@ const ItemRow: React.FC<{node: ItemNode}> = ({node}) => {
   const included = isItemIncluded(c);
   const loc = c.kind === "equipment" && c.params?.SPACE_LOC === "ROOF" ? "roof" : null;
   const hint = stateTitle(node.state);
+  const nameOf = useBlueprintName();
+  const bp = c.kind === "cell" && c.group ? s.groups.find((g) => g.name === c.group)?.blueprint : undefined;
+  const colour = c.kind === "cell" ? structureColour(s.groups, c.group) : KIND_COLOUR[c.kind];
   return (
     <div
       data-component-row={c.id}
@@ -131,6 +180,7 @@ const ItemRow: React.FC<{node: ItemNode}> = ({node}) => {
       style={indent(node.depth)}
       onClick={() => s.setSelection({kind: "cell", cellId: c.id})}
     >
+      <FoldBlank />
       <MarkCheckbox
         mark={included ? "on" : "off"}
         label={`Include ${c.name} in build`}
@@ -139,7 +189,7 @@ const ItemRow: React.FC<{node: ItemNode}> = ({node}) => {
         onChange={(on) => s.setCellsIncluded([c.id], on)}
       />
       <span className={`flex min-w-0 flex-1 items-center gap-1 ${stateClass(node.state)}`} title={hint ?? undefined}>
-        <span className="inline-block w-2 h-2 rounded-sm shrink-0" style={{background: KIND_COLOUR[c.kind]}} />
+        <Swatch colour={colour} title={bp ? `Blueprint: ${nameOf(bp)}` : undefined} />
         <span className="truncate" title={`${c.origin.map((v) => v.toFixed(2))} / ${c.size.map((v) => v.toFixed(2))}`}>
           {c.name}
         </span>
@@ -198,6 +248,16 @@ const GroupRow: React.FC<{node: GroupNode; children: React.ReactNode}> = ({node,
         : "Include everything in this group (mixed: they differ)";
   const hint = stateTitle(node.state);
   const n = node.itemIds.length;
+  const nameOf = useBlueprintName();
+  // A structure's swatch and its spaces' are the structure's blueprint colour; the
+  // gathering rows ("No structure", "Unassigned") carry none.
+  const bp = node.kind === "structure" ? node.group?.blueprint : node.kind === "cell" ? s.groups.find((g) => g.name === node.structure)?.blueprint : undefined;
+  const swatch =
+    node.kind === "structure" || node.kind === "cell" ? (
+      <Swatch colour={structureColour(s.groups, node.structure)} title={bp ? `Blueprint: ${nameOf(bp)}` : undefined} />
+    ) : (
+      <span className="inline-block w-2 shrink-0" aria-hidden="true" />
+    );
   return (
     <div data-component-group={node.key} data-group-kind={node.kind} data-include-mark={node.include}>
       <div
@@ -228,7 +288,7 @@ const GroupRow: React.FC<{node: GroupNode; children: React.ReactNode}> = ({node,
           onChange={onInclude}
         />
         <span className={`flex min-w-0 flex-1 items-center gap-1 ${stateClass(node.state)}`} title={hint ?? undefined}>
-          {node.kind === "cell" && <span className="inline-block w-2 h-2 rounded-sm shrink-0" style={{background: KIND_COLOUR.cell}} />}
+          {swatch}
           <span className={"truncate " + (node.kind === "structure" || node.kind === "none" ? "font-semibold" : "")}>{node.label}</span>
           <span className="text-gray-400">({n})</span>
         </span>
@@ -282,6 +342,7 @@ export const ComponentList: React.FC<{maxHeightClass?: string; showViewSelector?
   return (
     <div className="flex min-h-0 flex-col gap-1" data-component-list="" data-model-view-active={view}>
       {showViewSelector && !empty && <ModelViewSelect />}
+      {showViewSelector && !empty && <BlueprintLegend groups={groups} />}
       <div className={`${maxHeightClass} overflow-y-auto flex flex-col gap-1`}>
         {empty && (
           <p className="italic text-gray-400">
@@ -302,6 +363,7 @@ export const ComponentList: React.FC<{maxHeightClass?: string; showViewSelector?
  */
 export const ComponentListBody: React.FC = () => {
   const loaded = useCellBuilderStore((s) => s.active !== null || hasEmbeddedDoc(s));
+  const groups = useCellBuilderStore((s) => s.groups);
   const count = useComponentCount();
   if (!loaded) return <p className="p-2 text-xs italic text-gray-400">No procedural model is open.</p>;
   return (
@@ -312,6 +374,7 @@ export const ComponentListBody: React.FC = () => {
         </span>
         <ModelViewSelect className="ml-auto" />
       </div>
+      <BlueprintLegend groups={groups} />
       <div className="min-h-0 flex-1 overflow-y-auto">
         <ComponentList maxHeightClass="max-h-none" showViewSelector={false} />
       </div>
