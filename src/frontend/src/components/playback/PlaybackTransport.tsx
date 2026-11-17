@@ -23,11 +23,15 @@ import { clockText } from "./clockText";
 const SPEEDS = [0.1, 0.25, 0.5, 1, 2, 4, 8];
 // A finger's size at phone width, a mouse's from `sm` up: the same convention as the panel
 // headers' buttons (components/ui/panelChrome.ts).
-const BUTTON =
+const BUTTON_BASE =
   "h-11 min-w-11 px-2 text-sm sm:h-7 sm:min-w-8 sm:px-1 sm:text-xs " +
-  "shrink-0 grid place-items-center rounded-md bg-blue-700 text-white hover:bg-blue-600 " +
+  "shrink-0 grid place-items-center rounded-md text-white transition-colors " +
   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300";
-const TOGGLE_ON = "ring-2 ring-blue-300";
+// A toggle that is on is the darker blue the top bar's buttons are when their panel is open
+// (components/navButton.ts), not a ring around the same blue.
+const BUTTON_OFF = "bg-blue-700 hover:bg-blue-600";
+const BUTTON_ON = "bg-blue-900 hover:bg-blue-800 shadow-inner";
+const button = (on = false): string => `${BUTTON_BASE} ${on ? BUTTON_ON : BUTTON_OFF}`;
 
 export { clockText };
 
@@ -54,7 +58,7 @@ const PlaybackTransport: React.FC = () => {
     <button
       key={spec.id}
       type="button"
-      className={`${BUTTON} ${shown!.pressed ? TOGGLE_ON : ""}`}
+      className={button(!!shown!.pressed)}
       title={spec.title ?? spec.label}
       aria-label={spec.label}
       aria-pressed={shown!.pressed}
@@ -89,7 +93,7 @@ const PlaybackTransport: React.FC = () => {
     >
       <button
         type="button"
-        className={BUTTON}
+        className={button()}
         title={state.playing ? "Pause" : "Play"}
         aria-label={state.playing ? "Pause" : "Play"}
         onClick={() => playbackClock.toggle()}
@@ -125,7 +129,7 @@ const PlaybackTransport: React.FC = () => {
       </select>
       <button
         type="button"
-        className={`${BUTTON} ${state.loop ? TOGGLE_ON : ""}`}
+        className={button(state.loop)}
         title="Start again at the end"
         aria-label="Loop"
         aria-pressed={state.loop}
@@ -135,7 +139,7 @@ const PlaybackTransport: React.FC = () => {
       </button>
       <button
         type="button"
-        className={`${BUTTON} ${state.followEnd ? TOGGLE_ON : ""}`}
+        className={button(state.followEnd)}
         title="Stay at the end while the recording grows"
         aria-label="Follow the end"
         aria-pressed={state.followEnd}
@@ -146,7 +150,7 @@ const PlaybackTransport: React.FC = () => {
       {consoleRun && (
         <button
           type="button"
-          className={`${BUTTON} ${consoleShown ? TOGGLE_ON : ""}`}
+          className={button(consoleShown)}
           title="What each actor of the run is doing and planning at this moment"
           aria-label="Console"
           aria-pressed={consoleShown}
