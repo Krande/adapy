@@ -278,6 +278,8 @@ export function createCellBuilderScene(
          * is OFF, where we must NOT grab the pointer on pointerdown (so a drag over
          * a cell still orbits). Any travel past DRAG_START_PX cancels it. */
         pendingSelect: null as PendingSelect | null,
+        /** Where the right button went down: a right-click that then moved was a drag (the camera's), not a menu. */
+        rightPress: null as {x: number; y: number} | null,
         longPressTimer: null as ReturnType<typeof setTimeout> | null,
         longPressStartX: 0,
         longPressStartY: 0,

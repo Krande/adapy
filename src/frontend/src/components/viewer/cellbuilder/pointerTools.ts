@@ -219,6 +219,7 @@ export const updateGhost = (ctx: CellBuilderScene) => {
 
 export const onPointerDown = (ctx: CellBuilderScene, ev: PointerEvent) => {
     const st = useCellBuilderStore.getState();
+    if (ev.button === 2) ctx.rightPress = {x: ev.clientX, y: ev.clientY};
     if (!st.active || ev.button !== 0) return;
     setPointer(ctx, ev);
 
@@ -529,6 +530,13 @@ export const onPointerCancel = (ctx: CellBuilderScene, ev: PointerEvent) => {
 export const onContextMenu = (ctx: CellBuilderScene, ev: MouseEvent) => {
     const st = useCellBuilderStore.getState();
     if (!st.active) return;
+    // A right DRAG moves the camera: only a right-click that stayed put opens a menu (as the scene's does).
+    const press = ctx.rightPress;
+    ctx.rightPress = null;
+    if (press && Math.hypot(ev.clientX - press.x, ev.clientY - press.y) > DRAG_START_PX) {
+        ev.preventDefault();
+        return;
+    }
     setPointer(ctx, ev as unknown as PointerEvent);
     // A right-click ON a port arrow opens the port edit menu (Move / Rotate)
     // — checked before the cell menu so a port glyph over a cell wins.
