@@ -6,6 +6,9 @@
  * that advertise `supports_grouping` (driven off the flag, never a hardcoded
  * slug -- an engine without it, e.g. adapy-default, gets none of these controls).
  *
+ * The ACTIVE group (the radio before each name) is the structure a new space goes
+ * into; picking any of a structure's items makes it the active one too.
+ *
  * Two kinds of control per group, kept apart on purpose:
  * - the INCLUDE switch is a document edit (`include: false` on the group):
  *   undoable, marks the model dirty, takes effect on the next compile;
@@ -19,7 +22,7 @@ import React, {useEffect} from "react";
 import {EyeGlyph} from "@/components/tree_view/treeGlyphs";
 import {useCellBuilderStore} from "@/state/cellBuilderStore";
 import {coloursOf, useGroupViewStore} from "@/state/cellbuilder/groupViewStore";
-import {groupColor, isGroupIncluded} from "@/utils/cellbuilder/groups";
+import {activeStructure, groupColor, isGroupIncluded} from "@/utils/cellbuilder/groups";
 import {installGroupView, isolateGroup, setGroupHidden, showAllGroups} from "@/utils/cellbuilder/groupView";
 import {Section, btnGray, inputCls} from "./chrome";
 
@@ -33,6 +36,7 @@ export const GroupsSection: React.FC = () => {
   const overrides = useGroupViewStore((v) => coloursOf(v, s.active?.modelId));
   const setGroupColour = useGroupViewStore((v) => v.setGroupColour);
   useEffect(() => installGroupView(), []);
+  const active = activeStructure(s);
 
   const rename = (from: string, to: string) => {
     s.renameGroup(from, to);
@@ -94,6 +98,15 @@ export const GroupsSection: React.FC = () => {
                 style={{borderColor: colourByGroup ? colour : "transparent"}}
               >
                 <div className="flex items-center gap-1">
+                  <input
+                    type="radio"
+                    name="cellbuilder-active-structure"
+                    className="shrink-0 cursor-pointer"
+                    aria-label={`Active structure ${g.name}`}
+                    title="Active structure: a new space goes into it"
+                    checked={active === g.name}
+                    onChange={() => s.setActiveGroup(g.name)}
+                  />
                   <button
                     type="button"
                     className="shrink-0 grid place-items-center rounded-sm px-0.5 text-gray-200 hover:bg-white/10"
@@ -197,8 +210,12 @@ export const GroupsSection: React.FC = () => {
               </div>
             );
           })}
-          <button className={btnGray} onClick={() => s.addGroup()}>
-            + Add group
+          <button
+            className={btnGray}
+            onClick={() => s.addGroup()}
+            title="Add a structure (a group with its own blueprint); it becomes the active one, so the next space goes into it"
+          >
+            + New structure
           </button>
         </>
       )}

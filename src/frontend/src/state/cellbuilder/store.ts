@@ -24,6 +24,7 @@ import {createJobsSlice} from "./jobsSlice";
 import {createViewStateSlice} from "./viewStateSlice";
 import {createRelocationsSlice} from "./relocationsSlice";
 import {createExportImportSlice} from "./exportImportSlice";
+import {itemStructure} from "@/utils/cellbuilder/include";
 
 export const useCellBuilderStore = create<CellBuilderState>()((...a) => ({
   ...createDocumentSlice(...a),
@@ -41,3 +42,19 @@ export const useCellBuilderStore = create<CellBuilderState>()((...a) => ({
   ...createRelocationsSlice(...a),
   ...createExportImportSlice(...a),
 }));
+
+// Picking a structure's item makes that structure the active one (a new space
+// goes into it: placementSlice.addCell). An item in no structure leaves it be.
+useCellBuilderStore.subscribe((s, prev) => {
+  const id = s.selection?.cellId;
+  if (!id || id === prev.selection?.cellId) return;
+  const cell = s.cells[id];
+  let name: string | undefined;
+  try {
+    name = cell ? itemStructure(cell, s.cells, s.groups, s.loftMembers) : undefined;
+  } catch {
+    // A half-made cell (no box yet) is in no structure: a listener must not fail the store's set.
+    return;
+  }
+  if (name && name !== s.activeGroup) useCellBuilderStore.setState({ activeGroup: name });
+});

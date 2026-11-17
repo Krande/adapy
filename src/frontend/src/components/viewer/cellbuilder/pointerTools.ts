@@ -105,12 +105,13 @@ export const armLongPress = (ctx: CellBuilderScene, ev: PointerEvent) => {
     const hit = pickBuilderMesh(ctx);
     if (!hit) return;
     const cellId = hit.object.userData.__cellId as string;
+    const faceIndex = hit.face?.materialIndex;
     ctx.longPressTimer = setTimeout(() => {
         ctx.longPressTimer = null;
         // A long-press wins over a pending face-drag/selection.
         ctx.drag = null;
         ctx.pendingSelect = null;
-        useCellBuilderStore.getState().openContextMenu(clientX, clientY, cellId);
+        useCellBuilderStore.getState().openContextMenu(clientX, clientY, cellId, faceIndex);
     }, LONG_PRESS_MS);
 };
 
@@ -552,5 +553,6 @@ export const onContextMenu = (ctx: CellBuilderScene, ev: MouseEvent) => {
     ev.preventDefault();
     ev.stopPropagation();
     const cellId = hit.object.userData.__cellId as string;
-    st.openContextMenu(ev.clientX, ev.clientY, cellId);
+    // The side under the pointer, for the menu's Add door / Add window.
+    st.openContextMenu(ev.clientX, ev.clientY, cellId, hit.face?.materialIndex);
 };

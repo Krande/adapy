@@ -7,6 +7,7 @@
  * to the grid, selects it, and pushes exactly one undo step.
  */
 
+import {activeStructure} from "@/utils/cellbuilder/groups";
 import {BOX_FACE_SIDES, extrudeBox, faceCenter, farFaceAfterExtrude, placeInCell, quantizeVec, type CellSide, type CellSurface, type Vec3} from "@/utils/cellbuilder/snap";
 import type {BuilderCell} from "./types";
 import type {CellBuilderSlice} from "./state";
@@ -217,6 +218,9 @@ export const createPlacementSlice: CellBuilderSlice<PlacementSlice> = (set) => {
           // A cell type may carry extra TopoSpace entity fields (round-tripped
           // verbatim); openings/equipment start with none.
           params: cellType?.metadata ? { ...cellType.metadata } : {},
+          // A new space goes into the active structure; equipment and openings
+          // belong to the space they sit in.
+          ...(kind === "cell" && activeStructure(s) ? { group: activeStructure(s) } : {}),
         };
         // A freshly placed cell becomes the selection, but we leave the
         // Selected Object Info panel's visibility untouched.

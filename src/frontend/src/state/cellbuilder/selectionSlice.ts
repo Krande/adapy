@@ -51,13 +51,17 @@ export interface SelectionSlice {
    * accidentally reshapes a cell. */
   faceDragResize: boolean;
   /** Cell context menu (long-press on touch / right-click on desktop): screen
-   * position + the cell it was opened on. */
-  contextMenu: { x: number; y: number; cellId: string } | null;
+   * position + the cell it was opened on, and the side of it under the pointer
+   * (its box face index) when known. */
+  contextMenu: { x: number; y: number; cellId: string; faceIndex?: number } | null;
   /** "Insert equipment into/onto a cell" popover: screen position + the
    * equipment being re-seated (equipmentId), or null equipmentId to create a
    * new equipment. Opened from the + Equipment menu (new) or an equipment's
    * context menu (re-seat). */
-  insertMenu: { x: number; y: number; equipmentId: string | null } | null;
+  insertMenu: { x: number; y: number; equipmentId: string | null; cellId?: string } | null;
+  /** The small Rename popover for one item (the cell menu's Rename…): screen
+   * position + the item. */
+  renamePrompt: { x: number; y: number; cellId: string } | null;
   /** Right-click-a-port menu (choose Move / Rotate for that equipment port):
    * screen position + which port on which equipment it was opened on. */
   portMenu: { x: number; y: number; cellId: string; portName: string } | null;
@@ -87,9 +91,12 @@ export interface SelectionSlice {
   /** Toggle carrying contained equipment when a cell is translated. */
   setMoveEquipWithCell: (on: boolean) => void;
   setFaceDragResize: (v: boolean) => void;
-  openContextMenu: (x: number, y: number, cellId: string) => void;
+  openContextMenu: (x: number, y: number, cellId: string, faceIndex?: number) => void;
   closeContextMenu: () => void;
-  openInsertMenu: (x: number, y: number, equipmentId: string | null) => void;
+  /** `cellId`: the space to seat it in (preselected; else the one the equipment stands in). */
+  openInsertMenu: (x: number, y: number, equipmentId: string | null, cellId?: string) => void;
+  openRenamePrompt: (x: number, y: number, cellId: string) => void;
+  closeRenamePrompt: () => void;
   closeInsertMenu: () => void;
   /** Open the port context menu (right-click a port arrow) — Move / Rotate. */
   openPortMenu: (
@@ -215,10 +222,14 @@ export const createSelectionSlice: CellBuilderSlice<SelectionSlice> = (set, get)
     setGizmoVertexSnap: (gizmoVertexSnap) => set({ gizmoVertexSnap }),
     setMoveEquipWithCell: (moveEquipWithCell) => set({ moveEquipWithCell }),
     setFaceDragResize: (faceDragResize) => set({ faceDragResize }),
-    openContextMenu: (x, y, cellId) => set({ contextMenu: { x, y, cellId } }),
+    openContextMenu: (x, y, cellId, faceIndex) =>
+      set({ contextMenu: faceIndex === undefined ? { x, y, cellId } : { x, y, cellId, faceIndex } }),
     closeContextMenu: () => set({ contextMenu: null }),
-    openInsertMenu: (x, y, equipmentId) =>
-      set({ insertMenu: { x, y, equipmentId }, contextMenu: null }),
+    openInsertMenu: (x, y, equipmentId, cellId) =>
+      set({ insertMenu: cellId ? { x, y, equipmentId, cellId } : { x, y, equipmentId }, contextMenu: null }),
+    renamePrompt: null,
+    openRenamePrompt: (x, y, cellId) => set({ renamePrompt: { x, y, cellId }, contextMenu: null }),
+    closeRenamePrompt: () => set({ renamePrompt: null }),
     closeInsertMenu: () => set({ insertMenu: null }),
     openPortMenu: (x, y, cellId, portName) =>
       set({ portMenu: { x, y, cellId, portName }, contextMenu: null }),

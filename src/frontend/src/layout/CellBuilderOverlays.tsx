@@ -4,6 +4,7 @@
 import React from "react";
 
 import CellBuilderContextMenu from "@/components/viewer/CellBuilderContextMenu";
+import CellBuilderRenamePrompt from "@/components/viewer/CellBuilderRenamePrompt";
 import CellBuilderPortMenu from "@/components/viewer/CellBuilderPortMenu";
 import CellBuilderInsertMenu from "@/components/viewer/CellBuilderInsertMenu";
 import CellBuilderGizmoHud from "@/components/viewer/CellBuilderGizmoHud";
@@ -12,6 +13,7 @@ import CellBuilderGizmoHud from "@/components/viewer/CellBuilderGizmoHud";
 export const CellBuilderOverlays: React.FC = () => (
   <>
     <CellBuilderContextMenu />
+    <CellBuilderRenamePrompt />
     <CellBuilderPortMenu />
     <CellBuilderInsertMenu />
     <CellBuilderGizmoHud />
