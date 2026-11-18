@@ -3,6 +3,7 @@
 
 import type { ColorScale } from "@/utils/colorScale";
 import type { ScenePickOptions, ScenePickSession } from "../scenePicks";
+import type { SceneHighlight, SceneHighlightOptions, SceneHighlightRef } from "../sceneHighlights";
 import type { PlaceBoxOptions, PlacedBox } from "../sceneBox";
 import type { SceneContactAnswer, SceneContactOptions, SceneObjectRef } from "../sceneContact";
 
@@ -390,6 +391,11 @@ export interface SceneHandle {
   // convex hulls meet, in the scene's own coordinates. Measured by the viewer's clash module on the
   // stored GLBs, not on what a viewport holds: the same answer on either viewport.
   contactBetween: (a: SceneObjectRef, b: SceneObjectRef, options?: SceneContactOptions) => Promise<SceneContactAnswer>;
+  // (1.28.0) Draw `refs` (objects as a `ScenePick` names them: model and id) in `color`, unlit, over
+  // their own colour and over the selection's, until `remove()`; `set(refs)` changes which. Not the
+  // selection, not a colour the user gave, and no undo step. For a tool that takes the scene's clicks
+  // and shows what it has taken. Works on either viewport; `remove(owner)` takes it away too.
+  highlightObjects: (owner: string, refs: Iterable<SceneHighlightRef>, options: SceneHighlightOptions) => SceneHighlight;
 }
 
 /** An axis-aligned world-space box. */

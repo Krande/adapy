@@ -21,6 +21,7 @@ export { type PluginRegion, type PluginDockId, type PluginModeId, type PluginMod
 export { type SceneColorFieldResult, type SceneColor, type SceneOverlay, type SceneLines, type SceneElementOutline, type SceneLabel, type SceneLabelOptions, type SceneElementPaint, type SceneLayerRef, type SceneLayerLook, type SceneLineLayerSpec, type SceneLineLayer, type ScenePointLayerSpec, type ScenePointLayer, type SceneImageRect, type SceneImageSpec, type SceneImage, type SceneModelSource, type SceneModelPose, type SidecarFetcher, type SceneHandle, type SceneBox, type SceneFace } from "./registryTypes/scene";
 export { type PluginPlaybackTrack, type PluginPlaybackTrackHandle, type PluginPlaybackState, type PluginPlayback, type PluginLayerState, type PluginLayers, type PluginSimulationSubject, type PluginSimulationSubjectHandle, type PluginSimulations } from "./registryTypes/playback";
 export type { ScenePick, ScenePickOptions, ScenePickSession } from "./scenePicks";
+export type { SceneHighlight, SceneHighlightOptions, SceneHighlightRef } from "./sceneHighlights";
 export type {
   SceneContact,
   SceneContactAnswer,
@@ -253,7 +254,13 @@ export type { PlaceBoxOptions, PlacedBox, PlacedBoxMode, PlacedBoxPose } from ".
 //          the viewer's clash module on the models' stored GLBs, so it answers the same on either
 //          viewport. For a tool that places something where two objects meet. Additive: an older
 //          core has no `contactBetween`, so a plugin asks for it first.
-export const PLUGIN_API_VERSION = "1.27.0";
+// 1.28.0 — `ctx.scene.highlightObjects(owner, refs, {color})`: a plugin draws objects of the loaded
+//          models in a colour of its own -- over their own colour and over the selection's -- until
+//          `remove()` (or `scene.remove(owner)`); `set(refs)` changes which. For a tool that takes
+//          the scene's clicks (`pickObjects`) and shows what it has taken. Not the selection, not a
+//          colour the user gave, and no undo step; on either viewport. Additive: an older core has
+//          no `highlightObjects`, so a plugin asks for it first.
+export const PLUGIN_API_VERSION = "1.28.0";
 
 /** What the Simulations panel writes on a run's open-result button. */
 export function openResultButtonLabel(

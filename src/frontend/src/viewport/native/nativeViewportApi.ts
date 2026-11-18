@@ -59,6 +59,14 @@ export function createNativeViewportApi(scene: NativeScene): ViewportApi {
         objectColorCount: () => scene.objectColorCount,
         captureObjectColors: () => scene.captureObjectColors(),
         restoreObjectColors: (state) => scene.restoreObjectColors(state),
+        // Marks: drawn as the colour of their segments too, over the selection's (NativeScene).
+        setObjectMarks: (marks) => {
+            const keyed = new Map<string, readonly [number, number, number]>();
+            for (const [model, ids] of marks) {
+                for (const [id, color] of ids) if (parseHexColor(color) !== null) keyed.set(objectKey(model, id), hexLinear(color));
+            }
+            scene.setObjectMarks(keyed);
+        },
         results: {createResultMesh: (data, opts) => scene.createResultLayer(data, opts)},
         objectVisibility: () => (model, id) => {
             const key = objectKey(model, id);

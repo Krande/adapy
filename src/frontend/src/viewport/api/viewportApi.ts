@@ -105,6 +105,8 @@ export interface ViewportApi {
     objectColorCount: ViewportObjectColors["objectColorCount"];
     captureObjectColors: ViewportObjectColors["captureObjectColors"];
     restoreObjectColors: ViewportObjectColors["restoreObjectColors"];
+    // Objects a tool marks for a while, in colours of its own (no undo step).
+    setObjectMarks?: ViewportObjectColors["setObjectMarks"];
     /** Where the origin of the model loaded from `sourceName` is in the world: the offset its
      *  loader moved it by (state/sceneFrameStore has the scene's one offset). Null when no such model
      *  is on screen. */

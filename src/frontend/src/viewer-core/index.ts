@@ -671,7 +671,9 @@
 //   1.27.0 Kept in step with PLUGIN_API_VERSION 1.27.0. Additive: `ctx.scene.contactBetween` and
 //          the types `SceneObjectRef`, `SceneContactOptions`, `SceneContact`, `SceneContactPatch`,
 //          `SceneContactAnswer`.
-export const VIEWER_CORE_API_VERSION = "1.27.0";
+//   1.28.0 Kept in step with PLUGIN_API_VERSION 1.28.0. Additive: `ctx.scene.highlightObjects` and
+//          the types `SceneHighlight`, `SceneHighlightOptions`, `SceneHighlightRef`.
+export const VIEWER_CORE_API_VERSION = "1.28.0";
 
 // ---------------------------------------------------------------------------
 // Plugin declaration. `registerPlugin` is how a package announces itself —
@@ -728,6 +730,9 @@ export type {
   SceneElementPaint,
   SceneFace,
   SceneHandle,
+  SceneHighlight,
+  SceneHighlightOptions,
+  SceneHighlightRef,
   ScenePick,
   ScenePickOptions,
   ScenePickSession,

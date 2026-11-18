@@ -66,6 +66,13 @@ export function linearHexText(text: string): [number, number, number] | null {
     return /^#[0-9a-f]{6}$/i.test(text) ? linearHex(parseInt(text.slice(1), 16)) : null;
 }
 
+/** `c` as sRGB "#rrggbb" text. */
+export function srgbHexText(c: SceneColor): string {
+    const [r, g, b] = typeof c === "string" ? cssChannels(c) : c;
+    const byte = (v: number) => Math.max(0, Math.min(255, Math.round(v * 255))).toString(16).padStart(2, "0");
+    return `#${byte(r)}${byte(g)}${byte(b)}`;
+}
+
 /** `c` as linear RGB. */
 export function linearColor(c: SceneColor): [number, number, number] {
     const out: [number, number, number] = [0, 0, 0];

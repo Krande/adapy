@@ -45,6 +45,7 @@ import {
 } from "./sceneLayers";
 import { makePluginSimulations } from "./pluginSimulations";
 import { endScenePicks, pickObjects } from "./scenePicks";
+import { endSceneHighlights, highlightObjects } from "./sceneHighlights";
 import { placeBox } from "./sceneBox";
 import { contactBetween } from "./sceneContact";
 import { releaseFeaDeformation, setFeaDeformationShown } from "@/utils/scene/fea/deformationGate";
@@ -106,6 +107,7 @@ function makeSceneHandle(): SceneHandle {
         }
         removeOwnerOverlays(owner);
         endScenePicks(owner);
+        endSceneHighlights(owner);
         releaseFeaDeformation(owner);
         releaseFeaUnpaintedColor(owner);
         usePluginColorScaleStore.getState().show(owner, null);
@@ -215,6 +217,7 @@ function makeSceneHandle(): SceneHandle {
     pickObjects,
     placeBox,
     contactBetween,
+    highlightObjects,
   };
 }
 

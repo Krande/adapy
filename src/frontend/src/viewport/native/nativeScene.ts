@@ -1210,13 +1210,26 @@ export class NativeScene {
         this.onChange?.();
     }
 
-    /** Every segment's state as the renderer takes it: hidden, else the selection's colour, else
-     *  the colour the user gave the object, else the default colour where its file gave it none. */
+    /** Objects a tool marks for a while (ViewportApi.setObjectMarks), by key: a segment's colour as
+     *  the renderer takes it. Drawn over the selection's colour; neither the selection nor a colour
+     *  the user gave, and no undo step. */
+    private marks = new Map<string, number>();
+
+    /** Mark the objects of `marks` (key -> linear RGB, 0..1) in place of what was marked before. */
+    setObjectMarks(marks: ReadonlyMap<string, readonly [number, number, number]>): void {
+        if (!marks.size && !this.marks.size) return;
+        this.marks = new Map(Array.from(marks, ([key, rgb]) => [key, packSegmentColor(rgb[0], rgb[1], rgb[2])]));
+        this.writeStates();
+    }
+
+    /** Every segment's state as the renderer takes it: hidden, else the colour a tool marked it
+     *  with, else the selection's colour, else the colour the user gave the object, else the default
+     *  colour where its file gave it none. */
     private writeStates(): void {
         // The file's grey is drawn as it is while the default colour is that grey.
         const fallback = this.defaultSegmentColor;
         const greyToo = fallback !== NativeScene.FILE_GREY;
-        const anyHidden = this.hidden.size > 0, anySelected = this.selected.size > 0;
+        const anyHidden = this.hidden.size > 0, anySelected = this.selected.size > 0, anyMarked = this.marks.size > 0;
         for (const [instance, {model, objects: segments, outline}] of this.segments) {
             const ids = model.keys;
             const colors = model.colored ? model.colors! : null;
@@ -1228,7 +1241,10 @@ export class NativeScene {
                 const id = ids[object];
                 if (anyHidden && this.hidden.has(id)) states[i * 2 + 1] = SegmentFlag.Hidden;
                 else if (outline) continue;
-                else if (anySelected && this.selected.has(id)) {
+                else if (anyMarked && this.marks.has(id)) {
+                    states[i * 2] = this.marks.get(id)!;
+                    states[i * 2 + 1] = SegmentFlag.Matte;
+                } else if (anySelected && this.selected.has(id)) {
                     states[i * 2] = SELECTED;
                     states[i * 2 + 1] = SegmentFlag.Matte;
                 } else if (colors && colors[object]) states[i * 2] = colors[object];
