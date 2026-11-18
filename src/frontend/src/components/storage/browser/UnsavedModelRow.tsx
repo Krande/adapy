@@ -18,14 +18,14 @@ const UnsavedModelRow: React.FC<{name: string}> = ({name}) => {
     return (
         <div
             className="mb-1 flex items-center gap-1.5 px-2 py-1 rounded-sm bg-blue-900/40"
-            title="Open in the cellbuilder and not saved: it exists only in this tab"
+            title="Open in the builder and not saved: it exists only in this tab"
         >
             <input
                 type="checkbox"
                 className="h-5 w-5 shrink-0 cursor-pointer"
                 checked
                 aria-label={`Close ${name}`}
-                title="Open in the cellbuilder; untick to close it"
+                title="Open in the builder; untick to close it"
                 onChange={() => void close()}
             />
             <ProceduralModelIcon className="shrink-0"/>

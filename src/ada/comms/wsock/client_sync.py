@@ -52,15 +52,21 @@ class WebSocketClientSync(WebSocketClientBase):
         return deserialize_root_message(message)
 
     def check_target_liveness(self, target_id=None, target_group: TargetTypeDC = TargetTypeDC.WEB, timeout=1):
-        """Checks if the target is alive by sending a PING command."""
+        """Checks if the target is alive by sending a PING command.
+
+        Waits up to ``timeout`` seconds in all for the PONG, passing over other messages that
+        arrive meanwhile (see :meth:`WebSocketClientAsync.check_target_liveness`).
+        """
         self.websocket.send(self._prep_target_liveness(target_id, target_group))
-
-        try:
-            msg = self.receive(timeout=timeout)
-        except TimeoutError:
-            return False
-
-        return msg.command_type == CommandTypeDC.PONG
+        deadline = time.monotonic() + timeout
+        while (left := deadline - time.monotonic()) > 0:
+            try:
+                msg = self.receive(timeout=left)
+            except TimeoutError:
+                return False
+            if msg.command_type == CommandTypeDC.PONG:
+                return True
+        return False
 
     def update_scene(
         self,

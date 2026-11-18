@@ -10,6 +10,7 @@
 // The scene-side actions are imported when run, so registering the commands
 // costs no scene code.
 
+import {hasVisibilitySelection, hideOthers, hideSelection, showAll, showSelection} from "@/utils/scene/visibilityActions";
 import {useMemo} from "react";
 import {useStore} from "zustand";
 
@@ -24,6 +25,9 @@ import {useBBoxSelectionStore} from "@/state/bboxSelectionStore";
 import {useSectionStore, type SectionPlane} from "@/state/sectionStore";
 import {useObjectInfoStore} from "@/state/objectInfoStore";
 import {useOptionsStore} from "@/state/optionsStore";
+import {useProjectionStore} from "@/state/projectionStore";
+import {useGroundGridStore} from "@/state/groundGridStore";
+import {useIncludeViewStore} from "@/state/includeViewStore";
 import {requestRender} from "@/state/perfStore";
 import {THEME_PRESETS, useThemeStore, type ThemePresetId} from "@/state/themeStore";
 import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
@@ -70,6 +74,7 @@ import {openFemConcepts, toggleColorLegend, toggleDataTable} from "./resultViewA
 import {markingMenuMounted, openMarkingMenu, servedMarkingMenu, setMarkingMenuOn} from "./markingMenuState";
 import {activeRail, openRailCustomise} from "./toolRailState";
 import {FEA_ELEMENT_SETS_ID, FEA_SETS_ROOT_ID, elementSetFromRowId} from "@/utils/scene/fea/feaTreeRows";
+import {equipmentCadFitted, resizeRefusal} from "@/utils/cellbuilder/cellResize";
 
 /** Element sets the FEA rows list (here, or the main window's in a pop-out). */
 function feaSetCount(): number {
@@ -88,6 +93,9 @@ export function workingPlane(): SectionPlane | undefined {
   const {planes, activeId} = useSectionStore.getState();
   return planes.find((p) => p.id === activeId) ?? planes[planes.length - 1];
 }
+
+/** A section command's tick and reason read the planes: its button redraws when they change. */
+const watchSections = (onChange: () => void) => useSectionStore.subscribe(onChange);
 
 type FeaState = ReturnType<typeof useFeaAnimationStore.getState>;
 
@@ -129,6 +137,12 @@ const activeSelectionBox = () => {
 };
 // With no 3D view there is nothing selected either, and that is the reason a user recognises.
 const nothingSelected = () => ((activeViewport()?.selectionCount() ?? 0) === 0 ? "Nothing selected" : null);
+/** Cells selected in the open procedural builder: Fit selection frames them (fitSelectionView), though
+ *  they are not the viewer's selection (selectionCount()). */
+const builderHasSelection = () => {
+  const cb = useCellBuilderStore.getState();
+  return cb.active !== null && cb.selection !== null && cb.selectedCellIds.length > 0;
+};
 
 /** The procedural builder takes Ctrl+Z / Ctrl+Y for its own history while it is open. */
 const builderOwnsHistory = () => (useCellBuilderStore.getState().active !== null ? "The procedural builder has its own undo" : null);
@@ -143,12 +157,19 @@ function selectedComponentKind(s: BuilderState): "cell" | "equipment" | "loft" |
   return s.selection ? (s.cells[s.selection.cellId]?.kind ?? null) : null;
 }
 
-/** Which components a gizmo works on (the G / R / S keys): rotate is for equipment, resize for cells. */
+/** Which components a gizmo works on (the G / R / S keys): rotate is for equipment; resize
+ *  for spaces, openings and equipment, and a selected component it refuses says why. */
 const GIZMO_TARGETS: Readonly<Record<GizmoKind, {kinds: readonly string[]; need: string}>> = {
   translate: {kinds: ["cell", "equipment", "loft", "opening"], need: "Select a cell or equipment to move"},
   rotate: {kinds: ["equipment"], need: "Select equipment to rotate"},
-  resize: {kinds: ["cell"], need: "Select a cell to resize"},
+  resize: {kinds: ["cell", "equipment", "opening"], need: "Select a cell, an opening or equipment to resize"},
 };
+
+/** Why the resize gizmo refuses the selected component (a loft band, a CAD-fitted equipment), or null. */
+function resizeRefusedFor(s: BuilderState): string | null {
+  const cell = s.selection ? s.cells[s.selection.cellId] : undefined;
+  return cell ? resizeRefusal(cell.kind, {cadFitted: equipmentCadFitted(cell, s)}) : null;
+}
 
 /** One builder gizmo: pressing it brings it up on the selection, pressing it again puts it away. */
 function builderGizmo(id: string, label: string, kind: GizmoKind): CommandSpec {
@@ -162,7 +183,11 @@ function builderGizmo(id: string, label: string, kind: GizmoKind): CommandSpec {
       const s = useCellBuilderStore.getState();
       const target = GIZMO_TARGETS[kind];
       const k = selectedComponentKind(s);
-      return builderReadOnly() ?? (k && target.kinds.includes(k) ? null : target.need);
+      return (
+        builderReadOnly() ??
+        (kind === "resize" ? resizeRefusedFor(s) : null) ??
+        (k && target.kinds.includes(k) ? null : target.need)
+      );
     },
     run: () => {
       const s = useCellBuilderStore.getState();
@@ -366,16 +391,25 @@ export function coreCommandSpecs(): CommandSpec[] {
       label: "Hide selected",
       group: "Edit",
       shortcut: "core:hide-selected",
-      disabledReason: nothingSelected,
-      run: () => activeViewport()?.hideSelected(),
+      disabledReason: () => (hasVisibilitySelection() ? null : nothingSelected()),
+      run: () => void hideSelection(),
     },
     {
       id: ID.hideOthers,
       label: "Hide others",
       group: "Edit",
       shortcut: "core:hide-others",
-      disabledReason: nothingSelected,
-      run: () => activeViewport()?.hideOthers(),
+      disabledReason: () => (hasVisibilitySelection() ? null : nothingSelected()),
+      run: () => void hideOthers(),
+    },
+    {
+      id: ID.showSelected,
+      label: "Show selected",
+      group: "Edit",
+      keywords: ["unhide", "add selection", "bring back", "visible"],
+      shortcut: "core:show-selected",
+      disabledReason: () => (hasVisibilitySelection() ? null : nothingSelected()),
+      run: () => void showSelection(),
     },
     {
       id: ID.showAll,
@@ -383,7 +417,7 @@ export function coreCommandSpecs(): CommandSpec[] {
       group: "Edit",
       shortcut: "core:show-all",
       disabledReason: noViewport,
-      run: () => activeViewport()?.showAll(),
+      run: () => void showAll(),
     },
     // View
     {
@@ -407,7 +441,7 @@ export function coreCommandSpecs(): CommandSpec[] {
       label: "Fit selection",
       group: "View",
       shortcut: "core:fit-selection",
-      disabledReason: () => noViewport() ?? activeViewport()?.unavailable("fit-selection") ?? nothingSelected(),
+      disabledReason: () => noViewport() ?? activeViewport()?.unavailable("fit-selection") ?? (builderHasSelection() ? null : nothingSelected()),
       run: () => activeViewport()?.fitSelection(),
     },
     {
@@ -426,6 +460,32 @@ export function coreCommandSpecs(): CommandSpec[] {
         run: () => activeViewport()?.setView(view),
       }),
     ),
+    {
+      id: ID.orthographic,
+      label: "Orthographic view",
+      group: "View",
+      checked: () => useProjectionStore.getState().orthographic,
+      watch: (onChange) => useProjectionStore.subscribe(onChange),
+      // Every viewport draws it: the three.js one on either renderer (utils/scene/orthographicProjection.ts),
+      // the three.js-free one with the renderer's own camera (viewport/native/nativeScene.ts).
+      disabledReason: () => noViewport() ?? activeViewport()?.unavailable("orthographic") ?? null,
+      run: () => {
+        useProjectionStore.getState().toggleOrthographic();
+        requestRender();
+      },
+    },
+    {
+      id: ID.groundGrid,
+      label: "Ground grid",
+      group: "View",
+      checked: () => useGroundGridStore.getState().visible,
+      watch: (onChange) => useGroundGridStore.subscribe(onChange),
+      disabledReason: noViewport,
+      run: () => {
+        useGroundGridStore.getState().toggle();
+        requestRender();
+      },
+    },
     {
       id: ID.edges,
       label: "Geometry edges",
@@ -639,6 +699,7 @@ export function coreCommandSpecs(): CommandSpec[] {
       label: "Section plane on / off",
       group: "Section",
       checked: () => workingPlane()?.enabled === true,
+      watch: watchSections,
       // With no plane yet, the first press cuts through the model on Z.
       run: () => {
         const s = useSectionStore.getState();
@@ -652,9 +713,24 @@ export function coreCommandSpecs(): CommandSpec[] {
       label: "Flip section plane",
       group: "Section",
       disabledReason: () => (workingPlane() ? null : "No section plane"),
+      watch: watchSections,
       run: () => {
         const p = workingPlane();
         if (p) useSectionStore.getState().flip(p.id);
+      },
+    },
+    {
+      id: ID.sectionGizmo,
+      label: "Show section gizmo",
+      group: "Section",
+      keywords: ["outline", "arrow", "handle", "drag"],
+      checked: () => useSectionStore.getState().gizmoVisible,
+      disabledReason: () => (workingPlane() ? null : "No section plane"),
+      watch: watchSections,
+      run: () => {
+        const s = useSectionStore.getState();
+        s.setGizmoVisible(!s.gizmoVisible);
+        requestRender();
       },
     },
     {
@@ -662,6 +738,7 @@ export function coreCommandSpecs(): CommandSpec[] {
       label: "Remove section planes",
       group: "Section",
       disabledReason: () => (useSectionStore.getState().planes.length ? null : "No section plane"),
+      watch: watchSections,
       run: () => useSectionStore.getState().clearAll(),
     },
     // Selection boxes: on whichever viewport is on screen (utils/bboxSelection/applyBoxSelection).
@@ -977,6 +1054,23 @@ export function coreCommandSpecs(): CommandSpec[] {
       disabledReason: noBuilderModel,
       run: () => useCellBuilderStore.getState().setSideBySide(!useCellBuilderStore.getState().sideBySide),
     },
+    // What the build leaves out (utils/cellbuilder/include): one of three views, a radio group.
+    ...([
+      [ID.builderIncludeDimmed, "dimmed", "Included, with excluded dimmed"],
+      [ID.builderIncludeOnly, "included", "Included only"],
+      [ID.builderIncludeAll, "all", "All, excluded drawn like the rest"],
+    ] as const).map(
+      ([id, view, label]): CommandSpec => ({
+        id,
+        label,
+        group: "Build",
+        keywords: ["include", "exclude", "excluded", "INCLUDE"],
+        checked: () => useIncludeViewStore.getState().view === view,
+        watch: (onChange) => useIncludeViewStore.subscribe(onChange),
+        disabledReason: noBuilderModel,
+        run: () => useIncludeViewStore.getState().setView(view),
+      }),
+    ),
   ];
   for (const [id, preset] of Object.entries(THEME_PRESETS)) {
     specs.push({

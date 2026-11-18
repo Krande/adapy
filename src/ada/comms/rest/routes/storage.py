@@ -57,6 +57,7 @@ async def api_scope_files(
         HIDDEN_PREFIXES,
         is_derived_key,
         is_hidden_key,
+        is_image_asset_key,
         supported_targets_for,
     )
     from ..converters.keys import is_file_sidecar_key
@@ -132,7 +133,8 @@ async def api_scope_files(
                     "last_modified": f.last_modified,
                 }
             )
-        elif is_file_sidecar_key(f.key):
+        elif is_file_sidecar_key(f.key) or is_image_asset_key(f.key):
+            # a sibling of a file, or an image kept in the scope: nothing to convert
             continue
         else:
             sources[f.key] = {
@@ -365,6 +367,7 @@ async def api_scope_blob_put(
 ) -> JSONResponse:
     from ..converter import (
         is_derived_key,
+        is_image_asset_key,
         is_published_asset_key,
         is_scope_state_key,
         is_simulation_key,
@@ -385,11 +388,13 @@ async def api_scope_blob_put(
     # ``versions/`` (CI-pushed build outputs) and ``assets/`` (published datasets) are stored
     # blobs, not conversion inputs, so the accepted-source extension whitelist does not apply
     # to them. Two predicates rather than one because they part company on deletability — see
-    # is_published_asset_key. The is_derived_key guard above applies to both. Viewer-written
+    # is_published_asset_key. The is_derived_key guard above applies to both. ``images/`` takes
+    # image files only (is_image_asset_key). Viewer-written
     # scope state (``_groups/``) is exempt for the same reason: it is never converted.
     if (
         not is_versions_artefact_key(clean)
         and not is_published_asset_key(clean)
+        and not is_image_asset_key(clean)
         and not is_scope_state_key(clean)
         and not is_subject_key(clean)
         and not await is_accepted_source(ctx.queue, ctx.worker_registry, clean)
@@ -754,6 +759,7 @@ async def api_scope_upload_url(
     """
     from ..converter import (
         is_derived_key,
+        is_image_asset_key,
         is_published_asset_key,
         is_simulation_key,
         is_versions_artefact_key,
@@ -778,10 +784,12 @@ async def api_scope_upload_url(
     # ``versions/`` (CI-pushed build outputs) and ``assets/`` (published datasets) are stored
     # blobs, not conversion inputs, so the accepted-source extension whitelist does not apply
     # to them. Two predicates rather than one because they part company on deletability — see
-    # is_published_asset_key. The is_derived_key guard above applies to both.
+    # is_published_asset_key. The is_derived_key guard above applies to both. ``images/`` takes
+    # image files only (is_image_asset_key).
     if (
         not is_versions_artefact_key(key)
         and not is_published_asset_key(key)
+        and not is_image_asset_key(key)
         and not await is_accepted_source(ctx.queue, ctx.worker_registry, key)
     ):
         raise HTTPException(status_code=415, detail=f"unsupported file type: {key}")
@@ -836,6 +844,7 @@ async def api_scope_upload_complete(
     """
     from ..converter import (
         is_derived_key,
+        is_image_asset_key,
         is_published_asset_key,
         is_simulation_key,
         is_versions_artefact_key,
@@ -853,10 +862,12 @@ async def api_scope_upload_complete(
     # ``versions/`` (CI-pushed build outputs) and ``assets/`` (published datasets) are stored
     # blobs, not conversion inputs, so the accepted-source extension whitelist does not apply
     # to them. Two predicates rather than one because they part company on deletability — see
-    # is_published_asset_key. The is_derived_key guard above applies to both.
+    # is_published_asset_key. The is_derived_key guard above applies to both. ``images/`` takes
+    # image files only (is_image_asset_key).
     if (
         not is_versions_artefact_key(key)
         and not is_published_asset_key(key)
+        and not is_image_asset_key(key)
         and not await is_accepted_source(ctx.queue, ctx.worker_registry, key)
     ):
         raise HTTPException(status_code=415, detail=f"unsupported file type: {key}")

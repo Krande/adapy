@@ -26,7 +26,8 @@ A worker's own job kinds -- conversions, FEA bakes, utilities, component builds 
 heavier than a thread should carry: a native fault in a CAD reader would take the server with
 it. Those run in a CHILD PROCESS of this interpreter instead (``start_worker_job``, which starts
 :mod:`ada.comms.rest.local_runner`), through the worker's own pipeline, and report back over a
-pipe into the same registry.
+pipe into the same registry. So does a procedural model's IFC / Genie export, which goes through
+the same native writers (``start_procedural_model_job``).
 
 Deliberately NOT a job queue in NATS's sense: one dict, no persistence, no retries, no
 cross-process anything beyond a job's own process. A single-node convenience with the failure
@@ -55,7 +56,7 @@ import time
 import traceback
 import uuid
 from dataclasses import dataclass, field
-from typing import IO, Any
+from typing import IO, Any, Awaitable, Callable
 
 from . import local_queue
 from .plugin_registry import locally_registered_spec
@@ -569,10 +570,14 @@ def start_worker_job(
     field_name: str | None = None,
     conversion_options: dict[str, Any] | None = None,
     force_rebuild: bool = False,
+    model_row: dict[str, Any] | None = None,
 ) -> LocalJob:
-    """Run one job of a worker's kind -- a conversion, a FEA bake, a utility, a component build
-    -- in a child process of this server, through the worker's own pipeline
-    (:mod:`ada.comms.rest.local_runner`). Returns the handle at once.
+    """Run one job of a worker's kind -- a conversion, a FEA bake, a utility, a component build,
+    a procedural IFC / Genie export -- in a child process of this server, through the worker's
+    own pipeline (:mod:`ada.comms.rest.local_runner`). Returns the handle at once.
+
+    ``model_row`` is the procedural model a job on one reads (the export), as this server's
+    file store holds it: the job process has no database to read it from.
 
     Raises ``LookupError`` before starting anything when this process has no handler for the
     kind, or its storage cannot be opened from another process -- a 501 the caller can read
@@ -618,7 +623,10 @@ def start_worker_job(
     registry.add(job)
     from dataclasses import asdict
 
-    payload = {"job": asdict(queue_job), "storage": spec}
+    payload: dict[str, Any] = {"job": asdict(queue_job), "storage": spec}
+    if model_row is not None:
+        # Through JSON once here, so a row the pipe cannot carry fails now, not in the child.
+        payload["model_row"] = json.loads(json.dumps(model_row, default=str))
     threading.Thread(
         target=_run_job_process,
         args=(job, payload),
@@ -745,6 +753,165 @@ def start_procedural_build(
     _PROCEDURAL_TASKS.add(task)
     task.add_done_callback(_PROCEDURAL_TASKS.discard)
     return job
+
+
+#: The procedural jobs on a stored model, beyond the build, a queue-less server runs
+#: itself: kind -> the ``formats`` module and handler that runs it. In-process, except the
+#: IFC / Genie export without a database, which a job process runs (``start_worker_job``).
+LOCAL_PROCEDURAL_MODEL_KINDS: dict[str, tuple[str, str]] = {
+    "procedural_export_xlsx": ("procedural_export", "_run_procedural_export_xlsx"),
+    "procedural_export_model": ("procedural_export", "_run_procedural_export_model"),
+    "procedural_relocations": ("procedural_detail", "_run_procedural_relocations"),
+}
+
+
+def _start_procedural_handler(
+    *,
+    target_format: str,
+    source_key: str,
+    derived_key: str,
+    conversion_options: dict[str, Any],
+    force_rebuild: bool,
+    scope: Any,
+    handler: Callable[..., Awaitable[None]],
+    handler_kwargs: dict[str, Any],
+) -> LocalJob:
+    """Run a ``formats/procedural_export`` handler on this server's loop, as
+    :func:`start_procedural_build` runs the build: a :class:`LocalJob` the polling route
+    reads, the local queue's slot around it, and a verdict on every exit."""
+    from .queue import Job
+
+    job = LocalJob(
+        job_id=f"local-{uuid.uuid4().hex[:16]}",
+        plugin_id=target_format,
+        scope_kind=getattr(scope, "kind", "shared"),
+        scope_id=getattr(scope, "id", None),
+        derived_key=derived_key,
+        stage="queued",
+    )
+    registry.add(job)
+    queue_job = Job(
+        job_id=job.job_id,
+        source_key=source_key,
+        derived_key=derived_key,
+        status=STATUS_RUNNING,
+        target_format=target_format,
+        scope_kind=job.scope_kind,
+        scope_id=job.scope_id,
+        conversion_options=conversion_options,
+        force_rebuild=force_rebuild,
+    )
+
+    async def _run() -> None:
+        if not await asyncio.to_thread(local_queue.queue.acquire, job):
+            return
+        try:
+            await handler(
+                job=queue_job,
+                scope=scope,
+                queue=_LocalJobQueue(job),
+                started_at=time.monotonic(),
+                audit=False,
+                **handler_kwargs,
+            )
+        except Exception as exc:  # noqa: BLE001 — the job's failure is data, not ours
+            logger.exception("local %s %s failed", target_format, job.job_id)
+            job.error = f"{type(exc).__name__}: {exc}"
+            job.status = STATUS_ERROR
+            job.stage = "error"
+            return
+        finally:
+            local_queue.queue.release(job)
+        if job.status == STATUS_RUNNING:
+            # The handler returned without a verdict: say so rather than poll for ever.
+            job.status = STATUS_ERROR
+            job.error = job.error or f"{target_format} ended without a result"
+
+    task = asyncio.get_running_loop().create_task(_run())
+    _PROCEDURAL_TASKS.add(task)
+    task.add_done_callback(_PROCEDURAL_TASKS.discard)
+    return job
+
+
+def start_procedural_model_job(
+    *,
+    target_format: str,
+    model_row: dict[str, Any],
+    source_key: str,
+    derived_key: str,
+    conversion_options: dict[str, Any],
+    force_rebuild: bool,
+    storage: Any,
+    scope: Any,
+    db_pool: Any = None,
+) -> LocalJob:
+    """Run a job on a stored procedural model -- an export to its engine's Excel workbook
+    (``procedural_export_xlsx``) or to an IFC / Genie file (``procedural_export_model``), or
+    a relocation proposal (``procedural_relocations``) -- by the worker's handler, on the
+    model the route already read from its store.
+
+    The queue-less half of ``procedural_export`` / ``procedural_relocations``: a local
+    viewer's "Export to Excel". The engine is resolved as the build resolves it: a
+    built-in, or one registered in this process (``register_procedural_engine_capabilities``).
+
+    The IFC / Genie export builds the model's ada assembly and writes it through the native
+    writers, so on a server with no database it runs in a JOB PROCESS, as a conversion does
+    (:func:`start_worker_job`): a native fault there fails the job, not the server. With a
+    database it stays on this loop, where it resolves the scope's catalogs from the pool a
+    job process would not have. Raises ``LookupError`` when the store cannot be opened from
+    another process."""
+    if target_format not in LOCAL_PROCEDURAL_MODEL_KINDS:
+        raise ValueError(f"not a local procedural model job: {target_format!r}")
+    if target_format == "procedural_export_model" and db_pool is None:
+        return start_worker_job(
+            target_format=target_format,
+            source_key=source_key,
+            derived_key=derived_key,
+            storage=storage,
+            scope=scope,
+            conversion_options=conversion_options,
+            force_rebuild=force_rebuild,
+            model_row=model_row,
+        )
+    module, func = LOCAL_PROCEDURAL_MODEL_KINDS[target_format]
+    handler = getattr(importlib.import_module(f"{__package__}.formats.{module}"), func)
+    return _start_procedural_handler(
+        target_format=target_format,
+        source_key=source_key,
+        derived_key=derived_key,
+        conversion_options=conversion_options,
+        force_rebuild=force_rebuild,
+        scope=scope,
+        handler=handler,
+        handler_kwargs={"storage": storage, "db_pool": db_pool, "model_row": model_row},
+    )
+
+
+def start_procedural_import(
+    *,
+    source_key: str,
+    derived_key: str,
+    conversion_options: dict[str, Any],
+    storage: Any,
+    scope: Any,
+    db_pool: Any = None,
+) -> LocalJob:
+    """Import an uploaded workbook into a NEW procedural model in this process, by the
+    worker's ``procedural_import_xlsx`` handler, created in this server's store: postgres
+    when it has a pool, else its storage files (``procedural_store``)."""
+    from .formats.procedural_export import _run_procedural_import_xlsx
+    from .procedural_store import procedural_store
+
+    return _start_procedural_handler(
+        target_format="procedural_import_xlsx",
+        source_key=source_key,
+        derived_key=derived_key,
+        conversion_options=conversion_options,
+        force_rebuild=True,
+        scope=scope,
+        handler=_run_procedural_import_xlsx,
+        handler_kwargs={"storage": storage, "db_pool": db_pool, "store": procedural_store(db_pool, storage)},
+    )
 
 
 def start_asset_build(

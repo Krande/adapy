@@ -1,6 +1,7 @@
 """Procedural model Excel export / import: key conventions, the dependency-free
-``_ADA_META`` reader, and the endpoint shapes (503 without a database; upload +
-engine auto-detection needs neither DB nor ada)."""
+``_ADA_META`` reader, and the endpoint shapes: without a database (a local viewer)
+export and import run in-process on file-stored models; upload + engine
+auto-detection needs neither DB nor ada."""
 
 from __future__ import annotations
 
@@ -120,11 +121,374 @@ def app_client(tmp_path: pathlib.Path):
         yield client
 
 
-def test_export_and_import_enqueue_503_without_db(app_client: TestClient):
-    # Export + import-enqueue both need the procedural pool -> 503 without a DB.
-    assert app_client.post("/api/scopes/shared/procedural-models/x/export-xlsx").status_code == 503
+BASE = "/api/scopes/shared/procedural-models"
+DOC = {"spaces": [{"NAME": "Cell1", "X": 0, "Y": 0, "Z": 0, "DX": 5, "DY": 5, "DZ": 3}]}
+
+
+def _wait_job(client: TestClient, job_id: str, timeout: float = 120.0) -> dict:
+    import time
+
+    deadline = time.monotonic() + timeout
+    status: dict = {}
+    while time.monotonic() < deadline:
+        status = client.get(f"/api/convert/{job_id}").json()
+        if status["status"] in ("done", "error", "cancelled"):
+            return status
+        time.sleep(0.2)
+    raise AssertionError(f"job {job_id} did not finish: {status}")
+
+
+def _model(client: TestClient, name: str) -> str:
+    model_id = client.post(BASE, json={"name": name}).json()["id"]
+    assert client.put(f"{BASE}/{model_id}", json={"doc": DOC, "base_revision": 0}).status_code == 200
+    return model_id
+
+
+def test_export_xlsx_runs_in_process_without_a_db(app_client: TestClient, tmp_path: pathlib.Path):
+    """A local viewer (no database, no queue) exports a file-stored model to its
+    engine's workbook in this process (local_jobs.start_procedural_model_job)."""
+    from openpyxl import load_workbook
+
+    model_id = _model(app_client, "local-export")
+    r = app_client.post(f"{BASE}/{model_id}/export-xlsx")
+    assert r.status_code == 200, r.text
+    started = r.json()
+    assert started["job_id"].startswith("local-") and started["cached"] is False
+    assert started["derived_key"] == procedural_xlsx_export_key(model_id, 1)
+    status = _wait_job(app_client, started["job_id"])
+    assert status["status"] == "done", status
+
+    data = (tmp_path / "shared" / pathlib.PurePosixPath(started["derived_key"])).read_bytes()
+    wb = load_workbook(io.BytesIO(data))
+    assert ADA_META_SHEET in wb.sheetnames
+    assert read_ada_meta_from_xlsx_bytes(data) is not None
+    # Exported once: the same revision is the cached workbook.
+    again = app_client.post(f"{BASE}/{model_id}/export-xlsx").json()
+    assert again == {"job_id": None, "derived_key": started["derived_key"], "cached": True}
+    assert app_client.post(f"{BASE}/{model_id}/export-xlsx", params={"engine": "echo"}).status_code == 400
+    assert app_client.post(f"{BASE}/not-a-model/export-xlsx").status_code == 404
+
+
+def test_export_model_runs_in_process_without_a_db(app_client: TestClient, tmp_path: pathlib.Path):
+    """IFC / Genie export of a file-stored model, on this server (in a job process),
+    equipment from the file catalog."""
+    model_id = _model(app_client, "local-model-export")
+    r = app_client.post(f"{BASE}/{model_id}/export-model", params={"format": "gxml"})
+    assert r.status_code == 200, r.text
+    started = r.json()
+    assert started["job_id"].startswith("local-")
+    status = _wait_job(app_client, started["job_id"])
+    assert status["status"] == "done", status
+    assert (tmp_path / "shared" / pathlib.PurePosixPath(started["derived_key"])).stat().st_size > 0
+
+
+#: Preloaded into the job process only (the env var the server sets for it): the export's
+#: assembly build dies the way a native fault in a writer would, without a Python exception.
+_CRASHING_EXPORT = """
+import os
+import sys
+
+from ada.comms.rest.subprocess_convert import LOCAL_RUNNER_ENV
+
+if os.environ.get(LOCAL_RUNNER_ENV):
+    import ada.topo_model.compile as compile_module
+
+    def _crash(*args, **kwargs):
+        print("last words of the native export", file=sys.stderr, flush=True)
+        os._exit(7)
+
+    compile_module.build_procedural_assembly = _crash
+"""
+
+
+def test_a_crash_in_the_ifc_genie_export_fails_the_job_not_the_server(
+    app_client: TestClient, tmp_path: pathlib.Path, monkeypatch
+):
+    """Without a database the IFC / Genie export runs in a job process, as a conversion
+    does: when that process dies, the job is an error naming how, with its last output,
+    and the server goes on answering."""
+    pkg = tmp_path / "crash_pkg"
+    pkg.mkdir()
+    (pkg / "adapy_test_crashing_export.py").write_text(_CRASHING_EXPORT, encoding="utf-8")
+    monkeypatch.syspath_prepend(str(pkg))
+    monkeypatch.setenv("ADA_WORKER_PRELOAD", "adapy_test_crashing_export")
+
+    model_id = _model(app_client, "crashing-export")
+    started = app_client.post(f"{BASE}/{model_id}/export-model", params={"format": "ifc"}).json()
+    status = _wait_job(app_client, started["job_id"])
+    assert status["status"] == "error", status
+    assert "the job process exited with status 7" in status["error"]
+    assert "last words of the native export" in status["error"]
+
+    # The server is still here, and still exports.
+    assert app_client.get(f"{BASE}/{model_id}").status_code == 200
+    xlsx = app_client.post(f"{BASE}/{model_id}/export-xlsx").json()
+    assert _wait_job(app_client, xlsx["job_id"])["status"] == "done"
+
+
+def test_import_xlsx_round_trips_without_a_db(app_client: TestClient, tmp_path: pathlib.Path):
+    """The exported workbook imports back into a NEW file-stored model, in this process."""
+    import json
+
+    model_id = _model(app_client, "round-trip-src")
+    started = app_client.post(f"{BASE}/{model_id}/export-xlsx").json()
+    assert _wait_job(app_client, started["job_id"])["status"] == "done"
+    data = (tmp_path / "shared" / pathlib.PurePosixPath(started["derived_key"])).read_bytes()
+
+    up = app_client.post(f"{BASE}/import-xlsx/upload", content=data).json()
+    body = {"source_key": up["source_key"], "engine": up["engine"], "name": "round-trip"}
+    r = app_client.post(f"{BASE}/import-xlsx", json=body)
+    assert r.status_code == 201, r.text
+    job = r.json()
+    status = _wait_job(app_client, job["job_id"])
+    assert status["status"] == "done", status
+    result = json.loads(app_client.get(f"/api/scopes/shared/blobs/{job['derived_key']}").content)
+    assert result["name"] == "round-trip" and result["revision"] == 1
+
+    got = app_client.get(f"{BASE}/{result['model_id']}").json()
+    assert got["name"] == "round-trip" and got["revision"] == 1
+    assert [s["NAME"] for s in got["doc"]["spaces"]] == ["Cell1"]
+    assert got["doc"]["source_xlsx_key"]
+    assert sorted(m["name"] for m in app_client.get(BASE).json()["models"]) == ["round-trip", "round-trip-src"]
+
+    # The name is scope-unique, as in postgres: a second import of it fails, and says why.
+    r = app_client.post(f"{BASE}/import-xlsx", json=body)
+    status = _wait_job(app_client, r.json()["job_id"])
+    assert status["status"] == "error" and "already exists" in (status["error"] or "")
+
+
+def test_stats_export_reads_the_sidecar_without_a_db(app_client: TestClient, tmp_path: pathlib.Path):
+    import json
+
+    from ada.comms.rest.procedural import procedural_glb_key, procedural_stats_key
+
+    model_id = _model(app_client, "stats-export")
+    glb_key = procedural_glb_key(model_id, 1)
+    url = f"{BASE}/{model_id}/stats/export"
+    assert app_client.get(url, params={"key": glb_key}).status_code == 404
+    stats = {"disciplines": [{"name": "structural", "mass": 1.0, "count": 2}], "total_mass": 1.0}
+    sidecar = tmp_path / "shared" / pathlib.PurePosixPath(procedural_stats_key(glb_key))
+    sidecar.parent.mkdir(parents=True, exist_ok=True)
+    sidecar.write_text(json.dumps(stats), encoding="utf-8")
+
+    r = app_client.get(url, params={"key": glb_key})
+    assert r.status_code == 200, r.text
+    assert r.content[:2] == b"PK"
+    assert "stats-export_stats.xlsx" in r.headers["content-disposition"]
+    r = app_client.get(url, params={"key": glb_key, "fmt": "csv"})
+    assert r.status_code == 200 and "Mass by discipline" in r.text
+
+
+def test_propose_relocations_runs_in_process_without_a_db(app_client: TestClient):
+    import json
+
+    model_id = _model(app_client, "relocations")
+    r = app_client.post(f"{BASE}/{model_id}/propose-relocations")
+    assert r.status_code == 200, r.text
+    status = _wait_job(app_client, r.json()["job_id"])
+    assert status["status"] == "done", status
+    result = json.loads(app_client.get(f"/api/scopes/shared/blobs/{r.json()['derived_key']}").content)
+    assert "proposals" in result
+
+
+_TOOL_ENGINE = """
+import io
+
+
+def compile(doc, **kwargs):
+    raise NotImplementedError
+
+
+def export_xlsx(doc, name=None):
+    from openpyxl import Workbook
+
+    wb = Workbook()
+    wb.active.title = "ToolSheet"
+    wb.active["A1"] = name
+    wb.active["A2"] = len(doc.get("spaces") or [])
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+"""
+
+
+def test_export_xlsx_uses_a_tool_engine_registered_in_this_process(
+    app_client: TestClient, tmp_path: pathlib.Path, monkeypatch
+):
+    """A tool's engine registered at import (register_procedural_engine_capabilities, no
+    database row) writes the workbook of a local export, as it compiles a local build."""
+    from openpyxl import load_workbook
+
+    from ada.topo_model import engine_catalog
+
+    pkg = tmp_path / "pkgs"
+    pkg.mkdir()
+    (pkg / "local_tool_engine.py").write_text(_TOOL_ENGINE, encoding="utf-8")
+    monkeypatch.syspath_prepend(str(pkg))
+    monkeypatch.setattr(engine_catalog, "_ENGINE_CAPABILITY_REGISTRY", dict(engine_catalog._ENGINE_CAPABILITY_REGISTRY))
+    engine_catalog.register_procedural_engine_capabilities(
+        "tool-engine", name="Tool engine", entrypoint="local_tool_engine:compile"
+    )
+
+    model_id = _model(app_client, "tool-export")
+    started = app_client.post(f"{BASE}/{model_id}/export-xlsx", params={"engine": "tool-engine"}).json()
+    assert started["derived_key"] == procedural_xlsx_export_key(model_id, 1, "tool-engine")
+    status = _wait_job(app_client, started["job_id"])
+    assert status["status"] == "done", status
+    data = (tmp_path / "shared" / pathlib.PurePosixPath(started["derived_key"])).read_bytes()
+    ws = load_workbook(io.BytesIO(data))["ToolSheet"]
+    assert ws["A1"].value == "tool-export" and ws["A2"].value == 1
+
+
+def test_a_local_export_resolves_an_engine_registered_in_this_process(monkeypatch):
+    """No database: a plugin engine's manifest is the one this process advertises,
+    as the in-process build resolves it."""
+    import asyncio
+
+    from ada.comms.rest.formats import procedural_support
+
+    doc = {"kind": "server", "entrypoint": "some_tool.engine:compile"}
+    monkeypatch.setattr(procedural_support, "_advertised_engine_doc", lambda slug: doc if slug == "tool" else None)
+    row = {"scope_kind": "shared", "scope_id": None}
+    resolve = procedural_support._resolve_engine_manifest
+    assert asyncio.run(resolve(None, row, "tool")) is doc
+    assert asyncio.run(resolve(None, row, "unknown")) is None
+    assert asyncio.run(resolve(None, row, None)) is None
+
+
+_NAMED_HANDLER_ENGINE = """
+import io
+
+
+def compile(doc, **kwargs):
+    raise NotImplementedError
+
+
+def write_book(doc, name=None):
+    from openpyxl import Workbook
+
+    wb = Workbook()
+    wb.active.title = "NamedSheet"
+    wb.active["A1"] = name
+    for i, space in enumerate(doc.get("spaces") or [], start=2):
+        wb.active.cell(row=i, column=1, value=space["NAME"])
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def read_book(data):
+    from openpyxl import load_workbook
+
+    ws = load_workbook(io.BytesIO(data))["NamedSheet"]
+    names = [r[0] for r in ws.iter_rows(min_row=2, values_only=True) if r[0]]
+    return {"spaces": [{"NAME": n, "X": 0, "Y": 0, "Z": 0, "DX": 1, "DY": 1, "DZ": 1} for n in names]}
+"""
+
+
+@pytest.fixture
+def isolated_engine_registry(tmp_path: pathlib.Path, monkeypatch):
+    """The engine registry, restored after the test, with a tool engine's module on sys.path."""
+    from ada.topo_model import engine_catalog
+
+    pkg = tmp_path / "pkgs"
+    pkg.mkdir()
+    (pkg / "named_handler_engine.py").write_text(_NAMED_HANDLER_ENGINE, encoding="utf-8")
+    monkeypatch.syspath_prepend(str(pkg))
+    monkeypatch.setattr(engine_catalog, "_ENGINE_CAPABILITY_REGISTRY", dict(engine_catalog._ENGINE_CAPABILITY_REGISTRY))
+    return engine_catalog
+
+
+def test_the_advertised_manifest_carries_the_excel_handlers_a_registration_names(isolated_engine_registry):
+    """The manifest of an engine registered without a row has the keys a row's manifest
+    has for Excel, so the handlers read both the same way."""
+    from ada.comms.rest.formats.procedural_support import _advertised_engine_doc
+
+    isolated_engine_registry.register_procedural_engine_capabilities(
+        "named",
+        name="Named",
+        entrypoint="named_handler_engine:compile",
+        worker_capability="named-pool",
+        export_entrypoint="named_handler_engine:write_book",
+        import_entrypoint="named_handler_engine:read_book",
+    )
+    assert _advertised_engine_doc("named") == {
+        "kind": "server",
+        "entrypoint": "named_handler_engine:compile",
+        "worker_capability": "named-pool",
+        "export_entrypoint": "named_handler_engine:write_book",
+        "import_entrypoint": "named_handler_engine:read_book",
+    }
+    isolated_engine_registry.register_procedural_engine_capabilities(
+        "no-excel", name="No Excel", entrypoint="named_handler_engine:compile", supports_excel=False
+    )
+    assert _advertised_engine_doc("no-excel") == {
+        "kind": "server",
+        "entrypoint": "named_handler_engine:compile",
+        "supports_excel": False,
+    }
+
+
+def test_export_and_import_use_the_handlers_a_registration_names(
+    app_client: TestClient, tmp_path: pathlib.Path, isolated_engine_registry
+):
+    """No database: an engine whose registration names its Excel handlers is exported
+    and imported through them, not through the derived ``export_xlsx``/``import_xlsx``
+    siblings (which its module does not have)."""
+    import json
+
+    from openpyxl import load_workbook
+
+    isolated_engine_registry.register_procedural_engine_capabilities(
+        "named",
+        name="Named",
+        entrypoint="named_handler_engine:compile",
+        export_entrypoint="named_handler_engine:write_book",
+        import_entrypoint="named_handler_engine:read_book",
+    )
+    model_id = _model(app_client, "named-export")
+    started = app_client.post(f"{BASE}/{model_id}/export-xlsx", params={"engine": "named"}).json()
+    assert _wait_job(app_client, started["job_id"])["status"] == "done"
+    data = (tmp_path / "shared" / pathlib.PurePosixPath(started["derived_key"])).read_bytes()
+    assert load_workbook(io.BytesIO(data))["NamedSheet"]["A2"].value == "Cell1"
+
+    up = app_client.post(f"{BASE}/import-xlsx/upload", content=data).json()
+    body = {"source_key": up["source_key"], "engine": "named", "name": "named-back"}
+    r = app_client.post(f"{BASE}/import-xlsx", json=body)
+    assert r.status_code == 201, r.text
+    status = _wait_job(app_client, r.json()["job_id"])
+    assert status["status"] == "done", status
+    result = json.loads(app_client.get(f"/api/scopes/shared/blobs/{r.json()['derived_key']}").content)
+    got = app_client.get(f"{BASE}/{result['model_id']}").json()
+    assert got["doc"]["engine"] == "named"
+    assert [s["NAME"] for s in got["doc"]["spaces"]] == ["Cell1"]
+
+
+def test_an_engine_registered_without_an_excel_format_is_refused_by_both_routes(
+    app_client: TestClient, isolated_engine_registry
+):
+    """``supports_excel=False`` makes export and import refuse the engine as echo is
+    refused: the same 400, read off the engine's own registration."""
+    isolated_engine_registry.register_procedural_engine_capabilities(
+        "no-excel", name="No Excel", entrypoint="named_handler_engine:compile", supports_excel=False
+    )
+    model_id = _model(app_client, "no-excel")
+    for engine in ("no-excel", "echo"):
+        r = app_client.post(f"{BASE}/{model_id}/export-xlsx", params={"engine": engine})
+        assert r.status_code == 400 and r.json()["detail"] == f"engine {engine!r} has no Excel format"
+        body = {"source_key": "_procedural/_import/tok/source.xlsx", "engine": engine, "name": "m"}
+        r = app_client.post(f"{BASE}/import-xlsx", json=body)
+        assert r.status_code == 400 and r.json()["detail"] == f"engine {engine!r} has no Excel format"
+
+
+def test_a_queued_server_without_a_db_keeps_export_and_import_503(app_client: TestClient, monkeypatch):
+    """With a queue the workers read models from postgres, so without one these stay 503."""
+    from ada.comms.rest.queue import JobQueue
+
+    monkeypatch.setattr(JobQueue, "enabled", property(lambda self: True))
+    assert app_client.post(f"{BASE}/x/export-xlsx").status_code == 503
     r = app_client.post(
-        "/api/scopes/shared/procedural-models/import-xlsx",
+        f"{BASE}/import-xlsx",
         json={"source_key": "_procedural/_import/tok/source.xlsx", "engine": "adapy-default", "name": "m"},
     )
     assert r.status_code == 503
@@ -158,12 +522,31 @@ def test_import_upload_rejects_empty(app_client: TestClient):
 
 
 def test_import_enqueue_validates_source_key(app_client: TestClient):
-    # A source_key not from the import-upload prefix is rejected before the pool
-    # check would 503 — but the pool check runs first, so no-DB yields 503 here.
-    # With no DB the endpoint 503s regardless; the prefix guard is covered by the
-    # live-DB path. Assert the no-DB contract:
-    r = app_client.post(
-        "/api/scopes/shared/procedural-models/import-xlsx",
-        json={"source_key": "bogus", "engine": "adapy-default", "name": "m"},
-    )
-    assert r.status_code == 503
+    # A source_key not from the import-upload prefix, or no name, is rejected before any job runs.
+    r = app_client.post(f"{BASE}/import-xlsx", json={"source_key": "bogus", "engine": "adapy-default", "name": "m"})
+    assert r.status_code == 400
+    r = app_client.post(f"{BASE}/import-xlsx", json={"source_key": "_procedural/_import/t/source.xlsx", "name": ""})
+    assert r.status_code == 400
+
+
+def test_a_local_model_export_is_bound_to_the_file_catalogs_fingerprint(app_client: TestClient, monkeypatch):
+    """The in-process IFC / Genie export resolves equipment from the scope's catalog FILES, so, as
+    the compile does, it binds its artifact to the fingerprint the route took of them: a catalog
+    edit makes the cached export stale."""
+    from ada.comms.rest.routes import procedural_models as routes
+
+    async def _fp(pool, scope_obj, doc, store=None):
+        assert store is not None  # the file catalogs, not only the (absent) pool
+        return "catalog-fp-1"
+
+    monkeypatch.setattr(routes, "catalog_fingerprint_for", _fp)
+    model_id = _model(app_client, "local-export-catalog-fp")
+    started = app_client.post(f"{BASE}/{model_id}/export-model", params={"format": "gxml"}).json()
+    assert _wait_job(app_client, started["job_id"])["status"] == "done"
+    assert app_client.post(f"{BASE}/{model_id}/export-model", params={"format": "gxml"}).json()["cached"] is True
+
+    async def _fp2(pool, scope_obj, doc, store=None):
+        return "catalog-fp-2"
+
+    monkeypatch.setattr(routes, "catalog_fingerprint_for", _fp2)
+    assert app_client.post(f"{BASE}/{model_id}/export-model", params={"format": "gxml"}).json()["cached"] is False

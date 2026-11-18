@@ -11,6 +11,7 @@ import {CORE_PANEL_OWNER} from "../corePanelIds";
 import {setCustomisableShell} from "../customisable";
 import {CLASSIC_PRESET_ID, layoutDocKey, type LayoutDoc} from "../layout";
 import {layoutStore} from "../layoutStore";
+import {reveal} from "../reveal";
 import type {PanelId} from "../panel";
 import {emptyLayoutDoc, isInGrid, migrateLayoutDoc} from "../reducers";
 import {activeShellMode, shellModesVersion, subscribeShellModes} from "../shellModes";
@@ -130,10 +131,13 @@ const docKey = (ctx: string) => layoutDocKey(CLASSIC_PRESET_ID, ctx);
 /**
  * Back to the starting arrangement (the shell's grid for the mode): of the
  * active mode, or with `all`, of every mode. Panels stay open; where they show
- * starts over.
+ * starts over, and the active mode's starting panels open again (one closed since
+ * was remembered as closed with the arrangement just dropped). Another mode opens
+ * its starting list when it is next entered, its arrangement being new.
  */
 export function resetArrangement(all = false): void {
   for (const ctx of all ? shellContexts : [classicContext()]) layoutStore.getState().removeDoc(CLASSIC_PRESET_ID, ctx);
+  for (const id of arrangementOf().open ?? []) reveal(id);
 }
 
 /**

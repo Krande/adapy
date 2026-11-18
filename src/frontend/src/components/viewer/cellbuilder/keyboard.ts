@@ -16,6 +16,8 @@ import {BOX_FACE_SIDES, faceCenter, neighbourFaceInDirection, type Vec3} from "@
 import {gizmoAxisOfKey, gizmoModeOfKey, isTextEntry, toggledAxisLock} from "@/utils/gizmo/transformKeys";
 import type {CellBuilderScene} from "./sceneContext";
 import {endModalMove} from "./cellGizmo";
+import {resizable} from "./resizeHandles";
+import {GIZMO_DELTA_FIELD_ATTR} from "./sceneConstants";
 import {commitNumEntry, commitPlaceEntry, endNumEntry, endPlaceEntry, loftMemberByName, parseTyped, refreshNumEntry, refreshPlaceEntry} from "./numericEntry";
 import {commitOpenEntry, cycleEquipHost, endEquipEntry, endOpenEntry, refreshEquipEntry, refreshOpenEntry, setLoftActive, startCellExtrude, startEquipInsert, startLoftExtend, startLoftResize, startOpeningOnFace} from "./insertTools";
 
@@ -471,13 +473,14 @@ export const onKeyDown = (ctx: CellBuilderScene, ev: KeyboardEvent) => {
             }
         }
         // G/R/S activate the translate / rotate / resize gizmo (Blender keys):
-        // rotate is equipment-only, resize is cell-only (matches the menus).
+        // rotate is equipment-only; resize takes spaces, openings and equipment, not an
+        // equipment box fitted to its CAD model (matches the menus, cellResize.ts).
         if (!ev.shiftKey && cell && cell.kind !== "loft") {
             const mode = gizmoModeOfKey(k);
             if (
                 mode === "translate" ||
                 (mode === "rotate" && cell.kind === "equipment") ||
-                (mode === "resize" && cell.kind === "cell")
+                (mode === "resize" && resizable(ctx, cell))
             ) {
                 st.setGizmoMode(mode);
                 ev.preventDefault();
@@ -709,9 +712,16 @@ export const onKeyDown = (ctx: CellBuilderScene, ev: KeyboardEvent) => {
         }
     }
 
+    if (ev.key !== "Escape") return;
+    // Escape in the gizmo HUD's delta field while an axis-locked move is live: the field is
+    // that move's own numeric entry (focused as the axis locked), so this is the move's
+    // Escape - the cell back where it began, the measure gone, the lock dropped - not only
+    // the field's blur. Escape in any other field blurs the field and leaves the move.
+    const moveField =
+        inField && !!ctx.modalMove && !!(ev.target as HTMLElement | null)?.hasAttribute?.(GIZMO_DELTA_FIELD_ATTR);
     // Escape while typing in a field (the HUD's numeric inputs) blurs the
     // field — don't also unwind the selection/gizmo underneath.
-    if (ev.key !== "Escape" || inField) return;
+    if (inField && !moveField) return;
     // The insert popover owns its own Escape (it closes itself); don't also
     // unwind the selection underneath it.
     if (st.insertMenu) return;

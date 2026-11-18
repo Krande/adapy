@@ -63,8 +63,12 @@ class GpuPointPicker {
                 gl_Position = projectionMatrix * mvPosition;
                 float pixelSize = pointSize;
                 if (uWorldSize) {
-                    float scale = uViewportHeight / (2.0 * tan(radians(uFov) * 0.5));
-                    pixelSize = uWorldPointSize * scale / -mvPosition.z;
+                    // Sized as the drawn point is (pointsImpostor): pixels per world unit from the
+                    // projection, over the depth in perspective (w = -z) and over 1 in an orthographic
+                    // view. Sized from the distance to the eye, a point near or behind the eye of the
+                    // orthographic view (still drawn there) covered the screen, and every click took it.
+                    pixelSize = uWorldPointSize * projectionMatrix[1][1] * 0.5 * uViewportHeight / max(gl_Position.w, 0.1);
+                    pixelSize = min(pixelSize, 1000.0);
                 }
                 gl_PointSize = pixelSize;
             }

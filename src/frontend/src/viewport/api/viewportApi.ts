@@ -19,7 +19,7 @@ import type {ModelNodePoser} from "./modelPose";
 export type ViewportKind = "three" | "native";
 
 /** Things one viewport can do and another cannot yet. A caller asks before offering it. */
-export type ViewportFeature = "fit-selection";
+export type ViewportFeature = "fit-selection" | "orthographic";
 
 /** The node animation of the models on screen (their parts moving over time), shown a moment at a
  *  time. What the playback clock (state/playbackClock.ts) plays as one of its tracks. */

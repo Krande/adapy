@@ -128,10 +128,24 @@ export function CorePaletteHost() {
   return on ? <CommandPaletteHost /> : null;
 }
 
+/** Where the highlight starts in `hits`: the first command that can run (the first hit when none can). */
+export function firstRunnableHit(hits: readonly Pick<RegisteredCommand, "disabledReason">[]): number {
+  const i = hits.findIndex((c) => !c.disabledReason?.());
+  return i < 0 ? 0 : i;
+}
+
+/** The palette's status line: why the highlighted command cannot run ("" when it can, or nothing is highlighted). */
+export function paletteStatus(hit: Pick<RegisteredCommand, "label" | "disabledReason"> | undefined): string {
+  const why = hit?.disabledReason?.();
+  return hit && why ? `${hit.label}: ${why}` : "";
+}
+
 function CommandPalette({onClose}: {onClose(): void}) {
   const all = useCommands();
   const [query, setQuery] = useState("");
   const [at, setAt] = useState(0);
+  /** Enter on a command that cannot run: its reason flashes on the status line instead of nothing happening. */
+  const [refused, setRefused] = useState(0);
   const input = useRef<HTMLInputElement>(null);
   useEffect(() => input.current?.focus(), []);
   const hits = useMemo(
@@ -144,13 +158,23 @@ function CommandPalette({onClose}: {onClose(): void}) {
         .map((x) => x.c),
     [all, query],
   );
+  // A new query starts on the best match that can run, so Enter does something.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => setAt(firstRunnableHit(hits)), [query]);
+  // The flash is about the command Enter was pressed on; moving on calms it.
+  useEffect(() => setRefused(0), [at, query]);
   /** Where the mouse was last seen over the list; null until it has been seen once. */
   const pointer = useRef<{x: number; y: number} | null>(null);
   const choose = (c: RegisteredCommand | undefined) => {
-    if (!c || c.disabledReason?.()) return;
+    if (!c) return;
+    if (c.disabledReason?.()) {
+      setRefused((n) => n + 1);
+      return;
+    }
     onClose();
     run(c);
   };
+  const status = paletteStatus(hits[at]);
   return (
     <OverlayPortal>
       <div className="fixed inset-0 z-[90] flex items-start justify-center bg-black/50 p-4 pt-[12vh]" onClick={onClose}>
@@ -167,10 +191,7 @@ function CommandPalette({onClose}: {onClose(): void}) {
             placeholder="Type a command"
             aria-label="Command"
             className="border-b border-[var(--ada-window-border,#374151)] bg-transparent px-3 py-2 text-sm outline-none"
-            onChange={(e) => {
-              setQuery(e.target.value);
-              setAt(0);
-            }}
+            onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Escape") onClose();
               else if (e.key === "ArrowDown") setAt((i) => Math.min(hits.length - 1, i + 1));
@@ -180,6 +201,16 @@ function CommandPalette({onClose}: {onClose(): void}) {
               e.preventDefault();
             }}
           />
+          <div
+            role="status"
+            aria-live="polite"
+            data-palette-status=""
+            // Keyed on the refusals so Enter on the same greyed command flashes it again.
+            key={refused}
+            className={`min-h-[1.5rem] border-b border-[var(--ada-window-border,#374151)] px-3 py-1 text-xs ${refused ? "animate-pulse text-amber-300" : "text-gray-400"}`}
+          >
+            {status}
+          </div>
           <ul role="listbox" aria-label="Commands" className="max-h-[50vh] overflow-y-auto py-1">
             {hits.length === 0 && <li className="px-3 py-2 text-xs text-gray-400">No command matches.</li>}
             {hits.map((c, i) => {

@@ -121,7 +121,7 @@ test("typePickerItems derives labels with the origin tag", () => {
   ]);
   assert.deepEqual(items, [
     { key: "pump", label: "Pump (code)", slug: "pump", origin: "code" },
-    { key: "tank42", label: "Tank 42 (db)", slug: "tank42", origin: "catalog" },
+    { key: "tank42", label: "Tank 42 (catalog)", slug: "tank42", origin: "catalog" },
   ]);
 });
 

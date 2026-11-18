@@ -531,3 +531,116 @@ def test_compile_empty_doc_raises():
 def test_compile_missing_coords_raises():
     with pytest.raises(ValueError, match="missing coordinates"):
         compile_procedural_doc({"spaces": [{"NAME": "Cell1"}]}, blueprint_name="none")
+
+
+def test_from_dict_leaves_out_what_the_doc_excludes():
+    # The viewer's Compile builds only what is included: an entity with INCLUDE false (the workbook's
+    # column, or the Model panel's checkbox) is left out, a missing INCLUDE means included. A group
+    # with include false (an unticked structure) takes its spaces and the equipment in them with it.
+    # Entity INCLUDE is read from schema 1.1 on (test_a_doc_before_1_1_builds_what_its_include_says_not).
+    from ada.topo_model.builder import ProceduralBuilder
+
+    DOC = {**globals()["DOC"], "schema_version": "1.1"}
+    built = ProceduralBuilder.from_dict(DOC, name="m")
+    assert [s.NAME for s in built.spaces] == ["Cell1", "Cell2"] and [e.NAME for e in built.equipments] == ["P1"]
+
+    no_pump = {**DOC, "equipments": [{**DOC["equipments"][0], "INCLUDE": False}]}
+    assert ProceduralBuilder.from_dict(no_pump, name="m").equipments == []
+
+    no_cell1 = {**DOC, "spaces": [{**DOC["spaces"][0], "INCLUDE": False}, DOC["spaces"][1]]}
+    b = ProceduralBuilder.from_dict(no_cell1, name="m")
+    assert [s.NAME for s in b.spaces] == ["Cell2"] and b.equipments == [], "the pump sat in Cell1"
+
+    grouped = {
+        **DOC,
+        "spaces": [{**DOC["spaces"][0], "STRUCTURE_NAME": "A"}, {**DOC["spaces"][1], "STRUCTURE_NAME": "B"}],
+        "groups": [
+            {"name": "A", "blueprint": "steel_stru", "include": False},
+            {"name": "B", "blueprint": "steel_stru"},
+        ],
+    }
+    b = ProceduralBuilder.from_dict(grouped, name="m")
+    assert [s.NAME for s in b.spaces] == ["Cell2"] and b.equipments == []
+    assert _is_glb(compile_procedural_doc(no_pump, name="m"))
+
+
+def test_the_doc_normalizer_keeps_an_unset_include_unset():
+    # In a procedural doc a missing INCLUDE means included: validate_doc must not write the entity
+    # models' default (False) for it, or every such item would read as excluded. An explicit value stays.
+    procedural = pytest.importorskip("ada.comms.rest.procedural")
+    out = procedural.validate_doc(
+        {**DOC, "schema_version": "1.1", "spaces": [DOC["spaces"][0], {**DOC["spaces"][1], "INCLUDE": False}]}
+    )
+    assert "INCLUDE" not in out["spaces"][0] and out["spaces"][1]["INCLUDE"] is False
+    assert "INCLUDE" not in out["equipments"][0]
+    assert [
+        s.NAME
+        for s in __import__("ada.topo_model.builder", fromlist=["x"]).ProceduralBuilder.from_dict(out, name="m").spaces
+    ] == ["Cell1"]
+
+
+def test_an_unnamed_excluded_space_does_not_take_the_free_placed_items_with_it():
+    # The items of a dropped space go with it by SPACE_NAME. A dropped space with no NAME must not
+    # read as the "space" of every item placed in none (SPACE_NAME absent).
+    from ada.topo_model.builder import _without_excluded
+
+    doc = {
+        "schema_version": "1.1",
+        "spaces": [DOC["spaces"][0], {"X": 9, "Y": 0, "Z": 0, "DX": 1, "DY": 1, "DZ": 1, "INCLUDE": False}],
+        "equipments": [DOC["equipments"][0], {"NAME": "free", "X": 20, "Y": 0, "Z": 0, "LX": 1, "LY": 1, "LZ": 1}],
+        "openings": [],
+    }
+    out = _without_excluded(doc)
+    assert [s["NAME"] for s in out["spaces"]] == ["Cell1"]
+    assert [e["NAME"] for e in out["equipments"]] == ["P1", "free"]
+
+
+def test_a_doc_before_1_1_builds_what_its_include_says_not():
+    # Before schema 1.1 every stored doc carried the entity models' default INCLUDE false on items
+    # nobody excluded (validate_doc and to_doc dumped it; no compile read it). Such a doc -- 1.0 or
+    # unstamped -- builds everything, as it did; a structure's include false is read at every version.
+    from ada.topo_model.builder import ProceduralBuilder
+    from ada.topo_model.engines import PROCEDURAL_SCHEMA_VERSION, honours_entity_include
+
+    assert PROCEDURAL_SCHEMA_VERSION == "1.1" and honours_entity_include("1.1") and honours_entity_include("1.10")
+    assert not any(honours_entity_include(v) for v in (None, "", "1.0", "1", "x.y"))
+    off = lambda d: {**d, "INCLUDE": False}  # noqa: E731
+    legacy = {**DOC, "spaces": [off(s) for s in DOC["spaces"]], "equipments": [off(e) for e in DOC["equipments"]]}
+    for stamp in ({}, {"schema_version": "1.0"}):
+        b = ProceduralBuilder.from_dict({**legacy, **stamp}, name="m")
+        assert [s.NAME for s in b.spaces] == ["Cell1", "Cell2"] and [e.NAME for e in b.equipments] == ["P1"]
+    grouped = {
+        **legacy,
+        "spaces": [{**legacy["spaces"][0], "STRUCTURE_NAME": "A"}, legacy["spaces"][1]],
+        "groups": [{"name": "A", "blueprint": "steel_stru", "include": False}],
+    }
+    assert [s.NAME for s in ProceduralBuilder.from_dict(grouped, name="m").spaces] == ["Cell2"]
+
+
+def test_the_doc_normalizer_stamps_an_unstamped_doc_1_0():
+    # An unstamped doc predates the stamp, so its entity INCLUDE is not to be read: validate_doc must not
+    # stamp it with this build's schema. A stamped doc keeps its stamp.
+    procedural = pytest.importorskip("ada.comms.rest.procedural")
+    assert procedural.validate_doc(dict(DOC))["schema_version"] == "1.0"
+    assert procedural.validate_doc({**DOC, "schema_version": "1.1"})["schema_version"] == "1.1"
+
+
+def test_to_doc_stamps_1_1_and_round_trips_a_builder_made_in_code():
+    # A builder holds what is built: entities made in code (INCLUDE defaulting to False) come back.
+    from ada.topo_model.builder import ProceduralBuilder
+    from ada.topology.entities import TopoSpace
+
+    b = ProceduralBuilder(spaces=[TopoSpace(NAME="S", X=0, Y=0, Z=0, DX=2, DY=2, DZ=2)])
+    doc = b.to_doc()
+    assert doc["schema_version"] == "1.1" and doc["spaces"][0]["INCLUDE"] is True
+    assert [s.NAME for s in ProceduralBuilder.from_dict(doc).spaces] == ["S"]
+
+
+def test_an_unnamed_excluded_group_leaves_the_spaces_of_no_structure_alone():
+    # A left-out group with no name used to put None among the excluded structures, so every space
+    # without a STRUCTURE_NAME -- and the equipment and openings in them -- was dropped with it.
+    from ada.topo_model.builder import ProceduralBuilder
+
+    for unnamed in ({"blueprint": "steel_stru", "include": False}, {"name": "", "include": False}):
+        b = ProceduralBuilder.from_dict({**DOC, "groups": [unnamed]}, name="m")
+        assert [s.NAME for s in b.spaces] == ["Cell1", "Cell2"] and [e.NAME for e in b.equipments] == ["P1"]

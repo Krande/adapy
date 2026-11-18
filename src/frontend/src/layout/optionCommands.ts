@@ -37,7 +37,7 @@ import {CORE_COMMAND_IDS as ID} from "./coreCommandIds";
 import {customisablePanels, customisablePanelsRequired, setCustomisablePanels} from "./customisable";
 import {CORE_PANEL_IDS, reveal as revealPanel} from "./panelActions";
 import type {SettingsSectionId} from "@/components/settings/settingsSections";
-import {showSettingsTab} from "@/components/settings/settingsTab";
+import {settingsHost, showSettingsTab} from "@/components/settings/settingsTab";
 
 /** The id of the command for option `id`: `core:option.<id>`; a choice's values add `.<value>`. */
 export const optionCommandId = (id: string, value?: string): string => `core:option.${id}${value === undefined ? "" : `.${value}`}`;
@@ -210,7 +210,7 @@ export function optionDescriptors(): OptionDescriptor[] {
       get: () => presetOf(cam().mapping), set: (v) => { const id = CAMERA_PRESET_IDS.find((x) => x === v); if (id) cam().setCameraPreset(id); }},
     ...MOUSE_BUTTONS.map((button): ChoiceOption => ({
       kind: "choice", id: `camera-drag-${button}`, title: `Camera: ${button} drag`, group: "Camera controls", keywords: [...CAM_KEYS, "button", "drag"],
-      setters: ["setDragAction"], choices: CAMERA_ACTIONS.map((a) => ({value: a, label: a === "none" ? "Nothing" : a[0].toUpperCase() + a.slice(1)})),
+      setters: ["setDragAction"], choices: CAMERA_ACTIONS.map((a) => ({value: a, label: a === "none" ? "Nothing" : a === "select" ? "Box select" : a[0].toUpperCase() + a.slice(1)})),
       get: () => cam().mapping.drag[button].none,
       set: (v) => { const a = CAMERA_ACTIONS.find((x) => x === v); if (a) cam().setDragAction(button, "none", a); },
     })),
@@ -314,8 +314,12 @@ export const SETTINGS_TAB_OF_GROUP: Readonly<Record<string, SettingsSectionId>> 
  */
 export function openOption(focus: string, group?: string): void {
   const tab = group ? SETTINGS_TAB_OF_GROUP[group] : undefined;
-  if (tab) showSettingsTab(tab);
-  void revealPanel(tab ? CORE_PANEL_IDS.settings : CORE_PANEL_IDS.options);
+  const host = settingsHost();
+  if (tab && host) host(tab);
+  else {
+    if (tab) showSettingsTab(tab);
+    void revealPanel(tab ? CORE_PANEL_IDS.settings : CORE_PANEL_IDS.options);
+  }
   const find = () => document.querySelector<HTMLElement>(`[data-option="${focus}"]`);
   const go = () => {
     const el = find();

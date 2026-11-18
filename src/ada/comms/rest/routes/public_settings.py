@@ -10,7 +10,6 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from .. import db as db_module
-from .deps import require_pool
 
 router = APIRouter()
 
@@ -41,6 +40,10 @@ async def api_get_public_setting(key: str, request: Request) -> JSONResponse:
             status_code=403,
             detail=f"only {PUBLIC_SETTING_PREFIX}* settings are readable here",
         )
-    pool = require_pool(request)
+    # A server with no database has no settings: every key reads as unset (200, value
+    # null), so the viewer's per-load reads stay quiet.
+    pool = getattr(request.app.state, "db_pool", None)
+    if pool is None:
+        return JSONResponse({"key": key, "value": None})
     value = await db_module.get_setting(pool, key)
     return JSONResponse({"key": key, "value": value})
