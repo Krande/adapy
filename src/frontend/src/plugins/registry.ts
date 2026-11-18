@@ -285,6 +285,10 @@ export type { PlaceBoxOptions, PlacedBox, PlacedBoxMode, PlacedBoxPose } from ".
 //          Not an API change, but seen by a `connection-builder` tab: the Connections panel has
 //          core's Clashes, Overlays and Review tabs too now (they were the Scene panel's Joints
 //          group), after Builder and before the plugins' tabs, and is offered everywhere.
+//          Nor is this: the Clashes tab runs the convex-contact engine by default (it ran core's
+//          connectivity check, `adapy`, now labelled "Member connectivity"), and falls back to that
+//          one, with a note, where convex contact cannot run. A clash run a plugin reads back is a
+//          convex-contact run unless the user picked another engine.
 export const PLUGIN_API_VERSION = "1.29.0";
 
 /** What the Simulations panel writes on a run's open-result button. */

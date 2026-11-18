@@ -29,9 +29,11 @@ import { checkRequestOptions, contactGeometryProvider, effectiveSpecProviders, r
 import { detailBatches, mergeProducedJoints } from "./clashCheck/detail";
 import { runClashCheckFlow } from "./clashCheck/flows";
 import type { ClashCheckState } from "./clashCheck/state";
-import { contactRunOf, contactRunOptions, contactRunToResult, detailOnce, groupContactRequest, nodeGlbKey, realContactDeps, realFlowDeps } from "./clashCheck/realDeps";
+import { contactRunOf, contactRunOptions, contactRunToResult, contactWasmAvailable, detailOnce, groupContactRequest, nodeGlbKey, realContactDeps, realFlowDeps } from "./clashCheck/realDeps";
+import { resolveChecker, runsInBrowser, withBrowserContact } from "./clashCheck/engine";
 
 export { contactRunOptions, contactRunToResult, contactRunOf, groupContactElements } from "./clashCheck/realDeps";
+export { BUILTIN_CHECKER_DESCRIPTION, BUILTIN_CHECKER_LABEL, CONTACT_CHECKER_LABEL, BROWSER_CONTACT_CHECKER, CONTACT_UNAVAILABLE_NOTE, contactOffered, resolveChecker, runsInBrowser, withBrowserContact } from "./clashCheck/engine";
 
 export { type ClashApplicableSpec, type ClashJointMember, type ClashContact, type ClashJoint, type ClashPassReport, type ClashGroup, type ClashResult, ClashResultError, BUILTIN_CHECKER, parseClashResult } from "./clashCheck/result";
 export { withoutHiddenOrigins, visibleResult, originsInResult, jointsForGroup, memberNamesForGroup, type ClashGroupFacets, groupFacets, facetOptions, type ClashFilters, DEFAULT_CLASH_FILTERS, filteredGroups, noMembersSentence, isolationMembers, checkedSourceName, sameClashTarget, isSpecAvailable } from "./clashCheck/derive";
@@ -122,14 +124,18 @@ export const useClashCheckStore = create<ClashCheckState>((set, get) => ({
   showMarkers: true,
   showContacts: false,
   markerScale: 1,
-  inBrowser: false,
+  inBrowser: null,
+  contactWasm: null,
   browserStage: null,
   selectedPasses: null,
   hiddenOrigins: [],
   availablePasses: null,
   liveCapabilities: null,
   availableCheckers: null,
-  checker: BUILTIN_CHECKER,
+  // Convex contact, the clash check proper; `resolveChecker` falls back to core's where it cannot run.
+  checker: CONTACT_ORIGIN,
+  checkerChosen: false,
+  checkerNote: null,
   checkerOptions: {},
   specProviders: [],
   adminSpecProviders: null,
@@ -260,7 +266,7 @@ export const useClashCheckStore = create<ClashCheckState>((set, get) => ({
   setMarkerScale: (v) => set({ markerScale: Math.max(0.1, Math.min(10, v)) }),
   setInBrowser: (v) => set({ inBrowser: v }),
   setSelectedPasses: (names) => set({ selectedPasses: names }),
-  setChecker: (name) => set({ checker: name, selectedPasses: null }),
+  setChecker: (name) => set({ checker: name, checkerChosen: true, checkerNote: null, selectedPasses: null }),
   setCheckerOption: (key, value) =>
     set((s) => ({
       checkerOptions: { ...s.checkerOptions, [s.checker]: { ...(s.checkerOptions[s.checker] ?? {}), [key]: value } },
@@ -277,37 +283,46 @@ export const useClashCheckStore = create<ClashCheckState>((set, get) => ({
   loadCapabilities: async (scope) => {
     // All optional knowledge: failing to learn any of it must leave the panel usable, not
     // empty. Settled independently so one missing route does not cost the others' answers.
-    const [passes, caps, checkers, specProviders, geometry] = await Promise.allSettled([
+    const [passes, caps, checkers, specProviders, geometry, wasm] = await Promise.allSettled([
       clashCheckApi.listPasses(scope as never),
       clashCheckApi.listLiveConnectionCapabilities(scope as never),
       clashCheckApi.listCheckers(scope as never),
       settingsApi.getPublicSetting(CLASH_SPEC_PROVIDERS_KEY),
       clashCheckApi.listGeometryProviders(scope as never),
+      // Whether convex contact -- the default engine -- can run in this browser at all.
+      get().contactWasm === null ? contactWasmAvailable() : Promise.resolve(get().contactWasm as boolean),
     ]);
     const liveCapabilities = caps.status === "fulfilled" ? caps.value : null;
-    const availableCheckers = checkers.status === "fulfilled" ? checkers.value : null;
+    const contactWasm = wasm.status === "fulfilled" ? wasm.value : false;
+    // The deployment's engines, plus convex contact where this viewer runs it and the deployment
+    // (an api without adacpp) does not list it.
+    const availableCheckers = withBrowserContact(checkers.status === "fulfilled" ? checkers.value : null, contactWasm);
     const availableGeometryProviders = geometry.status === "fulfilled" ? geometry.value : null;
-    set((s) => ({
-      availableGeometryProviders,
-      // A provider chosen earlier that no live pool can read any more falls back to each member's
-      // own, rather than staying selected for a run that would read nothing.
-      geometryProvider:
-        availableGeometryProviders &&
-        s.geometryProvider &&
-        !availableGeometryProviders.some((p) => p.id === s.geometryProvider && p.readable)
-          ? null
-          : s.geometryProvider,
-      availablePasses: passes.status === "fulfilled" ? passes.value : null,
-      liveCapabilities,
-      availableCheckers,
+    set((s) => {
       // A checker chosen earlier whose pool has since gone is dropped back to core's, rather than
-      // left selected for a run the route will refuse.
-      checker:
-        availableCheckers && !availableCheckers.some((c) => c.name === s.checker) ? BUILTIN_CHECKER : s.checker,
-      specProviders: [...(liveCapabilities ?? [])].sort(),
-      adminSpecProviders:
-        specProviders.status === "fulfilled" ? preferenceFor(parseSpecProviders(specProviders.value), scope) : null,
-    }));
+      // left selected for a run the route will refuse; one never chosen follows the default.
+      const engine = resolveChecker({ ...s, availableCheckers, contactWasm });
+      return {
+        contactWasm,
+        checker: engine.checker,
+        checkerNote: engine.note,
+        availableGeometryProviders,
+        // A provider chosen earlier that no live pool can read any more falls back to each member's
+        // own, rather than staying selected for a run that would read nothing.
+        geometryProvider:
+          availableGeometryProviders &&
+          s.geometryProvider &&
+          !availableGeometryProviders.some((p) => p.id === s.geometryProvider && p.readable)
+            ? null
+            : s.geometryProvider,
+        availablePasses: passes.status === "fulfilled" ? passes.value : null,
+        liveCapabilities,
+        availableCheckers,
+        specProviders: [...(liveCapabilities ?? [])].sort(),
+        adminSpecProviders:
+          specProviders.status === "fulfilled" ? preferenceFor(parseSpecProviders(specProviders.value), scope) : null,
+      };
+    });
   },
   toggleOriginHidden: (origin) =>
     set((s) => ({
@@ -317,7 +332,7 @@ export const useClashCheckStore = create<ClashCheckState>((set, get) => ({
     })),
 
   runCheck: async (scope) => {
-    const { sourceKey, assetTarget, options, inBrowser } = get();
+    const { sourceKey, assetTarget, options } = get();
     // A node's model is read by its provider on a worker, and a group combines several models on
     // the server, so the in-browser path below can serve neither: it scans ONE FILE this process
     // fetched. Falling through to the server is not a degradation here, it is the only way the
@@ -326,10 +341,37 @@ export const useClashCheckStore = create<ClashCheckState>((set, get) => ({
     if (get().busy) return;
     set({ busy: true, error: null, browserStage: null });
     try {
+      // A run before the panel's probe answered: ask now whether the default engine can run here.
+      if (get().contactWasm === null) {
+        const contactWasm = await contactWasmAvailable();
+        const availableCheckers = withBrowserContact(get().availableCheckers, contactWasm);
+        const engine = resolveChecker({ ...get(), availableCheckers, contactWasm });
+        set({ contactWasm, availableCheckers, checker: engine.checker, checkerNote: engine.note });
+      }
+      // The engine for THIS run. Convex contact by default; where it was not picked explicitly and
+      // cannot measure this target, the run uses core's check instead, and says so, rather than
+      // failing: a group not picked from the saved groups has nothing to file a run under, and a
+      // node whose geometry is a provider's mesh delivery has no stored GLB to measure.
+      let checker = get().checker;
+      let checkerNote = resolveChecker(get()).note;
+      if (checker === CONTACT_ORIGIN && !get().checkerChosen) {
+        const t = contactTargetFor(sourceKey, assetTarget as never);
+        const why = !t
+          ? "this group was not picked from the saved groups, so a run has nothing to be filed under (save it as a group to measure it)"
+          : t.kind === "node" && !(await nodeGlbKey(t))
+            ? "this node's geometry is not a stored GLB (a provider's mesh delivery)"
+            : null;
+        if (why) {
+          checker = BUILTIN_CHECKER;
+          checkerNote = `Convex contact cannot measure this target -- ${why} -- so this run used the built-in member-connectivity check.`;
+        }
+      }
+      set({ checkerNote });
+      const inBrowser = runsInBrowser({ ...get(), checker });
       // The convex-contact CLASH check measures the viewer GLB -- in this browser (adacpp's wasm
       // module) or on a worker (the same C++ on the same stored bytes) -- and the run is kept beside
       // the model, so it outlives this page and a detail is made from it (`services/clash/contactRuns`).
-      if (get().checker === CONTACT_ORIGIN) {
+      if (checker === CONTACT_ORIGIN) {
         const target = contactTargetFor(sourceKey, assetTarget as never);
         if (!target) {
           throw new Error(
@@ -408,7 +450,7 @@ export const useClashCheckStore = create<ClashCheckState>((set, get) => ({
         sourceKey &&
         !assetTarget &&
         inBrowser &&
-        get().checker === BUILTIN_CHECKER &&
+        checker === BUILTIN_CHECKER &&
         browserClashCheckSupports(sourceKey)
       ) {
         // No job, no upload: the file is fetched once for the scan and everything else happens
@@ -454,7 +496,14 @@ export const useClashCheckStore = create<ClashCheckState>((set, get) => ({
       }
       const target = groupTarget ?? { kind: "file" as const, sourceKey: sourceKey as string };
       // A plain file has no provider to read it from, so the choice is not sent for one.
-      const requestOptions = checkRequestOptions({ ...get(), geometryProvider: assetTarget ? get().geometryProvider : null });
+      // A pass selection belongs to the engine it was made for: a run that fell back to core's takes
+      // core's default set rather than convex contact's passes.
+      const requestOptions = checkRequestOptions({
+        ...get(),
+        checker,
+        ...(checker !== get().checker ? { selectedPasses: null } : {}),
+        geometryProvider: assetTarget ? get().geometryProvider : null,
+      });
       if (assetTarget && requestOptions.geometry_provider) {
         // Through a geometry provider: find the members it lacks and offer to request them first.
         set({ geometryNotes: sourceNotes, geometryStage: null });

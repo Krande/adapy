@@ -21,6 +21,8 @@ import {
 } from "@/services/clashSpecProviders";
 import {
   BUILTIN_CHECKER,
+  BUILTIN_CHECKER_DESCRIPTION,
+  BUILTIN_CHECKER_LABEL,
   effectiveSpecProviders,
   originsInResult,
   useClashCheckStore,
@@ -45,13 +47,22 @@ function labelFor(name: string, reported: ClashPassReport | undefined, advertise
   return capability ? `${label} (${capability})` : label;
 }
 
-/** The clash-check ENGINE the next run uses: core's, or one a live pool contributes. One per run,
- *  because two engines over one model report the same contacts twice under two origins. Hidden
- *  while core's is the only one there is -- a dropdown with one entry is not a choice. */
+/** The clash-check ENGINE the next run uses: convex contact (the default), core's connectivity
+ *  check, or one a live pool contributes. One per run, because two engines over one model report
+ *  the same contacts twice under two origins. Hidden while only one is there -- a dropdown with one
+ *  entry is not a choice. Core's is named for what it does whatever an older deployment calls it
+ *  (it said "adapy (built-in)"), so nobody picks it as a clash check. */
 export const CheckerSelector: React.FC = () => {
-  const checkers = useClashCheckStore((s) => s.availableCheckers);
+  const listed = useClashCheckStore((s) => s.availableCheckers);
   const checker = useClashCheckStore((s) => s.checker);
   const setChecker = useClashCheckStore((s) => s.setChecker);
+  const checkers = React.useMemo(
+    () =>
+      listed?.map((c) =>
+        c.name === BUILTIN_CHECKER ? { ...c, label: BUILTIN_CHECKER_LABEL, description: BUILTIN_CHECKER_DESCRIPTION } : c,
+      ) ?? null,
+    [listed],
+  );
   if (!checkers || checkers.length < 2) return null;
   const current = checkers.find((c) => c.name === checker);
   return (

@@ -246,6 +246,15 @@ flowchart LR
 The REST routes in `routes/clash_check.py` enqueue `clash_*` jobs. Workers advertise the
 passes and connection specs they support (`registration.py`).
 
+Core has two checkers. `adapy` ("Member connectivity") is the diagram above: it reads the member
+model and finds which members are meant to connect (beam axes meeting at a node, beam mid-spans in
+a plate's padded bounding box, plates edge-on through a CAD distance). It does not measure the
+solids. `convex-contact` (`convex_contact.py`, `contacts.py`, `sidecar.py`) measures the viewer GLB's
+solids with adacpp -- in the browser through its wasm clash module, or on a worker through the same
+C++ -- and keeps each run as a sidecar beside its model (`routes/clash_contacts.py`). The viewer's
+Clashes tab runs `convex-contact` by default and falls back to `adapy`, with a note, where it cannot
+run (`state/clashCheck/engine.ts`).
+
 ### Plugins (`ada.plugins`)
 
 The Python twin of the frontend plugin registry: `register_plugin_backend`,

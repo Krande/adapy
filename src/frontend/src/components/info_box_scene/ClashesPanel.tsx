@@ -53,6 +53,7 @@ import {
   jointsForGroup,
   memberNamesForGroup,
   noMembersSentence,
+  runsInBrowser,
   useClashCheckStore,
   visibleResult,
   type ClashApplicableSpec,
@@ -298,7 +299,9 @@ const RunForm: React.FC<{ scope: string; sourceKey: string | null; loadedSourceN
   const busy = useClashCheckStore((s) => s.busy);
   const setOptions = useClashCheckStore((s) => s.setOptions);
   const runCheck = useClashCheckStore((s) => s.runCheck);
-  const inBrowser = useClashCheckStore((s) => s.inBrowser);
+  // The engine's own default until the box is ticked or cleared: convex contact in the browser.
+  const inBrowser = useClashCheckStore(runsInBrowser);
+  const checkerNote = useClashCheckStore((s) => s.checkerNote);
   const setInBrowser = useClashCheckStore((s) => s.setInBrowser);
   const browserStage = useClashCheckStore((s) => s.browserStage);
   const geometryPrompt = useClashCheckStore((s) => s.geometryPrompt);
@@ -330,6 +333,11 @@ const RunForm: React.FC<{ scope: string; sourceKey: string | null; loadedSourceN
         onUseLoaded={() => setSource(loadedSourceName, loadedSourceName)}
       />
       <CheckerSelector />
+      {checkerNote && (
+        <div data-testid="clash-checker-note">
+          <Banner tone="warn">{checkerNote}</Banner>
+        </div>
+      )}
       <GeometryProviderSelector target={assetTarget} />
       {coreOptions && (
         <div className="flex flex-wrap items-center gap-2">
