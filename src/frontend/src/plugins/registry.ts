@@ -21,6 +21,13 @@ export { type PluginRegion, type PluginDockId, type PluginModeId, type PluginMod
 export { type SceneColorFieldResult, type SceneColor, type SceneOverlay, type SceneLines, type SceneElementOutline, type SceneLabel, type SceneLabelOptions, type SceneElementPaint, type SceneLayerRef, type SceneLayerLook, type SceneLineLayerSpec, type SceneLineLayer, type ScenePointLayerSpec, type ScenePointLayer, type SceneImageRect, type SceneImageSpec, type SceneImage, type SceneModelSource, type SceneModelPose, type SidecarFetcher, type SceneHandle, type SceneBox, type SceneFace } from "./registryTypes/scene";
 export { type PluginPlaybackTrack, type PluginPlaybackTrackHandle, type PluginPlaybackState, type PluginPlayback, type PluginLayerState, type PluginLayers, type PluginSimulationSubject, type PluginSimulationSubjectHandle, type PluginSimulations } from "./registryTypes/playback";
 export type { ScenePick, ScenePickOptions, ScenePickSession } from "./scenePicks";
+export type {
+  SceneContact,
+  SceneContactAnswer,
+  SceneContactOptions,
+  SceneContactPatch,
+  SceneObjectRef,
+} from "./sceneContact";
 export type { PlaceBoxOptions, PlacedBox, PlacedBoxMode, PlacedBoxPose } from "./sceneBox";
 
 // Bumped on a breaking change to any slot interface below. A plugin declares the
@@ -240,7 +247,13 @@ export type { PlaceBoxOptions, PlacedBox, PlacedBoxMode, PlacedBoxPose } from ".
 //            (`core:component-controls`), after the builder's own. Every panel of the region is a
 //            tab; `asTab` gives its label, order and badge. With no such panel the builder panel
 //            has no tab strip and is what it was.
-export const PLUGIN_API_VERSION = "1.26.0";
+// 1.27.0 — `ctx.scene.contactBetween(a, b, options?)`: where two objects of the loaded models
+//          touch -- the nearest points, the normal, the distance and the contact patches (the
+//          polygons where their convex hulls meet), in the scene's own coordinates -- measured by
+//          the viewer's clash module on the models' stored GLBs, so it answers the same on either
+//          viewport. For a tool that places something where two objects meet. Additive: an older
+//          core has no `contactBetween`, so a plugin asks for it first.
+export const PLUGIN_API_VERSION = "1.27.0";
 
 /** What the Simulations panel writes on a run's open-result button. */
 export function openResultButtonLabel(

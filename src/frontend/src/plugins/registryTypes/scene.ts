@@ -4,6 +4,7 @@
 import type { ColorScale } from "@/utils/colorScale";
 import type { ScenePickOptions, ScenePickSession } from "../scenePicks";
 import type { PlaceBoxOptions, PlacedBox } from "../sceneBox";
+import type { SceneContactAnswer, SceneContactOptions, SceneObjectRef } from "../sceneContact";
 
 /** Values a color-field provider returns for core to paint + legend. */
 export interface SceneColorFieldResult {
@@ -383,6 +384,12 @@ export interface SceneHandle {
   // plugin's side. For a tool that asks where something stands. Works on either viewport;
   // `remove(owner)` ends it too.
   placeBox: (owner: string, options: PlaceBoxOptions) => PlacedBox;
+  // (1.27.0) Where two objects of the loaded models touch: `{contact}` (null when they do not touch
+  // within the security margin) or `{unavailable}` with the reason (a model whose geometry is not a
+  // stored GLB the viewer can read again). The patches are the polygons where the two objects'
+  // convex hulls meet, in the scene's own coordinates. Measured by the viewer's clash module on the
+  // stored GLBs, not on what a viewport holds: the same answer on either viewport.
+  contactBetween: (a: SceneObjectRef, b: SceneObjectRef, options?: SceneContactOptions) => Promise<SceneContactAnswer>;
 }
 
 /** An axis-aligned world-space box. */
