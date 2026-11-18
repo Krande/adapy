@@ -1,7 +1,7 @@
 // Whether the connection builder has anything to offer here: on a viewer `ada dev connections`
 // started, always; on a deployed studio, while the current scope offers at least one spec (the
 // specs the live workers' code registers, as the admin assigned them to scopes -- see
-// routes/connections.py). The Connections panel's Builder tab is shown while this holds.
+// routes/connections.py). The Connections panel's Inspect tab is shown while this holds.
 //
 // Checked by useConnectionBuilderBoot once somebody is signed in, and again on every scope change.
 

@@ -1,4 +1,4 @@
-// State of the connection builder (`ada dev connections`, the Connections panel's Builder tab): the served
+// State of the connection builder (`ada dev connections`, the Connections panel's Inspect tab): the served
 // library's latest state, the selected spec, the per-spec member inputs, and
 // the latest build. Pure state -- the session in
 // services/devConnections/connectionBuilderSession.ts fetches, builds and

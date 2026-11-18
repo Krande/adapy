@@ -846,7 +846,7 @@ const ClashesPanel: React.FC = () => {
           in Scene > Connection: its measured contact, renewed with every build." while the builder
           was a Scene panel tab.) */}
       {preview ? (
-        <Banner tone="info">The joint previewed in the Builder tab: its measured contact, renewed with every build.</Banner>
+        <Banner tone="info">The joint previewed in the Inspect tab: its measured contact, renewed with every build.</Banner>
       ) : (
         <RunForm scope={scope} sourceKey={sourceKey} loadedSourceName={loadedSourceName} />
       )}

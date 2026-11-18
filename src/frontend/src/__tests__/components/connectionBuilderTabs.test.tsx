@@ -1,4 +1,4 @@
-// The Connections panel's tabs: core's first -- Builder (where the builder is offered), Clashes,
+// The Connections panel's tabs: core's first -- Inspect (where the builder is offered), Clashes,
 // Overlays, Review (while there are joints) -- then a plugin's tabs; only the tab on show is
 // mounted. Clashes, Overlays and Review were the Scene panel's Joints group.
 
@@ -44,17 +44,17 @@ beforeEach(() => {
   setServerState(useStatsStore, { stats: null });
 });
 
-test("core's tabs: Builder, Clashes, Overlays, and Review only while there are joints", () => {
+test("core's tabs: Inspect, Clashes, Overlays, and Review only while there are joints", () => {
   assert.deepEqual(
     CONNECTIONS_CORE_TABS.map((t) => [t.id, t.label, !!t.ctx]),
     [
-      [BUILDER_TAB, "Builder", false],
+      [BUILDER_TAB, "Inspect", false],
       [CLASHES_TAB, "Clashes", false],
       [JOINT_OVERLAYS_TAB, "Overlays", false],
       [JOINTS_REVIEW_TAB, "Review", true],
     ],
   );
-  assert.equal(BUILDER_TAB_LABEL, "Builder");
+  assert.equal(BUILDER_TAB_LABEL, "Inspect");
   const ids = (builder: boolean, joints: boolean) => connectionsCoreTabs({ builder, joints }).map((t) => t.id);
   assert.deepEqual(ids(true, false), [BUILDER_TAB, CLASHES_TAB, JOINT_OVERLAYS_TAB]);
   assert.deepEqual(ids(true, true), [BUILDER_TAB, CLASHES_TAB, JOINT_OVERLAYS_TAB, JOINTS_REVIEW_TAB]);
@@ -68,7 +68,7 @@ test("core's tabs: Builder, Clashes, Overlays, and Review only while there are j
 test("no plugin tab: a strip of core's tabs, the builder on show", () => {
   const html = panel();
   assert.match(html, /role="tablist" aria-label="Connections section"/);
-  assert.deepEqual(strip(html), [["Builder", "true"], ["Clashes", "false"], ["Overlays", "false"]]);
+  assert.deepEqual(strip(html), [["Inspect", "true"], ["Clashes", "false"], ["Overlays", "false"]]);
   assert.ok(shows(html, React.createElement(ConnectionBuilderBody)), "the builder is on show");
   // A panel of another region is not a tab here.
   registerPlugin({ id: "other", panels: [{ id: "p", region: "top-panel", render: () => "elsewhere" }] });
@@ -79,7 +79,7 @@ test("Review is there while the loaded model's take-off has joints, marked conte
   setServerState(useStatsStore, { stats: { joints: { count: 2 } } as never });
   try {
     const html = panel();
-    assert.deepEqual(strip(html), [["Builder", "true"], ["Clashes", "false"], ["Overlays", "false"], ["Review", "false"]]);
+    assert.deepEqual(strip(html), [["Inspect", "true"], ["Clashes", "false"], ["Overlays", "false"], ["Review", "false"]]);
     assert.match(html, /<span class="w-1\.5 h-1\.5 rounded-full bg-violet-400" aria-hidden="true"><\/span>Review/);
   } finally {
     setServerState(useStatsStore, { stats: null });
@@ -107,7 +107,7 @@ test("a plugin's tabs come after core's, and the tab on show is the one mounted"
   });
   let html = panel();
   assert.deepEqual(strip(html), [
-    ["Builder", "true"],
+    ["Inspect", "true"],
     ["Clashes", "false"],
     ["Overlays", "false"],
     ["First", "false"],
@@ -132,14 +132,14 @@ test("a picked tab that went away falls back to the builder; a throwing badge di
   });
   setServerState(useConnectionBuilderTabStore, { tab: "elsewhere:tab" });
   let html = panel();
-  assert.match(html, /aria-selected="true"[^>]*>Builder/);
+  assert.match(html, /aria-selected="true"[^>]*>Inspect/);
   assert.match(html, /Connecting/);
   assert.match(String(getRegisteredPlugins().find((p) => p.id === "bad")?.disabled), /tab badge threw/);
   assert.ok(!getRegisteredPlugins().find((p) => p.id === "gone")?.disabled);
   // Review picked with no joints left: the builder too.
   setServerState(useConnectionBuilderTabStore, { tab: JOINTS_REVIEW_TAB });
   html = panel();
-  assert.match(html, /aria-selected="true"[^>]*>Builder/);
+  assert.match(html, /aria-selected="true"[^>]*>Inspect/);
 });
 
 test("where the builder is not offered its tab is left out: Clashes first, then the plugins' tabs", () => {
@@ -158,7 +158,7 @@ test("where the builder is not offered its tab is left out: Clashes first, then 
   assert.equal(hasConnectionBuilderTabs(), true);
   html = panel();
   assert.deepEqual(strip(html), [["Clashes", "true"], ["Overlays", "false"], ["First", "false"], ["Second", "false"]]);
-  assert.doesNotMatch(html, /Builder|Connecting|the first tab|the second tab/);
+  assert.doesNotMatch(html, /Inspect|Connecting|the first tab|the second tab/);
   setServerState(useConnectionBuilderTabStore, { tab: "demo:b" });
   html = panel();
   assert.match(html, /aria-selected="true"[^>]*>Second/);

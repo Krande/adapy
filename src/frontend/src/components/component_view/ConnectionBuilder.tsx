@@ -1,5 +1,5 @@
 // ConnectionBuilder — the studio side of `ada dev connections`, the Connections
-// panel's Builder tab: pick a spec from the served connection library, edit each member
+// panel's Inspect tab: pick a spec from the served connection library, edit each member
 // (a beam's section, a plate's thickness and extent, the angle between them), build
 // the joint, and from then on see it rebuilt on every edit here and on every saved
 // change to the library's files. Nothing is built before Build is pressed. Under the inputs, the joint that was built: its clash (also loaded into

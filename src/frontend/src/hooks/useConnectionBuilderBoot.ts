@@ -1,13 +1,13 @@
 // The connection builder's boot.
 //
 // `ada dev connections`: on a viewer serving a connection library, start the
-// builder's live loop and open the Connections panel on its Builder tab, once, at
+// builder's live loop and open the Connections panel on its Inspect tab, once, at
 // startup. That server exists to show the library's joints, so the loop builds
 // from the start.
 //
 // A deployed studio: ask whether the current scope offers any specs (the
 // workers' own, as the admin assigned them) once a scope is known -- which is
-// after sign-in -- and on every scope change; the Builder tab shows while it
+// after sign-in -- and on every scope change; the Inspect tab shows while it
 // does. The loop starts the first time somebody opens that tab (`BuilderTab`
 // starts it on mount), not at load, and builds nothing until its Build button is
 // pressed: nobody pays for builds they did not ask for, and an opened panel puts

@@ -31,7 +31,9 @@ export interface ConnectionsTabDef {
 }
 
 export const CONNECTIONS_CORE_TABS: readonly ConnectionsTabDef[] = [
-  { id: BUILDER_TAB, label: "Builder" },
+  // "Inspect", not "Builder": the tab shows a joint as its spec makes it and measures it -- the
+  // user inspects the joint, nothing is built for them to keep. (It was labelled "Builder".)
+  { id: BUILDER_TAB, label: "Inspect" },
   { id: CLASHES_TAB, label: "Clashes" },
   { id: JOINT_OVERLAYS_TAB, label: "Overlays" },
   { id: JOINTS_REVIEW_TAB, label: "Review", ctx: true },
