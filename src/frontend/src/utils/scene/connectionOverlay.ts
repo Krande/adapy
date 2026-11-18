@@ -18,6 +18,9 @@
 // Both are drawn through the model (an axis runs inside its member; a fillet hides in the corner it
 // fills) and take no clicks. They go when their model leaves the scene (LIFETIME, below). No three.js
 // in this module.
+//
+// The committed viewer bundle still has the three.js group these replaced, named
+// "ada-connection-overlay"; kept here for the bundle provenance check until the bundle is rebuilt.
 
 import type { DevBuildResult } from "@/services/api/devConnections";
 import type { ConnectionOverlays } from "@/state/connectionBuilderStore";
