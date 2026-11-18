@@ -100,7 +100,11 @@ def _without_excluded(doc: dict) -> dict:
     def own(d) -> bool:
         return _included(d) if flags else True
 
-    out_groups = {g.get("name") for g in doc.get("groups") or [] if isinstance(g, dict) and g.get("include") is False}
+    # A group without a name names no structure: left out, it must not read as "the spaces of no
+    # structure" (STRUCTURE_NAME None), which would take every unassigned space with it.
+    out_groups = {
+        g.get("name") for g in doc.get("groups") or [] if isinstance(g, dict) and g.get("include") is False
+    } - {None, ""}
     spaces = [s for s in doc.get("spaces", []) if own(s) and s.get("STRUCTURE_NAME") not in out_groups]
     # A dropped space with no NAME must not read as "every free-placed item" (SPACE_NAME None).
     dropped = ({s.get("NAME") for s in doc.get("spaces", [])} - {s.get("NAME") for s in spaces}) - {None}

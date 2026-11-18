@@ -634,3 +634,13 @@ def test_to_doc_stamps_1_1_and_round_trips_a_builder_made_in_code():
     doc = b.to_doc()
     assert doc["schema_version"] == "1.1" and doc["spaces"][0]["INCLUDE"] is True
     assert [s.NAME for s in ProceduralBuilder.from_dict(doc).spaces] == ["S"]
+
+
+def test_an_unnamed_excluded_group_leaves_the_spaces_of_no_structure_alone():
+    # A left-out group with no name used to put None among the excluded structures, so every space
+    # without a STRUCTURE_NAME -- and the equipment and openings in them -- was dropped with it.
+    from ada.topo_model.builder import ProceduralBuilder
+
+    for unnamed in ({"blueprint": "steel_stru", "include": False}, {"name": "", "include": False}):
+        b = ProceduralBuilder.from_dict({**DOC, "groups": [unnamed]}, name="m")
+        assert [s.NAME for s in b.spaces] == ["Cell1", "Cell2"] and [e.NAME for e in b.equipments] == ["P1"]
