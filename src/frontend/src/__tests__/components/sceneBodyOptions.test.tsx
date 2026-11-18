@@ -37,7 +37,7 @@ test("without options the panel renders as with an empty options object", () => 
     assert.equal(render({}), plain);
     assert.equal(render({ arrangement: "tabs", femTab: false, loadedTitle: "Loaded models" }), plain);
     // The strip shows groups; Model is one tab, so no second strip.
-    assert.deepEqual(tabLabels(plain), ["Model", "View", "Tools"]);
+    assert.deepEqual(tabLabels(plain), ["Model", "View", "Measure", "Tools"]);
     assert.match(plain, /<span>Loaded models<\/span>/);
     assert.match(plain, /No models loaded\./);
 });
@@ -45,7 +45,7 @@ test("without options the panel renders as with an empty options object", () => 
 test("tabs picks and orders the tabs; hiddenTabs leaves some out", () => {
     assert.deepEqual(tabLabels(render({ tabs: ["tools", "model"] })), ["Tools", "Model"]);
     // View loses its tabs, so the group goes too.
-    assert.deepEqual(tabLabels(render({ hiddenTabs: ["overlays", "clip", "mesh"] })), ["Model", "Tools"]);
+    assert.deepEqual(tabLabels(render({ hiddenTabs: ["overlays", "clip", "mesh"] })), ["Model", "Measure", "Tools"]);
 });
 
 test("the Scene panel has no Joints group: its tabs are the Connections panel's", () => {
@@ -72,12 +72,12 @@ test("a group of several tabs shows them in a second strip, on the one the mode 
     setServerState(useSceneInfoStore, { mode: "section" });
     try {
         const html = render();
-        assert.deepEqual(tabLabels(html), ["Model", "View", "Tools", "Overlays", "Clip", "Mesh"]);
+        assert.deepEqual(tabLabels(html), ["Model", "View", "Measure", "Tools", "Overlays", "Clip", "Mesh"]);
         assert.match(html, /role="tablist" aria-label="View section"/);
         assert.match(html, /aria-selected="true"[^>]*>View</);
         assert.match(html, /aria-selected="true"[^>]*>Clip</);
         // Hidden tabs leave the group's strip, and a group down to one tab draws none.
-        assert.deepEqual(tabLabels(render({ hiddenTabs: ["overlays", "mesh"] })), ["Model", "View", "Tools"]);
+        assert.deepEqual(tabLabels(render({ hiddenTabs: ["overlays", "mesh"] })), ["Model", "View", "Measure", "Tools"]);
     } finally {
         setServerState(useSceneInfoStore, { mode: "info" });
     }
@@ -87,7 +87,7 @@ test("the FEM tab is offered only when asked for, and only while there is FE con
     assert.deepEqual(tabLabels(render({ femTab: true })), tabLabels(render()));
     setServerState(useFeaAnimationStore, { sessionActive: true });
     try {
-        assert.deepEqual(tabLabels(render({ femTab: true })), ["Model", "View", "FEM", "Tools"]);
+        assert.deepEqual(tabLabels(render({ femTab: true })), ["Model", "View", "FEM", "Measure", "Tools"]);
         assert.doesNotMatch(render(), /FEM/);
         setServerState(useSceneInfoStore, { mode: "fem" });
         assert.match(render({ femTab: true }), /aria-selected="true"[^>]*><span[^>]*><\/span>FEM</);
@@ -98,10 +98,29 @@ test("the FEM tab is offered only when asked for, and only while there is FE con
     }
 });
 
+test("the Measure tab is a group of its own, opened by its mode, with its tools", () => {
+    assert.equal(groupOf("measure"), "measure");
+    assert.equal(activeSceneTab("measure", sceneTabs({}, {})), "measure");
+    setServerState(useSceneInfoStore, { mode: "measure" });
+    try {
+        const html = render();
+        assert.match(html, /aria-selected="true"[^>]*>Measure</);
+        for (const tool of ["Distance", "Angle", "Edge angle", "Path", "Point"]) {
+            assert.match(html, new RegExp(`aria-pressed="false"[^>]*>${tool}</button>`), tool);
+        }
+        assert.match(html, /Snap to corners and edges/);
+        assert.match(html, /Lengths in metres \(m\)/);
+        // A shell can leave it out.
+        assert.deepEqual(tabLabels(render({ hiddenTabs: ["measure"] })), ["Model", "View", "Tools"]);
+    } finally {
+        setServerState(useSceneInfoStore, { mode: "info" });
+    }
+});
+
 test("stacked drops the strip and draws each tab as a section, the active one open", () => {
     const html = render({ arrangement: "stacked" });
     assert.doesNotMatch(html, /role="tablist"/);
-    for (const label of ["Model", "Overlays", "Tools", "Clip", "Mesh"]) {
+    for (const label of ["Model", "Overlays", "Tools", "Clip", "Mesh", "Measure"]) {
         assert.match(html, new RegExp(`<span>${label}</span>`));
     }
     assert.match(html, /aria-expanded="true"[^>]*>.*?<span>Model<\/span>/);
@@ -120,8 +139,8 @@ test("the loaded list takes a title and an empty state", () => {
 
 test("sceneTabs and activeSceneTab", () => {
     const ids = (t: { id: string }[]) => t.map((x) => x.id);
-    assert.deepEqual(ids(sceneTabs({}, {})), ["model", "overlays", "clip", "mesh", "tools"]);
-    assert.deepEqual(ids(sceneTabs({ femTab: true }, { fem: true })), ["model", "overlays", "clip", "mesh", "fem", "tools"]);
+    assert.deepEqual(ids(sceneTabs({}, {})), ["model", "overlays", "clip", "mesh", "measure", "tools"]);
+    assert.deepEqual(ids(sceneTabs({ femTab: true }, { fem: true })), ["model", "overlays", "clip", "mesh", "fem", "measure", "tools"]);
     assert.deepEqual(ids(sceneTabs({ tabs: ["fem", "tools"], femTab: true }, {})), ["tools"], "a contextual tab still needs content");
     const offered = sceneTabs({ tabs: ["tools", "mesh"] }, {});
     assert.equal(activeSceneTab("info", offered), "tools", "with no Model tab the first offered one is active");
@@ -134,6 +153,7 @@ test("sceneGroups groups the offered tabs, in the order their first tab is offer
     assert.deepEqual(shape(sceneTabs({}, {})), [
         ["model", ["model"]],
         ["view", ["overlays", "clip", "mesh"]],
+        ["measure", ["measure"]],
         ["tools", ["tools"]],
     ]);
     assert.deepEqual(shape(sceneTabs({ tabs: ["mesh", "tools", "clip"] }, {})), [

@@ -27,6 +27,7 @@ import {glbBufferViews} from "@/utils/glb/glbBufferView";
 import {takeConceptClick} from "@/utils/fem/conceptPicking";
 import {linearHexText} from "@/utils/scene/sceneColor";
 import {describeScenePick, modelPoint, offerScenePick, scenePicksHeld} from "@/plugins/scenePicks";
+import {offerSceneClick, sceneClicksHeld} from "@/viewport/api/sceneClicks";
 
 const NativeViewport: React.FC = () => {
     const hostRef = React.useRef<HTMLDivElement>(null);
@@ -77,6 +78,12 @@ const NativeViewport: React.FC = () => {
             const withdraw = setActiveViewport(api);
             // A glyph of an analysis concept (a mass, a support, a load) is asked before the model.
             scene.clickFirst = async (clientX, clientY, additive) => {
+                // A core tool holding the scene's clicks (the Measure tab) has them first, wherever they
+                // land: such a click picks and selects nothing. Counted from the view the pick reads.
+                if (sceneClicksHeld()) {
+                    const rect = scene.viewRect();
+                    if (offerSceneClick({x: clientX - rect.left, y: clientY - rect.top, additive})) return true;
+                }
                 const view = host.getBoundingClientRect();
                 if (await takeConceptClick(api, clientX - view.left, clientY - view.top, additive, async () => (await scene.pickHit(clientX, clientY))?.world ?? null)) return true;
                 // Then a plugin holding the scene's clicks (`ctx.scene.pickObjects`): the object

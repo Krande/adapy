@@ -139,5 +139,13 @@ export function createNativeViewportApi(scene: NativeScene): ViewportApi {
             scene.onFrame.add(listener);
             return () => void scene.onFrame.delete(listener);
         },
+        // The renderer's own pick, in the frame last drawn: the object (null for a surface that is
+        // none) and its point in the world. Asked on hover as well as on a click.
+        surfaceAt: async (x, y) => {
+            const view = scene.viewRect();
+            const hit = await scene.pickHit(view.left + x, view.top + y);
+            return hit ? {ref: hit.id ? splitObjectKey(hit.id) : null, world: hit.world} : null;
+        },
+        featureEdges: (ref) => scene.objectFeatureEdges(objectKey(ref.model, ref.id)),
     });
 }

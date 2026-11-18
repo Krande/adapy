@@ -383,7 +383,8 @@ export interface SceneHandle {
   // and turns it with the cell builder's gizmo keys (G, R, X / Y / Z, Escape / Enter), and each change
   // is handed to `onChange` as the box's pose in the scene's own coordinates. `set` moves it from the
   // plugin's side. For a tool that asks where something stands. Works on either viewport;
-  // `remove(owner)` ends it too.
+  // `remove(owner)` ends it too. (1.28.0) `frame: true` frames the camera on the box when it is first
+  // drawn: a box in a large model is otherwise a few pixels of the view of the whole.
   placeBox: (owner: string, options: PlaceBoxOptions) => PlacedBox;
   // (1.27.0) Where two objects of the loaded models touch: `{contact}` (null when they do not touch
   // within the security margin) or `{unavailable}` with the reason (a model whose geometry is not a

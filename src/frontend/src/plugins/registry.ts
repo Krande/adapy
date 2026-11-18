@@ -260,6 +260,9 @@ export type { PlaceBoxOptions, PlacedBox, PlacedBoxMode, PlacedBoxPose } from ".
 //          the scene's clicks (`pickObjects`) and shows what it has taken. Not the selection, not a
 //          colour the user gave, and no undo step; on either viewport. Additive: an older core has
 //          no `highlightObjects`, so a plugin asks for it first.
+//          `placeBox`'s `frame: true` frames the camera on the box when it is first drawn, on either
+//          viewport (the scene's offset is the viewer's to add: a plugin cannot frame it with
+//          `frameBox`, which takes the world's coordinates). An older core ignores it.
 //          - the `joint-review` region: a plugin's section of the Connections panel's Review tab,
 //            after core's produced and identified joints, headed by the panel's `title` and ordered
 //            by `order` (`getJointReviewSections`). The Review tab is there while any section is

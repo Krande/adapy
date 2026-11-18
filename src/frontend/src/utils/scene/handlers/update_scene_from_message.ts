@@ -9,6 +9,7 @@ import {loadModel} from "@/components/viewer/sceneHelpers/loadModel";
 import {clearActiveFeaStreaming} from "./load_fea_streaming";
 import {getViewerRuntime} from "@/state/viewerRuntime";
 import {useTreeViewStore} from "@/state/treeViewStore";
+import {clearMeasurements} from "@/state/measureStore";
 import {loadGLTFfrombase64} from "../loadGLTFfrombase64";
 import {disposeObject3D} from "@/utils/scene/dispose_object";
 import {useAnimationStore} from "@/state/animationStore";
@@ -67,6 +68,7 @@ export async function replace_model(options: ReplaceModelOptions) {
 
     useModelState.getState().translation = null;
     useTreeViewStore.getState().clearTreeData(); // Clear the tree view
+    clearMeasurements(); // what was measured goes with the models it was measured on
     // Drop any per-source group refs from prior overlays — the
     // scene is about to be wiped, so those refs are no longer
     // valid. clearLoadedSources also empties loadedSourceNames so

@@ -9,6 +9,7 @@ export type SceneTab =
     | "tools"
     | "clip"
     | "mesh"
+    | "measure"
     | "fem"
     // The Joints group's tabs, which moved to the Connections panel (`core:component-controls`):
     // still names a shell may give in `tabs` / `hiddenTabs`, so its options keep compiling, but
@@ -28,7 +29,8 @@ export interface SceneTabDef {
     ctx?: boolean;
 }
 
-// In the order of their groups (`SCENE_GROUPS`): what is loaded, what the scene shows, then tools.
+// In the order of their groups (`SCENE_GROUPS`): what is loaded, what the scene shows, measuring,
+// then tools.
 //
 // The Joints group (Connection, Clashes, Review, Joint overlays) is not here any more: everything
 // about a joint -- the builder, the clash check that identifies joints, what they draw in 3D and
@@ -40,6 +42,7 @@ export const TAB_META: SceneTabDef[] = [
     {id: "overlays", label: "Overlays"},
     {id: "clip", label: "Clip"},
     {id: "mesh", label: "Mesh"},
+    {id: "measure", label: "Measure"},
     {id: "tools", label: "Tools"},
 ];
 
@@ -53,7 +56,7 @@ export const FEM_TAB: SceneTabDef = {id: "fem", label: "FEM", ctx: true};
 // the strip lays them out. (The JOINT workflow was a group here too, "Joints"; it is the
 // Connections panel's now.)
 
-export type SceneGroup = "model" | "view" | "fem" | "tools";
+export type SceneGroup = "model" | "view" | "fem" | "measure" | "tools";
 
 export interface SceneGroupDef {
     id: SceneGroup;
@@ -65,6 +68,10 @@ export const SCENE_GROUPS: readonly SceneGroupDef[] = [
     {id: "model", label: "Model", tabs: ["model"]},
     {id: "view", label: "View", tabs: ["overlays", "clip", "mesh"]},
     {id: "fem", label: "FEM", tabs: ["fem"]},
+    // A group of its own rather than a tab under Tools: measuring is a mode the user works in -- it
+    // holds the scene's clicks while a tool is in hand -- and is seen in the strip at once, where
+    // Tools is the server's utilities, which need a connection measuring does not.
+    {id: "measure", label: "Measure", tabs: ["measure"]},
     {id: "tools", label: "Tools", tabs: ["tools"]},
 ];
 
@@ -99,6 +106,7 @@ export const MODE_TO_TAB: Record<SceneInfoMode, SceneTab> = {
     utilities: "tools",
     section: "clip",
     mesh: "mesh",
+    measure: "measure",
     fem: "model",
     overlays: "overlays",
     // The modes of the tabs that moved to the Connections panel: an opener that still sets one
@@ -116,6 +124,7 @@ export const TAB_TO_MODE: Record<SceneTab, SceneInfoMode> = {
     tools: "utilities",
     clip: "section",
     mesh: "mesh",
+    measure: "measure",
     fem: "fem",
     connection: "connection",
     clashes: "clashes",

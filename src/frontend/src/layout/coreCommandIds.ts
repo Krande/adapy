@@ -83,6 +83,14 @@ export const CORE_COMMAND_IDS = {
   sectionToggle: "core:section-toggle",
   sectionFlip: "core:section-flip",
   sectionClear: "core:section-clear",
+  /** The Scene panel's Measure tab (Shift+M), and the tab with one of its tools in hand; remove every measurement. */
+  measure: "core:measure",
+  measureDistance: "core:measure.distance",
+  measureAngle: "core:measure.angle",
+  measureEdgeAngle: "core:measure.edge-angle",
+  measurePath: "core:measure.path",
+  measurePoint: "core:measure.point",
+  measureClear: "core:measure-clear",
   /** Selection boxes: one around the selection (it selects what it touches or holds), the active box's rule (partially or fully within), select again what it takes, remove all. */
   selectionBoxAdd: "core:selection-box.add",
   selectionBoxFullyWithin: "core:selection-box.fully-within",

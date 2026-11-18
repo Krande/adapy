@@ -156,6 +156,31 @@ are measured once (not again after the line moved), and hiding elements through 
 the selection as any hide does there. An overlay is drawn by the viewport that was on screen when
 it was added; it is not carried over when the other viewport takes its place.
 
+## Measuring on both viewports
+
+The Scene panel's tabs are grouped in its strip: Model; View (Overlays, Clip, Mesh); FEM where a
+host asks for it; Measure; Tools. Measure is a group of its own, main window only (Shift+M, or the
+`Measure` command, opens it). Its tools: **Distance** (two points, with dX / dY / dZ), **Angle** (a
+point on one arm, the vertex, a point on the other), **Edge angle** (two clicked edges, 0 to 90
+degrees), **Path** (any number of points, per leg and in total; Enter, Escape or Finish ends it) and
+**Point** (one point's coordinates). Each is drawn in the scene with its value, listed in the tab
+(delete one, clear all, copy as text) and kept until removed or the scene is cleared or replaced.
+
+| Part | Where | What it is |
+|---|---|---|
+| The tab | `components/info_box_scene/MeasurePanel.tsx` | The tools, the snap switch, the list. Leaving the tab puts the tool down. |
+| The tool | `utils/measure/measureController.ts` | While a tool is in hand it holds the scene's clicks (`viewport/api/sceneClicks.ts`, asked by both viewports' click handlers before they pick): a click selects nothing and is no undo step; drags still move the camera. The pointer's hover is snapped too, one pick at a time. Escape ends the measurement being made, a second Escape puts the tool down. |
+| Snapping | `utils/measure/snap.ts` | To the nearest corner (an end where the feature edges meet at a corner: one, three or more of them, or two that turn by more than 30 degrees) within 12 pixels, else an edge's middle, else the nearest point of an edge within 8 pixels, else the surface under the pointer. What lies behind that surface is not taken. The marker under the pointer says which, by colour and size. |
+| Feature edges | `ViewportApi.featureEdges(ref)` | The outline of one object: boundary edges and folds over 30 degrees (`utils/mesh_select/edgeCore.ts`). three.js: from the object's draw range in its mesh. Three.js-free: the renderer keeps its geometry on the GPU, so the object's triangles are read again from the GLB the model was loaded from (`utils/glb/glbObjectTriangles.ts`, the objects adacpp's reader makes of it) and placed by the scene's offset. |
+| The surface | `ViewportApi.surfaceAt(x, y)` | three.js: the GPU pick, refined on the picked object's triangles. Three.js-free: the renderer's pick. |
+| Drawing | `utils/measure/measureDrawing.ts` | Points, lines, an arc and labels through `overlays()` and `billboards()`, over the model. |
+
+Coordinates: lengths are in metres, the unit of a glTF file (the viewer neither scales nor converts).
+A point is listed in the model's own coordinates, world minus the scene's offset (the translation that
+recentres a model far from the origin, `state/sceneFrameStore.ts`), and, where that offset is not
+zero, also as drawn in the viewer ("viewer"). On the three.js viewport a Y-up file the loader turned
+upright is measured in its turned frame.
+
 ## What a model says beside its geometry
 
 A model's `ADA_EXT_data` extension carries what is not geometry: the concepts of an analysis model
