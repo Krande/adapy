@@ -2,6 +2,15 @@
 
 
 
+## v0.160.1 (2026-11-18)
+
+### Fix
+
+* fix(sesam): leave out an RDRESCMB record that is no combination of the file&#39;s result cases (#557)
+
+Co-authored-by: Claude Fable 5.1 &lt;noreply@anthropic.com&gt; ([`a902305`](https://github.com/Krande/adapy/commit/a902305be70c7a6dadca835a39a41394f7b10669))
+
+
 ## v0.160.0 (2026-11-18)
 
 ### Chore
