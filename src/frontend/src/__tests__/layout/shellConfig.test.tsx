@@ -178,37 +178,52 @@ test("a plugin's mode holds the FEA model undeformed unless it opts in", () => {
   }
 });
 
-test("a shell's arrangement for a plugin's mode adds its own tools after the plugin's", () => {
+test("a shell's tools for a plugin's mode run as the shell, after the plugin's, each in its own context", async () => {
+  const { modeTools } = await import("@/layout/ShellModeSwitcher");
+  const { getPlugin } = await import("@/plugins/registry");
   resetRegistry();
+  registerPlugin({ id: "the-shell", version: "1.0.0", coreApiRange: ">=1.0 <2.0" });
   registerPlugin({
     id: "mode-plugin",
     version: "1.0.0",
     coreApiRange: ">=1.0 <2.0",
     modes: [
-      { id: "check", label: "Check", toolbar: () => React.createElement("span", null, "plugin tools") },
+      { id: "check", label: "Check", toolbar: (ctx) => React.createElement("span", null, `plugin tools as ${ctx.pluginId}`) },
       { id: "bare", label: "Bare" },
       { id: "untouched", label: "Untouched", toolbar: () => "alone" },
+      { id: "broken", label: "Broken", toolbar: () => "the plugin's still drawn" },
     ],
   });
   try {
     const modes = shellModes({
       id: "s",
       label: "S",
+      pluginId: "the-shell",
       layout: {
         modes: [{ id: "own", label: "Own" }],
         modeArrangements: {
-          check: { toolbar: () => React.createElement("span", null, "shell tools") },
+          check: { toolbar: (ctx) => React.createElement("span", null, `shell tools as ${ctx.pluginId}`) },
           bare: { toolbar: () => "shell only" },
+          broken: {
+            toolbar: () => {
+              throw new Error("the shell's bug");
+            },
+          },
         },
       },
-    });
-    const draw = (id: string) => {
-      const t = modes.find((m) => m.id === id)!.toolbar;
-      return t ? renderToStaticMarkup(React.createElement(React.Fragment, null, t({} as never))) : null;
-    };
-    assert.equal(draw("check"), "<span>plugin tools</span><span>shell tools</span>", "the plugin's, then the shell's");
+    } as never);
+    const by = (id: string) => modes.find((m) => m.id === id)!;
+    assert.equal(by("check").pluginId, "mode-plugin", "the mode stays the plugin's");
+    assert.equal(by("check").shellPluginId, "the-shell");
+    const ctxFor = (pluginId: string) => ({ pluginId }) as never;
+    const draw = (id: string) => renderToStaticMarkup(React.createElement(React.Fragment, null, ...modeTools(by(id), ctxFor)));
+    assert.equal(draw("check"), "<span>plugin tools as mode-plugin</span><span>shell tools as the-shell</span>");
     assert.equal(draw("bare"), "shell only", "a mode without tools of its own gets the shell's");
     assert.equal(draw("untouched"), "alone");
+
+    assert.equal(draw("broken"), "the plugin&#x27;s still drawn", "the shell's error leaves the plugin's tools drawn");
+    assert.match(String(getPlugin("the-shell")?.disabled), /the shell's bug/, "the error is the shell's");
+    assert.equal(getPlugin("mode-plugin")?.disabled, undefined, "the mode's plugin is not disabled for it");
   } finally {
     resetRegistry();
   }

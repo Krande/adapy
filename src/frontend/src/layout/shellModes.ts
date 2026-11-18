@@ -22,8 +22,14 @@ export interface ShellMode {
   ownsSceneColor?: boolean;
   /** False: core holds the FEA model undeformed while it is active. Default true. */
   showsDeformation?: boolean;
-  /** The mode's own controls (`PluginModeSpec.toolbar`). */
+  /** The mode's own controls (`PluginModeSpec.toolbar`), run as `pluginId`. */
   toolbar?: (ctx: AdaPluginContext) => React.ReactNode;
+  /** A shell's own controls for a plugin's mode (`modeArrangements[id].toolbar`), drawn after the
+   *  mode's: run as the shell (`shellPluginId`), never as the mode's plugin, and an error in them
+   *  is the shell's. */
+  shellToolbar?: (ctx: AdaPluginContext) => React.ReactNode;
+  /** The shell plugin `shellToolbar` runs as. */
+  shellPluginId?: string;
   /** Core toolbars drawn for the mode (`UiShellMode.toolbars`), before its own `toolbar`. */
   toolbars?: readonly string[];
   /** Offered only while this holds (`UiShellMode.requires`; `./modeRequirements`). */

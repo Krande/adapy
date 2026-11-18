@@ -4,7 +4,7 @@
 
 import React, {useSyncExternalStore} from "react";
 
-import {disablePlugin} from "@/plugins/registry";
+import {disablePlugin, type AdaPluginContext} from "@/plugins/registry";
 import {makePluginContext} from "@/plugins/context";
 import {useViewerStores} from "@/state/AdaViewerContext";
 import {usePluginTheme} from "@/state/themeStore";
@@ -88,20 +88,41 @@ export function ShellModeSwitcher({buttonClass = DEFAULT_BUTTON, className = "fl
  * a region core owns (`ModeToolbarRegion`): it fills the room beside it, left-aligned, and clips behind a "»"
  * menu rather than push its neighbours. `region={false}` draws the bare toolbars, for a shell that lays them out itself.
  */
+/**
+ * A mode's controls: its own (`toolbar`, run as the plugin that has the mode), then a shell's for it
+ * (`shellToolbar`, run as the shell). Each in its own context and its own try: what one throws
+ * disables the plugin it came from, and the other's are still drawn.
+ */
+export function modeTools(
+  mode: Pick<ShellMode, "id" | "toolbar" | "pluginId" | "shellToolbar" | "shellPluginId">,
+  contextFor: (pluginId: string) => AdaPluginContext,
+): React.ReactNode[] {
+  const parts: React.ReactNode[] = [];
+  const run = (
+    toolbar: ShellMode["toolbar"],
+    pluginId: string | undefined,
+    what: string,
+  ) => {
+    if (!toolbar || !pluginId) return;
+    try {
+      parts.push(<React.Fragment key={what}>{toolbar(contextFor(pluginId))}</React.Fragment>);
+    } catch (err) {
+      disablePlugin(pluginId, `mode "${mode.id}" ${what} threw: ${String(err)}`);
+    }
+  };
+  run(mode.toolbar, mode.pluginId, "toolbar");
+  run(mode.shellToolbar, mode.shellPluginId, "shell toolbar");
+  return parts;
+}
+
 export function ShellModeToolbar({region = true}: {region?: boolean}) {
   const {modes, active} = useShellMode();
   const stores = useViewerStores();
   const theme = usePluginTheme();
   const mode = modes.find((m) => m.id === active);
   if (!mode) return region ? <ModeToolbarRegion /> : null;
-  let own: React.ReactNode = null;
-  if (mode.toolbar && mode.pluginId) {
-    try {
-      own = mode.toolbar(makePluginContext(mode.pluginId, stores, theme));
-    } catch (err) {
-      disablePlugin(mode.pluginId, `mode "${mode.id}" toolbar threw: ${String(err)}`);
-    }
-  }
+  const tools = modeTools(mode, (pluginId) => makePluginContext(pluginId, stores, theme));
+  const own: React.ReactNode = tools.length ? <>{tools}</> : null;
   const core = mode.toolbars?.length ? <CoreModeToolbars ids={mode.toolbars} /> : null;
   if (!core && !own) return region ? <ModeToolbarRegion /> : null;
   const content = (

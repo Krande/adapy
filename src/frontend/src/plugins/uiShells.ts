@@ -73,7 +73,9 @@ export interface UiShellLayout {
    * capacity check's "capacity", say) - by mode id. Without one, such a mode
    * starts from the shell's arrangement (`grid` / `open` / `docks` above). Its
    * `toolbar` is the shell's own controls for that mode, drawn after the plugin's
-   * (a report of the check's results, say); it runs in the mode plugin's context.
+   * (a report of the check's results, say). It runs as the shell -- the shell's plugin
+   * context, not the mode plugin's -- and an error in it disables the shell, not the mode's
+   * plugin. Data the shell needs from the mode's plugin, that plugin exposes.
    */
   modeArrangements?: Record<string, Pick<UiShellMode, "grid" | "open" | "docks" | "viewportCover" | "toolbar">>;
   /**

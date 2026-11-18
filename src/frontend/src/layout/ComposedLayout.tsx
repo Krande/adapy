@@ -47,20 +47,6 @@ function readMode(shellId: string): string | null {
   }
 }
 
-type ModeToolbar = NonNullable<ShellMode["toolbar"]>;
-
-/** A plugin mode's toolbar, then the shell's own controls for it (`modeArrangements[id].toolbar`). */
-function withShellTools(own: ModeToolbar | undefined, shell: ModeToolbar | undefined): ModeToolbar | undefined {
-  if (!shell) return own;
-  if (!own) return shell;
-  return (ctx) => (
-    <>
-      {own(ctx)}
-      {shell(ctx)}
-    </>
-  );
-}
-
 /** The shell's modes, then the plugins' (only when the shell has modes at all). */
 export function shellModes(spec: UiShellSpec): ShellMode[] {
   const own = spec.layout?.modes ?? [];
@@ -94,7 +80,11 @@ export function shellModes(spec: UiShellSpec): ShellMode[] {
       ownsSceneColor: mode.ownsSceneColor,
       // A plugin's mode opts in to the deformed model; the shell's own modes keep the default (shown).
       showsDeformation: mode.showsDeformation ?? false,
-      toolbar: withShellTools(mode.toolbar, extra[mode.id]?.toolbar),
+      toolbar: mode.toolbar,
+      // The shell's controls for it run as the shell, apart from the mode's own (ShellModeToolbar).
+      ...(extra[mode.id]?.toolbar && shellPlugin
+        ? {shellToolbar: extra[mode.id]!.toolbar, shellPluginId: shellPlugin}
+        : {}),
     }));
   return [...mine, ...theirs];
 }
