@@ -504,6 +504,15 @@ def read_result_combination_terms(sin: SinFile) -> dict[int, CombinationRecipe]:
             )
             continue
         ires, recipe = parsed
+        if ires in out:
+            from ada.config import get_logger
+
+            get_logger().warning(
+                "RDRESCMB defines combination %s twice; the later record %s replaces %s",
+                ires,
+                recipe,
+                out[ires],
+            )
         out[ires] = recipe
     return out
 
@@ -514,8 +523,9 @@ def _combination_record(
     """``(IRES, recipe)`` of one ``RDRESCMB`` record, or None when it is not one.
 
     A genuine record (4.3.1.11) is ``[IRES, COMPLX, NRES, *NRES triplets]`` with
-    COMPLX 0 or 1, at least one term, and the triplets present (the last PHASE
-    may be cut, as before). Every term with a factor refers to a result case other
+    COMPLX 0 or 1, at least one term with a non-zero factor, and the triplets
+    present (the last PHASE may be cut, as before; a record with fewer words is
+    left out as a whole). Every term with a factor refers to a result case other
     than the combination itself and, when the file has an ``RDRESREF`` table
     (``defined``), to a case defined there. A word that fails any of these is
     not a recipe to superpose from, whatever the pointer table says.
@@ -541,6 +551,8 @@ def _combination_record(
         if basic == ires or (defined is not None and basic not in defined):
             return None
         terms.append((basic, factor, phase))
+    if not terms:
+        return None
     return ires, CombinationRecipe(complex=complx != 0, terms=tuple(terms))
 
 
