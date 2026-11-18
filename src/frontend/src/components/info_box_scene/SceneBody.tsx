@@ -265,19 +265,28 @@ const TabContent: React.FC<{tab: SceneTab; isMobile: boolean}> = ({tab, isMobile
                             <ModelStatsSection />
                             <StatsSection />
                         </CollapsibleSection>
+                        {/* ONE section for both kinds of group, each under its own heading: the
+                            groups a MODEL carries (its own design/FE sets, read-only and per
+                            model), and the viewer's OWN groups, named from a selection across
+                            models and saved in the scope (it was a section of its own, "Saved
+                            groups"). Not mixed into one list: the two are made and kept apart. */}
                         <CollapsibleSection title="Groups" defaultOpen={!isMobile}>
-                            <GroupsSection />
+                            <div className="flex flex-col gap-3">
+                                <div className="flex flex-col gap-1">
+                                    <div className={GROUP_KIND_HEADING}>In the models</div>
+                                    <GroupsSection />
+                                </div>
+                                {!isMirroredWindow() && (
+                                    <div className="flex flex-col gap-1">
+                                        <div className={GROUP_KIND_HEADING}>Saved in this scope</div>
+                                        <SavedGroupsSection />
+                                    </div>
+                                )}
+                            </div>
                         </CollapsibleSection>
-                        {/* The viewer's OWN groups, named from a selection across models and
-                            shared in the scope -- beside the groups a model carries, not mixed
-                            into that list, which is read-only and per model. */}
-                        {!isMirroredWindow() && (
-                            <CollapsibleSection title="Saved groups" defaultOpen={false}>
-                                <SavedGroupsSection />
-                            </CollapsibleSection>
-                        )}
-                        {/* Selection boxes beside the groups: both are ways of naming a selection. */}
-                        <CollapsibleSection title="Selection boxes" defaultOpen={!isMobile}>
+                        {/* Selection boxes beside the groups: both are ways of naming a selection.
+                            Folded until opened: most sessions have none. */}
+                        <CollapsibleSection title="Selection boxes" defaultOpen={false}>
                             <BBoxSelectionSection />
                         </CollapsibleSection>
                         {!isMirroredWindow() && (
@@ -305,5 +314,8 @@ const TabContent: React.FC<{tab: SceneTab; isMobile: boolean}> = ({tab, isMobile
                 ) : (
                     <JointsOverviewPanel />
                 );
+
+/** The heading of one kind of group inside the Groups section. */
+const GROUP_KIND_HEADING = "text-[10px] uppercase tracking-wide text-gray-500";
 
 export default SceneBody;
