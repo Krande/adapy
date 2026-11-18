@@ -20,6 +20,11 @@
  * draws the space in (utils/cellbuilder/blueprintColours); a legend names the
  * blueprints in use when there is more than one.
  *
+ * A plugin's refs (state/cellbuilder/refsSlice.ts) show as rows of their own under
+ * the row the tree puts them under: select, tick in or out of the build, rename and
+ * delete, each as the ref's plugin allows -- each goes to the plugin, which writes
+ * its own rows.
+ *
  * Shown inside the Build tab's "Cells & equipment" section, and on its own as the
  * `core:component-list` panel (`ComponentListBody`), so a shell can dock the list
  * apart from the builder.
@@ -42,7 +47,9 @@ import {
   type ItemNode,
   type ModelNode,
   type ModelView,
+  type RefNode,
 } from "@/utils/cellbuilder/modelTree";
+import {refColourCss} from "@/utils/cellbuilder/refColour";
 
 import {inputCls} from "./chrome";
 
@@ -222,6 +229,81 @@ const ItemRow: React.FC<{node: ItemNode}> = ({node}) => {
   );
 };
 
+/** A plugin's ref: its include checkbox, name (double-click to rename) and delete, as its
+ * plugin allows; a click selects it. */
+const RefRow: React.FC<{node: RefNode}> = ({node}) => {
+  const r = node.ref;
+  const s = useCellBuilderStore();
+  const selected = s.selection?.kind === "ref" && s.selection.refId === r.id;
+  const [renaming, setRenaming] = React.useState(false);
+  return (
+    <div
+      data-ref-row={r.id}
+      data-include-state={r.include ? "included" : "excluded"}
+      className={
+        "flex items-center gap-1 border-b border-gray-600/40 pb-0.5 cursor-pointer rounded-sm px-0.5 " +
+        (selected ? "bg-blue-900/40" : "hover:bg-gray-700/40")
+      }
+      style={indent(node.depth)}
+      onClick={() => s.setSelection({kind: "ref", refId: r.id})}
+    >
+      <FoldBlank />
+      <MarkCheckbox
+        mark={r.include ? "on" : "off"}
+        label={`Include ${r.name} in build`}
+        title={includeTitle(r.include)}
+        onChange={(on) => s.setRefIncluded(r.id, on)}
+      />
+      <span className={`flex min-w-0 flex-1 items-center gap-1 ${r.include ? "" : "opacity-50 line-through"}`}>
+        <Swatch colour={refColourCss(r)} title={r.kindLabel} />
+        {renaming ? (
+          <input
+            autoFocus
+            className={`${inputCls} min-w-0 flex-1`}
+            defaultValue={r.name}
+            aria-label={`Name of ${r.name}`}
+            onClick={(e) => e.stopPropagation()}
+            onBlur={(e) => {
+              setRenaming(false);
+              s.renameRef(r.id, e.target.value);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") e.currentTarget.blur();
+              if (e.key === "Escape") setRenaming(false);
+            }}
+          />
+        ) : (
+          <span
+            className="truncate"
+            title={r.edit.rename ? "Double-click to rename" : undefined}
+            onDoubleClick={(e) => {
+              if (!r.edit.rename) return;
+              e.stopPropagation();
+              setRenaming(true);
+            }}
+          >
+            {r.name}
+          </span>
+        )}
+        <span className="text-gray-400 truncate">{r.kindLabel}</span>
+      </span>
+      {r.edit.remove && (
+        <button
+          className="ml-auto px-1 rounded-sm hover:bg-gray-500/40"
+          title="Delete"
+          aria-label={`Delete ${r.name}`}
+          onClick={(e) => {
+            e.stopPropagation();
+            s.removeRef(r.id);
+          }}
+        >
+          🗑
+        </button>
+      )}
+    </div>
+  );
+};
+
 const GroupRow: React.FC<{node: GroupNode; children: React.ReactNode}> = ({node, children}) => {
   const s = useCellBuilderStore();
   const collapsed = useModelPanelViewStore((v) => Boolean(v.collapsed[node.key]));
@@ -320,6 +402,7 @@ const Nodes: React.FC<{nodes: ModelNode[]}> = ({nodes}) => (
       ) : (
         <GroupRow key={n.key} node={n}>
           <Nodes nodes={n.children} />
+          {n.refs?.map((r) => <RefRow key={r.key} node={r} />)}
         </GroupRow>
       ),
     )}
@@ -336,8 +419,12 @@ export const ComponentList: React.FC<{maxHeightClass?: string; showViewSelector?
   const cells = useCellBuilderStore((s) => s.cells);
   const groups = useCellBuilderStore((s) => s.groups);
   const loftMembers = useCellBuilderStore((s) => s.loftMembers);
+  const refMap = useCellBuilderStore((s) => s.refs);
   const view = useModelPanelViewStore((s) => s.view);
-  const nodes = React.useMemo(() => buildModelTree(view, {cells, groups, loftMembers}), [view, cells, groups, loftMembers]);
+  const nodes = React.useMemo(
+    () => buildModelTree(view, {cells, groups, loftMembers, refs: Object.values(refMap)}),
+    [view, cells, groups, loftMembers, refMap],
+  );
   const empty = Object.keys(cells).length === 0;
   return (
     <div className="flex min-h-0 flex-col gap-1" data-component-list="" data-model-view-active={view}>

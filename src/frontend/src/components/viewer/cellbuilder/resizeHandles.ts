@@ -19,6 +19,7 @@ import {HANDLE_AXIS_COLOR} from "./sceneConstants";
 import type {CellBuilderScene} from "./sceneContext";
 import {reconcileModalMove, reconcileMoveMeasure} from "./cellGizmo";
 import {syncCellDimensions} from "./cellDimensions";
+import {boxMoves, selectedBox} from "./gizmoBox";
 
 
 /**
@@ -77,16 +78,16 @@ export const disposeResizeHandles =(ctx: CellBuilderScene) => {
 export const rebuildResizeHandles = (ctx: CellBuilderScene) => {
     disposeResizeHandles(ctx);
     const st = useCellBuilderStore.getState();
-    const sel = st.selection;
-    const cell = sel ? st.cells[sel.cellId] : null;
+    const box = selectedBox(st);
+    const cell = box;
     // Spaces, openings and equipment resize; a loft band, or an equipment box fitted
-    // to its CAD model, does not (cellResize.ts says why).
-    const show = !!(
-        st.active && st.gizmoMode === "resize" && cell && st.cellsVisible && resizable(ctx, cell)
-    );
+    // to its CAD model, does not (cellResize.ts says why). A ref resizes when its plugin allows it.
+    const takes = box ? (box.ref ? box.ref.edit.resize : !!box.cell && resizable(ctx, box.cell)) : false;
+    const show = !!(st.active && st.gizmoMode === "resize" && cell && st.cellsVisible && takes);
     ctx.resizeGroup.visible = show;
     // A rotated equipment's handles and dimensions sit in its own (rotated) frame.
-    const frame = cell ? boxFrameMatrix(cell, cell.kind === "equipment" ? cell.rotation : null) : new THREE.Matrix4();
+    const rotation = box?.cell?.kind === "equipment" ? box.cell.rotation : null;
+    const frame = cell ? boxFrameMatrix(cell, rotation) : new THREE.Matrix4();
     ctx.resizeGroup.matrixAutoUpdate = false;
     ctx.resizeGroup.matrix.copy(frame);
     const r = cell ? Math.max(0.15, 0.1 * Math.min(cell.size[0], cell.size[1], cell.size[2])) : 0;
@@ -109,7 +110,8 @@ export const rebuildResizeHandles = (ctx: CellBuilderScene) => {
         mesh.position.set(c[0], c[1], c[2]);
         mesh.renderOrder = 3;
         mesh.userData.__resizeFace = fi;
-        mesh.userData.__cellId = cell.id;
+        if (box?.ref) mesh.userData.__refId = cell.id;
+        else mesh.userData.__cellId = cell.id;
         ctx.resizeGroup.add(mesh);
     }
     // With the handles in: a pointer that raycasts them before the next render finds them in the frame.
@@ -122,16 +124,16 @@ export const syncGizmo = (ctx: CellBuilderScene) => {
     const st = useCellBuilderStore.getState();
     const runtimeCam = getViewerRuntime().camera.current;
     if (runtimeCam) ctx.gizmo.camera = runtimeCam;
-    const sel = st.selection;
-    const cell = sel ? st.cells[sel.cellId] : null;
+    const box = selectedBox(st);
+    const cell = box;
     // Translate works for every kind — including a loft band, whose gizmo
     // moves the whole member (see the loft branch in objectChange). The
-    // proxy still seeds from the band's bounding-box centre below.
-    const translateOn = !!(st.active && st.gizmoMode === "translate" && cell && st.cellsVisible);
+    // proxy still seeds from the band's bounding-box centre below. A ref
+    // moves when its plugin allows it.
+    const translateOn = !!(st.active && st.gizmoMode === "translate" && box && boxMoves(box) && st.cellsVisible);
     // Rotate is equipment-only — spaces stay axis-aligned lattice boxes.
-    const rotateOn = !!(
-        st.active && st.gizmoMode === "rotate" && cell && cell.kind === "equipment" && st.cellsVisible
-    );
+    const equipment = box?.cell?.kind === "equipment" ? box.cell : null;
+    const rotateOn = !!(st.active && st.gizmoMode === "rotate" && equipment && st.cellsVisible);
     if (translateOn && cell) {
         // With vertex magnetism on, let the widget move continuously so the
         // snap in objectChange (corner-to-corner, or axis-locked) fully owns
@@ -149,7 +151,8 @@ export const syncGizmo = (ctx: CellBuilderScene) => {
         if (ctx.gizmo.object !== ctx.gizmoProxy) ctx.gizmo.attach(ctx.gizmoProxy);
         ctx.gizmo.setMode("translate");
         ctx.gizmoHelper.visible = true;
-    } else if (rotateOn && cell) {
+    } else if (rotateOn && equipment) {
+        const cell = equipment;
         // Rings snap to 15°; the manual panel supplies exact angles. The
         // proxy sits at the footprint centre (the compiler's pivot) and is
         // seeded from the cell's current rotation so the gizmo starts aligned.

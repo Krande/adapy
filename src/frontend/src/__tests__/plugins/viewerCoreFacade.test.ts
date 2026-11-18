@@ -148,6 +148,8 @@ test("the root entry point re-exports only the dependency-free leaves", () => {
     "@/utils/cellbuilder/modelTree",
     "@/utils/cellbuilder/include",
     "@/utils/cellbuilder/blueprintColours",
+    // The builder refs' types (type-only here; the module's own imports are types too).
+    "@/state/cellbuilder/refsSlice",
   ];
   const specs = importSpecifiers(readFileSync(join(facadeDir, "index.ts"), "utf8"));
   const offenders = specs.filter((s) => !DEP_FREE_LEAVES.includes(s));

@@ -141,6 +141,12 @@ export interface SelectionSlice {
   selectCells: (ids: readonly string[]) => void;
 }
 
+/** Whether two picks are of the same cell, or of the same ref. */
+const sameTarget = (a: BuilderSelection, b: BuilderSelection): boolean =>
+  a.kind === "ref" || b.kind === "ref"
+    ? a.kind === "ref" && b.kind === "ref" && a.refId === b.refId
+    : a.cellId === b.cellId;
+
 export const createSelectionSlice: CellBuilderSlice<SelectionSlice> = (set, get) => {
   return {
     mode: "idle",
@@ -185,10 +191,11 @@ export const createSelectionSlice: CellBuilderSlice<SelectionSlice> = (set, get)
     setSelection: (selection) => {
       set((s) => ({
         selection,
-        // A single pick resets the multi-select set to just this cell.
-        selectedCellIds: selection ? [selection.cellId] : [],
+        // A single pick resets the multi-select set to just this cell. A ref is
+        // no cell: picking one empties the set.
+        selectedCellIds: selection?.cellId ? [selection.cellId] : [],
         gizmoMode:
-          selection && s.selection && selection.cellId === s.selection.cellId
+          selection && s.selection && sameTarget(selection, s.selection)
             ? s.gizmoMode
             : "none",
         // A new pick drops any axis constraint from the previous gizmo session.
@@ -264,7 +271,8 @@ export const createSelectionSlice: CellBuilderSlice<SelectionSlice> = (set, get)
     cycleSelectMode: (dir) =>
       set((s) => {
         const sel = s.selection;
-        if (!sel) return {};
+        // A ref has no faces or edges to cycle through.
+        if (!sel || sel.kind === "ref") return {};
         const order: SelectMode[] = ["cell", "face", "edge"];
         const i = order.indexOf(sel.kind);
         const mode = order[(((i < 0 ? 0 : i) + dir) % 3 + 3) % 3];
@@ -281,7 +289,7 @@ export const createSelectionSlice: CellBuilderSlice<SelectionSlice> = (set, get)
     cycleSelectionElement: (dir) =>
       set((s) => {
         const sel = s.selection;
-        if (!sel) return {};
+        if (!sel || sel.kind === "ref") return {};
         const cell = s.cells[sel.cellId];
         if (!cell) return {};
         // Loft band: cycle between the member's bays (its stations).

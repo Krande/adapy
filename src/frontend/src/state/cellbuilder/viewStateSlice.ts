@@ -106,7 +106,7 @@ export const createViewStateSlice: CellBuilderSlice<ViewStateSlice> = (set, get)
         // selected (its box is now click-through) — drop it from the
         // multi-select set and clear the primary selection when it's hidden.
         for (const id of ids) if (s.cells[id]) next.add(id);
-        const selHidden = s.selection && next.has(s.selection.cellId);
+        const selHidden = !!s.selection?.cellId && next.has(s.selection.cellId);
         return {
           hiddenCellIds: [...next],
           selectedCellIds: s.selectedCellIds.filter((id) => !next.has(id)),

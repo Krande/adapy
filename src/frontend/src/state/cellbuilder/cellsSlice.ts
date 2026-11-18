@@ -238,7 +238,7 @@ export const createCellsSlice: CellBuilderSlice<CellsSlice> = (set, get) => {
     bumpSelectedFloor: (delta) =>
       withHistory((s) => {
         const sel = s.selection;
-        if (!sel) return {};
+        if (!sel?.cellId) return {};
         const cell = s.cells[sel.cellId];
         // Equipment and openings ride on a floor; a space cell defines the
         // floors itself, so it doesn't bump.
@@ -280,7 +280,7 @@ export const createCellsSlice: CellBuilderSlice<CellsSlice> = (set, get) => {
           ? { ...cell.params, SPACE_NAME: host.name }
           : cell.params;
         return {
-          cells: { ...s.cells, [sel.cellId]: { ...cell, origin, params } },
+          cells: { ...s.cells, [cell.id]: { ...cell, origin, params } },
           dirty: true,
         };
       }),

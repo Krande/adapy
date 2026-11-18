@@ -124,15 +124,29 @@ export interface ModelSnapshot {
   docExtras: Record<string, unknown>;
 }
 
-/** Current pick: a whole cell, one of its 6 faces (BoxGeometry materialIndex),
+/** A pick of a cell: the whole cell, one of its 6 faces (BoxGeometry materialIndex),
  * or a face border edge (full descriptor, so its endpoints re-derive from the
  * live box through resizes). */
-export interface BuilderSelection {
+export interface CellSelection {
   kind: "cell" | "face" | "edge";
   cellId: string;
   faceIndex?: number;
   edge?: EdgeHit;
 }
+
+/** A pick of a plugin's builder ref (state/cellbuilder/refsSlice.ts): a box a plugin shows
+ * among the cells for a row of its own. It names no cell, so code that looks a cell up by
+ * `cellId` finds none and leaves it be. */
+export interface RefSelection {
+  kind: "ref";
+  refId: string;
+  cellId?: undefined;
+  faceIndex?: undefined;
+  edge?: undefined;
+}
+
+/** Current pick: a cell (whole, face or edge) or a plugin's builder ref. */
+export type BuilderSelection = CellSelection | RefSelection;
 
 /** What a plain click picks: nothing, the whole cell, the face under the
  * cursor, or the nearest border edge of that face. Selection is explicit —

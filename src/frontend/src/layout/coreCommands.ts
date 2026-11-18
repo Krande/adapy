@@ -154,7 +154,7 @@ type GizmoKind = "translate" | "rotate" | "resize";
 
 /** The kind of the selected builder component, or null with none. */
 function selectedComponentKind(s: BuilderState): "cell" | "equipment" | "loft" | "opening" | null {
-  return s.selection ? (s.cells[s.selection.cellId]?.kind ?? null) : null;
+  return s.selection?.cellId ? (s.cells[s.selection.cellId]?.kind ?? null) : null;
 }
 
 /** Which components a gizmo works on (the G / R / S keys): rotate is for equipment; resize
@@ -167,7 +167,7 @@ const GIZMO_TARGETS: Readonly<Record<GizmoKind, {kinds: readonly string[]; need:
 
 /** Why the resize gizmo refuses the selected component (a loft band, a CAD-fitted equipment), or null. */
 function resizeRefusedFor(s: BuilderState): string | null {
-  const cell = s.selection ? s.cells[s.selection.cellId] : undefined;
+  const cell = s.selection?.cellId ? s.cells[s.selection.cellId] : undefined;
   return cell ? resizeRefusal(cell.kind, {cadFitted: equipmentCadFitted(cell, s)}) : null;
 }
 

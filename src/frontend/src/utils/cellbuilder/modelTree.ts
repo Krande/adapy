@@ -17,9 +17,17 @@
  * and an include MARK for its checkbox: a structure's is the structure's own
  * INCLUDE (the Structures sheet), a space's or a gathering row's is the cascade
  * over the own flags of what it holds -- on, off, or mixed.
+ *
+ * A plugin's refs (state/cellbuilder/refsSlice.ts), when given, hang off the group
+ * rows as `refs`, not among `children`: a ref goes under its space when it names a
+ * space cell, else under its structure, else (a ref for every structure, "*", or for
+ * a structure the model does not have) under a trailing "All structures" row. In the
+ * flat view they gather under a trailing "Other" row. A panel that draws no refs
+ * draws the tree as it was.
  */
 
 import type {BuilderCell} from "@/state/cellbuilder/types";
+import type {BuilderRef} from "@/state/cellbuilder/refsSlice";
 import {isGroupIncluded, type CellGroup} from "./groups";
 import {isItemIncluded, itemCell, itemIncludeState, itemStructure, type IncludeState} from "./include";
 
@@ -59,8 +67,9 @@ export interface GroupNode {
   type: "group";
   key: string;
   /** structure: a defined structure; none: "No structure"; cell: a space;
-   * unassigned: a structure's components placed in no space. */
-  kind: "structure" | "none" | "cell" | "unassigned";
+   * unassigned: a structure's components placed in no space; all: the plugins' refs
+   * for every structure or for one the model lacks; other: the refs in the flat view. */
+  kind: "structure" | "none" | "cell" | "unassigned" | "all" | "other";
   label: string;
   group: CellGroup | null;
   cell: BuilderCell | null;
@@ -73,6 +82,16 @@ export interface GroupNode {
   state: IncludeState;
   depth: number;
   children: ModelNode[];
+  /** The plugins' refs placed under this row, after its children; absent when none. */
+  refs?: RefNode[];
+}
+
+/** A plugin's ref in the tree, under a group row's `refs`. */
+export interface RefNode {
+  type: "ref";
+  key: string;
+  ref: BuilderRef;
+  depth: number;
 }
 
 export type ModelNode = ItemNode | GroupNode;
@@ -81,10 +100,14 @@ export interface ModelTreeInput {
   cells: Record<string, BuilderCell>;
   groups: readonly CellGroup[];
   loftMembers?: readonly {NAME: string; STRUCTURE_NAME?: string}[];
+  /** The plugins' refs, placed as `refs` on the group rows. */
+  refs?: readonly BuilderRef[];
 }
 
 export const NO_STRUCTURE_LABEL = "No structure";
 export const UNASSIGNED_LABEL = "Unassigned";
+export const ALL_STRUCTURES_LABEL = "All structures";
+export const OTHER_LABEL = "Other";
 
 const KIND_RANK: Record<BuilderCell["kind"], number> = {cell: 0, loft: 1, equipment: 2, opening: 3};
 
@@ -102,7 +125,7 @@ export function nodeItemIds(node: ModelNode): string[] {
   return node.type === "item" ? [node.cell.id] : node.itemIds;
 }
 
-export function buildModelTree(view: ModelView, input: ModelTreeInput): ModelNode[] {
+function buildCellTree(view: ModelView, input: ModelTreeInput): ModelNode[] {
   const {cells, groups} = input;
   const loftMembers = input.loftMembers ?? [];
   const all = Object.values(cells);
@@ -208,4 +231,56 @@ export function buildModelTree(view: ModelView, input: ModelTreeInput): ModelNod
     });
   }
   return out;
+}
+
+/** Hang the plugins' refs off the rows of `nodes` (see the header). */
+function placeRefs(view: ModelView, nodes: ModelNode[], refs: readonly BuilderRef[]): ModelNode[] {
+  if (!refs.length) return nodes;
+  const add = (row: GroupNode, ref: BuilderRef) => {
+    (row.refs ??= []).push({type: "ref", key: `ref:${ref.id}`, ref, depth: row.depth + 1});
+  };
+  const trailing = (kind: "all" | "other", label: string, list: readonly BuilderRef[]): GroupNode => {
+    const on = list.filter((r) => r.include).length;
+    const row: GroupNode = {
+      type: "group",
+      key: `${kind}:`,
+      kind,
+      label,
+      group: null,
+      cell: null,
+      structure: undefined,
+      itemIds: [],
+      include: on === list.length ? "on" : on === 0 ? "off" : "mixed",
+      state: "included",
+      depth: 0,
+      children: [],
+    };
+    for (const r of list) add(row, r);
+    return row;
+  };
+  if (view === "flat") return [...nodes, trailing("other", OTHER_LABEL, refs)];
+
+  const spaces = new Map<string, GroupNode>();
+  const structures = new Map<string, GroupNode>();
+  const walk = (list: readonly ModelNode[]) => {
+    for (const n of list) {
+      if (n.type !== "group") continue;
+      if (n.kind === "cell" && n.cell && !spaces.has(n.cell.name)) spaces.set(n.cell.name, n);
+      if (n.kind === "structure" && n.group) structures.set(n.group.name, n);
+      walk(n.children);
+    }
+  };
+  walk(nodes);
+  const everywhere: BuilderRef[] = [];
+  for (const ref of refs) {
+    const row = (ref.space ? spaces.get(ref.space) : undefined)
+      ?? (ref.structure && ref.structure !== "*" ? structures.get(ref.structure) : undefined);
+    if (row) add(row, ref);
+    else everywhere.push(ref);
+  }
+  return everywhere.length ? [...nodes, trailing("all", ALL_STRUCTURES_LABEL, everywhere)] : nodes;
+}
+
+export function buildModelTree(view: ModelView, input: ModelTreeInput): ModelNode[] {
+  return placeRefs(view, buildCellTree(view, input), input.refs ?? []);
 }

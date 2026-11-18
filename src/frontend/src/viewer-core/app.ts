@@ -216,3 +216,8 @@ export { default as SystemsPanel } from "@/components/asset_browser/SystemsTab";
 export { default as RelatedSection } from "@/components/info_box_selected_object/RelatedSection";
 export { useRelatedActions } from "@/hooks/useRelatedActions";
 export type { RelatedAction } from "@/utils/systems/relatedActions";
+
+// Builder refs (1.30.0): a plugin's or a shell's rows shown as boxes among the cell builder's
+// cells, picked, moved and resized like them, each edit handed back to the provider. Returns the
+// unregister. A plugin has the same through `ctx.scene.registerBuilderRefs`.
+export { builderRefId, registerBuilderRefs } from "@/plugins/builderRefs";

@@ -48,6 +48,7 @@ import { makePluginSimulations } from "./pluginSimulations";
 import { endScenePicks, pickObjects } from "./scenePicks";
 import { placeBox } from "./sceneBox";
 import { contactBetween } from "./sceneContact";
+import { registerBuilderRefs, releaseBuilderRefs } from "./builderRefs";
 import { releaseFeaDeformation, setFeaDeformationShown } from "@/utils/scene/fea/deformationGate";
 import { releaseFeaUnpaintedColor, setFeaUnpaintedColor } from "@/utils/scene/fea/unpaintedColor";
 import { findFaces, focusFace } from "@/utils/mesh_select/faceSearch";
@@ -109,6 +110,7 @@ function makeSceneHandle(): SceneHandle {
         endScenePicks(owner);
         releaseFeaDeformation(owner);
         releaseFeaUnpaintedColor(owner);
+        releaseBuilderRefs(owner);
         usePluginColorScaleStore.getState().show(owner, null);
       }
       requestRender();
@@ -217,6 +219,7 @@ function makeSceneHandle(): SceneHandle {
     placeBox,
     contactBetween,
     selectionBoxes,
+    registerBuilderRefs,
   };
 }
 

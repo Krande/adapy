@@ -94,7 +94,7 @@ export const SelectionSection: React.FC<{ selection: BuilderSelection }> = ({
   // Deliberately no re-open on a new pick: clicking another cell must not
   // force-expand a section the user has collapsed. The collapse state persists.
 
-  const cell = cells[selection.cellId];
+  const cell = selection.kind === "ref" ? undefined : cells[selection.cellId];
   if (!cell) return null;
 
   const side =

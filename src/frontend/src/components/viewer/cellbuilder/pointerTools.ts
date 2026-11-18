@@ -24,15 +24,19 @@ import {viewportInputElement} from "@/viewport/input";
 import {snapStep} from "@/utils/gizmo/freeMove";
 import {isAdditiveClick} from "@/utils/mesh_select/additiveClick";
 import {claimPress} from "./cellBoxSelect";
+import {boxTarget, writeBox, type GizmoBox} from "./gizmoBox";
 
-export const startFaceDrag = (ctx: CellBuilderScene, cell: BuilderCell, faceIndex: number, ev: PointerEvent, immediate: boolean): boolean => {
-    // A loft band or a CAD-fitted equipment box is not resized (cellResize.ts).
-    if (!resizable(ctx, cell)) return false;
+export const startFaceDrag = (ctx: CellBuilderScene, box: GizmoBox, faceIndex: number, ev: PointerEvent, immediate: boolean): boolean => {
+    // A loft band or a CAD-fitted equipment box is not resized (cellResize.ts); a ref only
+    // when its plugin allows it.
+    if (box.ref ? !box.ref.edit.resize : !box.cell || !resizable(ctx, box.cell)) return false;
     const side = BOX_FACE_SIDES[faceIndex];
     if (!side) return false;
+    const cell = box;
     // A rotated equipment's faces move along its own axes: the drag line runs through
     // its (rotated) centre along the turned axis.
-    const rotation = cell.kind === "equipment" && isRotated(cell.rotation) ? ([...cell.rotation] as Vec3) : undefined;
+    const rot = box.cell?.kind === "equipment" ? box.cell.rotation : undefined;
+    const rotation = rot && isRotated(rot) ? ([...rot] as Vec3) : undefined;
     const frame = boxFrameMatrix(cell, rotation);
     const center = new THREE.Vector3(
         cell.origin[0] + cell.size[0] / 2,
@@ -46,6 +50,7 @@ export const startFaceDrag = (ctx: CellBuilderScene, cell: BuilderCell, faceInde
     if (startT === null) return false;
     ctx.drag = {
         cellId: cell.id,
+        ref: !!box.ref,
         faceIndex,
         axis: side.axis,
         positiveFace: side.positive,
@@ -132,6 +137,23 @@ export const pickBuilderMesh = (ctx: CellBuilderScene): THREE.Intersection | nul
     const meshes = [...ctx.meshById.values()].filter((m) => m.visible);
     const hits = ctx.raycaster.intersectObjects(meshes, false);
     return hits.length ? hits[0] : null;
+};
+
+/** The nearest of the plugins' refs under the pointer (see `refHitWins` for one over a cell). */
+export const pickRefMesh = (ctx: CellBuilderScene): THREE.Intersection | null => {
+    if (!ctx.refsGroup.visible) return null;
+    const hits = ctx.raycaster.intersectObjects([...ctx.refMeshById.values()], false);
+    return hits.length ? hits[0] : null;
+};
+
+/** Whether a click on both a ref and a cell picks the ref. A ref drawn as a box or a face picks
+ *  first, wherever it is: it sits on or inside a space, whose faces would otherwise always be
+ *  nearer. A ref drawn like a space is a volume itself, so the nearer of the two picks. */
+export const refHitWins = (ctx: CellBuilderScene, refHit: THREE.Intersection | null, cellHit: THREE.Intersection | null): boolean => {
+    if (!refHit) return false;
+    if (!cellHit) return true;
+    const ref = useCellBuilderStore.getState().refs[refHit.object.userData.__refId as string];
+    return ref?.look !== "space" || refHit.distance <= cellHit.distance;
 };
 
 export const syncCursor = (ctx: CellBuilderScene) => {
@@ -274,8 +296,8 @@ export const onPointerDown = (ctx: CellBuilderScene, ev: PointerEvent) => {
             const hits = ctx.raycaster.intersectObjects(ctx.resizeGroup.children, false);
             if (hits.length) {
                 const fi = hits[0].object.userData.__resizeFace as number;
-                const cellId = hits[0].object.userData.__cellId as string;
-                const cell = st.cells[cellId];
+                const refId = hits[0].object.userData.__refId as string | undefined;
+                const cell = refId ? boxTarget(st, refId, true) : boxTarget(st, hits[0].object.userData.__cellId as string);
                 if (cell && startFaceDrag(ctx, cell, fi, ev, true)) {
                     clearLongPress(ctx);
                     ev.stopPropagation();
@@ -287,7 +309,7 @@ export const onPointerDown = (ctx: CellBuilderScene, ev: PointerEvent) => {
         if ((st.gizmoMode === "translate" || st.gizmoMode === "rotate") && ctx.gizmo.axis) return;
         // Missed the handles: over a cell body do nothing (let it orbit);
         // over empty space, arm an exit resolved as a tap on pointerup.
-        if (!pickBuilderMesh(ctx)) {
+        if (!pickBuilderMesh(ctx) && !pickRefMesh(ctx)) {
             ctx.pendingGizmoExit = {x: ev.clientX, y: ev.clientY};
         }
         return;
@@ -297,10 +319,13 @@ export const onPointerDown = (ctx: CellBuilderScene, ev: PointerEvent) => {
     // select/drag, let the camera controls handle the pointer.
     if (st.selectMode === "none") return;
 
-    const hit = pickBuilderMesh(ctx);
+    const cellHit = pickBuilderMesh(ctx);
+    const refHit = pickRefMesh(ctx);
+    const isRef = refHitWins(ctx, refHit, cellHit);
+    const hit = isRef ? refHit : cellHit;
     if (!hit || !hit.face) return;
-    const cellId = hit.object.userData.__cellId as string;
-    const cell = st.cells[cellId];
+    const cellId = (isRef ? hit.object.userData.__refId : hit.object.userData.__cellId) as string;
+    const cell = boxTarget(st, cellId, isRef);
     if (!cell) return;
 
     // Face-drag resizing is opt-in. When it's OFF, never grab or stop the
@@ -308,7 +333,7 @@ export const onPointerDown = (ctx: CellBuilderScene, ev: PointerEvent) => {
     // over a cell — orbits the camera. A no-travel tap still selects, via
     // pendingSelect resolved on pointerup.
     if (!st.faceDragResize) {
-        ctx.pendingSelect = {cellId, faceIndex: hit.face.materialIndex, x: ev.clientX, y: ev.clientY};
+        ctx.pendingSelect = {cellId, ref: isRef, faceIndex: hit.face.materialIndex, x: ev.clientX, y: ev.clientY};
         return;
     }
 
@@ -318,16 +343,21 @@ export const onPointerDown = (ctx: CellBuilderScene, ev: PointerEvent) => {
     // A component that does not resize (a loft band, a CAD-fitted box) still selects
     // on a tap, as with face-drag resizing off.
     if (!startFaceDrag(ctx, cell, hit.face.materialIndex, ev, false)) {
-        ctx.pendingSelect = {cellId, faceIndex: hit.face.materialIndex, x: ev.clientX, y: ev.clientY};
+        ctx.pendingSelect = {cellId, ref: isRef, faceIndex: hit.face.materialIndex, x: ev.clientX, y: ev.clientY};
         return;
     }
     ev.stopPropagation();
 };
 
-export const resolveClickSelection = (ctx: CellBuilderScene, target: {cellId: string; faceIndex: number}, ev: PointerEvent) => {
+export const resolveClickSelection = (ctx: CellBuilderScene, target: {cellId: string; ref?: boolean; faceIndex: number}, ev: PointerEvent) => {
     const st = useCellBuilderStore.getState();
     // "none" mode: a plain click selects nothing (free navigation).
     if (st.selectMode === "none") return;
+    // A ref is picked whole, whatever the select mode: it has no faces or edges of its own to edit.
+    if (target.ref) {
+        if (st.refs[target.cellId]) st.setSelection({kind: "ref", refId: target.cellId});
+        return;
+    }
     const cell = st.cells[target.cellId];
     if (!cell) return;
 
@@ -388,7 +418,7 @@ export const onPointerMove = (ctx: CellBuilderScene, ev: PointerEvent) => {
     // axis, no button held. First move seeds the reference (no jump) and opens
     // one undo step; later moves slide the cell (with vertex snapping).
     if (ctx.modalMove && st.gizmoMode === "translate" && st.gizmoAxisLock === ctx.modalMove.axis) {
-        const cell = st.cells[ctx.modalMove.cellId];
+        const cell = boxTarget(st, ctx.modalMove.cellId, ctx.modalMove.ref);
         if (!cell) {
             endModalMove(ctx, false);
             return;
@@ -399,14 +429,15 @@ export const onPointerMove = (ctx: CellBuilderScene, ev: PointerEvent) => {
                 ctx.modalMove.startT = t;
                 st.beginTransaction();
                 // Capture the equipment riding along with this cell.
-                ctx.translateEquip = equipContainedIn(ctx, cell);
+                ctx.translateEquip = cell.cell ? equipContainedIn(ctx, cell.cell) : [];
             } else {
                 const axis = ctx.modalMove.axis;
                 const center = cellCenterModel(ctx, cell);
                 const startCenterAxis = ctx.modalMove.startBox.origin[axis] + ctx.modalMove.startBox.size[axis] / 2;
                 center[axis] = startCenterAxis + (t - ctx.modalMove.startT);
                 const {origin, target} = computeMove(ctx, cell, center, [axis]);
-                applyCellTranslate(ctx, cell, origin);
+                if (cell.cell) applyCellTranslate(ctx, cell.cell, origin);
+                else writeBox(cell, {origin, size: cell.size});
                 showSnapMarker(ctx, target);
             }
         }
@@ -441,7 +472,9 @@ export const onPointerMove = (ctx: CellBuilderScene, ev: PointerEvent) => {
         // Only the dragged face moves; free move (left Shift held) does not snap it.
         const offset = quantize(t - ctx.drag.startT, snapStep(st.gridStep));
         const next = resizeBoxFace(ctx.drag.startBox, ctx.drag.rotation, ctx.drag.axis, ctx.drag.positiveFace, offset, st.gridStep || 0.1);
-        st.updateCell(ctx.drag.cellId, {origin: next.origin, size: next.size});
+        // A ref's new box goes to its plugin (gizmoBox.ts).
+        if (ctx.drag.ref) writeBox({id: ctx.drag.cellId, ref: st.refs[ctx.drag.cellId] ?? null}, next);
+        else st.updateCell(ctx.drag.cellId, {origin: next.origin, size: next.size});
         ev.stopPropagation();
         return;
     }
@@ -465,7 +498,7 @@ export const onPointerMove = (ctx: CellBuilderScene, ev: PointerEvent) => {
         const overCell =
             st.selectMode !== "none" &&
             st.gizmoMode === "none" &&
-            pickBuilderMesh(ctx) !== null;
+            (pickBuilderMesh(ctx) !== null || pickRefMesh(ctx) !== null);
         viewportInputElement(ctx.renderer).style.cursor =
             overCell ? (st.selectMode === "edge" ? "crosshair" : "pointer") : "";
     }

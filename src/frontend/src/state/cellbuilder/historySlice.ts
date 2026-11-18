@@ -28,11 +28,13 @@ export function snapshot(s: CellBuilderState): ModelSnapshot {
 }
 
 /** After an undo/redo restores a snapshot, drop a selection pointing at a cell
- * that no longer exists. */
+ * that no longer exists. A ref selection is kept here: the refs are projected again
+ * from the restored doc, and that projection drops a pick of a ref that went (refsSlice). */
 export function pruneSelection(
   sel: BuilderSelection | null,
   cells: Record<string, BuilderCell>,
 ): BuilderSelection | null {
+  if (sel?.kind === "ref") return sel;
   return sel && cells[sel.cellId] ? sel : null;
 }
 

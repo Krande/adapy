@@ -271,7 +271,19 @@ export type { SelectedObjectBox } from "@/viewport/api/viewportApi";
 //          engine's own doc list (a key the builder does not own, e.g. `modifications`) as one
 //          undo step that dirties the model and is committed with it; `docExtras` holds them.
 //          Additive: an older core has no `selectionBoxes`, so a plugin asks for it first.
-export const PLUGIN_API_VERSION = "1.29.0";
+// 1.30.0 — builder refs: a plugin's rows shown as boxes among the cell builder's cells
+//          (`ctx.scene.registerBuilderRefs(provider)`, and `registerBuilderRefs` on
+//          `@/viewer-core/app`). The provider's `project(docExtras, cells)` makes the refs (id
+//          `owner:key`, name, kind label, box in the model frame, structure / space, include,
+//          look, what may be edited, colour); the builder store holds them as `refs`, projected
+//          again when the doc's extras or the cells change. The builder draws them, puts them in
+//          its model tree (`GroupNode.refs`), picks them (`BuilderSelection` kind "ref"), and moves
+//          and resizes them with the cells' gizmos and snapping; each edit is handed back
+//          (`setIncluded`, `rename`, `remove`, `write`) for the plugin to write with
+//          `setDocExtra`. `SelectionSnapshot` kind "ref" with `refOwner` / `refKey`, and the
+//          `structure` / `space` a builder selection belongs to. Additive: an older core has no
+//          `registerBuilderRefs`, so a plugin asks for it first.
+export const PLUGIN_API_VERSION = "1.30.0";
 
 /** What the Simulations panel writes on a run's open-result button. */
 export function openResultButtonLabel(

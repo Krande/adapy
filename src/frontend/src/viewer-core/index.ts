@@ -703,7 +703,16 @@
 //          `setDocExtra(key, value)` (state/cellbuilder/documentSlice.ts): a shell edits an engine's
 //          own doc list (a key the builder does not own, e.g. `modifications`) as one undo step that
 //          dirties the model and is committed with it; `docExtras` holds them.
-export const VIEWER_CORE_API_VERSION = "1.29.0";
+//   1.30.0 Kept in step with PLUGIN_API_VERSION 1.30.0. Additive: builder refs -- a plugin's rows
+//          shown as boxes among the cell builder's cells. `registerBuilderRefs(provider)` and
+//          `builderRefId` on `/app` (and `ctx.scene.registerBuilderRefs`); the types `BuilderRef`,
+//          `BuilderRefEdit`, `BuilderRefProvider`, `BuilderRefSpec` and the tree's `RefNode` here.
+//          The builder store's `refs` (projected, never set) and `setRefIncluded` / `renameRef` /
+//          `removeRef` / `writeRef`; `BuilderSelection` kind "ref" (`refId`; no `cellId`).
+//          `buildModelTree` takes `refs` and hangs them off the group rows (`GroupNode.refs`,
+//          kinds "all" and "other"). `SelectionSnapshot` kind "ref", `refOwner`, `refKey`,
+//          `structure`, `space`.
+export const VIEWER_CORE_API_VERSION = "1.30.0";
 
 // ---------------------------------------------------------------------------
 // Plugin declaration. `registerPlugin` is how a package announces itself —
@@ -1065,7 +1074,9 @@ export type { SettingsHost } from "@/components/settings/settingsTab";
 // the components' and structures' include flags, the structures' blueprint colours, and the Model panel's
 // remembered view. Pure helpers (and one small store), so a shell draws its own Model panel from them.
 export { DEFAULT_MODEL_VIEW, MODEL_VIEWS, buildModelTree, nodeItemIds } from "@/utils/cellbuilder/modelTree";
-export type { GroupNode as ModelGroupNode, IncludeMark, ItemNode, ModelNode, ModelTreeInput, ModelView } from "@/utils/cellbuilder/modelTree";
+export type { GroupNode as ModelGroupNode, IncludeMark, ItemNode, ModelNode, ModelTreeInput, ModelView, RefNode as ModelRefNode } from "@/utils/cellbuilder/modelTree";
+// Builder refs (1.30.0): the shape of a plugin's ref and of its provider; `registerBuilderRefs` is on /app.
+export type { BuilderRef, BuilderRefEdit, BuilderRefProvider, BuilderRefSpec } from "@/state/cellbuilder/refsSlice";
 export { isItemIncluded, itemIncludeState } from "@/utils/cellbuilder/include";
 export type { IncludeState } from "@/utils/cellbuilder/include";
 export { blueprintColour, blueprintsInUse, structureColour } from "@/utils/cellbuilder/blueprintColours";

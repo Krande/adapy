@@ -36,6 +36,12 @@ export function createCellBuilderScene(
     const cellsGroup = new THREE.Group();
     container.add(cellsGroup);
 
+    // The plugins' refs (refsOverlay.ts): beside the cells, not in `cellsGroup`, so a cell
+    // rebuild leaves them be and no cell-only walk (snapping, the selection rectangle) meets one.
+    const refsGroup = new THREE.Group();
+    refsGroup.name = "__cellbuilder_refs__";
+    container.add(refsGroup);
+    const refMeshById = new Map<string, THREE.Mesh>();
     // Companion models: other procedural models shown ALONGSIDE the edited one.
     // Their own subgroup, and deliberately outside `cellsGroup` — the editable
     // cells carry picking, gizmos, hover and selection through meshById, and a
@@ -216,6 +222,8 @@ export function createCellBuilderScene(
         camera,
         container,
         cellsGroup,
+        refsGroup,
+        refMeshById,
         companionsGroup,
         portsGroup,
         cadPreviewGroup,
@@ -265,7 +273,7 @@ export function createCellBuilderScene(
         modalMove: null as ModalMove | null,
         /** The cell being moved (gizmo drag or modal move) and its box when the move
          * began, measured live by the move dimension lines. Null when nothing moves. */
-        moveMeasure: null as {cellId: string; start: CellBox} | null,
+        moveMeasure: null as {cellId: string; ref?: boolean; start: CellBox} | null,
         /** Equipment captured to ride along with the space cell being translated. */
         translateEquip: [] as string[],
         /** Outward world direction of the edited port at rotate-drag start; the

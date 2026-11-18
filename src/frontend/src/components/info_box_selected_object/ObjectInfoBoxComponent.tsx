@@ -14,6 +14,7 @@ import {copySelectionNames, writeToClipboard} from '@/utils/clipboard/copySelect
 import {elementFirstNodeId} from '@/utils/scene/fea/goToNode';
 
 import {useCellBuilderStore} from '@/state/cellBuilderStore';
+import {selectedRef, selectionName, selectionPlace} from '@/utils/cellbuilder/boxTarget';
 import {useSceneMirrorStore} from '@/state/sceneMirrorStore';
 import {parentLevelName} from '@/utils/tree_view/treeSelection';
 import {isMirroredWindow, useSceneActions} from '@/layout/sceneActions';
@@ -52,6 +53,10 @@ function useSelectionSnapshot(): SelectionSnapshot {
     const cbSelection = useCellBuilderStore((s) => s.selection);
     const cbSelectedIds = useCellBuilderStore((s) => s.selectedCellIds);
     const cbCells = useCellBuilderStore((s) => s.cells);
+    const cbRefs = useCellBuilderStore((s) => s.refs);
+    const cbGroups = useCellBuilderStore((s) => s.groups);
+    const cbLoftMembers = useCellBuilderStore((s) => s.loftMembers);
+    const cbActiveGroup = useCellBuilderStore((s) => s.activeGroup);
     const mirroredCount = useSelectedRangeCount();
     return React.useMemo<SelectionSnapshot>(() => {
         const rangeCount = mirroredCount;
@@ -61,11 +66,19 @@ function useSelectionSnapshot(): SelectionSnapshot {
             cellBuilderActive: cbActive,
         };
         if (cbActive && cbSelection !== null) {
-            return {...base, kind: "cell", name: cbCells[cbSelection.cellId]?.name || null, count: cbSelectedIds.length};
+            // Where the pick is, so a plugin's section can place itself (and the builder's
+            // space and structure sections know what to show).
+            const place = selectionPlace(cbSelection, {cells: cbCells, refs: cbRefs, groups: cbGroups, loftMembers: cbLoftMembers});
+            const name = selectionName(cbSelection, cbCells, cbRefs);
+            const ref = selectedRef(cbSelection, cbRefs);
+            if (ref) return {...base, ...place, kind: "ref", name, refOwner: ref.owner, refKey: ref.key, count: 1};
+            return {...base, ...place, kind: "cell", name, count: cbSelectedIds.length};
         }
         if (rangeCount > 0 || name) return {...base, kind: "mesh", name: name || null, count: rangeCount};
-        return {...base, kind: "none", name: null, count: 0};
-    }, [name, selectedObjects, treeData, cbActive, cbSelection, cbSelectedIds, cbCells, mirroredCount]);
+        // Nothing picked in an open model: the active structure still has its section.
+        const structure = cbActive && cbActiveGroup && cbGroups.some((g) => g.name === cbActiveGroup) ? cbActiveGroup : undefined;
+        return {...base, kind: "none", name: null, count: 0, ...(structure ? {structure} : {})};
+    }, [name, selectedObjects, treeData, cbActive, cbSelection, cbSelectedIds, cbCells, cbRefs, cbGroups, cbLoftMembers, cbActiveGroup, mirroredCount]);
 }
 
 /**
@@ -87,7 +100,7 @@ const ObjectMetadata = () => {
     return <ObjectMetadataPanel data={jsonData}/>;
 };
 
-const notCell = (sel: SelectionSnapshot) => sel.kind !== "cell";
+const notCell = (sel: SelectionSnapshot) => sel.kind !== "cell" && sel.kind !== "ref";
 const always = () => true;
 
 /** Core's own sections, as providers, in the order the panel has always drawn them. */
@@ -173,6 +186,7 @@ const SelectionSummary = () => {
     const cbSelection = useCellBuilderStore((s) => s.selection);
     const cbSelectedIds = useCellBuilderStore((s) => s.selectedCellIds);
     const cbCells = useCellBuilderStore((s) => s.cells);
+    const cbRefs = useCellBuilderStore((s) => s.refs);
     const cbAddMode = useCellBuilderStore((s) => s.cellAddMode);
     const hideCells = useCellBuilderStore((s) => s.hideCells);
     const toggleCellAddMode = useCellBuilderStore((s) => s.toggleCellAddMode);
@@ -208,7 +222,7 @@ const SelectionSummary = () => {
     // Effective selection identity — cell context takes priority so the panel
     // reads as the cell you clicked, not a result element hidden behind it.
     const displayName = cellCtx
-        ? (cbSelection && cbCells[cbSelection.cellId]?.name) || ''
+        ? selectionName(cbSelection, cbCells, cbRefs) || ''
         : name;
     const multiSelectCount = cellCtx ? cbSelectedIds.length : rangeCount;
     const isMultiSelect = multiSelectCount > 1;

@@ -6,6 +6,7 @@ import type { ScenePickOptions, ScenePickSession } from "../scenePicks";
 import type { PlaceBoxOptions, PlacedBox } from "../sceneBox";
 import type { SceneContactAnswer, SceneContactOptions, SceneObjectRef } from "../sceneContact";
 import type { SelectedObjectBox } from "@/viewport/api/viewportApi";
+import type { BuilderRefProvider } from "@/state/cellbuilder/refsSlice";
 
 /** Values a color-field provider returns for core to paint + legend. */
 export interface SceneColorFieldResult {
@@ -398,6 +399,15 @@ export interface SceneHandle {
   // ("make a modification from the selected plates"). Works on either viewport. Additive and
   // optional: an older core has no `selectionBoxes`, so ask for it before calling it.
   selectionBoxes?: () => SelectedObjectBox[];
+  // (1.30.0) Show rows of the plugin's own as boxes among the cell builder's cells ("builder
+  // refs"): `project` makes them from the open doc's extras and its cells, and is called again
+  // when either changes. The builder draws them, lists them in its model tree, and picks, moves
+  // and resizes them with the cells' gizmos and snapping, as each ref's `edit` allows; every
+  // edit is handed back (`setIncluded`, `rename`, `remove`, `write`) for the plugin to write
+  // to its own doc key (the builder store's `setDocExtra`), and the refs follow. A gizmo drag
+  // is one undo step. Returns the unregister; `remove(owner)` unregisters too (the provider's
+  // `owner` is the plugin's owner). Optional: an older core has none, so ask for it first.
+  registerBuilderRefs?: (provider: BuilderRefProvider) => () => void;
 }
 
 /** An axis-aligned world-space box. */
