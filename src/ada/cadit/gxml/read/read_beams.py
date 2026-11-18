@@ -7,6 +7,7 @@ import numpy as np
 from ada import Beam, Direction, Node, Part
 from ada.api.beams.justification import Justification
 from ada.api.containers import Beams
+from ada.cadit.gxml.read.read_materials import concept_material
 from ada.config import logger
 from ada.core.exceptions import VectorNormalizeError
 from ada.sections.categories import BaseTypes
@@ -352,19 +353,9 @@ def seg_to_beam(name: str, seg: ET.Element, parent: Part, prev_bm: Beam, zv, edg
 
     index = seg.attrib["index"]
     sec = parent.sections.get_by_name(seg.attrib["section_ref"])
-    material_ref = seg.attrib.get("material_ref", None)
-    if material_ref is None:
-        raise ValueError(f"Material not found for beam '{name}'. Please check your xml file")
-
-    if material_ref not in parent.materials.name_map:
-        # its material was not read (a kind read_materials has no model for, reported there)
-        from ada.fem.formats import conversion_report
-
-        conversion_report.current().omitted(
-            "genie xml reader", "straight_segment", name, "its material was not read", material=material_ref
-        )
+    mat = concept_material(parent, "straight_segment", name, seg.attrib.get("material_ref"))
+    if mat is None:
         return None
-    mat = parent.materials.get_by_name(material_ref)
     mdf = seg.attrib.get("mass_density_factor_ref", None)
     if mdf is not None:
         metadata["mass_density_factor_ref"] = mdf

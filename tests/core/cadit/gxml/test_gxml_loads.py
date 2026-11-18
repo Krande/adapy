@@ -101,3 +101,56 @@ def test_new_features():
     )
     a = ada.Assembly() / p
     a.to_genie_xml("temp/output.xml")
+
+
+def _env_loads(include_self_weight, rotational_field=None):
+    import xml.etree.ElementTree as ET
+
+    from ada.cadit.gxml.write.write_loads import add_acceleration_field_load
+
+    global_elem = ET.Element("global")
+    lc_elem = ET.Element("loadcase_basic", {"name": "LC1"})
+    add_acceleration_field_load(global_elem, lc_elem, (0, 0, -9.81), include_self_weight, rotational_field)
+    return {el.tag: el.get("include_selfweight") for el in global_elem.find("loads/environmental_loads")}
+
+
+def test_gravity_and_rotation_field_self_weight_flags_are_separate():
+    """GeniE holds an "include self weight" flag for the gravity field and one for the rotation field; the writer
+    put the gravity field's on both."""
+    from ada.fem.concept.loads import RotationalAccelerationField
+
+    rot_off = RotationalAccelerationField((0, 0, 0), (0, 0, 1), 0.01, 0.04, include_self_weight=False)
+    assert _env_loads(True, rot_off) == {
+        "gravity_load": "true",
+        "dummy_rotation_field": "false",
+        "rotation_field": "false",
+    }
+    rot_on = RotationalAccelerationField((0, 0, 0), (0, 0, 1), 0.01, 0.04)
+    assert _env_loads(False, rot_on) == {
+        "gravity_load": "false",
+        "dummy_rotation_field": "true",
+        "rotation_field": "true",
+    }
+    # no rotation field: the dummy one carries GeniE's own "true", whatever the gravity flag says
+    assert _env_loads(False) == {"gravity_load": "false", "dummy_rotation_field": "true"}
+
+
+def test_the_rotation_field_self_weight_flag_reaches_the_xml(tmp_path):
+    import xml.etree.ElementTree as ET
+
+    from ada.fem.concept.loads import RotationalAccelerationField
+
+    bm = ada.Beam("bm1", (0, 0, 0), (1, 0, 0), "IPE200")
+    p = ada.Part("P") / bm
+    rot = RotationalAccelerationField((0, 0, 0), (0, 0, 1), 0.01, 0.04, include_self_weight=False)
+    p.concept_fem.loads.add_load_case(
+        LoadConceptCase("LC1", loads=[LoadConceptAccelerationField("G", (0, 0, -9.81), True, rot)])
+    )
+    dst = tmp_path / "rot.xml"
+    (ada.Assembly("A") / p).to_genie_xml(dst)
+    env = ET.parse(dst).getroot().find(".//environmental_loads")
+    assert {el.tag: el.get("include_selfweight") for el in env} == {
+        "gravity_load": "true",
+        "dummy_rotation_field": "false",
+        "rotation_field": "false",
+    }
