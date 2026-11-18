@@ -6,6 +6,7 @@ import {test} from "node:test";
 import {assetSourceName} from "@/assets/delivery";
 import {
     EMPTY_SCENE_RECORD,
+    goneFiles,
     parseSceneRecord,
     readSceneRecord,
     recordedAsset,
@@ -131,4 +132,16 @@ test("records are kept per scope; an empty one removes its entry; failures are s
     };
     assert.deepEqual(readSceneRecord("x", throwing), EMPTY_SCENE_RECORD);
     writeSceneRecord("x", {v: 1, models: [file], camera: null}, throwing);
+});
+
+test("goneFiles: a recorded file the scope no longer has is dropped, once; an unreachable server drops none", () => {
+  const models = [
+    { kind: "file", name: "a/model.glb" },
+    { kind: "file", name: "old/gone.glb" },
+    { kind: "file", name: "old/fem/run.FEM", streamer: true },
+    { kind: "asset", provider: "p", collection: "c", subject: "s", revision: "1" },
+  ] as const;
+  assert.deepEqual(goneFiles(models as never, new Set(["a/model.glb"])), ["old/gone.glb", "old/fem/run.FEM"]);
+  assert.deepEqual(goneFiles(models as never, null), [], "the server could not say: every model is tried");
+  assert.deepEqual(goneFiles(models as never, new Set(["a/model.glb", "old/gone.glb", "old/fem/run.FEM"])), []);
 });

@@ -42,6 +42,7 @@ import {
     removedNames,
     restorePlan,
     updateSceneRecord,
+    goneFiles,
     withModel,
     withoutNames,
     writeSceneRecord,
@@ -188,6 +189,17 @@ export function startSceneRecording(): void {
     });
 }
 
+/** The scope's file keys, or null when the server cannot say (then every recorded file is tried). */
+async function storedKeys(scope: string): Promise<Set<string> | null> {
+    try {
+        const {capabilities} = await import("@/services/capabilities");
+        if (!capabilities.files.supports("listFiles")) return null;
+        return new Set((await capabilities.files.listFiles(scope)).map((f) => f.key));
+    } catch {
+        return null;
+    }
+}
+
 /** Load one stored file through the storage browser's queue; true when it is in the scene. */
 async function loadFile(m: Extract<RecordedModel, {kind: "file"}>): Promise<boolean> {
     const {useLoadQueueStore} = await import("@/state/loadQueueStore");
@@ -255,9 +267,19 @@ export async function restoreScene(skip: ReadonlySet<string> = new Set()): Promi
             reloadable.set(name, m);
             if (live.has(name) || skip.has(name)) recordedScope.set(name, scope);
         }
-        const plan = restorePlan(rec, live, skip);
+        // A recorded file the scope no longer has (deleted, or recorded by another server on this
+        // origin) leaves the record quietly, once, rather than failing on every reload.
+        const gone = goneFiles(restorePlan(rec, live, skip), await storedKeys(scope));
+        if (gone.length) {
+            console.info("scene restore: no longer in storage, left out of the restored scene:", gone);
+            updateSceneRecord(scope, (r) => ({...r, models: withoutNames(r.models, gone)}));
+            for (const name of gone) reloadable.delete(name);
+        }
+        const leftOut = gone.length ? `${gone.length} model${gone.length === 1 ? " is" : "s are"} no longer in storage and left out` : null;
+        const plan = restorePlan(rec, live, skip).filter((m) => !gone.includes(recordedSourceName(m)));
         if (!plan.length) {
-            const note = await restoreView(rec.view, scope);
+            const viewNote = await restoreView(rec.view, scope);
+            const note = [leftOut, viewNote].filter(Boolean).join("; ") || null;
             if (note) setProgress({total: 0, done: 0, failed: 0, running: false, note});
             return;
         }
@@ -306,7 +328,8 @@ export async function restoreScene(skip: ReadonlySet<string> = new Set()): Promi
             if (!progress.failed) op.stage("restoring hidden objects and selection");
         }
         // The models are in: hide and select again what was hidden and selected before.
-        const note = await restoreView(rec.view, scope);
+        const viewNote = await restoreView(rec.view, scope);
+        const note = [leftOut, viewNote].filter(Boolean).join("; ") || null;
         releaseOp();
         setProgress({...progress, running: false, note});
         // The restored scene is where the undo history starts: its loads are not steps to undo.

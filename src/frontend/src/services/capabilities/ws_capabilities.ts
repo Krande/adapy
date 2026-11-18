@@ -560,6 +560,10 @@ export class WSFilesCapability implements FilesCapability {
     return WSFilesCapability.SUPPORTED_VERBS.has(verb);
   }
 
+  async listFiles(_scope: ScopeUrl): Promise<never> {
+    return refuse("listFiles");
+  }
+
   async fetchBlob(_scope: ScopeUrl, _key: string): Promise<ArrayBuffer> {
     return refuse("fetchBlob");
   }

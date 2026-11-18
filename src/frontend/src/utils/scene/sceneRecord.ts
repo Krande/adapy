@@ -279,6 +279,16 @@ export function restorePlan(
     });
 }
 
+/**
+ * The recorded files the scope no longer has: `stored` is the scope's file keys as the server listed
+ * them, or null when it could not be asked (a backend still starting), which leaves every model to be
+ * tried. A file that is gone would otherwise fail, and be toasted, on every reload.
+ */
+export function goneFiles(models: readonly RecordedModel[], stored: ReadonlySet<string> | null): string[] {
+    if (!stored) return [];
+    return models.flatMap((m) => (m.kind === "file" && !stored.has(m.name) ? [m.name] : []));
+}
+
 type KeyValueStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 
 const defaultStorage = (): KeyValueStorage | undefined => {
