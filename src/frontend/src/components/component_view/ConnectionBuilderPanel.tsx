@@ -6,7 +6,8 @@
 //     Left out where the builder is not offered (the scope offers no specs).
 //   * Clashes, Overlays and Review -- the joint workflow that was the Scene panel's Joints group:
 //     identify joints in the loaded source, what the joint tabs draw in 3D, and the review of the
-//     joints found or detailed (only while there are any).
+//     joints found or detailed (only while there are any, or while a plugin has a section of
+//     Review to show: region `joint-review`, rendered after core's own sections).
 //   * then a plugin's tabs in the connection builder (region `connection-builder`), after core's.
 //
 // Clashes and Overlays are always there, so the panel always has a tab strip and something to
@@ -35,6 +36,7 @@ import { PluginPanelMount } from "@/plugins/PluginSlots";
 import {
   disablePlugin,
   getConnectionBuilderTabs,
+  getJointReviewSections,
   pluginActivationVersion,
   subscribePluginActivation,
   type AdaPluginContext,
@@ -163,7 +165,9 @@ export const ConnectionBuilderPanelContent: React.FC = () => {
   // The builder's own tab is there where the builder is offered (`connectionBuilderOffered`).
   const offered = useConnectionsOfferStore((s) => s.offered);
   const builder = runtime.devConnections() || offered;
-  const joints = useHasJoints();
+  // Review is there while there are joints, or while a plugin has a section of it to show.
+  const reviewSections = getJointReviewSections(makePluginContext("", stores, theme));
+  const joints = useHasJoints() || reviewSections.length > 0;
   const core = connectionsCoreTabs({ builder, joints });
 
   const tabs = getConnectionBuilderTabs(makePluginContext("", stores, theme));

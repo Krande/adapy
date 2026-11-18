@@ -8,6 +8,17 @@ import {
   type ProducedJoints,
 } from "@/state/clashCheckStore";
 import IdentifiedJoints from "./joints/IdentifiedJoints";
+import { usePlacedElsewhereVersion } from "@/layout/usePlacedElsewhere";
+import { makePluginContext } from "@/plugins/context";
+import { PluginPanelMount } from "@/plugins/PluginSlots";
+import {
+  getJointReviewSections,
+  pluginActivationVersion,
+  subscribePluginActivation,
+  type JointReviewSectionEntry,
+} from "@/plugins/registry";
+import { useViewerStores } from "@/state/AdaViewerContext";
+import { usePluginTheme } from "@/state/themeStore";
 
 // The Connections panel's "Review" tab (the Scene panel's "Joints" mode until it moved there with
 // Clashes): a read-only overview of the joints this model knows about, from
@@ -25,6 +36,10 @@ import IdentifiedJoints from "./joints/IdentifiedJoints";
 //               is a candidate, not a build) and instead shows which registered specs could
 //               detail it, so the two sections can never be mistaken for one another even without
 //               reading their headings.
+//   then a plugin's sections (region `joint-review`, plugin API 1.28.0), each headed by its
+//               panel's title, in `order`: what a plugin knows about the same joints that core does
+//               not (`JointReviewSections`). With such a section active the tab is there even with
+//               no joints of core's own to show.
 //
 // BOTH SECTIONS ARE GROUPED BY CONNECTION TYPE, collapsed. A frame's joints run to the hundreds
 // and a flat table of them is a scroll, not a review: the thing a person reads is "how many of
@@ -161,13 +176,45 @@ const ProducedSection: React.FC = () => {
   );
 };
 
+/**
+ * The plugins' sections (region `joint-review`, plugin API 1.28.0), after core's own: each headed by
+ * its panel's title and mounted in its plugin's context, inside the boundary that disables the
+ * plugin when it throws. Nothing when no plugin has an active one.
+ */
+export const JointReviewSections: React.FC<{ sections: readonly JointReviewSectionEntry[] }> = ({ sections }) => {
+  const stores = useViewerStores();
+  const theme = usePluginTheme();
+  if (sections.length === 0) return null;
+  return (
+    <>
+      {sections.map(({ pluginId, panel, title }) => (
+        <section key={panel.id} className="flex flex-col gap-2" data-review-section={panel.id} aria-label={title}>
+          <div className="text-gray-300 font-semibold">{title}</div>
+          <PluginPanelMount ctx={makePluginContext(pluginId, stores, theme)} panel={panel} />
+        </section>
+      ))}
+    </>
+  );
+};
+
+/** The plugins' active sections of the Review tab, asked again when a plugin says its activation
+ *  changed or the layout moves a panel. */
+export function useJointReviewSections(): JointReviewSectionEntry[] {
+  const stores = useViewerStores();
+  const theme = usePluginTheme();
+  usePlacedElsewhereVersion();
+  React.useSyncExternalStore(subscribePluginActivation, pluginActivationVersion, pluginActivationVersion);
+  return getJointReviewSections(makePluginContext("", stores, theme));
+}
+
 const JointsOverviewPanel: React.FC = () => {
   const hasCompiled = useStatsStore((s) => (s.stats?.joints?.count ?? 0) > 0);
   const hasGenerated = useClashCheckStore((s) => (s.producedJoints?.count ?? 0) > 0);
   const hasProduced = hasCompiled || hasGenerated;
   const hasIdentified = useClashCheckStore((s) => (s.result?.joints.length ?? 0) > 0);
+  const sections = useJointReviewSections();
 
-  if (!hasProduced && !hasIdentified) {
+  if (!hasProduced && !hasIdentified && sections.length === 0) {
     // Reachable only for an instant while the tab is switching away (the Connections panel gates
     // the tab itself on this same pair of facts) -- kept as a real empty state anyway rather than
     // rendering nothing, so the tab opened directly from elsewhere is never blank.
@@ -183,6 +230,7 @@ const JointsOverviewPanel: React.FC = () => {
     <div className="p-1 text-sm flex flex-col gap-4">
       <ProducedSection />
       <IdentifiedJoints />
+      <JointReviewSections sections={sections} />
     </div>
   );
 };

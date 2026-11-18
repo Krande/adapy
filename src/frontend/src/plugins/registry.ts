@@ -18,7 +18,7 @@ import { isPlacedElsewhere } from "@/layout/placedElsewhere";
 import type { AdaPluginContext, PanelSlot, PluginModeSpec, PluginRegion, PluginSpec, RegisteredPlugin, RenderableFileProvider, ResultSidecarLoader, SceneColorFieldProvider, SimulationProviderUi, StorageAssetType, StorageAssetTypeArgs, UrlParamHandler } from "./registryTypes/slots";
 
 export { type PluginRegion, type PluginDockId, type PluginModeId, type PluginModeSpec, type PluginLogLevel, type PluginApiClient, type PluginTheme, type AdaPluginContext, type ActivationPredicate, type TopBarButtonSpec, type PanelSlot, type SceneColorFieldProvider, type ResultSidecarLoader, type RenderableFileProvider, type SimulationParameterFormArgs, type SimulationFormSubject, type SimulationOpenResultArgs, type SimulationProviderUi, type UrlParamHandler, type PluginSpec, type RegisteredPlugin, type StorageAssetTypeArgs, type StorageAssetUpload, type StorageAssetType } from "./registryTypes/slots";
-export { type SceneColorFieldResult, type SceneColor, type SceneOverlay, type SceneLines, type SceneElementOutline, type SceneLabel, type SceneLabelOptions, type SceneElementPaint, type SceneLayerRef, type SceneLayerLook, type SceneLineLayerSpec, type SceneLineLayer, type ScenePointLayerSpec, type ScenePointLayer, type SceneImageRect, type SceneImageSpec, type SceneImage, type SceneModelSource, type SceneModelPose, type SidecarFetcher, type SceneHandle, type SceneBox, type SceneFace } from "./registryTypes/scene";
+export { type SceneColorFieldResult, type SceneColor, type SceneOverlay, type SceneLines, type SceneElementOutline, type SceneLabel, type SceneLabelOptions, type SceneElementPaint, type SceneLayerRef, type SceneLayerLook, type SceneLineLayerSpec, type SceneLineLayer, type ScenePointLayerSpec, type ScenePointLayer, type SceneImageRect, type SceneImageSpec, type SceneImage, type SceneModelSource, type SceneModelPose, type SidecarFetcher, type SceneHandle, type SceneBox, type SceneFace, type SceneObjectMatch } from "./registryTypes/scene";
 export { type PluginPlaybackTrack, type PluginPlaybackTrackHandle, type PluginPlaybackState, type PluginPlayback, type PluginLayerState, type PluginLayers, type PluginSimulationSubject, type PluginSimulationSubjectHandle, type PluginSimulations } from "./registryTypes/playback";
 export type { ScenePick, ScenePickOptions, ScenePickSession } from "./scenePicks";
 export type { SceneHighlight, SceneHighlightOptions, SceneHighlightRef } from "./sceneHighlights";
@@ -260,6 +260,14 @@ export type { PlaceBoxOptions, PlacedBox, PlacedBoxMode, PlacedBoxPose } from ".
 //          the scene's clicks (`pickObjects`) and shows what it has taken. Not the selection, not a
 //          colour the user gave, and no undo step; on either viewport. Additive: an older core has
 //          no `highlightObjects`, so a plugin asks for it first.
+//          - the `joint-review` region: a plugin's section of the Connections panel's Review tab,
+//            after core's produced and identified joints, headed by the panel's `title` and ordered
+//            by `order` (`getJointReviewSections`). The Review tab is there while any section is
+//            active, joints or not. An older core mounts the region nowhere.
+//          - `ctx.scene.findObjects(names, {sourceName?})`: the objects of the loaded models called
+//            one of `names`, as a `ScenePick` names them (model, id, name, source file), read from
+//            the Scene tree; for a plugin that knows objects by name and wants to highlight them.
+//          Both additive: an older core has neither, so a plugin asks for `findObjects` first.
 //          Not an API change, but seen by a `connection-builder` tab: the Connections panel has
 //          core's Clashes, Overlays and Review tabs too now (they were the Scene panel's Joints
 //          group), after Builder and before the plugins' tabs, and is offered everywhere.
@@ -599,6 +607,26 @@ export function getConnectionBuilderTabs(ctx: AdaPluginContext): SimulationTabEn
       a.panel.id.localeCompare(b.panel.id),
   );
   return entries;
+}
+
+/** One plugin-contributed section of the Review tab. */
+export interface JointReviewSectionEntry {
+  pluginId: string;
+  panel: PanelSlot;
+  /** What heads the section: the panel's `title`, else its id. */
+  title: string;
+}
+
+/** `joint-review` panels (1.28.0): a plugin's sections of the Connections panel's Review tab,
+ * filtered by activation exactly like `getPanelsForRegion` and ordered by `(order ?? 0, id)`.
+ * Core renders these after its own sections (the produced and the identified joints). Empty when
+ * no plugin has an active one (the tab then shows core's sections only, as before the region). */
+export function getJointReviewSections(ctx: AdaPluginContext): JointReviewSectionEntry[] {
+  return getPanelsForRegion("joint-review", ctx).map(({ pluginId, panel }) => ({
+    pluginId,
+    panel,
+    title: panel.title ?? panel.asTab?.label ?? panel.id,
+  }));
 }
 
 /** Whether a plugin that is not disabled has a `connection-builder` panel at all. Asked where

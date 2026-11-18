@@ -59,6 +59,7 @@ function fakeCtx(pluginId = ""): AdaPluginContext {
       imageUnavailable: () => null,
       pickObjects: () => ({ end() {} }),
       highlightObjects: () => ({ set() {}, remove() {} }),
+      findObjects: () => [],
       placeBox: () => ({ set() {}, pose: () => ({ position: [0, 0, 0], yawDeg: 0 }), setMode() {}, end() {} }),
       contactBetween: async () => ({ contact: null }),
     },

@@ -107,6 +107,14 @@ function classicPlacement(slot: PanelSlot): PanelPlacement {
         as: "tab",
         order: slot.asTab?.order ?? slot.order ?? 0,
       };
+    case "joint-review":
+      // A section of the Connections panel's Review tab, after core's own sections.
+      return {
+        zone: CLASSIC_ZONES.menuColumn,
+        parent: "core:component-controls",
+        as: "section",
+        order: slot.order ?? 0,
+      };
     case "admin":
       return { zone: CLASSIC_ZONES.window, parent: "core:admin", as: "tab", order: slot.order ?? 0 };
     case "scene-info":

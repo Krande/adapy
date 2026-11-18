@@ -396,6 +396,20 @@ export interface SceneHandle {
   // selection, not a colour the user gave, and no undo step. For a tool that takes the scene's clicks
   // and shows what it has taken. Works on either viewport; `remove(owner)` takes it away too.
   highlightObjects: (owner: string, refs: Iterable<SceneHighlightRef>, options: SceneHighlightOptions) => SceneHighlight;
+  // (1.28.0) The objects of the loaded models called one of `names`, as a `ScenePick` names them
+  // (model, id, name, source file), read from the Scene tree; with `sourceName`, those of the model
+  // loaded from that source only. A name may match several objects. For a plugin that knows
+  // objects by name (from a file of its own) and wants to highlight them. Works on either viewport.
+  findObjects: (names: Iterable<string>, options?: { sourceName?: string }) => SceneObjectMatch[];
+}
+
+/** (1.28.0) An object found by `findObjects`: what `highlightObjects` takes (`model`, `id`), its
+ *  name, and the source its model was loaded from (null where the tree does not say). */
+export interface SceneObjectMatch {
+  model: string;
+  id: string;
+  name: string;
+  sourceName: string | null;
 }
 
 /** An axis-aligned world-space box. */

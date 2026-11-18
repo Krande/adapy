@@ -13,14 +13,19 @@ import type { PluginLayers, PluginPlayback, PluginSimulations } from "./playback
 // The named mount regions core exposes. Deliberately small
 // (`fem-sidebar` covers the FEM simulation panel, `top-panel` the menu bar,
 // `admin` the /admin page's tab strip, `connection-builder` the connection
-// builder panel's); more are added on demand rather than up-front.
+// builder panel's, `joint-review` the sections of the Connections panel's Review
+// tab); more are added on demand rather than up-front.
 export type PluginRegion =
   | "fem-sidebar"
   | "top-panel"
   | "scene-info"
   | "storage-detail"
   | "admin"
-  | "connection-builder";
+  | "connection-builder"
+  // (1.28.0) A section of the Connections panel's Review tab, after core's own (the produced and
+  // the identified joints), ordered by `order`, headed by the panel's `title`. The Review tab is
+  // there while any such section is active, whether or not core has joints to show.
+  | "joint-review";
 
 // ---------------------------------------------------------------------------
 // Placement (1.1.0)

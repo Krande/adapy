@@ -672,7 +672,10 @@
 //          the types `SceneObjectRef`, `SceneContactOptions`, `SceneContact`, `SceneContactPatch`,
 //          `SceneContactAnswer`.
 //   1.28.0 Kept in step with PLUGIN_API_VERSION 1.28.0. Additive: `ctx.scene.highlightObjects` and
-//          the types `SceneHighlight`, `SceneHighlightOptions`, `SceneHighlightRef`.
+//          the types `SceneHighlight`, `SceneHighlightOptions`, `SceneHighlightRef`; the
+//          `joint-review` region (a plugin's section of the Connections panel's Review tab) and
+//          `getJointReviewSections` on `@/viewer-core/plugins`; `ctx.scene.findObjects` and the
+//          type `SceneObjectMatch`.
 export const VIEWER_CORE_API_VERSION = "1.28.0";
 
 // ---------------------------------------------------------------------------
@@ -733,6 +736,7 @@ export type {
   SceneHighlight,
   SceneHighlightOptions,
   SceneHighlightRef,
+  SceneObjectMatch,
   ScenePick,
   ScenePickOptions,
   ScenePickSession,

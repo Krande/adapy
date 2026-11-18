@@ -10,7 +10,8 @@
 //             and says plainly when that source has no members to check.
 //   Overlays  what the joint tabs draw in 3D (the joint being developed, the clash run's markers
 //             and contacts); always.
-//   Review    the joints found or detailed; contextual, while there are any (`hasJoints`).
+//   Review    the joints found or detailed; contextual, while there are any (`hasJoints`) or a
+//             plugin has a section of it to show (region `joint-review`).
 //
 // The last three were the Scene panel's Joints group ("Clashes", "Joint overlays", "Joints",
 // shown in its strip as "Clashes", "Overlays", "Review"); its "Connection" tab was this builder.

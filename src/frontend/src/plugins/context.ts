@@ -48,6 +48,7 @@ import { endScenePicks, pickObjects } from "./scenePicks";
 import { endSceneHighlights, highlightObjects } from "./sceneHighlights";
 import { placeBox } from "./sceneBox";
 import { contactBetween } from "./sceneContact";
+import { findObjectsByName } from "@/utils/tree_view/modelSource";
 import { releaseFeaDeformation, setFeaDeformationShown } from "@/utils/scene/fea/deformationGate";
 import { releaseFeaUnpaintedColor, setFeaUnpaintedColor } from "@/utils/scene/fea/unpaintedColor";
 import { findFaces, focusFace } from "@/utils/mesh_select/faceSearch";
@@ -218,6 +219,7 @@ function makeSceneHandle(): SceneHandle {
     placeBox,
     contactBetween,
     highlightObjects,
+    findObjects: (names, options) => findObjectsByName(names, options),
   };
 }
 
