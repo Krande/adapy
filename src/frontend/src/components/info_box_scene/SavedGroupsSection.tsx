@@ -37,10 +37,13 @@ import { getSingletonViewerStores } from "@/state/AdaViewerContext";
 import {
   describeMember,
   groupNodePlan,
+  sourceElementId,
   type GroupMember,
   type GroupNodePlan,
   type SavedGroup,
 } from "@/utils/groups/savedGroups";
+import { hasUnrecordedSources, memberSourceLines } from "@/utils/groups/groupSourceRefs";
+import { isLocalSource } from "@/utils/groups/localSources";
 
 const BTN =
   "rounded-sm px-1.5 py-0.5 text-[11px] bg-gray-700 hover:bg-gray-600 text-gray-100 disabled:opacity-50 disabled:cursor-not-allowed";
@@ -55,6 +58,10 @@ function listMembers(members: readonly GroupMember[], max = 4): string {
 /** "Group selection…": capture, name, save. */
 const CreateGroupForm: React.FC<{ scope: string; onDone: () => void }> = ({ scope, onDone }) => {
   const captured = useMemo(() => captureSelection(), []);
+  const localCount = useMemo(
+    () => captured.members.filter((m) => m.target.kind === "file" && isLocalSource(m.target.source_key)).length,
+    [captured],
+  );
   const [name, setName] = useState("");
   const busy = useSavedGroupsStore((s) => s.busy);
   const create = useSavedGroupsStore((s) => s.create);
@@ -75,6 +82,13 @@ const CreateGroupForm: React.FC<{ scope: string; onDone: () => void }> = ({ scop
             {captured.members.length} member{captured.members.length === 1 ? "" : "s"}:{" "}
             <span className="text-gray-400">{listMembers(captured.members)}</span>
           </div>
+          {localCount > 0 && (
+            <div className="text-amber-200" data-group-local-note>
+              {localCount === captured.members.length ? "All" : localCount} of these member{localCount === 1 ? " is" : "s are"} in a model
+              opened from a local file: no source in the store, so the group can select {localCount === 1 ? "it" : "them"} while
+              that file is loaded, and nothing downstream can read {localCount === 1 ? "its" : "their"} geometry.
+            </div>
+          )}
           {captured.skipped.length > 0 && (
             <div className="text-amber-200">
               Left out {captured.skipped.length}: {captured.skipped[0].name} — {captured.skipped[0].reason}
@@ -141,9 +155,14 @@ const RequestGeometryForm: React.FC<{ scope: string; group: SavedGroup; onClose:
   useEffect(() => {
     let live = true;
     void (async () => {
+      // A member saved with its source carries its row id already (`sourceElementId`); only the
+      // others are walked for in the published tree.
+      const unplaced = group.members.filter((m) => m.element !== null && !sourceElementId(m));
       const [plugins, rows] = await Promise.all([
         viewerApi.listBackendPlugins().catch(() => ({ plugins: [] as unknown[] })),
-        resolveElementRows(scope, group.members).catch(() => new Map<string, string>()),
+        unplaced.length
+          ? resolveElementRows(scope, unplaced).catch(() => new Map<string, string>())
+          : Promise.resolve(new Map<string, string>()),
       ]);
       if (!live) return;
       const choices: ProviderChoice[] = [];
@@ -257,6 +276,11 @@ const MEMBERS_SHOWN = 100;
 const GroupSummary: React.FC<{ scope: string; group: SavedGroup; shared: boolean }> = ({ scope, group, shared }) => {
   const treeData = useTreeViewStore((s) => s.treeData);
   const sources = useMemo(() => memberSources(group.members), [group]);
+  const geometry = useMemo(() => memberSourceLines(group.members), [group]);
+  const unrecorded = useMemo(() => hasUnrecordedSources(group.members), [group]);
+  const busy = useSavedGroupsStore((s) => s.busy);
+  const recordSources = useSavedGroupsStore((s) => s.recordSources);
+  const [recordNote, setRecordNote] = useState<string | null>(null);
   const inScene = useMemo(() => {
     const out = groupSceneParts(group.members);
     return group.members.length - out.notLoaded.length - out.notFound.length;
@@ -306,6 +330,34 @@ const GroupSummary: React.FC<{ scope: string; group: SavedGroup; shared: boolean
           ),
         )}
         {row("Sources", list(sources))}
+        {row(
+          "Source geometry",
+          <div className="flex flex-col" data-group-source-lines>
+            {geometry.map((l) => (
+              <span key={l.key} className={l.stored ? "" : "text-amber-200"}>
+                {l.text}
+              </span>
+            ))}
+            {unrecorded && shared && (
+              <span>
+                <button
+                  type="button"
+                  className={BTN}
+                  disabled={busy}
+                  title="Look up where each member's source geometry is stored (its publish's source file, pinned to its revision) and save that with the group"
+                  onClick={() =>
+                    void recordSources(scope, group.id).then((n) =>
+                      setRecordNote(n === null ? null : n ? `Recorded the source of ${n} member${n === 1 ? "" : "s"}.` : "No source could be recorded."),
+                    )
+                  }
+                >
+                  Record sources
+                </button>
+                {recordNote && <span className="ml-1 text-gray-400">{recordNote}</span>}
+              </span>
+            )}
+          </div>,
+        )}
         {(group.created_by || group.created_at) &&
           row(
             "Created",

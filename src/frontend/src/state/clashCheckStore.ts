@@ -21,6 +21,8 @@ import { clashCheckApi, type ClashCheckOptions, type ClashCheckTarget } from "@/
 import { annotateRunFlow, CONTACT_ORIGIN, contactRunsApi, contactTargetFor, glbKeyForSource, runBrowserContactFlow, runBrowserGroupContactFlow, runWorkerContactFlow, type ContactRunDoc } from "@/services/clash/contactRuns";
 import { settingsApi } from "@/services/api/settings";
 import { CLASH_SPEC_PROVIDERS_KEY, parseSpecProviders, preferenceFor } from "@/services/clashSpecProviders";
+import { serverCheckMembers } from "@/utils/groups/groupSourceRefs";
+import { describeMember } from "@/utils/groups/savedGroups";
 import { DEFAULT_CLASH_FILTERS, sameClashTarget } from "./clashCheck/derive";
 import { BUILTIN_CHECKER } from "./clashCheck/result";
 import { checkRequestOptions, contactGeometryProvider, effectiveSpecProviders, runGeometryAwareAnnotateFlow, runGeometryAwareCheckFlow, type GeometryAnnotateFlowDeps, type GeometryCheckFlowDeps, type GeometryPromptAnswer } from "./clashCheck/geometry";
@@ -431,12 +433,31 @@ export const useClashCheckStore = create<ClashCheckState>((set, get) => ({
         });
         return;
       }
-      const target = assetTarget ?? { kind: "file" as const, sourceKey: sourceKey as string };
+      // A group is read on the server from its members' SOURCES (`ada.clash.group_model`): a member
+      // opened from a local file has none there and is left out, said so; one with no revision is
+      // pinned to the source it was saved against (`serverCheckMembers`).
+      let sourceNotes: string[] = [];
+      let groupTarget = assetTarget;
+      if (assetTarget?.kind === "group") {
+        const { members, skipped } = serverCheckMembers(assetTarget.members);
+        if (members.length === 0) {
+          throw new Error(
+            "Every member of this group is in a model opened from a local file: nothing of it is stored, so the server has no source to check.",
+          );
+        }
+        if (skipped.length) {
+          sourceNotes = [
+            `${skipped.length} member${skipped.length === 1 ? " is" : "s are"} in a model opened from a local file, with no source in the store, and ${skipped.length === 1 ? "was" : "were"} left out: ${skipped.slice(0, 3).map(describeMember).join("; ")}${skipped.length > 3 ? "; …" : ""}`,
+          ];
+        }
+        groupTarget = { ...assetTarget, members };
+      }
+      const target = groupTarget ?? { kind: "file" as const, sourceKey: sourceKey as string };
       // A plain file has no provider to read it from, so the choice is not sent for one.
       const requestOptions = checkRequestOptions({ ...get(), geometryProvider: assetTarget ? get().geometryProvider : null });
       if (assetTarget && requestOptions.geometry_provider) {
         // Through a geometry provider: find the members it lacks and offer to request them first.
-        set({ geometryNotes: [], geometryStage: null });
+        set({ geometryNotes: sourceNotes, geometryStage: null });
         const outcome = await runGeometryAwareCheckFlow(await realGeometryDeps(scope, set), scope, target, requestOptions);
         if (outcome === null) {
           set({ busy: false, geometryStage: null, geometryNotes: ["Cancelled; nothing was checked."] });
@@ -449,13 +470,14 @@ export const useClashCheckStore = create<ClashCheckState>((set, get) => ({
           cached,
           busy: false,
           geometryStage: null,
-          geometryNotes: notes,
+          geometryNotes: [...sourceNotes, ...notes],
           selectedGroup: null,
           selectedJoints: [],
           selectedJoint: null,
         });
         return;
       }
+      if (sourceNotes.length) set({ geometryNotes: sourceNotes });
       const { result, derivedKey, cached } = await runClashCheckFlow(realFlowDeps(scope), scope, target, requestOptions);
       set({ result, derivedKey, cached, busy: false, selectedGroup: null, selectedJoints: [], selectedJoint: null });
     } catch (e) {
