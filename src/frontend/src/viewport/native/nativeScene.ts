@@ -24,6 +24,8 @@ import {defaultColorLinear, hexChannels, lightIntensities, useAppearanceStore} f
 import {glbUncoloured, UNCOLOURED_BLACK} from "@/utils/glb/glbUncoloured";
 import type {ObjectColorState} from "@/viewport/api/objectColors";
 import {placeModel, type Box6, type Vec3} from "@/viewport/api/sceneFrame";
+import {glbObjectReader, type GlbObjectReader} from "@/utils/glb/glbObjectTriangles";
+import {computeEdgeArrays} from "@/utils/mesh_select/edgeCore";
 import {boundingSphere, clipRangeFor, DEFAULT_VIEW, framePose, namedViewPose, ORTHO_FIT_BOX_MARGIN, ORTHO_FIT_MARGIN, orthoFramePose, selectionFramePose} from "@/viewport/api/cameraFrame";
 import {followProjection} from "@/state/projectionStore";
 import {GROUND_GRID, groundGridLines} from "@/viewport/api/groundGrid";
@@ -140,6 +142,13 @@ interface LoadedModel {
      *  that keeps its nodes apart (never played), what the file says of its nodes, and the
      *  instances that draw each, as (instance, node of the file) pairs. */
     pose?: {set: number; glb: PosableGlb; instances: number[]};
+    /** The file the renderer read (the caller's bytes, not a copy): what an object's triangles are
+     *  read from again when they are asked for (`objectFeatureEdges`), and the reader made of it on
+     *  first use (null when the file could not be read). A result model has none. */
+    file?: Uint8Array;
+    reader?: GlbObjectReader | null;
+    /** Feature edges already found, by object id (a few, the ones measured on lately). */
+    edges?: Map<string, Float32Array | null>;
 }
 
 let canvasSerial = 0;
@@ -405,6 +414,7 @@ export class NativeScene {
             instances: loaded.geometries.map((g) => g.instance),
             geometries: loaded.geometries.map((g) => g.geometry),
             bounds: loaded.bounds,
+            file,
         };
         if (posable && (loaded.animationSet ?? -1) >= 0) {
             // Placed from outside, not played: its animations are not the clock's.
@@ -1027,6 +1037,46 @@ export class NativeScene {
         return [this.offset[0], this.offset[1], this.offset[2]];
     }
 
+    /** Where the view is on the page: what a point of the view (CSS pixels from its corner) is
+     *  measured from. */
+    viewRect(): {left: number; top: number; width: number; height: number} {
+        const r = this.canvas.getBoundingClientRect();
+        return {left: r.left, top: r.top, width: r.width, height: r.height};
+    }
+
+    /**
+     * The feature edges of the object `key` names, in the world (six numbers per segment): the
+     * boundary and the folds sharper than the outline's angle, as the renderer outlines it. The
+     * renderer keeps its geometry on the GPU, so the object's triangles are read again from the file
+     * the model was loaded from (utils/glb/glbObjectTriangles.ts) and the edges found by the same rule
+     * the three.js viewport outlines with (utils/mesh_select/edgeCore.ts). Null for an object of a
+     * result model, of a model whose parts move (node animations, a posed model), or one that draws
+     * no triangles. A few are kept per model.
+     */
+    objectFeatureEdges(key: string): Float32Array | null {
+        const at = this.where.get(key);
+        const model = at?.model;
+        if (!at || !model?.file || model.animations || model.pose) return null;
+        const id = model.table.ids[at.index];
+        model.edges ??= new Map();
+        if (model.edges.has(id)) return model.edges.get(id) ?? null;
+        if (model.reader === undefined) {
+            try {
+                model.reader = glbObjectReader(model.file);
+            } catch (err) {
+                console.warn("[adacpp-native] reading the model's objects:", err);
+                model.reader = null;
+            }
+        }
+        const triangles = model.reader?.triangles(id, this.offset) ?? null;
+        const edges = triangles
+            ? computeEdgeArrays(triangles.positions, triangles.indices, [[0, triangles.indices.length]], Math.cos((FEATURE_EDGE_ANGLE_DEG * Math.PI) / 180)).positions
+            : null;
+        if (model.edges.size >= 64) model.edges.delete(model.edges.keys().next().value!);
+        model.edges.set(id, edges);
+        return edges;
+    }
+
     /** Frame the whole model, along the current view (the shared fit, viewport/api/cameraFrame). */
     fit(seconds = 0): void {
         if (!this.bounds) return;
@@ -1272,13 +1322,26 @@ export class NativeScene {
         this.onChange?.();
     }
 
-    /** Every segment's state as the renderer takes it: hidden, else the selection's colour, else
-     *  the colour the user gave the object, else the default colour where its file gave it none. */
+    /** Objects a tool marks for a while (ViewportApi.setObjectMarks), by key: a segment's colour as
+     *  the renderer takes it. Drawn over the selection's colour; neither the selection nor a colour
+     *  the user gave, and no undo step. */
+    private marks = new Map<string, number>();
+
+    /** Mark the objects of `marks` (key -> linear RGB, 0..1) in place of what was marked before. */
+    setObjectMarks(marks: ReadonlyMap<string, readonly [number, number, number]>): void {
+        if (!marks.size && !this.marks.size) return;
+        this.marks = new Map(Array.from(marks, ([key, rgb]) => [key, packSegmentColor(rgb[0], rgb[1], rgb[2])]));
+        this.writeStates();
+    }
+
+    /** Every segment's state as the renderer takes it: hidden, else the colour a tool marked it
+     *  with, else the selection's colour, else the colour the user gave the object, else the default
+     *  colour where its file gave it none. */
     private writeStates(): void {
         // The file's grey is drawn as it is while the default colour is that grey.
         const fallback = this.defaultSegmentColor;
         const greyToo = fallback !== NativeScene.FILE_GREY;
-        const anyHidden = this.hidden.size > 0, anySelected = this.selected.size > 0;
+        const anyHidden = this.hidden.size > 0, anySelected = this.selected.size > 0, anyMarked = this.marks.size > 0;
         for (const [instance, {model, objects: segments, outline}] of this.segments) {
             const ids = model.keys;
             const colors = model.colored ? model.colors! : null;
@@ -1290,7 +1353,10 @@ export class NativeScene {
                 const id = ids[object];
                 if (anyHidden && this.hidden.has(id)) states[i * 2 + 1] = SegmentFlag.Hidden;
                 else if (outline) continue;
-                else if (anySelected && this.selected.has(id)) {
+                else if (anyMarked && this.marks.has(id)) {
+                    states[i * 2] = this.marks.get(id)!;
+                    states[i * 2 + 1] = SegmentFlag.Matte;
+                } else if (anySelected && this.selected.has(id)) {
                     states[i * 2] = SELECTED;
                     states[i * 2 + 1] = SegmentFlag.Matte;
                 } else if (colors && colors[object]) states[i * 2] = colors[object];

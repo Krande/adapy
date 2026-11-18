@@ -31,6 +31,7 @@ import {selectInScreenRect} from "@/utils/bboxSelection/applyBoxSelection";
 import {drawMarquee, marqueeElement} from "@/utils/bboxSelection/marquee";
 import {ndcRect, screenBoxMode} from "@/utils/bboxSelection/screenBox";
 import {pickMeshAt, pickPointAt} from "@/viewport/picking";
+import {offerSceneClick, sceneClicksHeld} from "@/viewport/api/sceneClicks";
 import {builderLayerEditing, pressClaimed, selectCellsInScreenRect} from "@/components/viewer/cellbuilder/cellBoxSelect";
 import {useCameraControlsStore} from "@/state/cameraControlsStore";
 import {mouseButtonOf, selectsByDrag} from "@/utils/camera/cameraMapping";
@@ -109,6 +110,8 @@ export function setupPointerHandler(
         const button = e.pointerType === "mouse" || e.pointerType === "" ? mouseButtonOf(e.button) : null;
         if (!button || !selectsByDrag(useCameraControlsStore.getState().mapping, button, e)) return;
         if (pressClaimed(e)) return; // a builder gizmo's handle: the gizmo's drag
+        // A tool holding the clicks (the Measure tab) changes no selection, a dragged box's neither.
+        if (sceneClicksHeld()) return;
         endMarquee();
         const add = e.shiftKey || e.ctrlKey || e.metaKey;
         marquee = {start: {x: e.clientX, y: e.clientY}, el: null, cells: builderLayerEditing(scene), add};
@@ -163,6 +166,12 @@ export function setupPointerHandler(
         }
         lastTapTime = now;
         lastTapPos = {x: e.clientX, y: e.clientY};
+        // A core tool holding the scene's clicks (the Measure tab) has them first, wherever they land:
+        // such a click picks and selects nothing. In the view's CSS pixels, as `projectToScreen` counts.
+        if (sceneClicksHeld()) {
+            const view = renderer.domElement.getBoundingClientRect();
+            if (offerSceneClick({x: e.clientX - view.left, y: e.clientY - view.top, additive: isAdditiveClick(e)})) return;
+        }
         await pickAndSelect(e);
     }, {signal});
 
@@ -560,7 +569,7 @@ function raycastPointOnFace(
 // ``raycastPointOnFace``: an FEA result is almost always deformed, and the point people read off
 // "Clicked at" is where the deformed element is drawn. Null on a miss (the caller keeps the GPU
 // pick's representative vertex).
-function raycastRangeOnMesh(
+export function raycastRangeOnMesh(
     e: MouseEvent,
     camera: THREE.PerspectiveCamera,
     renderer: THREE.WebGLRenderer,
@@ -619,7 +628,7 @@ function raycastRangeOnMesh(
     }
 }
 
-function raycastPointOnMesh(
+export function raycastPointOnMesh(
     e: MouseEvent,
     camera: THREE.PerspectiveCamera,
     renderer: THREE.WebGLRenderer,

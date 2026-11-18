@@ -1,29 +1,17 @@
 // state/cacheModelUtils.ts
 import {modelStore} from "./modelStore";
-import {useTreeViewStore} from "../treeViewStore";
 import {useOptionsStore} from "@/state/optionsStore";
 import {clearFaceHighlight} from "@/utils/mesh_select/faceHighlight";
 import {useObjectInfoStore} from "@/state/objectInfoStore";
-import {TreeNodeData} from "@/components/tree_view/CustomNode";
-import {labelRoots, topLevelName} from "@/utils/tree_view/rootLabels";
+import {addModelTree} from "./addModelTree";
+
+export {maxNodeId} from "./addModelTree";
 
 /**
  * 1) cache hierarchy + drawRanges
  * 2) build the parent/child tree in the worker
- * 3) set treeData in your Zustand store
+ * 3) set treeData in your Zustand store -- one model's tree after another (`./addModelTree`)
  */
-// Synthetic container holding one root per loaded model. Its children are the
-// per-model roots (labelled by GLB filename); it is never rendered itself —
-// TreeViewComponent renders ``treeData.children``.
-const ROOTS_CONTAINER_ID = "__roots__";
-
-function filenameLabel(sourceName: string | undefined, fallback: string): string {
-    if (!sourceName) return fallback || "model";
-    const base = sourceName.split("/").pop() || sourceName;
-    return base || fallback || "model";
-}
-
-
 export async function cacheAndBuildTree(
     key: string,
     rawUserData: Record<string, any>,
@@ -31,8 +19,6 @@ export async function cacheAndBuildTree(
     /** What the caller calls this model -- a site's label, a model's name -- for its root row. */
     displayName?: string,
 ): Promise<void> {
-    const tree_store = useTreeViewStore.getState()
-
     // 1) extract
     const hierarchy = (rawUserData["id_hierarchy"] ?? {}) as Record<
         string,
@@ -84,62 +70,7 @@ export async function cacheAndBuildTree(
         // you could even early-return here if caching is critical
     }
 
-    // 3) build hierarchy off the main thread
-    let treeData: TreeNodeData | null;
-    try {
-        treeData = await modelStore.buildHierarchy(key, hierarchy, tree_store.max_id + 1);
-    } catch (err: unknown) {
-        console.error("Failed to build tree hierarchy", err);
-        return;
-    }
-
-    // 4) populate the store: one root per loaded model, labelled by GLB
-    //    filename (deduped with -2/-3 on collision), held under a synthetic
-    //    container whose children TreeViewComponent renders as the top level.
-    if (treeData) {
-        treeData.model_key = key;
-        treeData.source_name = sourceName ?? null;
-
-        const prev = tree_store.treeData;
-        const isContainer = !!prev && prev.id === ROOTS_CONTAINER_ID;
-        // Existing roots, minus any prior load of this same model (reload replaces).
-        const siblings = isContainer
-            ? prev!.children.filter((c) => c.model_key !== key)
-            : prev
-                ? [prev].filter((c) => c.model_key !== key)
-                : [];
-
-        // Both names on the root; which one shows is the viewer's choice (`rootLabels`).
-        treeData.source_label = filenameLabel(sourceName, treeData.name);
-        treeData.top_name = topLevelName(displayName, treeData.name, treeData.source_label);
-
-        const container: TreeNodeData = {
-            id: ROOTS_CONTAINER_ID,
-            name: "",
-            children: [...siblings, treeData],
-            model_key: null,
-            node_name: null,
-        };
-        tree_store.setTreeData(labelRoots(container, tree_store.rootLabelMode));
-
-        // Only the NEW model's ids can raise the maximum -- they were numbered from it -- so only
-        // its subtree is walked. Walking the whole container (every model loaded so far, an await
-        // per node) made each load of a bulk load slower than the one before.
-        tree_store.setMaxId(Math.max(useTreeViewStore.getState().max_id, maxNodeId(treeData)) + 1);
-    }
-}
-
-/** The largest id anywhere under `root`, iteratively: a deep tree must not cost a stack frame (or a
- *  promise) per node. EVERY node, not only leaves -- ids are handed out in `id_hierarchy` order,
- *  so an assembly row can hold the largest one, and the next model numbered from a leaf maximum
- *  reused it: two rows with one id, and a pick selecting the wrong one. */
-export function maxNodeId(root: TreeNodeData): number {
-    let max = 0;
-    const stack: TreeNodeData[] = [root];
-    for (let node = stack.pop(); node; node = stack.pop()) {
-        const n = Number(node.id);
-        if (Number.isFinite(n)) max = Math.max(max, n);
-        for (const child of node.children) stack.push(child);
-    }
-    return max;
+    // 3) build hierarchy off the main thread, 4) populate the store: after every model whose tree
+    //    was asked for before this one, so neither drops the other's root.
+    await addModelTree(key, (startId) => modelStore.buildHierarchy(key, hierarchy, startId), sourceName, displayName);
 }

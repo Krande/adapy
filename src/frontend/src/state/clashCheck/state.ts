@@ -67,11 +67,15 @@ export interface ClashCheckState {
   result: ClashResult | null;
   busy: boolean;
   error: string | null;
-  /** Run the check IN THE BROWSER (adacpp wasm member scan + ada.clash in pyodide) instead of
-   *  enqueuing a worker job. Same rules, same document, no upload and no round trip -- see
-   *  `services/clash/browserClashCheck.ts`. Off by default: the server route is the one that
-   *  works for every source, and this one costs a pyodide boot the first time. */
-  inBrowser: boolean;
+  /** Run the check IN THE BROWSER instead of enqueuing a worker job: convex contact through adacpp's
+   *  wasm clash module, core's connectivity check through the wasm IFC member scan
+   *  (`services/clash/browserClashCheck.ts`). `null` = the engine's own default (`runsInBrowser`):
+   *  convex contact in the browser where its module loads, core's on the server -- the route that
+   *  works for every source and runs the plate passes. */
+  inBrowser: boolean | null;
+  /** Whether this viewer's convex-contact wasm module loads. `null` until probed (on the panel's
+   *  `loadCapabilities`, or by the first run). */
+  contactWasm: boolean | null;
   /** Which passes the NEXT run should use, by name. `null` = core's default set, which is what
    *  omitting `passes` from the request means -- not the same as an empty selection, which is a
    *  user asking for nothing. */
@@ -87,8 +91,16 @@ export interface ClashCheckState {
   /** Which clash-check ENGINES this deployment could run -- core's plus every checker a live pool
    *  advertises. `null` until asked; the panel then offers core's alone. */
   availableCheckers: readonly WireClashChecker[] | null;
-  /** The engine the NEXT run uses. Core's by default. */
+  /** The engine the NEXT run uses. Convex contact by default, where it can run here (its wasm module
+   *  loads, or a worker lists it); else core's connectivity check, said so in `checkerNote`
+   *  (`clashCheck/engine.ts`). Not persisted: a new session starts from the default again. */
   checker: string;
+  /** Whether the user picked `checker` themselves. Only then is it kept over the default: a session
+   *  that never chose follows what can run here. */
+  checkerChosen: boolean;
+  /** Why the next run does not use the engine it would have (convex contact unavailable here), for
+   *  the panel. `null` when nothing was substituted. */
+  checkerNote: string | null;
   /** The selected checker's own settings, keyed by its advertised option keys. Kept per checker,
    *  so switching engines and back does not lose what was typed. */
   checkerOptions: Readonly<Record<string, Readonly<Record<string, unknown>>>>;
@@ -157,10 +169,11 @@ export interface ClashCheckState {
   setShowMarkers: (v: boolean) => void;
   setShowContacts: (v: boolean) => void;
   setMarkerScale: (v: number) => void;
-  setInBrowser: (v: boolean) => void;
+  setInBrowser: (v: boolean | null) => void;
   setSelectedPasses: (names: readonly string[] | null) => void;
-  /** Pick the engine. Clears the pass selection: passes belong to a checker, and a selection made
-   *  for one engine names passes the other does not have. */
+  /** Pick the engine -- an explicit choice, kept over the default from then on. Clears the pass
+   *  selection: passes belong to a checker, and a selection made for one engine names passes the
+   *  other does not have. */
   setChecker: (name: string) => void;
   setCheckerOption: (key: string, value: unknown) => void;
   setGeometryProvider: (id: string | null) => void;

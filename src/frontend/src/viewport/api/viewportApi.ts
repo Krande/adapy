@@ -105,6 +105,8 @@ export interface ViewportApi {
     objectColorCount: ViewportObjectColors["objectColorCount"];
     captureObjectColors: ViewportObjectColors["captureObjectColors"];
     restoreObjectColors: ViewportObjectColors["restoreObjectColors"];
+    // Objects a tool marks for a while, in colours of its own (no undo step).
+    setObjectMarks?: ViewportObjectColors["setObjectMarks"];
     /** Where the origin of the model loaded from `sourceName` is in the world: the offset its
      *  loader moved it by (state/sceneFrameStore has the scene's one offset). Null when no such model
      *  is on screen. */
@@ -181,6 +183,22 @@ export interface ViewportApi {
      *  of date. A viewport that draws only when something changed may call it for every frame it
      *  draws. Returns the unsubscribe function. */
     onCameraChange(listener: () => void): () => void;
+
+    // Pointing at the model: what the Measure tab snaps to (utils/measure). Optional: a viewport
+    // without them measures nothing.
+    /** What is drawn at a point of the view (CSS pixels from its top-left corner): the object hit,
+     *  when it is one, and the point of its surface in the world. Null for empty space. */
+    surfaceAt?(x: number, y: number): Promise<SurfaceHit | null>;
+    /** The feature edges of one object -- its outline as the viewport draws it: the boundary, and the
+     *  folds sharper than 30 degrees -- in the world, six numbers per segment. Null when the viewport
+     *  cannot say (an object it does not draw, a part that moves). */
+    featureEdges?(ref: ObjectRef): Float32Array | null;
+}
+
+/** What `surfaceAt` found under a point of the view. */
+export interface SurfaceHit {
+    ref: ObjectRef | null;
+    world: Point3;
 }
 
 let active: ViewportApi | null = null;

@@ -114,6 +114,7 @@ export const CORE_SHORTCUTS: readonly CoreShortcutDef[] = [
     label: "Open the marking menu at the pointer over the 3D view (where the UI has it on; arrows choose, Enter runs, Escape closes)",
     group: VIEWER,
   },
+  { id: "core:measure", keys: "Shift+M", label: "Open the Scene panel's Measure tab (distances, angles, paths, coordinates)", group: VIEWER },
   { id: "core:select-parent", keys: "Shift+ArrowUp", label: "Select the parent level of the current selection (tree up)", group: VIEWER },
   { id: "core:select-child", keys: "Shift+ArrowDown", label: "Select the first child level (tree down)", group: VIEWER },
   { id: "core:select-prev-sibling", keys: "Shift+ArrowLeft", label: "Select the previous sibling", group: VIEWER },
@@ -127,6 +128,14 @@ export const CORE_SHORTCUTS: readonly CoreShortcutDef[] = [
     local: true,
     reserves: true,
   },
+  {
+    id: "core:measure-end",
+    keys: "Escape",
+    label: "While a Measure tool is on: end the measurement being made (a path is kept); pressed again, put the tool down",
+    group: VIEWER,
+    local: true,
+  },
+  { id: "core:measure-finish", keys: "Enter", label: "While the Measure tab's Path tool is on: finish the path", group: VIEWER, local: true },
   // Panels -- local (layout/zoneFocus.tsx)
   {
     id: "core:zone-next",

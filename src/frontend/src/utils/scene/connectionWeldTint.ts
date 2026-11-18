@@ -1,4 +1,4 @@
-// The welds of the joint `ada dev connections` previews (Scene > Joints > Overlays): drawn in one
+// The welds of the joint `ada dev connections` previews (Connections > Overlays): drawn in one
 // colour ("Weld colour") -- a weld shares its members' steel grey and is hard to tell from them -- or
 // hidden ("Show welds"), to see the members' end preparation the welds fill.
 //

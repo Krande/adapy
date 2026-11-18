@@ -5,7 +5,7 @@ import {useConnectionsOfferStore} from "@/state/connectionsOfferStore";
 import {useClashCheckStore} from "@/state/clashCheckStore";
 import {DEFAULT_OVERLAYS, useConnectionBuilderStore, type ConnectionOverlays} from "@/state/connectionBuilderStore";
 
-/** Scene > Joints > Overlays: everything the joint tabs draw in 3D, each a toggle. The joint being
+/** Connections > Overlays (it was Scene > Joints > Overlays): everything the joint tabs draw in 3D, each a toggle. The joint being
  *  developed (`ada dev connections`) where one is, then the clash run's markers and contacts -- the
  *  same switches the Clashes tab has beside its list, so either place turns them off. */
 const JointOverlaysPanel: React.FC = () => {

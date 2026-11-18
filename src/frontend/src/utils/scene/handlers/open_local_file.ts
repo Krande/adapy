@@ -7,6 +7,7 @@
 
 import {alertDialog, confirmDialog, errorText} from "@/plugins/dialogs";
 import {useModelState} from "@/state/modelState";
+import {markLocalSource} from "@/utils/groups/localSources";
 
 import {localOpenEnv, localOpenPlan} from "./localOpenPlan";
 
@@ -24,6 +25,8 @@ function looksLikeExternalRefs(e: unknown): boolean {
 async function openInScene(file: File, placement: "replace" | "overlay"): Promise<void> {
     const {loadModel} = await import("@/components/viewer/sceneHelpers/loadModel");
     const bytes = new Uint8Array(await file.arrayBuffer());
+    // Nothing of it is stored: a saved group of its elements has no source to refer to.
+    markLocalSource(file.name);
     await loadModel({sourceName: file.name, bytes: {from: "bytes", bytes}, placement});
 }
 

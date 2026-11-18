@@ -9,11 +9,18 @@ export type SceneTab =
     | "tools"
     | "clip"
     | "mesh"
+    | "measure"
     | "fem"
+    // The Joints group's tabs, which moved to the Connections panel (`core:component-controls`):
+    // still names a shell may give in `tabs` / `hiddenTabs`, so its options keep compiling, but
+    // the Scene panel offers none of them (`MOVED_SCENE_TABS`).
     | "connection"
     | "clashes"
     | "joints"
     | "jointOverlays";
+
+/** The tabs that were the Scene panel's Joints group: the Connections panel has them now. */
+export const MOVED_SCENE_TABS: readonly SceneTab[] = ["connection", "clashes", "joints", "jointOverlays"];
 
 export interface SceneTabDef {
     id: SceneTab;
@@ -22,25 +29,20 @@ export interface SceneTabDef {
     ctx?: boolean;
 }
 
-// "Clashes" sits immediately before "Joints", on purpose: identifying joints and reviewing them
-// are two ends of one workflow (`notes_core_asset_browser.md` §Decision 10's naming paragraph),
-// never a second joints table under a different tab. "Clashes" is NOT contextual -- unlike
-// Joints it needs no baked concepts to be worth showing: it runs against whatever source is
-// loaded and says plainly when that source has no members to check.
-// In the order of their groups (`SCENE_GROUPS`): what the scene shows, then joints, then tools.
+// In the order of their groups (`SCENE_GROUPS`): what is loaded, what the scene shows, measuring,
+// then tools.
+//
+// The Joints group (Connection, Clashes, Review, Joint overlays) is not here any more: everything
+// about a joint -- the builder, the clash check that identifies joints, what they draw in 3D and
+// the review of the found or detailed ones -- is one panel's now, Connections, beside the plugins'
+// tabs about connections (`ConnectionBuilderPanel`). The tab labels it had were "Connection",
+// "Joints" and "Joint overlays" (in its strip "Review" and "Overlays").
 export const TAB_META: SceneTabDef[] = [
     {id: "model", label: "Model"},
     {id: "overlays", label: "Overlays"},
     {id: "clip", label: "Clip"},
     {id: "mesh", label: "Mesh"},
-    // The joint being developed (`ada dev connections`), right before the clash that is it and the
-    // joints review: the three tabs that describe a joint, together. Offered only on that viewer.
-    {id: "connection", label: "Connection", ctx: true},
-    {id: "clashes", label: "Clashes"},
-    {id: "joints", label: "Joints", ctx: true},
-    // What the joint tabs draw in 3D, in one place: the joint being developed's axes, weld labels
-    // and weld colour, and the clash run's markers and contacts.
-    {id: "jointOverlays", label: "Joint overlays"},
+    {id: "measure", label: "Measure"},
     {id: "tools", label: "Tools"},
 ];
 
@@ -49,13 +51,12 @@ export const FEM_TAB: SceneTabDef = {id: "fem", label: "FEM", ctx: true};
 
 // ── groups: the strip shows these, and a group of several tabs a second strip of its tabs ────────
 //
-// Nine tabs did not fit one strip. Related tabs share a group instead: how the scene is SHOWN
-// (overlays, clipping, mesh distortion) and the JOINT workflow (the joint being developed, the
-// clashes that identify joints, the review of detailed ones). The tabs stay what the store's mode,
-// `tabs` / `hiddenTabs` and every opener name, so nothing that opens "Clashes" changes; a group is
-// only how the strip lays them out.
+// Related tabs share a group: how the scene is SHOWN (overlays, clipping, mesh distortion). The
+// tabs stay what the store's mode, `tabs` / `hiddenTabs` and every opener name; a group is only how
+// the strip lays them out. (The JOINT workflow was a group here too, "Joints"; it is the
+// Connections panel's now.)
 
-export type SceneGroup = "model" | "view" | "fem" | "joints" | "tools";
+export type SceneGroup = "model" | "view" | "fem" | "measure" | "tools";
 
 export interface SceneGroupDef {
     id: SceneGroup;
@@ -67,12 +68,12 @@ export const SCENE_GROUPS: readonly SceneGroupDef[] = [
     {id: "model", label: "Model", tabs: ["model"]},
     {id: "view", label: "View", tabs: ["overlays", "clip", "mesh"]},
     {id: "fem", label: "FEM", tabs: ["fem"]},
-    {id: "joints", label: "Joints", tabs: ["connection", "clashes", "joints", "jointOverlays"]},
+    // A group of its own rather than a tab under Tools: measuring is a mode the user works in -- it
+    // holds the scene's clicks while a tool is in hand -- and is seen in the strip at once, where
+    // Tools is the server's utilities, which need a connection measuring does not.
+    {id: "measure", label: "Measure", tabs: ["measure"]},
     {id: "tools", label: "Tools", tabs: ["tools"]},
 ];
-
-/** A tab's name inside its group's strip, where the group already names the subject. */
-export const SUB_LABEL: Partial<Record<SceneTab, string>> = {joints: "Review", jointOverlays: "Overlays"};
 
 export interface OfferedGroup {
     id: SceneGroup;
@@ -105,12 +106,16 @@ export const MODE_TO_TAB: Record<SceneInfoMode, SceneTab> = {
     utilities: "tools",
     section: "clip",
     mesh: "mesh",
+    measure: "measure",
     fem: "model",
-    clashes: "clashes",
-    joints: "joints",
     overlays: "overlays",
-    connection: "connection",
-    jointOverlays: "jointOverlays",
+    // The modes of the tabs that moved to the Connections panel: an opener that still sets one
+    // is sent there (`layout/connectionsTabActions`' `redirectMovedSceneModes`); here they land
+    // on Model, the tab a mode with no tab of its own falls back to.
+    clashes: "model",
+    joints: "model",
+    connection: "model",
+    jointOverlays: "model",
 };
 
 export const TAB_TO_MODE: Record<SceneTab, SceneInfoMode> = {
@@ -119,6 +124,7 @@ export const TAB_TO_MODE: Record<SceneTab, SceneInfoMode> = {
     tools: "utilities",
     clip: "section",
     mesh: "mesh",
+    measure: "measure",
     fem: "fem",
     connection: "connection",
     clashes: "clashes",
@@ -127,7 +133,8 @@ export const TAB_TO_MODE: Record<SceneTab, SceneInfoMode> = {
 };
 
 export interface SceneTabOptions {
-    /** Which tabs, in this order. Absent: all of them, in core's order. */
+    /** Which tabs, in this order. Absent: all of them, in core's order. A tab that moved to the
+     *  Connections panel (`MOVED_SCENE_TABS`) is ignored. */
     tabs?: readonly SceneTab[];
     /** Tabs left out. */
     hiddenTabs?: readonly SceneTab[];

@@ -19,7 +19,7 @@ import {matrixProjector} from "@/utils/scene/fea/labelPlacement";
 import {createThreeResultMesh} from "@/utils/scene/fea/threeResultLayer";
 import {recordViewerAction} from "@/utils/scene/viewerHistory";
 import {captureThreeState, restoreThreeState, threeStateChange} from "@/utils/scene/threeViewportState";
-import {captureThreeObjectColors, restoreThreeObjectColors, setThreeObjectColors, threeObjectColorCount} from "@/utils/scene/threeObjectColors";
+import {captureThreeObjectColors, restoreThreeObjectColors, setThreeObjectColors, setThreeObjectMarks, threeObjectColorCount} from "@/utils/scene/threeObjectColors";
 import {recordObjectColors} from "./objectColors";
 import {RangeSet, rangesInCameraRect, rangesInWorldBox, threeSelectionBounds} from "@/utils/bboxSelection/threeBoxSelection";
 import {rangesCentroidWorld} from "@/utils/viewer/pipeTrace";
@@ -148,6 +148,8 @@ export function setThreeSelection(refs: Iterable<ObjectRef>, options: SetSelecti
 const visibility = () => import("@/utils/scene/visibility");
 const cameraHandlers = () => import("@/components/viewer/sceneHelpers/setupCameraControlsHandlers");
 const cameraKeys = () => import("@/components/viewer/sceneHelpers/cameraKeys");
+const measuring = () => import("@/utils/measure/threeMeasure");
+let threeMeasure: Awaited<ReturnType<typeof measuring>> | null = null;
 
 export interface ThreeViewportHandles {
     scene: THREE.Scene;
@@ -213,6 +215,8 @@ export function createThreeViewport(h: ThreeViewportHandles): ViewportApi {
         objectColorCount: threeObjectColorCount,
         captureObjectColors: captureThreeObjectColors,
         restoreObjectColors: restoreThreeObjectColors,
+        // Marks: an overlay per mesh over the selection's, no undo entry.
+        setObjectMarks: setThreeObjectMarks,
         // Undo: the hidden ranges per mesh and the selection store, as the history noted them itself
         // before it asked the viewport (utils/scene/threeViewportState.ts).
         captureState: captureThreeState,
@@ -389,5 +393,14 @@ export function createThreeViewport(h: ThreeViewportHandles): ViewportApi {
             raf = requestAnimationFrame(check);
             return () => cancelAnimationFrame(raf);
         },
+        // Measuring: the GPU pick refined on the picked object's triangles, and an object's feature
+        // edges from its draw range (utils/measure/threeMeasure.ts). Loaded with the first point asked
+        // for; an object's edges are only asked for once a point found it.
+        surfaceAt: (x, y) =>
+            measuring().then((m) => {
+                threeMeasure = m;
+                return m.threeSurfaceAt(x, y);
+            }),
+        featureEdges: (ref) => threeMeasure?.threeFeatureEdges(ref) ?? null,
     };
 }

@@ -53,6 +53,18 @@ export function realContactDeps(scope: string): ContactFlowDeps {
   };
 }
 
+/** Whether this viewer's convex-contact wasm module loads. Never throws: a viewer built without the
+ *  module, or a runtime that cannot start the worker, answers false -- the default engine then falls
+ *  back to core's, said so (`clashCheck/engine.ts`). */
+export async function contactWasmAvailable(): Promise<boolean> {
+  try {
+    const { clashContactsAvailable } = await import("@/utils/clashContacts/clashContacts");
+    return await clashContactsAvailable();
+  } catch {
+    return false;
+  }
+}
+
 /** One detail hand-off, from whichever document the result came from: a stored convex-contact RUN
  *  (`runKey`: the stored contacts are the input) or a `result@` document (`derivedKey`: the worker
  *  re-identifies the joints). */

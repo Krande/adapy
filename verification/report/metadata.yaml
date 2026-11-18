@@ -1,5 +1,30 @@
 linkReferences: false
-numbersections: false
+# Numbered headings in the PDF -- 1, 1.1, 1.1.1, then A, A.1, A.1.1 after the appendix marker --
+# as the web reader and the DOCX number them. Only the PDF (LaTeX) export reads this key.
+numbersections: true
 nameInLink: true
 figPrefix: "Figure"
 tblPrefix: "Table"
+# PDF only, a stop-gap for paradoc 0.12.0, whose PDF export leaves these to LaTeX: figure and table
+# numbers per top-level heading ("Figure 3.1", "Table A.2") instead of one running count, an
+# uncaptioned table taking no number (a longtable steps the counter regardless), and "Appendix A"
+# on a top-level appendix heading, as in the web reader and the DOCX. It stands down when paradoc
+# does this itself (\paradoc@numbering defined), and can go once the pinned paradoc does. A raw
+# LaTeX block, so every other format drops it. Not `header-includes`: the PDF export passes its own
+# header file, which replaces that key.
+include-before: |
+  ```{=latex}
+  \makeatletter
+  \@ifundefined{paradoc@numbering}{%
+    \counterwithin{figure}{section}%
+    \counterwithin{table}{section}%
+    \let\adapy@ltcaption\LT@caption
+    \def\LT@caption{\noalign{\global\let\adapy@ltcaptioned\relax}\adapy@ltcaption}%
+    \AddToHook{env/longtable/after}{\ifx\adapy@ltcaptioned\relax\else\addtocounter{table}{-1}\fi
+      \global\let\adapy@ltcaptioned\@empty}%
+    \def\adapy@secprefix@section{}%
+    \g@addto@macro\appendix{\gdef\adapy@secprefix@section{Appendix~}}%
+    \renewcommand\@seccntformat[1]{\csname adapy@secprefix@#1\endcsname\csname the#1\endcsname\quad}%
+  }{}
+  \makeatother
+  ```

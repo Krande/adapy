@@ -51,7 +51,7 @@ export class CustomBatchedMesh extends THREE.Mesh {
      *  highlight with them. The adacpp renderer colours selected ranges directly and skips the selection
      *  overlay; the face overlay it draws from `faceHighlightRange`. */
     public isHighlightOverlay(obj: THREE.Object3D): boolean {
-        return obj === this._selectionOverlay || obj === this._faceOverlay;
+        return obj === this._selectionOverlay || obj === this._faceOverlay || obj === this._markOverlay;
     }
 
     /** The highlighted face as a range of this mesh's index buffer, and the overlay that draws it in
@@ -96,6 +96,8 @@ export class CustomBatchedMesh extends THREE.Mesh {
     // drawn in a distinct colour on top of object selection. Separate from _selectionOverlay so the
     // two never fight over materials/groups.
     private _faceOverlay?: THREE.Mesh;
+    // Objects a tool marks for a while (`setMarks`), each in its own colour, over the selection.
+    private _markOverlay?: THREE.Mesh;
     private _overlaySourceIndices?: Uint32Array; // mapping: overlay vertex i -> base vertex index
 
     constructor(
@@ -667,6 +669,7 @@ export class CustomBatchedMesh extends THREE.Mesh {
         this.edgeGeneration++; // an overlay still being built must not attach to a disposed mesh
         this._disposeSelectionOverlay();
         this.clearFaceHighlight();
+        this.setMarks(null);
         if (this.edgeMesh) {
             (this.edgeMesh.geometry as THREE.BufferGeometry | undefined)?.dispose();
             this.edgeMesh = undefined;
@@ -769,6 +772,50 @@ export class CustomBatchedMesh extends THREE.Mesh {
         const m = this._faceOverlay.material as THREE.Material | THREE.Material[];
         (Array.isArray(m) ? m : [m]).forEach((x) => x && x.dispose());
         this._faceOverlay = undefined;
+    }
+
+    /** Draw the ranges of `marks` (range id -> colour, 0xRRGGBB sRGB) in their colours, unlit, over
+     *  the model and its selection, until the next call; null or an empty map takes them away. Not the
+     *  selection and not a colour of the object's own: neither changes, and nothing is recorded. A
+     *  hidden range is not drawn. */
+    public setMarks(marks: ReadonlyMap<string, number> | null): void {
+        const entries = marks ? [...marks].filter(([id]) => this.drawRanges.has(id) && !this.hiddenRanges.has(id)) : [];
+        const old = this._markOverlay;
+        if (old) for (const m of old.material as THREE.Material[]) m.dispose();
+        if (!entries.length) {
+            if (old) this.remove(old);
+            this._markOverlay = undefined;
+            return;
+        }
+        const colours = [...new Set(entries.map(([, c]) => c))];
+        const materials = colours.map((c) => {
+            const mat = new THREE.MeshBasicMaterial({color: c});
+            prepareOverlayMaterial(mat);
+            // In front of the selection's overlay, which sits at -1.
+            mat.polygonOffsetFactor = -2;
+            mat.polygonOffsetUnits = -2;
+            // In the transparent pass, after the selection (see `_rebuildSelectionOverlay`).
+            mat.transparent = true;
+            return mat;
+        });
+        let overlay = old;
+        if (!overlay) {
+            overlay = new THREE.Mesh(sharedOverlayGeometry(this.geometry as THREE.BufferGeometry), materials);
+            overlay.matrixAutoUpdate = true;
+            overlay.layers.mask = this.layers.mask;
+            overlay.renderOrder = 9;
+            this.add(overlay);
+            this._markOverlay = overlay;
+        }
+        overlay.material = materials;
+        (overlay as any).morphTargetInfluences = (this as any).morphTargetInfluences;
+        (overlay as any).morphTargetDictionary = (this as any).morphTargetDictionary;
+        const geom = overlay.geometry as THREE.BufferGeometry;
+        geom.clearGroups();
+        for (const [id, c] of entries) {
+            const [start, count] = this.drawRanges.get(id)!;
+            geom.addGroup(start, count, colours.indexOf(c));
+        }
     }
 
     private _rebuildSelectionOverlay(rangeIds: string[]): void {

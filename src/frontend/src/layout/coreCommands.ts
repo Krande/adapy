@@ -38,6 +38,7 @@ import {useColorByStore} from "@/state/colorByStore";
 import {useColorStore} from "@/state/colorLegendStore";
 import {useFemConceptsStore} from "@/state/femConceptsStore";
 import {useTableNavStore} from "@/state/tableNavStore";
+import {clearMeasurements, useMeasureStore} from "@/state/measureStore";
 import {feModelLoaded, hasFemConcepts} from "@/components/simulation/simPanelTabs";
 import {beamSolidsToggleState} from "@/utils/scene/fea/streaming/beamSolidsToggle";
 import {feaControlActions} from "@/utils/scene/fea/feaControls";
@@ -87,6 +88,10 @@ function feaSetCount(): number {
 const OWNER = "core";
 
 const noResults = () => (playbackAvailable() ? null : "No result is loaded");
+
+const measureActions = () => import("./measureActions");
+/** Measuring is done in the main window's view. */
+const noMeasuring = () => (thisWindowId() !== MAIN_WINDOW_ID ? "Measure in the main window" : noViewport());
 
 /** The section plane the toolbar edits: the active one, else the last. */
 export function workingPlane(): SectionPlane | undefined {
@@ -740,6 +745,39 @@ export function coreCommandSpecs(): CommandSpec[] {
       disabledReason: () => (useSectionStore.getState().planes.length ? null : "No section plane"),
       watch: watchSections,
       run: () => useSectionStore.getState().clearAll(),
+    },
+    // Measuring: the Scene panel's Measure tab, alone or with a tool in hand (main window only).
+    {
+      id: ID.measure,
+      label: "Measure",
+      group: "View",
+      shortcut: "core:measure",
+      disabledReason: noMeasuring,
+      run: () => void measureActions().then((m) => m.openMeasure()),
+    },
+    ...(
+      [
+        [ID.measureDistance, "distance", "Measure distance"],
+        [ID.measureAngle, "angle", "Measure angle at a vertex"],
+        [ID.measureEdgeAngle, "edgeAngle", "Measure angle between edges"],
+        [ID.measurePath, "path", "Measure path length"],
+        [ID.measurePoint, "point", "Measure point coordinates"],
+      ] as const
+    ).map(
+      ([id, tool, label]): CommandSpec => ({
+        id,
+        label,
+        group: "View",
+        disabledReason: noMeasuring,
+        run: () => void measureActions().then((m) => m.openMeasure(tool)),
+      }),
+    ),
+    {
+      id: ID.measureClear,
+      label: "Remove measurements",
+      group: "View",
+      disabledReason: () => (useMeasureStore.getState().measurements.length ? null : "No measurement"),
+      run: () => clearMeasurements(),
     },
     // Selection boxes: on whichever viewport is on screen (utils/bboxSelection/applyBoxSelection).
     {

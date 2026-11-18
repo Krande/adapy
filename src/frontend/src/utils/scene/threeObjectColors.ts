@@ -8,7 +8,7 @@ import {requestRender} from "@/state/perfStore";
 import {useTreeViewStore} from "@/state/treeViewStore";
 import {getViewerRuntime} from "@/state/viewerRuntime";
 import type {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
-import {parseHexColor, type ObjectColorState} from "@/viewport/api/objectColors";
+import {parseHexColor, type ObjectColorState, type ObjectMarks} from "@/viewport/api/objectColors";
 import type {ObjectRef} from "@/viewport/api/viewportApi";
 import {batchedMeshOf, isBatched} from "./meshLookup";
 
@@ -75,6 +75,28 @@ export function setThreeObjectColors(refs: Iterable<ObjectRef> | null, color: st
         requestRender();
     }
     return changed;
+}
+
+/** `ViewportObjectColors.setObjectMarks` over the three.js scene: each batched mesh draws the marked
+ *  ranges of its own over the model and the selection (`CustomBatchedMesh.setMarks`); a mesh with
+ *  none loses what it drew. No undo step, and no colour the user gave changes. */
+export function setThreeObjectMarks(marks: ObjectMarks): void {
+    const tree = useTreeViewStore.getState();
+    const cache = new Map<string, CustomBatchedMesh>();
+    const byMesh = new Map<CustomBatchedMesh, Map<string, number>>();
+    for (const [model, ids] of marks) {
+        for (const [id, color] of ids) {
+            const packed = parseHexColor(color);
+            const name = tree.findNodeByRangeId(model, id)?.node_name;
+            const mesh = packed === null || !name ? null : batchedMeshOf(model, name, cache);
+            if (!mesh) continue;
+            let ranges = byMesh.get(mesh);
+            if (!ranges) byMesh.set(mesh, (ranges = new Map()));
+            ranges.set(id, packed!);
+        }
+    }
+    eachMesh((mesh) => mesh.setMarks(byMesh.get(mesh) ?? null));
+    requestRender();
 }
 
 export function threeObjectColorCount(): number {

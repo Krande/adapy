@@ -9,8 +9,8 @@
 //
 // Limits: the groups' member lists never cross (a group carries `member_count` instead), and
 // at most `SCENE_INFO_GROUP_CAP` groups are sent (`groupsTotal` says how many there are); the
-// groups go only when they change. The panel's other tabs (overlays, tools, clip, mesh,
-// clashes, joints) and its saved groups, source and face-picking sections read or change the
+// groups go only when they change. The panel's other tabs (overlays, tools, clip, mesh) and its
+// saved groups, source and face-picking sections read or change the
 // scene itself and stay in the main window.
 
 import {useBBoxSelectionStore, type SelectionBox} from "@/state/bboxSelectionStore";
