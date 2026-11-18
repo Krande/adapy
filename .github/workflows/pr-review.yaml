@@ -46,7 +46,7 @@ jobs:
           fetch-depth: 0
 
       - name: Review the PR (checks + sticky comment); fails if a check fails
-        uses: Krande/deputy@v0.9.0
+        uses: Krande/deputy@v0.10.0
         with:
           command: pr-review
           github-token: ${{ secrets.GITHUB_TOKEN }}
