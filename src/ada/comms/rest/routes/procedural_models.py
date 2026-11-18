@@ -47,6 +47,7 @@ from .deps import (
     DIRECT_UPLOAD_THRESHOLD_BYTES,
     RestContext,
     advertised_engine_capability,
+    live_worker_specs,
     rest_context,
     scope_from_path,
 )
@@ -1080,27 +1081,66 @@ async def api_procedural_propose_relocations(
 # Export mirrors /compile (revision-keyed cache + capability routing); import
 # is a two-step: upload+detect (dependency-free _ADA_META peek), then enqueue.
 
-# Built-in engine slugs with NO Excel format — echo is diagnostic only. Kept
-# ada-free here (slim API): the default engine + registered engines support it.
-NO_EXCEL_ENGINE_SLUGS = {"echo"}
+# Whether an engine HAS an Excel format is the engine's own say, read off its
+# manifest (``supports_excel``): a built-in's static doc (echo says no), a scope's
+# database row, or the spec its registration advertises
+# (``register_procedural_engine_capabilities(supports_excel=...)``). Core keeps no
+# list of slugs. Kept ada-free (slim API).
 
 
-async def procedural_engine_capability(queue: JobQueue, pool, scope_obj: Scope, engine: str | None) -> str | None:
+async def procedural_engine_manifest(queue: JobQueue, pool, scope_obj: Scope, engine: str | None) -> dict | None:
+    """The manifest doc of ``engine`` as this server can see it: a built-in's static
+    doc, the scope's database row (which wins, as everywhere), else the spec a live
+    worker advertises -- or, on a queue-less server, the one this process registered.
+    None for an engine nobody describes."""
+    from ada.core.engine_specs import is_offerable, manifest_from_spec
+
+    from .procedural_engines import builtin_engine_doc, local_engine_specs
+
+    slug = engine or "adapy-default"
+    builtin = builtin_engine_doc(slug)
+    if builtin is not None:
+        return builtin
+    if pool is not None:
+        eng = await db_module.get_procedural_engine_by_slug(
+            pool, scope_kind=scope_obj.kind, scope_id=scope_obj.id, slug=slug
+        )
+        if eng is not None:
+            return eng.get("doc") or {}
+    if queue.enabled:
+        spec = (await live_worker_specs(queue, "procedural_engine_specs")).get(slug)
+    else:
+        spec = local_engine_specs(queue).get(slug)
+    return manifest_from_spec(spec) if spec is not None and is_offerable(spec) else None
+
+
+def require_excel_format(engine: str | None, manifest: dict | None) -> None:
+    """400 when the engine's manifest says it has no Excel format (``supports_excel:
+    false``). An engine that says nothing keeps the Excel format it always had."""
+    from ada.core.engine_specs import has_excel_format
+
+    if not has_excel_format(manifest):
+        raise HTTPException(status_code=400, detail=f"engine {engine!r} has no Excel format")
+
+
+async def procedural_engine_capability(
+    queue: JobQueue, pool, scope_obj: Scope, engine: str | None, *, manifest: dict | None = None
+) -> str | None:
     """The worker capability that owns a non-default engine's Excel format
     (its ``worker_capability``), so export/import routes to that pool. None for
-    the default / built-in engines (base pool)."""
-    if not engine or engine == "adapy-default" or engine in ("echo",):
+    the default / built-in engines (base pool). ``manifest`` is the engine's
+    :func:`procedural_engine_manifest` when the caller already has it."""
+    if not engine or engine == "adapy-default":
         return None
-    if pool is None:
-        # No database: no registered engines, and a queue-less server runs the export
-        # in-process, where the capability names no pool.
-        return await advertised_engine_capability(queue, engine) if queue.enabled else None
-    eng = await db_module.get_procedural_engine_by_slug(
-        pool, scope_kind=scope_obj.kind, scope_id=scope_obj.id, slug=engine
-    )
-    if eng is not None:
-        return (eng.get("doc") or {}).get("worker_capability")
-    return await advertised_engine_capability(queue, engine)
+    if not queue.enabled:
+        # No queue: the job runs in this server's process, where a capability names
+        # no pool.
+        return None
+    if manifest is None:
+        manifest = await procedural_engine_manifest(queue, pool, scope_obj, engine)
+    if manifest is None or manifest.get("kind") == "builtin":
+        return None
+    return manifest.get("worker_capability")
 
 
 @router.post("/scopes/{scope}/procedural-models/{model_id}/export-xlsx")
@@ -1129,15 +1169,15 @@ async def api_procedural_export_xlsx(
         engine = declared or None
         if engine == "adapy-default":
             engine = None
-    if engine in NO_EXCEL_ENGINE_SLUGS:
-        raise HTTPException(status_code=400, detail=f"engine {engine!r} has no Excel format")
+    manifest = await procedural_engine_manifest(ctx.queue, pool, scope_obj, engine)
+    require_excel_format(engine, manifest)
 
     derived_key = procedural_xlsx_export_key(row["id"], row["revision"], engine)
     if not force and await ctx.storage.exists(scope_obj, derived_key):
         return JSONResponse({"job_id": None, "derived_key": derived_key, "cached": True})
     ctx.jobs.require("procedural_export")
 
-    target_capability = await procedural_engine_capability(ctx.queue, pool, scope_obj, engine)
+    target_capability = await procedural_engine_capability(ctx.queue, pool, scope_obj, engine, manifest=manifest)
     job = await ctx.jobs.submit(
         JobRequest(
             source_key=procedural_export_xlsx_job_key(row["id"], row["revision"]),
@@ -1306,13 +1346,13 @@ async def api_procedural_import_xlsx(
         raise HTTPException(status_code=400, detail="source_key (from /import-xlsx/upload) is required")
     if not name:
         raise HTTPException(status_code=400, detail="name (str) is required")
-    if engine in NO_EXCEL_ENGINE_SLUGS:
-        raise HTTPException(status_code=400, detail=f"engine {engine!r} has no Excel format")
     if engine == "adapy-default":
         engine = None
+    manifest = await procedural_engine_manifest(ctx.queue, pool, scope_obj, engine)
+    require_excel_format(engine, manifest)
     ctx.jobs.require("procedural_import")
 
-    target_capability = await procedural_engine_capability(ctx.queue, pool, scope_obj, engine)
+    target_capability = await procedural_engine_capability(ctx.queue, pool, scope_obj, engine, manifest=manifest)
     derived_key = procedural_import_result_key(source_key)
     job = await ctx.jobs.submit(
         JobRequest(

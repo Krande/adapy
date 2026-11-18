@@ -444,6 +444,9 @@ class ProceduralExportModelHandler(SyntheticFormatHandler if not False else Sour
             queue=ctx.queue,
             db_pool=ctx.db_pool,
             started_at=ctx.started_at,
+            # A queue-less server's job process: the model it read from its file store.
+            model_row=ctx.model_row,
+            audit=ctx.model_row is None,
         )
 
 

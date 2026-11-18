@@ -55,6 +55,7 @@ async def _process_one(
     pool: ThreadPoolExecutor | None,
     db_pool: asyncpg.Pool | None,
     delivery_count: int = 1,
+    model_row: dict | None = None,
 ) -> None:
     # ``pool`` is unused since the convert call moved into a forked
     # subprocess (see subprocess_convert.run_isolated_convert). The
@@ -161,7 +162,9 @@ async def _process_one(
         # this job as queued for the whole time it is running.
         await _report_job_status_over_api(job_id, {"status": "running", "worker_image_tag": state._WORKER_IMAGE_TAG})
 
-    ctx = JobContext(scope=scope, storage=storage, queue=queue, db_pool=db_pool, started_at=started_at)
+    ctx = JobContext(
+        scope=scope, storage=storage, queue=queue, db_pool=db_pool, started_at=started_at, model_row=model_row
+    )
 
     # Synthetic jobs (no source file): the model doc lives in postgres or the job
     # carries its inputs in ``conversion_options`` — run before any source download.
