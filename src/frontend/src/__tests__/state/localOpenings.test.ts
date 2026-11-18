@@ -72,3 +72,24 @@ test("the local columns are written without float noise", () => {
   st().open("m", "Model", 1, { ...doc, spaces: [{ ...space, X: 7.8 }], openings: [{ ...onRoof, POS_X: 2.6 }] } as unknown as ProceduralDoc);
   assert.equal(written("hatch").POS_X, 2.6, "10.4 - 7.8 is 2.6 here, not 2.5999999999999996");
 });
+
+test("renaming the space takes its workbook openings along, still in their local form", () => {
+  st().open("m", "Model", 1, doc);
+  const deck = Object.values(st().cells).find((c) => c.kind === "cell" && c.name === "deck")!;
+  st().renameCell(deck.id, "main_deck");
+  const s = written("door_s");
+  assert.equal(s.SPACE_NAME, "main_deck");
+  assert.equal(s.USE_GLOBAL_COORDS, false);
+  assert.ok(Math.abs(Number(s.POS_X) - 1) < 1e-9, String(s.POS_X));
+  assert.equal(written("lost").SPACE_NAME, "nowhere", "one on another space is left alone");
+});
+
+test("an arrow-key nudge along one axis leaves the other two as they were", () => {
+  st().open("m", "Model", 1, doc);
+  st().setGridStep(1);
+  const c = opening("door_s");
+  st().translateCellAlongAxis(c.id, 0, 1);
+  const after = opening("door_s");
+  assert.equal(after.origin[0], 12);
+  assert.ok(Math.abs(after.origin[1] - c.origin[1]) < 1e-12 && Math.abs(after.origin[2] - c.origin[2]) < 1e-12);
+});
