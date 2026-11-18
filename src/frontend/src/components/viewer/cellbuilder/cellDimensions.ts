@@ -1,0 +1,356 @@
+/**
+ * Dimension lines in the builder scene: the selected cell's three dimensions while the
+ * RESIZE (S) gizmo is on, and how far a cell has travelled while it is MOVED (G).
+ *
+ * Resize: one dimension line per axis, along an edge of the box facing the camera and
+ * set just outside it: dashed, an arrowhead at each end, the length in the middle
+ * ("6.875m"), in the axis colour of the resize handles (X red, Y green, Z blue). A rotated
+ * equipment box gets them in its own (rotated) frame. Rebuilt with the resize handles
+ * (`syncGizmo` runs on every cell change, so the numbers follow a drag live, snapped), and
+ * moved to the edges facing the camera as it orbits.
+ *
+ * Move: from the box centre at the start of the move to where it is now, one leg per axis
+ * that changed (X, then Y, then Z, so the legs chain from the start to the end), each
+ * arrowed at its far end and labelled with the signed offset ("+3.25m"), with a faint
+ * outline of the box where it started. Shown while a gizmo drag or an axis-locked modal
+ * move is in progress, gone when it ends or is cancelled.
+ *
+ * The labels are screen-space sprites drawn over everything, so they stay readable at any
+ * zoom and are never hidden behind the box. Both share the drawing below.
+ */
+
+import * as THREE from "three";
+import type {CellBox, Vec3} from "@/utils/cellbuilder/snap";
+import {requestRender} from "@/state/perfStore";
+import {getViewerRuntime} from "@/state/viewerRuntime";
+import {HANDLE_AXIS_COLOR} from "./sceneConstants";
+import type {CellBuilderScene} from "./sceneContext";
+
+/** "6.875m": metres, at most three decimals, no trailing zeros. */
+export function formatLength(metres: number): string {
+    const rounded = Math.round(metres * 1000) / 1000;
+    return `${Object.is(rounded, -0) ? 0 : rounded}m`;
+}
+
+/** "+3.25m" / "-1.5m": a signed offset, formatted as `formatLength`. */
+export function formatOffset(metres: number): string {
+    const rounded = Math.round(metres * 1000) / 1000;
+    return `${rounded > 0 ? "+" : ""}${formatLength(metres)}`;
+}
+
+export interface DimensionLine {
+    axis: 0 | 1 | 2;
+    from: Vec3;
+    to: Vec3;
+    length: number;
+    /** Which side of the box the edge is on, per other axis (+1 / -1): the line's key. */
+    sides: [number, number];
+}
+
+/** Per axis, the two axes across it. */
+const OTHER_AXES = [[1, 2], [0, 2], [0, 1]] as const;
+
+/**
+ * Where the three dimension lines go for `cell` seen from `eye` (both in the cell's own
+ * frame): per axis, the box edge parallel to it on the camera's side of the two other
+ * axes, pushed out by `gap` along both so it sits just outside the box.
+ */
+export function dimensionLines(cell: CellBox, eye: Vec3, gap: number): DimensionLine[] {
+    const out: DimensionLine[] = [];
+    for (const axis of [0, 1, 2] as const) {
+        const others = OTHER_AXES[axis];
+        const from: Vec3 = [0, 0, 0];
+        const to: Vec3 = [0, 0, 0];
+        const sides: [number, number] = [1, 1];
+        others.forEach((o, i) => {
+            const centre = cell.origin[o] + cell.size[o] / 2;
+            const side = eye[o] >= centre ? 1 : -1;
+            sides[i] = side;
+            const at = side > 0 ? cell.origin[o] + cell.size[o] + gap : cell.origin[o] - gap;
+            from[o] = at;
+            to[o] = at;
+        });
+        from[axis] = cell.origin[axis];
+        to[axis] = cell.origin[axis] + cell.size[axis];
+        out.push({axis, from, to, length: cell.size[axis], sides});
+    }
+    return out;
+}
+
+export interface MoveLine {
+    axis: 0 | 1 | 2;
+    from: Vec3;
+    to: Vec3;
+    /** Signed travel along `axis`, metres. */
+    offset: number;
+}
+
+const boxCentre = (b: CellBox): Vec3 => [
+    b.origin[0] + b.size[0] / 2,
+    b.origin[1] + b.size[1] / 2,
+    b.origin[2] + b.size[2] / 2,
+];
+
+/**
+ * The legs of a move from `start` to `current`: from the start box's centre, one leg per
+ * axis whose offset shows (at least half a millimetre), in X, Y, Z order, each starting
+ * where the one before ended, so together they run from the start centre to the current one.
+ */
+export function moveLines(start: CellBox, current: CellBox): MoveLine[] {
+    const at = boxCentre(start);
+    const end = boxCentre(current);
+    const out: MoveLine[] = [];
+    for (const axis of [0, 1, 2] as const) {
+        const offset = end[axis] - at[axis];
+        if (Math.round(offset * 1000) === 0) continue;
+        const from: Vec3 = [...at];
+        at[axis] = end[axis];
+        out.push({axis, from, to: [...at], offset});
+    }
+    return out;
+}
+
+const LABEL_W = 256;
+const LABEL_H = 64;
+/** The label plate behind the length: the cell builder's readout colour. */
+const LABEL_PLATE = "rgba(17,24,39,0.86)";
+/** A label's sprite scale with `sizeAttenuation` off: about constant on screen, as the numeric readout. */
+const LABEL_SCALE: readonly [number, number] = [0.12, 0.03];
+/** Lines and arrowheads draw at the numeric readout's order, and the labels over them, so a
+ *  number is never under a line. */
+const LINE_RENDER_ORDER = 7;
+const LABEL_RENDER_ORDER = 8;
+
+function labelTexture(text: string, color: number): THREE.CanvasTexture {
+    const canvas = document.createElement("canvas");
+    canvas.width = LABEL_W;
+    canvas.height = LABEL_H;
+    const tex = new THREE.CanvasTexture(canvas);
+    // The canvas is sRGB: said so, the dark plate and the axis colour come out as drawn.
+    tex.colorSpace = THREE.SRGBColorSpace;
+    const g = canvas.getContext("2d");
+    // No 2D context (a canvas the browser refuses): a blank label beats no dimension line.
+    if (!g) return tex;
+    g.fillStyle = LABEL_PLATE;
+    const r = 12;
+    g.beginPath();
+    g.moveTo(r, 2);
+    g.arcTo(LABEL_W - 2, 2, LABEL_W - 2, LABEL_H - 2, r);
+    g.arcTo(LABEL_W - 2, LABEL_H - 2, 2, LABEL_H - 2, r);
+    g.arcTo(2, LABEL_H - 2, 2, 2, r);
+    g.arcTo(2, 2, LABEL_W - 2, 2, r);
+    g.fill();
+    g.fillStyle = `#${color.toString(16).padStart(6, "0")}`;
+    g.font = "bold 34px ui-monospace, monospace";
+    g.textAlign = "center";
+    g.textBaseline = "middle";
+    g.fillText(text, LABEL_W / 2, LABEL_H / 2 + 2);
+    tex.needsUpdate = true;
+    return tex;
+}
+
+/** One drawn dimension line: the dashed shaft, its arrowheads and its label. */
+interface DimensionPart {
+    axis: 0 | 1 | 2;
+    line: THREE.Line;
+    heads: THREE.Mesh[];
+    headLen: number;
+    label: THREE.Sprite;
+    /** Arrowheads at both ends (a dimension) or only at the far end (a move). */
+    bothEnds: boolean;
+}
+
+/**
+ * Add a dimension line along `axis` to `group`: dashed, arrowheaded, labelled `text`, in
+ * the axis colour. `scale` (the box's largest size) sets the dash and arrowhead sizes.
+ */
+function addDimension(
+    group: THREE.Group,
+    axis: 0 | 1 | 2,
+    length: number,
+    text: string,
+    scale: number,
+    bothEnds: boolean,
+): DimensionPart {
+    const color = HANDLE_AXIS_COLOR[axis];
+    const geom = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
+    const line = new THREE.Line(
+        geom,
+        new THREE.LineDashedMaterial({
+            color,
+            dashSize: Math.max(0.05, scale / 40),
+            gapSize: Math.max(0.035, scale / 60),
+            depthTest: false,
+            transparent: true,
+        }),
+    );
+    line.renderOrder = LINE_RENDER_ORDER;
+    line.frustumCulled = false;
+    // Arrowheads: cones pointing out along the axis, sized to the box (and to the line,
+    // so a short one keeps a visible shaft).
+    const headLen = Math.min(Math.max(0.12, scale / 25), Math.abs(length) * 0.3);
+    const head = (): THREE.Mesh => {
+        const cone = new THREE.Mesh(
+            new THREE.ConeGeometry(headLen * 0.35, headLen, 12),
+            new THREE.MeshBasicMaterial({color, depthTest: false, transparent: true}),
+        );
+        cone.renderOrder = LINE_RENDER_ORDER;
+        return cone;
+    };
+    const heads = bothEnds ? [head(), head()] : [head()];
+    const label = new THREE.Sprite(
+        new THREE.SpriteMaterial({
+            map: labelTexture(text, color),
+            depthTest: false,
+            transparent: true,
+            sizeAttenuation: false,
+            toneMapped: false,
+        }),
+    );
+    label.scale.set(LABEL_SCALE[0], LABEL_SCALE[1], 1);
+    label.renderOrder = LABEL_RENDER_ORDER;
+    for (const o of [line, ...heads, label]) {
+        o.userData.__excludeFromFit = true;
+        group.add(o);
+    }
+    return {axis, line, heads, headLen, label, bothEnds};
+}
+
+/** Put a drawn dimension line from `from` to `to`, its arrowheads pointing out of the ends. */
+function placeDimension(part: DimensionPart, from: Vec3, to: Vec3): void {
+    const {axis, line, heads, headLen, label} = part;
+    const pos = line.geometry.getAttribute("position");
+    pos.setXYZ(0, ...from);
+    pos.setXYZ(1, ...to);
+    pos.needsUpdate = true;
+    line.geometry.computeBoundingSphere();
+    line.computeLineDistances();
+    const a = new THREE.Vector3(...from);
+    const b = new THREE.Vector3(...to);
+    const dir = to[axis] >= from[axis] ? 1 : -1;
+    const up = new THREE.Vector3(0, 1, 0);
+    const along = new THREE.Vector3().setComponent(axis, (dir * headLen) / 2);
+    const far = heads[heads.length - 1];
+    far.position.copy(b).sub(along);
+    far.quaternion.setFromUnitVectors(up, new THREE.Vector3().setComponent(axis, dir));
+    if (part.bothEnds) {
+        heads[0].position.copy(a).add(along);
+        heads[0].quaternion.setFromUnitVectors(up, new THREE.Vector3().setComponent(axis, -dir));
+    }
+    label.position.copy(a).add(b).multiplyScalar(0.5);
+}
+
+/** Remove and free everything drawn in `group`. */
+function disposeGroup(group: THREE.Group): void {
+    for (let i = group.children.length - 1; i >= 0; i--) {
+        const o = group.children[i];
+        if (o instanceof THREE.Sprite) {
+            // A sprite's geometry is three's shared quad: leave it.
+            o.material.map?.dispose();
+            o.material.dispose();
+        } else if (o instanceof THREE.Mesh || o instanceof THREE.Line) {
+            o.geometry.dispose();
+            for (const m of Array.isArray(o.material) ? o.material : [o.material]) m.dispose();
+        }
+        group.remove(o);
+    }
+    group.visible = false;
+}
+
+/** Remove and free the resize dimension lines. */
+export function disposeCellDimensions(ctx: CellBuilderScene): void {
+    disposeGroup(ctx.dimensionGroup);
+}
+
+/** Remove and free the move measure. */
+export function disposeMoveMeasure(ctx: CellBuilderScene): void {
+    disposeGroup(ctx.moveMeasureGroup);
+}
+
+/** The camera position in `group`'s own frame (the cell's frame for a rotated box). */
+const eyeIn = (group: THREE.Group): Vec3 | null => {
+    const cam = getViewerRuntime().camera.current;
+    if (!cam) return null;
+    group.updateWorldMatrix(true, false);
+    const p = group.worldToLocal(cam.getWorldPosition(new THREE.Vector3()));
+    return [p.x, p.y, p.z];
+};
+
+/**
+ * Show the dimension lines of `cell`, or none (null). `frame` places the box's own
+ * (unrotated) frame in the scene: identity for an axis-aligned box, its rotation about the
+ * footprint centre for a rotated equipment.
+ */
+export function syncCellDimensions(
+    ctx: CellBuilderScene,
+    cell: CellBox | null,
+    gap: number,
+    frame: THREE.Matrix4 = new THREE.Matrix4(),
+): void {
+    disposeCellDimensions(ctx);
+    if (!cell) return;
+    const group = ctx.dimensionGroup;
+    group.matrixAutoUpdate = false;
+    group.matrix.copy(frame);
+    const eye = eyeIn(group);
+    if (!eye) return;
+    const maxSize = Math.max(...cell.size);
+    const lines = dimensionLines(cell, eye, gap);
+    const parts = lines.map((d) => addDimension(group, d.axis, d.length, formatLength(d.length), maxSize, true));
+    const place = (ds: DimensionLine[]) => ds.forEach((d, i) => placeDimension(parts[i], d.from, d.to));
+    place(lines);
+    // Follow the camera round the box: the first line checks, before each frame, whether
+    // another edge faces the camera now, and moves all three there (one more frame).
+    let key = lines.map((d) => d.sides.join()).join("|");
+    parts[0].line.onBeforeRender = () => {
+        const now = eyeIn(group);
+        if (!now) return;
+        const next = dimensionLines(cell, now, gap);
+        const nextKey = next.map((d) => d.sides.join()).join("|");
+        if (nextKey === key) return;
+        key = nextKey;
+        place(next);
+        requestRender();
+    };
+    group.visible = true;
+}
+
+/** The start box's outline while a move is measured: faint, so it never reads as a cell. */
+const GHOST_OPACITY = 0.45;
+const GHOST_COLOR = 0x9ca3af;
+
+/**
+ * Show how far a box has moved from `start` to `current` (or nothing, `start` null): one
+ * leg per changed axis, labelled with its signed offset, and an outline of the start box
+ * (`frame` places it, as in `syncCellDimensions`, for a rotated equipment).
+ */
+export function syncMoveMeasure(
+    ctx: CellBuilderScene,
+    start: CellBox | null,
+    current: CellBox | null,
+    frame: THREE.Matrix4 = new THREE.Matrix4(),
+): void {
+    disposeMoveMeasure(ctx);
+    if (!start || !current) return;
+    const legs = moveLines(start, current);
+    if (!legs.length) return;
+    const group = ctx.moveMeasureGroup;
+    const maxSize = Math.max(...start.size);
+    for (const leg of legs) {
+        const part = addDimension(group, leg.axis, leg.offset, formatOffset(leg.offset), maxSize, false);
+        placeDimension(part, leg.from, leg.to);
+    }
+    const box = new THREE.BoxGeometry(...start.size);
+    const ghost = new THREE.LineSegments(
+        new THREE.EdgesGeometry(box),
+        new THREE.LineBasicMaterial({color: GHOST_COLOR, transparent: true, opacity: GHOST_OPACITY, depthTest: false}),
+    );
+    box.dispose();
+    const c = boxCentre(start);
+    ghost.matrixAutoUpdate = false;
+    ghost.matrix.copy(frame).multiply(new THREE.Matrix4().makeTranslation(c[0], c[1], c[2]));
+    ghost.renderOrder = LINE_RENDER_ORDER - 1;
+    ghost.userData.__excludeFromFit = true;
+    group.add(ghost);
+    group.visible = true;
+}

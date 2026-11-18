@@ -5,7 +5,7 @@
 import React from "react";
 
 import {CORE_COMMAND_ICONS} from "./commandIcons";
-import {commandsVersion, getCommand, runCommand, subscribeCommands} from "./commands";
+import {commandsVersion, getCommand, runCommand, subscribeCommands, type CommandSpec} from "./commands";
 
 /** The button's look: a compact icon button, filled while the command is checked. */
 export const COMMAND_BUTTON =
@@ -16,6 +16,16 @@ export const COMMAND_BUTTON_ON = "bg-[var(--ada-tab-active-bg,#374151)] text-[va
 /** Re-render when a command is registered or replaced. */
 export function useCommandsVersion(): void {
   React.useSyncExternalStore(subscribeCommands, commandsVersion, commandsVersion);
+}
+
+const NO_WATCH = () => () => {};
+
+/** Re-render when what command `c` shows (its tick, its reason) changes, where its `watch` tells. */
+function useCommandWatch(c: CommandSpec | undefined): void {
+  const watch = c?.watch;
+  const subscribe = React.useMemo(() => (watch ? (cb: () => void) => watch(cb) : NO_WATCH), [watch]);
+  const snapshot = () => (c && watch ? `${c.checked?.() ?? ""}|${c.disabledReason?.() ?? ""}` : "");
+  React.useSyncExternalStore(subscribe, snapshot, snapshot);
 }
 
 export interface CommandButtonProps {
@@ -39,11 +49,13 @@ export interface CommandButtonProps {
  * A button that runs a command: its icon, label and tooltip from the command,
  * greyed (with the reason as the tooltip) while it cannot run, pressed while it
  * is checked. Nothing when the command is not offered. Its state is read at
- * render; the caller re-renders it when the state it shows changes.
+ * render, and again when the command's `watch` says it changed; a command
+ * without one is redrawn by the caller.
  */
 export function CommandButton({id, label, icon, pressed, onPress, className, children}: CommandButtonProps) {
   useCommandsVersion();
   const c = getCommand(id);
+  useCommandWatch(c);
   if (!c || (c.when && !c.when())) return null;
   const reason = c.disabledReason?.() ?? null;
   const checked = pressed ?? c.checked?.();

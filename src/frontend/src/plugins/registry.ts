@@ -253,7 +253,15 @@ export type { PlaceBoxOptions, PlacedBox, PlacedBoxMode, PlacedBoxPose } from ".
 //          the viewer's clash module on the models' stored GLBs, so it answers the same on either
 //          viewport. For a tool that places something where two objects meet. Additive: an older
 //          core has no `contactBetween`, so a plugin asks for it first.
-export const PLUGIN_API_VERSION = "1.27.0";
+// 1.28.0 — kept in step with viewer-core 1.28.0: `CORE_COMMAND_IDS.orthographic`
+//          (`core:view.orthographic`) and `CORE_COMMAND_IDS.groundGrid`
+//          (`core:view.ground-grid`), commands a plugin may run or place. `CommandSpec.watch`:
+//          a command says when its tick or reason changes, and its toolbar button redraws.
+//          `CORE_COMMAND_IDS.sectionGizmo` (`core:section-gizmo`): show or hide the section gizmo.
+//          A shell's `modeArrangements[id].toolbar` adds its controls to a plugin's mode.
+//          `CORE_COMMAND_IDS.builderIncludeDimmed` / `builderIncludeOnly` / `builderIncludeAll`: how
+//          the builder draws what the build leaves out (INCLUDE false). Additive.
+export const PLUGIN_API_VERSION = "1.28.0";
 
 /** What the Simulations panel writes on a run's open-result button. */
 export function openResultButtonLabel(

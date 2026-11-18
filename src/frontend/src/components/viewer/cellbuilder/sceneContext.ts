@@ -173,6 +173,18 @@ export function createCellBuilderScene(
     const resizeGroup = new THREE.Group();
     resizeGroup.visible = false;
     container.add(resizeGroup);
+    // The resized cell's dimension lines (cellDimensions.ts): their own group, so the
+    // resize handles' raycast never picks a line or a label.
+    const dimensionGroup = new THREE.Group();
+    dimensionGroup.visible = false;
+    dimensionGroup.userData.__excludeFromFit = true;
+    container.add(dimensionGroup);
+    // How far the moved cell has travelled (G): the start outline and one offset line per
+    // axis (cellDimensions.ts), apart from the resize dimensions.
+    const moveMeasureGroup = new THREE.Group();
+    moveMeasureGroup.visible = false;
+    moveMeasureGroup.userData.__excludeFromFit = true;
+    container.add(moveMeasureGroup);
     // On-canvas numeric readout (a screen-space sprite, like snapMarker).
     const readoutCanvas = document.createElement("canvas");
     readoutCanvas.width = 256;
@@ -229,6 +241,8 @@ export function createCellBuilderScene(
         portGizmoHelper,
         portRaycaster,
         resizeGroup,
+        dimensionGroup,
+        moveMeasureGroup,
         readoutCanvas,
         readoutTex,
         readout,
@@ -249,6 +263,9 @@ export function createCellBuilderScene(
          * the member steps in exact grid multiples. Null between drags. */
         loftDragLast: null as THREE.Vector3 | null,
         modalMove: null as ModalMove | null,
+        /** The cell being moved (gizmo drag or modal move) and its box when the move
+         * began, measured live by the move dimension lines. Null when nothing moves. */
+        moveMeasure: null as {cellId: string; start: CellBox} | null,
         /** Equipment captured to ride along with the space cell being translated. */
         translateEquip: [] as string[],
         /** Outward world direction of the edited port at rotate-drag start; the
@@ -261,6 +278,8 @@ export function createCellBuilderScene(
          * is OFF, where we must NOT grab the pointer on pointerdown (so a drag over
          * a cell still orbits). Any travel past DRAG_START_PX cancels it. */
         pendingSelect: null as PendingSelect | null,
+        /** Where the right button went down: a right-click that then moved was a drag (the camera's), not a menu. */
+        rightPress: null as {x: number; y: number} | null,
         longPressTimer: null as ReturnType<typeof setTimeout> | null,
         longPressStartX: 0,
         longPressStartY: 0,

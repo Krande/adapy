@@ -14,7 +14,7 @@ import type {ProceduralDoc} from "@/services/viewerApi";
 import {groupToStructureName, normalizeGroups} from "@/utils/cellbuilder/groups";
 import type {CellBuilderSlice} from "./state";
 import {currentScopePart} from "./shared";
-import {cellsFromDoc, containingCellName, groupsFromDoc, loftMembersFromDoc, systemsFromDoc} from "./docCodec";
+import {cellsFromDoc, containingCellName, DOC_SCHEMA_VERSION, groupsFromDoc, loftMembersFromDoc, systemsFromDoc} from "./docCodec";
 
 /** Is a procedural document loaded for VIEWING with no editable session behind
  * it -- the GLB-embedded document on the websocket path (`loadFromDoc`)?
@@ -275,6 +275,8 @@ export const createDocumentSlice: CellBuilderSlice<DocumentSlice> = (set, get) =
       // grouping-unaware engine ignores the key regardless).
       const groups = normalizeGroups(get().groups);
       return {
+        // The schema this doc is written in: from 1.1 an entity's INCLUDE false leaves it out of the build.
+        schema_version: DOC_SCHEMA_VERSION,
         grid: {},
         blueprint: get().blueprintOptions,
         // The selected structural blueprint (kept OUT of the whitelisted

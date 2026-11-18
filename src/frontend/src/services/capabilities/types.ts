@@ -630,8 +630,11 @@ export interface CatalogRevision {
 
 /** A worker job handle: poll `job_id` with `ConversionCapability.jobStatus`. */
 export interface CatalogJobHandle {
-  job_id: string;
+  /** The worker job to poll; null when the server did the work in the
+   * request (a local viewer has no worker) and answered ``status: "done"``. */
+  job_id: string | null;
   derived_key: string;
+  status?: "done";
 }
 
 export interface CatalogCapability {

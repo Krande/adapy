@@ -65,7 +65,9 @@ export function shellModes(spec: UiShellSpec): ShellMode[] {
     toolbar: m.toolbar,
     toolbars: m.toolbars,
     requires: m.requires,
+    open: m.open,
   }));
+  const extra = spec.layout?.modeArrangements ?? {};
   const theirs: ShellMode[] = getPluginModes()
     .filter(({mode}) => !own.some((m) => m.id === mode.id))
     .map(({pluginId, mode}) => ({
@@ -79,6 +81,10 @@ export function shellModes(spec: UiShellSpec): ShellMode[] {
       // A plugin's mode opts in to the deformed model; the shell's own modes keep the default (shown).
       showsDeformation: mode.showsDeformation ?? false,
       toolbar: mode.toolbar,
+      // The shell's controls for it run as the shell, apart from the mode's own (ShellModeToolbar).
+      ...(extra[mode.id]?.toolbar && shellPlugin
+        ? {shellToolbar: extra[mode.id]!.toolbar, shellPluginId: shellPlugin}
+        : {}),
     }));
   return [...mine, ...theirs];
 }

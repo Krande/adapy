@@ -359,8 +359,8 @@ const EquipmentAdminPanel: React.FC<{ embedded?: boolean }> = ({
             onClick={() => void store.getState().selectEquipment(t.id)}
           >
             <span className="truncate flex-1">{t.name}</span>
-            <span className="rounded-sm bg-sky-900/70 text-sky-200 px-1 text-[10px]">
-              db
+            <span className="rounded-sm bg-sky-900/70 text-sky-200 px-1 text-[10px]" title="In this scope's catalog">
+              scope
             </span>
             <span className="text-gray-400 font-mono text-[10px]">
               {t.slug}

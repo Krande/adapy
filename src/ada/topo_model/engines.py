@@ -28,6 +28,8 @@ from pydantic import BaseModel
 __all__ = [
     "DEFAULT_ENGINE_SLUG",
     "PROCEDURAL_SCHEMA_VERSION",
+    "ENTITY_INCLUDE_SCHEMA",
+    "honours_entity_include",
     "EngineBinding",
     "BUILTIN_ENGINES",
     "is_default_engine",
@@ -45,7 +47,30 @@ DEFAULT_ENGINE_SLUG = "adapy-default"
 # bumped when the doc shape (sheets/entities/columns) changes incompatibly. It is
 # independent of the xlsx serializer's own wire-format version. MAJOR.MINOR: a
 # minor bump is additive (older reader still works); a major bump is a break.
-PROCEDURAL_SCHEMA_VERSION = "1.0"
+#
+# 1.1: an entity's ``INCLUDE: false`` (space, equipment, opening) leaves it out of the build. Before
+# 1.1 the entity models' default False was dumped into every stored doc and no compile read it, so a
+# 1.0 (or unstamped) doc's entity INCLUDE is ignored: see :func:`honours_entity_include`.
+PROCEDURAL_SCHEMA_VERSION = "1.1"
+
+#: The first doc schema whose entities' ``INCLUDE: false`` means "left out of the build".
+ENTITY_INCLUDE_SCHEMA = "1.1"
+
+
+def _version(v: object) -> tuple[int, ...] | None:
+    try:
+        return tuple(int(p) for p in str(v).split("."))
+    except ValueError:
+        return None
+
+
+def honours_entity_include(schema_version: object) -> bool:
+    """Does a doc of this schema mean its entities' ``INCLUDE: false``? Only from 1.1: an older or
+    unstamped doc carries the models' default False on entities nobody excluded (``validate_doc`` and
+    ``to_doc`` dumped it, and the compile ignored it), so reading it now would drop them. A structure's
+    ``groups[].include: false`` is new with the flag and read at every version."""
+    have, need = _version(schema_version), _version(ENTITY_INCLUDE_SCHEMA)
+    return have is not None and need is not None and have >= need
 
 
 class EngineBinding(BaseModel):
@@ -84,18 +109,25 @@ class EngineBinding(BaseModel):
 # tolerates-but-ignores any ``groups``/``STRUCTURE_NAME`` in the doc; echo renders
 # raw boxes. A capability engine advertises ``True`` from its worker
 # specs (see ``ada.topo_model.engine_catalog`` / the worker heartbeat).
+#
+# ``supports_excel`` says whether an engine has an Excel format: adapy-default
+# does, echo does not. A registered engine says the same through its
+# registration (``register_procedural_engine_capabilities(supports_excel=...)``)
+# or its manifest; one that says nothing has one.
 BUILTIN_ENGINES: dict[str, dict] = {
     DEFAULT_ENGINE_SLUG: {
         "name": "adapy default",
         "description": "Built-in adapy procedural engine (runs server-side and in-browser via WASM).",
         "entrypoint": "ada.topo_model.wasm_compile:compile_doc",
         "supports_grouping": False,
+        "supports_excel": True,
     },
     "echo": {
         "name": "echo (raw cells)",
         "description": "Diagnostic engine: renders the document's cells as raw boxes (no structure).",
         "entrypoint": "ada.topo_model.echo_engine:compile_doc",
         "supports_grouping": False,
+        "supports_excel": False,
     },
 }
 
@@ -162,12 +194,14 @@ def compile_with_engine(engine: str, doc, **options) -> bytes:
 # Excel workbook. The default engine (adapy-default) uses ada.topo_model.excel_io;
 # a non-default engine exposes sibling ``export_xlsx`` / ``import_xlsx``
 # entrypoints (a registry manifest may name them explicitly, else they are derived
-# from the compile entrypoint's module). A built-in NON-default engine (echo) has
-# no Excel format.
+# from the compile entrypoint's module). An engine whose spec or manifest says
+# ``supports_excel: false`` (the built-in echo) has no Excel format.
 
-# Built-in engine slugs that own an Excel format (the default engine does; the
-# diagnostic ``echo`` engine does not).
-_EXCEL_BUILTIN_ENGINES: frozenset[str] = frozenset({DEFAULT_ENGINE_SLUG})
+# Built-in engine slugs that own an Excel format, read off BUILTIN_ENGINES (the
+# default engine does; the diagnostic ``echo`` engine does not).
+_EXCEL_BUILTIN_ENGINES: frozenset[str] = frozenset(
+    slug for slug, spec in BUILTIN_ENGINES.items() if spec.get("supports_excel", True)
+)
 
 
 def _sibling_entrypoint(compile_entrypoint: str, func: str) -> str:
@@ -185,14 +219,25 @@ class EngineHasNoExcelFormat(ValueError):
 def engine_supports_excel(engine: str | None, manifest_doc: dict | None = None) -> bool:
     """True if ``engine`` can export/import Excel: the default engine, or a
     registered engine whose manifest names an ``entrypoint`` (from which the xlsx
-    siblings are derived) or explicit ``export_entrypoint``/``import_entrypoint``.
-    Built-in non-default engines (echo) return False."""
+    siblings are derived) or explicit ``export_entrypoint``/``import_entrypoint``,
+    and does not say ``supports_excel: false``. Built-in non-default engines
+    (echo) return False."""
     if is_default_engine(engine):
         return True
     if engine in BUILTIN_ENGINES:
         return engine in _EXCEL_BUILTIN_ENGINES
     doc = manifest_doc or {}
+    if doc.get("supports_excel") is False:
+        return False
     return bool(doc.get("export_entrypoint") or doc.get("import_entrypoint") or doc.get("entrypoint"))
+
+
+def _require_excel(engine: str | None, manifest_doc: dict | None) -> None:
+    """Raise :class:`EngineHasNoExcelFormat` for an engine that says it has no Excel
+    format: a built-in without one, or a manifest with ``supports_excel: false``."""
+    no_builtin = engine in BUILTIN_ENGINES and engine not in _EXCEL_BUILTIN_ENGINES
+    if no_builtin or (manifest_doc or {}).get("supports_excel") is False:
+        raise EngineHasNoExcelFormat(f"engine {engine!r} has no Excel format")
 
 
 def _xlsx_entrypoint(engine: str, manifest_doc: dict | None, *, direction: str) -> str:
@@ -219,8 +264,7 @@ def export_doc_to_xlsx(engine: str | None, doc: dict, *, name: str, manifest_doc
         from ada.topo_model.excel_io import doc_to_xlsx_bytes
 
         return doc_to_xlsx_bytes(doc, name=name, engine=DEFAULT_ENGINE_SLUG)
-    if engine in BUILTIN_ENGINES and engine not in _EXCEL_BUILTIN_ENGINES:
-        raise EngineHasNoExcelFormat(f"engine {engine!r} has no Excel format")
+    _require_excel(engine, manifest_doc)
     fn = load_entrypoint(_xlsx_entrypoint(engine, manifest_doc, direction="export"))
     return _call_filtered(fn, doc, {"name": name})
 
@@ -236,7 +280,6 @@ def import_xlsx_to_doc(engine: str | None, xlsx_bytes: bytes, *, manifest_doc: d
         from ada.topo_model.excel_io import xlsx_bytes_to_doc
 
         return xlsx_bytes_to_doc(xlsx_bytes)
-    if engine in BUILTIN_ENGINES and engine not in _EXCEL_BUILTIN_ENGINES:
-        raise EngineHasNoExcelFormat(f"engine {engine!r} has no Excel format")
+    _require_excel(engine, manifest_doc)
     fn = load_entrypoint(_xlsx_entrypoint(engine, manifest_doc, direction="import"))
     return fn(xlsx_bytes)

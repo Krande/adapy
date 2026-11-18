@@ -7,11 +7,12 @@ import {
 import { useCellBuilderStore } from "@/state/cellBuilderStore";
 import { useEquipmentCatalogStore } from "@/state/equipmentCatalogStore";
 import { CORE_PANEL_IDS, reveal } from "@/layout/panelActions";
+import { equipmentCadFitted, resizeRefusal } from "@/utils/cellbuilder/cellResize";
 
 // The cell context menu, opened by a long-press (touch) or right-click
 // (desktop) over a builder cell — see CellBuilderController. It offers the two
-// direct-manipulation gizmos (Move / Resize for cells; Move / Rotate for
-// equipment), a jump to the parameter panel, and delete. Rendered via the
+// direct-manipulation gizmos (Move, Resize for spaces, openings and equipment,
+// Rotate for equipment), a jump to the parameter panel, and delete. Rendered via the
 // shared PositionedMenu portal so it clears the canvas/overlay stacking
 // contexts.
 const CellBuilderContextMenu: React.FC = () => {
@@ -24,6 +25,8 @@ const CellBuilderContextMenu: React.FC = () => {
   const openEquipmentEditor = useEquipmentCatalogStore((s) => s.openForSlug);
   const removeCell = useCellBuilderStore((s) => s.removeCell);
   const hasCells = Object.values(cells).some((c) => c.kind === "cell");
+  const equipmentCad = useCellBuilderStore((s) => s.equipmentCad);
+  const equipmentTypes = useCellBuilderStore((s) => s.equipmentTypes);
 
   if (!menu) return null;
   const cell = cells[menu.cellId];
@@ -51,8 +54,11 @@ const CellBuilderContextMenu: React.FC = () => {
             },
           },
         ]),
-    // Resize is a cell-only gizmo — equipment is sized by its type.
-    ...(cell.kind === "cell"
+    // Resize: spaces, openings and equipment (not a loft band, nor an equipment box
+    // fitted to its CAD model; cellResize.ts).
+    ...(resizeRefusal(cell.kind, {
+      cadFitted: equipmentCadFitted(cell, { equipmentCad, equipmentTypes }),
+    }) === null
       ? [
           {
             key: "resize",

@@ -62,6 +62,8 @@ export interface BillboardCamera {
     up: Point3;
     /** The vertical field of view, in degrees. */
     fovDeg: number;
+    /** Set when the view is orthographic: the height of the world it shows. */
+    orthoHeight?: number;
 }
 
 const focal = (fovDeg: number): number => 1 / Math.tan((fovDeg * Math.PI) / 360);
@@ -88,7 +90,8 @@ export function anchorClipVertexShader(source: string): string {
 }
 
 /** Where a world point is in a view of `width` by `height` (x right, y down, the view's own units), and
- *  how far in front of the camera; null when it is behind the camera. */
+ *  how far in front of the camera; null when it is behind the camera. An orthographic view has no
+ *  behind: there a point is in view at any depth. */
 export function projectToView(camera: BillboardCamera, width: number, height: number, p: Point3): {x: number; y: number; depth: number} | null {
     const sub = (a: Point3, b: Point3): [number, number, number] => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
     const dot = (a: Point3, b: Point3) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
@@ -102,9 +105,10 @@ export function projectToView(camera: BillboardCamera, width: number, height: nu
     const up = cross(right, forward);
     const rel = sub(p, camera.eye);
     const depth = dot(rel, forward);
-    if (depth <= 1e-9) return null;
-    // Half the view's height is one unit at distance `focal`.
-    const perUnit = (focal(camera.fovDeg) * height) / (2 * depth);
+    const orthoHeight = camera.orthoHeight ?? 0;
+    if (!(orthoHeight > 0) && depth <= 1e-9) return null;
+    // Half the view's height is one unit at distance `focal`; in an orthographic view, at any distance.
+    const perUnit = orthoHeight > 0 ? height / orthoHeight : (focal(camera.fovDeg) * height) / (2 * depth);
     return {x: width / 2 + dot(rel, right) * perUnit, y: height / 2 - dot(rel, up) * perUnit, depth};
 }
 
@@ -120,7 +124,13 @@ export function billboardsAt(
     for (const b of billboards) {
         const at = projectToView(camera, width, height, b.position);
         if (!at) continue;
-        const h = b.sizing === "screen" ? b.height : (b.height * focal(camera.fovDeg) * height) / (2 * at.depth);
+        const orthoHeight = camera.orthoHeight ?? 0;
+        const h =
+            b.sizing === "screen"
+                ? b.height
+                : orthoHeight > 0
+                  ? (b.height * height) / orthoHeight
+                  : (b.height * focal(camera.fovDeg) * height) / (2 * at.depth);
         const w = h * b.aspect;
         const [ax, ay] = b.anchor ?? [0.5, 0.5];
         const left = at.x - ax * w;

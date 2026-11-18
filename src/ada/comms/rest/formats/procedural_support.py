@@ -225,9 +225,11 @@ def _advertised_engine_doc(engine: str | None) -> dict | None:
     A self-advertising engine deliberately has no database row -- that is the
     whole point of advertising -- so its manifest has to come from the registry
     the engine populated at import (see ADA_WORKER_PRELOAD and
-    ``register_procedural_engine_capabilities``). Returns the same
-    ``{kind, entrypoint, worker_capability}`` shape a row's ``doc`` carries, so
-    every caller needs nothing beyond the fallback itself.
+    ``register_procedural_engine_capabilities``). Returns the same shape a row's
+    ``doc`` carries -- ``{kind, entrypoint, worker_capability, export_entrypoint,
+    import_entrypoint, supports_excel}``, each optional key only when the
+    registration gave it (``ada.core.engine_specs.manifest_from_spec``) -- so every
+    caller needs nothing beyond the fallback itself.
 
     Only offerable specs qualify: a spec carrying capability flags alone
     describes an engine the viewer already knows about, not one this worker can
@@ -235,25 +237,27 @@ def _advertised_engine_doc(engine: str | None) -> dict | None:
     """
     if not engine:
         return None
+    from ada.core.engine_specs import manifest_from_spec
     from ada.topo_model.engine_catalog import is_offerable, procedural_engine_specs
 
     for spec in procedural_engine_specs():
         if spec.get("slug") == engine and is_offerable(spec):
-            doc: dict = {"kind": "server", "entrypoint": spec["entrypoint"]}
-            if spec.get("worker_capability"):
-                doc["worker_capability"] = spec["worker_capability"]
-            return doc
+            return manifest_from_spec(spec)
     return None
 
 
-async def _resolve_engine_manifest(db_pool: "asyncpg.Pool", row: dict, engine: str | None) -> dict | None:
+async def _resolve_engine_manifest(db_pool: "asyncpg.Pool | None", row: dict, engine: str | None) -> dict | None:
     """The registry manifest doc for a NON-default, non-builtin engine (its
     ``entrypoint``/``worker_capability``/xlsx-sibling fields), resolved by slug in
-    the model's scope. ``None`` for the default/built-in engines."""
+    the model's scope. ``None`` for the default/built-in engines. Without a pool
+    (a local viewer) it is the engine registered in THIS process, as the build
+    resolves it."""
     from ada.topo_model.engines import BUILTIN_ENGINES, is_default_engine
 
     if is_default_engine(engine) or engine in BUILTIN_ENGINES:
         return None
+    if db_pool is None:
+        return _advertised_engine_doc(engine)
     eng_row = await db_module.get_procedural_engine_by_slug(
         db_pool, scope_kind=row["scope_kind"], scope_id=row["scope_id"], slug=engine
     )

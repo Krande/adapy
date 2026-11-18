@@ -157,3 +157,105 @@ test("applying the global panels puts them in the recorded state, and is a no-op
   P.applyGlobalPanels(reveal, hide);
   assert.equal(isOpen("m:files"), true, "core's own UI has no global panels");
 });
+
+// The docked file browser came back closed on a later visit though the user had not closed
+// it: the global panels' state is the user's, and only their open or close may change it.
+
+test("a recorder still subscribed for the context left writes nothing for the one entered", () => {
+  withShell(() => {
+    enter("one", null);
+    reveal("m:files");
+    P.recordOpenPanels(isOpen, P.classicContext());
+    assert.deepEqual(layoutStore.getState().prefs.globalPanels?.mem?.open, ["m:files"]);
+
+    // An in-place switch to another composed shell, whose start does not open the browser
+    // (the flag is one for both shells, as a bound panel's is).
+    P.setClassicShell({ id: "desk", modes: { one: { grid: grid("m:a"), open: ["m:a"] } } }, ["one"]);
+    P.leaveShell(hide, isOpen);
+    P.openStartingPanels(reveal, hide, isOpen);
+    const desk = P.classicContext();
+    P.recordOpenPanels(isOpen, desk);
+    assert.equal(isOpen("m:files"), false);
+
+    // And back. The next shell is installed before the frame's effects move on, so the
+    // other shell's recorder can still run, with that shell's panels: it must not write
+    // them as this shell's (they would be applied as closed below, for every mode).
+    P.setClassicShell(
+      { id: "mem", modes: { one: { grid: grid("m:a", "m:b"), open: ["m:a"] }, two: { grid: grid("m:c"), open: ["m:c"] } }, globalPanels: ["m:files"] },
+      ["one", "two"],
+    );
+    P.recordOpenPanels(isOpen, desk);
+    assert.deepEqual(layoutStore.getState().prefs.globalPanels?.mem?.open, ["m:files"], "nothing written for mem");
+    P.leaveShell(hide, isOpen);
+    P.openStartingPanels(reveal, hide, isOpen);
+    P.recordOpenPanels(isOpen, P.classicContext());
+    assert.equal(isOpen("m:files"), true, "open again, as the user left it");
+
+    // The same for a mode switch: the mode is set before the frame opens its panels.
+    const one = P.classicContext();
+    M.setShellMode("two");
+    hide("m:files"); // whatever the panels are meanwhile
+    P.recordOpenPanels(isOpen, one);
+    assert.deepEqual(layoutStore.getState().prefs.globalPanels?.mem?.open, ["m:files"]);
+    // The user's own close, in the context on screen, is recorded.
+    P.recordOpenPanels(isOpen, P.classicContext());
+    assert.deepEqual(layoutStore.getState().prefs.globalPanels?.mem?.open, [], "the user closed it: it stays closed");
+  });
+});
+
+test("opening a model from Storage does not close it when Storage is a global panel", async () => {
+  const { CORE_PANEL_IDS, isPanelOpen, reveal: revealCore } = await import("@/layout/panelActions");
+  const { collapseStorageOnOpen } = await import("@/components/storage/browser/useProceduralModels");
+  const storage = CORE_PANEL_IDS.storage;
+  try {
+    // Core's own UI: the storage overview gets out of the way of the model opened.
+    revealCore(storage);
+    collapseStorageOnOpen();
+    assert.equal(isPanelOpen(storage), false);
+    // A shell that docks it as a global panel: it stays, as the user left it.
+    P.setClassicShell({ id: "dock", grid: grid("m:a"), globalPanels: [storage] }, []);
+    assert.equal(P.isGlobalPanel(storage), true);
+    revealCore(storage);
+    collapseStorageOnOpen();
+    assert.equal(isPanelOpen(storage), true);
+  } finally {
+    P.setClassicShell(null);
+    layoutStore.setState({ prefs: { v: 1, docs: {} } });
+  }
+});
+
+// A plain reload of a mode visited before closed the docked file browser and saved it closed,
+// nothing clicked: the saved prefs go through `migrateLayoutPrefs` when they load, and it left
+// the global panels out. The frame then found nothing recorded for them, opened the mode as it
+// was left (a global panel is not part of a mode's record) and recorded the browser as closed.
+test("a reload keeps the global panels as the user left them", async () => {
+  const { migrateLayoutPrefs, LAYOUT_PREFS_VERSION } = await import("@/layout/layoutStore");
+  /** The reload: every panel's flag reset, the saved prefs loaded through the migration, the mode entered. */
+  const reload = (saved: unknown) => {
+    flags.clear();
+    layoutStore.setState({ prefs: migrateLayoutPrefs(JSON.parse(JSON.stringify(saved))) });
+    enter("one", null);
+  };
+  withShell(() => {
+    enter("one", null);
+    reveal("m:files");
+    P.recordOpenPanels(isOpen, P.classicContext());
+    assert.deepEqual(layoutStore.getState().prefs.globalPanels?.mem?.open, ["m:files"]);
+    assert.deepEqual(P.classicDoc().open, ["m:a"], "the mode is remembered too");
+
+    reload(layoutStore.getState().prefs);
+    assert.equal(isOpen("m:files"), true, "open, as the user left it");
+    assert.deepEqual(layoutStore.getState().prefs.globalPanels?.mem?.open, ["m:files"]);
+
+    // The user closes it: a reload keeps it closed.
+    hide("m:files");
+    P.recordOpenPanels(isOpen, P.classicContext());
+    reload(layoutStore.getState().prefs);
+    assert.equal(isOpen("m:files"), false, "the user closed it: it stays closed");
+    assert.deepEqual(layoutStore.getState().prefs.globalPanels?.mem?.open, []);
+  });
+  // Garbage in the saved state is dropped, the rest kept.
+  const p = migrateLayoutPrefs({ v: LAYOUT_PREFS_VERSION, docs: {}, globalPanels: { a: { open: ["x", "x", 3], px: { x: 300, y: "wide" } }, b: "no", c: { px: {} } } });
+  assert.deepEqual(p.globalPanels, { a: { open: ["x"], px: { x: 300 } } });
+  assert.equal(migrateLayoutPrefs({ v: LAYOUT_PREFS_VERSION, docs: {} }).globalPanels, undefined);
+});

@@ -10,7 +10,8 @@ import {
 test("a drag is looked up by button and the one modifier that counts", () => {
     const m = DEFAULT_CAMERA_MAPPING;
     assert.equal(dragAction(m, "left"), "orbit");
-    assert.equal(dragAction(m, "left", {shiftKey: true}), "pan");
+    assert.equal(dragAction(m, "left", {shiftKey: true}), "select", "Shift + left draws the selection rectangle");
+    assert.equal(dragAction(m, "left", {ctrlKey: true}), "pan");
     assert.equal(dragAction(m, "right"), "pan");
     assert.equal(dragAction(m, "middle", {altKey: true}), "zoom");
     assert.equal(dragModifier({shiftKey: true, ctrlKey: true, altKey: true}), "shift", "shift wins");

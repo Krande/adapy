@@ -247,17 +247,17 @@ def test_compile_runs_in_process_without_a_queue(app_client: TestClient, tmp_pat
     assert app_client.get(f"{base}/{model_id}").json()["revision"] == 1
 
 
-def test_a_compile_without_catalogs_stamps_no_catalog_fingerprint(
+def test_a_local_compile_is_bound_to_the_file_catalogs_fingerprint(
     app_client: TestClient, tmp_path: pathlib.Path, monkeypatch
 ):
-    """An in-process build with no pool resolves no equipment/system catalog, so it must
-    not bind its artifact to a catalog fingerprint: that would cache a catalog-less GLB
-    as current for the catalog (a database-backed, queue-less server's route takes the
-    fingerprint from postgres)."""
+    """An in-process build with no pool resolves equipment from the scope's catalog FILES
+    (catalog_store.py), so it binds its artifact to the fingerprint the route took of
+    them: a catalog edit then makes the cached GLB stale, as with postgres."""
     from ada.comms.rest.procedural import procedural_catalog_fp_key
     from ada.comms.rest.routes import procedural_models as routes
 
-    async def _fp(pool, scope_obj, doc):
+    async def _fp(pool, scope_obj, doc, store=None):
+        assert store is not None  # the file catalogs
         return "catalog-fp-1"
 
     monkeypatch.setattr(routes, "catalog_fingerprint_for", _fp)
@@ -268,10 +268,17 @@ def test_a_compile_without_catalogs_stamps_no_catalog_fingerprint(
     started = app_client.post(f"{base}/{model_id}/compile", params={"engine": "echo"}).json()
     assert _wait_job(app_client, started["job_id"])["status"] == "done"
     assert (tmp_path / "shared" / pathlib.PurePosixPath(started["derived_key"])).is_file()
-    assert not (tmp_path / "shared" / pathlib.PurePosixPath(procedural_catalog_fp_key(started["derived_key"]))).exists()
-    # So the cached GLB is not taken as built from that catalog.
-    again = app_client.post(f"{base}/{model_id}/compile", params={"engine": "echo"}).json()
-    assert again["cached"] is False
+    sidecar = tmp_path / "shared" / pathlib.PurePosixPath(procedural_catalog_fp_key(started["derived_key"]))
+    assert sidecar.read_text() == "catalog-fp-1"
+    # The cached GLB is current for that catalog state...
+    assert app_client.post(f"{base}/{model_id}/compile", params={"engine": "echo"}).json()["cached"] is True
+
+    async def _fp2(pool, scope_obj, doc, store=None):
+        return "catalog-fp-2"
+
+    # ...and stale once the catalog changed.
+    monkeypatch.setattr(routes, "catalog_fingerprint_for", _fp2)
+    assert app_client.post(f"{base}/{model_id}/compile", params={"engine": "echo"}).json()["cached"] is False
 
 
 def test_the_local_transport_compiles_with_the_routes_pool(monkeypatch):
@@ -374,10 +381,13 @@ def test_builtin_template_specs_are_announced():
         assert isinstance(s["doc"], dict) and s["doc"].get("spaces") is not None
 
 
-def test_equipment_types_empty_without_queue(app_client: TestClient):
+def test_equipment_types_listed_without_queue(app_client: TestClient):
+    """A local viewer is its own worker: the built-in archetypes are listed, and the
+    scope's (seeded) file catalog over them - see test_local_catalogs.py."""
     r = app_client.get("/api/scopes/shared/procedural-models/equipment-types")
     assert r.status_code == 200
-    assert r.json() == {"equipment_types": []}
+    slugs = {t["slug"] for t in r.json()["equipment_types"]}
+    assert {"box", "pump", "tank"} <= slugs
 
 
 # ── live-Postgres API path ───────────────────────────────────────────

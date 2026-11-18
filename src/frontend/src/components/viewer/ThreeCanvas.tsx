@@ -39,6 +39,8 @@ import {createNullRenderer, isNullRenderer} from "@/viewport/nullRenderer";
 import {AdacppViewport, useAdacppRenderStatus} from "@/viewport/adacpp/adacppViewport";
 import {ensureViewportInput} from "@/viewport/input";
 import {setPickingViewport} from "@/viewport/picking";
+import {controlsTarget, installOrthographicView} from "@/utils/scene/orthographicProjection";
+import {useGroundGridStore} from "@/state/groundGridStore";
 import {bindLocalFileDrop} from "@/utils/scene/handlers/open_local_file";
 
 
@@ -170,6 +172,8 @@ const ThreeCanvas: React.FC = () => {
         // === Orbit Controls ===
         const controls = setupControls(camera, containerRef.current, zIsUp, defaultOrbitController);
         controlsRef.current = controls;
+        // Perspective or orthographic, as the projection setting says (orthographicProjection.ts).
+        const orthoView = installOrthographicView(scene, camera, () => controlsTarget(controlsRef.current), requestRender);
         // This canvas is the viewport commands, keys and panels talk to (viewport/api).
         const releaseViewport = setActiveViewport(createThreeViewport({scene, camera, controls}));
         // A loaded model's moving parts play on the playback clock, from whichever viewport is up.
@@ -192,6 +196,12 @@ const ThreeCanvas: React.FC = () => {
 
         // === Helpers ===
         const grid_helper = addDynamicGridHelper(owned);
+        // Shown or not as the "Ground grid" toggle says (state/groundGridStore).
+        grid_helper.visible = useGroundGridStore.getState().visible;
+        const unsubGrid = useGroundGridStore.subscribe((s) => {
+            grid_helper.visible = s.visible;
+            requestRender();
+        });
 
         let gizmo: OrientationGizmo | null = null;
         if (containerRef.current && camera && controls) {
@@ -300,6 +310,7 @@ const ThreeCanvas: React.FC = () => {
             }
             updateCameraLight?.(); // ← Keep the light tracking the camera
             gizmo?.update(); // <-- keep the gizmo synced with the camera
+            orthoView.beforeDraw(); // an orthographic view follows the camera's distance, on both renderers
 
             // On-demand render: skip the expensive renderer.render when
             // nothing visible has changed and no animation is in flight.
@@ -362,6 +373,8 @@ const ThreeCanvas: React.FC = () => {
             cleanupPointerHandler();
             unbindCameraMapping();
             releaseViewport();
+            orthoView.release();
+            unsubGrid();
             // renderer.dispose();
             // containerRef.current?.removeChild(renderer.domElement);
             if (gizmo && containerRef.current?.contains(gizmo)) {

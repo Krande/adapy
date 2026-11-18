@@ -12,11 +12,17 @@
 import type { PanelId } from "./panel";
 import { listShortcuts, matchShortcut } from "./shortcuts";
 
-function isTextField(el: EventTarget | null): boolean {
+/** Inputs that take no typing: a key pressed while one has focus (a checkbox just
+ * ticked, a button just clicked) is a shortcut like anywhere else. */
+const NOT_TYPED_INTO = new Set(["checkbox", "radio", "button", "submit", "reset", "range", "color", "file", "image"]);
+
+/** Does `el` take typed keys -- a text field, a select, an editable region? */
+export function isTextField(el: EventTarget | null): boolean {
   if (!el || typeof el !== "object") return false;
-  const e = el as { tagName?: unknown; isContentEditable?: unknown };
+  const e = el as { tagName?: unknown; type?: unknown; isContentEditable?: unknown };
   const tag = typeof e.tagName === "string" ? e.tagName.toUpperCase() : "";
-  return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || e.isContentEditable === true;
+  if (tag === "INPUT") return !NOT_TYPED_INTO.has(typeof e.type === "string" ? e.type.toLowerCase() : "text");
+  return tag === "TEXTAREA" || tag === "SELECT" || e.isContentEditable === true;
 }
 
 let users = 0;

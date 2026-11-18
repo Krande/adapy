@@ -10,11 +10,21 @@ import {dockInGridDoc, floatPanel, gridOf, updateGrid} from "../reducers";
 import {listPanels} from "../registry";
 import {VIEWPORT_NODE, findNode, gridPanels, groupOf, setFixedPx} from "../splitTree";
 import {CLASSIC_ZONE_DEFS} from "./classicRules";
-import {arrangementOf, classicDoc, pinnedPanels, placeOf, servedClassicShell, updateClassic} from "./classicShell";
+import {arrangementOf, classicContext, classicDoc, pinnedPanels, placeOf, servedClassicShell, updateClassic} from "./classicShell";
 
 /** The served shell's global panels (`ClassicShell.globalPanels`). */
 function globalPanelIds(): Set<PanelId> {
   return new Set(servedClassicShell()?.globalPanels ?? []);
+}
+
+/**
+ * Whether `id` is a global panel of the served shell: one panel for every mode, whose
+ * open state is the user's and is remembered for every mode and the next visit. Only
+ * the user opens or closes one - a side effect that closes it (the storage overview
+ * "getting out of the way" of a model opened from it) would be remembered as their close.
+ */
+export function isGlobalPanel(id: PanelId): boolean {
+  return !!servedClassicShell()?.globalPanels?.includes(id);
 }
 
 /** Every panel a document places: in its grid, or in a window. */
@@ -86,10 +96,19 @@ const sameList = (a: readonly string[] | undefined, b: readonly string[]) =>
  * document, `LayoutDoc.open`), and the global panels' state (open, and their docked
  * size) for every mode. Run on any change to a panel's open state or the document;
  * writes only what changed.
+ *
+ * `openedFor`: the context (`classicContext()`) the caller opened the panels of. A
+ * recorder subscribed for one context can still run after the served context changed
+ * and before the frame has opened the new one (an in-place shell switch installs the
+ * next shell first; a mode switch sets the mode first): the panels are then still the
+ * old context's, and writing them would record the new one - and its global panels, for
+ * every mode - as that state, so a global panel the user left open came back closed.
+ * Such a call writes nothing.
  */
-export function recordOpenPanels(isOpen: (id: PanelId) => boolean): void {
+export function recordOpenPanels(isOpen: (id: PanelId) => boolean, openedFor?: string): void {
   const shell = servedClassicShell();
   if (!shell) return;
+  if (openedFor !== undefined && openedFor !== classicContext()) return;
   const global = globalPanelIds();
   const doc = classicDoc();
   const open = placedPanels(doc).filter((id) => !global.has(id) && isOpen(id)).sort();

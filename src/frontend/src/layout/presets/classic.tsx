@@ -388,8 +388,12 @@ export const ViewerWindowChrome: WindowChrome = ({panel, close, children}) => {
   // Front last: a window's place in `shown` is its layer, and a press brings it to the front.
   const index = which ? Math.max(0, shown.indexOf(which)) : 0;
   const first = React.useRef(index);
+  // Each window keeps its own place and size in this browser: moved or resized, it opens there again.
+  const size = panel.placement?.[CLASSIC_PRESET_ID]?.float ?? {w: 1100, h: 720};
+  const remember = React.useMemo(() => ({key: `ada:window:${panel.id}`, preferred: {width: size.w, height: size.h}}), [panel.id, size.w, size.h]);
   return (
     <ViewerWindow
+      remember={remember}
       // A second window opens stepped down from the first, not on top of it.
       offset={first.current * 32}
       layer={index}
@@ -481,7 +485,8 @@ function ClassicFrame() {
   // recorded on every change. After the effect above, so a switch records the mode entered once it is open.
   React.useEffect(() => {
     if (!shellId) return;
-    const record = () => recordOpenPanels(isPanelOpen);
+    // For this context only: a recorder still subscribed after the context changed writes nothing.
+    const record = () => recordOpenPanels(isPanelOpen, ctx);
     record();
     const unsubs: Array<() => void> = [layoutStore.subscribe(record)];
     for (const p of listPanels()) {

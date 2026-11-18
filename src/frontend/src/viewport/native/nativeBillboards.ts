@@ -70,6 +70,19 @@ export function createNativeBillboardLayer(scene: NativeScene): BillboardLayer {
         images.delete(key);
     };
 
+    /** The scale of a billboard `px` high on screen. The renderer's sprite shader, as three.js', keeps a
+     *  sprite of no size attenuation at one size on screen in perspective only (its scale is a share of
+     *  the view's height there); in the orthographic view its scale is in world units, so it is the
+     *  share of the view's height in the world, which a zoom changes (kept in step before each frame). */
+    const screenHeight = (px: number): number => {
+        const pose = scene.cameraPose;
+        const viewHeight = scene.elements.view.clientHeight;
+        return pose.orthographic ? (px * pose.orthoHeight) / Math.max(1, viewHeight) : screenScale(px, viewHeight, pose.fov);
+    };
+    /** What the screen-sized billboards were last scaled for: the projection, and the view's height in
+     *  the world (orthographic) or its field of view (perspective). */
+    const sizedFor = {orthographic: false, size: NaN};
+
     /** Write one billboard to the renderer, making its sprite and its image's texture when missing. */
     const draw = (item: Item): void => {
         const b = item.billboard;
@@ -79,8 +92,7 @@ export function createNativeBillboardLayer(scene: NativeScene): BillboardLayer {
             shared.texture ??= scene.addTexture(shared.pixels, shared.width, shared.height);
             item.sprite ??= scene.addSprite();
             const aspect = shared.width / shared.height;
-            const height =
-                b.sizing === "world" ? b.height : screenScale(b.height, scene.elements.view.clientHeight, scene.cameraPose.fov);
+            const height = b.sizing === "world" ? b.height : screenHeight(b.height);
             scene.setSprite(
                 item.sprite, shared.texture, b.position, height * aspect, height, b.anchor?.[0] ?? 0.5, b.anchor?.[1] ?? 0.5,
                 (b.sizing === "world" ? SpriteFlag.SizeAttenuation : 0) | (b.clipped ? SpriteFlag.Clipped : 0), b.order ?? DEFAULT_ORDER,
@@ -107,6 +119,18 @@ export function createNativeBillboardLayer(scene: NativeScene): BillboardLayer {
         for (const item of items.values()) if (item.billboard.sizing === "screen") draw(item);
     });
     resize.observe(scene.elements.view);
+    // A zoom changes how much of the world the orthographic view shows, and switching projection
+    // changes what a sprite's scale means: before each frame, screen-sized billboards follow.
+    const followCamera = (): void => {
+        if (!items.size) return;
+        const pose = scene.cameraPose;
+        const size = pose.orthographic ? pose.orthoHeight : pose.fov;
+        if (pose.orthographic === sizedFor.orthographic && size === sizedFor.size) return;
+        sizedFor.orthographic = pose.orthographic;
+        sizedFor.size = size;
+        for (const item of items.values()) if (item.billboard.sizing === "screen") draw(item);
+    };
+    scene.onBeforeDraw.add(followCamera);
 
     const drop = (handle: number): void => {
         const item = items.get(handle);
@@ -151,8 +175,9 @@ export function createNativeBillboardLayer(scene: NativeScene): BillboardLayer {
                 const rect = view.getBoundingClientRect();
                 if (!items.size || rect.width <= 0 || rect.height <= 0) return;
                 const pose = scene.cameraPose;
-                if (pose.orthographic) return;
-                const camera: BillboardCamera = {eye: pose.eye, target: pose.target, up: pose.up, fovDeg: pose.fov};
+                const camera: BillboardCamera = {
+                    eye: pose.eye, target: pose.target, up: pose.up, fovDeg: pose.fov, orthoHeight: pose.orthographic ? pose.orthoHeight : undefined,
+                };
                 const placed = [...items.values()].map(({billboard: b}) => {
                     const shared = images.get(b.image.key);
                     return {...b, aspect: shared ? shared.width / shared.height : 1};
@@ -174,6 +199,7 @@ export function createNativeBillboardLayer(scene: NativeScene): BillboardLayer {
             disposed = true;
             offLoaded();
             resize.disconnect();
+            scene.onBeforeDraw.delete(followCamera);
         },
     };
 }

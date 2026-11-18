@@ -18,6 +18,8 @@ import {BOX_FACES, boxCenter, centeredAt, faceCenter, moveFace, type Aabb, type 
 import {drawMarquee, marqueeElement} from "@/utils/bboxSelection/marquee";
 import {ndcRect, screenBoxMode} from "@/utils/bboxSelection/screenRect";
 import type {NativeScene} from "./nativeScene";
+import {useCameraControlsStore} from "@/state/cameraControlsStore";
+import {mouseButtonOf, selectsByDrag} from "@/utils/camera/cameraMapping";
 
 const SVG = "http://www.w3.org/2000/svg";
 /** A face handle's radius, and how near a press must be to a handle or an arrow to take it (pixels). */
@@ -237,21 +239,25 @@ export function bindBoxSelectionGizmo(scene: NativeScene): () => void {
         };
     };
 
-    /** Shift + left drag: a rectangle on the screen, rightwards a window, leftwards a crossing. A
-     *  Shift press that does not move stays what it was, a click that adds what is under it. */
+    /** A drag the camera mapping calls "select" (Shift + left by default): a rectangle on the screen,
+     *  rightwards a window, leftwards a crossing, added to the selection with Shift or Ctrl held and in
+     *  place of it without. A press that does not move stays what it was: a click, adding what is under
+     *  it with Shift or Ctrl. */
     const dragRectangle = (e: PointerEvent): ((move: PointerEvent) => void) | null => {
-        if (e.button !== 0 || !e.shiftKey || e.ctrlKey || e.metaKey || e.altKey) return null;
+        const button = e.pointerType === "mouse" ? mouseButtonOf(e.button) : null;
+        if (!button || !selectsByDrag(useCameraControlsStore.getState().mapping, button, e)) return null;
         const start = {x: e.clientX, y: e.clientY};
+        const add = e.shiftKey || e.ctrlKey || e.metaKey;
         let el: HTMLDivElement | null = null;
         untilRelease(e.pointerId, (up) => {
             if (!el) {
-                if (up.type !== "pointerup") return;
-                void scene.pick(up.clientX, up.clientY).then((id) => scene.pickSelect(id, true));
+                if (up.type !== "pointerup" || button !== "left") return;
+                void scene.pick(up.clientX, up.clientY).then((id) => scene.pickSelect(id, add));
                 return;
             }
             el.remove();
             if (up.type !== "pointerup") return;
-            selectInScreenRect(ndcRect(start, {x: up.clientX, y: up.clientY}, view.getBoundingClientRect()), screenBoxMode(start.x, up.clientX));
+            selectInScreenRect(ndcRect(start, {x: up.clientX, y: up.clientY}, view.getBoundingClientRect()), screenBoxMode(start.x, up.clientX), add);
         });
         return (move) => {
             if (!el && Math.hypot(move.clientX - start.x, move.clientY - start.y) <= CLICK_SLOP_PX) return;
@@ -260,10 +266,10 @@ export function bindBoxSelectionGizmo(scene: NativeScene): () => void {
         };
     };
 
-    // A press goes to a handle first, then to the rectangle, then to whoever had the drags before
-    // (the section plane's arrow), and only then to the camera.
+    // A press goes to a handle first, then to whoever had the drags before (the section plane's arrow,
+    // which takes only a press on it), then to the rectangle, and only then to the camera.
     const before = scene.dragInterceptor;
-    const intercept = (e: PointerEvent) => dragHandle(e) ?? dragRectangle(e) ?? before?.(e) ?? null;
+    const intercept = (e: PointerEvent) => dragHandle(e) ?? before?.(e) ?? dragRectangle(e) ?? null;
     scene.dragInterceptor = intercept;
 
     // A right-click on a box opens its menu (modes, reselect, colour, hide, delete): the active box

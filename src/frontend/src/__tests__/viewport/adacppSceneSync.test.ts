@@ -11,6 +11,7 @@ import {resetBasePositions, writeMorphTarget} from "@/utils/scene/fea/gpuRefresh
 import {useAppearanceStore} from "@/state/appearanceStore";
 import {ensureResultLook} from "@/utils/scene/fea/threeResultLook";
 import {SceneSync, SPRITE_LAYER} from "@/viewport/adacpp/sceneSync";
+import {bindOrthographic} from "@/utils/scene/orthographicProjection";
 import {InstanceFlag, SegmentFlag, SpriteFlag, Topology, type AdacppModule, type WebRendererApi} from "@/viewport/adacpp/types";
 
 interface Recorded {
@@ -520,4 +521,49 @@ test("colours the user gave objects reach the renderer through the mesh's colour
     assert.equal(rec.colorUpdates, 1, "one colour upload");
     assert.equal(rec.geometries.size, uploads, "no geometry");
     assert.ok([...rec.flags.values()][0] & InstanceFlag.VertexColors);
+});
+
+test("an orthographic view reaches the renderer: its projection, the flag, and constant-size sprites sized for it", () => {
+    const {module, renderer} = fakeModule();
+    const cameras: boolean[] = [];
+    const sprites: Record<number, number[]> = {};
+    let nextSprite = 20;
+    Object.assign(renderer, {
+        setCamera: (_v: number, _p: number, orthographic: boolean) => cameras.push(orthographic),
+        addTexture: () => 10,
+        updateTexture: () => {},
+        removeTexture: () => {},
+        addSprite: () => nextSprite++,
+        setSprite: (id: number, ...rest: number[]) => (sprites[id] = rest),
+        removeSprite: () => {},
+    });
+    const map = new THREE.Texture({width: 2, height: 1} as unknown as HTMLImageElement);
+    const label = new THREE.Sprite(new THREE.SpriteMaterial({map, sizeAttenuation: false}));
+    label.scale.set(0.1, 0.05, 1);
+    const {scene, camera} = cameraAndScene(label);
+    camera.position.set(0, 0, 10);
+    camera.lookAt(0, 0, 0);
+    camera.updateMatrixWorld();
+    let isOrtho = false;
+    const release = bindOrthographic(scene, camera, () => new THREE.Vector3(), () => isOrtho);
+    const sync = new SceneSync(module, renderer, () => ({data: new Uint8Array(8), width: 2, height: 1}));
+    sync.nativeSprites = true;
+    try {
+        sync.sync(scene, camera);
+        assert.deepEqual(sprites[20].slice(4, 6), [0.1, 0.05], "perspective: the renderer scales it by its depth");
+        isOrtho = true;
+        camera.updateProjectionMatrix();
+        sync.sync(scene, camera);
+        // adacpp's sprite shader, as three.js', scales a constant-size sprite by its depth only under a
+        // perspective matrix: here it is handed the size three.js draws it at (scale * distance).
+        const [sx, sy] = sprites[20].slice(4, 6);
+        assert.ok(Math.abs(sx - 1) < 1e-6 && Math.abs(sy - 0.5) < 1e-6, `${sx}, ${sy}`);
+        isOrtho = false;
+        camera.updateProjectionMatrix();
+        sync.sync(scene, camera);
+        assert.deepEqual(sprites[20].slice(4, 6).map((v) => Math.round(v * 1e6) / 1e6), [0.1, 0.05], "and back");
+        assert.deepEqual(cameras, [false, true, false], "the renderer is told which projection it draws");
+    } finally {
+        release();
+    }
 });

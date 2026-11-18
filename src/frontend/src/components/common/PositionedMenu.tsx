@@ -109,6 +109,14 @@ export const PositionedMenu: React.FC<PositionedMenuProps> = ({
             onClose();
         };
         const onScroll = anchor.kind === "rect" ? place : onClose;
+        // Escape closes it, as any menu: the Scene's right-click menu over the 3D view had no
+        // other way out than a click elsewhere.
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key !== "Escape") return;
+            e.preventDefault();
+            onClose();
+        };
+        document.addEventListener("keydown", onKey);
         // mousedown not click so the menu dismisses before any
         // background click handler (e.g. the row's onClick) fires.
         document.addEventListener("mousedown", onClickOutside);
@@ -120,6 +128,7 @@ export const PositionedMenu: React.FC<PositionedMenuProps> = ({
         // when a scrollable ancestor scrolls, not only the window.
         window.addEventListener("scroll", onScroll, true);
         return () => {
+            document.removeEventListener("keydown", onKey);
             document.removeEventListener("mousedown", onClickOutside);
             document.removeEventListener("touchstart", onClickOutside);
             window.removeEventListener("resize", place);

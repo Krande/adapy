@@ -84,10 +84,10 @@ export function desktopMenus({ modes, workspaces, shells, themes }: DesktopMenuI
           ],
         },
         SEP,
-        { label: "Camera", items: [C.fitAll, C.fitSelection, C.resetCamera, SEP, ...CAMERA_VIEWS.map(cameraViewCommandId)] },
+        { label: "Camera", items: [C.fitAll, C.fitSelection, C.resetCamera, SEP, ...CAMERA_VIEWS.map(cameraViewCommandId), SEP, C.orthographic] },
         {
           label: "Display",
-          items: [C.edges, C.feaToggleResultColors, C.feaToggleElementEdges, C.feaToggleUndeformed, C.warp, C.beamSections, SEP, C.stats, C.gallery, SEP, C.toggleMarkingMenu],
+          items: [C.edges, C.groundGrid, C.feaToggleResultColors, C.feaToggleElementEdges, C.feaToggleUndeformed, C.warp, C.beamSections, SEP, C.stats, C.gallery, SEP, C.toggleMarkingMenu],
         },
         { label: "Labels and colours", items: [C.labelsNodes, C.labelsElements, C.labelsValues, C.labelsNames, C.typeIcons, SEP, C.colorByNext, C.colorByModel, C.colorByReset] },
         { label: "Section", items: [C.sectionX, C.sectionY, C.sectionZ, SEP, C.sectionToggle, C.sectionFlip, C.sectionClear] },
@@ -112,7 +112,7 @@ export function desktopMenus({ modes, workspaces, shells, themes }: DesktopMenuI
   if (modes.some((m) => m.id === "build")) {
     menus.push({
       label: "Build",
-      items: [C.builderNew, SEP, C.builderUndo, C.builderRedo, SEP, C.builderAddCell, C.builderAddLoft, C.builderAddOpening, C.builderAddEquipment, SEP, C.builderTranslate, C.builderRotate, C.builderResize, SEP, C.builderRepTopology, C.builderRepSimulation, C.builderRepDetail, C.builderSuperimpose, C.builderSideBySide, SEP, C.builderCompile, C.builderRecompile, C.builderCompileBrowser, SEP, C.builderCommit, C.builderClose, SEP, panel(P.cellbuilder), panel(P.componentList)],
+      items: [C.builderNew, SEP, C.builderUndo, C.builderRedo, SEP, C.builderAddCell, C.builderAddLoft, C.builderAddOpening, C.builderAddEquipment, SEP, C.builderTranslate, C.builderRotate, C.builderResize, SEP, C.builderRepTopology, C.builderRepSimulation, C.builderRepDetail, C.builderSuperimpose, C.builderSideBySide, SEP, C.builderIncludeDimmed, C.builderIncludeOnly, C.builderIncludeAll, SEP, C.builderCompile, C.builderRecompile, C.builderCompileBrowser, SEP, C.builderCommit, C.builderClose, SEP, panel(P.cellbuilder), panel(P.componentList)],
     });
   }
   menus.push(

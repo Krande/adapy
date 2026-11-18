@@ -141,6 +141,13 @@ test("the root entry point re-exports only the dependency-free leaves", () => {
     "@/layout/toastSlots",
     "@/layout/playbackActions",
     "@/state/cellbuilder/builderDefaults",
+    // `setSettingsHost`: a module of plain state (a type-only import), so a shell registers its Settings
+    // window without loading the panels.
+    "@/components/settings/settingsTab",
+    // The Model panel's helpers: pure (type-only imports of the builder's types).
+    "@/utils/cellbuilder/modelTree",
+    "@/utils/cellbuilder/include",
+    "@/utils/cellbuilder/blueprintColours",
   ];
   const specs = importSpecifiers(readFileSync(join(facadeDir, "index.ts"), "utf8"));
   const offenders = specs.filter((s) => !DEP_FREE_LEAVES.includes(s));
