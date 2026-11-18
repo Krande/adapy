@@ -89,15 +89,24 @@ async function loadFrom(
     const {sourceName, placement = "replace"} = source;
     // The three.js-free viewport is on screen: it takes the GLB as bytes, and no three.js scene is built.
     if (isNativeViewportActive()) {
-        // As a replace does on the three.js viewport: a result that was shown ends with its model.
-        const {clearActiveFeaStreaming} = await import("@/utils/scene/fea/streaming/teardown");
-        clearActiveFeaStreaming();
         const show = () =>
             showInNativeViewport(url, requestHeaders, sourceName, placement, source.displayName, source.posable, source.autoFitOverride === false);
         if (placement === "replace") {
-            const {duringSceneReplace} = await import("@/state/sceneReplace");
-            await duringSceneReplace(show);
-        } else await show();
+            // The scene's one teardown (clear_scene), as a replace takes it on the three.js viewport too.
+            const [{duringSceneReplace}, {clearScene}] = await Promise.all([
+                import("@/state/sceneReplace"),
+                import("@/utils/scene/handlers/clear_scene"),
+            ]);
+            await duringSceneReplace(async () => {
+                await clearScene({reason: "replace", replacing: true, keepQueuedLoads: true, keepProcedural: true});
+                await show();
+            });
+        } else {
+            // A result that was shown ends with the model it was drawn on, as on a replace.
+            const {clearActiveFeaStreaming} = await import("@/utils/scene/fea/streaming/teardown");
+            clearActiveFeaStreaming();
+            await show();
+        }
         return undefined;
     }
     if (placement === "overlay") {

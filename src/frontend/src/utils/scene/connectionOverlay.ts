@@ -16,10 +16,12 @@
 // drawn with that translation and each label at its point plus it.
 //
 // Both are drawn through the model (an axis runs inside its member; a fillet hides in the corner it
-// fills) and take no clicks. No three.js in this module.
+// fills) and take no clicks. They go when their model leaves the scene (LIFETIME, below). No three.js
+// in this module.
 
 import type { DevBuildResult } from "@/services/api/devConnections";
 import type { ConnectionOverlays } from "@/state/connectionBuilderStore";
+import { useModelState } from "@/state/modelState";
 import { linearColor } from "@/utils/scene/sceneColor";
 import { weldSymbolSvg } from "@/utils/weldSymbols";
 import { weldTypeName } from "@/utils/weldTypeNames";
@@ -44,17 +46,35 @@ const LABEL_ALONG_AXIS = 0.8;
 const AXIS_DASH = { dash: 0.05, gap: 0.03 };
 const LABEL_ORDER = 21;
 
-let drawn: { lines: OverlayLayer; labels: BillboardLayer } | null = null;
+/** What is drawn, in which layers, and over which loaded source. */
+let drawn: { lines: OverlayLayer; labels: BillboardLayer; file: string } | null = null;
 /** Bumped by every clear: a weld symbol that decodes after it has nothing left to update. */
 let generation = 0;
 
 export function clearConnectionOverlay(): void {
   generation++;
   if (!drawn) return;
-  drawn.lines.dispose();
-  drawn.labels.dispose();
+  const { lines, labels } = drawn;
   drawn = null;
+  // Each on its own: one that fails (a renderer gone) must not leave the other on screen.
+  try {
+    lines.dispose();
+  } finally {
+    labels.dispose();
+  }
 }
+
+// LIFETIME. The annotations are the model's: they go when the source they were drawn over leaves the
+// scene, by whichever route -- the storage browser's Clear and the Scene tab's Remove all
+// (`clearScene`), unloading that one model, another model replacing the scene, a scope
+// change. The viewport layers they are drawn in are not the model's, so clearing the models leaves
+// them; this takes them away. Beside what draws them rather than in the builder's session: whatever
+// drew them takes them away, whether a session is running or not.
+useModelState.subscribe((s, prev) => {
+  if (s.loadedSourceNames !== prev.loadedSourceNames && drawn && !s.loadedSourceNames.has(drawn.file)) {
+    clearConnectionOverlay();
+  }
+});
 
 /** Draw `result`'s annotations over the preview loaded as `file`, in the viewport on screen. Returns
  *  how many marks were drawn (0, and nothing drawn, when there is no viewport, that source is not on
@@ -71,7 +91,7 @@ export function renderConnectionOverlay(
 
   const lines = viewport.overlays(CONNECTION_OVERLAY_LAYER);
   const labels = viewport.billboards(CONNECTION_OVERLAY_LAYER);
-  drawn = { lines, labels };
+  drawn = { lines, labels, file: file! };
   const matrix = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, origin[0], origin[1], origin[2], 1];
   const world = (p: readonly number[]): Point3 => [p[0] + origin[0], p[1] + origin[1], p[2] + origin[2]];
   const mine = generation;

@@ -79,11 +79,15 @@ export function startConnectionBuilderSession(): void {
     () => store.getState().setConnected(false),
   );
 
-  // The preview's annotations (member axes, weld labels) and its clash live beside the model, not
-  // in it: when the preview leaves the scene by any route -- the scene cleared for a replay, the
-  // Sources tab, another model replacing it -- they go with it.
+  // The preview's clash lives beside the model, not in it: when the preview leaves the scene by any
+  // route -- the scene cleared, the Sources tab, another model replacing it -- it goes with it (its
+  // annotations and weld marks go by their own modules' rule). The same preview loaded again (a
+  // renderer switch hands every model over) is annotated again.
   useModelState.subscribe((s, prev) => {
-    if (s.loadedSourceNames !== prev.loadedSourceNames) forgetPreviewIfUnloaded(s.loadedSourceNames);
+    if (s.loadedSourceNames === prev.loadedSourceNames) return;
+    forgetPreviewIfUnloaded(s.loadedSourceNames);
+    const preview = previewOnShow();
+    if (preview && s.loadedSourceNames.has(preview) && !prev.loadedSourceNames.has(preview)) setTimeout(() => drawOverlay(), 0);
   });
 
   // The annotations are drawn by the viewport on screen, where the preview is on screen in it. The

@@ -6,15 +6,11 @@ import {add_mesh_to_scene} from "./append_to_scene_from_message";
 import {gunzipToBlob} from '@/utils/gunzipToBlob';
 import {SetupModelPrepareHook, setupModelLoaderAsync, type SetupModelLoaderOptions} from "@/components/viewer/sceneHelpers/setupModelLoader";
 import {loadModel} from "@/components/viewer/sceneHelpers/loadModel";
-import {clearActiveFeaStreaming} from "./load_fea_streaming";
 import {getViewerRuntime} from "@/state/viewerRuntime";
-import {useTreeViewStore} from "@/state/treeViewStore";
-import {clearMeasurements} from "@/state/measureStore";
 import {loadGLTFfrombase64} from "../loadGLTFfrombase64";
-import {disposeObject3D} from "@/utils/scene/dispose_object";
-import {useAnimationStore} from "@/state/animationStore";
 import {runtime} from "@/runtime/config";
 import {duringSceneReplace} from "@/state/sceneReplace";
+import {clearScene} from "./clear_scene";
 
 
 export function load_base64_model(){
@@ -64,49 +60,17 @@ async function replaceModelNow(options: ReplaceModelOptions) {
         metrics,
         autoFitOverride,
     } = options;
-        // Clear animation state first
-    const animationStore = useAnimationStore.getState();
-    animationStore.setHasAnimation(false);
-    animationStore.setIsPlaying(false);
-    animationStore.setSelectedAnimation("No Animation");
-
-    // Clear animation controller
-    getViewerRuntime().animationController.current?.clear();
-
-    useModelState.getState().translation = null;
-    useTreeViewStore.getState().clearTreeData(); // Clear the tree view
-    clearMeasurements(); // what was measured goes with the models it was measured on
-    // Drop any per-source group refs from prior overlays — the
-    // scene is about to be wiped, so those refs are no longer
-    // valid. clearLoadedSources also empties loadedSourceNames so
-    // every StorageBrowser checkbox unchecks together.
-    useModelState.getState().clearLoadedSources();
-    // FEA streaming session is tied to the mesh that's about to be
-    // ripped out — clear it before the new scene comes in so the
-    // SimulationControls UI flips back from FEA-mode to the GLTF
-    // clip path.
-    clearActiveFeaStreaming();
+    // The scene's one teardown, as every clear takes it (./clear_scene): this is a replace, so what
+    // the load below sets itself is left to it, and the queue and an open procedural model stay.
+    await clearScene({reason: "replace", replacing: true, keepQueuedLoads: true, keepProcedural: true});
 
     const three_scene = getViewerRuntime().scene.current;
     if (!three_scene) {
         console.warn("No scene found");
         return;
     }
-    // clear the current scene
+    // Detached for the load below to mount it again (its forced re-mount).
     three_scene.removeFromParent();
-    const modelKeyMap = getViewerRuntime().modelKeyMap.current;
-    if (modelKeyMap) {
-        for (let key of modelKeyMap.keys()) {
-            let existing_group = modelKeyMap.get(key);
-            if (existing_group) {
-                // Free GPU buffers of the outgoing model before detaching — clear() alone
-                // leaves geometry/material in the renderer caches (VRAM doesn't fall).
-                disposeObject3D(existing_group);
-                existing_group.clear();
-            }
-
-        }
-    }
     return await setupModelLoaderAsync({
         modelUrl: url,
         translate,
