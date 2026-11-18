@@ -148,6 +148,9 @@ test("the root entry point re-exports only the dependency-free leaves", () => {
     "@/utils/cellbuilder/modelTree",
     "@/utils/cellbuilder/include",
     "@/utils/cellbuilder/blueprintColours",
+    // Weld types as people read them: the symbols (generated geometry, no imports) and the short names.
+    "@/utils/weldSymbols",
+    "@/utils/weldTypeNames",
   ];
   const specs = importSpecifiers(readFileSync(join(facadeDir, "index.ts"), "utf8"));
   const offenders = specs.filter((s) => !DEP_FREE_LEAVES.includes(s));

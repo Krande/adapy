@@ -704,6 +704,9 @@
 //          type `SceneObjectMatch`; `openConnectionsTab(tab)` on `@/viewer-core/app`. A beam's
 //          metadata may carry `section.outer` / `section.inner` (a POLY section's outline) and
 //          `booleans` (its cuts): data only, see PLUGIN_API_VERSION's 1.29.0 note.
+//          `weldSymbolSvg(type, {size, stroke, strokeWidth, referenceLine})` (a weld type's ISO 2553
+//          symbol as SVG markup, null for none or an unknown type), the type `WeldSymbolSvgOptions`,
+//          and `weldTypeName(type)` (its short name), on the root.
 export const VIEWER_CORE_API_VERSION = "1.29.0";
 
 // ---------------------------------------------------------------------------
@@ -1073,6 +1076,12 @@ export type { GroupNode as ModelGroupNode, IncludeMark, ItemNode, ModelNode, Mod
 export { isItemIncluded, itemIncludeState } from "@/utils/cellbuilder/include";
 export type { IncludeState } from "@/utils/cellbuilder/include";
 export { blueprintColour, blueprintsInUse, structureColour } from "@/utils/cellbuilder/blueprintColours";
+// (1.29.0) Weld types as people read them: a weld type's ISO 2553 symbol as an SVG icon (generated from
+// `ada.api.weld_symbols`, drawn in the browser, the same markup as the server's `to_svg`) and its short name.
+// Pure, no stores.
+export { weldSymbolSvg } from "@/utils/weldSymbols";
+export type { WeldSymbolSide, WeldSymbolSvgOptions } from "@/utils/weldSymbols";
+export { weldTypeName } from "@/utils/weldTypeNames";
 export type { PanelController } from "@/layout/reveal";
 export {
   listSceneTreeRoots,

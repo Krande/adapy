@@ -281,6 +281,12 @@ export type { PlaceBoxOptions, PlacedBox, PlacedBoxMode, PlacedBoxPose } from ".
 //          - `openConnectionsTab(tab)` on `@/viewer-core/app`: the Connections panel opened on one of
 //            its tabs -- core's, or a plugin's `connection-builder` panel by its namespaced id --
 //            for a section that sends the user to a plugin's tab.
+//          - `weldSymbolSvg(type, {size?, stroke?, strokeWidth?, referenceLine?})` on `@/viewer-core`:
+//            a weld type's ISO 2553 basic symbol as a square SVG icon on its reference line, as markup
+//            (stroked in `currentColor` unless `stroke` says otherwise), or null for no weld / a type it
+//            does not know. `type` is an `ada` `WeldType` value in any case, `WELD_TYPE_` prefix or not.
+//            Drawn in the browser from geometry generated from `ada.api.weld_symbols`: the same SVG as
+//            the server's `symbol_svg`. With it `weldTypeName(type)`, the type's short name.
 //          All additive: an older core has none of them, so a plugin asks for them first.
 //          Not an API change, but seen by a `connection-builder` tab: the Connections panel has
 //          core's Clashes, Overlays and Review tabs too now (they were the Scene panel's Joints
