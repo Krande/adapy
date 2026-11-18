@@ -255,8 +255,8 @@ export interface PanelSlot {
   // `asTab` is optional and only supplies the label; without it the namespaced
   // panel id is shown.
   //
-  // `connection-builder` panels (1.26.0) are always tabs too, of the connection
-  // builder panel, after the builder's own: `asTab` supplies the label, order
+  // `connection-builder` panels (1.26.0) are always tabs too, of the Connections
+  // panel, after core's own (Builder, Clashes, Overlays, Review; 1.28.0): `asTab` supplies the label, order
   // and badge; without it the panel's `title`, else its id, is the label.
   asTab?: {
     label: string;

@@ -1,6 +1,7 @@
-// Scene panel "Clashes" tab: identify the joints in the loaded model's SOURCE, group them by
-// type, and hand a chosen group off to a generator. This is the IDENTIFICATION half of one
-// workflow; the REVIEW half is the existing `Joints` tab, which lists this run's joints beside
+// The Connections panel's "Clashes" tab (a Scene panel tab until the Joints group moved there):
+// identify the joints in the loaded model's SOURCE, group them by type, and hand a chosen group
+// off to a generator. This is the IDENTIFICATION half of one workflow; the REVIEW half is the
+// Review tab beside it (it was `Joints`), which lists this run's joints beside
 // whatever a detailing engine already produced (`JointsOverviewPanel.tsx`) -- so this panel never
 // renders a second joints table of its own. `Clashes -> Joints` is the strip, on purpose.
 //
@@ -841,9 +842,11 @@ const ClashesPanel: React.FC = () => {
   return (
     <div className="text-sm px-1 py-1 flex flex-col gap-1">
       {/* The joint `ada dev connections` previews: its clash is measured with every build, and
-          detailing it into a model is not what the preview is for. */}
+          detailing it into a model is not what the preview is for. (It said "The joint previewed
+          in Scene > Connection: its measured contact, renewed with every build." while the builder
+          was a Scene panel tab.) */}
       {preview ? (
-        <Banner tone="info">The joint previewed in Scene &gt; Connection: its measured contact, renewed with every build.</Banner>
+        <Banner tone="info">The joint previewed in the Builder tab: its measured contact, renewed with every build.</Banner>
       ) : (
         <RunForm scope={scope} sourceKey={sourceKey} loadedSourceName={loadedSourceName} />
       )}

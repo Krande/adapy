@@ -3,18 +3,18 @@
 import type { AssetView } from "@/assets/assetView";
 import { rowFacts, type RowBadge } from "@/assets/rowFacts";
 import { useClashCheckStore } from "@/state/clashCheckStore";
-import { useSceneInfoStore } from "@/state/sceneInfoStore";
-import { CORE_PANEL_IDS, reveal } from "@/layout/panelActions";
+import { CLASHES_TAB } from "@/state/connectionBuilderTabStore";
+import { openConnectionsTab } from "@/layout/connectionsTabActions";
 
 /** Check a published node for joints, and take the answer where joints are already shown.
  *
  *  A context-menu action, not a button in the detail: it is an occasional analysis, and the
  *  detail's bottom row is kept for what a row is FOR -- putting it in the scene.
  *
- *  WHY THE RESULT IS NOT HERE. The Clashes panel already renders a result -- groups, types, the
- *  detail hand-off, the producer filter -- and a second joints table in this tab would be a second
- *  implementation of the same reading, free to disagree with it. So this switches to that panel
- *  and runs the check there; the panel shows it running, and shows a failure, itself. That is also
+ *  WHY THE RESULT IS NOT HERE. The Connections panel's Clashes tab already renders a result --
+ *  groups, types, the detail hand-off, the producer filter -- and a second joints table in this tab
+ *  would be a second implementation of the same reading, free to disagree with it. So this switches
+ *  to that tab and runs the check there; the panel shows it running, and shows a failure, itself. That is also
  *  where a user who ran one from a FILE ends up. The two ways in converge on one surface.
  *
  *  OFFERED ONLY FOR A NODE SOMETHING IS PUBLISHED AT OR ABOVE. A check reads the published
@@ -28,7 +28,6 @@ export function useJointsCheck(view: AssetView, id: string, scope: string) {
     const busy = useClashCheckStore((s) => s.busy);
     const setAssetTarget = useClashCheckStore((s) => s.setAssetTarget);
     const runCheck = useClashCheckStore((s) => s.runCheck);
-    const setMode = useSceneInfoStore((s) => s.setMode);
 
     const badge: RowBadge | null = rowFacts(view, id)?.badge ?? null;
     if (!badge) return null;
@@ -42,8 +41,7 @@ export function useJointsCheck(view: AssetView, id: string, scope: string) {
             provider: badge.provider,
             collectionProviders: view.contentProviders,
         });
-        setMode("clashes");
-        reveal(CORE_PANEL_IDS.scene);
+        openConnectionsTab(CLASHES_TAB);
         void runCheck(scope);
     };
     return { busy, run };

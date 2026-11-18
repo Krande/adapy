@@ -10,12 +10,12 @@ import type { ContactRunDoc } from "@/services/clash/contactRuns";
 import { checkedSourceName, contactRunOf, useClashCheckStore } from "@/state/clashCheckStore";
 import { loadedSourceGroups, useModelState } from "@/state/modelState";
 import { contactSceneElements } from "@/utils/scene/clashContactPlan";
-import { useSceneInfoStore } from "@/state/sceneInfoStore";
-import { CORE_PANEL_IDS, reveal } from "@/layout/panelActions";
+import { JOINTS_REVIEW_TAB } from "@/state/connectionBuilderTabStore";
+import { openConnectionsTab } from "@/layout/connectionsTabActions";
 import { selectInOtherModel } from "@/utils/scene/crossModelSelect";
 
 export interface FocusOptions {
-  /** Bring the `Joints` tab up. True for a click in the 3D view (the panel may be closed, or on
+  /** Bring the joints review up (the Connections panel's Review tab). True for a click in the 3D view (the panel may be closed, or on
    *  another tab, and a cursor nobody can see is not a selection); false when the click came FROM
    *  a panel, which is already the one on screen. */
   revealPanel?: boolean;
@@ -26,11 +26,8 @@ export async function focusJoint(jointId: string, opts: FocusOptions = {}): Prom
   const store = useClashCheckStore.getState();
   store.focusJoint(jointId);
 
-  if (opts.revealPanel) {
-    const scenePanel = useSceneInfoStore.getState();
-    scenePanel.setMode("joints");
-    reveal(CORE_PANEL_IDS.scene);
-  }
+  // The joints review is the Connections panel's tab.
+  if (opts.revealPanel) openConnectionsTab(JOINTS_REVIEW_TAB);
 
   const joint = store.result?.jointsById.get(jointId);
   // A convex-contact run names its members by model and ELEMENT ID (a saved group's pairs members of

@@ -9,7 +9,8 @@ import {
 } from "@/state/clashCheckStore";
 import IdentifiedJoints from "./joints/IdentifiedJoints";
 
-// Scene-panel "Joints" mode: a read-only overview of the joints this model knows about, from
+// The Connections panel's "Review" tab (the Scene panel's "Joints" mode until it moved there with
+// Clashes): a read-only overview of the joints this model knows about, from
 // BOTH ends of the identify-then-detail workflow (`notes_core_asset_browser.md` §Decision 10's
 // naming paragraph: "Identification and review are the two ends of one workflow; the cleanest
 // strip is Clashes -> Joints, with a run's identified-and-grouped joints shown in Joints beside
@@ -31,8 +32,8 @@ import IdentifiedJoints from "./joints/IdentifiedJoints";
 // fold the same way and an identified group keeps the colour its markers have in the 3D view.
 //
 // Both are REVIEW surfaces; the cellbuilder's Detailing tab remains the AUTHORING surface. The
-// tab itself is available when EITHER section has something to show (`SceneInfoBox.tsx`'s
-// `hasJoints = hasProducedJoints || hasIdentifiedJoints`), so this component must not go back to
+// tab itself is available when EITHER section has something to show (`ConnectionBuilderPanel`'s
+// `useHasJoints`: produced, generated or identified), so this component must not go back to
 // its old all-or-nothing empty state -- each section renders (or doesn't) on its own account.
 //
 // Selector discipline: `useStatsStore` returns the STORED `joints` object (a nested ref of the
@@ -167,9 +168,9 @@ const JointsOverviewPanel: React.FC = () => {
   const hasIdentified = useClashCheckStore((s) => (s.result?.joints.length ?? 0) > 0);
 
   if (!hasProduced && !hasIdentified) {
-    // Reachable only for an instant while the tab is switching away (`SceneInfoBox` gates the
-    // tab itself on this same pair of facts) -- kept as a real empty state anyway rather than
-    // rendering nothing, so a direct `setMode('joints')` call from elsewhere is never blank.
+    // Reachable only for an instant while the tab is switching away (the Connections panel gates
+    // the tab itself on this same pair of facts) -- kept as a real empty state anyway rather than
+    // rendering nothing, so the tab opened directly from elsewhere is never blank.
     return (
       <p className="p-1 text-xs italic text-gray-400">
         No joints yet. Run a check in the Clashes tab to identify joints, or compile with a

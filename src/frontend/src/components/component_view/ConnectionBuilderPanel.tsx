@@ -1,24 +1,34 @@
-// The connection builder as a panel of its own (`core:component-controls`, the top bar's
-// connection button): the same builder as the Scene panel's Connection tab -- pick a spec, edit
-// each member, see the joint rebuilt -- in the menu column on desktop and a bottom sheet on phones.
+// The Connections panel (`core:component-controls`, the top bar's connection button): where
+// everything about connections is reached, in the menu column on desktop and a bottom sheet on
+// phones. Its tabs (`./connectionsTabs`):
+//
+//   * Builder -- the connection builder: pick a spec, edit each member, see the joint rebuilt.
+//     Left out where the builder is not offered (the scope offers no specs).
+//   * Clashes, Overlays and Review -- the joint workflow that was the Scene panel's Joints group:
+//     identify joints in the loaded source, what the joint tabs draw in 3D, and the review of the
+//     joints found or detailed (only while there are any).
+//   * then a plugin's tabs in the connection builder (region `connection-builder`), after core's.
+//
+// Clashes and Overlays are always there, so the panel always has a tab strip and something to
+// show. (With the builder and no plugin tab it used to be the builder alone, with no strip; with
+// neither it said "Nothing about connections is offered in this scope.")
 //
 // It replaced the "Connection components" panel, which offered only the specs a CI bake had
 // published to a scope. The builder's specs are the ones the live workers' code registers (or, on
-// `ada dev connections`, the served library's), offered per scope as the admin assigned them.
+// `ada dev connections`, the served library's), offered per scope as the admin assigned them. The
+// panel was named "Connection builder" before it was "Connections".
 //
-// A plugin's tab in the connection builder (region `connection-builder`) is shown here, after the
-// builder's own tab; with no such tab the panel has no tab strip. The Scene panel's Connection tab
-// stays the builder alone.
-//
-// The panel is named "Connections" (it was "Connection builder"): it is where everything about
-// connections is reached. Where the builder itself is not offered -- the scope offers no specs --
-// the panel is still there for the plugins' tabs, and the builder's own tab is left out.
+// It stays in the main window: Clashes, Overlays and the builder act on the scene, and the panel
+// is neither mirrored nor offered for a pop-out (`layout/popout`'s `canPopOut`).
 
 import React, { useEffect } from "react";
 
 import { SimTabButton } from "@/components/simulation/SimulationControls";
 import { SimulationsFrame } from "@/components/simulations/SimulationsFrame";
 import { PanelHeaderActions, usePanelHeaderActions } from "@/components/ui/PanelFrame";
+import ClashesPanel from "@/components/info_box_scene/ClashesPanel";
+import JointOverlaysPanel from "@/components/info_box_scene/JointOverlaysPanel";
+import JointsOverviewPanel from "@/components/info_box_scene/JointsOverviewPanel";
 import { usePlacedElsewhereVersion } from "@/layout/usePlacedElsewhere";
 import { makePluginContext } from "@/plugins/context";
 import { PluginPanelMount } from "@/plugins/PluginSlots";
@@ -35,18 +45,26 @@ import {
   startConnectionBuilderSession,
 } from "@/services/devConnections/connectionBuilderSession";
 import { useViewerStores } from "@/state/AdaViewerContext";
+import { useClashCheckStore } from "@/state/clashCheckStore";
 import { useComponentControlsStore } from "@/state/componentControlsStore";
 import { useConnectionsOfferStore } from "@/state/connectionsOfferStore";
+import { useStatsStore } from "@/state/statsStore";
 import { runtime } from "@/runtime/config";
-import { BUILDER_TAB, useConnectionBuilderTabStore } from "@/state/connectionBuilderTabStore";
+import {
+  BUILDER_TAB,
+  CLASHES_TAB,
+  JOINT_OVERLAYS_TAB,
+  useConnectionBuilderTabStore,
+} from "@/state/connectionBuilderTabStore";
 import { usePluginTheme } from "@/state/themeStore";
 
 import { ConnectionBuilderBody } from "./ConnectionBuilder";
+import { CONNECTIONS_CORE_TABS, connectionsActiveTab, connectionsCoreTabs, type ConnectionsTabDef } from "./connectionsTabs";
 
 export const CONNECTION_BUILDER_TITLE = "Connections";
 
 /** The builder's own tab, as the strip names it. */
-export const BUILDER_TAB_LABEL = "Builder";
+export const BUILDER_TAB_LABEL = CONNECTIONS_CORE_TABS[0].label;
 
 /** The builder itself; showing it starts the builder's loop (once per page). */
 const BuilderTab: React.FC = () => {
@@ -58,27 +76,56 @@ const BuilderTab: React.FC = () => {
   return <ConnectionBuilderBody />;
 };
 
-const BuilderTabStrip: React.FC<{
+/**
+ * Whether there are joints to review. It used to be only when the loaded model's take-off carried
+ * fabrication-detail joints (a model compiled with a detailing engine) -- "PRODUCED" joints. It is
+ * ALSO when a Clashes run has IDENTIFIED joints in the loaded source, before anything has been
+ * detailed: identification and review are two ends of one workflow, so the tab that reviews joints
+ * must exist as soon as either half has something to show.
+ */
+function useHasJoints(): boolean {
+  const produced = useStatsStore((s) => (s.stats?.joints?.count ?? 0) > 0);
+  // Joints generated in THIS session count as produced too: they arrive as an overlay, which has
+  // no stats of its own, so the compiled model's take-off never sees them.
+  const generated = useClashCheckStore((s) => (s.producedJoints?.count ?? 0) > 0);
+  const identified = useClashCheckStore((s) => (s.result?.joints.length ?? 0) > 0);
+  return produced || generated || identified;
+}
+
+/** One of core's tabs' content. */
+const CoreTabContent: React.FC<{ tab: ConnectionsTabDef["id"] }> = ({ tab }) =>
+  tab === BUILDER_TAB ? (
+    <BuilderTab />
+  ) : tab === CLASHES_TAB ? (
+    <ClashesPanel />
+  ) : tab === JOINT_OVERLAYS_TAB ? (
+    <JointOverlaysPanel />
+  ) : (
+    <JointsOverviewPanel />
+  );
+
+const ConnectionsTabStrip: React.FC<{
+  core: ConnectionsTabDef[];
   tabs: SimulationTabEntry[];
-  activeTab: string;
+  activeTab: string | undefined;
   onSelect: (id: string) => void;
   ctxFor: (pluginId: string) => AdaPluginContext;
-  /** Whether the builder's own tab is there: not where the builder is not offered. */
-  builder: boolean;
-}> = ({ tabs, activeTab, onSelect, ctxFor, builder }) => (
+}> = ({ core, tabs, activeTab, onSelect, ctxFor }) => (
   <div
     className="flex flex-wrap gap-0.5 border-b border-white/15"
     role="tablist"
     aria-label="Connections section"
   >
-    {builder && (
+    {core.map((t) => (
       <SimTabButton
-        id={BUILDER_TAB}
-        label={BUILDER_TAB_LABEL}
-        active={activeTab === BUILDER_TAB}
-        onClick={() => onSelect(BUILDER_TAB)}
+        key={t.id}
+        id={t.id}
+        label={t.label}
+        active={activeTab === t.id}
+        contextual={t.ctx}
+        onClick={() => onSelect(t.id)}
       />
-    )}
+    ))}
     {tabs.map((t) => {
       let badge: number | string | null = null;
       try {
@@ -102,7 +149,7 @@ const BuilderTabStrip: React.FC<{
   </div>
 );
 
-/** The panel's content: the builder, and after it the plugins' tabs when there are any. */
+/** The panel's content: core's tabs, then the plugins' tabs, and the one on show. */
 export const ConnectionBuilderPanelContent: React.FC = () => {
   const stores = useViewerStores();
   const theme = usePluginTheme();
@@ -116,35 +163,34 @@ export const ConnectionBuilderPanelContent: React.FC = () => {
   // The builder's own tab is there where the builder is offered (`connectionBuilderOffered`).
   const offered = useConnectionsOfferStore((s) => s.offered);
   const builder = runtime.devConnections() || offered;
+  const joints = useHasJoints();
+  const core = connectionsCoreTabs({ builder, joints });
 
   const tabs = getConnectionBuilderTabs(makePluginContext("", stores, theme));
-  // No plugin tab: the builder alone, with no strip.
-  if (tabs.length === 0) {
-    return builder ? <BuilderTab /> : <div className="text-xs text-gray-400">Nothing about connections is offered in this scope.</div>;
-  }
-
-  // A tab that went away (its plugin deactivated or disabled) falls back to the builder, or
-  // where there is none to the first tab there is.
-  const active = tabs.find((t) => t.panel.id === picked) ?? (builder ? undefined : tabs[0]);
+  // A tab that went away (Review with no joints left, a plugin deactivated or disabled) falls
+  // back to the first tab there is: the builder where it is offered, else Clashes.
+  const activeId = connectionsActiveTab(picked, [...core.map((t) => t.id), ...tabs.map((t) => t.panel.id)]);
+  const activeCore = core.find((t) => t.id === activeId);
+  const activePlugin = tabs.find((t) => t.panel.id === activeId);
   return (
     <div className="flex flex-col gap-2 min-w-0">
-      <BuilderTabStrip
+      <ConnectionsTabStrip
+        core={core}
         tabs={tabs}
-        builder={builder}
-        activeTab={active ? active.panel.id : BUILDER_TAB}
+        activeTab={activeId}
         onSelect={select}
         ctxFor={(pid) => makePluginContext(pid, stores, theme)}
       />
       {/* Only the tab on show is mounted: one left is unmounted, and ends what it was doing. */}
-      {active ? (
+      {activePlugin ? (
         <PluginPanelMount
-          key={active.panel.id}
-          ctx={makePluginContext(active.pluginId, stores, theme)}
-          panel={active.panel}
+          key={activePlugin.panel.id}
+          ctx={makePluginContext(activePlugin.pluginId, stores, theme)}
+          panel={activePlugin.panel}
         />
-      ) : (
-        <BuilderTab />
-      )}
+      ) : activeCore ? (
+        <CoreTabContent key={activeCore.id} tab={activeCore.id} />
+      ) : null}
     </div>
   );
 };

@@ -67,7 +67,6 @@ import { useRunConsoleStore } from "@/state/runConsoleStore";
 import { bindStoreFlag, watchStores } from "./bindings";
 import { CLASSIC_PRESET_ID, CLASSIC_ZONES } from "./layout";
 import type { PanelBinding, PanelBodyLoader, PanelPlacement, PanelProps, PanelSpec } from "./panel";
-import { hasConnectionBuilderTabs, subscribePluginActivation } from "@/plugins/registry";
 import { getPanel, registerPanel } from "./registry";
 import { activeShellMode, subscribeShellModes } from "./shellModes";
 
@@ -332,29 +331,24 @@ export function corePanelSpecs(): PanelSpec[] {
     },
     {
       // Connections: the connection builder (it replaced the baked-spec "Connection components"
-      // panel) and the plugins' tabs beside it. The builder is offered on `ada dev connections`
-      // and wherever the scope offers specs the workers' code registers; the panel also where a
-      // plugin has a tab for it, the builder's own tab then left out.
+      // panel), the joint workflow that was the Scene panel's Joints group (Clashes, Overlays,
+      // Review) and the plugins' tabs beside them. Offered wherever one of its tabs is: the
+      // builder on `ada dev connections` and wherever the scope offers specs, a plugin's tab, the
+      // joints review while there are joints -- and Clashes and Overlays always, so the panel is
+      // always offered and reads no state to say so (no `watch`). It used to be offered only for
+      // the builder or a plugin's tab: `connectionBuilderOffered() || hasConnectionBuilderTabs()`.
       id: CORE_PANEL_IDS.componentControls,
       title: "Connections",
       icon: ComponentIcon,
       hint: "Toggle connections",
       body: classicBody(CORE_PANEL_IDS.componentControls),
       content: classicContent(CORE_PANEL_IDS.componentControls),
-      watch: (changed) => {
-        const offer = useConnectionsOfferStore.subscribe(changed);
-        const plugins = subscribePluginActivation(changed);
-        return () => {
-          offer();
-          plugins();
-        };
-      },
       binding: bindStoreFlag(
         useComponentControlsStore,
         (s) => s.isVisible,
         (open, s) => s.setIsVisible(open),
       ),
-      available: () => connectionBuilderOffered() || hasConnectionBuilderTabs(),
+      available: () => connectionsPanelOffered(),
       placement: column(70),
       toolbar: { order: 90 },
     },
@@ -566,9 +560,16 @@ export function corePanelSpecs(): PanelSpec[] {
 }
 
 /** Whether the connection builder itself is offered here: on `ada dev connections`, or where the
- *  scope offers specs. The connections panel may be offered without it, for a plugin's tab. */
+ *  scope offers specs. The Connections panel is offered without it, for its other tabs. */
 export function connectionBuilderOffered(): boolean {
   return runtime.devConnections() || useConnectionsOfferStore.getState().offered;
+}
+
+/** Whether the Connections panel is offered: it has a tab to show. Its Clashes and Overlays tabs
+ *  are always offered (`components/component_view/connectionsTabs`), so it always is; the builder,
+ *  a plugin's tab and the joints review only add tabs to it. */
+export function connectionsPanelOffered(): boolean {
+  return true;
 }
 
 /** The facts `available` reads, from the runtime config. */

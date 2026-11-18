@@ -1,4 +1,4 @@
-// State of the connection builder (`ada dev connections`, the Scene panel's Connection tab): the served
+// State of the connection builder (`ada dev connections`, the Connections panel's Builder tab): the served
 // library's latest state, the selected spec, the per-spec member inputs, and
 // the latest build. Pure state -- the session in
 // services/devConnections/connectionBuilderSession.ts fetches, builds and
@@ -62,7 +62,7 @@ type ConnectionBuilderState = {
    *  one builds or fails, until a build of another spec replaces it. */
   lastResult: DevBuildResult | null;
 
-  /** How the joint is drawn in 3D (Scene > Joints > Overlays). */
+  /** How the joint is drawn in 3D (Connections > Overlays). */
   overlays: ConnectionOverlays;
   setOverlay: <K extends keyof ConnectionOverlays>(which: K, value: ConnectionOverlays[K]) => void;
 };

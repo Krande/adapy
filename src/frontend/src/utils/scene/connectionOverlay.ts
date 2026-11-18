@@ -1,4 +1,4 @@
-// The joint `ada dev connections` previews, annotated in 3D (Scene > Joints > Overlays):
+// The joint `ada dev connections` previews, annotated in 3D (Connections > Overlays):
 //
 //   * member axes -- each beam's axis, coloured by its role (the Clashes legend's incoming amber and
 //     landing teal), labelled with its role and section; a plate gets its label at its centre;

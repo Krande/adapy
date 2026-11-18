@@ -360,11 +360,12 @@ test("availability follows the conditions the classic top bar gates on", () => {
   assert.ok(!ws.includes(CORE_PANEL_IDS.storage) && !ws.includes(CORE_PANEL_IDS.admin));
   assert.ok(!ids({ restMode: false, websocketDeactivated: true }).includes(CORE_PANEL_IDS.wsStatus));
 
-  // Store-gated: nothing loaded -> no simulation, cellbuilder or component panel.
+  // Store-gated: nothing loaded -> no simulation or cellbuilder panel. Connections is always
+  // offered: its Clashes and Overlays tabs are.
   const idle = ids({ restMode: true });
   assert.ok(!idle.includes(CORE_PANEL_IDS.simulation));
   assert.ok(!idle.includes(CORE_PANEL_IDS.cellbuilder));
-  assert.ok(!idle.includes(CORE_PANEL_IDS.componentControls));
+  assert.ok(idle.includes(CORE_PANEL_IDS.componentControls));
   useAnimationStore.setState({ hasAnimation: true });
   assert.ok(ids({ restMode: true }).includes(CORE_PANEL_IDS.simulation));
   useAnimationStore.setState({ hasAnimation: false });

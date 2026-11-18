@@ -50,6 +50,9 @@ export interface UtilityResult {
   summary?: Record<string, unknown>;
 }
 
+// `joints`, `clashes`, `connection` and `jointOverlays` name tabs that moved to the Connections
+// panel: still accepted, and an opener that sets one is sent to that panel's tab
+// (`layout/connectionsTabActions`' `redirectMovedSceneModes`).
 export type SceneInfoMode = 'info' | 'source' | 'utilities' | 'section' | 'fem' | 'mesh' | 'joints' | 'clashes' | 'overlays' | 'connection' | 'jointOverlays';
 
 interface SceneInfoState {

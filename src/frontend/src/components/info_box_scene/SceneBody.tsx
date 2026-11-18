@@ -12,11 +12,6 @@ import BBoxSelectionSection from "./BBoxSelectionSection";
 import FacePickingToggle from "./FacePickingToggle";
 import FaceSearchSection from "./FaceSearchSection";
 import SectionPlanesPanel from "./SectionPlanesPanel";
-import JointsOverviewPanel from "./JointsOverviewPanel";
-import ClashesPanel from "./ClashesPanel";
-import JointOverlaysPanel from "./JointOverlaysPanel";
-import {ConnectionBuilderBody} from "@/components/component_view/ConnectionBuilder";
-import {runtime} from "@/runtime/config";
 import MeshDistortionSection from "./MeshDistortionSection";
 import OverlaysPanel from "./OverlaysPanel";
 import {useSceneInfoStore} from "@/state/sceneInfoStore";
@@ -27,7 +22,6 @@ import {
     sceneGroups,
     sceneTabs,
     shouldStackTabs,
-    SUB_LABEL,
     TAB_TO_MODE,
     type OfferedGroup,
     type SceneGroup,
@@ -36,9 +30,6 @@ import {
 } from "./sceneTabs";
 import {useFemConceptsStore} from "@/state/femConceptsStore";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
-import {useStatsStore} from "@/state/statsStore";
-import {useClashCheckStore} from "@/state/clashCheckStore";
-import {useConnectionsOfferStore} from "@/state/connectionsOfferStore";
 import {useIsMobile} from "@/utils/useIsMobile";
 import {isMirroredWindow} from "@/layout/sceneActions";
 
@@ -61,10 +52,10 @@ export interface SceneBodyProps extends SceneTabOptions {
 //
 // Its destinations used to hide behind a 6-way mode <select>; now they're a tab
 // strip that adapts to what's loaded. Every model is a GLB in the scene, so
-// Model / Tools / Clip / Mesh always apply — only Joints is contextual. "Loaded
-// models" stays pinned above the tabs, visible in every one. The FE model's
-// concepts (masses / BCs / load scenarios) live in the Simulation panel's Model
-// tab, and in an FEM tab here only where a host asks for one (`femTab`).
+// Model / Tools / Clip / Mesh always apply. "Loaded models" stays pinned above
+// the tabs, visible in every one. The FE model's concepts (masses / BCs / load
+// scenarios) live in the Simulation panel's Model tab, and in an FEM tab here
+// only where a host asks for one (`femTab`).
 //
 // The legacy modes map onto the tabs: Info + Source merge into "Model" (both
 // describe what's loaded), Utilities → Tools, Section → Clip, and Mesh keeps its
@@ -73,9 +64,13 @@ export interface SceneBodyProps extends SceneTabOptions {
 // shells and lands on Model here.
 //
 // The strip shows GROUPS of related tabs (`sceneTabs`' `SCENE_GROUPS`): Model, View
-// (Overlays, Clip, Mesh), Joints (Connection, Clashes, Review), Tools -- and a group
-// of more than one offered tab a second strip of its tabs. The tabs are still what
-// the store's mode and the `tabs` / `hiddenTabs` options name.
+// (Overlays, Clip, Mesh), Tools -- and a group of more than one offered tab a second
+// strip of its tabs. The tabs are still what the store's mode and the `tabs` /
+// `hiddenTabs` options name.
+//
+// The Joints group (the connection builder, Clashes, the joints review and the joint
+// overlays) moved to the Connections panel (`ConnectionBuilderPanel`); a mode that
+// named one of its tabs opens that panel there (`layout/connectionsTabActions`).
 //
 // Three regions: the pinned model list, the tab strip(s), and a body that scrolls on
 // its own. A frame lays them out in a flex column (the card has no padding of its
@@ -84,35 +79,17 @@ const SceneBody: React.FC<SceneBodyProps> = ({tabs: tabIds, hiddenTabs, femTab =
     const mode = useSceneInfoStore((s) => s.mode);
     const setMode = useSceneInfoStore((s) => s.setMode);
 
-    // Joints is the contextual tab. It used to appear only when the loaded model's
-    // take-off carried fabrication-detail joints (a model compiled with a detailing engine) --
-    // "PRODUCED" joints. It now ALSO appears when a `Clashes` run has IDENTIFIED joints in the
-    // loaded source, even before anything has been detailed: identification and review are two
-    // ends of one workflow (§Decision 10), so the tab that reviews joints must exist as soon as
-    // either half has something to show, not only after the second half runs.
-    const hasProducedJoints = useStatsStore((s) => (s.stats?.joints?.count ?? 0) > 0);
-    // Joints generated in THIS session count as produced too: they arrive as an overlay, which has
-    // no stats of its own, so the compiled model's take-off above never sees them.
-    const hasGeneratedJoints = useClashCheckStore((s) => (s.producedJoints?.count ?? 0) > 0);
-    const hasIdentifiedJoints = useClashCheckStore((s) => (s.result?.joints.length ?? 0) > 0);
-    const hasJoints = hasProducedJoints || hasGeneratedJoints || hasIdentifiedJoints;
-
-    // FEM, where offered: the FE model's concepts, or any FEA result session.
+    // FEM, where offered: the FE model's concepts, or any FEA result session. The only contextual tab.
     const hasFemConcepts = useFemConceptsStore((s) => s.masses.length > 0 || s.bcs.length > 0 || s.scenarios.length > 0);
     const feaSessionActive = useFeaAnimationStore((s) => s.sessionActive);
 
     const isMobile = useIsMobile();
-    const connectionsOffered = useConnectionsOfferStore((s) => s.offered);
 
     const ctxAvailable: Partial<Record<SceneTab, boolean>> = {
-        joints: hasJoints,
         fem: hasFemConcepts || feaSessionActive,
-        // The connection builder: on a viewer `ada dev connections` started, or while this scope
-        // offers specs the workers registered.
-        connection: runtime.devConnections() || connectionsOffered,
     };
-    // A pop-out window has the Model tab: the others (overlays, tools, clip, mesh, clashes, joints)
-    // read and change the scene itself, which only the main window has.
+    // A pop-out window has the Model tab: the others (overlays, tools, clip, mesh) read and change
+    // the scene itself, which only the main window has.
     const mirrored = isMirroredWindow();
     const tabs = sceneTabs({tabs: tabIds, hiddenTabs, femTab}, ctxAvailable).filter((t) => !mirrored || t.id === "model");
     // Derive the active tab from the store mode, falling back to Model if the
@@ -222,7 +199,7 @@ const SceneBody: React.FC<SceneBodyProps> = ({tabs: tabIds, hiddenTabs, femTab =
                                     aria-hidden="true"
                                 />
                             )}
-                            {SUB_LABEL[t.id] ?? t.label}
+                            {t.label}
                         </button>
                     ))}
                 </div>
@@ -303,16 +280,9 @@ const TabContent: React.FC<{tab: SceneTab; isMobile: boolean}> = ({tab, isMobile
                     <SectionPlanesPanel />
                 ) : tab === "mesh" ? (
                     <MeshDistortionSection />
-                ) : tab === "fem" ? (
-                    <FemConceptsPanel />
-                ) : tab === "connection" ? (
-                    <ConnectionBuilderBody />
-                ) : tab === "clashes" ? (
-                    <ClashesPanel />
-                ) : tab === "jointOverlays" ? (
-                    <JointOverlaysPanel />
                 ) : (
-                    <JointsOverviewPanel />
+                    // "fem"; the Joints group's tabs are the Connections panel's (`MOVED_SCENE_TABS`).
+                    <FemConceptsPanel />
                 );
 
 /** The heading of one kind of group inside the Groups section. */

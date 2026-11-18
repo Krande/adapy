@@ -21,8 +21,8 @@ import { useProviderName } from "@/state/providerNamesStore";
 import { providerIdTitle } from "@/assets/providerNames";
 import { sourcesTabAccess } from "@/assets/sourcesTabAccess";
 import { useSavedGroupsStore } from "@/state/savedGroupsStore";
-import { useSceneInfoStore } from "@/state/sceneInfoStore";
-import { CORE_PANEL_IDS, reveal } from "@/layout/panelActions";
+import { CLASHES_TAB } from "@/state/connectionBuilderTabStore";
+import { openConnectionsTab } from "@/layout/connectionsTabActions";
 import { scopeUrlPart, useScopeStore } from "@/state/scopeStore";
 import { useSelectedObjectStore } from "@/state/useSelectedObjectStore";
 import { resolveElementRows } from "@/utils/groups/groupAssetRows";
@@ -382,9 +382,8 @@ const GroupDetails: React.FC<{ scope: string; group: SavedGroup; shared: boolean
 
   const clashCheck = () => {
     useClashCheckStore.getState().setGroupTarget(group);
-    const sceneInfo = useSceneInfoStore.getState();
-    sceneInfo.setMode("clashes");
-    reveal(CORE_PANEL_IDS.scene);
+    // The Clashes tab is the Connections panel's.
+    openConnectionsTab(CLASHES_TAB);
   };
 
   return (

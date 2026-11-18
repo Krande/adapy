@@ -1,4 +1,4 @@
-// The Scene panel's "Clashes" tab: run a clash check over the loaded model's SOURCE, read back
+// The Connections panel's "Clashes" tab: run a clash check over the loaded model's SOURCE, read back
 // `ada.clash/result@1`, and hand a chosen group off to a generator.
 //
 // ONE RESULT, READ BY EVERYTHING. Every badge, count and filter the panel shows is a pure

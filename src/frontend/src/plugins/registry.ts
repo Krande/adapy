@@ -260,6 +260,9 @@ export type { PlaceBoxOptions, PlacedBox, PlacedBoxMode, PlacedBoxPose } from ".
 //          the scene's clicks (`pickObjects`) and shows what it has taken. Not the selection, not a
 //          colour the user gave, and no undo step; on either viewport. Additive: an older core has
 //          no `highlightObjects`, so a plugin asks for it first.
+//          Not an API change, but seen by a `connection-builder` tab: the Connections panel has
+//          core's Clashes, Overlays and Review tabs too now (they were the Scene panel's Joints
+//          group), after Builder and before the plugins' tabs, and is offered everywhere.
 export const PLUGIN_API_VERSION = "1.28.0";
 
 /** What the Simulations panel writes on a run's open-result button. */
