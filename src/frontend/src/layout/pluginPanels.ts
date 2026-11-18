@@ -100,12 +100,20 @@ function classicPlacement(slot: PanelSlot): PanelPlacement {
         order: slot.asTab ? (slot.asTab.order ?? 0) : (slot.order ?? 0),
       };
     case "connection-builder":
-      // Always a tab of the connection builder panel, after the builder's own.
+      // Always a tab of the Connections panel, after core's own (Builder, Clashes, Overlays, Review).
       return {
         zone: CLASSIC_ZONES.menuColumn,
         parent: "core:component-controls",
         as: "tab",
         order: slot.asTab?.order ?? slot.order ?? 0,
+      };
+    case "joint-review":
+      // A section of the Connections panel's Review tab, after core's own sections.
+      return {
+        zone: CLASSIC_ZONES.menuColumn,
+        parent: "core:component-controls",
+        as: "section",
+        order: slot.order ?? 0,
       };
     case "admin":
       return { zone: CLASSIC_ZONES.window, parent: "core:admin", as: "tab", order: slot.order ?? 0 };

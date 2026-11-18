@@ -920,7 +920,7 @@ def _core_clash_checkers() -> list[dict]:
             {
                 "slug": BUILTIN_CHECKER,
                 "name": BUILTIN_CHECKER,
-                "label": "adapy (built-in)",
+                "label": "Member connectivity (built-in)",
                 "capability": None,
                 "passes": [],
                 "options": [],

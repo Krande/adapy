@@ -2,6 +2,7 @@ import {useModelState} from "@/state/modelState";
 import {useAnimationStore} from "@/state/animationStore";
 import {useTreeViewStore} from "@/state/treeViewStore";
 import {useSceneInfoStore} from "@/state/sceneInfoStore";
+import {clearMeasurements} from "@/state/measureStore";
 import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
 import {getViewerRuntime} from "@/state/viewerRuntime";
 import {clearActiveFeaStreaming} from "./load_fea_streaming";
@@ -27,6 +28,8 @@ export async function clear_loaded_model(): Promise<void> {
     getViewerRuntime().animationController.current?.clear();
 
     useTreeViewStore.getState().clearTreeData();
+    // What was measured on the models goes with them (the Measure tab).
+    clearMeasurements();
     useSceneInfoStore.getState().setAvailableGroups([]); // drop streamed FEM/FEA groups
     useModelState.getState().translation = null;
 

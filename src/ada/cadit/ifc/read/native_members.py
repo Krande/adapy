@@ -130,7 +130,7 @@ def _section_for(member: dict):
     return Section(
         name or f"profile_{member['id']}",
         sec_type=BaseTypes.POLY,
-        poly_outer=CurvePoly2d(outline),
+        outer_poly=CurvePoly2d(outline, origin=(0, 0, 0), xdir=(1, 0, 0), normal=(0, 0, 1)),
     )
 
 

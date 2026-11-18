@@ -25,13 +25,14 @@ export {
   // the admin half that was missed.
   getAdminTabs,
   getConnectionBuilderTabs,
+  getJointReviewSections,
   getPanelsForRegion,
   getResultSidecarLoaders,
   getSceneColorFieldProviders,
   getSimulationTabs,
   getUrlParamHandlers,
 } from "@/plugins/registry";
-export type { AdminTabEntry, SimulationTabEntry } from "@/plugins/registry";
+export type { AdminTabEntry, JointReviewSectionEntry, SimulationTabEntry } from "@/plugins/registry";
 export {
   disposeResultSidecarLoaders,
   makeManifestFetcher,

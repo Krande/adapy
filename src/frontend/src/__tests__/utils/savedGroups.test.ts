@@ -68,7 +68,7 @@ test("an empty or missing document reads as no groups", () => {
 });
 
 test("an unknown schema is refused, never read and written back over", () => {
-  assert.throws(() => parseGroupsDoc(JSON.stringify({ schema: "ada.viewer/groups@2", groups: [] })), GroupsDocError);
+  assert.throws(() => parseGroupsDoc(JSON.stringify({ schema: "ada.viewer/groups@3", groups: [] })), GroupsDocError);
   assert.throws(() => parseGroupsDoc("{not json"), GroupsDocError);
 });
 

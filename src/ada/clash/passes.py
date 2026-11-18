@@ -216,8 +216,15 @@ def passes_for(checker_name: str | None) -> tuple[ClashPass, ...]:
 register_checker(
     ClashChecker(
         name=BUILTIN_CHECKER,
-        label="adapy (built-in)",
-        description="Members meeting at shared nodes, beams landing on plates, and plates meeting edge-on.",
+        # Named for what it does: a CONNECTIVITY check over the member model (axes meeting at a node,
+        # beam mid-spans in a plate's padded bounding box, plates edge-on), not an interference check
+        # -- that is the convex-contact checker, which the viewer's Clashes tab runs by default.
+        label="Member connectivity (built-in)",
+        description=(
+            "Which members are meant to connect, read from the member model: beam axes meeting at a shared node, "
+            "beams whose mid-span lies in a plate's padded bounding box, and plates meeting edge-on. Does not "
+            "measure the solids, so it is not an interference check."
+        ),
         uses_core_options=True,
         priority=0,
     )

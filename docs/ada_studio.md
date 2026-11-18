@@ -101,11 +101,23 @@ sets**, **Clear FEA isolation** and **Show the rest as wireframe**.
 
 ## Clash and joint check
 
-**Scene → Clashes → Run clash check** finds every place members meet: beam to beam, plate to
-beam and plate to plate. It groups the joints by type (member kinds, section families, column or
-girder, the angle between them) and marks them in 3D. Filter the groups, isolate one, and see
-which [connection rules](architecture/platform.md#clash-and-joints-adaclash) apply. Here, 12
-joints match the built-in girder-gusset rule, and **generate detail model** builds those details.
+**Connections → Clashes → Run clash check** finds every place members meet. By default it runs
+the **Convex contact** engine: adacpp's compiled clash module, in the browser (WebAssembly),
+measures the solids the viewer shows and reports the members that touch or overlap, each with its
+contact normal, penetration depth and contact patch. The run is saved beside the model. Where this
+viewer's clash module does not load and no worker offers convex contact, or the target cannot be
+measured (a node delivered as a provider's mesh), the run falls back to the built-in
+**Member connectivity** check and the panel says so.
+
+Member connectivity reads the member model instead of the solids: beam axes that meet at a shared
+node, beams whose mid-span lies in a plate's padded bounding box, and plates meeting edge-on. It
+finds which members are meant to connect, not where steel overlaps. Pick it from the **checker** list
+when that is the question; the choice is kept for the session.
+
+Either way the joints are grouped by type (member kinds, section families, column or girder, the
+angle between them) and marked in 3D. Filter the groups, isolate one, and see which
+[connection rules](architecture/platform.md#clash-and-joints-adaclash) apply. Here, 12 joints match
+the built-in girder-gusset rule, and **generate detail model** builds those details.
 
 ![A clash check: every joint in the model, grouped by type](screenshots/ada-studio/clash.png)
 

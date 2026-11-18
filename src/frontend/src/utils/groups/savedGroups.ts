@@ -9,7 +9,8 @@
 // apart. A model root selected whole is a member with `element: null` -- the whole source/node.
 //
 // THE WIRE SHAPE IS FIXED. The same member objects are sent as a clash check's `group` body, and
-// the backend reads exactly `{target, element, path}` with the target in snake_case.
+// the backend reads exactly `{target, element, path}` with the target in snake_case (`source`
+// rides along; `ada.clash.group` ignores it, so it is never part of a check's identity).
 //
 // CAPTURE COLLAPSES. A tree click on a level selects every leaf range below it; storing those
 // leaves would turn one deck into thousands of members, and a member list that no longer says
@@ -19,6 +20,12 @@
 // change is a read-modify-write against the latest stored document, so two people editing
 // different groups do not undo each other; the last write wins per group.
 //
+// WHERE THE GEOMETRY IS. What the viewer draws is derived (a GLB built from the source); a member
+// also records its SOURCE (`MemberSource`, `./groupSourceRefs`): the stored document the GLB was
+// made from -- a provider's solid-model database, a STEP / IFC / Genie XML upload -- at the revision it was
+// saved against, and the member's own id in it. So whatever reads a group downstream reads the
+// source's objects, not the triangles. The format is documented in `docs/design/saved-groups.md`.
+//
 // React-free and store-free (types only), so it runs under `node --test`; the stores and the
 // panel assemble the live dependencies.
 
@@ -27,7 +34,14 @@ import type { TreeNodeData } from "@/components/tree_view/CustomNode";
 import { elementPath as pathBelow, modelRootOf, parseAssetSourceName } from "@/utils/export/selectionExport";
 import type { TreeIndices } from "@/utils/tree_view/treeGraph";
 
-export const GROUPS_SCHEMA = "ada.viewer/groups@1";
+/** The schema this viewer WRITES. @2 added `source` to a member; @1 is still read
+ *  (`GROUPS_SCHEMAS_READ`), and written back as @2 at the next change -- an @1 reader would drop
+ *  every `source` it did not know when it wrote, which is why the version moved. */
+export const GROUPS_SCHEMA = "ada.viewer/groups@2";
+/** The first schema: members without `source`. */
+export const GROUPS_SCHEMA_V1 = "ada.viewer/groups@1";
+/** Every schema this viewer reads. */
+export const GROUPS_SCHEMAS_READ: readonly string[] = [GROUPS_SCHEMA_V1, GROUPS_SCHEMA];
 
 /** The scope blob holding every saved group. A leading `_` keeps it out of file listings. */
 export const GROUPS_BLOB_KEY = "_groups/groups.json";
@@ -46,12 +60,63 @@ export type GroupMemberTarget =
       readonly node: string | null;
     };
 
+/** What a source file is, from its name: what a consumer needs to pick a reader. */
+export type SourceFormat =
+  /** A provider's own solid-model database (`*.db`): read only through that provider. */
+  | "database"
+  | "step"
+  | "ifc"
+  | "genie-xml"
+  | "sat"
+  | "other";
+
+/** Why a member has no source in the store. */
+export type NoSourceReason =
+  /** Opened from the user's disk: nothing was stored, so there is nothing to refer to. */
+  | "local-file"
+  /** The stored model is triangles only (a GLB): there is no solid model behind it. */
+  | "mesh-only"
+  /** The publish's manifest names no source file (a mesh delivery, a tree-only publish). */
+  | "no-source-artefact"
+  /** The publish's manifest could not be read when the member was saved. */
+  | "unreadable";
+
+/** Where a member's SOURCE geometry is (the solid model) -- not the GLB the viewer drew.
+ *
+ *  `stored`: the source document, pinned. For a published node that is the subject's manifest
+ *  artefact with role `source` at `revision` (the revision the member was saved against); for a
+ *  stored file it is the file itself (`provider`/`collection`/`subject`/`revision` null: a plain
+ *  stored file has no revisions). `element_id` is the member's own id in that source where the
+ *  derived tree carries one -- the provider's node id, which the publishing provider derives from
+ *  the source's own element id -- else null, and the member is found by `element`/`path`. */
+export type MemberSource =
+  | {
+      readonly kind: "stored";
+      /** The scope the source is stored in, in its wire form (`user:me`, `project:<id>`, ...). */
+      readonly scope: string;
+      readonly provider: string | null;
+      readonly collection: string | null;
+      readonly subject: string | null;
+      readonly revision: string | null;
+      /** The source file's storage key in `scope`. */
+      readonly key: string;
+      readonly format: SourceFormat;
+      /** The source file's content hash, as its manifest records it; null when unknown. */
+      readonly sha256: string | null;
+      readonly element_id: string | null;
+    }
+  | { readonly kind: "none"; readonly reason: NoSourceReason; readonly detail: string };
+
 export interface GroupMember {
   readonly target: GroupMemberTarget;
   /** The row's name; `null` for a model's root row, which means the whole model. */
   readonly element: string | null;
   /** Row names from below the model's root row down to `element`, inclusive. */
   readonly path: readonly string[];
+  /** Where the member's source geometry is. Absent on a member saved before sources were kept
+   *  (schema @1), or saved without a server to ask. NOT part of the member's identity
+   *  (`memberKey`): the same element recorded twice is one member. */
+  readonly source?: MemberSource;
 }
 
 export interface SavedGroup {
@@ -107,7 +172,53 @@ export function parseMember(raw: unknown): GroupMember | null {
   if (raw.element !== null && raw.element !== undefined && element === null) return null;
   const path = Array.isArray(raw.path) ? raw.path.filter((p): p is string => typeof p === "string") : [];
   if (element === null && path.length > 0) return null;
-  return { target, element, path };
+  const source = parseMemberSource(raw.source);
+  return source ? { target, element, path, source } : { target, element, path };
+}
+
+const SOURCE_FORMATS: readonly SourceFormat[] = ["database", "step", "ifc", "genie-xml", "sat", "other"];
+const NO_SOURCE_REASONS: readonly NoSourceReason[] = ["local-file", "mesh-only", "no-source-artefact", "unreadable"];
+
+/** A member's `source`, or null when absent or not a known shape. A malformed source is DROPPED,
+ *  not the member: the member still finds its rows by name, and a later "Record sources" fills it
+ *  in again. */
+export function parseMemberSource(raw: unknown): MemberSource | null {
+  if (!isRecord(raw)) return null;
+  if (raw.kind === "stored") {
+    const scope = str(raw.scope);
+    const key = str(raw.key);
+    if (!scope || !key) return null;
+    const format = SOURCE_FORMATS.includes(raw.format as SourceFormat) ? (raw.format as SourceFormat) : sourceFormatOf(key);
+    return {
+      kind: "stored",
+      scope,
+      provider: str(raw.provider),
+      collection: str(raw.collection),
+      subject: str(raw.subject),
+      revision: str(raw.revision),
+      key,
+      format,
+      sha256: str(raw.sha256),
+      element_id: str(raw.element_id),
+    };
+  }
+  if (raw.kind === "none") {
+    if (!NO_SOURCE_REASONS.includes(raw.reason as NoSourceReason)) return null;
+    return { kind: "none", reason: raw.reason as NoSourceReason, detail: typeof raw.detail === "string" ? raw.detail : "" };
+  }
+  return null;
+}
+
+/** A source file's format, from its key's file name. */
+export function sourceFormatOf(key: string): SourceFormat {
+  const name = (key.split("/").pop() ?? key).toLowerCase();
+  const ext = name.includes(".") ? name.slice(name.lastIndexOf(".")) : "";
+  if (ext === ".db") return "database";
+  if (ext === ".step" || ext === ".stp") return "step";
+  if (ext === ".ifc") return "ifc";
+  if (ext === ".xml" || ext === ".gnx") return "genie-xml";
+  if (ext === ".sat" || ext === ".acis") return "sat";
+  return "other";
 }
 
 function parseGroup(raw: unknown): SavedGroup | null {
@@ -147,12 +258,14 @@ export function parseGroupsDoc(raw: unknown): GroupsDoc {
   }
   if (value === null || value === undefined) return EMPTY_GROUPS_DOC;
   if (!isRecord(value)) throw new GroupsDocError("the saved groups document is not a JSON object");
-  if (value.schema !== GROUPS_SCHEMA) {
+  if (!GROUPS_SCHEMAS_READ.includes(value.schema as string)) {
     throw new GroupsDocError(
-      `the saved groups document is ${JSON.stringify(value.schema)}; this viewer reads ${GROUPS_SCHEMA} only, ` +
+      `the saved groups document is ${JSON.stringify(value.schema)}; this viewer reads ${GROUPS_SCHEMAS_READ.join(" and ")} only, ` +
         "and will not write over a document it cannot fully read",
     );
   }
+  // @1 is @2 without `source` on its members: the same reader serves both (an @1 member has none),
+  // and the document is @2 from here on, so the next write upgrades it.
   const groups: SavedGroup[] = [];
   const seen = new Set<string>();
   for (const g of Array.isArray(value.groups) ? value.groups : []) {
@@ -632,11 +745,18 @@ export interface GroupNodePlan {
   readonly unresolved: readonly { readonly member: GroupMember; readonly reason: string }[];
 }
 
+/** The member's own id in its source, as recorded when it was saved -- the published tree's row
+ *  id for an element of a published node -- or null when none was recorded. */
+export function sourceElementId(member: GroupMember): string | null {
+  return member.source?.kind === "stored" ? member.source.element_id : null;
+}
+
 /** Which nodes a group's members name.
  *
  *  A whole published node is its own id. An element inside one needs its ROW id, which only the
- *  asset tree knows: `elementRows` holds what the caller managed to resolve, by `memberKey`. A
- *  member from a file names no published node at all.
+ *  asset tree knows: `elementRows` holds what the caller managed to resolve, by `memberKey`, and a
+ *  member saved with its source carries it already (`sourceElementId`). A member from a file names
+ *  no published node at all.
  *
  *  An element's label is its own name. A whole node's is not stored in the member; `labels` (by
  *  `memberKey`) supplies it where the caller knows it -- the clash check's geometry plan reports the
@@ -657,7 +777,7 @@ export function groupNodePlan(
     }
     let id: string | undefined;
     if (member.element === null) id = t.node ?? t.subject;
-    else id = elementRows.get(memberKey(member));
+    else id = elementRows.get(memberKey(member)) ?? sourceElementId(member) ?? undefined;
     if (!id) {
       unresolved.push({ member, reason: "its row could not be found in the published tree" });
       continue;

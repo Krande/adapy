@@ -1,6 +1,7 @@
-// Scene panel "Clashes" tab: identify the joints in the loaded model's SOURCE, group them by
-// type, and hand a chosen group off to a generator. This is the IDENTIFICATION half of one
-// workflow; the REVIEW half is the existing `Joints` tab, which lists this run's joints beside
+// The Connections panel's "Clashes" tab (a Scene panel tab until the Joints group moved there):
+// identify the joints in the loaded model's SOURCE, group them by type, and hand a chosen group
+// off to a generator. This is the IDENTIFICATION half of one workflow; the REVIEW half is the
+// Review tab beside it (it was `Joints`), which lists this run's joints beside
 // whatever a detailing engine already produced (`JointsOverviewPanel.tsx`) -- so this panel never
 // renders a second joints table of its own. `Clashes -> Joints` is the strip, on purpose.
 //
@@ -52,6 +53,7 @@ import {
   jointsForGroup,
   memberNamesForGroup,
   noMembersSentence,
+  runsInBrowser,
   useClashCheckStore,
   visibleResult,
   type ClashApplicableSpec,
@@ -297,7 +299,9 @@ const RunForm: React.FC<{ scope: string; sourceKey: string | null; loadedSourceN
   const busy = useClashCheckStore((s) => s.busy);
   const setOptions = useClashCheckStore((s) => s.setOptions);
   const runCheck = useClashCheckStore((s) => s.runCheck);
-  const inBrowser = useClashCheckStore((s) => s.inBrowser);
+  // The engine's own default until the box is ticked or cleared: convex contact in the browser.
+  const inBrowser = useClashCheckStore(runsInBrowser);
+  const checkerNote = useClashCheckStore((s) => s.checkerNote);
   const setInBrowser = useClashCheckStore((s) => s.setInBrowser);
   const browserStage = useClashCheckStore((s) => s.browserStage);
   const geometryPrompt = useClashCheckStore((s) => s.geometryPrompt);
@@ -329,6 +333,11 @@ const RunForm: React.FC<{ scope: string; sourceKey: string | null; loadedSourceN
         onUseLoaded={() => setSource(loadedSourceName, loadedSourceName)}
       />
       <CheckerSelector />
+      {checkerNote && (
+        <div data-testid="clash-checker-note">
+          <Banner tone="warn">{checkerNote}</Banner>
+        </div>
+      )}
       <GeometryProviderSelector target={assetTarget} />
       {coreOptions && (
         <div className="flex flex-wrap items-center gap-2">
@@ -841,9 +850,11 @@ const ClashesPanel: React.FC = () => {
   return (
     <div className="text-sm px-1 py-1 flex flex-col gap-1">
       {/* The joint `ada dev connections` previews: its clash is measured with every build, and
-          detailing it into a model is not what the preview is for. */}
+          detailing it into a model is not what the preview is for. (It said "The joint previewed
+          in Scene > Connection: its measured contact, renewed with every build." while the builder
+          was a Scene panel tab.) */}
       {preview ? (
-        <Banner tone="info">The joint previewed in Scene &gt; Connection: its measured contact, renewed with every build.</Banner>
+        <Banner tone="info">The joint previewed in the Inspect tab: its measured contact, renewed with every build.</Banner>
       ) : (
         <RunForm scope={scope} sourceKey={sourceKey} loadedSourceName={loadedSourceName} />
       )}
