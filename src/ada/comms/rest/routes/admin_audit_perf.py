@@ -5,10 +5,9 @@ per-audit-row detail reads (source/profile/log/metrics downloads), metrics
 cleanup, and the audit log list + summary.
 
 :func:`run_issue_bot_for` and :func:`run_issue_bot_for_conversion` are also
-called from the issue-bot poller (``_issue_bot_loop``, still inside
-``create_app``) — they take a plain DB pool rather than ``RestContext``
-since neither needs storage or the job queue, so ``create_app`` can keep
-calling them directly under their old underscore names with no wrapper.
+called from the issue-bot poller (``issue_bot_loop`` in
+``background_tasks.py``) — they take a plain DB pool rather than
+``RestContext`` since neither needs storage or the job queue.
 
 Extracted from ``create_app``; see ``routes/__init__`` for the pattern.
 """

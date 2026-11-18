@@ -12,51 +12,30 @@
 // a group, stacking with a group, going home. A header's menu and a drop both
 // end here.
 
-import {useMemo, useSyncExternalStore} from "react";
-import {useStore} from "zustand";
-
 import {defaultRect} from "@/assets/floatingWindow";
 import {ExternalGlyph, MoveGlyph} from "@/components/ui/PanelFrame";
 
 import type {DropTarget} from "../dockDrag";
 import {CORE_PANEL_OWNER} from "../corePanelIds";
-import {CLASSIC_PRESET_ID, CLASSIC_ZONES, DOCKED_PRESET_ID, layoutDocKey, type LayoutDoc} from "../layout";
-import {setCustomisableShell, useCustomisablePanels as useServedCustomisablePanels} from "../customisable";
-import {setUiFreezeShell} from "../uiFreeze";
-import {layoutStore} from "../layoutStore";
+import {CLASSIC_PRESET_ID, CLASSIC_ZONES, DOCKED_PRESET_ID, type LayoutDoc} from "../layout";
+import {useCustomisablePanels as useServedCustomisablePanels} from "../customisable";
 import type {PanelAction, PanelId, PanelMenuItem, RegisteredPanel} from "../panel";
-import {
-  adoptNewPanels,
-  dockInGridDoc,
-  dockPanel,
-  emptyLayoutDoc,
-  floatPanel,
-  floatPanelAt,
-  gridOf,
-  isInGrid,
-  migrateLayoutDoc,
-  updateGrid,
-} from "../reducers";
+import {adoptNewPanels, dockInGridDoc, dockPanel, floatPanel, floatPanelAt, gridOf} from "../reducers";
 import {canPopOut} from "../popout";
 import {getPanel, isPanelAvailable, listPanels} from "../registry";
 import {hide, reveal} from "../reveal";
 import {moveToWindowItem, openNewWindow, windowBus} from "../windows";
-import {
-  VIEWPORT_NODE,
-  findNode,
-  gridGroups,
-  gridPanels,
-  groupOf,
-  setFixedPx,
-  type DockEdge,
-  type GridNode,
-  type GridTarget,
-} from "../splitTree";
-import {activeShellMode, offeredInMode, shellModesVersion, subscribeShellModes} from "../shellModes";
-import type {ViewportAnchor} from "../viewportOverlays";
+import {VIEWPORT_NODE, findNode, gridGroups, groupOf, type DockEdge, type GridTarget} from "../splitTree";
+import {offeredInMode} from "../shellModes";
 import {requestFloatFocus, restoreFocus} from "../zoneFocus";
 import {PANEL_ACTIONS_ATTR} from "../zoneKeys";
-import {CLASSIC_ZONE_DEFS} from "./classicRules";
+import {arrangementOf, placeOf, servedClassicShell, updateClassic, type Place} from "./classicShell";
+
+// The served shell and its documents (`./classicShell`) and the memory of open
+// panels (`./classicMemory`) are re-exported, so the classic frame and plugins
+// keep importing the classic preset from this one module.
+export * from "./classicShell";
+export * from "./classicMemory";
 
 /** On a group of the grid: its id. */
 export const GRID_GROUP_ATTR = "data-grid-group";
@@ -72,372 +51,9 @@ export const gridNodeOfZone = (zone: string): string | null => (zone.startsWith(
 /** Are customisable panels on in the served UI (`../customisable`: always in a composed shell, else the user's setting for it). */
 export const useCustomisablePanels = useServedCustomisablePanels;
 
-/** One arrangement of a composed shell: its starting grid, panels to open, dock groups. */
-export interface ClassicArrangement {
-  grid?: GridNode;
-  open?: readonly PanelId[];
-  docks?: Readonly<Record<string, string>>;
-  /** A panel drawn over the 3D view (the canvas stays mounted under it). */
-  cover?: PanelId;
-}
-
-/** Extra actions a composed shell gives each group of the grid. */
-export type GroupActionId = "collapse" | "pin" | "add";
-
-/** A composed shell as the classic frame serves it: its id, its arrangement, and per-mode overrides. */
-export interface ClassicShell extends ClassicArrangement {
-  id: string;
-  /** By mode id. A mode missing here (a plugin's) uses the shell's arrangement. */
-  modes?: Readonly<Record<string, ClassicArrangement>>;
-  /** Group chrome: extra header actions, and panel icons in the tabs. */
-  groups?: {actions?: readonly GroupActionId[]; tabIcons?: boolean};
-  /** HUDs over the view: core's legend and the `overlay`-dock plugin panels, by anchor. */
-  overlays?: {legend?: ViewportAnchor; pluginPanels?: ViewportAnchor};
-  /** The corner of the layout the progress toast sits in. */
-  toastAnchor?: "bottom-right" | "bottom-left" | "top-right" | "top-left";
-  /** The arrangements' version, and how a saved one of another version is brought up to date. */
-  version?: number;
-  /** Customisable panels: always on ("required", the default), or the user's setting for this shell. */
-  customisablePanels?: "required" | "optional";
-  /** UI freeze (`./uiFreeze`): `false` leaves it out, `"default-on"` starts frozen. Default offered, off. */
-  uiFreeze?: boolean | "default-on";
-  migrate?: (doc: LayoutDoc, from: number | undefined) => LayoutDoc | null;
-  /** One panel for every mode (`UiShellLayout.globalPanels`). */
-  globalPanels?: readonly PanelId[];
-}
-
-/** The group chrome the served shell asks for; none for core's own UI. */
-export function classicGroupChrome(): {actions: readonly GroupActionId[]; tabIcons: boolean} {
-  return {actions: shell?.groups?.actions ?? [], tabIcons: !!shell?.groups?.tabIcons};
-}
-
-/** Where the served shell puts HUDs over the view; none for core's own UI. */
-export function classicOverlays(): {legend?: ViewportAnchor; pluginPanels?: ViewportAnchor} | null {
-  return shell?.overlays ?? null;
-}
-
-/** The corner the served shell puts the progress toast in; null for the default. */
-export function classicToastAnchor(): ClassicShell["toastAnchor"] | null {
-  return shell?.toastAnchor ?? null;
-}
-
 /** A plugin panel the served shell shows over the view (it names the `overlay` dock). */
 export function isOverlayPanel(p: RegisteredPanel): boolean {
-  return !!shell?.overlays?.pluginPanels && p.owner !== CORE_PANEL_OWNER && dockOf(p) === "overlay";
-}
-
-/** The served shell's pinned panels. */
-export function pinnedPanels(): readonly PanelId[] {
-  return shell ? (layoutStore.getState().prefs.pinned?.[shell.id] ?? []) : [];
-}
-
-/** The served shell's pinned panels, re-rendering on change. */
-export function usePinnedPanels(): readonly PanelId[] {
-  const id = shell?.id;
-  return useStore(layoutStore, (s) => (id ? s.prefs.pinned?.[id] : undefined)) ?? NONE;
-}
-const NONE: readonly PanelId[] = [];
-
-export function togglePin(id: PanelId): void {
-  if (shell) layoutStore.getState().setPinned(shell.id, id, !pinnedPanels().includes(id));
-}
-
-/** The composed shell served; null for core's own UI. Set before the frame renders, again by an in-place shell switch. */
-let shell: ClassicShell | null = null;
-
-/** The id of the composed shell served; null for core's own UI. */
-export function classicShellId(): string | null {
-  return shell?.id ?? null;
-}
-
-/**
- * Serve a composed shell: a document of its own per mode (context `<shell>` or
- * `<shell>/<mode>`), each starting from its arrangement's grid until the user
- * rearranges. `modeIds` are every mode the shell will switch to, plugins'
- * included. `null` serves core's own UI again.
- */
-export function setClassicShell(next: ClassicShell | null, modeIds: readonly string[] = []): void {
-  shell = next;
-  shellContexts = ["default"];
-  setCustomisableShell(next?.id ?? null, next?.customisablePanels !== "optional");
-  setUiFreezeShell(next?.id ?? null, next?.uiFreeze);
-  if (!next) return;
-  const contexts = modeIds.length ? modeIds.map((m) => [contextOf(next.id, m), m] as const) : [[next.id, null] as const];
-  shellContexts = contexts.map(([ctx]) => ctx);
-  for (const [ctx, mode] of contexts) {
-    const grid = arrangementOf(mode).grid;
-    const version = next.version !== undefined ? {shellVersion: next.version} : {};
-    layoutStore
-      .getState()
-      .setStartingDoc(CLASSIC_PRESET_ID, ctx, grid || next.version !== undefined ? () => ({...emptyLayoutDoc(CLASSIC_PRESET_ID, CLASSIC_ZONE_DEFS, ctx), ...(grid ? {grid} : {}), ...version}) : null);
-  }
-}
-
-const contextOf = (shellId: string, mode: string | null) => (mode ? `${shellId}/${mode}` : shellId);
-
-/** Every document context of the served UI: one per mode of a composed shell, else core's one. */
-let shellContexts: string[] = ["default"];
-const owner = () => shell?.id ?? CORE_PANEL_OWNER;
-const docKey = (ctx: string) => layoutDocKey(CLASSIC_PRESET_ID, ctx);
-
-/**
- * Back to the starting arrangement (the shell's grid for the mode): of the
- * active mode, or with `all`, of every mode. Panels stay open; where they show
- * starts over, and the active mode's starting panels open again (one closed since
- * was remembered as closed with the arrangement just dropped). Another mode opens
- * its starting list when it is next entered, its arrangement being new.
- */
-export function resetArrangement(all = false): void {
-  for (const ctx of all ? shellContexts : [classicContext()]) layoutStore.getState().removeDoc(CLASSIC_PRESET_ID, ctx);
-  for (const id of arrangementOf().open ?? []) reveal(id);
-}
-
-/**
- * Bring the saved arrangements up to the shell's `version`: one made under
- * another goes through the shell's `migrate`, or starts over without it. Call
- * once the saved prefs are loaded.
- */
-export function upgradeShellDocs(): void {
-  const version = shell?.version;
-  if (!shell || version === undefined) return;
-  const store = layoutStore.getState();
-  const docs: Record<string, LayoutDoc> = {};
-  for (const ctx of shellContexts) {
-    const raw = store.prefs.docs[docKey(ctx)];
-    if (!raw || raw.shellVersion === version) continue;
-    let next: LayoutDoc | null = null;
-    try {
-      next = shell.migrate ? shell.migrate(migrateLayoutDoc(raw, CLASSIC_PRESET_ID, CLASSIC_ZONE_DEFS, ctx), raw.shellVersion) : null;
-    } catch (err) {
-      console.warn(`[layout] the shell's migrate threw for "${ctx}"; starting it over`, err);
-    }
-    if (next) docs[docKey(ctx)] = {...migrateLayoutDoc(next, CLASSIC_PRESET_ID, CLASSIC_ZONE_DEFS, ctx), shellVersion: version};
-    else store.removeDoc(CLASSIC_PRESET_ID, ctx);
-  }
-  if (Object.keys(docs).length) store.putDocs(docs);
-}
-
-/** Save every mode's arrangement under `name` (replacing one of that name). */
-export function saveWorkspace(name: string): void {
-  const docs = layoutStore.getState().prefs.docs;
-  const saved: Record<string, LayoutDoc> = {};
-  for (const ctx of shellContexts) {
-    const d = docs[docKey(ctx)];
-    if (d) saved[docKey(ctx)] = d;
-  }
-  layoutStore.getState().setWorkspace(owner(), name.trim(), saved);
-}
-
-/** Put a saved workspace's arrangements in place. False when there is none of that name. */
-export function loadWorkspace(name: string): boolean {
-  const ws = layoutStore.getState().prefs.workspaces?.[owner()]?.[name];
-  if (!ws) return false;
-  const docs: Record<string, LayoutDoc> = {};
-  for (const ctx of shellContexts) {
-    const d = ws[docKey(ctx)];
-    if (d) docs[docKey(ctx)] = migrateLayoutDoc(d, CLASSIC_PRESET_ID, CLASSIC_ZONE_DEFS, ctx);
-  }
-  layoutStore.getState().putDocs(docs);
-  return true;
-}
-
-export function deleteWorkspace(name: string): void {
-  layoutStore.getState().setWorkspace(owner(), name, null);
-}
-
-export function listWorkspaces(): string[] {
-  return Object.keys(layoutStore.getState().prefs.workspaces?.[owner()] ?? {}).sort((a, b) => a.localeCompare(b));
-}
-
-/** The arrangement of `mode` (the active one by default): the mode's own over the shell's. */
-function arrangementOf(mode: string | null = activeShellMode()): ClassicArrangement {
-  if (!shell) return {};
-  const own = (mode && shell.modes?.[mode]) || {};
-  return {grid: own.grid ?? shell.grid, open: own.open ?? shell.open, docks: own.docks ?? shell.docks, cover: own.cover};
-}
-
-/** The panel the active mode draws over the 3D view, if any. */
-export function classicCover(): PanelId | null {
-  return arrangementOf().cover ?? null;
-}
-
-/** The document context the classic frame reads and writes: `"default"` for core's own UI. */
-export function classicContext(): string {
-  return shell ? contextOf(shell.id, activeShellMode()) : "default";
-}
-
-/** The context, re-rendering when the shell's mode changes. */
-export function useClassicContext(): string {
-  useSyncExternalStore(subscribeShellModes, shellModesVersion, shellModesVersion);
-  return classicContext();
-}
-
-/** The served shell's global panels (`ClassicShell.globalPanels`). */
-function globalPanelIds(): Set<PanelId> {
-  return new Set(shell?.globalPanels ?? []);
-}
-
-/**
- * Whether `id` is a global panel of the served shell: one panel for every mode, whose
- * open state is the user's and is remembered for every mode and the next visit. Only
- * the user opens or closes one - a side effect that closes it (the storage overview
- * "getting out of the way" of a model opened from it) would be remembered as their close.
- */
-export function isGlobalPanel(id: PanelId): boolean {
-  return !!shell?.globalPanels?.includes(id);
-}
-
-/** Every panel a document places: in its grid, or in a window. */
-function placedPanels(doc: LayoutDoc): PanelId[] {
-  return [...new Set([...gridPanels(gridOf(doc)), ...Object.keys(doc.floats)])];
-}
-
-/** What the mode entered opens: what was open when it was last left, else its starting list. */
-function openingPanels(): readonly PanelId[] {
-  return (shell ? classicDoc().open : undefined) ?? arrangementOf().open ?? [];
-}
-
-/**
- * Open the mode's panels: on every load, and on entering a mode. A mode recorded
- * as it was left (`LayoutDoc.open`) opens what was open then and closes the rest it
- * places; one never recorded opens its starting list. A global panel is left as it
- * is, at its global state (`applyGlobalPanels`). Whether a panel is open is its own
- * flag, which a reload resets, while where it shows and what was open are the saved
- * document. Call after the layout's panel controller is installed.
- */
-export function openStartingPanels(
-  reveal: (id: PanelId) => boolean,
-  hide?: (id: PanelId) => boolean,
-  isOpen?: (id: PanelId) => boolean,
-): void {
-  const global = globalPanelIds();
-  const remembered = shell ? classicDoc().open : undefined;
-  if (remembered && hide && isOpen) {
-    const want = new Set(remembered);
-    for (const id of placedPanels(classicDoc())) {
-      if (!global.has(id) && !want.has(id) && isOpen(id)) hide(id);
-    }
-    for (const id of remembered) if (!global.has(id)) reveal(id);
-  } else {
-    const known = shell ? layoutStore.getState().prefs.globalPanels?.[shell.id] : undefined;
-    for (const id of arrangementOf().open ?? []) if (!global.has(id) || !known) reveal(id);
-  }
-  if (hide) applyGlobalPanels(reveal, hide);
-}
-
-/**
- * Put the global panels in the state recorded for every mode: open or closed, and
- * the docked group each is in at the recorded size. Nothing recorded yet: left as
- * the mode's starting list made them.
- */
-export function applyGlobalPanels(reveal: (id: PanelId) => boolean, hide: (id: PanelId) => boolean): void {
-  if (!shell) return;
-  const state = layoutStore.getState().prefs.globalPanels?.[shell.id];
-  if (!state) return;
-  const open = new Set(state.open);
-  for (const id of globalPanelIds()) {
-    if (open.has(id)) reveal(id);
-    else hide(id);
-    const px = state.px[id];
-    const group = groupOf(gridOf(classicDoc()), id);
-    if (typeof px === "number" && group?.fixed && group.fixed.px !== px) {
-      updateClassic((d) => updateGrid(d, (g) => setFixedPx(g, group.id, px)));
-    }
-  }
-}
-
-const sameList = (a: readonly string[] | undefined, b: readonly string[]) =>
-  !!a && a.length === b.length && a.every((x, i) => x === b[i]);
-
-/**
- * Record the mode as it is now: which of the panels it places are open (into its
- * document, `LayoutDoc.open`), and the global panels' state (open, and their docked
- * size) for every mode. Run on any change to a panel's open state or the document;
- * writes only what changed.
- *
- * `openedFor`: the context (`classicContext()`) the caller opened the panels of. A
- * recorder subscribed for one context can still run after the served context changed
- * and before the frame has opened the new one (an in-place shell switch installs the
- * next shell first; a mode switch sets the mode first): the panels are then still the
- * old context's, and writing them would record the new one - and its global panels, for
- * every mode - as that state, so a global panel the user left open came back closed.
- * Such a call writes nothing.
- */
-export function recordOpenPanels(isOpen: (id: PanelId) => boolean, openedFor?: string): void {
-  if (!shell) return;
-  if (openedFor !== undefined && openedFor !== classicContext()) return;
-  const global = globalPanelIds();
-  const doc = classicDoc();
-  const open = placedPanels(doc).filter((id) => !global.has(id) && isOpen(id)).sort();
-  if (!sameList(doc.open, open)) updateClassic((d) => ({...d, open}));
-  if (!global.size) return;
-  const before = layoutStore.getState().prefs.globalPanels?.[shell.id];
-  const px: Record<PanelId, number> = {...(before?.px ?? {})};
-  for (const id of global) {
-    const fixed = groupOf(gridOf(doc), id)?.fixed;
-    if (fixed && typeof fixed.px === "number") px[id] = fixed.px;
-  }
-  const gOpen = [...global].filter((id) => isOpen(id)).sort();
-  const samePx =
-    !!before && Object.keys(px).length === Object.keys(before.px).length && Object.entries(px).every(([k, v]) => before.px[k] === v);
-  if (!before || !sameList(before.open, gOpen) || !samePx) layoutStore.getState().setGlobalPanels(shell.id, {open: gOpen, px});
-}
-
-/**
- * Leaving a whole UI shell (an in-place switch, e.g. Classic <-> Desktop): every open panel closes,
- * pinned ones too, except the starting panels of the shell (and mode) switched to, which it opens
- * anyway (`openStartingPanels`, after this). So the shell switched to starts as a fresh page of it
- * would. Without it a panel open in one shell stayed open in the other: the classic Options card
- * floating over the Desktop UI, the Desktop UI's tree and properties left open in the classic one.
- * Call after the switch, so the arrangement is the new shell's.
- */
-export function leaveShell(hide: (id: PanelId) => boolean, isOpen: (id: PanelId) => boolean): void {
-  const opening = new Set(arrangementOf().open ?? []);
-  for (const {id} of listPanels()) {
-    if (!opening.has(id) && isOpen(id)) hide(id);
-  }
-}
-
-/**
- * Leaving a mode: the panels its arrangement placed (in the grid or a window)
- * go with it, unless the mode entered places or opens them too. A panel open in
- * its home stays open. Call with the context left, after the switch.
- */
-export function leaveContext(left: string, hide: (id: PanelId) => boolean, isOpen: (id: PanelId) => boolean): void {
-  const before = layoutStore.getState().doc(CLASSIC_PRESET_ID, CLASSIC_ZONE_DEFS, left);
-  const now = classicDoc();
-  const opening = new Set(openingPanels());
-  const pinned = new Set(pinnedPanels());
-  const global = globalPanelIds();
-  const placedBefore = [...gridPanels(gridOf(before)), ...Object.keys(before.floats)];
-  for (const id of placedBefore) {
-    // A global panel is one panel for every mode: the mode changing does not close it.
-    if (global.has(id)) continue;
-    if (placeOf(now, id) !== "home") continue;
-    if (pinned.has(id)) {
-      carryPinned(before, id);
-      continue;
-    }
-    if (opening.has(id) || !isOpen(id)) continue;
-    hide(id);
-  }
-}
-
-/**
- * A pinned panel the mode entered does not place: placed as it was, in a window
- * at the same rect, or in the group of the same id, else at the view's right edge.
- */
-function carryPinned(before: LayoutDoc, id: PanelId): void {
-  const f = before.floats[id];
-  if (f) {
-    updateClassic((d) => floatPanel(d, id, {x: f.x, y: f.y, w: f.w, h: f.h}));
-    return;
-  }
-  const from = groupOf(gridOf(before), id);
-  updateClassic((d) => {
-    const into = from && findNode(gridOf(d), from.id);
-    return dockInGridDoc(d, id, into && into.kind === "group" ? {node: from!.id, edge: "center"} : {node: VIEWPORT_NODE, edge: "right"});
-  });
+  return !!servedClassicShell()?.overlays?.pluginPanels && p.owner !== CORE_PANEL_OWNER && dockOf(p) === "overlay";
 }
 
 /** Where a dock id goes in the grid when the shell maps it to no group that exists: that edge of the view. */
@@ -453,7 +69,7 @@ const DOCK_EDGE: Readonly<Record<string, DockEdge>> = {left: "left", bottom: "bo
  */
 export function adoptDockedPanels(): void {
   // A dock in the grid is a composed shell's to map; a window is any layout's.
-  const docks = shell ? (arrangementOf().docks ?? {}) : null;
+  const docks = servedClassicShell() ? (arrangementOf().docks ?? {}) : null;
   // Per mode: a panel offered only in other modes is adopted when one of those is entered.
   // An unavailable one (a dormant or disabled plugin's) is placed when it becomes available.
   const candidates = listPanels().filter((p) => {
@@ -501,33 +117,6 @@ export function placedElsewhere(doc: LayoutDoc, customisable: boolean, narrow: b
     .map((p) => p.id);
 }
 
-/** Core's top bar of toggles; a composed shell with a menu bar of its own may leave it out. */
-let toolbarShown = true;
-
-export function setClassicToolbar(on: boolean): void {
-  toolbarShown = on;
-}
-
-export function classicToolbarShown(): boolean {
-  return toolbarShown;
-}
-
-/** The user's classic document (of the active mode), re-rendering when it or the mode changes. */
-export function useClassicDoc(): LayoutDoc {
-  const ctx = useClassicContext();
-  const raw = useStore(layoutStore, (s) => s.prefs.docs[layoutDocKey(CLASSIC_PRESET_ID, ctx)]);
-  // Read through the store, so an unsaved document starts from the shell's grid.
-  return useMemo(() => (raw ? migrateLayoutDoc(raw, CLASSIC_PRESET_ID, CLASSIC_ZONE_DEFS, ctx) : classicDoc()), [raw, ctx]);
-}
-
-export function classicDoc(): LayoutDoc {
-  return layoutStore.getState().doc(CLASSIC_PRESET_ID, CLASSIC_ZONE_DEFS, classicContext());
-}
-
-export function updateClassic(fn: (doc: LayoutDoc) => LayoutDoc): void {
-  layoutStore.getState().update(CLASSIC_PRESET_ID, CLASSIC_ZONE_DEFS, fn, classicContext());
-}
-
 // ---------------------------------------------------------------------------
 // Places.
 // ---------------------------------------------------------------------------
@@ -569,7 +158,7 @@ export function canDock(panel: RegisteredPanel): boolean {
  * shell may dock it, and where its grid places it, it is shown (and it leaves its host).
  */
 export function isHostedSection(panel: Pick<RegisteredPanel, "placement">): boolean {
-  return !!shell && !!panel.placement?.[CLASSIC_PRESET_ID]?.parent;
+  return !!servedClassicShell() && !!panel.placement?.[CLASSIC_PRESET_ID]?.parent;
 }
 
 /**
@@ -580,14 +169,6 @@ export function isHostedSection(panel: Pick<RegisteredPanel, "placement">): bool
 export function canFloat(panel: RegisteredPanel): boolean {
   const home = homeOf(panel);
   return panel.capabilities.floatable && !!panel.content && (home === "column" || home === "tree" || (home === null && dockOf(panel) !== null));
-}
-
-export type Place = "home" | "float" | "grid";
-
-export function placeOf(doc: LayoutDoc, id: PanelId): Place {
-  if (isInGrid(doc, id)) return "grid";
-  if (doc.floats[id]) return "float";
-  return "home";
 }
 
 /**

@@ -3,12 +3,10 @@
 (``GET``/``POST /api/scopes/{scope}/my-jobs...``).
 
 :func:`enqueue_plugin_job` is the ONE enqueue path shared with the plugin-job
-scheduler's tick (``admin.post("/plugin-jobs/schedules/{schedule_id}/run")``,
-still inside ``create_app`` — the admin routes have not been extracted yet).
-That is why it lives here as a plain function taking :class:`~.deps.RestContext`
-explicitly rather than as a route-local closure: ``create_app`` keeps calling
-it as ``_enqueue_plugin_job``, bound to its own ``RestContext``, until the
-scheduler routes move too.
+schedules (``routes/admin_plugin_jobs.py``'s run-now route and the scheduler
+tick in ``background_tasks.py``). That is why it lives here as a plain function
+taking :class:`~.deps.RestContext` explicitly rather than reading it off a
+request.
 
 Extracted from ``create_app``; see ``routes/__init__`` for the pattern.
 """

@@ -8,6 +8,7 @@ closure (the queue) is an explicit parameter instead.
 from __future__ import annotations
 
 import asyncio
+import copy
 import json
 import pathlib
 import time
@@ -22,7 +23,7 @@ from .. import db as db_module
 from .. import failure_capture, pending_uploads
 from ..auth import User
 from ..config import Settings
-from ..converter import is_supported_source
+from ..converter import is_supported_source, merge_option_into
 from ..job_transport import JobTransport, local_advertisement
 from ..qualification import CAPABILITY_REQUIREMENTS_KEY
 from ..queue import JobQueue
@@ -628,8 +629,8 @@ async def worker_advertised_exts(queue: JobQueue, worker_registry: dict) -> list
     entry — ready to feed into the existing extension-check call
     sites without further normalisation.
 
-    ``worker_registry`` is the app's cached snapshot (``create_app``'s
-    ``_worker_registry``, refreshed off the request path) — a plain
+    ``worker_registry`` is the app's cached snapshot
+    (``RestContext.worker_registry``, refreshed off the request path) — a plain
     dict rather than a queue method, since reading it must not wait
     on NATS.
     """
@@ -652,6 +653,126 @@ async def worker_advertised_exts(queue: JobQueue, worker_registry: dict) -> list
                 ext = f".{ext}"
             out.add(ext)
     return sorted(out)
+
+
+async def refresh_worker_registry(queue: JobQueue, worker_registry: dict) -> None:
+    """Snapshot the worker registry + worker image tag into
+    ``worker_registry`` (the app's cached snapshot). Defensive: a failed NATS call is logged and
+    leaves the previous snapshot in place rather than blanking it."""
+    if not queue.enabled:
+        return
+    try:
+        workers = await queue.list_workers()
+    except Exception:
+        logger.exception("worker registry refresh: list_workers failed")
+        return
+    image_tag = worker_registry.get("image_tag")
+    try:
+        image_tag = await queue.get_meta("worker_image_tag")
+    except Exception:
+        logger.exception("worker registry refresh: get_meta failed")
+    worker_registry["workers"] = workers
+    worker_registry["image_tag"] = image_tag
+    worker_registry["ts"] = time.time()
+
+
+async def worker_advertised_conversions(queue: JobQueue, worker_registry: dict) -> list[dict]:
+    """Merged conversion matrix across every currently-registered
+    worker.
+
+    Each worker publishes its own ``conversions: [{from, to:
+    [...]}, ...]`` matrix on its NATS KV record (see
+    ``worker.py``). This helper unions the per-worker
+    per-source target lists into a single matrix so the SPA can
+    render the /convert page's target dropdown without caring
+    which worker pool will end up picking up the job.
+
+    Returns a sorted list of ``{"from": ".step", "to": ["glb",
+    "ifc", ...]}`` entries — same shape ConverterRegistry.matrix()
+    produces, just aggregated across workers. Empty list when no
+    worker has registered yet. Without a queue, what THIS process
+    converts: its job processes are the worker (job_transport).
+    """
+    if not queue.enabled:
+        return local_advertisement()["conversions"]
+    workers = worker_registry["workers"]
+    merged: dict[str, set[str]] = {}
+    # from → target → option-name → option-dict. Per-job knob schemas are unioned across workers
+    # by merge_option_into: enum VALUES, each enum_by list, and the per-value label/runtime maps
+    # all union, so an engine only one pool can run still appears — fully described — in the list.
+    # (Pair with capability routing so the job lands on a pool that actually advertises that
+    # engine — see queue source-ext routing.)
+    merged_opts: dict[str, dict[str, dict[str, dict]]] = {}
+    now = time.time()
+    for w in workers:
+        # Only LIVE pools define the capability matrix — a dead/stale registration (a pod that
+        # crashed or scaled down before unregistering) must not keep advertising engines it no
+        # longer runs. Mirrors the routing staleness window; prune_stale_workers GCs them for good.
+        hb = w.get("last_heartbeat")
+        if not (isinstance(hb, (int, float)) and (now - hb) <= JobQueue.WORKER_STALE_AFTER_S):
+            continue
+        for entry in w.get("conversions") or []:
+            if not isinstance(entry, dict):
+                continue
+            frm = (entry.get("from") or "").strip().lower()
+            if not frm:
+                continue
+            if not frm.startswith("."):
+                frm = f".{frm}"
+            tos = entry.get("to")
+            if not isinstance(tos, list):
+                continue
+            opts_by_target = entry.get("options") or {}
+            bucket = merged.setdefault(frm, set())
+            for t in tos:
+                if not (isinstance(t, str) and t.strip()):
+                    continue
+                target = t.strip().lstrip(".").lower()
+                bucket.add(target)
+                for opt in opts_by_target.get(t) or opts_by_target.get(target) or []:
+                    if not isinstance(opt, dict) or not opt.get("name"):
+                        continue
+                    slot = merged_opts.setdefault(frm, {}).setdefault(target, {})
+                    cur = slot.get(opt["name"])
+                    if cur is None:
+                        slot[opt["name"]] = copy.deepcopy(opt)
+                    else:
+                        merge_option_into(cur, opt)
+    return [
+        {
+            "from": frm,
+            "to": sorted(merged[frm]),
+            "options": {tgt: list(by_name.values()) for tgt, by_name in merged_opts.get(frm, {}).items()},
+        }
+        for frm in sorted(merged)
+    ]
+
+
+async def worker_advertised_utilities(queue: JobQueue, worker_registry: dict) -> list[dict]:
+    """Merged utility specs across every currently-registered worker.
+
+    Each worker publishes ``utilities: [{name, description, kwargs, inputs,
+    affects, returns}, ...]`` on its NATS KV record (see worker.py). We dedupe
+    by name (first writer wins) so the SPA's Utilities panel lists each once,
+    regardless of how many worker pods advertise it. Empty when no worker
+    has registered yet; without a queue, the utilities this process registered.
+    """
+    if not queue.enabled:
+        return local_advertisement()["utilities"]
+    workers = worker_registry["workers"]
+    by_name: dict[str, dict] = {}
+    for w in workers:
+        for spec in w.get("utilities") or []:
+            if isinstance(spec, dict) and isinstance(spec.get("name"), str):
+                by_name.setdefault(spec["name"], spec)
+    return [by_name[n] for n in sorted(by_name)]
+
+
+def convert_enabled(queue: JobQueue, jobs: JobTransport, conversion_matrix: list[dict]) -> bool:
+    """Whether this server converts files. Behind a queue, the workers do. Without one, this
+    process does -- when it has anything to convert with (a slim API image has no converters,
+    and offering conversions it would 501 on is worse than not offering them)."""
+    return jobs.supports("conversion") and (queue.enabled or bool(conversion_matrix))
 
 
 async def publish_capability_requirements(queue: JobQueue, value: str | None) -> None:
@@ -694,7 +815,7 @@ async def is_accepted_source(queue: JobQueue, worker_registry: dict, key: str) -
 
 # Human-readable label for a source's detected format, keyed on extension —
 # shared by the user-facing files listing (routes/storage.py) and the admin
-# storage view (still in create_app's closure).
+# storage view (routes/admin_storage.py).
 SOURCE_FORMAT_NAMES: dict[str, str] = {
     ".ifc": "IFC",
     ".step": "STEP",

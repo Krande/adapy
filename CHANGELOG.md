@@ -2,6 +2,19 @@
 
 
 
+## v0.160.0 (2026-11-18)
+
+### Chore
+
+* chore(refactor): split the largest backend and viewer files into modules (#563) ([`b79ac0c`](https://github.com/Krande/adapy/commit/b79ac0c4edacb8f5aaaac993338e3e479f4ac014))
+
+### Feature
+
+* feat(viewer): a plugin asks where two objects of the loaded models touch (plugin API 1.27.0) (#564)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`7a2cc7a`](https://github.com/Krande/adapy/commit/7a2cc7a0614342ad53da42ec8de814cd20521d57))
+
+
 ## v0.159.0 (2026-11-17)
 
 ### Feature
