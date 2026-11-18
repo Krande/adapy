@@ -71,25 +71,7 @@ def _put(client: TestClient, key: str, data: bytes) -> None:
 
     from ada.comms.rest.scope import Scope
 
-    storage = client.app.state.__dict__.get("_test_storage")
-    if storage is None:
-        # Pull the storage instance the API was built with.
-        for route in client.app.routes:
-            ep = getattr(route, "endpoint", None)
-            if ep is None:
-                continue
-            cell = getattr(ep, "__closure__", None)
-            if not cell:
-                continue
-            for c in cell:
-                v = c.cell_contents
-                if v.__class__.__name__ == "Storage":
-                    storage = v
-                    break
-            if storage is not None:
-                break
-        client.app.state._test_storage = storage
-
+    storage = client.app.state.rest.storage
     asyncio.run(storage.put_bytes(Scope.shared(), key, data))
 
 

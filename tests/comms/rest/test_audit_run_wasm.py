@@ -74,13 +74,8 @@ def _run(coro):
 
 
 def _storage(client: TestClient):
-    for route in client.app.routes:
-        ep = getattr(route, "endpoint", None)
-        for c in getattr(ep, "__closure__", None) or ():
-            v = c.cell_contents
-            if v.__class__.__name__ == "Storage":
-                return v
-    raise RuntimeError("storage not found on app")
+    """The Storage the app was built with (its per-app services, ``app.state.rest``)."""
+    return client.app.state.rest.storage
 
 
 @needs_postgres

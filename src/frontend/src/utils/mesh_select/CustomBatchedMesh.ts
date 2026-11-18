@@ -7,6 +7,10 @@ import {clipWithModel} from "@/utils/scene/section_clipping";
 import {coalescedGroups} from "./groupRuns";
 import {useVisibilityStore} from "@/state/visibilityStore";
 import {followMorph, refreshMorphTexture} from "@/utils/scene/fea/gpuRefresh";
+import {applyMorphTargets} from "./customBatchedMesh/morph";
+import {prepareOverlayMaterial, sharedOverlayGeometry} from "./customBatchedMesh/selectionOverlay";
+import {raycastBatchedMesh} from "./customBatchedMesh/raycast";
+import {fillVertexColors, paintIndexedRange, rangeRgb} from "./customBatchedMesh/vertexPaint";
 
 
 export class CustomBatchedMesh extends THREE.Mesh {
@@ -93,19 +97,6 @@ export class CustomBatchedMesh extends THREE.Mesh {
     // two never fight over materials/groups.
     private _faceOverlay?: THREE.Mesh;
     private _overlaySourceIndices?: Uint32Array; // mapping: overlay vertex i -> base vertex index
-
-    // Class properties for raycasting
-    private _raycast_inverseMatrix = new THREE.Matrix4();
-    private _raycast_ray = new THREE.Ray();
-    private _raycast_sphere = new THREE.Sphere();
-    private _raycast_vA = new THREE.Vector3();
-    private _raycast_vB = new THREE.Vector3();
-    private _raycast_vC = new THREE.Vector3();
-    private _raycast_uvA = new THREE.Vector2();
-    private _raycast_uvB = new THREE.Vector2();
-    private _raycast_uvC = new THREE.Vector2();
-    private _raycast_intersectionPoint = new THREE.Vector3();
-    private _raycast_barycoord = new THREE.Vector3();
 
     constructor(
         geometry: THREE.BufferGeometry,
@@ -571,11 +562,7 @@ export class CustomBatchedMesh extends THREE.Mesh {
         const own = (this._ownColor = mat0.color ? mat0.color.clone() : new THREE.Color(1, 1, 1));
         const pos = this.geometry.getAttribute('position');
         const arr = new Float32Array(pos.count * 3);
-        for (let i = 0; i < arr.length; i += 3) {
-            arr[i] = own.r;
-            arr[i + 1] = own.g;
-            arr[i + 2] = own.b;
-        }
+        fillVertexColors(arr, own);
         this.geometry.setAttribute('color', new THREE.BufferAttribute(arr, 3));
         mat0.color?.setRGB(1, 1, 1);
         mat0.vertexColors = true;
@@ -583,25 +570,9 @@ export class CustomBatchedMesh extends THREE.Mesh {
         return arr;
     }
 
-    private static readonly _linear = new Float32Array(256).map((_, i) => {
-        const c = i / 255;
-        return c < 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
-    });
-
     /** One range's vertices in `value` (0: the mesh's own colour). */
     private paintSegment(arr: Float32Array, start: number, count: number, value: number): void {
-        const own = this._ownColor!;
-        const lin = CustomBatchedMesh._linear;
-        const r = value ? lin[(value >> 16) & 255] : own.r;
-        const g = value ? lin[(value >> 8) & 255] : own.g;
-        const b = value ? lin[value & 255] : own.b;
-        const index = this.geometry.index!.array;
-        for (let j = start, end = start + count; j < end; j++) {
-            const v = index[j] * 3;
-            arr[v] = r;
-            arr[v + 1] = g;
-            arr[v + 2] = b;
-        }
+        paintIndexedRange(arr, this.geometry.index!.array, start, count, rangeRgb(value, this._ownColor!));
     }
 
     /** After a paint: upload what changed, and enter or leave the per-vertex look. */
@@ -641,12 +612,7 @@ export class CustomBatchedMesh extends THREE.Mesh {
         const colors = this._userColors;
         if (!attr || !colors || !this._ownColor) return;
         const arr = attr.array as Float32Array;
-        const own = this._ownColor;
-        for (let i = 0; i < arr.length; i += 3) {
-            arr[i] = own.r;
-            arr[i + 1] = own.g;
-            arr[i + 2] = own.b;
-        }
+        fillVertexColors(arr, this._ownColor);
         const segs = this.getSortedSegments();
         for (let i = 0; i < colors.length; i++) {
             if (colors[i]) this.paintSegment(arr, segs.starts[i], segs.counts[i], colors[i]);
@@ -839,22 +805,7 @@ export class CustomBatchedMesh extends THREE.Mesh {
             overlayMat = (this._selectionOverlay as THREE.Mesh).material as THREE.Material;
             // Ensure overlay is referencing base attributes; if not, rebuild references
             if (!overlayGeom.getAttribute('position') || overlayGeom.getAttribute('position') !== srcGeom.getAttribute('position')) {
-                overlayGeom = new THREE.BufferGeometry();
-                // Reference base attributes/index (do NOT clone to avoid extra memory and to leverage GPU morphs)
-                srcGeom.index && overlayGeom.setIndex(srcGeom.index);
-                for (const name of Object.keys(srcGeom.attributes)) {
-                    overlayGeom.setAttribute(name, srcGeom.getAttribute(name));
-                }
-                // Morph attributes
-                overlayGeom.morphAttributes = {} as any;
-                if (srcGeom.morphAttributes) {
-                    for (const mName of Object.keys(srcGeom.morphAttributes)) {
-                        // @ts-ignore
-                        overlayGeom.morphAttributes[mName] = (srcGeom.morphAttributes as any)[mName];
-                    }
-                }
-                overlayGeom.morphTargetsRelative = srcGeom.morphTargetsRelative === true;
-                followMorph(srcGeom, overlayGeom);
+                overlayGeom = sharedOverlayGeometry(srcGeom);
                 (this._selectionOverlay as THREE.Mesh).geometry = overlayGeom;
             } else if (overlayGeom.morphAttributes.position !== srcGeom.morphAttributes.position) {
                 // The mesh got a new morph without a refreshMorphTexture (which would
@@ -864,33 +815,12 @@ export class CustomBatchedMesh extends THREE.Mesh {
                 refreshMorphTexture(overlayGeom);
             }
             // Ensure material is configured for GPU morphing and polygon offset
-            (overlayMat as any).morphTargets = true;
-            overlayMat.side = THREE.DoubleSide;
-            (overlayMat as any).polygonOffset = true;
-            (overlayMat as any).polygonOffsetFactor = -1;
-            (overlayMat as any).polygonOffsetUnits = -1;
+            prepareOverlayMaterial(overlayMat);
         } else {
-            overlayGeom = new THREE.BufferGeometry();
-            srcGeom.index && overlayGeom.setIndex(srcGeom.index);
-            for (const name of Object.keys(srcGeom.attributes)) {
-                overlayGeom.setAttribute(name, srcGeom.getAttribute(name));
-            }
-            overlayGeom.morphAttributes = {} as any;
-            if (srcGeom.morphAttributes) {
-                for (const mName of Object.keys(srcGeom.morphAttributes)) {
-                    // @ts-ignore
-                    overlayGeom.morphAttributes[mName] = (srcGeom.morphAttributes as any)[mName];
-                }
-            }
-            overlayGeom.morphTargetsRelative = srcGeom.morphTargetsRelative === true;
-            followMorph(srcGeom, overlayGeom);
+            overlayGeom = sharedOverlayGeometry(srcGeom);
 
             overlayMat = selectedMaterial.clone();
-            (overlayMat as any).morphTargets = true; // let GPU handle morphs
-            overlayMat.side = THREE.DoubleSide;
-            (overlayMat as any).polygonOffset = true;
-            (overlayMat as any).polygonOffsetFactor = -1;
-            (overlayMat as any).polygonOffsetUnits = -1;
+            prepareOverlayMaterial(overlayMat);
 
             this._selectionOverlay = new THREE.Mesh(overlayGeom, overlayMat);
             this._selectionOverlay.matrixAutoUpdate = true;
@@ -966,7 +896,7 @@ export class CustomBatchedMesh extends THREE.Mesh {
         if (!posAttr) return;
         const morphPositions = (baseGeom.morphAttributes && baseGeom.morphAttributes.position) as THREE.BufferAttribute[] | undefined;
         const morphTargetsRelative = baseGeom.morphTargetsRelative === true;
-        const influences: number[] | undefined = (this as any).morphTargetInfluences;
+        const influences: number[] | undefined = this.morphTargetInfluences;
         const overlayGeom = this._selectionOverlay.geometry as THREE.BufferGeometry;
         const oPosAttr = overlayGeom.getAttribute('position') as THREE.BufferAttribute | undefined;
         if (!oPosAttr) return;
@@ -977,27 +907,7 @@ export class CustomBatchedMesh extends THREE.Mesh {
         for (let i = 0, ov = 0; i < srcIdx.length; i++, ov += 3) {
             const vi = srcIdx[i];
             tmp.set(posAttr.getX(vi), posAttr.getY(vi), posAttr.getZ(vi));
-            if (morphPositions && influences) {
-                let sumInf = 0;
-                for (let m = 0; m < morphPositions.length; m++) {
-                    const inf = influences[m] || 0;
-                    if (inf === 0) continue;
-                    sumInf += inf;
-                    const mp = morphPositions[m];
-                    const mx = mp.getX(vi);
-                    const my = mp.getY(vi);
-                    const mz = mp.getZ(vi);
-                    if (morphTargetsRelative) {
-                        tmp.x += mx * inf;
-                        tmp.y += my * inf;
-                        tmp.z += mz * inf;
-                    } else {
-                        tmp.x = tmp.x * (1 - sumInf) + mx * inf;
-                        tmp.y = tmp.y * (1 - sumInf) + my * inf;
-                        tmp.z = tmp.z * (1 - sumInf) + mz * inf;
-                    }
-                }
-            }
+            applyMorphTargets(tmp, vi, morphPositions, influences, morphTargetsRelative);
             arr[ov] = tmp.x; arr[ov + 1] = tmp.y; arr[ov + 2] = tmp.z;
         }
         oPosAttr.needsUpdate = true;
@@ -1135,273 +1045,9 @@ export class CustomBatchedMesh extends THREE.Mesh {
     }
 
     /**
-     * Overrides the raycast method to ignore hidden draw ranges.
+     * Overrides the raycast method to ignore hidden draw ranges (`./customBatchedMesh/raycast`).
      */
     raycast(raycaster: THREE.Raycaster, intersects: THREE.Intersection[]): void {
-        const material = this.material;
-
-        if (material === undefined) return;
-
-        // Compute the bounding sphere if necessary
-        if (this.geometry.boundingSphere === null) this.geometry.computeBoundingSphere();
-
-        // Check bounding sphere distance to ray
-        const sphere = this._raycast_sphere.copy(this.geometry.boundingSphere!);
-        sphere.applyMatrix4(this.matrixWorld);
-
-        if (raycaster.ray.intersectsSphere(sphere) === false) return;
-
-        // Transform the ray into the local space of the mesh
-        const inverseMatrix = this._raycast_inverseMatrix.copy(this.matrixWorld).invert();
-
-        const localRay = this._raycast_ray.copy(raycaster.ray).applyMatrix4(inverseMatrix);
-
-        // Determine if we have an array of materials
-        const isMultiMaterial = Array.isArray(material);
-
-        const materials = isMultiMaterial ? (material as THREE.Material[]) : [material as THREE.Material];
-
-        // Loop over the geometry's groups
-        const groups = this.geometry.groups;
-
-        for (let i = 0; i < groups.length; i++) {
-            const group = groups[i];
-            const groupMaterial = group.materialIndex !== undefined ? materials[group.materialIndex] : undefined;
-
-            if (groupMaterial === undefined) continue;
-
-            if (groupMaterial.visible === false) continue;
-
-            // Perform raycasting on this group
-            this.raycastGroup(localRay, raycaster, group, groupMaterial, intersects);
-        }
-    }
-
-    /**
-     * Performs raycasting on a specific group of the geometry.
-     */
-    private raycastGroup(
-        localRay: THREE.Ray,
-        raycaster: THREE.Raycaster,
-        group: { start: number; count: number; materialIndex?: number },
-        material: THREE.Material,
-        intersects: THREE.Intersection[]
-    ): void {
-        const geometry = this.geometry as THREE.BufferGeometry;
-        const index = geometry.index;
-        const position = geometry.attributes.position;
-        const morphPositions = (geometry.morphAttributes && geometry.morphAttributes.position) as THREE.BufferAttribute[] | undefined;
-        const morphTargetsRelative = geometry.morphTargetsRelative === true;
-        const morphInfluences: number[] | undefined = (this as any).morphTargetInfluences;
-
-        if (position === undefined) return;
-
-        const start = group.start;
-        const end = start + group.count;
-
-        const vA = this._raycast_vA;
-        const vB = this._raycast_vB;
-        const vC = this._raycast_vC;
-
-        // helper to apply morph target deformation per vertex index into target vector
-        const applyMorph = (idx: number, target: THREE.Vector3) => {
-            if (!morphPositions || !morphInfluences) return;
-            let sumInfluence = 0;
-            for (let i = 0; i < morphPositions.length; i++) {
-                const inf = morphInfluences[i] || 0;
-                if (inf === 0) continue;
-                sumInfluence += inf;
-                const mp = morphPositions[i];
-                const mx = mp.getX(idx);
-                const my = mp.getY(idx);
-                const mz = mp.getZ(idx);
-                if (morphTargetsRelative) {
-                    target.x += mx * inf;
-                    target.y += my * inf;
-                    target.z += mz * inf;
-                } else {
-                    // absolute morph targets: blend base towards target
-                    target.x = target.x * (1 - sumInfluence) + mx * inf;
-                    target.y = target.y * (1 - sumInfluence) + my * inf;
-                    target.z = target.z * (1 - sumInfluence) + mz * inf;
-                }
-            }
-        };
-
-        let intersection;
-
-        if (index !== null) {
-            // Indexed geometry
-            const indices = index.array as Uint16Array | Uint32Array;
-
-            for (let i = start; i < end; i += 3) {
-                const a = indices[i];
-                const b = indices[i + 1];
-                const c = indices[i + 2];
-
-                // fetch base positions
-                vA.fromBufferAttribute(position, a);
-                vB.fromBufferAttribute(position, b);
-                vC.fromBufferAttribute(position, c);
-                // apply morph offsets if any
-                applyMorph(a, vA);
-                applyMorph(b, vB);
-                applyMorph(c, vC);
-
-                intersection = this.checkBufferGeometryIntersection(
-                    this,
-                    material,
-                    raycaster,
-                    localRay,
-                    vA,
-                    vB,
-                    vC,
-                    a,
-                    b,
-                    c,
-                    group.materialIndex
-                );
-
-                if (intersection) {
-                    intersection.faceIndex = Math.floor(i / 3);
-                    intersects.push(intersection);
-                }
-            }
-        } else {
-            // Non-indexed geometry
-            for (let i = start; i < end; i += 3) {
-                const a = i;
-                const b = i + 1;
-                const c = i + 2;
-
-                vA.fromBufferAttribute(position, a);
-                vB.fromBufferAttribute(position, b);
-                vC.fromBufferAttribute(position, c);
-                applyMorph(a, vA);
-                applyMorph(b, vB);
-                applyMorph(c, vC);
-
-                intersection = this.checkBufferGeometryIntersection(
-                    this,
-                    material,
-                    raycaster,
-                    localRay,
-                    vA,
-                    vB,
-                    vC,
-                    a,
-                    b,
-                    c,
-                    group.materialIndex
-                );
-
-                if (intersection) {
-                    intersection.faceIndex = Math.floor(i / 3);
-                    intersects.push(intersection);
-                }
-            }
-        }
-    }
-
-    /**
-     * Checks for an intersection between a ray and a triangle defined by vertex indices.
-     */
-    private checkBufferGeometryIntersection(
-        object: THREE.Object3D,
-        material: THREE.Material,
-        raycaster: THREE.Raycaster,
-        ray: THREE.Ray,
-        vA: THREE.Vector3,
-        vB: THREE.Vector3,
-        vC: THREE.Vector3,
-        a: number,
-        b: number,
-        c: number,
-        materialIndex: number | undefined
-    ): THREE.Intersection | null {
-        const _vA = vA; // use provided morphed vertices
-        const _vB = vB;
-        const _vC = vC;
-        const intersectionPoint = this._raycast_intersectionPoint;
-
-        let side = material.side;
-
-        if (side === undefined) side = THREE.FrontSide;
-
-        const backfaceCulling = side === THREE.FrontSide;
-
-        const intersect = ray.intersectTriangle(
-            _vC,
-            _vB,
-            _vA,
-            backfaceCulling,
-            intersectionPoint
-        );
-
-        if (intersect === null) return null;
-
-        intersectionPoint.applyMatrix4(this.matrixWorld);
-
-        const distance = raycaster.ray.origin.distanceTo(intersectionPoint);
-
-        if (distance < raycaster.near || distance > raycaster.far) return null;
-
-        const uvAttribute = this.geometry.attributes.uv;
-        let uv: THREE.Vector2 | undefined;
-
-        if (uvAttribute) {
-            // ``geometry.attributes.uv`` is typed as
-            // ``BufferAttribute | InterleavedBufferAttribute``; both have
-            // identical fromBufferAttribute behaviour at runtime, but
-            // Vector2.fromBufferAttribute's signature only declares
-            // ``BufferAttribute``. Cast through to satisfy the typing.
-            const uvAttr = uvAttribute as THREE.BufferAttribute;
-            const uvA = this._raycast_uvA.fromBufferAttribute(uvAttr, a);
-            const uvB = this._raycast_uvB.fromBufferAttribute(uvAttr, b);
-            const uvC = this._raycast_uvC.fromBufferAttribute(uvAttr, c);
-
-            // Compute the UV coordinates at the intersection point
-            uv = this._uvIntersection(_vA, _vB, _vC, uvA, uvB, uvC, intersectionPoint);
-        }
-
-        return {
-            distance: distance,
-            point: intersectionPoint.clone(),
-            object: object,
-            uv: uv,
-            face: null, // Face3 is deprecated; set to null or provide custom data
-            faceIndex: -1, // Can set to appropriate face index if needed
-        } as THREE.Intersection;
-    }
-
-    /**
-     * Computes the UV coordinates at the intersection point.
-     */
-    private _uvIntersection(
-        vA: THREE.Vector3,
-        vB: THREE.Vector3,
-        vC: THREE.Vector3,
-        uvA: THREE.Vector2,
-        uvB: THREE.Vector2,
-        uvC: THREE.Vector2,
-        intersectionPoint: THREE.Vector3
-    ): THREE.Vector2 {
-        const barycoord = THREE.Triangle.getBarycoord(
-            intersectionPoint,
-            vA,
-            vB,
-            vC,
-            this._raycast_barycoord
-        );
-        const uv = new THREE.Vector2();
-        // getBarycoord returns null when the point is degenerate (zero-
-        // area triangle); fall back to an empty UV in that case rather
-        // than throwing.
-        if (barycoord === null) return uv;
-        uvA.multiplyScalar(barycoord.x);
-        uvB.multiplyScalar(barycoord.y);
-        uvC.multiplyScalar(barycoord.z);
-        uv.add(uvA).add(uvB).add(uvC);
-        return uv;
+        raycastBatchedMesh(this, raycaster, intersects);
     }
 }
