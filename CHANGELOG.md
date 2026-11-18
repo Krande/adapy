@@ -2,6 +2,15 @@
 
 
 
+## v0.161.1 (2026-11-18)
+
+### Fix
+
+* fix(ci): every PR runs the full suite on a built viewer, fork or not; the branch tests run on main (#566)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`933c973`](https://github.com/Krande/adapy/commit/933c9730fca315ec7814dab73f4ee207ed363209))
+
+
 ## v0.161.0 (2026-11-18)
 
 ### Chore
