@@ -541,8 +541,9 @@ class LocalJobTransport(_BaseTransport):
 
     def _submit_procedural_model_job(self, req: JobRequest) -> SubmittedJob:
         """A procedural Excel/IFC/Genie export, a relocation proposal, or an Excel import into
-        a new model, in this process (``local_jobs.start_procedural_model_job`` /
-        ``start_procedural_import``)."""
+        a new model, on this server (``local_jobs.start_procedural_model_job`` /
+        ``start_procedural_import``): in this process, except the IFC / Genie export without a
+        database, which runs in a job process as a conversion does."""
         inputs = req.inprocess_inputs or {}
         if req.target_format == "procedural_import_xlsx":
             job = local_jobs.start_procedural_import(
@@ -559,17 +560,22 @@ class LocalJobTransport(_BaseTransport):
         row = inputs.get("model_row")
         if not isinstance(row, dict):
             raise HTTPException(status_code=500, detail="an in-process procedural job needs the model row")
-        job = local_jobs.start_procedural_model_job(
-            target_format=req.target_format,
-            model_row=row,
-            source_key=req.source_key,
-            derived_key=req.derived_key or "",
-            conversion_options=req.conversion_options or {},
-            force_rebuild=req.force_rebuild,
-            storage=self._storage,
-            scope=req.scope,
-            db_pool=inputs.get("db_pool"),
-        )
+        try:
+            job = local_jobs.start_procedural_model_job(
+                target_format=req.target_format,
+                model_row=row,
+                source_key=req.source_key,
+                derived_key=req.derived_key or "",
+                conversion_options=req.conversion_options or {},
+                force_rebuild=req.force_rebuild,
+                storage=self._storage,
+                scope=req.scope,
+                db_pool=inputs.get("db_pool"),
+            )
+        except LookupError as exc:
+            # The IFC / Genie export runs in a job process (as a conversion does): 501 when
+            # this server cannot start one for it.
+            raise HTTPException(status_code=501, detail=str(exc)) from exc
         return _submitted_from_local(job)
 
     def _submit_fea(self, req: JobRequest) -> SubmittedJob:

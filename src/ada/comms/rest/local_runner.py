@@ -16,9 +16,10 @@ two it runs under.
 
 THE PROTOCOL. Small on purpose:
 
-* stdin, first line: ``{"job": <queue.Job as a dict>, "storage": <Storage.process_spec()>}``.
-  The server then keeps stdin open and never writes again; end-of-file means the server is gone,
-  and the job goes with it.
+* stdin, first line: ``{"job": <queue.Job as a dict>, "storage": <Storage.process_spec()>}``,
+  and for a procedural export a ``"model_row"`` too: the model the server read from its file
+  store, which a worker would read from postgres. The server then keeps stdin open and never
+  writes again; end-of-file means the server is gone, and the job goes with it.
 * stdout: one JSON object per line, ``{"update": {...}}``, which is exactly a handler's
   ``queue.update(job_id, **fields)``. The real stdout is moved aside at start-up and fd 1 points
   at stderr, so a library that prints cannot corrupt the stream.
@@ -111,7 +112,9 @@ async def _run(payload: dict, proto: IO[str]) -> None:
         return
     storage = Storage.from_spec(payload["storage"])
     try:
-        await _process_one(job.job_id, queue, storage, None, None)  # type: ignore[arg-type]
+        await _process_one(
+            job.job_id, queue, storage, None, None, model_row=payload.get("model_row")  # type: ignore[arg-type]
+        )
     except Exception as exc:  # noqa: BLE001 -- the job's failure is data: it goes to the server
         traceback.print_exc()
         queue.send(status="error", stage="error", error=f"{type(exc).__name__}: {exc}")

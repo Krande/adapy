@@ -170,7 +170,8 @@ def test_export_xlsx_runs_in_process_without_a_db(app_client: TestClient, tmp_pa
 
 
 def test_export_model_runs_in_process_without_a_db(app_client: TestClient, tmp_path: pathlib.Path):
-    """IFC / Genie export of a file-stored model, in this process, equipment from the file catalog."""
+    """IFC / Genie export of a file-stored model, on this server (in a job process),
+    equipment from the file catalog."""
     model_id = _model(app_client, "local-model-export")
     r = app_client.post(f"{BASE}/{model_id}/export-model", params={"format": "gxml"})
     assert r.status_code == 200, r.text
@@ -179,6 +180,50 @@ def test_export_model_runs_in_process_without_a_db(app_client: TestClient, tmp_p
     status = _wait_job(app_client, started["job_id"])
     assert status["status"] == "done", status
     assert (tmp_path / "shared" / pathlib.PurePosixPath(started["derived_key"])).stat().st_size > 0
+
+
+#: Preloaded into the job process only (the env var the server sets for it): the export's
+#: assembly build dies the way a native fault in a writer would, without a Python exception.
+_CRASHING_EXPORT = """
+import os
+import sys
+
+from ada.comms.rest.subprocess_convert import LOCAL_RUNNER_ENV
+
+if os.environ.get(LOCAL_RUNNER_ENV):
+    import ada.topo_model.compile as compile_module
+
+    def _crash(*args, **kwargs):
+        print("last words of the native export", file=sys.stderr, flush=True)
+        os._exit(7)
+
+    compile_module.build_procedural_assembly = _crash
+"""
+
+
+def test_a_crash_in_the_ifc_genie_export_fails_the_job_not_the_server(
+    app_client: TestClient, tmp_path: pathlib.Path, monkeypatch
+):
+    """Without a database the IFC / Genie export runs in a job process, as a conversion
+    does: when that process dies, the job is an error naming how, with its last output,
+    and the server goes on answering."""
+    pkg = tmp_path / "crash_pkg"
+    pkg.mkdir()
+    (pkg / "adapy_test_crashing_export.py").write_text(_CRASHING_EXPORT, encoding="utf-8")
+    monkeypatch.syspath_prepend(str(pkg))
+    monkeypatch.setenv("ADA_WORKER_PRELOAD", "adapy_test_crashing_export")
+
+    model_id = _model(app_client, "crashing-export")
+    started = app_client.post(f"{BASE}/{model_id}/export-model", params={"format": "ifc"}).json()
+    status = _wait_job(app_client, started["job_id"])
+    assert status["status"] == "error", status
+    assert "the job process exited with status 7" in status["error"]
+    assert "last words of the native export" in status["error"]
+
+    # The server is still here, and still exports.
+    assert app_client.get(f"{BASE}/{model_id}").status_code == 200
+    xlsx = app_client.post(f"{BASE}/{model_id}/export-xlsx").json()
+    assert _wait_job(app_client, xlsx["job_id"])["status"] == "done"
 
 
 def test_import_xlsx_round_trips_without_a_db(app_client: TestClient, tmp_path: pathlib.Path):
