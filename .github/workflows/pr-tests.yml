@@ -123,6 +123,37 @@ jobs:
         - name: Run browser tests
           run: pixi run -e tests test-browser
 
+    # tests/full against a freshly built viewer bundle, as the push workflow (test.yml) runs it on
+    # main. `test-quick` above includes tests/full but runs it on the committed bundle; a change to
+    # the frontend sources is only exercised end to end once the bundle is built from them. It is
+    # here, on pull_request, so a PR from a fork runs it too: a push-triggered workflow runs in the
+    # repository that received the push, so for a fork it never reported on the PR.
+    full:
+        name: Full suite on a built viewer
+        runs-on: ubuntu-latest
+        defaults:
+          run:
+            shell: bash -l {0}
+        steps:
+        - uses: actions/checkout@v7
+          with:
+            ref: ${{ github.event.pull_request.head.sha || github.ref }}
+
+        - uses: prefix-dev/setup-pixi@v0.11.3
+          with:
+            pixi-version: v0.81.0
+            environments: >-
+              tests
+              frontend
+            cache: true
+
+        - name: Build the viewer
+          run: pixi run wbuild
+
+        # The browser tests run once, in the `browser` job.
+        - name: Run Tests
+          run: pixi run -e tests test-full -m "not browser"
+
     # The FEM half: tests/fem writes decks and runs the free solvers on them (Calculix and
     # Code_Aster; Abaqus and Sestra legs skip where they are not installed). Linux AND Windows,
     # because code-aster 18.1.7 is the first conda-forge build with a sequential (nompi) MSVC
