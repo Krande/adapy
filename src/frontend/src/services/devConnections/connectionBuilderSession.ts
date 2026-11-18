@@ -24,10 +24,12 @@ import { effectiveInputs, useConnectionBuilderStore } from "@/state/connectionBu
 import { useModelState } from "@/state/modelState";
 import { renderConnectionOverlay } from "@/utils/scene/connectionOverlay";
 import { forgetPreviewIfUnloaded, previewOnShow, setPreviewOnShow, PREVIEW_SOURCE_PREFIX } from "./previewOnShow";
-import { tintWelds } from "@/utils/scene/connectionWeldTint";
+import { clearWeldTint, tintWelds } from "@/utils/scene/connectionWeldTint";
+import { clearWeldMarks, markWelds } from "@/utils/scene/connectionWeldMarks";
 import { selectInOtherModel } from "@/utils/scene/crossModelSelect";
 import { overlay_file_in_scene } from "@/utils/scene/handlers/overlay_file_in_scene";
 import { unload_any_source } from "@/utils/scene/handlers/unload_any_source";
+import { activeViewport, onActiveViewportChange, onModelLoaded } from "@/viewport/api/viewportApi";
 
 export { PREVIEW_SOURCE_PREFIX };
 
@@ -84,6 +86,16 @@ export function startConnectionBuilderSession(): void {
     if (s.loadedSourceNames !== prev.loadedSourceNames) forgetPreviewIfUnloaded(s.loadedSourceNames);
   });
 
+  // The annotations are drawn by the viewport on screen, where the preview is on screen in it. The
+  // three.js-free viewport takes a loaded model after the load has returned (and a renderer switch
+  // loads every model again in the viewport switched to): each time the preview arrives on screen,
+  // or another viewport takes over, it is drawn there. After the model's other listeners (the Scene
+  // tree the welds are found in).
+  onModelLoaded((info) => {
+    if (info.sourceName === previewOnShow()) setTimeout(() => drawOverlay(), 0);
+  });
+  onActiveViewportChange(() => drawOverlay());
+
   // Selection and input edits rebuild; the library's own updates are handled above. A toggled
   // overlay redraws over the preview on show.
   store.subscribe((s, prev) => {
@@ -100,16 +112,21 @@ export function startConnectionBuilderSession(): void {
 }
 
 /** The joint's 3D annotations over the preview on show (`connectionOverlay`), and, with `tint`, its
- *  welds' colour (`connectionWeldTint`). */
+ *  welds' colour: painted into the three.js viewport's meshes (`connectionWeldTint`), marked through
+ *  any other viewport (`connectionWeldMarks`). */
 function drawOverlay(tint = true): void {
   const s = useConnectionBuilderStore.getState();
   renderConnectionOverlay(previewOnShow(), s.lastResult, s.overlays);
   if (!tint) return;
   const welds = s.lastResult?.properties.welds.map((w) => w.name) ?? [];
-  void tintWelds(previewOnShow(), welds, {
-    colour: s.overlays.tintWelds ? s.overlays.weldColour : null,
-    hidden: !s.overlays.showWelds,
-  });
+  const look = { colour: s.overlays.tintWelds ? s.overlays.weldColour : null, hidden: !s.overlays.showWelds };
+  if (activeViewport()?.kind === "native") {
+    clearWeldTint();
+    markWelds(previewOnShow(), welds, look);
+  } else {
+    clearWeldMarks();
+    void tintWelds(previewOnShow(), welds, look);
+  }
 }
 
 function keepSelectionValid(state: DevConnectionsState): void {

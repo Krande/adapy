@@ -9,6 +9,7 @@
 
 import { useClashCheckStore } from "@/state/clashCheckStore";
 import { clearConnectionOverlay } from "@/utils/scene/connectionOverlay";
+import { clearWeldMarks } from "@/utils/scene/connectionWeldMarks";
 
 /** Scene source names of builder previews start with this. */
 export const PREVIEW_SOURCE_PREFIX = "connection-preview:";
@@ -29,6 +30,7 @@ export function forgetPreviewIfUnloaded(loaded: ReadonlySet<string>): void {
   if (!current || loaded.has(current)) return;
   current = null;
   clearConnectionOverlay();
+  clearWeldMarks();
   const clash = useClashCheckStore.getState();
   if (clash.sourceKey?.startsWith(PREVIEW_SOURCE_PREFIX)) clash.reset();
 }
