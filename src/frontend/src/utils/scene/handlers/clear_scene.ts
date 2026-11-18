@@ -15,10 +15,18 @@
 //   * what is drawn over them: measurements (the Measure tab), the connection builder's annotations,
 //     weld colours and marks of the joint it previewed and that preview's clash, every highlight;
 //   * unless kept: loads still queued (they would arrive into the scene just cleared) and an open
-//     procedural model (its proxies are part of what is in the scene).
+//     procedural model (its proxies are part of what is in the scene);
+//   * unless it is a replace: what plugins drew over the scene, their lines, labels, element
+//     paints and line, point and image layers (`ctx.scene.addLines` ... `addImage`). Their handles
+//     do nothing after (plugins/sceneLayers.ts).
 //
-// What stays: a plugin's own line, point and image layers (`ctx.scene.addLineLayer` and the like).
-// They are not a model's; the plugin that drew them takes them away.
+// A replace leaves the plugins' overlays (it used to be that every clear did: "What stays: a
+// plugin's own line, point and image layers"). A replace is a load, not a clear anyone asked for:
+// a plugin's own `loadModel` replaces by default, and a renderer switch hands the models over
+// through one; taking what the plugin drew there would undo the plugin's own work. What is pinned
+// to an FEA result still goes with that result.
+//
+// Then every plugin listening (`ctx.scene.onSceneCleared`) is told, once, with what was done.
 
 import {getSingletonViewerStores} from "@/state/AdaViewerContext";
 import {useAnimationStore} from "@/state/animationStore";
@@ -30,7 +38,9 @@ import {useSceneInfoStore} from "@/state/sceneInfoStore";
 import {useTreeViewStore} from "@/state/treeViewStore";
 import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
 import {getViewerRuntime} from "@/state/viewerRuntime";
+import {notifySceneCleared} from "@/plugins/sceneCleared";
 import {endAllSceneHighlights} from "@/plugins/sceneHighlights";
+import {removeAllPluginDrawings} from "@/plugins/sceneOverlays";
 import {forgetPreviewIfUnloaded} from "@/services/devConnections/previewOnShow";
 import {clearThreeSceneModels} from "@/utils/scene/clearThreeSceneModels";
 import {clearConnectionOverlay} from "@/utils/scene/connectionOverlay";
@@ -40,12 +50,13 @@ import {activeViewport} from "@/viewport/api/viewportApi";
 import {clearActiveFeaStreaming} from "./load_fea_streaming";
 
 export interface ClearSceneOptions {
-    /** Who asked (a scope change, a replace, ...): for whoever reads a call of it; not acted on. */
+    /** Who asked (a scope change, a replace, ...): for whoever reads a call of it, and handed to the
+     *  plugins' `onSceneCleared` listeners; not acted on. */
     reason?: string;
     /** A load is about to put a model in place of what is cleared (`replace_model`, the
      *  three.js-free viewport's replace). What that load sets itself is left to it: the model URL
      *  that started it, the groups a streamed result announces before its mesh arrives, the GLTF
-     *  simulation data. */
+     *  simulation data. And what the plugins drew over the scene stays (see the header). */
     replacing?: boolean;
     /** Keep the loads still queued: they are what comes next (a replace from the queue, the gallery,
      *  a re-convert, unloading one streamed result). Dropped otherwise. */
@@ -112,6 +123,12 @@ export async function clearScene(options: ClearSceneOptions = {}): Promise<void>
     // The Sources tab's `loaded` mirror, now rather than when that tab next renders.
     getSingletonViewerStores().useAssetBrowserStore.getState().reconcileLoaded(new Set());
 
+    // What the plugins drew over the scene; a replace leaves it (see the header).
+    if (!replacing) removeAllPluginDrawings();
+
     // The on-demand render loop would not paint until the camera moves: the models stay as ghosts.
     requestRender();
+
+    // Last, so a plugin that draws again from its listener draws into the scene as cleared.
+    notifySceneCleared({reason: options.reason ?? null, replacing, overlaysRemoved: !replacing});
 }

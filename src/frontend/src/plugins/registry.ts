@@ -18,7 +18,7 @@ import { isPlacedElsewhere } from "@/layout/placedElsewhere";
 import type { AdaPluginContext, PanelSlot, PluginModeSpec, PluginRegion, PluginSpec, RegisteredPlugin, RenderableFileProvider, ResultSidecarLoader, SceneColorFieldProvider, SimulationProviderUi, StorageAssetType, StorageAssetTypeArgs, UrlParamHandler } from "./registryTypes/slots";
 
 export { type PluginRegion, type PluginDockId, type PluginModeId, type PluginModeSpec, type PluginLogLevel, type PluginApiClient, type PluginTheme, type AdaPluginContext, type ActivationPredicate, type TopBarButtonSpec, type PanelSlot, type SceneColorFieldProvider, type ResultSidecarLoader, type RenderableFileProvider, type SimulationParameterFormArgs, type SimulationFormSubject, type SimulationOpenResultArgs, type SimulationProviderUi, type UrlParamHandler, type PluginSpec, type RegisteredPlugin, type StorageAssetTypeArgs, type StorageAssetUpload, type StorageAssetType } from "./registryTypes/slots";
-export { type SceneColorFieldResult, type SceneColor, type SceneOverlay, type SceneLines, type SceneElementOutline, type SceneLabel, type SceneLabelOptions, type SceneElementPaint, type SceneLayerRef, type SceneLayerLook, type SceneLineLayerSpec, type SceneLineLayer, type ScenePointLayerSpec, type ScenePointLayer, type SceneImageRect, type SceneImageSpec, type SceneImage, type SceneModelSource, type SceneModelPose, type SidecarFetcher, type SceneHandle, type SceneBox, type SceneFace, type SceneObjectMatch } from "./registryTypes/scene";
+export { type SceneColorFieldResult, type SceneColor, type SceneOverlay, type SceneLines, type SceneElementOutline, type SceneLabel, type SceneLabelOptions, type SceneElementPaint, type SceneLayerRef, type SceneLayerLook, type SceneLineLayerSpec, type SceneLineLayer, type ScenePointLayerSpec, type ScenePointLayer, type SceneImageRect, type SceneImageSpec, type SceneImage, type SceneModelSource, type SceneModelPose, type SidecarFetcher, type SceneHandle, type SceneCleared, type SceneBox, type SceneFace, type SceneObjectMatch } from "./registryTypes/scene";
 export { type PluginPlaybackTrack, type PluginPlaybackTrackHandle, type PluginPlaybackState, type PluginPlayback, type PluginLayerState, type PluginLayers, type PluginSimulationSubject, type PluginSimulationSubjectHandle, type PluginSimulations } from "./registryTypes/playback";
 export type { ScenePick, ScenePickOptions, ScenePickSession } from "./scenePicks";
 export type { SceneHighlight, SceneHighlightOptions, SceneHighlightRef } from "./sceneHighlights";
@@ -302,7 +302,17 @@ export type { PlaceBoxOptions, PlacedBox, PlacedBoxMode, PlacedBoxPose } from ".
 //          `booleans` (its cuts: `{kind: "box" | "cyl" | ..., ...}`, in the frame of `axis`), as
 //          `ada.comms.msg_handling.member_dict` writes them; absent for other sections and for a
 //          beam with no booleans, and from an older ada-py.
-export const PLUGIN_API_VERSION = "1.29.0";
+// 1.30.0 — a clear of the scene takes the plugins' overlays with it. Every clear (the user's Clear
+//          and Remove all, a scope switch, the gallery, a re-convert, a plugin's `clearScene`)
+//          removes what any plugin drew through `addLines`, `addLabels`, `addElementOutlines`,
+//          `paintFeaElements`, `addLineLayer`, `addPointLayer` and `addImage`; a load that replaces
+//          the scene leaves them, as before. Their handles stay safe to call and do nothing (nothing is
+//          drawn again: a plugin makes a new one). Playback tracks, posed models, placed boxes and
+//          three.js objects added with `add` stay. Before, a clear left every one of them on screen.
+//          - `ctx.scene.onSceneCleared(listener)`: `listener(cleared)` after each clear, once,
+//            whatever asked for it, with `SceneCleared` ({reason, replacing, overlaysRemoved}); returns
+//            the unsubscribe. Additive: an older core has no `onSceneCleared`, so a plugin asks first.
+export const PLUGIN_API_VERSION = "1.30.0";
 
 /** What the Simulations panel writes on a run's open-result button. */
 export function openResultButtonLabel(

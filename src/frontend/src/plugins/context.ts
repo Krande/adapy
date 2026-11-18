@@ -44,6 +44,7 @@ import {
   poseModel,
 } from "./sceneLayers";
 import { makePluginSimulations } from "./pluginSimulations";
+import { onSceneCleared } from "./sceneCleared";
 import { endScenePicks, pickObjects } from "./scenePicks";
 import { endSceneHighlights, highlightObjects } from "./sceneHighlights";
 import { placeBox } from "./sceneBox";
@@ -184,12 +185,13 @@ function makeSceneHandle(): SceneHandle {
       void import("@/utils/scene/handlers/unload_any_source").then(({ unload_any_source }) => unload_any_source(sourceName));
     },
     async clearScene() {
-      // The Scene tab's "Remove all": queued loads, models, an open procedural model, and (through
-      // the loaded-sources list) what core drew over them.
+      // The Scene tab's "Remove all": queued loads, models, an open procedural model, what core
+      // drew over them, and every plugin's overlays.
       const { clearScene } = await import("@/utils/scene/handlers/clear_scene");
-      await clearScene();
+      await clearScene({ reason: "plugin" });
       requestRender();
     },
+    onSceneCleared,
     addLines,
     addLineLayer,
     addPointLayer,

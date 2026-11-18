@@ -141,6 +141,10 @@ test("nothing but clearScene calls the scene's teardown primitives", () => {
     [/\bclearThreeSceneModels\(\)/, ["utils/scene/handlers/clear_scene.ts", "utils/scene/clearThreeSceneModels.ts", "viewport/api/threeViewport.ts"]],
     [/\.clearModels\(\)/, ["utils/scene/handlers/clear_scene.ts", "viewport/native/nativeViewportApi.ts"]],
     [/\.clearLoadedSources\(\)/, ["utils/scene/handlers/clear_scene.ts"]],
+    // What the plugins drew over the scene, and telling them it was cleared (plugin API 1.30.0).
+    [/\bremoveAllPluginDrawings\(\)/, ["utils/scene/handlers/clear_scene.ts", "plugins/sceneOverlays.ts"]],
+    [/\breleaseDrawnLayers\(\)/, ["plugins/sceneOverlays.ts", "plugins/sceneLayers.ts"]],
+    [/\bnotifySceneCleared\(/, ["utils/scene/handlers/clear_scene.ts", "plugins/sceneCleared.ts"]],
   ];
   for (const [pattern, allowed] of primitives) {
     const callers = files.filter((f) => pattern.test(f.text)).map((f) => f.path);
