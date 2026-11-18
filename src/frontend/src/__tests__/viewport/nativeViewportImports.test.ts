@@ -160,6 +160,24 @@ for (const module of ["utils/groups/selectGroup.ts", "utils/groups/extensionGrou
     });
 }
 
+// Measuring: the tab, its tool, the snapping, what it draws and the clicks it holds go through the
+// viewport interface; an object's triangles are read out of the GLB on the three.js-free viewport.
+for (const module of [
+    "components/info_box_scene/MeasurePanel.tsx",
+    "layout/measureActions.ts",
+    "state/measureStore.ts",
+    "utils/measure/measureController.ts",
+    "utils/measure/measureDrawing.ts",
+    "utils/measure/measurements.ts",
+    "utils/measure/snap.ts",
+    "utils/glb/glbObjectTriangles.ts",
+    "viewport/api/sceneClicks.ts",
+]) {
+    test(`${module} imports no three.js`, () => {
+        walkFreeOfThree(join(ROOT, "src", module));
+    });
+}
+
 // A box a plugin places in the scene: its maths, the gizmo's key rules (which the cell builder's key
 // handler reads too) and the placement itself go through the viewport interface.
 for (const module of ["utils/gizmo/transformKeys.ts", "utils/gizmo/boxPose.ts", "plugins/sceneBox.ts"]) {

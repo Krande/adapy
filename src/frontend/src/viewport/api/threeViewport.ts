@@ -148,6 +148,8 @@ export function setThreeSelection(refs: Iterable<ObjectRef>, options: SetSelecti
 const visibility = () => import("@/utils/scene/visibility");
 const cameraHandlers = () => import("@/components/viewer/sceneHelpers/setupCameraControlsHandlers");
 const cameraKeys = () => import("@/components/viewer/sceneHelpers/cameraKeys");
+const measuring = () => import("@/utils/measure/threeMeasure");
+let threeMeasure: Awaited<ReturnType<typeof measuring>> | null = null;
 
 export interface ThreeViewportHandles {
     scene: THREE.Scene;
@@ -391,5 +393,14 @@ export function createThreeViewport(h: ThreeViewportHandles): ViewportApi {
             raf = requestAnimationFrame(check);
             return () => cancelAnimationFrame(raf);
         },
+        // Measuring: the GPU pick refined on the picked object's triangles, and an object's feature
+        // edges from its draw range (utils/measure/threeMeasure.ts). Loaded with the first point asked
+        // for; an object's edges are only asked for once a point found it.
+        surfaceAt: (x, y) =>
+            measuring().then((m) => {
+                threeMeasure = m;
+                return m.threeSurfaceAt(x, y);
+            }),
+        featureEdges: (ref) => threeMeasure?.threeFeatureEdges(ref) ?? null,
     };
 }

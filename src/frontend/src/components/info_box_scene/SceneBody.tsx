@@ -14,6 +14,7 @@ import FaceSearchSection from "./FaceSearchSection";
 import SectionPlanesPanel from "./SectionPlanesPanel";
 import MeshDistortionSection from "./MeshDistortionSection";
 import OverlaysPanel from "./OverlaysPanel";
+import MeasurePanel from "./MeasurePanel";
 import {useSceneInfoStore} from "@/state/sceneInfoStore";
 import FemConceptsPanel from "@/components/simulation/FemConceptsPanel";
 import {
@@ -64,8 +65,8 @@ export interface SceneBodyProps extends SceneTabOptions {
 // shells and lands on Model here.
 //
 // The strip shows GROUPS of related tabs (`sceneTabs`' `SCENE_GROUPS`): Model, View
-// (Overlays, Clip, Mesh), Tools -- and a group of more than one offered tab a second
-// strip of its tabs. The tabs are still what the store's mode and the `tabs` /
+// (Overlays, Clip, Mesh), Measure, Tools -- and a group of more than one offered tab a second
+// strip of its tabs. Measure (`MeasurePanel`) is the main window's, as the others but Model are. The tabs are still what the store's mode and the `tabs` /
 // `hiddenTabs` options name.
 //
 // The Joints group (the connection builder, Clashes, the joints review and the joint
@@ -88,7 +89,7 @@ const SceneBody: React.FC<SceneBodyProps> = ({tabs: tabIds, hiddenTabs, femTab =
     const ctxAvailable: Partial<Record<SceneTab, boolean>> = {
         fem: hasFemConcepts || feaSessionActive,
     };
-    // A pop-out window has the Model tab: the others (overlays, tools, clip, mesh) read and change
+    // A pop-out window has the Model tab: the others (overlays, tools, clip, mesh, measure) read and change
     // the scene itself, which only the main window has.
     const mirrored = isMirroredWindow();
     const tabs = sceneTabs({tabs: tabIds, hiddenTabs, femTab}, ctxAvailable).filter((t) => !mirrored || t.id === "model");
@@ -280,6 +281,8 @@ const TabContent: React.FC<{tab: SceneTab; isMobile: boolean}> = ({tab, isMobile
                     <SectionPlanesPanel />
                 ) : tab === "mesh" ? (
                     <MeshDistortionSection />
+                ) : tab === "measure" ? (
+                    <MeasurePanel />
                 ) : (
                     // "fem"; the Joints group's tabs are the Connections panel's (`MOVED_SCENE_TABS`).
                     <FemConceptsPanel />

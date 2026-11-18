@@ -605,7 +605,7 @@ again only when they change), the stats store's take-off and the boxes. The pane
 acts through `useSceneActions` (`setModelVisible`, `unloadModels`, `selectGroup`,
 `updateBox`, `removeBox`, `activateBox`, `clearBoxes`, `boxAroundSelection`;
 commands `core:model-visible`, `core:unload-models`, `core:select-group`,
-`core:box-*`). The other tabs (Overlays, Tools, Clip, Mesh) and the Saved groups,
+`core:box-*`). The other tabs (Overlays, Tools, Clip, Mesh, Measure) and the Saved groups,
 Source and face picking / search sections read or change the scene directly and
 stay in the main window: a pop-out does not show them. The joint workflow (the
 connection builder, Clashes, the joint overlays and the joints review) is not the
@@ -618,7 +618,7 @@ What a pop-out can do of each scene panel, and what stays in the main window:
 |---|---|
 | Object info (parts) | Mirrored, buttons included. Still local to the pop-out: the mobile-only "Copy all (n)" (it copies the 3D selection's names, which the pop-out does not hold) and "+ Add mode" (the main window's additive picking); the procedural-cell context (cell names, cell hide, cell add mode: the builder store is not mirrored); "Show in data" (it resolves the picked element on the main window's FEA mesh, so it does not show); the selection download (it reads the 3D selection). |
 | Selection tree (parts) | Mirrored (Scene and, with a server, Systems tabs). Not in a pop-out: the Sources tab; from the row menu, loading a node from another provider. |
-| Scene info | Mirrored, Model tab: loaded models, take-off, groups, selection boxes. Not in a pop-out: the Overlays, Tools, Clip, Mesh tabs, and the Saved groups, Source and face picking / search sections (they run scene tools against the scene). |
+| Scene info | Mirrored, Model tab: loaded models, take-off, groups, selection boxes. Not in a pop-out: the Overlays, Tools, Clip, Mesh, Measure tabs, and the Saved groups, Source and face picking / search sections (they run scene tools against the scene). |
 | Simulation, result data | Mirrored (`core:fea-controls`, `core:fea-table`): the Results tab with every control, the colour scale dialog and the data table (rows capped at 2000, filter and sort in the main window). Not in a pop-out: the FE model tab, plugin tabs, the animation export, the follower-window button, a glTF animation clip's controls. |
 
 The transport is an interface (`WindowBusTransport`: `post`, `subscribe`,

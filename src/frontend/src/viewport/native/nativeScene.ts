@@ -23,6 +23,8 @@ import {defaultColorLinear, hexChannels, lightIntensities, useAppearanceStore} f
 import {glbUncoloured, UNCOLOURED_BLACK} from "@/utils/glb/glbUncoloured";
 import type {ObjectColorState} from "@/viewport/api/objectColors";
 import {placeModel, type Box6, type Vec3} from "@/viewport/api/sceneFrame";
+import {glbObjectReader, type GlbObjectReader} from "@/utils/glb/glbObjectTriangles";
+import {computeEdgeArrays} from "@/utils/mesh_select/edgeCore";
 import {boundingSphere, clipRangeFor, DEFAULT_VIEW, framePose, namedViewPose, selectionFramePose} from "@/viewport/api/cameraFrame";
 import {GROUND_GRID, groundGridLines} from "@/viewport/api/groundGrid";
 import {InstanceFlag, SegmentFlag, Topology, type AdacppModule, type AdacppStats, type CameraPoseInfo, type GpuDeviceLike, type LoadedGlbObjects, type RawPick, type WebRendererApi} from "@/viewport/adacpp/types";
@@ -138,6 +140,13 @@ interface LoadedModel {
      *  that keeps its nodes apart (never played), what the file says of its nodes, and the
      *  instances that draw each, as (instance, node of the file) pairs. */
     pose?: {set: number; glb: PosableGlb; instances: number[]};
+    /** The file the renderer read (the caller's bytes, not a copy): what an object's triangles are
+     *  read from again when they are asked for (`objectFeatureEdges`), and the reader made of it on
+     *  first use (null when the file could not be read). A result model has none. */
+    file?: Uint8Array;
+    reader?: GlbObjectReader | null;
+    /** Feature edges already found, by object id (a few, the ones measured on lately). */
+    edges?: Map<string, Float32Array | null>;
 }
 
 let canvasSerial = 0;
@@ -384,6 +393,7 @@ export class NativeScene {
             instances: loaded.geometries.map((g) => g.instance),
             geometries: loaded.geometries.map((g) => g.geometry),
             bounds: loaded.bounds,
+            file,
         };
         if (posable && (loaded.animationSet ?? -1) >= 0) {
             // Placed from outside, not played: its animations are not the clock's.
@@ -1004,6 +1014,46 @@ export class NativeScene {
     /** The models' placement: world = model + offset. */
     get sceneOffset(): Vec3 {
         return [this.offset[0], this.offset[1], this.offset[2]];
+    }
+
+    /** Where the view is on the page: what a point of the view (CSS pixels from its corner) is
+     *  measured from. */
+    viewRect(): {left: number; top: number; width: number; height: number} {
+        const r = this.canvas.getBoundingClientRect();
+        return {left: r.left, top: r.top, width: r.width, height: r.height};
+    }
+
+    /**
+     * The feature edges of the object `key` names, in the world (six numbers per segment): the
+     * boundary and the folds sharper than the outline's angle, as the renderer outlines it. The
+     * renderer keeps its geometry on the GPU, so the object's triangles are read again from the file
+     * the model was loaded from (utils/glb/glbObjectTriangles.ts) and the edges found by the same rule
+     * the three.js viewport outlines with (utils/mesh_select/edgeCore.ts). Null for an object of a
+     * result model, of a model whose parts move (node animations, a posed model), or one that draws
+     * no triangles. A few are kept per model.
+     */
+    objectFeatureEdges(key: string): Float32Array | null {
+        const at = this.where.get(key);
+        const model = at?.model;
+        if (!at || !model?.file || model.animations || model.pose) return null;
+        const id = model.table.ids[at.index];
+        model.edges ??= new Map();
+        if (model.edges.has(id)) return model.edges.get(id) ?? null;
+        if (model.reader === undefined) {
+            try {
+                model.reader = glbObjectReader(model.file);
+            } catch (err) {
+                console.warn("[adacpp-native] reading the model's objects:", err);
+                model.reader = null;
+            }
+        }
+        const triangles = model.reader?.triangles(id, this.offset) ?? null;
+        const edges = triangles
+            ? computeEdgeArrays(triangles.positions, triangles.indices, [[0, triangles.indices.length]], Math.cos((FEATURE_EDGE_ANGLE_DEG * Math.PI) / 180)).positions
+            : null;
+        if (model.edges.size >= 64) model.edges.delete(model.edges.keys().next().value!);
+        model.edges.set(id, edges);
+        return edges;
     }
 
     /** Frame the whole model, along the current view (the shared fit, viewport/api/cameraFrame). */

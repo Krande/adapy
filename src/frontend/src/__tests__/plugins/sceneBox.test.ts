@@ -186,6 +186,37 @@ test("the box is drawn where the viewport placed the scene, and again when that 
     assert.deepEqual(view.shown()[2].positions.slice(0, 3), [0, 0, 0]);
 });
 
+test("frame: the camera is framed on the box in the world, once; a view that cannot is asked again by the next", () => {
+    const fits: number[][] = [];
+    let ready = false;
+    const envWith = (offset: readonly number[] | null): BoxPlacementEnv => {
+        const view = fakeView();
+        const viewport = Object.assign(view.viewport, {
+            fitBox: (min: readonly number[], max: readonly number[]) => (ready ? (fits.push([...min, ...max]), true) : false),
+        });
+        return {viewport, input: null, keys: null, offset: () => offset, onOffsetChange: () => () => {}};
+    };
+    const framed = new BoxPlacement({box: [-1, -0.5, 0, 1, 0.5, 2], position: [10, 20, 3], yawDeg: 90, frame: true, onChange: () => {}}, "plugin:test:box");
+    // Not ready (no camera yet): nothing framed, and asked again when attached to the next view.
+    framed.attach(envWith([-100, -50, 0]));
+    assert.equal(fits.length, 0);
+    ready = true;
+    framed.attach(envWith([-100, -50, 0]));
+    // Turned a quarter, so the 2 m side lies along y; placed in the world by the scene's offset.
+    assert.deepEqual(fits.map((f) => f.map((v) => Math.round(v * 1e5) / 1e5)), [[-90.5, -31, 3, -89.5, -29, 5]]);
+    // Once: the view is the user's after it, on this viewport and the one that replaces it.
+    framed.attach(envWith(null));
+    assert.equal(fits.length, 1);
+    // Without `frame`, and on a view that cannot frame, the camera is left where it is.
+    new BoxPlacement({box: [-1, -0.5, 0, 1, 0.5, 2], position: [0, 0, 0], onChange: () => {}}, "plugin:test:box2").attach(envWith(null));
+    const view = fakeView();
+    new BoxPlacement({box: [-1, -0.5, 0, 1, 0.5, 2], position: [0, 0, 0], frame: true, onChange: () => {}}, "plugin:test:box3").attach({
+        viewport: view.viewport, input: null, keys: null, offset: () => null, onOffsetChange: () => () => {},
+    });
+    assert.equal(fits.length, 1);
+    assert.ok(view.shown().length > 0, "drawn all the same");
+});
+
 test("a press on an arrow drags the box along that axis, snapped to the step, and is not the camera's", () => {
     const {box, view, page, poses} = setup();
     // The X arrow runs from (400, 300) to (550, 300) on screen.
