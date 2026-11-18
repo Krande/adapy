@@ -68,7 +68,7 @@ import { bindStoreFlag, watchStores } from "./bindings";
 import { CLASSIC_PRESET_ID, CLASSIC_ZONES } from "./layout";
 import type { PanelBinding, PanelBodyLoader, PanelPlacement, PanelProps, PanelSpec } from "./panel";
 import { getPanel, registerPanel } from "./registry";
-import { activeShellMode, subscribeShellModes } from "./shellModes";
+import { activeModeOpens, activeShellMode, subscribeShellModes } from "./shellModes";
 
 import { CORE_PANEL_IDS, CORE_PANEL_OWNER, type CorePanelId } from "./corePanelIds";
 
@@ -372,8 +372,9 @@ export function corePanelSpecs(): PanelSpec[] {
         (s) => s.panelVisible,
         (open, s) => s.setPanelVisible(open),
       ),
-      // Also while the shell's Build mode is up with no model: the panel is where one is started.
-      available: () => (proceduralActive() || activeShellMode() === "build"),
+      // Also with no model in a mode that opens it at the start (the Desktop UI's Build, the docked
+      // UI's Topology > Input, whatever the shell calls it): the panel is where one is started.
+      available: () => proceduralActive() || activeShellMode() === "build" || activeModeOpens(CORE_PANEL_IDS.cellbuilder),
       constraints: { requiresCanvas: true },
       placement: column(80),
       toolbar: { order: 100 },

@@ -54,18 +54,20 @@ export function applyBoxSelection(id: string): number {
     return taken.size;
 }
 
-/** Add what a rectangle drawn on the screen takes (`screenBox`) to the selection. Returns how
- *  many elements it took. */
-export function selectInScreenRect(rect: NdcRect, mode: ScreenBoxMode): number {
+/** Add what a rectangle drawn on the screen takes (`screenBox`) to the selection or, with `add`
+ *  false, make it the selection (a rectangle over nothing then clears it). Returns how many elements
+ *  it took. */
+export function selectInScreenRect(rect: NdcRect, mode: ScreenBoxMode, add = true): number {
     const viewport = activeViewport();
     if (!viewport) return 0;
     const taken = viewport.objectsInScreenRect(rect, mode);
-    if (taken.size) {
+    if (taken.size || !add) {
         // The whole drag is one undo entry (Ctrl+Z), however many elements it took.
         viewport.setSelection(taken, {
-            add: true,
+            add,
             within: () => {
                 const info = useObjectInfoStore.getState();
+                if (!taken.size) return;
                 info.setName(`${mode === "window" ? "Window" : "Crossing"} selection: ${taken.size} element${taken.size === 1 ? "" : "s"}`);
                 info.setSelectedNodeId(null);
             },

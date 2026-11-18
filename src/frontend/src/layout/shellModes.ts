@@ -22,12 +22,20 @@ export interface ShellMode {
   ownsSceneColor?: boolean;
   /** False: core holds the FEA model undeformed while it is active. Default true. */
   showsDeformation?: boolean;
-  /** The mode's own controls (`PluginModeSpec.toolbar`). */
+  /** The mode's own controls (`PluginModeSpec.toolbar`), run as `pluginId`. */
   toolbar?: (ctx: AdaPluginContext) => React.ReactNode;
+  /** A shell's own controls for a plugin's mode (`modeArrangements[id].toolbar`), drawn after the
+   *  mode's: run as the shell (`shellPluginId`), never as the mode's plugin, and an error in them
+   *  is the shell's. */
+  shellToolbar?: (ctx: AdaPluginContext) => React.ReactNode;
+  /** The shell plugin `shellToolbar` runs as. */
+  shellPluginId?: string;
   /** Core toolbars drawn for the mode (`UiShellMode.toolbars`), before its own `toolbar`. */
   toolbars?: readonly string[];
   /** Offered only while this holds (`UiShellMode.requires`; `./modeRequirements`). */
   requires?: "builder";
+  /** The panels the mode opens at the start (`UiShellMode.open`). */
+  open?: readonly string[];
 }
 
 /** Core's own mode toolbars (`./ModeToolbars`), by the id a mode's `toolbars` names. */
@@ -62,6 +70,11 @@ export function listShellModes(): readonly ShellMode[] {
 /** The active mode's id; null when the shell has no modes. */
 export function activeShellMode(): string | null {
   return active;
+}
+
+/** Does the active mode open panel `id` at the start (its `open` list)? */
+export function activeModeOpens(id: string): boolean {
+  return !!modes.find((m) => m.id === active)?.open?.includes(id);
 }
 
 /** Switch mode. An id the shell does not have is ignored (and returns false). */

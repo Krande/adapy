@@ -2,36 +2,18 @@ import React from "react";
 
 import {useSectionStore, type SectionPlane} from "@/state/sectionStore";
 import {useModelState} from "@/state/modelState";
+import {useSceneFrameStore, type SceneOffset} from "@/state/sceneFrameStore";
+import {SectionPositionInput} from "@/layout/SectionPositionInput";
+import {sectionAxis, sectionConstant} from "@/utils/scene/sectionOffset";
 import {activeViewport} from "@/viewport/api/viewportApi";
 import {useNativeViewport} from "@/viewport/native/nativeModel";
 
-// Signed position of the plane along its normal (origin -> plane), the natural
-// slider value. constant = -(normal·p), so position = -constant for a unit normal.
-function planePosition(p: SectionPlane): number {
-    return -p.constant;
-}
+const AXIS_LABELS = ["X", "Y", "Z"] as const;
 
-// Slider range = the model bbox projected onto the plane normal.
-function sliderRange(p: SectionPlane): [number, number] {
-    // The box of the model on screen, whichever viewport draws it.
-    const b = activeViewport()?.modelBounds();
-    if (!b) return [-100, 100];
-    const [nx, ny, nz] = p.normal;
-    let lo = Infinity;
-    let hi = -Infinity;
-    for (let corner = 0; corner < 8; corner++) {
-        const d = nx * b[corner & 1 ? 3 : 0] + ny * b[corner & 2 ? 4 : 1] + nz * b[corner & 4 ? 5 : 2];
-        lo = Math.min(lo, d);
-        hi = Math.max(hi, d);
-    }
-    // Pad the range well past the bbox on BOTH ends (10% of the extent each side)
-    // so sliding to either extreme moves the plane completely clear of the model
-    // — fully revealed at one end, fully clipped at the other. The range stays
-    // symmetric about the bbox centre, so the plane (added at the centre) sits at
-    // the slider midpoint.
-    const pad = (hi - lo) * 0.1 || 1;
-    return [lo - pad, hi + pad];
-}
+// The plane's position on its axis and the slider's range, in model coordinates: the same numbers as
+// the section strip's, flipped or not (utils/scene/sectionOffset). The range is the box of the model
+// on screen, whichever viewport draws it, padded so either end clears the model.
+const planeAxis = (p: SectionPlane, offset: SceneOffset | null) => sectionAxis(p, activeViewport()?.modelBounds() ?? null, offset);
 
 const SectionPlanesPanel = () => {
     const {planes, activeId, gizmoVisible, capColor, addPlane, removePlane, toggle, setConstant, flip, setActive, setGizmoVisible, setCapColor, clearAll} =
@@ -41,6 +23,7 @@ const SectionPlanesPanel = () => {
     const threeModel = useModelState((s) => s.boundingBox);
     const nativeModel = useNativeViewport((s) => s.model);
     const hasModel = !!threeModel || !!nativeModel;
+    const offset = useSceneFrameStore((s) => s.offset);
 
     return (
         <div className="p-1 text-sm">
@@ -68,8 +51,9 @@ const SectionPlanesPanel = () => {
             )}
 
             {planes.map((p) => {
-                const [lo, hi] = sliderRange(p);
-                const pos = planePosition(p);
+                const at = planeAxis(p, offset);
+                const {lo, hi, position: pos} = at;
+                const moveTo = (v: number) => setConstant(p.id, sectionConstant(at, v, offset));
                 return (
                     <div key={p.id} className="mb-2 border-b border-gray-500/40 pb-1">
                         <div className="flex items-center gap-1">
@@ -117,10 +101,14 @@ const SectionPlanesPanel = () => {
                             step={(hi - lo) / 500 || 0.01}
                             value={pos}
                             disabled={!p.enabled}
-                            onChange={(e) => {
-                                // position -> constant: constant = -(normal·(position·normal)) = -position for unit normal
-                                setConstant(p.id, -Number(e.target.value));
-                            }}
+                            onChange={(e) => moveTo(Number(e.target.value))}
+                        />
+                        <SectionPositionInput
+                            position={pos}
+                            axisLabel={AXIS_LABELS[at.axis]}
+                            disabled={!p.enabled}
+                            className="w-20 rounded-sm bg-black/20 px-1 text-xs"
+                            onCommit={moveTo}
                         />
                     </div>
                 );

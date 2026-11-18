@@ -33,6 +33,8 @@ export function createNativeViewportApi(scene: NativeScene): ViewportApi {
     // Each call that changes the selection or what is hidden is one undo step (./nativeViewportHistory.ts).
     return withNativeHistory(scene, {
         kind: "native",
+        // Every feature: the renderer's camera projects orthographically too (NativeScene follows the
+        // projection setting), and the billboards are sized and clicked for either projection.
         unavailable: () => null,
         selectionCount: () => scene.selectionSize,
         selection: () => scene.selectedIds.map(splitObjectKey),

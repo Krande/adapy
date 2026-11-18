@@ -5,7 +5,7 @@ import {
     TWO_FINGER_ACTIONS, presetOf, type CameraAction, type DragModifier, type OneFingerAction, type TwoFingerAction,
 } from "@/utils/camera/cameraMapping";
 
-const ACTION_LABEL: Record<CameraAction, string> = {orbit: "Orbit", pan: "Pan", zoom: "Zoom", none: "Nothing"};
+const ACTION_LABEL: Record<CameraAction, string> = {orbit: "Orbit", pan: "Pan", zoom: "Zoom", select: "Box select", none: "Nothing"};
 const MODIFIER_LABEL: Record<DragModifier, string> = {none: "Drag", shift: "Shift +", ctrl: "Ctrl +", alt: "Alt +"};
 const ONE_FINGER_LABEL: Record<OneFingerAction, string> = {orbit: "Orbit", pan: "Pan", none: "Nothing"};
 const TWO_FINGER_LABEL: Record<TwoFingerAction, string> = {"zoom-pan": "Pinch zooms, move pans", "zoom-orbit": "Pinch zooms, move orbits", none: "Nothing"};

@@ -254,7 +254,15 @@ export type { PlaceBoxOptions, PlacedBox, PlacedBoxMode, PlacedBoxPose } from ".
 //          the viewer's clash module on the models' stored GLBs, so it answers the same on either
 //          viewport. For a tool that places something where two objects meet. Additive: an older
 //          core has no `contactBetween`, so a plugin asks for it first.
-// 1.28.0 — `ctx.scene.highlightObjects(owner, refs, {color})`: a plugin draws objects of the loaded
+// 1.28.0 — kept in step with viewer-core 1.28.0: `CORE_COMMAND_IDS.orthographic`
+//          (`core:view.orthographic`) and `CORE_COMMAND_IDS.groundGrid`
+//          (`core:view.ground-grid`), commands a plugin may run or place. `CommandSpec.watch`:
+//          a command says when its tick or reason changes, and its toolbar button redraws.
+//          `CORE_COMMAND_IDS.sectionGizmo` (`core:section-gizmo`): show or hide the section gizmo.
+//          A shell's `modeArrangements[id].toolbar` adds its controls to a plugin's mode.
+//          `CORE_COMMAND_IDS.builderIncludeDimmed` / `builderIncludeOnly` / `builderIncludeAll`: how
+//          the builder draws what the build leaves out (INCLUDE false). Additive.
+// 1.29.0 — `ctx.scene.highlightObjects(owner, refs, {color})`: a plugin draws objects of the loaded
 //          models in a colour of its own -- over their own colour and over the selection's -- until
 //          `remove()` (or `scene.remove(owner)`); `set(refs)` changes which. For a tool that takes
 //          the scene's clicks (`pickObjects`) and shows what it has taken. Not the selection, not a
@@ -277,7 +285,7 @@ export type { PlaceBoxOptions, PlacedBox, PlacedBoxMode, PlacedBoxPose } from ".
 //          Not an API change, but seen by a `connection-builder` tab: the Connections panel has
 //          core's Clashes, Overlays and Review tabs too now (they were the Scene panel's Joints
 //          group), after Builder and before the plugins' tabs, and is offered everywhere.
-export const PLUGIN_API_VERSION = "1.28.0";
+export const PLUGIN_API_VERSION = "1.29.0";
 
 /** What the Simulations panel writes on a run's open-result button. */
 export function openResultButtonLabel(
@@ -623,7 +631,7 @@ export interface JointReviewSectionEntry {
   title: string;
 }
 
-/** `joint-review` panels (1.28.0): a plugin's sections of the Connections panel's Review tab,
+/** `joint-review` panels (1.29.0): a plugin's sections of the Connections panel's Review tab,
  * filtered by activation exactly like `getPanelsForRegion` and ordered by `(order ?? 0, id)`.
  * Core renders these after its own sections (the produced and the identified joints). Empty when
  * no plugin has an active one (the tab then shows core's sections only, as before the region). */

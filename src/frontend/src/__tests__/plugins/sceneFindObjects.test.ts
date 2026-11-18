@@ -1,4 +1,4 @@
-// `ctx.scene.findObjects` (plugin API 1.28.0): the objects of the loaded models called one of a set of
+// `ctx.scene.findObjects` (plugin API 1.29.0): the objects of the loaded models called one of a set of
 // names, as a pick names them (model, id, name, source), read from the Scene tree -- for a plugin that
 // knows objects by name and wants to highlight them.
 

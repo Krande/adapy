@@ -27,6 +27,7 @@ export const CORE_COMMAND_IDS = {
   hideSelected: "core:hide-selected",
   hideOthers: "core:hide-others",
   showAll: "core:show-all",
+  showSelected: "core:show-selected",
   fitAll: "core:fit-all",
   fitSelection: "core:fit-selection",
   resetCamera: "core:reset-camera",
@@ -40,6 +41,8 @@ export const CORE_COMMAND_IDS = {
   viewRight: "core:view.right",
   viewIsometric: "core:view.isometric",
   edges: "core:edges",
+  orthographic: "core:view.orthographic",
+  groundGrid: "core:view.ground-grid",
   stats: "core:stats",
   gallery: "core:gallery",
   fullscreen: "core:fullscreen",
@@ -82,6 +85,8 @@ export const CORE_COMMAND_IDS = {
   sectionZ: "core:section.z",
   sectionToggle: "core:section-toggle",
   sectionFlip: "core:section-flip",
+  /** Show or hide the working plane's outline and drag arrow (the cut stays). */
+  sectionGizmo: "core:section-gizmo",
   sectionClear: "core:section-clear",
   /** The Scene panel's Measure tab (Shift+M), and the tab with one of its tools in hand; remove every measurement. */
   measure: "core:measure",
@@ -150,6 +155,11 @@ export const CORE_COMMAND_IDS = {
   builderRepDetail: "core:builder-rep-detail",
   builderSuperimpose: "core:builder-superimpose",
   builderSideBySide: "core:builder-side-by-side",
+  /** How the builder draws what the build leaves out (INCLUDE false, or its structure's): faint with
+   * dashed edges (the default), hidden, or like the rest. One of three, remembered in the browser. */
+  builderIncludeDimmed: "core:builder-include.dimmed",
+  builderIncludeOnly: "core:builder-include.included",
+  builderIncludeAll: "core:builder-include.all",
 } as const;
 
 export type CoreCommandId = (typeof CORE_COMMAND_IDS)[keyof typeof CORE_COMMAND_IDS];

@@ -90,7 +90,7 @@ export interface PlaceBoxOptions {
     mode?: PlacedBoxMode;
     /** The box's colour, as CSS. */
     color?: string;
-    /** Frame the camera on the box when it is first drawn (1.28.0): for a box placed in a large model,
+    /** Frame the camera on the box when it is first drawn (1.29.0): for a box placed in a large model,
      *  where the view of the whole would show it a few pixels wide. Once: the view is the user's after. */
     frame?: boolean;
     /** The user moved or turned the box: where it stands now. Not called for the plugin's own `set`. */

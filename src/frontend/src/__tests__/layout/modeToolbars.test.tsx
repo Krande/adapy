@@ -15,13 +15,14 @@ const { CORE_COMMAND_IDS: ID } = await import("@/layout/coreCommandIds");
 const { CORE_COMMAND_ICONS } = await import("@/layout/commandIcons");
 const { registerCoreCommands } = await import("@/layout/coreCommands");
 const T = await import("@/layout/ModeToolbars");
+const S = await import("@/utils/scene/sectionOffset");
+const { formatSectionPosition } = await import("@/layout/SectionPositionInput");
 const { ShellModeToolbar } = await import("@/layout/ShellModeSwitcher");
 const { AdaViewerProvider } = await import("@/state/AdaViewerContext");
 const { useSectionStore } = await import("@/state/sectionStore");
 const { useFeaAnimationStore } = await import("@/state/feaAnimationStore");
 const { useModelState } = await import("@/state/modelState");
 const P = await import("@/utils/scene/fea/playbackActions");
-const THREE = await import("three");
 const V = await import("@/viewer-core");
 const { readFileSync } = await import("node:fs");
 
@@ -37,7 +38,7 @@ function setup(): void {
 
 const NEW_COMMANDS = [
   ID.playPause, ID.stopResults, ID.stepBack, ID.stepForward,
-  ID.sectionX, ID.sectionY, ID.sectionZ, ID.sectionToggle, ID.sectionFlip, ID.sectionClear,
+  ID.sectionX, ID.sectionY, ID.sectionZ, ID.sectionToggle, ID.sectionFlip, ID.sectionGizmo, ID.sectionClear,
   ID.feaToggleUndeformed, ID.feaToggleElementEdges, ID.feaToggleResultColors,
 ];
 
@@ -108,8 +109,19 @@ test("section commands add, switch, flip and clear the plane the toolbar edits",
   assert.equal(C.getCommand(ID.sectionToggle)!.checked?.(), true);
   run(ID.sectionFlip);
   assert.deepEqual(planes()[0].normal, [-1, -0, -0]);
+  // The gizmo (outline and drag arrow) hides and shows; the cut stays.
+  const gizmo = C.getCommand(ID.sectionGizmo)!;
+  assert.equal(gizmo.disabledReason?.(), null);
+  assert.equal(gizmo.checked?.(), true);
+  run(ID.sectionGizmo);
+  assert.equal(useSectionStore.getState().gizmoVisible, false);
+  assert.equal(gizmo.checked?.(), false);
+  assert.equal(planes()[0].enabled, true);
+  run(ID.sectionGizmo);
+  assert.equal(useSectionStore.getState().gizmoVisible, true);
   run(ID.sectionClear);
   assert.equal(planes().length, 0);
+  assert.equal(C.getCommand(ID.sectionGizmo)!.disabledReason?.(), "No section plane");
   run(ID.sectionToggle); // with none, the first press adds a Z plane
   assert.deepEqual(planes()[0].normal, [0, 0, 1]);
   useSectionStore.getState().clearAll();
@@ -141,6 +153,7 @@ test("the toolbars render their controls, and a button for a missing command is 
   const section = html(React.createElement(T.SectionToolbar));
   assert.match(section, /data-mode-toolbar="section"/);
   assert.match(section, /data-command="core:section\.x"/);
+  assert.match(section, /data-command="core:section-gizmo"/, "the gizmo switch, in every shell that places the strip");
   const rep = html(React.createElement(T.RepresentationToolbar));
   assert.match(rep, /data-command="core:edges"/);
   assert.match(rep, /data-command="core:fea-toggle-undeformed"/);
@@ -149,13 +162,34 @@ test("the toolbars render their controls, and a button for a missing command is 
   assert.doesNotMatch(html(React.createElement(T.RepresentationToolbar)), /data-command/);
 });
 
-test("the offset slider spans the model along the plane's axis, either way it faces", () => {
-  const box = new THREE.Box3(new THREE.Vector3(0, -5, 10), new THREE.Vector3(10, 5, 30));
-  assert.deepEqual(T.sectionOffset(undefined, box), { axis: 2, sign: 1, offset: 0, lo: 10, hi: 30 });
-  assert.deepEqual(T.sectionOffset({ normal: [0, 1, 0], constant: -2 }, box), { axis: 1, sign: 1, offset: 2, lo: -5, hi: 5 });
-  // Flipped: normal -Y, constant +2 is the same plane at y = 2.
-  assert.deepEqual(T.sectionOffset({ normal: [0, -1, 0], constant: 2 }, box), { axis: 1, sign: -1, offset: 2, lo: -5, hi: 5 });
-  assert.deepEqual(T.sectionOffset(undefined, null), { axis: 2, sign: 1, offset: 0, lo: -1, hi: 1 });
+test("the offset slider spans the model along the plane's axis, padded, either way it faces", () => {
+  const box = [0, -5, 10, 10, 5, 30] as const;
+  assert.deepEqual(S.sectionAxis(undefined, box), { axis: 2, sign: 1, position: 0, lo: 8, hi: 32 });
+  assert.deepEqual(S.sectionAxis({ normal: [0, 1, 0], constant: -2 }, box), { axis: 1, sign: 1, position: 2, lo: -6, hi: 6 });
+  // Flipped (core:section-flip negates both): the same plane at y = 2, the same position and range.
+  assert.deepEqual(S.sectionAxis({ normal: [0, -1, 0], constant: 2 }, box), { axis: 1, sign: -1, position: 2, lo: -6, hi: 6 });
+  assert.deepEqual(S.sectionAxis(undefined, null), { axis: 2, sign: 1, position: 0, lo: -1, hi: 1 });
+});
+
+test("the section controls show model coordinates, while the store keeps the world's", () => {
+  // The viewport placed the model 45 m up and 100 m east: world = model + offset.
+  const offset = [100, 0, 45] as const;
+  const world = [100, -5, 55, 110, 5, 75] as const; // the model's box in the world: z 10..30 in its own frame
+  const plane = { normal: [0, 0, 1], constant: -57 }; // world z = 57, model z = 12
+  const at = S.sectionAxis(plane, world, offset);
+  assert.equal(at.position, 12);
+  assert.deepEqual([at.lo, at.hi], [8, 32], "the model's own extent, padded");
+  // Typing z = 20 puts the plane at world z = 65.
+  assert.equal(S.sectionConstant(at, 20, offset), -65);
+  const flipped = { normal: [0, 0, -1], constant: 57 };
+  const back = S.sectionAxis(flipped, world, offset);
+  assert.equal(back.position, 12, "flipped: the same number");
+  assert.deepEqual([back.lo, back.hi], [at.lo, at.hi], "and the same range");
+  assert.equal(S.sectionConstant(back, 20, offset), 65, "the flipped plane moved to model z = 20 too");
+  // No offset published: the world is the model's frame.
+  assert.equal(S.sectionAxis(plane, world).position, 57);
+  assert.equal(formatSectionPosition(12.34567), "12.346");
+  assert.equal(formatSectionPosition(-0), "0");
 });
 test("a mode names core toolbars; ShellModeToolbar draws them in order, skipping unknown ids", () => {
   setup();
@@ -184,7 +218,7 @@ test("the Desktop UI's modes name core toolbars that exist", () => {
 });
 
 test("the facade publishes the toolbars, and the API version moved with them", () => {
-  assert.equal(V.VIEWER_CORE_API_VERSION, "1.28.0");
+  assert.equal(V.VIEWER_CORE_API_VERSION, "1.29.0");
   assert.deepEqual([...V.CORE_MODE_TOOLBAR_IDS], ["playback", "section", "representation", "colorBy", "build"]);
   // The layout entry imports every panel (and their styles), so its exports are read from the source.
   const facade = readFileSync(new URL("../../viewer-core/layout.ts", import.meta.url), "utf8");

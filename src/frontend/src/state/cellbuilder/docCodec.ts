@@ -49,7 +49,20 @@ const OPENING_OWN_KEYS = new Set([
   "DZ",
 ]);
 
-function extractParams(
+/** The doc schema the builder writes (ada.topo_model.engines.PROCEDURAL_SCHEMA_VERSION). */
+export const DOC_SCHEMA_VERSION = "1.1";
+
+/** Does a doc of this schema mean its entities' `INCLUDE: false`? From 1.1 only: before it every stored
+ * doc carried the entity models' default false on items nobody excluded, and no build read it
+ * (ada.topo_model.engines.honours_entity_include). */
+export function honoursEntityInclude(schemaVersion: unknown): boolean {
+  const have = String(schemaVersion ?? "").split(".").map(Number);
+  if (!have.length || have.some((n) => !Number.isInteger(n))) return false;
+  const [maj = 0, min = 0] = have;
+  return maj > 1 || (maj === 1 && min >= 1);
+}
+
+function extractParamsRaw(
   entity: Record<string, unknown>,
   ownKeys: Set<string>,
 ): Record<string, unknown> {
@@ -102,6 +115,14 @@ export function cellsFromDoc(doc: ProceduralDoc): Record<string, BuilderCell> {
   // Reconcile each cell's group against the doc's group list: a STRUCTURE_NAME
   // naming no defined group is dropped to ungrouped (keeps the model consistent).
   const groups = groupsFromDoc(doc);
+  // An older doc's entity INCLUDE is the models' default, not a choice: left out, it reads as included
+  // and the next save writes the 1.1 stamp without it.
+  const own = honoursEntityInclude(doc.schema_version);
+  const extractParams = (entity: Record<string, unknown>, ownKeys: Set<string>) => {
+    const p = extractParamsRaw(entity, ownKeys);
+    if (!own) delete p.INCLUDE;
+    return p;
+  };
   for (const s of doc.spaces ?? []) {
     const id = nextId();
     out[id] = {

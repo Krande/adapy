@@ -1,5 +1,5 @@
 // A plugin marking objects of the loaded models in a colour of its own for a while
-// (`ctx.scene.highlightObjects`, plugin API 1.28.0).
+// (`ctx.scene.highlightObjects`, plugin API 1.29.0).
 //
 // A tool that asks the user to point at objects (`ctx.scene.pickObjects`) takes the clicks without
 // selecting anything -- so nothing on screen says which objects it has taken. This draws them: each

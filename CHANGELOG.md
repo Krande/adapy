@@ -2,6 +2,24 @@
 
 
 
+## v0.161.0 (2026-11-18)
+
+### Chore
+
+* chore(deps): bump Krande/deputy from 0.9.0 to 0.10.0 in the dependencies group (#558)
+
+Signed-off-by: dependabot[bot] &lt;support@github.com&gt;
+Co-authored-by: dependabot[bot] &lt;49699333+dependabot[bot]@users.noreply.github.com&gt;
+Co-authored-by: Kristoffer Andersen &lt;kristoffer_andersen@outlook.com&gt; ([`282b3ce`](https://github.com/Krande/adapy/commit/282b3ce56f1b22d13f99a753994c19b735970d12))
+
+### Feature
+
+* feat(viewer): a compile keeps the camera, the resized cell&#39;s dimensions, an orthographic view (#545)
+
+Co-authored-by: Claude Opus 5.5 (1M context) &lt;noreply@anthropic.com&gt;
+Co-authored-by: krande &lt;kristoffer_andersen@outlook.com&gt; ([`0bd1214`](https://github.com/Krande/adapy/commit/0bd12145bfe481e45928feb16f35a7769ebb2dc2))
+
+
 ## v0.160.1 (2026-11-18)
 
 ### Fix

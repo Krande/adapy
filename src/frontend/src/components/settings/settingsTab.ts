@@ -25,3 +25,25 @@ export function onSettingsTab(listener: () => void): () => void {
         listeners.delete(listener);
     };
 }
+
+/**
+ * Who shows the Settings window. Core's own is the `core:settings` panel; a shell that draws Settings its
+ * own way (another layout, its own window) registers itself here, and then the commands that open a
+ * setting (`openOption`) and the Options panel's Settings button open the shell's window on that tab.
+ */
+export type SettingsHost = (tab: SettingsSectionId | null) => void;
+
+let host: SettingsHost | null = null;
+
+/** Show Settings through `h` from now on. Returns the undo (back to core's window). */
+export function setSettingsHost(h: SettingsHost): () => void {
+    host = h;
+    return () => {
+        if (host === h) host = null;
+    };
+}
+
+/** The shell's Settings window, when one registered (`setSettingsHost`); null: core's own. */
+export function settingsHost(): SettingsHost | null {
+    return host;
+}

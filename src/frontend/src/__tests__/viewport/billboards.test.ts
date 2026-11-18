@@ -86,6 +86,7 @@ function fakeScene() {
         drawsSprites: true,
         elements: {view: {clientHeight: 600}, input: {}},
         cameraPose: {fov: 90},
+        onBeforeDraw: new Set<() => void>(),
         addTexture: (_rgba: Uint8ClampedArray, w: number, h: number) => (calls.push(`texture ${w}x${h}`), ++ids),
         removeTexture: (id: number) => void calls.push(`-texture ${id}`),
         addSprite: () => (calls.push("sprite"), ++ids),

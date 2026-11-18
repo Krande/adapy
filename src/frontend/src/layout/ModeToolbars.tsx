@@ -23,6 +23,10 @@ import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {useModelState} from "@/state/modelState";
 import {useOptionsStore} from "@/state/optionsStore";
 import {useSectionStore} from "@/state/sectionStore";
+import {useSceneFrameStore} from "@/state/sceneFrameStore";
+import {sectionAxis, sectionConstant} from "@/utils/scene/sectionOffset";
+import {activeViewport} from "@/viewport/api/viewportApi";
+import {useNativeViewport} from "@/viewport/native/nativeModel";
 import {hasEmbeddedDoc, useCellBuilderStore} from "@/state/cellBuilderStore";
 import {useColorByStore} from "@/state/colorByStore";
 import {useLabelsStore} from "@/state/labelsStore";
@@ -39,6 +43,7 @@ import {setResultScale, setResultStep} from "@/utils/scene/fea/playbackActions";
 import {CORE_COMMAND_IDS as ID} from "./coreCommandIds";
 import {PauseIcon, PlayIcon} from "./commandIcons";
 import {CommandButton, type CommandButtonProps} from "./CommandButton";
+import {SectionPositionInput} from "./SectionPositionInput";
 import {SplitButton, type SplitButtonItem} from "./SplitButton";
 import {workingPlane} from "./coreCommands";
 import {CORE_MODE_TOOLBAR_IDS, type CoreModeToolbarId} from "./shellModes";
@@ -116,31 +121,22 @@ export function PlaybackToolbar({className = BAR}: {className?: string}) {
   );
 }
 
-/**
- * Where a section plane sits along its axis, and the model's extent there (the offset slider's
- * range). The plane is normal . x + constant = 0, so on its axis it sits at -constant / sign.
- * With no plane the Z axis; with no model, -1 to 1.
- */
-export function sectionOffset(
-  plane: {normal: readonly number[]; constant: number} | undefined,
-  box: {min: {x: number; y: number; z: number}; max: {x: number; y: number; z: number}} | null,
-): {axis: 0 | 1 | 2; sign: 1 | -1; offset: number; lo: number; hi: number} {
-  const n = plane?.normal ?? [0, 0, 1];
-  const axis = n.reduce((best, v, i) => (Math.abs(v) > Math.abs(n[best]) ? i : best), 0) as 0 | 1 | 2;
-  const sign = n[axis] < 0 ? -1 : 1;
-  const lo = box ? [box.min.x, box.min.y, box.min.z][axis] : -1;
-  const hi = box ? [box.max.x, box.max.y, box.max.z][axis] : 1;
-  return {axis, sign, offset: plane ? -plane.constant * sign : 0, lo, hi};
-}
+const AXIS_LABELS = ["X", "Y", "Z"] as const;
 
-/** Section planes: one per axis, on / off, flip, the offset along the axis, remove all. */
+/** Section planes: one per axis, on / off, flip, the gizmo, the position along the axis (slid or
+ *  typed, in model coordinates: utils/scene/sectionOffset), remove all. */
 export function SectionToolbar({className = BAR}: {className?: string}) {
-  // Re-render on every change to the planes.
+  // Re-render on every change to the planes, to the model on screen (either viewport's) and to where it is placed.
   useStore(useSectionStore);
-  const box = useModelState((s) => s.boundingBox);
+  useModelState((s) => s.boundingBox);
+  useNativeViewport((s) => s.model);
+  const shift = useSceneFrameStore((s) => s.offset);
+  const bounds = activeViewport()?.modelBounds() ?? null;
   const plane = workingPlane();
-  const {sign, offset, lo, hi} = sectionOffset(plane, box);
+  const at = sectionAxis(plane, bounds, shift);
+  const {position, lo, hi} = at;
   const span = hi - lo;
+  const moveTo = (v: number) => plane && useSectionStore.getState().setConstant(plane.id, sectionConstant(at, v, shift));
   return (
     <div className={className} role="group" aria-label="Section plane" data-mode-toolbar="section">
       {([ID.sectionX, ID.sectionY, ID.sectionZ] as const).map((id) => (
@@ -151,17 +147,21 @@ export function SectionToolbar({className = BAR}: {className?: string}) {
       {DIVIDER}
       <CommandButton id={ID.sectionToggle} />
       <CommandButton id={ID.sectionFlip} />
-      {plane && box && span > 0 && (
-        <input
-          type="range"
-          className="mx-1 w-32"
-          min={lo}
-          max={hi}
-          step={span / 500}
-          value={Math.min(hi, Math.max(lo, offset))}
-          aria-label={`Section plane ${plane.label} offset`}
-          onChange={(e) => useSectionStore.getState().setConstant(plane.id, -sign * Number(e.target.value))}
-        />
+      <CommandButton id={ID.sectionGizmo} />
+      {plane && bounds && span > 0 && (
+        <>
+          <input
+            type="range"
+            className="mx-1 w-32"
+            min={lo}
+            max={hi}
+            step={span / 500}
+            value={Math.min(hi, Math.max(lo, position))}
+            aria-label={`Section plane ${plane.label} offset`}
+            onChange={(e) => moveTo(Number(e.target.value))}
+          />
+          <SectionPositionInput position={position} axisLabel={AXIS_LABELS[at.axis]} className={`${FIELD} w-16`} onCommit={moveTo} />
+        </>
       )}
       <CommandButton id={ID.sectionClear} />
     </div>

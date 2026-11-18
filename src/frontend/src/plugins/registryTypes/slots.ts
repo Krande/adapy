@@ -22,7 +22,7 @@ export type PluginRegion =
   | "storage-detail"
   | "admin"
   | "connection-builder"
-  // (1.28.0) A section of the Connections panel's Review tab, after core's own (the produced and
+  // (1.29.0) A section of the Connections panel's Review tab, after core's own (the produced and
   // the identified joints), ordered by `order`, headed by the panel's `title`. The Review tab is
   // there while any such section is active, whether or not core has joints to show.
   | "joint-review";
@@ -261,7 +261,7 @@ export interface PanelSlot {
   // panel id is shown.
   //
   // `connection-builder` panels (1.26.0) are always tabs too, of the Connections
-  // panel, after core's own (Builder, Clashes, Overlays, Review; 1.28.0): `asTab` supplies the label, order
+  // panel, after core's own (Builder, Clashes, Overlays, Review; 1.29.0): `asTab` supplies the label, order
   // and badge; without it the panel's `title`, else its id, is the label.
   asTab?: {
     label: string;

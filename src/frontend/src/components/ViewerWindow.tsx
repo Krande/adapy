@@ -1,6 +1,6 @@
 import React from "react";
 import {ViewerPanel} from "@/state/viewerPanelStore";
-import {FloatingWindow} from "@/components/ui/FloatingWindow";
+import {FloatingWindow, type RememberedRect} from "@/components/ui/FloatingWindow";
 import {TransformedHost} from "@/components/ui/OverlayPortal";
 import {CloseGlyph, ExternalGlyph, WindowFrame, WindowHeaderActions, WindowHeaderButton} from "@/components/ui/PanelFrame";
 
@@ -64,8 +64,10 @@ export const ViewerWindow: React.FC<{
     /** Stacking above the other in-viewer window (0: the base layer). */
     layer?: number;
     onActivate?: () => void;
+    /** Keep the window's place and size in this browser (per window), instead of opening at the default. */
+    remember?: RememberedRect;
     children: React.ReactNode;
-}> = ({title, onExternal, onClose, offset = 0, layer = 0, onActivate, children}) => (
+}> = ({title, onExternal, onClose, offset = 0, layer = 0, onActivate, remember, children}) => (
     <FloatingWindow
         dragHandleClassName={DRAG_HANDLE}
         // z-60 keeps it above the canvas (z-0) and below the toast slot (z-50,
@@ -75,7 +77,8 @@ export const ViewerWindow: React.FC<{
         zClassName="z-[60]"
         onActivate={onActivate}
         minSize={{width: 420, height: 320}}
-        initialRect={() => ({
+        remember={remember}
+        initialRect={remember ? undefined : () => ({
             // Centered-ish over the viewport. Big enough that the admin tabs +
             // audit-runs grid don't feel claustrophobic; the user can
             // drag-resize as they like.

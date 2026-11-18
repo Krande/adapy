@@ -1,4 +1,4 @@
-// The Review tab's plugin sections (region `joint-review`, plugin API 1.28.0): a plugin's section
+// The Review tab's plugin sections (region `joint-review`, plugin API 1.29.0): a plugin's section
 // renders after core's own (the produced and the identified joints), in `order`, headed by its
 // title; with none the tab is what it was; and an active section makes the Review tab be there even
 // when core has no joints to show.

@@ -42,7 +42,9 @@ from ada.comms.rest.config import (  # noqa: E402
 )
 from ada.comms.rest.converter import (  # noqa: E402
     HIDDEN_PREFIXES,
+    IMAGE_ASSET_PREFIX,
     PUBLISHED_ASSET_PREFIX,
+    is_image_asset_key,
     is_published_asset_key,
     is_versions_artefact_key,
 )
@@ -320,3 +322,45 @@ def test_carve_out_is_delete_only_and_not_shared_scope(member_client: TestClient
 
     assert ASSET_JSON in _keys(member_client, scope)
     assert ASSET_DB in _keys(member_client, Scope.shared())
+
+
+# ── images/: images a user keeps in the scope ───────────────────────
+
+IMAGE_PNG = "images/views/plan-at-deck.png"
+
+
+def test_image_predicate_takes_images_under_the_prefix_only():
+    for key in (IMAGE_PNG, "/images/a.jpg", "images/a/b/c.JPEG", "images/x.webp"):
+        assert is_image_asset_key(key), key
+    for key in ("images/notes.json", "images/model.ifc", "shots/view.png", "views/images/a.png", "imagesx/a.png"):
+        assert not is_image_asset_key(key), key
+    assert IMAGE_ASSET_PREFIX not in HIDDEN_PREFIXES  # the user's files: listed
+
+
+def test_put_accepts_an_image_under_images_and_lists_it(app_client: TestClient):
+    r = app_client.put(f"/api/scopes/user:me/blobs/{IMAGE_PNG}", content=b"\x89PNG\r\n\x1a\n")
+    assert r.status_code == 201, r.text
+    listed = {row["key"] for row in app_client.get("/api/scopes/user:me/files").json()["files"]}
+    assert IMAGE_PNG in listed
+    # the convert page lists conversion sources: an image is none
+    sources = app_client.get("/api/scopes/user:me/files", params={"include_derived": True}).json()["files"]
+    assert IMAGE_PNG not in {row["key"] for row in sources}
+
+
+def test_image_exemption_is_for_images_under_the_prefix(app_client: TestClient):
+    for key in ("shots/view.png", "images/notes.json", "images/run.exe"):
+        r = app_client.put(f"/api/scopes/user:me/blobs/{key}", content=b"payload")
+        assert r.status_code == 415, f"{key}: {r.status_code} {r.text}"
+    r = app_client.put("/api/scopes/user:me/blobs/_derived/images/a.png", content=b"x")
+    assert r.status_code == 403, r.text
+
+
+def test_presign_and_upload_complete_accept_an_image(presigning_client: TestClient):
+    r = presigning_client.post("/api/scopes/user:me/upload-url", json={"key": IMAGE_PNG})
+    assert r.status_code == 200, r.text
+    r = presigning_client.post("/api/scopes/user:me/upload-url", json={"key": "shots/view.png"})
+    assert r.status_code == 415, r.text
+
+    _put(presigning_client, IMAGE_PNG, b"png")
+    r = presigning_client.post("/api/scopes/user:me/upload-complete", json={"key": IMAGE_PNG})
+    assert r.status_code == 201, r.text

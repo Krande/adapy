@@ -281,6 +281,20 @@ async def list_system_templates(pool: asyncpg.Pool, *, scope_kind: str, scope_id
     return [_system_row_summary(r) for r in rows]
 
 
+async def get_system_docs_by_scope(pool: asyncpg.Pool, *, scope_kind: str, scope_id: str | None) -> dict[str, dict]:
+    """Map ``slug -> doc`` for the live system templates in a scope (the listing rows
+    carry no doc): what the systems inspector's type list projects."""
+    rows = await pool.fetch(
+        """
+        SELECT slug, doc FROM system_templates
+        WHERE scope_kind = $1 AND COALESCE(scope_id, '') = COALESCE($2, '') AND NOT archived
+        """,
+        scope_kind,
+        scope_id,
+    )
+    return {r["slug"]: _loads_jsonb(r["doc"]) for r in rows}
+
+
 async def get_system_template(pool: asyncpg.Pool, template_id: str) -> dict | None:
     row = await pool.fetchrow(
         """

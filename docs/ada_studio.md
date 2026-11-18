@@ -25,6 +25,21 @@ stiffeners and decks, organised the way the model's parts are.
 
 ![An IFC model opened from storage, with its object tree](screenshots/ada-studio/model.png)
 
+The view is in perspective. **Orthographic view**, in the Desktop UI's **View → Camera** menu and
+the classic UI's **Settings → Scene config**, draws it with parallel edges instead: the model is
+as tall at the orbit target as it was, zoom and the named views work as before, and labels keep
+their size on screen. A fit (**Fit all**, **Fit selection**, a named view) frames the model by its
+outline as seen from the camera, so it fills the view with a small margin. The choice is
+remembered in this browser, and applies on every viewport, the three.js-free one included.
+
+**Ground grid**, in **View → Display** and **Settings → Scene config**, shows or hides the grid on
+the ground plane, also remembered in this browser. Section planes do not cut the grid, so turn it
+off for a clean plan cut. A UI shell may also put both toggles on its own toolbar.
+
+A load that replaces the model on screen keeps the camera where you had it: a compile showing
+its result again, for one. The camera goes back to its starting view only when the scene is
+left empty.
+
 ## Select and inspect
 
 Click a member in the tree or in the 3D view to select it. **Selected Object Info** shows its
@@ -166,6 +181,8 @@ the default. Your rail is saved with your layout.
   read it.
 - **Procedural models:** cell-model documents compiled into structures, equipment and routed
   systems by the [topology engine](architecture/topology_engine.md), with equipment and system catalogs.
+  While the cell builder's resize gizmo (**S**) is on, the selected cell shows its three
+  dimensions on the edges facing you, updated as you drag.
 - **Plugins:** UI shells, panels and URL handlers on the frontend side, and plugin backends,
   artefact contributors and job kinds on the worker side.
 - **Administration:** users, projects, storage, workers, scheduled audits of conversions,

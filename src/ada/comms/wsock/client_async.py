@@ -51,14 +51,23 @@ class WebSocketClientAsync(WebSocketClientBase):
         await self.disconnect()
 
     async def check_target_liveness(self, target_id=None, target_group: TargetTypeDC = TargetTypeDC.WEB, timeout=1):
-        """Checks if the target is alive by sending a PING command."""
-        await self.websocket.send(self._prep_target_liveness(target_id, target_group))
-        try:
-            msg = await self.receive(timeout=timeout)
-        except asyncio.TimeoutError:
-            return False
+        """Checks if the target is alive by sending a PING command.
 
-        return msg.command_type == CommandTypeDC.PONG
+        Waits up to ``timeout`` seconds in all for the PONG. Other messages arriving meanwhile (a
+        broadcast to every client, say) are passed over: reading only the first one made any such
+        message count as "not alive".
+        """
+        await self.websocket.send(self._prep_target_liveness(target_id, target_group))
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout
+        while (left := deadline - loop.time()) > 0:
+            try:
+                msg = await self.receive(timeout=left)
+            except asyncio.TimeoutError:
+                return False
+            if msg.command_type == CommandTypeDC.PONG:
+                return True
+        return False
 
     async def update_scene(
         self,

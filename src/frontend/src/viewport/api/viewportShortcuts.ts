@@ -9,6 +9,8 @@ type Run = () => void | boolean;
 
 /** Handlers by core shortcut id. `wrap` gives each the caller's own `when` (its scope, its focus rules).
  *  A key with no viewport on screen, or for something it cannot do, is left to the browser. */
+import {hideOthers, hideSelection, showAll, showSelection} from "@/utils/scene/visibilityActions";
+
 export function viewportShortcutHandlers(wrap: (run: Run) => CoreShortcutHandler): Record<string, CoreShortcutHandler> {
     const on = (act: (v: NonNullable<ReturnType<typeof activeViewport>>) => void | boolean): CoreShortcutHandler =>
         wrap(() => {
@@ -16,9 +18,11 @@ export function viewportShortcutHandlers(wrap: (run: Run) => CoreShortcutHandler
             return viewport ? act(viewport) : false;
         });
     return {
-        "core:hide-selected": on((v) => v.hideSelected()),
-        "core:hide-others": on((v) => v.hideOthers()),
-        "core:show-all": on((v) => v.showAll()),
+        // Hide / show act on the builder's selected cells while they are drawn (utils/scene/visibilityActions).
+        "core:hide-selected": wrap(() => hideSelection()),
+        "core:hide-others": wrap(() => hideOthers()),
+        "core:show-all": wrap(() => showAll()),
+        "core:show-selected": wrap(() => showSelection()),
         "core:fit-all": on((v) => v.fitAll()),
         "core:fit-selection": on((v) => (v.unavailable("fit-selection") ? false : v.fitSelection())),
         "core:reset-camera": on((v) => v.resetCamera()),

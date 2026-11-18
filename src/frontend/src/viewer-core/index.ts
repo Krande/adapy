@@ -671,12 +671,38 @@
 //   1.27.0 Kept in step with PLUGIN_API_VERSION 1.27.0. Additive: `ctx.scene.contactBetween` and
 //          the types `SceneObjectRef`, `SceneContactOptions`, `SceneContact`, `SceneContactPatch`,
 //          `SceneContactAnswer`.
-//   1.28.0 Kept in step with PLUGIN_API_VERSION 1.28.0. Additive: `ctx.scene.highlightObjects` and
+//   1.28.0 Kept in step with PLUGIN_API_VERSION 1.28.0. Additive: `CORE_COMMAND_IDS.orthographic`
+//          (`core:view.orthographic`, the Orthographic view toggle) and `CORE_COMMAND_IDS.groundGrid`
+//          (`core:view.ground-grid`, the ground grid toggle). Core puts them in its menus (the
+//          Desktop UI's View, the classic UI's Settings > Scene config), not on the section toolbar
+//          the shells share: a shell places them on its own toolbar if it wants. Orthographic view
+//          is offered disabled, with the reason, on a viewport whose `unavailable("orthographic")`
+//          answers one (every built-in viewport, the three.js-free one included, has it).
+//          `CommandSpec.watch`: subscribe to what a command's `checked`/`disabledReason` read;
+//          a `CommandButton` redraws when it fires (core's view toggles and section commands have one).
+//          `CORE_COMMAND_IDS.sectionGizmo` (`core:section-gizmo`): show or hide the section plane's
+//          outline and drag arrow, on core's section strip (the classic Clip panel's "Show gizmo").
+//          `UiShellSpec.layout.modeArrangements[id].toolbar`: a shell's own controls for a
+//          plugin's mode, drawn after the plugin's toolbar.
+//          `CORE_COMMAND_IDS.builderIncludeDimmed` / `builderIncludeOnly` / `builderIncludeAll`: the
+//          builder's include view (what the build leaves out drawn faint and dashed, hidden, or like
+//          the rest), one of three, remembered in the browser.
+//          On `/layout`: `SETTINGS_SECTIONS` / `availableSettingsSections` (the Settings pages:
+//          id, title, availability, controls); `setSettingsHost` (root and `/layout`), for a shell that shows Settings
+//          in its own window: core's "open this setting" commands and the Options panel's Settings
+//          button then open the shell's window on the page. `OptionsBodyProps.flat` draws the settings
+//          sections open, without their collapsible header (one page per section). On the root: the Model
+//          panel's helpers (`buildModelTree`, `MODEL_VIEWS`, `nodeItemIds`, `isItemIncluded`,
+//          `itemIncludeState`, `blueprintColour`, `blueprintsInUse`, `structureColour`),
+//          so a shell's Model panel needs no deep import; and on `/layout`, `useModelPanelView` (the panel's
+//          view and folded rows with `setView` / `toggleCollapsed` / `setCollapsed`, not the store). The camera mapping's
+//          `select` action (the selection rectangle) and controls profiles (Settings > Controls).
+//   1.29.0 Kept in step with PLUGIN_API_VERSION 1.29.0. Additive: `ctx.scene.highlightObjects` and
 //          the types `SceneHighlight`, `SceneHighlightOptions`, `SceneHighlightRef`; the
 //          `joint-review` region (a plugin's section of the Connections panel's Review tab) and
 //          `getJointReviewSections` on `@/viewer-core/plugins`; `ctx.scene.findObjects` and the
 //          type `SceneObjectMatch`; `openConnectionsTab(tab)` on `@/viewer-core/app`.
-export const VIEWER_CORE_API_VERSION = "1.28.0";
+export const VIEWER_CORE_API_VERSION = "1.29.0";
 
 // ---------------------------------------------------------------------------
 // Plugin declaration. `registerPlugin` is how a package announces itself —
@@ -1033,6 +1059,18 @@ export {
   registerPanel,
 } from "@/layout/registry";
 export { hide, isPanelOpen, reveal, setRevealElsewhere, toggle } from "@/layout/reveal";
+// A shell that shows Settings in its own window registers it here, so core's "open this setting" commands
+// and the Options panel's Settings button open that window (on the setting's page). Light: no panels.
+export { setSettingsHost } from "@/components/settings/settingsTab";
+export type { SettingsHost } from "@/components/settings/settingsTab";
+// The procedural model as the Model panel shows it: its tree (flat, or structure > space > component),
+// the components' and structures' include flags, the structures' blueprint colours, and the Model panel's
+// remembered view. Pure helpers (and one small store), so a shell draws its own Model panel from them.
+export { DEFAULT_MODEL_VIEW, MODEL_VIEWS, buildModelTree, nodeItemIds } from "@/utils/cellbuilder/modelTree";
+export type { GroupNode as ModelGroupNode, IncludeMark, ItemNode, ModelNode, ModelTreeInput, ModelView } from "@/utils/cellbuilder/modelTree";
+export { isItemIncluded, itemIncludeState } from "@/utils/cellbuilder/include";
+export type { IncludeState } from "@/utils/cellbuilder/include";
+export { blueprintColour, blueprintsInUse, structureColour } from "@/utils/cellbuilder/blueprintColours";
 export type { PanelController } from "@/layout/reveal";
 export {
   listSceneTreeRoots,

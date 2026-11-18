@@ -15,7 +15,7 @@ const M = await import("@/layout/shellModes");
 const O = await import("@/layout/viewportOverlays");
 const P = await import("@/layout/presets/classicPlace");
 const { layoutStore } = await import("@/layout/layoutStore");
-const { registerPanel } = await import("@/layout/registry");
+const { registerPanel, getPanel } = await import("@/layout/registry");
 const { CLASSIC_ZONES, layoutDocKey } = await import("@/layout/layout");
 const { gridOf } = await import("@/layout/reducers");
 const { groupOf, VIEWPORT_NODE } = await import("@/layout/splitTree");
@@ -191,7 +191,6 @@ test("a mode's cover and a shell's overlay panels", () => {
     assert.equal(P.classicCover(), null);
     assert.deepEqual(P.classicOverlays(), { pluginPanels: "bottom-left" });
     registerPanel({ id: "plug:hud", title: "HUD", body, content: body, placement: { classic: { zone: CLASSIC_ZONES.menuColumn, order: 1 }, docked: { zone: "overlay" } } }, "plug");
-    const { getPanel } = await_registry;
     assert.equal(P.isOverlayPanel(getPanel("plug:hud")!), true);
     assert.ok(P.placedElsewhere(P.classicDoc(), true, false).includes("plug:hud"), "its region host leaves it out");
   } finally {
@@ -201,4 +200,36 @@ test("a mode's cover and a shell's overlay panels", () => {
   }
 });
 
-const await_registry = await import("@/layout/registry");
+test("a reset opens the active mode's starting panels again, one closed since included", async () => {
+  const R = await import("@/layout/reveal");
+  M.setShellModes([{ id: "a", label: "A", order: 0 }], "a");
+  P.setClassicShell({ id: "rs", open: ["c:p", "c:q"] }, ["a"]);
+  const revealed: string[] = [];
+  R.setPanelController({ isOpen: () => false, reveal: (id) => (revealed.push(id), true), hide: () => true });
+  try {
+    // Closed and remembered so: the arrangement records it, and a reset drops that record.
+    P.resetArrangement();
+    assert.deepEqual(revealed, ["c:p", "c:q"]);
+  } finally {
+    R.setPanelController(null);
+    M.setShellModes([]);
+    P.setClassicShell(null);
+    layoutStore.setState({ prefs: { v: 1, docs: {} } });
+  }
+});
+
+test("a mode that opens the Builder at the start offers it with no model, whatever the mode is called", async () => {
+  const { corePanelSpecs } = await import("@/layout/corePanels");
+  const { CORE_PANEL_IDS } = await import("@/layout/corePanelIds");
+  const builder = corePanelSpecs().find((p) => p.id === CORE_PANEL_IDS.cellbuilder)!;
+  try {
+    M.setShellModes([{ id: "inspect", label: "Inspect", order: 0, open: ["core:outliner"] }, { id: "topology-input", label: "Input", order: 1, open: [CORE_PANEL_IDS.cellbuilder] }], "inspect");
+    assert.equal(builder.available?.({} as never), false, "not in a mode that does not open it");
+    M.setShellMode("topology-input");
+    assert.equal(builder.available?.({} as never), true, "the docked UI's Topology > Input");
+    M.setShellModes([{ id: "build", label: "Build", order: 0 }], "build");
+    assert.equal(builder.available?.({} as never), true, "the Desktop UI's Build, as before");
+  } finally {
+    M.setShellModes([]);
+  }
+});

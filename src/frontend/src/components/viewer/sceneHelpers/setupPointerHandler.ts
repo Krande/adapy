@@ -19,7 +19,6 @@ import CameraControls from "camera-controls";
 import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
 import {useTreeViewStore} from "@/state/treeViewStore";
 import {useSceneMenuStore} from "@/state/sceneMenuStore";
-import {useCellBuilderStore} from "@/state/cellBuilderStore";
 import {selectedLeafNodes} from "@/utils/tree_view/treeNavigation";
 import {useFemConceptsStore} from "@/state/femConceptsStore";
 import {useObjectInfoStore} from "@/state/objectInfoStore";
@@ -33,6 +32,9 @@ import {drawMarquee, marqueeElement} from "@/utils/bboxSelection/marquee";
 import {ndcRect, screenBoxMode} from "@/utils/bboxSelection/screenBox";
 import {pickMeshAt, pickPointAt} from "@/viewport/picking";
 import {offerSceneClick, sceneClicksHeld} from "@/viewport/api/sceneClicks";
+import {builderLayerEditing, pressClaimed, selectCellsInScreenRect} from "@/components/viewer/cellbuilder/cellBoxSelect";
+import {useCameraControlsStore} from "@/state/cameraControlsStore";
+import {mouseButtonOf, selectsByDrag} from "@/utils/camera/cameraMapping";
 
 // A second click/tap inside this window + radius counts as a double.
 // 350ms matches the OS-level double-tap threshold on iOS / Android and
@@ -61,11 +63,17 @@ export function setupPointerHandler(
     const listeners = new AbortController();
     const {signal} = listeners;
 
-    // SHIFT + LEFT DRAG draws a selection rectangle (`screenBox`): rightwards a window, leftwards
-    // a crossing. Taken in the capture phase, before the camera controls on the canvas see the
-    // press -- three's OrbitControls would otherwise pan on Shift (Ctrl keeps panning). A Shift
-    // press that does not move is still a Shift+click: the click below adds what is under it.
-    let marquee: {start: {x: number; y: number}; el: HTMLDivElement | null} | null = null;
+    // A DRAG THE MAPPING CALLS "select" (Shift + left by default, any left drag in the GeniE controls)
+    // draws a selection rectangle (`screenBox`): rightwards a window, leftwards a crossing. Held with
+    // Shift or Ctrl it adds to the selection, else it replaces it. The camera controls are told the
+    // drag is not theirs (bindCameraMapping), and the rectangle starts as the press bubbles up from the
+    // input surface: whatever takes a press there first -- a selection box's handle, a cell builder
+    // gizmo, a builder face drag -- stops it, and no rectangle is drawn behind it. A press that does not
+    // move is a click, handled as any other (a builder cell, or the click handler below).
+    // While the cell builder edits its cells the rectangle selects cells (`cellBoxSelect`); a
+    // procedural model merely open behind the mode (its layer hidden) does not take the gesture
+    // from the model on screen.
+    let marquee: {start: {x: number; y: number}; el: HTMLDivElement | null; cells: THREE.Object3D | null; add: boolean} | null = null;
     let swallowClick = false;
     const endMarquee = () => {
         marquee?.el?.remove();
@@ -82,28 +90,34 @@ export function setupPointerHandler(
     };
     const onMarqueeUp = (e: PointerEvent) => {
         if (!marquee) return;
-        const {start, el} = marquee;
+        const {start, el, cells, add} = marquee;
         endMarquee();
-        if (!el) return; // never moved: the click that follows is a Shift+click
+        if (!el) return; // never moved: the click that follows selects, as any click does
         swallowClick = true;
-        const rect = renderer.domElement.getBoundingClientRect();
-        selectInScreenRect(ndcRect(start, {x: e.clientX, y: e.clientY}, rect), screenBoxMode(start.x, e.clientX));
+        const rect = ndcRect(start, {x: e.clientX, y: e.clientY}, renderer.domElement.getBoundingClientRect());
+        const mode = screenBoxMode(start.x, e.clientX);
+        if (cells) selectCellsInScreenRect(cells, camera, rect, mode, add);
+        else selectInScreenRect(rect, mode, add);
     };
     signal.addEventListener("abort", endMarquee);
 
+    // Every press, whoever then takes it: where a click started.
     container.addEventListener("pointerdown", (e) => {
         pointerDownPos = {x: e.clientX, y: e.clientY};
         swallowClick = false;
-        if (e.button !== 0 || !e.shiftKey || e.ctrlKey || e.metaKey || e.altKey) return;
-        if (useCellBuilderStore.getState().active !== null) return; // its own Shift gestures
+    }, {signal, capture: true});
+    container.addEventListener("pointerdown", (e) => {
+        const button = e.pointerType === "mouse" || e.pointerType === "" ? mouseButtonOf(e.button) : null;
+        if (!button || !selectsByDrag(useCameraControlsStore.getState().mapping, button, e)) return;
+        if (pressClaimed(e)) return; // a builder gizmo's handle: the gizmo's drag
         // A tool holding the clicks (the Measure tab) changes no selection, a dragged box's neither.
         if (sceneClicksHeld()) return;
-        e.stopPropagation();
         endMarquee();
-        marquee = {start: {x: e.clientX, y: e.clientY}, el: null};
+        const add = e.shiftKey || e.ctrlKey || e.metaKey;
+        marquee = {start: {x: e.clientX, y: e.clientY}, el: null, cells: builderLayerEditing(scene), add};
         window.addEventListener("pointermove", onMarqueeMove);
         window.addEventListener("pointerup", onMarqueeUp);
-    }, {signal, capture: true});
+    }, {signal});
 
     container.addEventListener("click", async (e: MouseEvent) => {
         if (swallowClick) {
@@ -166,8 +180,9 @@ export function setupPointerHandler(
     // the selection keeps the selection (as in the tree); anything else is selected first, by the
     // same picking a left click does. Nothing under the cursor: no menu, and the selection stays.
     container.addEventListener("contextmenu", async (e: MouseEvent) => {
-        // The cell builder has its own right-click menu (ports) while it is active.
-        if (useCellBuilderStore.getState().active !== null) return;
+        // A right-click on a cell or a port is the cell builder's menu: its handler, on the input
+        // surface below, stops the event. Anything else is the scene's, also while a procedural
+        // model is open behind the mode.
         e.preventDefault();
         if (pointerDownPos) {
             const dx = e.clientX - pointerDownPos.x;

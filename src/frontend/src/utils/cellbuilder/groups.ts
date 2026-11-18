@@ -109,21 +109,31 @@ export function objectGroup(
   cells: Iterable<{ kind: string; group?: string; origin: readonly number[]; size: readonly number[] }>,
 ): string | undefined {
   if (obj.kind === "cell") return obj.group;
+  return containingCell(obj, cells)?.group;
+}
+
+/** The space a builder object sits in, by geometry: the cell under it in plan
+ * whose floor is highest below its centre -- the cell it is in, or, for a unit
+ * seated on a roof, the cell it stands on. Undefined for a space itself and for
+ * an object over no cell. */
+export function containingCell<C extends { kind: string; origin: readonly number[]; size: readonly number[] }>(
+  obj: { kind: string; origin: readonly number[]; size: readonly number[] },
+  cells: Iterable<C>,
+): C | undefined {
+  if (obj.kind === "cell") return undefined;
   const cx = obj.origin[0] + obj.size[0] / 2;
   const cy = obj.origin[1] + obj.size[1] / 2;
   const cz = obj.origin[2] + obj.size[2] / 2;
-  // The cell under it in plan whose floor is highest below its centre: the cell it
-  // is in, or -- for a unit seated on a roof -- the cell it stands on.
-  let best: { group?: string; z: number } | null = null;
+  let best: C | undefined;
   for (const c of cells) {
     if (c.kind !== "cell") continue;
     const inPlan =
       cx >= c.origin[0] && cx <= c.origin[0] + c.size[0] &&
       cy >= c.origin[1] && cy <= c.origin[1] + c.size[1];
     if (!inPlan || c.origin[2] > cz + 1e-6) continue;
-    if (!best || c.origin[2] > best.z) best = { group: c.group, z: c.origin[2] };
+    if (!best || c.origin[2] > best.origin[2]) best = c;
   }
-  return best?.group;
+  return best;
 }
 
 /** A cell's group after some groups are deleted: cleared (`undefined`) when it

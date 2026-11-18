@@ -3,7 +3,9 @@
 // three.js-free viewport reads it directly. Input is mapped to SEMANTIC actions (orbit, pan, zoom), so a
 // camera controller never needs to know about buttons or keys. No three.js and no DOM here.
 
-export const CAMERA_ACTIONS = ["orbit", "pan", "zoom", "none"] as const;
+/** What a drag does. `select` is not the camera's: it draws the selection rectangle (rightwards a window,
+ *  leftwards a crossing), which the viewport's pointer handling takes before the camera sees the press. */
+export const CAMERA_ACTIONS = ["orbit", "pan", "zoom", "select", "none"] as const;
 export type CameraAction = (typeof CAMERA_ACTIONS)[number];
 
 export const MOUSE_BUTTONS = ["left", "middle", "right"] as const;
@@ -51,12 +53,13 @@ const COMMON = {
 } satisfies Omit<CameraMapping, "drag">;
 
 /** Named starting points, described by what they do. `default` is how the viewer has always behaved, plus
- *  Shift / Ctrl + left to pan on both controllers (one of the two already did that). */
+ *  Ctrl + left to pan on both controllers (one of the two already did that); Shift + left has always drawn
+ *  the selection rectangle. */
 export const CAMERA_PRESETS = {
     default: {
         label: "Left orbits, right pans, middle zooms",
         mapping: {...COMMON, drag: {
-            left: drag("orbit", "pan", "pan", "none"),
+            left: drag("orbit", "select", "pan", "none"),
             middle: drag("zoom", "zoom", "zoom", "zoom"),
             right: drag("pan", "orbit", "orbit", "pan"),
         }},
@@ -64,7 +67,7 @@ export const CAMERA_PRESETS = {
     "middle-orbit": {
         label: "Middle orbits, Shift + middle pans, left only selects",
         mapping: {...COMMON, wheel: {...COMMON.wheel, toCursor: true}, drag: {
-            left: drag("none", "none", "none", "none"),
+            left: drag("none", "select", "none", "none"),
             middle: drag("orbit", "pan", "zoom", "orbit"),
             right: drag("pan", "pan", "pan", "pan"),
         }},
@@ -72,9 +75,22 @@ export const CAMERA_PRESETS = {
     "right-orbit": {
         label: "Right orbits, middle pans, left only selects",
         mapping: {...COMMON, wheel: {...COMMON.wheel, toCursor: true}, drag: {
-            left: drag("none", "none", "none", "none"),
+            left: drag("none", "select", "none", "none"),
             middle: drag("pan", "pan", "pan", "pan"),
             right: drag("orbit", "pan", "zoom", "orbit"),
+        }},
+    },
+    // DNV GeniE's mouse (GeniE V9.3 User Documentation, 2.2.4 View Manipulations and 2.2.5 Selecting
+    // Objects): the left button only selects (a click, or a drag that draws the rubber band) and Shift adds
+    // to the selection; the right button rotates, with Shift zooms and with Ctrl pans. The wheel zooms
+    // (its direction is not stated); zooming is about the pointer, as GeniE's Zoom (3.3.3) is. The middle
+    // button is not used.
+    genie: {
+        label: "GeniE: right orbits, Shift + right zooms, Ctrl + right pans, left selects",
+        mapping: {...COMMON, wheel: {...COMMON.wheel, toCursor: true}, drag: {
+            left: drag("select", "select", "select", "select"),
+            middle: drag("none", "none", "none", "none"),
+            right: drag("orbit", "zoom", "pan", "orbit"),
         }},
     },
 } satisfies Record<string, {label: string; mapping: CameraMapping}>;
@@ -122,6 +138,11 @@ export function dragModifier(e: DragModifiers): DragModifier {
 /** DOM `MouseEvent.button` (0, 1, 2) as a button name; null for the others. */
 export function mouseButtonOf(button: number): MouseButton | null {
     return MOUSE_BUTTONS[button] ?? null;
+}
+
+/** Whether a press with this button and these modifiers draws the selection rectangle. */
+export function selectsByDrag(mapping: CameraMapping, button: MouseButton, modifiers: DragModifiers = {}): boolean {
+    return dragAction(mapping, button, modifiers) === "select";
 }
 
 /** What a drag with this button and these modifiers does. */

@@ -36,7 +36,7 @@ import { usePluginTheme } from "@/state/themeStore";
 //               is a candidate, not a build) and instead shows which registered specs could
 //               detail it, so the two sections can never be mistaken for one another even without
 //               reading their headings.
-//   then a plugin's sections (region `joint-review`, plugin API 1.28.0), each headed by its
+//   then a plugin's sections (region `joint-review`, plugin API 1.29.0), each headed by its
 //               panel's title, in `order`: what a plugin knows about the same joints that core does
 //               not (`JointReviewSections`). With such a section active the tab is there even with
 //               no joints of core's own to show.
@@ -177,7 +177,7 @@ const ProducedSection: React.FC = () => {
 };
 
 /**
- * The plugins' sections (region `joint-review`, plugin API 1.28.0), after core's own: each headed by
+ * The plugins' sections (region `joint-review`, plugin API 1.29.0), after core's own: each headed by
  * its panel's title and mounted in its plugin's context, inside the boundary that disables the
  * plugin when it throws. Nothing when no plugin has an active one.
  */

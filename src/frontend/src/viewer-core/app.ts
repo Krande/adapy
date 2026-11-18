@@ -30,7 +30,7 @@ export { AppRoot } from "@/layout/SharedAppRoot";
 // would unload models; `applyScopeChange` switches at once; `sceneHasModels`.
 export { applyScopeChange, requestScopeChange, sceneHasModels } from "@/utils/scope/scopeChange";
 // The Connections panel opened on one of its tabs: core's, or a plugin's `connection-builder` panel
-// by its namespaced id (plugin API 1.28.0). It picks the tab in the panel's tab store.
+// by its namespaced id (plugin API 1.29.0). It picks the tab in the panel's tab store.
 export { openConnectionsTab } from "@/layout/connectionsTabActions";
 
 // ---------------------------------------------------------------------------

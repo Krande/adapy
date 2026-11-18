@@ -1,4 +1,4 @@
-// `ctx.scene.highlightObjects` (plugin API 1.28.0): a plugin drawing objects in a colour of its own,
+// `ctx.scene.highlightObjects` (plugin API 1.29.0): a plugin drawing objects in a colour of its own,
 // through whichever viewport is on screen, without touching the selection or the undo history.
 import assert from "node:assert/strict";
 import { test } from "node:test";

@@ -53,15 +53,21 @@ interface Chord {
 }
 
 /** `"Shift+K"` as a chord; `Ctrl` also matches ⌘ on macOS. Null for a chord with no key. */
+/** Key names a chord may spell out where the character would split it ("Alt+Plus"). */
+const KEY_NAMES: Readonly<Record<string, string>> = { plus: "+", minus: "-" };
+
 export function parseShortcut(keys: ShortcutKeys): Chord | null {
   const parts = keys.split("+").map((p) => p.trim());
-  const key = parts.pop()?.toLowerCase();
+  const named = parts.pop()?.toLowerCase();
+  const key = named === undefined ? undefined : KEY_NAMES[named] ?? named;
   if (!key) return null;
   const mods = new Set(parts.filter(Boolean).map((p) => p.toLowerCase()));
   return { key, shift: mods.has("shift"), ctrl: mods.has("ctrl") || mods.has("cmd") || mods.has("meta"), alt: mods.has("alt") };
 }
 
-const chordKey = (c: Chord) => `${c.ctrl ? "c" : ""}${c.alt ? "a" : ""}${c.shift ? "s" : ""}+${c.key}`;
+// "+" is typed with Shift on many keyboards (Shift+=) and without it on others and the numpad: the
+// same chord either way.
+const chordKey = (c: Chord) => `${c.ctrl ? "c" : ""}${c.alt ? "a" : ""}${c.shift && c.key !== "+" ? "s" : ""}+${c.key}`;
 
 /** What a viewer does for a dispatched core shortcut. */
 export interface CoreShortcutHandler {

@@ -527,6 +527,11 @@ def _engine_doc_model():
         # one.
         export_entrypoint: Optional[str] = None
         import_entrypoint: Optional[str] = None
+        # False: the engine has no Excel format, and the export/import routes refuse
+        # it. None (unset) keeps the old reading: it has one, through the handlers
+        # above or the siblings of ``entrypoint``. An engine registered without a row
+        # says the same through register_procedural_engine_capabilities.
+        supports_excel: Optional[bool] = None
         # Extra deps the browser must micropip-install for this engine's wheel.
         pyodide_deps: List[str] = []
         # ``kind:server`` routing: the worker-pool capability tag that has this

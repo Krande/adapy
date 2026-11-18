@@ -13,11 +13,13 @@ import {useCellBuilderStore} from "@/state/cellBuilderStore";
 import {useCompanionModelStore} from "@/state/companionModelStore";
 import {requestRender} from "@/state/perfStore";
 import {bandFaceIds} from "@/utils/cellbuilder/loft";
+import {includeLook, itemIncludeState} from "@/utils/cellbuilder/include";
+import {useIncludeViewStore} from "@/state/includeViewStore";
 import {BOX_FACE_SIDES} from "@/utils/cellbuilder/snap";
-import {BASE_OPACITY, LOFT_COLOR, LOFT_OPACITY, colorForKind} from "./sceneConstants";
+import {BASE_OPACITY, EXCLUDED_DASH, EXCLUDED_GAP, LOFT_COLOR, LOFT_OPACITY, colorForKind} from "./sceneConstants";
 import type {CellBuilderScene} from "./sceneContext";
 import {ringsEdgesGeometry, sweptBandGeometry, sweptBandGroupedGeometry} from "./geometryHelpers";
-import {disposeMesh, refreshFaceStyles} from "./overlays";
+import {baseColourFor, disposeMesh, refreshFaceStyles} from "./overlays";
 import {displayBoxForCell} from "./cadPreview";
 
 /** Draw every companion showing topology as plain, non-interactive boxes.
@@ -83,8 +85,13 @@ export const rebuild = (ctx: CellBuilderScene) => {
     ctx.hoveredEdge = null;
 
     const st = useCellBuilderStore.getState();
+    // What the build leaves out (INCLUDE false, or its structure's) is drawn as the include view
+    // says: faint with dashed edges, hidden, or like the rest (state/includeViewStore).
+    const view = useIncludeViewStore.getState().view;
     if (st.active) {
-        for (const cell of Object.values(st.cells)) {
+        const allCells = Object.values(st.cells);
+        for (const cell of allCells) {
+            const look = includeLook(itemIncludeState(cell, st.cells, st.groups, st.loftMembers), view);
             // Loft band: a read-only swept proxy drawn from its two profile
             // rings, with the two station rings as the edge overlay. Same
             // meshById/__cellId plumbing as a box, so click-select + hide +
@@ -121,10 +128,8 @@ export const rebuild = (ctx: CellBuilderScene) => {
                     mesh = new THREE.Mesh(sweptBandGeometry(lo, hi), loftMat());
                 }
                 mesh.userData.__cellId = cell.id;
-                const ringEdges = new THREE.LineSegments(
-                    ringsEdgesGeometry(lo, hi),
-                    new THREE.LineBasicMaterial({color: LOFT_COLOR}),
-                );
+                mesh.userData.__includeLook = look;
+                const ringEdges = edgeLines(ringsEdgesGeometry(lo, hi), LOFT_COLOR, look.dimmed);
                 mesh.add(ringEdges);
                 ctx.cellsGroup.add(mesh);
                 ctx.meshById.set(cell.id, mesh);
@@ -135,7 +140,8 @@ export const rebuild = (ctx: CellBuilderScene) => {
             // declared LX/LY/LZ); everything else uses its declared box.
             const {box: dbox, cadFitted} = displayBoxForCell(ctx, cell);
             const geo = new THREE.BoxGeometry(...dbox.size);
-            const color = colorForKind(cell.kind);
+            // A space draws in its structure's blueprint colour (or the group tint); see overlays.ts.
+            const color = baseColourFor(cell, allCells, st.groups);
             // One material per BoxGeometry group (+X,-X,+Y,-Y,+Z,-Z) so a
             // single face can highlight on hover/selection.
             const mats = BOX_FACE_SIDES.map(
@@ -176,10 +182,8 @@ export const rebuild = (ctx: CellBuilderScene) => {
                 mesh.position.copy(pivot).add(offset);
             }
             mesh.userData.__cellId = cell.id;
-            const edges = new THREE.LineSegments(
-                new THREE.EdgesGeometry(geo),
-                new THREE.LineBasicMaterial({color}),
-            );
+            mesh.userData.__includeLook = look;
+            const edges = edgeLines(new THREE.EdgesGeometry(geo), color, look.dimmed);
             mesh.add(edges);
             ctx.cellsGroup.add(mesh);
             ctx.meshById.set(cell.id, mesh);
@@ -192,13 +196,27 @@ export const rebuild = (ctx: CellBuilderScene) => {
     refreshFaceStyles(ctx);
 };
 
+/** A box's or a loft band's edges: solid, or dashed for a component the build leaves out. */
+const edgeLines = (geometry: THREE.BufferGeometry, color: number, dashed: boolean): THREE.LineSegments => {
+    const lines = new THREE.LineSegments(
+        geometry,
+        dashed
+            ? new THREE.LineDashedMaterial({color, dashSize: EXCLUDED_DASH, gapSize: EXCLUDED_GAP, transparent: true, opacity: 0.7})
+            : new THREE.LineBasicMaterial({color}),
+    );
+    if (dashed) lines.computeLineDistances();
+    return lines;
+};
+
 // Per-cell hide (the "Hide selected" analogue): a hidden cell's box is made
-// invisible; pickBuilderMesh also drops it so it stops absorbing clicks.
+// invisible; pickBuilderMesh also drops it so it stops absorbing clicks. So is a
+// component the include view hides ("Included only").
 export const applyCellVisibility = (ctx: CellBuilderScene) => {
     const hidden = useCellBuilderStore.getState().hiddenCellIds;
     for (const [cellId, mesh] of ctx.meshById) {
         // A cell shown as CAD hides its placeholder box (the CAD stands in).
-        mesh.visible = !hidden.includes(cellId) && !ctx.cadPreviewShown.has(cellId);
+        const shown = (mesh.userData.__includeLook as {visible: boolean} | undefined)?.visible ?? true;
+        mesh.visible = shown && !hidden.includes(cellId) && !ctx.cadPreviewShown.has(cellId);
     }
 };
 

@@ -127,6 +127,11 @@ export interface SelectionSlice {
   cycleSelectionElement: (dir: 1 | -1) => void;
   /** Select the next/previous cell by name order (keyboard N/P). */
   selectAdjacentCell: (dir: 1 | -1) => void;
+  /** Select these components together (a Model panel group row): the first is
+   * the primary selection the editors show, all of them are what Fit selection
+   * frames and the multi-select commands act on. Unknown ids are dropped; an
+   * empty list clears the selection. */
+  selectCells: (ids: readonly string[]) => void;
 }
 
 export const createSelectionSlice: CellBuilderSlice<SelectionSlice> = (set, get) => {
@@ -159,6 +164,17 @@ export const createSelectionSlice: CellBuilderSlice<SelectionSlice> = (set, get)
     // never lingers on a cell you're no longer editing. Selecting a cell does
     // NOT force the Selected Object Info panel open — the user opens it when
     // they want it; the cell/system details render there once it's visible.
+    selectCells: (ids) =>
+      set((s) => {
+        const keep = [...new Set(ids)].filter((id) => s.cells[id]);
+        const primary = keep[0];
+        return {
+          selection: primary ? { kind: "cell", cellId: primary } : null,
+          selectedCellIds: keep,
+          gizmoMode: "none",
+          gizmoAxisLock: null,
+        };
+      }),
     setSelection: (selection) => {
       set((s) => ({
         selection,

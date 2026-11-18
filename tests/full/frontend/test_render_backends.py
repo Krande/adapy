@@ -10,14 +10,19 @@ adapter at all skips the WebGPU legs with that reason.
 import asyncio
 import io
 import json
+import time
 
 import pytest
 from PIL import Image
-from playwright.async_api import Page, async_playwright
+from playwright.async_api import Page
+from playwright.async_api import TimeoutError as PlaywrightTimeoutError
+from playwright.async_api import async_playwright
 
 import ada
 from ada.comms.web.serve import start_serving
 from ada.comms.wsock.client_async import WebSocketClientAsync
+
+from ._live import capture_console, wait_until_live
 
 # WebGPU in headless Chromium, with or without a GPU in the machine: Vulkan on the bundled software
 # implementation (SwiftShader). Without `--use-vulkan=swiftshader` a machine with no GPU (a CI runner)
@@ -29,6 +34,7 @@ CHROMIUM_ARGS = [
     "--use-vulkan=swiftshader",
 ]
 VIEWPORT = {"width": 1280, "height": 800}
+SCREENSHOT_TIMEOUT_MS = 60000
 CENTRE = (VIEWPORT["width"] // 2, VIEWPORT["height"] // 2)
 
 # renderer query value, stored performance switches, what the viewer must report it draws with
@@ -61,7 +67,10 @@ def _model() -> ada.Assembly:
 
 
 async def _pixels(page: Page) -> Image.Image:
-    return Image.open(io.BytesIO(await page.screenshot())).convert("RGB")
+    # A software-rendered page on a loaded runner can take a while to give a frame: twice Playwright's
+    # 30 s, and no caret or CSS animation to wait out.
+    shot = await page.screenshot(animations="disabled", caret="hide", timeout=SCREENSHOT_TIMEOUT_MS)
+    return Image.open(io.BytesIO(shot)).convert("RGB")
 
 
 def _count(image: Image.Image, predicate) -> int:
@@ -113,12 +122,25 @@ async def _click(page: Page, x: int, y: int) -> None:
 
 
 async def _until(page: Page, check, what: str, seconds: float = 20.0):
-    for _ in range(int(seconds / 0.25)):
-        value = await check()
+    """``check()`` once it is truthy, asking every half second for ``seconds`` of wall clock.
+
+    A check that times out itself (a screenshot of a page busy redrawing) is "not yet", not a failure:
+    the page is still working on what is waited for.
+    """
+    deadline = time.monotonic() + seconds
+    last_error = None
+    while True:
+        try:
+            value = await check()
+        except PlaywrightTimeoutError as exc:
+            value, last_error = None, exc
         if value:
             return value
-        await page.wait_for_timeout(250)
-    raise AssertionError(f"timed out waiting for {what}")
+        if time.monotonic() >= deadline:
+            break
+        await page.wait_for_timeout(500)
+    why = f" (last check timed out: {last_error})" if last_error else ""
+    raise AssertionError(f"timed out waiting for {what}{why}")
 
 
 async def _steady(page: Page, box: tuple[int, int, int, int], seconds: float = 20.0) -> Image.Image:
@@ -140,6 +162,7 @@ async def _open_viewer(playwright, ws_server, backend: str, init_script: str | N
     query, perf, state = BACKENDS.get(backend, (backend, {}, "off"))
     browser = await playwright.chromium.launch(headless=True, args=CHROMIUM_ARGS)
     page = await browser.new_page(viewport=VIEWPORT)
+    console = capture_console(page)
     await page.add_init_script(COUNT_WEBGL)
     if init_script:
         await page.add_init_script(init_script)
@@ -151,20 +174,18 @@ async def _open_viewer(playwright, ws_server, backend: str, init_script: str | N
     if query != "three" and not await page.evaluate(HAS_ADAPTER):
         await browser.close()
         pytest.skip("this Chromium offers no WebGPU adapter")
-    await _until_ready_for_a_scene(page, ws_server, empty_pixels)
+    await _until_ready_for_a_scene(page, ws_server, empty_pixels, f"the {backend} viewer", console)
     return browser, page, state
 
 
-async def _until_ready_for_a_scene(page: Page, ws_server, empty_pixels: int = 500000) -> None:
+async def _until_ready_for_a_scene(
+    page: Page, ws_server, empty_pixels: int = 500000, what: str = "the viewer", console: list[str] | None = None
+) -> None:
     """Wait until the viewer page is live on the websocket and its viewport is up: after it opens, and
-    again after a reload, whose page has to connect anew before a model sent to it reaches it."""
+    again after a reload, whose page has to connect anew before a model sent to it reaches it. `what`
+    names the page in a timeout's message, which `console` (the page's, `capture_console`) follows."""
     async with WebSocketClientAsync(ws_server.host, ws_server.port, "local") as ws_client:
-        for _ in range(100):
-            if await ws_client.check_target_liveness(target_id=1):
-                break
-            await asyncio.sleep(0.1)
-        else:
-            raise AssertionError("the viewer never became live on the websocket")
+        await wait_until_live(ws_client, what, target_id=1, console=console)
     # Live on the socket is not yet ready for a scene: the viewport (grid, gizmo) has to be up, or the
     # first model sent is dropped.
     await _until(page, lambda: _viewport_ready(page, empty_pixels), "the empty viewport")

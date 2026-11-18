@@ -53,7 +53,9 @@ export interface ConvertTargetsResponse {
 export const conversionApi = {
   /** Open an audit row for an in-browser (WASM) conversion. Returns the
    * server-assigned ``wasm-<uuid>`` job id to pass to auditLocalUpdate.
-   * ``auditRunId`` attaches the row to an admin audit-run sweep. */
+   * ``auditRunId`` attaches the row to an admin audit-run sweep. A server
+   * with no database keeps no audit: no request, and "" (no row) — which
+   * every caller already treats as "proceed without an audit row". */
   async auditLocalCreate(
     scope: ScopeUrl,
     body: {
@@ -63,6 +65,7 @@ export const conversionApi = {
       image_tag?: string;
     },
   ): Promise<string> {
+    if (!runtime.hasDatabase()) return "";
     const r = await authedFetch(
       `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/audit/local`,
       {
@@ -77,7 +80,8 @@ export const conversionApi = {
 
   /** Patch a WASM conversion's audit row to its terminal outcome with
    * captured metrics. Best-effort at the call site — a lost audit
-   * update must never fail the conversion. */
+   * update must never fail the conversion. No database (or no row): nothing
+   * to patch, no request. */
   async auditLocalUpdate(
     scope: ScopeUrl,
     jobId: string,
@@ -92,6 +96,7 @@ export const conversionApi = {
       metrics_samples?: Array<Record<string, number>>;
     },
   ): Promise<void> {
+    if (!runtime.hasDatabase() || !jobId) return;
     const r = await authedFetch(
       `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/audit/local/${encodeURIComponent(jobId)}`,
       {
@@ -205,8 +210,10 @@ export const conversionApi = {
    *  a long bake the user kicked off and walked away from still
    *  shows up when they come back. Errors are intentionally
    *  excluded — they're terminal and the toast's error row expects
-   *  manual dismissal, not silent restore. */
+   *  manual dismissal, not silent restore. The list is the audit table,
+   *  so a server with no database has none: [] without a request. */
   async myJobs(scope: ScopeUrl, limit = 200): Promise<AuditEntry[]> {
+    if (!runtime.hasDatabase()) return [];
     const r = await authedFetch(
       `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/my-jobs` +
         `?limit=${encodeURIComponent(String(limit))}`,

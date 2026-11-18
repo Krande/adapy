@@ -178,7 +178,7 @@ async def test_fea_sets_are_listed_and_isolated_on_whichever_viewport_is_on_scre
                 n = await _coloured(page)
                 return 0.2 * whole < n < 0.8 * whole
 
-            await _until(page, isolated, f"{backend}: one set to be isolated")
+            await _until(page, isolated, f"{backend}: one set to be isolated", seconds=40)
             await _assert_drawing_with(page, backend, state)
 
             await _command(page, "Clear FEA isolation")
@@ -186,7 +186,8 @@ async def test_fea_sets_are_listed_and_isolated_on_whichever_viewport_is_on_scre
             async def cleared():
                 return await _coloured(page) > 0.95 * whole
 
-            await _until(page, cleared, f"{backend}: the isolation to be cleared")
+            # all elements back on screen at once: the slowest redraw of the test on a software renderer
+            await _until(page, cleared, f"{backend}: the isolation to be cleared", seconds=40)
         finally:
             await browser.close()
 

@@ -10,20 +10,21 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from .. import auth as auth_module
-from .. import db as db_module
 from ..auth import User
 from ..scope import Scope
-from .deps import require_catalog_pool, scope_from_path
+from .deps import RestContext, require_catalog_store, rest_context, scope_from_path
 
 router = APIRouter()
 
 
-async def _get_system_in_scope(pool, template_id: str, scope_obj: Scope) -> dict:
-    try:
-        row = await db_module.get_system_template(pool, template_id)
-    except Exception:
-        row = None
-    if row is None or row["scope_kind"] != scope_obj.kind or (row["scope_id"] or None) != (scope_obj.id or None):
+def _catalogs(request: Request, ctx: RestContext):
+    # Postgres, or the scope's storage files on a local viewer (catalog_store.py).
+    return require_catalog_store(request, ctx.storage, ctx.queue)
+
+
+async def _get_system_in_scope(store, template_id: str, scope_obj: Scope) -> dict:
+    row = await store.get_system(scope_obj, template_id)
+    if row is None:
         raise HTTPException(status_code=404, detail="system template not found")
     return row
 
@@ -32,9 +33,9 @@ async def _get_system_in_scope(pool, template_id: str, scope_obj: Scope) -> dict
 async def api_system_templates_list(
     request: Request,
     scope_obj: Scope = Depends(scope_from_path),
+    ctx: RestContext = Depends(rest_context),
 ) -> JSONResponse:
-    pool = require_catalog_pool(request)
-    templates = await db_module.list_system_templates(pool, scope_kind=scope_obj.kind, scope_id=scope_obj.id)
+    templates = await _catalogs(request, ctx).list_systems(scope_obj)
     return JSONResponse({"system_templates": templates})
 
 
@@ -43,10 +44,11 @@ async def api_system_templates_create(
     request: Request,
     scope_obj: Scope = Depends(scope_from_path),
     user: User = Depends(auth_module.current_user),
+    ctx: RestContext = Depends(rest_context),
 ) -> JSONResponse:
     from ..catalog import slugify
 
-    pool = require_catalog_pool(request)
+    store = _catalogs(request, ctx)
     body = await request.json()
     name = body.get("name")
     if not isinstance(name, str) or not name.strip():
@@ -55,10 +57,8 @@ async def api_system_templates_create(
     if not slug:
         raise HTTPException(status_code=400, detail="could not derive a slug from name/slug")
     desc = body.get("description")
-    row = await db_module.create_system_template(
-        pool,
-        scope_kind=scope_obj.kind,
-        scope_id=scope_obj.id,
+    row = await store.create_system(
+        scope_obj,
         slug=slug,
         name=name.strip(),
         description=desc if isinstance(desc, str) else None,
@@ -74,9 +74,9 @@ async def api_system_templates_get(
     request: Request,
     template_id: str,
     scope_obj: Scope = Depends(scope_from_path),
+    ctx: RestContext = Depends(rest_context),
 ) -> JSONResponse:
-    pool = require_catalog_pool(request)
-    row = await _get_system_in_scope(pool, template_id, scope_obj)
+    row = await _get_system_in_scope(_catalogs(request, ctx), template_id, scope_obj)
     return JSONResponse(
         {k: row[k] for k in ("id", "slug", "name", "description", "doc", "revision", "created_by", "updated_at")}
     )
@@ -87,13 +87,13 @@ async def api_system_templates_update(
     request: Request,
     template_id: str,
     scope_obj: Scope = Depends(scope_from_path),
+    ctx: RestContext = Depends(rest_context),
 ) -> JSONResponse:
-    import asyncpg
-
     from ..catalog import slugify, validate_system_doc
+    from ..catalog_store import CatalogSlugTaken
 
-    pool = require_catalog_pool(request)
-    row = await _get_system_in_scope(pool, template_id, scope_obj)
+    store = _catalogs(request, ctx)
+    row = await _get_system_in_scope(store, template_id, scope_obj)
     body = await request.json()
     name = body.get("name")
     doc = body.get("doc")
@@ -113,8 +113,8 @@ async def api_system_templates_update(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=f"invalid system doc: {e}")
     try:
-        new_rev = await db_module.update_system_template(
-            pool,
+        new_rev = await store.update_system(
+            scope_obj,
             template_id,
             slug=slug,
             name=name.strip(),
@@ -122,10 +122,10 @@ async def api_system_templates_update(
             doc=normalized,
             base_revision=base_revision,
         )
-    except asyncpg.UniqueViolationError:
+    except CatalogSlugTaken:
         raise HTTPException(status_code=409, detail=f"a system template with slug {slug!r} already exists")
     if new_rev is None:
-        current = await db_module.get_system_template(pool, template_id)
+        current = await store.get_system(scope_obj, template_id)
         raise HTTPException(
             status_code=409,
             detail={"message": "revision conflict", "current_revision": current["revision"] if current else None},
@@ -138,10 +138,11 @@ async def api_system_templates_delete(
     request: Request,
     template_id: str,
     scope_obj: Scope = Depends(scope_from_path),
+    ctx: RestContext = Depends(rest_context),
 ) -> JSONResponse:
-    pool = require_catalog_pool(request)
-    await _get_system_in_scope(pool, template_id, scope_obj)
-    ok = await db_module.archive_system_template(pool, template_id)
+    store = _catalogs(request, ctx)
+    await _get_system_in_scope(store, template_id, scope_obj)
+    ok = await store.archive_system(scope_obj, template_id)
     if not ok:
         raise HTTPException(status_code=404, detail="system template not found")
     return JSONResponse({"status": "archived"})

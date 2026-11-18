@@ -181,13 +181,13 @@ export const equipmentTypesApi = {
   async inferEquipmentBbox(
     scope: ScopeUrl,
     typeId: string,
-  ): Promise<{ job_id: string; derived_key: string }> {
+  ): Promise<{ job_id: string | null; derived_key: string; status?: "done" }> {
     const r = await authedFetch(
       `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/equipment-types/${encodeURIComponent(typeId)}` +
         `/infer-bbox`,
       { method: "POST" },
     );
-    return jsonOrThrow<{ job_id: string; derived_key: string }>(
+    return jsonOrThrow<{ job_id: string | null; derived_key: string; status?: "done" }>(
       r,
       `inferEquipmentBbox(${typeId})`,
     );

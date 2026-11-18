@@ -722,7 +722,12 @@ active one puts it away. **View:** `builderRepTopology`, `builderRepSimulation`,
 (`BuilderPlacementTools`, `BuilderGizmoTools`, `BuilderViewTools` on
 `@/viewer-core/layout`). The builder's "Cells & equipment" list is also a panel of its
 own, `core:component-list` (`CORE_PANEL_IDS.componentList`, content `ComponentListBody`),
-which a shell can dock apart from the builder.
+which a shell can dock apart from the builder. Its rows are flat or the structure tree (the
+View option, remembered per browser; a shell reads and sets it, and the folded rows, through
+`useModelPanelView()` on `@/viewer-core/layout`);
+the arrangement is `buildModelTree` (`utils/cellbuilder/modelTree`) and every row's
+checkbox is the component's INCLUDE in the document (`utils/cellbuilder/include`,
+`setCellsIncluded`, `setGroupIncluded`), so a shell drawing its own list can share both.
 
 **Result view commands.** `core:color-legend`, `core:fem-concepts` (the Simulation
 panel's FE model tab), `core:data-dock` (the result data table), `core:beam-sections`
