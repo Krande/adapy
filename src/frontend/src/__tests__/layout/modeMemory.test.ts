@@ -12,7 +12,8 @@ const { registerPanel } = await import("@/layout/registry");
 const { CLASSIC_ZONES } = await import("@/layout/layout");
 const { gridOf } = await import("@/layout/reducers");
 const T = await import("@/layout/splitTree");
-const P = await import("@/layout/presets/classicPlace");
+// The JSX-free halves of the classic preset: the served shell and its documents, and the memory of open panels.
+const P = { ...(await import("@/layout/presets/classicShell")), ...(await import("@/layout/presets/classicMemory")) };
 const M = await import("@/layout/shellModes");
 const { layoutStore } = await import("@/layout/layoutStore");
 
@@ -135,4 +136,24 @@ test("a remembered mode survives the document's migration (a reload)", async () 
   const doc = { ...emptyLayoutDoc(CLASSIC_PRESET_ID, CLASSIC_ZONE_DEFS, "x"), open: ["m:b", "m:b"] };
   assert.deepEqual(migrateLayoutDoc(JSON.parse(JSON.stringify(doc)), CLASSIC_PRESET_ID, CLASSIC_ZONE_DEFS, "x").open, ["m:b"]);
   assert.equal(migrateLayoutDoc(emptyLayoutDoc(CLASSIC_PRESET_ID, CLASSIC_ZONE_DEFS, "x"), CLASSIC_PRESET_ID, CLASSIC_ZONE_DEFS, "x").open, undefined);
+});
+
+test("applying the global panels puts them in the recorded state, and is a no-op without a shell or a record", () => {
+  withShell(() => {
+    enter("one", null);
+    reveal("m:files");
+    // Nothing recorded for the shell: left as it is.
+    layoutStore.getState().setGlobalPanels("mem", null);
+    P.applyGlobalPanels(reveal, hide);
+    assert.equal(isOpen("m:files"), true);
+
+    layoutStore.getState().setGlobalPanels("mem", { open: [], px: { "m:files": 360 } });
+    P.applyGlobalPanels(reveal, hide);
+    assert.equal(isOpen("m:files"), false, "closed, as recorded");
+    const g = T.findNode(gridOf(P.classicDoc()), "g-files");
+    assert.equal(g && g.kind === "group" ? g.fixed?.px : null, 360, "at the recorded width");
+  });
+  flags.set("m:files", true);
+  P.applyGlobalPanels(reveal, hide);
+  assert.equal(isOpen("m:files"), true, "core's own UI has no global panels");
 });

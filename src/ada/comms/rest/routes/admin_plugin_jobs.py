@@ -3,11 +3,9 @@
 .../{schedule_id}``, ``POST .../{schedule_id}/run``.
 
 :func:`plugin_schedule_fire` is also called from the background
-``_plugin_schedule_loop`` (still inside ``create_app`` — the tick that
-claims due schedules every 30s has not been extracted), which is why it
-takes :class:`~.deps.RestContext` explicitly rather than closing over the
-app's queue: ``create_app`` keeps calling it as ``_plugin_schedule_fire``,
-bound to its own ``RestContext``, until that loop moves too. Same shape as
+``plugin_schedule_loop`` (``background_tasks.py`` — the tick that claims due
+schedules every 30s), which is why it takes :class:`~.deps.RestContext`
+explicitly rather than reading it off a request. Same shape as
 ``routes/plugin_jobs.py``'s ``enqueue_plugin_job``.
 
 Extracted from ``create_app``; see ``routes/__init__`` for the pattern.

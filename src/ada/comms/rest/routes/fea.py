@@ -5,9 +5,7 @@ cached-or-enqueue readers (``GET /scopes/{scope}/result-meta``,
 
 Needs the app's storage + job queue (through :class:`~.deps.RestContext`)
 and the worker-advertised-extensions snapshot (``routes/deps.py``'s
-``worker_advertised_exts``, which reads ``ctx.worker_registry`` — the same
-cached snapshot ``create_app``'s ``_worker_advertised_exts`` alias reads for
-the routes still in that closure).
+``worker_advertised_exts``, which reads the cached ``ctx.worker_registry``).
 
 Extracted from ``create_app``; see ``routes/__init__`` for the pattern. Not
 contiguous in the old closure (upload/convert routes were interleaved

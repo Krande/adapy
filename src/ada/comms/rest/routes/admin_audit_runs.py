@@ -3,15 +3,12 @@ cancel / re-dispatch / rerun-cell / validate / delete a regression sweep,
 plus the cell-history and per-run cell-matrix reads.
 
 :func:`audit_dispatch`, :func:`audit_dispatch_wasm`, :func:`audit_run_list_cells`
-and :func:`audit_cells_for_files` are also called from three places still
-inside ``create_app``: the audit-schedule cron tick (``_scheduler_fire``),
-the auto-validate poller (``_dispatch_auto_validation``), and the admin
-audit-schedules "fire now" route (``routes/admin_audit_schedules.py``, next
-slice of the split). That is why they take :class:`~.deps.RestContext`
-explicitly rather than closing over the app's queue/storage: ``create_app``
-keeps calling them under their old underscore names, bound to its own
-``RestContext``, until every caller is extracted. Same shape as
-``routes/plugin_jobs.py``'s ``enqueue_plugin_job``.
+and :func:`audit_cells_for_files` are also called outside a request: the
+audit-schedule cron tick (``scheduler_fire``) and the auto-validate poller
+(``dispatch_auto_validation``), both in ``background_tasks.py``, and the admin
+audit-schedules "fire now" route (``routes/admin_audit_schedules.py``). That is
+why they take :class:`~.deps.RestContext` explicitly rather than reading it off
+a request. Same shape as ``routes/plugin_jobs.py``'s ``enqueue_plugin_job``.
 
 Extracted from ``create_app``; see ``routes/__init__`` for the pattern.
 """
