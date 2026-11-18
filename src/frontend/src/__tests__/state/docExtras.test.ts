@@ -58,3 +58,24 @@ test("closing forgets them; another doc brings its own", () => {
   st().open("n", "Other", 1, { grid: {}, blueprint: {}, spaces: [], equipments: [] } as unknown as ProceduralDoc);
   assert.equal("modifications" in (st().toDoc() as object), false);
 });
+
+test("setDocExtra: a shell's edit of an engine's list is one undo step, dirties the model, and is committed", () => {
+  st().open("m", "Model", 1, doc);
+  assert.equal(st().dirty, false);
+  const added = [...modifications, { NAME: "mod2", STRUCTURE_NAME: "Mini", INCLUDE: true, SPACE_NAME: "deck" }];
+  assert.equal(st().setDocExtra("modifications", added), true);
+  assert.equal(st().dirty, true);
+  assert.deepEqual((st().toDoc() as unknown as Record<string, unknown>).modifications, added);
+  st().undo();
+  assert.deepEqual(st().docExtras.modifications, modifications, "undone");
+  st().redo();
+  assert.deepEqual(st().docExtras.modifications, added, "redone");
+  st().setDocExtra("framework_modifications", undefined);
+  assert.equal("framework_modifications" in (st().toDoc() as object), false, "undefined removes the key");
+});
+
+test("setDocExtra refuses a key the builder owns", () => {
+  st().open("m", "Model", 1, doc);
+  assert.equal(st().setDocExtra("spaces", []), false);
+  assert.equal(st().dirty, false);
+});

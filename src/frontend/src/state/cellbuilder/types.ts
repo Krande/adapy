@@ -116,6 +116,9 @@ export interface ModelSnapshot {
   /** Cell groups (name + per-group blueprint). Undoable alongside cells so a
    * group add/rename/delete and its cell reassignments restore atomically. */
   groups: CellGroup[];
+  /** The doc's keys the builder does not own (an engine's own lists): a shell's edit of
+   * them undoes like the builder's own (`setDocExtra`). */
+  docExtras: Record<string, unknown>;
 }
 
 /** Current pick: a whole cell, one of its 6 faces (BoxGeometry materialIndex),

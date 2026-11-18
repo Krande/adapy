@@ -23,6 +23,7 @@ export function snapshot(s: CellBuilderState): ModelSnapshot {
     equipmentCad: s.equipmentCad,
     designRules: s.designRules,
     groups: s.groups,
+    docExtras: s.docExtras,
   };
 }
 

@@ -14,7 +14,8 @@ import type {ProceduralDoc} from "@/services/viewerApi";
 import {groupToStructureName, normalizeGroups} from "@/utils/cellbuilder/groups";
 import type {CellBuilderSlice} from "./state";
 import {currentScopePart} from "./shared";
-import {cellsFromDoc, containingCellName, DOC_SCHEMA_VERSION, docExtras, groupsFromDoc, loftMembersFromDoc, systemsFromDoc} from "./docCodec";
+import {makeWithHistory} from "./historySlice";
+import {BUILDER_DOC_KEYS, cellsFromDoc, containingCellName, DOC_SCHEMA_VERSION, docExtras, groupsFromDoc, loftMembersFromDoc, systemsFromDoc} from "./docCodec";
 
 /** Is a procedural document loaded for VIEWING with no editable session behind
  * it -- the GLB-embedded document on the websocket path (`loadFromDoc`)?
@@ -48,6 +49,10 @@ export interface DocumentSlice {
   /** The loaded doc's top-level keys the builder does not own (docCodec.docExtras): written back
    *  untouched by toDoc, so a commit keeps an engine's own lists (pm's `modifications`). */
   docExtras: Record<string, unknown>;
+  /** Set one of those keys (`undefined` removes it), for a shell that edits an engine's own list
+   *  (param_models' `modifications`, say): one undo step, marks the model dirty, and the next
+   *  commit carries it. A key the builder owns (`BUILDER_DOC_KEYS`) is refused (returns false). */
+  setDocExtra: (key: string, value: unknown) => boolean;
   dirty: boolean;
   /** The open model's doc named no engine / no blueprint, and the user has not picked
    *  one since: the selection is a default the shell's `builderDefaults` may set. */
@@ -68,9 +73,21 @@ export interface DocumentSlice {
 }
 
 export const createDocumentSlice: CellBuilderSlice<DocumentSlice> = (set, get) => {
+  const withHistory = makeWithHistory(set);
   return {
     active: null,
     docExtras: {},
+    setDocExtra: (key, value) => {
+      if (BUILDER_DOC_KEYS.has(key)) return false;
+      withHistory((s) => {
+        if (s.docExtras[key] === value) return {};
+        const docExtras = { ...s.docExtras };
+        if (value === undefined) delete docExtras[key];
+        else docExtras[key] = value;
+        return { docExtras, dirty: true };
+      });
+      return true;
+    },
     dirty: false,
     engineIsDefault: false,
     blueprintIsDefault: false,
