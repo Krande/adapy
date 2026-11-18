@@ -260,6 +260,9 @@ export type { PlaceBoxOptions, PlacedBox, PlacedBoxMode, PlacedBoxPose } from ".
 //          the scene's clicks (`pickObjects`) and shows what it has taken. Not the selection, not a
 //          colour the user gave, and no undo step; on either viewport. Additive: an older core has
 //          no `highlightObjects`, so a plugin asks for it first.
+//          `placeBox`'s `frame: true` frames the camera on the box when it is first drawn, on either
+//          viewport (the scene's offset is the viewer's to add: a plugin cannot frame it with
+//          `frameBox`, which takes the world's coordinates). An older core ignores it.
 //          Not an API change, but seen by a `connection-builder` tab: the Connections panel has
 //          core's Clashes, Overlays and Review tabs too now (they were the Scene panel's Joints
 //          group), after Builder and before the plugins' tabs, and is offered everywhere.

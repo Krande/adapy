@@ -417,7 +417,17 @@ const GroupDetails: React.FC<{ scope: string; group: SavedGroup; shared: boolean
           </form>
         ) : null}
       </div>
-      {!editing && <GroupSummary scope={scope} group={group} shared={shared} />}
+      {/* What the group holds (members, how many are in the scene, types, sources, who made it),
+          folded under "Details" until opened: the actions below are what a group is mostly used
+          for, and they stay in view. */}
+      {!editing && (
+        <details className="mt-1" data-saved-group-details>
+          <summary className="cursor-pointer text-[11px] text-gray-400 hover:text-gray-200">
+            Details ({group.members.length} member{group.members.length === 1 ? "" : "s"})
+          </summary>
+          <GroupSummary scope={scope} group={group} shared={shared} />
+        </details>
+      )}
       <div className="mt-1 flex flex-wrap items-center gap-1">
         <button type="button" className={BTN} onClick={select} title="Select this group's members in the loaded models">
           Select

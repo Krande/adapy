@@ -90,6 +90,9 @@ export interface PlaceBoxOptions {
     mode?: PlacedBoxMode;
     /** The box's colour, as CSS. */
     color?: string;
+    /** Frame the camera on the box when it is first drawn (1.28.0): for a box placed in a large model,
+     *  where the view of the whole would show it a few pixels wide. Once: the view is the user's after. */
+    frame?: boolean;
     /** The user moved or turned the box: where it stands now. Not called for the plugin's own `set`. */
     onChange: (pose: PlacedBoxPose) => void;
     /** The user changed the gizmo (the G and R keys), or the plugin did (`setMode`). */
@@ -151,7 +154,8 @@ export interface BoxKeys {
 }
 
 export interface BoxPlacementEnv {
-    viewport: Pick<ViewportApi, "overlays" | "projectToScreen">;
+    /** `fitBox` frames the box for `frame`; a view without it is not framed. */
+    viewport: Pick<ViewportApi, "overlays" | "projectToScreen"> & Partial<Pick<ViewportApi, "fitBox">>;
     /** Null where the view has no input surface: the box is drawn and follows `set`, and is not dragged. */
     input: BoxInput | null;
     keys: BoxKeys | null;
@@ -228,6 +232,8 @@ export class BoxPlacement {
     /** A handle's press ends in a click the scene must not also select by. */
     private swallowClick = false;
     private hovering = false;
+    /** The camera was framed on the box (`frame`): not again, on this viewport or the one that replaces it. */
+    private framed = false;
     private detachEnv: (() => void) | null = null;
     /** Told when the user ended the placement by key, before `onEnd`. */
     onUserEnd: (() => void) | null = null;
@@ -313,6 +319,23 @@ export class BoxPlacement {
         }
         this.detachEnv = () => offs.forEach((off) => off());
         this.draw();
+        if (this.options.frame && !this.framed) this.framed = this.frame(env);
+    }
+
+    /** Frame the camera on the box where it stands, in the world (the scene's coordinates plus the
+     *  offset the models are placed by). False where the view cannot: it is tried again on the next. */
+    private frame(env: BoxPlacementEnv): boolean {
+        if (!env.viewport.fitBox) return false;
+        const corners = boxCorners(this.box, this.at);
+        const offset = env.offset() ?? [0, 0, 0];
+        const min: [number, number, number] = [Infinity, Infinity, Infinity];
+        const max: [number, number, number] = [-Infinity, -Infinity, -Infinity];
+        for (let i = 0; i < corners.length; i++) {
+            const v = corners[i] + offset[i % 3];
+            min[i % 3] = Math.min(min[i % 3], v);
+            max[i % 3] = Math.max(max[i % 3], v);
+        }
+        return env.viewport.fitBox(min, max);
     }
 
     /** Out of the viewport it is in: nothing drawn, no pointer and no key taken. Where it stands is kept. */
