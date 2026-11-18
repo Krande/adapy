@@ -214,6 +214,8 @@ async def _run_procedural_relocations(
     queue: "JobQueue",
     db_pool: "asyncpg.Pool | None",
     started_at: float,
+    model_row: dict | None = None,
+    audit: bool = True,
 ) -> None:
     """Propose the minimum set of equipment relocations that make a procedural
     model's runs route cleanly (see :func:`ada.topo_model.relocate.propose_relocations`).
@@ -223,7 +225,11 @@ async def _run_procedural_relocations(
     but produces a JSON *proposal* document rather than a GLB. The result is
     stored gzip-at-rest under the model's ``relocations.json`` derived key so the
     frontend can poll the job then fetch the blob. Relocations are proposals only —
-    the worker never mutates the model."""
+    the worker never mutates the model.
+
+    ``model_row``/``audit`` as for :func:`_run_procedural_build`: a server with no
+    database hands in the model from its file store and has no audit row; its equipment
+    comes from the scope's file catalog (catalog_store.py), as with postgres."""
     import json
 
     job_id = job.job_id
@@ -233,18 +239,19 @@ async def _run_procedural_relocations(
 
     async def _fail(stage: str, msg: str, trace: str | None = None) -> None:
         await queue.update(job_id, status=JOB_STATUS_ERROR, stage=stage, error=msg)
-        await _audit_done(db_pool, job_id, "error", msg, started_at, traceback=trace)
+        if audit:
+            await _audit_done(db_pool, job_id, "error", msg, started_at, traceback=trace)
 
     if not model_id or not isinstance(revision, int):
         await _fail("relocate", "conversion_options.model_id and revision are required for procedural_relocations")
         return
-    if db_pool is None:
+    if db_pool is None and model_row is None:
         await _fail("relocate", "procedural relocations require DATABASE_URL on the worker")
         return
 
     from .. import db as db_module
 
-    row = await db_module.get_procedural_model(db_pool, model_id)
+    row = model_row if model_row is not None else await db_module.get_procedural_model(db_pool, model_id)
     if row is None:
         await _fail("relocate", f"procedural model {model_id} not found")
         return
@@ -260,9 +267,12 @@ async def _run_procedural_relocations(
 
     # Resolve placed catalog equipment (by slug) to its per-scope definition, so a
     # candidate move keeps the equipment's real bbox/ports (matching the compile).
-    catalog = await db_module.get_equipment_docs_by_scope(
-        db_pool, scope_kind=row["scope_kind"], scope_id=row["scope_id"]
-    )
+    # From postgres, or (an in-process job on a server with no database: the model row was handed
+    # in) from the scope's catalog files (catalog_store.py), as the compile does.
+    from ..catalog_store import catalog_store
+
+    catalogs = catalog_store(db_pool, storage, local=model_row is not None)
+    catalog = await catalogs.equipment_docs(scope) if catalogs is not None else {}
 
     def _do_propose() -> bytes:
         result = propose_relocations(row["doc"], equipment_resolver=catalog.get)
@@ -286,7 +296,8 @@ async def _run_procedural_relocations(
         return
 
     await queue.update(job_id, status=JOB_STATUS_DONE, stage="ready", progress=1.0, error=None)
-    await _audit_done(db_pool, job_id, "done", None, started_at)
+    if audit:
+        await _audit_done(db_pool, job_id, "done", None, started_at)
 
 
 class ProceduralDetailHandler(SyntheticFormatHandler if not False else SourceFormatHandler):

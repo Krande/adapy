@@ -42,7 +42,7 @@ _BUILTIN_ENGINE = {
     # Built-ins compile a single model-level blueprint; cell grouping is a
     # capability engine feature, advertised via the worker heartbeat.
     "supports_grouping": False,
-    "doc": {"kind": "builtin", "entrypoint": "ada.topo_model.wasm_compile:compile_doc"},
+    "doc": {"kind": "builtin", "entrypoint": "ada.topo_model.wasm_compile:compile_doc", "supports_excel": True},
 }
 # A second built-in: the diagnostic ``echo`` engine (renders the document's
 # cells as raw boxes). It exercises the full engine-selection path — resolve a
@@ -56,12 +56,21 @@ _ECHO_ENGINE = {
     "revision": 0,
     "origin": "builtin",
     "supports_grouping": False,
-    "doc": {"kind": "builtin", "entrypoint": "ada.topo_model.echo_engine:compile_doc"},
+    # No Excel format: the export/import routes read this off the manifest, as they
+    # read a registered engine's ``supports_excel``.
+    "doc": {"kind": "builtin", "entrypoint": "ada.topo_model.echo_engine:compile_doc", "supports_excel": False},
 }
 _BUILTIN_ENGINES = [_BUILTIN_ENGINE, _ECHO_ENGINE]
 _BUILTIN_ENGINE_IDS = {e["id"] for e in _BUILTIN_ENGINES}
 _BUILTIN_ENGINE_SLUGS = {e["slug"] for e in _BUILTIN_ENGINES}
 _BUILTIN_ENGINE_BY_ID = {e["id"]: e for e in _BUILTIN_ENGINES}
+_BUILTIN_ENGINE_BY_SLUG = {e["slug"]: e for e in _BUILTIN_ENGINES}
+
+
+def builtin_engine_doc(slug: str | None) -> dict | None:
+    """A built-in engine's manifest doc (a copy), or None for any other slug."""
+    engine = _BUILTIN_ENGINE_BY_SLUG.get(slug or "")
+    return dict(engine["doc"]) if engine is not None else None
 
 
 async def _get_engine_in_scope(pool, engine_id: str, scope_obj: Scope) -> dict:
@@ -74,7 +83,7 @@ async def _get_engine_in_scope(pool, engine_id: str, scope_obj: Scope) -> dict:
     return row
 
 
-def _local_engine_specs(queue: JobQueue) -> dict[str, dict]:
+def local_engine_specs(queue: JobQueue) -> dict[str, dict]:
     """Engines registered in THIS process, on a server with no queue (a local viewer).
 
     A worker advertises the engines it can run on its heartbeat; a queue-less server
@@ -102,7 +111,7 @@ def _local_engine(queue: JobQueue, engine_id: str) -> dict | None:
     """The descriptor of a ``local:<slug>`` engine id, or None."""
     if not engine_id.startswith(_LOCAL_ENGINE_PREFIX):
         return None
-    spec = _local_engine_specs(queue).get(engine_id[len(_LOCAL_ENGINE_PREFIX) :])
+    spec = local_engine_specs(queue).get(engine_id[len(_LOCAL_ENGINE_PREFIX) :])
     if spec is None:
         return None
     return {
@@ -183,7 +192,7 @@ async def api_procedural_engines_list(
     known |= {e["slug"] for e in advertised}
     local = [
         {k: v for k, v in d.items() if k != "doc"}
-        for slug in sorted(_local_engine_specs(ctx.queue))
+        for slug in sorted(local_engine_specs(ctx.queue))
         if slug not in known and (d := _local_engine(ctx.queue, f"{_LOCAL_ENGINE_PREFIX}{slug}")) is not None
     ]
     return JSONResponse({"procedural_engines": [*summaries, *engines, *advertised, *local]})

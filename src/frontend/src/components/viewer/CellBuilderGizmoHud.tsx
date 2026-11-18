@@ -1,6 +1,7 @@
 import React from "react";
 
 import { useCellBuilderStore } from "@/state/cellBuilderStore";
+import { GIZMO_DELTA_FIELD_ATTR } from "./cellbuilder/sceneConstants";
 
 // Floating HUD for the active translate / rotate gizmo — the on-screen half of
 // the Blender-style keyboard flow (G/R activate, X/Y/Z lock an axis, type a
@@ -142,6 +143,7 @@ const CellBuilderGizmoHud: React.FC = () => {
         ))}
         <input
           ref={deltaRef}
+          {...{ [GIZMO_DELTA_FIELD_ATTR]: "" }}
           className={fieldCls}
           type="number"
           step={isTranslate ? 0.1 : 15}
@@ -151,6 +153,8 @@ const CellBuilderGizmoHud: React.FC = () => {
           onChange={(e) => setDelta(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter") applyDelta();
+            // With a move live, Escape is the move's cancel (keyboard.ts, on the window
+            // first). Here it leaves the field: a rotate, or a lock with no move yet.
             else if (e.key === "Escape") deltaRef.current?.blur();
           }}
           title={

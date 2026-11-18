@@ -11,6 +11,7 @@
 
 import {Vector3} from "three";
 import {useModelState} from "@/state/modelState";
+import {isItemIncluded, withInclude} from "@/utils/cellbuilder/include";
 import {PORT_OVERRIDES_KEY, readPortOverrides, withPortOverride} from "@/utils/cellbuilder/ports";
 import {BOX_FACE_SIDES, applyFaceOffset, quantizeVec, withAxisLength, type Vec3} from "@/utils/cellbuilder/snap";
 import type {BuilderCell} from "./types";
@@ -68,6 +69,11 @@ export interface CellsSlice {
    * connections so no run is orphaned. No-op on an empty/duplicate name. */
   renameCell: (id: string, name: string) => void;
   setCellParam: (id: string, key: string, value: unknown) => void;
+  /** Set the INCLUDE flag of these components (spaces, equipment, openings) in
+   * one undoable document edit: the workbook's INCLUDE column, read back by the
+   * compile and by export. Loft bands and unknown ids are skipped; nothing
+   * changes when every flag already has the value. */
+  setCellsIncluded: (ids: readonly string[], include: boolean) => void;
   /** Extend (positive) / contract (negative) a face outward by `length`. */
   applyFaceExtension: (id: string, faceIndex: number, length: number) => void;
   /** Set the box length along `axis` (origin fixed). */
@@ -330,6 +336,17 @@ export const createCellsSlice: CellBuilderSlice<CellsSlice> = (set, get) => {
           delete params[key];
         else params[key] = value;
         return { cells: { ...s.cells, [id]: { ...cur, params } }, dirty: true };
+      }),
+    setCellsIncluded: (ids, include) =>
+      withHistory((s) => {
+        let cells = s.cells;
+        for (const id of new Set(ids)) {
+          const cur = s.cells[id];
+          if (!cur || cur.kind === "loft" || isItemIncluded(cur) === include) continue;
+          if (cells === s.cells) cells = { ...s.cells };
+          cells[id] = { ...cur, params: withInclude(cur.params, include) };
+        }
+        return cells === s.cells ? {} : { cells, dirty: true };
       }),
     applyFaceExtension: (id, faceIndex, length) => {
       const s = get();

@@ -72,6 +72,10 @@ export interface ProceduralDoc {
    * model's engine column on commit so a cloned template routes to the right
    * worker. Absent / "adapy-default" = the built-in engine. */
   engine?: string;
+  /** The doc schema it was written in (ada.topo_model.engines.PROCEDURAL_SCHEMA_VERSION). From 1.1
+   * an entity's `INCLUDE: false` leaves it out of the build; an older or unstamped doc's entity
+   * INCLUDE is the models' old default, read as unset (state/cellbuilder/docCodec). */
+  schema_version?: string;
   spaces: Record<string, unknown>[];
   equipments: Record<string, unknown>[];
   openings?: Record<string, unknown>[];

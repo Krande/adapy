@@ -54,6 +54,13 @@ export const CORE_SHORTCUTS: readonly CoreShortcutDef[] = [
   { id: "core:group-selection", keys: "Shift+G", label: "Save the selection as a named group (shared in the scope)", group: VIEWER },
   { id: "core:show-all", keys: "Shift+U", label: "Unhide everything", group: VIEWER, keepDefault: true },
   {
+    id: "core:show-selected",
+    keys: "Shift+S",
+    label: "Show the selection again (a level picked in the tree brings back everything hidden under it)",
+    group: VIEWER,
+    keepDefault: true,
+  },
+  {
     id: "core:undo",
     keys: "Ctrl+Z",
     label: "Undo the last hide / show / isolate, selection change, model load or removal, selection box or section plane edit",
@@ -154,7 +161,7 @@ export const CORE_SHORTCUTS: readonly CoreShortcutDef[] = [
   },
   { id: "core:builder-translate", keys: "G", label: "Translate gizmo (cell or equipment selected)", group: BUILDER, local: true },
   { id: "core:builder-rotate", keys: "R", label: "Rotate gizmo (equipment only)", group: BUILDER, local: true },
-  { id: "core:builder-resize", keys: "S", label: "Resize gizmo (cell only)", group: BUILDER, local: true },
+  { id: "core:builder-resize", keys: "S", label: "Resize gizmo (cell, opening or equipment)", group: BUILDER, local: true },
   { id: "core:builder-lock-x", keys: "X", label: "Lock the active gizmo to the X axis (press again to release)", group: BUILDER, local: true },
   { id: "core:builder-lock-y", keys: "Y", label: "Lock the active gizmo to the Y axis (press again to release)", group: BUILDER, local: true },
   { id: "core:builder-lock-z", keys: "Z", label: "Lock the active gizmo to the Z axis (press again to release)", group: BUILDER, local: true },

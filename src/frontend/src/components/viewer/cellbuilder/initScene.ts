@@ -12,6 +12,7 @@ import * as THREE from "three";
 import {useCellBuilderStore} from "@/state/cellBuilderStore";
 import {useCompanionModelStore} from "@/state/companionModelStore";
 import {useGroupViewStore} from "@/state/cellbuilder/groupViewStore";
+import {useIncludeViewStore} from "@/state/includeViewStore";
 import {useModelState} from "@/state/modelState";
 import {requestRender} from "@/state/perfStore";
 import {getViewerRuntime} from "@/state/viewerRuntime";
@@ -24,12 +25,25 @@ import {clearPorts, rebuildPorts} from "./portsOverlay";
 import {installCellGizmo} from "./cellGizmo";
 import {installPortGizmo, syncPortGizmo} from "./portGizmo";
 import {disposeResizeHandles, syncGizmo} from "./resizeHandles";
+import {disposeCellDimensions, disposeMoveMeasure} from "./cellDimensions";
+import {useGroundGridStore} from "@/state/groundGridStore";
 import {clearLongPress, onContextMenu, onPointerCancel, onPointerDown, onPointerMove, onPointerUp} from "./pointerTools";
+import {itemIncludeState} from "@/utils/cellbuilder/include";
+
+type BuilderState = ReturnType<typeof useCellBuilderStore.getState>;
+
+/** Every cell's include state, as one string: what a groups or loft-members change may alter in the drawing. */
+const includeStates = (s: BuilderState): string =>
+    Object.values(s.cells)
+        .map((c) => `${c.id}:${itemIncludeState(c, s.cells, s.groups, s.loftMembers)}`)
+        .join("\n");
 import {endPlaceEntry} from "./numericEntry";
 import {endEquipEntry, endOpenEntry} from "./insertTools";
 import {onKeyDown} from "./keyboard";
 import {viewportInputElement} from "@/viewport/input";
 import {openedModelFramer} from "./frameOpened";
+import {shownInScene} from "./cellBoxSelect";
+import {setBuilderVisibilityHost} from "@/state/cellbuilder/builderVisibility";
 
 export function initCellBuilderScene(
     renderer: THREE.WebGLRenderer,
@@ -41,13 +55,34 @@ export function initCellBuilderScene(
     installCellGizmo(ctx);
     installPortGizmo(ctx);
 
+    // The builder takes the pointer and its keys only while its cells are drawn. A shell may keep
+    // the procedural model open behind a mode that hides them (the docked UI's Output without a
+    // comparison, its FEM modes): there a click, a right-click and Ctrl+Z / Shift+H / Delete / G
+    // ... are the viewer's, not the hidden cells' (a Delete left to the builder deleted the cell
+    // selected back in Input). What a press or a key started (a drag, a typed entry) still gets
+    // its keys and moves, and a release and a cancel always reach it, to end it.
+    const shown = () => shownInScene(ctx.cellsGroup);
+    // The hide / show commands act on the selected cells while they are drawn (state/cellbuilder/builderVisibility).
+    const unprobe = setBuilderVisibilityHost({
+        cellsShown: () => useCellBuilderStore.getState().active !== null && shown(),
+        selected: () => {
+            const st = useCellBuilderStore.getState();
+            return st.selectedCellIds.length ? [...st.selectedCellIds] : st.selection ? [st.selection.cellId] : [];
+        },
+        all: () => Object.keys(useCellBuilderStore.getState().cells),
+        hide: (ids) => useCellBuilderStore.getState().hideCells([...ids]),
+        unhide: (ids) => useCellBuilderStore.getState().unhideCells([...ids]),
+        unhideAll: () => useCellBuilderStore.getState().unhideAllCells(),
+    });
+    const busy = () =>
+        ctx.drag !== null || ctx.modalMove !== null || ctx.numEntry !== null || ctx.placeEntry !== null || ctx.equipEntry !== null || ctx.openEntry !== null;
     // Stable handler identities, so add/removeEventListener pair up.
-    const hPointerDown = (ev: PointerEvent) => onPointerDown(ctx, ev);
-    const hPointerMove = (ev: PointerEvent) => onPointerMove(ctx, ev);
+    const hPointerDown = (ev: PointerEvent) => void (shown() && onPointerDown(ctx, ev));
+    const hPointerMove = (ev: PointerEvent) => void ((shown() || busy()) && onPointerMove(ctx, ev));
     const hPointerUp = (ev: PointerEvent) => onPointerUp(ctx, ev);
     const hPointerCancel = (ev: PointerEvent) => onPointerCancel(ctx, ev);
-    const hContextMenu = (ev: MouseEvent) => onContextMenu(ctx, ev);
-    const hKeyDown = (ev: KeyboardEvent) => onKeyDown(ctx, ev);
+    const hContextMenu = (ev: MouseEvent) => void (shown() && onContextMenu(ctx, ev));
+    const hKeyDown = (ev: KeyboardEvent) => void ((shown() || busy()) && onKeyDown(ctx, ev));
 
     const el = viewportInputElement(ctx.renderer);
     // Capture phase so a grab on a builder face wins over the scene's own
@@ -93,6 +128,14 @@ export function initCellBuilderScene(
         if (s.cells !== prev.cells || s.active !== prev.active || s.equipmentCad !== prev.equipmentCad) {
             rebuild(ctx);
             framer.check();
+        } else if (
+            (s.groups !== prev.groups || s.loftMembers !== prev.loftMembers) &&
+            includeStates(s) !== includeStates(prev)
+        ) {
+            // A structure's INCLUDE (its group) or a loft member's changes what is drawn as left
+            // out. Only then: `groups` is replaced on every blueprint edit too, and a rebuild
+            // remakes every mesh.
+            rebuild(ctx);
         } else if (s.selection !== prev.selection || s.selectedCellIds !== prev.selectedCellIds)
             refreshFaceStyles(ctx);
         // "Show as CAD" toggles + any cell/type change re-seat the CAD previews
@@ -161,8 +204,9 @@ export function initCellBuilderScene(
             applyCellVisibility(ctx);
             requestRender();
         }
-        // Colour by group follows the groups (rename / add / remove re-palettes).
-        if (s.groups !== prev.groups && useGroupViewStore.getState().colourByGroup) refreshFaceStyles(ctx);
+        // The cell colours follow the groups: a blueprint change recolours its structure,
+        // and colour by group re-palettes on a rename / add / remove.
+        if (s.groups !== prev.groups) refreshFaceStyles(ctx);
         if (
             s.mode !== prev.mode &&
             s.mode !== "add-cell" &&
@@ -176,6 +220,10 @@ export function initCellBuilderScene(
     });
     // Colour by group (Groups section) restyles the boxes; it is view state kept
     // outside the cellbuilder store, so it needs its own subscription.
+    // The include view (what the build leaves out: dimmed, hidden or drawn like the rest).
+    const unsubIncludeView = useIncludeViewStore.subscribe((s, prev) => {
+        if (s.view !== prev.view) rebuild(ctx);
+    });
     const unsubGroupView = useGroupViewStore.subscribe((s, prev) => {
         if (s.colourByGroup !== prev.colourByGroup || s.colours !== prev.colours) refreshFaceStyles(ctx);
     });
@@ -196,12 +244,14 @@ export function initCellBuilderScene(
         unsub();
         unsubCompanions();
         unsubGroupView();
+        unsubIncludeView();
         unsubModel();
         el.removeEventListener("pointerdown", hPointerDown, true);
         el.removeEventListener("pointermove", hPointerMove, true);
         el.removeEventListener("pointerup", hPointerUp, true);
         el.removeEventListener("pointercancel", hPointerCancel, true);
         el.removeEventListener("contextmenu", hContextMenu);
+        unprobe();
         window.removeEventListener("keydown", hKeyDown, true);
         const runtimeCtl = getViewerRuntime().controls.current;
         if (runtimeCtl) runtimeCtl.enabled = true;
@@ -228,7 +278,11 @@ export function initCellBuilderScene(
         (ctx.faceOverlay.material as THREE.Material).dispose();
         ctx.container.remove(ctx.faceOverlay);
         disposeResizeHandles(ctx);
-        ctx.hiddenDefaultGrids.forEach((g) => (g.visible = true));
+        disposeCellDimensions(ctx);
+        ctx.container.remove(ctx.dimensionGroup);
+        disposeMoveMeasure(ctx);
+        ctx.container.remove(ctx.moveMeasureGroup);
+        ctx.hiddenDefaultGrids.forEach((g) => (g.visible = useGroundGridStore.getState().visible));
         ctx.hiddenDefaultGrids.length = 0;
         disposeBuilderGrid(ctx);
         clearPorts(ctx);

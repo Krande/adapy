@@ -384,11 +384,31 @@ export const useEquipmentCatalogStore = create<EquipmentCatalogState>(
       const d = get().equipmentDraft;
       if (!d) return;
       set({ equipmentError: null });
+      // refetch the draft so the inferred bbox + preview show
+      const refetchDraft = async () => {
+        const sel = get().selectedEquipmentId;
+        if (sel === d.id && !get().equipmentDirty) {
+          const detail = await capabilities.catalog.getEquipmentType(
+            scopePart(),
+            d.id,
+          );
+          set({ equipmentDraft: detail });
+        }
+      };
+      // Running from the request on: a server without a worker infers in it.
+      set({ bboxJob: { jobId: "", status: "running" } });
       try {
-        const { job_id } = await capabilities.catalog.inferEquipmentBbox(
+        const handle = await capabilities.catalog.inferEquipmentBbox(
           scopePart(),
           d.id,
         );
+        const job_id = handle.job_id;
+        if (job_id === null) {
+          // No worker (a local viewer): the server inferred it in the request.
+          set({ bboxJob: { jobId: "", status: "done" } });
+          await refetchDraft();
+          return;
+        }
         set({ bboxJob: { jobId: job_id, status: "queued" } });
         const poll = async () => {
           const cur = get().bboxJob;
@@ -397,15 +417,7 @@ export const useEquipmentCatalogStore = create<EquipmentCatalogState>(
             const st = await capabilities.conversion.jobStatus(job_id);
             if (st.status === "done") {
               set({ bboxJob: { ...cur, status: "done" } });
-              // refetch the draft so the inferred bbox + preview show
-              const sel = get().selectedEquipmentId;
-              if (sel === d.id && !get().equipmentDirty) {
-                const detail = await capabilities.catalog.getEquipmentType(
-                  scopePart(),
-                  d.id,
-                );
-                set({ equipmentDraft: detail });
-              }
+              await refetchDraft();
               return;
             }
             if (st.status === "error") {
@@ -426,7 +438,7 @@ export const useEquipmentCatalogStore = create<EquipmentCatalogState>(
         };
         setTimeout(poll, 1500);
       } catch (e) {
-        set({ equipmentError: errMsg(e) });
+        set({ equipmentError: errMsg(e), bboxJob: null });
       }
     },
 

@@ -48,6 +48,10 @@ class JobContext:
 
     ``src_path`` / ``on_progress`` / ``settings`` / ``fetch`` are populated only for
     source-backed handlers (``needs_source = True``); synthetic handlers see them as ``None``.
+
+    ``model_row`` is a procedural model a queue-less server read from its file store and
+    handed to the job process (``local_runner``), for a handler that would otherwise read
+    it from postgres; ``None`` on a worker.
     """
 
     scope: Scope
@@ -59,6 +63,7 @@ class JobContext:
     on_progress: ProgressCb | None = None
     settings: ConversionSettings | None = None
     fetch: SourceFetch | None = None
+    model_row: dict | None = None
 
 
 class FormatHandler(Protocol):

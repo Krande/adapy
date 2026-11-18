@@ -59,7 +59,12 @@ from .compile import (
     _space_to_box,
     _stream_tessellation,
 )
-from .engines import DEFAULT_ENGINE_SLUG, PROCEDURAL_SCHEMA_VERSION, EngineBinding
+from .engines import (
+    DEFAULT_ENGINE_SLUG,
+    PROCEDURAL_SCHEMA_VERSION,
+    EngineBinding,
+    honours_entity_include,
+)
 
 __all__ = ["ProceduralBuilder"]
 
@@ -76,6 +81,43 @@ def _strip_none(d):
     explicit None to the constructor — so unpacking a null-laden dict raises and
     the whole compile drops entities. Stripping lets field defaults reapply."""
     return {k: v for k, v in d.items() if v is not None} if isinstance(d, dict) else d
+
+
+def _included(d) -> bool:
+    """A doc entity is built unless it says ``INCLUDE: false`` (the workbook's INCLUDE column, or the
+    viewer's Model panel checkbox): in a procedural doc a missing INCLUDE means included (the doc
+    normalizer, ``validate_doc``, keeps it missing), though the entity classes default it to False."""
+    return not (isinstance(d, dict) and d.get("INCLUDE") is False)
+
+
+def _without_excluded(doc: dict) -> dict:
+    """The doc without what the build leaves out: entities with ``INCLUDE: false`` (a doc of schema 1.1
+    or later, :func:`~ada.topo_model.engines.honours_entity_include`), and the spaces of a group with
+    ``include: false`` (the viewer's Model panel, a structure row unticked) plus the equipment and
+    openings in the spaces left out (by ``STRUCTURE_NAME`` or ``SPACE_NAME``)."""
+    flags = honours_entity_include(doc.get("schema_version"))
+
+    def own(d) -> bool:
+        return _included(d) if flags else True
+
+    # A group without a name names no structure: left out, it must not read as "the spaces of no
+    # structure" (STRUCTURE_NAME None), which would take every unassigned space with it.
+    out_groups = {
+        g.get("name") for g in doc.get("groups") or [] if isinstance(g, dict) and g.get("include") is False
+    } - {None, ""}
+    spaces = [s for s in doc.get("spaces", []) if own(s) and s.get("STRUCTURE_NAME") not in out_groups]
+    # A dropped space with no NAME must not read as "every free-placed item" (SPACE_NAME None).
+    dropped = ({s.get("NAME") for s in doc.get("spaces", [])} - {s.get("NAME") for s in spaces}) - {None}
+
+    def placed(d: dict) -> bool:
+        return own(d) and d.get("STRUCTURE_NAME") not in out_groups and d.get("SPACE_NAME") not in dropped
+
+    return {
+        **doc,
+        "spaces": spaces,
+        "equipments": [e for e in doc.get("equipments", []) if placed(e)],
+        "openings": [o for o in doc.get("openings", []) if placed(o)],
+    }
 
 
 @dataclass
@@ -178,6 +220,12 @@ class ProceduralBuilder:
         self.loft_members = [
             m if isinstance(m, TopoLoftMember) else TopoLoftMember(**_strip_none(m)) for m in self.loft_members
         ]
+        # What a builder holds is built: from_dict has left out what the doc excludes, and an entity made in
+        # code without INCLUDE (its class defaults it to False) is built all the same. Say so on the entity,
+        # so to_doc / to_excel -> from_dict keeps it (copies: the caller's objects are left as they were).
+        self.spaces = [s if s.INCLUDE else s.model_copy(update={"INCLUDE": True}) for s in self.spaces]
+        self.equipments = [e if e.INCLUDE else e.model_copy(update={"INCLUDE": True}) for e in self.equipments]
+        self.openings = [o if o.INCLUDE else o.model_copy(update={"INCLUDE": True}) for o in self.openings]
         # Whitelist the structural options so an unknown key can't reach SteelStru.
         self.blueprint_options = {k: v for k, v in dict(self.blueprint_options).items() if k in _BLUEPRINT_OPTION_KEYS}
         # Resolve a named/absent ruleset to a DesignRules; keep the slug for round-trip.
@@ -208,6 +256,7 @@ class ProceduralBuilder:
         mapping of ``spaces``/``equipments``/``openings``/``systems`` entity
         dumps plus the ``blueprint``/``design_rules``/``equipment_cad`` scalars.
         All dict parsing (and its validation) happens here, once."""
+        doc = _without_excluded(doc)
         return cls(
             spaces=[TopoSpace(**_strip_none(s)) for s in doc.get("spaces", [])],
             equipments=[TopoEquipment(**_strip_none(e)) for e in doc.get("equipments", [])],

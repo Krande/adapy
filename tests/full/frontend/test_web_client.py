@@ -7,6 +7,8 @@ import ada
 from ada.comms.web.serve import start_serving
 from ada.comms.wsock.client_async import WebSocketClientAsync
 
+from ._live import capture_console, wait_until_live
+
 
 @pytest.mark.asyncio
 async def test_ws_server_no_client(ws_server):
@@ -35,6 +37,7 @@ async def test_frontend_ws_client_connection(http_server, ws_server):
     async with async_playwright() as playwright:
         browser = await playwright.chromium.launch(headless=True)
         browser_page = await browser.new_page()
+        console = capture_console(browser_page)
 
         response = await browser_page.goto(http_server.url, timeout=10000)
         assert response.status == 200
@@ -48,12 +51,7 @@ async def test_frontend_ws_client_connection(http_server, ws_server):
             # not. That is what `assert False is True` was reporting, and it is a race in this
             # test, not in the websocket: `test_front_multiple_connections` below already polls
             # for exactly this reason ("Wait until the viewer has actually connected").
-            for _ in range(100):  # up to ~10s, each check waiting up to 1s internally
-                if await ws_client.check_target_liveness():
-                    break
-                await asyncio.sleep(0.1)
-            else:
-                assert False, "the viewer never became live on the websocket"
+            await wait_until_live(ws_client, console=console)
 
         await browser.close()
 

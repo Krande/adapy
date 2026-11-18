@@ -15,8 +15,8 @@ storage, beside the artifacts the model already has there::
 
 ``_procedural/`` is a hidden prefix, so the file browser does not list it. The routes ask
 :func:`procedural_store` for "the store here" and call the same five operations either
-way; what they cannot have without a database (the equipment/system catalogs, stats
-exports, xlsx import) still says so.
+way. The jobs on a stored model (compile, Excel/IFC export, xlsx import) run in-process, and the
+equipment/system catalogs have a file store of their own (catalog_store.py).
 
 ONE PROCESS. A local viewer is one server process, so a process-wide lock is enough to
 make the name check and the revision bump atomic. The file store is not meant for a

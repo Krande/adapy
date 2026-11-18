@@ -343,3 +343,17 @@ test("the mode toolbars live in a region core owns: it fills the room, and the h
   assert.doesNotMatch(header, /mx-auto/, "nothing centred: the switcher does not move with the toolbars");
   assert.match(header, /ShellModeSwitcher[^>]*shrink-0/);
 });
+test("Fit selection takes the builder's selected cells, which are not the viewer's selection", async () => {
+  setup();
+  const { setActiveViewport } = await import("@/viewport/api/viewportApi");
+  const release = setActiveViewport({ kind: "three", unavailable: () => null, selectionCount: () => 0 } as never);
+  const fit = C.getCommand(ID.fitSelection)!;
+  assert.equal(fit.disabledReason?.(), "Nothing selected");
+  const before = useCellBuilderStore.getState();
+  useCellBuilderStore.setState({ active: "doc", selection: { cellId: "c1" }, selectedCellIds: ["c1"] } as never);
+  assert.equal(fit.disabledReason?.(), null, "the builder's cells are something to frame");
+  useCellBuilderStore.setState({ active: before.active, selection: before.selection, selectedCellIds: before.selectedCellIds });
+  assert.equal(fit.disabledReason?.(), "Nothing selected");
+  release();
+  C.resetCommands();
+});

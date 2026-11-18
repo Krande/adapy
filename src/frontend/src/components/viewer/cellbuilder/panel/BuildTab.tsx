@@ -224,7 +224,7 @@ export const BuildTab: React.FC<{
           >
             {s.cellTypes.map((t) => (
               <option key={t.slug} value={t.slug}>
-                {t.name} ({t.origin === "code" ? "code" : "db"})
+                {t.name} ({t.origin === "code" ? "code" : "catalog"})
               </option>
             ))}
           </select>

@@ -7,6 +7,7 @@ import React from "react";
 import {runtime} from "@/runtime/config";
 import AppearanceOptions from "@/components/options/AppearanceOptions";
 import CameraControlsOptions from "@/components/options/CameraControlsOptions";
+import ControlsProfileOptions from "@/components/options/ControlsProfileOptions";
 import ComputeOptions from "@/components/options/ComputeOptions";
 import DisplayOptions from "@/components/options/DisplayOptions";
 import ExperimentalOptions from "@/components/options/ExperimentalOptions";
@@ -74,7 +75,18 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
     },
     {id: "performance", title: "Performance", available: always, render: () => <PerformanceOptions/>},
     {id: "compute", title: "Calculations", available: always, render: () => <ComputeOptions/>},
-    {id: "camera", title: "Camera controls", available: always, render: () => <CameraControlsOptions/>},
+    // The controls profile (a named camera mapping, with or without keys) and the mapping it holds.
+    {
+        id: "camera",
+        title: "Controls",
+        available: always,
+        render: () => (
+            <div className="space-y-4">
+                <ControlsProfileOptions/>
+                <CameraControlsOptions/>
+            </div>
+        ),
+    },
     {id: "spacemouse", title: "3D mouse", available: always, render: () => <SpaceMouseOptions/>},
     // The in-browser (WASM) conversion engine only makes sense for the hosted REST viewer.
     {id: "conversion", title: "Conversion engine", available: restOnly, render: () => <ExperimentalOptions/>},

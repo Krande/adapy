@@ -7,17 +7,28 @@
  */
 
 import * as THREE from "three";
-import {useCellBuilderStore} from "@/state/cellBuilderStore";
+import {useCellBuilderStore, type BuilderCell} from "@/state/cellBuilderStore";
+import {boxFrameMatrix, equipmentCadFitted, resizeRefusal} from "@/utils/cellbuilder/cellResize";
 import {requestRender} from "@/state/perfStore";
 import {getViewerRuntime} from "@/state/viewerRuntime";
 import {BOX_FACE_SIDES, faceCenter} from "@/utils/cellbuilder/snap";
 import {GIZMO_ROTATE_SNAP_DEG} from "@/utils/gizmo/transformKeys";
 import {HANDLE_AXIS_COLOR} from "./sceneConstants";
 import type {CellBuilderScene} from "./sceneContext";
-import {reconcileModalMove} from "./cellGizmo";
+import {reconcileModalMove, reconcileMoveMeasure} from "./cellGizmo";
+import {syncCellDimensions} from "./cellDimensions";
 
 
-export const disposeResizeHandles = (ctx: CellBuilderScene) => {
+/**
+ * Whether the resize gizmo takes `cell` (see `resizeRefusal`). The one reading the menus, the
+ * commands and the scene share (`equipmentCadFitted`, store-only): the scene's own fit of a box
+ * to a loaded mesh of the cell's name is not read here, since a compiled result names every
+ * equipment's body after its cell, and that made the scene refuse what the menus offered.
+ */
+export const resizable = (_ctx: CellBuilderScene, cell: BuilderCell): boolean =>
+    resizeRefusal(cell.kind, {cadFitted: equipmentCadFitted(cell, useCellBuilderStore.getState())}) === null;
+
+export const disposeResizeHandles =(ctx: CellBuilderScene) => {
     for (let i = ctx.resizeGroup.children.length - 1; i >= 0; i--) {
         const o = ctx.resizeGroup.children[i] as THREE.Mesh;
         o.geometry.dispose();
@@ -31,14 +42,20 @@ export const rebuildResizeHandles = (ctx: CellBuilderScene) => {
     const st = useCellBuilderStore.getState();
     const sel = st.selection;
     const cell = sel ? st.cells[sel.cellId] : null;
-    // Equipment is sized by its type, not free-resized in the scene — no
-    // resize handles for it (Move still works).
+    // Spaces, openings and equipment resize; a loft band, or an equipment box fitted
+    // to its CAD model, does not (cellResize.ts says why).
     const show = !!(
-        st.active && st.gizmoMode === "resize" && cell && cell.kind === "cell" && st.cellsVisible
+        st.active && st.gizmoMode === "resize" && cell && st.cellsVisible && resizable(ctx, cell)
     );
     ctx.resizeGroup.visible = show;
+    // A rotated equipment's handles and dimensions sit in its own (rotated) frame.
+    const frame = cell ? boxFrameMatrix(cell, cell.kind === "equipment" ? cell.rotation : null) : new THREE.Matrix4();
+    ctx.resizeGroup.matrixAutoUpdate = false;
+    ctx.resizeGroup.matrix.copy(frame);
+    const r = cell ? Math.max(0.15, 0.1 * Math.min(cell.size[0], cell.size[1], cell.size[2])) : 0;
+    // Its three dimensions, just outside the box (a handle's radius off it).
+    syncCellDimensions(ctx, show && cell ? cell : null, r, frame);
     if (!show || !cell) return;
-    const r = Math.max(0.15, 0.1 * Math.min(cell.size[0], cell.size[1], cell.size[2]));
     for (let fi = 0; fi < BOX_FACE_SIDES.length; fi++) {
         const side = BOX_FACE_SIDES[fi];
         const c = faceCenter(cell, fi);
@@ -57,6 +74,8 @@ export const rebuildResizeHandles = (ctx: CellBuilderScene) => {
         mesh.userData.__cellId = cell.id;
         ctx.resizeGroup.add(mesh);
     }
+    // With the handles in: a pointer that raycasts them before the next render finds them in the frame.
+    ctx.resizeGroup.updateMatrixWorld(true);
 };
 
 // Reconcile the gizmos with the current selection/mode. Skipped repositioning
@@ -134,6 +153,8 @@ export const syncGizmo = (ctx: CellBuilderScene) => {
     // After the widget visibility is set, let the axis-locked modal move take
     // over (it re-hides the helper it doesn't need).
     reconcileModalMove(ctx);
+    // How far the moved cell has come, following the (snapped) move live.
+    reconcileMoveMeasure(ctx);
     requestRender();
 };
 

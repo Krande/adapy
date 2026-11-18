@@ -25,6 +25,11 @@ from .test_render_backends import (
     _until,
 )
 
+
+async def _gone(locator) -> bool:
+    return await locator.count() == 0
+
+
 # Asks the viewer, before it starts, for what a plugin draws and plays with (plugins/index.ts).
 SCRIPTED_SCENE = "window.__adaScriptedScene = true;"
 SCENE = "window.__adaScriptedScene"
@@ -410,11 +415,11 @@ async def test_layers_change_over_time_on_whichever_viewport_is_on_screen(ws_ser
             assert (await _seen(page))["magenta"] == 0
             assert await page.evaluate(f"{SCENE}.imageUnavailable(4096, 4096)") is None
 
-            # ---- layers: nothing of them before they are added, and no button for the panel
+            # ---- layers: nothing of them before they are added. The Layers panel has no top-bar button
+            # (core:layers: it is opened from the palette or the panel menus, or by what draws the layers).
             seen = await _seen(page)
             assert seen["magenta"] == seen["cyan"] == seen["yellow"] == 0, seen
-            layers_button = page.get_by_role("button", name="Toggle layers panel")
-            assert await layers_button.count() == 0, f"{backend}: a Layers button with no layer registered"
+            assert await page.get_by_role("button", name="Toggle layers panel").count() == 0
             assert await page.evaluate(f"{SCENE}.imageUnavailable(8, 4)") is None
             await page.evaluate(ADD_LAYERS)
             clock = await _playback(page)
@@ -474,7 +479,7 @@ async def test_layers_change_over_time_on_whichever_viewport_is_on_screen(ws_ser
             assert (await _seen(page))["cyan"] > 0.8 * last["cyan"]
 
             # ---- the Layers panel: a row per layer, a switch each, remembered in the browser
-            await layers_button.click()
+            await _command(page, "Layers")
             panel = page.locator("[data-layers-panel]")
             await _until(page, panel.count, "the Layers panel")
             assert await panel.locator("[data-layer-id]").count() == 3
@@ -504,7 +509,8 @@ async def test_layers_change_over_time_on_whichever_viewport_is_on_screen(ws_ser
             await page.wait_for_timeout(700)
             gone = await _seen(page)
             assert gone["magenta"] == gone["cyan"] == gone["yellow"] == 0, f"{backend}: {gone}"
-            assert await layers_button.count() == 0, f"{backend}: the Layers button outlived the layers"
+            # The panel is offered while something has a layer: it goes with the last one.
+            await _until(page, lambda: _gone(panel), "the Layers panel to go with the layers")
             assert (await _playback(page))["tracks"] == 1
 
             # ---- the orbit pivot: a double-click on the block makes it what the camera turns about

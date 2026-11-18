@@ -6,6 +6,8 @@ import {MOUSE, TOUCH} from "three";
 import {OrbitControls} from "three/examples/jsm/controls/OrbitControls";
 import CameraControls from "camera-controls";
 import {useCameraControlsStore} from "@/state/cameraControlsStore";
+// Loaded with the viewer, so the chosen controls profile follows a change made anywhere (the command palette too).
+import "@/state/controlsProfileStore";
 import {dragAction, mouseButtonOf, type CameraAction, type CameraMapping, type MouseButton} from "@/utils/camera/cameraMapping";
 
 // The controllers' own speeds and smoothing as they ship, which the mapping's multipliers scale.

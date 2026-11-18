@@ -28,6 +28,14 @@ from .deps import RestContext, rest_context, scope_from_path
 router = APIRouter()
 
 
+def _catalog_store(request: Request, ctx: RestContext):
+    """The scope catalogs to overlay (postgres, or a local viewer's files), or None when
+    this server has none (a queue but no database): the listings are then code + worker."""
+    from ..catalog_store import catalog_store
+
+    return catalog_store(getattr(request.app.state, "db_pool", None), ctx.storage, local=not ctx.queue.enabled)
+
+
 # Plugin jobs an admin must be to enqueue, named by plugin id. Admin-only to
 # write like every other non-`public.` setting, and deliberately NOT under
 # `public.` — who may run a job is not a read window for every user.
@@ -178,16 +186,16 @@ async def api_procedural_equipment_types(
             "has_cad": False,
         },
     )
-    pool = getattr(request.app.state, "db_pool", None)
-    if pool is not None:
-        # ``list_equipment_types`` returns summary rows only (no ``doc``), so
-        # fetch the docs separately to project each catalog type's ports.
-        docs_by_slug = await db_module.get_equipment_docs_by_scope(
-            pool, scope_kind=scope_obj.kind, scope_id=scope_obj.id
-        )
+    store = _catalog_store(request, ctx)
+    if store is not None:
+        # The listing returns summary rows only (no ``doc``), so fetch the docs
+        # separately to project each catalog type's ports. Listing first: a local
+        # viewer's file catalog seeds its defaults on its first listing.
+        rows = await store.list_equipment(scope_obj)
+        docs_by_slug = await store.equipment_docs(scope_obj)
         overlay_catalog_rows(
             by_slug,
-            await db_module.list_equipment_types(pool, scope_kind=scope_obj.kind, scope_id=scope_obj.id),
+            rows,
             lambda slug, t: {
                 "slug": slug,
                 "name": t.get("name") or slug,
@@ -230,11 +238,14 @@ async def api_procedural_system_types(
         await ctx.jobs.advertised_specs("procedural_system_specs", "procedural_system_types"),
         project=_project,
     )
-    pool = getattr(request.app.state, "db_pool", None)
-    if pool is not None:
+    store = _catalog_store(request, ctx)
+    if store is not None:
+        # The listing rows carry no doc: fetch the docs for the type/medium/voltage.
+        rows = await store.list_systems(scope_obj)
+        docs_by_slug = await store.system_docs(scope_obj)
 
         def _project_row(slug: str, t: dict) -> dict:
-            doc = t.get("doc") or {}
+            doc = docs_by_slug.get(slug) or {}
             return {
                 "slug": slug,
                 "name": t.get("name") or slug,
@@ -247,7 +258,7 @@ async def api_procedural_system_types(
 
         overlay_catalog_rows(
             by_slug,
-            await db_module.list_system_templates(pool, scope_kind=scope_obj.kind, scope_id=scope_obj.id),
+            rows,
             _project_row,
         )
     return JSONResponse({"system_types": sort_by_name(by_slug.values())})

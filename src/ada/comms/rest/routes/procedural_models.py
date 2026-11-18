@@ -28,6 +28,7 @@ from ada.config import logger
 from .. import auth as auth_module
 from .. import db as db_module
 from ..auth import User
+from ..catalog_store import CatalogStore, DbCatalogStore, catalog_store
 from ..job_transport import JobRequest, JobTransport
 from ..procedural import (
     procedural_build_job_key,
@@ -46,30 +47,12 @@ from .deps import (
     DIRECT_UPLOAD_THRESHOLD_BYTES,
     RestContext,
     advertised_engine_capability,
-    require_catalog_pool,
+    live_worker_specs,
     rest_context,
     scope_from_path,
 )
 
 router = APIRouter()
-
-
-def require_procedural_pool(request: Request):
-    pool = getattr(request.app.state, "db_pool", None)
-    if pool is None:
-        raise HTTPException(status_code=503, detail="procedural models disabled (no database configured)")
-    return pool
-
-
-async def get_procedural_in_scope(pool, model_id: str, scope_obj: Scope) -> dict:
-    try:
-        row = await db_module.get_procedural_model(pool, model_id)
-    except Exception:
-        # malformed UUID etc. — treat as not found, not a 500
-        row = None
-    if row is None or row["scope_kind"] != scope_obj.kind or (row["scope_id"] or None) != (scope_obj.id or None):
-        raise HTTPException(status_code=404, detail="procedural model not found")
-    return row
 
 
 def model_store(request: Request, ctx: RestContext) -> ProceduralStore:
@@ -89,17 +72,34 @@ async def get_model_in_scope(store: ProceduralStore, model_id: str, scope_obj: S
     return row
 
 
-async def catalog_fingerprint_for(pool, scope_obj: Scope, doc: dict) -> str | None:
+async def catalog_fingerprint_for(pool, scope_obj: Scope, doc: dict, store: CatalogStore | None = None) -> str | None:
     """Fingerprint of the scope's equipment + system catalogs, but ONLY when the
     model actually references catalog items — else ``None``, i.e. the model has no
     catalog dependency and its cache stays purely revision/doc-hash keyed. The
     equipment/system catalogs are live compile inputs the model's revision doesn't
     capture, so folding this (via the ``.catfp`` sidecar) makes a catalog edit force
-    a fresh compile."""
-    if pool is None or not (doc.get("equipments") or doc.get("systems")):
-        # No database, no catalogs: nothing the compile could have resolved from one.
+    a fresh compile. ``store`` (:func:`catalogs_here`) answers for the catalogs the
+    build resolves, a local viewer's files included; without it, the ``pool``."""
+    if store is None and pool is not None:
+        store = DbCatalogStore(pool)
+    if store is None or not (doc.get("equipments") or doc.get("systems")):
+        # No catalogs: nothing the compile could have resolved from one.
         return None
-    return await db_module.get_catalog_fingerprint(pool, scope_kind=scope_obj.kind, scope_id=scope_obj.id)
+    return await store.fingerprint(scope_obj)
+
+
+def catalogs_here(request: Request, ctx: RestContext) -> CatalogStore | None:
+    """The catalogs this server's builds resolve: postgres, a local viewer's files
+    (no database, no queue: :mod:`..catalog_store`), or None."""
+    return catalog_store(getattr(request.app.state, "db_pool", None), ctx.storage, local=not ctx.queue.enabled)
+
+
+def require_catalogs(request: Request, ctx: RestContext) -> CatalogStore:
+    """:func:`catalogs_here`, or 503 (a queue but no database)."""
+    store = catalogs_here(request, ctx)
+    if store is None:
+        raise HTTPException(status_code=503, detail="catalogs disabled (no database configured)")
+    return store
 
 
 async def catalog_cache_stale(storage: Storage, scope_obj: Scope, derived_key: str, catalog_fp: str | None) -> bool:
@@ -242,7 +242,7 @@ async def api_procedural_equipment_sync(
     never imports ``ada``."""
     from ..catalog import validate_equipment_doc
 
-    pool = require_catalog_pool(request)
+    store = require_catalogs(request, ctx)
     body = await request.json()
     slug = body.get("slug")
     if not isinstance(slug, str) or not slug:
@@ -256,19 +256,11 @@ async def api_procedural_equipment_sync(
         raise HTTPException(status_code=422, detail=f"invalid archetype doc: {e}")
     name = spec.get("name") or slug
     desc = "Synced from built-in archetype"
-    created = await db_module.create_equipment_type(
-        pool,
-        scope_kind=scope_obj.kind,
-        scope_id=scope_obj.id,
-        slug=slug,
-        name=name,
-        description=desc,
-        created_by=user.sub,
-    )
+    created = await store.create_equipment(scope_obj, slug=slug, name=name, description=desc, created_by=user.sub)
     if created is None:
         raise HTTPException(status_code=409, detail=f"equipment type {slug!r} already exists in this scope")
-    new_rev = await db_module.update_equipment_type(
-        pool,
+    new_rev = await store.update_equipment(
+        scope_obj,
         created["id"],
         slug=slug,
         name=name,
@@ -302,14 +294,11 @@ async def api_procedural_equipment_resync(
         validate_equipment_doc,
     )
 
-    pool = require_catalog_pool(request)
+    store = require_catalogs(request, ctx)
     specs = await ctx.jobs.advertised_specs("procedural_equipment_specs")
     if not specs:
         raise HTTPException(status_code=503, detail="no live worker advertising equipment archetypes")
-    existing = {
-        t["slug"]: t
-        for t in await db_module.list_equipment_types(pool, scope_kind=scope_obj.kind, scope_id=scope_obj.id)
-    }
+    existing = {t["slug"]: t for t in await store.list_equipment(scope_obj)}
     created: list[str] = []
     updated: list[str] = []
     unchanged: list[str] = []
@@ -330,7 +319,7 @@ async def api_procedural_equipment_resync(
         name = spec.get("name") or slug
         cur = existing.get(slug)
         if cur is not None:
-            full = await db_module.get_equipment_type(pool, cur["id"])
+            full = await store.get_equipment(scope_obj, cur["id"])
             stored_doc = (full or {}).get("doc") or {}
             # A CAD-backed type's inferred geometry + aligned ports must survive
             # the resync (which runs on every model open); see resync_target_doc.
@@ -341,8 +330,8 @@ async def api_procedural_equipment_resync(
             changes[slug] = summarize_equipment_doc_changes(
                 stored_doc, (full or {}).get("name") or slug, target_doc, name
             )
-            await db_module.update_equipment_type(
-                pool,
+            await store.update_equipment(
+                scope_obj,
                 cur["id"],
                 slug=slug,
                 name=name,
@@ -352,10 +341,8 @@ async def api_procedural_equipment_resync(
             )
             updated.append(slug)
         else:
-            row = await db_module.create_equipment_type(
-                pool,
-                scope_kind=scope_obj.kind,
-                scope_id=scope_obj.id,
+            row = await store.create_equipment(
+                scope_obj,
                 slug=slug,
                 name=name,
                 description="Synced from built-in archetype",
@@ -364,8 +351,8 @@ async def api_procedural_equipment_resync(
             if row is None:
                 skipped.append(slug)
                 continue
-            await db_module.update_equipment_type(
-                pool,
+            await store.update_equipment(
+                scope_obj,
                 row["id"],
                 slug=slug,
                 name=name,
@@ -392,7 +379,7 @@ async def api_procedural_system_sync(
     so this works without a live worker."""
     from ..catalog import builtin_system_specs, validate_system_doc
 
-    pool = require_catalog_pool(request)
+    store = require_catalogs(request, ctx)
     body = await request.json()
     slug = body.get("slug")
     if not isinstance(slug, str) or not slug:
@@ -408,19 +395,11 @@ async def api_procedural_system_sync(
         raise HTTPException(status_code=422, detail=f"invalid system-kind doc: {e}")
     name = spec.get("name") or slug
     desc = "Synced from built-in system kind"
-    created = await db_module.create_system_template(
-        pool,
-        scope_kind=scope_obj.kind,
-        scope_id=scope_obj.id,
-        slug=slug,
-        name=name,
-        description=desc,
-        created_by=user.sub,
-    )
+    created = await store.create_system(scope_obj, slug=slug, name=name, description=desc, created_by=user.sub)
     if created is None:
         raise HTTPException(status_code=409, detail=f"system template {slug!r} already exists in this scope")
-    new_rev = await db_module.update_system_template(
-        pool,
+    new_rev = await store.update_system(
+        scope_obj,
         created["id"],
         slug=slug,
         name=name,
@@ -652,7 +631,7 @@ async def api_procedural_compile(
     # derived key is unchanged. Fingerprint them (only when the model places
     # catalog items) and, on a hit, rebuild if the cached artifact predates the
     # current catalog state (sidecar mismatch).
-    catalog_fp = await catalog_fingerprint_for(pool, scope_obj, row.get("doc") or {})
+    catalog_fp = await catalog_fingerprint_for(pool, scope_obj, row.get("doc") or {}, catalogs_here(request, ctx))
 
     # Resolve the selected detailing engine. An EXTERNAL (Tier-B) engine
     # (inprocess=False) runs as a chained ``procedural_detail``
@@ -847,7 +826,7 @@ async def api_procedural_compile_preview(
     # The preview key is content-keyed on the DOC, but catalog equipment/systems
     # are resolved live at compile — so a catalog edit must invalidate a cached
     # preview too (same reasoning as /compile). Fingerprint the referenced catalogs.
-    catalog_fp = await catalog_fingerprint_for(pool, scope_obj, normalized)
+    catalog_fp = await catalog_fingerprint_for(pool, scope_obj, normalized, catalogs_here(request, ctx))
 
     if not force and await ctx.storage.exists(scope_obj, derived_key):
         if not await catalog_cache_stale(ctx.storage, scope_obj, derived_key, catalog_fp):
@@ -1021,8 +1000,7 @@ async def api_procedural_stats_export(
 
     from ..procedural import PROCEDURAL_PREFIX, procedural_stats_key
 
-    pool = require_procedural_pool(request)
-    row = await get_procedural_in_scope(pool, model_id, scope_obj)
+    row = await get_model_in_scope(model_store(request, ctx), model_id, scope_obj)
     key = (request.query_params.get("key") or "").strip()
     fmt = (request.query_params.get("fmt") or "xlsx").strip().lower()
     tab = (request.query_params.get("tab") or "overview").strip().lower()
@@ -1075,8 +1053,8 @@ async def api_procedural_propose_relocations(
     are proposals only; applying them is a separate, explicit user action."""
     from ..procedural import procedural_relocations_key
 
-    pool = require_procedural_pool(request)
-    row = await get_procedural_in_scope(pool, model_id, scope_obj)
+    pool = getattr(request.app.state, "db_pool", None)
+    row = await get_model_in_scope(model_store(request, ctx), model_id, scope_obj)
     derived_key = procedural_relocations_key(row["id"])
 
     ctx.jobs.require("procedural_relocations")
@@ -1090,6 +1068,7 @@ async def api_procedural_propose_relocations(
             conversion_options={"model_id": row["id"], "revision": row["revision"]},
             derived_key=derived_key,
             force_rebuild=True,
+            inprocess_inputs={"model_row": row, "db_pool": pool},
         )
     )
     return JSONResponse({"job_id": job.job_id, "derived_key": derived_key})
@@ -1102,23 +1081,66 @@ async def api_procedural_propose_relocations(
 # Export mirrors /compile (revision-keyed cache + capability routing); import
 # is a two-step: upload+detect (dependency-free _ADA_META peek), then enqueue.
 
-# Built-in engine slugs with NO Excel format — echo is diagnostic only. Kept
-# ada-free here (slim API): the default engine + registered engines support it.
-NO_EXCEL_ENGINE_SLUGS = {"echo"}
+# Whether an engine HAS an Excel format is the engine's own say, read off its
+# manifest (``supports_excel``): a built-in's static doc (echo says no), a scope's
+# database row, or the spec its registration advertises
+# (``register_procedural_engine_capabilities(supports_excel=...)``). Core keeps no
+# list of slugs. Kept ada-free (slim API).
 
 
-async def procedural_engine_capability(queue: JobQueue, pool, scope_obj: Scope, engine: str | None) -> str | None:
+async def procedural_engine_manifest(queue: JobQueue, pool, scope_obj: Scope, engine: str | None) -> dict | None:
+    """The manifest doc of ``engine`` as this server can see it: a built-in's static
+    doc, the scope's database row (which wins, as everywhere), else the spec a live
+    worker advertises -- or, on a queue-less server, the one this process registered.
+    None for an engine nobody describes."""
+    from ada.core.engine_specs import is_offerable, manifest_from_spec
+
+    from .procedural_engines import builtin_engine_doc, local_engine_specs
+
+    slug = engine or "adapy-default"
+    builtin = builtin_engine_doc(slug)
+    if builtin is not None:
+        return builtin
+    if pool is not None:
+        eng = await db_module.get_procedural_engine_by_slug(
+            pool, scope_kind=scope_obj.kind, scope_id=scope_obj.id, slug=slug
+        )
+        if eng is not None:
+            return eng.get("doc") or {}
+    if queue.enabled:
+        spec = (await live_worker_specs(queue, "procedural_engine_specs")).get(slug)
+    else:
+        spec = local_engine_specs(queue).get(slug)
+    return manifest_from_spec(spec) if spec is not None and is_offerable(spec) else None
+
+
+def require_excel_format(engine: str | None, manifest: dict | None) -> None:
+    """400 when the engine's manifest says it has no Excel format (``supports_excel:
+    false``). An engine that says nothing keeps the Excel format it always had."""
+    from ada.core.engine_specs import has_excel_format
+
+    if not has_excel_format(manifest):
+        raise HTTPException(status_code=400, detail=f"engine {engine!r} has no Excel format")
+
+
+async def procedural_engine_capability(
+    queue: JobQueue, pool, scope_obj: Scope, engine: str | None, *, manifest: dict | None = None
+) -> str | None:
     """The worker capability that owns a non-default engine's Excel format
     (its ``worker_capability``), so export/import routes to that pool. None for
-    the default / built-in engines (base pool)."""
-    if not engine or engine == "adapy-default" or engine in ("echo",):
+    the default / built-in engines (base pool). ``manifest`` is the engine's
+    :func:`procedural_engine_manifest` when the caller already has it."""
+    if not engine or engine == "adapy-default":
         return None
-    eng = await db_module.get_procedural_engine_by_slug(
-        pool, scope_kind=scope_obj.kind, scope_id=scope_obj.id, slug=engine
-    )
-    if eng is not None:
-        return (eng.get("doc") or {}).get("worker_capability")
-    return await advertised_engine_capability(queue, engine)
+    if not queue.enabled:
+        # No queue: the job runs in this server's process, where a capability names
+        # no pool.
+        return None
+    if manifest is None:
+        manifest = await procedural_engine_manifest(queue, pool, scope_obj, engine)
+    if manifest is None or manifest.get("kind") == "builtin":
+        return None
+    return manifest.get("worker_capability")
 
 
 @router.post("/scopes/{scope}/procedural-models/{model_id}/export-xlsx")
@@ -1138,8 +1160,8 @@ async def api_procedural_export_xlsx(
     force = (request.query_params.get("force") or "").strip().lower() in ("1", "true", "yes")
     engine = (request.query_params.get("engine") or "").strip() or None
 
-    pool = require_procedural_pool(request)
-    row = await get_procedural_in_scope(pool, model_id, scope_obj)
+    pool = getattr(request.app.state, "db_pool", None)
+    row = await get_model_in_scope(model_store(request, ctx), model_id, scope_obj)
     # Honour the model's declared engine unless overridden (as /compile does);
     # "adapy-default" collapses to the bare (built-in) key.
     if engine is None:
@@ -1147,15 +1169,15 @@ async def api_procedural_export_xlsx(
         engine = declared or None
         if engine == "adapy-default":
             engine = None
-    if engine in NO_EXCEL_ENGINE_SLUGS:
-        raise HTTPException(status_code=400, detail=f"engine {engine!r} has no Excel format")
+    manifest = await procedural_engine_manifest(ctx.queue, pool, scope_obj, engine)
+    require_excel_format(engine, manifest)
 
     derived_key = procedural_xlsx_export_key(row["id"], row["revision"], engine)
     if not force and await ctx.storage.exists(scope_obj, derived_key):
         return JSONResponse({"job_id": None, "derived_key": derived_key, "cached": True})
     ctx.jobs.require("procedural_export")
 
-    target_capability = await procedural_engine_capability(ctx.queue, pool, scope_obj, engine)
+    target_capability = await procedural_engine_capability(ctx.queue, pool, scope_obj, engine, manifest=manifest)
     job = await ctx.jobs.submit(
         JobRequest(
             source_key=procedural_export_xlsx_job_key(row["id"], row["revision"]),
@@ -1166,6 +1188,8 @@ async def api_procedural_export_xlsx(
             derived_key=derived_key,
             force_rebuild=force,
             target_capability=target_capability,
+            # A queue-less server exports in-process from the row this route just read.
+            inprocess_inputs={"model_row": row, "db_pool": pool},
         )
     )
     return JSONResponse({"job_id": job.job_id, "derived_key": derived_key, "cached": False})
@@ -1199,8 +1223,8 @@ async def api_procedural_export_model(
     cad_raw = (request.query_params.get("cad") or "").strip().lower()
     cad_equipment = fmt == "ifc" and cad_raw not in ("0", "false", "no")
 
-    pool = require_procedural_pool(request)
-    row = await get_procedural_in_scope(pool, model_id, scope_obj)
+    pool = getattr(request.app.state, "db_pool", None)
+    row = await get_model_in_scope(model_store(request, ctx), model_id, scope_obj)
     engine = (row.get("engine") or "").strip()
     if engine and engine != "adapy-default":
         raise HTTPException(
@@ -1216,7 +1240,7 @@ async def api_procedural_export_model(
     derived_key = procedural_model_export_key(row["id"], row["revision"], fmt, cad_equipment=cad_equipment)
     # Equipment (and, for gxml, systems) are resolved live from the catalog at
     # export — so a catalog edit must invalidate a cached export too.
-    catalog_fp = await catalog_fingerprint_for(pool, scope_obj, row.get("doc") or {})
+    catalog_fp = await catalog_fingerprint_for(pool, scope_obj, row.get("doc") or {}, catalogs_here(request, ctx))
     if not force and await ctx.storage.exists(scope_obj, derived_key):
         if not await catalog_cache_stale(ctx.storage, scope_obj, derived_key, catalog_fp):
             return JSONResponse({"job_id": None, "derived_key": derived_key, "cached": True})
@@ -1241,6 +1265,7 @@ async def api_procedural_export_model(
             derived_key=derived_key,
             force_rebuild=force,
             target_capability=None,
+            inprocess_inputs={"model_row": row, "db_pool": pool},
         )
     )
     return JSONResponse({"job_id": job.job_id, "derived_key": derived_key, "cached": False})
@@ -1310,7 +1335,9 @@ async def api_procedural_import_xlsx(
     ``model_id``."""
     from ..procedural import PROCEDURAL_PREFIX, procedural_import_result_key
 
-    pool = require_procedural_pool(request)
+    # The store the new model lands in: postgres, or (no database, no queue) the file store.
+    model_store(request, ctx)
+    pool = getattr(request.app.state, "db_pool", None)
     body = await request.json()
     source_key = (body.get("source_key") or "").strip()
     engine = (body.get("engine") or "").strip() or None
@@ -1319,13 +1346,13 @@ async def api_procedural_import_xlsx(
         raise HTTPException(status_code=400, detail="source_key (from /import-xlsx/upload) is required")
     if not name:
         raise HTTPException(status_code=400, detail="name (str) is required")
-    if engine in NO_EXCEL_ENGINE_SLUGS:
-        raise HTTPException(status_code=400, detail=f"engine {engine!r} has no Excel format")
     if engine == "adapy-default":
         engine = None
+    manifest = await procedural_engine_manifest(ctx.queue, pool, scope_obj, engine)
+    require_excel_format(engine, manifest)
     ctx.jobs.require("procedural_import")
 
-    target_capability = await procedural_engine_capability(ctx.queue, pool, scope_obj, engine)
+    target_capability = await procedural_engine_capability(ctx.queue, pool, scope_obj, engine, manifest=manifest)
     derived_key = procedural_import_result_key(source_key)
     job = await ctx.jobs.submit(
         JobRequest(
@@ -1342,6 +1369,7 @@ async def api_procedural_import_xlsx(
             derived_key=derived_key,
             force_rebuild=True,
             target_capability=target_capability,
+            inprocess_inputs={"db_pool": pool},
         )
     )
     return JSONResponse({"job_id": job.job_id, "derived_key": derived_key}, status_code=201)

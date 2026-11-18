@@ -9,6 +9,8 @@ but must not choke on them."""
 
 from __future__ import annotations
 
+import pytest
+
 from ada.topo_model import (
     procedural_engine_specs,
     register_procedural_engine_capabilities,
@@ -74,3 +76,62 @@ def test_adapy_default_ignores_groups_and_structure_name():
     assert _is_glb(glb)
     # Grouping is ignored: identical geometry to the same doc without groups.
     assert len(glb) == len(compile_procedural_doc(_DOC))
+
+
+# ── Excel format, declared by the registration ───────────────────────
+
+
+def test_builtins_declare_their_excel_format_through_their_specs():
+    specs = {s["slug"]: s for s in procedural_engine_specs()}
+    assert specs["adapy-default"]["supports_excel"] is True
+    assert specs["echo"]["supports_excel"] is False
+
+
+def test_a_registration_carries_its_excel_handlers(monkeypatch):
+    from ada.topo_model import engine_catalog
+
+    monkeypatch.setattr(engine_catalog, "_ENGINE_CAPABILITY_REGISTRY", dict(engine_catalog._ENGINE_CAPABILITY_REGISTRY))
+    register_procedural_engine_capabilities(
+        "xl-engine",
+        name="XL",
+        entrypoint="xl.mod:compile",
+        export_entrypoint="xl.mod:write_book",
+        import_entrypoint="xl.mod:read_book",
+        supports_excel=True,
+    )
+    spec = next(s for s in procedural_engine_specs() if s["slug"] == "xl-engine")
+    assert spec["export_entrypoint"] == "xl.mod:write_book"
+    assert spec["import_entrypoint"] == "xl.mod:read_book"
+    assert spec["supports_excel"] is True
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"export_entrypoint": "no_colon"},
+        {"import_entrypoint": "no_colon"},
+        {"supports_excel": False, "export_entrypoint": "xl.mod:write_book"},
+    ],
+)
+def test_a_registration_with_unusable_excel_arguments_is_refused(kwargs):
+    with pytest.raises(ValueError):
+        register_procedural_engine_capabilities("bad-xl", name="Bad", entrypoint="xl.mod:compile", **kwargs)
+
+
+def test_supports_excel_false_in_a_manifest_means_no_excel_format():
+    from ada.topo_model.engines import (
+        EngineHasNoExcelFormat,
+        engine_supports_excel,
+        export_doc_to_xlsx,
+        import_xlsx_to_doc,
+    )
+
+    manifest = {"kind": "server", "entrypoint": "xl.mod:compile", "supports_excel": False}
+    assert engine_supports_excel("xl-engine", manifest) is False
+    with pytest.raises(EngineHasNoExcelFormat):
+        export_doc_to_xlsx("xl-engine", _DOC, name="m", manifest_doc=manifest)
+    with pytest.raises(EngineHasNoExcelFormat):
+        import_xlsx_to_doc("xl-engine", b"", manifest_doc=manifest)
+    # Saying nothing keeps the Excel format an entrypoint has always implied.
+    assert engine_supports_excel("xl-engine", {"kind": "server", "entrypoint": "xl.mod:compile"}) is True
+    assert engine_supports_excel("echo") is False and engine_supports_excel(None) is True

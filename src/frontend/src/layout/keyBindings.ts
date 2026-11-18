@@ -64,7 +64,7 @@ export function refuseChord(keys: ShortcutKeys): string | null {
  */
 export function chordFromEvent(e: { key: string; ctrlKey: boolean; metaKey: boolean; altKey: boolean; shiftKey: boolean }): ShortcutKeys | null {
   if (MODIFIER_KEYS.has(e.key.toLowerCase())) return null;
-  const key = e.key === " " ? "Space" : e.key.length === 1 ? e.key.toUpperCase() : e.key;
+  const key = e.key === " " ? "Space" : e.key === "+" ? "Plus" : e.key.length === 1 ? e.key.toUpperCase() : e.key;
   return [e.ctrlKey || e.metaKey ? "Ctrl" : "", e.altKey ? "Alt" : "", e.shiftKey ? "Shift" : "", key].filter(Boolean).join("+");
 }
 

@@ -18,12 +18,14 @@ import {startRenderer} from "@/viewport/adacpp/rendererModule";
 import {rolledUpAxis} from "@/utils/camera/roll";
 import {linearColor} from "@/utils/scene/sceneColor";
 import {useOptionsStore} from "@/state/optionsStore";
+import {useGroundGridStore} from "@/state/groundGridStore";
 import {usePerfStore} from "@/state/perfStore";
 import {defaultColorLinear, hexChannels, lightIntensities, useAppearanceStore} from "@/state/appearanceStore";
 import {glbUncoloured, UNCOLOURED_BLACK} from "@/utils/glb/glbUncoloured";
 import type {ObjectColorState} from "@/viewport/api/objectColors";
 import {placeModel, type Box6, type Vec3} from "@/viewport/api/sceneFrame";
-import {boundingSphere, clipRangeFor, DEFAULT_VIEW, framePose, namedViewPose, selectionFramePose} from "@/viewport/api/cameraFrame";
+import {boundingSphere, clipRangeFor, DEFAULT_VIEW, framePose, namedViewPose, ORTHO_FIT_BOX_MARGIN, ORTHO_FIT_MARGIN, orthoFramePose, selectionFramePose} from "@/viewport/api/cameraFrame";
+import {followProjection} from "@/state/projectionStore";
 import {GROUND_GRID, groundGridLines} from "@/viewport/api/groundGrid";
 import {InstanceFlag, SegmentFlag, Topology, type AdacppModule, type AdacppStats, type CameraPoseInfo, type GpuDeviceLike, type LoadedGlbObjects, type RawPick, type WebRendererApi} from "@/viewport/adacpp/types";
 
@@ -212,6 +214,10 @@ export class NativeScene {
     readonly onSelection = new Set<() => void>();
     /** Called after each frame drawn: what follows the camera on screen (the orientation gizmo) redraws. */
     readonly onFrame = new Set<() => void>();
+    /** Called before each frame is drawn, once the camera has moved for it: what is sized by the
+     *  camera (screen-sized sprites in the orthographic view) is set for this frame. What these
+     *  change is drawn in this frame, with no frame of its own. */
+    readonly onBeforeDraw = new Set<() => void>();
     /** Called after a model replaced the scene: helper lines are gone with it, and the box has changed. */
     readonly onLoaded = new Set<() => void>();
     /** Called before the models on screen are replaced, while what is selected and hidden in them
@@ -287,6 +293,13 @@ export class NativeScene {
             this.invalidate();
         }));
         renderer.setCameraControlled(true);
+        // The Orthographic view setting (state/projectionStore), shared with the three.js viewport:
+        // the renderer's camera projects either way, keeping its framing (adacpp's camera controller).
+        this.cleanups.push(followProjection((on) => {
+            if (renderer.cameraPose().orthographic !== on) renderer.cameraSetOrthographic(on);
+            this.applyClipRange();
+            this.invalidate();
+        }));
         // A drag is smoothed here (`dragSmoothing`), as OrbitControls smooths it: the renderer's own
         // glide, which only starts once the drag is released, would come on top of it.
         renderer.cameraSetDamping(0);
@@ -307,6 +320,14 @@ export class NativeScene {
             if (!this.disposed) this.fail(`WebGPU device lost: ${info.message}`);
         });
         this.addGrid();
+        // The "Ground grid" toggle (state/groundGridStore).
+        this.cleanups.push(
+            useGroundGridStore.subscribe((s, prev) => {
+                if (s.visible === prev.visible) return;
+                this.addGrid();
+                this.invalidate();
+            }),
+        );
         this.home(0);
         this.bindInput();
     }
@@ -1009,12 +1030,16 @@ export class NativeScene {
     /** Frame the whole model, along the current view (the shared fit, viewport/api/cameraFrame). */
     fit(seconds = 0): void {
         if (!this.bounds) return;
-        this.applyPose(framePose(this.bounds, this.viewDirection(), this.fovDeg(), this.aspect()), seconds);
+        this.applyPose(this.orthoFit(this.bounds) ?? framePose(this.bounds, this.viewDirection(), this.fovDeg(), this.aspect()), seconds);
     }
 
     /** Frame a box in the world (min xyz, max xyz) with room around it; false for an empty one. */
     fitBox(box: Bounds, seconds = MOVE_SECONDS): boolean {
-        return this.applyPose(framePose(box, this.viewDirection(), this.fovDeg(), this.aspect(), FIT_BOX_SCALE, FIT_BOX_MIN_RADIUS), seconds);
+        return this.applyPose(
+            this.orthoFit(box, ORTHO_FIT_BOX_MARGIN, FIT_BOX_MIN_RADIUS) ??
+                framePose(box, this.viewDirection(), this.fovDeg(), this.aspect(), FIT_BOX_SCALE, FIT_BOX_MIN_RADIUS),
+            seconds,
+        );
     }
 
     /** The view every viewport starts from, its clip range with it. */
@@ -1023,7 +1048,7 @@ export class NativeScene {
         const {eye, target, fovDeg, near, far} = DEFAULT_VIEW;
         const pose = this.renderer.cameraPose();
         this.renderer.cameraSetPose(eye[0], eye[1], eye[2], target[0], target[1], target[2], WORLD_UP[0], WORLD_UP[1], WORLD_UP[2], fovDeg, pose.orthographic, 0, seconds);
-        this.renderer.cameraSetClipRange?.(near, far);
+        this.setClipRange({near, far});
         this.invalidate();
     }
 
@@ -1038,7 +1063,7 @@ export class NativeScene {
                 box[k + 3] = Math.max(box[k + 3], own[k + 3]);
             }
         }
-        return this.applyPose(selectionFramePose(box, this.viewDirection(), this.fovDeg()), seconds);
+        return this.applyPose(this.orthoFit(box) ?? selectionFramePose(box, this.viewDirection(), this.fovDeg()), seconds);
     }
 
     /** A replacing load: the clip range follows the model, and the camera frames it when the user
@@ -1048,7 +1073,7 @@ export class NativeScene {
         if (!this.bounds) return;
         if (!keepCamera && useOptionsStore.getState().autoFit) return this.fit(0);
         const range = clipRangeFor(boundingSphere(this.bounds).radius);
-        if (range) this.renderer.cameraSetClipRange?.(range.near, range.far);
+        if (range) this.setClipRange(range);
     }
 
     /** Move the camera to `pose` and fit the clip range to what it frames; false for no pose. */
@@ -1059,9 +1084,37 @@ export class NativeScene {
         const {eye, target} = pose;
         this.renderer.cameraSetPose(eye[0], eye[1], eye[2], target[0], target[1], target[2], WORLD_UP[0], WORLD_UP[1], WORLD_UP[2], current.fov, current.orthographic, 0, seconds);
         const range = clipRangeFor(pose.radius);
-        if (range) this.renderer.cameraSetClipRange?.(range.near, range.far);
+        if (range) this.setClipRange(range);
         this.invalidate();
         return true;
+    }
+
+    /** The near and far planes perspective is drawn with (clipRangeFor of what was framed last). */
+    private perspectiveClip: {near: number; far: number} = {near: DEFAULT_VIEW.near, far: DEFAULT_VIEW.far};
+
+    private setClipRange(range: {near: number; far: number}): void {
+        this.perspectiveClip = range;
+        this.applyClipRange();
+    }
+
+    /** The clip range for the projection drawn now. An orthographic view has no eye: what lies
+     *  between the camera and its target, or behind the camera, is as much in view as what is in
+     *  front of it (an orthographic fit may stand the camera inside a long model). So it takes the
+     *  renderer's own range, which spans the scene's sphere on both sides of the camera; perspective
+     *  keeps the range set for what was framed. */
+    private applyClipRange(): void {
+        if (this.renderer.cameraPose().orthographic) this.renderer.cameraSetClipRange?.(0, 0);
+        else this.renderer.cameraSetClipRange?.(this.perspectiveClip.near, this.perspectiveClip.far);
+    }
+
+    /** The orthographic fit of `box` looking along `direction` (by default the current view), or null
+     *  in perspective (viewport/api/cameraFrame `orthoFramePose`). Its screen axes are those of the
+     *  pose it is applied with: `applyPose` stands the camera up by the world's up axis. */
+    private orthoFit(
+        box: Bounds, margin = ORTHO_FIT_MARGIN, minHalfHeight = 0, direction: Vec3 = this.viewDirection(),
+    ): {eye: Vec3; target: Vec3; radius: number} | null {
+        if (!this.renderer.cameraPose().orthographic) return null;
+        return orthoFramePose(box, direction, WORLD_UP, this.fovDeg(), this.aspect(), margin, minHalfHeight);
     }
 
     /** Unit vector from the camera towards its target. */
@@ -1106,6 +1159,8 @@ export class NativeScene {
      *  again after each. */
     private addGrid(): void {
         for (const handle of this.gridHandles) this.removeLines(handle);
+        this.gridHandles = [];
+        if (!useGroundGridStore.getState().visible) return;
         const flags = InstanceFlag.Unlit | InstanceFlag.NoPick | InstanceFlag.Underlay;
         const {lines, centre} = groundGridLines(true);
         this.gridHandles = [
@@ -1172,8 +1227,15 @@ export class NativeScene {
     }
 
     /** Look at the whole model from `direction` (the unit vector from the model to the camera, z up):
-     *  the shared named view (viewport/api/cameraFrame `namedViewPose`). */
+     *  the shared named view (viewport/api/cameraFrame `namedViewPose`), or in the orthographic view
+     *  the shared orthographic fit from that side. */
     viewFrom(direction: readonly [number, number, number], seconds = MOVE_SECONDS): void {
+        const along: Vec3 = [-direction[0], -direction[1], -direction[2]];
+        const ortho = this.bounds ? this.orthoFit(this.bounds, ORTHO_FIT_MARGIN, 0, along) : null;
+        if (ortho) {
+            this.applyPose(ortho, seconds);
+            return;
+        }
         const pose = namedViewPose(this.bounds, direction, this.fovDeg(), this.aspect(), this.renderer.cameraPose());
         // With nothing loaded there is nothing to fit the clip range to: it stays.
         this.applyPose({...pose, radius: pose.radius ?? NaN}, seconds);
@@ -1496,6 +1558,10 @@ export class NativeScene {
             // A move to a view runs for as long as the camera says it does.
             const moving = this.renderer.cameraUpdate(dt) || dragging;
             const playing = this.beforeFrame?.(dt) ?? false;
+            // What these listeners change is in the frame drawn now: it asks for no frame of its own.
+            const dirty = this.dirty;
+            for (const listener of this.onBeforeDraw) listener();
+            this.dirty = dirty;
             this.renderer.render();
             this.frameCounters.drawn++;
             this.lingerUntil = now + LINGER_MS;

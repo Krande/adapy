@@ -5,7 +5,7 @@
 // single-purpose `SetupModelPrepareHook` into the multi-plugin run-point.
 
 import { makePluginContextStandalone } from "./context";
-import { getResultSidecarLoaders, disablePlugin, type SidecarFetcher } from "./registry";
+import { getResultSidecarLoaders, disablePlugin, notifyPluginActivationChanged, type SidecarFetcher } from "./registry";
 
 // loader id -> disposer for the currently-loaded model.
 const _active = new Map<string, () => void>();
@@ -43,6 +43,8 @@ export function disposeResultSidecarLoaders(): void {
     }
   }
   _active.clear();
+  // What the loaders loaded is gone: a panel whose predicate read it asks again.
+  notifyPluginActivationChanged();
 }
 
 /** Run all registered sidecar loaders against a freshly-loaded model. Disposes
@@ -64,6 +66,11 @@ export async function runResultSidecarLoaders(args: {
       if (!loader.detect(args.manifest)) continue;
       const dispose = await loader.load(ctx, args);
       if (typeof dispose === "function") _active.set(loader.id, dispose);
+      // A plugin's activation predicate often reads what its loader just loaded (its
+      // results). The panel asked before the load finished - on the model change that
+      // started it - and would otherwise show "Nothing to show here yet" until some
+      // unrelated change made it ask again (a mode switch, a reload).
+      notifyPluginActivationChanged();
     } catch (err) {
       disablePlugin(pluginId, `sidecar loader "${loader.id}" threw: ${String(err)}`);
     }

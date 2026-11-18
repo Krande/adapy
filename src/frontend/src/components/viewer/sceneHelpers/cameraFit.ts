@@ -5,15 +5,36 @@ import * as THREE from "three";
 import CameraControls from "camera-controls";
 import {OrbitControls} from "three/examples/jsm/controls/OrbitControls";
 import {applyAdaptiveClipping} from "@/components/viewer/sceneHelpers/adaptiveClipping";
-import {framePose, wholeSphereDistance} from "@/viewport/api/cameraFrame";
+import {framePose, ORTHO_FIT_BOX_MARGIN, ORTHO_FIT_MARGIN, orthoFramePose, wholeSphereDistance} from "@/viewport/api/cameraFrame";
 import type {Box6} from "@/viewport/api/sceneFrame";
+import {isOrthographic} from "@/utils/scene/orthographicProjection";
 
 const box6 = (b: THREE.Box3): Box6 => [b.min.x, b.min.y, b.min.z, b.max.x, b.max.y, b.max.z];
+
+/** Where the camera stands to frame `box` while it draws orthographically (the shared orthographic
+ *  fit, viewport/api/cameraFrame `orthoFramePose`): looking along `direction` (by default the way it
+ *  looks now), rolled as `upHint` says (by default its up on screen now). Null in perspective, where
+ *  the perspective fits apply, and for an empty box. */
+export function orthoFitPose(
+    camera: THREE.Camera,
+    box: THREE.Box3 | Box6,
+    margin = ORTHO_FIT_MARGIN,
+    minHalfHeight = 0,
+    direction: ArrayLike<number> = camera.getWorldDirection(new THREE.Vector3()).toArray(),
+    upHint: ArrayLike<number> = new THREE.Vector3(0, 1, 0).applyQuaternion(camera.quaternion).toArray(),
+): {eye: [number, number, number]; target: [number, number, number]; radius: number} | null {
+    if (!(camera instanceof THREE.PerspectiveCamera) || !isOrthographic(camera)) return null;
+    const b = box instanceof THREE.Box3 ? box6(box) : box;
+    return orthoFramePose(b, direction, upHint, camera.fov, camera.aspect, margin, minHalfHeight, camera.zoom);
+}
 
 // Skip helper subtrees (section planes, caps, the transform gizmo) and hidden
 // objects when fitting the camera. setFromObject ignores `visible`, so the
 // gizmo — which scales with camera distance — would otherwise blow up the box
 // and fling the camera off into empty space (the "solid grey" screen).
+/** frameBox's default room round a box in perspective. */
+const FRAME_BOX_SCALE = 1.6;
+
 export const isExcludedFromFit = (obj: THREE.Object3D): boolean => {
     let cur: THREE.Object3D | null = obj;
     while (cur) {
@@ -25,15 +46,19 @@ export const isExcludedFromFit = (obj: THREE.Object3D): boolean => {
 
 // Frame the camera on an explicit world-space box (a single face, a sub-selection) reusing the same
 // FOV-based sphere fit as zoomToAll. distanceScale > 1 leaves breathing room around a tiny target so a
-// small face doesn't fill the whole viewport with the near surface.
+// small face doesn't fill the whole viewport with the near surface. The orthographic view frames the
+// box's outline instead, with its own margin (ORTHO_FIT_BOX_MARGIN), scaled as distanceScale is from
+// its default.
 export const frameBox = (
     box: THREE.Box3,
     camera: THREE.PerspectiveCamera,
     controls: OrbitControls | CameraControls,
-    distanceScale = 1.6,
+    distanceScale = FRAME_BOX_SCALE,
 ) => {
     if (box.isEmpty()) return;
-    const pose = framePose(box6(box), camera.getWorldDirection(new THREE.Vector3()).toArray(), camera.fov, camera.aspect, distanceScale, 1e-4);
+    const pose =
+        orthoFitPose(camera, box, (ORTHO_FIT_BOX_MARGIN * distanceScale) / FRAME_BOX_SCALE, 1e-4) ??
+        framePose(box6(box), camera.getWorldDirection(new THREE.Vector3()).toArray(), camera.fov, camera.aspect, distanceScale, 1e-4);
     if (!pose) return;
     applyAdaptiveClipping(camera, controls, pose.radius);
     const center = new THREE.Vector3(...pose.target);
@@ -80,8 +105,11 @@ export const zoomToAll = (scene: THREE.Scene, camera: THREE.PerspectiveCamera, c
     const overallBox = sceneFitBox(scene);
     if (!overallBox) return;
 
-    // The shared fit (viewport/api/cameraFrame): the box's sphere, along the current viewing direction.
-    const pose = framePose(box6(overallBox), camera.getWorldDirection(new THREE.Vector3()).toArray(), camera.fov, camera.aspect);
+    // The shared fit (viewport/api/cameraFrame): the box's sphere, along the current viewing direction;
+    // in the orthographic view, the box's outline on the view plane.
+    const pose =
+        orthoFitPose(camera, overallBox) ??
+        framePose(box6(overallBox), camera.getWorldDirection(new THREE.Vector3()).toArray(), camera.fov, camera.aspect);
     if (!pose) return;
 
     // Adapt near/far to model size so small models can be zoomed into without near-plane clipping.

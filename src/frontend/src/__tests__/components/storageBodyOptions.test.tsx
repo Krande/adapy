@@ -186,7 +186,7 @@ test("a selection of two or more puts its actions at the end of a selected row's
     ]);
     const file = keys(buildFileMenuItems(FILE, { ...fileCtx, selection: sel }));
     assert.deepEqual(file.slice(-5), keys(items));
-    const model = keys(buildProceduralMenuItems("m", { canMutate: true, onOpen: () => {}, selection: sel }));
+    const model = keys(buildProceduralMenuItems("m", { canMutate: true, onMakeActive: () => {}, selection: sel }));
     assert.deepEqual(model.slice(-5), keys(items));
 });
 
