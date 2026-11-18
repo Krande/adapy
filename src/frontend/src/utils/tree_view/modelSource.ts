@@ -10,3 +10,13 @@ export function sourceOfModel(modelKey: string | null | undefined): string | nul
     for (const root of roots) if (root.model_key === modelKey && root.source_name) return root.source_name;
     return null;
 }
+
+/** The name of the object `id` of model `modelKey` (its Scene tree row) and the source that model was
+ *  loaded from; null where the tree has no such row or model. What a viewport that knows an object
+ *  only by its model and id hands a plugin holding the scene's clicks. */
+export function describeObject(modelKey: string, id: string): {name: string | null; sourceName: string | null} {
+    return {
+        name: useTreeViewStore.getState().findNodeByRangeId(modelKey, id)?.name ?? null,
+        sourceName: sourceOfModel(modelKey) ?? null,
+    };
+}

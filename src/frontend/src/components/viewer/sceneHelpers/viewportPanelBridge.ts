@@ -11,7 +11,7 @@ import {clearSourceExtensions, setSourceExtension} from "@/state/sourceExtension
 import {useTreeViewStore} from "@/state/treeViewStore";
 import {query_ws_server_mesh_info} from "@/utils/mesh_select/handlers/send_mesh_selected_info_callback";
 import {registerLineageFromExtension} from "@/utils/lineage/registerLineageFromExtension";
-import {sourceOfModel} from "@/utils/tree_view/modelSource";
+import {describeObject, sourceOfModel} from "@/utils/tree_view/modelSource";
 import {revealPickInTrees} from "@/utils/tree_view/revealPick";
 import {announcedExtension} from "@/viewport/api/modelExtension";
 import {onModelLoaded, onViewportPick, pickCoordinate, type LoadedModelInfo, type ViewportPick} from "@/viewport/api/viewportApi";
@@ -81,8 +81,7 @@ export function installViewportPanelBridge(): void {
     onViewportPick(showPick);
     // A plugin holding the scene's clicks (`ctx.scene.pickObjects`) is told an object's name and
     // file; the three.js-free viewport knows only its model and id, and the trees are read here.
-    setScenePickDescriber((model, id) => ({
-        name: useTreeViewStore.getState().findNodeByRangeId(model, id)?.name ?? null,
-        sourceName: sourceOfModel(model) ?? null,
-    }));
+    // (The name: `useTreeViewStore.getState().findNodeByRangeId(model, id)?.name ?? null`; the
+    // source: `sourceOfModel(model) ?? null` -- `describeObject`.)
+    setScenePickDescriber(describeObject);
 }
