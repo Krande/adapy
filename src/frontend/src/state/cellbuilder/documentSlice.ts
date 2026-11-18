@@ -50,7 +50,7 @@ export interface DocumentSlice {
    *  untouched by toDoc, so a commit keeps an engine's own lists (pm's `modifications`). */
   docExtras: Record<string, unknown>;
   /** Set one of those keys (`undefined` removes it), for a shell that edits an engine's own list
-   *  (param_models' `modifications`, say): one undo step, marks the model dirty, and the next
+   *  (an engine's `modifications`, say): one undo step, marks the model dirty, and the next
    *  commit carries it. A key the builder owns (`BUILDER_DOC_KEYS`) is refused (returns false). */
   setDocExtra: (key: string, value: unknown) => boolean;
   dirty: boolean;
