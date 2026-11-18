@@ -32,6 +32,7 @@ import {
   isolateFeaElements,
   paintFeaElements,
   removeOwnerOverlays,
+  selectionBoxes,
   setFeaElementEdgesVisible,
 } from "./sceneOverlays";
 import {
@@ -215,6 +216,7 @@ function makeSceneHandle(): SceneHandle {
     pickObjects,
     placeBox,
     contactBetween,
+    selectionBoxes,
   };
 }
 

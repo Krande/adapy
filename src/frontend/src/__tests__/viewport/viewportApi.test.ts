@@ -75,6 +75,7 @@ function recorder(kind: ViewportApi["kind"], cannot: string | null = null): {api
             objectsInBox: () => NO_OBJECTS,
             objectsInScreenRect: () => NO_OBJECTS,
             selectionBounds: () => null,
+            selectionBoxes: () => [],
         },
     };
 }

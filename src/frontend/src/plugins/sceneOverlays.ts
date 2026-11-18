@@ -28,7 +28,7 @@ import {onBeforeDraw} from "@/viewport/api/beforeDraw";
 import {linearChannel as channel, linearColor as linear, linearColorInto as linearInto} from "@/utils/scene/sceneColor";
 import type {Billboard, BillboardLayer} from "@/viewport/api/billboards";
 import type {OverlayLayer} from "@/viewport/api/overlayLayer";
-import {activeViewport, type ViewportApi} from "@/viewport/api/viewportApi";
+import {activeViewport, type SelectedObjectBox, type ViewportApi} from "@/viewport/api/viewportApi";
 import {releaseOwnerLayers} from "./sceneLayers";
 import type {
     SceneBox,
@@ -392,6 +392,12 @@ export function frameFeaElements(elements: Iterable<number>): boolean {
 /** Frame the camera on a world-space box. */
 export function frameSceneBox(box: SceneBox): boolean {
     return activeViewport()?.fitBox(box.min, box.max) ?? false;
+}
+
+/** The selected objects with their boxes in the model's own coordinates, from the viewport on
+ *  screen (`SceneHandle.selectionBoxes`); [] without one. */
+export function selectionBoxes(): SelectedObjectBox[] {
+    return activeViewport()?.selectionBoxes() ?? [];
 }
 
 /** Frame the camera on everything loaded, as the toolbar's zoom-to-all does. */

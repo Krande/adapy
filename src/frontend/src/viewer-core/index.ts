@@ -697,7 +697,13 @@
 //          so a shell's Model panel needs no deep import; and on `/layout`, `useModelPanelView` (the panel's
 //          view and folded rows with `setView` / `toggleCollapsed` / `setCollapsed`, not the store). The camera mapping's
 //          `select` action (the selection rectangle) and controls profiles (Settings > Controls).
-export const VIEWER_CORE_API_VERSION = "1.28.0";
+//   1.29.0 Kept in step with PLUGIN_API_VERSION 1.29.0. Additive: `ctx.scene.selectionBoxes` (the
+//          selected objects' boxes in the model's own coordinates, with their names and the names
+//          above them, on either viewport) and its type `SelectedObjectBox`. The builder store's
+//          `setDocExtra(key, value)` (state/cellbuilder/documentSlice.ts): a shell edits an engine's
+//          own doc list (a key the builder does not own, e.g. `modifications`) as one undo step that
+//          dirties the model and is committed with it; `docExtras` holds them.
+export const VIEWER_CORE_API_VERSION = "1.29.0";
 
 // ---------------------------------------------------------------------------
 // Plugin declaration. `registerPlugin` is how a package announces itself —
@@ -772,6 +778,7 @@ export type {
   SceneOverlay,
   ScenePointLayer,
   ScenePointLayerSpec,
+  SelectedObjectBox,
   SidecarFetcher,
   SimulationOpenResultArgs,
   SimulationParameterFormArgs,

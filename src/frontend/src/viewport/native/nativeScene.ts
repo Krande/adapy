@@ -1914,6 +1914,22 @@ export class NativeScene {
         return box[0] > box[3] ? null : box;
     }
 
+    /** Each selected object that draws something, with its box (world space, as `boxOf`), its own
+     *  name (null for none) and the names above it from the model's root down, as its file has them. */
+    selectedObjects(): {key: string; box: Bounds; name: string | null; path: string[]}[] {
+        const out: {key: string; box: Bounds; name: string | null; path: string[]}[] = [];
+        for (const key of this.selected) {
+            const at = this.where.get(key);
+            const box = at && this.draws(key) ? this.boxOf(key) : null;
+            if (!at || !box) continue;
+            const {names, ids, parents} = at.model.table;
+            const path: string[] = [];
+            for (let o = parents[at.index]; o >= 0; o = parents[o]) path.unshift(names[o] || ids[o]);
+            out.push({key, box, name: names[at.index] || null, path});
+        }
+        return out;
+    }
+
     dispose(): void {
         if (this.disposed) return;
         this.disposed = true;

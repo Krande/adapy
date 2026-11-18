@@ -5,6 +5,7 @@ import type { ColorScale } from "@/utils/colorScale";
 import type { ScenePickOptions, ScenePickSession } from "../scenePicks";
 import type { PlaceBoxOptions, PlacedBox } from "../sceneBox";
 import type { SceneContactAnswer, SceneContactOptions, SceneObjectRef } from "../sceneContact";
+import type { SelectedObjectBox } from "@/viewport/api/viewportApi";
 
 /** Values a color-field provider returns for core to paint + legend. */
 export interface SceneColorFieldResult {
@@ -390,6 +391,13 @@ export interface SceneHandle {
   // convex hulls meet, in the scene's own coordinates. Measured by the viewer's clash module on the
   // stored GLBs, not on what a viewport holds: the same answer on either viewport.
   contactBetween: (a: SceneObjectRef, b: SceneObjectRef, options?: SceneContactOptions) => Promise<SceneContactAnswer>;
+  // (1.29.0) The objects the user has selected, each with its box in the model's own coordinates
+  // (the frame `addLines` / `addPointLayer` take, not the viewport's recentred world), its name and
+  // the names above it: one entry per selected object that draws something, hidden ones included;
+  // [] when nothing is selected or there is no 3D view. For a tool that works from the selection
+  // ("make a modification from the selected plates"). Works on either viewport. Additive and
+  // optional: an older core has no `selectionBoxes`, so ask for it before calling it.
+  selectionBoxes?: () => SelectedObjectBox[];
 }
 
 /** An axis-aligned world-space box. */

@@ -29,6 +29,7 @@ export type {
   SceneObjectRef,
 } from "./sceneContact";
 export type { PlaceBoxOptions, PlacedBox, PlacedBoxMode, PlacedBoxPose } from "./sceneBox";
+export type { SelectedObjectBox } from "@/viewport/api/viewportApi";
 
 // Bumped on a breaking change to any slot interface below. A plugin declares the
 // core range it was built against via `coreApiRange`; an out-of-range plugin is
@@ -261,7 +262,16 @@ export type { PlaceBoxOptions, PlacedBox, PlacedBoxMode, PlacedBoxPose } from ".
 //          A shell's `modeArrangements[id].toolbar` adds its controls to a plugin's mode.
 //          `CORE_COMMAND_IDS.builderIncludeDimmed` / `builderIncludeOnly` / `builderIncludeAll`: how
 //          the builder draws what the build leaves out (INCLUDE false). Additive.
-export const PLUGIN_API_VERSION = "1.28.0";
+// 1.29.0 — `ctx.scene.selectionBoxes()`: the objects the user has selected, each with its box in
+//          the model's own coordinates (the frame `addLines` / `addPointLayer` take, not the
+//          viewport's recentred world), its name and the names above it (`SelectedObjectBox`), on
+//          either viewport. For a tool that works from the selection: it groups the boxes by
+//          structure by their names and converts them to its own frame. The builder store's
+//          `setDocExtra(key, value)` (state/cellbuilder/documentSlice.ts): a shell edits an
+//          engine's own doc list (a key the builder does not own, e.g. `modifications`) as one
+//          undo step that dirties the model and is committed with it; `docExtras` holds them.
+//          Additive: an older core has no `selectionBoxes`, so a plugin asks for it first.
+export const PLUGIN_API_VERSION = "1.29.0";
 
 /** What the Simulations panel writes on a run's open-result button. */
 export function openResultButtonLabel(
