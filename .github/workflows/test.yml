@@ -1,7 +1,13 @@
 name: ci-branch-tests
 
-
-on: push
+# On main only. A pull request runs pr-tests.yml, which covers what this does (`test-quick` holds
+# tests/core and tests/full on three OSes, the FEM solvers, the REST API with its ada-cpp leg, and
+# the full suite on a built viewer). This used to run on every push, which reported on a PR only
+# when its branch was in this repository: a PR from a fork never saw these jobs, and a PR from a
+# branch here ran them twice. On main it still checks what was merged.
+on:
+  push:
+    branches: [main]
 
 concurrency:
   group: ada-quick-tests-${{ github.ref }}
