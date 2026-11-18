@@ -116,6 +116,10 @@ _BACKEND_PARAMS = (
     pytest.param("occ", marks=pytest.mark.pyocc),
     pytest.param("adacpp", marks=pytest.mark.adacpp),
 )
+# The EXPERIMENTAL solidcore backend joins the parametrisation only where its binding imports
+# (pixi env `tests-solidcore`), so every other environment collects exactly what it did before.
+if backend_available(CadBackendName.SOLIDCORE):
+    _BACKEND_PARAMS = (*_BACKEND_PARAMS, pytest.param("solidcore", marks=pytest.mark.solidcore))
 
 
 @pytest.fixture(params=_BACKEND_PARAMS)

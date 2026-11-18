@@ -1,0 +1,24 @@
+[package]
+name = "solidcore-py"
+description = "EXPERIMENTAL: a thin PyO3 binding of the solidcore B-rep kernel, for adapy's prototype SolidcoreBackend"
+version = "0.0.1"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+
+[lib]
+name = "solidcore_py"
+crate-type = ["cdylib"]
+
+# solidcore publishes no Python package and (as of this pin) nothing on crates.io: build from its
+# sources, pinned to one commit of the official repository.
+[dependencies]
+pyo3 = { version = "0.25", features = ["extension-module", "abi3-py310"] }
+serde_json = "1"
+solidcore-ops = { git = "https://github.com/tangency-labs/solidcore", rev = "b9a8b239bccb59322339335cd0c8fe7189298237" }
+solidcore-record = { git = "https://github.com/tangency-labs/solidcore", rev = "b9a8b239bccb59322339335cd0c8fe7189298237" }
+solidcore-tess = { git = "https://github.com/tangency-labs/solidcore", rev = "b9a8b239bccb59322339335cd0c8fe7189298237" }
+solidcore-step = { git = "https://github.com/tangency-labs/solidcore", rev = "b9a8b239bccb59322339335cd0c8fe7189298237" }
+
+[profile.release]
+opt-level = 3
