@@ -2,6 +2,15 @@
 
 
 
+## v0.161.2 (2026-11-18)
+
+### Fix
+
+* fix(viewer): models loaded one after another keep their trees; a plugin highlights objects (1.29.0); joint tabs in the Connections panel (#565)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`98a38ca`](https://github.com/Krande/adapy/commit/98a38cab09f071f1bd9a7ff8da87636c37aaa936))
+
+
 ## v0.161.1 (2026-11-18)
 
 ### Fix
