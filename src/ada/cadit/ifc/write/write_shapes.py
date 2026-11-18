@@ -223,6 +223,17 @@ def _edge_as_polyline(e, f):
 
 
 def generate_parametric_solid(shape: Shape | PrimSphere, f):
+    shape_representation = parametric_body_representation(shape, f)
+    ifc_shape = f.create_entity(
+        "IfcProductDefinitionShape", Name=None, Description=None, Representations=[shape_representation]
+    )
+
+    return ifc_shape
+
+
+def parametric_body_representation(shape: Shape | PrimSphere, f):
+    """The ``Body`` IfcShapeRepresentation of a shape's parametric geometry (a primitive, or a Shape carrying an
+    ada.geom solid/surface). Raises NotImplementedError for geometry with no parametric IFC form."""
     from ada.api.primitives.bool_half_space import BoolHalfSpace
 
     a = shape.parent.get_assembly()
@@ -268,7 +279,11 @@ def generate_parametric_solid(shape: Shape | PrimSphere, f):
 
     from ada.api.shapes import ShapeProxy
 
-    if type(shape) in (Shape, ShapeProxy):
+    # A Shape, or a subclass that is no primitive of its own (a weld's bead), is the ada.geom geometry it carries.
+    is_geom_shape = type(shape) in (Shape, ShapeProxy) or (
+        isinstance(shape, Shape) and type(shape) not in param_geom_map and getattr(shape, "_geom", None) is not None
+    )
+    if is_geom_shape:
         param_geo = shape.geom.geometry
     else:
         param_geo = shape
@@ -303,15 +318,10 @@ def generate_parametric_solid(shape: Shape | PrimSphere, f):
     # A primitive written as a swept solid (shapes/swept_primitives.py) is one.
     if repr_type_str == "CSG" and solid_geom.is_a("IfcSweptAreaSolid"):
         repr_type_str = "SweptSolid"
-    shape_representation = f.create_entity(
+    return f.create_entity(
         "IfcShapeRepresentation",
         ContextOfItems=body_context,
         RepresentationIdentifier="Body",
         RepresentationType=repr_type_str,
         Items=[solid_geom],
     )
-    ifc_shape = f.create_entity(
-        "IfcProductDefinitionShape", Name=None, Description=None, Representations=[shape_representation]
-    )
-
-    return ifc_shape
