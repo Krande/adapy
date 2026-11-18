@@ -104,6 +104,23 @@ def test_the_box_keys_of_a_rounded_box_outline_are_kept_beside_it():
     assert len(d["outer"]) == 4 and len(d["inner"]) == 4
 
 
+def test_a_box_sections_inner_corner_radius_round_trips_and_is_left_out_when_not_set():
+    sec = ada.Section("RHS300", "BOX", h=0.3, w_top=0.3, w_btn=0.3, t_w=0.012, t_ftop=0.012, t_fbtn=0.012, r=0.018)
+    assert "r_inner" not in section_to_dict(sec)  # None: the inner radius is r less the wall
+    sec.r_inner = 0.012
+    d = section_to_dict(sec)
+    assert d["r"] == pytest.approx(0.018) and d["r_inner"] == pytest.approx(0.012)
+    again = section_from_dict(json.loads(json.dumps(d)))
+    assert again.type == BaseTypes.BOX
+    assert again.r == pytest.approx(0.018) and again.r_inner == pytest.approx(0.012)
+    assert (
+        section_from_dict(
+            section_to_dict(ada.Section("RHS300", "BOX", h=0.3, w_top=0.3, t_w=0.012, t_ftop=0.012, r=0.018))
+        ).r_inner
+        is None
+    )
+
+
 def test_an_outline_made_from_segments_writes_its_fillets_as_corners_and_radii():
     # A square 0.2 wide whose bottom-right corner is a 0.02 fillet, given as segments (as an IFC or SAT
     # reader makes it): the arc is written as the corner it rounds and its radius.

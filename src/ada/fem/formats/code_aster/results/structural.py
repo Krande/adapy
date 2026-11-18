@@ -131,7 +131,11 @@ def _section(d: dict):
     from ada import Section
     from ada.sections.categories import BaseTypes
 
-    kwargs = {k: d[k] for k in ("h", "w_top", "w_btn", "t_w", "t_ftop", "t_fbtn", "r", "wt") if d.get(k) is not None}
+    kwargs = {
+        k: d[k]
+        for k in ("h", "w_top", "w_btn", "t_w", "t_ftop", "t_fbtn", "r", "r_inner", "wt")
+        if d.get(k) is not None
+    }
     return Section(name=d.get("name") or "section", sec_type=BaseTypes.from_str(d.get("type")), **kwargs)
 
 
