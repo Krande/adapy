@@ -8,12 +8,20 @@ and its test compares what it draws with a generated fixture of Python's SVGs. B
 import importlib.util
 import pathlib
 
+import pytest
+
 ROOT = pathlib.Path(__file__).resolve().parents[2]
+SCRIPT = ROOT / "scripts" / "codegen" / "gen_weld_symbols.py"
+
+# The conda package's tests run from a copy of `tests/` alone: no generator script, no frontend.
+pytestmark = pytest.mark.skipif(
+    not SCRIPT.exists() or not (ROOT / "src" / "frontend").is_dir(),
+    reason="needs the repository's scripts/ and src/frontend (not in a package's test files)",
+)
 
 
 def _generator():
-    script = ROOT / "scripts" / "codegen" / "gen_weld_symbols.py"
-    spec = importlib.util.spec_from_file_location("gen_weld_symbols", script)
+    spec = importlib.util.spec_from_file_location("gen_weld_symbols", SCRIPT)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
