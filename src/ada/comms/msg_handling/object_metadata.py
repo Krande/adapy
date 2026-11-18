@@ -68,6 +68,12 @@ def section_to_dict(section: Section | None) -> dict | None:
     for key, value in outline_box_dims(section).items():
         if out.get(key) is None:
             out[key] = value
+    # A polygon section is its outline: written (``outer``, and ``inner`` for a void) so that the section can be
+    # made again from the metadata (``member_dict.section_from_dict``). Only for POLY: any other section is its
+    # name and dimensions, and a large model's metadata stays small.
+    from ada.comms.msg_handling.member_dict import section_outline
+
+    out.update(section_outline(section))
     return out
 
 
@@ -237,7 +243,10 @@ def beam_metadata(
     material: Material | None,
     beam=None,
 ) -> dict:
-    """``beam``, when given, adds ``axis`` (:func:`beam_axis`): its end points and up direction."""
+    """``beam``, when given, adds ``axis`` (:func:`beam_axis`): its end points and up direction, and
+    ``booleans`` where it has any: its cuts, in the frame of its end points
+    (:func:`ada.comms.msg_handling.member_dict.booleans_to_list`). With them the beam can be made again from its
+    metadata (:func:`ada.comms.msg_handling.member_dict.beam_from_metadata`)."""
     meta = {
         "type": "Beam",
         "name": name,
@@ -247,6 +256,13 @@ def beam_metadata(
     axis = beam_axis(beam) if beam is not None else None
     if axis is not None:
         meta["axis"] = axis
+    if beam is not None and getattr(beam, "booleans", None):
+        from ada.comms.msg_handling.member_dict import booleans_to_list
+
+        try:
+            meta["booleans"] = booleans_to_list(beam)
+        except Exception as exc:  # noqa: BLE001 - metadata never fails a scene for what it cannot say
+            logger.debug(f"object_metadata: the booleans of {name!r} are not written: {exc}")
     return meta
 
 

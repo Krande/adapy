@@ -701,7 +701,9 @@
 //          the types `SceneHighlight`, `SceneHighlightOptions`, `SceneHighlightRef`; the
 //          `joint-review` region (a plugin's section of the Connections panel's Review tab) and
 //          `getJointReviewSections` on `@/viewer-core/plugins`; `ctx.scene.findObjects` and the
-//          type `SceneObjectMatch`; `openConnectionsTab(tab)` on `@/viewer-core/app`.
+//          type `SceneObjectMatch`; `openConnectionsTab(tab)` on `@/viewer-core/app`. A beam's
+//          metadata may carry `section.outer` / `section.inner` (a POLY section's outline) and
+//          `booleans` (its cuts): data only, see PLUGIN_API_VERSION's 1.29.0 note.
 export const VIEWER_CORE_API_VERSION = "1.29.0";
 
 // ---------------------------------------------------------------------------

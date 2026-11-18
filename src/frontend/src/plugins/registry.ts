@@ -289,6 +289,13 @@ export type { PlaceBoxOptions, PlacedBox, PlacedBoxMode, PlacedBoxPose } from ".
 //          connectivity check, `adapy`, now labelled "Member connectivity"), and falls back to that
 //          one, with a note, where convex contact cannot run. A clash run a plugin reads back is a
 //          convex-contact run unless the user picked another engine.
+//          Not an API change either, but seen by a plugin that reads a model's metadata
+//          (`useLineageStore().getMetadata`): a beam's entry from a model loaded through ada-py may
+//          carry its POLY section's outline (`section.outer`, and `section.inner` for a void: points
+//          `[x, y]` or `[x, y, r]` with a corner's fillet radius, in the section's plane) and its
+//          `booleans` (its cuts: `{kind: "box" | "cyl" | ..., ...}`, in the frame of `axis`), as
+//          `ada.comms.msg_handling.member_dict` writes them; absent for other sections and for a
+//          beam with no booleans, and from an older ada-py.
 export const PLUGIN_API_VERSION = "1.29.0";
 
 /** What the Simulations panel writes on a run's open-result button. */
