@@ -122,9 +122,10 @@ test("a folded group row hides its children; the choice of view is remembered in
   assert.equal(rows(html), 1, "the Topside's rows are folded away; the buoy stays");
   fold("structure:Topside", false);
   assert.equal(rows(list()), 4);
-  assert.equal(globalThis.localStorage.getItem("ada:model-panel-view"), "tree");
+  // Kept by the store's `persist` (versioned); the view only, the folded rows are this session's.
+  assert.deepEqual(JSON.parse(globalThis.localStorage.getItem("ada:model-panel-view") ?? "null"), { state: { view: "tree" }, version: 1 });
   setView("flat");
-  assert.equal(globalThis.localStorage.getItem("ada:model-panel-view"), null, "the default leaves no key");
+  assert.deepEqual(JSON.parse(globalThis.localStorage.getItem("ada:model-panel-view") ?? "null")?.state, { view: "flat" });
 });
 
 test("the panel body carries the count and the View option in its header", () => {
@@ -132,4 +133,16 @@ test("the panel body carries the count and the View option in its header", () =>
   assert.match(html, /data-component-list-panel=""/);
   assert.match(html, />6 components</);
   assert.equal((html.match(/aria-label="Model view"/g) ?? []).length, 1, "once, in the header");
+});
+
+test("a view kept the old way (the bare id, before the store was versioned) still opens in it", async () => {
+  globalThis.localStorage.setItem("ada:model-panel-view", "tree");
+  await useModelPanelViewStore.persist.rehydrate();
+  assert.equal(useModelPanelViewStore.getState().view, "tree");
+  globalThis.localStorage.setItem("ada:model-panel-view", "structure"); // an older name of the tree
+  await useModelPanelViewStore.persist.rehydrate();
+  assert.equal(useModelPanelViewStore.getState().view, "tree");
+  globalThis.localStorage.setItem("ada:model-panel-view", "garbage");
+  await useModelPanelViewStore.persist.rehydrate();
+  assert.equal(useModelPanelViewStore.getState().view, "flat");
 });

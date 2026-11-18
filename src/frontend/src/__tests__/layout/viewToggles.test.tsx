@@ -52,11 +52,11 @@ test("the ground grid toggles and is remembered in the browser", () => {
     assert.equal(C.getCommand(ID.groundGrid)?.checked?.(), true);
     assert.ok(C.runCommand(ID.groundGrid));
     assert.equal(useGroundGridStore.getState().visible, false);
-    assert.equal(window.localStorage.getItem("ada:ground-grid"), "off");
+    assert.deepEqual(JSON.parse(window.localStorage.getItem("ada:ground-grid") ?? "null"), { state: { visible: false }, version: 1 });
     assert.equal(C.getCommand(ID.groundGrid)?.checked?.(), false);
     assert.ok(C.runCommand(ID.groundGrid));
     assert.equal(useGroundGridStore.getState().visible, true);
-    assert.equal(window.localStorage.getItem("ada:ground-grid"), null);
+    assert.deepEqual(JSON.parse(window.localStorage.getItem("ada:ground-grid") ?? "null")?.state, { visible: true });
   } finally {
     release();
   }
@@ -75,4 +75,12 @@ test("the orthographic view is greyed, with the viewport's reason, where the vie
     release();
   }
   useProjectionStore.getState().setOrthographic(false);
+});
+
+test("a ground grid hidden the old way (\"off\", before the store was versioned) stays hidden", async () => {
+  window.localStorage.setItem("ada:ground-grid", "off");
+  await useGroundGridStore.persist.rehydrate();
+  assert.equal(useGroundGridStore.getState().visible, false);
+  window.localStorage.removeItem("ada:ground-grid");
+  useGroundGridStore.getState().setVisible(true);
 });

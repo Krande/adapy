@@ -188,7 +188,7 @@ test("a shell's tools for a plugin's mode run as the shell, after the plugin's, 
     version: "1.0.0",
     coreApiRange: ">=1.0 <2.0",
     modes: [
-      { id: "check", label: "Check", toolbar: (ctx) => React.createElement("span", null, `plugin tools as ${ctx.pluginId}`) },
+      { id: "check", label: "Check", toolbar: (ctx: { pluginId: string }) => React.createElement("span", null, `plugin tools as ${ctx.pluginId}`) },
       { id: "bare", label: "Bare" },
       { id: "untouched", label: "Untouched", toolbar: () => "alone" },
       { id: "broken", label: "Broken", toolbar: () => "the plugin's still drawn" },
@@ -202,7 +202,7 @@ test("a shell's tools for a plugin's mode run as the shell, after the plugin's, 
       layout: {
         modes: [{ id: "own", label: "Own" }],
         modeArrangements: {
-          check: { toolbar: (ctx) => React.createElement("span", null, `shell tools as ${ctx.pluginId}`) },
+          check: { toolbar: (ctx: { pluginId: string }) => React.createElement("span", null, `shell tools as ${ctx.pluginId}`) },
           bare: { toolbar: () => "shell only" },
           broken: {
             toolbar: () => {

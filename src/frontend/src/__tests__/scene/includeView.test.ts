@@ -28,11 +28,11 @@ test("three radio commands set the view, remembered in the browser; dimmed is th
   useIncludeViewStore.getState().setView("dimmed");
   const ids = [ID.builderIncludeDimmed, ID.builderIncludeOnly, ID.builderIncludeAll];
   assert.deepEqual(ids.map((id) => C.getCommand(id)?.checked?.()), [true, false, false]);
-  assert.equal(window.localStorage.getItem("ada:builder-include-view"), null, "the default writes nothing");
+  assert.deepEqual(JSON.parse(window.localStorage.getItem("ada:builder-include-view") ?? "null")?.state, { view: "dimmed" });
   assert.ok(C.getCommand(ID.builderIncludeOnly)!.disabledReason?.(), "greyed with no procedural model");
   C.getCommand(ID.builderIncludeOnly)!.run();
   assert.equal(useIncludeViewStore.getState().view, "included");
-  assert.equal(window.localStorage.getItem("ada:builder-include-view"), "included");
+  assert.deepEqual(JSON.parse(window.localStorage.getItem("ada:builder-include-view") ?? "null"), { state: { view: "included" }, version: 1 });
   assert.deepEqual(ids.map((id) => C.getCommand(id)?.checked?.()), [false, true, false]);
   let told = 0;
   const off = C.getCommand(ID.builderIncludeAll)!.watch!(() => told++);
@@ -40,6 +40,16 @@ test("three radio commands set the view, remembered in the browser; dimmed is th
   off();
   assert.ok(told > 0, "its toolbar button redraws");
   useIncludeViewStore.getState().setView("dimmed");
-  assert.equal(window.localStorage.getItem("ada:builder-include-view"), null);
+  assert.deepEqual(JSON.parse(window.localStorage.getItem("ada:builder-include-view") ?? "null")?.state, { view: "dimmed" });
   C.resetCommands();
+});
+
+test("a view kept the old way (its bare name, before the store was versioned) is read; garbage is the default", async () => {
+  window.localStorage.setItem("ada:builder-include-view", "all");
+  await useIncludeViewStore.persist.rehydrate();
+  assert.equal(useIncludeViewStore.getState().view, "all");
+  window.localStorage.setItem("ada:builder-include-view", JSON.stringify({ state: { view: "nonsense" }, version: 1 }));
+  await useIncludeViewStore.persist.rehydrate();
+  assert.equal(useIncludeViewStore.getState().view, "dimmed");
+  useIncludeViewStore.getState().setView("dimmed");
 });

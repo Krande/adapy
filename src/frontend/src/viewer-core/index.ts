@@ -693,8 +693,9 @@
 //          button then open the shell's window on the page. `OptionsBodyProps.flat` draws the settings
 //          sections open, without their collapsible header (one page per section). On the root: the Model
 //          panel's helpers (`buildModelTree`, `MODEL_VIEWS`, `nodeItemIds`, `isItemIncluded`,
-//          `itemIncludeState`, `blueprintColour`, `blueprintsInUse`, `structureColour`,
-//          `useModelPanelViewStore`), so a shell's Model panel needs no deep import. The camera mapping's
+//          `itemIncludeState`, `blueprintColour`, `blueprintsInUse`, `structureColour`),
+//          so a shell's Model panel needs no deep import; and on `/layout`, `useModelPanelView` (the panel's
+//          view and folded rows with `setView` / `toggleCollapsed` / `setCollapsed`, not the store). The camera mapping's
 //          `select` action (the selection rectangle) and controls profiles (Settings > Controls).
 export const VIEWER_CORE_API_VERSION = "1.28.0";
 
@@ -1061,7 +1062,6 @@ export type { GroupNode as ModelGroupNode, IncludeMark, ItemNode, ModelNode, Mod
 export { isItemIncluded, itemIncludeState } from "@/utils/cellbuilder/include";
 export type { IncludeState } from "@/utils/cellbuilder/include";
 export { blueprintColour, blueprintsInUse, structureColour } from "@/utils/cellbuilder/blueprintColours";
-export { useModelPanelViewStore } from "@/state/modelPanelViewStore";
 export type { PanelController } from "@/layout/reveal";
 export {
   listSceneTreeRoots,

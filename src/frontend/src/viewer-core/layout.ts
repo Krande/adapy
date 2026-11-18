@@ -31,6 +31,9 @@ export type { OptionsBodyProps, OptionsSectionId } from "@/components/OptionsCom
 export { SETTINGS_SECTIONS, availableSettingsSections } from "@/components/settings/settingsSections";
 export type { SettingsSection, SettingsSectionId } from "@/components/settings/settingsSections";
 export { setSettingsHost } from "@/components/settings/settingsTab";
+// The Model panel's view (flat or tree, folded rows) and its three actions -- the state, not the store.
+export { useModelPanelView } from "@/state/modelPanelViewStore";
+export type { ModelPanelView } from "@/state/modelPanelViewStore";
 export type { SettingsHost } from "@/components/settings/settingsTab";
 // The calculation options (cores, memory, mode: `useComputeStore`), also the Options panel's "compute" section.
 export { default as ComputeOptionsBody } from "@/components/options/ComputeOptions";
