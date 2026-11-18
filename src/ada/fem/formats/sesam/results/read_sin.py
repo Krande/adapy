@@ -477,28 +477,90 @@ def read_result_combination_terms(sin: SinFile) -> dict[int, CombinationRecipe]:
     ``(basic IRES, FACT, PHASE)`` (Results Interface File 4.3.1.11); PHASE is in
     radians. Basic IRES values are the first RV* data word of the basic case's
     records, so they double as the streaming step id.
+
+    A record that cannot be a combination of this file is left out, with a
+    warning (see :func:`_combination_record`). The pointer table of a 1-D type
+    is read one slot past its dimension (a 1-based table keeps its last record
+    there); when the table is 0-based that slot is the word after it, and a
+    stale word there can pass the pointer check and point at another type's
+    record. Seen on a GeniE results file: the extra ``RDRESCMB`` slot pointed at
+    an ``RDRESREF`` record, which read as "combination 6 = 6.0 x case 10",
+    replaced the real recipe of case 6 and sent a code check after a basic case
+    the file does not have.
     """
     if "RDRESCMB" not in sin.type_blocks:
         return {}
+    defined = read_defined_result_cases(sin)
     out: dict[int, CombinationRecipe] = {}
     for rec in sin.iter_records("RDRESCMB"):
-        if len(rec) < 3:
+        parsed = _combination_record(rec, defined)
+        if parsed is None:
+            from ada.config import get_logger
+
+            get_logger().warning(
+                "RDRESCMB record %s is no combination of this file's result cases (defined: %s); left out",
+                [float(x) for x in rec],
+                sorted(defined) if defined is not None else "unknown",
+            )
             continue
-        ires = int(round(rec[0]))
-        nres = int(round(rec[2]))
-        triplets = rec[3:]
-        terms: list[tuple[int, float, float]] = []
-        for i in range(nres):
-            base = 3 * i
-            if base + 1 >= len(triplets):
-                break
-            basic = int(round(triplets[base]))
-            factor = float(triplets[base + 1])
-            phase = float(triplets[base + 2]) if base + 2 < len(triplets) else 0.0
-            if factor != 0.0:
-                terms.append((basic, factor, phase))
-        out[ires] = CombinationRecipe(complex=int(round(rec[1])) != 0, terms=tuple(terms))
+        ires, recipe = parsed
+        if ires in out:
+            from ada.config import get_logger
+
+            get_logger().warning(
+                "RDRESCMB defines combination %s twice; the later record %s replaces %s",
+                ires,
+                recipe,
+                out[ires],
+            )
+        out[ires] = recipe
     return out
+
+
+def _combination_record(
+    rec: "tuple[float, ...]", defined: "frozenset[int] | None"
+) -> "tuple[int, CombinationRecipe] | None":
+    """``(IRES, recipe)`` of one ``RDRESCMB`` record, or None when it is not one.
+
+    A genuine record (4.3.1.11) is ``[IRES, COMPLX, NRES, *NRES triplets]`` with
+    COMPLX 0 or 1, at least one term with a non-zero factor, and the triplets
+    present (the last PHASE may be cut, as before; a record with fewer words is
+    left out as a whole). Every term with a factor refers to a result case other
+    than the combination itself and, when the file has an ``RDRESREF`` table
+    (``defined``), to a case defined there. A word that fails any of these is
+    not a recipe to superpose from, whatever the pointer table says.
+    """
+    if len(rec) < 3:
+        return None
+    ires = int(round(rec[0]))
+    complx = int(round(rec[1]))
+    nres = int(round(rec[2]))
+    if complx not in (0, 1) or nres < 1:
+        return None
+    triplets = rec[3:]
+    if len(triplets) < 3 * nres - 1:
+        return None
+    terms: list[tuple[int, float, float]] = []
+    for i in range(nres):
+        base = 3 * i
+        basic = int(round(triplets[base]))
+        factor = float(triplets[base + 1])
+        phase = float(triplets[base + 2]) if base + 2 < len(triplets) else 0.0
+        if factor == 0.0:
+            continue
+        if basic == ires or (defined is not None and basic not in defined):
+            return None
+        terms.append((basic, factor, phase))
+    if not terms:
+        return None
+    return ires, CombinationRecipe(complex=complx != 0, terms=tuple(terms))
+
+
+def read_defined_result_cases(sin: SinFile) -> "frozenset[int] | None":
+    """The result IRES the file defines (``RDRESREF``, 4.3.1.12), or None without that table."""
+    if "RDRESREF" not in sin.type_blocks:
+        return None
+    return frozenset(int(round(rec[0])) for rec in sin.iter_records("RDRESREF") if len(rec) >= 1)
 
 
 def read_result_combinations(sin: SinFile) -> dict[int, dict[int, float]]:
