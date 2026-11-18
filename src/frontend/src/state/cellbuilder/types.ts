@@ -33,6 +33,9 @@ export interface BuilderCell extends CellBox {
    * which reinforcement the compiler frames around the hole (door: jambs +
    * lintel + threshold; window & opening: jambs + head + sill). */
   subtype?: "door" | "window" | "opening";
+  /** An opening placed on a side of its space (SPACE_NAME, SPACE_SIDE, POS_X/POS_Y, SIZE_X/SIZE_Y,
+   * DEPTH), as a workbook places it: drawn as its box, written back in that local form. */
+  openingFrame?: "local";
   /** Per-axis rotation in degrees (X, Y, Z), pivoting on the footprint centre —
    * equipment only. Undefined/all-zero means axis-aligned. Round-trips as the
    * entity's ROT_X/ROT_Y/ROT_Z; the compiler spins the body + ports to match. */

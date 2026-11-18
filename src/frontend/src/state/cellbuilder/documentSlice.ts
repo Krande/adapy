@@ -15,7 +15,7 @@ import {groupToStructureName, normalizeGroups} from "@/utils/cellbuilder/groups"
 import type {CellBuilderSlice} from "./state";
 import {currentScopePart} from "./shared";
 import {makeWithHistory} from "./historySlice";
-import {BUILDER_DOC_KEYS, cellsFromDoc, containingCellName, DOC_SCHEMA_VERSION, docExtras, groupsFromDoc, loftMembersFromDoc, systemsFromDoc} from "./docCodec";
+import {BUILDER_DOC_KEYS, OPENING_SIDES, localOpeningColumns, type OpeningSide, unplacedOpeningsFromDoc, cellsFromDoc, containingCellName, DOC_SCHEMA_VERSION, docExtras, groupsFromDoc, loftMembersFromDoc, systemsFromDoc} from "./docCodec";
 
 /** Is a procedural document loaded for VIEWING with no editable session behind
  * it -- the GLB-embedded document on the websocket path (`loadFromDoc`)?
@@ -49,6 +49,9 @@ export interface DocumentSlice {
   /** The loaded doc's top-level keys the builder does not own (docCodec.docExtras): written back
    *  untouched by toDoc, so a commit keeps an engine's own lists (pm's `modifications`). */
   docExtras: Record<string, unknown>;
+  /** The loaded doc's openings the builder cannot draw (docCodec.unplacedOpeningsFromDoc): written back
+   *  by toDoc as they came, so a commit never drops them. */
+  unplacedOpenings: Record<string, unknown>[];
   /** Set one of those keys (`undefined` removes it), for a shell that edits an engine's own list
    *  (an engine's `modifications`, say): one undo step, marks the model dirty, and the next
    *  commit carries it. A key the builder owns (`BUILDER_DOC_KEYS`) is refused (returns false). */
@@ -77,6 +80,7 @@ export const createDocumentSlice: CellBuilderSlice<DocumentSlice> = (set, get) =
   return {
     active: null,
     docExtras: {},
+    unplacedOpenings: [],
     setDocExtra: (key, value) => {
       if (BUILDER_DOC_KEYS.has(key)) return false;
       withHistory((s) => {
@@ -106,6 +110,7 @@ export const createDocumentSlice: CellBuilderSlice<DocumentSlice> = (set, get) =
         groups: groupsFromDoc(doc),
         activeGroup: null,
         docExtras: docExtras(doc),
+        unplacedOpenings: unplacedOpeningsFromDoc(doc),
         blueprintOptions: doc.blueprint ?? {},
         equipmentCad: Boolean(doc.equipment_cad),
         designRules: doc.design_rules ?? "standard",
@@ -184,6 +189,7 @@ export const createDocumentSlice: CellBuilderSlice<DocumentSlice> = (set, get) =
       set({
         active: null,
         docExtras: {},
+        unplacedOpenings: [],
         cells: {},
         loftMembers: [],
         systems: {},
@@ -260,21 +266,41 @@ export const createDocumentSlice: CellBuilderSlice<DocumentSlice> = (set, get) =
           ROT_Y: c.rotation?.[1] ?? 0,
           ROT_Z: c.rotation?.[2] ?? 0,
         }));
-      const openings = Object.values(cells)
-        .filter((c) => c.kind === "opening")
-        .map((c) => ({
-          INCLUDE: true,
-          ...c.params,
-          NAME: c.name,
-          SUBTYPE: c.subtype ?? "door",
-          USE_GLOBAL_COORDS: true,
-          X: c.origin[0],
-          Y: c.origin[1],
-          Z: c.origin[2],
-          DX: c.size[0],
-          DY: c.size[1],
-          DZ: c.size[2],
-        }));
+      const openings = [
+        ...Object.values(cells)
+          .filter((c) => c.kind === "opening")
+          .map((c) => {
+            // A workbook's opening, placed on a side of its space, goes back in that form: its box
+            // as POS / SIZE / DEPTH on the side. Its space gone, its columns stay as they were.
+            if (c.openingFrame === "local") {
+              const space = Object.values(cells).find((s) => s.kind === "cell" && s.name === c.params?.SPACE_NAME);
+              const side = c.params?.SPACE_SIDE as OpeningSide;
+              return {
+                INCLUDE: true,
+                ...c.params,
+                NAME: c.name,
+                SUBTYPE: c.subtype ?? "door",
+                USE_GLOBAL_COORDS: false,
+                ...(space && OPENING_SIDES.includes(side) ? localOpeningColumns(c, space, side) : {}),
+              };
+            }
+            return {
+              INCLUDE: true,
+              ...c.params,
+              NAME: c.name,
+              SUBTYPE: c.subtype ?? "door",
+              USE_GLOBAL_COORDS: true,
+              X: c.origin[0],
+              Y: c.origin[1],
+              Z: c.origin[2],
+              DX: c.size[0],
+              DY: c.size[1],
+              DZ: c.size[2],
+            };
+          }),
+        // The ones the builder could not draw, as they came.
+        ...get().unplacedOpenings,
+      ];
       const systems = Object.values(get().systems).map((sys) => ({
         NAME: sys.name,
         TYPE: sys.type,
@@ -344,6 +370,7 @@ export const createDocumentSlice: CellBuilderSlice<DocumentSlice> = (set, get) =
         groups: groupsFromDoc(doc),
         activeGroup: null,
         docExtras: docExtras(doc),
+        unplacedOpenings: unplacedOpeningsFromDoc(doc),
         blueprintOptions: doc.blueprint ?? {},
         equipmentCad: Boolean(doc.equipment_cad),
         designRules: doc.design_rules ?? "standard",
