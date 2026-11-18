@@ -94,6 +94,17 @@ test("an active section makes the Review tab, joints or not; it goes with the se
   assert.ok(!strip(html).includes("Review"), "the section gone, the tab gone");
 });
 
+test("a section can send the user to a plugin's tab: openConnectionsTab picks it", async () => {
+  // What `@/viewer-core/app` re-exports (that entry point mounts a viewer, so not imported here).
+  const V = await import("@/layout/connectionsTabActions");
+  registerPlugin({
+    id: "demo",
+    panels: [{ id: "tab", region: "connection-builder", asTab: { label: "Mine" }, render: () => "my tab" }],
+  });
+  V.openConnectionsTab("demo:tab");
+  assert.equal(useConnectionBuilderTabStore.getState().tab, "demo:tab");
+});
+
 test("a disabled plugin's section is not shown", async () => {
   const { disablePlugin } = await import("@/plugins/registry");
   setServerState(useStatsStore, { stats: PRODUCED as never });

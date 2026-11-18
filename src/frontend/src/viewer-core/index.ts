@@ -675,7 +675,7 @@
 //          the types `SceneHighlight`, `SceneHighlightOptions`, `SceneHighlightRef`; the
 //          `joint-review` region (a plugin's section of the Connections panel's Review tab) and
 //          `getJointReviewSections` on `@/viewer-core/plugins`; `ctx.scene.findObjects` and the
-//          type `SceneObjectMatch`.
+//          type `SceneObjectMatch`; `openConnectionsTab(tab)` on `@/viewer-core/app`.
 export const VIEWER_CORE_API_VERSION = "1.28.0";
 
 // ---------------------------------------------------------------------------

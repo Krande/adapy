@@ -267,7 +267,10 @@ export type { PlaceBoxOptions, PlacedBox, PlacedBoxMode, PlacedBoxPose } from ".
 //          - `ctx.scene.findObjects(names, {sourceName?})`: the objects of the loaded models called
 //            one of `names`, as a `ScenePick` names them (model, id, name, source file), read from
 //            the Scene tree; for a plugin that knows objects by name and wants to highlight them.
-//          Both additive: an older core has neither, so a plugin asks for `findObjects` first.
+//          - `openConnectionsTab(tab)` on `@/viewer-core/app`: the Connections panel opened on one of
+//            its tabs -- core's, or a plugin's `connection-builder` panel by its namespaced id --
+//            for a section that sends the user to a plugin's tab.
+//          All additive: an older core has none of them, so a plugin asks for them first.
 //          Not an API change, but seen by a `connection-builder` tab: the Connections panel has
 //          core's Clashes, Overlays and Review tabs too now (they were the Scene panel's Joints
 //          group), after Builder and before the plugins' tabs, and is offered everywhere.
