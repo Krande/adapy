@@ -15,6 +15,8 @@ Synthetic rows only — no binary fixture needed.
 
 from __future__ import annotations
 
+import contextlib
+import logging
 import math
 
 import numpy as np
@@ -313,6 +315,100 @@ def test_read_complex_result_cases_uses_the_rdresref_flag():
         ]
     )
     assert read_complex_result_cases(sin) == frozenset({60})
+
+
+def _rdresref(ires, icalty, complx=0):
+    # [ires, irno, ieres, icalty, complx, numtyp, ...] -- NFIELD stripped.
+    return [float(ires), 1.0, float(ires), float(icalty), float(complx), 1.0, 10.0, float(ires), 0.0]
+
+
+@contextlib.contextmanager
+def _ada_warnings():
+    """Collect the warnings of the ``ada`` logger (caplog does not see them: ada.config sets ``propagate = False``)."""
+    from ada.config import logger
+
+    records: list[logging.LogRecord] = []
+
+    class _Collect(logging.Handler):
+        def emit(self, record):
+            records.append(record)
+
+    handler = _Collect(logging.WARNING)
+    logger.addHandler(handler)
+    try:
+        yield records
+    finally:
+        logger.removeHandler(handler)
+
+
+def test_a_stale_slot_read_as_an_rdrescmb_record_is_left_out():
+    """The RDRESCMB pointer table is read one slot past its dimension; on a 0-based table that slot can hold a
+    stale word pointing at another type's record. Here it is the RDRESREF record of case 6, which as a
+    recipe reads "6 = 6.0 x case 10" and would replace the real recipe of case 6. (The warning is caught with a
+    handler on the ``ada`` logger, not caplog: ada.config sets ``propagate = False`` on it.)"""
+    basic = [_rdresref(i, 0) for i in (1, 2, 3, 4)]
+    combos = [_rdresref(i, 100) for i in (5, 6, 7, 8)]
+    stale = _rdresref(6, 100)  # [6, 1, 6, 100, 0, 1, 10, 6, 0]: COMPLX=1, NRES=6, terms (100, 0), (10, 6)
+    sin = _FakeSin(
+        RDRESREF=basic + combos,
+        RDRESCMB=[
+            _rdrescmb(5, 0, [(1, 1.3, 0), (2, 0.7, 0)]),
+            _rdrescmb(6, 0, [(1, 1.0, 0), (2, 1.3, 0)]),
+            _rdrescmb(7, 0, [(1, 1.0, 0), (2, 1.0, 0), (3, 1.95, 0)]),
+            _rdrescmb(8, 0, [(1, 1.0, 0), (2, 1.0, 0), (4, 1.95, 0)]),
+            stale,
+        ],
+    )
+    with _ada_warnings() as records:
+        terms = read_result_combination_terms(sin)
+
+    assert sorted(terms) == [5, 6, 7, 8]
+    assert terms[6] == CombinationRecipe(complex=False, terms=((1, 1.0, 0.0), (2, 1.3, 0.0)))
+    assert read_result_combinations(sin)[6] == {1: 1.0, 2: 1.3}
+    assert any("RDRESCMB record" in r.getMessage() and "10.0, 6.0" in r.getMessage() for r in records)
+
+
+@pytest.mark.parametrize(
+    "record",
+    [
+        _rdrescmb(5, 2, [(1, 1.0, 0)]),  # COMPLX is neither 0 nor 1
+        _rdrescmb(5, 0, []),  # no term
+        [5.0, 0.0, 3.0, 1.0, 1.0, 0.0, 2.0, 1.0],  # NRES=3 but words for less than two triplets
+        _rdrescmb(5, 0, [(1, 1.0, 0), (9, 0.5, 0)]),  # a term's case is not defined in RDRESREF
+        _rdrescmb(5, 0, [(1, 1.0, 0), (5, 0.5, 0)]),  # a term refers to the combination itself
+        _rdrescmb(5, 0, [(1, 0.0, 0), (2, 0.0, 0)]),  # every factor is zero
+        # A stale slot at the RDRESREF record of basic case 1: IRES 1, COMPLX 1, NRES 1, one zero-factor term.
+        _rdresref(1, 0),
+    ],
+)
+def test_a_record_that_is_no_combination_of_the_file_is_left_out(record):
+    sin = _FakeSin(RDRESREF=[_rdresref(1, 0), _rdresref(2, 0), _rdresref(5, 100)], RDRESCMB=[record])
+    assert read_result_combination_terms(sin) == {}
+
+
+def test_a_second_record_for_the_same_combination_replaces_the_first_with_a_warning():
+    sin = _FakeSin(
+        RDRESREF=[_rdresref(1, 0), _rdresref(2, 0), _rdresref(5, 100)],
+        RDRESCMB=[_rdrescmb(5, 0, [(1, 1.0, 0)]), _rdrescmb(5, 0, [(2, 0.5, 0)])],
+    )
+    with _ada_warnings() as records:
+        terms = read_result_combination_terms(sin)
+
+    assert terms == {5: CombinationRecipe(False, ((2, 0.5, 0.0),))}
+    assert any("combination 5 twice" in r.getMessage() for r in records)
+
+
+def test_a_cut_last_phase_and_a_zero_factor_on_an_undefined_case_are_still_accepted():
+    sin = _FakeSin(
+        RDRESREF=[_rdresref(1, 0), _rdresref(2, 0), _rdresref(5, 100)],
+        RDRESCMB=[[5.0, 0.0, 3.0, 1.0, 1.0, 0.0, 9.0, 0.0, 0.0, 2.0, 0.5]],
+    )
+    assert read_result_combination_terms(sin) == {5: CombinationRecipe(False, ((1, 1.0, 0.0), (2, 0.5, 0.0)))}
+
+
+def test_without_an_rdresref_table_the_terms_are_taken_as_they_are():
+    sin = _FakeSin(RDRESCMB=[_rdrescmb(5, 0, [(1, 1.0, 0), (9, 0.5, 0)])])
+    assert read_result_combination_terms(sin)[5].terms == ((1, 1.0, 0.0), (9, 0.5, 0.0))
 
 
 def test_legacy_dict_recipe_is_a_real_zero_phase_combination():
