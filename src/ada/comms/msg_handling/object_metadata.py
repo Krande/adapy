@@ -50,7 +50,7 @@ def section_to_dict(section: Section | None) -> dict | None:
         type_name = sec_type.value
     else:
         type_name = str(sec_type)
-    return {
+    out = {
         "name": getattr(section, "name", None),
         "type": type_name,
         "h": _maybe_float(getattr(section, "h", None)),
@@ -62,6 +62,130 @@ def section_to_dict(section: Section | None) -> dict | None:
         "r": _maybe_float(getattr(section, "r", None)),
         "wt": _maybe_float(getattr(section, "wt", None)),
     }
+    # A section given only as an outline (a polygon section) says nothing by name, but an outline
+    # that is a rectangle, square-cornered or with four equal round corners, is a box's: fill the
+    # box's keys from it where the section does not carry them itself.
+    for key, value in outline_box_dims(section).items():
+        if out.get(key) is None:
+            out[key] = value
+    return out
+
+
+def _seg_xy(p) -> tuple[float, float]:
+    return float(p[0]), float(p[1])
+
+
+def _circle_through(a, b, c) -> tuple[tuple[float, float], float] | None:
+    """Centre and radius of the circle through three 2D points, or None when they are in a line."""
+    ax, ay = a
+    bx, by = b
+    cx, cy = c
+    d = 2.0 * (ax * (by - cy) + bx * (cy - ay) + cx * (ay - by))
+    if abs(d) < 1e-15:
+        return None
+    a2, b2, c2 = ax * ax + ay * ay, bx * bx + by * by, cx * cx + cy * cy
+    ux = (a2 * (by - cy) + b2 * (cy - ay) + c2 * (ay - by)) / d
+    uy = (a2 * (cx - bx) + b2 * (ax - cx) + c2 * (bx - ax)) / d
+    return (ux, uy), ((ax - ux) ** 2 + (ay - uy) ** 2) ** 0.5
+
+
+def _arc_circle(seg) -> tuple[tuple[float, float], float] | None:
+    mid = getattr(seg, "midpoint", None)
+    if mid is not None:
+        circle = _circle_through(_seg_xy(seg.p1), _seg_xy(mid), _seg_xy(seg.p2))
+        if circle is not None:
+            return circle
+    center, radius = getattr(seg, "center", None), getattr(seg, "radius", None)
+    if center is not None and radius is not None:
+        return _seg_xy(center), float(radius)
+    return None
+
+
+def outline_rectangle(curve, tol: float = 1e-6) -> tuple[float, float, float, float, float] | None:
+    """``(xmin, xmax, ymin, ymax, r)`` when a closed 2D outline is an axis-aligned rectangle whose
+    corners are all square (``r`` 0) or all quarter circles of one radius ``r``; else None.
+
+    Read from the outline's segments: its straight edges must each be horizontal or vertical and lie
+    on the bounding box, and each arc must be centred ``r`` in from a distinct corner of it."""
+    from ada.api.curves import ArcSegment
+
+    try:
+        segments = list(curve.segments)
+    except Exception:  # noqa: BLE001 - an outline that cannot be read describes no box
+        return None
+    if not segments:
+        return None
+    arcs = [s for s in segments if isinstance(s, ArcSegment)]
+    lines = [s for s in segments if not isinstance(s, ArcSegment)]
+    if arcs and len(arcs) != 4:
+        return None
+
+    pts = [_seg_xy(s.p1) for s in segments] + [_seg_xy(s.p2) for s in segments]
+    xs, ys = [p[0] for p in pts], [p[1] for p in pts]
+    xmin, xmax, ymin, ymax = min(xs), max(xs), min(ys), max(ys)
+    if xmax - xmin <= tol or ymax - ymin <= tol:
+        return None
+
+    def on_box_edge(a, b) -> bool:
+        (x1, y1), (x2, y2) = a, b
+        if abs(x1 - x2) <= tol:
+            return abs(x1 - xmin) <= tol or abs(x1 - xmax) <= tol
+        if abs(y1 - y2) <= tol:
+            return abs(y1 - ymin) <= tol or abs(y1 - ymax) <= tol
+        return False
+
+    for line in lines:
+        a, b = _seg_xy(line.p1), _seg_xy(line.p2)
+        if abs(a[0] - b[0]) <= tol and abs(a[1] - b[1]) <= tol:
+            continue  # a zero-length edge
+        if not on_box_edge(a, b):
+            return None
+
+    if not arcs:
+        corners = {(x, y) for x in (xmin, xmax) for y in (ymin, ymax)}
+        found = {c for c in corners if any(abs(c[0] - p[0]) <= tol and abs(c[1] - p[1]) <= tol for p in pts)}
+        return (xmin, xmax, ymin, ymax, 0.0) if len(found) == 4 else None
+
+    circles = [_arc_circle(a) for a in arcs]
+    if any(c is None for c in circles):
+        return None
+    r = circles[0][1]
+    if r <= tol or any(abs(c[1] - r) > tol for c in circles):
+        return None
+    seen = set()
+    for (cx, cy), _ in circles:
+        sx = -1 if abs(cx - (xmin + r)) <= tol else (1 if abs(cx - (xmax - r)) <= tol else 0)
+        sy = -1 if abs(cy - (ymin + r)) <= tol else (1 if abs(cy - (ymax - r)) <= tol else 0)
+        if sx == 0 or sy == 0:
+            return None
+        seen.add((sx, sy))
+    if len(seen) != 4:
+        return None
+    return xmin, xmax, ymin, ymax, r
+
+
+def outline_box_dims(section) -> dict[str, float]:
+    """The box keys a polygon section's outlines give: ``h``, ``w_top``, ``w_btn`` and ``r`` (the
+    outer corner radius, 0 for square corners) from an outer outline that :func:`outline_rectangle`
+    reads as a rectangle, and ``t_w``, ``t_ftop``, ``t_fbtn`` from an inner one inside it. Empty for
+    a section with no such outline."""
+    outer_curve = getattr(section, "poly_outer", None)
+    if outer_curve is None:
+        return {}
+    outer = outline_rectangle(outer_curve)
+    if outer is None:
+        return {}
+    oxmin, oxmax, oymin, oymax, r = outer
+    dims = {"h": oymax - oymin, "w_top": oxmax - oxmin, "w_btn": oxmax - oxmin, "r": r}
+    inner_curve = getattr(section, "poly_inner", None)
+    inner = outline_rectangle(inner_curve) if inner_curve is not None else None
+    if inner is not None:
+        ixmin, ixmax, iymin, iymax, _ = inner
+        if oxmin < ixmin < ixmax < oxmax and oymin < iymin < iymax < oymax:
+            dims["t_w"] = ((ixmin - oxmin) + (oxmax - ixmax)) / 2.0
+            dims["t_ftop"] = oymax - iymax
+            dims["t_fbtn"] = iymin - oymin
+    return {k: float(v) for k, v in dims.items()}
 
 
 def material_to_dict(material: Material | None) -> dict | None:
