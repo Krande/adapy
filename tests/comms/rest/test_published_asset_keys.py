@@ -142,24 +142,8 @@ def presigning_client(app_client: TestClient, monkeypatch):
 
 
 def _storage(client: TestClient) -> Storage:
-    storage = client.app.state.__dict__.get("_test_storage")
-    if storage is None:
-        for route in client.app.routes:
-            ep = getattr(route, "endpoint", None)
-            if ep is None:
-                continue
-            cells = getattr(ep, "__closure__", None)
-            if not cells:
-                continue
-            for c in cells:
-                v = c.cell_contents
-                if v.__class__.__name__ == "Storage":
-                    storage = v
-                    break
-            if storage is not None:
-                break
-        client.app.state._test_storage = storage
-    return storage
+    """The Storage the app was built with (its per-app services, ``app.state.rest``)."""
+    return client.app.state.rest.storage
 
 
 def _put(client: TestClient, key: str, data: bytes, scope: Scope | None = None) -> None:

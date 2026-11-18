@@ -1,4 +1,4 @@
-"""Route groups extracted from ``create_app`` — the pattern for splitting it.
+"""The API's route groups, one module each, and the pattern they follow.
 
 ``ada.comms.rest.app.create_app`` grew into one closure holding every route
 and every helper as local names. That is why nothing in it can be imported,
@@ -25,19 +25,15 @@ listing group and meant to be repeated group by group:
 3. **Shared helpers are lifted to module level first.** A closure helper a
    group needs (``_scope_from_path``, ``_live_worker_specs``, ...) moves to
    :mod:`~ada.comms.rest.routes.deps` as a plain function taking what it
-   captured as a parameter (``live_worker_specs(queue, ...)``); ``create_app``
-   keeps the old underscore name bound to it (an alias or a one-line wrapper)
-   so the routes still inside the closure are untouched. Group-specific
-   helpers (the plugin admin gate) move with their group and are imported
-   back into ``create_app`` the same way.
+   captured as a parameter (``live_worker_specs(queue, ...)``). Group-specific
+   helpers (the plugin admin gate) move with their group.
 
 4. **Behaviour and response shapes stay identical.** Route bodies move
    verbatim apart from the renames above; tests keep driving them through
    ``create_app`` + ``TestClient`` — an extracted module should need no new
    fixtures to be exercised.
 
-Every remaining group in ``create_app`` (procedural models, equipment/system
-catalog CRUD, engines, storage, jobs, admin, ...) can follow the same four
-steps; the ``routes/deps.py`` aliases at the top of the closure are the list
-of what has been lifted so far.
+Every route group now lives in this package; ``create_app`` builds the
+services, wires the lifespan (whose loops live in ``background_tasks.py``) and
+includes the routers in order. A new group follows the same four steps.
 """
