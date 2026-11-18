@@ -221,3 +221,9 @@ export type { RelatedAction } from "@/utils/systems/relatedActions";
 // cells, picked, moved and resized like them, each edit handed back to the provider. Returns the
 // unregister. A plugin has the same through `ctx.scene.registerBuilderRefs`.
 export { builderRefId, registerBuilderRefs } from "@/plugins/builderRefs";
+
+// When a builder compile fails (1.30.0): `selectCompileFailure(state)` is the failed job (null
+// otherwise), `onCompileFailed(listener)` is told once per failure -- for a shell that shows the
+// compile log (`CompileLogView`, on /layout) in a drawer it opens when a compile fails.
+export { onCompileFailed, selectCompileFailure } from "@/state/cellbuilder/compileFailures";
+export type { CompileFailure } from "@/state/cellbuilder/compileFailures";

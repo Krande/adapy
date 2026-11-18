@@ -22,9 +22,61 @@ import React, {useEffect} from "react";
 import {EyeGlyph} from "@/components/tree_view/treeGlyphs";
 import {useCellBuilderStore} from "@/state/cellBuilderStore";
 import {coloursOf, useGroupViewStore} from "@/state/cellbuilder/groupViewStore";
-import {activeStructure, groupColor, isGroupIncluded} from "@/utils/cellbuilder/groups";
+import {activeStructure, groupColor, isGroupIncluded, type CellGroup} from "@/utils/cellbuilder/groups";
 import {installGroupView, isolateGroup, setGroupHidden, showAllGroups} from "@/utils/cellbuilder/groupView";
 import {Section, btnGray, inputCls} from "./chrome";
+
+/** A structure's blueprint: the engine's blueprints, and the structure's own when the engine
+ * does not offer it. Here and in the Selected Object panel's structure section. */
+export const GroupBlueprintSelect: React.FC<{group: CellGroup; className?: string}> = ({group: g, className = "min-w-0 flex-1"}) => {
+  const blueprints = useCellBuilderStore((s) => s.blueprints);
+  const setGroupBlueprint = useCellBuilderStore((s) => s.setGroupBlueprint);
+  return (
+    <select
+      className={`${inputCls} ${className}`}
+      value={g.blueprint}
+      aria-label={`Blueprint of group ${g.name}`}
+      onChange={(e) => setGroupBlueprint(g.name, e.target.value)}
+      title="Structural blueprint this group compiles with"
+    >
+      {!blueprints.some((b) => b.slug === g.blueprint) && <option value={g.blueprint}>{g.blueprint || "—"}</option>}
+      {blueprints.map((b) => (
+        <option key={b.slug} value={b.slug} title={b.description}>
+          {b.name}
+        </option>
+      ))}
+    </select>
+  );
+};
+
+/** A structure's colour for Colour by group (display only, remembered per model). */
+export const GroupColourInput: React.FC<{name: string}> = ({name}) => {
+  const groups = useCellBuilderStore((s) => s.groups);
+  const active = useCellBuilderStore((s) => s.active);
+  const overrides = useGroupViewStore((v) => coloursOf(v, active?.modelId));
+  const setGroupColour = useGroupViewStore((v) => v.setGroupColour);
+  const colour = groupColor(groups, name, overrides) ?? "#888888";
+  return (
+    <input
+      type="color"
+      className="h-5 w-5 shrink-0 cursor-pointer bg-transparent border-0 p-0"
+      aria-label={`Colour of group ${name}`}
+      title="Group colour for Colour by group (display only)"
+      value={colour}
+      onChange={(e) => active && setGroupColour(active.modelId, name, e.target.value)}
+    />
+  );
+};
+
+/** Rename a structure, carrying its display colour and visibility along (groupViewStore). */
+export function renameStructure(from: string, to: string): void {
+  const s = useCellBuilderStore.getState();
+  s.renameGroup(from, to);
+  const name = to.trim();
+  // The rename may be refused (blank / taken): only then is there nothing to carry over.
+  if (s.active && useCellBuilderStore.getState().groups.some((g) => g.name === name) && name !== from)
+    useGroupViewStore.getState().renameGroup(s.active.modelId, from, name);
+}
 
 export const GroupsSection: React.FC = () => {
   const s = useCellBuilderStore();
@@ -34,17 +86,10 @@ export const GroupsSection: React.FC = () => {
   const setColourByGroup = useGroupViewStore((v) => v.setColourByGroup);
   const hiddenGroups = useGroupViewStore((v) => v.hiddenGroups);
   const overrides = useGroupViewStore((v) => coloursOf(v, s.active?.modelId));
-  const setGroupColour = useGroupViewStore((v) => v.setGroupColour);
   useEffect(() => installGroupView(), []);
   const active = activeStructure(s);
 
-  const rename = (from: string, to: string) => {
-    s.renameGroup(from, to);
-    const name = to.trim();
-    // The rename may be refused (blank / taken): only then is there nothing to carry over.
-    if (s.active && useCellBuilderStore.getState().groups.some((g) => g.name === name) && name !== from)
-      useGroupViewStore.getState().renameGroup(s.active.modelId, from, name);
-  };
+  const rename = renameStructure;
 
   return (
     <Section
@@ -121,14 +166,7 @@ export const GroupsSection: React.FC = () => {
                   >
                     <EyeGlyph shut={hidden} />
                   </button>
-                  <input
-                    type="color"
-                    className="h-5 w-5 shrink-0 cursor-pointer bg-transparent border-0 p-0"
-                    aria-label={`Colour of group ${g.name}`}
-                    title="Group colour for Colour by group (display only)"
-                    value={colour}
-                    onChange={(e) => s.active && setGroupColour(s.active.modelId, g.name, e.target.value)}
-                  />
+                  <GroupColourInput name={g.name} />
                   <input
                     type="text"
                     className={`${inputCls} flex-1 min-w-0 ${included ? "" : "line-through"}`}
@@ -161,30 +199,7 @@ export const GroupsSection: React.FC = () => {
                   </label>
                 </div>
                 <div className="flex items-center gap-1 pl-5">
-                  <select
-                    className={`${inputCls} min-w-0 flex-1`}
-                    value={g.blueprint}
-                    aria-label={`Blueprint of group ${g.name}`}
-                    onChange={(e) =>
-                      s.setGroupBlueprint(g.name, e.target.value)
-                    }
-                    title="Structural blueprint this group compiles with"
-                  >
-                    {!s.blueprints.some((b) => b.slug === g.blueprint) && (
-                      <option value={g.blueprint}>
-                        {g.blueprint || "—"}
-                      </option>
-                    )}
-                    {s.blueprints.map((b) => (
-                      <option
-                        key={b.slug}
-                        value={b.slug}
-                        title={b.description}
-                      >
-                        {b.name}
-                      </option>
-                    ))}
-                  </select>
+                  <GroupBlueprintSelect group={g} />
                   <button
                     className={`${btnGray} text-xs`}
                     aria-label={`Isolate group ${g.name}`}

@@ -39,6 +39,14 @@ export type { SettingsHost } from "@/components/settings/settingsTab";
 export { default as ComputeOptionsBody } from "@/components/options/ComputeOptions";
 // The procedural model's cells, lofts, openings and equipment as a list (the `core:component-list` panel's content).
 export { ComponentList, ComponentListBody } from "@/components/viewer/cellbuilder/panel/ComponentList";
+// The builder's compile log (the Tools tab's "Compile log"), for a shell's own place for it -- a
+// drawer it opens when a compile fails (`onCompileFailed`, on /app); and the "Compile settings"
+// block of the Build tab.
+export { CompileLogView } from "@/components/viewer/cellbuilder/panel/CompileLogSection";
+export { CompileSettingsSection } from "@/components/viewer/cellbuilder/panel/CompileSettingsSection";
+// The builder's grid & snapping settings: the Settings window's "Grid & snapping" page (`grid`),
+// which `CORE_COMMAND_IDS.builderGridSettings` opens.
+export { GridSnappingOptions } from "@/components/viewer/cellbuilder/panel/GridSnappingOptions";
 export type { SceneTreeRowOptions } from "@/components/tree_view/CustomNode";
 export {
   AnimationControls,

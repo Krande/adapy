@@ -23,7 +23,7 @@ import TreeNodeInfoSection from './TreeNodeInfoSection';
 import SourceJumpSection from './SourceJumpSection';
 import IndexedAttributesSection from './IndexedAttributesSection';
 import RelatedSection from './RelatedSection';
-import CellBuilderSelectionInfo from './CellBuilderSelectionInfo';
+import {BuilderItemSection, BuilderSpaceSection, BuilderStructureSection} from './cellBuilderSelection/BuilderSections';
 import FemConceptSelectionInfo from './FemConceptSelectionInfo';
 import FeaSetsSection from './FeaSetsSection';
 import DownloadSelectionButton from './DownloadSelectionButton';
@@ -102,6 +102,7 @@ const ObjectMetadata = () => {
 
 const notCell = (sel: SelectionSnapshot) => sel.kind !== "cell" && sel.kind !== "ref";
 const always = () => true;
+const builderPick = (sel: SelectionSnapshot) => sel.cellBuilderActive && (sel.kind === "cell" || sel.kind === "ref");
 
 /** Core's own sections, as providers, in the order the panel has always drawn them. */
 export const CORE_PROPERTY_PROVIDERS: readonly PropertyProvider[] = [
@@ -131,10 +132,14 @@ export const CORE_PROPERTY_PROVIDERS: readonly PropertyProvider[] = [
     // and is the ONLY section a spatial container can populate -- everything above is
     // keyed on geometry the container does not have.
     {id: "tree-node", order: 60, match: always, render: () => <TreeNodeInfoSection/>},
-    // Procedural cellbuilder selection detail -- cell/equipment parameters, gizmo toggles
-    // and connected systems. Lives here (not in the busy cellbuilder tool panel) as its
-    // own section.
-    {id: "cellbuilder-cell", order: 70, match: always, render: () => <CellBuilderSelectionInfo/>},
+    // Procedural cellbuilder selection detail, as three stacked sections a plugin's section
+    // can slot between (cellBuilderSelection/BuilderSections): the picked item -- a cell's
+    // parameters, gizmo toggles and connected systems, or a plugin's ref --, the space it is
+    // in, and its structure (or the active one, with nothing picked). Here, not in the busy
+    // cellbuilder tool panel.
+    {id: "cellbuilder-item", order: 70, match: builderPick, render: () => <BuilderItemSection/>},
+    {id: "cellbuilder-space", order: 72, match: (sel) => builderPick(sel) && !!sel.space, render: () => <BuilderSpaceSection/>},
+    {id: "cellbuilder-structure", order: 74, match: (sel) => sel.cellBuilderActive && !!sel.structure, render: () => <BuilderStructureSection/>},
 ];
 
 /**

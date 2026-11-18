@@ -62,7 +62,7 @@ import {activeViewport, NO_VIEWPORT} from "@/viewport/api/viewportApi";
 import {registerCommand, unregisterCommand, type CommandSpec} from "./commands";
 import {layoutStore} from "./layoutStore";
 import {listShellModes} from "./shellModes";
-import {registerOptionCommands} from "./optionCommands";
+import {openSettingsTab, registerOptionCommands} from "./optionCommands";
 import {setUiFrozen, uiFreezeOffered, uiFrozen} from "./uiFreeze";
 import {builderLoaded} from "./modeRequirements";
 import {deleteWorkspace, listWorkspaces, loadWorkspace, resetArrangement, saveWorkspace} from "./presets/classicPlace";
@@ -1071,6 +1071,13 @@ export function coreCommandSpecs(): CommandSpec[] {
         run: () => useIncludeViewStore.getState().setView(view),
       }),
     ),
+    {
+      id: ID.builderGridSettings,
+      label: "Grid & snapping…",
+      group: "Build",
+      keywords: ["grid", "snap", "snapping", "step", "vertex", "select mode", "settings"],
+      run: () => openSettingsTab("grid"),
+    },
   ];
   for (const [id, preset] of Object.entries(THEME_PRESETS)) {
     specs.push({

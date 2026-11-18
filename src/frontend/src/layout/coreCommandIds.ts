@@ -152,6 +152,9 @@ export const CORE_COMMAND_IDS = {
   builderIncludeDimmed: "core:builder-include.dimmed",
   builderIncludeOnly: "core:builder-include.included",
   builderIncludeAll: "core:builder-include.all",
+  /** Open Settings on the builder's "Grid & snapping" page (grid step, snap distance, select mode,
+   * vertex snap, move equipment with its space, drag faces to resize). */
+  builderGridSettings: "core:builder-grid-settings",
 } as const;
 
 export type CoreCommandId = (typeof CORE_COMMAND_IDS)[keyof typeof CORE_COMMAND_IDS];

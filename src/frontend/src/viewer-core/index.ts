@@ -711,7 +711,13 @@
 //          `removeRef` / `writeRef`; `BuilderSelection` kind "ref" (`refId`; no `cellId`).
 //          `buildModelTree` takes `refs` and hangs them off the group rows (`GroupNode.refs`,
 //          kinds "all" and "other"). `SelectionSnapshot` kind "ref", `refOwner`, `refKey`,
-//          `structure`, `space`.
+//          `structure`, `space`. The builder's Selected Object sections are three providers:
+//          `cellbuilder-item` (70), `cellbuilder-space` (72), `cellbuilder-structure` (74; also
+//          with nothing picked, for the active structure), so a plugin's section slots between.
+//          Settings page `grid` ("Grid & snapping", the builder's grid and snapping options, from
+//          the Builder panel) and `CORE_COMMAND_IDS.builderGridSettings`, which opens it. On
+//          `/layout`: `CompileLogView`, `CompileSettingsSection`, `GridSnappingOptions`. On
+//          `/app`: `onCompileFailed`, `selectCompileFailure`, `CompileFailure`.
 export const VIEWER_CORE_API_VERSION = "1.30.0";
 
 // ---------------------------------------------------------------------------
