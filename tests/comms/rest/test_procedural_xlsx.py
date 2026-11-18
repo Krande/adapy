@@ -311,6 +311,131 @@ def test_a_local_export_resolves_an_engine_registered_in_this_process(monkeypatc
     assert asyncio.run(resolve(None, row, None)) is None
 
 
+_NAMED_HANDLER_ENGINE = """
+import io
+
+
+def compile(doc, **kwargs):
+    raise NotImplementedError
+
+
+def write_book(doc, name=None):
+    from openpyxl import Workbook
+
+    wb = Workbook()
+    wb.active.title = "NamedSheet"
+    wb.active["A1"] = name
+    for i, space in enumerate(doc.get("spaces") or [], start=2):
+        wb.active.cell(row=i, column=1, value=space["NAME"])
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def read_book(data):
+    from openpyxl import load_workbook
+
+    ws = load_workbook(io.BytesIO(data))["NamedSheet"]
+    names = [r[0] for r in ws.iter_rows(min_row=2, values_only=True) if r[0]]
+    return {"spaces": [{"NAME": n, "X": 0, "Y": 0, "Z": 0, "DX": 1, "DY": 1, "DZ": 1} for n in names]}
+"""
+
+
+@pytest.fixture
+def isolated_engine_registry(tmp_path: pathlib.Path, monkeypatch):
+    """The engine registry, restored after the test, with a tool engine's module on sys.path."""
+    from ada.topo_model import engine_catalog
+
+    pkg = tmp_path / "pkgs"
+    pkg.mkdir()
+    (pkg / "named_handler_engine.py").write_text(_NAMED_HANDLER_ENGINE, encoding="utf-8")
+    monkeypatch.syspath_prepend(str(pkg))
+    monkeypatch.setattr(engine_catalog, "_ENGINE_CAPABILITY_REGISTRY", dict(engine_catalog._ENGINE_CAPABILITY_REGISTRY))
+    return engine_catalog
+
+
+def test_the_advertised_manifest_carries_the_excel_handlers_a_registration_names(isolated_engine_registry):
+    """The manifest of an engine registered without a row has the keys a row's manifest
+    has for Excel, so the handlers read both the same way."""
+    from ada.comms.rest.formats.procedural_support import _advertised_engine_doc
+
+    isolated_engine_registry.register_procedural_engine_capabilities(
+        "named",
+        name="Named",
+        entrypoint="named_handler_engine:compile",
+        worker_capability="named-pool",
+        export_entrypoint="named_handler_engine:write_book",
+        import_entrypoint="named_handler_engine:read_book",
+    )
+    assert _advertised_engine_doc("named") == {
+        "kind": "server",
+        "entrypoint": "named_handler_engine:compile",
+        "worker_capability": "named-pool",
+        "export_entrypoint": "named_handler_engine:write_book",
+        "import_entrypoint": "named_handler_engine:read_book",
+    }
+    isolated_engine_registry.register_procedural_engine_capabilities(
+        "no-excel", name="No Excel", entrypoint="named_handler_engine:compile", supports_excel=False
+    )
+    assert _advertised_engine_doc("no-excel") == {
+        "kind": "server",
+        "entrypoint": "named_handler_engine:compile",
+        "supports_excel": False,
+    }
+
+
+def test_export_and_import_use_the_handlers_a_registration_names(
+    app_client: TestClient, tmp_path: pathlib.Path, isolated_engine_registry
+):
+    """No database: an engine whose registration names its Excel handlers is exported
+    and imported through them, not through the derived ``export_xlsx``/``import_xlsx``
+    siblings (which its module does not have)."""
+    import json
+
+    from openpyxl import load_workbook
+
+    isolated_engine_registry.register_procedural_engine_capabilities(
+        "named",
+        name="Named",
+        entrypoint="named_handler_engine:compile",
+        export_entrypoint="named_handler_engine:write_book",
+        import_entrypoint="named_handler_engine:read_book",
+    )
+    model_id = _model(app_client, "named-export")
+    started = app_client.post(f"{BASE}/{model_id}/export-xlsx", params={"engine": "named"}).json()
+    assert _wait_job(app_client, started["job_id"])["status"] == "done"
+    data = (tmp_path / "shared" / pathlib.PurePosixPath(started["derived_key"])).read_bytes()
+    assert load_workbook(io.BytesIO(data))["NamedSheet"]["A2"].value == "Cell1"
+
+    up = app_client.post(f"{BASE}/import-xlsx/upload", content=data).json()
+    body = {"source_key": up["source_key"], "engine": "named", "name": "named-back"}
+    r = app_client.post(f"{BASE}/import-xlsx", json=body)
+    assert r.status_code == 201, r.text
+    status = _wait_job(app_client, r.json()["job_id"])
+    assert status["status"] == "done", status
+    result = json.loads(app_client.get(f"/api/scopes/shared/blobs/{r.json()['derived_key']}").content)
+    got = app_client.get(f"{BASE}/{result['model_id']}").json()
+    assert got["doc"]["engine"] == "named"
+    assert [s["NAME"] for s in got["doc"]["spaces"]] == ["Cell1"]
+
+
+def test_an_engine_registered_without_an_excel_format_is_refused_by_both_routes(
+    app_client: TestClient, isolated_engine_registry
+):
+    """``supports_excel=False`` makes export and import refuse the engine as echo is
+    refused: the same 400, read off the engine's own registration."""
+    isolated_engine_registry.register_procedural_engine_capabilities(
+        "no-excel", name="No Excel", entrypoint="named_handler_engine:compile", supports_excel=False
+    )
+    model_id = _model(app_client, "no-excel")
+    for engine in ("no-excel", "echo"):
+        r = app_client.post(f"{BASE}/{model_id}/export-xlsx", params={"engine": engine})
+        assert r.status_code == 400 and r.json()["detail"] == f"engine {engine!r} has no Excel format"
+        body = {"source_key": "_procedural/_import/tok/source.xlsx", "engine": engine, "name": "m"}
+        r = app_client.post(f"{BASE}/import-xlsx", json=body)
+        assert r.status_code == 400 and r.json()["detail"] == f"engine {engine!r} has no Excel format"
+
+
 def test_a_queued_server_without_a_db_keeps_export_and_import_503(app_client: TestClient, monkeypatch):
     """With a queue the workers read models from postgres, so without one these stay 503."""
     from ada.comms.rest.queue import JobQueue

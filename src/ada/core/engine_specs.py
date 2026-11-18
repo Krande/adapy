@@ -20,7 +20,7 @@ ship into the slim runtime.
 
 from __future__ import annotations
 
-__all__ = ["is_offerable"]
+__all__ = ["is_offerable", "manifest_from_spec", "has_excel_format"]
 
 
 def is_offerable(spec: dict) -> bool:
@@ -33,3 +33,24 @@ def is_offerable(spec: dict) -> bool:
     way to dispatch to.
     """
     return bool(spec.get("name")) and bool(spec.get("entrypoint"))
+
+
+def manifest_from_spec(spec: dict) -> dict:
+    """The manifest doc an offerable spec stands for: the shape a database row's
+    ``doc`` carries, so a self-advertising engine and a registered one are read the
+    same way. Each optional key is copied only when the registration gave it --
+    an absent ``supports_excel`` keeps meaning "has an Excel format"."""
+    doc: dict = {"kind": "server", "entrypoint": spec["entrypoint"]}
+    for key in ("worker_capability", "export_entrypoint", "import_entrypoint"):
+        if spec.get(key):
+            doc[key] = spec[key]
+    if spec.get("supports_excel") is not None:
+        doc["supports_excel"] = bool(spec["supports_excel"])
+    return doc
+
+
+def has_excel_format(manifest: dict | None) -> bool:
+    """Whether an engine's manifest leaves it an Excel format. Only an explicit
+    ``supports_excel: false`` says no; a manifest that says nothing (or no manifest
+    at all) is an engine assumed to have one, as before the flag existed."""
+    return (manifest or {}).get("supports_excel") is not False
