@@ -39,6 +39,26 @@ export function isOrthographic(camera: THREE.Camera | null | undefined): boolean
     return camera.userData?.[ORTHO] === true;
 }
 
+const eyeAt = new THREE.Vector3();
+
+/**
+ * How tall the view is, in model units, at `point` (world space): what one screen height covers there.
+ * In perspective that grows with the point's distance from the eye; drawn orthographically it is one
+ * height everywhere, the one the projection was made for (from the distance to the controls' target,
+ * not to the point). Something kept a constant size on screen is sized from this.
+ */
+export function viewHeightAt(camera: THREE.Camera, point: THREE.Vector3): number {
+    if (camera instanceof THREE.OrthographicCamera) return (camera.top - camera.bottom) / camera.zoom;
+    if (!(camera instanceof THREE.PerspectiveCamera)) return 1;
+    const tan = Math.tan((camera.fov * Math.PI) / 360);
+    if (camera.userData?.[ORTHO] === true) {
+        const known: unknown = camera.userData[DISTANCE];
+        const distance = typeof known === "number" ? known : camera.getWorldPosition(eyeAt).distanceTo(point);
+        return (2 * Math.max(distance, 1e-3) * tan) / camera.zoom;
+    }
+    return (2 * camera.getWorldPosition(eyeAt).distanceTo(point) * tan) / camera.zoom;
+}
+
 /** The camera's orthographic projection for a target `distance` away (or its perspective one). */
 export function updateProjection(camera: THREE.PerspectiveCamera, orthographic: boolean, distance: number): void {
     camera.userData[ORTHO] = orthographic;

@@ -24,7 +24,9 @@ import {rebuildCadPreviews} from "./cadPreview";
 import {clearPorts, rebuildPorts} from "./portsOverlay";
 import {installCellGizmo} from "./cellGizmo";
 import {installPortGizmo, syncPortGizmo} from "./portGizmo";
-import {disposeResizeHandles, syncGizmo} from "./resizeHandles";
+import {disposeResizeHandles, keepHandlesScreenSized, syncGizmo, translationSnapFor} from "./resizeHandles";
+import {installFreeMoveKeys, onFreeMoveChange} from "@/utils/gizmo/freeMove";
+import {keepScreenSized} from "@/utils/gizmo/screenSize";
 import {disposeCellDimensions, disposeMoveMeasure} from "./cellDimensions";
 import {useGroundGridStore} from "@/state/groundGridStore";
 import {clearLongPress, onContextMenu, onPointerCancel, onPointerDown, onPointerMove, onPointerUp} from "./pointerTools";
@@ -54,6 +56,15 @@ export function initCellBuilderScene(
     syncOffset(ctx);
     installCellGizmo(ctx);
     installPortGizmo(ctx);
+    // The gizmos and the resize handles stay one size on screen, in perspective and orthographic.
+    const unsize = [keepScreenSized(ctx.gizmo), keepScreenSized(ctx.portGizmo), keepHandlesScreenSized(ctx)];
+    // Left Shift held while dragging: free move. The widgets' own step follows it at once, mid-drag.
+    const releaseFreeKeys = installFreeMoveKeys();
+    const unsubFreeMove = onFreeMoveChange(() => {
+        const st = useCellBuilderStore.getState();
+        if (ctx.gizmo.mode === "translate") ctx.gizmo.setTranslationSnap(translationSnapFor(st));
+        if (ctx.portGizmo.mode === "translate") ctx.portGizmo.setTranslationSnap(translationSnapFor(st));
+    });
 
     // The builder takes the pointer and its keys only while its cells are drawn. A shell may keep
     // the procedural model open behind a mode that hides them (the docked UI's Output without a
@@ -246,6 +257,9 @@ export function initCellBuilderScene(
         unsubGroupView();
         unsubIncludeView();
         unsubModel();
+        unsubFreeMove();
+        releaseFreeKeys();
+        for (const undo of unsize) undo();
         el.removeEventListener("pointerdown", hPointerDown, true);
         el.removeEventListener("pointermove", hPointerMove, true);
         el.removeEventListener("pointerup", hPointerUp, true);

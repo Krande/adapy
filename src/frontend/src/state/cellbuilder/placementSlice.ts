@@ -266,6 +266,20 @@ export const createPlacementSlice: CellBuilderSlice<PlacementSlice> = (set) => {
           size[horiz] = width;
           size[2] = height;
         }
+        // On the grid in the face's plane, at least one step wide; THROUGH the face it keeps its
+        // thickness and straddles the face plane exactly. Snapped there too, a coarse grid (a 1.3 m
+        // one) rounded the 0.3 m to nothing: an opening lying in the face plane, which the engine
+        // could not cut (OCCT Standard_DomainError).
+        const q = quantizeVec(origin, s.gridStep);
+        const qs = quantizeVec(size, s.gridStep);
+        for (const a of [0, 1, 2] as const) {
+          if (a === side.axis) {
+            q[a] = origin[a];
+            qs[a] = size[a];
+          } else if (!(qs[a] > 0)) {
+            qs[a] = s.gridStep > 0 ? s.gridStep : size[a];
+          }
+        }
         const id = nextId();
         const count =
           Object.values(s.cells).filter((c) => c.kind === "opening").length + 1;
@@ -274,8 +288,8 @@ export const createPlacementSlice: CellBuilderSlice<PlacementSlice> = (set) => {
           name: `OPENING_${String(count).padStart(2, "0")}`,
           kind: "opening",
           subtype,
-          origin: quantizeVec(origin, s.gridStep),
-          size: quantizeVec(size, s.gridStep),
+          origin: q,
+          size: qs,
           params: {},
         };
         return {

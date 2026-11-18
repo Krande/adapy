@@ -21,6 +21,7 @@ import {pickPort} from "./portGizmo";
 import {resizable} from "./resizeHandles";
 import {boxFrameMatrix, isRotated, resizeBoxFace} from "@/utils/cellbuilder/cellResize";
 import {viewportInputElement} from "@/viewport/input";
+import {snapStep} from "@/utils/gizmo/freeMove";
 import {isAdditiveClick} from "@/utils/mesh_select/additiveClick";
 import {claimPress} from "./cellBoxSelect";
 
@@ -404,7 +405,7 @@ export const onPointerMove = (ctx: CellBuilderScene, ev: PointerEvent) => {
                 const center = cellCenterModel(ctx, cell);
                 const startCenterAxis = ctx.modalMove.startBox.origin[axis] + ctx.modalMove.startBox.size[axis] / 2;
                 center[axis] = startCenterAxis + (t - ctx.modalMove.startT);
-                const {origin, target} = computeMove(ctx, cell, center, axis);
+                const {origin, target} = computeMove(ctx, cell, center, [axis]);
                 applyCellTranslate(ctx, cell, origin);
                 showSnapMarker(ctx, target);
             }
@@ -437,7 +438,8 @@ export const onPointerMove = (ctx: CellBuilderScene, ev: PointerEvent) => {
         if (t === null) return;
         // signed face displacement along +axis; applyFaceOffset knows which
         // face moves (positive face scales size, negative face shifts origin)
-        const offset = quantize(t - ctx.drag.startT, st.gridStep);
+        // Only the dragged face moves; free move (left Shift held) does not snap it.
+        const offset = quantize(t - ctx.drag.startT, snapStep(st.gridStep));
         const next = resizeBoxFace(ctx.drag.startBox, ctx.drag.rotation, ctx.drag.axis, ctx.drag.positiveFace, offset, st.gridStep || 0.1);
         st.updateCell(ctx.drag.cellId, {origin: next.origin, size: next.size});
         ev.stopPropagation();

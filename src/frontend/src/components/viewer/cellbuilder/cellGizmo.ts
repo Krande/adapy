@@ -12,8 +12,9 @@ import * as THREE from "three";
 import {useCellBuilderStore, type BuilderCell} from "@/state/cellBuilderStore";
 import {requestRender} from "@/state/perfStore";
 import {getViewerRuntime} from "@/state/viewerRuntime";
-import {boxCorners, originFromCenter, quantize, type Vec3} from "@/utils/cellbuilder/snap";
+import {axesOfHandle, boxCorners, movedOrigin, type Vec3} from "@/utils/cellbuilder/snap";
 import {gizmoMoveStep} from "@/utils/gizmo/transformKeys";
+import {freeMove, snapStep} from "@/utils/gizmo/freeMove";
 import {HANDLE_AXIS_COLOR, SNAP_PX} from "./sceneConstants";
 import {offsetVec, type CellBuilderScene} from "./sceneContext";
 import {viewportInputElement} from "@/viewport/input";
@@ -163,39 +164,34 @@ export const nearestCornerToPointer = (ctx: CellBuilderScene, excludeCellId: str
 // magnetism along ONE axis: if a neighbour vertex is under the cursor, slide
 // the cell along `axis` so its nearest face lands on that vertex's `axis`
 // coordinate. Only single-axis moves snap (arrow handles + the axis-locked
-// modal move) — a plane/centre drag (`axis` null) would otherwise jump the
+// modal move) — a plane/centre drag (several `axes`) would otherwise jump the
 // cell out of its drag plane. No target under the cursor ⇒ grid-quantize.
+// Only the moved `axes` change (and snap): the others keep the cell's own
+// values exactly. While the left Shift key is held (free move) nothing snaps.
 export const computeMove = (
     ctx: CellBuilderScene,
     cell: {id: string; origin: Vec3; size: Vec3},
     center: Vec3,
-    axis: 0 | 1 | 2 | null,
+    axes: readonly (0 | 1 | 2)[],
 ): {origin: Vec3; target: Vec3 | null} => {
     const st = useCellBuilderStore.getState();
-    const step = gizmoMoveStep(st.gridStep);
-    if (st.gizmoVertexSnap && axis !== null) {
+    const step = snapStep(gizmoMoveStep(st.gridStep));
+    if (st.gizmoVertexSnap && axes.length === 1 && !freeMove()) {
+        const axis = axes[0];
         const target = nearestCornerToPointer(ctx, cell.id);
         if (target) {
-            const rawOrigin: Vec3 = [
-                center[0] - cell.size[0] / 2,
-                center[1] - cell.size[1] / 2,
-                center[2] - cell.size[2] / 2,
-            ];
             // Snap the near-or-far face depending on which the cursor is by:
             // pick whichever of the box's two faces along `axis` is closer to
-            // the target's axis coordinate.
-            const near = rawOrigin[axis]; // low face
-            const far = rawOrigin[axis] + cell.size[axis]; // high face
+            // the target's axis coordinate. The face lands ON the vertex.
+            const near = center[axis] - cell.size[axis] / 2; // low face
+            const far = near + cell.size[axis]; // high face
             const alignLow = Math.abs(target[axis] - near) <= Math.abs(target[axis] - far);
-            const origin: Vec3 = [...rawOrigin];
+            const origin: Vec3 = [...cell.origin];
             origin[axis] = alignLow ? target[axis] : target[axis] - cell.size[axis];
-            return {
-                origin: [quantize(origin[0], step), quantize(origin[1], step), quantize(origin[2], step)],
-                target,
-            };
+            return {origin, target};
         }
     }
-    return {origin: originFromCenter(center, cell.size, step), target: null};
+    return {origin: movedOrigin(cell.origin, cell.size, center, axes, step), target: null};
 };
 
 export const startModalMove = (ctx: CellBuilderScene, cell: BuilderCell, axis: 0 | 1 | 2) => {
@@ -308,9 +304,11 @@ export function installCellGizmo(ctx: CellBuilderScene): void {
             // position so the member steps in exact grid multiples with no drift.
             if (cell.kind === "loft" && cell.loft) {
                 if (!ctx.loftDragLast) ctx.loftDragLast = ctx.gizmoProxy.position.clone();
-                const dx = Math.round((ctx.gizmoProxy.position.x - ctx.loftDragLast.x) / step) * step;
-                const dy = Math.round((ctx.gizmoProxy.position.y - ctx.loftDragLast.y) / step) * step;
-                const dz = Math.round((ctx.gizmoProxy.position.z - ctx.loftDragLast.z) / step) * step;
+                // Free move (left Shift held): the raw delta, no steps.
+                const stepped = (d: number) => (freeMove() ? d : Math.round(d / step) * step);
+                const dx = stepped(ctx.gizmoProxy.position.x - ctx.loftDragLast.x);
+                const dy = stepped(ctx.gizmoProxy.position.y - ctx.loftDragLast.y);
+                const dz = stepped(ctx.gizmoProxy.position.z - ctx.loftDragLast.z);
                 if (dx || dy || dz) {
                     st.moveLoftMember(cell.loft.member, [dx, dy, dz]);
                     ctx.loftDragLast.set(ctx.loftDragLast.x + dx, ctx.loftDragLast.y + dy, ctx.loftDragLast.z + dz);
@@ -323,14 +321,13 @@ export function installCellGizmo(ctx: CellBuilderScene): void {
             // within range in the other two axes). Match Blender: snap along the
             // drag axis. An explicit X/Y/Z lock wins; a plane/centre handle (no
             // single axis) falls back to full-3D snap.
+            // Only the dragged axes move: an X arrow leaves Y and Z as they were.
             const handle = (ctx.gizmo as unknown as {axis: string | null}).axis;
-            const handleAxis =
-                handle === "X" ? 0 : handle === "Y" ? 1 : handle === "Z" ? 2 : null;
-            const snapAxis = st.gizmoAxisLock ?? handleAxis;
+            const axes = st.gizmoAxisLock !== null ? [st.gizmoAxisLock as 0 | 1 | 2] : axesOfHandle(handle);
             const {origin, target} = computeMove(ctx,
                 cell,
                 [ctx.gizmoProxy.position.x, ctx.gizmoProxy.position.y, ctx.gizmoProxy.position.z],
-                snapAxis,
+                axes,
             );
             applyCellTranslate(ctx, cell, origin);
             showSnapMarker(ctx, target);

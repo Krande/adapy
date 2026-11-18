@@ -13,6 +13,8 @@ import {requestRender} from "@/state/perfStore";
 import {getViewerRuntime} from "@/state/viewerRuntime";
 import {BOX_FACE_SIDES, faceCenter} from "@/utils/cellbuilder/snap";
 import {GIZMO_ROTATE_SNAP_DEG} from "@/utils/gizmo/transformKeys";
+import {freeMove} from "@/utils/gizmo/freeMove";
+import {screenSizedScale} from "@/utils/gizmo/screenSize";
 import {HANDLE_AXIS_COLOR} from "./sceneConstants";
 import type {CellBuilderScene} from "./sceneContext";
 import {reconcileModalMove, reconcileMoveMeasure} from "./cellGizmo";
@@ -27,6 +29,41 @@ import {syncCellDimensions} from "./cellDimensions";
  */
 export const resizable = (_ctx: CellBuilderScene, cell: BuilderCell): boolean =>
     resizeRefusal(cell.kind, {cadFitted: equipmentCadFitted(cell, useCellBuilderStore.getState())}) === null;
+
+/**
+ * The step the move gizmo itself snaps its arrows to: the grid step; none with vertex magnetism on
+ * (the snap in objectChange owns where the box lands) or while the left Shift key is held (free move).
+ */
+export const translationSnapFor = (st: {gizmoVertexSnap: boolean; gridStep: number}): number | null =>
+    freeMove() || st.gizmoVertexSnap ? null : st.gridStep > 0 ? st.gridStep : null;
+
+/** A resize handle's radius, as a share of the view's height: the same on screen at any zoom. */
+export const HANDLE_SCREEN_SHARE = 0.011;
+
+const handleAt = new THREE.Vector3();
+
+/**
+ * Keep the resize handles one size on screen, in perspective and drawn orthographically: each time the
+ * renderer brings their group up to date, each handle is scaled from the view's height where it is.
+ * Returns the undo.
+ */
+export const keepHandlesScreenSized = (ctx: CellBuilderScene): (() => void) => {
+    const group = ctx.resizeGroup;
+    const own = group.updateMatrixWorld;
+    group.updateMatrixWorld = function (this: THREE.Group, force?: boolean) {
+        own.call(this, force);
+        const camera = getViewerRuntime().camera.current ?? ctx.camera;
+        if (!this.visible || !camera) return;
+        for (const handle of this.children) {
+            handle.getWorldPosition(handleAt);
+            handle.scale.setScalar(screenSizedScale(camera, handleAt, HANDLE_SCREEN_SHARE));
+            handle.updateMatrixWorld(true);
+        }
+    };
+    return () => {
+        group.updateMatrixWorld = own;
+    };
+};
 
 export const disposeResizeHandles =(ctx: CellBuilderScene) => {
     for (let i = ctx.resizeGroup.children.length - 1; i >= 0; i--) {
@@ -60,7 +97,8 @@ export const rebuildResizeHandles = (ctx: CellBuilderScene) => {
         const side = BOX_FACE_SIDES[fi];
         const c = faceCenter(cell, fi);
         const mesh = new THREE.Mesh(
-            new THREE.SphereGeometry(r, 16, 12),
+            // A unit sphere: keepHandlesScreenSized scales it to its size on screen.
+            new THREE.SphereGeometry(1, 16, 12),
             new THREE.MeshBasicMaterial({
                 color: HANDLE_AXIS_COLOR[side.axis],
                 depthTest: false,
@@ -98,10 +136,8 @@ export const syncGizmo = (ctx: CellBuilderScene) => {
         // With vertex magnetism on, let the widget move continuously so the
         // snap in objectChange (corner-to-corner, or axis-locked) fully owns
         // where the cell lands. Otherwise fall back to the grid step so the
-        // gizmo itself steps on the grid.
-        ctx.gizmo.setTranslationSnap(
-            st.gizmoVertexSnap ? null : st.gridStep > 0 ? st.gridStep : null,
-        );
+        // gizmo itself steps on the grid. Free move (left Shift held): no step.
+        ctx.gizmo.setTranslationSnap(translationSnapFor(st));
         if (!ctx.gizmo.dragging) {
             ctx.gizmoProxy.rotation.set(0, 0, 0);
             ctx.gizmoProxy.position.set(
