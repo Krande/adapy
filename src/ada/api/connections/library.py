@@ -441,20 +441,33 @@ def _xyz(p) -> list[float]:
 
 
 def _weld_position(weld, contact_points: list[tuple[float, float, float]]) -> list[float] | None:
-    """Where to label a weld: on its line, nearest the mean of where it meets its members; else
-    its line's middle.
+    """Where to label a weld: halfway along its line, by length; without a line, the mean of where it
+    meets its members.
 
-    On its line, not at that mean: around a tube, a weld meets its members all the way round, and
-    the mean of where is the middle of the tube -- inside it, nowhere near the weld.
+    Halfway by length, not at one of the line's points: a straight weld's line is just its two ends,
+    and the point of those nearest its contacts put its label at a corner, beside the next weld's
+    label. Not at the contacts' mean either: around a tube, a weld meets its members all the way
+    round, and that mean is the middle of the tube, nowhere near the weld.
     """
     points = getattr(getattr(weld, "sweep_curve", None), "points3d", None)
     line = [_xyz(p) for p in points] if points is not None else []
+    if line:
+        return _halfway_along(line)
     if not contact_points:
-        return line[len(line) // 2] if line else None
-    mean = [sum(p[i] for p in contact_points) / len(contact_points) for i in range(3)]
-    if not line:
-        return mean
-    return min(line, key=lambda p: sum((p[i] - mean[i]) ** 2 for i in range(3)))
+        return None
+    return [sum(p[i] for p in contact_points) / len(contact_points) for i in range(3)]
+
+
+def _halfway_along(line: list[list[float]]) -> list[float]:
+    """The point halfway along the polyline ``line``, by length."""
+    lengths = [sum((b[i] - a[i]) ** 2 for i in range(3)) ** 0.5 for a, b in zip(line, line[1:])]
+    rest = sum(lengths) / 2
+    for a, b, seg in zip(line, line[1:], lengths):
+        if seg > 0 and rest <= seg:
+            t = rest / seg
+            return [a[i] + t * (b[i] - a[i]) for i in range(3)]
+        rest -= seg
+    return list(line[-1])
 
 
 class _CapturedLog(logging.Handler):
