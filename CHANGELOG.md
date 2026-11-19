@@ -2,6 +2,13 @@
 
 
 
+## v0.161.5 (2026-11-19)
+
+### Fix
+
+* fix: the job memory watchdog no longer counts reclaimable file-backed pages (#575) ([`230d110`](https://github.com/Krande/adapy/commit/230d110e69ac478ba3d9283faa082c344f32da82))
+
+
 ## v0.161.4 (2026-11-19)
 
 ### Fix
