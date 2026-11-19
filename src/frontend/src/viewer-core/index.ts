@@ -713,7 +713,10 @@
 //   1.31.0 Kept in step with PLUGIN_API_VERSION 1.31.0. Additive: `ctx.scene.loadSavedGroup` and the
 //          types `SceneGroupLoad` (with the group's `bounds`), `SceneGroupLoadOptions`. A `scene-info` panel with `asTab` is a
 //          tab of the Scene panel (`SceneBody`'s strip, after core's groups), and `getSceneTabs`
-//          on `@/viewer-core/plugins`, for a shell that draws that strip itself.
+//          on `@/viewer-core/plugins`, for a shell that draws that strip itself. `placeBox`'s
+//          `resize` handles and `constrain.rotate: "xyz"` (`axes`), `ctx.scene.placeCamera` and the
+//          types `BoxFace`, `PlaceBoxResize`, `PlaceCameraOptions`, `PlacedCamera`,
+//          `PlacedCameraMode`, `PlacedCameraPose`.
 export const VIEWER_CORE_API_VERSION = "1.31.0";
 
 // ---------------------------------------------------------------------------
@@ -734,10 +737,16 @@ export type {
   ActivationPredicate,
   AdaPluginContext,
   PanelSlot,
+  BoxFace,
   PlaceBoxOptions,
+  PlaceBoxResize,
   PlacedBox,
   PlacedBoxMode,
   PlacedBoxPose,
+  PlaceCameraOptions,
+  PlacedCamera,
+  PlacedCameraMode,
+  PlacedCameraPose,
   PluginDockId,
   PluginLayers,
   PluginSimulations,

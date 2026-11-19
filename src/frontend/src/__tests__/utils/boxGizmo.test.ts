@@ -140,3 +140,51 @@ test("the gizmo's steps, and whose a key is", () => {
     assert.equal(isTextEntry({tagName: "BUTTON"}), false);
     assert.equal(isTextEntry(null), false);
 });
+
+// ----- 1.31.0: faces, a box turned every way, a camera's look -------------------------------------
+
+test("a face's middle and normal follow the turn; a resize keeps the opposite face and snaps the size", async () => {
+    const {faceCentre, faceNormal, resizedBox} = await import("@/utils/gizmo/boxPose");
+    const pose = {position: [1, 2, 3] as [number, number, number], yawDeg: 90};
+    near(faceCentre(BOX, pose, "+x"), [1, 3, 4]);
+    near(faceNormal(pose, "+x"), [0, 1, 0]);
+    near(faceNormal(pose, "-y"), [1, 0, 0]);
+    near(faceNormal(pose, "+z"), [0, 0, 1]);
+    assert.deepEqual(resizedBox(BOX, "+x", 0.33, 0.1, 0.1), [-1, -0.5, 0, 1.3, 0.5, 2]);
+    assert.deepEqual(resizedBox(BOX, "-z", 1.04, 0.1, 0.1), [-1, -0.5, -1, 1, 0.5, 2]);
+    assert.deepEqual(resizedBox(BOX, "-x", -5, 0.1, 0.25), [0.75, -0.5, 0, 1, 0.5, 2]);
+});
+
+test("axes: of a yaw, made square, turned about a world axis; the box drawn by them", async () => {
+    const {axesOfYaw, orthonormalAxes, turnedAxes, yawOfAxes} = await import("@/utils/gizmo/boxPose");
+    near(axesOfYaw(90).flat(), [0, 1, 0, -1, 0, 0, 0, 0, 1]);
+    assert.equal(yawOfAxes(axesOfYaw(-135)), -135);
+    near(orthonormalAxes([[2, 0, 0], [1, 1, 0]])!.flat(), [1, 0, 0, 0, 1, 0, 0, 0, 1]);
+    assert.equal(orthonormalAxes([[1, 0, 0], [2, 0, 0]]), null);
+    const up = turnedAxes(axesOfYaw(0), 0, 90);
+    assert.deepEqual(up, [[1, 0, 0], [0, 0, 1], [0, -1, 0]]);
+    assert.deepEqual(turnedAxes(axesOfYaw(0), 1, 90), [[0, 0, -1], [0, 1, 0], [1, 0, 0]]);
+    const corners = boxCorners(BOX, {position: [0, 0, 0], yawDeg: 0, axes: up});
+    // Corner 7 (max x, y, z): x 1, its y 0.5 along the scene's z, its z 2 along the scene's -y.
+    near(corners.subarray(21, 24), [1, -2, 0.5]);
+});
+
+test("a camera's look: yaw and pitch both ways, turned in place, its body before the lens", async () => {
+    const cam = await import("@/utils/gizmo/cameraPose");
+    const pose = {position: [1, 1, 1] as [number, number, number], target: [0, 0, 0] as [number, number, number]};
+    const {yawDeg, pitchDeg} = cam.yawPitchOf(cam.lookDirection(pose));
+    assert.ok(Math.abs(yawDeg - -135) < 1e-9 && Math.abs(pitchDeg - -35.26439) < 1e-4, `${yawDeg} ${pitchDeg}`);
+    near(cam.directionOf(yawDeg, pitchDeg), cam.lookDirection(pose));
+    near(cam.directionOf(0, 120), cam.directionOf(0, cam.MAX_PITCH_DEG));
+    const turned = cam.turnedCamera(pose, 0, 0);
+    near(turned.target, [1 + Math.sqrt(3), 1, 1]);
+    const {right, up, forward} = cam.cameraBasis({position: [0, 0, 0], target: [0, 5, 0]});
+    near(right, [1, 0, 0]);
+    near(up, [0, 0, 1]);
+    near(forward, [0, 1, 0]);
+    // Straight down: right is taken as +x.
+    near(cam.cameraBasis({position: [0, 0, 5], target: [0, 0, 0]}).right, [1, 0, 0]);
+    const body = cam.cameraBodyCorners({position: [0, 0, 0], target: [0, 5, 0]}, 1);
+    const ys = Array.from(body).filter((_, i) => i % 3 === 1);
+    assert.ok(Math.max(...ys) <= 0 && Math.min(...ys) === -1, "behind the lens");
+});

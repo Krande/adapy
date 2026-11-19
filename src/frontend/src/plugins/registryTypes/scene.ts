@@ -5,6 +5,7 @@ import type { ColorScale } from "@/utils/colorScale";
 import type { ScenePickOptions, ScenePickSession } from "../scenePicks";
 import type { SceneHighlight, SceneHighlightOptions, SceneHighlightRef } from "../sceneHighlights";
 import type { PlaceBoxOptions, PlacedBox } from "../sceneBox";
+import type { PlaceCameraOptions, PlacedCamera } from "../sceneCamera";
 import type { SceneContactAnswer, SceneContactOptions, SceneObjectRef } from "../sceneContact";
 
 /** Values a color-field provider returns for core to paint + legend. */
@@ -454,6 +455,14 @@ export interface SceneHandle {
   // `remove(owner)` ends it too. (1.29.0) `frame: true` frames the camera on the box when it is first
   // drawn: a box in a large model is otherwise a few pixels of the view of the whole.
   placeBox: (owner: string, options: PlaceBoxOptions) => PlacedBox;
+  // (1.31.0) Put a camera in the scene with a transform gizmo on it until `end()`: its body, its lens
+  // and an arrow to what it looks at. The user moves it (G, X / Y / Z; it goes on looking at its
+  // target) and turns it about where it stands (R: a flat ring for its yaw, a standing one for its
+  // pitch; the target goes round with it), and each change is handed to `onChange` as where it is and
+  // what it looks at, in the scene's own coordinates. For a tool that asks where a view is seen from.
+  // Works on either viewport; `remove(owner)` ends it too. Additive: an older core has no
+  // `placeCamera`, so a plugin asks for it first.
+  placeCamera: (owner: string, options: PlaceCameraOptions) => PlacedCamera;
   // (1.27.0) Where two objects of the loaded models touch: `{contact}` (null when they do not touch
   // within the security margin) or `{unavailable}` with the reason (a model whose geometry is not a
   // stored GLB the viewer can read again). The patches are the polygons where the two objects'

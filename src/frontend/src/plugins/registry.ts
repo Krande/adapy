@@ -29,7 +29,8 @@ export type {
   SceneContactPatch,
   SceneObjectRef,
 } from "./sceneContact";
-export type { PlaceBoxOptions, PlacedBox, PlacedBoxMode, PlacedBoxPose } from "./sceneBox";
+export type { BoxFace, PlaceBoxOptions, PlaceBoxResize, PlacedBox, PlacedBoxMode, PlacedBoxPose } from "./sceneBox";
+export type { PlaceCameraOptions, PlacedCamera, PlacedCameraMode, PlacedCameraPose } from "./sceneCamera";
 
 // Bumped on a breaking change to any slot interface below. A plugin declares the
 // core range it was built against via `coreApiRange`; an out-of-range plugin is
@@ -326,6 +327,25 @@ export type { PlaceBoxOptions, PlacedBox, PlacedBoxMode, PlacedBoxPose } from ".
 //            core's Scene panel mounted no `scene-info` panel at all. One without `asTab` is a
 //            section as before. A plugin that wants its tab there on a newer core and elsewhere on an
 //            older one reads the version first (`PLUGIN_API_VERSION` >= 1.31.0).
+//          - `placeBox`'s `resize` (`true`, or `{faces, minSize}`): a handle on each face of the box,
+//            in a gizmo of its own (S, by the cell builder's rules, or `setMode("resize")`), that drags
+//            that face along its normal, the opposite face staying put and the box's size across it
+//            snapping to the move's step; X / Y / Z keep that axis' handles. The pose then has the
+//            box as it is now (`box`); its origin and turn do not change. On either viewport.
+//          - `placeBox`'s `constrain.rotate: "xyz"`: a box that turns every way -- R brings up a ring
+//            about each of the scene's X, Y and Z (R then X / Y / Z keeps the one), snapped as the
+//            turn about Z is -- with `axes` (its own x, y, z in the scene) in its pose, in the
+//            options and in `set` to say how it is turned. An older core reads it as "z".
+//          - `placeBox`'s `set({box})` moves what is drawn for the box instead of drawing it anew,
+//            so what a plugin drew over the box stays over it.
+//          - `ctx.scene.placeCamera(owner, {position, target, size?, snap?, mode?, color?, frame?,
+//            onChange, ...})`: a camera in the scene -- a body, a lens and an arrow to what it looks
+//            at -- with a transform gizmo: G moves it (it goes on looking at its target), R turns it
+//            about where it stands (a flat ring for its yaw, a standing one for its pitch; the target
+//            goes round with it), the box's keys otherwise. `onChange` is handed `{position, target}`
+//            in the scene's own coordinates. For a tool that asks where a view is seen from. On either
+//            viewport; `end()` (or `scene.remove(owner)`) takes it away.
+//          All additive: an older core ignores `resize` and `axes`, and has no `placeCamera`.
 export const PLUGIN_API_VERSION = "1.31.0";
 
 /** What the Simulations panel writes on a run's open-result button. */

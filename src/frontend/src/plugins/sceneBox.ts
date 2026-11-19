@@ -11,7 +11,13 @@
 // turn ring, X / Y / Z lock the gizmo to that axis (the same key again releases it), and a move locked
 // to an axis follows the pointer with no button held until a click confirms it or Escape puts the box
 // back. A drag snaps as the builder's does: a move to the grid step, a turn to 15 degrees. Escape and
-// Enter end the placement where the box stands. What is NOT the builder's own is the widget: the
+// Enter end the placement where the box stands. A box placed with `resize` (1.31.0) has the builder's
+// third gizmo too: S brings up a handle on each face it may resize, which drags that face along its
+// normal (the opposite face staying put, the box's size across it snapping to the move's step), and
+// X / Y / Z keep only the handles of that axis of the box's own frame. A box placed with
+// `constrain.rotate: "xyz"` (1.31.0) turns every way, as the builder's objects do: R brings up a ring
+// about each of the scene's X, Y and Z, R then X / Y / Z keeps the one ring, and its pose says how it
+// is turned as its own axes in the scene (`axes`). What is NOT the builder's own is the widget: the
 // builder's is three.js's TransformControls, an object of a three.js scene, and the three.js-free
 // viewport has no such scene. The handles here are lines drawn through the viewport interface
 // (viewport/api/overlayLayer.ts) in the builder's axis colours and dragged by where the viewport says
@@ -26,22 +32,37 @@
 import {HANDLE_AXIS_COLOR} from "@/components/viewer/cellbuilder/sceneConstants";
 import {useSceneFrameStore} from "@/state/sceneFrameStore";
 import {
+    BOX_FACES,
     BOX_FACE_INDICES,
     alongAxis,
     arrowSegments,
+    axesOfYaw,
     axisVector,
     boxCorners,
     boxEdgeSegments,
     distanceToSegment,
+    faceAxis,
+    faceCentre,
+    faceHandleLength,
+    faceHandleSegments,
+    faceNormal,
     guideSegment,
     handleReach,
     inPlane,
     insidePolygon,
     loopSegments,
+    orthonormalAxes,
     planeSquareCorners,
+    resizedBox,
+    ringPlane,
     ringPoints,
+    ringPointsAbout,
     snapTo,
     turnBetween,
+    turnedAxes,
+    yawOfAxes,
+    type BoxAxes,
+    type BoxFace,
     type BoxPose,
     type LocalBox,
     type ScreenPoint,
@@ -68,9 +89,30 @@ import {own} from "./sceneLayers";
 export interface PlacedBoxPose {
     position: [number, number, number];
     yawDeg: number;
+    /** (1.31.0) The box in its own frame as it is now (min x, y, z, then max x, y, z): there for a box
+     *  placed with `resize`, whose faces the user moves; absent for any other. */
+    box?: number[];
+    /** (1.31.0) The box's own x, y and z axes in the scene (unit vectors at right angles,
+     *  right-handed): there for a box placed with `constrain.rotate: "xyz"`, which turns every way,
+     *  and then what says how it is turned (`yawDeg` is where its x heads, seen from above); absent
+     *  for any other. */
+    axes?: [[number, number, number], [number, number, number], [number, number, number]];
 }
 
-export type PlacedBoxMode = "translate" | "rotate";
+/** "resize" (1.31.0) only for a box placed with `resize`. */
+export type PlacedBoxMode = "translate" | "rotate" | "resize";
+
+export type {BoxFace} from "@/utils/gizmo/boxPose";
+
+/** (1.31.0) Which of the box's faces the user may move, and how small the box may get. */
+export interface PlaceBoxResize {
+    /** The faces with a handle: every face when left out. A face is named in the box's own frame
+     *  ("+x" is the face at max x), before the turn. */
+    faces?: readonly BoxFace[];
+    /** The least the box may be across a face it is resized by: the move's snap step when left out
+     *  (a thousandth where there is none). */
+    minSize?: number;
+}
 
 export interface PlaceBoxOptions {
     /** The box in its own frame: min x, y, z, then max x, y, z. Its origin (0, 0, 0) is the point the
@@ -79,9 +121,15 @@ export interface PlaceBoxOptions {
     position: readonly number[];
     /** 0 when left out. */
     yawDeg?: number;
+    /** (1.31.0) How a box that turns every way (`constrain.rotate: "xyz"`) is turned: its own x and y
+     *  axes in the scene (z is their cross product; y is made square to x). Left out, it is turned
+     *  `yawDeg` about Z. Ignored for any other box. */
+    axes?: readonly (readonly number[])[];
     /** What the gizmo may do. `translate`: "xyz" (the default) or "xy" for a box that stays on its
-     *  floor; `rotate`: "z" (the default) or "none". */
-    constrain?: {translate?: "xyz" | "xy"; rotate?: "z" | "none"};
+     *  floor; `rotate`: "z" (the default), "none", or (1.31.0) "xyz": turn rings about the scene's X,
+     *  Y and Z, R then X / Y / Z keeping the one ring, and the pose's `axes` the turn. An older core
+     *  reads "xyz" as "z". */
+    constrain?: {translate?: "xyz" | "xy"; rotate?: "z" | "none" | "xyz"};
     /** What a drag snaps to: a move to multiples of `translate` (0.1 when left out, the cell builder's
      *  step; 0 for none) along the dragged axes, a turn to steps of `rotateDeg` (15; 0 for none). An
      *  exact value is the plugin's to `set`. */
@@ -93,9 +141,14 @@ export interface PlaceBoxOptions {
     /** Frame the camera on the box when it is first drawn (1.29.0): for a box placed in a large model,
      *  where the view of the whole would show it a few pixels wide. Once: the view is the user's after. */
     frame?: boolean;
-    /** The user moved or turned the box: where it stands now. Not called for the plugin's own `set`. */
+    /** (1.31.0) Resize handles on the box's faces, in a gizmo of their own (S, or `setMode("resize")`):
+     *  `true` for every face, or which. A drag moves one face along its normal, the opposite face
+     *  staying where it is: the box's origin and pose do not change, its `box` does (in `onChange`).
+     *  An older core has no such handles and ignores it. */
+    resize?: boolean | PlaceBoxResize;
+    /** The user moved, turned or resized the box: where it stands now. Not called for the plugin's own `set`. */
     onChange: (pose: PlacedBoxPose) => void;
-    /** The user changed the gizmo (the G and R keys), or the plugin did (`setMode`). */
+    /** The user changed the gizmo (the G, R and S keys), or the plugin did (`setMode`). */
     onMode?: (mode: PlacedBoxMode) => void;
     /** The user ended the placement with Enter or Escape: the box is gone from the scene, and stood
      *  where the last `onChange` said. Not called for the plugin's own `end`. */
@@ -104,10 +157,11 @@ export interface PlaceBoxOptions {
 
 /** A box being placed. */
 export interface PlacedBox {
-    /** Put the box somewhere else, or make it another box: what is left out stays. Tells nobody. */
-    set: (change: {position?: readonly number[]; yawDeg?: number; box?: readonly number[]}) => void;
+    /** Put the box somewhere else, or make it another box: what is left out stays. Tells nobody.
+     *  `axes` (1.31.0) turns a box that turns every way; a `yawDeg` given such a box turns it upright, by that much about Z. */
+    set: (change: {position?: readonly number[]; yawDeg?: number; box?: readonly number[]; axes?: readonly (readonly number[])[]}) => void;
     pose: () => PlacedBoxPose;
-    /** Show the move arrows or the turn ring (what G and R do). */
+    /** Show the move arrows, the turn ring or (a box placed with `resize`) the resize handles: what G, R and S do. */
     setMode: (mode: PlacedBoxMode) => void;
     /** Take the box and its gizmo out of the scene and give the pointer and the keys back. */
     end: () => void;
@@ -115,7 +169,7 @@ export interface PlacedBox {
 
 // ----- what the placement asks of the page: a viewport, its input surface, the keys ----------------
 
-interface PointerLike {
+export interface PointerLike {
     clientX: number;
     clientY: number;
     button: number;
@@ -125,7 +179,7 @@ interface PointerLike {
     stopImmediatePropagation(): void;
 }
 
-interface KeyLike {
+export interface KeyLike {
     key: string;
     target: unknown;
     ctrlKey: boolean;
@@ -136,7 +190,7 @@ interface KeyLike {
     stopPropagation(): void;
 }
 
-type Listener<E> = (event: E) => void;
+export type Listener<E> = (event: E) => void;
 
 /** The element the view's pointer events arrive at (viewport/input.ts). */
 export interface BoxInput {
@@ -167,12 +221,16 @@ export interface BoxPlacementEnv {
 /** A press this close to a handle, in pixels, takes it. */
 export const GRAB_PX = 14;
 
-type Grab = {kind: "axis"; axis: GizmoAxis} | {kind: "plane"} | {kind: "turn"};
+type Grab = {kind: "axis"; axis: GizmoAxis} | {kind: "plane"} | {kind: "turn"; axis: GizmoAxis} | {kind: "face"; face: BoxFace};
 
 interface Drag {
     pointerId: number;
     grab: Grab;
     start: BoxPose;
+    /** The box when it was grabbed: a face's drag resizes it from there. */
+    startBox: LocalBox;
+    /** A face's drag: its handle's length when it was grabbed, the scale along it as the box grows under it. */
+    length?: number;
     /** The handle's frame on screen when it was grabbed: the origin, and the points one reach along X, Y (and the grabbed axis). */
     o: ScreenPoint;
     tip: ScreenPoint;
@@ -195,7 +253,13 @@ interface ModalMove {
 
 const BOX_COLOR = "#38bdf8";
 const FACE_OPACITY = 0.14;
-const copy = (pose: BoxPose): BoxPose => ({position: [...pose.position] as Vec3, yawDeg: pose.yawDeg});
+const copy = (pose: BoxPose): BoxPose => {
+    const out: BoxPose = {position: [...pose.position] as Vec3, yawDeg: pose.yawDeg};
+    if (pose.axes) out.axes = pose.axes.map((a) => [...a]) as BoxAxes;
+    return out;
+};
+const sameAxes = (a: BoxAxes | undefined, b: BoxAxes | undefined): boolean =>
+    a === b || (!!a && !!b && a.every((v, i) => v.every((x, k) => x === b[i][k])));
 const vec3 = (v: readonly number[], what: string): Vec3 => {
     if (v.length < 3 || !v.slice(0, 3).every((n) => Number.isFinite(n))) throw new Error(`placeBox: ${what} needs three finite numbers`);
     return [v[0], v[1], v[2]];
@@ -220,6 +284,11 @@ export class BoxPlacement {
     private lock: GizmoAxis | null = null;
     private readonly moveAxes: readonly GizmoAxis[];
     private readonly canTurn: boolean;
+    /** It turns every way (`constrain.rotate: "xyz"`): its pose has `axes`, its turn gizmo three rings. */
+    private readonly full: boolean;
+    /** The faces with a resize handle: none for a box placed without `resize`. */
+    private readonly resizeFaces: readonly BoxFace[];
+    private readonly minSize: number;
     private readonly step: number;
     private readonly turnStep: number;
     private env: BoxPlacementEnv | null = null;
@@ -246,38 +315,61 @@ export class BoxPlacement {
         this.at = {position: vec3(options.position, "position"), yawDeg: options.yawDeg ?? 0};
         this.moveAxes = options.constrain?.translate === "xy" ? [0, 1] : [0, 1, 2];
         this.canTurn = options.constrain?.rotate !== "none";
+        this.full = options.constrain?.rotate === "xyz";
+        if (this.full) this.at = this.turned(this.at, options.axes, options.yawDeg);
         this.step = options.snap?.translate ?? GIZMO_FALLBACK_STEP;
         this.turnStep = options.snap?.rotateDeg ?? GIZMO_ROTATE_SNAP_DEG;
-        this.mode = options.mode === "rotate" && this.canTurn ? "rotate" : "translate";
+        const resize = options.resize;
+        const named = typeof resize === "object" && resize.faces ? resize.faces : BOX_FACES;
+        this.resizeFaces = resize ? BOX_FACES.filter((face) => named.includes(face)) : [];
+        const minSize = typeof resize === "object" ? resize.minSize : undefined;
+        this.minSize = minSize !== undefined && minSize > 0 ? minSize : this.step > 0 ? this.step : 1e-3;
+        this.mode = this.can(options.mode ?? "translate") ? (options.mode ?? "translate") : "translate";
+    }
+
+    /** Whether this box has the gizmo `mode`. */
+    private can(mode: PlacedBoxMode): boolean {
+        return mode === "translate" || (mode === "rotate" && this.canTurn) || (mode === "resize" && this.resizeFaces.length > 0);
+    }
+
+    /** A box that turns every way, turned by `axes` -- or upright, `yawDeg` about Z, without them. */
+    private turned(pose: BoxPose, axes: readonly (readonly number[])[] | undefined, yawDeg: number | undefined): BoxPose {
+        const made = axes ? orthonormalAxes(axes) : axesOfYaw(yawDeg ?? pose.yawDeg);
+        if (!made) throw new Error("placeBox: axes needs the box's x and y, two directions of three finite numbers");
+        return {position: pose.position, yawDeg: yawOfAxes(made), axes: made};
     }
 
     pose(): PlacedBoxPose {
-        return copy(this.at);
+        const pose = copy(this.at) as PlacedBoxPose;
+        return this.resizeFaces.length ? {...pose, box: [...this.box]} : pose;
     }
 
     gizmo(): {mode: PlacedBoxMode; axisLock: GizmoAxis | null; following: boolean; dragging: boolean} {
         return {mode: this.mode, axisLock: this.lock, following: this.modal !== null, dragging: this.drag !== null};
     }
 
-    set(change: {position?: readonly number[]; yawDeg?: number; box?: readonly number[]}): void {
+    set(change: {position?: readonly number[]; yawDeg?: number; box?: readonly number[]; axes?: readonly (readonly number[])[]}): void {
         const box = change.box ? localBox(change.box) : this.box;
-        const next: BoxPose = {
+        let next: BoxPose = {
             position: change.position ? vec3(change.position, "position") : this.at.position,
             yawDeg: change.yawDeg ?? this.at.yawDeg,
         };
         if (!Number.isFinite(next.yawDeg)) throw new Error("placeBox: yawDeg needs a finite number");
-        // The handles are as long as the box is large: another box is drawn anew.
-        const reshaped = box.some((v, i) => v !== this.box[i]);
+        if (this.full) {
+            next = change.axes || change.yawDeg !== undefined ? this.turned(next, change.axes, change.yawDeg) : {...next, axes: this.at.axes};
+        }
         this.box = box;
         // A drag in progress is left alone: a form that follows the box says each pose back, and the
         // pointer's next move places the box again.
         this.at = next;
-        if (reshaped) this.draw();
-        else this.move();
+        // Another box is the same things moved (1.31.0; it was drawn anew): the handles, as long as the
+        // box is large, are worked out from it as they are moved. So what was drawn over the box stays
+        // over it, as it did when the box was resized by a face dragged.
+        this.move();
     }
 
     setMode(mode: PlacedBoxMode): void {
-        if (mode === "rotate" && !this.canTurn) return;
+        if (!this.can(mode)) return;
         if (mode === this.mode && this.lock === null) return;
         const changed = mode !== this.mode;
         this.mode = mode;
@@ -372,7 +464,18 @@ export class BoxPlacement {
             return [{color: colour(axis), widthPx: 1, opacity: 0.6, segments: () => guideSegment(origin(), axis)}];
         }
         if (this.mode === "rotate") {
-            return [{color: colour(2), widthPx: 3, segments: () => loopSegments(ringPoints(origin(), this.reach()))}];
+            return this.turnAxes().map((axis) => ({
+                color: colour(axis),
+                widthPx: 3,
+                segments: () => loopSegments(axis === 2 ? ringPoints(origin(), this.reach()) : ringPointsAbout(origin(), axis, this.reach())),
+            }));
+        }
+        if (this.mode === "resize") {
+            return this.shownFaces().map((face) => ({
+                color: colour(faceAxis(face)),
+                widthPx: 3,
+                segments: () => faceHandleSegments(this.box, this.at, face),
+            }));
         }
         return [
             ...this.moveAxes.map((axis) => ({color: colour(axis), widthPx: 3, segments: () => arrowSegments(origin(), axis, this.reach())})),
@@ -430,17 +533,57 @@ export class BoxPlacement {
         return [origin[0] + dir[0] * reach, origin[1] + dir[1] * reach, origin[2] + dir[2] * reach];
     }
 
+    /** The axes of the scene the turn rings are about: Z alone for a box that turns about Z; X, Y and Z
+     *  for one that turns every way, or the locked one while one is. */
+    private turnAxes(): GizmoAxis[] {
+        if (!this.full) return [2];
+        return ([0, 1, 2] as GizmoAxis[]).filter((axis) => this.lock === null || axis === this.lock);
+    }
+
+    /** The faces whose resize handles are up: those of the locked axis only, while one is. */
+    private shownFaces(): BoxFace[] {
+        return this.resizeFaces.filter((face) => this.lock === null || faceAxis(face) === this.lock);
+    }
+
+    /** A face's resize handle as a line on screen: from the face's middle to the handle's tip. */
+    private faceOnScreen(face: BoxFace): [ScreenPoint | null, ScreenPoint | null] {
+        const centre = faceCentre(this.box, this.at, face), normal = faceNormal(this.at, face), length = faceHandleLength(this.box);
+        const [o, tip] = this.screen([centre, [centre[0] + normal[0] * length, centre[1] + normal[1] * length, centre[2] + normal[2] * length]]);
+        return [o, tip];
+    }
+
     /** The handle under `p`; null for none (the press is then the camera's). */
     private hit(p: ScreenPoint): Grab | null {
         if (this.modal) return null;
+        if (this.mode === "resize") {
+            let nearest: BoxFace | null = null;
+            let within = GRAB_PX;
+            for (const face of this.shownFaces()) {
+                const [o, tip] = this.faceOnScreen(face);
+                const distance = o && tip ? distanceToSegment(p, o, tip) : Infinity;
+                if (distance <= within) {
+                    within = distance;
+                    nearest = face;
+                }
+            }
+            return nearest ? {kind: "face", face: nearest} : null;
+        }
         const origin = this.at.position;
         if (this.mode === "rotate") {
-            const ring = this.screen(ringPoints(origin, this.reach()));
-            const near = ring.some((a, i) => {
-                const b = ring[(i + 1) % ring.length];
-                return a !== null && b !== null && distanceToSegment(p, a, b) <= GRAB_PX;
-            });
-            return near ? {kind: "turn"} : null;
+            let nearest: GizmoAxis | null = null;
+            let within = GRAB_PX;
+            for (const axis of this.turnAxes()) {
+                const ring = this.screen(axis === 2 ? ringPoints(origin, this.reach()) : ringPointsAbout(origin, axis, this.reach()));
+                ring.forEach((a, i) => {
+                    const b = ring[(i + 1) % ring.length];
+                    const distance = a !== null && b !== null ? distanceToSegment(p, a, b) : Infinity;
+                    if (distance <= within) {
+                        within = distance;
+                        nearest = axis;
+                    }
+                });
+            }
+            return nearest !== null ? {kind: "turn", axis: nearest} : null;
         }
         const square = planeSquareCorners(origin, this.reach());
         const [o, ...rest] = this.screen([origin, ...this.moveAxes.map((axis) => this.along(origin, axis)), ...square]);
@@ -483,14 +626,32 @@ export class BoxPlacement {
         const p = this.pointer(e);
         const grab = this.hit(p);
         if (!grab) return;
+        if (grab.kind === "face") {
+            // Along the face's handle: its middle is where the face was, the handle's tip one handle's length out.
+            const [o, tip] = this.faceOnScreen(grab.face);
+            if (!o || !tip) return;
+            const length = faceHandleLength(this.box);
+            this.drag = {
+                pointerId: e.pointerId, grab, start: copy(this.at), startBox: this.box, o, tip, ex: o, ey: o,
+                t0: alongAxis(p, o, tip, length) ?? 0, q0: [0, 0], bearing: 0, turned: 0, length,
+            };
+            this.env?.input?.setPointerCapture?.(e.pointerId);
+            this.swallowClick = true;
+            return this.take(e);
+        }
         const origin = this.at.position;
-        const [o, ex, ey, tip] = this.screen([origin, this.along(origin, 0), this.along(origin, 1), this.along(origin, grab.kind === "axis" ? grab.axis : 2)]);
+        // The plane the pointer is followed in: the floor's for a move, a ring's own for a turn.
+        const [u, v] = ringPlane(grab.kind === "turn" ? grab.axis : 2);
+        const reach = this.reach();
+        const at = (d: Vec3): Vec3 => [origin[0] + d[0] * reach, origin[1] + d[1] * reach, origin[2] + d[2] * reach];
+        const [o, ex, ey, tip] = this.screen([origin, at(u), at(v), this.along(origin, grab.kind === "axis" ? grab.axis : 2)]);
         if (!o || !ex || !ey || !tip) return;
         const q0 = inPlane(p, o, ex, ey, this.reach()) ?? [0, 0];
         this.drag = {
             pointerId: e.pointerId,
             grab,
             start: copy(this.at),
+            startBox: this.box,
             o,
             tip,
             ex,
@@ -513,6 +674,12 @@ export class BoxPlacement {
             this.take(e);
             const reach = this.reach();
             const next = copy(drag.start);
+            if (drag.grab.kind === "face") {
+                const t = alongAxis(p, drag.o, drag.tip, drag.length ?? reach);
+                if (t === null) return;
+                // The box stands where it stood when grabbed; one face of it moved.
+                return this.userMoved(next, resizedBox(drag.startBox, drag.grab.face, t - drag.t0, this.step, this.minSize));
+            }
             if (drag.grab.kind === "axis") {
                 const t = alongAxis(p, drag.o, drag.tip, reach);
                 if (t === null) return;
@@ -527,6 +694,11 @@ export class BoxPlacement {
                     const bearing = bearingOf(q);
                     drag.turned += turnBetween(drag.bearing, bearing);
                     drag.bearing = bearing;
+                    if (this.full && drag.start.axes && drag.grab.kind === "turn") {
+                        // Every way: the box's axes turned about the ring's axis of the scene, from where they were.
+                        const axes = turnedAxes(drag.start.axes, drag.grab.axis, snapTo(drag.turned, this.turnStep));
+                        return this.userMoved({position: next.position, yawDeg: yawOfAxes(axes), axes});
+                    }
                     // To a tenth of a degree, as the builder keeps a turn: it reads cleanly in a form.
                     // And in (-180, 180]: a turn past half way round is the same pose the short way.
                     next.yawDeg = turnBetween(0, Math.round((drag.start.yawDeg + snapTo(drag.turned, this.turnStep)) * 10) / 10);
@@ -566,12 +738,17 @@ export class BoxPlacement {
         this.take(e);
     }
 
-    private userMoved(next: BoxPose): void {
-        const same = next.yawDeg === this.at.yawDeg && next.position.every((v, i) => v === this.at.position[i]);
+    private userMoved(next: BoxPose, box: LocalBox = this.box): void {
+        const same =
+            next.yawDeg === this.at.yawDeg &&
+            next.position.every((v, i) => v === this.at.position[i]) &&
+            box.every((v, i) => v === this.box[i]) &&
+            sameAxes(next.axes, this.at.axes);
         if (same) return;
         this.at = next;
+        this.box = box;
         this.move();
-        this.options.onChange(copy(next));
+        this.options.onChange(this.pose());
     }
 
     // ----- the axis-locked move, and the keys ---------------------------------------------------------
@@ -593,7 +770,8 @@ export class BoxPlacement {
     }
 
     private lockable(axis: GizmoAxis): boolean {
-        return this.mode === "rotate" ? axis === 2 : this.moveAxes.includes(axis);
+        if (this.mode === "resize") return this.resizeFaces.some((face) => faceAxis(face) === axis);
+        return this.mode === "rotate" ? this.full || axis === 2 : this.moveAxes.includes(axis);
     }
 
     private onKeyDown(e: KeyLike): void {
@@ -622,6 +800,13 @@ export class BoxPlacement {
             consume();
             return this.setMode(mode);
         }
+        // S is the gizmo's only for a box that can be resized: for any other it is left to whatever
+        // else answers it, as it was before boxes had the resize handles.
+        if (mode === "resize") {
+            if (!this.can("resize")) return;
+            consume();
+            return this.setMode(mode);
+        }
         const axis = gizmoAxisOfKey(key);
         if (axis === null) return;
         // The gizmo's key, whether this box can go that way or not: it is not also another shortcut.
@@ -639,7 +824,8 @@ export class BoxPlacement {
 
 let placements = 0;
 
-function pageEnv(viewport: ViewportApi): BoxPlacementEnv {
+/** The page's view input surface and keys for iewport (a placed camera's too, ./sceneCamera.ts). */
+export function pageEnv(viewport: ViewportApi): BoxPlacementEnv {
     const page = typeof document === "undefined" ? null : document;
     const input = (page?.querySelector(`[${VIEWPORT_INPUT_ATTR}]`) ?? null) as unknown as BoxInput | null;
     if (!input) {

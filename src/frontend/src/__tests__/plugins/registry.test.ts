@@ -65,6 +65,7 @@ function fakeCtx(): AdaPluginContext {
       onSceneCleared: () => () => {},
       loadSavedGroup: async () => { throw new Error("no saved groups"); },
       placeBox: () => ({ set() {}, pose: () => ({ position: [0, 0, 0], yawDeg: 0 }), setMode() {}, end() {} }),
+      placeCamera: () => ({ set() {}, pose: () => ({ position: [0, 0, 0], target: [0, 1, 0] }), setMode() {}, end() {} }),
       contactBetween: async () => ({ contact: null }),
     },
     scope: () => "user:me",

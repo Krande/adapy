@@ -49,6 +49,7 @@ import { liveGroupLoadEnv, loadSavedGroupFor } from "./sceneGroupLoad";
 import { endScenePicks, pickObjects } from "./scenePicks";
 import { endSceneHighlights, highlightObjects } from "./sceneHighlights";
 import { placeBox } from "./sceneBox";
+import { placeCamera } from "./sceneCamera";
 import { contactBetween } from "./sceneContact";
 import { findObjectsByName } from "@/utils/tree_view/modelSource";
 import { releaseFeaDeformation, setFeaDeformationShown } from "@/utils/scene/fea/deformationGate";
@@ -223,6 +224,7 @@ function makeSceneHandle(): SceneHandle {
     focusFace: (face, opts) => focusFace(face, { frame: opts?.frame }),
     pickObjects,
     placeBox,
+    placeCamera,
     contactBetween,
     highlightObjects,
     findObjects: (names, options) => findObjectsByName(names, options),
