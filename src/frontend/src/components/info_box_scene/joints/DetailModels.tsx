@@ -6,8 +6,11 @@ import React from "react";
 
 import { useModelState } from "@/state/modelState";
 import { scopeUrlPart, useScopeStore } from "@/state/scopeStore";
-import { detailModelLine, useDetailModelsStore } from "@/state/detailModelsStore";
+import { detailModelLine, detailModelLosses, useDetailModelsStore } from "@/state/detailModelsStore";
+import { useClashCheckStore } from "@/state/clashCheckStore";
+import { focusJoint } from "@/utils/scene/clashJointFocus";
 import type { WireDetailModel } from "@/services/api/clashCheck";
+import NotBuiltReport from "./NotBuiltReport";
 
 const btn =
   "rounded-sm px-1.5 py-0.5 text-[11px] text-gray-100 disabled:opacity-50 bg-gray-700 hover:bg-gray-600 shrink-0";
@@ -17,7 +20,10 @@ const DetailModelRow: React.FC<{ scope: string; model: WireDetailModel }> = ({ s
   const busyId = useDetailModelsStore((s) => s.busyId);
   const open = useDetailModelsStore((s) => s.open);
   const remove = useDetailModelsStore((s) => s.remove);
+  const reportOpen = useDetailModelsStore((s) => s.reportId === model.detail_id);
+  const toggleReport = useDetailModelsStore((s) => s.toggleReport);
   const done = model.status === "done";
+  const losses = done ? detailModelLosses(model) : null;
   const builtBy = model.built_by ? Object.entries(model.built_by).map(([spec, n]) => `${spec}: ${n}`) : [];
   const title = [
     model.label,
@@ -34,6 +40,17 @@ const DetailModelRow: React.FC<{ scope: string; model: WireDetailModel }> = ({ s
         <div className={"truncate " + (model.status === "error" ? "text-red-300/80" : "text-gray-500")}>
           {detailModelLine(model)}
         </div>
+        {losses && (
+          <button
+            type="button"
+            className="text-amber-200/80 hover:text-amber-100 text-left"
+            aria-expanded={reportOpen}
+            title="Which joints were not built and which welds failed, and why"
+            onClick={() => void toggleReport(scope, model)}
+          >
+            {reportOpen ? "▼" : "▶"} Not built
+          </button>
+        )}
       </div>
       <button
         type="button"
@@ -60,6 +77,29 @@ const DetailModelRow: React.FC<{ scope: string; model: WireDetailModel }> = ({ s
   );
 };
 
+/** The open model's "Not built" report, under the list (outside its scroll box: the report can be
+ *  long, and the panel column is what scrolls). */
+const OpenReport: React.FC<{ models: readonly WireDetailModel[] }> = ({ models }) => {
+  const reportId = useDetailModelsStore((s) => s.reportId);
+  const report = useDetailModelsStore((s) => (s.reportId ? s.reports[s.reportId] : undefined));
+  const selected = useClashCheckStore((s) => s.selectedJoint);
+  const model = models.find((m) => m.detail_id === reportId);
+  if (!model || !report) return null;
+  return (
+    <div className="rounded-sm border border-gray-800" data-not-built-report={model.detail_id}>
+      <div className="px-2 pt-1 text-gray-400 truncate" title={model.label}>
+        Not built — {model.label}
+      </div>
+      {report.status === "loading" && <div className="px-2 py-1 text-gray-500">reading its take-off…</div>}
+      {report.status === "error" && <div className="px-2 py-1 text-red-300/80">{report.error}</div>}
+      {report.status === "ready" && (
+        // From a panel already on screen: no reveal (`focusJoint`'s `revealPanel`).
+        <NotBuiltReport stats={report.stats} selected={selected} onFocusJoint={(id) => void focusJoint(id)} />
+      )}
+    </div>
+  );
+};
+
 const DetailModels: React.FC = () => {
   const scope = scopeUrlPart(useScopeStore((s) => s.current));
   const models = useDetailModelsStore((s) => s.models);
@@ -78,6 +118,7 @@ const DetailModels: React.FC = () => {
           <DetailModelRow key={m.detail_id} scope={scope} model={m} />
         ))}
       </ul>
+      <OpenReport models={models} />
     </section>
   );
 };

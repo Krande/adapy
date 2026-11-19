@@ -1455,7 +1455,7 @@ def start_clash_detail(
         ) from exc
 
     from ada.clash import ClashOptions, ClashResultError, parse_clash_result
-    from ada.clash.detail import build_detail, joints_by_id
+    from ada.clash.detail import build_detail, joints_by_id, stage_progress
     from ada.comms.rest.converters.ada_load import _load_with_ada
     from ada.core.file_system import new_temp_path
 
@@ -1508,10 +1508,20 @@ def start_clash_detail(
                 return
 
             job.stage, job.progress = "detail", 0.55
+
             # The worker's loop, not a copy of it: the two engines must not differ in what a
             # builder receives (see `ada.clash.detail`).
+            def _report(stage: str, progress: float) -> None:
+                if job.status == STATUS_RUNNING:
+                    job.stage, job.progress = stage, progress
+
             glb_bytes, stats = build_detail(
-                registered, spec_name=spec_name, joint_ids=joint_ids, by_id=by_id, gen_options=options
+                registered,
+                spec_name=spec_name,
+                joint_ids=joint_ids,
+                by_id=by_id,
+                gen_options=options,
+                on_progress=stage_progress(_report, end=0.9),
             )
 
             if job.status != STATUS_RUNNING:

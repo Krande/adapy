@@ -49,6 +49,8 @@ const IdentifiedJoints: React.FC = () => {
   const runDetailAll = useClashCheckStore((s) => s.runDetailAll);
   const detailBusy = useClashCheckStore((s) => s.detailBusy);
   const detailProgress = useClashCheckStore((s) => s.detailProgress);
+  // The running job's own stage: the worker reports it per joint ("detail 120/392").
+  const detailStage = useClashCheckStore((s) => s.detailStage);
   const checkedSource = useClashCheckStore((s) => s.sourceName);
   const adminSpecProviders = useClashCheckStore((s) => s.adminSpecProviders);
   const specProvidersOverride = useClashCheckStore((s) => s.specProvidersOverride);
@@ -196,7 +198,7 @@ const IdentifiedJoints: React.FC = () => {
           onClick={() => void runDetailAll(scope)}
         >
           {detailBusy && detailProgress
-            ? `generating ${detailProgress.done}/${detailProgress.total}…`
+            ? `generating ${detailProgress.done}/${detailProgress.total}${detailStage ? ` · ${detailStage}` : ""}…`
             : `generate detail model (${withGenerator})`}
         </button>
       </div>

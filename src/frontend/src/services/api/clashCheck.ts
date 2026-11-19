@@ -260,6 +260,10 @@ export interface WireDetailModel {
     readonly welds: number;
     readonly plates?: number;
     readonly skipped?: number;
+    /** Joints not built (declined by every spec tried, or failed). */
+    readonly not_built?: number;
+    /** Seams of built joints that are not in the model. */
+    readonly weld_failures?: number;
   } | null;
   /** Which specs built how many joints (a spec can fall through to a sibling). */
   readonly built_by?: Readonly<Record<string, number>> | null;

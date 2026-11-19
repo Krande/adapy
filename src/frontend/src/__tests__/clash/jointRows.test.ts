@@ -189,8 +189,9 @@ test("skipped joints are carried, not dropped", () => {
 });
 
 test("a document that is not a take-off yields an empty one rather than throwing", () => {
-  assert.deepEqual(parseDetailStats(null), { joints: null, skipped: [] });
-  assert.deepEqual(parseDetailStats({ joints: "nope" }), { joints: null, skipped: [] });
+  const empty = { joints: null, skipped: [], notBuilt: [], weldFailures: [] };
+  assert.deepEqual(parseDetailStats(null), empty);
+  assert.deepEqual(parseDetailStats({ joints: "nope" }), empty);
 });
 
 test("one job per spec adds up to one table", () => {

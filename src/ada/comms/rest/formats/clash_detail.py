@@ -31,7 +31,7 @@ from typing import Any, Callable
 import asyncpg
 
 from ada.clash import ClashOptions, ClashResultError, parse_clash_result
-from ada.clash.detail import build_detail, found_id, joints_by_id
+from ada.clash.detail import build_detail, found_id, joints_by_id, stage_progress
 from ada.config import logger
 
 from ..converters.ada_load import _load_with_ada
@@ -135,8 +135,15 @@ async def _run_clash_detail(
                 "joint id(s) not reproducible from this source at these options: "
                 f"{', '.join(absent)} -- the cached result and the source may have drifted apart"
             )
+        # Per joint from here ("detail 120/392", 0.55 -> 0.85): a run of hundreds of joints takes
+        # minutes, and a stage that never moved read as a job that had hung.
         glb_bytes, stats = build_detail(
-            registered, spec_name=spec_name, joint_ids=joint_ids, by_id=by_id, gen_options=gen_options
+            registered,
+            spec_name=spec_name,
+            joint_ids=joint_ids,
+            by_id=by_id,
+            gen_options=gen_options,
+            on_progress=stage_progress(progress, end=0.85),
         )
         (out_dir / "detail.glb").write_bytes(glb_bytes)
         (out_dir / "stats.json").write_bytes(json.dumps(stats).encode("utf-8"))

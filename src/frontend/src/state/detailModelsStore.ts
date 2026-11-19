@@ -10,7 +10,13 @@ import { create } from "zustand";
 
 import { clashCheckApi, type WireDetailModel } from "@/services/api/clashCheck";
 import { capabilities } from "@/services/capabilities";
-import { mergeProducedJoints, parseDetailStats, useClashCheckStore } from "@/state/clashCheckStore";
+import { mergeProducedJoints, parseDetailStats, useClashCheckStore, type DetailStats } from "@/state/clashCheckStore";
+
+/** A model's "Not built" report, read from its take-off when it is first opened. */
+export type DetailReport =
+  | { readonly status: "loading" }
+  | { readonly status: "ready"; readonly stats: DetailStats }
+  | { readonly status: "error"; readonly error: string };
 
 /** Where the server keeps detail models. A source loaded from under it is a detail model, not a
  *  model a clash check should follow (`ClashesPanel`'s `followLoadedSource`). */
@@ -53,7 +59,13 @@ interface DetailModelsState {
   /** The model being loaded or deleted. */
   busyId: string | null;
   error: string | null;
+  /** The model whose "Not built" report is open (one at a time). */
+  reportId: string | null;
+  /** Reports read so far, by detail id: a take-off does not change once written. */
+  reports: Readonly<Record<string, DetailReport>>;
   deps: DetailModelDeps;
+  /** Open (reading its take-off the first time) or close a model's "Not built" report. */
+  toggleReport: (scope: string, model: WireDetailModel) => Promise<void>;
   /** List the scope's detail models. Best effort: a list that cannot be read is an empty one. */
   load: (scope: string) => Promise<void>;
   /** Load one into the scene, and its joints into the produced section. */
@@ -67,7 +79,28 @@ export const useDetailModelsStore = create<DetailModelsState>((set, get) => ({
   models: [],
   busyId: null,
   error: null,
+  reportId: null,
+  reports: {},
   deps: realDeps,
+
+  toggleReport: async (scope, model) => {
+    const id = model.detail_id;
+    if (get().reportId === id) {
+      set({ reportId: null });
+      return;
+    }
+    set({ reportId: id });
+    const have = get().reports[id];
+    if (have && have.status !== "error") return;
+    set((s) => ({ reports: { ...s.reports, [id]: { status: "loading" } } }));
+    let report: DetailReport;
+    try {
+      report = { status: "ready", stats: parseDetailStats(await get().deps.stats(scope, model.stats_key)) };
+    } catch (e) {
+      report = { status: "error", error: `Could not read its take-off: ${e instanceof Error ? e.message : String(e)}` };
+    }
+    set((s) => ({ reports: { ...s.reports, [id]: report } }));
+  },
 
   load: async (scope) => {
     try {
@@ -126,9 +159,23 @@ export function detailModelLine(m: WireDetailModel): string {
   if (m.status === "done" && m.counts) {
     parts.push(`${m.counts.joints} joint${m.counts.joints === 1 ? "" : "s"}`);
     parts.push(`${m.counts.welds} weld${m.counts.welds === 1 ? "" : "s"}`);
-    if (m.counts.skipped) parts.push(`${m.counts.skipped} skipped`);
+    const lost = detailModelLosses(m);
+    if (lost) parts.push(lost);
   } else {
     parts.push(m.status === "error" ? "failed" : m.status);
   }
   return parts.join(" · ");
+}
+
+/** What a done model is missing, as "N joints not built · M welds failed" -- `null` when nothing
+ *  is. A record from before the structured counts says only how many joints were skipped. */
+export function detailModelLosses(m: WireDetailModel): string | null {
+  const c = m.counts;
+  if (!c) return null;
+  const notBuilt = c.not_built ?? c.skipped ?? 0;
+  const welds = c.weld_failures ?? 0;
+  const out: string[] = [];
+  if (notBuilt) out.push(c.not_built == null ? `${notBuilt} skipped` : `${notBuilt} joint${notBuilt === 1 ? "" : "s"} not built`);
+  if (welds) out.push(`${welds} weld${welds === 1 ? "" : "s"} failed`);
+  return out.length ? out.join(" · ") : null;
 }

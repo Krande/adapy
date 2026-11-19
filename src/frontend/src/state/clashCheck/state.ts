@@ -150,6 +150,9 @@ export interface ClashCheckState {
   /** Where a batched "generate detail model" run has got to, for the button's label. `null` when
    *  no batched run is in flight. */
   detailProgress: { done: number; total: number } | null;
+  /** The running detail job's own stage (`"detail 120/392"`: the worker reports it per joint).
+   *  `null` when no detail job is running. */
+  detailStage: string | null;
 
   setSource: (sourceName: string | null, sourceKey: string | null) => void;
   /** The panel following the LOADED model: `setSource`, unless a node or group was picked

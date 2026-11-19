@@ -38,7 +38,7 @@ export { BUILTIN_CHECKER_DESCRIPTION, BUILTIN_CHECKER_LABEL, CONTACT_CHECKER_LAB
 export { type ClashApplicableSpec, type ClashJointMember, type ClashContact, type ClashJoint, type ClashPassReport, type ClashGroup, type ClashResult, ClashResultError, BUILTIN_CHECKER, parseClashResult } from "./clashCheck/result";
 export { withoutHiddenOrigins, visibleResult, originsInResult, jointsForGroup, memberNamesForGroup, type ClashGroupFacets, groupFacets, facetOptions, type ClashFilters, DEFAULT_CLASH_FILTERS, filteredGroups, noMembersSentence, isolationMembers, checkedSourceName, sameClashTarget, isSpecAvailable } from "./clashCheck/derive";
 export { groupColor, hueColor, type JointMarker, jointMarkers } from "./clashCheck/markers";
-export { specForJoint, detailBatches, type ProducedJointType, type ProducedJointItem, type ProducedJoints, type DetailStats, parseDetailStats, mergeProducedJoints } from "./clashCheck/detail";
+export { specForJoint, detailBatches, type ProducedJointType, type ProducedJointItem, type ProducedJoints, type DetailStats, parseDetailStats, mergeProducedJoints, emptyDetailStats, type NotBuiltJoint, type WeldFailure, type NotBuiltGroup, normaliseReason, groupNotBuilt, weldFailuresByJoint } from "./clashCheck/detail";
 export { type ClashFlowApi, type ClashFlowDeps, runClashCheckFlow, runClashDetailFlow } from "./clashCheck/flows";
 export { type GeometryRequestPrompt, type GeometryPromptAnswer, geometryRequestPrompt, geometryPromptSentence, type GeometryStepDeps, type GeometryCheckFlowDeps, type GeometryCheckOutcome, runGeometryAwareCheckFlow, contactGeometryProvider, type GeometryAnnotateFlowDeps, type GeometryAnnotateOutcome, runGeometryAwareAnnotateFlow, checkRequestOptions, effectiveSpecProviders, type GeometryProviderChoice, UNREADABLE_GEOMETRY_REASON, targetProviders, geometryProviderChoices, geometrySourceOf } from "./clashCheck/geometry";
 
@@ -164,6 +164,7 @@ export const useClashCheckStore = create<ClashCheckState>((set, get) => ({
   producedJoints: null,
   producedSkipped: [],
   detailProgress: null,
+  detailStage: null,
 
   setAssetTarget: (label, target) => {
     // Same invalidation rule as `setSource`, for the same reason: a result rendered against a node
@@ -654,16 +655,17 @@ export const useClashCheckStore = create<ClashCheckState>((set, get) => ({
     if ((!derivedKey && !runKey) || get().detailBusy) return;
     set({ detailBusy: true, detailError: null, detailSpec: spec, detailDerivedKey: null, detailGlbKey: null });
     try {
-      const { derivedKey: detailKey, glbKey, stats } = await detailOnce(get(), scope, jointIds, spec);
+      const { derivedKey: detailKey, glbKey, stats } = await detailOnce(get(), scope, jointIds, spec, (stage) => set({ detailStage: stage }));
       set((s) => ({
         detailBusy: false,
+        detailStage: null,
         detailDerivedKey: detailKey,
         detailGlbKey: glbKey ?? detailKey,
         producedJoints: mergeProducedJoints(s.producedJoints, stats.joints),
         producedSkipped: [...s.producedSkipped, ...stats.skipped],
       }));
     } catch (e) {
-      set({ detailBusy: false, detailError: e instanceof Error ? e.message : String(e) });
+      set({ detailBusy: false, detailStage: null, detailError: e instanceof Error ? e.message : String(e) });
     }
   },
 
@@ -690,7 +692,7 @@ export const useClashCheckStore = create<ClashCheckState>((set, get) => ({
     for (const batch of batches) {
       set({ detailSpec: batch.spec.spec });
       try {
-        const { derivedKey: detailKey, glbKey, stats } = await detailOnce(get(), scope, batch.jointIds, batch.spec.spec);
+        const { derivedKey: detailKey, glbKey, stats } = await detailOnce(get(), scope, batch.jointIds, batch.spec.spec, (stage) => set({ detailStage: stage }));
         done += 1;
         set((s) => ({
           detailDerivedKey: detailKey,
@@ -707,7 +709,7 @@ export const useClashCheckStore = create<ClashCheckState>((set, get) => ({
         set({ detailProgress: { done, total: batches.length } });
       }
     }
-    set({ detailBusy: false, detailProgress: null });
+    set({ detailBusy: false, detailProgress: null, detailStage: null });
   },
 
   reset: () => {
@@ -742,6 +744,7 @@ export const useClashCheckStore = create<ClashCheckState>((set, get) => ({
       producedJoints: null,
       producedSkipped: [],
       detailProgress: null,
+      detailStage: null,
     });
   },
 }));

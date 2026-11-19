@@ -126,6 +126,42 @@ test("a model's line says when, what from, and what it holds -- or how it ended"
   assert.equal(detailModelLine(model("a", { status: "running", counts: null })), "2026-11-19 10:15:00 · clash check of a file · running");
 });
 
+test("a model's line says how many joints were not built and how many welds failed", () => {
+  const counts = { joints: 3, welds: 9, skipped: 2, not_built: 2, weld_failures: 1 };
+  assert.equal(
+    detailModelLine(model("a", { counts })),
+    "2026-11-19 10:15:00 · clash check of a file · 3 joints · 9 welds · 2 joints not built · 1 weld failed",
+  );
+  assert.equal(
+    detailModelLine(model("a", { counts: { ...counts, not_built: 0, skipped: 0, weld_failures: 2 } })),
+    "2026-11-19 10:15:00 · clash check of a file · 3 joints · 9 welds · 2 welds failed",
+  );
+});
+
+test("a model's Not built report is read from its take-off once, and toggles", async () => {
+  const { deps, calls } = fakeDeps([]);
+  const doc = {
+    ...takeoff(["a1"]),
+    not_built: [{ joint_id: "j9", kind: "failed", spec: "provider.spec", reason: "ValueError: refused", declined: [] }],
+    weld_failures: [{ joint_id: "a1", connection: "c", place: "web", weld_type: "fillet", reason: "no room" }],
+  };
+  useDetailModelsStore.setState({ deps: { ...deps, stats: async (_s: string, key: string) => (calls.push(`stats ${key}`), doc) }, reportId: null, reports: {} });
+  const m = model("x");
+  await useDetailModelsStore.getState().toggleReport("user:me", m);
+  const s = useDetailModelsStore.getState();
+  assert.equal(s.reportId, "x");
+  const report = s.reports.x;
+  assert.equal(report?.status, "ready");
+  if (report?.status === "ready") {
+    assert.deepEqual(report.stats.notBuilt.map((j) => [j.jointId, j.kind]), [["j9", "failed"]]);
+    assert.deepEqual(report.stats.weldFailures.map((w) => [w.jointId, w.place, w.weldType]), [["a1", "web", "fillet"]]);
+  }
+  await useDetailModelsStore.getState().toggleReport("user:me", m);
+  assert.equal(useDetailModelsStore.getState().reportId, null);
+  await useDetailModelsStore.getState().toggleReport("user:me", m);
+  assert.deepEqual(calls, [`stats ${m.stats_key}`], "read once");
+});
+
 test("a detail model is told from a model a clash check is of", () => {
   assert.ok(isDetailModelKey("_clash/details/20261119T101500000Z-0123abcd/model.glb"));
   assert.ok(isDetailModelKey("_derived/clash/detail/builtin.x/a/b/c/model.glb"));

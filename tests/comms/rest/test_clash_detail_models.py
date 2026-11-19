@@ -150,6 +150,7 @@ def test_every_detail_run_is_a_model_of_its_own_listed_newest_first(client):
     assert m["status"] == "done" and m["error"] is None
     assert m["spec"] == SPEC and m["requested"] == 1
     assert m["counts"]["joints"] == 1 and m["counts"]["welds"] >= 1 and m["counts"]["skipped"] == 0
+    assert m["counts"]["not_built"] == 0 and m["counts"]["weld_failures"] == 0
     assert m["built_by"] == {SPEC: 1}
     assert m["glb_key"] == second["glb_key"] and m["stats_key"] == second["derived_key"]
     assert m["source"] == {
@@ -252,7 +253,55 @@ def test_a_take_off_summarises_as_joints_welds_and_plates():
         "built_by": {"a": 2},
         "skipped": ["j9: refused"],
     }
+    # A take-off from before the structured records: its skipped lines are its joints not built.
     assert clash_details.summary_from_stats(stats) == {
-        "counts": {"joints": 2, "welds": 5, "plates": 1, "skipped": 1},
+        "counts": {"joints": 2, "welds": 5, "plates": 1, "skipped": 1, "not_built": 1, "weld_failures": 0},
         "built_by": {"a": 2},
     }
+    stats["not_built"] = [{"joint_id": "j9", "kind": "failed", "reason": "refused", "declined": []}]
+    stats["weld_failures"] = [
+        {"joint_id": "j1", "connection": "c1", "place": "flange", "weld_type": "fillet", "reason": "x"},
+        {"joint_id": "j1", "connection": "c1", "place": "web", "weld_type": "fillet", "reason": "y"},
+    ]
+    counts = clash_details.summary_from_stats(stats)["counts"]
+    assert counts["not_built"] == 1 and counts["weld_failures"] == 2
+
+
+def test_the_listing_counts_joints_not_built_and_welds_failed(client):
+    """A run's record, once its take-off is there, carries how many joints were not built and how
+    many seams of the built ones failed -- what the Review tab's line says."""
+    detail_id = clash_details.new_detail_id()
+    paths = clash_details.detail_paths(detail_id)
+    record = clash_details.make_record(
+        paths,
+        spec="provider.spec",
+        capability=None,
+        source={"kind": "result", "result_key": "r.json", "target": {"kind": "file"}, "label": "frame.ifc"},
+        joint_ids=["j1", "j2", "j3"],
+        options={},
+        job_id=None,
+    )
+    stats = {
+        "joints": {"count": 1, "items": [{"name": "c3", "welds": 2, "plates": 1}]},
+        "built_by": {"provider.spec": 1},
+        "skipped": ["j1: no applicable spec took it (provider.spec: not mine)", "j2: ValueError: boom"],
+        "not_built": [
+            {
+                "joint_id": "j1",
+                "kind": "declined",
+                "reason": "not mine",
+                "declined": [{"spec": "provider.spec", "reason": "not mine"}],
+            },
+            {"joint_id": "j2", "kind": "failed", "spec": "provider.spec", "reason": "ValueError: boom", "declined": []},
+        ],
+        "weld_failures": [
+            {"joint_id": "j3", "connection": "c3", "place": "flange", "weld_type": "fillet", "reason": "no room"}
+        ],
+    }
+    _stage(client.scope_dir, paths.record, json.dumps(record).encode("utf-8"))
+    _stage(client.scope_dir, paths.stats, json.dumps(stats).encode("utf-8"))
+
+    (m,) = _models(client)
+    assert m["detail_id"] == detail_id and m["status"] == "done"
+    assert m["counts"]["joints"] == 1
+    assert m["counts"]["not_built"] == 2 and m["counts"]["weld_failures"] == 1 and m["counts"]["skipped"] == 2

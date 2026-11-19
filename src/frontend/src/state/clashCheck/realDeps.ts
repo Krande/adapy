@@ -10,7 +10,7 @@ import { parseClashResult, type ClashResult } from "./result";
 import { parseDetailStats, type DetailStats } from "./detail";
 import { runClashDetailFlow, type ClashFlowDeps } from "./flows";
 
-export function realFlowDeps(scope: string): ClashFlowDeps {
+export function realFlowDeps(scope: string, onJobStage?: (stage: string | null) => void): ClashFlowDeps {
   return {
     api: {
       runClashCheck: (s, body) => clashCheckApi.runClashCheck(s, body),
@@ -19,18 +19,19 @@ export function realFlowDeps(scope: string): ClashFlowDeps {
       getDetailStats: (s, key) => clashCheckApi.getDetailStats(s, key),
       async jobStatus(jobId) {
         const status = await conversionApi.convertStatus(jobId);
-        return { status: status.status, error: status.error };
+        return { status: status.status, error: status.error, stage: status.stage ?? null, progress: status.progress ?? null };
       },
     },
     trackJob: (opts) => {
       trackJob({ ...opts, scopeUrl: scope });
     },
+    onJobStage,
   };
 }
 
 /** The live deps of a convex-contact run. The wasm worker is imported on first use: a check on a
  *  worker, or a test of this store, never loads it. */
-export function realContactDeps(scope: string): ContactFlowDeps {
+export function realContactDeps(scope: string, onJobStage?: (stage: string | null) => void): ContactFlowDeps {
   return {
     api: contactRunsApi,
     async measure(glb, opts) {
@@ -47,9 +48,10 @@ export function realContactDeps(scope: string): ContactFlowDeps {
     },
     async jobStatus(jobId) {
       const status = await conversionApi.convertStatus(jobId);
-      return { status: status.status, error: status.error };
+      return { status: status.status, error: status.error, stage: status.stage ?? null, progress: status.progress ?? null };
     },
     trackJob: (opts) => trackJob({ ...opts, scopeUrl: scope }),
+    onJobStage,
   };
 }
 
@@ -73,12 +75,13 @@ export async function detailOnce(
   scope: string,
   ids: readonly string[],
   spec: string,
+  onJobStage?: (stage: string | null) => void,
 ): Promise<{ derivedKey: string; glbKey: string | null; stats: DetailStats }> {
   if (state.runKey && !state.derivedKey) {
-    const r = await runContactDetailFlow(realContactDeps(scope), scope, state.runKey, ids, spec);
+    const r = await runContactDetailFlow(realContactDeps(scope, onJobStage), scope, state.runKey, ids, spec);
     return { derivedKey: r.derivedKey, glbKey: r.glbKey, stats: parseDetailStats(r.stats) };
   }
-  return runClashDetailFlow(realFlowDeps(scope), scope, state.derivedKey as string, ids, spec);
+  return runClashDetailFlow(realFlowDeps(scope, onJobStage), scope, state.derivedKey as string, ids, spec);
 }
 
 /** The convex-contact checker's settings from the form, with its defaults. */

@@ -69,22 +69,89 @@ export interface ProducedJoints {
   readonly items: readonly ProducedJointItem[];
 }
 
+/** A joint a detail run did not build (`ada.clash.detail.build_detail`'s `stats.not_built`):
+ *  `declined` when every spec tried said "not mine" (`reason` is the requested spec's), `failed`
+ *  when a builder raised. */
+export interface NotBuiltJoint {
+  readonly jointId: string;
+  readonly kind: "declined" | "failed";
+  readonly reason: string;
+  /** The spec that failed, for a `failed` joint. */
+  readonly spec: string | null;
+  readonly declined: readonly { readonly spec: string; readonly reason: string }[];
+}
+
+/** A seam of a BUILT joint that is not in the model (`stats.weld_failures`): one its builder said
+ *  it could not build, or a weld whose solid produced no geometry in the GLB. */
+export interface WeldFailure {
+  readonly jointId: string;
+  readonly connection: string;
+  readonly place: string;
+  readonly weldType: string;
+  readonly reason: string;
+}
+
 export interface DetailStats {
   readonly joints: ProducedJoints | null;
   /** Joints the builder refused, as `"<joint id>: <reason>"`. A run reports these rather than
    *  failing: the other joints were still built, and hiding the refusals would make a take-off of
    *  11 joints out of 12 look like a complete answer. */
   readonly skipped: readonly string[];
+  /** The same joints as records (empty for a take-off from before they were written). */
+  readonly notBuilt: readonly NotBuiltJoint[];
+  readonly weldFailures: readonly WeldFailure[];
+}
+
+/** A take-off with nothing in it. */
+export function emptyDetailStats(): DetailStats {
+  return { joints: null, skipped: [], notBuilt: [], weldFailures: [] };
+}
+
+const str = (v: unknown): string => (v == null ? "" : String(v));
+
+function parseNotBuilt(raw: unknown): NotBuiltJoint[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((r) => {
+    if (typeof r !== "object" || r === null) return [];
+    const row = r as Record<string, unknown>;
+    const jointId = str(row.joint_id);
+    if (!jointId) return [];
+    const declined = (Array.isArray(row.declined) ? row.declined : []).flatMap((d) =>
+      typeof d === "object" && d !== null ? [{ spec: str((d as Record<string, unknown>).spec), reason: str((d as Record<string, unknown>).reason) }] : [],
+    );
+    return [
+      {
+        jointId,
+        kind: row.kind === "declined" ? "declined" : "failed",
+        reason: str(row.reason),
+        spec: row.spec == null ? null : str(row.spec),
+        declined,
+      } satisfies NotBuiltJoint,
+    ];
+  });
+}
+
+function parseWeldFailures(raw: unknown): WeldFailure[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((r) => {
+    if (typeof r !== "object" || r === null) return [];
+    const row = r as Record<string, unknown>;
+    const jointId = str(row.joint_id);
+    if (!jointId) return [];
+    return [{ jointId, connection: str(row.connection), place: str(row.place), weldType: str(row.weld_type), reason: str(row.reason) }];
+  });
 }
 
 /** Read a detail run's `result.stats.json`. Shape-checked field by field: this is a document from
  *  a worker, and a take-off that half-parsed would put made-up counts in front of a user. */
 export function parseDetailStats(doc: unknown): DetailStats {
-  if (typeof doc !== "object" || doc === null || Array.isArray(doc)) return { joints: null, skipped: [] };
-  const raw = doc as { joints?: unknown; skipped?: unknown };
+  if (typeof doc !== "object" || doc === null || Array.isArray(doc)) return emptyDetailStats();
+  const raw = doc as { joints?: unknown; skipped?: unknown; not_built?: unknown; weld_failures?: unknown };
   const skipped = Array.isArray(raw.skipped) ? raw.skipped.map((x) => String(x)) : [];
+  const notBuilt = parseNotBuilt(raw.not_built);
+  const weldFailures = parseWeldFailures(raw.weld_failures);
   const j = raw.joints;
-  if (typeof j !== "object" || j === null) return { joints: null, skipped };
+  if (typeof j !== "object" || j === null) return { joints: null, skipped, notBuilt, weldFailures };
   const t = j as { count?: unknown; by_type?: unknown; items?: unknown };
   const by_type: ProducedJointType[] = (Array.isArray(t.by_type) ? t.by_type : []).map((r) => {
     const row = r as Record<string, unknown>;
@@ -103,7 +170,58 @@ export function parseDetailStats(doc: unknown): DetailStats {
       centre: centre as [number, number, number] | null,
     };
   });
-  return { joints: { count: Number(t.count ?? items.length), by_type, items }, skipped };
+  return { joints: { count: Number(t.count ?? items.length), by_type, items }, skipped, notBuilt, weldFailures };
+}
+
+// ---------------------------------------------------------------------------------------------
+// WHAT DID NOT SURVIVE, grouped. A run of hundreds of joints that built a third of them has
+// hundreds of reasons, most of them the same sentence with a different number in it ("takes an
+// incoming at 60 to 120 degrees; this one is at 49.2"). Read one by one they are a wall; grouped by
+// the sentence with its numbers and names taken out, they are the handful of facts a person acts on.
+// ---------------------------------------------------------------------------------------------
+
+/** A reason with what varies from joint to joint taken out: quoted names, ids and numbers. Two
+ *  reasons that differ only in those are one reason. */
+export function normaliseReason(reason: string): string {
+  return reason
+    .replace(/'[^']*'|"[^"]*"/g, "…")
+    .replace(/\b[0-9a-f]{12}\b/gi, "#")
+    .replace(/[-+]?\d+(?:[.,]\d+)?(?:e[-+]?\d+)?/gi, "#")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export interface NotBuiltGroup {
+  /** The normalised reason the joints share. */
+  readonly key: string;
+  readonly kind: NotBuiltJoint["kind"];
+  /** One joint's reason as it was written, to read the pattern by. */
+  readonly example: string;
+  readonly joints: readonly NotBuiltJoint[];
+}
+
+/** The joints not built, grouped by kind and normalised reason, the largest group first. */
+export function groupNotBuilt(notBuilt: readonly NotBuiltJoint[]): readonly NotBuiltGroup[] {
+  const groups = new Map<string, { key: string; kind: NotBuiltJoint["kind"]; example: string; joints: NotBuiltJoint[] }>();
+  for (const j of notBuilt) {
+    const key = normaliseReason(j.reason) || "(no reason given)";
+    const id = `${j.kind}\u0000${key}`;
+    const g = groups.get(id) ?? { key, kind: j.kind, example: j.reason, joints: [] };
+    g.joints.push(j);
+    groups.set(id, g);
+  }
+  return [...groups.values()].sort((a, b) => b.joints.length - a.joints.length || a.key.localeCompare(b.key));
+}
+
+/** The failed welds, by joint, in the order the joints first appear. */
+export function weldFailuresByJoint(failures: readonly WeldFailure[]): ReadonlyMap<string, readonly WeldFailure[]> {
+  const out = new Map<string, WeldFailure[]>();
+  for (const f of failures) {
+    const bucket = out.get(f.jointId) ?? [];
+    bucket.push(f);
+    out.set(f.jointId, bucket);
+  }
+  return out;
 }
 
 /** Fold a second take-off into the first -- "generate detail model" is one job PER SPEC, and the

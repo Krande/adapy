@@ -193,6 +193,47 @@ test("runClashDetailFlow: cached:false polls to done and tracks the job", async 
   assert.equal(tracked.length, 1);
 });
 
+test("runClashDetailFlow: a job that keeps moving is waited for past the ceiling, and its stage is reported", async () => {
+  // A detail run of hundreds of joints takes longer than ten minutes: each poll is a minute later
+  // and the job's stage has moved on, so it is not given up on.
+  let clock = 0;
+  let polls = 0;
+  const { api } = fakeApi({
+    async runClashDetail() {
+      return { job_id: "job-4", derived_key: "k", cached: false };
+    },
+    async jobStatus() {
+      polls++;
+      clock += 60_000;
+      return polls < 15
+        ? { status: "running", error: null, stage: `detail ${polls}/14`, progress: 0.55 + polls * 0.02 }
+        : { status: "done", error: null, stage: "ready", progress: 1 };
+    },
+  });
+  const stages: (string | null)[] = [];
+  await runClashDetailFlow({ api, wait: noWait, now: () => clock, onJobStage: (s) => stages.push(s) }, SCOPE, "k", ["j1"], "provider.spec");
+  assert.equal(polls, 15);
+  assert.equal(stages[0], "detail 1/14");
+  assert.equal(stages[13], "detail 14/14");
+  assert.equal(stages.at(-1), null, "not running any more");
+
+  // One that stands still is given up on, as before.
+  clock = 0;
+  const { api: stuck } = fakeApi({
+    async runClashDetail() {
+      return { job_id: "job-5", derived_key: "k", cached: false };
+    },
+    async jobStatus() {
+      clock += 60_000;
+      return { status: "running", error: null, stage: "detail 3/392", progress: 0.56 };
+    },
+  });
+  await assert.rejects(
+    runClashDetailFlow({ api: stuck, wait: noWait, now: () => clock }, SCOPE, "k", ["j1"], "provider.spec"),
+    /without progress/,
+  );
+});
+
 // ── a PUBLISHED NODE as the thing checked ────────────────────────────────────────────────────
 //
 // The second addressing shape. What matters is that it reaches the wire as `collection`/`subject`

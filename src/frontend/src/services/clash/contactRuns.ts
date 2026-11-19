@@ -478,8 +478,10 @@ export interface ContactFlowDeps {
   glbMembers?(glb: ArrayBuffer, upAxis: "z" | "y"): Promise<GlbMembersColumns>;
   /** Measure a soup, each mesh hulled (a group run). */
   convexContacts?(soup: MeshSoup, opts: { securityMargin: number; minContactArea: number; lineContactThickness: number }): Promise<ConvexContactsColumns>;
-  jobStatus(jobId: string): Promise<{ status: string; error: string | null }>;
+  jobStatus(jobId: string): Promise<{ status: string; error: string | null; stage?: string | null; progress?: number | null }>;
   trackJob?(opts: { jobId: string; label: string; derivedKey?: string; scope?: string }): void;
+  /** The running job's stage as it is polled (e.g. a detail job's `"detail 120/392"`). */
+  onJobStage?(stage: string | null): void;
   wait?(ms: number): Promise<void>;
   now?(): number;
   newRunId?(): string;
@@ -497,17 +499,23 @@ export interface ContactRunRequest {
 }
 
 const POLL_INTERVAL_MS = 1500;
+/** From the job's last change of stage or progress: a job that is visibly getting on is waited for. */
 const POLL_TIMEOUT_MS = 10 * 60 * 1000;
 
 async function pollJob(deps: ContactFlowDeps, jobId: string, label: string): Promise<void> {
   const wait = deps.wait ?? ((ms: number) => new Promise<void>((res) => setTimeout(res, ms)));
   const now = deps.now ?? (() => Date.now());
-  const start = now();
+  let start = now();
+  let lastSign: string | null = null;
   for (;;) {
-    const { status, error } = await deps.jobStatus(jobId);
+    const { status, error, stage, progress } = await deps.jobStatus(jobId);
+    const sign = `${stage ?? ""}|${progress ?? ""}`;
+    if (lastSign !== null && sign !== lastSign) start = now();
+    lastSign = sign;
+    deps.onJobStage?.(status === "running" ? (stage ?? null) : null);
     if (status === "done") return;
     if (status === "error" || status === "cancelled") throw new Error(`${label} ${status}: ${error ?? "no reason given"}`);
-    if (now() - start > POLL_TIMEOUT_MS) throw new Error(`${label} did not finish in ${POLL_TIMEOUT_MS / 60000} minutes`);
+    if (now() - start > POLL_TIMEOUT_MS) throw new Error(`${label} made no progress in ${POLL_TIMEOUT_MS / 60000} minutes`);
     await wait(POLL_INTERVAL_MS);
   }
 }
@@ -687,6 +695,9 @@ export async function annotateRunFlow(
 export interface ContactDetailStats {
   joints: unknown;
   skipped: string[];
+  /** The joints not built and the seams that failed, unparsed (`parseDetailStats` reads them). */
+  not_built?: unknown;
+  weld_failures?: unknown;
 }
 
 /** Detail clashes of a stored run with a spec. */
@@ -702,8 +713,14 @@ export async function runContactDetailFlow(
   await pollJob(deps, resp.job_id, "detail");
   let stats: ContactDetailStats = { joints: null, skipped: [] };
   try {
-    const raw = (await deps.api.getJson(scope, resp.derived_key)) as { joints?: unknown; skipped?: unknown };
-    stats = { joints: raw?.joints ?? null, skipped: Array.isArray(raw?.skipped) ? raw.skipped.map(String) : [] };
+    const raw = (await deps.api.getJson(scope, resp.derived_key)) as { joints?: unknown; skipped?: unknown; not_built?: unknown; weld_failures?: unknown };
+    stats = {
+      joints: raw?.joints ?? null,
+      skipped: Array.isArray(raw?.skipped) ? raw.skipped.map(String) : [],
+      // What did not survive, passed on as the worker wrote it (`parseDetailStats` reads it).
+      not_built: raw?.not_built,
+      weld_failures: raw?.weld_failures,
+    };
   } catch {
     // The model is built; a missing take-off is not a failed detail.
   }

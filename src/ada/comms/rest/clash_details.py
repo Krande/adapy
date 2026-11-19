@@ -143,20 +143,29 @@ def parse_record(raw: bytes | str | Mapping[str, Any]) -> dict:
 
 def summary_from_stats(stats: Mapping[str, Any]) -> dict:
     """What the list shows of a take-off: how many joints, welds and plates were built, how many
-    joints were skipped, and which specs built them (a spec may fall through to a sibling)."""
+    joints were skipped, and which specs built them (a spec may fall through to a sibling).
+
+    ``not_built`` (joints) and ``weld_failures`` (seams of built joints) count the take-off's records
+    of what did not survive (``ada.clash.detail.build_detail``); a take-off from before those were
+    written counts its ``skipped`` lines as not built and no failed welds."""
     joints = stats.get("joints") if isinstance(stats.get("joints"), Mapping) else {}
     items = [i for i in (joints.get("items") or []) if isinstance(i, Mapping)]
 
     def total(field: str) -> int:
         return sum(int(i.get(field) or 0) for i in items)
 
+    skipped = len(stats.get("skipped") or [])
+    not_built = stats.get("not_built")
+    weld_failures = stats.get("weld_failures")
     built_by = stats.get("built_by")
     return {
         "counts": {
             "joints": int(joints.get("count") or len(items)),
             "welds": total("welds"),
             "plates": total("plates"),
-            "skipped": len(stats.get("skipped") or []),
+            "skipped": skipped,
+            "not_built": len(not_built) if isinstance(not_built, list) else skipped,
+            "weld_failures": len(weld_failures) if isinstance(weld_failures, list) else 0,
         },
         "built_by": dict(built_by) if isinstance(built_by, Mapping) else None,
     }

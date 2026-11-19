@@ -323,7 +323,7 @@ def contacts_work(opts: dict, storage, progress: Callable[[str, float], None], c
 
     from ada.api.connections.spec import get_registered
     from ada.clash.builtin_specs import register_builtin_specs
-    from ada.clash.detail import build_detail
+    from ada.clash.detail import build_detail, stage_progress
 
     ids = [str(i) for i in opts.get("contact_ids") or ()]
     spec_name = str(opts.get("spec") or "")
@@ -355,9 +355,14 @@ def contacts_work(opts: dict, storage, progress: Callable[[str, float], None], c
         joint_ids=[cid for cid in ids if cid in by_id],
         by_id=by_id,
         gen_options=dict(opts.get("options") or {}),
+        on_progress=stage_progress(progress, end=0.9),
     )
     if problems:
         stats.setdefault("skipped", []).extend(f"{cid}: {why}" for cid, why in problems.items())
+        # A clash that did not bind to the rebuilt members was never handed to a builder.
+        stats.setdefault("not_built", []).extend(
+            {"joint_id": cid, "kind": "failed", "reason": why, "declined": []} for cid, why in problems.items()
+        )
     stats["run_id"] = run.run_id
     return {"glb": glb_bytes, "stats": json.dumps(stats).encode("utf-8")}
 
