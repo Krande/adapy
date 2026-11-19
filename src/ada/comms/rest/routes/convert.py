@@ -359,6 +359,13 @@ async def api_convert_status(
             if not await scope_can_access(user, local_scope, getattr(request.app.state, "db_pool", None)):
                 raise HTTPException(status_code=403, detail="forbidden")
         return JSONResponse(local.as_json())
+    # An in-process id this registry does not hold is one an earlier server
+    # started: the registry dies with its process. A page that remembered it
+    # (browser storage outlives the server, and is shared by every local store
+    # served on the same origin) must hear "gone", not the queue gate's 503,
+    # which reads as "try again" and kept it polling for its whole ceiling.
+    if job_id.startswith("local-"):
+        raise HTTPException(status_code=404, detail=f"job {job_id} is not known to this server")
     if not ctx.queue.enabled:
         raise HTTPException(status_code=503, detail="conversion disabled (no NATS configured)")
     job = await ctx.queue.get(job_id)
