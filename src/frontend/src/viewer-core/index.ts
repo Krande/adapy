@@ -751,6 +751,7 @@
 //          `FieldHelpSource`) on `/layout`; `BuilderRefEdit.form`; `ObjectInfoBodyProps.builderSummary`.
 //          `feaValuesForNode`, `feaValuesForElement(..., {nodal: true})` and the types
 //          `NodalFieldValues`, `FeaFieldValues`, `FeaValuesOptions`, `NodeValuesResult` on `/scene`.
+//          `ObjectInfoBodyProps.summary` ("full" | "menu").
 export const VIEWER_CORE_API_VERSION = "1.31.0";
 
 // ---------------------------------------------------------------------------

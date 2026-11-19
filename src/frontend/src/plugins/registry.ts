@@ -412,6 +412,11 @@ export type { SelectedObjectBox } from "@/viewport/api/viewportApi";
 //          (`FeaFieldValues` is the union; `ElementValuesResult<FeaFieldValues>` the result).
 //          `feaValuesForNode(nodeLabel, scope)` reads one node's (`NodeValuesResult`). Without
 //          `nodal`, as before (typed element entries only). `elementNodes` also gives `indices`.
+//          `ObjectInfoBodyProps.summary: "full" | "menu"` (default "full", as before): "menu" draws
+//          no name row, no Hide / Hide others / Unhide all, no notices, no "Clicked at" row and no
+//          "Mesh (n tris)" section; one "⋯" at the body's top right instead, whose menu holds Show
+//          in data, Download as… (greyed out with the reason as its tooltip), Copy clicked position
+//          and the mesh's stats as a line. The sections below are drawn and get the pick as before.
 export const PLUGIN_API_VERSION = "1.31.0";
 
 /** What the Simulations panel writes on a run's open-result button. */

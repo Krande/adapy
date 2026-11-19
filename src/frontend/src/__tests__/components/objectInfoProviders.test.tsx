@@ -157,3 +157,32 @@ test("`flat` draws the picked element's properties open, with no foldable headin
         setServerState(useObjectInfoStore, { name: "", clickCoordinate: null } as never);
     }
 });
+
+test("summary 'menu': no name row, hide buttons, notices, Clicked at or Mesh section -- one ⋯ menu; the sections below still get the pick", () => {
+    setServerState(useObjectInfoStore, { name: "E163", clickCoordinate: { x: 1.264, y: 0.5, z: 0.402 } } as never);
+    const off = registerPropertyProvider({ id: "probe", order: 36, match: (sel) => sel.kind === "mesh", render: (sel) => React.createElement("p", { id: "probe" }, `item ${sel.meshName}`) });
+    try {
+        const full = render({ flat: true });
+        assert.match(full, /aria-label="Unhide all"/, "full: as before");
+        assert.match(full, /Clicked at:/);
+        const menu = render({ flat: true, summary: "menu" });
+        assert.match(menu, /data-summary-menu=""/);
+        assert.match(menu, /aria-label="Selection actions"[^>]*>⋯</);
+        for (const gone of [/Name:/, /aria-label="Unhide all"/, /aria-label="Hide selected"/, /Hide others/, /Clicked at:/, /Mesh \(/, /Copy name to clipboard/]) {
+            assert.doesNotMatch(menu, gone, String(gone));
+        }
+        assert.match(menu, /<p id="probe">item E163<\/p>/, "an item below still gets the pick");
+        assert.doesNotMatch(menu, /data-summary-menu-items/, "the menu is closed until asked");
+        // Nothing picked: no menu either.
+        setServerState(useObjectInfoStore, { name: "", clickCoordinate: null } as never);
+        assert.doesNotMatch(render({ summary: "menu" }), /data-summary-menu/);
+    } finally {
+        off();
+        setServerState(useObjectInfoStore, { name: "", clickCoordinate: null } as never);
+    }
+});
+
+test("the summary menu's mesh line", async () => {
+    const { meshStatsLine } = await import("@/components/info_box_selected_object/MeshStatsSection");
+    assert.equal(meshStatsLine({ triangles: 2, vertices: 4, area: 1 }), "2 tris · 4 verts · 1.00 m²");
+});

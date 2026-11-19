@@ -102,6 +102,9 @@ type Props = {
     data: any | null;
     /** Plain rows, always open: no foldable "Properties" heading (`ObjectInfoBodyProps.flat`). */
     flat?: boolean;
+    /** The summary is the panel's menu (`ObjectInfoBodyProps.summary: "menu"`): the clicked-at row and
+     *  the mesh stats are in it, not here. */
+    menuSummary?: boolean;
 };
 
 const fmtMm = (v: number | null | undefined): string => {
@@ -350,12 +353,13 @@ const LinkRow: React.FC<{link: NonNullable<LinkResult>}> = ({link}) => {
 };
 
 /** `menu`: drawn after the coordinates (the flat panel's decimals menu, which has no heading to sit on). */
-const ClickedAtRow: React.FC<{menu?: React.ReactNode}> = ({menu}) => {
+/** Where the pick was clicked, as shown ("(1.264, 0.500, 0.402)") and as copied (the same numbers,
+ *  comma-separated, no parentheses, so they paste straight into code); null without a click. */
+export function useClickedPosition(): {display: string; copy: string} | null {
     const {useObjectInfoStore, useModelState} = useViewerStores();
     const clickCoord = useObjectInfoStore((s) => s.clickCoordinate);
     const zIsUp = useModelState((s) => s.zIsUp);
     const decimals = useOptionsStore((s) => s.clickedCoordDecimals);
-    const [copied, setCopied] = useState(false);
     if (!clickCoord) return null;
     const x = clickCoord.x.toFixed(decimals);
     const y = clickCoord.y.toFixed(decimals);
@@ -365,11 +369,16 @@ const ClickedAtRow: React.FC<{menu?: React.ReactNode}> = ({menu}) => {
     // users think in — so when zIsUp is set, show the world tuple
     // (x, y, z) directly; otherwise re-order to compensate.
     const ordered = zIsUp ? [x, y, z] : [x, z, y];
-    const display = `(${ordered.join(', ')})`;
-    // Clipboard gets the same numbers in the same displayed order, but as bare
-    // comma-separated floats (no parentheses) so they paste straight into code.
+    return {display: `(${ordered.join(', ')})`, copy: ordered.join(', ')};
+}
+
+const ClickedAtRow: React.FC<{menu?: React.ReactNode}> = ({menu}) => {
+    const position = useClickedPosition();
+    const [copied, setCopied] = useState(false);
+    if (!position) return null;
+    const {display} = position;
     const onCopy = () => {
-        void writeToClipboard(ordered.join(', ')).then((ok) => {
+        void writeToClipboard(position.copy).then((ok) => {
             if (!ok) return;
             setCopied(true);
             window.setTimeout(() => setCopied(false), COPIED_FEEDBACK_MS);
@@ -422,7 +431,7 @@ const ClickedFaceRow: React.FC = () => {
     );
 };
 
-const ObjectMetadataPanel: React.FC<Props> = ({data, flat = false}) => {
+const ObjectMetadataPanel: React.FC<Props> = ({data, flat = false, menuSummary = false}) => {
     const {useObjectInfoStore, useLineageStore} = useViewerStores();
     const showMeshStats = useOptionsStore((s) => s.showMeshStats);
     // Default collapsed: most clicks are just for selection / hide /
@@ -519,12 +528,12 @@ const ObjectMetadataPanel: React.FC<Props> = ({data, flat = false}) => {
                         </>
                     )}
                     {/* Flat: the decimals menu goes with the row it formats. */}
-                    <ClickedAtRow menu={flat ? decimalsMenu : undefined} />
+                    {!menuSummary && <ClickedAtRow menu={flat ? decimalsMenu : undefined} />}
                     <ClickedFaceRow />
                     {link && <LinkRow link={link} />}
                 </div>
             )}
-            {expanded && showMeshStats && (
+            {expanded && showMeshStats && !menuSummary && (
                 <div className={flat ? "" : "ml-4"}>
                     <MeshStatsSection />
                 </div>

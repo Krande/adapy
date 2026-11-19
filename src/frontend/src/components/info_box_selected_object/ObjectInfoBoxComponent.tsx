@@ -19,7 +19,8 @@ import {useSceneMirrorStore} from '@/state/sceneMirrorStore';
 import {parentLevelName} from '@/utils/tree_view/treeSelection';
 import {isMirroredWindow, useSceneActions} from '@/layout/sceneActions';
 import {activeShellMode, subscribeShellModes} from '@/layout/shellModes';
-import ObjectMetadataPanel from './ObjectMetadataPanel';
+import ObjectMetadataPanel, {useClickedPosition} from './ObjectMetadataPanel';
+import {meshStatsLine, useSelectionMeshStats} from './MeshStatsSection';
 import TreeNodeInfoSection from './TreeNodeInfoSection';
 import SourceJumpSection from './SourceJumpSection';
 import IndexedAttributesSection from './IndexedAttributesSection';
@@ -84,6 +85,16 @@ export interface ObjectInfoBodyProps {
      * and toolbar act on it. A mesh pick keeps its summary. Absent or true: drawn, as before.
      */
     builderSummary?: boolean;
+    /**
+     * The summary at the top of the panel. "full" (the default): as it always was -- the name row,
+     * Hide / Hide others / Unhide all, Show in data, Download as…, its notices, and in the object
+     * metadata the "Clicked at" row and the "Mesh (n tris)" section. "menu": none of those; one
+     * small "⋯" button at the top right of the body instead, whose menu holds Show in data,
+     * Download as… (greyed out, the reason its tooltip, when there is no source), Copy clicked
+     * position, and the mesh's stats as a line. For a flat panel whose items name what is picked
+     * themselves, with the tree and the keys to hide it.
+     */
+    summary?: "full" | "menu";
 }
 
 const ObjectInfoOptions = React.createContext<ObjectInfoBodyProps>({});
@@ -145,9 +156,9 @@ function useSelectedRangeCount(): number {
 /** ObjectMetadataPanel takes its payload as a prop. */
 const ObjectMetadata = () => {
     const {useObjectInfoStore} = useViewerStores();
-    const {flat} = React.useContext(ObjectInfoOptions);
+    const {flat, summary} = React.useContext(ObjectInfoOptions);
     const jsonData = useObjectInfoStore((s) => s.jsonData);
-    return <ObjectMetadataPanel data={jsonData} flat={flat}/>;
+    return <ObjectMetadataPanel data={jsonData} flat={flat} menuSummary={summary === "menu"}/>;
 };
 
 /** The picked FEA element in the flat layout; nothing in the classic panel, which shows it folded. */
@@ -223,10 +234,10 @@ export const CORE_PROPERTY_PROVIDERS: readonly PropertyProvider[] = [
  * (`registerPropertyProvider`), each in its own error boundary. Its frame (the
  * card and heading) is `ObjectInfoBox` below; another host may draw its own.
  */
-export const ObjectInfoBody: React.FC<ObjectInfoBodyProps> = ({onShowInData, sections, flat, builderSummary = true}) => {
+export const ObjectInfoBody: React.FC<ObjectInfoBodyProps> = ({onShowInData, sections, flat, builderSummary = true, summary = "full"}) => {
     const sel = useSelectionSnapshot();
     const plugins = useSyncExternalStore(subscribePropertyProviders, listPropertyProviders, listPropertyProviders);
-    const options = React.useMemo(() => ({onShowInData, flat}), [onShowInData, flat]);
+    const options = React.useMemo(() => ({onShowInData, flat, summary}), [onShowInData, flat, summary]);
     return (
         <ObjectInfoOptions.Provider value={options}>
             {visibleSections(providersFor(sel, CORE_PROPERTY_PROVIDERS, plugins), sel, sections)
@@ -241,8 +252,69 @@ export const ObjectInfoBody: React.FC<ObjectInfoBodyProps> = ({onShowInData, sec
 };
 
 /** The selection's name and actions. */
+/**
+ * The summary as one small "⋯" menu at the top right of the body (`summary: "menu"`): Show in data,
+ * Download as…, Copy clicked position, the mesh's stats. It takes no row: the items below name the
+ * pick themselves.
+ */
+const SummaryMenu: React.FC<{onShowInData: (() => void) | null; cellCtx: boolean}> = ({onShowInData, cellCtx}) => {
+    const [open, setOpen] = useState(false);
+    const [copied, setCopied] = useState(false);
+    const position = useClickedPosition();
+    const mesh = useSelectionMeshStats();
+    const item = "block w-full text-left text-[11px] text-white px-2 py-1 rounded-sm hover:bg-gray-600 disabled:opacity-40 disabled:hover:bg-transparent";
+    return (
+        <div className="relative h-0" data-summary-menu="">
+            <button
+                type="button"
+                className="absolute right-0 -top-0.5 z-10 rounded-sm px-1.5 leading-5 text-gray-300 hover:bg-white/10 hover:text-white"
+                aria-label="Selection actions"
+                aria-haspopup="menu"
+                aria-expanded={open}
+                title="Selection actions"
+                onClick={() => setOpen((v) => !v)}
+            >
+                ⋯
+            </button>
+            {open && (
+                <div role="menu" className="absolute right-0 top-5 z-20 min-w-48 rounded-sm border border-gray-600 bg-gray-800 p-1 shadow-lg" data-summary-menu-items="">
+                    {onShowInData && (
+                        <button type="button" role="menuitem" className={item} onClick={() => (onShowInData(), setOpen(false))}>
+                            Show in data
+                        </button>
+                    )}
+                    {/* A cell is not a tree row; its own model has its own export. */}
+                    {!cellCtx && <DownloadSelectionButton inMenu/>}
+                    <button
+                        type="button"
+                        role="menuitem"
+                        className={item}
+                        disabled={!position}
+                        title={position ? `Copy ${position.display} as comma-separated floats` : "Click on the model to get a position"}
+                        onClick={() => {
+                            if (!position) return;
+                            void writeToClipboard(position.copy).then((ok) => {
+                                if (!ok) return;
+                                setCopied(true);
+                                window.setTimeout(() => setCopied(false), COPIED_FEEDBACK_MS);
+                            });
+                        }}
+                    >
+                        {copied ? "Copied ✓" : position ? `Copy clicked position ${position.display}` : "Copy clicked position"}
+                    </button>
+                    {mesh && (
+                        <div role="menuitem" aria-disabled="true" className="px-2 py-1 text-[11px] text-gray-400" title="The selection's tessellation">
+                            Mesh: {meshStatsLine(mesh)}
+                        </div>
+                    )}
+                </div>
+            )}
+        </div>
+    );
+};
+
 const SelectionSummary = () => {
-    const {onShowInData: showInData} = React.useContext(ObjectInfoOptions);
+    const {onShowInData: showInData, summary: summaryMode} = React.useContext(ObjectInfoOptions);
     // What the buttons do: on this window's scene, or -- in a pop-out window --
     // sent to the main window, which has it (`@/layout/sceneActions`).
     const actions = useSceneActions();
@@ -361,6 +433,10 @@ const SelectionSummary = () => {
     // Shift+F's own actions, which frame builder cells (excluded from the fittable scene) too.
     const onFitAll = actions.fitAll;
     const onGoToObject = actions.fitSelection;
+
+    if (summaryMode === "menu") {
+        return displayName ? <SummaryMenu onShowInData={firstNodeId != null ? onShowInData : null} cellCtx={cellCtx}/> : null;
+    }
 
     return (
         <>
