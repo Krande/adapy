@@ -3,7 +3,7 @@ import React, { useEffect, useState, useSyncExternalStore } from "react";
 import { OverlayPortal } from "@/components/ui/OverlayPortal";
 import { CORE_SHORTCUT_GROUPS } from "@/layout/coreShortcutTable";
 import { commandRank } from "@/layout/commands";
-import { assignKeys, chordFromEvent, chordQueryRank, keyRows, resetAllKeyBindings, setKeyBinding, type KeyRow } from "@/layout/keyBindings";
+import { assignKeys, chordFromEvent, chordQueryRank, keyRows, parseKeyQuery, resetAllKeyBindings, setKeyBinding, type KeyRow } from "@/layout/keyBindings";
 import { listShortcuts, shortcutBindingsVersion, subscribeShortcutBindings, type RegisteredShortcut } from "@/layout/shortcuts";
 import { useCameraControlsStore } from "@/state/cameraControlsStore";
 import { DRAG_MODIFIERS, MOUSE_BUTTONS, type CameraAction, type CameraMapping, type DragModifier } from "@/utils/camera/cameraMapping";
@@ -154,16 +154,19 @@ const ShortcutsModal: React.FC = () => {
 };
 
 /**
- * The dialog's rows that answer `query`: by name, group or keyword (`commandRank`), or by a chord
- * typed as one ("ctrl+k" finds the command palette), an exact chord first.
+ * The dialog's rows that answer `query`. Keys, when the query reads as keys (`parseKeyQuery`):
+ * "alt" every chord with Alt, "g" every chord on G, "ctrl+k" / "shift h" that chord first --
+ * a single letter is a key, not every label with a "g" in it. Words otherwise: the name, group
+ * or keyword (`commandRank`). A key's name that is also a word ("delete") finds both.
  */
 export function shortcutRowsFor(query: string, rows: readonly KeyRow[]): KeyRow[] {
+  const keys = parseKeyQuery(query);
   return rows
     .map((r) => {
-      const byName = commandRank(query, { id: r.commandId ?? r.shortcutId, label: r.label, group: r.group, keywords: r.keywords });
-      const byKey = chordQueryRank(query, r);
-      // A chord typed exactly wins over a name that merely contains the letters.
-      const rank = byKey === 0 ? -1 : byName ?? (byKey === null ? null : 1000 + byKey);
+      const byKey = keys ? chordQueryRank(query, r) : null;
+      const byName =
+        !keys || keys.wordToo ? commandRank(query, { id: r.commandId ?? r.shortcutId, label: r.label, group: r.group, keywords: r.keywords }) : null;
+      const rank = byKey !== null ? byKey - 2 : byName;
       return { r, rank };
     })
     .filter((x): x is { r: KeyRow; rank: number } => x.rank !== null)
@@ -265,7 +268,7 @@ const ShortcutsDialog: React.FC<{ onClose: () => void }> = ({ onClose }) => {
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search commands (name, group, keyword or keys, e.g. ctrl+k)"
+              placeholder="Search commands (name, group, keyword) or keys (ctrl+k, alt, g)"
               aria-label="Search shortcuts"
               className="w-full rounded-sm bg-gray-800 px-2 py-1 text-sm outline-none"
               autoFocus

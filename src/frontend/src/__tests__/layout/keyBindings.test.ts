@@ -193,3 +193,36 @@ test("the dialog's search finds a row by its keys", async () => {
   assert.ok(shortcutRowsFor("ctrl+", rows).length > 3, "a chord's start lists the chords that begin with it");
   assert.equal(K.chordQueryRank("", { keys: "Ctrl+K" }), null);
 });
+
+test("search by keys: a modifier lists every chord holding it, a letter that key only, a chord itself first, a word the labels", async () => {
+  const { shortcutRowsFor } = await import("@/components/options/ShortcutsModal");
+  const rows = K.keyRows();
+  const keysOf = (q: string) => shortcutRowsFor(q, rows).map((r) => (r.keysLabel ?? r.keys ?? "").toLowerCase());
+  for (const [word, mod] of [["alt", "alt"], ["shift", "shift"], ["ctrl", "ctrl"], ["Ctrl", "ctrl"]] as const) {
+    const hits = keysOf(word);
+    const withMod = rows.filter((r) => r.keys && S.parseShortcut(r.keys)![mod]);
+    assert.equal(hits.length, withMod.length, `${word}: every shortcut with it, nothing else`);
+    assert.ok(hits.every((k) => k.split("+").includes(mod)), word);
+  }
+  // A single letter is a key, with or without modifiers -- not every label holding a "g".
+  const g = shortcutRowsFor("g", rows);
+  assert.ok(g.length > 0 && g.every((r) => S.parseShortcut(r.keys!)!.key === "g"), g.map((r) => r.keys).join());
+  assert.ok(g.some((r) => r.shortcutId === "core:builder-translate"), "G itself");
+  assert.ok(g.some((r) => r.shortcutId === "core:group-selection"), "Shift+G too");
+  assert.equal(g[0].keys, "G", "the bare key first");
+  // Combined, as before.
+  assert.equal(shortcutRowsFor("ctrl+k", rows)[0]?.shortcutId, "core:command-palette");
+  assert.equal(shortcutRowsFor("shift h", rows)[0]?.keys, "Shift+H");
+  assert.ok(shortcutRowsFor("Shift + H", rows).every((r) => r.keys === "Shift+H" || /shift\+h/i.test(r.keys ?? "")));
+  assert.ok(shortcutRowsFor("alt+1", rows).some((r) => r.shortcutId === "core:view.top"));
+  // Longer words still find labels.
+  assert.ok(shortcutRowsFor("palette", rows).some((r) => r.shortcutId === "core:command-palette"));
+  assert.ok(shortcutRowsFor("orbit", rows).length >= 4);
+  // A key's name that is also a word finds both.
+  const del = shortcutRowsFor("delete", rows);
+  assert.ok(del.some((r) => r.keys === "Delete"));
+  // Not keys at all.
+  assert.equal(K.parseKeyQuery("palette"), null);
+  assert.equal(K.parseKeyQuery("k ctrl"), null, "a key before a modifier is not a chord");
+  assert.deepEqual(K.parseKeyQuery("shift h"), { mods: new Set(["shift"]), key: "h", wordToo: false });
+});
