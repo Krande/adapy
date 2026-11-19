@@ -280,16 +280,18 @@ export class CustomBatchedMesh extends THREE.Mesh {
     /**
      * Whether `obj` draws this mesh's elements in its own geometry, corner for corner of this mesh's
      * index list: a copy of the mesh "de-indexed" (vertex k is index entry k, so a draw range is the
-     * same numbers in it) or one that shares the index. What an overlay painted over the elements
-     * looks like -- a plugin's colour field hung on the mesh it got from `getActiveFeaMesh`, say.
-     * Not this mesh's own highlight overlays, nor another mesh with element ranges of its own.
+     * same numbers in it), with one material of its own. What an overlay painted over the elements
+     * looks like -- core's element paint, a plugin's colour field hung on the mesh it got from
+     * `getActiveFeaMesh`. Never anything indexed (a copy that shares this mesh's index or geometry --
+     * a highlight, a posed copy -- draws by groups of its own, which this must not clear), nor one
+     * that draws with several materials, nor another mesh with element ranges of its own.
      */
     public isAlignedOverlay(obj: THREE.Object3D): obj is THREE.Mesh {
         if (!(obj instanceof THREE.Mesh) || obj instanceof CustomBatchedMesh || this.isHighlightOverlay(obj)) return false;
         const geom = obj.geometry as THREE.BufferGeometry | undefined;
         const index = this.geometry.index;
-        if (!geom || !index) return false;
-        if (geom.index) return geom.index === index;
+        if (!geom || !index || geom === this.geometry || geom.index) return false;
+        if (Array.isArray(obj.material) && obj.material[1] !== this._matOverlayHidden) return false;
         return geom.getAttribute("position")?.count === index.count;
     }
 
@@ -302,11 +304,11 @@ export class CustomBatchedMesh extends THREE.Mesh {
     private syncAlignedOverlay(obj: THREE.Object3D): void {
         if (!this.isAlignedOverlay(obj)) return;
         const geom = obj.geometry as THREE.BufferGeometry;
-        const data = obj.userData as {__alignedMaterial?: THREE.Material | THREE.Material[]};
-        const own = data.__alignedMaterial ?? obj.material;
-        data.__alignedMaterial = own;
+        // Its own material: the one it draws with, or the first of the pair this gave it before.
+        const current = obj.material;
+        const own = Array.isArray(current) ? current[0] : current;
         geom.clearGroups();
-        if (this.hiddenRanges.size === 0 || Array.isArray(own)) {
+        if (this.hiddenRanges.size === 0) {
             obj.material = own;
             return;
         }
