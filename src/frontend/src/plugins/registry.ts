@@ -362,6 +362,17 @@ export type { SelectedObjectBox } from "@/viewport/api/viewportApi";
 //          column; an engine gives it with `register_procedural_engine_capabilities(...,
 //          field_help=...)`), read with `fieldHelp(list, column)` / `useFieldHelp` (and the pure
 //          `engineFieldHelp`, `fieldHelpText`) on `@/viewer-core/app`. Additive.
+//          `PropertyItemLayout` and `Field` / `FieldCheck` on `@/viewer-core/layout`: one layout
+//          for a topology item in the Properties panel (the parents line "in <space> · <structure>
+//          [blueprint]" of links first, then its badge and name renamed in place, a Geometry grid,
+//          then its groups); `Field({label, help, inline})` a compact row, its help text or
+//          `{list, column}` of the engine's field help. Core's builder item is drawn on it (no
+//          gizmo buttons, include toggles or nested Properties there: the Model panel and the
+//          toolbar have them), the space and structure are its parents line (no
+//          `cellbuilder-space` section), and `cellbuilder-structure` is a structure on its own.
+//          `BuilderRefEdit.form`: the provider draws its ref's whole form (on
+//          `PropertyItemLayout`), core draws nothing for that item. `ObjectInfoBodyProps.
+//          builderSummary: false`: no summary (name, Hide, Unhide all, Add mode) for a builder pick.
 export const PLUGIN_API_VERSION = "1.31.0";
 
 /** What the Simulations panel writes on a run's open-result button. */

@@ -22,6 +22,18 @@ export type { SceneArrangement, SceneBodyProps } from "@/components/info_box_sce
 export type { SceneTab } from "@/components/info_box_scene/sceneTabs";
 export { CORE_PROPERTY_PROVIDERS, ObjectInfoBody } from "@/components/info_box_selected_object/ObjectInfoBoxComponent";
 export type { ObjectInfoBodyProps } from "@/components/info_box_selected_object/ObjectInfoBoxComponent";
+// One layout for a topology item in the Properties panel (1.31.0): its parents line, badge and name,
+// geometry and groups; `Field` is a group's compact label / value row, its help text or the engine's
+// field help for a doc list and column. For a plugin's own form of its builder ref (`BuilderRefEdit.form`).
+export { Field, FieldCheck, PropertyItemLayout } from "@/components/info_box_selected_object/cellBuilderSelection/PropertyItemLayout";
+export type {
+  FieldHelpSource,
+  FieldProps,
+  PropertyItemGeometry,
+  PropertyItemGroup,
+  PropertyItemLayoutProps,
+  PropertyItemParents,
+} from "@/components/info_box_selected_object/cellBuilderSelection/PropertyItemLayout";
 export { STORAGE_MODIFIED_MIN_PX, StorageBody } from "@/components/storage/StorageBrowser";
 export type { StorageBodyProps } from "@/components/storage/StorageBrowser";
 export { OptionsBody } from "@/components/OptionsComponent";

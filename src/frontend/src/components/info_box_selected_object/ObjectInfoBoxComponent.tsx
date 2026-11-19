@@ -24,7 +24,7 @@ import TreeNodeInfoSection from './TreeNodeInfoSection';
 import SourceJumpSection from './SourceJumpSection';
 import IndexedAttributesSection from './IndexedAttributesSection';
 import RelatedSection from './RelatedSection';
-import {BuilderItemSection, BuilderSpaceSection, BuilderStructureSection} from './cellBuilderSelection/BuilderSections';
+import {BuilderItemSection, BuilderStructureSection} from './cellBuilderSelection/BuilderSections';
 import FemConceptSelectionInfo from './FemConceptSelectionInfo';
 import FeaSetsSection from './FeaSetsSection';
 import DownloadSelectionButton from './DownloadSelectionButton';
@@ -53,6 +53,12 @@ export interface ObjectInfoBodyProps {
      * For a shell whose panel is itself the properties. Absent: folded under a heading, as before.
      */
     flat?: boolean;
+    /**
+     * False: with a builder item picked, the summary at the top (its name again, Hide, Unhide
+     * all, Add mode) is left out -- the item's own layout names it, and a shell's Model panel
+     * and toolbar act on it. A mesh pick keeps its summary. Absent or true: drawn, as before.
+     */
+    builderSummary?: boolean;
 }
 
 const ObjectInfoOptions = React.createContext<ObjectInfoBodyProps>({});
@@ -167,14 +173,13 @@ export const CORE_PROPERTY_PROVIDERS: readonly PropertyProvider[] = [
     // and is the ONLY section a spatial container can populate -- everything above is
     // keyed on geometry the container does not have.
     {id: "tree-node", order: 60, match: always, render: () => <TreeNodeInfoSection/>},
-    // Procedural cellbuilder selection detail, as three stacked sections a plugin's section
-    // can slot between (cellBuilderSelection/BuilderSections): the picked item -- a cell's
-    // parameters, gizmo toggles and connected systems, or a plugin's ref --, the space it is
-    // in, and its structure (or the active one, with nothing picked). Here, not in the busy
-    // cellbuilder tool panel.
+    // Procedural cellbuilder selection detail (cellBuilderSelection/BuilderSections), here, not
+    // in the busy cellbuilder tool panel: the picked item as one layout -- where it is (its
+    // space and structure), what it is, its box and its fields, or a plugin's ref --, and a
+    // structure on its own (the active one, with nothing picked). A plugin's section slots
+    // before, between or after them by order.
     {id: "cellbuilder-item", order: 70, match: builderPick, render: () => <BuilderItemSection/>},
-    {id: "cellbuilder-space", order: 72, match: (sel) => builderPick(sel) && !!sel.space, render: () => <BuilderSpaceSection/>},
-    {id: "cellbuilder-structure", order: 74, match: (sel) => sel.cellBuilderActive && !!sel.structure, render: () => <BuilderStructureSection/>},
+    {id: "cellbuilder-structure", order: 74, match: (sel) => sel.cellBuilderActive && sel.kind === "none" && !!sel.structure, render: () => <BuilderStructureSection/>},
 ];
 
 /**
@@ -183,17 +188,19 @@ export const CORE_PROPERTY_PROVIDERS: readonly PropertyProvider[] = [
  * (`registerPropertyProvider`), each in its own error boundary. Its frame (the
  * card and heading) is `ObjectInfoBox` below; another host may draw its own.
  */
-export const ObjectInfoBody: React.FC<ObjectInfoBodyProps> = ({onShowInData, sections, flat}) => {
+export const ObjectInfoBody: React.FC<ObjectInfoBodyProps> = ({onShowInData, sections, flat, builderSummary = true}) => {
     const sel = useSelectionSnapshot();
     const plugins = useSyncExternalStore(subscribePropertyProviders, listPropertyProviders, listPropertyProviders);
     const options = React.useMemo(() => ({onShowInData, flat}), [onShowInData, flat]);
     return (
         <ObjectInfoOptions.Provider value={options}>
-            {visibleSections(providersFor(sel, CORE_PROPERTY_PROVIDERS, plugins), sel, sections).map((p) => (
-                <ErrorBoundary key={p.id} label={p.owner ? `${p.owner} (${p.id})` : p.id}>
-                    {p.render(sel)}
-                </ErrorBoundary>
-            ))}
+            {visibleSections(providersFor(sel, CORE_PROPERTY_PROVIDERS, plugins), sel, sections)
+                .filter((p) => builderSummary || p.id !== "selection-summary" || (sel.kind !== "cell" && sel.kind !== "ref"))
+                .map((p) => (
+                    <ErrorBoundary key={p.id} label={p.owner ? `${p.owner} (${p.id})` : p.id}>
+                        {p.render(sel)}
+                    </ErrorBoundary>
+                ))}
         </ObjectInfoOptions.Provider>
     );
 };

@@ -24,6 +24,10 @@ export interface BuilderRefEdit {
   resize: boolean;
   rename: boolean;
   remove: boolean;
+  /** The provider draws the ref's whole form in the Properties panel (a section of its own, on
+   *  `PropertyItemLayout`): core then draws nothing for the ref item. Default false: core's
+   *  minimal form (its kind, name, box where it may move or resize, where it is). */
+  form?: boolean;
 }
 
 /** One box a plugin shows in the builder for a row of its own. */
@@ -113,6 +117,7 @@ function toRef(provider: BuilderRefProvider, spec: BuilderRefSpec): BuilderRef {
       resize: edit.resize && !!provider.write,
       rename: edit.rename && !!provider.rename,
       remove: edit.remove && !!provider.remove,
+      ...(edit.form ? {form: true} : {}),
     },
   };
 }

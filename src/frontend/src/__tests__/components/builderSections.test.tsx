@@ -1,5 +1,6 @@
-// Topology > Input's properties, core's part: the builder's selection is three stacked sections
-// (the item at 70, its space at 72, its structure at 74), a plugin's section slots between them;
+// Topology > Input's properties, core's part: the builder's pick is one layout (the item at 70:
+// its space and structure as a parents line first, then its badge and name, its geometry and its
+// groups), a structure on its own is the section at 74, and a plugin's section slots between them;
 // the grid and snapping options are a Settings page a command opens; a shell hears of a failed
 // compile.
 
@@ -50,7 +51,7 @@ const doc = {
 
 const none: Snapshot = { kind: "none", name: null, meshName: null, count: 0, hasEntities: true, cellBuilderActive: true };
 
-test("the builder's sections stack at 70, 72 and 74, and a plugin's slots between them", () => {
+test("the builder's sections are the item at 70 and a lone structure at 74, and a plugin's slots between them", () => {
   const plugins = [
     { id: "after-item", order: 71, match: () => true, render: () => null },
     { id: "after-space", order: 73, match: () => true, render: () => null },
@@ -60,40 +61,99 @@ test("the builder's sections stack at 70, 72 and 74, and a plugin's slots betwee
       .map((p) => p.id)
       .filter((id) => id.startsWith("cellbuilder-") || id.startsWith("after-"));
   const ref: Snapshot = { ...none, kind: "ref", name: "r", count: 1, refOwner: "p", refKey: "k", structure: "Upper", space: "room" };
-  assert.deepEqual(ids(ref), ["cellbuilder-item", "after-item", "cellbuilder-space", "after-space", "cellbuilder-structure"]);
-  assert.deepEqual(ids({ ...ref, kind: "cell", space: undefined }), ["cellbuilder-item", "after-item", "after-space", "cellbuilder-structure"]);
+  // A pick's space and structure are its parents line, inside the item: no sections of their own.
+  assert.deepEqual(ids(ref), ["cellbuilder-item", "after-item", "after-space"]);
+  assert.deepEqual(ids({ ...ref, kind: "cell", space: undefined }), ["cellbuilder-item", "after-item", "after-space"]);
   assert.deepEqual(ids({ ...none, structure: "Upper" }), ["after-item", "after-space", "cellbuilder-structure"], "the active structure, nothing picked");
   assert.deepEqual(ids(none), ["after-item", "after-space"]);
 });
 
-test("a picked equipment shows its own section, its space's and its structure's, in that order", () => {
+/** Where `marker` first appears in `html`, or -1. */
+const at = (html: string, marker: string) => html.indexOf(marker);
+
+test("a picked equipment: where it is first (its space and structure), then its badge and name, its geometry, its groups", () => {
   st().open("m", "Model", 1, doc);
   try {
     const pump = Object.values(st().cells).find((c) => c.name === "pump")!;
     st().setSelection({ kind: "cell", cellId: pump.id });
     const html = inViewer(React.createElement(ObjectInfoBody));
-    const at = (s: string) => html.indexOf(`data-builder-section="${s}"`);
-    assert.ok(at("item") >= 0 && at("item") < at("space") && at("space") < at("structure"), html.slice(0, 200));
-    assert.match(html, /Space room/);
-    assert.match(html, /Structure Upper/);
-    // The space itself picked: its own section, no second one for it.
+    assert.ok(at(html, 'data-builder-section="item"') >= 0);
+    assert.equal(at(html, 'data-builder-section="space"'), -1, "the space is the parents line, not a section");
+    assert.equal(at(html, 'data-builder-section="structure"'), -1, "so is the structure");
+    const order = [
+      "data-property-parents",
+      "data-property-header",
+      'data-property-group="Geometry"',
+      'data-property-group="Placement"',
+      'data-property-group="Mass &amp; COG"',
+      'data-property-group="Systems"',
+    ];
+    const where = order.map((m) => at(html, m));
+    assert.ok(where.every((w, i) => w >= 0 && (i === 0 || w > where[i - 1])), `in order: ${where}`);
+    assert.match(html, /data-property-parents="">.*title="Select space room">room<\/button>.*title="Select structure Upper">Upper<\/button>.*\[plate\]/);
+    assert.match(html, /aria-label="Name of [^"]* pump"/, "renamed in place");
+    assert.match(html, /aria-label="Position X"/);
+    // What the Model panel and the toolbar do is not repeated here.
+    assert.doesNotMatch(html, />(Move|Rotate|Resize)<\/button>/, "no gizmo buttons");
+    assert.doesNotMatch(html, /Include in build/, "no include toggle");
+    assert.doesNotMatch(html, /<span class="font-semibold">Properties<\/span>/, "no nested Properties");
+    // The space itself picked: no space in its parents line, its structure still there.
     const room = Object.values(st().cells).find((c) => c.name === "room")!;
     st().setSelection({ kind: "cell", cellId: room.id });
     const own = inViewer(React.createElement(ObjectInfoBody));
-    assert.equal(own.includes('data-builder-section="space"'), false);
-    assert.ok(own.includes('data-builder-section="structure"'));
-    // Nothing picked: the active structure still has its section.
+    assert.doesNotMatch(own, /title="Select space room"/);
+    assert.match(own, /title="Select structure Upper"/);
+    for (const g of ["Grid", "Beams", "Enclosed", "General"]) assert.match(own, new RegExp(`data-property-group="${g}"`), g);
+    assert.match(own, /data-field="Create">[\s\S]*?aria-label="X \(GRID_X_CREATE\)"[\s\S]*?aria-label="Z \(GRID_Z_CREATE\)"/, "Grid X / Y / Z on one row");
+    assert.match(own, /data-field="Exclude">[\s\S]*?SE0[\s\S]*?SE5/, "SE0..SE5 on one row");
+    assert.equal(at(own, 'data-builder-section="structure"'), -1);
+    // Nothing picked: the active structure has its own view.
     st().setSelection(null);
     st().setActiveGroup("Upper");
     const idle = inViewer(React.createElement(ObjectInfoBody));
     assert.ok(idle.includes('data-builder-section="structure"'));
     assert.equal(idle.includes('data-builder-section="item"'), false);
+    assert.match(idle, /aria-label="Name of structure Upper"/);
+    assert.match(idle, /data-field="Blueprint"/);
+    assert.match(idle, /aria-label="Include structure Upper in build"/);
   } finally {
     st().close();
   }
 });
 
-test("a picked ref: its name, kind, box fields when it may move, include; its space and structure", () => {
+test("a field's label carries the engine's help for its column as a tooltip", () => {
+  st().open("m", "Model", 1, doc);
+  const engines = st().engines;
+  useCellBuilderStore.setState({
+    engines: [{ id: "x", slug: st().selectedEngine, name: "x", description: "", revision: 0, field_help: { spaces: { GRID_X_CREATE: "Use in building X grid" } } }],
+  });
+  try {
+    const room = Object.values(st().cells).find((c) => c.name === "room")!;
+    st().setSelection({ kind: "cell", cellId: room.id });
+    const html = inViewer(React.createElement(ObjectInfoBody));
+    assert.match(html, /data-field="Create"><span class="[^"]*cursor-help[^"]*" title="Use in building X grid">Create<\/span>/);
+    assert.match(html, /<label class="inline-flex items-center gap-0.5" title="Use in building X grid"><input type="checkbox"[^>]*aria-label="X \(GRID_X_CREATE\)"/);
+  } finally {
+    useCellBuilderStore.setState({ engines });
+    st().close();
+  }
+});
+
+test("builderSummary false leaves the summary out for a builder pick", () => {
+  st().open("m", "Model", 1, doc);
+  try {
+    const pump = Object.values(st().cells).find((c) => c.name === "pump")!;
+    st().setSelection({ kind: "cell", cellId: pump.id });
+    assert.match(inViewer(React.createElement(ObjectInfoBody)), /aria-label="Unhide all"/, "classic: as before");
+    const html = inViewer(React.createElement(ObjectInfoBody, { builderSummary: false }));
+    assert.doesNotMatch(html, /aria-label="Unhide all"|aria-label="Hide selected"|Add mode/);
+    assert.match(html, /data-builder-section="item"/);
+  } finally {
+    st().close();
+  }
+});
+
+test("a picked ref: its kind and name, its box editable where it may move, its space and structure; a provider's own form replaces it", () => {
   st().open("m", "Model", 1, doc);
   const off = registerBuilderRefs({
     owner: "p",
@@ -106,14 +166,28 @@ test("a picked ref: its name, kind, box fields when it may move, include; its sp
     st().setSelection({ kind: "ref", refId: "p:k" });
     const html = inViewer(React.createElement(ObjectInfoBody));
     assert.match(html, /data-builder-ref="p:k"/);
-    assert.match(html, /Marker/);
-    assert.match(html, /aria-label="origin X"/, "may move: its origin is editable");
-    assert.doesNotMatch(html, /aria-label="size X"/, "may not resize: no size fields");
-    assert.match(html, /Include in build/);
-    assert.match(html, /Space room/);
-    assert.match(html, /Structure Upper/, "its structure is its space's");
+    assert.match(html, /data-property-header=""><span[^>]*>Marker<\/span>/, "its kind is the badge");
+    assert.match(html, /<input[^>]*aria-label="Position X"/, "may move: its position is editable");
+    assert.doesNotMatch(html, /<input[^>]*aria-label="Size X"/, "may not resize: its size is shown, not editable");
+    assert.match(html, /title="Select space room"/);
+    assert.match(html, /title="Select structure Upper"/, "its structure is its space's");
   } finally {
     off();
+    st().close();
+  }
+  // `edit.form`: the provider draws it, core draws nothing for the item.
+  st().open("m", "Model", 1, doc);
+  const off2 = registerBuilderRefs({
+    owner: "p",
+    project: () => [{ key: "k", name: "marker", kindLabel: "Marker", origin: [1, 1, 3], size: [1, 1, 0.02], space: "room", edit: { form: true } }],
+  });
+  try {
+    st().setSelection({ kind: "ref", refId: "p:k" });
+    const html = inViewer(React.createElement(ObjectInfoBody));
+    assert.doesNotMatch(html, /data-builder-ref="p:k"/);
+    assert.doesNotMatch(html, /data-builder-section="item"/);
+  } finally {
+    off2();
     st().close();
   }
 });

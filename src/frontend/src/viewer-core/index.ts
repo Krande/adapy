@@ -727,9 +727,10 @@
 //          `buildModelTree` takes `refs` and hangs them off the group rows (`GroupNode.refs`,
 //          kinds "all" and "other"; in the flat view a space's own row,
 //          `ItemNode.refs`). `SelectionSnapshot` kind "ref", `refOwner`, `refKey`,
-//          `structure`, `space`. The builder's Selected Object sections are three providers:
-//          `cellbuilder-item` (70), `cellbuilder-space` (72), `cellbuilder-structure` (74; also
-//          with nothing picked, for the active structure), so a plugin's section slots between.
+//          `structure`, `space`. The builder's Selected Object sections are two providers:
+//          `cellbuilder-item` (70: the pick as a `PropertyItemLayout`, its space and structure
+//          its parents line) and `cellbuilder-structure` (74: a structure on its own, the active
+//          one with nothing picked), so a plugin's section slots between.
 //          Settings page `grid` ("Grid & snapping", the builder's grid and snapping options, from
 //          the Builder panel) and `CORE_COMMAND_IDS.builderGridSettings`, which opens it. On
 //          `/layout`: `CompileLogView`, `CompileSettingsSection`, `GridSnappingOptions`. On
@@ -745,6 +746,9 @@
 //          and `setInfoLabel` (I). The keyboard equipment insert is Q now.
 //          `fieldHelp`, `useFieldHelp`, `engineFieldHelp`, `fieldHelpText` and the type `FieldHelp`
 //          on `/app`; `ProceduralEngineSummary.field_help`.
+//          `PropertyItemLayout`, `Field`, `FieldCheck` and their types (`PropertyItemLayoutProps`,
+//          `PropertyItemParents`, `PropertyItemGeometry`, `PropertyItemGroup`, `FieldProps`,
+//          `FieldHelpSource`) on `/layout`; `BuilderRefEdit.form`; `ObjectInfoBodyProps.builderSummary`.
 export const VIEWER_CORE_API_VERSION = "1.31.0";
 
 // ---------------------------------------------------------------------------
