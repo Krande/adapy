@@ -8,6 +8,9 @@ import {
   type ProducedJoints,
 } from "@/state/clashCheckStore";
 import IdentifiedJoints from "./joints/IdentifiedJoints";
+import FocusedJoints from "./joints/FocusedJoints";
+import { findConnection, useConnectionGraphStore } from "@/state/connectionGraphStore";
+import { isFocusedJoint, useJointFocusStore } from "@/state/jointFocusStore";
 import { usePlacedElsewhereVersion } from "@/layout/usePlacedElsewhere";
 import { makePluginContext } from "@/plugins/context";
 import { PluginPanelMount } from "@/plugins/PluginSlots";
@@ -36,6 +39,9 @@ import { usePluginTheme } from "@/state/themeStore";
 //               is a candidate, not a build) and instead shows which registered specs could
 //               detail it, so the two sections can never be mistaken for one another even without
 //               reading their headings.
+//   SHOWN     -- first, above both: the joints of a model on screen opened from a picked weld
+//               ("Show joint" in the Selected Object panel) or from a produced joint's name
+//               (`joints/FocusedJoints`, `jointFocusStore`), each with its members and welds.
 //   then a plugin's sections (region `joint-review`, plugin API 1.29.0), each headed by its
 //               panel's title, in `order`: what a plugin knows about the same joints that core does
 //               not (`JointReviewSections`). With such a section active the tab is there even with
@@ -101,6 +107,27 @@ function producedByType(items: readonly ProducedJointItem[]): ReadonlyMap<string
   return out;
 }
 
+/** A produced joint's name; where a model on screen has its connection, a button that shows it
+ *  (`FocusedJoints`, above), drawn with overlays of its own. */
+const ProducedJointName: React.FC<{ name: string }> = ({ name }) => {
+  useConnectionGraphStore((s) => s.byFile);
+  const shown = useJointFocusStore((s) => s.joints);
+  const conn = findConnection(null, name);
+  if (!conn?.file) return <>{name}</>;
+  const file = conn.file;
+  const on = isFocusedJoint(shown, file, name);
+  return (
+    <button
+      type="button"
+      className={"hover:underline text-left " + (on ? "text-blue-200" : "text-blue-300")}
+      title={on ? "Shown above, with its overlays" : "Show this joint above, where its overlays can be drawn for it alone"}
+      onClick={() => useJointFocusStore.getState().focus(file, name)}
+    >
+      {name}
+    </button>
+  );
+};
+
 const ProducedSection: React.FC = () => {
   // TWO sources, one table. The loaded model's own take-off is there when it was COMPILED with a
   // detailing engine; a detail run generated here produces its own take-off beside the GLB it
@@ -155,7 +182,9 @@ const ProducedSection: React.FC = () => {
                 <tbody>
                   {(bySlug.get(t.slug) ?? []).map((it) => (
                     <tr key={it.name} className="border-t border-white/10 align-top">
-                      <td className="pr-2 py-0.5 whitespace-nowrap">{it.name}</td>
+                      <td className="pr-2 py-0.5 whitespace-nowrap">
+                        <ProducedJointName name={it.name} />
+                      </td>
                       <td className="pr-2 py-0.5 text-gray-400 max-w-[10rem] truncate" title={it.members.join(", ")}>
                         {it.members.join(", ")}
                       </td>
@@ -212,9 +241,10 @@ const JointsOverviewPanel: React.FC = () => {
   const hasGenerated = useClashCheckStore((s) => (s.producedJoints?.count ?? 0) > 0);
   const hasProduced = hasCompiled || hasGenerated;
   const hasIdentified = useClashCheckStore((s) => (s.result?.joints.length ?? 0) > 0);
+  const hasShown = useJointFocusStore((s) => s.joints.length > 0);
   const sections = useJointReviewSections();
 
-  if (!hasProduced && !hasIdentified && sections.length === 0) {
+  if (!hasProduced && !hasIdentified && !hasShown && sections.length === 0) {
     // Reachable only for an instant while the tab is switching away (the Connections panel gates
     // the tab itself on this same pair of facts) -- kept as a real empty state anyway rather than
     // rendering nothing, so the tab opened directly from elsewhere is never blank.
@@ -228,6 +258,7 @@ const JointsOverviewPanel: React.FC = () => {
 
   return (
     <div className="p-1 text-sm flex flex-col gap-4">
+      <FocusedJoints />
       <ProducedSection />
       <IdentifiedJoints />
       <JointReviewSections sections={sections} />

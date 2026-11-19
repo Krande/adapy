@@ -50,6 +50,7 @@ import { useViewerStores } from "@/state/AdaViewerContext";
 import { useClashCheckStore } from "@/state/clashCheckStore";
 import { useComponentControlsStore } from "@/state/componentControlsStore";
 import { useConnectionsOfferStore } from "@/state/connectionsOfferStore";
+import { useJointFocusStore } from "@/state/jointFocusStore";
 import { useStatsStore } from "@/state/statsStore";
 import { runtime } from "@/runtime/config";
 import {
@@ -91,7 +92,9 @@ function useHasJoints(): boolean {
   // no stats of its own, so the compiled model's take-off never sees them.
   const generated = useClashCheckStore((s) => (s.producedJoints?.count ?? 0) > 0);
   const identified = useClashCheckStore((s) => (s.result?.joints.length ?? 0) > 0);
-  return produced || generated || identified;
+  // A joint of a model on screen opened from a picked weld ("Show joint") is reviewed there too.
+  const shown = useJointFocusStore((s) => s.joints.length > 0);
+  return produced || generated || identified || shown;
 }
 
 /** One of core's tabs' content. */

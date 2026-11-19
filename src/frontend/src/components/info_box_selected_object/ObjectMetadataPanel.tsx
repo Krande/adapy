@@ -10,6 +10,7 @@ import ConnectionsSection from './ConnectionsSection';
 import MeshStatsSection from './MeshStatsSection';
 import ProceduralSystemSection from './ProceduralSystemSection';
 import ProceduralEquipmentSection from './ProceduralEquipmentSection';
+import WeldRows, {isWeldMeta, type WeldMeta} from './WeldRows';
 import {capabilities} from '@/services/capabilities';
 import {fetchElementProps, type FeaElementProps} from '@/services/feaElementProps';
 import {elementNodes} from '@/services/fea/feaFieldDetail';
@@ -386,8 +387,9 @@ const ObjectMetadataPanel: React.FC<Props> = ({data}) => {
     // Panel always renders when there's a selection — even without
     // any structured metadata — because it still hosts the clicked-
     // coordinate row and the cross-model link buttons.
-    const meta = (effectiveData ?? null) as BeamMeta | PlateMeta | CurvedPlateMeta | null;
-    const known = meta?.type === 'Beam' || meta?.type === 'Plate' || meta?.type === 'PlateCurved';
+    const meta = (effectiveData ?? null) as BeamMeta | PlateMeta | CurvedPlateMeta | WeldMeta | null;
+    const weld = isWeldMeta(meta);
+    const known = meta?.type === 'Beam' || meta?.type === 'Plate' || meta?.type === 'PlateCurved' || weld;
     const decimals = useOptionsStore((s) => s.clickedCoordDecimals);
     const setDecimals = useOptionsStore((s) => s.setClickedCoordDecimals);
     const decimalItems: KebabMenuItem[] = DECIMAL_CHOICES.map((d) => ({
@@ -436,6 +438,7 @@ const ObjectMetadataPanel: React.FC<Props> = ({data}) => {
                             <MaterialRows material={meta.material} />
                         </>
                     )}
+                    {weld && <WeldRows meta={meta} fileName={fileName} weldName={clickedName} />}
                     {meta?.type === 'PlateCurved' && (
                         <>
                             <Row label="Type:">Curved Plate</Row>
