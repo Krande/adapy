@@ -2,8 +2,8 @@
 
 A ``.gnx`` is what GeniE saves a workspace as — the file the OS associates
 with GeniE, so double-clicking one opens the model directly, where a plain
-concept XML must be imported into a workspace by hand. Reverse-engineered
-from workspaces GeniE V9.1 wrote; it is a zip of six members:
+concept XML must be imported into a workspace by hand. It is a zip of six
+members:
 
 ======================  ===========================================================
 ``modelData.xml``       the concept model — the same ``DNV_structure_concept_protocol``
