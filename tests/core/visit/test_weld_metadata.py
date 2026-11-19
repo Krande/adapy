@@ -6,7 +6,10 @@ the connection, and the roles a connection built at a model's joint recorded for
 import ada
 from ada import Beam, Part, Weld
 from ada.api.connections import Connection
-from ada.visit.scene_handling.scene_from_part import _weld_metadata, build_design_data_extension
+from ada.visit.scene_handling.scene_from_part import (
+    _weld_metadata,
+    build_design_data_extension,
+)
 
 
 def _fillet(name, p1, p2, members):
