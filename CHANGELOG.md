@@ -2,6 +2,15 @@
 
 
 
+## v0.162.1 (2026-11-19)
+
+### Fix
+
+* fix: admin providers, in-browser FEM conversion and provider IFC sweeps (#576)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`dc0ba25`](https://github.com/Krande/adapy/commit/dc0ba2501bd45974ae6b7fb8209e2b43876dbf7b))
+
+
 ## v0.162.0 (2026-11-19)
 
 ### Feature
