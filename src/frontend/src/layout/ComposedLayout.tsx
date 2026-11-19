@@ -66,6 +66,7 @@ export function shellModes(spec: UiShellSpec): ShellMode[] {
     toolbars: m.toolbars,
     requires: m.requires,
     open: m.open,
+    ...(m.toolbarEnd && shellPlugin ? {shellToolbarEnd: m.toolbarEnd, shellPluginId: shellPlugin} : {}),
   }));
   const extra = spec.layout?.modeArrangements ?? {};
   const theirs: ShellMode[] = getPluginModes()
@@ -84,6 +85,9 @@ export function shellModes(spec: UiShellSpec): ShellMode[] {
       // The shell's controls for it run as the shell, apart from the mode's own (ShellModeToolbar).
       ...(extra[mode.id]?.toolbar && shellPlugin
         ? {shellToolbar: extra[mode.id]!.toolbar, shellPluginId: shellPlugin}
+        : {}),
+      ...(extra[mode.id]?.toolbarEnd && shellPlugin
+        ? {shellToolbarEnd: extra[mode.id]!.toolbarEnd, shellPluginId: shellPlugin}
         : {}),
     }));
   return [...mine, ...theirs];

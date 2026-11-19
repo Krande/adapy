@@ -339,6 +339,9 @@ export type { SelectedObjectBox } from "@/viewport/api/viewportApi";
 //          on `@/viewer-core/app`: an engine-agnostic async check before every commit of the
 //          procedural model, handed `{doc, docExtras}`; answering false vetoes the commit (the
 //          store's `commit` returns false, the model stays dirty), a hook that throws does not.
+//          `UiShellMode.toolbarEnd(ctx)` (and `modeArrangements[id].toolbarEnd` for a plugin's
+//          mode): a shell's controls at the far right of the mode's toolbar region, outside the
+//          clip the toolbars sit in, so never folded behind "»"; run as the shell. Additive.
 export const PLUGIN_API_VERSION = "1.31.0";
 
 /** What the Simulations panel writes on a run's open-result button. */

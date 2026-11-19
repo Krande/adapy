@@ -115,21 +115,48 @@ export function modeTools(
   return parts;
 }
 
+/**
+ * A shell's controls for the far right of a mode's toolbar region (`shellToolbarEnd`), run as the
+ * shell; null when there are none, or when they threw (which disables the shell, as in `modeTools`).
+ */
+export function modeEndTools(
+  mode: Pick<ShellMode, "id" | "shellToolbarEnd" | "shellPluginId">,
+  contextFor: (pluginId: string) => AdaPluginContext,
+): React.ReactNode {
+  const {shellToolbarEnd: end, shellPluginId: pluginId} = mode;
+  if (!end || !pluginId) return null;
+  try {
+    return end(contextFor(pluginId)) ?? null;
+  } catch (err) {
+    disablePlugin(pluginId, `mode "${mode.id}" shell toolbar end threw: ${String(err)}`);
+    return null;
+  }
+}
+
 export function ShellModeToolbar({region = true}: {region?: boolean}) {
   const {modes, active} = useShellMode();
   const stores = useViewerStores();
   const theme = usePluginTheme();
   const mode = modes.find((m) => m.id === active);
   if (!mode) return region ? <ModeToolbarRegion /> : null;
-  const tools = modeTools(mode, (pluginId) => makePluginContext(pluginId, stores, theme));
+  const contextFor = (pluginId: string) => makePluginContext(pluginId, stores, theme);
+  const tools = modeTools(mode, contextFor);
   const own: React.ReactNode = tools.length ? <>{tools}</> : null;
   const core = mode.toolbars?.length ? <CoreModeToolbars ids={mode.toolbars} /> : null;
-  if (!core && !own) return region ? <ModeToolbarRegion /> : null;
+  const end = modeEndTools(mode, contextFor);
+  if (!core && !own && end == null) return region ? <ModeToolbarRegion /> : null;
   const content = (
     <>
       {core}
       {own}
     </>
   );
-  return region ? <ModeToolbarRegion>{content}</ModeToolbarRegion> : content;
+  if (region) return <ModeToolbarRegion end={end}>{content}</ModeToolbarRegion>;
+  // Bare: the end controls follow the toolbars, and the shell lays them out itself.
+  return (
+    <>
+      {content}
+      {end}
+    </>
+  );
 }
