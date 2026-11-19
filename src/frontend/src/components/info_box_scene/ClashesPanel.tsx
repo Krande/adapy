@@ -19,6 +19,7 @@ import { requestRender } from "@/state/perfStore";
 import { useModelState } from "@/state/modelState";
 import { useProviderName } from "@/state/providerNamesStore";
 import { providerIdTitle } from "@/assets/providerNames";
+import CollapsibleSection from "@/components/common/CollapsibleSection";
 import ClashRootPicker from "@/components/info_box_scene/ClashRootPicker";
 import IsolationControls from "@/components/info_box_scene/joints/IsolationControls";
 import {
@@ -856,7 +857,11 @@ const ClashesPanel: React.FC = () => {
       {preview ? (
         <Banner tone="info">The joint previewed in the Inspect tab: its measured contact, renewed with every build.</Banner>
       ) : (
-        <RunForm scope={scope} sourceKey={sourceKey} loadedSourceName={loadedSourceName} />
+        // The run form folds away under its header, the Connections panel's own disclosure (the
+        // Inspect tab's "Inputs", "Members" and "Welds"), so a long result list can have the room.
+        <CollapsibleSection title="Input" defaultOpen>
+          <RunForm scope={scope} sourceKey={sourceKey} loadedSourceName={loadedSourceName} />
+        </CollapsibleSection>
       )}
       {error && <Banner tone="error">{error}</Banner>}
       {result && <GeometrySourceLine result={result} />}
