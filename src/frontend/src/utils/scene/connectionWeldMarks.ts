@@ -4,6 +4,12 @@
 // here the welds are found by name in the Scene tree and drawn through the viewport's own calls: in
 // their colour as a mark (`highlightObjects`, what a plugin's highlight is), hidden with `hide`.
 //
+// SELECTED WELDS SHOW THE SELECTION. A mark is drawn over the selection's colour (`setObjectMarks`),
+// so a weld marked in its colour never looked selected: picking one, or selecting it from the
+// Connections tab, left it the weld colour. The weld colour is how the welds are told from their
+// members, not a highlight, so the mark follows the selection and leaves a selected weld out: it is
+// drawn in the selection's colour, and in the weld colour again once it is let go.
+//
 // They go with the model they were drawn on: when it leaves the scene (LIFETIME, below), and with
 // everything else when the scene is cleared (`clearScene`).
 //
@@ -12,21 +18,27 @@
 import { highlightObjects, type SceneHighlight } from "@/plugins/sceneHighlights";
 import { useModelState } from "@/state/modelState";
 import { findObjectsByName } from "@/utils/tree_view/modelSource";
-import { activeViewport, type ObjectRef } from "@/viewport/api/viewportApi";
+import { activeViewport, subscribeSelection, type ObjectRef } from "@/viewport/api/viewportApi";
 
 import type { WeldLook } from "./connectionWeldTint";
 
 const OWNER = "core:connection-preview";
 
 let marked: SceneHighlight | null = null;
+/** The welds marked in their colour, selected or not. */
+let markedRefs: ObjectRef[] = [];
+let stopFollowing: (() => void) | null = null;
 let hidden: ObjectRef[] = [];
 /** The loaded source the welds marked or hidden are of. */
 let markedFile: string | null = null;
 
 /** Put back whatever `markWelds` changed. */
 export function clearWeldMarks(): void {
+  stopFollowing?.();
+  stopFollowing = null;
   marked?.remove();
   marked = null;
+  markedRefs = [];
   // Shown again only while their model is: a cleared scene has nothing left to show.
   if (hidden.length && markedFile && useModelState.getState().loadedSourceNames.has(markedFile)) activeViewport()?.show(hidden);
   hidden = [];
@@ -37,6 +49,17 @@ export function clearWeldMarks(): void {
 useModelState.subscribe((s, prev) => {
   if (s.loadedSourceNames !== prev.loadedSourceNames && markedFile && !s.loadedSourceNames.has(markedFile)) clearWeldMarks();
 });
+
+/** The marked welds that are not selected now: what is drawn in the weld colour. */
+export function unselectedWelds(refs: readonly ObjectRef[], selection: readonly ObjectRef[]): ObjectRef[] {
+  if (selection.length === 0) return [...refs];
+  const selected = new Set(selection.map((r) => `${r.model}\n${r.id}`));
+  return refs.filter((r) => !selected.has(`${r.model}\n${r.id}`));
+}
+
+function remark(): void {
+  marked?.set(unselectedWelds(markedRefs, activeViewport()?.selection() ?? []));
+}
 
 /** Draw the welds named `weldNames` of the loaded source `file` as `look` says, through the viewport
  *  on screen. Returns how many objects it found (0: the tree does not list that source yet). */
@@ -50,7 +73,9 @@ export function markWelds(file: string | null, weldNames: string[], look: WeldLo
     activeViewport()?.hide(refs);
     hidden = refs;
   } else if (look.colour) {
-    marked = highlightObjects(OWNER, refs, { color: look.colour });
+    markedRefs = refs;
+    marked = highlightObjects(OWNER, unselectedWelds(refs, activeViewport()?.selection() ?? []), { color: look.colour });
+    stopFollowing = subscribeSelection(remark);
   }
   return refs.length;
 }

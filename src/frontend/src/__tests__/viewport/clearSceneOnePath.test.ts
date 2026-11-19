@@ -47,6 +47,8 @@ function countingViewport() {
     clearModels: () => void live.cleared++,
     hide: () => {},
     show: () => {},
+    selection: () => [],
+    onSelectionChange: () => () => {},
   } as unknown as ViewportApi;
   return { viewport, live };
 }
