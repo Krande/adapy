@@ -133,7 +133,32 @@ export function modeEndTools(
   }
 }
 
-export function ShellModeToolbar({region = true}: {region?: boolean}) {
+/**
+ * The active mode's end controls on their own (`UiShellMode.toolbarEnd`), for a shell whose toolbar
+ * row is laid out by itself: mounted where the row ends (`ml-auto` on it by default), with the toolbars
+ * drawn without them (`<ShellModeToolbar end={false} />`). Nothing when the mode has none.
+ */
+export function ShellModeToolbarEnd({className = "ml-auto flex shrink-0 items-center gap-2"}: {className?: string}) {
+  const {modes, active} = useShellMode();
+  const stores = useViewerStores();
+  const theme = usePluginTheme();
+  const mode = modes.find((m) => m.id === active);
+  const end = mode ? modeEndTools(mode, (pluginId) => makePluginContext(pluginId, stores, theme)) : null;
+  if (end == null) return null;
+  return (
+    <div className={className} data-mode-toolbar-end="">
+      {end}
+    </div>
+  );
+}
+
+/**
+ * `end={false}`: the toolbars without the mode's end controls, which the shell mounts itself
+ * (`ShellModeToolbarEnd`). Inside the region they sit at its right edge; the region fills the room its
+ * parent gives it (`flex: 1`), so a shell that puts it in a row of its own gives that row's slot the
+ * room (`flex-1`) or mounts the end on its own.
+ */
+export function ShellModeToolbar({region = true, end: withEnd = true}: {region?: boolean; end?: boolean}) {
   const {modes, active} = useShellMode();
   const stores = useViewerStores();
   const theme = usePluginTheme();
@@ -143,7 +168,7 @@ export function ShellModeToolbar({region = true}: {region?: boolean}) {
   const tools = modeTools(mode, contextFor);
   const own: React.ReactNode = tools.length ? <>{tools}</> : null;
   const core = mode.toolbars?.length ? <CoreModeToolbars ids={mode.toolbars} /> : null;
-  const end = modeEndTools(mode, contextFor);
+  const end = withEnd ? modeEndTools(mode, contextFor) : null;
   if (!core && !own && end == null) return region ? <ModeToolbarRegion /> : null;
   const content = (
     <>

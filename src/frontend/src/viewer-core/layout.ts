@@ -340,7 +340,7 @@ export type { SceneMirrorState } from "@/state/sceneMirrorStore";
 export { CLASSIC_GRID_OPS, GridOpsProvider, GridView } from "@/layout/presets/classicGrid";
 export type { GridOps, GridViewProps } from "@/layout/presets/classicGrid";
 export { default as PopoutPage, POPOUT_ZONE } from "@/layout/PopoutPage";
-export { ShellModeSwitcher, ShellModeToolbar, useShellMode } from "@/layout/ShellModeSwitcher";
+export { ShellModeSwitcher, ShellModeToolbar, ShellModeToolbarEnd, useShellMode } from "@/layout/ShellModeSwitcher";
 export type { ShellModeSwitcherProps } from "@/layout/ShellModeSwitcher";
 // Core's mode toolbars: a mode names them (`UiShellMode.toolbars`) or a shell mounts them itself.
 export {

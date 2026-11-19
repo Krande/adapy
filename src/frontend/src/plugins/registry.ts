@@ -386,6 +386,9 @@ export type { SelectedObjectBox } from "@/viewport/api/viewportApi";
 //          sharing the index -- is given the hidden ranges on add and on every hide / show
 //          (`CustomBatchedMesh.isAlignedOverlay`), so its colours leave hidden elements alone with
 //          no change to the plugin. Lines and sprites of a plugin's own are not: those it hides.
+//          `ShellModeToolbarEnd` (on `/layout`) and `ShellModeToolbar end={false}`: a shell whose
+//          toolbar row is its own mounts the mode's end controls at the row's end itself; inside
+//          the region they sit at its right edge only as far as the region is given room (`flex-1`).
 export const PLUGIN_API_VERSION = "1.31.0";
 
 /** What the Simulations panel writes on a run's open-result button. */
