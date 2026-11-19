@@ -1,7 +1,7 @@
 // Connections > Review, "Joints shown": the joints of a loaded model opened from a picked weld
 // ("Show joint" in the Selected Object panel) or from a produced joint's row. Each is a card: its
-// connection and spec, its members by role and its welds (each selects). The joints are
-// `jointFocusStore`'s.
+// connection and spec, its members by role and its welds (each selects), and the overlays drawn for
+// that joint alone (`JointOverlayToggles`). The joints and their switches are `jointFocusStore`'s.
 
 import React from "react";
 
@@ -12,6 +12,8 @@ import {selectInOtherModel} from "@/utils/scene/crossModelSelect";
 import {weldSymbolSvg} from "@/utils/weldSymbols";
 import {weldTypeName} from "@/utils/weldTypeNames";
 import {fmtWeldLength, fmtWeldMm, isWeldMeta} from "@/components/info_box_selected_object/WeldRows";
+
+import JointOverlayToggles from "./JointOverlayToggles";
 
 const select = (file: string, names: string[]) => {
     if (names.length) void selectInOtherModel({file, nodeNames: names});
@@ -110,6 +112,7 @@ const JointCard: React.FC<{joint: FocusedJoint}> = ({joint}) => {
                             </ul>
                         </div>
                     )}
+                    <JointOverlayToggles joint={joint} />
                 </>
             )}
         </div>

@@ -14,6 +14,8 @@ import {connectionOfWeld, useConnectionGraphStore, type ConnectionRef} from "@/s
 import {JOINTS_REVIEW_TAB} from "@/state/connectionBuilderTabStore";
 import {useJointFocusStore} from "@/state/jointFocusStore";
 import {selectInOtherModel} from "@/utils/scene/crossModelSelect";
+// What draws a shown joint's overlays: running before the first joint is shown.
+import "@/utils/scene/jointFocusOverlay";
 import {weldSymbol, weldSymbolSvg} from "@/utils/weldSymbols";
 import {weldTypeName} from "@/utils/weldTypeNames";
 
