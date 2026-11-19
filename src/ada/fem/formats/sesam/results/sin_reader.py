@@ -11,8 +11,7 @@ Walks the file's per-type blocks and exposes:
   ``types`` (list of TypeBlock keyed by name) and ``iter_records``
   for record-by-record float access.
 
-The binary format spec was reverse-engineered against ``dnv-sifio``
-output; see ``SIN_FORMAT.md`` in this directory.
+The layout is described in ``SIN_FORMAT.md`` in this directory.
 
 Byte access goes through a :class:`ByteSource`
 (:mod:`ada.fem.formats.sesam.results.byte_source`) so the same decoder
