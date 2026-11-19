@@ -40,7 +40,9 @@ from ada.assets.manifest import (  # noqa: E402
 from ada.assets.projection import build_hierarchy  # noqa: E402
 from ada.comms.rest import db as dbm  # noqa: E402
 from ada.comms.rest import subprocess_convert  # noqa: E402
-from ada.comms.rest.app import create_app  # noqa: E402,F401  (adacpp before numpy's BLAS, as elsewhere)
+from ada.comms.rest.app import (  # noqa: E402,F401  (adacpp before numpy's BLAS, as elsewhere)
+    create_app,
+)
 from ada.comms.rest.db.provider_grants import merge_access  # noqa: E402
 from ada.comms.rest.formats import clash_check_group, clash_isolation  # noqa: E402
 from ada.comms.rest.routes import provider_store as ps  # noqa: E402
