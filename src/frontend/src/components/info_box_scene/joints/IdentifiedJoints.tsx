@@ -28,6 +28,7 @@ import {
 import { useModelState } from "@/state/modelState";
 import { scopeUrlPart, useScopeStore } from "@/state/scopeStore";
 import { focusJoint as focusJointEverywhere, selectClashMembers } from "@/utils/scene/clashJointFocus";
+import { revealInScroller } from "@/utils/dom/revealInScroller";
 import IsolationControls from "./IsolationControls";
 import JointDetail from "./JointDetail";
 import { cursorIndex, groupRowFor, step, visibleRows, type JointRow } from "./rows";
@@ -74,12 +75,13 @@ const IdentifiedJoints: React.FC = () => {
     [],
   );
 
-  // Keep the cursor row in view when it moved by keyboard rather than by click.
+  // Keep the cursor row (and its detail) in view. Within the panel's own scroll box only
+  // (`revealInScroller`): `scrollIntoView` scrolled every box up to the page itself -- which does
+  // not scroll -- and the top bar went off the top of the screen.
   useEffect(() => {
     if (cursor < 0) return;
-    const row = listRef.current?.querySelector(`[data-row-index="${cursor}"]`);
-    row?.scrollIntoView({ block: "nearest" });
-  }, [cursor, rows]);
+    revealInScroller(listRef.current?.querySelector(`[data-row-index="${cursor}"]`));
+  }, [cursor, rows, detailOpen]);
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     if (!result || rows.length === 0) return;
