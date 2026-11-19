@@ -29,6 +29,19 @@ export class CustomBatchedMesh extends THREE.Mesh {
      *  hidden set without exposing its identity. */
     public hiddenChangeCounter = 0;
 
+    private hiddenNotified = 0;
+    /** The marks last set (`setMarks`), hidden ranges included. */
+    private _marks: ReadonlyMap<string, number> | null = null;
+    private readonly hiddenListeners = new Set<() => void>();
+
+    /** Call `listener` after every hide, unhide and isolate of this mesh's ranges: for what draws its
+     *  elements in a geometry of its own (the coloured beam lines, the result-point markers), which
+     *  leaves the hidden ones out. Returns the unsubscribe. */
+    public onHiddenChange(listener: () => void): () => void {
+        this.hiddenListeners.add(listener);
+        return () => void this.hiddenListeners.delete(listener);
+    }
+
     private markHiddenChanged(): void {
         this.hiddenChangeCounter++;
         useVisibilityStore.getState().bump();
@@ -228,6 +241,15 @@ export class CustomBatchedMesh extends THREE.Mesh {
         const hasOverrides =
             this.hiddenRanges.size > 0 ||
             (!this._usesVertexColorsFlag && this.selectedRanges.size > 0);
+        // Whatever draws these elements over this mesh hides with them (`syncAlignedOverlays`).
+        for (const child of this.children) this.syncAlignedOverlay(child);
+        // And what draws them in a shape of its own (beam lines, result points) is told.
+        if (this.hiddenNotified !== this.hiddenChangeCounter) {
+            this.hiddenNotified = this.hiddenChangeCounter;
+            // A mark on an element hidden since it was set goes; one shown again comes back.
+            if (this._marks?.size) this.setMarks(this._marks);
+            for (const listener of [...this.hiddenListeners]) listener();
+        }
         if (!hasOverrides) {
             this.geometry.addGroup(0, idxCount, 0);
             return;
@@ -250,6 +272,59 @@ export class CustomBatchedMesh extends THREE.Mesh {
             0,
         );
         for (const g of groups) this.geometry.addGroup(g.start, g.count, g.materialIndex);
+    }
+
+    /** Hidden in an overlay drawn over this mesh: never drawn, whatever the hidden appearance is. */
+    private _matOverlayHidden = new THREE.MeshBasicMaterial({visible: false});
+
+    /**
+     * Whether `obj` draws this mesh's elements in its own geometry, corner for corner of this mesh's
+     * index list: a copy of the mesh "de-indexed" (vertex k is index entry k, so a draw range is the
+     * same numbers in it), with one material of its own. What an overlay painted over the elements
+     * looks like -- core's element paint, a plugin's colour field hung on the mesh it got from
+     * `getActiveFeaMesh`. Never anything indexed (a copy that shares this mesh's index or geometry --
+     * a highlight, a posed copy -- draws by groups of its own, which this must not clear), nor one
+     * that draws with several materials, nor another mesh with element ranges of its own.
+     */
+    public isAlignedOverlay(obj: THREE.Object3D): obj is THREE.Mesh {
+        if (!(obj instanceof THREE.Mesh) || obj instanceof CustomBatchedMesh || this.isHighlightOverlay(obj)) return false;
+        const geom = obj.geometry as THREE.BufferGeometry | undefined;
+        const index = this.geometry.index;
+        if (!geom || !index || geom === this.geometry || geom.index) return false;
+        if (Array.isArray(obj.material) && obj.material[1] !== this._matOverlayHidden) return false;
+        return geom.getAttribute("position")?.count === index.count;
+    }
+
+    /**
+     * Give an aligned overlay (`isAlignedOverlay`) this mesh's hidden ranges: a hidden element has
+     * no colour, no glyph face drawn over it either. Its own material draws the rest. Run on every
+     * hide / unhide / isolate and when the overlay is added, so an overlay made (or remade, a View
+     * setting changed) after a hide starts out with the hidden elements left out.
+     */
+    private syncAlignedOverlay(obj: THREE.Object3D): void {
+        if (!this.isAlignedOverlay(obj)) return;
+        const geom = obj.geometry as THREE.BufferGeometry;
+        // Its own material: the one it draws with, or the first of the pair this gave it before.
+        const current = obj.material;
+        const own = Array.isArray(current) ? current[0] : current;
+        geom.clearGroups();
+        if (this.hiddenRanges.size === 0) {
+            obj.material = own;
+            return;
+        }
+        const segs = this.getSortedSegments();
+        const total = this.geometry.index!.count;
+        for (const g of coalescedGroups(segs.starts, segs.counts, (i) => (this.hiddenRanges.has(segs.ids[i]) ? 1 : 0), total, 0)) {
+            geom.addGroup(g.start, g.count, g.materialIndex);
+        }
+        obj.material = [own, this._matOverlayHidden];
+    }
+
+    /** Children added are given the hidden ranges at once (`syncAlignedOverlay`). */
+    override add(...objects: THREE.Object3D[]): this {
+        super.add(...objects);
+        for (const o of objects) this.syncAlignedOverlay(o);
+        return this;
     }
 
     /** call this when you have a renderer and want the overlay in the scene */
@@ -779,6 +854,8 @@ export class CustomBatchedMesh extends THREE.Mesh {
      *  selection and not a colour of the object's own: neither changes, and nothing is recorded. A
      *  hidden range is not drawn. */
     public setMarks(marks: ReadonlyMap<string, number> | null): void {
+        // Kept, so a later hide or show draws the marks again without the hidden ones (`updateGroups`).
+        this._marks = marks;
         const entries = marks ? [...marks].filter(([id]) => this.drawRanges.has(id) && !this.hiddenRanges.has(id)) : [];
         const old = this._markOverlay;
         if (old) for (const m of old.material as THREE.Material[]) m.dispose();
@@ -804,8 +881,9 @@ export class CustomBatchedMesh extends THREE.Mesh {
             overlay.matrixAutoUpdate = true;
             overlay.layers.mask = this.layers.mask;
             overlay.renderOrder = 9;
-            this.add(overlay);
+            // Known as this mesh's own before it is added: `add` leaves its own overlays alone.
             this._markOverlay = overlay;
+            this.add(overlay);
         }
         overlay.material = materials;
         (overlay as any).morphTargetInfluences = (this as any).morphTargetInfluences;

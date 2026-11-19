@@ -181,10 +181,17 @@ class LoadConceptSurface:
 
 @dataclass
 class RotationalAccelerationField:
+    """A rotation field of a load case.
+
+    ``include_self_weight`` is the rotation field's own GeniE "include self weight" flag, set apart from the gravity
+    field's (``LoadConceptAccelerationField.include_self_weight``), as GeniE holds them.
+    """
+
     rotational_point: tuple[float, float, float] | Point
     rotational_axis: tuple[float, float, float] | Direction
     angular_acceleration: float
     angular_velocity: float
+    include_self_weight: bool = True
     parent: LoadConceptAccelerationField = field(init=False, repr=False)
 
     def __post_init__(self):

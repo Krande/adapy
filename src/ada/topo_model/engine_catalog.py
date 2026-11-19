@@ -31,6 +31,7 @@ from ada.core.engine_specs import is_offerable
 from .engines import BUILTIN_ENGINES
 
 __all__ = [
+    "clean_field_help",
     "register_procedural_engine_capabilities",
     "procedural_engine_specs",
     "is_offerable",
@@ -52,6 +53,7 @@ def register_procedural_engine_capabilities(
     export_entrypoint: str | None = None,
     import_entrypoint: str | None = None,
     supports_excel: bool | None = None,
+    field_help: dict | None = None,
 ) -> None:
     """Register (or replace) what an engine advertises. Idempotent by ``slug``.
 
@@ -76,6 +78,13 @@ def register_procedural_engine_capabilities(
     as it always was. Together they are what an engine registered without a
     database row needs to say about Excel, so core keeps no list of slugs.
 
+    ``field_help`` is what the engine's doc columns mean, for the viewer's field help:
+    ``{list: {COLUMN: text}}``, a list being a doc list (``"spaces"``, ``"equipments"``,
+    ``"openings"``, ...) or ``"structures"`` / ``"supports"``, a column as the doc's rows
+    name it, the text plain (newlines allowed). The viewer shows it over adapy's own
+    descriptions (:func:`ada.topology.entities.entity_field_help`), the engine's text
+    winning per column. Left unset, the engine has none of its own.
+
     A worker can only honestly advertise an engine whose code it has, so the
     registration belongs in the engine package itself, run at import (see
     ``ADA_WORKER_PRELOAD``). An engine that stops being installed stops being
@@ -99,6 +108,8 @@ def register_procedural_engine_capabilities(
         spec["export_entrypoint"] = export_entrypoint
     if import_entrypoint:
         spec["import_entrypoint"] = import_entrypoint
+    if field_help:
+        spec["field_help"] = clean_field_help(field_help)
     # Only a spec carrying BOTH a name and an entrypoint is offerable. Older
     # workers advertise flags alone, and a half-filled descriptor would surface
     # an engine the viewer cannot dispatch to -- worse than not offering it.
@@ -109,6 +120,22 @@ def register_procedural_engine_capabilities(
         if worker_capability:
             spec["worker_capability"] = worker_capability
     _ENGINE_CAPABILITY_REGISTRY[slug] = spec
+
+
+def clean_field_help(field_help: object) -> dict[str, dict[str, str]]:
+    """``field_help`` as the viewer takes it: ``{list: {COLUMN: text}}`` with string keys and
+    plain-text values. Anything else in it (a non-dict list, an empty text) is dropped rather
+    than refused: help is a courtesy, and a typo in it must not keep an engine from registering."""
+    if not isinstance(field_help, dict):
+        return {}
+    out: dict[str, dict[str, str]] = {}
+    for key, rows in field_help.items():
+        if not isinstance(key, str) or not isinstance(rows, dict):
+            continue
+        kept = {str(col): str(text) for col, text in rows.items() if isinstance(col, str) and text not in (None, "")}
+        if kept:
+            out[key] = kept
+    return out
 
 
 def procedural_engine_specs() -> list[dict]:

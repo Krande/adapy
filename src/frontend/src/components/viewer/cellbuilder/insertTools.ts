@@ -51,7 +51,7 @@ export const refreshEquipEntry = (ctx: CellBuilderScene) => {
     setGhostBox(ctx, {origin, size});
     const centre: Vec3 = [origin[0] + size[0] / 2, origin[1] + size[1] / 2, origin[2] + size[2] / 2];
     if (ctx.equipEntry.phase === "pick") {
-        showReadout(ctx, `${equipTypeName(ctx)} → ${host.name}`, centre);
+        showReadout(ctx, `Insert ${equipTypeName(ctx)} in ${host.name}`, centre);
         st.setToolHint(
             `Insert ${equipTypeName(ctx)} @ cell ${host.name} — T type, N/P cell, ↵ pick, Esc cancel`,
         );

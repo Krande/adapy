@@ -41,6 +41,32 @@ export interface ObjectRef {
     node?: string | null;
 }
 
+/** A selected object and its box in the model's own coordinates: those of the loaded model's file
+ *  (the frame `ctx.scene.addLines` / `addPointLayer` take positions in), not the viewport's world,
+ *  which is recentred on what was loaded. What `selectionBoxes` answers, one per object. */
+export interface SelectedObjectBox {
+    /** The model (source) the object belongs to, as ObjectRef.model. */
+    model: string;
+    /** The object's id, as ObjectRef.id. */
+    id: string;
+    /** The object's name as the GLB/tree names it (the node or draw-range name a user sees), or null. */
+    name: string | null;
+    /** The names of the object's ancestors from the model's root down (excluding the object), e.g.
+     *  ["model.glb", "Mini", "deck_a"]; [] if unknown. Lets a caller group by a top-level node (one
+     *  per structure). */
+    path: string[];
+    /** Axis-aligned box in the model's own (file) coordinates. */
+    min: [number, number, number];
+    max: [number, number, number];
+}
+
+/** A box of a viewport's world (min xyz, max xyz) in the model's own coordinates, for a viewport
+ *  that places its models at world = model + offset (null: no offset). */
+export function modelBox(min: ArrayLike<number>, max: ArrayLike<number>, offset: ArrayLike<number> | null): Pick<SelectedObjectBox, "min" | "max"> {
+    const o = offset ?? [0, 0, 0];
+    return {min: [min[0] - o[0], min[1] - o[1], min[2] - o[2]], max: [max[0] - o[0], max[1] - o[1], max[2] - o[2]]};
+}
+
 export interface ViewportCameraPose {
     eye: [number, number, number];
     target: [number, number, number];
@@ -173,6 +199,10 @@ export interface ViewportApi {
     objectsInBox: ViewportBoxSelection["objectsInBox"];
     objectsInScreenRect: ViewportBoxSelection["objectsInScreenRect"];
     selectionBounds: ViewportBoxSelection["selectionBounds"];
+    /** Each selected object that is drawn and has geometry, with its box in the model's own
+     *  coordinates, its name and the names above it; [] when nothing is selected. A selected object
+     *  that is hidden is still in it; a level of the hierarchy that draws nothing is not. */
+    selectionBoxes(): SelectedObjectBox[];
     // Screen positions, for what is drawn in HTML over the view (number labels).
     /** Where `count` world points (xyz each, in `world`) are in the view now: per point, x and y in
      *  CSS pixels from the view's top-left corner and the depth (0 at the near plane, 1 at the far

@@ -3,7 +3,7 @@ import {type CameraView} from "@/layout/coreCommandIds";
 import {namedViewDirection} from "@/utils/camera/namedViewDirection";
 import {downloadCanvas} from "@/utils/downloadCanvas";
 import {matrixProjector} from "@/utils/scene/fea/labelPlacement";
-import type {ObjectRef, ViewportApi} from "@/viewport/api/viewportApi";
+import {modelBox, type ObjectRef, type ViewportApi} from "@/viewport/api/viewportApi";
 import type {BillboardLayer} from "@/viewport/api/billboards";
 import {createNativeBillboardLayer} from "./nativeBillboards";
 import type {OverlayLayer} from "@/viewport/api/overlayLayer";
@@ -132,6 +132,16 @@ export function createNativeViewportApi(scene: NativeScene): ViewportApi {
         objectsInBox: (box, mode) => nativeObjectsInBox(scene, box, mode),
         objectsInScreenRect: (rect, mode) => nativeObjectsInScreenRect(scene, rect, mode),
         selectionBounds: () => nativeSelectionBounds(scene),
+        // The scene's boxes are of its world: every model is placed by the scene's one offset.
+        selectionBoxes: () => {
+            const offset = scene.sceneOffset;
+            return scene.selectedObjects().map(({key, box, name, path}) => ({
+                ...splitObjectKey(key),
+                name,
+                path,
+                ...modelBox(box, [box[3], box[4], box[5]], offset),
+            }));
+        },
         projectToScreen: (world, count, out) => {
             const {view, proj, width, height} = scene.screenProjection();
             return matrixProjector(view, proj, width, height, 0)(world, count, out);

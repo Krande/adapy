@@ -290,7 +290,9 @@ function ClassicColumn({proceduralActive}: {proceduralActive: boolean}) {
           doc={doc}
         />
       )}
-      {p.id === CORE_PANEL_IDS.cellbuilder && proceduralActive && <CellBuilderOverlays />}
+      {/* Once: a shell that puts them over the view (`overlays.builder`) has them there. Twice, each
+          menu closed the other on the press that picks an item, so none of its items ran. */}
+      {p.id === CORE_PANEL_IDS.cellbuilder && proceduralActive && !classicOverlays()?.builder && <CellBuilderOverlays />}
     </React.Fragment>
   );
   const order = (p: RegisteredPanel) => p.placement?.[CLASSIC_PRESET_ID]?.order ?? 0;

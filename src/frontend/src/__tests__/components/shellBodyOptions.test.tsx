@@ -73,7 +73,7 @@ test("Settings: one tab per available section, in the classic order, the first o
   const html = renderToStaticMarkup(React.createElement(SettingsBody));
   const tabs = [...html.matchAll(/role="tab"[^>]*>([^<]+)</g)].map((m) => m[1]);
   // The REST-only sections (Session restore, Conversion engine) are left out outside REST mode.
-  assert.deepEqual(tabs, ["Scene config", "Appearance", "Theme", "Performance", "Calculations", "Controls", "3D mouse"]);
+  assert.deepEqual(tabs, ["Scene config", "Appearance", "Theme", "Performance", "Calculations", "Controls", "3D mouse", "Grid &amp; snapping"]);
   assert.match(html, /aria-selected="true"[^>]*>Scene config</);
   assert.match(html, /role="tabpanel" aria-label="Scene config"/);
   assert.match(html, /Build:/);

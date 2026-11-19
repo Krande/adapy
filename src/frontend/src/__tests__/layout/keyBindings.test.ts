@@ -158,3 +158,71 @@ test("the shortcuts dialog, the dispatcher and the rail all read the one effecti
   assert.match(read("layout/keyBindings.ts"), /listShortcuts|listDefaultShortcuts/);
   assert.match(read("layout/commands.ts"), /coreShortcutKeys\(c\.shortcut\)/);
 });
+
+test("a shell's local key is listed but never dispatched, may share a chord, and takes none from anyone", () => {
+  // Shift+H is core's (dispatched): a local listing of it is still accepted.
+  assert.equal(S.registerShortcut({ id: "shell:tool", keys: "Shift+H", label: "Hide in my tool", group: "My tool", local: true }, "shell"), true);
+  assert.equal(S.registerShortcut({ id: "shell:q", keys: "Q", label: "Quick tool", local: true }, "shell"), true);
+  const list = S.listShortcuts();
+  assert.equal(list.find((s) => s.id === "shell:q")?.local, true);
+  assert.equal(S.matchShortcut(press("Q"), list), null, "never dispatched");
+  assert.equal(S.registerShortcut({ id: "plug:q", keys: "Q", label: "Q", run() {} }, "plug"), true, "a local key holds no chord");
+  const row = K.keyRows().find((r) => r.shortcutId === "shell:q")!;
+  assert.equal(row.locked, true);
+  assert.equal(row.keys, "Q");
+});
+
+test("a command's own chord beside the core key it names is shown on the command's row, not as a row of its own", () => {
+  C.registerCommand({ id: "t:palette", label: "Palette", shortcut: "core:command-palette", keys: "Ctrl+Alt+P", run: () => {} }, "plug");
+  const rows = K.keyRows();
+  const row = rows.find((r) => r.commandId === "t:palette")!;
+  assert.equal(row.shortcutId, "core:command-palette");
+  assert.equal(row.keys, "Ctrl+K");
+  assert.deepEqual(row.extraKeys, ["Ctrl+Alt+P"]);
+  assert.ok(!rows.some((r) => r.shortcutId === "cmd:t:palette"), "folded into the command's row");
+});
+
+test("the dialog's search finds a row by its keys", async () => {
+  C.registerCommand({ id: "t:palette", label: "Palette", shortcut: "core:command-palette", keys: "Ctrl+Alt+P", run: () => {} }, "plug");
+  const { shortcutRowsFor } = await import("@/components/options/ShortcutsModal");
+  const rows = K.keyRows();
+  assert.equal(shortcutRowsFor("ctrl+k", rows)[0]?.shortcutId, "core:command-palette");
+  assert.equal(shortcutRowsFor("Ctrl + Alt + P", rows)[0]?.commandId, "t:palette", "an alias too, spaced as the dialog shows it");
+  assert.ok(shortcutRowsFor("shift+h", rows).some((r) => r.shortcutId === "core:hide-selected"));
+  assert.ok(shortcutRowsFor("5", rows).some((r) => r.shortcutId === "core:builder-cell-type"), "a digit finds its run");
+  assert.ok(shortcutRowsFor("ctrl+", rows).length > 3, "a chord's start lists the chords that begin with it");
+  assert.equal(K.chordQueryRank("", { keys: "Ctrl+K" }), null);
+});
+
+test("search by keys: a modifier lists every chord holding it, a letter that key only, a chord itself first, a word the labels", async () => {
+  const { shortcutRowsFor } = await import("@/components/options/ShortcutsModal");
+  const rows = K.keyRows();
+  const keysOf = (q: string) => shortcutRowsFor(q, rows).map((r) => (r.keysLabel ?? r.keys ?? "").toLowerCase());
+  for (const [word, mod] of [["alt", "alt"], ["shift", "shift"], ["ctrl", "ctrl"], ["Ctrl", "ctrl"]] as const) {
+    const hits = keysOf(word);
+    const withMod = rows.filter((r) => r.keys && S.parseShortcut(r.keys)![mod]);
+    assert.equal(hits.length, withMod.length, `${word}: every shortcut with it, nothing else`);
+    assert.ok(hits.every((k) => k.split("+").includes(mod)), word);
+  }
+  // A single letter is a key, with or without modifiers -- not every label holding a "g".
+  const g = shortcutRowsFor("g", rows);
+  assert.ok(g.length > 0 && g.every((r) => S.parseShortcut(r.keys!)!.key === "g"), g.map((r) => r.keys).join());
+  assert.ok(g.some((r) => r.shortcutId === "core:builder-translate"), "G itself");
+  assert.ok(g.some((r) => r.shortcutId === "core:group-selection"), "Shift+G too");
+  assert.equal(g[0].keys, "G", "the bare key first");
+  // Combined, as before.
+  assert.equal(shortcutRowsFor("ctrl+k", rows)[0]?.shortcutId, "core:command-palette");
+  assert.equal(shortcutRowsFor("shift h", rows)[0]?.keys, "Shift+H");
+  assert.ok(shortcutRowsFor("Shift + H", rows).every((r) => r.keys === "Shift+H" || /shift\+h/i.test(r.keys ?? "")));
+  assert.ok(shortcutRowsFor("alt+1", rows).some((r) => r.shortcutId === "core:view.top"));
+  // Longer words still find labels.
+  assert.ok(shortcutRowsFor("palette", rows).some((r) => r.shortcutId === "core:command-palette"));
+  assert.ok(shortcutRowsFor("orbit", rows).length >= 4);
+  // A key's name that is also a word finds both.
+  const del = shortcutRowsFor("delete", rows);
+  assert.ok(del.some((r) => r.keys === "Delete"));
+  // Not keys at all.
+  assert.equal(K.parseKeyQuery("palette"), null);
+  assert.equal(K.parseKeyQuery("k ctrl"), null, "a key before a modifier is not a chord");
+  assert.deepEqual(K.parseKeyQuery("shift h"), { mods: new Set(["shift"]), key: "h", wordToo: false });
+});

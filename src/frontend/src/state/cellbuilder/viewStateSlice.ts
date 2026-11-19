@@ -47,6 +47,10 @@ export interface ViewStateSlice {
    * positions + direction vectors drawn as coloured arrows (colours match the
    * catalog editor). Off by default. */
   portsOverlayVisible: boolean;
+  /** The info label (I): the selection's dimensions, masses or its provider's words, drawn
+   * beside it on screen (components/viewer/cellbuilder/infoLabel.ts). Off by default. */
+  infoLabel: boolean;
+  setInfoLabel: (v: boolean) => void;
   /** @deprecated The cellbuilder panel's flag. Ask `isPanelOpen("core:cellbuilder")` (`@/viewer-core`); open and close it with `reveal` / `hide`. */
   panelVisible: boolean;
   /** Whether the standalone component list panel (`core:component-list`) is open. */
@@ -83,6 +87,8 @@ export const createViewStateSlice: CellBuilderSlice<ViewStateSlice> = (set, get)
     cellsVisible: true,
     hiddenCellIds: [],
     portsOverlayVisible: false,
+    infoLabel: false,
+    setInfoLabel: (infoLabel) => set({ infoLabel }),
     panelVisible: false,
     componentListVisible: false,
     setComponentListVisible: (componentListVisible) => set({ componentListVisible }),
@@ -106,7 +112,7 @@ export const createViewStateSlice: CellBuilderSlice<ViewStateSlice> = (set, get)
         // selected (its box is now click-through) — drop it from the
         // multi-select set and clear the primary selection when it's hidden.
         for (const id of ids) if (s.cells[id]) next.add(id);
-        const selHidden = s.selection && next.has(s.selection.cellId);
+        const selHidden = !!s.selection?.cellId && next.has(s.selection.cellId);
         return {
           hiddenCellIds: [...next],
           selectedCellIds: s.selectedCellIds.filter((id) => !next.has(id)),

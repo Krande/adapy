@@ -56,6 +56,7 @@ import {
     toggledAxisLock,
     type GizmoAxis,
 } from "@/utils/gizmo/transformKeys";
+import {installFreeMoveKeys, snapStep, type FreeMoveKeySource} from "@/utils/gizmo/freeMove";
 import {linearColor, linearHex} from "@/utils/scene/sceneColor";
 import {VIEWPORT_INPUT_ATTR} from "@/viewport/input";
 import type {OverlayLayer} from "@/viewport/api/overlayLayer";
@@ -316,6 +317,8 @@ export class BoxPlacement {
                 keys.addEventListener("keydown", onKey, true);
                 offs.push(() => keys.removeEventListener("keydown", onKey, true));
             }
+            // Left Shift held while dragging: free move, as in the builder (utils/gizmo/freeMove.ts).
+            if (env.keys) offs.push(installFreeMoveKeys(env.keys as unknown as FreeMoveKeySource));
         }
         this.detachEnv = () => offs.forEach((off) => off());
         this.draw();
@@ -516,13 +519,13 @@ export class BoxPlacement {
             if (drag.grab.kind === "axis") {
                 const t = alongAxis(p, drag.o, drag.tip, reach);
                 if (t === null) return;
-                next.position[drag.grab.axis] = snapTo(drag.start.position[drag.grab.axis] + t - drag.t0, this.step);
+                next.position[drag.grab.axis] = snapTo(drag.start.position[drag.grab.axis] + t - drag.t0, snapStep(this.step));
             } else {
                 const q = inPlane(p, drag.o, drag.ex, drag.ey, reach);
                 if (!q) return;
                 if (drag.grab.kind === "plane") {
-                    next.position[0] = snapTo(drag.start.position[0] + q[0] - drag.q0[0], this.step);
-                    next.position[1] = snapTo(drag.start.position[1] + q[1] - drag.q0[1], this.step);
+                    next.position[0] = snapTo(drag.start.position[0] + q[0] - drag.q0[0], snapStep(this.step));
+                    next.position[1] = snapTo(drag.start.position[1] + q[1] - drag.q0[1], snapStep(this.step));
                 } else {
                     const bearing = bearingOf(q);
                     drag.turned += turnBetween(drag.bearing, bearing);
@@ -542,7 +545,7 @@ export class BoxPlacement {
             // The first move is where the pointer was when the axis was locked: the box does not jump to it.
             if (modal.startT === null) return void (modal.startT = t);
             const next = copy(modal.start);
-            next.position[modal.axis] = snapTo(modal.start.position[modal.axis] + t - modal.startT, this.step);
+            next.position[modal.axis] = snapTo(modal.start.position[modal.axis] + t - modal.startT, snapStep(this.step));
             return this.userMoved(next);
         }
         // Over a handle the cursor says so; it is set back once, on leaving, and otherwise left to others.

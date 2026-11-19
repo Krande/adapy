@@ -1,14 +1,25 @@
 // The sections of the Selected Object panel, as an ordered list of providers: each says when it
 // applies to the selection and what it renders. Core's own sections are providers too (orders
-// 0-70, in steps of ten), so a plugin's section slots between them by its `order`.
+// 0-60, in steps of ten; the builder's three at 70, 72 and 74), so a plugin's section slots between
+// them by its `order`.
 //
 // Dependency-free (React only as a type), so it sits on the root `@/viewer-core` entry.
 
 import type React from "react";
 
-/** What is selected, for `match`. A builder-cell selection wins over a mesh pick behind it. */
+/** What is selected, for `match`. A builder selection (a cell, or a plugin's ref) wins over a
+ *  mesh pick behind it. */
 export interface SelectionSnapshot {
-  kind: "none" | "mesh" | "cell";
+  kind: "none" | "mesh" | "cell" | "ref";
+  /** Under a ref selection: the provider that showed it and its own key for the row
+   *  (`registerBuilderRefs`). */
+  refOwner?: string;
+  refKey?: string;
+  /** Under a builder selection: the structure and the space it belongs to, by name, so a
+   *  section can place itself. With a procedural model open and nothing selected, `structure`
+   *  is the active structure. */
+  structure?: string;
+  space?: string;
   /** The name the panel shows: the cell's under a cell selection, else the picked element's. */
   name: string | null;
   /** The picked element's name, under a cell selection too. */
@@ -19,6 +30,8 @@ export interface SelectionSnapshot {
   hasEntities: boolean;
   /** A procedural builder model is open, whatever is selected. */
   cellBuilderActive: boolean;
+  /** The composed shell's active mode (`activeShellMode`); absent in a shell without modes. */
+  shellMode?: string;
 }
 
 export interface PropertyProvider {

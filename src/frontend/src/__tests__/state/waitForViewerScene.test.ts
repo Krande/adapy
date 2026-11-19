@@ -30,3 +30,9 @@ test("waitForViewerScene rejects when no scene appears in time", async () => {
         unmount();
     }
 });
+
+test("waitForViewerScene gives up at once when no three.js scene will come", async () => {
+    const started = Date.now();
+    await assert.rejects(waitForViewerScene(5_000, () => true), /three\.js-free viewport/);
+    assert.ok(Date.now() - started < 1_000, "it did not wait for the timeout");
+});

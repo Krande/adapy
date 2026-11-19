@@ -10,8 +10,10 @@
 // Floating windows (the in-viewer admin / convert window, the attribute search)
 // share a second, darker look: a card with a title bar.
 //
-// Dependency-free strings, so Tailwind sees every class literally and
+// Plain strings (and one pure colour test), so Tailwind sees every class literally and
 // `node --test` can import them.
+
+import {isLightColor} from "@/utils/colorLuminance";
 
 /** Colours, border and shadow: the surface every menu-column panel is drawn on. */
 export const PANEL_SURFACE =
@@ -33,7 +35,8 @@ export function panelClass(variant: PanelCardVariant, extra?: string): string {
 // properties, each falling back to the classic look, so nothing sets them by
 // default and a shell restyles them through `UiShellSpec.themeTokens`:
 //
-//   --ada-window-bg            a window's body             (gray-900)
+//   --ada-window-bg            a window's body             (gray-900); may be translucent (a glass theme)
+//   --ada-window-base          the opaque colour under it  (gray-900; the theme store sets it per light / dark)
 //   --ada-window-border        its border and title rule   (gray-700)
 //   --ada-window-header-bg     a title bar, a group's tab strip (gray-800)
 //   --ada-window-header-text   title bar text              (gray-100)
@@ -44,9 +47,20 @@ export function panelClass(variant: PanelCardVariant, extra?: string): string {
 //   --ada-tab-text             the other tabs              (gray-400)
 //   --ada-group-divider        the bar between groups      (gray-700)
 
-/** A floating window's card. */
+/** The opaque colour a floating window's body is laid over (`--ada-window-base`, set by the theme
+ *  store): dark under light text, light under dark. */
+export function windowBaseFor(theme: {text: string}): string {
+  return isLightColor(theme.text) ? "#111827" : "#f9fafb";
+}
+
+/**
+ * A floating window's card. Its body colour is laid over an opaque base: a panel colour with
+ * alpha (core's glass themes, a shell pointing `--ada-window-bg` at its panel surface) must not
+ * let the model show through a window's controls.
+ */
 export const WINDOW_CARD =
-  "h-full w-full flex flex-col bg-[var(--ada-window-bg,#111827)] border border-[var(--ada-window-border,#374151)] " +
+  "h-full w-full flex flex-col " +
+  "[background:linear-gradient(var(--ada-window-bg,#111827),var(--ada-window-bg,#111827)),var(--ada-window-base,#111827)] border border-[var(--ada-window-border,#374151)] " +
   "sm:rounded-sm shadow-2xl overflow-hidden";
 
 /** A floating window's title bar, after the drag-handle classes when it is draggable. */

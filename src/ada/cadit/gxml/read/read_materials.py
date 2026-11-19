@@ -88,3 +88,29 @@ def isotropic_shear_material(name, mat_prop, parent: Part) -> Material:
         plasticitymodel=None,
     )
     return Material(name=name, mat_model=model, parent=parent)
+
+
+#: The material a beam or plate with no ``material_ref`` is read with.
+UNASSIGNED_MATERIAL = "S355"
+
+
+def concept_material(parent: Part, keyword: str, name: str, material_ref: str | None) -> Material | None:
+    """The material of one beam segment or plate, by its ``material_ref``.
+
+    GeniE writes no ``material_ref`` for a concept that has no material assigned. Such a concept is read with
+    the part's ``S355`` (the XML's own when it has one, else adapy's built-in) and named in the conversion report
+    -- it used to stop the whole read (``KeyError: 'material_ref'`` on a plate). A ``material_ref`` whose material
+    was not read (a kind with no model, named by ``interpret_material``) leaves the concept out by name: None.
+    """
+    if material_ref is None:
+        mat = parent.materials.name_map.get(UNASSIGNED_MATERIAL)
+        if mat is None:
+            mat = parent.materials.add(Material(UNASSIGNED_MATERIAL, parent=parent))
+        _report().approximated(
+            STAGE, keyword, name, f"no material assigned (no material_ref); read with {UNASSIGNED_MATERIAL}"
+        )
+        return mat
+    if material_ref not in parent.materials.name_map:
+        _report().omitted(STAGE, keyword, name, "its material was not read", material=material_ref)
+        return None
+    return parent.materials.get_by_name(material_ref)

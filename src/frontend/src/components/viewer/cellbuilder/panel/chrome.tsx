@@ -12,6 +12,7 @@ import React from "react";
 
 import {capabilities} from "@/services/capabilities";
 import {useCellBuilderStore} from "@/state/cellBuilderStore";
+import {selectionName} from "@/utils/cellbuilder/boxTarget";
 
 // The panel's own surface is the shared one (`PanelCard variant="surface"`,
 // components/ui); these are the controls inside it.
@@ -66,7 +67,7 @@ export function describeToolState(
   if (s.mode === "add-opening") return "Placing opening — click a wall";
   if (s.mode === "add-equipment") return "Placing equipment — click to drop";
   if (s.selection) {
-    const nm = s.cells[s.selection.cellId]?.name ?? "?";
+    const nm = selectionName(s.selection, s.cells, s.refs) ?? "?";
     if (s.selection.kind === "face" && s.selection.faceIndex != null)
       return `${nm} · face ${FACE_LABELS[s.selection.faceIndex] ?? s.selection.faceIndex}`;
     if (s.selection.kind === "edge") return `${nm} · edge`;

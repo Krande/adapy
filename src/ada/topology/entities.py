@@ -45,6 +45,7 @@ __all__ = [
     "LoftStation",
     "TopoLoftMember",
     "beam_section_description_with_examples",
+    "entity_field_help",
     "from_ada_obj",
     "from_ada_meta",
 ]
@@ -1049,3 +1050,36 @@ def from_ada_meta(metadata: dict):
         output_meta_obj.parent_config = parent_config
 
     return output_meta_obj
+
+
+# The procedural doc's lists and the entity each one's rows are, for `entity_field_help`.
+# Structures are not a doc list of their own (they are the doc's groups), but their help is
+# keyed "structures" all the same, as an engine's `field_help` keys them.
+_FIELD_HELP_ENTITIES: dict[str, type[BaseModel]] = {
+    "spaces": TopoSpace,
+    "equipments": TopoEquipment,
+    "openings": TopoOpening,
+    "structures": TopoStructure,
+}
+
+# Columns that are not one value a user types: carried, never shown as a field.
+_FIELD_HELP_SKIP = {"METADATA"}
+
+
+def entity_field_help() -> dict[str, dict[str, str]]:
+    """Each doc list's columns and what they mean: ``{list: {COLUMN: text}}``, from the entities'
+    field descriptions. The viewer shows them as the help of the builder's fields, where an
+    engine gives no ``field_help`` of its own (see
+    :func:`ada.topo_model.engine_catalog.register_procedural_engine_capabilities`), and under
+    an engine's text for the columns it leaves out. Plain text; a column without a description
+    is left out."""
+    out: dict[str, dict[str, str]] = {}
+    for key, entity in _FIELD_HELP_ENTITIES.items():
+        rows = {
+            name: field.description.strip()
+            for name, field in entity.model_fields.items()
+            if name not in _FIELD_HELP_SKIP and field.description and field.description.strip()
+        }
+        if rows:
+            out[key] = rows
+    return out

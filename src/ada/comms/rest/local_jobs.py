@@ -387,6 +387,23 @@ CRASH_TAIL_CHARS = 4000
 #: Seconds a cancelled job process gets to exit on SIGTERM before it is killed.
 CANCEL_GRACE_S = 5.0
 
+#: Seconds a job process has, from its start, to reach the worker's pipeline -- its first update
+#: other than its own boot line (``local_runner``). What runs before that is the interpreter, the
+#: imports and the plugins' registration: seconds, a minute on a cold disk. A process still
+#: short of it after this is stuck there (a plugin blocked at import), and is ended as an error
+#: naming where it got to; without the limit the job reads "starting" until the server stops.
+#: ``ADA_LOCAL_JOB_START_TIMEOUT_S`` overrides it.
+START_TIMEOUT_S = 300.0
+ENV_START_TIMEOUT = "ADA_LOCAL_JOB_START_TIMEOUT_S"
+
+
+def _start_timeout() -> float:
+    try:
+        value = float(os.environ.get(ENV_START_TIMEOUT, "") or START_TIMEOUT_S)
+    except ValueError:
+        return START_TIMEOUT_S
+    return value if value > 0 else START_TIMEOUT_S
+
 
 def _child_env(threads: int | None = None) -> dict[str, str]:
     """The server's environment, for the job process: the same interpreter must find the same
@@ -514,6 +531,9 @@ def _supervise(job: LocalJob, payload: dict[str, Any], log: IO[bytes]) -> None:
     except OSError:
         pass  # it died at once; its exit status says how
 
+    #: Set by the pipeline's first update: from then on the job reports for itself.
+    reported = threading.Event()
+
     def _relay(stream: IO[bytes]) -> None:
         for raw in stream:
             try:
@@ -521,21 +541,33 @@ def _supervise(job: LocalJob, payload: dict[str, Any], log: IO[bytes]) -> None:
             except ValueError:
                 continue
             if isinstance(msg, dict) and isinstance(msg.get("update"), dict):
+                if not msg.get("boot"):
+                    reported.set()
                 _apply_update(job, msg["update"])
 
     reader = threading.Thread(target=_relay, args=(proc.stdout,), name=f"{job.job_id}-relay", daemon=True)
     reader.start()
 
+    def _stop() -> None:
+        proc.terminate()
+        try:
+            proc.wait(timeout=CANCEL_GRACE_S)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+
     cancelled = False
+    start_timeout = _start_timeout()
+    start_deadline = time.monotonic() + start_timeout
+    stuck = False
     while proc.poll() is None:
         if job.cancel_event.wait(0.2):
             cancelled = True
-            proc.terminate()
-            try:
-                proc.wait(timeout=CANCEL_GRACE_S)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-                proc.wait()
+            _stop()
+            break
+        if not reported.is_set() and time.monotonic() > start_deadline:
+            stuck = True
+            _stop()
             break
     reader.join(timeout=5.0)
     try:
@@ -550,7 +582,22 @@ def _supervise(job: LocalJob, payload: dict[str, Any], log: IO[bytes]) -> None:
         job.status, job.stage = STATUS_CANCELLED, "cancelled"
         return
     # The error is written before the status: a poller that sees STATUS_ERROR reads the error too.
-    if code == 0:
+    if stuck:
+        tail = _tail(log)
+        logger.error(
+            "local job %s (%s): the job process did not start the job within %.0fs (at %r)\n%s",
+            job.job_id,
+            job.plugin_id,
+            start_timeout,
+            job.stage,
+            tail,
+        )
+        job.error = (
+            f"the job process did not start the job within {start_timeout:.0f}s (it got as far as "
+            f"{job.stage!r}; a plugin it loads may be blocked) and was stopped"
+            + (f"; its last output:\n{tail}" if tail else "")
+        )
+    elif code == 0:
         job.error = job.error or f"{job.plugin_id} ended without a result"
     else:
         tail = _tail(log)

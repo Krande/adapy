@@ -68,7 +68,7 @@ export function remapLoftSelection(
   fallbackBay: number,
 ): Partial<CellBuilderState> {
   const sel = s.selection;
-  if (sel && cells[sel.cellId]) return {}; // still valid — nothing to do
+  if (sel?.cellId && cells[sel.cellId]) return {}; // still valid — nothing to do
   const bands = Object.values(cells).filter(
     (c) => c.kind === "loft" && c.loft?.member === memberName,
   );

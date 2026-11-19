@@ -331,6 +331,16 @@ export function openOption(focus: string, group?: string): void {
   setTimeout(go, 60);
 }
 
+/** Open the Settings window on page `tab`: the shell's window, when it has one (`setSettingsHost`). */
+export function openSettingsTab(tab: SettingsSectionId): void {
+  const host = settingsHost();
+  if (host) host(tab);
+  else {
+    showSettingsTab(tab);
+    void revealPanel(CORE_PANEL_IDS.settings);
+  }
+}
+
 /** The commands of the descriptors, as specs. */
 export function optionCommandSpecs(): CommandSpec[] {
   const out: CommandSpec[] = [];

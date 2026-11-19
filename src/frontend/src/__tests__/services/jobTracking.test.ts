@@ -21,7 +21,7 @@ globals.sessionStorage = storage;
 globals.localStorage = storage;
 
 const { useConversionStore } = await import("@/state/conversionStore");
-const { trackJob, rememberedJobs, resumeTrackedJobs, isJobTracked, registerJobFinisher } = await import(
+const { trackJob, rememberedJobs, resumeTrackedJobs, isJobTracked, registerJobFinisher, forgetRememberedJobs, isJobGoneError } = await import(
   "@/services/jobTracking"
 );
 const { viewerApi } = await import("@/services/viewerApi");
@@ -227,3 +227,59 @@ test("a job the server no longer knows is closed through the route that owns its
     clearAll();
   }
 });
+
+test("an older server's 'conversion disabled' 503 means gone; another 503 is a blip", async () => {
+  // A queue-less local server used to answer an in-process id an earlier server had
+  // started with its queue gate's 503. Read as a blip, a remembered job polled under a
+  // "restoring" toast for the full ceiling, and came back on every reload.
+  const { ApiError } = await import("@/services/viewerApi");
+  const gate = new ApiError(
+    "convertStatus(local-1) failed: 503",
+    503,
+    JSON.stringify({ detail: "conversion disabled (no NATS configured)" }),
+  );
+  assert.ok(isJobGoneError(gate));
+  assert.ok(isJobGoneError(new ApiError("x", 404, "")));
+  assert.ok(!isJobGoneError(new ApiError("x", 503, JSON.stringify({ detail: "enqueue failed: timeout" }))));
+  assert.ok(!isJobGoneError(new Error("network")));
+});
+
+test("a remembered job the old server answers 503 'disabled' for is closed and forgotten", async () => {
+  const { ApiError } = await import("@/services/viewerApi");
+  const api = viewerApi as unknown as {
+    convertStatus: (id: string) => Promise<unknown>;
+    cancelMyJob: (scope: string, id: string) => Promise<boolean>;
+  };
+  const saved = { ...api };
+  let polls = 0;
+  api.convertStatus = async () => {
+    polls++;
+    throw new ApiError("convertStatus failed: 503", 503, JSON.stringify({ detail: "conversion disabled (no NATS configured)" }));
+  };
+  api.cancelMyJob = async () => true;
+  try {
+    clearAll();
+    memory.set(JOBS_KEY, JSON.stringify({ "m:1": { jobId: "local-0123456789abcdef", scopeUrl: "shared", label: "Mesh" } }));
+    resumeTrackedJobs();
+    for (let i = 0; i < 40 && useConversionStore.getState().jobs["m:1"]?.status !== "cancelled"; i++) {
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    assert.equal(useConversionStore.getState().jobs["m:1"]?.status, "cancelled");
+    assert.equal(polls, 1, "one answer is enough: no polling on");
+    await new Promise((r) => setTimeout(r, 0));
+    assert.deepEqual(rememberedJobs(), {}, "it does not return on the next reload");
+  } finally {
+    Object.assign(api, saved);
+    memory.delete(JOBS_KEY);
+    clearAll();
+  }
+});
+
+test("forgetting the remembered jobs keeps the ones this page is watching", withCleanStore(() => {
+  // A run's link page forgets an earlier session's jobs, not its own.
+  memory.set(JOBS_KEY, JSON.stringify({ "old:1": { jobId: "job-old", scopeUrl: "shared", label: "Old" } }));
+  trackJob({ jobId: "job-own", scopeUrl: "shared", label: "Own", persist: true, storeKey: "own:1" });
+  forgetRememberedJobs();
+  assert.deepEqual(Object.keys(rememberedJobs()), ["own:1"]);
+  memory.delete(JOBS_KEY);
+}));

@@ -221,6 +221,7 @@ export function applyElemFieldToMesh(args: ApplyElemFieldArgs): void {
         painted.markers.positions,
         painted.markers.colors,
         painted.markers.displacement,
+        painted.markers.labels,
     );
     recordValueByRange(mesh, painted.values);
     installResultLineSegments(

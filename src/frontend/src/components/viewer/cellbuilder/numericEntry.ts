@@ -252,7 +252,7 @@ export const commitPlaceEntry = (ctx: CellBuilderScene) => {
     endPlaceEntry(ctx);
 };
 
-// --- Keyboard equipment insert (I) ---------------------------------------
+// --- Keyboard equipment insert (Q) ---------------------------------------
 // Two phases: "pick" chooses the equipment TYPE (T cycles) and the host CELL
 // (N/P cycle, highlighted via selection); Enter locks the host and moves to
 // "xy", where local (X,Y) in the cell frame are typed ("," steps X->Y),
