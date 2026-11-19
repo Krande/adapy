@@ -323,7 +323,10 @@ export type { SelectedObjectBox } from "@/viewport/api/viewportApi";
 //          (`setIncluded`, `rename`, `remove`, `write`) for the plugin to write with
 //          `setDocExtra`. `SelectionSnapshot` kind "ref" with `refOwner` / `refKey`, and the
 //          `structure` / `space` a builder selection belongs to. Additive: an older core has no
-//          `registerBuilderRefs`, so a plugin asks for it first.
+//          `registerBuilderRefs`, so a plugin asks for it first. `registerBeforeCommit(owner, hook)`
+//          on `@/viewer-core/app`: an engine-agnostic async check before every commit of the
+//          procedural model, handed `{doc, docExtras}`; answering false vetoes the commit (the
+//          store's `commit` returns false, the model stays dirty), a hook that throws does not.
 export const PLUGIN_API_VERSION = "1.30.0";
 
 /** What the Simulations panel writes on a run's open-result button. */

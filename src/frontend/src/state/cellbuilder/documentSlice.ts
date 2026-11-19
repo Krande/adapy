@@ -15,6 +15,7 @@ import {groupToStructureName, normalizeGroups} from "@/utils/cellbuilder/groups"
 import type {CellBuilderSlice} from "./state";
 import {currentScopePart} from "./shared";
 import {makeWithHistory} from "./historySlice";
+import {runBeforeCommit} from "./beforeCommit";
 import {BUILDER_DOC_KEYS, OPENING_SIDES, localOpeningColumns, type OpeningSide, unplacedOpeningsFromDoc, cellsFromDoc, containingCellName, DOC_SCHEMA_VERSION, docExtras, groupsFromDoc, loftMembersFromDoc, systemsFromDoc} from "./docCodec";
 
 /** Is a procedural document loaded for VIEWING with no editable session behind
@@ -390,14 +391,25 @@ export const createDocumentSlice: CellBuilderSlice<DocumentSlice> = (set, get) =
       if (!s.active || s.committing) return false;
       set({ committing: true, conflict: null });
       try {
+        // The shell's and the plugins' checks first (beforeCommit.ts): one may veto the commit.
+        if (!(await runBeforeCommit({ doc: s.toDoc(), docExtras: s.docExtras }))) {
+          set({ committing: false });
+          return false;
+        }
+        // The model as it is now is committed: an edit made while the checks ran goes too.
+        const cur = get();
+        if (!cur.active || cur.active.modelId !== s.active.modelId) {
+          set({ committing: false });
+          return false;
+        }
         const res = await capabilities.procedural.commitModel(
           currentScopePart(),
-          s.active.modelId,
-          s.toDoc(),
-          s.active.revision,
+          cur.active.modelId,
+          cur.toDoc(),
+          cur.active.revision,
         );
         set({
-          active: { ...s.active, revision: res.revision },
+          active: { ...cur.active, revision: res.revision },
           dirty: false,
           committing: false,
         });

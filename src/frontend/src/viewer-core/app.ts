@@ -230,3 +230,10 @@ export { builderRefId, registerBuilderRefs } from "@/plugins/builderRefs";
 // compile log (`CompileLogView`, on /layout) in a drawer it opens when a compile fails.
 export { onCompileFailed, selectCompileFailure } from "@/state/cellbuilder/compileFailures";
 export type { CompileFailure } from "@/state/cellbuilder/compileFailures";
+
+// Before a builder commit (1.30.0): `registerBeforeCommit(owner, hook)` runs `hook({doc, docExtras})`
+// before every commit of the procedural model (the toolbar's, Ctrl+S, the one before a compile or
+// an export); a hook that answers false vetoes it (a shell's own validation, say). Returns the
+// unregister.
+export { registerBeforeCommit } from "@/state/cellbuilder/beforeCommit";
+export type { BeforeCommitContext, BeforeCommitHook } from "@/state/cellbuilder/beforeCommit";
