@@ -162,6 +162,27 @@ def test_a_run_with_nothing_lost_has_empty_records():
     assert stats["not_built"] == [] and stats["weld_failures"] == [] and "skipped" not in stats
 
 
+def test_the_bodies_are_prebuilt_in_one_batch_before_the_glb(monkeypatch):
+    """Everything the GLB writer tessellates -- the welds among it -- goes to one prebuild call; a
+    body that fails there is still reported once, by the writer."""
+    import ada.cad.shape_cache as shape_cache
+
+    batches: list[list[str]] = []
+    real = shape_cache.prebuild_solids
+
+    def spy(objects, threads=0):
+        objects = list(objects)
+        batches.append([o.name for o in objects])
+        return real(objects, threads)
+
+    monkeypatch.setattr(shape_cache, "prebuild_solids", spy)
+    _register_builder()
+    _, stats = _run()
+    assert len(batches) == 1
+    assert {"w_good", "w_bad"} <= set(batches[0])
+    assert [f["place"] for f in stats["weld_failures"]].count("w_bad") == 1
+
+
 def test_progress_is_reported_before_the_first_joint_and_after_each():
     _register_builder()
     calls: list[tuple[int, int]] = []

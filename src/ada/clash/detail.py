@@ -158,6 +158,7 @@ def build_detail(
             f"{spec_name} detailed none of the {len(joint_ids)} joint(s) handed to it: " + "; ".join(skipped[:5])
         )
 
+    _prebuild_bodies(joints_part)
     glb_path = new_temp_path(suffix=".glb")
     try:
         with collect_tessellation_failures() as tess_failures:
@@ -177,6 +178,25 @@ def build_detail(
     stats["not_built"] = not_built
     stats["weld_failures"] = weld_failures
     return glb_bytes, stats
+
+
+def _prebuild_bodies(part) -> None:
+    """Build the bodies of everything the joints made in one batch, before the GLB writer asks for
+    them one by one: faceted ones (weld beads) together and in parallel where the CAD backend can
+    (:func:`ada.cad.shape_cache.prebuild_solids`). Bodies a builder already built (one that checks
+    its welds' solids as it goes) are cached and skipped. A body that fails here is left to the
+    writer, which reports it as a weld without geometry -- so nothing is lost or said twice."""
+    # The objects the GLB writer tessellates (`tessellate_part`): the physical ones and the welds.
+    objects = [
+        o
+        for o in (*part.get_all_physical_objects(pipe_to_segments=True), *part.get_all_welds())
+        if hasattr(o, "solid_geom")
+    ]
+    if not objects:
+        return
+    from ada.cad.shape_cache import prebuild_solids
+
+    prebuild_solids(objects)
 
 
 def _reported_weld_failures(built: list[tuple[str, Any]]) -> list[dict[str, str]]:
