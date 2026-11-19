@@ -394,6 +394,12 @@ export type { SelectedObjectBox } from "@/viewport/api/viewportApi";
 //          selection of the Properties panel: `SelectionSnapshot.kind` is not "cell" / "ref" then, so
 //          neither the summary nor a builder section is drawn, and a provider matching builder picks
 //          is not asked. `builderCellsShown()` (state/cellbuilder/builderVisibility) is the rule.
+//          A result sidecar loader's disposer belongs to the model it loaded for (its `sourceName`):
+//          a load of another model beside it (a design GLB over a SIN's results, with no manifest)
+//          runs that model's loaders alongside and no longer disposes it. It is disposed when its
+//          model is loaded again, leaves the scene, or the scene is cleared (a replace load).
+//          `disposeResultSidecarLoaders(sourceName?)`: one model's, or every one's. Before, every
+//          load disposed every loader, so overlaying a GLB took a capacity plugin's colours away.
 export const PLUGIN_API_VERSION = "1.31.0";
 
 /** What the Simulations panel writes on a run's open-result button. */
