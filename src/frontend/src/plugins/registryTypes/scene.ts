@@ -3,6 +3,7 @@
 
 import type { ColorScale } from "@/utils/colorScale";
 import type { ScenePickOptions, ScenePickSession } from "../scenePicks";
+import type { SceneHighlight, SceneHighlightOptions, SceneHighlightRef } from "../sceneHighlights";
 import type { PlaceBoxOptions, PlacedBox } from "../sceneBox";
 import type { SceneContactAnswer, SceneContactOptions, SceneObjectRef } from "../sceneContact";
 import type { SelectedObjectBox } from "@/viewport/api/viewportApi";
@@ -384,7 +385,8 @@ export interface SceneHandle {
   // and turns it with the cell builder's gizmo keys (G, R, X / Y / Z, Escape / Enter), and each change
   // is handed to `onChange` as the box's pose in the scene's own coordinates. `set` moves it from the
   // plugin's side. For a tool that asks where something stands. Works on either viewport;
-  // `remove(owner)` ends it too.
+  // `remove(owner)` ends it too. (1.29.0) `frame: true` frames the camera on the box when it is first
+  // drawn: a box in a large model is otherwise a few pixels of the view of the whole.
   placeBox: (owner: string, options: PlaceBoxOptions) => PlacedBox;
   // (1.27.0) Where two objects of the loaded models touch: `{contact}` (null when they do not touch
   // within the security margin) or `{unavailable}` with the reason (a model whose geometry is not a
@@ -392,7 +394,7 @@ export interface SceneHandle {
   // convex hulls meet, in the scene's own coordinates. Measured by the viewer's clash module on the
   // stored GLBs, not on what a viewport holds: the same answer on either viewport.
   contactBetween: (a: SceneObjectRef, b: SceneObjectRef, options?: SceneContactOptions) => Promise<SceneContactAnswer>;
-  // (1.29.0) The objects the user has selected, each with its box in the model's own coordinates
+  // (1.30.0) The objects the user has selected, each with its box in the model's own coordinates
   // (the frame `addLines` / `addPointLayer` take, not the viewport's recentred world), its name and
   // the names above it: one entry per selected object that draws something, hidden ones included;
   // [] when nothing is selected or there is no 3D view. For a tool that works from the selection
@@ -408,6 +410,25 @@ export interface SceneHandle {
   // is one undo step. Returns the unregister; `remove(owner)` unregisters too (the provider's
   // `owner` is the plugin's owner). Optional: an older core has none, so ask for it first.
   registerBuilderRefs?: (provider: BuilderRefProvider) => () => void;
+  // (1.29.0) Draw `refs` (objects as a `ScenePick` names them: model and id) in `color`, unlit, over
+  // their own colour and over the selection's, until `remove()`; `set(refs)` changes which. Not the
+  // selection, not a colour the user gave, and no undo step. For a tool that takes the scene's clicks
+  // and shows what it has taken. Works on either viewport; `remove(owner)` takes it away too.
+  highlightObjects: (owner: string, refs: Iterable<SceneHighlightRef>, options: SceneHighlightOptions) => SceneHighlight;
+  // (1.29.0) The objects of the loaded models called one of `names`, as a `ScenePick` names them
+  // (model, id, name, source file), read from the Scene tree; with `sourceName`, those of the model
+  // loaded from that source only. A name may match several objects. For a plugin that knows
+  // objects by name (from a file of its own) and wants to highlight them. Works on either viewport.
+  findObjects: (names: Iterable<string>, options?: { sourceName?: string }) => SceneObjectMatch[];
+}
+
+/** (1.29.0) An object found by `findObjects`: what `highlightObjects` takes (`model`, `id`), its
+ *  name, and the source its model was loaded from (null where the tree does not say). */
+export interface SceneObjectMatch {
+  model: string;
+  id: string;
+  name: string;
+  sourceName: string | null;
 }
 
 /** An axis-aligned world-space box. */

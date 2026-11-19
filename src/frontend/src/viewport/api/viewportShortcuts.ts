@@ -35,6 +35,9 @@ export function viewportShortcutHandlers(wrap: (run: Run) => CoreShortcutHandler
         "core:pan-right": on((v) => v.panStep(1, 0)),
         "core:pan-up": on((v) => v.panStep(0, 1)),
         "core:pan-down": on((v) => v.panStep(0, -1)),
+        // Not the viewport's own action, but bound wherever a viewport is, on both: measuring is
+        // done in its view. Opens the Scene panel's Measure tab (loaded when pressed).
+        "core:measure": on(() => void import("@/layout/measureActions").then((m) => m.openMeasure())),
     };
 }
 

@@ -29,6 +29,9 @@ export { AppRoot } from "@/layout/SharedAppRoot";
 // Switching scope, as core's scope pickers do: `requestScopeChange` asks first when it
 // would unload models; `applyScopeChange` switches at once; `sceneHasModels`.
 export { applyScopeChange, requestScopeChange, sceneHasModels } from "@/utils/scope/scopeChange";
+// The Connections panel opened on one of its tabs: core's, or a plugin's `connection-builder` panel
+// by its namespaced id (plugin API 1.29.0). It picks the tab in the panel's tab store.
+export { openConnectionsTab } from "@/layout/connectionsTabActions";
 
 // ---------------------------------------------------------------------------
 // Deployment mode + build info (REST vs websocket, Jupyter, embed flags).

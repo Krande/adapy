@@ -362,6 +362,8 @@ export const SimulationsBody: React.FC = () => {
   }, [scope, loadProviders, loadRuns]);
 
   const [refreshing, setRefreshing] = useState(false);
+  // The runs list starts folded (see the heading below).
+  const [runsOpen, setRunsOpen] = useState(false);
   const refresh = async () => {
     setRefreshing(true);
     try {
@@ -476,8 +478,23 @@ export const SimulationsBody: React.FC = () => {
 
       {selected && <StartForm scope={scope} provider={selected} subject={subject} />}
 
+      {/* The scope's runs fold under their heading, folded until opened: the start form above is what
+          the panel is mostly used for, and a long list of runs pushed it out of view. The count
+          says what is there while it is folded; Refresh stays in the heading. */}
       <div className="flex items-center gap-2">
-        <div className="text-[var(--ada-panel-text-muted)] uppercase tracking-wide flex-1">Runs</div>
+        <button
+          type="button"
+          className="flex flex-1 items-center gap-1.5 text-left"
+          aria-expanded={runsOpen}
+          aria-controls="simulation-runs"
+          data-runs-toggle
+          onClick={() => setRunsOpen(!runsOpen)}
+        >
+          <span aria-hidden="true" className="w-3 text-[var(--ada-panel-text-muted)]">{runsOpen ? "\u25BE" : "\u25B8"}</span>
+          <span className="text-[var(--ada-panel-text-muted)] uppercase tracking-wide flex-1">
+            Runs{shownRuns.length > 0 ? ` (${shownRuns.length})` : ""}
+          </span>
+        </button>
         {/* The store follows the runs it knows are unfinished; a run somebody else started since the
             panel was opened (another tab, the API, a schedule) is only found by asking again. */}
         <button
@@ -493,12 +510,12 @@ export const SimulationsBody: React.FC = () => {
         </button>
       </div>
       {runsError && <div className="text-[var(--ada-fail)] break-words">{runsError}</div>}
-      {shownRuns.length === 0 ? (
+      {!runsOpen ? null : shownRuns.length === 0 ? (
         <div className="text-[var(--ada-panel-text-muted)]">No runs in this scope yet.</div>
       ) : (
         // The list scrolls within itself: many runs do not push the panel off the screen. On a phone
         // the whole sheet scrolls instead (one scroller, not one inside another).
-        <ul className="flex flex-col gap-0.5 sm:max-h-[45vh] sm:overflow-y-auto overscroll-contain pr-0.5" data-runs-list>
+        <ul id="simulation-runs" className="flex flex-col gap-0.5 sm:max-h-[45vh] sm:overflow-y-auto overscroll-contain pr-0.5" data-runs-list>
           {shownRuns.map((run) => (
             <RunRow
               key={run.run_id}

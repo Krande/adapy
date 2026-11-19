@@ -50,3 +50,26 @@ def test_the_partial_pen_symbol_combines_the_bevel_with_a_fillet():
     bevel = weld_symbol(WeldType.BEVEL_GROOVE_SINGLE_BEVEL_BUTT)
     assert pp.strokes == bevel.strokes
     assert len(pp.outlines) == 1  # the fillet
+
+
+def test_the_sides_of_the_line_system_a():
+    fillet = weld_symbol(WeldType.FILLET)
+    assert fillet.on_side() is fillet and fillet.on_side("arrow") is fillet  # above the line
+    assert fillet.on_side("other") == fillet.mirrored()  # below it
+    both = fillet.on_side("both")  # a double fillet
+    assert both.outlines == fillet.outlines + fillet.mirrored().outlines
+    assert fillet.to_svg(side="both") == both.to_svg()
+    with pytest.raises(ValueError, match="side"):
+        fillet.on_side("left")
+
+
+@pytest.mark.parametrize("wt", [w for w in WeldType if w is not WeldType.NONE], ids=lambda w: w.value)
+def test_only_spot_and_seam_are_centred_on_the_line(wt):
+    symbol = weld_symbol(wt)
+    assert symbol.centred is (wt in (WeldType.SPOT, WeldType.SEAM))
+    if symbol.centred:
+        assert symbol.on_side("other") is symbol and symbol.on_side("both") is symbol
+
+
+def test_zero_is_never_written_minus_zero():
+    assert "-0," not in weld_symbol_svg(WeldType.FILLET) and "-0 " not in weld_symbol_svg(WeldType.FILLET)

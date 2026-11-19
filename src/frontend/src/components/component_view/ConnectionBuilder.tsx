@@ -1,9 +1,9 @@
-// ConnectionBuilder — the studio side of `ada dev connections`, the Scene panel's
-// Connection tab: pick a spec from the served connection library, edit each member
+// ConnectionBuilder — the studio side of `ada dev connections`, the Connections
+// panel's Inspect tab: pick a spec from the served connection library, edit each member
 // (a beam's section, a plate's thickness and extent, the angle between them), build
 // the joint, and from then on see it rebuilt on every edit here and on every saved
 // change to the library's files. Nothing is built before Build is pressed. Under the inputs, the joint that was built: its clash (also loaded into
-// Scene > Clashes), its members and its welds -- each selectable in the scene.
+// the Clashes tab beside this one), its members and its welds -- each selectable in the scene.
 //
 // State lives in connectionBuilderStore; the live loop (event stream, debounced
 // builds, scene loading) in services/devConnections/connectionBuilderSession.
@@ -27,7 +27,7 @@ import {
   effectiveInputs,
   useConnectionBuilderStore,
 } from "@/state/connectionBuilderStore";
-import { useSceneInfoStore } from "@/state/sceneInfoStore";
+import { CLASHES_TAB, useConnectionBuilderTabStore } from "@/state/connectionBuilderTabStore";
 import { weldTypeName } from "@/utils/weldTypeNames";
 
 /** Sections offered per `section_in` family; any section adapy can parse may be typed. */
@@ -632,7 +632,8 @@ const JointSections: React.FC<{ result: DevBuildResult }> = ({ result }) => (
 );
 
 /** The joint's measured contact -- what a clash check finds where the members meet -- and the
- *  specs that claim it. The full run is in Scene > Clashes, with its patches and normals in 3D. */
+ *  specs that claim it. The full run is in the Clashes tab beside the builder's, with its patches
+ *  and normals in 3D. */
 const ClashSummary: React.FC<{ result: DevBuildResult }> = ({ result }) => {
   const run = result.clash_run;
   if (!run) {
@@ -673,8 +674,11 @@ const ClashSummary: React.FC<{ result: DevBuildResult }> = ({ result }) => {
       <button
         type="button"
         className="self-start text-[var(--ada-accent)] hover:underline"
-        onClick={() => useSceneInfoStore.getState().setMode("clashes")}
-        title="The run in Scene > Clashes: select the clash, show its contact patches and normals in 3D"
+        // The Clashes tab is beside the builder's, in the same panel: picking it is enough.
+        onClick={() => useConnectionBuilderTabStore.getState().select(CLASHES_TAB)}
+        // It said "The run in Scene > Clashes: select the clash, show its contact patches and
+        // normals in 3D" while Clashes was a Scene panel tab.
+        title="The run in the Clashes tab: select the clash, show its contact patches and normals in 3D"
       >
         Show in Clashes →
       </button>

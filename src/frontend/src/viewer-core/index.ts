@@ -697,13 +697,23 @@
 //          so a shell's Model panel needs no deep import; and on `/layout`, `useModelPanelView` (the panel's
 //          view and folded rows with `setView` / `toggleCollapsed` / `setCollapsed`, not the store). The camera mapping's
 //          `select` action (the selection rectangle) and controls profiles (Settings > Controls).
-//   1.29.0 Kept in step with PLUGIN_API_VERSION 1.29.0. Additive: `ctx.scene.selectionBoxes` (the
+//   1.29.0 Kept in step with PLUGIN_API_VERSION 1.29.0. Additive: `ctx.scene.highlightObjects` and
+//          the types `SceneHighlight`, `SceneHighlightOptions`, `SceneHighlightRef`; the
+//          `joint-review` region (a plugin's section of the Connections panel's Review tab) and
+//          `getJointReviewSections` on `@/viewer-core/plugins`; `ctx.scene.findObjects` and the
+//          type `SceneObjectMatch`; `openConnectionsTab(tab)` on `@/viewer-core/app`. A beam's
+//          metadata may carry `section.outer` / `section.inner` (a POLY section's outline) and
+//          `booleans` (its cuts): data only, see PLUGIN_API_VERSION's 1.29.0 note.
+//          `weldSymbolSvg(type, {size, stroke, strokeWidth, referenceLine})` (a weld type's ISO 2553
+//          symbol as SVG markup, null for none or an unknown type), the type `WeldSymbolSvgOptions`,
+//          and `weldTypeName(type)` (its short name), on the root.
+//   1.30.0 Kept in step with PLUGIN_API_VERSION 1.30.0. Additive: `ctx.scene.selectionBoxes` (the
 //          selected objects' boxes in the model's own coordinates, with their names and the names
 //          above them, on either viewport) and its type `SelectedObjectBox`. The builder store's
 //          `setDocExtra(key, value)` (state/cellbuilder/documentSlice.ts): a shell edits an engine's
 //          own doc list (a key the builder does not own, e.g. `modifications`) as one undo step that
 //          dirties the model and is committed with it; `docExtras` holds them.
-//   1.30.0 Kept in step with PLUGIN_API_VERSION 1.30.0. Additive: builder refs -- a plugin's rows
+//          Also additive: builder refs -- a plugin's rows
 //          shown as boxes among the cell builder's cells. `registerBuilderRefs(provider)` and
 //          `builderRefId` on `/app` (and `ctx.scene.registerBuilderRefs`); the types `BuilderRef`,
 //          `BuilderRefEdit`, `BuilderRefProvider`, `BuilderRefSpec` and the tree's `RefNode` here.
@@ -775,6 +785,10 @@ export type {
   SceneElementPaint,
   SceneFace,
   SceneHandle,
+  SceneHighlight,
+  SceneHighlightOptions,
+  SceneHighlightRef,
+  SceneObjectMatch,
   ScenePick,
   ScenePickOptions,
   ScenePickSession,
@@ -1086,6 +1100,12 @@ export type { BuilderRef, BuilderRefEdit, BuilderRefProvider, BuilderRefSpec } f
 export { isItemIncluded, itemIncludeState } from "@/utils/cellbuilder/include";
 export type { IncludeState } from "@/utils/cellbuilder/include";
 export { blueprintColour, blueprintsInUse, structureColour } from "@/utils/cellbuilder/blueprintColours";
+// (1.29.0) Weld types as people read them: a weld type's ISO 2553 symbol as an SVG icon (generated from
+// `ada.api.weld_symbols`, drawn in the browser, the same markup as the server's `to_svg`) and its short name.
+// Pure, no stores.
+export { weldSymbolSvg } from "@/utils/weldSymbols";
+export type { WeldSymbolSide, WeldSymbolSvgOptions } from "@/utils/weldSymbols";
+export { weldTypeName } from "@/utils/weldTypeNames";
 export type { PanelController } from "@/layout/reveal";
 export {
   listSceneTreeRoots,

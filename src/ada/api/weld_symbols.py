@@ -1,23 +1,32 @@
-"""Weld symbols: the basic symbol of each :class:`~ada.api.fasteners.WeldType`, after ISO 2553.
+"""Weld symbols: the basic symbol of each :class:`~ada.api.fasteners.WeldType`, after ISO 2553:2019, system A.
 
 A symbol is plain 2D geometry -- open strokes, closed outlines and filled shapes -- so that every
 consumer draws the same thing its own way: the viewer as an SVG icon (:meth:`WeldSymbol.to_svg`), a
 fabrication drawing as lines placed on a weld's reference line.
 
 FRAME. A symbol stands on the reference line, ``y = 0``, within the unit box ``0 <= x <= 1``,
-``0 <= y <= 1``: the arrow-side position of ISO 2553 system A. :meth:`WeldSymbol.mirrored` hangs it
-below the line instead (``y <= 0``), the other-side position. A drawing scales the unit box to its
-symbol height and places ``x = 0.5`` where the symbol goes along the line.
+``0 <= y <= 1``: the arrow-side position of system A. :meth:`WeldSymbol.mirrored` hangs it below the
+line instead (``y <= 0``), the other-side position, and :meth:`WeldSymbol.on_side` gives either or
+both (a weld on both sides: a double fillet, a double V, ...). A symbol centred on the line (spot,
+seam) is the same on either side (:attr:`WeldSymbol.centred`). The identification (dashed) line is
+not drawn. A drawing scales the unit box to its symbol height and places ``x = 0.5`` where the
+symbol goes along the line.
 
 The common symbols (fillet, square / V / bevel / Y / U / J butts, backing, plug / slot, spot, seam,
 flare, flange, melt-through and the partial-penetration combinations) follow ISO 2553's shapes; the
 rarer ones (edge, surfacing, fold, inclined) are simplified forms of them. ``WeldType.NONE`` has none.
+
+The viewer has a generated copy of this geometry (``src/frontend/src/utils/weldSymbols.generated.ts``,
+written by ``scripts/codegen/gen_weld_symbols.py``) and draws the same SVG from it without asking the
+server: after changing a symbol, run that script; ``tests/core/test_weld_symbols_codegen.py`` fails
+until it has been.
 """
 
 from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
+from typing import Literal
 
 from ada.api.fasteners import WeldType
 
@@ -25,6 +34,8 @@ __all__ = ["WeldSymbol", "weld_symbol", "weld_symbol_svg"]
 
 Point2 = tuple[float, float]
 Path2 = tuple[Point2, ...]
+#: Which side of the reference line a weld is on (system A): above it, below it, or both.
+Side = Literal["arrow", "other", "both"]
 
 
 @dataclass(frozen=True)
@@ -52,18 +63,49 @@ class WeldSymbol:
 
         return WeldSymbol(self.weld_type, self.description, flip(self.strokes), flip(self.outlines), flip(self.fills))
 
+    @property
+    def centred(self) -> bool:
+        """Whether the symbol is centred on the reference line (its mirror image is itself): it has no side."""
+
+        def points(paths: tuple[Path2, ...], sign: float) -> set[Point2]:
+            return {(round(x, 6) + 0.0, round(sign * y, 6) + 0.0) for p in paths for x, y in p}
+
+        return points(self.paths(), 1.0) == points(self.paths(), -1.0)
+
+    def on_side(self, side: Side = "arrow") -> WeldSymbol:
+        """The symbol on the ``"arrow"`` side (above the line, as defined), the ``"other"`` side (below it,
+        mirrored) or ``"both"`` (a double-sided weld: the two together). A centred symbol is itself on any side.
+        """
+        if side not in ("arrow", "other", "both"):
+            raise ValueError(f"side must be 'arrow', 'other' or 'both', not {side!r}")
+        if side == "arrow" or self.centred:
+            return self
+        below = self.mirrored()
+        if side == "other":
+            return below
+        return WeldSymbol(
+            self.weld_type,
+            self.description,
+            self.strokes + below.strokes,
+            self.outlines + below.outlines,
+            self.fills + below.fills,
+        )
+
     def to_svg(
         self,
         size: int = 24,
         stroke: str = "currentColor",
         stroke_width: float = 0.07,
         reference_line: bool = True,
+        side: Side = "arrow",
     ) -> str:
-        """A square SVG icon of ``size`` pixels: the symbol, and the reference line under it.
+        """A square SVG icon of ``size`` pixels: the symbol on ``side`` (:meth:`on_side`) of the reference line.
 
         ``stroke`` colours everything (``currentColor`` takes the text colour where the SVG is
         inlined); ``stroke_width`` is in symbol units (the unit box is 1 wide).
         """
+        if side != "arrow":
+            return self.on_side(side).to_svg(size, stroke, stroke_width, reference_line)
         xs = [x for p in self.paths() for x, _ in p] + ([0.0, 1.0] if reference_line else [])
         ys = [y for p in self.paths() for _, y in p] + ([0.0] if reference_line else [])
         pad = 0.12
@@ -106,7 +148,13 @@ def weld_symbol_svg(weld_type: WeldType | str, **kwargs) -> str | None:
 
 
 def _n(v: float) -> str:
-    return f"{v:.3f}".rstrip("0").rstrip(".") or "0"
+    """``v`` to 3 decimals, without trailing zeros; zero is ``0``, never ``-0``.
+
+    ``src/frontend/src/utils/weldSymbols.ts`` formats the same way (the viewer renders these symbols
+    itself, from geometry ``scripts/codegen/gen_weld_symbols.py`` generates).
+    """
+    s = f"{v:.3f}".rstrip("0").rstrip(".")
+    return "0" if s in ("", "-0") else s
 
 
 def _arc(cx: float, cy: float, r: float, a0: float, a1: float, n: int = 12) -> Path2:

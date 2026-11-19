@@ -18,9 +18,10 @@ import { isPlacedElsewhere } from "@/layout/placedElsewhere";
 import type { AdaPluginContext, PanelSlot, PluginModeSpec, PluginRegion, PluginSpec, RegisteredPlugin, RenderableFileProvider, ResultSidecarLoader, SceneColorFieldProvider, SimulationProviderUi, StorageAssetType, StorageAssetTypeArgs, UrlParamHandler } from "./registryTypes/slots";
 
 export { type PluginRegion, type PluginDockId, type PluginModeId, type PluginModeSpec, type PluginLogLevel, type PluginApiClient, type PluginTheme, type AdaPluginContext, type ActivationPredicate, type TopBarButtonSpec, type PanelSlot, type SceneColorFieldProvider, type ResultSidecarLoader, type RenderableFileProvider, type SimulationParameterFormArgs, type SimulationFormSubject, type SimulationOpenResultArgs, type SimulationProviderUi, type UrlParamHandler, type PluginSpec, type RegisteredPlugin, type StorageAssetTypeArgs, type StorageAssetUpload, type StorageAssetType } from "./registryTypes/slots";
-export { type SceneColorFieldResult, type SceneColor, type SceneOverlay, type SceneLines, type SceneElementOutline, type SceneLabel, type SceneLabelOptions, type SceneElementPaint, type SceneLayerRef, type SceneLayerLook, type SceneLineLayerSpec, type SceneLineLayer, type ScenePointLayerSpec, type ScenePointLayer, type SceneImageRect, type SceneImageSpec, type SceneImage, type SceneModelSource, type SceneModelPose, type SidecarFetcher, type SceneHandle, type SceneBox, type SceneFace } from "./registryTypes/scene";
+export { type SceneColorFieldResult, type SceneColor, type SceneOverlay, type SceneLines, type SceneElementOutline, type SceneLabel, type SceneLabelOptions, type SceneElementPaint, type SceneLayerRef, type SceneLayerLook, type SceneLineLayerSpec, type SceneLineLayer, type ScenePointLayerSpec, type ScenePointLayer, type SceneImageRect, type SceneImageSpec, type SceneImage, type SceneModelSource, type SceneModelPose, type SidecarFetcher, type SceneHandle, type SceneBox, type SceneFace, type SceneObjectMatch } from "./registryTypes/scene";
 export { type PluginPlaybackTrack, type PluginPlaybackTrackHandle, type PluginPlaybackState, type PluginPlayback, type PluginLayerState, type PluginLayers, type PluginSimulationSubject, type PluginSimulationSubjectHandle, type PluginSimulations } from "./registryTypes/playback";
 export type { ScenePick, ScenePickOptions, ScenePickSession } from "./scenePicks";
+export type { SceneHighlight, SceneHighlightOptions, SceneHighlightRef } from "./sceneHighlights";
 export type {
   SceneContact,
   SceneContactAnswer,
@@ -262,7 +263,47 @@ export type { SelectedObjectBox } from "@/viewport/api/viewportApi";
 //          A shell's `modeArrangements[id].toolbar` adds its controls to a plugin's mode.
 //          `CORE_COMMAND_IDS.builderIncludeDimmed` / `builderIncludeOnly` / `builderIncludeAll`: how
 //          the builder draws what the build leaves out (INCLUDE false). Additive.
-// 1.29.0 — `ctx.scene.selectionBoxes()`: the objects the user has selected, each with its box in
+// 1.29.0 — `ctx.scene.highlightObjects(owner, refs, {color})`: a plugin draws objects of the loaded
+//          models in a colour of its own -- over their own colour and over the selection's -- until
+//          `remove()` (or `scene.remove(owner)`); `set(refs)` changes which. For a tool that takes
+//          the scene's clicks (`pickObjects`) and shows what it has taken. Not the selection, not a
+//          colour the user gave, and no undo step; on either viewport. Additive: an older core has
+//          no `highlightObjects`, so a plugin asks for it first.
+//          `placeBox`'s `frame: true` frames the camera on the box when it is first drawn, on either
+//          viewport (the scene's offset is the viewer's to add: a plugin cannot frame it with
+//          `frameBox`, which takes the world's coordinates). An older core ignores it.
+//          - the `joint-review` region: a plugin's section of the Connections panel's Review tab,
+//            after core's produced and identified joints, headed by the panel's `title` and ordered
+//            by `order` (`getJointReviewSections`). The Review tab is there while any section is
+//            active, joints or not. An older core mounts the region nowhere.
+//          - `ctx.scene.findObjects(names, {sourceName?})`: the objects of the loaded models called
+//            one of `names`, as a `ScenePick` names them (model, id, name, source file), read from
+//            the Scene tree; for a plugin that knows objects by name and wants to highlight them.
+//          - `openConnectionsTab(tab)` on `@/viewer-core/app`: the Connections panel opened on one of
+//            its tabs -- core's, or a plugin's `connection-builder` panel by its namespaced id --
+//            for a section that sends the user to a plugin's tab.
+//          - `weldSymbolSvg(type, {size?, stroke?, strokeWidth?, referenceLine?})` on `@/viewer-core`:
+//            a weld type's ISO 2553 basic symbol as a square SVG icon on its reference line, as markup
+//            (stroked in `currentColor` unless `stroke` says otherwise), or null for no weld / a type it
+//            does not know. `type` is an `ada` `WeldType` value in any case, `WELD_TYPE_` prefix or not.
+//            Drawn in the browser from geometry generated from `ada.api.weld_symbols`: the same SVG as
+//            the server's `symbol_svg`. With it `weldTypeName(type)`, the type's short name.
+//          All additive: an older core has none of them, so a plugin asks for them first.
+//          Not an API change, but seen by a `connection-builder` tab: the Connections panel has
+//          core's Clashes, Overlays and Review tabs too now (they were the Scene panel's Joints
+//          group), after Builder and before the plugins' tabs, and is offered everywhere.
+//          Nor is this: the Clashes tab runs the convex-contact engine by default (it ran core's
+//          connectivity check, `adapy`, now labelled "Member connectivity"), and falls back to that
+//          one, with a note, where convex contact cannot run. A clash run a plugin reads back is a
+//          convex-contact run unless the user picked another engine.
+//          Not an API change either, but seen by a plugin that reads a model's metadata
+//          (`useLineageStore().getMetadata`): a beam's entry from a model loaded through ada-py may
+//          carry its POLY section's outline (`section.outer`, and `section.inner` for a void: points
+//          `[x, y]` or `[x, y, r]` with a corner's fillet radius, in the section's plane) and its
+//          `booleans` (its cuts: `{kind: "box" | "cyl" | ..., ...}`, in the frame of `axis`), as
+//          `ada.comms.msg_handling.member_dict` writes them; absent for other sections and for a
+//          beam with no booleans, and from an older ada-py.
+// 1.30.0 — `ctx.scene.selectionBoxes()`: the objects the user has selected, each with its box in
 //          the model's own coordinates (the frame `addLines` / `addPointLayer` take, not the
 //          viewport's recentred world), its name and the names above it (`SelectedObjectBox`), on
 //          either viewport. For a tool that works from the selection: it groups the boxes by
@@ -271,7 +312,7 @@ export type { SelectedObjectBox } from "@/viewport/api/viewportApi";
 //          engine's own doc list (a key the builder does not own, e.g. `modifications`) as one
 //          undo step that dirties the model and is committed with it; `docExtras` holds them.
 //          Additive: an older core has no `selectionBoxes`, so a plugin asks for it first.
-// 1.30.0 — builder refs: a plugin's rows shown as boxes among the cell builder's cells
+//          Builder refs: a plugin's rows shown as boxes among the cell builder's cells
 //          (`ctx.scene.registerBuilderRefs(provider)`, and `registerBuilderRefs` on
 //          `@/viewer-core/app`). The provider's `project(docExtras, cells)` makes the refs (id
 //          `owner:key`, name, kind label, box in the model frame, structure / space, include,
@@ -619,6 +660,26 @@ export function getConnectionBuilderTabs(ctx: AdaPluginContext): SimulationTabEn
       a.panel.id.localeCompare(b.panel.id),
   );
   return entries;
+}
+
+/** One plugin-contributed section of the Review tab. */
+export interface JointReviewSectionEntry {
+  pluginId: string;
+  panel: PanelSlot;
+  /** What heads the section: the panel's `title`, else its id. */
+  title: string;
+}
+
+/** `joint-review` panels (1.29.0): a plugin's sections of the Connections panel's Review tab,
+ * filtered by activation exactly like `getPanelsForRegion` and ordered by `(order ?? 0, id)`.
+ * Core renders these after its own sections (the produced and the identified joints). Empty when
+ * no plugin has an active one (the tab then shows core's sections only, as before the region). */
+export function getJointReviewSections(ctx: AdaPluginContext): JointReviewSectionEntry[] {
+  return getPanelsForRegion("joint-review", ctx).map(({ pluginId, panel }) => ({
+    pluginId,
+    panel,
+    title: panel.title ?? panel.asTab?.label ?? panel.id,
+  }));
 }
 
 /** Whether a plugin that is not disabled has a `connection-builder` panel at all. Asked where

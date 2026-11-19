@@ -31,7 +31,15 @@ export interface ViewportObjectColors {
     captureObjectColors(): ObjectColorState;
     /** Go back to a state this viewport captured; a state of another viewport is ignored. */
     restoreObjectColors(state: ObjectColorState): void;
+    /** Draw the objects of `marks` in their colours, over their own colour and the selection, in
+     *  place of what the last call marked (an empty map marks nothing). Not a colour the user gave,
+     *  not the selection, and no undo step: what a tool shows while it asks the user to point at
+     *  objects (plugins/sceneHighlights.ts). A viewport without it shows no marks. */
+    setObjectMarks?(marks: ObjectMarks): void;
 }
+
+/** Objects to mark, by model key then object id: each with its colour (sRGB, "#rrggbb"). */
+export type ObjectMarks = ReadonlyMap<string, ReadonlyMap<string, string>>;
 
 const HEX = /^#[0-9a-f]{6}$/i;
 

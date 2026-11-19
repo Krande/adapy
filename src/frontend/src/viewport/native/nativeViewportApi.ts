@@ -61,6 +61,14 @@ export function createNativeViewportApi(scene: NativeScene): ViewportApi {
         objectColorCount: () => scene.objectColorCount,
         captureObjectColors: () => scene.captureObjectColors(),
         restoreObjectColors: (state) => scene.restoreObjectColors(state),
+        // Marks: drawn as the colour of their segments too, over the selection's (NativeScene).
+        setObjectMarks: (marks) => {
+            const keyed = new Map<string, readonly [number, number, number]>();
+            for (const [model, ids] of marks) {
+                for (const [id, color] of ids) if (parseHexColor(color) !== null) keyed.set(objectKey(model, id), hexLinear(color));
+            }
+            scene.setObjectMarks(keyed);
+        },
         results: {createResultMesh: (data, opts) => scene.createResultLayer(data, opts)},
         objectVisibility: () => (model, id) => {
             const key = objectKey(model, id);
@@ -143,5 +151,13 @@ export function createNativeViewportApi(scene: NativeScene): ViewportApi {
             scene.onFrame.add(listener);
             return () => void scene.onFrame.delete(listener);
         },
+        // The renderer's own pick, in the frame last drawn: the object (null for a surface that is
+        // none) and its point in the world. Asked on hover as well as on a click.
+        surfaceAt: async (x, y) => {
+            const view = scene.viewRect();
+            const hit = await scene.pickHit(view.left + x, view.top + y);
+            return hit ? {ref: hit.id ? splitObjectKey(hit.id) : null, world: hit.world} : null;
+        },
+        featureEdges: (ref) => scene.objectFeatureEdges(objectKey(ref.model, ref.id)),
     });
 }

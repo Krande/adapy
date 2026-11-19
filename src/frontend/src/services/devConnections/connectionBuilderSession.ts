@@ -180,7 +180,7 @@ async function buildSelected(): Promise<void> {
 
 
 /**
- * The joint's clash in Scene > Clashes: the build's convex-contact run, read as any run of the
+ * The joint's clash in Connections > Clashes: the build's convex-contact run, read as any run of the
  * loaded model is, so its row selects the members, and its patches, normals and incoming/landing
  * colours draw in 3D.
  *

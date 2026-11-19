@@ -13,14 +13,19 @@ import type { PluginLayers, PluginPlayback, PluginSimulations } from "./playback
 // The named mount regions core exposes. Deliberately small
 // (`fem-sidebar` covers the FEM simulation panel, `top-panel` the menu bar,
 // `admin` the /admin page's tab strip, `connection-builder` the connection
-// builder panel's); more are added on demand rather than up-front.
+// builder panel's, `joint-review` the sections of the Connections panel's Review
+// tab); more are added on demand rather than up-front.
 export type PluginRegion =
   | "fem-sidebar"
   | "top-panel"
   | "scene-info"
   | "storage-detail"
   | "admin"
-  | "connection-builder";
+  | "connection-builder"
+  // (1.29.0) A section of the Connections panel's Review tab, after core's own (the produced and
+  // the identified joints), ordered by `order`, headed by the panel's `title`. The Review tab is
+  // there while any such section is active, whether or not core has joints to show.
+  | "joint-review";
 
 // ---------------------------------------------------------------------------
 // Placement (1.1.0)
@@ -255,8 +260,8 @@ export interface PanelSlot {
   // `asTab` is optional and only supplies the label; without it the namespaced
   // panel id is shown.
   //
-  // `connection-builder` panels (1.26.0) are always tabs too, of the connection
-  // builder panel, after the builder's own: `asTab` supplies the label, order
+  // `connection-builder` panels (1.26.0) are always tabs too, of the Connections
+  // panel, after core's own (Builder, Clashes, Overlays, Review; 1.29.0): `asTab` supplies the label, order
   // and badge; without it the panel's `title`, else its id, is the label.
   asTab?: {
     label: string;

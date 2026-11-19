@@ -18,6 +18,7 @@ import {loadModel} from "@/components/viewer/sceneHelpers/loadModel";
 import {ensureConvertedGlb} from "@/services/conversion";
 import {runtime} from "@/runtime/config";
 import {capabilities} from "@/services/capabilities";
+import {forgetLocalSource} from "@/utils/groups/localSources";
 
 export function derivedKeyForGlb(sourceKey: string): string {
     // Mirrors the server-side derived_key_for(target='glb') convention.
@@ -100,6 +101,9 @@ export async function overlay_file_in_scene(
     // (a replace's translate=false would re-derive from this model's bbox and
     // offset it). If nothing is cached yet (overlay is the first load) the
     // loader computes one as usual — same as a normal first load.
+    // From storage: a saved group's member of it refers to this stored key, whatever was opened
+    // from disk under the same name before.
+    forgetLocalSource(sourceName);
     await loadModel({
         sourceName,
         bytes: {from: "storage", scope, glbKey},
