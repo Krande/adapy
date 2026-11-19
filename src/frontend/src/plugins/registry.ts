@@ -404,6 +404,14 @@ export type { SelectedObjectBox } from "@/viewport/api/viewportApi";
 //          layout (`flat: true`): ELEMENT badge, its type, instance and nodes, its section and
 //          dimensions, plate thickness and material (E, ν, ρ, σ_y, σ_u), from the bake's element
 //          properties and the manifest's tables. The flat object metadata leaves those rows to it.
+//          Nodal result values (on `@/viewer-core/scene`): `feaValuesForElement(label, scope,
+//          {nodal: true})` also returns the nodal attributes `scope` names ("active": the displayed
+//          one; "all": every nodal one) at the element's nodes, for the step on screen, as
+//          `NodalFieldValues` {kind: "nodal", field, position, attribute, unit, components,
+//          nodes: [{node, values}], stepIndex, stepLabel}; element entries carry `kind: "element"`
+//          (`FeaFieldValues` is the union; `ElementValuesResult<FeaFieldValues>` the result).
+//          `feaValuesForNode(nodeLabel, scope)` reads one node's (`NodeValuesResult`). Without
+//          `nodal`, as before (typed element entries only). `elementNodes` also gives `indices`.
 export const PLUGIN_API_VERSION = "1.31.0";
 
 /** What the Simulations panel writes on a run's open-result button. */

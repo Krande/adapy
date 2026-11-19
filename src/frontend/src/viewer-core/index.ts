@@ -749,6 +749,8 @@
 //          `PropertyItemLayout`, `Field`, `FieldCheck` and their types (`PropertyItemLayoutProps`,
 //          `PropertyItemParents`, `PropertyItemGeometry`, `PropertyItemGroup`, `FieldProps`,
 //          `FieldHelpSource`) on `/layout`; `BuilderRefEdit.form`; `ObjectInfoBodyProps.builderSummary`.
+//          `feaValuesForNode`, `feaValuesForElement(..., {nodal: true})` and the types
+//          `NodalFieldValues`, `FeaFieldValues`, `FeaValuesOptions`, `NodeValuesResult` on `/scene`.
 export const VIEWER_CORE_API_VERSION = "1.31.0";
 
 // ---------------------------------------------------------------------------
