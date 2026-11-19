@@ -220,6 +220,13 @@ export { default as RelatedSection } from "@/components/info_box_selected_object
 export { useRelatedActions } from "@/hooks/useRelatedActions";
 export type { RelatedAction } from "@/utils/systems/relatedActions";
 
+// Field help (1.31.0): what a builder doc's column means, as the engine catalog serves it (adapy's
+// descriptions under the active engine's `field_help`, the engine winning per column), by doc list
+// and column: `fieldHelp("spaces", "GRID_X_CREATE")`; `useFieldHelp` follows the catalog and the
+// engine picked. The pure `engineFieldHelp(engines, slug)` / `fieldHelpText(help, list, column)` too.
+export { engineFieldHelp, fieldHelp, fieldHelpText, useFieldHelp } from "@/state/cellbuilder/fieldHelp";
+export type { FieldHelp } from "@/state/cellbuilder/fieldHelp";
+
 // Builder refs (1.31.0): a plugin's or a shell's rows shown as boxes among the cell builder's
 // cells, picked, moved and resized like them, each edit handed back to the provider. Returns the
 // unregister. A plugin has the same through `ctx.scene.registerBuilderRefs`.

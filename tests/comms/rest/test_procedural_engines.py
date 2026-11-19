@@ -174,6 +174,60 @@ def test_an_engine_registered_in_process_is_offered_and_compiles(app_client: Tes
     assert status["status"] == "done", status
 
 
+def test_engines_carry_field_help_adapy_under_the_engines_own(app_client: TestClient):
+    """Every engine carries what the doc's columns mean: adapy's entity descriptions, under an
+    engine's own ``field_help`` (the registration's keyword, or written onto its spec), whose
+    text wins per column. A column only the engine names is kept; a bad entry is passed over."""
+    from ada.topo_model import engine_catalog
+
+    engine_catalog.register_procedural_engine_capabilities(
+        "test-help-engine",
+        name="Help engine",
+        entrypoint="ada.topo_model.echo_engine:compile_doc",
+        field_help={"spaces": {"NAME": "The space's own name.\nUnique per structure.", "GRID_X": ""}, "supports": "no"},
+    )
+    # A tool may write it onto the spec itself (an older adapy without the keyword).
+    engine_catalog.register_procedural_engine_capabilities(
+        "test-help-engine-2", name="Help engine 2", entrypoint="ada.topo_model.echo_engine:compile_doc"
+    )
+    engine_catalog._ENGINE_CAPABILITY_REGISTRY["test-help-engine-2"]["field_help"] = {"supports": {"NODE": "The node."}}
+    try:
+        engines = {
+            e["slug"]: e for e in app_client.get("/api/scopes/shared/procedural-engines").json()["procedural_engines"]
+        }
+        builtin = engines["adapy-default"]["field_help"]
+        assert builtin["spaces"]["NAME"] == "Name of space"
+        assert builtin["equipments"]["massDry"] == "Mass of equipment (dry weight)"
+        assert builtin["openings"]["DEPTH"] == "Depth of opening"
+        assert builtin["structures"]["NAME"] == "Name of the structure"
+        assert all("METADATA" not in rows for rows in builtin.values())
+
+        mine = engines["test-help-engine"]["field_help"]
+        assert mine["spaces"]["NAME"] == "The space's own name.\nUnique per structure."
+        assert mine["spaces"]["GRID_X_CREATE"] == "Use in building X grid", "adapy's text where the engine has none"
+        assert "supports" not in mine, "not a {column: text} map: dropped"
+        assert engines["test-help-engine-2"]["field_help"]["supports"] == {"NODE": "The node."}
+        got = app_client.get("/api/scopes/shared/procedural-engines/local:test-help-engine").json()
+        assert got["field_help"]["spaces"]["NAME"].startswith("The space's own name.")
+    finally:
+        engine_catalog._ENGINE_CAPABILITY_REGISTRY.pop("test-help-engine", None)
+        engine_catalog._ENGINE_CAPABILITY_REGISTRY.pop("test-help-engine-2", None)
+
+
+def test_field_help_keyword_is_optional_and_cleaned():
+    from ada.topo_model import engine_catalog
+
+    engine_catalog.register_procedural_engine_capabilities("test-help-flags")
+    try:
+        assert "field_help" not in engine_catalog._ENGINE_CAPABILITY_REGISTRY["test-help-flags"]
+        assert engine_catalog.clean_field_help({"spaces": {"NAME": "n", "X": None}, 3: {}, "bad": []}) == {
+            "spaces": {"NAME": "n"}
+        }
+        assert engine_catalog.clean_field_help("nope") == {}
+    finally:
+        engine_catalog._ENGINE_CAPABILITY_REGISTRY.pop("test-help-flags", None)
+
+
 # ── live-Postgres API path ───────────────────────────────────────────
 
 

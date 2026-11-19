@@ -357,6 +357,11 @@ export type { SelectedObjectBox } from "@/viewport/api/viewportApi";
 //          (I, the store's `infoLabel` / `setInfoLabel`) shows of a ref under its kind and name;
 //          its size when absent. Not an API change, but a user sees it: the keyboard equipment
 //          insert moved from I to Q, and its readout reads "Insert <type> in <host>".
+//          Field help: an engine summary's `field_help` (`{list: {COLUMN: text}}`, from
+//          /procedural-engines: adapy's entity descriptions under the engine's own, which win per
+//          column; an engine gives it with `register_procedural_engine_capabilities(...,
+//          field_help=...)`), read with `fieldHelp(list, column)` / `useFieldHelp` (and the pure
+//          `engineFieldHelp`, `fieldHelpText`) on `@/viewer-core/app`. Additive.
 export const PLUGIN_API_VERSION = "1.31.0";
 
 /** What the Simulations panel writes on a run's open-result button. */

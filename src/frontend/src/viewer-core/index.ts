@@ -743,6 +743,8 @@
 //          `RegisteredShortcut.keysLabel`.
 //          `BuilderRef.info` (the info label's lines for a ref); the builder store's `infoLabel`
 //          and `setInfoLabel` (I). The keyboard equipment insert is Q now.
+//          `fieldHelp`, `useFieldHelp`, `engineFieldHelp`, `fieldHelpText` and the type `FieldHelp`
+//          on `/app`; `ProceduralEngineSummary.field_help`.
 export const VIEWER_CORE_API_VERSION = "1.31.0";
 
 // ---------------------------------------------------------------------------
