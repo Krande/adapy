@@ -417,6 +417,8 @@ export type { SelectedObjectBox } from "@/viewport/api/viewportApi";
 //          "Mesh (n tris)" section; one "⋯" at the body's top right instead, whose menu holds Show
 //          in data, Download as… (greyed out with the reason as its tooltip), Copy clicked position
 //          and the mesh's stats as a line. The sections below are drawn and get the pick as before.
+//          `PropertyGroup` on `/layout` (with `PropertyItemLayout`): one titled group drawn as the
+//          item layout draws its groups. Core's `fea-sets` section is one in the flat panel.
 export const PLUGIN_API_VERSION = "1.31.0";
 
 /** What the Simulations panel writes on a run's open-result button. */

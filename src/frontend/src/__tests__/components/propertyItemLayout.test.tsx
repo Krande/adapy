@@ -49,5 +49,5 @@ test("no rename, no onChange: plain name and read-only geometry; no parents, no 
 
 test("exported for plugins on @/viewer-core/layout", () => {
   const src = readFileSync(new URL("../../viewer-core/layout.ts", import.meta.url), "utf8");
-  assert.match(src, /export \{ Field, FieldCheck, PropertyItemLayout \} from "@\/components\/info_box_selected_object\/cellBuilderSelection\/PropertyItemLayout"/);
+  assert.match(src, /export \{ Field, FieldCheck, PropertyGroup, PropertyItemLayout \} from "@\/components\/info_box_selected_object\/cellBuilderSelection\/PropertyItemLayout"/);
 });

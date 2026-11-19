@@ -166,6 +166,10 @@ const GeometryGrid: React.FC<{ geometry: PropertyItemGeometry }> = ({ geometry: 
   );
 };
 
+/** A titled group of fields, as the item layout draws its groups: for a section that is one group
+ *  of its own beside an item (the FEA sets of a picked element). */
+export const PropertyGroup: React.FC<{ group: PropertyItemGroup }> = ({ group }) => <Group group={group} />;
+
 /** A titled group of fields. */
 const Group: React.FC<{ group: PropertyItemGroup }> = ({ group }) => (
   <div className="flex flex-col gap-0.5" data-property-group={group.title}>

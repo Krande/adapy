@@ -161,6 +161,9 @@ const ObjectMetadata = () => {
     return <ObjectMetadataPanel data={jsonData} flat={flat} menuSummary={summary === "menu"}/>;
 };
 
+/** The FEA sets section, in the flat layout's style when the panel is flat. */
+const FeaSets: React.FC = () => <FeaSetsSection flat={!!React.useContext(ObjectInfoOptions).flat}/>;
+
 /** The picked FEA element in the flat layout; nothing in the classic panel, which shows it folded. */
 const FlatFeaElement: React.FC<{name: string | null}> = ({name}) => {
     const {flat} = React.useContext(ObjectInfoOptions);
@@ -210,7 +213,7 @@ export const CORE_PROPERTY_PROVIDERS: readonly PropertyProvider[] = [
     // A picked FEA element's own data (type, nodes, section, thickness, material) in the flat
     // layout, with an ELEMENT badge; the classic panel has the same in its folded Properties rows.
     {id: "fea-element", order: 32, match: (sel) => sel.kind === "mesh" && /^E\d+$/.test(sel.meshName ?? ""), render: (sel) => <FlatFeaElement name={sel.meshName}/>},
-    {id: "fea-sets", order: 35, match: (sel) => sel.kind === "mesh" && /^E\d+$/.test(sel.meshName ?? ""), render: () => <FeaSetsSection/>},
+    {id: "fea-sets", order: 35, match: (sel) => sel.kind === "mesh" && /^E\d+$/.test(sel.meshName ?? ""), render: () => <FeaSets/>},
     // The selected row's attributes from the attribute index; nothing when it has none.
     {id: "indexed-attributes", order: 40, match: notCell, render: () => <IndexedAttributesSection/>},
     // Its system, run and related elements from the relations index; nothing without.
