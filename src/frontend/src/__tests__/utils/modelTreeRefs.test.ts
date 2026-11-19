@@ -1,5 +1,6 @@
 // A plugin's refs in the Model panel's tree: under the space they name, else under their
-// structure, else under a trailing "All structures" row; in the flat view, under "Other". The
+// structure, else under a trailing "All structures" row; in the flat view, under their space's
+// row, else under "Other". The
 // tree's own rows keep their shape: a panel that draws no refs draws what it drew.
 
 import assert from "node:assert/strict";
@@ -102,12 +103,23 @@ test("no structure layer: a space still takes its refs; the rest go to All struc
   assert.deepEqual(refKeys(find(nodes, (g) => g.kind === "all")), ["b"]);
 });
 
-test("flat: every ref under a trailing Other row, its mark the refs' includes", () => {
+test("flat: a ref of a space under the space's row, one step in; the rest under a trailing Other row", () => {
   const nodes = buildModelTree("flat", { cells, groups, refs });
+  const spaced = refs.filter((r) => r.space && Object.values(cells).some((c) => c.kind === "cell" && c.name === r.space));
+  assert.ok(spaced.length > 0 && spaced.length < refs.length, "the fixture has both");
+  for (const r of spaced) {
+    const row = nodes.find((n) => n.type === "item" && n.cell.name === r.space)!;
+    assert.ok(row.refs?.some((x) => x.ref.id === r.id && x.depth === row.depth + 1), r.id);
+  }
   const last = nodes[nodes.length - 1];
   assert.ok(last.type === "group" && last.kind === "other");
   assert.equal(last.label, OTHER_LABEL);
-  assert.equal(last.refs!.length, refs.length);
-  assert.equal(last.include, "mixed");
+  assert.deepEqual(last.refs!.map((x) => x.ref.id).sort(), refs.filter((r) => !spaced.includes(r)).map((r) => r.id).sort());
   assert.equal(nodes.filter((n) => n.type === "item").length, Object.keys(cells).length);
+});
+
+test("flat: with every ref on a space, no Other row", () => {
+  const nodes = buildModelTree("flat", { cells, groups, refs: [ref("only", { space: "hall" })] });
+  assert.ok(nodes.every((n) => n.type === "item"));
+  assert.deepEqual(nodes.find((n) => n.type === "item" && n.cell.name === "hall")!.refs!.map((x) => x.ref.key), ["only"]);
 });

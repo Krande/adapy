@@ -398,7 +398,10 @@ const Nodes: React.FC<{nodes: ModelNode[]}> = ({nodes}) => (
   <>
     {nodes.map((n) =>
       n.type === "item" ? (
-        <ItemRow key={n.key} node={n} />
+        <React.Fragment key={n.key}>
+          <ItemRow node={n} />
+          {n.refs?.map((r) => <RefRow key={r.key} node={r} />)}
+        </React.Fragment>
       ) : (
         <GroupRow key={n.key} node={n}>
           <Nodes nodes={n.children} />

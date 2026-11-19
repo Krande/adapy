@@ -22,8 +22,9 @@
  * rows as `refs`, not among `children`: a ref goes under its space when it names a
  * space cell, else under its structure, else (a ref for every structure, "*", or for
  * a structure the model does not have) under a trailing "All structures" row. In the
- * flat view they gather under a trailing "Other" row. A panel that draws no refs
- * draws the tree as it was.
+ * flat view, which has no group rows, a ref that names a space hangs off that space's
+ * own row (`ItemNode.refs`), and the rest gather under a trailing "Other" row. A panel
+ * that draws no refs draws the tree as it was.
  */
 
 import type {BuilderCell} from "@/state/cellbuilder/types";
@@ -61,6 +62,8 @@ export interface ItemNode {
   /** The component's effective state (own flag and its structure's). */
   state: IncludeState;
   depth: number;
+  /** The plugins' refs placed under this row (a space's, in the flat view); absent when none. */
+  refs?: RefNode[];
 }
 
 export interface GroupNode {
@@ -236,7 +239,7 @@ function buildCellTree(view: ModelView, input: ModelTreeInput): ModelNode[] {
 /** Hang the plugins' refs off the rows of `nodes` (see the header). */
 function placeRefs(view: ModelView, nodes: ModelNode[], refs: readonly BuilderRef[]): ModelNode[] {
   if (!refs.length) return nodes;
-  const add = (row: GroupNode, ref: BuilderRef) => {
+  const add = (row: GroupNode | ItemNode, ref: BuilderRef) => {
     (row.refs ??= []).push({type: "ref", key: `ref:${ref.id}`, ref, depth: row.depth + 1});
   };
   const trailing = (kind: "all" | "other", label: string, list: readonly BuilderRef[]): GroupNode => {
@@ -258,7 +261,18 @@ function placeRefs(view: ModelView, nodes: ModelNode[], refs: readonly BuilderRe
     for (const r of list) add(row, r);
     return row;
   };
-  if (view === "flat") return [...nodes, trailing("other", OTHER_LABEL, refs)];
+  if (view === "flat") {
+    // No group rows: a space's own row takes the refs that name it.
+    const spaceRows = new Map<string, ItemNode>();
+    for (const n of nodes) if (n.type === "item" && n.cell.kind === "cell" && !spaceRows.has(n.cell.name)) spaceRows.set(n.cell.name, n);
+    const other: BuilderRef[] = [];
+    for (const ref of refs) {
+      const row = ref.space ? spaceRows.get(ref.space) : undefined;
+      if (row) add(row, ref);
+      else other.push(ref);
+    }
+    return other.length ? [...nodes, trailing("other", OTHER_LABEL, other)] : nodes;
+  }
 
   const spaces = new Map<string, GroupNode>();
   const structures = new Map<string, GroupNode>();
