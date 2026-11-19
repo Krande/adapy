@@ -739,6 +739,8 @@
 //          far right of the mode's toolbar region (`ModeToolbarRegion`'s `end`, outside its clip).
 //          `SelectionSnapshot.shellMode`; `ObjectInfoBodyProps.sections(providerId, sel)` and
 //          `.flat` (on `/layout`), set per mode by a shell's `PanelOverride.options(mode)`.
+//          `LocalShortcutSpec` (`registerShortcut` with `local: true`: listed, never dispatched);
+//          `RegisteredShortcut.keysLabel`.
 export const VIEWER_CORE_API_VERSION = "1.31.0";
 
 // ---------------------------------------------------------------------------
@@ -956,7 +958,7 @@ export {
   subscribeShortcutBindings,
   unregisterShortcut,
 } from "@/layout/shortcuts";
-export type { KeyOverrides, RegisteredShortcut, ShortcutKeys, ShortcutSpec } from "@/layout/shortcuts";
+export type { KeyOverrides, LocalShortcutSpec, RegisteredShortcut, ShortcutKeys, ShortcutSpec } from "@/layout/shortcuts";
 export { CORE_SHORTCUTS, CORE_SHORTCUT_GROUPS } from "@/layout/coreShortcutTable";
 export type { CoreShortcutDef } from "@/layout/coreShortcutTable";
 export { installShortcutDispatcher } from "@/layout/shortcutDispatch";

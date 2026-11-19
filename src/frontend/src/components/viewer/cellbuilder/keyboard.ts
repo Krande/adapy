@@ -329,7 +329,10 @@ export const onKeyDown = (ctx: CellBuilderScene, ev: KeyboardEvent) => {
 
     // Bump the selected equipment up/down a cell floor (desktop shortcut).
     // PageUp = up a floor, PageDown = down; no-op without an equipment pick.
-    if (!inField && (ev.key === "PageUp" || ev.key === "PageDown")) {
+    // Bare keys only: Ctrl+PageUp/Down is the browser's tab switch, and a chord the
+    // shortcuts list does not name is not the builder's to take.
+    const bare = !ev.ctrlKey && !ev.metaKey && !ev.altKey && !ev.shiftKey;
+    if (!inField && bare && (ev.key === "PageUp" || ev.key === "PageDown")) {
         if (st.selection) {
             st.bumpSelectedFloor(ev.key === "PageUp" ? 1 : -1);
             requestRender();
@@ -343,7 +346,7 @@ export const onKeyDown = (ctx: CellBuilderScene, ev: KeyboardEvent) => {
     // undo step. A loft bay: shrink the member by one station, or remove the
     // whole member when it's down to its last bay (2 stations) — so Del peels
     // bays and finally deletes the loft.
-    if (!inField && (ev.key === "Delete" || ev.key === "Backspace")) {
+    if (!inField && bare && (ev.key === "Delete" || ev.key === "Backspace")) {
         // A selected ref is removed by its plugin, when it allows it.
         if (st.selection?.kind === "ref") {
             const ref = st.refs[st.selection.refId];
@@ -512,7 +515,8 @@ export const onKeyDown = (ctx: CellBuilderScene, ev: KeyboardEvent) => {
         // X/Y/Z lock the active translate/rotate gizmo to that axis (press the
         // same axis again to release). The HUD's numeric field then applies
         // along it.
-        const axis = gizmoAxisOfKey(k);
+        // Bare X/Y/Z only, as listed (Shift+X is the loft face's exclude above).
+        const axis = ev.shiftKey ? null : gizmoAxisOfKey(k);
         if ((st.gizmoMode === "translate" || st.gizmoMode === "rotate") && axis !== null) {
             st.setGizmoAxisLock(toggledAxisLock(st.gizmoAxisLock, axis));
             ev.preventDefault();

@@ -99,6 +99,30 @@ export interface KeyRow {
   overridden: boolean;
   /** A widget's own key: listed, not editable. */
   locked: boolean;
+  /** Shown in place of `keys`: a run of keys ("1–9"). */
+  keysLabel?: string;
+  /**
+   * More chords that run the same command, shown beside the one in force: a shell's alias (the
+   * command's own `keys` where its `shortcut` names a core key, a second chord for the palette say).
+   */
+  extraKeys?: readonly ShortcutKeys[];
+}
+
+/**
+ * Whether `query`, typed as a chord ("ctrl+k", "Shift + H"), names one of `row`'s chords:
+ * 0 exactly one of them, 1 the start of one ("ctrl+"), null neither.
+ */
+export function chordQueryRank(query: string, row: Pick<KeyRow, "keys" | "keysLabel" | "extraKeys">): number | null {
+  const q = query.toLowerCase().replace(/\s+/g, "").replace(/⌘|cmd|meta/g, "ctrl");
+  if (!q) return null;
+  const chords = [row.keys, ...(row.extraKeys ?? [])].filter((k): k is ShortcutKeys => !!k).map(normaliseChord);
+  if (row.keysLabel) chords.push(row.keysLabel.toLowerCase());
+  if (chords.includes(normaliseChord(q) || q)) return 0;
+  // A key inside a run ("5" in "1–9").
+  const run = row.keysLabel ? /^(.)–(.)$/.exec(row.keysLabel) : null;
+  if (run && q.length === 1 && q >= run[1] && q <= run[2]) return 0;
+  if (q.endsWith("+") && chords.some((c) => c.startsWith(normaliseChord(`${q}x`).slice(0, -1)))) return 1;
+  return null;
 }
 
 /** Every command (and every core key with no command of its own) as editor rows, with their effective and default chords. */
@@ -117,24 +141,33 @@ export function keyRows(
   };
   const dflt = (sid: string, c?: RegisteredCommand): ShortcutKeys | undefined =>
     defaults.get(sid)?.keys ?? (c?.shortcut ? defaultCoreShortcutKeys(c.shortcut) : undefined) ?? c?.keys;
+  // A command's own chord (`cmd:<id>`) where the row is the core key it names: one row, the alias beside it.
+  const folded = new Set<string>();
   for (const c of listCommands({ toggle: toggleFn, isOpen })) {
     const sid = shortcutIdOf(c, base);
     if (rows.has(sid)) continue;
+    const alias = `cmd:${c.id}`;
+    const hasAlias = alias !== sid && defaults.has(alias);
+    if (hasAlias) folded.add(alias);
+    const keys = defaults.get(sid)?.local ? defaults.get(sid)?.keys : keysOf(sid);
+    const aliasKeys = hasAlias ? keysOf(alias) : undefined;
     rows.set(sid, {
       shortcutId: sid,
       commandId: c.id,
       label: c.label,
       group: c.group ?? "Commands",
       keywords: c.keywords ?? [],
-      keys: defaults.get(sid)?.local ? defaults.get(sid)?.keys : keysOf(sid),
+      keys,
       defaultKeys: dflt(sid, c),
       overridden: !defaults.get(sid)?.local && sid in overrides,
       locked: !!defaults.get(sid)?.local,
+      ...(defaults.get(sid)?.keysLabel ? { keysLabel: defaults.get(sid)!.keysLabel } : {}),
+      ...(aliasKeys && normaliseChord(aliasKeys) !== normaliseChord(keys ?? "") ? { extraKeys: [aliasKeys] } : {}),
     });
   }
   // Keys that have no command: core's own table (the tree walk is also a command, the rest are keys only), shell and plugin shortcuts.
   for (const s of base) {
-    if (rows.has(s.id)) continue;
+    if (rows.has(s.id) || folded.has(s.id)) continue;
     rows.set(s.id, {
       shortcutId: s.id,
       commandId: null,
@@ -145,6 +178,7 @@ export function keyRows(
       defaultKeys: s.keys,
       overridden: !s.local && s.id in overrides,
       locked: !!s.local,
+      ...(s.keysLabel ? { keysLabel: s.keysLabel } : {}),
     });
   }
   return [...rows.values()];

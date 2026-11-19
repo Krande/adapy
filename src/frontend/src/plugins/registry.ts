@@ -347,6 +347,12 @@ export type { SelectedObjectBox } from "@/viewport/api/viewportApi";
 //          (`ObjectInfoBodyProps`, a shell sets them per mode with `PanelOverride.options` as a
 //          function of the mode): `sections(providerId, sel)` filters the matching sections,
 //          and `flat` draws the picked element's properties open with no foldable heading.
+//          `registerShortcut({id, keys, label, group, local: true}, owner)` (`LocalShortcutSpec`):
+//          a shell's widget's own key, listed in the shortcuts dialog and never dispatched (no
+//          `run`); it may share a dispatched chord and holds none. Not an API change, but seen
+//          in the dialog: every cell-builder key is listed (a "typed values" group too), a run
+//          of digits as one line (`RegisteredShortcut.keysLabel`, "1–9"), a command's own chord
+//          beside the core key it names (`KeyRow.extraKeys`), and the search matches chords.
 export const PLUGIN_API_VERSION = "1.31.0";
 
 /** What the Simulations panel writes on a run's open-result button. */
