@@ -148,6 +148,25 @@ export async function waitForViewerScene(timeoutMs = 30_000, giveUp?: () => bool
     }
 }
 
+/**
+ * Wait until a viewport is up: the three.js canvas has created its scene, or `otherReady()` says
+ * another viewport is (the caller passes the three.js-free viewport's check; this module does not
+ * import it). A load that picks between the viewports' paths waits on this first: before either
+ * has mounted, "the three.js-free viewport is not on screen" does not mean the three.js one will
+ * be, and a result opened then would take the three.js path and fail once the other one mounts.
+ * Rejects after `timeoutMs`.
+ */
+export async function waitForViewport(otherReady: () => boolean, timeoutMs = 30_000): Promise<void> {
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+        if (getViewerRuntime().scene.current || otherReady()) return;
+        if (Date.now() >= deadline) throw new Error(`no viewport ready after ${timeoutMs} ms`);
+        await new Promise<void>((resolve) =>
+            typeof requestAnimationFrame === "function" ? requestAnimationFrame(() => resolve()) : setTimeout(resolve, 16),
+        );
+    }
+}
+
 /** True while at least one `<AdaViewerProvider>` is mounted. */
 export function hasMountedViewerRuntime(): boolean {
     return mounted.length > 0;
