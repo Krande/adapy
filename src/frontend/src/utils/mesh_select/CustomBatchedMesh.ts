@@ -6,6 +6,7 @@ import {DesignDataExtension, SimulationDataExtensionMetadata} from "@/extensions
 import {clipWithModel} from "@/utils/scene/section_clipping";
 import {coalescedGroups} from "./groupRuns";
 import {useVisibilityStore} from "@/state/visibilityStore";
+import {FADE_COLOR} from "@/viewport/api/objectFade";
 import {followMorph, refreshMorphTexture} from "@/utils/scene/fea/gpuRefresh";
 import {applyMorphTargets} from "./customBatchedMesh/morph";
 import {prepareOverlayMaterial, sharedOverlayGeometry} from "./customBatchedMesh/selectionOverlay";
@@ -1063,7 +1064,10 @@ export class CustomBatchedMesh extends THREE.Mesh {
      * occlude the joint it is meant to be showing THROUGH it.
      */
     public setHiddenAppearance(mode: "invisible" | "ghost", opacity = 0.15): void {
-        const mat = this._matInvisible as THREE.MeshBasicMaterial;
+        const mat = this._matInvisible as THREE.MeshBasicMaterial | undefined;
+        // A mesh already disposed (its model cleared) has nothing left to look like anything.
+        if (!mat) return;
+        const was = this.hiddenGhostOpacity();
         if (mode === "invisible") {
             mat.visible = false;
             mat.transparent = false;
@@ -1074,9 +1078,20 @@ export class CustomBatchedMesh extends THREE.Mesh {
             mat.transparent = true;
             mat.opacity = Math.max(0.01, Math.min(1, opacity));
             mat.depthWrite = false;
-            mat.color.set(0x8a8f98);
+            mat.color.set(FADE_COLOR);
+            // Both sides: a ghost seen through its own far wall reads as one shape, as on the
+            // three.js-free viewport.
+            mat.side = THREE.DoubleSide;
         }
         mat.needsUpdate = true;
+        // What mirrors this mesh into another renderer re-reads the ranges on this (adacpp/sceneSync).
+        if (was !== this.hiddenGhostOpacity()) this.renderStateVersion++;
+    }
+
+    /** How opaque a hidden range is drawn: null when it is not drawn at all (`setHiddenAppearance`). */
+    public hiddenGhostOpacity(): number | null {
+        const mat = this._matInvisible as THREE.MeshBasicMaterial | undefined;
+        return mat && mat.visible ? mat.opacity : null;
     }
 
     public unhideAllDrawRanges() {

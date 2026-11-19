@@ -20,6 +20,7 @@ import {createThreeResultMesh} from "@/utils/scene/fea/threeResultLayer";
 import {recordViewerAction} from "@/utils/scene/viewerHistory";
 import {captureThreeState, restoreThreeState, threeStateChange} from "@/utils/scene/threeViewportState";
 import {captureThreeObjectColors, restoreThreeObjectColors, setThreeObjectColors, setThreeObjectMarks, threeObjectColorCount} from "@/utils/scene/threeObjectColors";
+import {setThreeObjectFade} from "@/utils/scene/threeObjectFade";
 import {recordObjectColors} from "./objectColors";
 import {RangeSet, rangesInCameraRect, rangesInWorldBox, threeSelectionBounds} from "@/utils/bboxSelection/threeBoxSelection";
 import {rangesCentroidWorld} from "@/utils/viewer/pipeTrace";
@@ -217,6 +218,8 @@ export function createThreeViewport(h: ThreeViewportHandles): ViewportApi {
         restoreObjectColors: restoreThreeObjectColors,
         // Marks: an overlay per mesh over the selection's, no undo entry.
         setObjectMarks: setThreeObjectMarks,
+        // Fading: the meshes' hidden slot drawn as a ghost (utils/scene/threeObjectFade.ts).
+        setObjectFade: setThreeObjectFade,
         // Undo: the hidden ranges per mesh and the selection store, as the history noted them itself
         // before it asked the viewport (utils/scene/threeViewportState.ts).
         captureState: captureThreeState,

@@ -7,90 +7,85 @@
 // `isolate` / `isolateOpacity`) -- a fixed value is wrong at both ends, unusable on a dense deck
 // and pointless on a bare frame.
 //
-// Per-DRAW-RANGE, not per-mesh: a model is one batched mesh with a range per member, so "hide the
-// rest" is a hidden-range set (`CustomBatchedMesh.isolateDrawRanges`) and a ghost is what that
-// mesh's hidden material looks like (`setHiddenAppearance`). Reusing the hide path rather than
-// adding a parallel one means the two cannot disagree about which members are which.
-
-import * as THREE from "three";
+// THROUGH THE VIEWPORT ON SCREEN (`ViewportApi.setObjectFade`, viewport/api/objectFade.ts), so
+// either viewport fades: "fade rest" is a fade at the chosen opacity, "hide rest" one at opacity 0.
+// It was the three.js scene's own batched meshes, reached from here ("hide the rest" a hidden-range
+// set, `CustomBatchedMesh.isolateDrawRanges`, and a ghost what that mesh's hidden material looks
+// like, `setHiddenAppearance`): the three.js-free viewport has no such meshes, and faded nothing.
+// The three.js viewport still fades that way (utils/scene/threeObjectFade.ts).
+//
+// Per OBJECT of each model, by the source it was loaded from: a model is one batched mesh (or one
+// renderer instance) with a draw range per member, and a group's run has members in several models.
+// No three.js here.
 
 import { modelStore } from "@/state/model_worker/modelStore";
-import { loadedSourceGroups } from "@/state/modelState";
-import { requestRender } from "@/state/perfStore";
-import { getViewerRuntime } from "@/state/viewerRuntime";
-import { CustomBatchedMesh } from "@/utils/mesh_select/CustomBatchedMesh";
+import { useTreeViewStore } from "@/state/treeViewStore";
+import { modelKeyOfSource, type ModelRow } from "@/utils/groups/selectGroup";
+import { activeViewport, type ViewportApi } from "@/viewport/api/viewportApi";
 
 export type IsolationMode = "off" | "ghost" | "hidden";
 
-/** Meshes currently isolated, each with the hidden set it had BEFORE -- a user's own Shift+H
- *  hides are theirs, and restoring "everything visible" would silently undo them. */
-let isolated: { mesh: CustomBatchedMesh; wasHidden: ReadonlySet<string> }[] = [];
-
-function meshesOf(file: string): { meshes: CustomBatchedMesh[]; modelKey: string | null } {
-  const group = loadedSourceGroups.get(file);
-  const meshes: CustomBatchedMesh[] = [];
-  let modelKey: string | null = null;
-  if (group) {
-    group.traverse((obj: THREE.Object3D) => {
-      if (obj instanceof CustomBatchedMesh) {
-        meshes.push(obj);
-        modelKey ??= (obj as any).unique_key ?? obj.userData?.["unique_hash"] ?? null;
-      }
-    });
-  }
-  if (!modelKey) {
-    getViewerRuntime().modelKeyMap.current?.forEach((g, key) => {
-      if (modelKey === null && g === group) modelKey = key;
-    });
-  }
-  return { meshes, modelKey };
-}
+/** The viewport the last fade was put on (null: nothing faded), to be taken off that one even when
+ *  another has taken its place since. */
+let fadedOn: ViewportApi | null = null;
+/** Bumped by every call: a name lookup still under way when another call came is not applied. */
+let serial = 0;
 
 /** Put every member back. Safe to call when nothing is isolated. */
 export function clearJointIsolation(): void {
-  if (isolated.length === 0) return;
-  for (const { mesh, wasHidden } of isolated) {
-    mesh.unhideAllDrawRanges();
-    if (wasHidden.size > 0) mesh.hideBatchDrawRange(wasHidden);
-    mesh.setHiddenAppearance("invisible");
+  serial++;
+  const viewport = fadedOn;
+  fadedOn = null;
+  if (!viewport) return;
+  try {
+    viewport.setObjectFade?.(null);
+  } catch {
+    /* its renderer is gone, and what it faded with it */
   }
-  isolated = [];
-  requestRender();
 }
 
-/** Isolate by DRAW RANGE, across several loaded models at once: each target's `keep` ranges stay solid
- *  and every other range of that model fades (or hides) -- a target with an empty `keep` is a model
+/** Fade, on the viewport on screen, every object of the models `keep` names but the ones it keeps. */
+function fadeRest(keep: ReadonlyMap<string, ReadonlySet<string>>, mode: IsolationMode, opacity: number): void {
+  const viewport = activeViewport();
+  if (fadedOn && fadedOn !== viewport) clearJointIsolation();
+  if (!viewport?.setObjectFade) return;
+  // The ghost is never quite gone: at 0 the joint's neighbours would vanish, which is "hide rest".
+  viewport.setObjectFade({ keep, opacity: mode === "ghost" ? Math.max(0.01, Math.min(1, opacity)) : 0 });
+  fadedOn = viewport;
+}
+
+/** Isolate by OBJECT ID, across several loaded models at once: each target's `keep` ids stay solid
+ *  and every other object of that model fades (or hides) -- a target with an empty `keep` is a model
  *  faded whole. What a convex-contact run isolates by: its members are element ids per model
  *  (`clashContactPlan.contactIsolationTargets`), never names, which repeat.
  *
- *  A user's own hidden ranges stay out of `keep` (and come back hidden afterwards, as below). Returns
- *  how many ranges were asked to stay solid; none asked isolates nothing. */
+ *  A user's own hidden objects stay hidden. Returns how many objects were asked to stay solid; none
+ *  asked isolates nothing. */
 export function isolateElementRanges(
   targets: readonly { readonly sourceName: string; readonly keep: ReadonlySet<string> }[],
   mode: IsolationMode,
   opacity: number,
 ): number {
-  clearJointIsolation();
-  if (mode === "off" || !targets.some((t) => t.keep.size > 0)) return 0;
-  let kept = 0;
-  for (const { sourceName, keep } of targets) {
-    kept += keep.size;
-    for (const mesh of meshesOf(sourceName).meshes) {
-      // Captured after the restore above, so it is the user's own hidden set, not an isolation's.
-      const wasHidden = new Set(mesh.getHiddenRanges());
-      const solid = wasHidden.size ? new Set([...keep].filter((id) => !wasHidden.has(id))) : keep;
-      mesh.setHiddenAppearance(mode === "ghost" ? "ghost" : "invisible", opacity);
-      mesh.isolateDrawRanges(solid);
-      isolated.push({ mesh, wasHidden });
-    }
+  if (mode === "off" || !targets.some((t) => t.keep.size > 0)) {
+    clearJointIsolation();
+    return 0;
   }
-  requestRender();
+  serial++;
+  const keep = new Map<string, Set<string>>();
+  let kept = 0;
+  for (const target of targets) {
+    kept += target.keep.size;
+    const ids = keep.get(target.sourceName) ?? new Set<string>();
+    for (const id of target.keep) ids.add(id);
+    keep.set(target.sourceName, ids);
+  }
+  fadeRest(keep, mode, opacity);
   return kept;
 }
 
 /** Leave `memberNames` visible in `file` and put the rest out of the way.
  *
- *  Returns how many ranges were kept. ZERO keeps nothing isolated: hiding a whole model because a
+ *  Returns how many objects were kept. ZERO keeps nothing isolated: hiding a whole model because a
  *  name did not resolve would look exactly like a broken viewer, and the honest answer to "these
  *  members are not in this model" is to leave it alone. */
 export async function isolateJointMembers(
@@ -103,27 +98,16 @@ export async function isolateJointMembers(
     clearJointIsolation();
     return 0;
   }
-  const { meshes, modelKey } = meshesOf(file);
-  if (!modelKey || meshes.length === 0) {
-    clearJointIsolation();
-    return 0;
-  }
-  const pairs = await modelStore.getDrawRangesByMemberNames(modelKey, [...memberNames]);
+  const asked = ++serial;
+  // The model's key, as the model store knows it, from the Scene tree's roots: either viewport lists them.
+  const model = modelKeyOfSource(useTreeViewStore.getState().treeData as ModelRow | null, file);
+  const pairs = model ? await modelStore.getDrawRangesByMemberNames(model, [...memberNames]) : [];
+  if (asked !== serial) return 0; // another call came meanwhile: its answer stands
   if (pairs.length === 0) {
     clearJointIsolation();
     return 0;
   }
   const keep = new Set(pairs.map(([, rangeId]) => String(rangeId)));
-
-  clearJointIsolation();
-  for (const mesh of meshes) {
-    // Captured BEFORE isolating and after the restore above, so what is remembered is the user's
-    // own hidden set rather than a previous isolation's.
-    const wasHidden = new Set(mesh.getHiddenRanges());
-    mesh.setHiddenAppearance(mode === "ghost" ? "ghost" : "invisible", opacity);
-    mesh.isolateDrawRanges(keep);
-    isolated.push({ mesh, wasHidden });
-  }
-  requestRender();
+  fadeRest(new Map([[file, keep]]), mode, opacity);
   return keep.size;
 }

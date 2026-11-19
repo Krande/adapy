@@ -23,6 +23,7 @@ import {usePerfStore} from "@/state/perfStore";
 import {defaultColorLinear, hexChannels, lightIntensities, useAppearanceStore} from "@/state/appearanceStore";
 import {glbUncoloured, UNCOLOURED_BLACK} from "@/utils/glb/glbUncoloured";
 import type {ObjectColorState} from "@/viewport/api/objectColors";
+import {FADE_COLOR} from "@/viewport/api/objectFade";
 import {placeModel, type Box6, type Vec3} from "@/viewport/api/sceneFrame";
 import {glbObjectReader, type GlbObjectReader} from "@/utils/glb/glbObjectTriangles";
 import {computeEdgeArrays} from "@/utils/mesh_select/edgeCore";
@@ -152,6 +153,10 @@ interface LoadedModel {
 }
 
 let canvasSerial = 0;
+
+/** A faded object's colour (viewport/api/objectFade), linear as the renderer takes an instance's. */
+const FADE_RGB = linearColor(FADE_COLOR);
+const IDENTITY = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
 
 /** Linear RGB (0..1) as the colour of a segment in the renderer: linear RGBA8, alpha 255 (a
  *  colour with alpha 0 is "none" there). */
@@ -373,6 +378,7 @@ export class NativeScene {
             for (const listener of this.onReplacing) listener();
             this.detachResultLayers();
             this.renderer.clear();
+            this.forgetFade();
             this.sceneEpoch++;
             this.helperLines.clear(); // renderer.clear() took them
             this.addGrid();
@@ -504,6 +510,8 @@ export class NativeScene {
     clearModels(): void {
         for (const key of [...this.models.keys()]) this.dropModel(key);
         this.detachResultLayers();
+        // The fade named the models just taken off (their ghosts went with them).
+        this.fade = null;
         this.modelKey = "";
         this.sceneExtras = "";
         this.extData = "";
@@ -531,6 +539,8 @@ export class NativeScene {
         }
         if (model.resultSegments) model.instances = [];
         for (const instance of model.instances) {
+            // Its ghost draws the same geometry: it goes first.
+            this.dropGhost(instance);
             this.renderer.removeInstance(instance);
             this.segments.delete(instance);
         }
@@ -702,6 +712,7 @@ export class NativeScene {
             for (const listener of this.onReplacing) listener();
             this.detachResultLayers();
             this.renderer.clear();
+            this.forgetFade();
             this.modelKey = "";
             this.sceneExtras = "";
             this.extData = "";
@@ -1334,25 +1345,96 @@ export class NativeScene {
         this.writeStates();
     }
 
-    /** Every segment's state as the renderer takes it: hidden, else the colour a tool marked it
-     *  with, else the selection's colour, else the colour the user gave the object, else the default
-     *  colour where its file gave it none. */
+    /** Objects a tool fades for a while (ViewportApi.setObjectFade): by source, the ids that stay
+     *  as they are, and how opaque the rest of those models is drawn. Neither hidden nor selected,
+     *  and no undo step. */
+    private fade: {keep: ReadonlyMap<string, ReadonlySet<string>>; opacity: number} | null = null;
+    /** Per instance with faded objects: the translucent instance of the same geometry that draws
+     *  them. The instance itself does not draw them (as if hidden); the ghost draws only them, and
+     *  is never picked, so a click goes to what is solid. */
+    private readonly ghosts = new Map<number, number>();
+
+    /** Fade every object of the models `fade` names but the ones it keeps, in place of what was
+     *  faded before; null fades nothing. Opacity 0 does not draw them at all. */
+    setObjectFade(fade: {keep: ReadonlyMap<string, ReadonlySet<string>>; opacity: number} | null): void {
+        const next = fade && fade.keep.size ? {keep: new Map(fade.keep), opacity: Math.max(0, Math.min(1, fade.opacity || 0))} : null;
+        if (!next && !this.fade) return;
+        this.fade = next;
+        this.writeStates();
+    }
+
+    /** The renderer dropped every instance (`clear()`): the ghosts went with it, and the fade with
+     *  the models it named. */
+    private forgetFade(): void {
+        this.ghosts.clear();
+        this.fade = null;
+    }
+
+    /** Take `instance`'s ghost out of the renderer, when it has one. */
+    private dropGhost(instance: number): void {
+        const ghost = this.ghosts.get(instance);
+        if (ghost === undefined) return;
+        this.ghosts.delete(instance);
+        this.renderer.removeInstance(ghost);
+    }
+
+    /** Draw the faded objects of `instance` (of `model`) with its ghost, made on first use: where the
+     *  instance is, in the fade's grey at the fade's opacity, both sides, cut by the section planes. */
+    private writeGhost(model: LoadedModel, instance: number, states: Uint32Array, opacity: number): void {
+        let ghost = this.ghosts.get(instance);
+        if (ghost === undefined) {
+            const geometry = model.geometries[model.instances.indexOf(instance)];
+            if (geometry === undefined) return;
+            ghost = this.renderer.addInstance(geometry);
+            this.ghosts.set(instance, ghost);
+        }
+        const p = (this.matrixRoom ||= this.module._malloc(64));
+        const matrix = this.renderer.instanceMatrix?.(instance);
+        // The view is taken now: the heap may have grown.
+        this.module.HEAPF32.set(matrix && matrix.length >= 16 ? matrix.subarray(0, 16) : IDENTITY, p >> 2);
+        const flags = InstanceFlag.Transparent | InstanceFlag.DoubleSided | InstanceFlag.NoPick | InstanceFlag.Clipped;
+        this.renderer.setInstance(ghost, p, FADE_RGB[0], FADE_RGB[1], FADE_RGB[2], opacity, flags, 0, 0, 1, false, 1, 0, 0);
+        const s = this.module._malloc(states.byteLength);
+        this.module.HEAPU32.set(states, s >> 2);
+        try {
+            this.renderer.setSegmentStates(ghost, s, states.length / 2);
+        } finally {
+            this.module._free(s);
+        }
+    }
+
+    /** Every segment's state as the renderer takes it: hidden, else faded (drawn by the instance's
+     *  ghost instead), else the colour a tool marked it with, else the selection's colour, else the
+     *  colour the user gave the object, else the default colour where its file gave it none. */
     private writeStates(): void {
         // The file's grey is drawn as it is while the default colour is that grey.
         const fallback = this.defaultSegmentColor;
         const greyToo = fallback !== NativeScene.FILE_GREY;
         const anyHidden = this.hidden.size > 0, anySelected = this.selected.size > 0, anyMarked = this.marks.size > 0;
+        const fade = this.fade;
         for (const [instance, {model, objects: segments, outline}] of this.segments) {
             const ids = model.keys;
             const colors = model.colored ? model.colors! : null;
             const uncoloured = model.uncoloured ?? null;
             const states = new Uint32Array(segments.length * 2);
+            // A result's elements are the result's: they are not faded.
+            const keep = fade && !model.resultSegments ? fade.keep.get(model.sourceName) ?? null : null;
+            // What the ghost draws: the faded objects, every other segment hidden. Edges get none.
+            const ghost = keep && !outline && fade!.opacity > 0 ? new Uint32Array(segments.length * 2) : null;
+            let ghosted = 0;
             for (let i = 0; i < segments.length; i++) {
                 const object = segments[i];
+                if (ghost) ghost[i * 2 + 1] = SegmentFlag.Hidden;
                 if (object < 0) continue;
                 const id = ids[object];
                 if (anyHidden && this.hidden.has(id)) states[i * 2 + 1] = SegmentFlag.Hidden;
-                else if (outline) continue;
+                else if (keep && !keep.has(model.table.ids[object])) {
+                    states[i * 2 + 1] = SegmentFlag.Hidden;
+                    if (ghost) {
+                        ghost[i * 2 + 1] = 0;
+                        ghosted++;
+                    }
+                } else if (outline) continue;
                 else if (anyMarked && this.marks.has(id)) {
                     states[i * 2] = this.marks.get(id)!;
                     states[i * 2 + 1] = SegmentFlag.Matte;
@@ -1369,6 +1451,8 @@ export class NativeScene {
             } finally {
                 this.module._free(p);
             }
+            if (ghost && ghosted) this.writeGhost(model, instance, ghost, fade!.opacity);
+            else this.dropGhost(instance);
         }
         this.invalidate();
     }

@@ -30,8 +30,9 @@
 // LIFETIME. The overlay is a view of the RESULT, not of the panel: it is driven by a store
 // subscription (`startClashMarkerSync`), so switching to another scene tab, or closing the panel,
 // leaves the markers where they are. Unloading the model takes them down (its origin is gone), and
-// another viewport taking over draws them there. Nothing here draws with three.js (fading the rest,
-// `clashIsolation`, is still the three.js viewport's own).
+// another viewport taking over draws them there. Nothing here draws with three.js, and neither does
+// fading the rest (`clashIsolation`, through the viewport's `setObjectFade`), which was the three.js
+// viewport's own until it too went through the viewport on screen.
 
 import { useModelState } from "@/state/modelState";
 import {
@@ -334,8 +335,8 @@ export function startClashMarkerSync(): void {
   // model's space, and a result outlives the load it was run against only as stale numbers.
   useModelState.subscribe((s, prev) => {
     if (s.loadedSourceName === prev.loadedSourceName && s.loadedSourceNames === prev.loadedSourceNames) return;
-    // A model change takes the isolation down with the markers: hidden ranges belong to the mesh
-    // that was isolated, and leaving them set would hide most of a model nobody isolated.
+    // A model change takes the isolation down with the markers: what was faded belongs to the models
+    // that were there, and leaving it would fade most of a model nobody isolated.
     clearJointIsolation();
     // Forced: the isolation was just taken down, and must be put back on what is loaded now.
     redraw(true);

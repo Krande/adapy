@@ -13,7 +13,8 @@
 //   * the bookkeeping that names them: the loaded sources, the tree, the selection, the lineage, the
 //     streamed groups, the GLTF simulation data, the animation state, the FEA streaming session;
 //   * what is drawn over them: measurements (the Measure tab), the connection builder's annotations,
-//     weld colours and marks of the joint it previewed and that preview's clash, every highlight;
+//     weld colours and marks of the joint it previewed and that preview's clash, every highlight,
+//     and a clash's fading of the rest (what it faded is put back first);
 //   * unless kept: loads still queued (they would arrive into the scene just cleared) and an open
 //     procedural model (its proxies are part of what is in the scene);
 //   * unless it is a replace: what plugins drew over the scene, their lines, labels, element
@@ -42,6 +43,7 @@ import {notifySceneCleared} from "@/plugins/sceneCleared";
 import {endAllSceneHighlights} from "@/plugins/sceneHighlights";
 import {removeAllPluginDrawings} from "@/plugins/sceneOverlays";
 import {forgetPreviewIfUnloaded} from "@/services/devConnections/previewOnShow";
+import {clearJointIsolation} from "@/utils/scene/clashIsolation";
 import {clearThreeSceneModels} from "@/utils/scene/clearThreeSceneModels";
 import {clearConnectionOverlay} from "@/utils/scene/connectionOverlay";
 import {clearWeldMarks} from "@/utils/scene/connectionWeldMarks";
@@ -88,6 +90,8 @@ export async function clearScene(options: ClearSceneOptions = {}): Promise<void>
     // their objects.
     clearMeasurements();
     endAllSceneHighlights();
+    // A clash's "fade rest" / "hide rest", put back while its models are still there to put back.
+    clearJointIsolation();
 
     // The models off the screen, through the viewport on screen. The three.js viewport's own
     // `clearModels` is this same three.js teardown, run here at once rather than after its lazy import.
