@@ -8,7 +8,7 @@
 
 import type { ContactRunDoc } from "@/services/clash/contactRuns";
 import { checkedSourceName, contactRunOf, useClashCheckStore } from "@/state/clashCheckStore";
-import { loadedSourceGroups, useModelState } from "@/state/modelState";
+import { useModelState } from "@/state/modelState";
 import { contactSceneElements } from "@/utils/scene/clashContactPlan";
 import { JOINTS_REVIEW_TAB } from "@/state/connectionBuilderTabStore";
 import { openConnectionsTab } from "@/layout/connectionsTabActions";
@@ -61,7 +61,9 @@ async function selectContactElements(run: ContactRunDoc, jointIds: readonly stri
     import("@/utils/groups/groupScene"),
     import("@/state/assetBrowserStore"),
   ]);
-  const refs = contactSceneElements(run, jointIds, loadedSourceGroups.keys(), useAssetBrowserStore.getState().loaded);
+  // The loaded models as the model store lists them, which both viewports keep (the three.js scene's
+  // own groups are only the three.js viewport's).
+  const refs = contactSceneElements(run, jointIds, useModelState.getState().loadedSourceNames, useAssetBrowserStore.getState().loaded);
   if (refs.length === 0) return 0;
   return selectSourceElements(refs, label ?? `${refs.length} clash member(s)`);
 }

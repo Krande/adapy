@@ -9,8 +9,7 @@ import {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
 // from the GPU mesh picker; the raycast fallback still passes only
 // the intersection.
 import {useOptionsStore} from "@/state/optionsStore";
-import {pickJointMarker} from "@/utils/scene/clashJointMarkers";
-import {pickContactPatch} from "@/utils/scene/clashContactOverlay";
+import {clashPickAt} from "@/utils/scene/clashOverlayPicks";
 import {focusJoint} from "@/utils/scene/clashJointFocus";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {pickResultLineSegment} from "@/utils/scene/fea/resultLineSegments";
@@ -221,8 +220,11 @@ export function setupPointerHandler(
         //    pickers, a sphere sitting on a beam would never be clickable. One object and a few
         //    hundred instances, so the cost of asking on every click is nil.
         //    A contact patch of the contacts overlay (`clashContactOverlay`) counts the same: it
-        //    names one contact, and clicking it focuses that contact like its marker would.
-        const jointId = pickJointMarker(e, camera, renderer) ?? pickContactPatch(e, camera, renderer);
+        //    names one contact, and clicking it focuses that contact like its marker would. Both are
+        //    drawn through the viewport's layers and matched on the screen (`clashOverlayPicks`).
+        const clashView = activeViewport();
+        const clashRect = renderer.domElement.getBoundingClientRect();
+        const jointId = clashView ? clashPickAt(clashView, e.clientX - clashRect.left, e.clientY - clashRect.top) : null;
         if (jointId) {
             await focusJoint(jointId, {revealPanel: true});
             return;

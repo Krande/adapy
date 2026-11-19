@@ -1,29 +1,39 @@
-// The joints a clash check found, drawn in the 3D scene as one coloured sphere per joint.
+// The joints a clash check found, drawn in the 3D scene as one coloured dot per joint, and a
+// convex-contact run's patches and normals beside them (`clashContactOverlay`).
 //
 // WHY. The Clashes panel lists GROUPS, and a group is a count -- "48 × BEAM · HP/I ·
 // Girder→Girder". A count says nothing about WHERE those joints are, so reading a row gave no way
 // to tell a roof grid from a deck edge without selecting members one row at a time. A marker per
 // joint, coloured by the row it belongs to, makes the list and the model the same picture: the
-// swatch on a row is the colour of its spheres, because both come from `jointMarkers()` in
+// swatch on a row is the colour of its dots, because both come from `jointMarkers()` in
 // `clashCheckStore` (one derived view -- the same discipline the panel's counts hold).
 //
-// SPACE. Joint centres are in the SOURCE model's coordinates. Two transforms separate those from
-// world space -- the up-axis fix, and the offset every load applies to centre the model in the
-// scene -- and both sit on the glTF scene node INSIDE the group registered as the loaded source,
-// not on that group (`setupModelLoader`, which marks it `__sourceSpaceRoot` for exactly this).
-// Taking the registered group's matrix instead draws every sphere at its un-recentred position,
-// which looks like a model-sized offset. The overlay copies that matrix rather than being
-// parented to the node: parenting would put a non-mesh child inside a subtree that the tree
-// build, the mesh-stats walk and the GPU picker all scan for meshes.
+// DRAWN THROUGH THE VIEWPORT ON SCREEN (viewport/api): the markers as points of an overlay layer,
+// sized in screen pixels, and the contacts as meshes and lines of another, so either viewport draws
+// them. They were three.js objects added to the three.js scene (an instanced sphere mesh named
+// "clash-joint-markers"; the name is kept here for the committed bundle's provenance check), which
+// the three.js-free viewport never draws: a check there, a saved group's above all, showed its rows
+// and nothing in 3D.
+//
+// SPACE. Joint centres and contact points are in the SOURCE model's coordinates. Every viewport
+// places a loaded model by one rule, world = model + its source's origin (`ViewportApi.sourceOrigin`),
+// so each point is drawn at itself plus that origin. A saved group's run spans several loaded models:
+// each contact (and its marker) takes the origin of the model its members are in
+// (`clashContactPlan.contactOrigins`); a check of one model takes that model's.
+//
+// WHICH MODELS ARE LOADED is the model store's list (`loadedSourceNames`), which both viewports
+// keep -- not the three.js scene's own groups, which the three.js-free viewport has none of.
+//
+// PICKING. The layers take no clicks; what was drawn is kept for the click test each viewport asks
+// before it picks the model (`clashOverlayPicks`).
 //
 // LIFETIME. The overlay is a view of the RESULT, not of the panel: it is driven by a store
 // subscription (`startClashMarkerSync`), so switching to another scene tab, or closing the panel,
-// leaves the markers where they are. Unloading the model takes them down.
+// leaves the markers where they are. Unloading the model takes them down (its origin is gone), and
+// another viewport taking over draws them there. Nothing here draws with three.js (fading the rest,
+// `clashIsolation`, is still the three.js viewport's own).
 
-import * as THREE from "three";
-
-import { loadedSourceGroups, useModelState } from "@/state/modelState";
-import { requestRender } from "@/state/perfStore";
+import { useModelState } from "@/state/modelState";
 import {
   checkedSourceName,
   contactRunOf,
@@ -39,128 +49,153 @@ import { clearJointIsolation, isolateElementRanges, isolateJointMembers } from "
 import {
   contactIsolationTargets,
   contactKeepByPart,
+  contactOrigins,
   contactOverlayPlan,
   contactSpaceSource,
 } from "@/utils/scene/clashContactPlan";
-import { clearContactOverlay, renderContactOverlay } from "@/utils/scene/clashContactOverlay";
-import { getViewerRuntime } from "@/state/viewerRuntime";
-import { sourceSpaceRoot } from "@/utils/scene/meshLookup";
+import { drawContactOverlay, type ContactOrigin } from "@/utils/scene/clashContactOverlay";
+import { setShownClashPicks } from "@/utils/scene/clashOverlayPicks";
+import { linearColor } from "@/utils/scene/sceneColor";
+import type { Point3 } from "@/viewport/api/billboards";
+import type { OverlayLayer } from "@/viewport/api/overlayLayer";
+import { activeViewport, onActiveViewportChange, onModelLoaded, type ViewportApi } from "@/viewport/api/viewportApi";
 
-/** Marker radius as a fraction of the model's bounding-box diagonal. A joint is a point, so the
- *  only size that reads at every zoom is one relative to the thing it sits in. */
-const RADIUS_FRACTION = 0.0004;
-const MIN_RADIUS = 0.0005;
+/** The viewport layers the markers and the contacts are drawn in. */
+export const CLASH_MARKER_LAYER = "core:clash-joints";
+export const CLASH_CONTACT_LAYER = "core:clash-contacts";
+
+/** A normal marker's diameter on screen, in CSS pixels, before the user's size and its own scale. */
+const MARKER_PX = 8;
+const MIN_PX = 2;
+const MAX_PX = 64;
 
 /** Dim factor applied to a marker outside the expanded group (see `JointMarker.emphasised`). */
 const DIMMED = 0.28;
 
-let overlay: THREE.InstancedMesh | null = null;
-/** instance index -> joint id, so a ray hit on the overlay names a joint. */
-let drawnIds: string[] = [];
+/** The layers drawn in, and the viewport they are of. */
+let drawn: { viewport: ViewportApi; markers: OverlayLayer; contacts: OverlayLayer } | null = null;
+/** What is drawn, in the world, for the click test. */
+let markerPicks: { positions: Float32Array; ids: string[]; radii: number[] } = { positions: new Float32Array(0), ids: [], radii: [] };
+let contactPicks: { triangles: Float32Array; ids: string[] } = { triangles: new Float32Array(0), ids: [] };
 let syncing = false;
 
-const raycaster = new THREE.Raycaster();
-const pointer = new THREE.Vector2();
-
-/** Bounding-box diagonal of the loaded model, for sizing. Falls back to the spread of the joints
- *  themselves when the group has no measurable extent (a source whose meshes are all empty). */
-export function markerRadius(diagonal: number): number {
-  return Math.max(MIN_RADIUS, diagonal * RADIUS_FRACTION);
-}
-
-function spreadDiagonal(markers: readonly JointMarker[]): number {
-  if (markers.length === 0) return 0;
-  const min = [Infinity, Infinity, Infinity];
-  const max = [-Infinity, -Infinity, -Infinity];
-  for (const m of markers) {
-    for (let i = 0; i < 3; i++) {
-      min[i] = Math.min(min[i], m.centre[i]);
-      max[i] = Math.max(max[i], m.centre[i]);
+/** The layers of the viewport on screen; those of a viewport that has left are let go. */
+function layers(): typeof drawn {
+  const viewport = activeViewport();
+  if (drawn && drawn.viewport !== viewport) {
+    const old = drawn;
+    drawn = null;
+    // Each on its own: one that fails (a renderer gone) must not keep the other.
+    try {
+      old.markers.dispose();
+    } catch {
+      /* its viewport is gone */
+    }
+    try {
+      old.contacts.dispose();
+    } catch {
+      /* its viewport is gone */
     }
   }
-  return Math.hypot(max[0] - min[0], max[1] - min[1], max[2] - min[2]);
+  if (!viewport) return null;
+  if (!drawn) drawn = { viewport, markers: viewport.overlays(CLASH_MARKER_LAYER), contacts: viewport.overlays(CLASH_CONTACT_LAYER) };
+  return drawn;
 }
 
-/** Remove the overlay and free its GPU resources. Safe to call when nothing is drawn. */
+function publishPicks(): void {
+  const viewport = drawn?.viewport ?? null;
+  if (!viewport || (markerPicks.ids.length === 0 && contactPicks.ids.length === 0)) {
+    setShownClashPicks(null, null);
+    return;
+  }
+  setShownClashPicks(
+    viewport,
+    {
+      markers: markerPicks.positions,
+      markerIds: markerPicks.ids,
+      markerRadiiPx: markerPicks.radii,
+      triangles: contactPicks.triangles,
+      triangleIds: contactPicks.ids,
+    },
+    // Imported on use: focusing reaches the panels and the scene.
+    (id) => void import("@/utils/scene/clashJointFocus").then((m) => m.focusJoint(id, { revealPanel: true })),
+  );
+}
+
+/** Remove the markers. Safe to call when nothing is drawn. */
 export function clearJointMarkers(): void {
-  drawnIds = [];
-  if (!overlay) return;
-  overlay.removeFromParent();
-  overlay.geometry.dispose();
-  (overlay.material as THREE.Material).dispose();
-  overlay = null;
-  requestRender();
+  markerPicks = { positions: new Float32Array(0), ids: [], radii: [] };
+  drawn?.markers.clear();
+  publishPicks();
 }
 
-/** Draw one sphere per marker, in the space of the loaded source `file`. Returns how many were
- *  drawn -- 0 (and nothing drawn) when the scene or that source is not available. */
-export function renderJointMarkers(file: string | null, markers: readonly JointMarker[], scale = 1): number {
+/** Remove the contacts overlay. Safe to call when nothing is drawn. */
+export function clearContactOverlay(): void {
+  contactPicks = { triangles: new Float32Array(0), ids: [] };
+  drawn?.contacts.clear();
+  publishPicks();
+}
+
+/** A marker's diameter on screen: the user's size on top of the marker's own (a selected group's are
+ *  larger, the rest smaller). */
+export function markerSizePx(markerScale: number, userScale = 1): number {
+  return Math.max(MIN_PX, Math.min(MAX_PX, MARKER_PX * markerScale * userScale));
+}
+
+/** Draw one dot per marker, each at its centre plus `originOf(marker.id)` (null: not drawn), in the
+ *  viewport on screen. Returns how many were drawn -- 0 (and nothing drawn) without a viewport. */
+export function renderJointMarkers(originOf: ContactOrigin, markers: readonly JointMarker[], scale = 1): number {
   clearJointMarkers();
-  const scene = getViewerRuntime().scene.current;
-  if (!scene || !file || markers.length === 0) return 0;
-  const group = loadedSourceGroups.get(file);
-  if (!group) return 0;
-
-  const sourceRoot = sourceSpaceRoot(group);
-  const box = new THREE.Box3().setFromObject(group);
-  const diagonal = box.isEmpty() ? spreadDiagonal(markers) : box.getSize(new THREE.Vector3()).length();
-  // The user's size on top of the model-relative one: a dense deck wants pinpricks, a bare frame
-  // seen from afar wants something findable.
-  const radius = markerRadius(diagonal) * scale;
-
-  const geometry = new THREE.SphereGeometry(radius, 12, 8);
-  const material = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.85 });
-  const mesh = new THREE.InstancedMesh(geometry, material, markers.length);
-  mesh.name = "clash-joint-markers";
-  // Marked as an overlay so the scene's own picking and measuring walks can tell it from geometry
-  // the user loaded. It stays raycastable on purpose: `pickJointMarker` is what makes a sphere
-  // clickable, and it is asked BEFORE the model pickers, so a marker in front of a beam wins.
-  mesh.userData.__overlay = true;
-  mesh.frustumCulled = false;
-  mesh.renderOrder = 2;
-
-  const matrix = new THREE.Matrix4();
-  const colour = new THREE.Color();
-  markers.forEach((marker, i) => {
-    matrix.makeScale(marker.scale, marker.scale, marker.scale);
-    matrix.setPosition(marker.centre[0], marker.centre[1], marker.centre[2]);
-    mesh.setMatrixAt(i, matrix);
-    colour.set(marker.color);
-    if (!marker.emphasised) colour.multiplyScalar(DIMMED);
-    mesh.setColorAt(i, colour);
-  });
-  drawnIds = markers.map((m) => m.id);
-  mesh.instanceMatrix.needsUpdate = true;
-  if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-
-  // Source -> world, applied to the overlay itself rather than by parenting.
-  sourceRoot.updateWorldMatrix(true, false);
-  mesh.matrixAutoUpdate = false;
-  mesh.matrix.copy(sourceRoot.matrixWorld);
-  mesh.matrix.decompose(mesh.position, mesh.quaternion, mesh.scale);
-
-  scene.add(mesh);
-  overlay = mesh;
-  requestRender();
-  return markers.length;
+  const at = markers.length ? layers() : null;
+  if (!at) return 0;
+  // One point set per size: a handful of sizes (normal, emphasised, dimmed, focused).
+  const bySize = new Map<number, { positions: number[]; colors: number[] }>();
+  const positions: number[] = [];
+  const ids: string[] = [];
+  const radii: number[] = [];
+  for (const marker of markers) {
+    const o = originOf(marker.id);
+    if (!o) continue;
+    const size = markerSizePx(marker.scale, scale);
+    let set = bySize.get(size);
+    if (!set) bySize.set(size, (set = { positions: [], colors: [] }));
+    const p: Point3 = [marker.centre[0] + o[0], marker.centre[1] + o[1], marker.centre[2] + o[2]];
+    set.positions.push(...p);
+    const c = linearColor(marker.color);
+    const dim = marker.emphasised ? 1 : DIMMED;
+    set.colors.push(c[0] * dim, c[1] * dim, c[2] * dim);
+    positions.push(...p);
+    ids.push(marker.id);
+    radii.push(size / 2 + 2);
+  }
+  // The focused marker last: drawn over the rest.
+  const sizes = [...bySize.keys()].sort((a, b) => a - b);
+  for (const size of sizes) {
+    const set = bySize.get(size)!;
+    at.markers.addPoints({
+      positions: new Float32Array(set.positions),
+      colors: new Float32Array(set.colors),
+      sizePx: size,
+      opacity: 0.85,
+      // A joint centre is inside the members it joins: drawn through them, as a marker of the model.
+      onTop: true,
+      fitted: false,
+    });
+  }
+  markerPicks = { positions: new Float32Array(positions), ids, radii };
+  publishPicks();
+  return ids.length;
 }
 
-/** The joint whose marker is under the cursor, or null. Cheap enough to ask on every click: one
- *  object and a few hundred instances, against a scene that can hold millions of triangles. */
-export function pickJointMarker(
-  event: { clientX: number; clientY: number },
-  camera: THREE.Camera,
-  renderer: THREE.WebGLRenderer,
-): string | null {
-  if (!overlay || drawnIds.length === 0) return null;
-  const rect = renderer.domElement.getBoundingClientRect();
-  if (rect.width === 0 || rect.height === 0) return null;
-  pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-  pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-  raycaster.setFromCamera(pointer, camera);
-  const hits = raycaster.intersectObject(overlay, false);
-  const instanceId = hits[0]?.instanceId;
-  return instanceId === undefined ? null : drawnIds[instanceId] ?? null;
+/** Draw a run's contacts (model frame), each placed by `originOf`. Returns how many were drawn. */
+export function renderContactOverlay(contacts: Parameters<typeof drawContactOverlay>[1], originOf: ContactOrigin): number {
+  clearContactOverlay();
+  const at = contacts.length ? layers() : null;
+  if (!at) return 0;
+  const { drawn: n, triangles, triangleIds } = drawContactOverlay(at.contacts, contacts, originOf);
+  contactPicks = { triangles, ids: triangleIds };
+  publishPicks();
+  return n;
 }
 
 /** What the overlay should show for a given store state -- pure, so the subscription below is a
@@ -174,7 +209,7 @@ export function markersForState(state: {
   showMarkers: boolean;
 }): readonly JointMarker[] {
   // The FILTERED result, like every other reader: a marker for a joint the list is hiding
-  // would be a sphere a user cannot click through to anything.
+  // would be a dot a user cannot click through to anything.
   const result = visibleResult(state);
   if (!state.showMarkers || !result) return [];
   const shown = filteredGroups(result, state.filters);
@@ -188,6 +223,22 @@ export function markersForState(state: {
   });
 }
 
+/** Where the points of the current result are in the world, per joint / contact id, on `viewport`. */
+export function resultOrigins(
+  viewport: ViewportApi | null,
+  state: ReturnType<typeof useClashCheckStore.getState>,
+  loadedNames: readonly string[],
+): ContactOrigin {
+  if (!viewport) return () => null;
+  const run = contactRunOf(state.result);
+  // The model the CHECK ran against, not whatever was loaded last: overlaying this run's produced
+  // joints adds a second source.
+  const file = checkedSourceName(state.sourceName, useModelState.getState().loadedSourceName);
+  const fileOrigin = file ? viewport.sourceOrigin(file) : null;
+  if (!run) return () => fileOrigin;
+  return contactOrigins(run, loadedNames, useAssetBrowserStore.getState().loaded, (n) => viewport.sourceOrigin(n), fileOrigin);
+}
+
 /** Keep the overlay in step with the store. Idempotent: the first caller starts the subscription
  *  and later calls are no-ops, so any panel may call it on mount without coordinating. */
 export function startClashMarkerSync(): void {
@@ -195,22 +246,27 @@ export function startClashMarkerSync(): void {
   syncing = true;
 
   // The store changes for reasons the overlay does not care about (a job's busy flag, a detail
-  // key), and a redraw rebuilds every instance. So compare the four facts the drawing is a
-  // function of -- plus the loaded model -- and skip the rest.
+  // key), and a redraw rebuilds every point. So compare the facts the drawing is a function of --
+  // plus the loaded models -- and skip the rest.
   let last = "";
   let lastContacts = "";
-  // The contacts overlay: its own signature, since it draws from the RUN (patches, normals, roles)
-  // and a reopened run -- its roles filled in by the worker -- has the same counts as before.
-  const drawContacts = (
-    state: ReturnType<typeof useClashCheckStore.getState>,
-    run: ReturnType<typeof contactRunOf>,
-    file: string | null,
-    loadedKey: string,
-    force: boolean,
-  ) => {
-    const signature = JSON.stringify([
-      file,
-      loadedKey,
+  const redraw = (force = false) => {
+    const state = useClashCheckStore.getState();
+    const run = contactRunOf(state.result);
+    const loadedNames = [...useModelState.getState().loadedSourceNames];
+    const loadedRefs = useAssetBrowserStore.getState().loaded;
+    const viewport = activeViewport();
+    const originOf = resultOrigins(viewport, state, loadedNames);
+    // A convex-contact run names its models itself -- a group's or a selection's run is no single
+    // loaded source, and its label names nothing loaded.
+    const file =
+      (run ? contactSpaceSource(run, loadedNames, loadedRefs) : null) ??
+      checkedSourceName(state.sourceName, useModelState.getState().loadedSourceName);
+
+    // The contacts overlay: its own signature, since it draws from the RUN (patches, normals, roles)
+    // and a reopened run -- its roles filled in by the worker -- has the same counts as before.
+    const contactSignature = JSON.stringify([
+      loadedNames,
       resultSerial(state.result),
       state.showContacts,
       state.selectedGroup,
@@ -218,39 +274,21 @@ export function startClashMarkerSync(): void {
       state.filters,
       state.hiddenOrigins,
     ]);
-    if (!force && signature === lastContacts) return;
-    lastContacts = signature;
-    const group = file ? loadedSourceGroups.get(file) : undefined;
-    // With the toggle off, the focused contact is still drawn (`contactOverlayPlan`).
-    if (!run || !group || (!state.showContacts && !state.selectedJoint)) {
-      clearContactOverlay();
-      return;
+    if (force || contactSignature !== lastContacts) {
+      lastContacts = contactSignature;
+      // With the toggle off, the focused contact is still drawn (`contactOverlayPlan`).
+      if (!run || (!state.showContacts && !state.selectedJoint)) clearContactOverlay();
+      else {
+        const box = viewport?.modelBounds() ?? null;
+        const diagonal = box ? Math.hypot(box[3] - box[0], box[4] - box[1], box[5] - box[2]) : 0;
+        renderContactOverlay(contactOverlayPlan(state, run, { modelDiagonal: diagonal }), originOf);
+      }
     }
-    // The same source -> world transform the markers take (see SPACE above).
-    const root = sourceSpaceRoot(group);
-    root.updateWorldMatrix(true, false);
-    const box = useModelState.getState().boundingBox;
-    const diagonal = box && !box.isEmpty() ? box.getSize(new THREE.Vector3()).length() : 0;
-    renderContactOverlay(contactOverlayPlan(state, run, { modelDiagonal: diagonal }), root.matrixWorld);
-  };
-  const redraw = (force = false) => {
-    const state = useClashCheckStore.getState();
-    const run = contactRunOf(state.result);
-    const loadedNames = [...loadedSourceGroups.keys()];
-    const loadedRefs = useAssetBrowserStore.getState().loaded;
-    // The markers belong to the model the CHECK ran against, not to whatever was loaded last:
-    // overlaying this run's produced joints adds a second source, and drawing the centres in that
-    // overlay's space would move every sphere by its own centring offset. A convex-contact run
-    // names its models itself -- a group's or a selection's run is no single loaded source, and its
-    // label names nothing loaded -- so its points are drawn in its first loaded part's frame.
-    const file =
-      (run ? contactSpaceSource(run, loadedNames, loadedRefs) : null) ??
-      checkedSourceName(state.sourceName, useModelState.getState().loadedSourceName);
-    drawContacts(state, run, file, loadedNames.join("\n"), force);
+
     const signature = JSON.stringify([
       file,
-      // Which models are loaded: isolation fades every one of them, and one loaded since must be
-      // faded too (and an unloaded one let go of).
+      // Which models are loaded: the markers sit at their origins, and isolation fades every one of
+      // them (one loaded since must be faded too, and an unloaded one let go of).
       loadedNames,
       state.showMarkers,
       state.markerScale,
@@ -259,7 +297,7 @@ export function startClashMarkerSync(): void {
       state.isolate,
       state.isolateOpacity,
       state.filters,
-      // Hiding a producer changes which spheres belong on screen, so it has to wake this
+      // Hiding a producer changes which dots belong on screen, so it has to wake this
       // subscription. Left out, the filter would edit the list and leave the 3D view showing
       // joints the list no longer has.
       state.hiddenOrigins,
@@ -269,7 +307,7 @@ export function startClashMarkerSync(): void {
     ]);
     if (!force && signature === last) return;
     last = signature;
-    renderJointMarkers(file, markersForState(state), state.markerScale);
+    renderJointMarkers(originOf, markersForState(state), state.markerScale);
     // Isolation follows the same cursor the markers do, from the same subscription: two
     // subscriptions could show a joint whose neighbours had been faded for a different one.
     if (run) {
@@ -302,6 +340,10 @@ export function startClashMarkerSync(): void {
     // Forced: the isolation was just taken down, and must be put back on what is loaded now.
     redraw(true);
   });
+  // The three.js-free viewport takes a model after its load returned: its origin is known from then
+  // (after the model's other listeners). Another viewport taking over draws them there.
+  onModelLoaded(() => void setTimeout(() => redraw(true), 0));
+  onActiveViewportChange(() => redraw(true));
   redraw(true);
 }
 
