@@ -31,6 +31,7 @@ import FeaSetsSection from './FeaSetsSection';
 import FeaElementSection from './FeaElementSection';
 import DownloadSelectionButton from './DownloadSelectionButton';
 import {builderCellsShown} from '@/state/cellbuilder/builderVisibility';
+import {useUiBehaviour} from '@/plugins/uiBehaviours';
 import {onBeforeDraw} from '@/viewport/api/beforeDraw';
 
 /**
@@ -38,17 +39,23 @@ import {onBeforeDraw} from '@/viewport/api/beforeDraw';
  * otherwise). A shell may keep the procedural model open behind a mode that hides them -- the docked
  * UI's Output, its FEM modes --, and a cell or ref picked back in Input is no selection there: no
  * summary for it, no section. Followed frame by frame, as a mode hides the builder's layer after
- * it has switched.
+ * it has switched. A UI behaviour (`builder.pickHiddenWhileCellsHidden`, plugins/uiBehaviours):
+ * a UI that turns it off has the pick in the panel whether the cells are drawn or not.
  */
 function useBuilderPickShown(): boolean {
+    const gated = useUiBehaviour("builder.pickHiddenWhileCellsHidden");
     const [, redraw] = React.useReducer((n: number) => n + 1, 0);
-    const shown = builderCellsShown() !== false;
+    // The draw hook below reads the latest choice through the ref (it subscribes once).
+    const gatedRef = React.useRef(gated);
+    gatedRef.current = gated;
+    const shownNow = () => !gatedRef.current || builderCellsShown() !== false;
+    const shown = shownNow();
     const seen = React.useRef(shown);
     seen.current = shown;
     React.useEffect(
         () =>
             onBeforeDraw(() => {
-                if ((builderCellsShown() !== false) !== seen.current) redraw();
+                if (shownNow() !== seen.current) redraw();
             }),
         [],
     );

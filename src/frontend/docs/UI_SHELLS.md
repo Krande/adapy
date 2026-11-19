@@ -288,6 +288,7 @@ the chrome it draws in the slots.
 | | `bodyPalette` | Tailwind palette variables (`--color-gray-800`, `--color-blue-600`, ...) redefined inside core's panel bodies only (elements marked `data-ada-panel-body`), so every core body takes the shell's colours without a copy; or a function of the user's theme. Also on the canvas-less pages. A core body drawn outside a panel (a dialog, a flyout) is wrapped in `<PanelBodyPalette>` (`@/viewer-core/layout`; `panelId` adds that panel's own palette) to take it. |
 | | group header | In a group narrower than `COMPACT_GROUP_PX` (340 px) the header's actions fold into one "More actions" menu; close stays in the bar. Nothing to configure. |
 | | `chrome.toastAnchor` | The corner core's progress toast sits in. |
+| Behaviour | `behaviours: {[id]: boolean}` | The shell's choice of core's UI behaviours (`UI_BEHAVIOURS`): what core does that one UI wants and another might not. Any left out gets the default for a shell. Also for a shell with `load`. See [UI behaviours](#ui-behaviours). |
 | Keys | `registerShortcut`, `registerCommand({keys})` | Chords other than core's own (`RESERVED_SHORTCUTS`, derived from the registry, see below). A refused chord is warned about and ignored. |
 | | `registerCommand({shortcut})` | The id of a core shortcut (`core:fit-all`, ...): the command shows that entry's chord in the palette and menus. Binds nothing itself; ignored when `keys` is given. Core's own commands name their keys this way. |
 | | `registerCommand({chordLabel})` | A display-only chord for a key handled outside the registry. Prefer `shortcut`. |
@@ -309,6 +310,38 @@ listed in the dialog and (F6, Esc) reserved, but never dispatched. Rebinding a c
 
 Layout state helpers on `@/viewer-core/layout`: `resetArrangement`, `saveWorkspace`,
 `loadWorkspace`, `deleteWorkspace`, `listWorkspaces`.
+
+### UI behaviours
+
+Core's code is shared by every UI: core's own (classic, shell `core`), the built-in Desktop UI and
+every plugin's shell. A change to how that code behaves reaches all of them at once, so a change one
+UI asked for could alter another. A behaviour that may differ between UIs is therefore a named entry
+in `UI_BEHAVIOURS` (`@/viewer-core`), with a default for core's own UI and one for every other shell,
+and each shell chooses its own:
+
+```ts
+uiShells: [{
+  id: "my-shell",
+  label: "My shell",
+  behaviours: { "builder.pickHiddenWhileCellsHidden": false },
+}]
+```
+
+Core's code asks `uiBehaviour(id)` (or `useUiBehaviour(id)` in a component, which follows an in-place
+switch): the shell on screen's choice, else the default for its kind of UI. It never asks which UI is up.
+`uiBehaviourFor(shellId, id)` answers for any shell. A name a shell gives that its core does not have
+(a shell built for a newer core) is ignored; `unknownUiBehaviours(spec.behaviours)` lists them, for the
+shell's own tests.
+
+**Adding one.** Its defaults keep every UI as it was; the UI that wants the new behaviour opts in from
+its own spec. An existing behaviour moved behind an entry keeps today's behaviour as its defaults, so
+the move changes nothing. The defaults are pinned in `__tests__/plugins/uiBehaviours.test.ts`:
+changing one changes every UI that has not chosen, and shows up there in a review. A shell that depends
+on a value sets it in its spec rather than relying on the default.
+
+| Id | Core's UI | Other shells | When on |
+|---|---|---|---|
+| `builder.pickHiddenWhileCellsHidden` | on | on | The Properties panel leaves a cell builder pick (a cell, a ref) out while the builder's cells are not drawn: in a mode that keeps the procedural model open behind it, and in the builder's own Sim and Detail views after a compile. |
 
 ### The marking menu
 

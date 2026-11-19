@@ -32,6 +32,7 @@ import type { GridNode } from "@/layout/splitTree";
 import type { ViewportAnchor } from "@/layout/viewportOverlays";
 import type { StatusItemSpec } from "@/layout/statusItems";
 import type { AdaPluginContext, PluginTheme } from "./registry";
+import type { UiShellBehaviours } from "./uiBehaviours";
 
 /** The built-in shell id — the stock Ada Studio UI. Always registered. */
 export const CORE_UI_SHELL_ID = "core";
@@ -254,6 +255,13 @@ export interface UiShellSpec {
    * The panels keep their bindings and every `reveal()` that names them.
    */
   panels?: Record<string, PanelOverride>;
+  /**
+   * The shell's choice of core's UI behaviours (`./uiBehaviours` `UI_BEHAVIOURS`), by id: what core
+   * does that one UI wants and another might not. Any it leaves out gets the default for a shell;
+   * a name this core does not have is ignored (`unknownUiBehaviours` lists them). Core reads the
+   * shell on screen's with `uiBehaviour(id)`, for a composed shell and one with `load` alike.
+   */
+  behaviours?: UiShellBehaviours;
   /**
    * CSS custom properties set on the document root while the shell is active
    * (`--ada-*`, or the shell's own). A function of the user's panel theme is

@@ -419,7 +419,15 @@ export type { SelectedObjectBox } from "@/viewport/api/viewportApi";
 //          and the mesh's stats as a line. The sections below are drawn and get the pick as before.
 //          `PropertyGroup` on `/layout` (with `PropertyItemLayout`): one titled group drawn as the
 //          item layout draws its groups. Core's `fea-sets` section is one in the flat panel.
-export const PLUGIN_API_VERSION = "1.31.0";
+// 1.32.0 — UI behaviours (plugins/uiBehaviours.ts): what core does that one UI wants and another
+//          might not, by name, each with a default for core's own UI and one for every other shell.
+//          A shell chooses its own with `UiShellSpec.behaviours` (`{id: boolean}`); core's code
+//          reads the UI on screen's with `uiBehaviour(id)` / `useUiBehaviour(id)`. A new behaviour
+//          keeps every UI as it was until a UI opts in, so a change one UI asks for no longer
+//          reaches the others. The first: `builder.pickHiddenWhileCellsHidden` (the Properties
+//          panel leaves a cell builder pick out while the builder's cells are not drawn), on by
+//          default in every UI, as before. A name a shell gives that this core lacks is ignored.
+export const PLUGIN_API_VERSION = "1.32.0";
 
 /** What the Simulations panel writes on a run's open-result button. */
 export function openResultButtonLabel(

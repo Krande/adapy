@@ -752,7 +752,11 @@
 //          `feaValuesForNode`, `feaValuesForElement(..., {nodal: true})` and the types
 //          `NodalFieldValues`, `FeaFieldValues`, `FeaValuesOptions`, `NodeValuesResult` on `/scene`.
 //          `ObjectInfoBodyProps.summary` ("full" | "menu").
-export const VIEWER_CORE_API_VERSION = "1.31.0";
+//   1.32.0 Kept in step with PLUGIN_API_VERSION 1.32.0. Additive: UI behaviours --
+//          `UiShellSpec.behaviours` (`UiShellBehaviours`), `UI_BEHAVIOURS`, `uiBehaviour`,
+//          `uiBehaviourFor`, `useUiBehaviour`, `isUiBehaviour`, `unknownUiBehaviours` and the types
+//          `UiBehaviourId`, `UiBehaviourDef` on the root. See PLUGIN_API_VERSION's 1.32.0 note.
+export const VIEWER_CORE_API_VERSION = "1.32.0";
 
 // ---------------------------------------------------------------------------
 // Plugin declaration. `registerPlugin` is how a package announces itself —
@@ -868,6 +872,16 @@ export {
   UI_SHELL_STORAGE_KEY,
   UI_SHELL_URL_PARAM,
 } from "@/plugins/uiShells";
+// UI behaviours: what core does that one UI wants and another might not, chosen per shell.
+export {
+  isUiBehaviour,
+  UI_BEHAVIOURS,
+  uiBehaviour,
+  uiBehaviourFor,
+  unknownUiBehaviours,
+  useUiBehaviour,
+} from "@/plugins/uiBehaviours";
+export type { UiBehaviourDef, UiBehaviourId, UiShellBehaviours } from "@/plugins/uiBehaviours";
 export type {
   RegisteredUiShell,
   ShellSwitchCarry,
