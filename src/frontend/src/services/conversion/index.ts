@@ -125,6 +125,15 @@ export async function convertWithSelection(
         return convertViaPyodideAndUpload(scope, sourceKey, targetFormat);
     }
 
+    // A pair that offers no serializer to choose (an FEA deck to another deck) has nothing on
+    // the row to say where it runs, so the user's global choice decides, exactly as it does for
+    // every other conversion (`ensureConverted`). Without this the converter page sent them to a
+    // worker even with "Convert in-browser" on.
+    if (!schema && shouldUsePyodide(sourceKey, targetFormat)) {
+        const {convertViaPyodideAndUpload} = await import("./pyodidePipeline");
+        return convertViaPyodideAndUpload(scope, sourceKey, targetFormat);
+    }
+
     if (!runtime.convertEnabled()) {
         throw new Error("conversion not enabled on this deployment");
     }

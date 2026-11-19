@@ -321,3 +321,50 @@ def test_structure_only_reaches_the_derivation_as_an_opaque_publish_option(store
         assert manifest.build is None
         # Core's own stamp is unaffected: who published is orthogonal to what was promised.
         assert manifest.change.published_by == PUBLISHED_BY
+
+
+# --- a publish that names no collection: what a provider sweep sends -------------------------
+
+
+def test_staged_publish_doc_names_the_collection_a_sweep_does_not(store, facade):
+    """A sweep publishes a provider's staging with no collection and no options; the IFC beside
+    a ``publish.json`` says what to publish it as."""
+    import json
+
+    from ada.assets.ifc.publisher import PUBLISH_DOC_ROLE
+
+    staged = _stage(store, _raw(V1))
+    doc_key = f"assets/_staging/x/{PUBLISH_DOC_ROLE}"
+    store.put_bytes(
+        doc_key,
+        json.dumps(
+            {"collection": "plant-a", "options": {"structure_only": True, "extracted_at": "2026-01-01T00:00:00Z"}}
+        ).encode(),
+    )
+    staged[PUBLISH_DOC_ROLE] = doc_key
+
+    plan = IfcAssetPublisher().derive(None, staged, storage=facade)
+    assert plan.collection == "plant-a"
+    # structure_only came from the document: no source blob is planned.
+    assert not any(w.key.endswith(f"/{SOURCE_FILENAME}") for w in plan.writes)
+
+
+def test_a_passed_collection_wins_over_the_staged_doc(store, facade):
+    import json
+
+    from ada.assets.ifc.publisher import PUBLISH_DOC_ROLE
+
+    staged = _stage(store, _raw(V1))
+    store.put_bytes(
+        f"assets/_staging/x/{PUBLISH_DOC_ROLE}",
+        json.dumps({"collection": "elsewhere", "options": {"extracted_at": "2026-01-01T00:00:00Z"}}).encode(),
+    )
+    staged[PUBLISH_DOC_ROLE] = f"assets/_staging/x/{PUBLISH_DOC_ROLE}"
+    assert IfcAssetPublisher().derive(None, staged, storage=facade, collection="plant-a").collection == "plant-a"
+
+
+def test_no_collection_anywhere_is_still_refused(store, facade):
+    from ada.assets.ifc.publish import IfcPublishError
+
+    with pytest.raises(IfcPublishError, match="publish.json"):
+        IfcAssetPublisher().derive(None, _stage(store, _raw(V1)), storage=facade)
