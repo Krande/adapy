@@ -30,6 +30,8 @@ export interface SelectionSnapshot {
   hasEntities: boolean;
   /** A procedural builder model is open, whatever is selected. */
   cellBuilderActive: boolean;
+  /** The composed shell's active mode (`activeShellMode`); absent in a shell without modes. */
+  shellMode?: string;
 }
 
 export interface PropertyProvider {

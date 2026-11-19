@@ -18,6 +18,7 @@ import {selectedRef, selectionName, selectionPlace} from '@/utils/cellbuilder/bo
 import {useSceneMirrorStore} from '@/state/sceneMirrorStore';
 import {parentLevelName} from '@/utils/tree_view/treeSelection';
 import {isMirroredWindow, useSceneActions} from '@/layout/sceneActions';
+import {activeShellMode, subscribeShellModes} from '@/layout/shellModes';
 import ObjectMetadataPanel from './ObjectMetadataPanel';
 import TreeNodeInfoSection from './TreeNodeInfoSection';
 import SourceJumpSection from './SourceJumpSection';
@@ -39,6 +40,19 @@ export interface ObjectInfoBodyProps {
     /** Replaces what "Show in data" does (open the FEA data table at the node), given the
      *  picked element's first node. */
     onShowInData?: (nodeId: number) => void;
+    /**
+     * Which of the matching sections to draw, by provider id (core's and the plugins'), asked
+     * after their own `match`. A shell sets it per mode (`PanelOverride.options` as a function
+     * of the mode) so, say, the builder's sections stay in the mode that edits the model.
+     * A throw keeps the section. Absent: every matching section.
+     */
+    sections?: (providerId: string, sel: SelectionSnapshot) => boolean;
+    /**
+     * The picked element's properties (`object-metadata`) as plain rows: no foldable
+     * "Properties" heading, always open, and its clicked-at decimals in that row's own menu.
+     * For a shell whose panel is itself the properties. Absent: folded under a heading, as before.
+     */
+    flat?: boolean;
 }
 
 const ObjectInfoOptions = React.createContext<ObjectInfoBodyProps>({});
@@ -58,12 +72,15 @@ function useSelectionSnapshot(): SelectionSnapshot {
     const cbLoftMembers = useCellBuilderStore((s) => s.loftMembers);
     const cbActiveGroup = useCellBuilderStore((s) => s.activeGroup);
     const mirroredCount = useSelectedRangeCount();
+    // The shell's mode, so a section (or the shell's `sections`) can keep to the modes it is for.
+    const shellMode = useSyncExternalStore(subscribeShellModes, activeShellMode, activeShellMode);
     return React.useMemo<SelectionSnapshot>(() => {
         const rangeCount = mirroredCount;
         const base = {
             meshName: name || null,
             hasEntities: treeData != null || (cbActive && Object.keys(cbCells).length > 0),
             cellBuilderActive: cbActive,
+            ...(shellMode ? {shellMode} : {}),
         };
         if (cbActive && cbSelection !== null) {
             // Where the pick is, so a plugin's section can place itself (and the builder's
@@ -78,7 +95,7 @@ function useSelectionSnapshot(): SelectionSnapshot {
         // Nothing picked in an open model: the active structure still has its section.
         const structure = cbActive && cbActiveGroup && cbGroups.some((g) => g.name === cbActiveGroup) ? cbActiveGroup : undefined;
         return {...base, kind: "none", name: null, count: 0, ...(structure ? {structure} : {})};
-    }, [name, selectedObjects, treeData, cbActive, cbSelection, cbSelectedIds, cbCells, cbRefs, cbGroups, cbLoftMembers, cbActiveGroup, mirroredCount]);
+    }, [name, selectedObjects, treeData, cbActive, cbSelection, cbSelectedIds, cbCells, cbRefs, cbGroups, cbLoftMembers, cbActiveGroup, mirroredCount, shellMode]);
 }
 
 /**
@@ -96,9 +113,27 @@ function useSelectedRangeCount(): number {
 /** ObjectMetadataPanel takes its payload as a prop. */
 const ObjectMetadata = () => {
     const {useObjectInfoStore} = useViewerStores();
+    const {flat} = React.useContext(ObjectInfoOptions);
     const jsonData = useObjectInfoStore((s) => s.jsonData);
-    return <ObjectMetadataPanel data={jsonData}/>;
+    return <ObjectMetadataPanel data={jsonData} flat={flat}/>;
 };
+
+/** `providersFor`'s list, kept to those the shell's `sections` lets through; a throwing filter keeps the section. */
+export function visibleSections(
+    list: readonly PropertyProvider[],
+    sel: SelectionSnapshot,
+    sections: ObjectInfoBodyProps["sections"],
+): PropertyProvider[] {
+    if (!sections) return [...list];
+    return list.filter((p) => {
+        try {
+            return sections(p.id, sel);
+        } catch (err) {
+            console.warn(`[properties] sections filter threw for "${p.id}" -- kept`, err);
+            return true;
+        }
+    });
+}
 
 const notCell = (sel: SelectionSnapshot) => sel.kind !== "cell" && sel.kind !== "ref";
 const always = () => true;
@@ -148,13 +183,13 @@ export const CORE_PROPERTY_PROVIDERS: readonly PropertyProvider[] = [
  * (`registerPropertyProvider`), each in its own error boundary. Its frame (the
  * card and heading) is `ObjectInfoBox` below; another host may draw its own.
  */
-export const ObjectInfoBody: React.FC<ObjectInfoBodyProps> = ({onShowInData}) => {
+export const ObjectInfoBody: React.FC<ObjectInfoBodyProps> = ({onShowInData, sections, flat}) => {
     const sel = useSelectionSnapshot();
     const plugins = useSyncExternalStore(subscribePropertyProviders, listPropertyProviders, listPropertyProviders);
-    const options = React.useMemo(() => ({onShowInData}), [onShowInData]);
+    const options = React.useMemo(() => ({onShowInData, flat}), [onShowInData, flat]);
     return (
         <ObjectInfoOptions.Provider value={options}>
-            {providersFor(sel, CORE_PROPERTY_PROVIDERS, plugins).map((p) => (
+            {visibleSections(providersFor(sel, CORE_PROPERTY_PROVIDERS, plugins), sel, sections).map((p) => (
                 <ErrorBoundary key={p.id} label={p.owner ? `${p.owner} (${p.id})` : p.id}>
                     {p.render(sel)}
                 </ErrorBoundary>

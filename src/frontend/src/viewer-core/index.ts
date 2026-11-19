@@ -737,6 +737,8 @@
 //          and the types `BeforeCommitContext`, `BeforeCommitHook` (a check that may veto a commit).
 //          `UiShellMode.toolbarEnd` / `modeArrangements[id].toolbarEnd`: a shell's controls at the
 //          far right of the mode's toolbar region (`ModeToolbarRegion`'s `end`, outside its clip).
+//          `SelectionSnapshot.shellMode`; `ObjectInfoBodyProps.sections(providerId, sel)` and
+//          `.flat` (on `/layout`), set per mode by a shell's `PanelOverride.options(mode)`.
 export const VIEWER_CORE_API_VERSION = "1.31.0";
 
 // ---------------------------------------------------------------------------

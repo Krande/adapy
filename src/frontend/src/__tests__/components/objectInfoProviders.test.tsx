@@ -108,3 +108,52 @@ test("onShowInData leaves the markup as it is, the Show in data button included"
         setServerState(useObjectInfoStore, { name: "" });
     }
 });
+
+test("a shell's `sections` keeps a section out by id, given the shell's mode on the snapshot; a throwing filter keeps it", async () => {
+    const { visibleSections } = await import("@/components/info_box_selected_object/ObjectInfoBoxComponent");
+    const { setShellModes } = await import("@/layout/shellModes");
+    setServerState(useObjectInfoStore, { name: "Element 1" });
+    const off = registerPropertyProvider({
+        id: "probe",
+        order: 35,
+        match: () => true,
+        render: (sel) => React.createElement("p", { id: "probe" }, `in ${sel.shellMode ?? "no mode"}`),
+    });
+    try {
+        assert.match(render(), /<p id="probe">in no mode<\/p>/, "no shell modes: no shellMode");
+        setShellModes([{ id: "output", label: "Output", order: 0 }], "output");
+        assert.match(render(), /<p id="probe">in output<\/p>/);
+        const seen: string[] = [];
+        const html = render({ sections: (id, sel) => (seen.push(`${id}@${sel.shellMode}`), id !== "probe") });
+        assert.doesNotMatch(html, /id="probe"/);
+        assert.match(html, /Element 1/, "the others stay");
+        assert.ok(seen.includes("probe@output"));
+
+        const list = providersFor({ ...none, kind: "mesh", name: "x", meshName: "x" }, CORE_PROPERTY_PROVIDERS, []);
+        const boom = () => {
+            throw new Error("bug");
+        };
+        assert.deepEqual(visibleSections(list, none, boom).map((p) => p.id), list.map((p) => p.id));
+        assert.deepEqual(visibleSections(list, none, undefined).map((p) => p.id), list.map((p) => p.id));
+    } finally {
+        off();
+        setShellModes([]);
+        setServerState(useObjectInfoStore, { name: "" });
+    }
+});
+
+test("`flat` draws the picked element's properties open, with no foldable heading, and the decimals menu on the clicked-at row", () => {
+    setServerState(useObjectInfoStore, { name: "Element 1", clickCoordinate: { x: 1, y: 2, z: 3 } } as never);
+    try {
+        const folded = render();
+        assert.match(folded, /aria-controls="object-properties"/, "the classic panel folds under a heading");
+        assert.doesNotMatch(folded, /Clicked at:/, "and starts folded");
+        const flat = render({ flat: true });
+        assert.doesNotMatch(flat, /aria-controls="object-properties"/, "no chevron");
+        assert.doesNotMatch(flat, /<span class="font-semibold">Properties<\/span>/, "no title");
+        assert.match(flat, /data-object-metadata="flat"/);
+        assert.match(flat, /Clicked at:[\s\S]*data-clicked-at=""[\s\S]*aria-label="Properties display options"/, "the menu sits in the row");
+    } finally {
+        setServerState(useObjectInfoStore, { name: "", clickCoordinate: null } as never);
+    }
+});

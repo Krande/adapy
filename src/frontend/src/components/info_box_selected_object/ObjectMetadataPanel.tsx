@@ -100,6 +100,8 @@ type CurvedPlateMeta = {
 
 type Props = {
     data: any | null;
+    /** Plain rows, always open: no foldable "Properties" heading (`ObjectInfoBodyProps.flat`). */
+    flat?: boolean;
 };
 
 const fmtMm = (v: number | null | undefined): string => {
@@ -285,7 +287,8 @@ const LinkRow: React.FC<{link: NonNullable<LinkResult>}> = ({link}) => {
     );
 };
 
-const ClickedAtRow: React.FC = () => {
+/** `menu`: drawn after the coordinates (the flat panel's decimals menu, which has no heading to sit on). */
+const ClickedAtRow: React.FC<{menu?: React.ReactNode}> = ({menu}) => {
     const {useObjectInfoStore, useModelState} = useViewerStores();
     const clickCoord = useObjectInfoStore((s) => s.clickCoordinate);
     const zIsUp = useModelState((s) => s.zIsUp);
@@ -312,14 +315,17 @@ const ClickedAtRow: React.FC = () => {
     };
     return (
         <Row label="Clicked at:">
-            <button
-                type="button"
-                onClick={onCopy}
-                className="text-left text-gray-100 hover:text-white cursor-pointer"
-                title="Copy coordinates as comma-separated floats"
-            >
-                {copied ? `${display} ✓` : display}
-            </button>
+            <span className="inline-flex items-center gap-1" data-clicked-at="">
+                <button
+                    type="button"
+                    onClick={onCopy}
+                    className="text-left text-gray-100 hover:text-white cursor-pointer"
+                    title="Copy coordinates as comma-separated floats"
+                >
+                    {copied ? `${display} ✓` : display}
+                </button>
+                {menu}
+            </span>
         </Row>
     );
 };
@@ -354,7 +360,7 @@ const ClickedFaceRow: React.FC = () => {
     );
 };
 
-const ObjectMetadataPanel: React.FC<Props> = ({data}) => {
+const ObjectMetadataPanel: React.FC<Props> = ({data, flat = false}) => {
     const {useObjectInfoStore, useLineageStore} = useViewerStores();
     const showMeshStats = useOptionsStore((s) => s.showMeshStats);
     // Default collapsed: most clicks are just for selection / hide /
@@ -362,7 +368,9 @@ const ObjectMetadataPanel: React.FC<Props> = ({data}) => {
     // compact and the chevron tells the user where the data lives.
     // Open from the start on an FEA result, though: there the properties ARE what a click
     // on an element is for -- its section, thickness and material.
-    const [expanded, setExpanded] = useState(() => !!useFeaAnimationStore.getState().manifest);
+    // Flat: always open, there is no heading to fold it under.
+    const [expandedState, setExpanded] = useState(() => !!useFeaAnimationStore.getState().manifest);
+    const expanded = flat || expandedState;
     // The link is derived live from the lineage store and the current
     // selection (file + name) — keeps it reactive to file load/unload
     // without going back through the server.
@@ -397,28 +405,33 @@ const ObjectMetadataPanel: React.FC<Props> = ({data}) => {
         icon: d === decimals ? <CheckIcon /> : <span className="inline-block w-3.5" />,
         onClick: () => setDecimals(d),
     }));
+    const decimalsMenu = (
+        <RowKebabMenu
+            ariaLabel="Properties display options"
+            header="Clicked-at decimals"
+            items={decimalItems}
+            buttonClassName="h-5 w-5"
+        />
+    );
     return (
-        <div className="mt-2">
-            <div className="flex items-center gap-1">
-                <button
-                    type="button"
-                    onClick={() => setExpanded((v) => !v)}
-                    className="flex items-center gap-1 text-[12px] text-gray-100 hover:text-white"
-                    aria-expanded={expanded}
-                    aria-controls="object-properties"
-                >
-                    <Chevron open={expanded} />
-                    <span className="font-semibold">Properties</span>
-                </button>
-                <RowKebabMenu
-                    ariaLabel="Properties display options"
-                    header="Clicked-at decimals"
-                    items={decimalItems}
-                    buttonClassName="h-5 w-5"
-                />
-            </div>
+        <div className={flat ? "mt-1" : "mt-2"} data-object-metadata={flat ? "flat" : ""}>
+            {!flat && (
+                <div className="flex items-center gap-1">
+                    <button
+                        type="button"
+                        onClick={() => setExpanded((v) => !v)}
+                        className="flex items-center gap-1 text-[12px] text-gray-100 hover:text-white"
+                        aria-expanded={expanded}
+                        aria-controls="object-properties"
+                    >
+                        <Chevron open={expanded} />
+                        <span className="font-semibold">Properties</span>
+                    </button>
+                    {decimalsMenu}
+                </div>
+            )}
             {expanded && (
-                <div id="object-properties" className="mt-1 ml-4 table">
+                <div id="object-properties" className={flat ? "table" : "mt-1 ml-4 table"}>
                     {meta && !known && <Row label="Type:">{(meta as any).type ?? 'Unknown'}</Row>}
                     {meta && !known && <Row label="Info:">No metadata available</Row>}
                     {!known && <FeaElementRows name={clickedName} />}
@@ -443,13 +456,14 @@ const ObjectMetadataPanel: React.FC<Props> = ({data}) => {
                             <MaterialRows material={meta.material} />
                         </>
                     )}
-                    <ClickedAtRow />
+                    {/* Flat: the decimals menu goes with the row it formats. */}
+                    <ClickedAtRow menu={flat ? decimalsMenu : undefined} />
                     <ClickedFaceRow />
                     {link && <LinkRow link={link} />}
                 </div>
             )}
             {expanded && showMeshStats && (
-                <div className="ml-4">
+                <div className={flat ? "" : "ml-4"}>
                     <MeshStatsSection />
                 </div>
             )}

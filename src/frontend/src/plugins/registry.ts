@@ -342,6 +342,11 @@ export type { SelectedObjectBox } from "@/viewport/api/viewportApi";
 //          `UiShellMode.toolbarEnd(ctx)` (and `modeArrangements[id].toolbarEnd` for a plugin's
 //          mode): a shell's controls at the far right of the mode's toolbar region, outside the
 //          clip the toolbars sit in, so never folded behind "»"; run as the shell. Additive.
+//          `SelectionSnapshot.shellMode`: the composed shell's active mode (absent without modes),
+//          so a provider can keep to the modes it is for. The Properties panel's options
+//          (`ObjectInfoBodyProps`, a shell sets them per mode with `PanelOverride.options` as a
+//          function of the mode): `sections(providerId, sel)` filters the matching sections,
+//          and `flat` draws the picked element's properties open with no foldable heading.
 export const PLUGIN_API_VERSION = "1.31.0";
 
 /** What the Simulations panel writes on a run's open-result button. */
