@@ -710,7 +710,9 @@
 //   1.30.0 Kept in step with PLUGIN_API_VERSION 1.30.0. Additive: `ctx.scene.onSceneCleared` and the
 //          type `SceneCleared`. A clear of the scene now removes the plugins' overlays (see
 //          PLUGIN_API_VERSION's 1.30.0 note).
-export const VIEWER_CORE_API_VERSION = "1.30.0";
+//   1.31.0 Kept in step with PLUGIN_API_VERSION 1.31.0. Additive: `ctx.scene.loadSavedGroup` and the
+//          types `SceneGroupLoad`, `SceneGroupLoadOptions`.
+export const VIEWER_CORE_API_VERSION = "1.31.0";
 
 // ---------------------------------------------------------------------------
 // Plugin declaration. `registerPlugin` is how a package announces itself —
@@ -768,6 +770,8 @@ export type {
   SceneFace,
   SceneHandle,
   SceneCleared,
+  SceneGroupLoad,
+  SceneGroupLoadOptions,
   SceneHighlight,
   SceneHighlightOptions,
   SceneHighlightRef,

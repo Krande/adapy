@@ -45,6 +45,7 @@ import {
 } from "./sceneLayers";
 import { makePluginSimulations } from "./pluginSimulations";
 import { onSceneCleared } from "./sceneCleared";
+import { liveGroupLoadEnv, loadSavedGroupFor } from "./sceneGroupLoad";
 import { endScenePicks, pickObjects } from "./scenePicks";
 import { endSceneHighlights, highlightObjects } from "./sceneHighlights";
 import { placeBox } from "./sceneBox";
@@ -192,6 +193,9 @@ function makeSceneHandle(): SceneHandle {
       requestRender();
     },
     onSceneCleared,
+    // The Scene panel's "Load into scene" for a saved group, in the scope it lists them for.
+    loadSavedGroup: (id, opts) =>
+      loadSavedGroupFor(liveGroupLoadEnv(() => scopeUrlPart(useScopeStore.getState().current)), id, opts),
     addLines,
     addLineLayer,
     addPointLayer,

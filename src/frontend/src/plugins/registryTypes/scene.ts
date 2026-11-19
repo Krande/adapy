@@ -42,6 +42,37 @@ export interface SceneCleared {
   overlaysRemoved: boolean;
 }
 
+/** (1.31.0) Options of `SceneHandle.loadSavedGroup`. */
+export interface SceneGroupLoadOptions {
+  // Each stage of the load, in a few words ("loading 3 of 7", ...): for a progress line, not to
+  // branch on.
+  onStage?: (stage: string) => void;
+}
+
+/** (1.31.0) What `SceneHandle.loadSavedGroup` did. Plain data: members are named as the Scene panel
+ *  names them. */
+export interface SceneGroupLoad {
+  groupId: string;
+  groupName: string;
+  // Models put in the scene by this call: one per member loaded alone, one per document loaded whole.
+  loaded: number;
+  // Documents already in the scene, left as they were.
+  already: number;
+  // Objects hidden in the documents that had to be loaded whole, so only the members show.
+  hidden: number;
+  // What could not be loaded: the document, its members, and why.
+  failed: { source: string; members: string[]; reason: string }[];
+  // Objects selected afterwards.
+  selected: number;
+  // Members loaded but not found in their model.
+  notFound: string[];
+  // The camera was moved to frame the members (the scene was empty before).
+  framed: boolean;
+  // The outcome in one line, as the Scene panel shows it; "warn" when something was not loaded or found.
+  text: string;
+  tone: "info" | "warn";
+}
+
 /** Line segments in the FEA model's coordinates (world coordinates without an FEA model). */
 export interface SceneLines {
   // 6 numbers per segment: x0, y0, z0, x1, y1, z1.
@@ -348,6 +379,14 @@ export interface SceneHandle {
   // (they do nothing now) or what it held of the models that went. Returns the function that stops
   // it. Additive: an older core has no `onSceneCleared`, so a plugin asks for it first.
   onSceneCleared: (listener: (cleared: SceneCleared) => void) => () => void;
+  // (1.31.0) The Scene panel's "Load into scene" for the saved group `id` of the current scope: its
+  // members put in the scene from what is already published or stored (nothing is requested of a
+  // provider), the rest of a document loaded whole hidden, and the group selected. For a plugin
+  // whose view follows a saved group (one that draws it, say). Resolves what was done
+  // (`SceneGroupLoad`), a member that could not be loaded included; rejects when there is no scope
+  // or no saved group `id` in it. `onStage` is told each stage, in words. Additive: an older core
+  // has no `loadSavedGroup`, so a plugin asks for it first.
+  loadSavedGroup: (id: string, opts?: SceneGroupLoadOptions) => Promise<SceneGroupLoad>;
 
   // ── Renderer-neutral overlays (1.9.0). Core builds and owns the scene objects; they draw
   // the same under three.js and the WebGPU renderer, move and clip with the model, and go

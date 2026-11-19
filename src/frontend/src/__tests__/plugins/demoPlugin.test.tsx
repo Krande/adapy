@@ -61,6 +61,7 @@ function fakeCtx(pluginId = ""): AdaPluginContext {
       highlightObjects: () => ({ set() {}, remove() {} }),
       findObjects: () => [],
       onSceneCleared: () => () => {},
+      loadSavedGroup: async () => { throw new Error("no saved groups"); },
       placeBox: () => ({ set() {}, pose: () => ({ position: [0, 0, 0], yawDeg: 0 }), setMode() {}, end() {} }),
       contactBetween: async () => ({ contact: null }),
     },
