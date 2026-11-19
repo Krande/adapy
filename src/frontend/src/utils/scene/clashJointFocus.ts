@@ -12,6 +12,8 @@ import { useModelState } from "@/state/modelState";
 import { contactSceneElements } from "@/utils/scene/clashContactPlan";
 import { JOINTS_REVIEW_TAB } from "@/state/connectionBuilderTabStore";
 import { openConnectionsTab } from "@/layout/connectionsTabActions";
+import { CORE_PANEL_IDS, reveal } from "@/layout/panelActions";
+import { useClashContactPickStore } from "@/state/clashContactPickStore";
 import { selectInOtherModel } from "@/utils/scene/crossModelSelect";
 
 export interface FocusOptions {
@@ -26,8 +28,14 @@ export async function focusJoint(jointId: string, opts: FocusOptions = {}): Prom
   const store = useClashCheckStore.getState();
   store.focusJoint(jointId);
 
-  // The joints review is the Connections panel's tab.
-  if (opts.revealPanel) openConnectionsTab(JOINTS_REVIEW_TAB);
+  // The joints review is the Connections panel's tab. A contact pointed at in the 3D view is also
+  // described in the Selected Object panel (its Contact section, `ClashContactSection`), which is
+  // brought up with it; the list opens at the contact, its detail open (`clashContactPickStore`).
+  if (opts.revealPanel) {
+    useClashContactPickStore.getState().pick(jointId);
+    openConnectionsTab(JOINTS_REVIEW_TAB);
+    reveal(CORE_PANEL_IDS.objectInfo);
+  }
 
   const joint = store.result?.jointsById.get(jointId);
   // A convex-contact run names its members by model and ELEMENT ID (a saved group's pairs members of

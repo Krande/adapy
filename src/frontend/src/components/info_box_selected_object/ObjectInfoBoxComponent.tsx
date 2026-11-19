@@ -18,6 +18,7 @@ import {useSceneMirrorStore} from '@/state/sceneMirrorStore';
 import {parentLevelName} from '@/utils/tree_view/treeSelection';
 import {isMirroredWindow, useSceneActions} from '@/layout/sceneActions';
 import ObjectMetadataPanel from './ObjectMetadataPanel';
+import ClashContactSection from './ClashContactSection';
 import TreeNodeInfoSection from './TreeNodeInfoSection';
 import SourceJumpSection from './SourceJumpSection';
 import IndexedAttributesSection from './IndexedAttributesSection';
@@ -95,6 +96,9 @@ export const CORE_PROPERTY_PROVIDERS: readonly PropertyProvider[] = [
     // The name and the actions. Also with nothing selected while the scene holds anything:
     // Unhide all / Fit all must stay reachable after the last selection was hidden.
     {id: "selection-summary", order: 0, match: (sel) => sel.kind !== "none" || sel.hasEntities, render: () => <SelectionSummary/>},
+    // The clash contact last pointed at in the 3D view (its marker or patch clicked): what the
+    // clash result holds of it, and a link to it in Connections > Review. Nothing while none is.
+    {id: "clash-contact", order: 5, match: always, render: () => <ClashContactSection/>},
     // Selected FEM concepts (masses, supports, loads, equipment): drawn on the FEM
     // overlay, not tree rows, so they have their own section.
     {id: "fem-concepts", order: 10, match: always, render: () => <FemConceptSelectionInfo/>},

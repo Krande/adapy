@@ -28,6 +28,7 @@ import {
 import { useModelState } from "@/state/modelState";
 import { scopeUrlPart, useScopeStore } from "@/state/scopeStore";
 import { focusJoint as focusJointEverywhere, selectClashMembers } from "@/utils/scene/clashJointFocus";
+import { useClashContactPickStore } from "@/state/clashContactPickStore";
 import { revealInScroller } from "@/utils/dom/revealInScroller";
 import IsolationControls from "./IsolationControls";
 import JointDetail from "./JointDetail";
@@ -74,6 +75,25 @@ const IdentifiedJoints: React.FC = () => {
     },
     [],
   );
+
+  // A joint focused from OUTSIDE the list -- its marker or contact patch clicked in the 3D view, the
+  // Selected Object panel's link (`clashContactPickStore`) -- is the one the list opens at: the
+  // cursor moves onto it and its detail is open. It stayed where the list's own cursor last was (a
+  // joint of the same group still on screen wins over the store's), with the detail as last
+  // toggled, so the joint clicked showed as one more collapsed row.
+  const pickSeq = useClashContactPickStore((s) => s.seq);
+  const lastPick = useRef(pickSeq);
+  useEffect(() => {
+    const picked = pickSeq !== lastPick.current;
+    lastPick.current = pickSeq;
+    if (!focusedJoint) return;
+    if (!picked && cursorId === `j:${focusedJoint}`) return;
+    setCursorId(`j:${focusedJoint}`);
+    setDetailOpen(true);
+    // Focused without scrolling: the reveal below scrolls the list's own box, nothing else.
+    listRef.current?.focus({ preventScroll: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusedJoint, pickSeq]);
 
   // Keep the cursor row (and its detail) in view. Within the panel's own scroll box only
   // (`revealInScroller`): `scrollIntoView` scrolled every box up to the page itself -- which does

@@ -11,6 +11,7 @@ import {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
 import {useOptionsStore} from "@/state/optionsStore";
 import {clashPickAt} from "@/utils/scene/clashOverlayPicks";
 import {focusJoint} from "@/utils/scene/clashJointFocus";
+import {useClashContactPickStore} from "@/state/clashContactPickStore";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {pickResultLineSegment} from "@/utils/scene/fea/resultLineSegments";
 import {OrbitControls} from "three/examples/jsm/controls/OrbitControls";
@@ -229,6 +230,8 @@ export function setupPointerHandler(
             await focusJoint(jointId, {revealPanel: true});
             return;
         }
+        // Anything else clicked is what the Selected Object panel describes now, not the contact.
+        useClashContactPickStore.getState().clear();
 
         // 0b) A FEM concept glyph (mass, support, load arrow, constraint node, equipment box). The
         //     point glyphs are drawn over the structure, so -- like the joint markers -- they are
