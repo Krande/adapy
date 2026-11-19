@@ -2,6 +2,15 @@
 
 
 
+## v0.161.3 (2026-11-19)
+
+### Fix
+
+* fix(viewer): one path clears the scene, plugin overlays included (plugin API 1.30.0); Inspect-built joints annotated on either viewport; bead-solid welds to IFC; drawing seams hide what is behind; r_inner in section dicts; OCC volume accuracy and absolute tessellation deflection (#572)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`fa7cc78`](https://github.com/Krande/adapy/commit/fa7cc787c642973a9d0cf54c9d1d3d38eb228795))
+
+
 ## v0.161.2 (2026-11-18)
 
 ### Fix

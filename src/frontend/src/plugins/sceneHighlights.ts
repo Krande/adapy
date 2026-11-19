@@ -98,6 +98,14 @@ export function endSceneHighlights(owner: string): void {
   if (entries.length !== before) draw();
 }
 
+/** Take away every highlight: the scene was cleared (`clearScene`), and the objects they marked with it.
+ *  A handle of one taken away this way does nothing more. */
+export function endAllSceneHighlights(): void {
+  if (!entries.length) return;
+  entries.length = 0;
+  draw();
+}
+
 /** Read once; no ref the caller hands in is kept. */
 function copy(refs: Iterable<SceneHighlightRef>): ObjectRef[] {
   return Array.from(refs, ({ model, id }) => ({ model, id }));

@@ -5,7 +5,7 @@
  * ``CustomBatchedMesh`` — distinct from "loaded into the scene"
  * (which is the storage-browser checkbox). Hidden geometry stays in
  * memory and in the scene graph; it just renders with the hidden
- * material. Unloading via ``clear_loaded_model`` or
+ * material. Unloading via ``clearScene`` or
  * ``unload_source_from_scene`` is a different operation that
  * removes the mesh entirely.
  *

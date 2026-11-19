@@ -1,5 +1,5 @@
 // The three.js scene's half of Clear: every loaded model group out of the scene, its GPU buffers freed.
-// The three.js viewport's `clearModels`; `clear_loaded_model` also calls it whichever viewport is on
+// The three.js viewport's `clearModels`; `clearScene` also calls it whichever viewport is on
 // screen, so groups the three.js scene kept from before a renderer switch go too (idempotent).
 
 import {requestRender} from "@/state/perfStore";

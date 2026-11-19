@@ -18,7 +18,7 @@ import { isPlacedElsewhere } from "@/layout/placedElsewhere";
 import type { AdaPluginContext, PanelSlot, PluginModeSpec, PluginRegion, PluginSpec, RegisteredPlugin, RenderableFileProvider, ResultSidecarLoader, SceneColorFieldProvider, SimulationProviderUi, StorageAssetType, StorageAssetTypeArgs, UrlParamHandler } from "./registryTypes/slots";
 
 export { type PluginRegion, type PluginDockId, type PluginModeId, type PluginModeSpec, type PluginLogLevel, type PluginApiClient, type PluginTheme, type AdaPluginContext, type ActivationPredicate, type TopBarButtonSpec, type PanelSlot, type SceneColorFieldProvider, type ResultSidecarLoader, type RenderableFileProvider, type SimulationParameterFormArgs, type SimulationFormSubject, type SimulationOpenResultArgs, type SimulationProviderUi, type UrlParamHandler, type PluginSpec, type RegisteredPlugin, type StorageAssetTypeArgs, type StorageAssetUpload, type StorageAssetType } from "./registryTypes/slots";
-export { type SceneColorFieldResult, type SceneColor, type SceneOverlay, type SceneLines, type SceneElementOutline, type SceneLabel, type SceneLabelOptions, type SceneElementPaint, type SceneLayerRef, type SceneLayerLook, type SceneLineLayerSpec, type SceneLineLayer, type ScenePointLayerSpec, type ScenePointLayer, type SceneImageRect, type SceneImageSpec, type SceneImage, type SceneModelSource, type SceneModelPose, type SidecarFetcher, type SceneHandle, type SceneBox, type SceneFace, type SceneObjectMatch } from "./registryTypes/scene";
+export { type SceneColorFieldResult, type SceneColor, type SceneOverlay, type SceneLines, type SceneElementOutline, type SceneLabel, type SceneLabelOptions, type SceneElementPaint, type SceneLayerRef, type SceneLayerLook, type SceneLineLayerSpec, type SceneLineLayer, type ScenePointLayerSpec, type ScenePointLayer, type SceneImageRect, type SceneImageSpec, type SceneImage, type SceneModelSource, type SceneModelPose, type SidecarFetcher, type SceneHandle, type SceneCleared, type SceneBox, type SceneFace, type SceneObjectMatch } from "./registryTypes/scene";
 export { type PluginPlaybackTrack, type PluginPlaybackTrackHandle, type PluginPlaybackState, type PluginPlayback, type PluginLayerState, type PluginLayers, type PluginSimulationSubject, type PluginSimulationSubjectHandle, type PluginSimulations } from "./registryTypes/playback";
 export type { ScenePick, ScenePickOptions, ScenePickSession } from "./scenePicks";
 export type { SceneHighlight, SceneHighlightOptions, SceneHighlightRef } from "./sceneHighlights";
@@ -303,7 +303,17 @@ export type { SelectedObjectBox } from "@/viewport/api/viewportApi";
 //          `booleans` (its cuts: `{kind: "box" | "cyl" | ..., ...}`, in the frame of `axis`), as
 //          `ada.comms.msg_handling.member_dict` writes them; absent for other sections and for a
 //          beam with no booleans, and from an older ada-py.
-// 1.30.0 — `ctx.scene.selectionBoxes()`: the objects the user has selected, each with its box in
+// 1.30.0 — a clear of the scene takes the plugins' overlays with it. Every clear (the user's Clear
+//          and Remove all, a scope switch, the gallery, a re-convert, a plugin's `clearScene`)
+//          removes what any plugin drew through `addLines`, `addLabels`, `addElementOutlines`,
+//          `paintFeaElements`, `addLineLayer`, `addPointLayer` and `addImage`; a load that replaces
+//          the scene leaves them, as before. Their handles stay safe to call and do nothing (nothing is
+//          drawn again: a plugin makes a new one). Playback tracks, posed models, placed boxes and
+//          three.js objects added with `add` stay. Before, a clear left every one of them on screen.
+//          - `ctx.scene.onSceneCleared(listener)`: `listener(cleared)` after each clear, once,
+//            whatever asked for it, with `SceneCleared` ({reason, replacing, overlaysRemoved}); returns
+//            the unsubscribe. Additive: an older core has no `onSceneCleared`, so a plugin asks first.
+// 1.31.0 — `ctx.scene.selectionBoxes()`: the objects the user has selected, each with its box in
 //          the model's own coordinates (the frame `addLines` / `addPointLayer` take, not the
 //          viewport's recentred world), its name and the names above it (`SelectedObjectBox`), on
 //          either viewport. For a tool that works from the selection: it groups the boxes by
@@ -329,7 +339,7 @@ export type { SelectedObjectBox } from "@/viewport/api/viewportApi";
 //          on `@/viewer-core/app`: an engine-agnostic async check before every commit of the
 //          procedural model, handed `{doc, docExtras}`; answering false vetoes the commit (the
 //          store's `commit` returns false, the model stays dirty), a hook that throws does not.
-export const PLUGIN_API_VERSION = "1.30.0";
+export const PLUGIN_API_VERSION = "1.31.0";
 
 /** What the Simulations panel writes on a run's open-result button. */
 export function openResultButtonLabel(

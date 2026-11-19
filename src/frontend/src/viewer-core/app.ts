@@ -220,18 +220,18 @@ export { default as RelatedSection } from "@/components/info_box_selected_object
 export { useRelatedActions } from "@/hooks/useRelatedActions";
 export type { RelatedAction } from "@/utils/systems/relatedActions";
 
-// Builder refs (1.30.0): a plugin's or a shell's rows shown as boxes among the cell builder's
+// Builder refs (1.31.0): a plugin's or a shell's rows shown as boxes among the cell builder's
 // cells, picked, moved and resized like them, each edit handed back to the provider. Returns the
 // unregister. A plugin has the same through `ctx.scene.registerBuilderRefs`.
 export { builderRefId, registerBuilderRefs } from "@/plugins/builderRefs";
 
-// When a builder compile fails (1.30.0): `selectCompileFailure(state)` is the failed job (null
+// When a builder compile fails (1.31.0): `selectCompileFailure(state)` is the failed job (null
 // otherwise), `onCompileFailed(listener)` is told once per failure -- for a shell that shows the
 // compile log (`CompileLogView`, on /layout) in a drawer it opens when a compile fails.
 export { onCompileFailed, selectCompileFailure } from "@/state/cellbuilder/compileFailures";
 export type { CompileFailure } from "@/state/cellbuilder/compileFailures";
 
-// Before a builder commit (1.30.0): `registerBeforeCommit(owner, hook)` runs `hook({doc, docExtras})`
+// Before a builder commit (1.31.0): `registerBeforeCommit(owner, hook)` runs `hook({doc, docExtras})`
 // before every commit of the procedural model (the toolbar's, Ctrl+S, the one before a compile or
 // an export); a hook that answers false vetoes it (a shell's own validation, say). Returns the
 // unregister.

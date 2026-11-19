@@ -217,7 +217,7 @@ def _classify(a, b, occluder: Occluder, planes_s, spacing: float, test: bool, to
     if test:
         live = state == 0
         if live.any():
-            hid = occluder.hidden(pts[live])
+            hid = occluder.hidden(pts[live], dirs=(b - a)[rep][live, :2])
             idx = np.nonzero(live)[0]
             state[idx[hid]] = 1
     out = []

@@ -121,8 +121,8 @@ const SourceSection = () => {
                 extraOptions: faceRegionsOn ? {face_regions: true} : undefined,
                 reconvert: true,
             });
-            const {clear_loaded_model} = await import("@/utils/scene/handlers/clear_loaded_model");
-            await clear_loaded_model();
+            const {clearScene} = await import("@/utils/scene/handlers/clear_scene");
+            await clearScene({reason: "re-convert", keepQueuedLoads: true, keepProcedural: true});
             const {overlay_file_in_scene} = await import("@/utils/scene/handlers/overlay_file_in_scene");
             await overlay_file_in_scene(loadedSourceName, derivedKey, {scope: scopePart});
             setMsg("loaded fresh conversion");

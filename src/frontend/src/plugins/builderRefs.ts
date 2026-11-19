@@ -1,5 +1,5 @@
 // A plugin's rows shown as boxes among the cell builder's cells (`registerBuilderRefs`, plugin
-// API 1.30.0): a docked UI's supports or modifications, say, in Topology > Input. The plugin
+// API 1.31.0): a docked UI's supports or modifications, say, in Topology > Input. The plugin
 // projects its refs from the doc (`project`); the builder draws them, lists them in its model
 // tree, picks them, and moves and resizes them with the cells' gizmos and snapping. Each edit
 // is handed back (`setIncluded`, `rename`, `remove`, `write`), and the plugin writes its own doc

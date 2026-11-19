@@ -707,7 +707,10 @@
 //          `weldSymbolSvg(type, {size, stroke, strokeWidth, referenceLine})` (a weld type's ISO 2553
 //          symbol as SVG markup, null for none or an unknown type), the type `WeldSymbolSvgOptions`,
 //          and `weldTypeName(type)` (its short name), on the root.
-//   1.30.0 Kept in step with PLUGIN_API_VERSION 1.30.0. Additive: `ctx.scene.selectionBoxes` (the
+//   1.30.0 Kept in step with PLUGIN_API_VERSION 1.30.0. Additive: `ctx.scene.onSceneCleared` and the
+//          type `SceneCleared`. A clear of the scene now removes the plugins' overlays (see
+//          PLUGIN_API_VERSION's 1.30.0 note).
+//   1.31.0 Kept in step with PLUGIN_API_VERSION 1.31.0. Additive: `ctx.scene.selectionBoxes` (the
 //          selected objects' boxes in the model's own coordinates, with their names and the names
 //          above them, on either viewport) and its type `SelectedObjectBox`. The builder store's
 //          `setDocExtra(key, value)` (state/cellbuilder/documentSlice.ts): a shell edits an engine's
@@ -732,7 +735,7 @@
 //          `/layout`: `CompileLogView`, `CompileSettingsSection`, `GridSnappingOptions`. On
 //          `/app`: `onCompileFailed`, `selectCompileFailure`, `CompileFailure`; `registerBeforeCommit`
 //          and the types `BeforeCommitContext`, `BeforeCommitHook` (a check that may veto a commit).
-export const VIEWER_CORE_API_VERSION = "1.30.0";
+export const VIEWER_CORE_API_VERSION = "1.31.0";
 
 // ---------------------------------------------------------------------------
 // Plugin declaration. `registerPlugin` is how a package announces itself —
@@ -789,6 +792,7 @@ export type {
   SceneElementPaint,
   SceneFace,
   SceneHandle,
+  SceneCleared,
   SceneHighlight,
   SceneHighlightOptions,
   SceneHighlightRef,
@@ -1099,7 +1103,7 @@ export type { SettingsHost } from "@/components/settings/settingsTab";
 // remembered view. Pure helpers (and one small store), so a shell draws its own Model panel from them.
 export { DEFAULT_MODEL_VIEW, MODEL_VIEWS, buildModelTree, nodeItemIds } from "@/utils/cellbuilder/modelTree";
 export type { GroupNode as ModelGroupNode, IncludeMark, ItemNode, ModelNode, ModelTreeInput, ModelView, RefNode as ModelRefNode } from "@/utils/cellbuilder/modelTree";
-// Builder refs (1.30.0): the shape of a plugin's ref and of its provider; `registerBuilderRefs` is on /app.
+// Builder refs (1.31.0): the shape of a plugin's ref and of its provider; `registerBuilderRefs` is on /app.
 export type { BuilderRef, BuilderRefEdit, BuilderRefProvider, BuilderRefSpec } from "@/state/cellbuilder/refsSlice";
 export { isItemIncluded, itemIncludeState } from "@/utils/cellbuilder/include";
 export type { IncludeState } from "@/utils/cellbuilder/include";

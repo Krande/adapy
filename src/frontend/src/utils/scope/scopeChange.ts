@@ -8,13 +8,13 @@ import {
     fileListScopeKey,
     request_list_of_files_from_server,
 } from "@/utils/server_info/handlers/request_list_of_files_from_server";
-import {clear_loaded_model} from "@/utils/scene/handlers/clear_loaded_model";
+import {clearScene} from "@/utils/scene/handlers/clear_scene";
 import {confirmDialog} from "@/plugins/dialogs";
 
 /** Switch scope. Tears down what belongs to the scope being left: the file list (the
  *  request below fills it again), every loaded model, and the selection. */
 export function applyScopeChange(picked: ScopeOption): void {
-    void clear_loaded_model();
+    void clearScene({reason: "scope change"});
     useScopeStore.getState().setCurrent(picked);
     // Unless subscribeFileListToScope's listener has just done it.
     relistUnlessOn(picked);

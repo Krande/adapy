@@ -186,6 +186,76 @@ def test_wire_behind_box_is_hidden():
     assert _length(hidden) == pytest.approx(2.0, rel=1e-2)
 
 
+def test_a_point_behind_a_seam_of_the_surface_in_front_is_hidden():
+    from ada.drawings.mesh_ops import Occluder
+
+    # two triangles in front (depth 0) sharing the edge x = 0 from y = -1 to y = 1
+    tris = np.array([[(-1, -1, 0), (0, -1, 0), (0, 1, 0)], [(0, -1, 0), (1, 1, 0), (0, 1, 0)]], float)
+    tris = np.concatenate([tris, [[(0, -1, 0), (1, -1, 0), (1, 1, 0)], [(-1, -1, 0), (0, 1, 0), (-1, 1, 0)]]])
+    occ = Occluder(tris, depth_tol=1e-6, eps=1e-7)
+    on_seam = np.array([[0.0, 0.0, 1.0]])  # behind, exactly on the shared edge
+    on_outline = np.array([[1.0, 0.0, 1.0]])  # behind, exactly on the outline of what is in front
+    along_y = np.array([[0.0, 1.0]])
+    assert not occ.hidden(on_seam)[0]  # neither triangle covers it on its own
+    assert occ.hidden(on_seam, along_y)[0]
+    assert not occ.hidden(on_outline, along_y)[0]
+    in_front = np.array([[0.0, 0.0, -1.0]])
+    assert not occ.hidden(in_front, along_y)[0]
+
+
+def _fillet_prism(stations):
+    """A faceted solid through triangular stations (n x 3 x 3), as a weld bead built station by station."""
+    from ada.geom import Geometry
+    from ada.geom.curves import PolyLoop
+    from ada.geom.points import Point
+    from ada.geom.solids import FacetedBrep
+    from ada.geom.surfaces import ClosedShell, Face, FaceBound
+
+    st = np.asarray(stations, float)
+    centre = st.reshape(-1, 3).mean(axis=0)
+    tris = []
+    for i in range(len(st) - 1):
+        for a in range(3):
+            b = (a + 1) % 3
+            q = [st[i][a], st[i][b], st[i + 1][b], st[i + 1][a]]
+            tris += [[q[0], q[1], q[2]], [q[0], q[2], q[3]]]
+    tris += [list(st[0]), list(st[-1])]
+    faces = []
+    for tri in tris:
+        tri = np.asarray(tri)
+        if np.dot(np.cross(tri[1] - tri[0], tri[2] - tri[0]), tri.mean(axis=0) - centre) < 0:
+            tri = tri[::-1]
+        faces.append(Face([FaceBound(PolyLoop([Point(*p) for p in tri]), True)]))
+    return ada.Shape("bead", geom=Geometry("bead-geom", FacetedBrep(ClosedShell(faces))))
+
+
+def test_a_weld_bead_behind_a_rounded_box_is_hidden_in_the_isometric():
+    # Two rounded hollow sections 300x300x12 (r 18 outer, 12 inner) in a T: the incoming stands on the
+    # landing's side face, a fillet bead along the incoming's bottom flat. In the isometric the bead is behind
+    # the landing, and its root lies exactly behind a line of the landing's mesh (where the view direction
+    # meets both rounded corners at 45 degrees: a seam of the corner fans in front and at the back).
+    w, t, r, h, leg = 0.3, 0.012, 0.018, 0.15, 0.01
+
+    def rhs(name):
+        s = ada.Section(name, "BOX", h=w, w_top=w, w_btn=w, t_w=t, t_ftop=t, t_fbtn=t, r=r)
+        s.r_inner = 0.012
+        return s
+
+    landing = ada.Beam("landing", (-1.0, 0, 0), (1.0, 0, 0), rhs("landing"))
+    incoming = ada.Beam("incoming", (0, h, 0), (0, h + 1.0, 0), rhs("incoming"))
+    xs = np.linspace(-h + r, h - r, 9)
+    bead = _fillet_prism([[(x, h, -h), (x, h + leg, -h), (x, h, -h - leg)] for x in xs])
+
+    d = Drawing("t", view="iso", show_hidden=True).add([landing, incoming]).add(bead, group="weld")
+    lw = d.linework()
+    weld_vis = [s for s in lw.by_kind("projection") if s.group == "weld"]
+    weld_hidden = [s for s in lw.by_kind("hidden") if s.group == "weld"]
+    assert _length(weld_vis) == pytest.approx(0.0, abs=1e-6)
+    r_, u_, _ = d.view.basis()
+    root = np.linalg.norm([(2 * (h - r)) * r_[0], (2 * (h - r)) * u_[0]])  # the root's length on the view
+    assert _length(weld_hidden) > root
+
+
 def test_placed_part_is_drawn_in_world_coordinates():
     p = ada.Part("p", placement=ada.Placement(origin=(10.0, 0.0, 0.0))) / [ada.PrimBox("b", (0, 0, 0), (1, 1, 1))]
     a = ada.Assembly("a") / p

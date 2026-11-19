@@ -4,6 +4,7 @@ import math
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
+from ada.api.primitives.base import Shape
 from ada.base.physical_objects import BackendGeom
 from ada.base.types import BaseEnum
 from ada.core.vector_utils import unit_vector
@@ -126,6 +127,15 @@ def build_profile(
     )
 
 
+class WeldBead(Shape):
+    """The bead of a weld given as a solid (``Weld(..., bead=...)``) rather than as its profile swept along its
+    line. Like a sweep it says the weld line (``sweep_curve``), which is what follows a weld reads it from."""
+
+    @property
+    def sweep_curve(self):
+        return getattr(self.parent, "sweep_curve", None)
+
+
 class Weld(BackendGeom):
     """First-class weld object.
 
@@ -138,6 +148,11 @@ class Weld(BackendGeom):
     The profile is either supplied explicitly (``profile=``) or derived
     from parametric inputs (``weld_type + throat`` and optionally
     ``leg1/2/groove_angle/root_gap/root_face``) via ``build_profile``.
+
+    ``bead`` (optional) is the bead's solid when no single swept profile describes it -- e.g. a fillet round a
+    tubular brace whose section changes along its line, built station by station as a faceted B-rep. It is then
+    the weld's ``geometry`` (a :class:`WeldBead`); the profile and line still describe the nominal section.
+    Accepts an ada.geom solid, an :class:`ada.geom.Geometry` or a :class:`Shape`.
     """
 
     def __init__(
@@ -163,6 +178,7 @@ class Weld(BackendGeom):
         sweep_curve: CurveOpen3d | Any | None = None,
         profile_normal: tuple | None = None,
         profile_ydir: tuple | None = None,
+        bead: Any | None = None,
     ):
         super().__init__(name, parent=parent)
         from ada import Node, PrimExtrude, PrimSweep
@@ -211,6 +227,9 @@ class Weld(BackendGeom):
             geom = PrimExtrude.from_2points_and_curve(f"{self.name}_geom", p1_node.p, p2_node.p, profile, xdir)
             geom.parent = self
 
+        if bead is not None:
+            geom = self._bead_shape(bead)
+
         if groove is not None and p1_node is not None and p2_node is not None:
             vec = unit_vector(p2_node.p - p1_node.p)
             p_start = p1_node.p - p1_node.p * vec * 0.02
@@ -245,6 +264,17 @@ class Weld(BackendGeom):
         self._intermittent = intermittent
         self._sweep_curve = sweep_curve
 
+    def _bead_shape(self, bead) -> Shape:
+        from ada.core.guid import create_guid
+        from ada.geom import Geometry
+
+        if isinstance(bead, Shape):
+            bead.parent = self
+            return bead
+        if not isinstance(bead, Geometry):
+            bead = Geometry(create_guid(), bead)
+        return WeldBead(f"{self.name}_bead", geom=bead, guid=bead.id, parent=self)
+
     @property
     def type(self) -> WeldType:
         return self._weld_type
@@ -273,7 +303,7 @@ class Weld(BackendGeom):
         return [m for m in self._members if m is not of]
 
     @property
-    def geometry(self) -> PrimExtrude | PrimSweep:
+    def geometry(self) -> PrimExtrude | PrimSweep | Shape:
         return self._geom
 
     def solid_geom(self):

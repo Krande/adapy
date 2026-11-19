@@ -6,7 +6,8 @@
 // A plugin states what to draw in plain data, in the scene's own coordinates (those of the loaded
 // model's file, z-up); core draws it through the viewport on screen (viewport/api/overlayLayer.ts,
 // imageLayer.ts) and places it where that viewport places the model. Colours are sRGB, as CSS.
-// Everything a plugin made here goes with `releaseOwnerLayers(owner)`.
+// Everything a plugin made here goes with `releaseOwnerLayers(owner)`; its lines, points and images also go
+// with a clear of the scene (`releaseDrawnLayers`, from utils/scene/handlers/clear_scene.ts).
 //
 // No three.js in this module or in anything it imports.
 
@@ -56,6 +57,30 @@ export function own(owner: string, release: () => void): () => void {
  *  through `removeOwnerOverlays`). */
 export function releaseOwnerLayers(owner: string): void {
     for (const release of [...(owned.get(owner) ?? [])]) release();
+}
+
+/** The lines, points and images drawn now, whoever made them, each as what takes it away. Not the
+ *  playback tracks, the posed models or a placed box: a clear of the scene takes only these. */
+const drawnLayers = new Set<() => void>();
+
+/** `own`, for something a line, point or image handle draws: a clear of the scene takes it too.
+ *  `gone()` says it has been taken (by the handle's `remove`, `scene.remove(owner)` or a clear),
+ *  after which the handle's calls do nothing: the viewport's layer may be disposed by then. */
+function ownDrawn(owner: string, release: () => void): {remove: () => void; gone: () => boolean} {
+    let gone = false;
+    const remove = own(owner, () => {
+        gone = true;
+        drawnLayers.delete(remove);
+        release();
+    });
+    drawnLayers.add(remove);
+    return {remove, gone: () => gone};
+}
+
+/** Remove every line, point and image layer any plugin drew (a clear of the scene,
+ *  utils/scene/handlers/clear_scene.ts). Their handles stay safe to call, and do nothing. */
+export function releaseDrawnLayers(): void {
+    for (const remove of [...drawnLayers]) remove();
 }
 
 // ----- a model's nodes, placed by the plugin ---------------------------------------
@@ -226,20 +251,24 @@ export function addLineLayer(owner: string, spec: SceneLineLayerSpec = {}): Scen
     if (!look.startVisible) layer.setLook(handle, {visible: false});
     look.join(owner, spec.layer);
     const unfollow = follow(viewport, (matrix) => layer.setLook(handle, {matrix}));
-    const remove = own(owner, () => {
+    const {remove, gone} = ownDrawn(owner, () => {
         unfollow();
         look.release();
         layer.remove(handle);
         letGo(layer);
     });
     return {
-        setSegments: (next, count) => layer.setGeometry(handle, next, count),
+        setSegments: (next, count) => {
+            if (!gone()) layer.setGeometry(handle, next, count);
+        },
         setPolyline: (points, count) => {
+            if (gone()) return;
             const vertices = Math.max(0, Math.min(count ?? Infinity, Math.floor(points.length / 3)));
             scratch = room(scratch, Math.max(0, vertices - 1) * 6);
             layer.setGeometry(handle, scratch, polylineSegments(points, vertices, scratch));
         },
         setLook: (change) => {
+            if (gone()) return;
             if (change.color !== undefined) layer.setLook(handle, {color: linearColor(change.color)});
             look.set(change);
         },
@@ -283,7 +312,7 @@ export function addPointLayer(owner: string, spec: ScenePointLayerSpec = {}): Sc
     if (!look.startVisible) layer.setLook(handle, {visible: false});
     look.join(owner, spec.layer);
     const unfollow = follow(viewport, (matrix) => layer.setLook(handle, {matrix}));
-    const remove = own(owner, () => {
+    const {remove, gone} = ownDrawn(owner, () => {
         unfollow();
         look.release();
         layer.remove(handle);
@@ -291,6 +320,7 @@ export function addPointLayer(owner: string, spec: ScenePointLayerSpec = {}): Sc
     });
     return {
         setPoints: (next, count, colors) => {
+            if (gone()) return;
             const n = Math.max(0, Math.min(count ?? Infinity, Math.floor(next.length / 3)));
             if (colored && colors) {
                 tint = room(tint, n * 3);
@@ -301,6 +331,7 @@ export function addPointLayer(owner: string, spec: ScenePointLayerSpec = {}): Sc
             }
         },
         setLook: (change) => {
+            if (gone()) return;
             if (change.color !== undefined && !colored) layer.setLook(handle, {color: linearColor(change.color)});
             look.set(change);
         },
@@ -337,7 +368,7 @@ export function addImage(owner: string, image: SceneImageSpec): SceneImage {
     });
     look.join(owner, image.layer);
     const unfollow = follow(viewport, (matrix) => layer.setLook(handle, {matrix}));
-    const remove = own(owner, () => {
+    const {remove, gone} = ownDrawn(owner, () => {
         unfollow();
         look.release();
         layer.remove(handle);
@@ -345,13 +376,19 @@ export function addImage(owner: string, image: SceneImageSpec): SceneImage {
     });
     return {
         setPixels: (pixels, w, h) => {
+            if (gone()) return;
             width = w ?? width;
             height = h ?? height;
             layer.setPixels(handle, pixels, w, h);
         },
-        setRect: (rect) => layer.setRect(handle, rect),
-        setLook: (change) => look.set(change),
-        unavailable: () => layer.unavailable(width, height),
+        setRect: (rect) => {
+            if (!gone()) layer.setRect(handle, rect);
+        },
+        setLook: (change) => {
+            if (!gone()) look.set(change);
+        },
+        // Removed, it is not drawn at all; that is not something the viewport cannot do.
+        unavailable: () => (gone() ? null : layer.unavailable(width, height)),
         remove,
     };
 }

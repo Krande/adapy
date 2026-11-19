@@ -39,6 +39,22 @@ def _weld_axis_points(weld: Weld) -> list | None:
     return None
 
 
+def _solid_body(weld: Weld, geometry, f) -> ifcopenshell.entity_instance:
+    """The Body representation of a weld whose geometry is a solid rather than a swept profile: the solid's own
+    IFC form where it has one (an IfcFacetedBrep for a faceted bead, ...), else the solid tessellated."""
+    from ada.base.units import Units
+    from ada.cadit.ifc.utils import add_tesselated_shape
+    from ada.cadit.ifc.write.write_shapes import parametric_body_representation
+    from ada.config import logger
+
+    try:
+        return parametric_body_representation(geometry, f)
+    except (NotImplementedError, AttributeError) as exc:
+        logger.debug(f"ifc-write: the bead of weld {weld.name} has no parametric IFC form ({exc}); tessellating it")
+    tol = Units.get_general_point_tol(weld.parent.get_assembly().units)
+    return add_tesselated_shape(f, geometry.solid_occ(), tol).Representations[0]
+
+
 def write_ifc_fastener(weld: Weld) -> ifcopenshell.entity_instance:
     if weld.parent is None:
         raise ValueError("Parent cannot be None for IFC export")
@@ -49,15 +65,27 @@ def write_ifc_fastener(weld: Weld) -> ifcopenshell.entity_instance:
 
     # Body geometry: dispatch on the wrapped primitive. A linear weld
     # wraps a PrimExtrude (SweptSolid); a swept weld a PrimSweep
-    # (AdvancedSweptSolid). Mirrors the maps in write_shapes.py.
+    # (AdvancedSweptSolid). Mirrors the maps in write_shapes.py. Any other
+    # geometry is a solid given as the bead (``Weld(bead=...)`` or a subclass
+    # whose ``geometry`` is a Shape): written as that solid.
+    from ada import PrimExtrude, PrimSweep
+
     geometry = weld.geometry
-    if type(geometry).__name__ == "PrimSweep":
+    placement = None
+    if isinstance(geometry, PrimSweep):
         geom = generate_ifc_prim_sweep_geom(geometry, f)
-        body_repr_type = "AdvancedSweptSolid"
-    else:
+        body = f.createIfcShapeRepresentation(ifc_store.get_context("Body"), "Body", "AdvancedSweptSolid", [geom])
+    elif isinstance(geometry, PrimExtrude):
         geom = generate_ifc_prim_extrude_geom(geometry, f)
-        body_repr_type = "SweptSolid"
-    body = f.createIfcShapeRepresentation(ifc_store.get_context("Body"), "Body", body_repr_type, [geom])
+        body = f.createIfcShapeRepresentation(ifc_store.get_context("Body"), "Body", "SweptSolid", [geom])
+    else:
+        body = _solid_body(weld, geometry, f)
+        # The solid is in its shape's local system: put it in the world (the swept bodies are written in it).
+        place = getattr(geometry, "placement", None)
+        if place is not None and not place.is_identity(use_absolute_placement=True):
+            from ada.cadit.ifc.utils import create_absolute_placement
+
+            placement = create_absolute_placement(f, geometry)
 
     representations = [body]
     axis_points = _weld_axis_points(weld)
@@ -73,6 +101,7 @@ def write_ifc_fastener(weld: Weld) -> ifcopenshell.entity_instance:
         OwnerHistory=ifc_store.owner_history,
         Name=weld.name,
         Description=None,
+        ObjectPlacement=placement,
         Representation=shape,
         PredefinedType="WELD",
     )
