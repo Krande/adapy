@@ -2,6 +2,13 @@
 
 
 
+## v0.161.4 (2026-11-19)
+
+### Fix
+
+* fix: wait for the canvas before opening an FEA result pushed to the viewer (#574) ([`14ea94d`](https://github.com/Krande/adapy/commit/14ea94de949bd20d64dcc2ab082594f6f893394a))
+
+
 ## v0.161.3 (2026-11-19)
 
 ### Fix
