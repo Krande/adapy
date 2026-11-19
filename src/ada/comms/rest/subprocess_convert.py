@@ -243,15 +243,37 @@ def _proc_stats(pid: int, started_at: float) -> Optional[ConvertSample]:
 
 
 def _read_rss_kb(pid: int) -> Optional[int]:
-    """Cheap VmRSS-only read for the per-iteration memory watchdog (the full
-    ``_proc_stats`` reads three /proc files and only runs on the sample cadence)."""
+    """The child's unreclaimable resident memory in kB, for the per-iteration memory watchdog
+    (the full ``_proc_stats`` reads three /proc files and only runs on the sample cadence).
+    See :func:`_unreclaimable_rss_kb`."""
     try:
-        for line in pathlib.Path(f"/proc/{pid}/status").read_text().splitlines():
-            if line.startswith("VmRSS:"):
-                return int(line.split()[1])
-    except (FileNotFoundError, ProcessLookupError, ValueError):
+        return _unreclaimable_rss_kb(pathlib.Path(f"/proc/{pid}/status").read_text())
+    except (FileNotFoundError, ProcessLookupError, OSError):
         return None
-    return None
+
+
+def _unreclaimable_rss_kb(status: str) -> Optional[int]:
+    """``RssAnon + RssShmem`` from a ``/proc/<pid>/status`` text, in kB; ``VmRSS`` on a kernel
+    without them (before 4.5).
+
+    Not ``VmRSS``: it also counts ``RssFile``, the clean file-backed pages of what the child has
+    memory-mapped -- a SIN it reads, the field cache it spills result values to
+    (ada.fem.results.field_cache). The kernel drops those under pressure instead of OOM-killing,
+    so they are no threat to the pod; counted, they killed a 2.6 GB SIN's bake at a VmRSS of
+    4.1 GB of which 2.7 GB was field-cache pages and 1.4 GB heap, under a 4 GiB pod it fits in.
+    ``RssShmem`` stays counted: tmpfs pages (a cache directory on a memory-backed volume) are
+    charged to the pod and cannot be dropped."""
+    fields: dict[str, int] = {}
+    for line in status.splitlines():
+        key, _, rest = line.partition(":")
+        if key in ("RssAnon", "RssShmem", "VmRSS"):
+            try:
+                fields[key] = int(rest.split()[0])
+            except (IndexError, ValueError):
+                continue
+    if "RssAnon" in fields:
+        return fields["RssAnon"] + fields.get("RssShmem", 0)
+    return fields.get("VmRSS")
 
 
 #: ``run_isolated(mem_limit_bytes=...)`` default: the conversion ceiling (see _resolve_mem_limit_bytes).
@@ -823,10 +845,10 @@ async def run_isolated(
                     sigkill_sent = True
                     _signal_child(pid, signal.SIGKILL)
                     logger.warning(
-                        "%s: RSS %.0f MB exceeded limit %.0f MB; sent SIGKILL "
+                        "%s: RSS (anon + shmem) %.0f MB exceeded limit %.0f MB; sent SIGKILL "
                         "(out of memory — failing the job in isolation rather than OOM-killing the pod)",
                         child_name,
-                        rss_kb / 1024.0,
+                        rss_kb * 1024 / 1e6,
                         mem_limit_bytes / 1e6,
                     )
 

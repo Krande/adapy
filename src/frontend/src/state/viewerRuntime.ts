@@ -120,6 +120,31 @@ export function getViewerRuntime(): ViewerRuntime {
     return mounted[mounted.length - 1] ?? (detached ??= createViewerRuntime());
 }
 
+/**
+ * The mounted viewer's THREE scene, waiting for the canvas to create it.
+ *
+ * A message pushed the moment the websocket connects (the server re-sends a
+ * pending OPEN_FEA_SOURCE to a viewer that connects after `FEAResult.show()`)
+ * can arrive before the canvas has mounted. A load run then would find no scene.
+ * The scene ref is a plain ref, not observable, so this polls it once a frame.
+ * Rejects after `timeoutMs`.
+ */
+export async function waitForViewerScene(timeoutMs = 30_000): Promise<THREE.Scene> {
+    const deadline = Date.now() + timeoutMs;
+    const next = () =>
+        new Promise<void>((resolve) =>
+            typeof requestAnimationFrame === "function"
+                ? requestAnimationFrame(() => resolve())
+                : setTimeout(resolve, 16),
+        );
+    for (;;) {
+        const scene = getViewerRuntime().scene.current;
+        if (scene) return scene;
+        if (Date.now() >= deadline) throw new Error(`viewer scene not ready after ${timeoutMs} ms`);
+        await next();
+    }
+}
+
 /** True while at least one `<AdaViewerProvider>` is mounted. */
 export function hasMountedViewerRuntime(): boolean {
     return mounted.length > 0;
