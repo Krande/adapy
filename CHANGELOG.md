@@ -2,6 +2,16 @@
 
 
 
+## v0.162.0 (2026-11-19)
+
+### Feature
+
+* feat(viewer): add and rename in the cell builder; what an engine&#39;s modifications editor needs (doc extras, selection boxes) (#567)
+
+Co-authored-by: Claude Opus 5.5 (1M context) &lt;noreply@anthropic.com&gt;
+Co-authored-by: krande &lt;kristoffer_andersen@outlook.com&gt; ([`fbe06f6`](https://github.com/Krande/adapy/commit/fbe06f67ce632a66897966eea2cc58fffc3fd6c0))
+
+
 ## v0.161.5 (2026-11-19)
 
 ### Fix
