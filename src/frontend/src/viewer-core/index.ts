@@ -718,7 +718,9 @@
 //          `builderRefId` on `/app` (and `ctx.scene.registerBuilderRefs`); the types `BuilderRef`,
 //          `BuilderRefEdit`, `BuilderRefProvider`, `BuilderRefSpec` and the tree's `RefNode` here.
 //          The builder store's `refs` (projected, never set) and `setRefIncluded` / `renameRef` /
-//          `removeRef` / `writeRef`; `BuilderSelection` kind "ref" (`refId`; no `cellId`).
+//          `removeRef` / `writeRef`; `BuilderSelection` kind "ref" (`refId`; no `cellId`). A
+//          provider's optional `renameSpace` rewrites its rows when a space they name is renamed,
+//          in the rename's undo step.
 //          `buildModelTree` takes `refs` and hangs them off the group rows (`GroupNode.refs`,
 //          kinds "all" and "other"; in the flat view a space's own row,
 //          `ItemNode.refs`). `SelectionSnapshot` kind "ref", `refOwner`, `refKey`,

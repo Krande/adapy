@@ -73,6 +73,11 @@ export interface BuilderRefProvider {
   remove?(ref: BuilderRef): void;
   /** The ref's new box, from a move or a resize; false when the provider refuses it. */
   write?(ref: BuilderRef, box: {origin: Vec3; size: Vec3}): boolean;
+  /** A space cell is being renamed from `from` to `to`: the doc keys of the provider's own rows
+   *  that name it, rewritten (`{key: value}`), or null when none does. Applied in the rename's own
+   *  undo step (cellsSlice `renameCell`), so one undo takes back both. Keys the builder owns are
+   *  ignored. */
+  renameSpace?(from: string, to: string, docExtras: Readonly<Record<string, unknown>>): Record<string, unknown> | null;
 }
 
 interface ProviderEntry {
@@ -151,6 +156,33 @@ export function addBuilderRefProvider(provider: BuilderRefProvider): () => boole
     providers.delete(provider.owner);
     return true;
   };
+}
+
+/** The doc's extras with every provider's rows that name the space `from` rewritten to `to`
+ *  (`renameSpace`); the same object when none names it. `owned`: the keys the builder owns, which a
+ *  provider may not write. */
+export function extrasForSpaceRename(
+  docExtras: Record<string, unknown>,
+  from: string,
+  to: string,
+  owned: ReadonlySet<string>,
+): Record<string, unknown> {
+  let out = docExtras;
+  for (const {provider} of providers.values()) {
+    if (!provider.renameSpace) continue;
+    let patch: Record<string, unknown> | null = null;
+    try {
+      patch = provider.renameSpace(from, to, out);
+    } catch (err) {
+      console.warn(`[builder refs] "${provider.owner}" renameSpace() threw -- its rows keep the old name`, err);
+    }
+    for (const [key, value] of Object.entries(patch ?? {})) {
+      if (owned.has(key) || out[key] === value) continue;
+      if (out === docExtras) out = {...docExtras};
+      out[key] = value;
+    }
+  }
+  return out;
 }
 
 /** The provider that projected `ref`. */

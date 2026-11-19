@@ -17,6 +17,8 @@ import {BOX_FACE_SIDES, applyFaceOffset, quantize, quantizeVec, withAxisLength, 
 import type {BuilderCell} from "./types";
 import type {CellBuilderSlice} from "./state";
 import {makeWithHistory} from "./historySlice";
+import {extrasForSpaceRename} from "./refsSlice";
+import {BUILDER_DOC_KEYS} from "./docCodec";
 
 export interface CellsSlice {
   cells: Record<string, BuilderCell>;
@@ -334,7 +336,10 @@ export const createCellsSlice: CellBuilderSlice<CellsSlice> = (set, get) => {
             enclosed_cells: enc.map((n) => (n === cur.name ? trimmed : n)),
           };
         }
-        return { cells, systems, blueprintOptions, dirty: true };
+        // The plugins' rows that name a space by name (a shell's modifications) follow it too, in
+        // this same undo step (refsSlice `renameSpace`).
+        const docExtras = cur.kind === "cell" ? extrasForSpaceRename(s.docExtras, cur.name, trimmed, BUILDER_DOC_KEYS) : s.docExtras;
+        return { cells, systems, blueprintOptions, ...(docExtras !== s.docExtras ? { docExtras } : {}), dirty: true };
       }),
     setCellParam: (id, key, value) =>
       withHistory((s) => {

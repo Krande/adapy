@@ -321,7 +321,9 @@ export type { SelectedObjectBox } from "@/viewport/api/viewportApi";
 //          its model tree (`GroupNode.refs`), picks them (`BuilderSelection` kind "ref"), and moves
 //          and resizes them with the cells' gizmos and snapping; each edit is handed back
 //          (`setIncluded`, `rename`, `remove`, `write`) for the plugin to write with
-//          `setDocExtra`. `SelectionSnapshot` kind "ref" with `refOwner` / `refKey`, and the
+//          `setDocExtra`; a provider's optional `renameSpace(from, to, docExtras)` rewrites its rows
+//          that name a space being renamed, in the rename's own undo step. `SelectionSnapshot`
+//          kind "ref" with `refOwner` / `refKey`, and the
 //          `structure` / `space` a builder selection belongs to. Additive: an older core has no
 //          `registerBuilderRefs`, so a plugin asks for it first. `registerBeforeCommit(owner, hook)`
 //          on `@/viewer-core/app`: an engine-agnostic async check before every commit of the

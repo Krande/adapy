@@ -216,3 +216,34 @@ test("a provider that throws shows no refs and fails nothing else", () => {
     st().close();
   }
 });
+
+test("renaming a space rewrites a provider's rows that name it, in the rename's own undo step", () => {
+  const renaming: Provider = {
+    ...provider,
+    renameSpace: (from, to, extras) => {
+      const list = (extras.markers as Marker[] | undefined) ?? [];
+      return list.some((m) => m.SPACE === from) ? { markers: list.map((m) => (m.SPACE === from ? { ...m, SPACE: to } : m)), spaces: "not mine" } : null;
+    },
+  };
+  st().open("m", "Model", 1, doc);
+  const off = registerBuilderRefs(renaming);
+  try {
+    const room = Object.values(st().cells).find((c) => c.name === "room")!;
+    const steps = st().past.length;
+    st().renameCell(room.id, "hall");
+    assert.equal(st().cells[room.id].name, "hall");
+    assert.deepEqual(rows().map((m) => m.SPACE), ["hall", undefined], "the row naming the space follows it");
+    assert.equal(st().refs[A].space, "hall");
+    assert.equal(st().docExtras.spaces, undefined, "a key the builder owns is not written");
+    assert.equal(st().past.length, steps + 1, "one undo step");
+    st().undo();
+    assert.equal(st().cells[room.id].name, "room");
+    assert.deepEqual(rows().map((m) => m.SPACE), ["room", undefined], "one undo takes back both");
+    const extras = st().docExtras;
+    st().renameCell(room.id, "room");
+    assert.equal(st().docExtras, extras, "no rename, no rewrite");
+  } finally {
+    off();
+    st().close();
+  }
+});
