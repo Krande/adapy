@@ -30,7 +30,11 @@ function eachMaterial(obj: Drawn, fn: (mat: THREE.Material) => void): void {
  *  slots (original / selected overlay / invisible), and a flag set on the array itself is silently
  *  lost, so each slot is visited. */
 function setFlag(obj: Drawn, flag: "vertexColors" | "morphTargets", on: boolean): void {
+    const slots = obj.material;
     eachMaterial(obj, (mat) => {
+        // The hidden ranges' slot (2) of a CustomBatchedMesh never takes the result colours: a ghosted
+        // hidden element is grey, whatever is painted.
+        if (flag === "vertexColors" && on && Array.isArray(slots) && slots.length === 3 && slots[2] === mat) return;
         const m = mat as unknown as Record<string, unknown>;
         if (flag in m && m[flag] !== on) {
             m[flag] = on;

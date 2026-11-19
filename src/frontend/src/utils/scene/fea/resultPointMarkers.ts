@@ -19,6 +19,7 @@ export function resultPointMarkersShown(resultColorsShown: boolean, markersWante
 
 /** Show or hide the installed markers without discarding them. */
 export function setResultPointMarkersVisible(mesh: THREE.Mesh, visible: boolean): void {
+    mesh.userData.__feaMarkersShown = visible;
     const existing = mesh.getObjectByName(RESULT_POINT_MARKERS);
     if (existing) existing.visible = visible;
 }
@@ -39,14 +40,62 @@ export function clearResultPointMarkers(mesh: THREE.Mesh): void {
     else material.dispose();
 }
 
+interface MarkerData {
+    positions: Float32Array;
+    colors: Float32Array;
+    displacement: Float32Array;
+    labels?: readonly number[];
+}
+
+/** The markers of the elements not hidden on `mesh` (by their range id, `E<label>`); all of them
+ *  when nothing is hidden or the points name no element. */
+export function shownMarkers(data: MarkerData, hidden: ReadonlySet<string> | null | undefined): MarkerData {
+    const labels = data.labels;
+    if (!hidden?.size || !labels?.length) return data;
+    const keep: number[] = [];
+    for (let p = 0; p < labels.length; p++) if (!hidden.has(`E${labels[p]}`)) keep.push(p);
+    if (keep.length === labels.length) return data;
+    const pick = (a: Float32Array) => {
+        const out = new Float32Array(keep.length * 3);
+        keep.forEach((p, i) => out.set(a.subarray(p * 3, p * 3 + 3), i * 3));
+        return out;
+    };
+    return {positions: pick(data.positions), colors: pick(data.colors), displacement: pick(data.displacement), labels: keep.map((p) => labels[p])};
+}
+
+const hiddenOf = (mesh: THREE.Mesh): ReadonlySet<string> | undefined =>
+    (mesh as unknown as {getHiddenRanges?: () => ReadonlySet<string>}).getHiddenRanges?.();
+
+/** Draw the markers again on every hide, unhide and isolate of the mesh: once per mesh. */
+function followHidden(mesh: THREE.Mesh): void {
+    if (mesh.userData.__feaMarkersFollowHidden) return;
+    const on = (mesh as unknown as {onHiddenChange?: (l: () => void) => () => void}).onHiddenChange;
+    if (!on) return;
+    mesh.userData.__feaMarkersFollowHidden = true;
+    on.call(mesh, () => {
+        const full = mesh.userData.__feaMarkersFull as MarkerData | undefined;
+        // Shown or not as they were (the user's toggle, the result colours): none may be drawn now.
+        if (full) drawMarkers(mesh, shownMarkers(full, hiddenOf(mesh)), mesh.userData.__feaMarkersShown as boolean | undefined);
+    });
+}
+
 /** Install pixel-sized result markers with the same morph influence as their
- * parent FEA mesh. Positions and displacement are local to that mesh. */
+ * parent FEA mesh. Positions and displacement are local to that mesh. `labels`: the element of
+ * each marker, so a hidden element's markers are left out (and come back when it is shown). */
 export function installResultPointMarkers(
     mesh: THREE.Mesh,
     positions: Float32Array,
     colors: Float32Array,
     displacement: Float32Array,
+    labels?: readonly number[],
 ): void {
+    const full: MarkerData = {positions, colors, displacement, labels};
+    mesh.userData.__feaMarkersFull = full;
+    followHidden(mesh);
+    drawMarkers(mesh, shownMarkers(full, hiddenOf(mesh)));
+}
+
+function drawMarkers(mesh: THREE.Mesh, {positions, colors, displacement}: MarkerData, wasVisible?: boolean): void {
     clearResultPointMarkers(mesh);
     if (positions.length === 0) return;
     const geometry = new THREE.BufferGeometry();
@@ -65,7 +114,7 @@ export function installResultPointMarkers(
     points.frustumCulled = false;
     // Rebuilt on every repaint: start as the user left them, before the loader's
     // visibility pass runs.
-    points.visible = useFeaAnimationStore.getState().resultPointMarkersVisible;
+    points.visible = wasVisible ?? useFeaAnimationStore.getState().resultPointMarkersVisible;
     points.updateMorphTargets();
     points.onBeforeRender = () => {
         const influence = mesh.morphTargetInfluences?.[0] ?? 0;

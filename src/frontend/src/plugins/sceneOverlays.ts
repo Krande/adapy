@@ -14,6 +14,7 @@
 // No three.js in this module or in anything it imports.
 
 import {requestRender} from "@/state/perfStore";
+import {useVisibilityStore} from "@/state/visibilityStore";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {
     activeFeaTarget,
@@ -179,22 +180,46 @@ export function addLines(owner: string, spec: SceneLines): SceneOverlay {
 
 /** The outline of `outline.elements`' faces on the active FEA mesh, kept on the warped surface. */
 export function addElementOutlines(owner: string, outline: SceneElementOutline): SceneOverlay | null {
-    const geometry = activeFeaTarget()?.elements("model");
-    if (!geometry) return null;
-    // The edges are found once, on the mesh's own vertices; a warp moves them, it does not change them.
-    const edges = boundaryEdges(geometry.rest, elementVertices(geometry, outline.elements));
-    if (!edges.length) return null;
-    const positions = placeVertices(geometry, edges, new Float32Array(edges.length * 3));
-    const lines = drawLines(owner, positions, outline);
-    if (!lines) return NOTHING;
-    let placedAt = geometry.version();
-    lines.drawn.follow = () => {
-        const now = geometry.version();
-        if (now === placedAt) return;
-        placedAt = now;
-        lines.move(placeVertices(geometry, edges, positions));
+    const target = activeFeaTarget();
+    const geometry = target?.elements("model");
+    if (!target || !geometry) return null;
+    const all = [...outline.elements];
+    // The outline of what is shown of the elements: a hidden element has none, and one shown again
+    // gets its back. The edges are found on the mesh's own vertices, again only when what is hidden
+    // changes; a warp moves them, it does not change them.
+    const outlineOf = (hidden: ReadonlySet<number>) => {
+        const shown = hidden.size ? all.filter((e) => !hidden.has(e)) : all;
+        const edges = shown.length ? boundaryEdges(geometry.rest, elementVertices(geometry, shown)) : [];
+        return {edges, positions: placeVertices(geometry, edges, new Float32Array(edges.length * 3))};
     };
-    return track(owner, lines.drawn);
+    const hiddenNow = () => new Set(target.hidden());
+    if (!outlineOf(new Set()).edges.length) return null;
+    let current = outlineOf(hiddenNow());
+    let lines = current.edges.length ? drawLines(owner, current.positions, outline) : null;
+    if (current.edges.length && !lines) return NOTHING;
+    let placedAt = geometry.version();
+    let seenVisibility = useVisibilityStore.getState().version;
+    const drawn: Drawn = {
+        take: () => lines?.drawn.take(),
+        result: target.token,
+        follow: () => {
+            const visibility = useVisibilityStore.getState().version;
+            if (visibility !== seenVisibility) {
+                seenVisibility = visibility;
+                lines?.drawn.take();
+                current = outlineOf(hiddenNow());
+                lines = current.edges.length ? drawLines(owner, current.positions, outline) : null;
+                placedAt = geometry.version();
+                requestRender();
+                return;
+            }
+            const now = geometry.version();
+            if (now === placedAt || !lines) return;
+            placedAt = now;
+            lines.move(placeVertices(geometry, current.edges, current.positions));
+        },
+    };
+    return track(owner, drawn);
 }
 
 // ----- labels -----------------------------------------------------------------
@@ -264,6 +289,8 @@ function centreInto(geometry: ElementGeometry, vertices: readonly number[], out:
 const SCRATCH = new Float32Array(3);
 const ABOVE_RIGHT: readonly [number, number] = [0, -0.15];
 
+const pinnedAny = (labels: readonly SceneLabel[]): boolean => labels.some((l) => l.atElements);
+
 export function addLabels(owner: string, labels: SceneLabel[], opts?: SceneLabelOptions): SceneOverlay {
     const viewport = activeViewport();
     if (!viewport) return NOTHING;
@@ -273,8 +300,13 @@ export function addLabels(owner: string, labels: SceneLabel[], opts?: SceneLabel
     const frame = target?.matrix() ?? null;
     const layer = labelLayer(owner, viewport);
     const handles: number[] = [];
-    /** The labels pinned to elements: what `follow` moves. */
-    const pinned: {handle: number; billboard: Billboard; position: [number, number, number]; vertices: number[]}[] = [];
+    /** The labels pinned to elements: what `follow` moves, and takes away while all its elements
+     *  are hidden (`handle` -1 then). */
+    const pinned: {handle: number; billboard: Billboard; position: [number, number, number]; vertices: number[]; elements: readonly number[]}[] = [];
+    const hiddenNow = (): ReadonlySet<number> => new Set(target?.hidden() ?? []);
+    let hidden = pinnedAny(labels) ? hiddenNow() : new Set<number>();
+    /** A label on elements that are all hidden names nothing on screen. */
+    const allHidden = (elements: readonly number[]) => elements.length > 0 && elements.every((e) => hidden.has(e));
     for (const label of labels) {
         const vertices = label.atElements && geometry ? elementVertices(geometry, label.atElements) : null;
         const position: [number, number, number] = [0, 0, 0];
@@ -302,24 +334,44 @@ export function addLabels(owner: string, labels: SceneLabel[], opts?: SceneLabel
             // Cut away with the point it names, whole.
             clipped: true,
         };
-        const handle = layer.add(billboard);
-        handles.push(handle);
-        if (vertices) pinned.push({handle, billboard, position, vertices});
+        const elements = vertices ? [...label.atElements!] : [];
+        const handle = vertices && allHidden(elements) ? -1 : layer.add(billboard);
+        if (vertices) pinned.push({handle, billboard, position, vertices, elements});
+        else handles.push(handle);
     }
     let placedAt = geometry && pinned.length ? geometry.version() : 0;
+    let seenVisibility = useVisibilityStore.getState().version;
     return track(owner, {
         take: () => {
             for (const handle of handles) layer.remove(handle);
+            for (const p of pinned) if (p.handle >= 0) layer.remove(p.handle);
         },
         result: target?.token ?? null,
         follow: geometry && pinned.length
             ? () => {
+                const visibility = useVisibilityStore.getState().version;
+                if (visibility !== seenVisibility) {
+                    // Hidden, shown or isolated since: a label on hidden elements goes, and comes back with them.
+                    seenVisibility = visibility;
+                    hidden = hiddenNow();
+                    for (const p of pinned) {
+                        const off = allHidden(p.elements);
+                        if (off && p.handle >= 0) {
+                            layer.remove(p.handle);
+                            p.handle = -1;
+                        } else if (!off && p.handle < 0) {
+                            centreInto(geometry, p.vertices, p.position);
+                            p.handle = layer.add(p.billboard);
+                        }
+                    }
+                    requestRender();
+                }
                 const now = geometry.version();
                 if (now === placedAt) return;
                 placedAt = now;
                 for (const p of pinned) {
                     centreInto(geometry, p.vertices, p.position);
-                    layer.update(p.handle, p.billboard);
+                    if (p.handle >= 0) layer.update(p.handle, p.billboard);
                 }
             }
             : null,

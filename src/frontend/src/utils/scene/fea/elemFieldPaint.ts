@@ -496,6 +496,8 @@ export function paintElemField(args: ElemFieldPaint, outColors: Float32Array): E
     const markerPositions: number[] = [];
     const markerColors: number[] = [];
     const markerSourceWeights: SourceWeight[][] = [];
+    // The element of each marker, so a viewport leaves a hidden element's markers out.
+    const markerLabels: number[] = [];
     const linePositions: number[] = [];
     const lineColors: number[] = [];
     const lineSourceIndices: number[] = [];
@@ -624,6 +626,7 @@ export function paintElemField(args: ElemFieldPaint, outColors: Float32Array): E
                     markerPositions.push(point[0], point[1], point[2]);
                     markerColors.push(tmpRgb[0], tmpRgb[1], tmpRgb[2]);
                     markerSourceWeights.push(weights);
+                    markerLabels.push(label);
                 }
             }
 
@@ -771,6 +774,7 @@ export function paintElemField(args: ElemFieldPaint, outColors: Float32Array): E
             positions: new Float32Array(markerPositions),
             colors: new Float32Array(markerColors),
             displacement: markerDisplacement,
+            labels: markerLabels,
         },
         lines: {
             positions: new Float32Array(linePositions),

@@ -376,6 +376,16 @@ export type { SelectedObjectBox } from "@/viewport/api/viewportApi";
 //          A floating window's body (`WINDOW_CARD`) is opaque: `--ada-window-bg` laid over
 //          `--ada-window-base` (the theme store sets it, dark or light with the theme; a shell may
 //          set its own), so a translucent panel colour no longer shows the model through a window.
+//          Not an API change, but seen by every plugin that draws on FEA elements: a hidden element
+//          (hide, isolate) is hidden in what is drawn over it too, on both viewports, and a repaint
+//          after the hide keeps it so. `paintFeaElements`, `addLabels` (`atElements`: a label whose
+//          elements are all hidden is taken away until one is shown) and `addElementOutlines` (the
+//          outline of the shown elements) follow every hide / show; `highlightObjects` marks too.
+//          A mesh a plugin hangs on the FEA mesh it got from `getActiveFeaMesh` (or on its beam
+//          solids) that copies the mesh's index list -- de-indexed, vertex k = index entry k, or
+//          sharing the index -- is given the hidden ranges on add and on every hide / show
+//          (`CustomBatchedMesh.isAlignedOverlay`), so its colours leave hidden elements alone with
+//          no change to the plugin. Lines and sprites of a plugin's own are not: those it hides.
 export const PLUGIN_API_VERSION = "1.31.0";
 
 /** What the Simulations panel writes on a run's open-result button. */
