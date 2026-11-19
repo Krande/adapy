@@ -4,7 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { loadSavedGroupFor, type PluginGroupLoadEnv } from "@/plugins/sceneGroupLoad";
+import { loadSavedGroupFor, sceneBoxFromWorld, type PluginGroupLoadEnv } from "@/plugins/sceneGroupLoad";
 import { groupLoadNote } from "@/utils/groups/groupLoadNote";
 import type { GroupLoadOutcome } from "@/utils/groups/groupLoadRun";
 import type { GroupMember, SavedGroup } from "@/utils/groups/savedGroups";
@@ -33,6 +33,7 @@ function env(out: GroupLoadOutcome, scope: string | null = "project:x"): PluginG
       onStage?.("loading 1 of 2");
       return out;
     },
+    selectionBounds: () => ({ min: [1, 2, 3], max: [4, 5, 6] }),
   };
 }
 
@@ -61,6 +62,7 @@ test("loads the group of the current scope and answers as plain data, in the Sce
     selected: 4,
     notFound: ["BM1 — deck/s1"],
     framed: true,
+    bounds: { min: [1, 2, 3], max: [4, 5, 6] },
     text: groupLoadNote(partly).text,
     tone: "warn",
   });
@@ -87,6 +89,29 @@ test("a stage callback that throws does not stop the load", async () => {
       },
     });
     assert.equal(got.loaded, 1);
+  } finally {
+    console.error = original;
+  }
+});
+
+test("the group's bounds are the selection's box, in the scene's own coordinates", async () => {
+  // world = scene + offset: a world box at x 101..104 with the scene offset by 100 is x 1..4.
+  assert.deepEqual(sceneBoxFromWorld({ min: [101, 2, -3], max: [104, 5, 6] }, [100, 0, -10]), {
+    min: [1, 2, 7],
+    max: [4, 5, 16],
+  });
+  assert.deepEqual(sceneBoxFromWorld({ min: [1, 2, 3], max: [4, 5, 6] }, null), { min: [1, 2, 3], max: [4, 5, 6] });
+  assert.equal(sceneBoxFromWorld(null, [1, 1, 1]), null);
+  assert.equal(sceneBoxFromWorld({ min: [Infinity, 0, 0], max: [-Infinity, 0, 0] }, null), null);
+  // Nothing drawn, or a viewport that fails to say: the load still answers, with no bounds.
+  const none = await loadSavedGroupFor({ ...env(partly), selectionBounds: () => null }, "g1");
+  assert.equal(none.bounds, null);
+  const original = console.error;
+  console.error = () => undefined;
+  try {
+    const failing = await loadSavedGroupFor({ ...env(partly), selectionBounds: () => { throw new Error("gone"); } }, "g1");
+    assert.equal(failing.bounds, null);
+    assert.equal(failing.loaded, 1);
   } finally {
     console.error = original;
   }

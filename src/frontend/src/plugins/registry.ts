@@ -316,8 +316,9 @@ export type { PlaceBoxOptions, PlacedBox, PlacedBoxMode, PlacedBoxPose } from ".
 //          group of the current scope, for a plugin whose view follows a saved group (one that draws
 //          it, say). Puts the members in the scene from what is already published or stored, hides the
 //          rest of a document loaded whole, selects the group, and resolves `SceneGroupLoad`
-//          ({groupId, groupName, loaded, already, hidden, failed, selected, notFound, framed, text,
-//          tone}); rejects when there is no scope or no such group. Additive: an older core has no
+//          ({groupId, groupName, loaded, already, hidden, failed, selected, notFound, framed, bounds,
+//          text, tone}; `bounds` the box round the selected members in the scene's own coordinates,
+//          the ones `placeBox` takes, or null); rejects when there is no scope or no such group. Additive: an older core has no
 //          `loadSavedGroup`, so a plugin asks first.
 //          - a `scene-info` panel with `asTab` is a tab of the Scene panel, in its strip after core's
 //            own groups (Model, View, Measure, Tools), ordered by `asTab.order`, with its

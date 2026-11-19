@@ -68,6 +68,10 @@ export interface SceneGroupLoad {
   notFound: string[];
   // The camera was moved to frame the members (the scene was empty before).
   framed: boolean;
+  // (1.31.0) The box round what was selected afterwards -- the group's members as drawn -- in the
+  // scene's own coordinates (those `placeBox` takes and gives: world less the scene's offset); null
+  // when nothing of the group draws. For a plugin that places something in or over the group.
+  bounds: SceneBox | null;
   // The outcome in one line, as the Scene panel shows it; "warn" when something was not loaded or found.
   text: string;
   tone: "info" | "warn";

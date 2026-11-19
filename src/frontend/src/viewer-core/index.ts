@@ -711,7 +711,7 @@
 //          type `SceneCleared`. A clear of the scene now removes the plugins' overlays (see
 //          PLUGIN_API_VERSION's 1.30.0 note).
 //   1.31.0 Kept in step with PLUGIN_API_VERSION 1.31.0. Additive: `ctx.scene.loadSavedGroup` and the
-//          types `SceneGroupLoad`, `SceneGroupLoadOptions`. A `scene-info` panel with `asTab` is a
+//          types `SceneGroupLoad` (with the group's `bounds`), `SceneGroupLoadOptions`. A `scene-info` panel with `asTab` is a
 //          tab of the Scene panel (`SceneBody`'s strip, after core's groups), and `getSceneTabs`
 //          on `@/viewer-core/plugins`, for a shell that draws that strip itself.
 export const VIEWER_CORE_API_VERSION = "1.31.0";

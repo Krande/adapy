@@ -6,10 +6,12 @@
 // The live environment (the scope, the saved groups, the loader) is imported on use: the loader
 // pulls three.js in, and this module is on the boot path and in plain-node tests.
 
-import type { SceneGroupLoad, SceneGroupLoadOptions } from "./registry";
+import type { SceneBox, SceneGroupLoad, SceneGroupLoadOptions } from "./registry";
 import type { GroupLoadOutcome } from "@/utils/groups/groupLoadRun";
 import { groupLoadNote } from "@/utils/groups/groupLoadNote";
 import { describeMember, type SavedGroup } from "@/utils/groups/savedGroups";
+import { useSceneFrameStore } from "@/state/sceneFrameStore";
+import { activeViewport } from "@/viewport/api/viewportApi";
 
 /** What a plugin's group load needs of the viewer. */
 export interface PluginGroupLoadEnv {
@@ -18,10 +20,24 @@ export interface PluginGroupLoadEnv {
   /** The saved group `id` of `scope`, null when it has none; throws when the groups cannot be read. */
   findGroup(scope: string, id: string): Promise<SavedGroup | null>;
   load(group: SavedGroup, scope: string, onStage?: (stage: string) => void): Promise<GroupLoadOutcome>;
+  /** The box round what is selected now, in the scene's own coordinates; null when nothing draws. */
+  selectionBounds(): SceneBox | null;
+}
+
+/** A world-space box in the scene's own coordinates: world = scene + offset (state/sceneFrameStore). */
+export function sceneBoxFromWorld(
+  world: { min: readonly number[]; max: readonly number[] } | null,
+  offset: readonly number[] | null,
+): SceneBox | null {
+  if (!world) return null;
+  const o = offset ?? [0, 0, 0];
+  const at = (p: readonly number[]): [number, number, number] => [p[0] - o[0], p[1] - o[1], p[2] - o[2]];
+  const box = { min: at(world.min), max: at(world.max) };
+  return [...box.min, ...box.max].every(Number.isFinite) ? box : null;
 }
 
 /** A load's outcome as the plugin API hands it back. */
-export function summariseGroupLoad(group: SavedGroup, out: GroupLoadOutcome): SceneGroupLoad {
+export function summariseGroupLoad(group: SavedGroup, out: GroupLoadOutcome, bounds: SceneBox | null = null): SceneGroupLoad {
   const note = groupLoadNote(out);
   return {
     groupId: group.id,
@@ -33,6 +49,7 @@ export function summariseGroupLoad(group: SavedGroup, out: GroupLoadOutcome): Sc
     selected: out.selection.ranges,
     notFound: out.selection.notFound.map(describeMember),
     framed: out.framed,
+    bounds,
     text: note.text,
     tone: note.tone,
   };
@@ -56,7 +73,14 @@ export async function loadSavedGroupFor(
       console.error("[plugins] a loadSavedGroup onStage callback failed", err);
     }
   } : undefined);
-  return summariseGroupLoad(group, out);
+  // The load ends by selecting the group's members: the box round the selection is the group's.
+  let bounds: SceneBox | null = null;
+  try {
+    bounds = env.selectionBounds();
+  } catch (err) {
+    console.error("[plugins] loadSavedGroup: the group's bounds could not be read", err);
+  }
+  return summariseGroupLoad(group, out, bounds);
 }
 
 /** The viewer's own environment, the scope read by `scope` (the plugin context's scope store). */
@@ -84,5 +108,8 @@ export const liveGroupLoadEnv = (scope: () => string | null): PluginGroupLoadEnv
     ]);
     const deps = realDeliveryDeps((name) => getSingletonViewerStores().useModelState.getState().loadedSourceNames.has(name));
     return loadSavedGroup(group, scope, deps, onStage);
+  },
+  selectionBounds() {
+    return sceneBoxFromWorld(activeViewport()?.selectionBounds() ?? null, useSceneFrameStore.getState().offset);
   },
 });
