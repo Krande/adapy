@@ -27,6 +27,7 @@ import RelatedSection from './RelatedSection';
 import {BuilderItemSection, BuilderStructureSection} from './cellBuilderSelection/BuilderSections';
 import FemConceptSelectionInfo from './FemConceptSelectionInfo';
 import FeaSetsSection from './FeaSetsSection';
+import FeaElementSection from './FeaElementSection';
 import DownloadSelectionButton from './DownloadSelectionButton';
 import {builderCellsShown} from '@/state/cellbuilder/builderVisibility';
 import {onBeforeDraw} from '@/viewport/api/beforeDraw';
@@ -149,6 +150,12 @@ const ObjectMetadata = () => {
     return <ObjectMetadataPanel data={jsonData} flat={flat}/>;
 };
 
+/** The picked FEA element in the flat layout; nothing in the classic panel, which shows it folded. */
+const FlatFeaElement: React.FC<{name: string | null}> = ({name}) => {
+    const {flat} = React.useContext(ObjectInfoOptions);
+    return flat ? <FeaElementSection name={name}/> : null;
+};
+
 /** `providersFor`'s list, kept to those the shell's `sections` lets through; a throwing filter keeps the section. */
 export function visibleSections(
     list: readonly PropertyProvider[],
@@ -189,6 +196,9 @@ export const CORE_PROPERTY_PROVIDERS: readonly PropertyProvider[] = [
     {id: "object-metadata", order: 30, match: (sel) => sel.meshName != null, render: () => <ObjectMetadata/>},
     // A picked element of the loaded FEA result: its property values and the element sets
     // naming it, each isolatable. Nothing for a pick no set or property names.
+    // A picked FEA element's own data (type, nodes, section, thickness, material) in the flat
+    // layout, with an ELEMENT badge; the classic panel has the same in its folded Properties rows.
+    {id: "fea-element", order: 32, match: (sel) => sel.kind === "mesh" && /^E\d+$/.test(sel.meshName ?? ""), render: (sel) => <FlatFeaElement name={sel.meshName}/>},
     {id: "fea-sets", order: 35, match: (sel) => sel.kind === "mesh" && /^E\d+$/.test(sel.meshName ?? ""), render: () => <FeaSetsSection/>},
     // The selected row's attributes from the attribute index; nothing when it has none.
     {id: "indexed-attributes", order: 40, match: notCell, render: () => <IndexedAttributesSection/>},

@@ -400,6 +400,10 @@ export type { SelectedObjectBox } from "@/viewport/api/viewportApi";
 //          model is loaded again, leaves the scene, or the scene is cleared (a replace load).
 //          `disposeResultSidecarLoaders(sourceName?)`: one model's, or every one's. Before, every
 //          load disposed every loader, so overlaying a GLB took a capacity plugin's colours away.
+//          Core section `fea-element` (order 32): a picked FEA element in the flat Properties
+//          layout (`flat: true`): ELEMENT badge, its type, instance and nodes, its section and
+//          dimensions, plate thickness and material (E, ν, ρ, σ_y, σ_u), from the bake's element
+//          properties and the manifest's tables. The flat object metadata leaves those rows to it.
 export const PLUGIN_API_VERSION = "1.31.0";
 
 /** What the Simulations panel writes on a run's open-result button. */

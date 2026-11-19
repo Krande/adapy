@@ -55,7 +55,7 @@ const M_TO_MM = 1000;
 const PA_TO_MPA = 1e-6;
 const PA_TO_GPA = 1e-9;
 
-type MaterialDict = {
+export type MaterialDict = {
     name?: string | null;
     E?: number | null;
     rho?: number | null;
@@ -64,7 +64,7 @@ type MaterialDict = {
     v?: number | null;
 };
 
-type SectionDict = {
+export type SectionDict = {
     name?: string | null;
     type?: string | null;
     h?: number | null;
@@ -136,6 +136,39 @@ const Row: React.FC<{label: string; children: React.ReactNode}> = ({label, child
     </div>
 );
 
+/** A section's dimensions as label / text pairs, in the units the rows show (mm). */
+export function sectionFields(section: SectionDict): [string, string][] {
+    const out: [string, string][] = [];
+    if (section.type) out.push(["Profile", section.type]);
+    if (section.h != null) out.push(["h", fmtMm(section.h)]);
+    if (section.w_top != null || section.w_btn != null) {
+        const b = section.w_top != null ? fmtMm(section.w_top) : "—";
+        out.push(["b", section.w_btn != null && section.w_btn !== section.w_top ? `${b} / ${fmtMm(section.w_btn)}` : b]);
+    }
+    if (section.t_w != null) out.push(["t_w", fmtMm(section.t_w)]);
+    if (section.t_ftop != null || section.t_fbtn != null) {
+        const t = section.t_ftop != null ? fmtMm(section.t_ftop) : "—";
+        out.push(["t_f", section.t_fbtn != null && section.t_fbtn !== section.t_ftop ? `${t} / ${fmtMm(section.t_fbtn)}` : t]);
+    }
+    if (section.r != null) out.push(["r", fmtMm(section.r)]);
+    if (section.wt != null) out.push(["wt", fmtMm(section.wt)]);
+    return out;
+}
+
+/** A material's constants as label / text pairs (GPa, MPa, kg/m³). */
+export function materialFields(material: MaterialDict): [string, string][] {
+    const out: [string, string][] = [];
+    if (material.E != null) out.push(["E", fmtGpa(material.E)]);
+    if (material.v != null) out.push(["ν", fmtNu(material.v)]);
+    if (material.rho != null) out.push(["ρ", fmtDensity(material.rho)]);
+    if (material.sig_y != null) out.push(["σ_y", fmtMpa(material.sig_y)]);
+    if (material.sig_u != null) out.push(["σ_u", fmtMpa(material.sig_u)]);
+    return out;
+}
+
+/** A thickness, as the rows show it. */
+export const formatThickness = (v: number | null | undefined): string => fmtMm(v);
+
 const SectionRows: React.FC<{section: SectionDict | null | undefined}> = ({section}) => {
     if (!section) return <Row label="Section:">—</Row>;
     return (
@@ -184,7 +217,23 @@ const MaterialRows: React.FC<{material: MaterialDict | null | undefined}> = ({ma
  *  material the analysis gave it. From the bake (AFEP sidecar + manifest tables + the
  *  element buckets' node indices), so it reads the same over REST as over the websocket;
  *  nothing here asks the server. Renders nothing for a name that is not an FEA element. */
-const FeaElementRows: React.FC<{name: string | null}> = ({name}) => {
+/** What core knows of a picked FEA element (`name` its draw range, "E12"): its type, nodes,
+ *  instance, thickness, section and material. Null for a name that is not an FEA element of the
+ *  loaded result. Shared by the classic rows below and the flat `FeaElementSection`. */
+export interface FeaElementData {
+    label: number;
+    elemType: string | null;
+    typeName: string | null;
+    instance: string | null;
+    nodes: readonly number[];
+    thickness: number | null;
+    section: SectionDict | null;
+    material: MaterialDict | null;
+    /** The element's property record has been read (a section or material may still be absent). */
+    hasProps: boolean;
+}
+
+export function useFeaElementData(name: string | null): FeaElementData | null {
     const manifest = useFeaAnimationStore((s) => s.manifest);
     const sourceName = useFeaAnimationStore((s) => s.sourceName);
     const label = name ? elementLabelNumber(name) : null;
@@ -223,21 +272,34 @@ const FeaElementRows: React.FC<{name: string | null}> = ({name}) => {
         };
     }, [isElement, label, manifest, sourceName]);
 
-    if (!isElement || !manifest) return null;
+    if (!isElement || !manifest || label === null) return null;
     const tables = manifest.element_properties ?? {};
-    const typeName = props?.eltype ? tables.element_types?.[String(props.eltype)] : undefined;
-    const section = props?.section ? tables.sections?.[String(props.section)] ?? null : null;
-    const material = props?.material ? tables.materials?.[String(props.material)] ?? null : null;
-    const thickness = props && Number.isFinite(props.thickness) ? props.thickness : null;
-    const instanceLabel = label !== null ? movedElementName(manifest, label) : null;
+    return {
+        label,
+        elemType: nodes?.elemType ?? null,
+        typeName: (props?.eltype ? tables.element_types?.[String(props.eltype)] : undefined) ?? (props?.eltype ? `type ${props.eltype}` : null),
+        instance: movedElementName(manifest, label),
+        nodes: nodes?.nodes ?? [],
+        thickness: props && Number.isFinite(props.thickness) ? props.thickness : null,
+        section: props?.section ? tables.sections?.[String(props.section)] ?? null : null,
+        material: props?.material ? tables.materials?.[String(props.material)] ?? null : null,
+        hasProps: !!props,
+    };
+}
+
+const FeaElementRows: React.FC<{name: string | null}> = ({name}) => {
+    const data = useFeaElementData(name);
+    if (!data) return null;
+    const {elemType, typeName, instance: instanceLabel, nodes, thickness, section, material} = data;
+    const props = data.hasProps;
     return (
         <>
             <Row label="Element:">
-                {nodes?.elemType ?? '—'}
-                {typeName ? ` (${typeName})` : props?.eltype ? ` (type ${props.eltype})` : ''}
+                {elemType ?? '—'}
+                {typeName ? ` (${typeName})` : ''}
             </Row>
             {instanceLabel && <Row label="Instance:">{instanceLabel}</Row>}
-            {nodes && nodes.nodes.length > 0 && <Row label="Nodes:">{nodes.nodes.join(', ')}</Row>}
+            {nodes.length > 0 && <Row label="Nodes:">{nodes.join(', ')}</Row>}
             {thickness !== null && <Row label="Thickness:">{fmtMm(thickness)}</Row>}
             {section && <SectionRows section={section} />}
             {props && <MaterialRows material={material} />}
@@ -434,7 +496,7 @@ const ObjectMetadataPanel: React.FC<Props> = ({data, flat = false}) => {
                 <div id="object-properties" className={flat ? "table" : "mt-1 ml-4 table"}>
                     {meta && !known && <Row label="Type:">{(meta as any).type ?? 'Unknown'}</Row>}
                     {meta && !known && <Row label="Info:">No metadata available</Row>}
-                    {!known && <FeaElementRows name={clickedName} />}
+                    {!known && !flat && <FeaElementRows name={clickedName} />}
                     {meta?.type === 'Beam' && (
                         <>
                             <Row label="Type:">Beam</Row>

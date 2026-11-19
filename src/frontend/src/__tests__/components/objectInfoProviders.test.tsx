@@ -30,7 +30,7 @@ test("core's sections keep their order and rules", () => {
     assert.deepEqual(
         CORE_PROPERTY_PROVIDERS.map((p) => p.id),
         [
-            "selection-summary", "fem-concepts", "source-jump", "object-metadata", "fea-sets", "indexed-attributes", "related", "tree-node",
+            "selection-summary", "fem-concepts", "source-jump", "object-metadata", "fea-element", "fea-sets", "indexed-attributes", "related", "tree-node",
             "cellbuilder-item", "cellbuilder-structure",
         ],
     );
