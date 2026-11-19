@@ -10,8 +10,9 @@
 //             and says plainly when that source has no members to check.
 //   Overlays  what the joint tabs draw in 3D (the joint being developed, the clash run's markers
 //             and contacts); always.
-//   Review    the joints found or detailed; contextual, while there are any (`hasJoints`) or a
-//             plugin has a section of it to show (region `joint-review`).
+//   Review    the joints found or detailed, and the scope's kept detail models; contextual, while
+//             there are any of either (`hasJoints`) or a plugin has a section of it to show (region
+//             `joint-review`).
 //
 // The last three were the Scene panel's Joints group ("Clashes", "Joint overlays", "Joints",
 // shown in its strip as "Clashes", "Overlays", "Review"); its "Connection" tab was this builder.
@@ -45,7 +46,7 @@ export interface ConnectionsTabFacts {
   /** The builder is offered here (`connectionBuilderOffered`). */
   builder: boolean;
   /** There are joints to review: produced in the loaded model's take-off, generated in this
-   *  session, or identified by a clash run. */
+   *  session, identified by a clash run, or in one of the scope's kept detail models. */
   joints: boolean;
 }
 

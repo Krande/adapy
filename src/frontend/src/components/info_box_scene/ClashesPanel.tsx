@@ -16,6 +16,7 @@ import { browserClashCheckSupports } from "@/services/clash/browserClashCheck";
 import { CONTACT_ORIGIN } from "@/services/clash/contactRuns";
 import { isConnectionPreview } from "@/services/devConnections/connectionBuilderSession";
 import { requestRender } from "@/state/perfStore";
+import { isDetailModelKey } from "@/state/detailModelsStore";
 import { useModelState } from "@/state/modelState";
 import { useProviderName } from "@/state/providerNamesStore";
 import { providerIdTitle } from "@/assets/providerNames";
@@ -807,8 +808,11 @@ const ClashesPanel: React.FC = () => {
   // exactly when those callers switch to it, and following then wiped the target they had just
   // set. `followLoadedSource` leaves an explicit target alone; the run form's "use loaded model"
   // goes back to following.
+  //
+  // Nor is a detail model loaded back from Review's "Detail models": it is a product of a check,
+  // never the thing a check is of (`isDetailModelKey`).
   useEffect(() => {
-    if (loadedSourceName && loadedSourceName === detailGlbKey) return;
+    if (loadedSourceName && (loadedSourceName === detailGlbKey || isDetailModelKey(loadedSourceName))) return;
     followLoadedSource(loadedSourceName);
   }, [loadedSourceName, detailGlbKey, followLoadedSource]);
 

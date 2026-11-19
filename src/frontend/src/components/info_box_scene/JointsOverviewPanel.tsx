@@ -9,6 +9,8 @@ import {
 } from "@/state/clashCheckStore";
 import IdentifiedJoints from "./joints/IdentifiedJoints";
 import FocusedJoints from "./joints/FocusedJoints";
+import DetailModels from "./joints/DetailModels";
+import { useDetailModelsStore } from "@/state/detailModelsStore";
 import { findConnection, useConnectionGraphStore } from "@/state/connectionGraphStore";
 import { isFocusedJoint, useJointFocusStore } from "@/state/jointFocusStore";
 import { usePlacedElsewhereVersion } from "@/layout/usePlacedElsewhere";
@@ -42,6 +44,10 @@ import { usePluginTheme } from "@/state/themeStore";
 //   SHOWN     -- first, above both: the joints of a model on screen opened from a picked weld
 //               ("Show joint" in the Selected Object panel) or from a produced joint's name
 //               (`joints/FocusedJoints`, `jointFocusStore`), each with its members and welds.
+//   DETAIL MODELS -- after PRODUCED: the scope's kept detail models, newest first
+//               (`joints/DetailModels`, `detailModelsStore`). Every detail run is one; loading one
+//               puts it in the scene and its joints in PRODUCED, as a fresh run does. While the
+//               scope has any, the tab is there.
 //   then a plugin's sections (region `joint-review`, plugin API 1.29.0), each headed by its
 //               panel's title, in `order`: what a plugin knows about the same joints that core does
 //               not (`JointReviewSections`). With such a section active the tab is there even with
@@ -242,9 +248,10 @@ const JointsOverviewPanel: React.FC = () => {
   const hasProduced = hasCompiled || hasGenerated;
   const hasIdentified = useClashCheckStore((s) => (s.result?.joints.length ?? 0) > 0);
   const hasShown = useJointFocusStore((s) => s.joints.length > 0);
+  const hasDetailModels = useDetailModelsStore((s) => s.models.length > 0);
   const sections = useJointReviewSections();
 
-  if (!hasProduced && !hasIdentified && !hasShown && sections.length === 0) {
+  if (!hasProduced && !hasIdentified && !hasShown && !hasDetailModels && sections.length === 0) {
     // Reachable only for an instant while the tab is switching away (the Connections panel gates
     // the tab itself on this same pair of facts) -- kept as a real empty state anyway rather than
     // rendering nothing, so the tab opened directly from elsewhere is never blank.
@@ -260,6 +267,7 @@ const JointsOverviewPanel: React.FC = () => {
     <div className="p-1 text-sm flex flex-col gap-4">
       <FocusedJoints />
       <ProducedSection />
+      <DetailModels />
       <IdentifiedJoints />
       <JointReviewSections sections={sections} />
     </div>

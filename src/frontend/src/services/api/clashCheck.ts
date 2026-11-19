@@ -225,6 +225,44 @@ export interface ClashDetailResponse {
    *  detail run that had in fact succeeded. */
   readonly glb_key?: string;
   readonly cached?: boolean;
+  /** The run's id among the scope's detail models (`GET .../clash-detail/models`). */
+  readonly detail_id?: string;
+}
+
+/** One kept detail model, as `GET /scopes/{scope}/clash-detail/models` lists it (newest first):
+ *  what it was detailed from, its spec, how its run ended, and -- once done -- what it holds. */
+export interface WireDetailModel {
+  readonly detail_id: string;
+  readonly created_at: string;
+  /** `queued` / `running` while its job is; then `done`, `error` or `cancelled`. */
+  readonly status: string;
+  readonly job_id?: string | null;
+  readonly error?: string | null;
+  readonly spec: string;
+  /** The pool the spec ran on (`null`: core's own). */
+  readonly capability?: string | null;
+  readonly source: {
+    /** `result`: a clash result (`result_key`); `run`: a convex-contact run (`run_key`). */
+    readonly kind: "result" | "run" | string;
+    readonly result_key?: string;
+    readonly run_key?: string;
+    readonly source_key?: string;
+    readonly target?: Readonly<Record<string, unknown>>;
+    readonly label?: string;
+  };
+  readonly label: string;
+  /** How many joints were handed to the spec. */
+  readonly requested?: number;
+  readonly glb_key: string;
+  readonly stats_key: string;
+  readonly counts?: {
+    readonly joints: number;
+    readonly welds: number;
+    readonly plates?: number;
+    readonly skipped?: number;
+  } | null;
+  /** Which specs built how many joints (a spec can fall through to a sibling). */
+  readonly built_by?: Readonly<Record<string, number>> | null;
 }
 
 function checkBase(scope: ScopeUrl): string {
@@ -334,6 +372,18 @@ export const clashCheckApi = {
       }),
     });
     return jsonOrThrow<ClashDetailResponse>(r, `runClashDetail(${body.spec})`);
+  },
+
+  /** The scope's kept detail models, newest first. */
+  async listDetailModels(scope: ScopeUrl): Promise<readonly WireDetailModel[]> {
+    const r = await authedFetch(`${detailBase(scope)}/models`);
+    return (await jsonOrThrow<{ models?: readonly WireDetailModel[] }>(r, "listDetailModels")).models ?? [];
+  },
+
+  /** Delete one kept detail model with its files. */
+  async deleteDetailModel(scope: ScopeUrl, detailId: string): Promise<void> {
+    const r = await authedFetch(`${detailBase(scope)}/models/${encodeURIComponent(detailId)}`, { method: "DELETE" });
+    await jsonOrThrow<unknown>(r, `deleteDetailModel(${detailId})`);
   },
 
   /** The result document at `key` -- gzip-at-rest JSON through the blob route, the same pattern
