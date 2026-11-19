@@ -98,7 +98,9 @@ async function loadFrom(
                 import("@/utils/scene/handlers/clear_scene"),
             ]);
             await duringSceneReplace(async () => {
-                await clearScene({reason: "replace", replacing: true, keepQueuedLoads: true, keepProcedural: true});
+                // The viewport swaps the model in place and reads the loaded sources to do it (see
+                // `keepLoadedSources`): they are its to end, not the teardown's.
+                await clearScene({reason: "replace", replacing: true, keepQueuedLoads: true, keepProcedural: true, keepLoadedSources: true});
                 await show();
             });
         } else {
