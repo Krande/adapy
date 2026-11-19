@@ -39,6 +39,7 @@ from ada.clash.options import ClashOptions
 from ada.clash.result import ClashResultError, parse_clash_result
 
 from .. import auth as auth_module
+from .. import clash_details
 from ..auth import User
 from ..catalog import merge_catalog_specs
 from ..job_transport import JobRequest
@@ -750,7 +751,8 @@ async def api_clash_detail(
     user: User = Depends(auth_module.current_user),
 ) -> JSONResponse:
     """Detail one group of joints with a registered spec. Body:
-    ``{result_key, joint_ids, spec, options?}``. Returns ``{job_id, derived_key, glb_key}``.
+    ``{result_key, joint_ids, spec, options?}``. Returns ``{job_id, derived_key, glb_key, detail_id}``:
+    the run is a detail model of its own, listed by ``GET /clash-detail/models``.
 
     Routed to the spec's CAPABILITY when it has one (an out-of-tree generator, advertised live);
     to the default pool when it does not (a built-in). ``joint_ids`` are validated against the
@@ -794,12 +796,13 @@ async def api_clash_detail(
         geometry_provider if isinstance(geometry_provider, str) and geometry_provider else None,
     )
 
-    ids_token = hashlib.sha256("|".join(joint_ids).encode("utf-8")).hexdigest()[:16]
-    opts_token = hashlib.sha256(json.dumps(gen_options, sort_keys=True).encode("utf-8")).hexdigest()[:16]
-    result_token = hashlib.sha256(result_key.encode("utf-8")).hexdigest()[:16]
-    prefix = f"_derived/clash/detail/{spec_name}/{result_token}/{ids_token}/{opts_token}"
-    derived_key = f"{prefix}/result.stats.json"
-    glb_key = f"{prefix}/model.glb"
+    # Every detail run is a model of its own, kept and listed (`clash_details`): its own directory,
+    # never the last run's. (It was `_derived/clash/detail/<spec>/<result>/<ids>/<options>/`: the
+    # convert cache, which clearing temp files empties, and the same key for the same selection, so
+    # detailing it again overwrote the model before.)
+    paths = clash_details.detail_paths(clash_details.new_detail_id())
+    derived_key = paths.stats
+    glb_key = paths.glb
     # A result over a named group has no one source to stream: its detail rebuilds the group's
     # model from `provenance.group` instead (formats/clash_detail.py), a synthetic kind.
     kind = "clash_detail_group" if isinstance(result.provenance.get("group"), dict) else "clash_detail"
@@ -810,7 +813,7 @@ async def api_clash_detail(
             target_format=kind,
             scope=scope_obj,
             feature="clash_detail",
-            derived_prefix=prefix,
+            derived_prefix=paths.prefix.rstrip("/"),
             derived_key=derived_key,
             conversion_options={
                 "result_key": result_key,
@@ -832,7 +835,85 @@ async def api_clash_detail(
             job_id=submitted.job_id,
         ),
     )
-    return JSONResponse({"job_id": submitted.job_id, "derived_key": derived_key, "glb_key": glb_key})
+    await clash_details.record_new(
+        ctx.storage,
+        scope_obj,
+        clash_details.make_record(
+            paths,
+            spec=spec_name,
+            capability=capability,
+            source=_result_source(result_key, result),
+            joint_ids=joint_ids,
+            options=gen_options,
+            job_id=submitted.job_id,
+        ),
+    )
+    return JSONResponse(
+        {
+            "job_id": submitted.job_id,
+            "derived_key": derived_key,
+            "glb_key": glb_key,
+            "detail_id": paths.detail_id,
+        }
+    )
+
+
+def _result_source(result_key: str, result) -> dict:
+    """What a detail model was made from, when that is a clash result: the result, and the file,
+    node or group it was checked on, named the way the panel names it."""
+    out: dict = {"kind": "result", "result_key": result_key, "source_key": result.source_key}
+    prov = result.provenance
+    group = prov.get("group")
+    if isinstance(group, dict) and group.get("name"):
+        out["target"] = {"kind": "group", "name": str(group["name"])}
+        out["label"] = str(group["name"])
+    elif prov.get("collection") and prov.get("subject"):
+        out["target"] = {"kind": "node", "collection": str(prov["collection"]), "subject": str(prov["subject"])}
+        out["label"] = str(prov["subject"])
+    else:
+        out["target"] = {"kind": "file", "source_key": result.source_key}
+        out["label"] = str(result.source_key or "file").rsplit("/", 1)[-1]
+    return out
+
+
+def _require_detail_id(detail_id: str) -> str:
+    if not clash_details.is_detail_id(detail_id):
+        raise HTTPException(status_code=400, detail=f"{detail_id!r} is not a detail model id")
+    return detail_id
+
+
+@router.get("/scopes/{scope}/clash-detail/models")
+async def api_clash_detail_models(
+    limit: int = clash_details.KEEP,
+    scope_obj: Scope = Depends(scope_from_path),
+    ctx: RestContext = Depends(rest_context),
+) -> JSONResponse:
+    """The scope's detail models, newest first: one per detail run, from a clash result or a
+    convex-contact run, each with what it was made from, its spec, how it ended (``status``: queued,
+    running, done, error or cancelled), its counts once done, and the ``glb_key`` to load it by."""
+    limit = max(1, min(int(limit), clash_details.KEEP))
+    models = await clash_details.list_models(ctx.storage, scope_obj, ctx.jobs, limit=limit)
+    return JSONResponse({"models": models})
+
+
+@router.delete("/scopes/{scope}/clash-detail/models/{detail_id}")
+async def api_clash_detail_model_delete(
+    detail_id: str,
+    request: Request,
+    scope_obj: Scope = Depends(scope_from_path),
+    ctx: RestContext = Depends(rest_context),
+    user: User = Depends(auth_module.current_user),
+) -> JSONResponse:
+    """Delete one detail model: its record, model and take-off. Allowed where clearing the scope's
+    temp files is -- your own scope, a project you are a member of -- and, for admins, anywhere."""
+    _require_detail_id(detail_id)
+    if scope_obj.kind not in ("user", "project") and not user.is_admin:
+        raise HTTPException(status_code=403, detail="only admins delete detail models in this scope")
+    deleted = await clash_details.delete_model(ctx.storage, scope_obj, detail_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail=f"no detail model {detail_id!r}")
+    await ctx.audit(request, user, scope_obj, "clash_detail_delete", key=detail_id, status="ok")
+    return JSONResponse({"detail_id": detail_id, "deleted": len(deleted)})
 
 
 def _builtin_connection_specs() -> list[dict]:

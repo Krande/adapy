@@ -25,7 +25,6 @@ LIGHT, like ``clash_check``'s router: the slim API imports it, so only stdlib mo
 
 from __future__ import annotations
 
-import hashlib
 import json
 import uuid
 from typing import Any
@@ -43,6 +42,7 @@ from ada.clash.sidecar import (
 )
 
 from .. import auth as auth_module
+from .. import clash_details
 from ..auth import User
 from ..clash_runs import write_run_and_index
 from ..job_transport import JobRequest
@@ -121,7 +121,12 @@ async def _annotate_capability(ctx: RestContext, provider: str | None) -> str | 
 
 def _require_run_key(key: str) -> str:
     key = key.strip()
-    if not key.startswith(CLASH_SIDECAR_PREFIX) or not key.endswith(".json") or key.endswith("/index.json"):
+    if (
+        not key.startswith(CLASH_SIDECAR_PREFIX)
+        or key.startswith(clash_details.DETAILS_PREFIX)
+        or not key.endswith(".json")
+        or key.endswith("/index.json")
+    ):
         raise HTTPException(status_code=400, detail=f"{key!r} is not a clash run key")
     return key
 
@@ -369,7 +374,7 @@ async def api_clash_contacts_detail(
 ) -> JSONResponse:
     """Detail clashes of a run with a registered spec, from the stored contacts. Body
     ``{run_key, contact_ids, spec, options?, geometry_provider?}``. Returns ``{job_id, derived_key,
-    glb_key}``.
+    glb_key, detail_id}``: the run is a detail model of its own, listed by ``GET /clash-detail/models``.
 
     The members are rebuilt as the run's last annotate bound them: through the ``geometry_provider``
     it recorded, unless the body names another. Routed to the spec's pool (a built-in runs anywhere)
@@ -401,13 +406,9 @@ async def api_clash_contacts_detail(
     capability = await _route_with_reader(
         ctx, await _spec_capability(ctx, spec_name), provider, needs=f"spec {spec_name!r}"
     )
-    ids_token = hashlib.sha256("|".join(ids).encode("utf-8")).hexdigest()[:16]
-    opts_token = hashlib.sha256(
-        json.dumps({"options": gen_options, "geometry_provider": provider}, sort_keys=True).encode("utf-8")
-    ).hexdigest()[:16]
-    run_token = hashlib.sha256(key.encode("utf-8")).hexdigest()[:16]
-    prefix = f"_derived/clash/contacts-detail/{spec_name}/{run_token}/{ids_token}/{opts_token}"
-    derived_key, glb_key = f"{prefix}/result.stats.json", f"{prefix}/model.glb"
+    # A model of its own per detail run, kept and listed (`clash_details`) -- see `/clash-detail`.
+    paths = clash_details.detail_paths(clash_details.new_detail_id())
+    derived_key, glb_key = paths.stats, paths.glb
     submitted = await _submit(
         ctx,
         request,
@@ -427,4 +428,25 @@ async def api_clash_contacts_detail(
         },
         capability=capability,
     )
-    return JSONResponse({"job_id": submitted.job_id, "derived_key": derived_key, "glb_key": glb_key})
+    await clash_details.record_new(
+        ctx.storage,
+        scope_obj,
+        clash_details.make_record(
+            paths,
+            spec=spec_name,
+            capability=capability,
+            source={
+                "kind": "run",
+                "run_key": key,
+                "target": dict(run.target),
+                "label": run.label(),
+                **({"geometry_provider": provider} if provider else {}),
+            },
+            joint_ids=ids,
+            options=gen_options,
+            job_id=submitted.job_id,
+        ),
+    )
+    return JSONResponse(
+        {"job_id": submitted.job_id, "derived_key": derived_key, "glb_key": glb_key, "detail_id": paths.detail_id}
+    )
