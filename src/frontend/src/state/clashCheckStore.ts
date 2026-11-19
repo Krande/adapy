@@ -10,9 +10,9 @@
 // second piece of state the store would have to keep in sync with the first.
 //
 // WHY IDENTIFICATION AND REVIEW SHARE NOTHING HERE BUT THE RESULT SCHEMA. This store is the
-// "identify" half of the workflow; the "review" half is the existing `Joints` tab
+// "identify" half of the workflow; the "review" half is the Connections panel's Review tab (it was `Joints`)
 // (`JointsOverviewPanel.tsx`), which reads this store's `result.joints` ALONGSIDE the
-// take-off's produced joints rather than duplicating a table. `Clashes` -> `Joints` is one
+// take-off's produced joints rather than duplicating a table. `Clashes` -> Review is one
 // workflow, not two features that happen to look similar (Decision 10's naming paragraph).
 
 import { create } from "zustand";

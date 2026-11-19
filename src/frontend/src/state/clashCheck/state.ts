@@ -142,7 +142,7 @@ export interface ClashCheckState {
   /** The produced GLB's key, which is what the scene overlays. Separate from `detailDerivedKey`
    *  because they are different documents: loading the take-off json as a model answers 415. */
   detailGlbKey: string | null;
-  /** What this session's detail runs have PRODUCED, accumulated across specs -- the `Joints` tab's
+  /** What this session's detail runs have PRODUCED, accumulated across specs -- the Review tab's
    *  produced section reads this beside the loaded model's own take-off. */
   producedJoints: ProducedJoints | null;
   /** Joints a builder refused during those runs, reported rather than hidden. */

@@ -1,7 +1,7 @@
 // Putting the cursor on ONE joint, from wherever the user pointed at it.
 //
 // Three surfaces name the same joint -- a sphere in the 3D view, a row in the Clashes tab, an
-// arrow key in the Joints tab -- and all three must end in the same state: the joint is the
+// arrow key in the Review tab -- and all three must end in the same state: the joint is the
 // store's cursor, its group is open, its members are selected in the model, and the panel showing
 // its detail is the one on screen. That is one function, not three nearly-identical handlers,
 // because the difference between them is only where the id came from.

@@ -42,7 +42,7 @@ export function detailBatches(
 // ---------------------------------------------------------------------------------------------
 // The PRODUCED take-off. A detail run writes two documents: the GLB the scene overlays, and a
 // `result.stats.json` holding the same joints take-off a compiled model carries
-// (`_joints_takeoff`). The Joints tab's "produced" section has always read that take-off from the
+// (`_joints_takeoff`). The Review tab's "produced" section has always read that take-off from the
 // loaded model's own stats -- which a run-time overlay does not have, so a freshly generated
 // detail model showed its geometry and an empty table. These read the run's document instead.
 // ---------------------------------------------------------------------------------------------

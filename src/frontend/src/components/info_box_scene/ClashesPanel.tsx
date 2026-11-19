@@ -814,7 +814,8 @@ const ClashesPanel: React.FC = () => {
 
   // A finished hand-off is loaded as an ordinary overlay source, the same path
   // `SourceSection`'s "Re-convert" uses -- `overlay_file_in_scene` registers it under its own
-  // source name, so it appears in `Files` and its `.stats.json` joints feed the `Joints` tab.
+  // source name, so it appears in `Files` and its `.stats.json` joints feed the Review tab.
+  // (The message below said "loaded — see the Joints tab" while that tab was called Joints.)
   useEffect(() => {
     if (!detailGlbKey) return;
     let cancelled = false;
@@ -824,7 +825,7 @@ const ClashesPanel: React.FC = () => {
         const { overlay_file_in_scene } = await import("@/utils/scene/handlers/overlay_file_in_scene");
         await overlay_file_in_scene(detailGlbKey, detailGlbKey, { scope });
         if (!cancelled) {
-          setLoadMsg("loaded — see the Joints tab");
+          setLoadMsg("loaded — see the Review tab");
           requestRender();
         }
       } catch (e) {
