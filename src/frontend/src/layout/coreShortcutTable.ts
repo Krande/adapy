@@ -213,11 +213,12 @@ export const CORE_SHORTCUTS: readonly CoreShortcutDef[] = [
   },
   {
     id: "core:builder-insert-equipment",
-    keys: "I",
+    keys: "Q",
     label: "Insert equipment from the keyboard: T type, N / P host space, Enter, then type its local X, Y",
     group: BUILDER,
     local: true,
   },
+  { id: "core:builder-info", keys: "I", label: "Show the selection's info beside it (dimensions, masses, centre of gravity); press again to hide", group: BUILDER, local: true },
   { id: "core:builder-opening", keys: "O", label: "Opening on the selected space face: type X, Y, W, H and depth", group: BUILDER, local: true },
   {
     id: "core:builder-extrude",

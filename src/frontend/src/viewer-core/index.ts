@@ -741,6 +741,8 @@
 //          `.flat` (on `/layout`), set per mode by a shell's `PanelOverride.options(mode)`.
 //          `LocalShortcutSpec` (`registerShortcut` with `local: true`: listed, never dispatched);
 //          `RegisteredShortcut.keysLabel`.
+//          `BuilderRef.info` (the info label's lines for a ref); the builder store's `infoLabel`
+//          and `setInfoLabel` (I). The keyboard equipment insert is Q now.
 export const VIEWER_CORE_API_VERSION = "1.31.0";
 
 // ---------------------------------------------------------------------------

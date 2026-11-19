@@ -85,7 +85,7 @@ function stubState(selection: unknown, extra: Record<string, unknown> = {}) {
         "removeCell", "removeLoftMember", "removeLoftStation", "setRepMode", "hideCells", "unhideAllCells", "setLoftFaceExcluded",
         "setGizmoMode", "setGizmoAxisLock", "addLoftMember", "cycleSelectMode", "selectAdjacentCell", "setSelection",
         "cycleSelectionElement", "setLoftStationType", "cycleCellType", "setSelectedCellType", "closePortMenu", "stopPortGizmo",
-        "closeContextMenu", "insertEquipmentAtLocal", "setToolHint", "setSelectedEquipmentType", "addCell",
+        "closeContextMenu", "insertEquipmentAtLocal", "setToolHint", "setSelectedEquipmentType", "addCell", "setInfoLabel",
       ].map((n) => [n, noop]),
     ),
     ...extra,

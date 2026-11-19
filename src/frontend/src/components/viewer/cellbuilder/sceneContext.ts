@@ -256,6 +256,8 @@ export function createCellBuilderScene(
         readout,
         ringPreview,
 
+        /** The info label's sprite (infoLabel.ts), made the first time it shows. */
+        infoLabel: null as THREE.Sprite | null,
         /** The ghost's current box while an add mode previews a placement. */
         ghostBox: null as CellBox | null,
         /** The step-spaced grid swapped in for the scene's default one. */

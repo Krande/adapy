@@ -353,6 +353,10 @@ export type { SelectedObjectBox } from "@/viewport/api/viewportApi";
 //          in the dialog: every cell-builder key is listed (a "typed values" group too), a run
 //          of digits as one line (`RegisteredShortcut.keysLabel`, "1–9"), a command's own chord
 //          beside the core key it names (`KeyRow.extraKeys`), and the search matches chords.
+//          `BuilderRef.info` / `BuilderRefSpec.info` (`string[]`): what the builder's info label
+//          (I, the store's `infoLabel` / `setInfoLabel`) shows of a ref under its kind and name;
+//          its size when absent. Not an API change, but a user sees it: the keyboard equipment
+//          insert moved from I to Q, and its readout reads "Insert <type> in <host>".
 export const PLUGIN_API_VERSION = "1.31.0";
 
 /** What the Simulations panel writes on a run's open-result button. */

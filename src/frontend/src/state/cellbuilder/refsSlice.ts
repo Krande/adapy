@@ -51,6 +51,9 @@ export interface BuilderRef {
   edit: BuilderRefEdit;
   /** A CSS colour; the builder's ref colour when absent. */
   color?: string;
+  /** What the builder's info label (I) shows under its kind and name, a line each (its
+   *  size when absent). The provider words it: core knows nothing of the row. */
+  info?: string[];
 }
 
 /** What `project` returns for one ref: the ref without its id and owner, which the builder

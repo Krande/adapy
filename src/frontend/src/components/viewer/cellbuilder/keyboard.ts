@@ -581,9 +581,16 @@ export const onKeyDown = (ctx: CellBuilderScene, ev: KeyboardEvent) => {
                 ev.stopPropagation();
                 return;
             }
-            // I: keyboard equipment insert (pick type + host cell, then type
-            // the local X,Y). No cell needed to start.
+            // I: the info label on or off (the selection's dimensions, masses, ... beside it).
             if (k === "i") {
+                st.setInfoLabel(!st.infoLabel);
+                ev.preventDefault();
+                ev.stopPropagation();
+                return;
+            }
+            // Q: keyboard equipment insert (pick type + host cell, then type
+            // the local X,Y). No cell needed to start.
+            if (k === "q") {
                 st.setMode("idle");
                 if (startEquipInsert(ctx)) {
                     ev.preventDefault();

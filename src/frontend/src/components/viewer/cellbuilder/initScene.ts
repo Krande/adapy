@@ -47,6 +47,7 @@ import {viewportInputElement} from "@/viewport/input";
 import {openedModelFramer} from "./frameOpened";
 import {shownInScene} from "./cellBoxSelect";
 import {setBuilderVisibilityHost} from "@/state/cellbuilder/builderVisibility";
+import {disposeInfoLabel, syncInfoLabel} from "./infoLabel";
 
 export function initCellBuilderScene(
     renderer: THREE.WebGLRenderer,
@@ -116,6 +117,7 @@ export function initCellBuilderScene(
     syncBuilderGrid(ctx);
     syncGizmo(ctx);
     syncPortGizmo(ctx);
+    syncInfoLabel(ctx);
     rebuildCompanions(ctx);
     // Its own subscription, so a companion change never re-runs the editable
     // rebuild (which clears hover, selection and the mesh index).
@@ -211,6 +213,16 @@ export function initCellBuilderScene(
             syncPortGizmo(ctx);
         }
         if (s.active !== prev.active || s.gridStep !== prev.gridStep) syncBuilderGrid(ctx);
+        // The info label follows the pick, its edits and moves, and goes with the flag or the cells.
+        if (
+            s.infoLabel !== prev.infoLabel ||
+            s.selection !== prev.selection ||
+            s.cells !== prev.cells ||
+            s.refs !== prev.refs ||
+            s.active !== prev.active ||
+            s.cellsVisible !== prev.cellsVisible
+        )
+            syncInfoLabel(ctx);
         if (s.cellsVisible !== prev.cellsVisible) {
             ctx.cellsGroup.visible = s.cellsVisible;
             ctx.refsGroup.visible = s.cellsVisible;
@@ -305,6 +317,7 @@ export function initCellBuilderScene(
         disposeRefs(ctx);
         disposeCellDimensions(ctx);
         ctx.container.remove(ctx.dimensionGroup);
+        disposeInfoLabel(ctx);
         disposeMoveMeasure(ctx);
         ctx.container.remove(ctx.moveMeasureGroup);
         ctx.hiddenDefaultGrids.forEach((g) => (g.visible = useGroundGridStore.getState().visible));
