@@ -40,6 +40,8 @@ from typing import TYPE_CHECKING, Dict
 from ada.cad import active_backend
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     from OCC.Core.TopoDS import TopoDS_Shape
 
     from ada.base.physical_objects import BackendGeom
@@ -64,6 +66,52 @@ def get_solid_occ(occ_object: "BackendGeom") -> TopoDS_Shape:
     if key not in occ_solid_cache:
         occ_solid_cache[key] = active_backend().build(occ_object.solid_geom())
     return occ_solid_cache[key]
+
+
+def prebuild_solids(objects: "Iterable[BackendGeom]", threads: int = 0) -> "list[str | None]":
+    """Build and cache the solid bodies of many objects in one go, so a later
+    :func:`get_solid_occ` / ``obj.solid_occ()`` (and everything built on it: ``to_gltf``, the
+    clash checks, the IFC/STEP writers) finds them already built.
+
+    Faceted B-rep bodies (weld beads and other ``FacetedBrep`` shapes of plain polygons) are
+    built together, in parallel on ``threads`` threads (0: every core) and outside the GIL, when
+    the active backend is adacpp and its ada-cpp has ``solids_from_polygons_batch``; every other
+    body is built one by one through the backend, exactly as :func:`get_solid_occ` would. Objects
+    whose body is already cached are skipped.
+
+    Returns one entry per object, in order: None where the body is cached (now or before), else
+    the reason it could not be built -- nothing is cached for that object, and a later
+    ``solid_occ()`` on it raises as it always did. Never raises for one object's failure.
+    """
+    from ada.cad import build_solids
+
+    objects = list(objects)
+    errors: list[str | None] = [None] * len(objects)
+    todo: dict[str, list[int]] = {}  # cache key -> the objects sharing it (same guid)
+    geometries = []
+    for i, obj in enumerate(objects):
+        key = _key(obj)
+        if key in occ_solid_cache:
+            continue
+        if key in todo:
+            todo[key].append(i)
+            continue
+        try:
+            geometries.append(obj.solid_geom())
+        except Exception as exc:  # noqa: BLE001 - reported per object, by design
+            errors[i] = f"{type(exc).__name__}: {exc}"
+            continue
+        todo[key] = [i]
+    if not geometries:
+        return errors
+    shapes, build_errors = build_solids(geometries, threads=threads)
+    for (key, idx), shape, err in zip(todo.items(), shapes, build_errors):
+        if shape is not None:
+            occ_solid_cache[key] = shape
+        else:
+            for i in idx:
+                errors[i] = err
+    return errors
 
 
 def cached_solid_by_guid(guid: str) -> TopoDS_Shape:
