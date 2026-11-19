@@ -29,6 +29,7 @@ export {
   getPanelsForRegion,
   getResultSidecarLoaders,
   getSceneColorFieldProviders,
+  getSceneTabs,
   getSimulationTabs,
   getUrlParamHandlers,
 } from "@/plugins/registry";

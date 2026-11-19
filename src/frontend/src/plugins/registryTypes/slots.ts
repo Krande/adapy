@@ -14,10 +14,13 @@ import type { PluginLayers, PluginPlayback, PluginSimulations } from "./playback
 // (`fem-sidebar` covers the FEM simulation panel, `top-panel` the menu bar,
 // `admin` the /admin page's tab strip, `connection-builder` the connection
 // builder panel's, `joint-review` the sections of the Connections panel's Review
-// tab); more are added on demand rather than up-front.
+// tab, `scene-info` the Scene panel's); more are added on demand rather than up-front.
 export type PluginRegion =
   | "fem-sidebar"
   | "top-panel"
+  // The Scene panel. (1.31.0) With `asTab`, a tab of its strip after core's own groups (Model,
+  // View, Measure, Tools), ordered by `asTab.order`, with its `contextual` dot and `badge`; only
+  // the tab on show is mounted, and not in a pop-out window. Without `asTab`, a section.
   | "scene-info"
   | "storage-detail"
   | "admin"
@@ -263,6 +266,9 @@ export interface PanelSlot {
   // `connection-builder` panels (1.26.0) are always tabs too, of the Connections
   // panel, after core's own (Builder, Clashes, Overlays, Review; 1.29.0): `asTab` supplies the label, order
   // and badge; without it the panel's `title`, else its id, is the label.
+  //
+  // `scene-info` panels (1.31.0) with `asTab` are tabs of the Scene panel, after core's own
+  // groups (Model, View, Measure, Tools); without it they stay sections.
   asTab?: {
     label: string;
     order?: number;

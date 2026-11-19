@@ -319,6 +319,12 @@ export type { PlaceBoxOptions, PlacedBox, PlacedBoxMode, PlacedBoxPose } from ".
 //          ({groupId, groupName, loaded, already, hidden, failed, selected, notFound, framed, text,
 //          tone}); rejects when there is no scope or no such group. Additive: an older core has no
 //          `loadSavedGroup`, so a plugin asks first.
+//          - a `scene-info` panel with `asTab` is a tab of the Scene panel, in its strip after core's
+//            own groups (Model, View, Measure, Tools), ordered by `asTab.order`, with its
+//            `contextual` dot and `badge`; only the tab on show is mounted (`getSceneTabs`). Before,
+//            core's Scene panel mounted no `scene-info` panel at all. One without `asTab` is a
+//            section as before. A plugin that wants its tab there on a newer core and elsewhere on an
+//            older one reads the version first (`PLUGIN_API_VERSION` >= 1.31.0).
 export const PLUGIN_API_VERSION = "1.31.0";
 
 /** What the Simulations panel writes on a run's open-result button. */
@@ -653,6 +659,21 @@ export function getConnectionBuilderTabs(ctx: AdaPluginContext): SimulationTabEn
     (a, b) =>
       (a.asTab.order ?? a.panel.order ?? 0) - (b.asTab.order ?? b.panel.order ?? 0) ||
       a.panel.id.localeCompare(b.panel.id),
+  );
+  return entries;
+}
+
+/** `scene-info` panels with `asTab` (1.31.0): a plugin's tabs of the Scene panel, filtered by
+ * activation exactly like `getPanelsForRegion` and ordered by `(asTab.order ?? 0, id)`. Core's
+ * Scene panel draws these in its strip after its own groups (Model, View, Measure, Tools). A
+ * `scene-info` panel without `asTab` is not one of them. Empty when no plugin has an active one
+ * (the strip is then core's groups only, as before). */
+export function getSceneTabs(ctx: AdaPluginContext): SimulationTabEntry[] {
+  const entries = getPanelsForRegion("scene-info", ctx)
+    .filter(({ panel }) => !!panel.asTab)
+    .map(({ pluginId, panel }) => ({ pluginId, panel, asTab: panel.asTab! }));
+  entries.sort(
+    (a, b) => (a.asTab.order ?? 0) - (b.asTab.order ?? 0) || a.panel.id.localeCompare(b.panel.id),
   );
   return entries;
 }
