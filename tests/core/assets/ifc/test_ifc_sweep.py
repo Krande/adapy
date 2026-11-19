@@ -215,3 +215,19 @@ def test_a_structure_only_publish_is_still_swept():
 
     verdicts = {r.node_ref: r.action for r in result.rows if r.action is not None}
     assert sorted(verdicts.values()) == ["added", "deleted", "modified"]
+
+
+def test_a_provider_store_provider_records_under_its_own_source(published_v1):
+    """A provider whose collections live in the provider store records ``<provider>:<collection>``:
+    the only shape a member's grant reads the store's feed through."""
+    store, _ = published_v1
+    recorded: list[str] = []
+    run_ifc_sweep(
+        storage=FakeSyncStorageFacade(store),
+        record=lambda source, rows: recorded.append(source) or len(rows),
+        collection="plant-a",
+        staged_key=V2_STAGED,
+        extracted_at=V2_INSTANT,
+        source="vendor-ifc:plant-a",
+    )
+    assert recorded == ["vendor-ifc:plant-a"]

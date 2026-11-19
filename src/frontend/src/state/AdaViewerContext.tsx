@@ -277,6 +277,20 @@ export function useViewerStores(): AdaViewerStores {
     return useAdaViewerCtx().stores
 }
 
+/**
+ * The surrounding viewer's stores, or the app's own when there is no viewer around.
+ *
+ * ONLY for hooks that are shared by the viewer AND by pages that mount no viewer -- the admin
+ * page, chiefly (`/admin` renders outside any `<AdaViewerProvider>`). Inside a viewer this is
+ * `useViewerStores()`; outside one, the singleton bag, which is what the app-level state (the
+ * scope a user has chosen, who they are) lives in anyway. Everything that is about ONE viewer
+ * -- its scene, its selection -- keeps using `useViewerStores()`, so a viewer component mounted
+ * without its provider still fails loudly.
+ */
+export function useViewerOrAppStores(): AdaViewerStores {
+    return useContext(AdaViewerContext)?.stores ?? SINGLETON_VIEWER_STORES
+}
+
 
 /**
  * Mounts one viewer's state. Gives its children a `ViewerRuntime` of their own

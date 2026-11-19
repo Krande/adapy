@@ -101,7 +101,15 @@ async function loadFrom(
                 // The viewport swaps the model in place and reads the loaded sources to do it (see
                 // `keepLoadedSources`): they are its to end, not the teardown's.
                 await clearScene({reason: "replace", replacing: true, keepQueuedLoads: true, keepProcedural: true, keepLoadedSources: true});
-                await show();
+                try {
+                    await show();
+                } catch (e) {
+                    // The old model is already off the screen: the loaded sources must not go on
+                    // naming it (its checkbox ticked, its eye toggling nothing). The teardown it was
+                    // kept from, now.
+                    await clearScene({reason: "replace failed", replacing: true, keepQueuedLoads: true, keepProcedural: true});
+                    throw e;
+                }
             });
         } else {
             // A result that was shown ends with the model it was drawn on, as on a replace.
