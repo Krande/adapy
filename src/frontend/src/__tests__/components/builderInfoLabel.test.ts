@@ -160,3 +160,40 @@ test("I toggles the info label; Q starts the keyboard equipment insert, which re
     useCellBuilderStore.setState({ active: null, cells: {}, refs: {}, selection: null, infoLabel: false } as never);
   }
 });
+
+test("one label on screen, the current pick's: a new pick draws a new texture, and another scene's label goes", () => {
+  const ctxA = { container: new THREE.Group(), infoLabel: null as InstanceType<typeof THREE.Sprite> | null };
+  const ctxB = { container: new THREE.Group(), infoLabel: null as InstanceType<typeof THREE.Sprite> | null };
+  const base = state(["Kind: strengthening"]);
+  useCellBuilderStore.setState({
+    active: { modelId: "m", name: "demo/demo", revision: 1 },
+    cells: base.cells,
+    refs: base.refs,
+    selection: { kind: "cell", cellId: "e1" },
+    infoLabel: true,
+    cellsVisible: true,
+  } as never);
+  try {
+    syncInfoLabel(ctxA as never);
+    const sprite = ctxA.infoLabel!;
+    const first = (sprite.material as InstanceType<typeof THREE.SpriteMaterial>).map!;
+    let disposed = false;
+    first.addEventListener("dispose", () => void (disposed = true));
+    useCellBuilderStore.setState({ selection: { kind: "cell", cellId: "o1" } } as never);
+    syncInfoLabel(ctxA as never);
+    const second = (sprite.material as InstanceType<typeof THREE.SpriteMaterial>).map!;
+    assert.notEqual(second.uuid, first.uuid, "a texture of its own: nothing of the equipment's label is left in it");
+    assert.equal(disposed, true, "the previous pick's texture is let go");
+    assert.match(sprite.userData.text, /^Door D1/);
+    assert.doesNotMatch(sprite.userData.text, /Pump/, "the equipment's lines are not in it");
+    assert.equal(ctxA.container.children.filter((c) => (c as { isSprite?: boolean }).isSprite).length, 1, "one sprite");
+    // A second builder scene showing its label: the first one's goes.
+    syncInfoLabel(ctxB as never);
+    assert.equal(ctxB.infoLabel!.visible, true);
+    assert.equal(sprite.visible, false);
+    disposeInfoLabel(ctxA as never);
+    disposeInfoLabel(ctxB as never);
+  } finally {
+    useCellBuilderStore.setState({ active: null, cells: {}, refs: {}, selection: null, infoLabel: false } as never);
+  }
+});

@@ -150,6 +150,9 @@ function labelSprite(ctx: CellBuilderScene): THREE.Sprite {
 /** Where the label goes: above the middle of the box's top. */
 const anchorOf = (box: CellBox): Vec3 => [box.origin[0] + box.size[0] / 2, box.origin[1] + box.size[1] / 2, box.origin[2] + box.size[2]];
 
+/** The label on screen, of whichever builder scene drew it last. */
+let shownLabel: THREE.Sprite | null = null;
+
 /** Show, move or hide the label for the store as it is now. */
 export function syncInfoLabel(ctx: CellBuilderScene): void {
     const st = useCellBuilderStore.getState();
@@ -167,14 +170,25 @@ export function syncInfoLabel(ctx: CellBuilderScene): void {
     const material = sprite.material as THREE.SpriteMaterial;
     const tex = material.map as THREE.CanvasTexture;
     if (sprite.userData.text !== key) {
-        drawLines(tex.image as HTMLCanvasElement, lines);
-        tex.needsUpdate = true;
+        // A new canvas and texture for new text, never the old one redrawn: its height follows the
+        // number of lines, and a renderer that keeps a texture by its id and updates it in place
+        // (the adacpp one) drew the new lines over what was left of the previous pick's label.
+        const canvas = document.createElement("canvas");
+        drawLines(canvas, lines);
+        const next = new THREE.CanvasTexture(canvas);
+        next.colorSpace = THREE.SRGBColorSpace;
+        material.map = next;
+        material.needsUpdate = true;
+        tex?.dispose();
         sprite.userData.text = key;
-        const c = tex.image as HTMLCanvasElement;
-        sprite.scale.set(c.width * SCALE_PER_PX, c.height * SCALE_PER_PX, 1);
+        sprite.scale.set(canvas.width * SCALE_PER_PX, canvas.height * SCALE_PER_PX, 1);
     }
     sprite.position.set(...anchorOf(box));
     sprite.visible = true;
+    // One label on screen, the current pick's: another builder scene's (a viewer mounted again, a
+    // second viewport) goes when this one shows.
+    if (shownLabel && shownLabel !== sprite) shownLabel.visible = false;
+    shownLabel = sprite;
     requestRender();
 }
 
@@ -187,4 +201,5 @@ export function disposeInfoLabel(ctx: CellBuilderScene): void {
     material.dispose();
     ctx.container.remove(sprite);
     ctx.infoLabel = null;
+    if (shownLabel === sprite) shownLabel = null;
 }
