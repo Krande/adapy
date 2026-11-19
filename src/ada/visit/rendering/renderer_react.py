@@ -37,6 +37,17 @@ def _strip_absolute_asset_tags(html_content: str) -> str:
     return html_content
 
 
+def missing_bundle_message(path: pathlib.Path) -> str:
+    """Why there is no viewer at ``path``, and what to do about it.
+
+    The bundle is not committed: a release builds it into the wheel and sdist, and a checkout has
+    one only after ``pixi run wbuild``."""
+    return (
+        f"No viewer bundle at {path}. An installed ada-py ships one; a source checkout has to build "
+        "it: `pixi run wbuild` (the WebGPU renderer it inlines needs docker)."
+    )
+
+
 def _viewer_zip(viewer: str | None) -> tuple[pathlib.Path, pathlib.Path]:
     """The single-file viewer to open and the directory it is extracted to: the built-in one, or an
     installed bundle's (``viewer``, else ``ADA_VIEWER_BUNDLE``; see ``ada.comms.viewer_bundles``)."""
@@ -44,6 +55,8 @@ def _viewer_zip(viewer: str | None) -> tuple[pathlib.Path, pathlib.Path]:
 
     bundle = resolve_viewer_bundle(viewer)
     if bundle is None:
+        if not ZIP_VIEWER.is_file():
+            raise FileNotFoundError(missing_bundle_message(ZIP_VIEWER))
         return ZIP_VIEWER, THIS_DIR / "resources"
     if bundle.embed_zip is None:
         raise ValueError(f'viewer bundle "{bundle.name}" has no single-file build ({bundle.root / "index.zip"})')

@@ -42,3 +42,11 @@ def test_webgpu_opens_a_redirect_to_the_viewer_with_the_adacpp_renderer(renderer
 def test_an_unknown_backend_is_an_error(renderer):
     with pytest.raises(ValueError, match="render_backend"):
         renderer.show(render_backend="vulkan")
+
+
+def test_a_checkout_without_a_built_bundle_says_how_to_build_one(tmp_path, monkeypatch):
+    # The bundle is not committed; a source checkout has none until `pixi run wbuild`.
+    monkeypatch.setattr(renderer_react, "ZIP_VIEWER", tmp_path / "resources" / "index.zip")
+    monkeypatch.delenv("ADA_VIEWER_BUNDLE", raising=False)
+    with pytest.raises(FileNotFoundError, match="pixi run wbuild"):
+        renderer_react.RendererReact()

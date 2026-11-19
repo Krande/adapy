@@ -361,7 +361,8 @@ def resolve_static(args: argparse.Namespace, environ: Mapping[str, str]) -> path
     z = bundled_zip()
     if z is None:
         raise DesktopError(
-            "no bundled viewer (ada/visit/rendering/resources/index.zip) found; pass --static DIR or --zip FILE"
+            "no bundled viewer (ada/visit/rendering/resources/index.zip) found; pass --static DIR or --zip FILE. "
+            "An installed ada-py ships one; a source checkout builds it with `pixi run wbuild`."
         )
     return static_dir(z)
 

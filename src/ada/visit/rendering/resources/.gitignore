@@ -1,2 +1,5 @@
+# Everything here is built or extracted, never committed: index.zip is the viewer bundle that
+# `pixi run wbuild` writes (the release workflow builds it into the wheel, the sdist and a GitHub
+# release asset), and index.html / index.hash are what show() extracts from it.
 *
-!index.zip
+!.gitignore

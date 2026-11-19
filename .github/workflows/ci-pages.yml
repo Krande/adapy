@@ -57,8 +57,15 @@ jobs:
       - uses: prefix-dev/setup-pixi@v0.11.3 # https://github.com/prefix-dev/setup-pixi
         with:
           pixi-version: v0.81.0
-          environments: docs
+          environments: >-
+            docs
+            frontend
           cache: true
+
+      # The notebooks render their viewers with the single-file viewer bundle, which is not
+      # committed: build it from this checkout (docker builds the WebGPU renderer it inlines).
+      - name: Build the viewer
+        run: pixi run wbuild
 
       # The report stamps ``ada.__version__``; adapy runs off PYTHONPATH in these tasks, so pin it
       # from pyproject.toml for every step below rather than leaving it to runtime resolution (#464).

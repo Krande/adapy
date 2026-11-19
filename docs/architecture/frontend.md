@@ -10,6 +10,15 @@ code ships in four forms:
 | Inline viewer | the same `index.zip` bundle | `obj.show()` in Jupyter: an `<iframe srcdoc>` in the cell output with the GLB inlined (`window.B64GLTF`) |
 | Embeddable viewer | `vite.config.embed.ts` | `mountViewer(element, {modelBytes, camera, showControls})` → `{dispose()}`; several per page (`embed/viewerInstances.ts`), used by the paradoc FEA report |
 
+The `index.zip` bundle is **not committed**. In a checkout, `pixi run wbuild` builds it, with the
+WebGPU renderer inlined (the renderer is compiled in docker). Without a bundle, `show()` and
+`ada view` stop with an error that says so. A release builds the bundle from the tagged source and
+checks it with `scripts/packaging/check_bundle_provenance.py`, then ships it in three places: the
+wheel, the sdist, and the GitHub Release as `ada-py-viewer-<version>.zip`. The conda-forge
+feedstock takes that release asset as its second source. On a pull request, the
+`Viewer bundle provenance` job builds and checks the bundle the same way. It then hands the
+bundle to the browser tests, the full suite and the conda package build.
+
 ## Structure
 
 ```mermaid

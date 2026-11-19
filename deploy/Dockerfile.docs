@@ -134,26 +134,38 @@ RUN --mount=type=cache,target=/root/.cache/rattler,sharing=locked \
 #     explicit pixel height (set by Interactive3DFigure to match the
 #     poster) propagates down to the mountViewer host without
 #     collapsing through an ``auto``-height intermediate div.
+# ---- adacpp's WebGPU renderer, at ADACPP_RENDER_REF ---------------------------------------------
+# Inlined into the viewer bundle below (always), and into the report-viewer overlay's embed (opt-in).
+# About a minute to build (no OCCT, no pyodide), and cached while the pin stays put.
+FROM emscripten/emsdk:6.0.11 AS adacpp-render
+# Keep in step with Dockerfile.viewer's ADACPP_RENDER_REF.
+ARG ADACPP_RENDER_REF=6eece0d7e6a47922f692e84ce1e940e38ccf3f6d
+ARG ADACPP_GIT_URL=https://github.com/Krande/adacpp.git
+RUN mkdir -p /out \
+      && git init -q /src && cd /src \
+      && git remote add origin "$ADACPP_GIT_URL" \
+      && git fetch -q --depth 1 origin "$ADACPP_RENDER_REF" \
+      && git checkout -q FETCH_HEAD \
+      && bash tools/build_render_wasm.sh /out \
+      && git rev-parse HEAD > /out/adacpp_render.ref
+
+# ---- The single-file viewer bundle (src/ada/visit/rendering/resources/index.zip) ------------------
+# The notebooks render their viewers with it, and it is not committed: built here from this source,
+# with the renderer above inlined, as `pixi run wbuild` builds it.
+FROM node:24 AS viewer-bundle
+WORKDIR /build/src/frontend
+COPY src/frontend/package.json src/frontend/package-lock.json ./
+RUN npm ci
+COPY src/frontend/ ./
+COPY --from=adacpp-render /out/adacpp_render.js /out/adacpp_render.wasm ./public/wasm/
+RUN mkdir -p /build/src/ada/visit/rendering/resources && npm run build
+
 # ---- Report-viewer overlay (opt-in: --build-arg VIEWER_OVERLAY=1) ----------------------------------
 # The FEA report's 3D figures are paradoc's vendored copy of adapy's WebGPU embed. Without the overlay
 # they are whatever the locked conda-forge paradoc shipped; with it, the embed is built from THIS adapy
 # source (and adacpp's renderer from ADACPP_RENDER_REF), vendored into paradoc at PARADOC_REF, and that
 # paradoc replaces the env's -- an embed or paradoc change reaches the report in one docs build, not
-# after a paradoc release and a conda-forge round. Off (the default) both stages are no-ops.
-FROM emscripten/emsdk:6.0.11 AS overlay-render
-ARG VIEWER_OVERLAY=0
-# Keep in step with Dockerfile.viewer's ADACPP_RENDER_REF.
-ARG ADACPP_RENDER_REF=6eece0d7e6a47922f692e84ce1e940e38ccf3f6d
-ARG ADACPP_GIT_URL=https://github.com/Krande/adacpp.git
-RUN mkdir -p /out && if [ "$VIEWER_OVERLAY" = "1" ]; then \
-      git init -q /src && cd /src \
-      && git remote add origin "$ADACPP_GIT_URL" \
-      && git fetch -q --depth 1 origin "$ADACPP_RENDER_REF" \
-      && git checkout -q FETCH_HEAD \
-      && bash tools/build_render_wasm.sh /out \
-      && git rev-parse HEAD > /out/adacpp_render.ref; \
-    fi
-
+# after a paradoc release and a conda-forge round. Off (the default) this stage is a no-op.
 FROM node:24 AS overlay-paradoc
 ARG VIEWER_OVERLAY=0
 ARG PARADOC_REF=main
@@ -162,7 +174,7 @@ WORKDIR /build/adapy-frontend
 COPY src/frontend/package.json src/frontend/package-lock.json ./
 RUN if [ "$VIEWER_OVERLAY" = "1" ]; then npm ci; fi
 COPY src/frontend/ ./
-COPY --from=overlay-render /out/ /render/
+COPY --from=adacpp-render /out/ /render/
 # /out/paradoc: the paradoc package (its frontend.zip rebuilt around this embed), or nothing.
 RUN mkdir -p /out && if [ "$VIEWER_OVERLAY" = "1" ]; then \
       ADACPP_RENDER_DIR=/render npm run build:embed-webgpu \
@@ -201,6 +213,7 @@ ENV ADA_DOCS_RELEASE=$ADA_DOCS_RELEASE \
     ADA_DOCS_DATE=$ADA_DOCS_DATE \
     ADAPY_VERSION=$ADAPY_VERSION
 COPY src/ ./src/
+COPY --from=viewer-bundle /build/src/ada/visit/rendering/resources/index.zip ./src/ada/visit/rendering/resources/
 COPY docs/ ./docs/
 COPY verification/ ./verification/
 COPY zensical.toml ./

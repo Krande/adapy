@@ -4,6 +4,10 @@ name: Make Release on push of new tag
 # created by tag-on-pr-merge.yaml (deputy), which has already bumped
 # pyproject.toml in the tagged commit — so this builds the tag as-is.
 #
+# The viewer bundle is built here too (it is not committed): into the wheel and
+# sdist, and onto the tag's GitHub Release as ada-py-viewer-<version>.zip, which
+# the conda-forge feedstock takes as its second source.
+#
 # Replaces a call into a reusable-workflow repository, whose release workflow
 # fanned out to four publish jobs (pypi / conda / docker / gitops) gated on
 # flags in action_config.toml. Only the PyPI one was ever enabled here: conda
@@ -34,8 +38,29 @@ jobs:
   pypi:
     name: Publish to PyPI
     runs-on: ubuntu-latest
+    permissions:
+      # Write: the viewer bundle is attached to the tag's GitHub Release.
+      contents: write
     steps:
       - uses: actions/checkout@v7
+
+      # The viewer bundle (src/ada/visit/rendering/resources/index.zip) is not committed: it is
+      # built here, from the tagged source, so the wheel and sdist carry the viewer of the commit
+      # they were built from. It used to be committed, and a source change that nobody rebuilt it
+      # for was released without reaching the viewer (0.161.4 and 0.161.5 shipped without #574).
+      - uses: prefix-dev/setup-pixi@v0.11.3
+        with:
+          pixi-version: v0.81.0
+          environments: frontend
+          cache: true
+
+      # Also builds the WebGPU renderer it inlines (an adacpp stage of deploy/Dockerfile.viewer).
+      - name: Build the viewer bundle
+        run: pixi run wbuild
+
+      # Every UI string must trace to src/frontend, and the renderer must be inlined; see the script.
+      - name: Check the bundle's provenance
+        run: pixi run -e frontend python scripts/packaging/check_bundle_provenance.py -v
 
       - uses: actions/setup-python@v7
         with:
@@ -65,6 +90,46 @@ jobs:
         run: |
           python -m pip install --upgrade pip build
           python -m build
+
+      # package-data names index.zip, but setuptools packages what is THERE: a missing bundle
+      # builds a wheel without a viewer and no error. Refuse to publish one.
+      - name: Check the wheel and sdist carry the viewer bundle
+        run: |
+          set -eu
+          python - <<'EOF'
+          import pathlib, tarfile, zipfile
+          wheel = next(pathlib.Path("dist").glob("*.whl"))
+          sdist = next(pathlib.Path("dist").glob("*.tar.gz"))
+          in_wheel = any(n.endswith("ada/visit/rendering/resources/index.zip") for n in zipfile.ZipFile(wheel).namelist())
+          in_sdist = any(n.endswith("src/ada/visit/rendering/resources/index.zip") for n in tarfile.open(sdist).getnames())
+          print(f"{wheel.name}: {in_wheel}  {sdist.name}: {in_sdist}")
+          assert in_wheel and in_sdist, "the viewer bundle is missing from the wheel or the sdist"
+          EOF
+
+      # The conda-forge feedstock builds from the tag tarball, which has no bundle (it is not
+      # committed), and takes this asset as a second source. deputy cuts the GitHub Release
+      # alongside pushing the tag, so it may not exist yet when this runs: wait for it. Attached
+      # before PyPI so a published version always has its bundle asset.
+      - name: Attach the viewer bundle to the GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          tag="${GITHUB_REF_NAME}"
+          asset="ada-py-viewer-${tag#v}.zip"
+          cp src/ada/visit/rendering/resources/index.zip "$asset"
+          for _ in $(seq 1 30); do
+            gh release view "$tag" > /dev/null 2>&1 && break
+            echo "waiting for the GitHub Release $tag..."
+            sleep 20
+          done
+          if ! gh release view "$tag" > /dev/null 2>&1; then
+            echo "::error::no GitHub Release for $tag after 10 minutes; the feedstock needs $asset on it."
+            exit 1
+          fi
+          gh release upload "$tag" "$asset" --clobber
+          echo "$asset sha256: $(sha256sum "$asset" | cut -d' ' -f1)" | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1

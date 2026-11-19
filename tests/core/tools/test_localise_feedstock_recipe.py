@@ -168,3 +168,42 @@ def test_the_source_block_pattern_does_not_backtrack_on_blank_lines():
     t0 = time.perf_counter()
     _SOURCE_BLOCK.search(hostile)
     assert time.perf_counter() - t0 < 0.5
+
+
+# The feedstock's source once the viewer bundle is no longer committed: the tag tarball, and the
+# bundle the release workflow uploads as a release asset.
+RECIPE_WITH_BUNDLE_ASSET = RECIPE.replace(
+    """source:
+  url: https://github.com/Krande/adapy/archive/v${{ version }}.tar.gz
+  sha256: 1088444dcb0c07895bf821c8c128c0f3f94bf60f587ec5f42121a1be3544c17c
+""",
+    """source:
+  - url: https://github.com/Krande/adapy/archive/v${{ version }}.tar.gz
+    sha256: 1088444dcb0c07895bf821c8c128c0f3f94bf60f587ec5f42121a1be3544c17c
+  # The viewer bundle, built by the release workflow.
+  - url: https://github.com/Krande/adapy/releases/download/v${{ version }}/ada-py-viewer-${{ version }}.zip
+    sha256: 2088444dcb0c07895bf821c8c128c0f3f94bf60f587ec5f42121a1be3544c17c
+    file_name: index.zip
+    target_directory: src/ada/visit/rendering/resources
+""",
+)
+
+
+def test_both_published_sources_are_replaced():
+    # The release asset is a published thing too: left in, it would put the RELEASED viewer into
+    # a package built from this checkout.
+    out = localise(RECIPE_WITH_BUNDLE_ASSET, "/work/adapy")
+    source_block = out.split("build:", 1)[0]
+    assert "url:" not in source_block
+    assert "releases/download" not in out
+    assert out.count("path:") == 1
+
+
+def test_a_built_viewer_bundle_becomes_its_own_source():
+    # A built bundle is gitignored, and a `path` source leaves out what .gitignore names: the
+    # checkout source alone would package no viewer.
+    out = localise(RECIPE_WITH_BUNDLE_ASSET, "/work/adapy", viewer_bundle_dir="/work/viewer-bundle")
+    source_block = out.split("build:", 1)[0]
+    assert "  - path: /work/adapy\n" in source_block
+    assert "  - path: /work/viewer-bundle\n    target_directory: src/ada/visit/rendering/resources\n" in source_block
+    assert "url:" not in source_block

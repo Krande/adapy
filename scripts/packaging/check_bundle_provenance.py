@@ -1,10 +1,12 @@
-"""Assert the committed viewer bundle was built from this repository, and only this repository.
+"""Assert the viewer bundle was built from this repository, and only this repository.
 
 ``src/ada/visit/rendering/resources/index.zip`` is a compiled frontend bundle
-committed as a binary and shipped as package data, so it goes out inside every
-published wheel. It is also the one file in the tree that nobody reads in review.
+shipped as package data, so it goes out inside every published wheel. It is no
+longer committed: the release workflow builds it and runs this check on it before
+anything is published, and pull requests run it on the bundle CI builds. It used
+to be committed, which made it the one file in the tree nobody read in review.
 
-Those two facts met: a bundle rebuilt on a machine with plugin overlays enabled
+That met plugin overlays: a bundle rebuilt on a machine with plugin overlays enabled
 (``ADA_PLUGINS_EXTRA`` set, out-of-tree packages dropped into
 ``src/frontend/packages/plugins/``) silently absorbed the compiled source of
 packages that live in other repositories — their ids, their design system, their
@@ -177,7 +179,7 @@ def main() -> int:
         FRONTEND = args.frontend.resolve()
 
     if not args.bundle.is_file():
-        print(f"error: {args.bundle} not found", file=sys.stderr)
+        print(f"error: {args.bundle} not found; build it with `pixi run wbuild`", file=sys.stderr)
         return 1
     if not has_renderer(args.bundle):
         print(
@@ -243,10 +245,10 @@ def main() -> int:
     if len(orphans) > len(shown):
         print(f"  … and {len(orphans) - len(shown)} more", file=sys.stderr)
     print(
-        "\nThe bundle was almost certainly rebuilt with out-of-tree plugins overlaid.\n"
-        "Rebuild it from a clean checkout with no plugin environment variables set,\n"
-        "or restore the committed blob:\n"
-        "    git checkout origin/main -- src/ada/visit/rendering/resources/index.zip",
+        "\nEither the bundle was built with out-of-tree plugins overlaid -- rebuild it from a clean\n"
+        "checkout with no plugin environment variables set -- or the bundler ASSEMBLED a string from\n"
+        "fragments that no file spells out whole. Only in the second case, and only once you have\n"
+        "found the source line it comes from, pin it in scripts/packaging/bundle_provenance_baseline.txt.",
         file=sys.stderr,
     )
     return 1

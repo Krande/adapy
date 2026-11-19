@@ -48,27 +48,45 @@ class RecipeRewriteError(RuntimeError):
     """The recipe did not look the way this tool needs it to."""
 
 
-def localise(recipe_text: str, checkout: str, version: str | None = None) -> str:
+#: Where the viewer bundle goes in the source tree, as the feedstock's own bundle source puts it.
+VIEWER_BUNDLE_TARGET = "src/ada/visit/rendering/resources"
+
+
+def localise(recipe_text: str, checkout: str, version: str | None = None, viewer_bundle_dir: str | None = None) -> str:
     """Return `recipe_text` with its source replaced by `checkout`.
 
     ``version`` overrides ``context.version`` when given. That matters because the
     original value is the released version, and building a checkout that is ahead of
     it would produce a package claiming to be the older one — which is exactly the
     confusion this whole tool exists to remove.
+
+    ``viewer_bundle_dir``: a directory holding a built ``index.zip``, added as a second
+    source into :data:`VIEWER_BUNDLE_TARGET`. The bundle is not committed, so the
+    checkout has none of its own -- a built one is gitignored, and a ``path`` source
+    leaves out what ``.gitignore`` names. The feedstock's own bundle source (a release
+    asset) is part of the block this replaces, so without this the package ships no viewer.
     """
     if "source:" not in recipe_text:
         raise RecipeRewriteError("no `source:` block found; is this a v1 recipe?")
 
-    replacement = (
+    header = (
         "source:\n"
         "  # Rewritten by scripts/packaging/localise_feedstock_recipe.py: build THIS checkout\n"
         "  # rather than a published tarball, so packaging faults are visible before\n"
         "  # a release rather than after one.\n"
-        f"  path: {checkout}\n"
-        # The blank line the original block ended with, so the file reads the same
-        # way after rewriting as it did before.
-        + "\n"
     )
+    if viewer_bundle_dir is None:
+        body = f"  path: {checkout}\n"
+    else:
+        body = (
+            f"  - path: {checkout}\n"
+            "  # The viewer bundle CI built, where the feedstock's release-asset source puts it.\n"
+            f"  - path: {viewer_bundle_dir}\n"
+            f"    target_directory: {VIEWER_BUNDLE_TARGET}\n"
+        )
+    # The blank line the original block ended with, so the file reads the same
+    # way after rewriting as it did before.
+    replacement = header + body + "\n"
     # A FUNCTION, not the string: `re.sub` reads backslashes in a replacement as
     # escapes, so a Windows checkout path (`C:\work\adapy`) either corrupts the
     # output or raises `bad escape \w`. Returning it from a lambda takes it
@@ -103,12 +121,19 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--checkout", required=True, help="path the recipe should build from")
     parser.add_argument("--pyproject", type=pathlib.Path, default=None, help="take the version from here")
     parser.add_argument("-o", "--output", type=pathlib.Path, default=None, help="write here (default: in place)")
+    parser.add_argument(
+        "--viewer-bundle-dir", default=None, help="a directory holding a built index.zip, added as its own source"
+    )
     args = parser.parse_args(argv)
 
     version = project_version(args.pyproject) if args.pyproject else None
-    rewritten = localise(args.recipe.read_text(encoding="utf-8"), args.checkout, version)
+    rewritten = localise(args.recipe.read_text(encoding="utf-8"), args.checkout, version, args.viewer_bundle_dir)
     (args.output or args.recipe).write_text(rewritten, encoding="utf-8")
-    print(f"recipe now builds {args.checkout}" + (f" as version {version}" if version else ""))
+    print(
+        f"recipe now builds {args.checkout}"
+        + (f" as version {version}" if version else "")
+        + (f" with the viewer bundle in {args.viewer_bundle_dir}" if args.viewer_bundle_dir else "")
+    )
     return 0
 
 

@@ -38,8 +38,20 @@ mkdir -p "$SRC"
 (cd "$REPO" && git ls-files -z --cached --others --exclude-standard |
     rsync -a --from0 --ignore-missing-args --files-from=- ./ "$SRC/")
 
+# The viewer bundle is not committed and a built one is gitignored, so the copy above leaves it out
+# (as would rattler-build's path source). It goes in as its own source, standing in for the
+# feedstock's release-asset one. No bundle is an error, not a skip: the package would ship no viewer.
+BUNDLE="$REPO/src/ada/visit/rendering/resources/index.zip"
+if [ ! -f "$BUNDLE" ]; then
+    echo "error: no viewer bundle at $BUNDLE; build it first with \`pixi run wbuild\`" >&2
+    exit 1
+fi
+mkdir -p "$FEEDSTOCK/viewer-bundle"
+cp "$BUNDLE" "$FEEDSTOCK/viewer-bundle/index.zip"
+
 python3 "$REPO/scripts/packaging/localise_feedstock_recipe.py" "$FEEDSTOCK/recipe/recipe.yaml" \
-    --checkout /home/conda/feedstock_root/adapy-src --pyproject "$REPO/pyproject.toml"
+    --checkout /home/conda/feedstock_root/adapy-src --pyproject "$REPO/pyproject.toml" \
+    --viewer-bundle-dir /home/conda/feedstock_root/viewer-bundle
 sed -n '1,25p' "$FEEDSTOCK/recipe/recipe.yaml"
 
 cd "$FEEDSTOCK"

@@ -1,4 +1,4 @@
-"""A viewer bundle without the WebGPU renderer must not be committed: the option then always falls back to three.js."""
+"""A viewer bundle without the WebGPU renderer must not ship: the option then always falls back to three.js."""
 
 from __future__ import annotations
 
@@ -46,5 +46,9 @@ def test_a_bundle_without_the_renderer_is_rejected(check, tmp_path, monkeypatch,
     assert "wasm-adacpp" in capsys.readouterr().err
 
 
-def test_the_committed_bundle_has_the_renderer(check):
+def test_the_built_bundle_has_the_renderer(check):
+    # The bundle is not committed: a checkout has one only after `pixi run wbuild`. CI and the
+    # release run check_bundle_provenance.py on the bundle they build, which asserts the same.
+    if not check.BUNDLE.is_file():
+        pytest.skip("no viewer bundle built here (`pixi run wbuild`)")
     assert check.has_renderer(check.BUNDLE)
