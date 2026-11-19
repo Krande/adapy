@@ -127,9 +127,11 @@ export function getViewerRuntime(): ViewerRuntime {
  * pending OPEN_FEA_SOURCE to a viewer that connects after `FEAResult.show()`)
  * can arrive before the canvas has mounted. A load run then would find no scene.
  * The scene ref is a plain ref, not observable, so this polls it once a frame.
- * Rejects after `timeoutMs`.
+ * Rejects after `timeoutMs`, or at once when `giveUp()` says no three.js scene will come (the
+ * three.js-free viewport is on screen): waiting there held the websocket's message queue for the
+ * whole timeout.
  */
-export async function waitForViewerScene(timeoutMs = 30_000): Promise<THREE.Scene> {
+export async function waitForViewerScene(timeoutMs = 30_000, giveUp?: () => boolean): Promise<THREE.Scene> {
     const deadline = Date.now() + timeoutMs;
     const next = () =>
         new Promise<void>((resolve) =>
@@ -140,6 +142,7 @@ export async function waitForViewerScene(timeoutMs = 30_000): Promise<THREE.Scen
     for (;;) {
         const scene = getViewerRuntime().scene.current;
         if (scene) return scene;
+        if (giveUp?.()) throw new Error("viewer scene not ready: the three.js-free viewport is on screen");
         if (Date.now() >= deadline) throw new Error(`viewer scene not ready after ${timeoutMs} ms`);
         await next();
     }

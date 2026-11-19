@@ -22,6 +22,7 @@ import type {FeaManifest} from "@/services/viewerApi";
 import {useModelSessionStore, type FeaSessionHandle} from "@/state/modelSession";
 import {useModelState} from "@/state/modelState";
 import {getViewerRuntime, waitForViewerScene} from "@/state/viewerRuntime";
+import {isNativeViewportActive} from "@/viewport/native/nativeModel";
 import {replace_model} from "@/utils/scene/handlers/update_scene_from_message";
 import {registerManifestStores} from "./manifestStores";
 import {findFirstMesh, installAfemUserData, snapshotBasePositions} from "./sceneMesh";
@@ -44,7 +45,8 @@ export async function openFeaSession(args: {
     // before the canvas has mounted. replace_model would then add nothing, yet the model
     // URL set below would still load the GLB through the plain CAD path: the bare mesh,
     // no session, no beam solids, no fields. Wait for the scene instead.
-    await waitForViewerScene();
+    // Not on the three.js-free viewport: it has no three.js scene, so none would come.
+    await waitForViewerScene(30_000, isNativeViewportActive);
     throwIfAborted();
     const buf = await fetcher(manifest.mesh.url);
     throwIfAborted();
