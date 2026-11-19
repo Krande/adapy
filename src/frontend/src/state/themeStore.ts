@@ -2,6 +2,7 @@ import {create} from "zustand";
 import {persist} from "zustand/middleware";
 import type {PluginTheme} from "@/plugins/registry";
 import {isLightColor} from "@/utils/colorLuminance";
+import {windowBaseFor} from "@/components/ui/panelChrome";
 
 // Panel theming for the menu-row info boxes (Options / Storage /
 // Selected Object / Scene / Server / WS status). The panels read
@@ -149,6 +150,9 @@ function applyPanelThemeVars(theme: PanelTheme): void {
     // panel text means a dark panel, so ask for dark native controls -- otherwise a
     // dark theme gets light option text on the default white dropdown.
     root.setProperty("--ada-panel-color-scheme", isLightColor(theme.text) ? "dark" : "light");
+    // What a floating window's body is laid over (panelChrome WINDOW_CARD): opaque, in the theme's
+    // lightness, so a translucent panel colour never shows the model through a window.
+    root.setProperty("--ada-window-base", windowBaseFor(theme));
     root.setProperty("--ada-accent", SEMANTIC_TOKENS.accent);
     root.setProperty("--ada-pass", SEMANTIC_TOKENS.pass);
     root.setProperty("--ada-warn", SEMANTIC_TOKENS.warn);

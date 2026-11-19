@@ -373,6 +373,9 @@ export type { SelectedObjectBox } from "@/viewport/api/viewportApi";
 //          `BuilderRefEdit.form`: the provider draws its ref's whole form (on
 //          `PropertyItemLayout`), core draws nothing for that item. `ObjectInfoBodyProps.
 //          builderSummary: false`: no summary (name, Hide, Unhide all, Add mode) for a builder pick.
+//          A floating window's body (`WINDOW_CARD`) is opaque: `--ada-window-bg` laid over
+//          `--ada-window-base` (the theme store sets it, dark or light with the theme; a shell may
+//          set its own), so a translucent panel colour no longer shows the model through a window.
 export const PLUGIN_API_VERSION = "1.31.0";
 
 /** What the Simulations panel writes on a run's open-result button. */
