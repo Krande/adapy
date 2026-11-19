@@ -28,6 +28,30 @@ import {BuilderItemSection, BuilderStructureSection} from './cellBuilderSelectio
 import FemConceptSelectionInfo from './FemConceptSelectionInfo';
 import FeaSetsSection from './FeaSetsSection';
 import DownloadSelectionButton from './DownloadSelectionButton';
+import {builderCellsShown} from '@/state/cellbuilder/builderVisibility';
+import {onBeforeDraw} from '@/viewport/api/beforeDraw';
+
+/**
+ * Whether a builder pick is the panel's: the builder's cells are on screen (or no builder scene says
+ * otherwise). A shell may keep the procedural model open behind a mode that hides them -- the docked
+ * UI's Output, its FEM modes --, and a cell or ref picked back in Input is no selection there: no
+ * summary for it, no section. Followed frame by frame, as a mode hides the builder's layer after
+ * it has switched.
+ */
+function useBuilderPickShown(): boolean {
+    const [, redraw] = React.useReducer((n: number) => n + 1, 0);
+    const shown = builderCellsShown() !== false;
+    const seen = React.useRef(shown);
+    seen.current = shown;
+    React.useEffect(
+        () =>
+            onBeforeDraw(() => {
+                if ((builderCellsShown() !== false) !== seen.current) redraw();
+            }),
+        [],
+    );
+    return shown;
+}
 
 // 1500 ms is the smallest hold that still feels intentional vs a
 // reflexive tap-and-release; long enough that "Copied" lingers on
@@ -78,6 +102,7 @@ function useSelectionSnapshot(): SelectionSnapshot {
     const cbLoftMembers = useCellBuilderStore((s) => s.loftMembers);
     const cbActiveGroup = useCellBuilderStore((s) => s.activeGroup);
     const mirroredCount = useSelectedRangeCount();
+    const builderShown = useBuilderPickShown();
     // The shell's mode, so a section (or the shell's `sections`) can keep to the modes it is for.
     const shellMode = useSyncExternalStore(subscribeShellModes, activeShellMode, activeShellMode);
     return React.useMemo<SelectionSnapshot>(() => {
@@ -88,7 +113,7 @@ function useSelectionSnapshot(): SelectionSnapshot {
             cellBuilderActive: cbActive,
             ...(shellMode ? {shellMode} : {}),
         };
-        if (cbActive && cbSelection !== null) {
+        if (cbActive && cbSelection !== null && builderShown) {
             // Where the pick is, so a plugin's section can place itself (and the builder's
             // space and structure sections know what to show).
             const place = selectionPlace(cbSelection, {cells: cbCells, refs: cbRefs, groups: cbGroups, loftMembers: cbLoftMembers});
@@ -101,7 +126,7 @@ function useSelectionSnapshot(): SelectionSnapshot {
         // Nothing picked in an open model: the active structure still has its section.
         const structure = cbActive && cbActiveGroup && cbGroups.some((g) => g.name === cbActiveGroup) ? cbActiveGroup : undefined;
         return {...base, kind: "none", name: null, count: 0, ...(structure ? {structure} : {})};
-    }, [name, selectedObjects, treeData, cbActive, cbSelection, cbSelectedIds, cbCells, cbRefs, cbGroups, cbLoftMembers, cbActiveGroup, mirroredCount, shellMode]);
+    }, [name, selectedObjects, treeData, cbActive, cbSelection, cbSelectedIds, cbCells, cbRefs, cbGroups, cbLoftMembers, cbActiveGroup, mirroredCount, shellMode, builderShown]);
 }
 
 /**
@@ -237,7 +262,9 @@ const SelectionSummary = () => {
     const cbAddMode = useCellBuilderStore((s) => s.cellAddMode);
     const hideCells = useCellBuilderStore((s) => s.hideCells);
     const toggleCellAddMode = useCellBuilderStore((s) => s.toggleCellAddMode);
-    const cellCtx = cbActive && cbSelection !== null;
+    // A builder pick behind a mode that does not show the cells is not this panel's (useBuilderPickShown).
+    const builderShown = useBuilderPickShown();
+    const cellCtx = cbActive && cbSelection !== null && builderShown;
     const cellNames = cbSelectedIds
         .map((id) => cbCells[id]?.name)
         .filter((n): n is string => !!n);

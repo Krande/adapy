@@ -389,6 +389,11 @@ export type { SelectedObjectBox } from "@/viewport/api/viewportApi";
 //          `ShellModeToolbarEnd` (on `/layout`) and `ShellModeToolbar end={false}`: a shell whose
 //          toolbar row is its own mounts the mode's end controls at the row's end itself; inside
 //          the region they sit at its right edge only as far as the region is given room (`flex-1`).
+//          Not an API change, but seen by a shell: a builder pick (a cell or a ref) while the
+//          builder's cells are not on screen (a mode that keeps the model open behind it) is no
+//          selection of the Properties panel: `SelectionSnapshot.kind` is not "cell" / "ref" then, so
+//          neither the summary nor a builder section is drawn, and a provider matching builder picks
+//          is not asked. `builderCellsShown()` (state/cellbuilder/builderVisibility) is the rule.
 export const PLUGIN_API_VERSION = "1.31.0";
 
 /** What the Simulations panel writes on a run's open-result button. */

@@ -256,3 +256,24 @@ test("core's Model panel lists a ref as a row of its own, under its space, with 
     st().close();
   }
 });
+
+test("a builder pick while the builder's cells are not shown (another mode) is no selection: no summary, no section", async () => {
+  const { setBuilderVisibilityHost } = await import("@/state/cellbuilder/builderVisibility");
+  st().open("m", "Model", 1, doc);
+  let shown = false;
+  const release = setBuilderVisibilityHost({ cellsShown: () => shown, selected: () => [], all: () => [], hide: () => {}, unhide: () => {}, unhideAll: () => {} });
+  try {
+    const pump = Object.values(st().cells).find((c) => c.name === "pump")!;
+    st().setSelection({ kind: "cell", cellId: pump.id });
+    const hidden = inViewer(React.createElement(ObjectInfoBody));
+    assert.doesNotMatch(hidden, /data-builder-section/, "no builder section");
+    assert.doesNotMatch(hidden, />pump</, "no summary naming it");
+    assert.doesNotMatch(hidden, /Add mode/);
+    shown = true;
+    const back = inViewer(React.createElement(ObjectInfoBody));
+    assert.match(back, /data-builder-section="item"/, "its mode again: the pick is the panel's");
+  } finally {
+    release();
+    st().close();
+  }
+});
