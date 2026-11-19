@@ -71,7 +71,7 @@ export function unload_source_from_scene(sourceName: string): void {
         for (const id of rangeIds) sel.removeSelectedObject(mesh, id);
     });
 
-    // Mirror what clear_loaded_model does per-group: explicitly dispose the GPU resources
+    // Mirror what clearScene does per-group: explicitly dispose the GPU resources
     // (three.js does NOT free them on detach — clear()/remove() only drop references), then
     // detach the children + remove from the parent scene.
     disposeObject3D(group);

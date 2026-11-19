@@ -29,7 +29,7 @@ import {linearChannel as channel, linearColor as linear, linearColorInto as line
 import type {Billboard, BillboardLayer} from "@/viewport/api/billboards";
 import type {OverlayLayer} from "@/viewport/api/overlayLayer";
 import {activeViewport, type ViewportApi} from "@/viewport/api/viewportApi";
-import {releaseOwnerLayers} from "./sceneLayers";
+import {releaseDrawnLayers, releaseOwnerLayers} from "./sceneLayers";
 import type {
     SceneBox,
     SceneColor,
@@ -105,6 +105,15 @@ export function removeOwnerOverlays(owner: string): void {
     for (const drawn of [...(owned.get(owner) ?? [])]) dispose(owner, drawn);
     // Its layers that change over time, and its playback tracks (./sceneLayers.ts).
     releaseOwnerLayers(owner);
+}
+
+/** Remove what every plugin drew over the scene: the overlays of these verbs, and the line, point
+ *  and image layers of ./sceneLayers.ts. A clear of the scene calls this
+ *  (utils/scene/handlers/clear_scene.ts); the plugins' playback tracks, posed models and placed
+ *  boxes stay theirs. A handle to something removed stays safe to call: it does nothing. */
+export function removeAllPluginDrawings(): void {
+    for (const [owner, all] of [...owned]) for (const drawn of [...all]) dispose(owner, drawn);
+    releaseDrawnLayers();
 }
 
 const layerName = (owner: string): string => `plugin:${owner}`;

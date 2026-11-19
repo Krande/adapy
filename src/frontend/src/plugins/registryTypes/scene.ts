@@ -20,9 +20,26 @@ export interface SceneColorFieldResult {
 /** sRGB, as CSS: "#ffaa00", or [r, g, b] in 0..1. */
 export type SceneColor = string | readonly [number, number, number];
 
-/** Something core drew for a plugin; `remove` takes it out of the scene. */
+/** Something core drew for a plugin; `remove` takes it out of the scene. (1.30.0) A clear of the
+ *  scene takes it out too (see `SceneHandle.onSceneCleared`). Once taken out, by either, the handle
+ *  stays safe to call: every call does nothing, `remove` again included, and nothing is drawn again.
+ *  To draw it again after a clear, make a new one. */
 export interface SceneOverlay {
   remove: () => void;
+}
+
+/** (1.30.0) A clear of the scene, as `SceneHandle.onSceneCleared` tells it. */
+export interface SceneCleared {
+  // Who asked, in a few words ("scope change", "replace", "gallery", ...); null when nobody said.
+  // For a log, not to branch on: the words may change.
+  reason: string | null;
+  // A load is putting a model in place of what was cleared (a file opened over it, a plugin's
+  // `loadModel` with placement "replace", a renderer switch handing the models over).
+  replacing: boolean;
+  // Whether the plugins' overlays went with it: those of `addLines`, `addLabels`,
+  // `addElementOutlines`, `paintFeaElements`, `addLineLayer`, `addPointLayer` and `addImage`. True
+  // for every clear but a replace, which leaves them (those pinned to an FEA result still go with it).
+  overlaysRemoved: boolean;
 }
 
 /** Line segments in the FEA model's coordinates (world coordinates without an FEA model). */
@@ -186,7 +203,7 @@ export interface SceneImage extends SceneOverlay {
   setRect: (rect: SceneImageRect) => void;
   setLook: (look: SceneLayerLook) => void;
   // Why the viewport on screen does not draw it at the size it has now, in words for the user;
-  // null when it is drawn.
+  // null when it is drawn, and (1.30.0) once it is removed.
   unavailable: () => string | null;
 }
 
@@ -320,10 +337,17 @@ export interface SceneHandle {
   unloadModel: (sourceName: string) => void;
   // Empty the scene before showing something of the plugin's own (a replay): every loaded model,
   // and what core drew over them (the connection builder's member axes and weld labels, a clash
-  // run's markers, an FEA session), as "clear the scene" does. Overlays plugins added with `add` /
-  // `addLines` stay theirs to remove. Additive and optional: an older core has no `clearScene`, so
-  // ask for it before calling it.
+  // run's markers, an FEA session), as "clear the scene" does. (1.30.0) The overlays every plugin
+  // drew through the verbs below (`addLines` ... `addImage`) go with it, as with every clear but a
+  // replace (see `SceneCleared.overlaysRemoved`); three.js objects added with `add` stay theirs to
+  // remove. Additive and optional: an older core has no `clearScene`, so ask for it before calling it.
   clearScene?: () => Promise<void>;
+  // (1.30.0) Call `listener` after each clear of the scene, whatever asked for it (the user's Clear
+  // or Remove all, a scope switch, a load that replaces the scene, a plugin's `clearScene`), once
+  // per clear: for a plugin to put back its own state, such as handles to overlays the clear took
+  // (they do nothing now) or what it held of the models that went. Returns the function that stops
+  // it. Additive: an older core has no `onSceneCleared`, so a plugin asks for it first.
+  onSceneCleared: (listener: (cleared: SceneCleared) => void) => () => void;
 
   // ── Renderer-neutral overlays (1.9.0). Core builds and owns the scene objects; they draw
   // the same under three.js and the WebGPU renderer, move and clip with the model, and go
@@ -347,7 +371,8 @@ export interface SceneHandle {
   showColorScale: (owner: string, scale: ColorScale | null) => void;
 
   // ── Layers whose data changes over time (1.18.0): see `SceneLineLayerSpec` and the types
-  // beside it. Each handle replaces its data in place; `remove(owner)` takes them all away. ──
+  // beside it. Each handle replaces its data in place; `remove(owner)` takes them all away, and so
+  // (1.30.0) does a clear of the scene, after which a handle's calls do nothing (`SceneOverlay`). ──
   addLineLayer: (owner: string, spec?: SceneLineLayerSpec) => SceneLineLayer;
   addPointLayer: (owner: string, spec?: ScenePointLayerSpec) => ScenePointLayer;
   addImage: (owner: string, image: SceneImageSpec) => SceneImage;

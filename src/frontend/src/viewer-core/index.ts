@@ -707,7 +707,10 @@
 //          `weldSymbolSvg(type, {size, stroke, strokeWidth, referenceLine})` (a weld type's ISO 2553
 //          symbol as SVG markup, null for none or an unknown type), the type `WeldSymbolSvgOptions`,
 //          and `weldTypeName(type)` (its short name), on the root.
-export const VIEWER_CORE_API_VERSION = "1.29.0";
+//   1.30.0 Kept in step with PLUGIN_API_VERSION 1.30.0. Additive: `ctx.scene.onSceneCleared` and the
+//          type `SceneCleared`. A clear of the scene now removes the plugins' overlays (see
+//          PLUGIN_API_VERSION's 1.30.0 note).
+export const VIEWER_CORE_API_VERSION = "1.30.0";
 
 // ---------------------------------------------------------------------------
 // Plugin declaration. `registerPlugin` is how a package announces itself —
@@ -764,6 +767,7 @@ export type {
   SceneElementPaint,
   SceneFace,
   SceneHandle,
+  SceneCleared,
   SceneHighlight,
   SceneHighlightOptions,
   SceneHighlightRef,

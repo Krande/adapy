@@ -4,7 +4,7 @@ import {isRenderableByPlugin} from "@/plugins/registry";
 // File-kind predicates shared by the storage browser and the scene
 // panel's loaded-models list. Extracted from StorageBrowser so the
 // unload/visibility code paths agree on which files are streaming-FEA
-// (loaded via replace_model, torn down via clear_loaded_model) vs
+// (loaded via replace_model, torn down via clearScene) vs
 // regular overlays (per-source groups).
 
 // Files that carry per-(step, field) result data and benefit from the

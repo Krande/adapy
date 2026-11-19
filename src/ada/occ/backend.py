@@ -61,6 +61,29 @@ def _bop_error(op: str, algo_name: str, algo) -> RuntimeError:
     return RuntimeError(f"{op}: {algo_name} reported errors{detail}")
 
 
+#: Relative accuracy asked of OCC's property integration (volume, area, centre of mass). Its default
+#: (no eps) integrates trimmed curved faces at a fixed number of points, a few parts in a million off
+#: on a tube cut by a tube and more on finer trims; with an eps it refines until within it, for about
+#: twice the time on such a solid and next to nothing on a planar one.
+PROPS_EPS = 1e-7
+#: The angular deflection `tessellate` meshes with, in radians: the same as `write_glb_bytes`'.
+TESS_ANGULAR_RAD = 0.5
+#: The finest chordal deflection `tessellate` accepts, as a fraction of the shape's bounding-box
+#: diagonal: a smaller one is raised to it, so a deflection given in the wrong units cannot mesh a
+#: shape into millions of triangles.
+TESS_MIN_DEFLECTION_OF_DIAGONAL = 1e-5
+
+
+def _deflection_floor(backend, shape, linear_deflection: float) -> float:
+    """``linear_deflection``, raised to :data:`TESS_MIN_DEFLECTION_OF_DIAGONAL` of the shape's size."""
+    try:
+        xmin, ymin, zmin, xmax, ymax, zmax = backend.bbox(shape, optimal=False)
+    except Exception:  # noqa: BLE001 - an empty shape: BRepMesh copes, nothing to bound
+        return linear_deflection
+    diag = ((xmax - xmin) ** 2 + (ymax - ymin) ** 2 + (zmax - zmin) ** 2) ** 0.5
+    return max(linear_deflection, TESS_MIN_DEFLECTION_OF_DIAGONAL * diag)
+
+
 class OccBackend:
     """Backend backed by pythonocc-core. Native CPython only.
 
@@ -247,11 +270,15 @@ class OccBackend:
         return self._make_sphere((0, 0, 0), radius)
 
     def tessellate(self, shape: ShapeHandle, linear_deflection: float = -1.0) -> Mesh:
-        # ada.visit.tessellate uses a `quality` parameter; lower = finer.
-        # Map the adacpp linear_deflection convention onto it: <=0 → default.
+        # <= 0: the default tessellation. > 0: an ABSOLUTE chordal deflection in the model's units,
+        # as adacpp and this backend's other mesh verbs (write_glb_bytes, ...) read it. It used to be
+        # handed to ShapeTesselator as its relative `mesh_quality`, where 0.001 asks for a mesh a
+        # thousand times finer than the default -- one call grew a process to ~100 GB.
         if linear_deflection <= 0.0:
             return self._tessellate_shape(shape)
-        return self._tessellate_shape(shape, quality=linear_deflection)
+        from ada.visit.tessellate import _tessellate_brepmesh
+
+        return _tessellate_brepmesh(shape, _deflection_floor(self, shape, linear_deflection), TESS_ANGULAR_RAD, False)
 
     def tessellate_batch(self, shapes: "list", linear_deflection: float = -1.0):
         # No native batch path under pythonocc; concatenate per-shape meshes into
@@ -339,7 +366,7 @@ class OccBackend:
         from OCC.Core.GProp import GProp_GProps
 
         props = GProp_GProps()
-        brepgprop.VolumeProperties(shape, props)
+        brepgprop.VolumeProperties(shape, props, PROPS_EPS)
         return props.Mass()
 
     def area(self, shape: ShapeHandle) -> float:
@@ -347,7 +374,7 @@ class OccBackend:
         from OCC.Core.GProp import GProp_GProps
 
         props = GProp_GProps()
-        brepgprop.SurfaceProperties(shape, props)
+        brepgprop.SurfaceProperties(shape, props, PROPS_EPS)
         return props.Mass()
 
     def shape_type(self, shape: ShapeHandle) -> str:
@@ -1376,9 +1403,9 @@ class OccBackend:
         props = GProp_GProps()
         st = shape.ShapeType()
         if st in (TopAbs_SOLID, TopAbs_COMPSOLID, TopAbs_COMPOUND):
-            brepgprop.VolumeProperties(shape, props)
+            brepgprop.VolumeProperties(shape, props, PROPS_EPS)
         elif st in (TopAbs_SHELL, TopAbs_FACE):
-            brepgprop.SurfaceProperties(shape, props)
+            brepgprop.SurfaceProperties(shape, props, PROPS_EPS)
         else:
             brepgprop.LinearProperties(shape, props)
         com = props.CentreOfMass()

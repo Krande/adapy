@@ -276,8 +276,16 @@ class Occluder:
                     cells.setdefault(ix * n + iy, []).append(k)
         self.cells = {c: np.asarray(v, np.int64) for c, v in cells.items()}
 
-    def hidden(self, pts: np.ndarray) -> np.ndarray:
-        """``pts`` (N, 3) screen points -> bool (N,) hidden."""
+    def hidden(self, pts: np.ndarray, dirs: np.ndarray | None = None) -> np.ndarray:
+        """``pts`` (N, 3) screen points -> bool (N,) hidden.
+
+        ``dirs`` (N, 2), the screen direction of the line each point is on, also hides a point that lies
+        on a seam of the surfaces in front -- an edge two of their triangles share, which neither covers
+        on its own: the point is hidden when the surfaces in front cover it from both sides of its line.
+        (A rounded section's corner is a fan of long triangles whose edges run along the member, and
+        a line along the member can sit exactly on one of them in a view; without this, it shows
+        through.) A point on the outline of what is in front is covered from one side only and stays
+        visible, as a point on the boundary of a single triangle does."""
         pts = np.asarray(pts, float).reshape(-1, 3)
         out = np.zeros(len(pts), bool)
         if len(pts) == 0:
@@ -287,34 +295,63 @@ class Occluder:
                 out |= points_in_loops(pts[:, :2], loops)
         if not self.cells:
             return out
-        ij = ((pts[:, :2] - self.glo) / self.cell).astype(int)
-        valid = np.all((ij >= 0) & (ij < self.n), axis=1)
-        key = np.where(valid, ij[:, 0] * self.n + ij[:, 1], -1)
-        todo = valid & ~out
+        todo = ~out
+        if todo.any():
+            out[todo] = self._covered(pts[todo, :2], pts[todo])
+        if dirs is None:
+            return out
+        todo = ~out
         if not todo.any():
             return out
-        uk, inv = np.unique(key[todo], return_inverse=True)
-        idx_todo = np.nonzero(todo)[0]
+        d = np.asarray(dirs, float).reshape(-1, 2)[todo]
+        ln = np.linalg.norm(d, axis=1)
+        ok = ln > 0
+        nrm = np.zeros_like(d)
+        nrm[ok] = np.stack([-d[ok, 1], d[ok, 0]], axis=1) / ln[ok, None]
+        p = pts[todo]
+        off = 4.0 * self.eps
+        both = self._covered(p[:, :2] + off * nrm, p) & self._covered(p[:, :2] - off * nrm, p)
+        idx = np.nonzero(todo)[0]
+        out[idx[both & ok]] = True
+        return out
+
+    def _covered(self, q: np.ndarray, p: np.ndarray) -> np.ndarray:
+        """Screen points ``q`` (N, 2) strictly inside a triangle whose plane, at ``p`` (N, 3), is in front of
+        ``p`` (the depth taken at ``p`` itself, so a face through ``p`` never hides it however steep it is)."""
+        out = np.zeros(len(q), bool)
+        ij = ((q - self.glo) / self.cell).astype(int)
+        valid = np.all((ij >= 0) & (ij < self.n), axis=1)
+        if not valid.any():
+            return out
+        key = ij[valid, 0] * self.n + ij[valid, 1]
+        uk, inv = np.unique(key, return_inverse=True)
+        idx_valid = np.nonzero(valid)[0]
         for g, k in enumerate(uk):
             tids = self.cells.get(int(k))
             if tids is None:
                 continue
-            sel = idx_todo[inv == g]
-            out[sel] = self._test(pts[sel], self.tris[tids])
+            sel = idx_valid[inv == g]
+            out[sel] = self._test(q[sel], p[sel], self.tris[tids])
         return out
 
-    def _test(self, p: np.ndarray, t: np.ndarray) -> np.ndarray:
+    def _test(self, q: np.ndarray, p: np.ndarray, t: np.ndarray) -> np.ndarray:
         # barycentric coordinates of each point in each triangle (P, T)
         a, b, c = t[:, 0], t[:, 1], t[:, 2]
         v0, v1 = b[:, :2] - a[:, :2], c[:, :2] - a[:, :2]
         den = v0[:, 0] * v1[:, 1] - v1[:, 0] * v0[:, 1]
-        d = p[:, None, :2] - a[None, :, :2]
-        w1 = (d[..., 0] * v1[None, :, 1] - v1[None, :, 0] * d[..., 1]) / den[None]
-        w2 = (v0[None, :, 0] * d[..., 1] - d[..., 0] * v0[None, :, 1]) / den[None]
-        w0 = 1.0 - w1 - w2
+
+        def bary(xy):
+            d = xy[:, None, :2] - a[None, :, :2]
+            w1 = (d[..., 0] * v1[None, :, 1] - v1[None, :, 0] * d[..., 1]) / den[None]
+            w2 = (v0[None, :, 0] * d[..., 1] - d[..., 0] * v0[None, :, 1]) / den[None]
+            return 1.0 - w1 - w2, w1, w2
+
+        w0, w1, w2 = bary(q)
         # margin in barycentric units: eps over the triangle's size
         size = np.sqrt(np.abs(den))[None]
         m = self.eps / np.maximum(size, 1e-30)
         inside = (w0 > m) & (w1 > m) & (w2 > m)
+        if not np.array_equal(q, p[:, :2]):
+            w0, w1, w2 = bary(p)  # the triangle's plane, extended to p
         z = w0 * a[None, :, 2] + w1 * b[None, :, 2] + w2 * c[None, :, 2]
         return np.any(inside & (z < p[:, None, 2] - self.depth_tol), axis=1)

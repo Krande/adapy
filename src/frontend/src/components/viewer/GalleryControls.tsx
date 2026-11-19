@@ -5,7 +5,7 @@ import {useModelState} from "@/state/modelState";
 import {useObjectInfoStore} from "@/state/objectInfoStore";
 import {useLoadQueueStore} from "@/state/loadQueueStore";
 import {useScopeStore, scopeUrlPart} from "@/state/scopeStore";
-import {clear_loaded_model} from "@/utils/scene/handlers/clear_loaded_model";
+import {clearScene} from "@/utils/scene/handlers/clear_scene";
 import {convertWithSelection} from "@/services/conversion";
 import {SerializerTessellatorSelect} from "@/components/convert/SerializerTessellatorSelect";
 import type {SerializerSelection} from "@/services/conversion/serializerMatrix";
@@ -188,7 +188,7 @@ const GalleryControls: React.FC = () => {
                 jointFocused.current = false;
                 endGeomWalk();
             }
-            await clear_loaded_model();
+            await clearScene({reason: "gallery", keepQueuedLoads: true, keepProcedural: true});
             useLoadQueueStore.getState().enqueue({name: stop.file});
         },
         [stops],
@@ -411,7 +411,7 @@ const GalleryControls: React.FC = () => {
                 extraOptions: faceRegionsOn ? {face_regions: true} : undefined,
                 reconvert: true,
             });
-            await clear_loaded_model();
+            await clearScene({reason: "re-convert", keepQueuedLoads: true, keepProcedural: true});
             const {overlay_file_in_scene} = await import("@/utils/scene/handlers/overlay_file_in_scene");
             await overlay_file_in_scene(current, derivedKey, {scope: scopePart});
             setReconvertMsg("loaded fresh conversion");

@@ -205,7 +205,7 @@ def section_outline(section: Section | None, ndigits: int = NDIGITS) -> dict:
     return out
 
 
-_PARAMETRIC_KEYS = ("h", "w_top", "w_btn", "t_w", "t_ftop", "t_fbtn", "r", "wt")
+_PARAMETRIC_KEYS = ("h", "w_top", "w_btn", "t_w", "t_ftop", "t_fbtn", "r", "r_inner", "wt")
 
 
 def section_from_dict(d: dict, units="m") -> Section:

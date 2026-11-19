@@ -8,7 +8,7 @@ import { test } from "node:test";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { SIMULATIONS_FRAME_CLASS, SimulationsFrame } from "@/components/simulations/SimulationsFrame";
+import { SIMULATIONS_BODY_CLASS, SIMULATIONS_FRAME_CLASS, SimulationsFrame } from "@/components/simulations/SimulationsFrame";
 
 const noop = () => {};
 
@@ -43,5 +43,17 @@ test("the frame draws the grab handle (phones only) above its pinned heading", (
   assert.match(html, /class="sm:hidden -mb-2 shrink-0 flex justify-center/);
   // The body scrolls within the sheet on a phone, and the runs list only scrolls by itself from sm up.
   // The body scrolls under the pinned heading on a phone and on desktop alike.
-  assert.match(html, /class="flex-1 min-h-0 overflow-y-auto overscroll-contain" data-simulations-body/);
+  assert.ok(html.includes(`class="${SIMULATIONS_BODY_CLASS}" data-simulations-body`), "the body is the scrolling one");
+});
+
+test("the body's scrollbar never covers its content (the Connections and Robotic Simulations panels)", () => {
+  const c = classes(SIMULATIONS_BODY_CLASS);
+  for (const k of ["flex-1", "min-h-0", "overflow-y-auto", "overscroll-contain"]) assert.ok(c.has(k), k);
+  // The scrollbar sits in the frame's right padding (p-2 / px-2), outside the content: an overlay
+  // scrollbar covered the rows' right edge while the body had no padding of its own.
+  assert.ok(c.has("-mr-2") && c.has("pr-2"), "the body reaches into the frame's padding and keeps it as its own");
+  const frame = classes(SIMULATIONS_FRAME_CLASS);
+  assert.ok(frame.has("sm:p-2") && frame.has("px-2"), "the frame has that padding");
+  // A classic scrollbar's room is kept whether or not the body overflows: no reflow as a tab grows.
+  assert.ok(c.has("[scrollbar-gutter:stable]"));
 });

@@ -62,6 +62,11 @@ def section_to_dict(section: Section | None) -> dict | None:
         "r": _maybe_float(getattr(section, "r", None)),
         "wt": _maybe_float(getattr(section, "wt", None)),
     }
+    # The inner corner radius (IfcRectangleHollowProfileDef.InnerFilletRadius) only where it is set: None means
+    # ``r`` less the wall, and the metadata stays compact for every section that does not have one.
+    r_inner = _maybe_float(getattr(section, "r_inner", None))
+    if r_inner is not None:
+        out["r_inner"] = r_inner
     # A section given only as an outline (a polygon section) says nothing by name, but an outline
     # that is a rectangle, square-cornered or with four equal round corners, is a box's: fill the
     # box's keys from it where the section does not carry them itself.

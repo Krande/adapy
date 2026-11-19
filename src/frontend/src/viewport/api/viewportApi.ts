@@ -123,7 +123,7 @@ export interface ViewportApi {
     unloadSource(sourceName: string): boolean;
     /** Take every model off the screen (Clear / Remove all), whichever renderer this viewport is:
      *  the loaded models and any result mesh, with their selection and hidden state. The scene's
-     *  bookkeeping (tree, loaded sources, FEA session) is `clear_loaded_model`'s, which calls this. */
+     *  bookkeeping (tree, loaded sources, FEA session) is `clearScene`'s, which calls this. */
     clearModels(): void;
     /** Save a picture of the view as it is now (a PNG download). */
     saveScreenshot(): void;

@@ -24,6 +24,10 @@ export const SIMULATIONS_FRAME_CLASS =
   "sm:border sm:border-[var(--ada-panel-border)] sm:shadow-lg " +
   "sm:min-w-[300px] sm:max-w-[420px] sm:overflow-visible";
 
+/** The body under the pinned heading: it scrolls, with its scrollbar clear of the content. */
+export const SIMULATIONS_BODY_CLASS =
+  "flex-1 min-h-0 overflow-y-auto overscroll-contain -mr-2 pr-2 [scrollbar-gutter:stable]";
+
 export interface SimulationsFrameProps {
   /** The pinned heading row. */
   header: React.ReactNode;
@@ -40,8 +44,12 @@ export const SimulationsFrame: React.FC<SimulationsFrameProps> = ({ header, onDi
       <SheetHandle grab={grab} className="sm:hidden -mb-2" />
       <div className="shrink-0 flex items-center gap-2">{header}</div>
       {/* It scrolled on a phone only: the committed viewer bundle still has the body as
-          "flex-1 min-h-0 overflow-y-auto overscroll-contain sm:overflow-visible". */}
-      <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain" data-simulations-body>
+          "flex-1 min-h-0 overflow-y-auto overscroll-contain sm:overflow-visible".
+          Its scrollbar goes in the frame's own right padding (`-mr-2 pr-2`), with its room kept
+          (`scrollbar-gutter: stable`): the body had none, so a scrollbar drawn over the content
+          (an overlay scrollbar, as Windows 11 and phones draw them) covered the right edge of
+          every row -- a tab strip's last tab, a select, a button. */}
+      <div className={SIMULATIONS_BODY_CLASS} data-simulations-body>
         {children}
       </div>
     </div>

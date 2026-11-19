@@ -188,8 +188,8 @@ export const useModelState = create<ModelState>((set) => ({
         return group;
     },
     clearLoadedSources: () => {
-        // Ends the session outright: both callers (replace_model and
-        // clear_loaded_model) are tearing the scene down, and both go on to
+        // Ends the session outright: its one caller (clearScene, which
+        // every clear and replace takes) is tearing the scene down, and goes on to
         // call clearActiveFeaStreaming, which closes it too. Closing here as
         // well keeps the group refs from outliving the model by those few
         // lines.
