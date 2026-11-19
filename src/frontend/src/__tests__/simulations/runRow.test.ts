@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { durationLabel, runLabel, runOutcome, startedLabel } from "@/services/simulations/runRow";
+import { durationLabel, runLabel, runOutcome, runTone, startedLabel } from "@/services/simulations/runRow";
 
 const provider = { id: "p1", domain: "robotics", engine: "e", version: "1" } as const;
 
@@ -17,6 +17,16 @@ test("the outcome is the summary's status line, when it is text", () => {
   assert.equal(runOutcome({ summary: { status: "Done: 4 of 4" } }), "Done: 4 of 4");
   assert.equal(runOutcome({ summary: { status: 3 } }), "");
   assert.equal(runOutcome({ summary: {} }), "");
+});
+
+test("a run that ended but whose simulation fell short is coloured for attention, not success", () => {
+  assert.equal(runTone({ status: "done", summary: { outcome: "complete" } }), "done");
+  assert.equal(runTone({ status: "done", summary: {} }), "done");
+  assert.equal(runTone({ status: "done", summary: { outcome: "failed" } }), "attention");
+  assert.equal(runTone({ status: "done", summary: { outcome: " partial " } }), "attention");
+  // An error stays an error, whatever its summary; a run under way is its status.
+  assert.equal(runTone({ status: "error", summary: { outcome: "failed" } }), "error");
+  assert.equal(runTone({ status: "running", summary: {} }), "running");
 });
 
 test("how long a run took reads in the unit that fits", () => {
