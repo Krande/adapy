@@ -352,24 +352,34 @@ class _SyncStorageFacade:
     blobs (fetch a compare-ref build, upload an overlay GLB). This bridges each
     call back onto the worker's event loop via ``run_coroutine_threadsafe`` so
     the handler stays simple, synchronous code.
+
+    With ``db_pool``, READS of provider data resolve as the API routes resolve them: a key under a
+    collection the scope is granted, and the provider store holds, is read from the store
+    (:class:`~.provider_reads.ProviderReads`). Writes always land in the job's scope.
     """
 
-    def __init__(self, storage, scope, loop):
+    def __init__(self, storage, scope, loop, db_pool=None):
+        from .provider_reads import ProviderReads
+
         self._s, self._scope, self._loop = storage, scope, loop
+        self._reads = ProviderReads(storage, scope, db_pool)
 
     def _run(self, coro):
         return asyncio.run_coroutine_threadsafe(coro, self._loop).result()
 
     def list_keys(self, prefix: str = "") -> list[str]:
-        entries = self._run(self._s.list(self._scope))
-        return [e.key for e in entries if e.key.startswith(prefix)]
+        return self._run(self._reads.list_keys(prefix))
 
     def fetch_to_path(self, key: str, dest):
-        self._run(self._s.stream_to_path(self._scope, key, pathlib.Path(dest)))
+        self._run(self._reads.stream_to_path(key, dest))
         return dest
 
     def get_bytes(self, key: str) -> bytes:
-        return self._run(self._s.get_bytes(self._scope, key))
+        return self._run(self._reads.get_bytes(key))
+
+    def provider_denial(self, key: str) -> "str | None":
+        """Why ``key`` is provider data this scope may not read, or None (see ``ProviderReads.denial``)."""
+        return self._run(self._reads.denial(key))
 
     def put_bytes(
         self, key: str, data: bytes, content_encoding: "str | None" = None, pre_compressed: bool = False

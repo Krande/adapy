@@ -86,6 +86,9 @@ class ChildStorage:
         finally:
             tmp.unlink(missing_ok=True)
 
+    def provider_denial(self, key: str) -> "str | None":
+        return self._child.call("provider_denial", key=key)
+
     def put_bytes(
         self, key: str, data: bytes, content_encoding: "str | None" = None, pre_compressed: bool = False
     ) -> None:
@@ -99,19 +102,27 @@ class ChildStorage:
             tmp.unlink(missing_ok=True)
 
 
-def storage_serve(storage, scope) -> "subprocess_convert.ServeFn":
-    """The parent half of :class:`ChildStorage`: each op runs against the real async storage."""
+def storage_serve(storage, scope, db_pool=None) -> "subprocess_convert.ServeFn":
+    """The parent half of :class:`ChildStorage`: each op runs against the real async storage.
+
+    Reads resolve as the API routes resolve them (``worker/provider_reads.py``): with ``db_pool``, a
+    key of a provider dataset the scope is granted, and the provider store holds, is read from the
+    store. Writes land in ``scope``."""
+    from ..worker.provider_reads import ProviderReads
+
+    reads = ProviderReads(storage, scope, db_pool)
 
     async def _serve(op: str, args: dict) -> Any:
         if op == "list_keys":
-            prefix = str(args.get("prefix") or "")
-            return [e.key for e in await storage.list(scope) if e.key.startswith(prefix)]
+            return await reads.list_keys(str(args.get("prefix") or ""))
         if op == "fetch_to_path":
-            await storage.stream_to_path(scope, args["key"], pathlib.Path(args["dest"]))
+            await reads.stream_to_path(args["key"], args["dest"])
             return args["dest"]
         if op == "get_bytes":
-            pathlib.Path(args["dest"]).write_bytes(await storage.get_bytes(scope, args["key"]))
+            pathlib.Path(args["dest"]).write_bytes(await reads.get_bytes(args["key"]))
             return args["dest"]
+        if op == "provider_denial":
+            return await reads.denial(str(args["key"]))
         if op == "put_bytes":
             data = pathlib.Path(args["src"]).read_bytes()
             extra = {"pre_compressed": True} if args.get("pre_compressed") else {}
@@ -159,7 +170,9 @@ async def run_clash_work(
     last stage ``work`` reported, ``stage`` until it reports one.
 
     ``storage`` + ``scope`` give ``work`` a synchronous storage facade (served by the parent when
-    forked); leave them None for work that needs nothing beyond what the caller fetched.
+    forked); leave them None for work that needs nothing beyond what the caller fetched. Its reads
+    of provider data follow the scope's grants through ``db_pool`` (``worker/provider_reads.py``),
+    so a member published to the provider store is read there when the scope may read it.
     """
     job_id = job.job_id
     last_stage = stage
@@ -207,7 +220,7 @@ async def run_clash_work(
                 on_sample=_on_sample,
                 timeout_s=timeout_s,
                 cancel_check=_cancel_check,
-                serve=storage_serve(storage, scope) if storage is not None else None,
+                serve=storage_serve(storage, scope, db_pool) if storage is not None else None,
             )
         except Exception as exc:
             # The parent-side machinery failed (fork, pipes): the child never ran or we lost it.
@@ -240,7 +253,7 @@ async def run_clash_work(
 
         loop = asyncio.get_running_loop()
         out_dir = pathlib.Path(tempfile.mkdtemp(prefix="adapy-clash-"))
-        sync_storage = _SyncStorageFacade(storage, scope, loop) if storage is not None else None
+        sync_storage = _SyncStorageFacade(storage, scope, loop, db_pool) if storage is not None else None
 
         def _progress(st: str, frac: float) -> None:
             nonlocal last_stage
