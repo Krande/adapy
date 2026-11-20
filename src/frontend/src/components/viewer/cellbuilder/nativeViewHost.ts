@@ -156,6 +156,8 @@ function bindNativeView(
         overlays,
         billboards,
         screen: () => ({height: view.clientHeight, fovDeg: fov()}),
+        // The renderer lights an overlay mesh as it lights the model (a "Show as CAD" preview).
+        litOverlays: true,
     });
     // Before each frame the viewport draws (the camera has moved for it): the camera, then the scene
     // as it is now -- the gizmos and handles are sized from the camera as the scene is brought up to date.
