@@ -11,6 +11,7 @@ import ProceduralModelRow from "./ProceduralModelRow";
 import VersionsTree from "./VersionsTree";
 import {BranchGroup, KEYS_MIME, FOLDER_MIME, ServerFileTreeNode, countFiles, dirnameOf} from "./helpers";
 import type {CtxMenuState} from "./BrowserDialogs";
+import {storageListEmpty} from "./listEmpty";
 
 type CtxEvent = {clientX: number; clientY: number; preventDefault?: () => void; stopPropagation?: () => void};
 
@@ -93,7 +94,7 @@ const FileTreeList: React.FC<FileTreeListProps> = (props) => {
     } = props;
     return (
         <>
-            {files.length === 0 && pendingFolders.length === 0 && newFolderAt === null ? (
+            {storageListEmpty({files, rows: regularFiles, pendingFolders, newFolderAt}) ? (
                 <div
                     className="text-xs italic text-gray-300 rounded-sm border border-dashed border-gray-600 p-3"
                     onDragOver={(e) => e.preventDefault()}
