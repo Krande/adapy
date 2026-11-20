@@ -15,10 +15,10 @@ import {capabilities} from "@/services/capabilities";
 import {useCellBuilderStore, type BuilderCell} from "@/state/cellBuilderStore";
 import {requestRender} from "@/state/perfStore";
 import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
-import {getViewerRuntime} from "@/state/viewerRuntime";
 import {cadDisplayBox, type CellBox, type Vec3} from "@/utils/cellbuilder/snap";
 import {offsetVec, type CellBuilderScene} from "./sceneContext";
 import {applyCellVisibility} from "./meshRebuild";
+import type {LoadedGeometry} from "./viewHost";
 
 export const previewScope = (ctx: CellBuilderScene): string => {
     const s = useScopeStore.getState().current;
@@ -146,14 +146,10 @@ export const rebuildCadPreviews = (ctx: CellBuilderScene) => {
 // ArrowHelper owns a Line (non-LineSegments) + a Mesh; the generic
 // container-dispose loop only frees meshes/line-segments, so free both parts
 // explicitly here.
-export const findCadMesh = (ctx: CellBuilderScene, cell: BuilderCell): THREE.Mesh | null => {
-    let mesh: THREE.Mesh | null = null;
-    (getViewerRuntime().scene.current ?? ctx.scene).traverse((o) => {
-        if (mesh) return;
-        if ((o as THREE.Mesh).isMesh && o.name && o.name === cell.name) mesh = o as THREE.Mesh;
-    });
-    return mesh;
-};
+// The CAD the compiler spliced in for this equipment cell, as the viewport on screen has it: the
+// loaded object named for the cell (./viewHost.ts `loadedGeometry`).
+export const findCad = (ctx: CellBuilderScene, cell: BuilderCell): LoadedGeometry | null =>
+    cell.name ? ctx.host.loadedGeometry(cell.name) : null;
 
 // The model-space AABB of the CAD mesh loaded for this equipment cell, or
 // null when "Use CAD models" is off / no matching mesh is in the scene.
@@ -164,13 +160,8 @@ export const findCadMesh = (ctx: CellBuilderScene, cell: BuilderCell): THREE.Mes
 export const cadBoundsForCell = (ctx: CellBuilderScene, cell: BuilderCell): {min: Vec3; max: Vec3} | null => {
     const st = useCellBuilderStore.getState();
     if (cell.kind !== "equipment" || !st.equipmentCad) return null;
-    const mesh = findCadMesh(ctx, cell);
-    if (!mesh) return null;
-    // Refresh the world matrix chain so a just-loaded mesh reports correct
-    // bounds (expandByObject only refreshes the object's own matrix).
-    mesh.updateWorldMatrix(true, false);
-    const b = new THREE.Box3().setFromObject(mesh, true);
-    if (b.isEmpty()) return null;
+    const b = findCad(ctx, cell)?.box;
+    if (!b || b.isEmpty()) return null;
     const off = offsetVec(ctx);
     return {
         min: [b.min.x - off.x, b.min.y - off.y, b.min.z - off.z],
@@ -190,21 +181,10 @@ export const displayBoxForCell = (ctx: CellBuilderScene, cell: BuilderCell): {bo
 export const collectCadVerts = (ctx: CellBuilderScene, cell: BuilderCell): Vec3[] => {
     const st = useCellBuilderStore.getState();
     if (!st.equipmentCad) return [];
-    const mesh = findCadMesh(ctx, cell);
-    if (!mesh) return [];
-    const foundMesh: THREE.Mesh = mesh;
-    const posAttr = (foundMesh.geometry as THREE.BufferGeometry).getAttribute("position");
-    if (!posAttr) return [];
+    const cad = findCad(ctx, cell);
+    if (!cad) return [];
     const off = offsetVec(ctx);
-    const MAX = 4000;
-    const stride = Math.max(1, Math.floor(posAttr.count / MAX));
-    const v = new THREE.Vector3();
-    const out: Vec3[] = [];
-    for (let i = 0; i < posAttr.count; i += stride) {
-        v.fromBufferAttribute(posAttr, i).applyMatrix4(foundMesh.matrixWorld);
-        out.push([v.x - off.x, v.y - off.y, v.z - off.z]);
-    }
-    return out;
+    return cad.points(4000).map((v) => [v.x - off.x, v.y - off.y, v.z - off.z] as Vec3);
 };
 
 // The port snap target (bbox corner or CAD vertex, model space) nearest the

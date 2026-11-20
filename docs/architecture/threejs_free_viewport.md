@@ -539,8 +539,37 @@ These are open design points, ordered by how much of the viewer depends on them.
    hit-tested for that projection (`BillboardCamera.orthoHeight`), and the clip range is the
    renderer's own, which spans the scene on both sides of the camera. A fit there uses the shared
    orthographic fit (`viewport/api/cameraFrame` `orthoFramePose`), as on the three.js viewport.
-7. **Uses of three.js outside the main viewport.** The equipment preview, the cell builder, the
-   robot (STL) loader, the FEA GLB assembly (`GLTFLoader` / `GLTFExporter` used to build data, not
+7. **Uses of three.js outside the main viewport.** The cell builder is ported (see "The cell
+   builder" below). The equipment preview, the robot (STL) loader, the FEA GLB assembly (`GLTFLoader` / `GLTFExporter` used to build data, not
    to draw) and the three.js embed each need a decision of their own: ported, exempt, or dropped.
 
 The slice is there to make these concrete on real models before any of them is decided.
+
+## The cell builder
+
+The procedural cell builder (`components/viewer/cellbuilder`) works on both viewports with one scene
+logic. Its cells, ghost, gizmos, resize handles, dimension lines, info label, refs and CAD previews
+are three.js objects, picked with a three.js raycaster, on either viewport; three.js is the builder's
+data model here, as it is the main viewer's. What differs is one interface, `BuilderViewHost`
+(`cellbuilder/viewHost.ts`): where the objects live, the camera they are picked and sized with, the
+element the pointer arrives on, how the camera is held during a drag, the loaded geometry an
+equipment box fits to, and the ground grid.
+
+- On the three.js viewport (`threeViewHost`) the objects are in its scene, drawn by its renderer.
+- On the three.js-free one (`cellbuilder/nativeViewHost.ts`) they are in a scene of the builder's
+  own. `viewport/sceneMirror.ts` draws that scene through the viewport's overlays (meshes per
+  material group, lines, fat lines) and billboards (sprites), before each frame and whenever the
+  builder asks for one (`requestRender` tells `onRenderRequest` listeners). A camera is kept in step
+  with the viewport's (`ViewportApi.cameraMatrices`), in its orthographic mode when the view is
+  orthographic. The presses the builder makes a drag of (a gizmo handle, a face, a resize handle)
+  and the selection rectangle over the cells are taken from the camera (`ViewportApi.takePresses`).
+  The cells follow the viewport's model offset, as they follow the three.js loader's.
+
+The interface methods it reads are optional on `ViewportApi` and internal (not plugin API):
+`cameraMatrices`, `elements`, `takePresses`, `setGroundGridHidden`, `objectsNamed` (the CAD an
+equipment box fits to) and `shiftSource` (a compiled model shown beside the cells).
+
+What still differs: a lit material (a "Show as CAD" preview) is drawn with a fixed light baked into
+its colours, as overlays are unlit; the renderer blends see-through faces as it blends any
+transparent instance, which hides the edges behind a see-through face; and the port snap of an
+equipment fitted to its CAD snaps to the CAD's outline (its feature edges), not every vertex.

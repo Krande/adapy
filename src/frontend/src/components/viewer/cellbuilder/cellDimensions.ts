@@ -22,7 +22,6 @@
 import * as THREE from "three";
 import type {CellBox, Vec3} from "@/utils/cellbuilder/snap";
 import {requestRender} from "@/state/perfStore";
-import {getViewerRuntime} from "@/state/viewerRuntime";
 import {HANDLE_AXIS_COLOR} from "./sceneConstants";
 import type {CellBuilderScene} from "./sceneContext";
 
@@ -268,9 +267,8 @@ export function disposeMoveMeasure(ctx: CellBuilderScene): void {
 }
 
 /** The camera position in `group`'s own frame (the cell's frame for a rotated box). */
-const eyeIn = (group: THREE.Group): Vec3 | null => {
-    const cam = getViewerRuntime().camera.current;
-    if (!cam) return null;
+const eyeIn = (ctx: CellBuilderScene, group: THREE.Group): Vec3 | null => {
+    const cam = ctx.host.camera();
     group.updateWorldMatrix(true, false);
     const p = group.worldToLocal(cam.getWorldPosition(new THREE.Vector3()));
     return [p.x, p.y, p.z];
@@ -292,7 +290,7 @@ export function syncCellDimensions(
     const group = ctx.dimensionGroup;
     group.matrixAutoUpdate = false;
     group.matrix.copy(frame);
-    const eye = eyeIn(group);
+    const eye = eyeIn(ctx, group);
     if (!eye) return;
     const maxSize = Math.max(...cell.size);
     const lines = dimensionLines(cell, eye, gap);
@@ -303,7 +301,7 @@ export function syncCellDimensions(
     // another edge faces the camera now, and moves all three there (one more frame).
     let key = lines.map((d) => d.sides.join()).join("|");
     parts[0].line.onBeforeRender = () => {
-        const now = eyeIn(group);
+        const now = eyeIn(ctx, group);
         if (!now) return;
         const next = dimensionLines(cell, now, gap);
         const nextKey = next.map((d) => d.sides.join()).join("|");

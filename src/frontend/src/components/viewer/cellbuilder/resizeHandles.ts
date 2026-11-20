@@ -10,7 +10,7 @@ import * as THREE from "three";
 import {useCellBuilderStore, type BuilderCell} from "@/state/cellBuilderStore";
 import {boxFrameMatrix, equipmentCadFitted, resizeRefusal} from "@/utils/cellbuilder/cellResize";
 import {requestRender} from "@/state/perfStore";
-import {getViewerRuntime} from "@/state/viewerRuntime";
+import {builderCamera} from "./viewHost";
 import {BOX_FACE_SIDES, faceCenter} from "@/utils/cellbuilder/snap";
 import {GIZMO_ROTATE_SNAP_DEG} from "@/utils/gizmo/transformKeys";
 import {freeMove} from "@/utils/gizmo/freeMove";
@@ -53,7 +53,7 @@ export const keepHandlesScreenSized = (ctx: CellBuilderScene): (() => void) => {
     const own = group.updateMatrixWorld;
     group.updateMatrixWorld = function (this: THREE.Group, force?: boolean) {
         own.call(this, force);
-        const camera = getViewerRuntime().camera.current ?? ctx.camera;
+        const camera = builderCamera(ctx);
         if (!this.visible || !camera) return;
         for (const handle of this.children) {
             handle.getWorldPosition(handleAt);
@@ -122,8 +122,7 @@ export const rebuildResizeHandles = (ctx: CellBuilderScene) => {
 // of the translate proxy mid-drag so it never fights the pointer.
 export const syncGizmo = (ctx: CellBuilderScene) => {
     const st = useCellBuilderStore.getState();
-    const runtimeCam = getViewerRuntime().camera.current;
-    if (runtimeCam) ctx.gizmo.camera = runtimeCam;
+    ctx.gizmo.camera = builderCamera(ctx);
     const box = selectedBox(st);
     const cell = box;
     // Translate works for every kind — including a loft band, whose gizmo

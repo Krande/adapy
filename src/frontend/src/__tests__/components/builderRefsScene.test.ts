@@ -52,8 +52,8 @@ function makeCtx(): Ctx & { fire: (type: string, e?: object) => void } {
   };
   const refsGroup = new THREE.Group();
   const ctx = {
-    renderer: { domElement: el },
-    camera,
+    // The viewport the builder is drawn in (cellbuilder/viewHost.ts): its camera and its input element.
+    host: { camera: () => camera, input: () => el, rect: () => el.getBoundingClientRect(), setCameraEnabled() {} },
     raycaster: new THREE.Raycaster(),
     pointer: new THREE.Vector2(),
     container: new THREE.Group(),

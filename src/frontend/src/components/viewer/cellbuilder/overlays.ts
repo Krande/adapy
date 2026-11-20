@@ -36,8 +36,8 @@ export const placeEdgeOverlay = (
     const geo = new LineSegmentsGeometry();
     geo.setPositions([...start, ...end]);
     line.geometry = geo;
-    const size = ctx.renderer.getSize(new THREE.Vector2());
-    (line.material as LineMaterial).resolution.set(size.x, size.y);
+    const rect = ctx.host.rect();
+    (line.material as LineMaterial).resolution.set(rect.width, rect.height);
     return true;
 };
 
