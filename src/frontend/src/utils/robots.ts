@@ -3,6 +3,7 @@ import URDFLoader from "urdf-loader";
 import {STLLoader} from "three/examples/jsm/loaders/STLLoader";
 import * as THREE from "three";
 import {getViewerRuntime} from "@/state/viewerRuntime"; // or your existing import style
+import {CLEARED_WITH_MODELS} from "@/utils/scene/clearThreeSceneModels";
 
 export function loadRobot() {
     console.log("Loading robot");
@@ -69,6 +70,8 @@ export function loadRobot() {
                 robot.traverse(c => {
                     c.castShadow = true;
                 });
+                // Not one of the model groups: marked so a clear of the scene takes it too.
+                robot.userData[CLEARED_WITH_MODELS] = true;
                 scene.add(robot);
             } else {
                 console.error("Scene still not available at load time");
