@@ -998,8 +998,10 @@ export class NativeScene {
         // A point at the eye has no direction to look in.
         if (Math.hypot(point[0] - ex, point[1] - ey, point[2] - ez) < 1e-9) return;
         this.stopDragGlide();
+        // Against the world's up, as every other pose here: the camera's own up (`pose.up`) leans with
+        // its pitch, and a pose set with it would roll the view and tilt the axis later orbits turn about.
         this.renderer.cameraSetPose(
-            ex, ey, ez, point[0], point[1], point[2], pose.up[0], pose.up[1], pose.up[2],
+            ex, ey, ez, point[0], point[1], point[2], WORLD_UP[0], WORLD_UP[1], WORLD_UP[2],
             pose.fov, pose.orthographic, pose.orthographic ? pose.orthoHeight : 0, seconds,
         );
         this.invalidate();
