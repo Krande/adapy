@@ -2,6 +2,15 @@
 
 
 
+## v0.164.2 (2026-11-20)
+
+### Fix
+
+* fix(viewer): native builder parity with three.js, the renderer built from adacpp 0.44.0, nodal colour ranges with beam solids (#580)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`ff51ea5`](https://github.com/Krande/adapy/commit/ff51ea5b4562784911c23b403a8e327f5f59a8db))
+
+
 ## v0.164.1 (2026-11-20)
 
 ### Fix
