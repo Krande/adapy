@@ -126,6 +126,60 @@ test("a parent that is hidden hides what is under it; new geometry is drawn anew
     assert.equal(rec.meshes.size, 1);
 });
 
+/** A quad on one face of a unit box, as the cell builder's selected-face overlay places it: a fresh
+ *  position attribute and index on the same geometry each time (both at version 0). */
+function placeQuad(mesh: THREE.Mesh, x: number): void {
+    const pos = new Float32Array([x, 0, 0, x, 1, 0, x, 1, 1, x, 0, 1]);
+    mesh.geometry.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+    mesh.geometry.setIndex(new THREE.BufferAttribute(new Uint16Array([0, 1, 2, 0, 2, 3]), 1));
+}
+
+test("a fresh position attribute on the same geometry is drawn anew: a face highlight walked to another face leaves the first", () => {
+    const scene = new THREE.Scene();
+    const quad = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial({color: 0xff66cc, depthTest: false}));
+    placeQuad(quad, 0);
+    scene.add(quad);
+    const rec = recordingTarget();
+    const mirror = createSceneMirror(scene, camera, rec.target);
+    mirror.sync();
+    assert.equal(rec.meshes.size, 1);
+    assert.equal([...rec.meshes.values()][0].positions[0], 0);
+
+    placeQuad(quad, 1);
+    mirror.sync();
+    assert.equal(rec.meshes.size, 1, "one highlight, not the old one left behind");
+    assert.equal([...rec.meshes.values()][0].positions[0], 1, "drawn on the face it moved to");
+
+    // Hidden (no face selected), then shown on the first face again.
+    quad.visible = false;
+    mirror.sync();
+    assert.equal([...rec.meshes.keys()].filter((h) => rec.lastLook(h).visible !== false).length, 0, "hidden");
+    placeQuad(quad, 0);
+    quad.visible = true;
+    mirror.sync();
+    const shown = [...rec.meshes.entries()].filter(([h]) => rec.lastLook(h).visible !== false);
+    assert.equal(shown.length, 1);
+    assert.equal(shown[0][1].positions[0], 0);
+});
+
+test("geometry changed while hidden, then changed back, is drawn again when shown", () => {
+    const scene = new THREE.Scene();
+    const geoA = new THREE.BoxGeometry(1, 1, 1);
+    const mesh = new THREE.Mesh(geoA, new THREE.MeshBasicMaterial());
+    scene.add(mesh);
+    const rec = recordingTarget();
+    const mirror = createSceneMirror(scene, camera, rec.target);
+    mirror.sync();
+    mesh.visible = false;
+    mesh.geometry = new THREE.BoxGeometry(2, 2, 2);
+    mirror.sync();
+    assert.equal(rec.meshes.size, 0, "the old geometry is gone, the new one not drawn while hidden");
+    mesh.geometry = geoA;
+    mesh.visible = true;
+    mirror.sync();
+    assert.equal(rec.meshes.size, 1, "shown again");
+});
+
 test("depthTest off draws over the model; clipping planes cut it", () => {
     const scene = new THREE.Scene();
     const onTop = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial({depthTest: false}));
