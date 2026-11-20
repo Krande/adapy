@@ -40,7 +40,7 @@ def _user(sub: str) -> User:
 ALICE, BOB = _user("alice"), _user("bob")
 
 
-def _settings(tmp_path) -> Settings:
+def _settings(tmp_path, *, viewer_control: bool = True) -> Settings:
     return Settings(
         storage_kind="local",
         s3=None,
@@ -57,6 +57,7 @@ def _settings(tmp_path) -> Settings:
         ),
         auth=AuthConfig(enabled=False, issuer="", client_id="", audience="", admin_group="", cli_token_secret=""),
         database_url="",
+        viewer_control=viewer_control,
     )
 
 
@@ -274,3 +275,89 @@ def test_a_silent_session_expires():
     now[0] += 3600
     assert hub.sessions("alice") == []
     assert hub.issue("alice", {"action": "get_state"}) is None
+
+
+# ── batches ──────────────────────────────────────────────────────────────────────────────────────
+
+
+BATCH = [
+    {"action": "open_detail_model", "detail_id": "20260101T000000000Z-0123abcd"},
+    FOCUS,
+    {"action": "camera", "fit": "selection"},
+]
+
+
+def test_a_batch_runs_in_order_and_reports_each_step(client):
+    sid = _register(client)
+    sent = client.post("/api/viewer/commands", json={"commands": BATCH, "wait_s": 0}).json()
+    assert [c["action"] for c in sent["commands"]] == ["open_detail_model", "focus_joint", "camera"]
+    assert "command" not in sent
+    (item,) = client.get(f"/api/viewer/sessions/{sid}/commands", params={"wait_s": 0}).json()["commands"]
+    assert [c["action"] for c in item["commands"]] == ["open_detail_model", "focus_joint", "camera"]
+    # The tab stopped at the second: the third was never run.
+    steps = [
+        {"index": 0, "status": "done", "result": {"glb_key": "k"}},
+        {"index": 1, "status": "error", "error": "joint 0123456789ab is not in the clash result open here"},
+    ]
+    r = client.post(
+        f"/api/viewer/sessions/{sid}/commands/{item['command_id']}",
+        json={"ok": False, "error": "focus_joint failed", "steps": steps, "state": {}},
+    )
+    assert r.status_code == 200
+    (answer,) = client.get(f"/api/viewer/commands/{sent['command_id']}").json()["results"]
+    assert answer["status"] == "error"
+    assert [(s["action"], s["status"]) for s in answer["steps"]] == [
+        ("open_detail_model", "done"),
+        ("focus_joint", "error"),
+        ("camera", "skipped"),
+    ]
+    assert answer["steps"][0]["result"] == {"glb_key": "k"}
+    assert answer["steps"][1]["error"].startswith("joint 0123456789ab")
+
+
+def test_a_request_is_one_command_or_one_batch(client):
+    _register(client)
+    for body in (
+        {},
+        {"command": FOCUS, "commands": [FOCUS]},
+        {"commands": []},
+        {"commands": [FOCUS] * 21},
+        {"commands": [FOCUS, {"action": "explode"}]},
+        {"command": FOCUS, "wait_s": -1},
+    ):
+        assert client.post("/api/viewer/commands", json=body).status_code == 400, body
+
+
+# ── off by default ───────────────────────────────────────────────────────────────────────────────
+
+
+def test_a_server_with_viewer_control_off_answers_404_and_tells_the_page(tmp_path):
+    (tmp_path / "store").mkdir()
+    app = create_app(_settings(tmp_path / "store", viewer_control=False))
+    with TestClient(app) as c:
+        for method, path in (
+            ("get", "/api/viewer/sessions"),
+            ("get", "/api/viewer/commands/schema"),
+            ("post", "/api/viewer/commands"),
+            ("post", "/api/viewer/sessions"),
+        ):
+            r = getattr(c, method)(path)
+            assert r.status_code == 404, (path, r.text)
+            assert "ADA_VIEWER_CONTROL" in r.json()["detail"]
+        assert "ADA_VIEWER_CONTROL" not in c.get("/config.js").text
+        assert c.get("/api/config").json()["viewerControl"] is False
+
+
+def test_a_server_with_viewer_control_on_tells_the_page(client):
+    assert "window.ADA_VIEWER_CONTROL = true;" in client.get("/config.js").text
+    assert client.get("/api/config").json()["viewerControl"] is True
+
+
+def test_the_setting_is_read_from_the_environment(monkeypatch):
+    from ada.comms.rest.config import load_settings
+
+    monkeypatch.setenv("ADA_VIEWER_STORAGE_KIND", "local")
+    monkeypatch.delenv("ADA_VIEWER_CONTROL", raising=False)
+    assert load_settings().viewer_control is False
+    monkeypatch.setenv("ADA_VIEWER_CONTROL", "true")
+    assert load_settings().viewer_control is True

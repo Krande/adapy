@@ -44,8 +44,11 @@ __all__ = [
     "SESSION_STALE_S",
     "ViewerCommand",
     "ViewerHub",
+    "CommandRequest",
+    "MAX_BATCH",
     "command_schema",
     "parse_command",
+    "parse_request",
     "state_size_ok",
 ]
 
@@ -162,16 +165,51 @@ ViewerCommand = Annotated[
 ]
 COMMAND_ADAPTER: TypeAdapter = TypeAdapter(ViewerCommand)
 
+#: The most commands one batch may hold.
+MAX_BATCH = 20
+
+
+class CommandRequest(BaseModel):
+    """``POST /api/viewer/commands``: one ``command``, or a batch of ``commands`` that each tab runs
+    in order, stopping at the first that fails (the rest are reported ``skipped``)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    command: ViewerCommand | None = None
+    commands: Annotated[list[ViewerCommand], Field(min_length=1, max_length=MAX_BATCH)] | None = None
+    session_id: str | None = Field(None, description="One of the caller's sessions; default all of them.")
+    wait_s: float | None = Field(
+        None, ge=0, description="How long to wait for the answers (default 10, at most 60; 0 does not wait)."
+    )
+
+    @model_validator(mode="after")
+    def _one_form(self) -> "CommandRequest":
+        if (self.command is None) == (self.commands is None):
+            raise ValueError("give either 'command' or 'commands' (a batch)")
+        return self
+
+    def payload(self) -> dict:
+        """What the tab receives: ``{"command"}`` or ``{"commands"}``, defaults filled in."""
+        if self.command is not None:
+            return {"command": self.command.model_dump(mode="json")}
+        return {"commands": [c.model_dump(mode="json") for c in self.commands or ()]}
+
 
 def command_schema() -> dict:
-    """The vocabulary as JSON schema: one ``oneOf`` branch per action."""
-    return COMMAND_ADAPTER.json_schema()
+    """The request body as JSON schema; each action's command is one branch of its
+    ``command`` / ``commands`` union (in ``$defs``)."""
+    return CommandRequest.model_json_schema()
 
 
 def parse_command(raw: Any) -> dict:
     """``raw`` validated into its command, as the plain JSON the browser receives (defaults filled
     in). Raises pydantic's ``ValidationError``."""
     return COMMAND_ADAPTER.validate_python(raw).model_dump(mode="json")
+
+
+def parse_request(raw: Any) -> CommandRequest:
+    """A ``POST /api/viewer/commands`` body. Raises pydantic's ``ValidationError``."""
+    return CommandRequest.model_validate(raw)
 
 
 # ── the hub ──────────────────────────────────────────────────────────────────────────────────────
@@ -206,7 +244,8 @@ class _Session:
 class _Issued:
     command_id: str
     owner: str
-    command: dict
+    #: ``{"command": {...}}`` or ``{"commands": [...]}``: what the tabs receive.
+    payload: dict
     issued_at: float
     sessions: list[str]
     results: dict[str, dict] = field(default_factory=dict)
@@ -215,7 +254,7 @@ class _Issued:
     def public(self) -> dict:
         return {
             "command_id": self.command_id,
-            "command": self.command,
+            **self.payload,
             "issued_at": self.issued_at,
             "results": [{"session_id": sid, **self.results.get(sid, {"status": "pending"})} for sid in self.sessions],
         }
@@ -314,9 +353,12 @@ class ViewerHub:
 
     # -- commands ------------------------------------------------------------------------------
 
-    def issue(self, owner: str, command: dict, session_id: str | None = None) -> dict | None:
-        """Queue ``command`` (already validated) for one of the owner's sessions, or all of them.
-        None when there is no such session (or none at all)."""
+    def issue(self, owner: str, payload: dict, session_id: str | None = None) -> dict | None:
+        """Queue ``payload`` (already validated: ``{"command"}`` or ``{"commands"}``, or a bare
+        command) for one of the owner's sessions, or all of them. None when there is no such session
+        (or none at all)."""
+        if "command" not in payload and "commands" not in payload:
+            payload = {"command": payload}
         self._prune()
         if session_id is not None:
             targets = [s for s in [self._mine(owner, session_id)] if s is not None]
@@ -327,7 +369,7 @@ class ViewerHub:
         issued = _Issued(
             command_id=uuid.uuid4().hex,
             owner=owner,
-            command=command,
+            payload=payload,
             issued_at=self._clock(),
             sessions=[s.session_id for s in targets],
         )
@@ -336,7 +378,7 @@ class ViewerHub:
         for cid in mine[: max(0, len(mine) - RESULTS_KEPT)]:
             self._issued.pop(cid, None)
         for s in targets:
-            s.pending.append({"command_id": issued.command_id, "command": command, "issued_at": issued.issued_at})
+            s.pending.append({"command_id": issued.command_id, **payload, "issued_at": issued.issued_at})
             s.wake.set()
         return issued.public()
 
@@ -379,8 +421,36 @@ class ViewerHub:
             "state": s.state,
             "answered_at": now,
         }
+        if "commands" in issued.payload:
+            issued.results[sid]["steps"] = _steps(outcome.get("steps"), issued.payload["commands"])
         self._maybe_done(issued)
         return True
+
+
+_STEP_STATUSES = ("done", "error", "skipped")
+
+
+def _steps(raw: Any, commands: list[dict]) -> list[dict]:
+    """A batch's per-command outcomes as the tab reported them, one per command in order; a
+    command the tab said nothing about is ``skipped``."""
+    by_index: dict[int, dict] = {}
+    for step in raw if isinstance(raw, list) else []:
+        if isinstance(step, dict) and isinstance(step.get("index"), int):
+            by_index[step["index"]] = step
+    out = []
+    for i, command in enumerate(commands):
+        step = by_index.get(i, {})
+        status = step.get("status") if step.get("status") in _STEP_STATUSES else "skipped"
+        out.append(
+            {
+                "index": i,
+                "action": command.get("action"),
+                "status": status,
+                "error": str(step.get("error")) if status == "error" and step.get("error") else None,
+                "result": step.get("result") if status == "done" else None,
+            }
+        )
+    return out
 
 
 def state_size_ok(state: Any) -> bool:

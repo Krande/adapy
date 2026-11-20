@@ -11,6 +11,19 @@ Code: `src/ada/comms/rest/viewer_control.py` (vocabulary and session hub),
 `routes/viewer_control.py`, `clash_inspect.py` (read-only clash views), and on the browser side
 `src/frontend/src/services/viewerControl/`.
 
+## Off by default
+
+Two switches, both off unless turned on:
+
+* **The server**: `ADA_VIEWER_CONTROL=true` (`Settings.viewer_control`). Off, every `/api/viewer/...`
+  route answers `404` ("viewer control is disabled on this server ..."), and the page is not told
+  about it: `/config.js` sets `window.ADA_VIEWER_CONTROL = true` and `/api/config` `viewerControl: true`
+  only when it is on. The read-only clash routes below do not depend on it.
+* **The tab**: Settings > *External controls* > "Let an agent drive this tab", offered only on a
+  server that allows it. Off by default, and per tab (kept in the tab's `sessionStorage`): the user
+  consents for the tab in front of them, until it is closed. Until both are on, the tab registers
+  nothing and opens no channel; turning the switch off closes its session.
+
 ## Whose viewer
 
 A viewer tab registers a **session**. A session belongs to the user who registered it, and every
@@ -37,19 +50,27 @@ one replica. A scaled-out API would need the hub moved onto NATS, as the job que
 |---|---|---|
 | `GET /api/viewer/sessions` | | `{sessions: [Session]}` |
 | `GET /api/viewer/sessions/{session_id}` | | `Session` |
-| `POST /api/viewer/commands` | `{command, session_id?, wait_s?}` | `CommandOutcome` |
+| `POST /api/viewer/commands` | `{command \| commands, session_id?, wait_s?}` | `CommandOutcome` |
 | `GET /api/viewer/commands/{command_id}` | `wait_s?` | `CommandOutcome` |
-| `GET /api/viewer/commands/schema` | | the command vocabulary as JSON schema |
+| `GET /api/viewer/commands/schema` | | that body as JSON schema (each action a branch in `$defs`) |
 
-`POST /api/viewer/commands` validates the command (`400` with the reasons when it is not in the
-vocabulary), queues it, and waits up to `wait_s` seconds (default 10, at most 60; `0` returns at
-once) for the tabs to answer. `404` when the caller has no such, or no, viewer open.
+`POST /api/viewer/commands` takes one `command`, or `commands`: a **batch** of up to 20 that each tab
+runs in order -- `open_detail_model`, then `focus_joint`, then `camera`, say -- stopping at the first
+that fails. It validates them (`400` with the reasons for anything outside the vocabulary, or for both
+or neither of `command` / `commands`), queues them, and waits up to `wait_s` seconds (default 10, at
+most 60; `0` returns at once) for the tabs to answer. `404` when the caller has no such, or no,
+viewer open.
+
+A batch's answer per tab has `steps`, one per command in order:
+`{index, action, status: "done" | "error" | "skipped", error, result}`. The tab's `status` is `done`
+when every step was, else `error`, its `error` naming the command that failed
+("command 2 of 3 (focus_joint) failed: ..."); the commands after it are `skipped`.
 
 ```text
 Session        = {session_id, created_at, last_seen, idle_s, client: {title, path},
                   state: ViewerState, state_at, pending_commands}
-CommandOutcome = {command_id, command, issued_at,
-                  results: [{session_id, status, error, result, state, answered_at}]}
+CommandOutcome = {command_id, command | commands, issued_at,
+                  results: [{session_id, status, error, result, state, answered_at, steps?}]}
                  status: "done" | "error" | "pending" (not answered yet) | "gone" (tab closed)
 ViewerState    = {scope, viewport: "three" | "native" | null,
                   loaded_models: [source name], active_model,

@@ -11,6 +11,7 @@ import ControlsProfileOptions from "@/components/options/ControlsProfileOptions"
 import ComputeOptions from "@/components/options/ComputeOptions";
 import DisplayOptions from "@/components/options/DisplayOptions";
 import ExperimentalOptions from "@/components/options/ExperimentalOptions";
+import ExternalControlsOptions from "@/components/options/ExternalControlsOptions";
 import LayoutOptions from "@/components/options/LayoutOptions";
 import LocalJobsOptions from "@/components/options/LocalJobsOptions";
 import PerformanceOptions from "@/components/options/PerformanceOptions";
@@ -31,7 +32,8 @@ export type SettingsSectionId =
     | "camera"
     | "spacemouse"
     | "conversion"
-    | "jobs";
+    | "jobs"
+    | "external-controls";
 
 export interface SettingsSection {
     id: SettingsSectionId;
@@ -92,6 +94,13 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
     {id: "conversion", title: "Conversion engine", available: restOnly, render: () => <ExperimentalOptions/>},
     // A server with no job queue runs every job itself: how many at once, and the CPU they share.
     {id: "jobs", title: "Local jobs", available: () => runtime.localJobs(), render: () => <LocalJobsOptions/>},
+    // Letting an agent drive this tab over the REST API: offered only where the server allows it (ADA_VIEWER_CONTROL).
+    {
+        id: "external-controls",
+        title: "External controls",
+        available: () => runtime.isRestMode() && runtime.viewerControl(),
+        render: () => <ExternalControlsOptions/>,
+    },
 ];
 
 /** The sections that apply in this viewer. */

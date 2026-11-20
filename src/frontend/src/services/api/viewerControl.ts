@@ -7,18 +7,22 @@ import { runtime } from "@/runtime/config";
 
 import { authedFetch, jsonOrThrow } from "./client";
 
-/** One command as the server sends it (validated there: `viewer_control.ViewerCommand`). */
+type WireCommand = { readonly action: string } & Readonly<Record<string, unknown>>;
+
+/** One command, or a batch, as the server sends it (validated there: `viewer_control.CommandRequest`). */
 export interface WireViewerCommand {
   readonly command_id: string;
-  readonly command: { readonly action: string } & Readonly<Record<string, unknown>>;
+  readonly command?: WireCommand;
+  readonly commands?: readonly WireCommand[];
   readonly issued_at: number;
 }
 
-/** A tab's answer to one command. */
+/** A tab's answer to one command or a batch (`steps`: one per command of a batch). */
 export interface ViewerCommandAnswer {
   readonly ok: boolean;
   readonly error?: string | null;
   readonly result?: unknown;
+  readonly steps?: readonly unknown[];
   readonly state?: unknown;
 }
 

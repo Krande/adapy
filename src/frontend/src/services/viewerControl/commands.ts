@@ -236,6 +236,41 @@ async function findObjects(deps: ViewerControlDeps, c: Extract<ViewerCommand, { 
   return { found, missing };
 }
 
+/** One command of a batch, as its answer reports it. */
+export interface ViewerBatchStep {
+  index: number;
+  action: string;
+  status: "done" | "error" | "skipped";
+  error: string | null;
+  result: unknown;
+}
+
+const message = (e: unknown): string => (e instanceof Error ? e.message : String(e));
+
+/** Run a batch in order, stopping at the first command that fails: the ones after it are
+ *  `skipped`. `error` names the failed command, null when every one was done. */
+export async function runViewerBatch(
+  deps: ViewerControlDeps,
+  commands: readonly ViewerCommand[],
+): Promise<{ steps: ViewerBatchStep[]; error: string | null }> {
+  const steps: ViewerBatchStep[] = [];
+  let error: string | null = null;
+  for (const [index, command] of commands.entries()) {
+    if (error !== null) {
+      steps.push({ index, action: command.action, status: "skipped", error: null, result: null });
+      continue;
+    }
+    try {
+      const result = await runViewerCommand(deps, command);
+      steps.push({ index, action: command.action, status: "done", error: null, result: result ?? null });
+    } catch (e) {
+      steps.push({ index, action: command.action, status: "error", error: message(e), result: null });
+      error = `command ${index + 1} of ${commands.length} (${command.action}) failed: ${message(e)}`;
+    }
+  }
+  return { steps, error };
+}
+
 /** Run one command; the answer's `result`. Throws `ViewerCommandError` (or anything a dep throws)
  *  for a command that could not be done -- the caller answers it as an error. */
 export async function runViewerCommand(deps: ViewerControlDeps, command: ViewerCommand): Promise<unknown> {

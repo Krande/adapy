@@ -273,3 +273,69 @@ test("a joint's connections in a take-off are the ones named after it", async ()
   const names = [`provider.high_${JOINT}`, `provider.high_${JOINT}_1`, `provider.high_${DECLINED}`, `x_${JOINT}9`];
   assert.deepEqual(connectionsOfJoint(names, JOINT), [`provider.high_${JOINT}`, `provider.high_${JOINT}_1`]);
 });
+test("a batch runs in order and stops at the first failure: the rest are skipped", async () => {
+  const { answerPayload } = await import("@/services/viewerControl/answer");
+  const { deps, log } = fakeDeps();
+  const answer = await answerPayload(deps, {
+    commands: [
+      { action: "camera", fit: "all" },
+      { action: "focus_joint", joint_id: JOINT },
+      { action: "camera", view: "top" },
+    ],
+  });
+  assert.equal(answer.ok, false);
+  assert.match(answer.error ?? "", /command 2 of 3 \(focus_joint\) failed: joint 0123456789ab is not in the clash result/);
+  assert.deepEqual(
+    answer.steps?.map((s) => [s.action, s.status]),
+    [
+      ["camera", "done"],
+      ["focus_joint", "error"],
+      ["camera", "skipped"],
+    ],
+  );
+  assert.deepEqual(log, ["fitAll"], "the third command never ran");
+
+  const ok = await answerPayload(deps, {
+    commands: [
+      { action: "focus_joint", joint_id: JOINT, run_key: RUN },
+      { action: "camera", view: "isometric" },
+    ],
+  });
+  assert.equal(ok.ok, true);
+  assert.equal(ok.error, null);
+  assert.deepEqual(ok.steps?.map((s) => s.status), ["done", "done"]);
+  assert.deepEqual(ok.steps?.[0].result, { joint_id: JOINT, selected: 2 });
+});
+
+test("external controls connect only where the server allows them and the tab turned them on", async () => {
+  const { followExternalControls } = await import("@/services/viewerControl/gate");
+  const { useExternalControlsStore } = await import("@/state/externalControlsStore");
+  const events: string[] = [];
+  const start = () => {
+    events.push("start");
+    return () => void events.push("stop");
+  };
+  useExternalControlsStore.setState({ enabled: true });
+  // A server with viewer control off: nothing, whatever the switch says.
+  const offServer = followExternalControls(start, () => false);
+  assert.deepEqual(events, []);
+  offServer();
+
+  // Allowed, switch off (the default): nothing until it is turned on; off again stops it.
+  useExternalControlsStore.setState({ enabled: false });
+  const unfollow = followExternalControls(start, () => true);
+  assert.deepEqual(events, []);
+  useExternalControlsStore.getState().setEnabled(true);
+  assert.deepEqual(events, ["start"]);
+  useExternalControlsStore.getState().setEnabled(false);
+  assert.deepEqual(events, ["start", "stop"]);
+  useExternalControlsStore.getState().setEnabled(true);
+  unfollow();
+  assert.deepEqual(events, ["start", "stop", "start", "stop"]);
+  useExternalControlsStore.setState({ enabled: false });
+});
+
+test("the switch is off by default", async () => {
+  const { useExternalControlsStore } = await import("@/state/externalControlsStore");
+  assert.equal(useExternalControlsStore.getInitialState().enabled, false);
+});

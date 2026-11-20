@@ -5,6 +5,7 @@ import {useRestoreInflightJobs} from "@/hooks/useRestoreInflightJobs";
 import {useCompressionSweepPoll} from "@/hooks/useCompressionSweepPoll";
 import {useExperimentalStore} from "@/state/experimentalStore";
 import {prewarmPyodide} from "@/utils/pyodide/pyodide_converter";
+import {runtime} from "@/runtime/config";
 
 // Aggregator for all REST-mode-only floating UI. Lazy-loaded by
 // app.tsx so the embedded desktop bundle never pulls in the
@@ -21,27 +22,40 @@ const RestModeUI: React.FC<{toastAnchor?: ToastAnchor}> = ({toastAnchor}) => {
     // another admin session may have started.
     useCompressionSweepPoll();
     // This tab as a viewer an agent can drive over the REST API (`/api/viewer/...`, the caller's own
-    // sessions only): it registers, waits for commands, and reports what it shows.
+    // sessions only) -- only on a server that allows it, and once the user turned "External controls"
+    // on for this tab (services/viewerControl/gate.ts). Nothing is loaded or opened otherwise.
     useEffect(() => {
-        let stop: (() => void) | null = null;
+        if (!runtime.viewerControl()) return;
+        let unfollow: (() => void) | null = null;
         let cancelled = false;
-        void Promise.all([
-            import("@/services/viewerControl/session"),
-            import("@/services/viewerControl/realDeps"),
-            import("@/services/api/viewerControl"),
-        ]).then(([{startViewerControl}, {realViewerControlDeps, watchViewerState}, {viewerControlApi}]) => {
+        void import("@/services/viewerControl/gate").then(({followExternalControls}) => {
             if (cancelled) return;
-            stop = startViewerControl(viewerControlApi, realViewerControlDeps, {
-                watch: watchViewerState,
-                client: {title: document.title, path: window.location.pathname},
+            unfollow = followExternalControls(() => {
+                let stop: (() => void) | null = null;
+                let stopped = false;
+                void Promise.all([
+                    import("@/services/viewerControl/session"),
+                    import("@/services/viewerControl/realDeps"),
+                    import("@/services/api/viewerControl"),
+                ]).then(([{startViewerControl}, {realViewerControlDeps, watchViewerState}, {viewerControlApi}]) => {
+                    if (stopped) return;
+                    stop = startViewerControl(viewerControlApi, realViewerControlDeps, {
+                        watch: watchViewerState,
+                        client: {title: document.title, path: window.location.pathname},
+                    });
+                });
+                return () => {
+                    stopped = true;
+                    stop?.();
+                };
             });
         });
-        const onUnload = () => stop?.();
+        const onUnload = () => unfollow?.();
         window.addEventListener("pagehide", onUnload);
         return () => {
             cancelled = true;
             window.removeEventListener("pagehide", onUnload);
-            stop?.();
+            unfollow?.();
         };
     }, []);
     // Pre-warm the in-browser (WASM) engine in the background whenever it's

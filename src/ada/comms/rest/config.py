@@ -185,6 +185,9 @@ class Settings:
     # Where runs on a provider this studio does not have are handed off. None (every deployment
     # but a studio set up for it) means they are not.
     simulation_remote: SimulationRemote | None = None
+    # Whether an agent may drive a user's open viewer over the REST API (``/api/viewer/...``,
+    # routes/viewer_control.py). Off by default: the routes answer 404 and no page registers.
+    viewer_control: bool = False
 
 
 def _bool(v: str | None, default: bool) -> bool:
@@ -263,6 +266,7 @@ def load_settings() -> Settings:
     # built with a default UI keeps it unless a deployment says otherwise.
     ui_default = os.environ.get("ADA_VIEWER_UI_DEFAULT", "").strip()
     local_shutdown_token = os.environ.get("ADA_VIEWER_LOCAL_SHUTDOWN_TOKEN", "").strip()
+    viewer_control = _bool(os.environ.get("ADA_VIEWER_CONTROL"), default=False)
     remote_url = os.environ.get("ADA_SIMULATION_REMOTE_URL", "").strip().rstrip("/")
     simulation_remote = (
         SimulationRemote(
@@ -298,6 +302,7 @@ def load_settings() -> Settings:
             ui_default=ui_default,
             local_shutdown_token=local_shutdown_token,
             simulation_remote=simulation_remote,
+            viewer_control=viewer_control,
         )
 
     if kind == "local":
@@ -318,6 +323,7 @@ def load_settings() -> Settings:
             ui_default=ui_default,
             local_shutdown_token=local_shutdown_token,
             simulation_remote=simulation_remote,
+            viewer_control=viewer_control,
         )
 
     raise ValueError(f"Unsupported ADA_VIEWER_STORAGE_KIND: {kind!r} (expected 's3' or 'local')")

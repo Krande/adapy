@@ -122,6 +122,9 @@ declare global {
         // connection library live (/api/dev/connections), and the page opens the
         // connection builder on it.
         ADA_DEV_CONNECTIONS?: boolean;
+        // True on a server that lets an agent drive a viewer over /api/viewer (ADA_VIEWER_CONTROL): the
+        // page offers its "External controls" toggle. Absent (the default) = not offered.
+        ADA_VIEWER_CONTROL?: boolean;
         // True on a server without a database (a local / desktop viewer): the
         // admin and audit routes answer 503, so the page does not ask them.
         ADA_NO_DATABASE?: boolean;
@@ -160,6 +163,9 @@ export const runtime = {
 
     // A connection library served live by `ada dev connections` (see services/devConnections).
     devConnections: (): boolean => w().ADA_DEV_CONNECTIONS === true,
+
+    // A server that lets an agent drive a viewer (see services/viewerControl).
+    viewerControl: (): boolean => w().ADA_VIEWER_CONTROL === true,
 
     // What the server offers. Absent (an older server) = offered.
     hasDatabase: (): boolean => w().ADA_NO_DATABASE !== true,

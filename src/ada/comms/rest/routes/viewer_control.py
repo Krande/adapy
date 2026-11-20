@@ -8,8 +8,9 @@ Agent side:
 
 * ``GET  /viewer/sessions``                 -- the caller's live viewer tabs, each with its last state
 * ``GET  /viewer/sessions/{session_id}``    -- one of them
-* ``POST /viewer/commands``                 -- ``{command, session_id?, wait_s?}``: send a command to
-  one tab or all of them, and wait (default 10 s) for their answers
+* ``POST /viewer/commands``                 -- ``{command | commands, session_id?, wait_s?}``: send a
+  command, or a batch each tab runs in order, to one tab or all of them, and wait (default 10 s)
+  for their answers
 * ``GET  /viewer/commands/{command_id}``    -- a command's answers so far
 * ``GET  /viewer/commands/schema``          -- the command vocabulary as JSON schema
 
@@ -20,11 +21,13 @@ Browser side (``src/frontend/src/services/viewerControl``):
 * ``PUT    /viewer/sessions/{session_id}/state``                -- report what it shows
 * ``POST   /viewer/sessions/{session_id}/commands/{command_id}`` -- answer a command
 * ``DELETE /viewer/sessions/{session_id}``                      -- the tab is closing
+
+OFF BY DEFAULT. Every route answers 404 unless the server is started with ``ADA_VIEWER_CONTROL=true``
+(``Settings.viewer_control``); ``/config.js`` then tells the page (``window.ADA_VIEWER_CONTROL``), and
+a tab registers only once its user has also turned it on in the viewer's settings.
 """
 
 from __future__ import annotations
-
-from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
@@ -36,11 +39,24 @@ from ..viewer_control import (
     POLL_MAX_S,
     ViewerHub,
     command_schema,
-    parse_command,
+    parse_request,
     state_size_ok,
 )
+from .deps import RestContext, rest_context
 
-router = APIRouter()
+#: The setting's environment variable, named in the answer of a server that has it off.
+ENV_VAR = "ADA_VIEWER_CONTROL"
+
+
+def require_viewer_control(ctx: RestContext = Depends(rest_context)) -> None:
+    """404 on a server that has viewer control off (the default)."""
+    if not ctx.settings.viewer_control:
+        raise HTTPException(
+            status_code=404, detail=f"viewer control is disabled on this server (set {ENV_VAR}=true to enable it)"
+        )
+
+
+router = APIRouter(dependencies=[Depends(require_viewer_control)])
 
 #: How long ``POST /viewer/commands`` waits for answers when the body does not say.
 DEFAULT_WAIT_S = 10.0
@@ -82,22 +98,13 @@ def _no_session(session_id: str) -> HTTPException:
     return HTTPException(status_code=404, detail=f"no viewer session {session_id!r} of yours")
 
 
-def _wait(raw: Any, default: float) -> float:
-    if raw is None:
-        return default
-    try:
-        value = float(raw)
-    except (TypeError, ValueError) as exc:
-        raise HTTPException(status_code=400, detail="'wait_s' must be a number of seconds") from exc
-    return max(0.0, value)
-
-
 # ── agent side ───────────────────────────────────────────────────────────────────────────────────
 
 
 @router.get("/viewer/commands/schema")
 async def api_viewer_command_schema() -> JSONResponse:
-    """The command vocabulary as JSON schema (one ``oneOf`` branch per ``action``)."""
+    """The ``POST /viewer/commands`` body as JSON schema: ``command`` (one), or ``commands`` (a batch),
+    each a union with one branch per ``action``."""
     return JSONResponse(command_schema())
 
 
@@ -129,29 +136,30 @@ async def api_viewer_command(
     hub: ViewerHub = Depends(viewer_hub),
     user: User = Depends(auth_module.current_user),
 ) -> JSONResponse:
-    """Send ``command`` to the caller's viewer: to ``session_id``, else to every live session of
-    theirs. Waits up to ``wait_s`` (default 10, at most 60; 0 does not wait) for the answers.
-    Returns ``{command_id, command, issued_at, results: [{session_id, status, error, result, state}]}``,
-    ``status`` per session ``done``, ``error``, ``pending`` (no answer yet: ask
-    ``GET /viewer/commands/{command_id}`` later) or ``gone``. 400 for a command outside the
-    vocabulary, 404 when the caller has no such (or no) viewer open."""
+    """Send ``command`` -- or ``commands``, a batch -- to the caller's viewer: to ``session_id``, else
+    to every live session of theirs. Each tab runs a batch in order and stops at the first command
+    that fails. Waits up to ``wait_s`` (default 10, at most 60; 0 does not wait) for the answers.
+
+    Returns ``{command_id, command | commands, issued_at, results: [{session_id, status, error,
+    result, state, steps?}]}``, ``status`` per session ``done``, ``error``, ``pending`` (no answer
+    yet: ask ``GET /viewer/commands/{command_id}`` later) or ``gone``. A batch's answer has
+    ``steps``: ``[{index, action, status: done | error | skipped, error, result}]``, one per command.
+    400 for a command outside the vocabulary, 404 when the caller has no such (or no) viewer open."""
     body = await _body(request)
     try:
-        command = parse_command(body.get("command"))
+        req = parse_request(body)
     except ValidationError as exc:
         raise HTTPException(
             status_code=400,
             detail=[{"loc": list(e["loc"]), "msg": e["msg"]} for e in exc.errors(include_url=False)],
         ) from exc
-    session_id = body.get("session_id")
-    if session_id is not None and not isinstance(session_id, str):
-        raise HTTPException(status_code=400, detail="'session_id' must be a string")
-    issued = hub.issue(user.sub, command, session_id)
+    issued = hub.issue(user.sub, req.payload(), req.session_id)
     if issued is None:
-        if session_id is not None:
-            raise _no_session(session_id)
+        if req.session_id is not None:
+            raise _no_session(req.session_id)
         raise HTTPException(status_code=404, detail="you have no viewer open (no live viewer session)")
-    out = await hub.wait(user.sub, issued["command_id"], _wait(body.get("wait_s"), DEFAULT_WAIT_S))
+    wait_s = DEFAULT_WAIT_S if req.wait_s is None else req.wait_s
+    out = await hub.wait(user.sub, issued["command_id"], wait_s)
     return JSONResponse(out)
 
 

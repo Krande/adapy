@@ -8,7 +8,8 @@
 
 import type { ViewerCommandAnswer, ViewerSessionInfo, WireViewerCommand } from "@/services/api/viewerControl";
 
-import { collectViewerState, runViewerCommand, type ViewerCommand, type ViewerControlDeps } from "./commands";
+import { answerPayload, type ViewerCommandPayload } from "./answer";
+import { collectViewerState, type ViewerControlDeps } from "./commands";
 
 export interface ViewerControlApi {
   register(client: Record<string, unknown>, state: unknown): Promise<ViewerSessionInfo>;
@@ -47,19 +48,7 @@ export async function answerCommand(
   sessionId: string,
   wire: WireViewerCommand,
 ): Promise<void> {
-  let answer: ViewerCommandAnswer;
-  try {
-    const result = await runViewerCommand(deps, wire.command as unknown as ViewerCommand);
-    answer = { ok: true, result: result ?? null, state: collectViewerState(deps) };
-  } catch (e) {
-    let state: unknown = null;
-    try {
-      state = collectViewerState(deps);
-    } catch {
-      // The state could not be read either; the error is the answer.
-    }
-    answer = { ok: false, error: e instanceof Error ? e.message : String(e), state };
-  }
+  const answer: ViewerCommandAnswer = await answerPayload(deps, wire as unknown as ViewerCommandPayload);
   await api.answer(sessionId, wire.command_id, answer);
 }
 
