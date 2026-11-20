@@ -14,6 +14,8 @@ from ``create_app``; see ``routes/__init__`` for the pattern. The only fixed lea
 
 from __future__ import annotations
 
+from functools import lru_cache
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 
@@ -73,6 +75,35 @@ def builtin_engine_doc(slug: str | None) -> dict | None:
     return dict(engine["doc"]) if engine is not None else None
 
 
+@lru_cache(maxsize=1)
+def _default_field_help() -> dict[str, dict[str, str]]:
+    """adapy's own column help (``ada.topology.entities.entity_field_help``); ``{}`` on a slim
+    API without ``ada.topology``. Built once: the entities do not change while the server runs."""
+    try:
+        from ada.topology.entities import entity_field_help
+    except Exception:
+        return {}
+    return entity_field_help()
+
+
+def field_help_for(spec: dict | None) -> dict[str, dict[str, str]]:
+    """An engine's field help for the viewer: adapy's descriptions, under the engine's own
+    (``spec["field_help"]``, however it got onto the spec -- the registration's keyword or a
+    tool writing it there) winning per column. ``{list: {COLUMN: text}}``; a list or a text
+    that is not of that shape is passed over."""
+    out = {key: dict(rows) for key, rows in _default_field_help().items()}
+    own = spec.get("field_help") if isinstance(spec, dict) else None
+    if isinstance(own, dict):
+        for key, rows in own.items():
+            if not isinstance(key, str) or not isinstance(rows, dict):
+                continue
+            merged = out.setdefault(key, {})
+            merged.update(
+                {str(col): str(text) for col, text in rows.items() if isinstance(col, str) and text not in (None, "")}
+            )
+    return {key: rows for key, rows in out.items() if rows}
+
+
 async def _get_engine_in_scope(pool, engine_id: str, scope_obj: Scope) -> dict:
     try:
         row = await db_module.get_procedural_engine(pool, engine_id)
@@ -122,6 +153,7 @@ def _local_engine(queue: JobQueue, engine_id: str) -> dict | None:
         "revision": 0,
         "origin": "local",
         "supports_grouping": bool(spec.get("supports_grouping", False)),
+        "field_help": field_help_for(spec),
         "doc": {"kind": "server", "entrypoint": spec["entrypoint"]},
     }
 
@@ -158,6 +190,9 @@ async def api_procedural_engines_list(
         summary["supports_grouping"] = bool(
             spec.get("supports_grouping") if spec is not None else summary.get("supports_grouping", False)
         )
+        # What the doc's columns mean (the builder's field help): adapy's, under a live worker's
+        # text for this engine. On every engine, so the viewer reads one place.
+        summary["field_help"] = field_help_for(spec)
 
     # Engines a live worker advertises in full. A worker can only honestly
     # announce an engine whose code it has, so this is the authoritative
@@ -185,6 +220,7 @@ async def api_procedural_engines_list(
             "revision": 0,
             "origin": "worker",
             "supports_grouping": bool(spec.get("supports_grouping", False)),
+            "field_help": field_help_for(spec),
         }
         for slug, spec in sorted(engine_caps.items())
         if slug not in known and is_offerable(spec)

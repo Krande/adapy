@@ -221,11 +221,38 @@ export function resultLineShown(mesh: THREE.Object3D, id: string): boolean {
     return (!keep || keep.has(id)) && !drop?.has(id);
 }
 
-/** What of `full` is drawn: the isolation's members, less the excluded. */
+/** The mesh's hidden ranges: a hidden beam is hidden by its id (`E<label>`), as a plate is, though no
+ *  triangle of the mesh draws it. */
+const hiddenOf = (mesh: THREE.Mesh): ReadonlySet<string> | undefined => {
+    const hidden = (mesh as unknown as {getHiddenRanges?: () => ReadonlySet<string>}).getHiddenRanges?.();
+    return hidden && hidden.size ? hidden : undefined;
+};
+
+/** What of `full` is drawn: the isolation's members, less the excluded and the hidden. */
 function shownOf(mesh: THREE.Mesh, full: LineData): LineData {
     const keep = (mesh.userData.__feaLineIsolation as ReadonlySet<string> | undefined) ?? null;
-    const drop = mesh.userData.__feaLineExcluded as ReadonlySet<string> | undefined;
+    const excluded = mesh.userData.__feaLineExcluded as ReadonlySet<string> | undefined;
+    const hidden = hiddenOf(mesh);
+    const drop = excluded && hidden ? new Set([...excluded, ...hidden]) : (excluded ?? hidden);
     return keep === null && !drop ? full : subsetOf(full, keep, drop);
+}
+
+/** Draw the beams again when the mesh's hidden ranges change: a hide, an unhide, an isolate. Once per
+ *  mesh; the lines are rebuilt from the full set the last paint left (a repaint keeps it too). */
+function followHidden(mesh: THREE.Mesh): void {
+    if (mesh.userData.__feaLineFollowsHidden) return;
+    const on = (mesh as unknown as {onHiddenChange?: (l: () => void) => () => void}).onHiddenChange;
+    if (!on) return;
+    mesh.userData.__feaLineFollowsHidden = true;
+    on.call(mesh, () => {
+        const full = mesh.userData.__feaLineFull as LineData | undefined;
+        if (!full) return;
+        installLines(mesh, shownOf(mesh, full));
+        // The selection outline is drawn from the lines: put it back.
+        const restore = mesh.userData.__feaLineSelection as ((ids: readonly string[]) => void) | undefined;
+        const selected = Array.from((mesh as unknown as {selectedRanges?: Set<string>}).selectedRanges ?? []);
+        if (restore && selected.length) restore(selected);
+    });
 }
 
 /** Install a result-coloured rendering of the line elements.
@@ -241,6 +268,7 @@ export function installResultLineSegments(
 ): void {
     const full = {positions, colors, displacement, segmentIds};
     mesh.userData.__feaLineFull = full;
+    followHidden(mesh);
     // A repaint rebuilds these from scratch, so an isolation set before it would
     // otherwise be lost — the beams would come back while the plates stayed hidden.
     installLines(mesh, shownOf(mesh, full));

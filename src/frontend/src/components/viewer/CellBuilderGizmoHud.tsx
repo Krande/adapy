@@ -34,7 +34,7 @@ const CellBuilderGizmoHud: React.FC = () => {
   const gizmoMode = useCellBuilderStore((s) => s.gizmoMode);
   const axisLock = useCellBuilderStore((s) => s.gizmoAxisLock);
   const cell = useCellBuilderStore((s) =>
-    s.selection ? s.cells[s.selection.cellId] : null,
+    s.selection?.cellId ? s.cells[s.selection.cellId] : null,
   );
   const setGizmoMode = useCellBuilderStore((s) => s.setGizmoMode);
   const setGizmoAxisLock = useCellBuilderStore((s) => s.setGizmoAxisLock);

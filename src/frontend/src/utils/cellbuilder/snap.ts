@@ -212,6 +212,27 @@ export function originFromCenter(center: Vec3, size: Vec3, step: number): Vec3 {
     ];
 }
 
+/**
+ * The origin of a box at `origin` whose centre a move gizmo dragged to `center`, along `axes` only.
+ * Each moved axis lands on the grid (`step`; 0 for none: free move); every other axis keeps exactly
+ * the value it had, off the grid or not (an X arrow must not also snap the box's Z to the grid).
+ */
+export function movedOrigin(origin: Vec3, size: Vec3, center: Vec3, axes: readonly (0 | 1 | 2)[], step: number): Vec3 {
+    const out: Vec3 = [...origin];
+    for (const axis of axes) out[axis] = quantize(center[axis] - size[axis] / 2, step);
+    return out;
+}
+
+/** The axes a TransformControls handle moves along ("X", "XY", "XYZ", ...); all three for none. */
+export function axesOfHandle(handle: string | null | undefined): (0 | 1 | 2)[] {
+    if (!handle) return [0, 1, 2];
+    const axes: (0 | 1 | 2)[] = [];
+    if (handle.includes("X")) axes.push(0);
+    if (handle.includes("Y")) axes.push(1);
+    if (handle.includes("Z")) axes.push(2);
+    return axes.length ? axes : [0, 1, 2];
+}
+
 /** Which horizontal surface of a cell equipment seats against. */
 export type CellSurface = "floor" | "roof";
 /** Which side of that surface the equipment sits on: TOP = box above the

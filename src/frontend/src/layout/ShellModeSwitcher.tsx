@@ -115,21 +115,73 @@ export function modeTools(
   return parts;
 }
 
-export function ShellModeToolbar({region = true}: {region?: boolean}) {
+/**
+ * A shell's controls for the far right of a mode's toolbar region (`shellToolbarEnd`), run as the
+ * shell; null when there are none, or when they threw (which disables the shell, as in `modeTools`).
+ */
+export function modeEndTools(
+  mode: Pick<ShellMode, "id" | "shellToolbarEnd" | "shellPluginId">,
+  contextFor: (pluginId: string) => AdaPluginContext,
+): React.ReactNode {
+  const {shellToolbarEnd: end, shellPluginId: pluginId} = mode;
+  if (!end || !pluginId) return null;
+  try {
+    return end(contextFor(pluginId)) ?? null;
+  } catch (err) {
+    disablePlugin(pluginId, `mode "${mode.id}" shell toolbar end threw: ${String(err)}`);
+    return null;
+  }
+}
+
+/**
+ * The active mode's end controls on their own (`UiShellMode.toolbarEnd`), for a shell whose toolbar
+ * row is laid out by itself: mounted where the row ends (`ml-auto` on it by default), with the toolbars
+ * drawn without them (`<ShellModeToolbar end={false} />`). Nothing when the mode has none.
+ */
+export function ShellModeToolbarEnd({className = "ml-auto flex shrink-0 items-center gap-2"}: {className?: string}) {
+  const {modes, active} = useShellMode();
+  const stores = useViewerStores();
+  const theme = usePluginTheme();
+  const mode = modes.find((m) => m.id === active);
+  const end = mode ? modeEndTools(mode, (pluginId) => makePluginContext(pluginId, stores, theme)) : null;
+  if (end == null) return null;
+  return (
+    <div className={className} data-mode-toolbar-end="">
+      {end}
+    </div>
+  );
+}
+
+/**
+ * `end={false}`: the toolbars without the mode's end controls, which the shell mounts itself
+ * (`ShellModeToolbarEnd`). Inside the region they sit at its right edge; the region fills the room its
+ * parent gives it (`flex: 1`), so a shell that puts it in a row of its own gives that row's slot the
+ * room (`flex-1`) or mounts the end on its own.
+ */
+export function ShellModeToolbar({region = true, end: withEnd = true}: {region?: boolean; end?: boolean}) {
   const {modes, active} = useShellMode();
   const stores = useViewerStores();
   const theme = usePluginTheme();
   const mode = modes.find((m) => m.id === active);
   if (!mode) return region ? <ModeToolbarRegion /> : null;
-  const tools = modeTools(mode, (pluginId) => makePluginContext(pluginId, stores, theme));
+  const contextFor = (pluginId: string) => makePluginContext(pluginId, stores, theme);
+  const tools = modeTools(mode, contextFor);
   const own: React.ReactNode = tools.length ? <>{tools}</> : null;
   const core = mode.toolbars?.length ? <CoreModeToolbars ids={mode.toolbars} /> : null;
-  if (!core && !own) return region ? <ModeToolbarRegion /> : null;
+  const end = withEnd ? modeEndTools(mode, contextFor) : null;
+  if (!core && !own && end == null) return region ? <ModeToolbarRegion /> : null;
   const content = (
     <>
       {core}
       {own}
     </>
   );
-  return region ? <ModeToolbarRegion>{content}</ModeToolbarRegion> : content;
+  if (region) return <ModeToolbarRegion end={end}>{content}</ModeToolbarRegion>;
+  // Bare: the end controls follow the toolbars, and the shell lays them out itself.
+  return (
+    <>
+      {content}
+      {end}
+    </>
+  );
 }

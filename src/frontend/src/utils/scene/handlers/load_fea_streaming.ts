@@ -43,6 +43,7 @@ import type {ApplyStepOptions, LoadFeaStreamingArgs} from "../fea/streaming/type
 import {requestStep} from "../fea/streaming/stepQueue";
 import {loadFeaOnLayers} from "../fea/streaming/layerSession";
 import {isNativeViewportActive, useNativeViewport} from "@/viewport/native/nativeModel";
+import {waitForViewport} from "@/state/viewerRuntime";
 import {useModelState} from "@/state/modelState";
 import {preloadFrames, prefetchFieldSteps, upcomingSteps} from "../fea/streaming/prefetch";
 import {framesKey, noteOrdinaryPaint, recordPlayedFrame, showRecordedFrame} from "../fea/streaming/frameRecording";
@@ -159,6 +160,9 @@ async function loadOnResultLayers(args: LoadFeaStreamingArgs): Promise<void> {
 const resultsOnScreen = (): boolean => sceneColorOwner() === null;
 
 export async function load_fea_streaming(args: LoadFeaStreamingArgs): Promise<void> {
+    // `ada view` / FEAResult.show() opens the source as the viewer connects, which can be before
+    // either viewport has mounted: which path this takes is only known once one of them is up.
+    await waitForViewport(isNativeViewportActive);
     if (isNativeViewportActive()) return loadOnResultLayers(args);
     // The mesh, field and sidecar blobs are read from a bake, which only a
     // transport that serves FEA manifests and their files can do (REST, or the

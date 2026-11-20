@@ -17,6 +17,7 @@ const { CORE_COMMAND_ICONS } = await import("@/layout/commandIcons");
 const { registerCoreCommands } = await import("@/layout/coreCommands");
 const T = await import("@/layout/ModeToolbars");
 const D = await import("@/layout/desktop/desktopShell");
+const { Mode } = await import("@/layout/modes");
 const M = await import("@/layout/shellModes");
 const { ColorByLegend } = await import("@/layout/ColorByLegend");
 const { AdaViewerProvider } = await import("@/state/AdaViewerContext");
@@ -254,13 +255,13 @@ test("the toolbars: representation carries the label switches, colorBy a picker 
 
 test("the Desktop UI uses them: toolbars on both modes, labels and the colour-by legend placed", () => {
   const spec = D.desktopUiShellSpec();
-  for (const m of spec.layout!.modes!.filter((x) => x.id !== "build")) assert.ok(m.toolbars!.includes("colorBy"), m.id);
+  for (const m of spec.layout!.modes!.filter((x) => x.id !== Mode.TopologyInput)) assert.ok(m.toolbars!.includes("colorBy"), m.id);
   assert.equal(spec.chrome!.overlays!.labels, true);
   assert.ok(spec.chrome!.overlays!.colorByLegend);
 });
 
 test("the facade publishes them, and the API version moved", () => {
-  assert.equal(V.VIEWER_CORE_API_VERSION, "1.30.0");
+  assert.equal(V.VIEWER_CORE_API_VERSION, "1.32.0");
   // The scene entry cannot load outside a browser, so its exports are read from the source.
   const scene = readFileSync(new URL("../../viewer-core/scene.ts", import.meta.url), "utf8");
   for (const name of ["registerColorBySource", "applyColorBy", "resetColorBy", "useColorByStore", "useLabelsStore"]) {
@@ -271,5 +272,5 @@ test("the facade publishes them, and the API version moved", () => {
     assert.match(facade, new RegExp(`\\b${name}\\b[^;]*from "@/layout/${from}"`), `${name} is exported`);
   }
   const reg = readFileSync(new URL("../../plugins/registry.ts", import.meta.url), "utf8");
-  assert.match(reg, /PLUGIN_API_VERSION = "1\.30\.0"/);
+  assert.match(reg, /PLUGIN_API_VERSION = "1.32.0"/);
 });

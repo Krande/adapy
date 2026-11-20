@@ -38,6 +38,12 @@ export interface BlueprintsSlice {
    * (backward compatible). Only meaningful for engines advertising
    * `supports_grouping`. */
   groups: CellGroup[];
+  /** The structure a new space goes into: the one last picked (a structure row, or any of its items
+   * selected), or the one just added. Not saved; read it through `activeStructure`, which drops a
+   * name no longer in `groups` (deleted, or undone away). */
+  activeGroup: string | null;
+  /** Make a structure the active one (null: none, new spaces go in no structure). */
+  setActiveGroup: (name: string | null) => void;
   setEquipmentCad: (v: boolean) => void;
   /** Select the structural blueprint (doc.blueprint_name); marks the model dirty. */
   setSelectedBlueprint: (slug: string) => void;
@@ -48,8 +54,9 @@ export interface BlueprintsSlice {
    * selection (keep it if still offered, else the engine's default). */
   fetchBlueprints: () => Promise<void>;
   /** Add a new cell group (auto-named; blueprint defaults to the engine's
-   * default / current selection). Undoable; marks the model dirty. */
-  addGroup: () => void;
+   * default / current selection). It becomes the active structure. Undoable;
+   * marks the model dirty. Returns the new name. */
+  addGroup: () => string;
   /** Rename a group (from -> to); reassigns every cell pointing at it. A blank or
    * duplicate target is ignored. Undoable; marks the model dirty. */
   renameGroup: (from: string, to: string) => void;
@@ -75,6 +82,12 @@ export const createBlueprintsSlice: CellBuilderSlice<BlueprintsSlice> = (set, ge
     selectedBlueprint: null,
     blueprints: [],
     groups: [],
+    activeGroup: null,
+    setActiveGroup: (name) =>
+      set((s) => {
+        const next = name !== null && s.groups.some((g) => g.name === name) ? name : null;
+        return next === s.activeGroup ? {} : { activeGroup: next };
+      }),
     setEquipmentCad: (equipmentCad) =>
       withHistory(() => ({ equipmentCad, dirty: true })),
 
@@ -115,17 +128,20 @@ export const createBlueprintsSlice: CellBuilderSlice<BlueprintsSlice> = (set, ge
       }
     },
 
-    addGroup: () =>
+    addGroup: () => {
+      // Auto-name "Group N" avoiding collisions; default the new group's
+      // blueprint to the current selection (else the engine's first offered).
+      const groups0 = get().groups;
+      const existing = new Set(groups0.map((g) => g.name));
+      let n = groups0.length + 1;
+      let name = `Group ${n}`;
+      while (existing.has(name)) name = `Group ${++n}`;
       withHistory((s) => {
-        // Auto-name "Group N" avoiding collisions; default the new group's
-        // blueprint to the current selection (else the engine's first offered).
-        const existing = new Set(s.groups.map((g) => g.name));
-        let n = s.groups.length + 1;
-        let name = `Group ${n}`;
-        while (existing.has(name)) name = `Group ${++n}`;
         const blueprint = s.selectedBlueprint ?? s.blueprints[0]?.slug ?? "";
-        return { groups: [...s.groups, { name, blueprint }], dirty: true };
-      }),
+        return { groups: [...s.groups, { name, blueprint }], dirty: true, activeGroup: name };
+      });
+      return name;
+    },
 
     renameGroup: (from, to) =>
       withHistory((s) => {
@@ -143,7 +159,7 @@ export const createBlueprintsSlice: CellBuilderSlice<BlueprintsSlice> = (set, ge
         const cells: Record<string, BuilderCell> = {};
         for (const [id, c] of Object.entries(s.cells))
           cells[id] = c.group === from ? { ...c, group: name } : c;
-        return { groups, cells, dirty: true };
+        return { groups, cells, dirty: true, activeGroup: s.activeGroup === from ? name : s.activeGroup };
       }),
 
     removeGroup: (name) =>
@@ -155,7 +171,7 @@ export const createBlueprintsSlice: CellBuilderSlice<BlueprintsSlice> = (set, ge
         const cells: Record<string, BuilderCell> = {};
         for (const [id, c] of Object.entries(s.cells))
           cells[id] = { ...c, group: groupAfterRemoval(c.group, removed) };
-        return { groups, cells, dirty: true };
+        return { groups, cells, dirty: true, activeGroup: s.activeGroup === name ? null : s.activeGroup };
       }),
 
     setGroupBlueprint: (name, blueprint) =>

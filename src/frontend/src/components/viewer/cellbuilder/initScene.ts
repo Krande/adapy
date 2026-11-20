@@ -20,11 +20,14 @@ import {createCellBuilderScene, syncOffset} from "./sceneContext";
 import {disposeBuilderGrid, syncBuilderGrid} from "./builderGrid";
 import {disposeMesh, refreshEdgeOverlays, refreshFaceStyles} from "./overlays";
 import {applyCellVisibility, rebuild, rebuildCompanions} from "./meshRebuild";
+import {disposeRefs, rebuildRefs, refreshRefStyles} from "./refsOverlay";
 import {rebuildCadPreviews} from "./cadPreview";
 import {clearPorts, rebuildPorts} from "./portsOverlay";
 import {installCellGizmo} from "./cellGizmo";
 import {installPortGizmo, syncPortGizmo} from "./portGizmo";
-import {disposeResizeHandles, syncGizmo} from "./resizeHandles";
+import {disposeResizeHandles, keepHandlesScreenSized, syncGizmo, translationSnapFor} from "./resizeHandles";
+import {installFreeMoveKeys, onFreeMoveChange} from "@/utils/gizmo/freeMove";
+import {keepScreenSized} from "@/utils/gizmo/screenSize";
 import {disposeCellDimensions, disposeMoveMeasure} from "./cellDimensions";
 import {useGroundGridStore} from "@/state/groundGridStore";
 import {clearLongPress, onContextMenu, onPointerCancel, onPointerDown, onPointerMove, onPointerUp} from "./pointerTools";
@@ -44,6 +47,7 @@ import {viewportInputElement} from "@/viewport/input";
 import {openedModelFramer} from "./frameOpened";
 import {shownInScene} from "./cellBoxSelect";
 import {setBuilderVisibilityHost} from "@/state/cellbuilder/builderVisibility";
+import {disposeInfoLabel, syncInfoLabel} from "./infoLabel";
 
 export function initCellBuilderScene(
     renderer: THREE.WebGLRenderer,
@@ -54,6 +58,15 @@ export function initCellBuilderScene(
     syncOffset(ctx);
     installCellGizmo(ctx);
     installPortGizmo(ctx);
+    // The gizmos and the resize handles stay one size on screen, in perspective and orthographic.
+    const unsize = [keepScreenSized(ctx.gizmo), keepScreenSized(ctx.portGizmo), keepHandlesScreenSized(ctx)];
+    // Left Shift held while dragging: free move. The widgets' own step follows it at once, mid-drag.
+    const releaseFreeKeys = installFreeMoveKeys();
+    const unsubFreeMove = onFreeMoveChange(() => {
+        const st = useCellBuilderStore.getState();
+        if (ctx.gizmo.mode === "translate") ctx.gizmo.setTranslationSnap(translationSnapFor(st));
+        if (ctx.portGizmo.mode === "translate") ctx.portGizmo.setTranslationSnap(translationSnapFor(st));
+    });
 
     // The builder takes the pointer and its keys only while its cells are drawn. A shell may keep
     // the procedural model open behind a mode that hides them (the docked UI's Output without a
@@ -67,7 +80,7 @@ export function initCellBuilderScene(
         cellsShown: () => useCellBuilderStore.getState().active !== null && shown(),
         selected: () => {
             const st = useCellBuilderStore.getState();
-            return st.selectedCellIds.length ? [...st.selectedCellIds] : st.selection ? [st.selection.cellId] : [];
+            return st.selectedCellIds.length ? [...st.selectedCellIds] : st.selection?.cellId ? [st.selection.cellId] : [];
         },
         all: () => Object.keys(useCellBuilderStore.getState().cells),
         hide: (ids) => useCellBuilderStore.getState().hideCells([...ids]),
@@ -97,12 +110,14 @@ export function initCellBuilderScene(
     window.addEventListener("keydown", hKeyDown, true);
 
     rebuild(ctx);
+    rebuildRefs(ctx);
     const framer = openedModelFramer(ctx.cellsGroup, () => useCellBuilderStore.getState().active?.modelId ?? null);
     framer.check();
     rebuildPorts(ctx);
     syncBuilderGrid(ctx);
     syncGizmo(ctx);
     syncPortGizmo(ctx);
+    syncInfoLabel(ctx);
     rebuildCompanions(ctx);
     // Its own subscription, so a companion change never re-runs the editable
     // rebuild (which clears hover, selection and the mesh index).
@@ -138,6 +153,9 @@ export function initCellBuilderScene(
             rebuild(ctx);
         } else if (s.selection !== prev.selection || s.selectedCellIds !== prev.selectedCellIds)
             refreshFaceStyles(ctx);
+        // The plugins' refs: drawn again when they or the model change, restyled on a new pick.
+        if (s.refs !== prev.refs || s.active !== prev.active) rebuildRefs(ctx);
+        else if (s.selection !== prev.selection) refreshRefStyles(ctx);
         // "Show as CAD" toggles + any cell/type change re-seat the CAD previews
         // (after rebuild() has re-made the boxes so applyCellVisibility hides the
         // right ones).
@@ -153,7 +171,7 @@ export function initCellBuilderScene(
         // within the same member, so F/D + setLoftActive don't fight), and clear
         // it when the pick isn't a loft band.
         if (s.selection !== prev.selection) {
-            const sc = s.selection ? s.cells[s.selection.cellId] : null;
+            const sc = s.selection?.cellId ? s.cells[s.selection.cellId] : null;
             if (sc && sc.kind === "loft" && sc.loft) {
                 if (!ctx.loftActive || ctx.loftActive.member !== sc.loft.member)
                     ctx.loftActive = {member: sc.loft.member, index: sc.loft.bay};
@@ -176,6 +194,7 @@ export function initCellBuilderScene(
             s.gizmoAxisLock !== prev.gizmoAxisLock ||
             s.gizmoVertexSnap !== prev.gizmoVertexSnap ||
             s.cells !== prev.cells ||
+            s.refs !== prev.refs ||
             s.active !== prev.active ||
             s.gridStep !== prev.gridStep ||
             s.cellsVisible !== prev.cellsVisible
@@ -194,8 +213,19 @@ export function initCellBuilderScene(
             syncPortGizmo(ctx);
         }
         if (s.active !== prev.active || s.gridStep !== prev.gridStep) syncBuilderGrid(ctx);
+        // The info label follows the pick, its edits and moves, and goes with the flag or the cells.
+        if (
+            s.infoLabel !== prev.infoLabel ||
+            s.selection !== prev.selection ||
+            s.cells !== prev.cells ||
+            s.refs !== prev.refs ||
+            s.active !== prev.active ||
+            s.cellsVisible !== prev.cellsVisible
+        )
+            syncInfoLabel(ctx);
         if (s.cellsVisible !== prev.cellsVisible) {
             ctx.cellsGroup.visible = s.cellsVisible;
+            ctx.refsGroup.visible = s.cellsVisible;
             ctx.cadPreviewGroup.visible = s.cellsVisible;
             refreshEdgeOverlays(ctx);
             requestRender();
@@ -222,7 +252,10 @@ export function initCellBuilderScene(
     // outside the cellbuilder store, so it needs its own subscription.
     // The include view (what the build leaves out: dimmed, hidden or drawn like the rest).
     const unsubIncludeView = useIncludeViewStore.subscribe((s, prev) => {
-        if (s.view !== prev.view) rebuild(ctx);
+        if (s.view !== prev.view) {
+            rebuild(ctx);
+            rebuildRefs(ctx);
+        }
     });
     const unsubGroupView = useGroupViewStore.subscribe((s, prev) => {
         if (s.colourByGroup !== prev.colourByGroup || s.colours !== prev.colours) refreshFaceStyles(ctx);
@@ -246,6 +279,9 @@ export function initCellBuilderScene(
         unsubGroupView();
         unsubIncludeView();
         unsubModel();
+        unsubFreeMove();
+        releaseFreeKeys();
+        for (const undo of unsize) undo();
         el.removeEventListener("pointerdown", hPointerDown, true);
         el.removeEventListener("pointermove", hPointerMove, true);
         el.removeEventListener("pointerup", hPointerUp, true);
@@ -278,8 +314,10 @@ export function initCellBuilderScene(
         (ctx.faceOverlay.material as THREE.Material).dispose();
         ctx.container.remove(ctx.faceOverlay);
         disposeResizeHandles(ctx);
+        disposeRefs(ctx);
         disposeCellDimensions(ctx);
         ctx.container.remove(ctx.dimensionGroup);
+        disposeInfoLabel(ctx);
         disposeMoveMeasure(ctx);
         ctx.container.remove(ctx.moveMeasureGroup);
         ctx.hiddenDefaultGrids.forEach((g) => (g.visible = useGroundGridStore.getState().visible));

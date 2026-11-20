@@ -99,6 +99,80 @@ export interface KeyRow {
   overridden: boolean;
   /** A widget's own key: listed, not editable. */
   locked: boolean;
+  /** Shown in place of `keys`: a run of keys ("1–9"). */
+  keysLabel?: string;
+  /**
+   * More chords that run the same command, shown beside the one in force: a shell's alias (the
+   * command's own `keys` where its `shortcut` names a core key, a second chord for the palette say).
+   */
+  extraKeys?: readonly ShortcutKeys[];
+}
+
+type Modifier = "ctrl" | "alt" | "shift";
+const MODIFIER_WORDS: Readonly<Record<string, Modifier>> = { ctrl: "ctrl", control: "ctrl", cmd: "ctrl", "⌘": "ctrl", meta: "ctrl", alt: "alt", option: "alt", shift: "shift" };
+/** Key names a query may spell out, as the registry spells the key. */
+const KEY_WORDS: Readonly<Record<string, string>> = {
+  esc: "escape", escape: "escape", enter: "enter", return: "enter", tab: "tab", space: " ", backspace: "backspace",
+  delete: "delete", del: "delete", home: "home", end: "end", pageup: "pageup", pagedown: "pagedown",
+  up: "arrowup", down: "arrowdown", left: "arrowleft", right: "arrowright",
+  arrowup: "arrowup", arrowdown: "arrowdown", arrowleft: "arrowleft", arrowright: "arrowright",
+  plus: "+", minus: "-",
+};
+
+/**
+ * A search for keys rather than words: modifiers alone ("alt", "ctrl shift"), one key ("g", "5",
+ * "`"), or modifiers and a key ("ctrl+k", "shift h"). `wordToo`: the query is also a word a
+ * label may hold ("delete", "escape"), so a label match counts as well. Null: not a key search.
+ */
+export function parseKeyQuery(query: string): { mods: ReadonlySet<Modifier>; key?: string; wordToo: boolean } | null {
+  const q = query.trim().toLowerCase();
+  if (!q) return null;
+  // A lone "+" or "-" is the key itself, not a separator.
+  const tokens = q.length === 1 ? [q] : q.split(/[\s+]+/).filter(Boolean);
+  if (!tokens.length) return null;
+  const mods = new Set<Modifier>();
+  let key: string | undefined;
+  for (const [i, t] of tokens.entries()) {
+    const mod = MODIFIER_WORDS[t];
+    if (mod) {
+      if (key !== undefined) return null;
+      mods.add(mod);
+      continue;
+    }
+    if (i !== tokens.length - 1) return null;
+    const named = /^f([1-9]|1[0-2])$/.test(t) ? t : KEY_WORDS[t];
+    if (t.length === 1) key = t;
+    else if (named) key = named;
+    else return null;
+  }
+  return { mods, ...(key !== undefined ? { key } : {}), wordToo: tokens.length === 1 && key !== undefined && key.length > 1 };
+}
+
+/**
+ * How well `query`, read as keys (`parseKeyQuery`), names one of `row`'s chords: 0 the chord
+ * itself (the same modifiers and key), 1 a chord with those modifiers and more, or on that key
+ * with modifiers ("g" finds Shift+G too); null none, or not a key search.
+ */
+export function chordQueryRank(query: string, row: Pick<KeyRow, "keys" | "keysLabel" | "extraKeys">): number | null {
+  const want = parseKeyQuery(query);
+  if (!want) return null;
+  const chords = [row.keys, ...(row.extraKeys ?? [])]
+    .map((k) => (k ? parseShortcut(k) : null))
+    .filter((c): c is NonNullable<ReturnType<typeof parseShortcut>> => !!c)
+    .map((c) => ({ key: c.key, mods: new Set<Modifier>([...(c.ctrl ? ["ctrl" as const] : []), ...(c.alt ? ["alt" as const] : []), ...(c.shift ? ["shift" as const] : [])]) }));
+  // A run of keys ("1–9"): every key in it, bare.
+  const run = row.keysLabel ? /^(.)–(.)$/.exec(row.keysLabel) : null;
+  if (run && want.key?.length === 1 && want.key >= run[1] && want.key <= run[2]) chords.push({ key: want.key, mods: new Set() });
+  let best: number | null = null;
+  for (const c of chords) {
+    if (want.key !== undefined && c.key !== want.key) continue;
+    if (![...want.mods].every((m) => c.mods.has(m))) continue;
+    const exact = c.mods.size === want.mods.size;
+    // Modifiers alone list every chord holding them; none is "the" chord.
+    const rank = want.key !== undefined && exact ? 0 : 1;
+    best = best === null ? rank : Math.min(best, rank);
+  }
+  return best;
 }
 
 /** Every command (and every core key with no command of its own) as editor rows, with their effective and default chords. */
@@ -117,24 +191,33 @@ export function keyRows(
   };
   const dflt = (sid: string, c?: RegisteredCommand): ShortcutKeys | undefined =>
     defaults.get(sid)?.keys ?? (c?.shortcut ? defaultCoreShortcutKeys(c.shortcut) : undefined) ?? c?.keys;
+  // A command's own chord (`cmd:<id>`) where the row is the core key it names: one row, the alias beside it.
+  const folded = new Set<string>();
   for (const c of listCommands({ toggle: toggleFn, isOpen })) {
     const sid = shortcutIdOf(c, base);
     if (rows.has(sid)) continue;
+    const alias = `cmd:${c.id}`;
+    const hasAlias = alias !== sid && defaults.has(alias);
+    if (hasAlias) folded.add(alias);
+    const keys = defaults.get(sid)?.local ? defaults.get(sid)?.keys : keysOf(sid);
+    const aliasKeys = hasAlias ? keysOf(alias) : undefined;
     rows.set(sid, {
       shortcutId: sid,
       commandId: c.id,
       label: c.label,
       group: c.group ?? "Commands",
       keywords: c.keywords ?? [],
-      keys: defaults.get(sid)?.local ? defaults.get(sid)?.keys : keysOf(sid),
+      keys,
       defaultKeys: dflt(sid, c),
       overridden: !defaults.get(sid)?.local && sid in overrides,
       locked: !!defaults.get(sid)?.local,
+      ...(defaults.get(sid)?.keysLabel ? { keysLabel: defaults.get(sid)!.keysLabel } : {}),
+      ...(aliasKeys && normaliseChord(aliasKeys) !== normaliseChord(keys ?? "") ? { extraKeys: [aliasKeys] } : {}),
     });
   }
   // Keys that have no command: core's own table (the tree walk is also a command, the rest are keys only), shell and plugin shortcuts.
   for (const s of base) {
-    if (rows.has(s.id)) continue;
+    if (rows.has(s.id) || folded.has(s.id)) continue;
     rows.set(s.id, {
       shortcutId: s.id,
       commandId: null,
@@ -145,6 +228,7 @@ export function keyRows(
       defaultKeys: s.keys,
       overridden: !s.local && s.id in overrides,
       locked: !!s.local,
+      ...(s.keysLabel ? { keysLabel: s.keysLabel } : {}),
     });
   }
   return [...rows.values()];

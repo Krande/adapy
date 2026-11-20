@@ -19,10 +19,14 @@ THE PROTOCOL. Small on purpose:
 * stdin, first line: ``{"job": <queue.Job as a dict>, "storage": <Storage.process_spec()>}``,
   and for a procedural export a ``"model_row"`` too: the model the server read from its file
   store, which a worker would read from postgres. The server then keeps stdin open and never
-  writes again; end-of-file means the server is gone, and the job goes with it.
+  writes again; end-of-file means the server is gone, and the job goes with it. That pipe is
+  moved off fd 0 once the payload is read (``_take_stdin``): what the job starts inherits the
+  null device instead.
 * stdout: one JSON object per line, ``{"update": {...}}``, which is exactly a handler's
-  ``queue.update(job_id, **fields)``. The real stdout is moved aside at start-up and fd 1 points
-  at stderr, so a library that prints cannot corrupt the stream.
+  ``queue.update(job_id, **fields)``. The first line is this process's own (``"boot": true``):
+  it says the process is up and loading plugins, so the server can tell a job that started from
+  one stuck before it (``local_jobs.START_TIMEOUT_S``). The real stdout is moved aside at
+  start-up and fd 1 points at stderr, so a library that prints cannot corrupt the stream.
 * stderr: everything else. The server keeps its tail to explain a crash.
 * exit status: 0 whenever the pipeline returned (a job that failed said so over stdout); any other
   status, or a signal, is a crash -- the server reports it with the tail of stderr.
@@ -97,6 +101,44 @@ def _exit_when_the_server_goes(stdin: IO[bytes]) -> None:
     _abort(1)
 
 
+def _take_stdin() -> IO[bytes]:
+    """The server's pipe, on a descriptor of its own, with fd 0 pointed at the null device.
+
+    WHY. The watchdog keeps a read pending on that pipe for the life of the job. On Windows a
+    synchronous pipe serialises its I/O: while that read waits, anything else that touches the
+    pipe -- a child process asking what its stdin is, which ``git`` does at start-up -- waits
+    behind it, and the read only returns when the server goes. And every subprocess the job
+    starts inherits fd 0 unless it says otherwise: a plugin's ``git rev-parse`` for its version
+    while it registers, a mesher, a solver. So one such call at plugin load held the job before
+    its first update, for its timeout or for ever, and the job sat at "starting" with nothing to
+    show why. Elsewhere the same child would block reading a pipe nobody writes. With fd 0 on
+    the null device they read end-of-file at once, as under a worker, whose stdin is not a pipe.
+
+    ``os.dup`` makes the copy non-inheritable, so no child gets the pipe through it either.
+    """
+    pipe = os.fdopen(os.dup(0), "rb")
+    try:
+        null = os.open(os.devnull, os.O_RDONLY)
+        try:
+            # On Windows dup2 onto 0..2 also sets the process's standard handle, which is what
+            # ``subprocess`` hands a child that does not name its stdin.
+            os.dup2(null, 0)
+        finally:
+            os.close(null)
+    except OSError:
+        pass  # keep the pipe on fd 0 too: a job that runs beats one refused for its stdin
+    return pipe
+
+
+def _send_boot(proto: IO[str]) -> None:
+    """Tell the server this process is up, before the plugins (which can be slow) load."""
+    try:
+        proto.write(json.dumps({"update": {"stage": "loading plugins"}, "boot": True}) + "\n")
+        proto.flush()
+    except (OSError, ValueError):
+        pass  # the server is gone; the EOF watchdog ends this process
+
+
 async def _run(payload: dict, proto: IO[str]) -> None:
     from ada.comms.rest.queue import Job
     from ada.comms.rest.storage import Storage
@@ -126,13 +168,14 @@ def main() -> None:
     os.dup2(2, 1)
     proto = os.fdopen(proto_fd, "w", encoding="utf-8", buffering=1)
 
-    stdin = sys.stdin.buffer
+    stdin = _take_stdin()
     line = stdin.readline()
     if not line:
         os._exit(1)
     payload = json.loads(line.decode("utf-8"))
 
     threading.Thread(target=_exit_when_the_server_goes, args=(stdin,), daemon=True).start()
+    _send_boot(proto)
     if hasattr(signal, "SIGTERM"):
         signal.signal(signal.SIGTERM, lambda *_: _abort(143))
 

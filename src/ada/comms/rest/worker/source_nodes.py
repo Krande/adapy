@@ -15,6 +15,28 @@ from ada.config import logger
 from .. import db as db_module
 
 
+def _with_aware_instant(node: dict) -> dict:
+    """``node`` with ``last_changed_at`` as an aware datetime, parsed from an ISO string if it is one.
+
+    Refuses an instant with no timezone, with the REST recorder's reason: the value only ever
+    moves forward, so a local wall-clock time read as UTC is a permanently wrong record."""
+    changed = node.get("last_changed_at")
+    if isinstance(changed, str):
+        try:
+            changed = datetime.datetime.fromisoformat(changed.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise ValueError(
+                f"last_changed_at for node {node.get('node_ref')!r} is not an ISO instant: {changed!r}"
+            ) from exc
+    if isinstance(changed, datetime.datetime) and changed.tzinfo is None:
+        raise ValueError(
+            f"last_changed_at for node {node.get('node_ref')!r} has no timezone. "
+            "Send an aware instant: this value only ever moves forward, so a "
+            "local wall-clock time read as UTC is a permanently wrong record."
+        )
+    return {**node, "last_changed_at": changed} if changed is not node.get("last_changed_at") else node
+
+
 class _SyncSourceNodesFacade:
     """Synchronous view of the source-node change table, scoped to one job.
 
@@ -64,6 +86,9 @@ class _SyncSourceNodesFacade:
         """
         from .. import db as db_module
 
+        # ISO strings are accepted as the REST recorder accepts them (a writer cannot tell which
+        # recorder it was handed); the database wants datetimes, so they are parsed here.
+        nodes = [_with_aware_instant(n) for n in nodes]
         return self._run(db_module.record_source_nodes(self._pool, scope=self._scope_key, source=source, nodes=nodes))
 
     def get(self, source: str, node_refs: list) -> list:

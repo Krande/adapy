@@ -35,14 +35,23 @@ export interface ShortcutSpec {
   repeat?: boolean;
   /** Leave the browser's default for the key alone once handled. Default: it is prevented. */
   keepDefault?: boolean;
+  /**
+   * A key a widget handles itself (a shell's canvas tool, core's builder keys): listed in the
+   * dialog, never dispatched, so `run` is never called. It may share a chord with a dispatched
+   * key (it is live only where its widget is), and takes no chord from anything else.
+   */
+  local?: boolean;
 }
+
+/** A key a shell's own widget handles (`local: true`): listed, never dispatched, so it has no `run`. */
+export type LocalShortcutSpec = Pick<ShortcutSpec, "id" | "keys" | "label" | "group"> & { local: true; run?: () => void };
 
 export interface RegisteredShortcut extends ShortcutSpec {
   owner: string;
-  /** A key a widget handles itself (core's local keys): listed, never dispatched. */
-  local?: boolean;
   /** Listed only while this holds (core's panel keys). */
   requires?: "customisable-panels";
+  /** What the dialog shows in place of `keys`: a run of keys ("1–9", core's `range`). */
+  keysLabel?: string;
 }
 
 interface Chord {
@@ -89,6 +98,7 @@ for (const def of CORE_SHORTCUTS) {
     owner: "core",
     local: def.local,
     requires: def.requires,
+    ...(def.range?.length ? { keysLabel: `${def.range[0]}–${def.range[def.range.length - 1]}` } : {}),
     repeat: true,
     keepDefault: def.keepDefault,
     // Every viewer bound (a page may hold several, each scoped) gets its say.
@@ -208,12 +218,19 @@ const reserved = new Set(RESERVED_SHORTCUTS.map((k) => chordKey(parseShortcut(k)
 
 const _shortcuts = new Map<string, RegisteredShortcut>();
 
-/** Register a shortcut. Refused (false, with a warning) for a reserved or already taken chord. */
-export function registerShortcut(spec: ShortcutSpec, owner: string): boolean {
+/**
+ * Register a shortcut. Refused (false, with a warning) for a reserved or already taken chord. A
+ * `local` one (a widget's own key) is listed only: never refused for its chord, and holds none.
+ */
+export function registerShortcut(spec: ShortcutSpec | LocalShortcutSpec, owner: string): boolean {
   const chord = parseShortcut(spec.keys);
   if (!spec.id || !chord) {
     console.warn(`[layout] shortcut "${spec.id}" has no id or no key; ignored`);
     return false;
+  }
+  if (spec.local) {
+    _shortcuts.set(spec.id, { ...spec, run: () => {}, local: true, owner });
+    return true;
   }
   const ck = chordKey(chord);
   if (reserved.has(ck)) {
@@ -221,12 +238,12 @@ export function registerShortcut(spec: ShortcutSpec, owner: string): boolean {
     return false;
   }
   for (const s of _shortcuts.values()) {
-    if (s.id !== spec.id && chordKey(parseShortcut(s.keys)!) === ck) {
+    if (!s.local && s.id !== spec.id && chordKey(parseShortcut(s.keys)!) === ck) {
       console.warn(`[layout] shortcut "${spec.id}": ${spec.keys} is taken by "${s.id}"; ignored`);
       return false;
     }
   }
-  _shortcuts.set(spec.id, { ...spec, owner });
+  _shortcuts.set(spec.id, { ...(spec as ShortcutSpec), owner });
   return true;
 }
 

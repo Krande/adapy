@@ -63,7 +63,7 @@ import {activeViewport, NO_VIEWPORT} from "@/viewport/api/viewportApi";
 import {registerCommand, unregisterCommand, type CommandSpec} from "./commands";
 import {layoutStore} from "./layoutStore";
 import {listShellModes} from "./shellModes";
-import {registerOptionCommands} from "./optionCommands";
+import {openSettingsTab, registerOptionCommands} from "./optionCommands";
 import {setUiFrozen, uiFreezeOffered, uiFrozen} from "./uiFreeze";
 import {builderLoaded} from "./modeRequirements";
 import {deleteWorkspace, listWorkspaces, loadWorkspace, resetArrangement, saveWorkspace} from "./presets/classicPlace";
@@ -159,7 +159,7 @@ type GizmoKind = "translate" | "rotate" | "resize";
 
 /** The kind of the selected builder component, or null with none. */
 function selectedComponentKind(s: BuilderState): "cell" | "equipment" | "loft" | "opening" | null {
-  return s.selection ? (s.cells[s.selection.cellId]?.kind ?? null) : null;
+  return s.selection?.cellId ? (s.cells[s.selection.cellId]?.kind ?? null) : null;
 }
 
 /** Which components a gizmo works on (the G / R / S keys): rotate is for equipment; resize
@@ -172,7 +172,7 @@ const GIZMO_TARGETS: Readonly<Record<GizmoKind, {kinds: readonly string[]; need:
 
 /** Why the resize gizmo refuses the selected component (a loft band, a CAD-fitted equipment), or null. */
 function resizeRefusedFor(s: BuilderState): string | null {
-  const cell = s.selection ? s.cells[s.selection.cellId] : undefined;
+  const cell = s.selection?.cellId ? s.cells[s.selection.cellId] : undefined;
   return cell ? resizeRefusal(cell.kind, {cadFitted: equipmentCadFitted(cell, s)}) : null;
 }
 
@@ -1021,6 +1021,8 @@ export function coreCommandSpecs(): CommandSpec[] {
       id: ID.builderAddCell,
       label: "Add cell",
       group: "Build",
+      // The builder's own A key (keyboard.ts) does the same: shown with the command, listed once.
+      shortcut: "core:builder-place-cell",
       checked: () => useCellBuilderStore.getState().mode === "add-cell",
       disabledReason: builderReadOnly,
       run: () => {
@@ -1109,6 +1111,13 @@ export function coreCommandSpecs(): CommandSpec[] {
         run: () => useIncludeViewStore.getState().setView(view),
       }),
     ),
+    {
+      id: ID.builderGridSettings,
+      label: "Grid & snapping…",
+      group: "Build",
+      keywords: ["grid", "snap", "snapping", "step", "vertex", "select mode", "settings"],
+      run: () => openSettingsTab("grid"),
+    },
   ];
   for (const [id, preset] of Object.entries(THEME_PRESETS)) {
     specs.push({

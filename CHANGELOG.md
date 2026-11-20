@@ -2,6 +2,34 @@
 
 
 
+## v0.163.0 (2026-11-20)
+
+### Feature
+
+* feat(viewer): core&#39;s modes as typed constants, their behaviour assigned per UI (plugin API 1.32.0) (#578)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`e41ad1d`](https://github.com/Krande/adapy/commit/e41ad1dd1d32686403dac810642ca77e9b7d74ca))
+
+
+## v0.162.1 (2026-11-19)
+
+### Fix
+
+* fix: admin providers, in-browser FEM conversion and provider IFC sweeps (#576)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`dc0ba25`](https://github.com/Krande/adapy/commit/dc0ba2501bd45974ae6b7fb8209e2b43876dbf7b))
+
+
+## v0.162.0 (2026-11-19)
+
+### Feature
+
+* feat(viewer): add and rename in the cell builder; what an engine&#39;s modifications editor needs (doc extras, selection boxes) (#567)
+
+Co-authored-by: Claude Opus 5.5 (1M context) &lt;noreply@anthropic.com&gt;
+Co-authored-by: krande &lt;kristoffer_andersen@outlook.com&gt; ([`fbe06f6`](https://github.com/Krande/adapy/commit/fbe06f67ce632a66897966eea2cc58fffc3fd6c0))
+
+
 ## v0.161.5 (2026-11-19)
 
 ### Fix

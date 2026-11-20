@@ -124,6 +124,7 @@ test("the root entry point re-exports only the dependency-free leaves", () => {
     "@/layout/corePanelIds",
     "@/layout/splitTree",
     "@/layout/shellModes",
+    "@/layout/modes",
     "@/layout/shortcuts",
     "@/layout/coreShortcutTable",
     "@/layout/shortcutDispatch",
@@ -148,6 +149,8 @@ test("the root entry point re-exports only the dependency-free leaves", () => {
     "@/utils/cellbuilder/modelTree",
     "@/utils/cellbuilder/include",
     "@/utils/cellbuilder/blueprintColours",
+    // The builder refs' types (type-only here; the module's own imports are types too).
+    "@/state/cellbuilder/refsSlice",
     // Weld types as people read them: the symbols (generated geometry, no imports) and the short names.
     "@/utils/weldSymbols",
     "@/utils/weldTypeNames",

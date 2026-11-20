@@ -14,18 +14,56 @@ import {copySelectionNames, writeToClipboard} from '@/utils/clipboard/copySelect
 import {elementFirstNodeId} from '@/utils/scene/fea/goToNode';
 
 import {useCellBuilderStore} from '@/state/cellBuilderStore';
+import {selectedRef, selectionName, selectionPlace} from '@/utils/cellbuilder/boxTarget';
 import {useSceneMirrorStore} from '@/state/sceneMirrorStore';
 import {parentLevelName} from '@/utils/tree_view/treeSelection';
 import {isMirroredWindow, useSceneActions} from '@/layout/sceneActions';
-import ObjectMetadataPanel from './ObjectMetadataPanel';
+import {activeShellMode, builderPresence, shellModesVersion, subscribeShellModes} from '@/layout/shellModes';
+import ObjectMetadataPanel, {useClickedPosition} from './ObjectMetadataPanel';
+import {meshStatsLine, useSelectionMeshStats} from './MeshStatsSection';
 import TreeNodeInfoSection from './TreeNodeInfoSection';
 import SourceJumpSection from './SourceJumpSection';
 import IndexedAttributesSection from './IndexedAttributesSection';
 import RelatedSection from './RelatedSection';
-import CellBuilderSelectionInfo from './CellBuilderSelectionInfo';
+import {BuilderItemSection, BuilderStructureSection} from './cellBuilderSelection/BuilderSections';
 import FemConceptSelectionInfo from './FemConceptSelectionInfo';
 import FeaSetsSection from './FeaSetsSection';
+import FeaElementSection from './FeaElementSection';
 import DownloadSelectionButton from './DownloadSelectionButton';
+import {builderCellsShown} from '@/state/cellbuilder/builderVisibility';
+import {onBeforeDraw} from '@/viewport/api/beforeDraw';
+
+/** Whether a builder pick is the panel's now, by what the active mode declared (`builderPresence`). */
+function builderPickShownNow(): boolean {
+    const presence = builderPresence();
+    if (presence === "edit") return true;
+    if (presence === "away") return false;
+    // "compare": while the builder's cells are on screen (or no builder scene says otherwise).
+    return builderCellsShown() !== false;
+}
+
+/**
+ * Whether a builder pick is the panel's. The active mode says (`ModeBehaviour.builder`): where the
+ * procedural model is edited ("edit", and core's own UI, which has no modes) it always is; in a mode
+ * that keeps the model open behind it ("away") it is no selection there -- no summary, no section;
+ * in a mode that draws the builder to compare ("compare") it is while the cells are drawn, followed
+ * frame by frame as the builder's layer is hidden after a switch.
+ */
+function useBuilderPickShown(): boolean {
+    useSyncExternalStore(subscribeShellModes, shellModesVersion, shellModesVersion);
+    const [, redraw] = React.useReducer((n: number) => n + 1, 0);
+    const shown = builderPickShownNow();
+    const seen = React.useRef(shown);
+    seen.current = shown;
+    React.useEffect(
+        () =>
+            onBeforeDraw(() => {
+                if (builderPickShownNow() !== seen.current) redraw();
+            }),
+        [],
+    );
+    return shown;
+}
 
 // 1500 ms is the smallest hold that still feels intentional vs a
 // reflexive tap-and-release; long enough that "Copied" lingers on
@@ -38,6 +76,35 @@ export interface ObjectInfoBodyProps {
     /** Replaces what "Show in data" does (open the FEA data table at the node), given the
      *  picked element's first node. */
     onShowInData?: (nodeId: number) => void;
+    /**
+     * Which of the matching sections to draw, by provider id (core's and the plugins'), asked
+     * after their own `match`. A shell sets it per mode (`PanelOverride.options` as a function
+     * of the mode) so, say, the builder's sections stay in the mode that edits the model.
+     * A throw keeps the section. Absent: every matching section.
+     */
+    sections?: (providerId: string, sel: SelectionSnapshot) => boolean;
+    /**
+     * The picked element's properties (`object-metadata`) as plain rows: no foldable
+     * "Properties" heading, always open, and its clicked-at decimals in that row's own menu.
+     * For a shell whose panel is itself the properties. Absent: folded under a heading, as before.
+     */
+    flat?: boolean;
+    /**
+     * False: with a builder item picked, the summary at the top (its name again, Hide, Unhide
+     * all, Add mode) is left out -- the item's own layout names it, and a shell's Model panel
+     * and toolbar act on it. A mesh pick keeps its summary. Absent or true: drawn, as before.
+     */
+    builderSummary?: boolean;
+    /**
+     * The summary at the top of the panel. "full" (the default): as it always was -- the name row,
+     * Hide / Hide others / Unhide all, Show in data, Download as…, its notices, and in the object
+     * metadata the "Clicked at" row and the "Mesh (n tris)" section. "menu": none of those; one
+     * small "⋯" button at the top right of the body instead, whose menu holds Show in data,
+     * Download as… (greyed out, the reason its tooltip, when there is no source), Copy clicked
+     * position, and the mesh's stats as a line. For a flat panel whose items name what is picked
+     * themselves, with the tree and the keys to hide it.
+     */
+    summary?: "full" | "menu";
 }
 
 const ObjectInfoOptions = React.createContext<ObjectInfoBodyProps>({});
@@ -52,20 +119,36 @@ function useSelectionSnapshot(): SelectionSnapshot {
     const cbSelection = useCellBuilderStore((s) => s.selection);
     const cbSelectedIds = useCellBuilderStore((s) => s.selectedCellIds);
     const cbCells = useCellBuilderStore((s) => s.cells);
+    const cbRefs = useCellBuilderStore((s) => s.refs);
+    const cbGroups = useCellBuilderStore((s) => s.groups);
+    const cbLoftMembers = useCellBuilderStore((s) => s.loftMembers);
+    const cbActiveGroup = useCellBuilderStore((s) => s.activeGroup);
     const mirroredCount = useSelectedRangeCount();
+    const builderShown = useBuilderPickShown();
+    // The shell's mode, so a section (or the shell's `sections`) can keep to the modes it is for.
+    const shellMode = useSyncExternalStore(subscribeShellModes, activeShellMode, activeShellMode);
     return React.useMemo<SelectionSnapshot>(() => {
         const rangeCount = mirroredCount;
         const base = {
             meshName: name || null,
             hasEntities: treeData != null || (cbActive && Object.keys(cbCells).length > 0),
             cellBuilderActive: cbActive,
+            ...(shellMode ? {shellMode} : {}),
         };
-        if (cbActive && cbSelection !== null) {
-            return {...base, kind: "cell", name: cbCells[cbSelection.cellId]?.name || null, count: cbSelectedIds.length};
+        if (cbActive && cbSelection !== null && builderShown) {
+            // Where the pick is, so a plugin's section can place itself (and the builder's
+            // space and structure sections know what to show).
+            const place = selectionPlace(cbSelection, {cells: cbCells, refs: cbRefs, groups: cbGroups, loftMembers: cbLoftMembers});
+            const name = selectionName(cbSelection, cbCells, cbRefs);
+            const ref = selectedRef(cbSelection, cbRefs);
+            if (ref) return {...base, ...place, kind: "ref", name, refOwner: ref.owner, refKey: ref.key, count: 1};
+            return {...base, ...place, kind: "cell", name, count: cbSelectedIds.length};
         }
         if (rangeCount > 0 || name) return {...base, kind: "mesh", name: name || null, count: rangeCount};
-        return {...base, kind: "none", name: null, count: 0};
-    }, [name, selectedObjects, treeData, cbActive, cbSelection, cbSelectedIds, cbCells, mirroredCount]);
+        // Nothing picked in an open model: the active structure still has its section.
+        const structure = cbActive && cbActiveGroup && cbGroups.some((g) => g.name === cbActiveGroup) ? cbActiveGroup : undefined;
+        return {...base, kind: "none", name: null, count: 0, ...(structure ? {structure} : {})};
+    }, [name, selectedObjects, treeData, cbActive, cbSelection, cbSelectedIds, cbCells, cbRefs, cbGroups, cbLoftMembers, cbActiveGroup, mirroredCount, shellMode, builderShown]);
 }
 
 /**
@@ -83,12 +166,40 @@ function useSelectedRangeCount(): number {
 /** ObjectMetadataPanel takes its payload as a prop. */
 const ObjectMetadata = () => {
     const {useObjectInfoStore} = useViewerStores();
+    const {flat, summary} = React.useContext(ObjectInfoOptions);
     const jsonData = useObjectInfoStore((s) => s.jsonData);
-    return <ObjectMetadataPanel data={jsonData}/>;
+    return <ObjectMetadataPanel data={jsonData} flat={flat} menuSummary={summary === "menu"}/>;
 };
 
-const notCell = (sel: SelectionSnapshot) => sel.kind !== "cell";
+/** The FEA sets section, in the flat layout's style when the panel is flat. */
+const FeaSets: React.FC = () => <FeaSetsSection flat={!!React.useContext(ObjectInfoOptions).flat}/>;
+
+/** The picked FEA element in the flat layout; nothing in the classic panel, which shows it folded. */
+const FlatFeaElement: React.FC<{name: string | null}> = ({name}) => {
+    const {flat} = React.useContext(ObjectInfoOptions);
+    return flat ? <FeaElementSection name={name}/> : null;
+};
+
+/** `providersFor`'s list, kept to those the shell's `sections` lets through; a throwing filter keeps the section. */
+export function visibleSections(
+    list: readonly PropertyProvider[],
+    sel: SelectionSnapshot,
+    sections: ObjectInfoBodyProps["sections"],
+): PropertyProvider[] {
+    if (!sections) return [...list];
+    return list.filter((p) => {
+        try {
+            return sections(p.id, sel);
+        } catch (err) {
+            console.warn(`[properties] sections filter threw for "${p.id}" -- kept`, err);
+            return true;
+        }
+    });
+}
+
+const notCell = (sel: SelectionSnapshot) => sel.kind !== "cell" && sel.kind !== "ref";
 const always = () => true;
+const builderPick = (sel: SelectionSnapshot) => sel.cellBuilderActive && (sel.kind === "cell" || sel.kind === "ref");
 
 /** Core's own sections, as providers, in the order the panel has always drawn them. */
 export const CORE_PROPERTY_PROVIDERS: readonly PropertyProvider[] = [
@@ -109,7 +220,10 @@ export const CORE_PROPERTY_PROVIDERS: readonly PropertyProvider[] = [
     {id: "object-metadata", order: 30, match: (sel) => sel.meshName != null, render: () => <ObjectMetadata/>},
     // A picked element of the loaded FEA result: its property values and the element sets
     // naming it, each isolatable. Nothing for a pick no set or property names.
-    {id: "fea-sets", order: 35, match: (sel) => sel.kind === "mesh" && /^E\d+$/.test(sel.meshName ?? ""), render: () => <FeaSetsSection/>},
+    // A picked FEA element's own data (type, nodes, section, thickness, material) in the flat
+    // layout, with an ELEMENT badge; the classic panel has the same in its folded Properties rows.
+    {id: "fea-element", order: 32, match: (sel) => sel.kind === "mesh" && /^E\d+$/.test(sel.meshName ?? ""), render: (sel) => <FlatFeaElement name={sel.meshName}/>},
+    {id: "fea-sets", order: 35, match: (sel) => sel.kind === "mesh" && /^E\d+$/.test(sel.meshName ?? ""), render: () => <FeaSets/>},
     // The selected row's attributes from the attribute index; nothing when it has none.
     {id: "indexed-attributes", order: 40, match: notCell, render: () => <IndexedAttributesSection/>},
     // Its system, run and related elements from the relations index; nothing without.
@@ -118,10 +232,13 @@ export const CORE_PROPERTY_PROVIDERS: readonly PropertyProvider[] = [
     // and is the ONLY section a spatial container can populate -- everything above is
     // keyed on geometry the container does not have.
     {id: "tree-node", order: 60, match: always, render: () => <TreeNodeInfoSection/>},
-    // Procedural cellbuilder selection detail -- cell/equipment parameters, gizmo toggles
-    // and connected systems. Lives here (not in the busy cellbuilder tool panel) as its
-    // own section.
-    {id: "cellbuilder-cell", order: 70, match: always, render: () => <CellBuilderSelectionInfo/>},
+    // Procedural cellbuilder selection detail (cellBuilderSelection/BuilderSections), here, not
+    // in the busy cellbuilder tool panel: the picked item as one layout -- where it is (its
+    // space and structure), what it is, its box and its fields, or a plugin's ref --, and a
+    // structure on its own (the active one, with nothing picked). A plugin's section slots
+    // before, between or after them by order.
+    {id: "cellbuilder-item", order: 70, match: builderPick, render: () => <BuilderItemSection/>},
+    {id: "cellbuilder-structure", order: 74, match: (sel) => sel.cellBuilderActive && sel.kind === "none" && !!sel.structure, render: () => <BuilderStructureSection/>},
 ];
 
 /**
@@ -130,24 +247,87 @@ export const CORE_PROPERTY_PROVIDERS: readonly PropertyProvider[] = [
  * (`registerPropertyProvider`), each in its own error boundary. Its frame (the
  * card and heading) is `ObjectInfoBox` below; another host may draw its own.
  */
-export const ObjectInfoBody: React.FC<ObjectInfoBodyProps> = ({onShowInData}) => {
+export const ObjectInfoBody: React.FC<ObjectInfoBodyProps> = ({onShowInData, sections, flat, builderSummary = true, summary = "full"}) => {
     const sel = useSelectionSnapshot();
     const plugins = useSyncExternalStore(subscribePropertyProviders, listPropertyProviders, listPropertyProviders);
-    const options = React.useMemo(() => ({onShowInData}), [onShowInData]);
+    const options = React.useMemo(() => ({onShowInData, flat, summary}), [onShowInData, flat, summary]);
     return (
         <ObjectInfoOptions.Provider value={options}>
-            {providersFor(sel, CORE_PROPERTY_PROVIDERS, plugins).map((p) => (
-                <ErrorBoundary key={p.id} label={p.owner ? `${p.owner} (${p.id})` : p.id}>
-                    {p.render(sel)}
-                </ErrorBoundary>
-            ))}
+            {visibleSections(providersFor(sel, CORE_PROPERTY_PROVIDERS, plugins), sel, sections)
+                .filter((p) => builderSummary || p.id !== "selection-summary" || (sel.kind !== "cell" && sel.kind !== "ref"))
+                .map((p) => (
+                    <ErrorBoundary key={p.id} label={p.owner ? `${p.owner} (${p.id})` : p.id}>
+                        {p.render(sel)}
+                    </ErrorBoundary>
+                ))}
         </ObjectInfoOptions.Provider>
     );
 };
 
 /** The selection's name and actions. */
+/**
+ * The summary as one small "⋯" menu at the top right of the body (`summary: "menu"`): Show in data,
+ * Download as…, Copy clicked position, the mesh's stats. It takes no row: the items below name the
+ * pick themselves.
+ */
+const SummaryMenu: React.FC<{onShowInData: (() => void) | null; cellCtx: boolean}> = ({onShowInData, cellCtx}) => {
+    const [open, setOpen] = useState(false);
+    const [copied, setCopied] = useState(false);
+    const position = useClickedPosition();
+    const mesh = useSelectionMeshStats();
+    const item = "block w-full text-left text-[11px] text-white px-2 py-1 rounded-sm hover:bg-gray-600 disabled:opacity-40 disabled:hover:bg-transparent";
+    return (
+        <div className="relative h-0" data-summary-menu="">
+            <button
+                type="button"
+                className="absolute right-0 -top-0.5 z-10 rounded-sm px-1.5 leading-5 text-gray-300 hover:bg-white/10 hover:text-white"
+                aria-label="Selection actions"
+                aria-haspopup="menu"
+                aria-expanded={open}
+                title="Selection actions"
+                onClick={() => setOpen((v) => !v)}
+            >
+                ⋯
+            </button>
+            {open && (
+                <div role="menu" className="absolute right-0 top-5 z-20 min-w-48 rounded-sm border border-gray-600 bg-gray-800 p-1 shadow-lg" data-summary-menu-items="">
+                    {onShowInData && (
+                        <button type="button" role="menuitem" className={item} onClick={() => (onShowInData(), setOpen(false))}>
+                            Show in data
+                        </button>
+                    )}
+                    {/* A cell is not a tree row; its own model has its own export. */}
+                    {!cellCtx && <DownloadSelectionButton inMenu/>}
+                    <button
+                        type="button"
+                        role="menuitem"
+                        className={item}
+                        disabled={!position}
+                        title={position ? `Copy ${position.display} as comma-separated floats` : "Click on the model to get a position"}
+                        onClick={() => {
+                            if (!position) return;
+                            void writeToClipboard(position.copy).then((ok) => {
+                                if (!ok) return;
+                                setCopied(true);
+                                window.setTimeout(() => setCopied(false), COPIED_FEEDBACK_MS);
+                            });
+                        }}
+                    >
+                        {copied ? "Copied ✓" : position ? `Copy clicked position ${position.display}` : "Copy clicked position"}
+                    </button>
+                    {mesh && (
+                        <div role="menuitem" aria-disabled="true" className="px-2 py-1 text-[11px] text-gray-400" title="The selection's tessellation">
+                            Mesh: {meshStatsLine(mesh)}
+                        </div>
+                    )}
+                </div>
+            )}
+        </div>
+    );
+};
+
 const SelectionSummary = () => {
-    const {onShowInData: showInData} = React.useContext(ObjectInfoOptions);
+    const {onShowInData: showInData, summary: summaryMode} = React.useContext(ObjectInfoOptions);
     // What the buttons do: on this window's scene, or -- in a pop-out window --
     // sent to the main window, which has it (`@/layout/sceneActions`).
     const actions = useSceneActions();
@@ -173,10 +353,13 @@ const SelectionSummary = () => {
     const cbSelection = useCellBuilderStore((s) => s.selection);
     const cbSelectedIds = useCellBuilderStore((s) => s.selectedCellIds);
     const cbCells = useCellBuilderStore((s) => s.cells);
+    const cbRefs = useCellBuilderStore((s) => s.refs);
     const cbAddMode = useCellBuilderStore((s) => s.cellAddMode);
     const hideCells = useCellBuilderStore((s) => s.hideCells);
     const toggleCellAddMode = useCellBuilderStore((s) => s.toggleCellAddMode);
-    const cellCtx = cbActive && cbSelection !== null;
+    // A builder pick behind a mode that does not show the cells is not this panel's (useBuilderPickShown).
+    const builderShown = useBuilderPickShown();
+    const cellCtx = cbActive && cbSelection !== null && builderShown;
     const cellNames = cbSelectedIds
         .map((id) => cbCells[id]?.name)
         .filter((n): n is string => !!n);
@@ -208,7 +391,7 @@ const SelectionSummary = () => {
     // Effective selection identity — cell context takes priority so the panel
     // reads as the cell you clicked, not a result element hidden behind it.
     const displayName = cellCtx
-        ? (cbSelection && cbCells[cbSelection.cellId]?.name) || ''
+        ? selectionName(cbSelection, cbCells, cbRefs) || ''
         : name;
     const multiSelectCount = cellCtx ? cbSelectedIds.length : rangeCount;
     const isMultiSelect = multiSelectCount > 1;
@@ -263,6 +446,10 @@ const SelectionSummary = () => {
     // Shift+F's own actions, which frame builder cells (excluded from the fittable scene) too.
     const onFitAll = actions.fitAll;
     const onGoToObject = actions.fitSelection;
+
+    if (summaryMode === "menu") {
+        return displayName ? <SummaryMenu onShowInData={firstNodeId != null ? onShowInData : null} cellCtx={cellCtx}/> : null;
+    }
 
     return (
         <>

@@ -51,13 +51,17 @@ export interface SelectionSlice {
    * accidentally reshapes a cell. */
   faceDragResize: boolean;
   /** Cell context menu (long-press on touch / right-click on desktop): screen
-   * position + the cell it was opened on. */
-  contextMenu: { x: number; y: number; cellId: string } | null;
+   * position + the cell it was opened on, and the side of it under the pointer
+   * (its box face index) when known. */
+  contextMenu: { x: number; y: number; cellId: string; faceIndex?: number } | null;
   /** "Insert equipment into/onto a cell" popover: screen position + the
    * equipment being re-seated (equipmentId), or null equipmentId to create a
    * new equipment. Opened from the + Equipment menu (new) or an equipment's
    * context menu (re-seat). */
-  insertMenu: { x: number; y: number; equipmentId: string | null } | null;
+  insertMenu: { x: number; y: number; equipmentId: string | null; cellId?: string } | null;
+  /** The small Rename popover for one item (the cell menu's Rename…): screen
+   * position + the item. */
+  renamePrompt: { x: number; y: number; cellId: string } | null;
   /** Right-click-a-port menu (choose Move / Rotate for that equipment port):
    * screen position + which port on which equipment it was opened on. */
   portMenu: { x: number; y: number; cellId: string; portName: string } | null;
@@ -87,9 +91,12 @@ export interface SelectionSlice {
   /** Toggle carrying contained equipment when a cell is translated. */
   setMoveEquipWithCell: (on: boolean) => void;
   setFaceDragResize: (v: boolean) => void;
-  openContextMenu: (x: number, y: number, cellId: string) => void;
+  openContextMenu: (x: number, y: number, cellId: string, faceIndex?: number) => void;
   closeContextMenu: () => void;
-  openInsertMenu: (x: number, y: number, equipmentId: string | null) => void;
+  /** `cellId`: the space to seat it in (preselected; else the one the equipment stands in). */
+  openInsertMenu: (x: number, y: number, equipmentId: string | null, cellId?: string) => void;
+  openRenamePrompt: (x: number, y: number, cellId: string) => void;
+  closeRenamePrompt: () => void;
   closeInsertMenu: () => void;
   /** Open the port context menu (right-click a port arrow) — Move / Rotate. */
   openPortMenu: (
@@ -133,6 +140,12 @@ export interface SelectionSlice {
    * empty list clears the selection. */
   selectCells: (ids: readonly string[]) => void;
 }
+
+/** Whether two picks are of the same cell, or of the same ref. */
+const sameTarget = (a: BuilderSelection, b: BuilderSelection): boolean =>
+  a.kind === "ref" || b.kind === "ref"
+    ? a.kind === "ref" && b.kind === "ref" && a.refId === b.refId
+    : a.cellId === b.cellId;
 
 export const createSelectionSlice: CellBuilderSlice<SelectionSlice> = (set, get) => {
   return {
@@ -178,10 +191,11 @@ export const createSelectionSlice: CellBuilderSlice<SelectionSlice> = (set, get)
     setSelection: (selection) => {
       set((s) => ({
         selection,
-        // A single pick resets the multi-select set to just this cell.
-        selectedCellIds: selection ? [selection.cellId] : [],
+        // A single pick resets the multi-select set to just this cell. A ref is
+        // no cell: picking one empties the set.
+        selectedCellIds: selection?.cellId ? [selection.cellId] : [],
         gizmoMode:
-          selection && s.selection && selection.cellId === s.selection.cellId
+          selection && s.selection && sameTarget(selection, s.selection)
             ? s.gizmoMode
             : "none",
         // A new pick drops any axis constraint from the previous gizmo session.
@@ -215,10 +229,14 @@ export const createSelectionSlice: CellBuilderSlice<SelectionSlice> = (set, get)
     setGizmoVertexSnap: (gizmoVertexSnap) => set({ gizmoVertexSnap }),
     setMoveEquipWithCell: (moveEquipWithCell) => set({ moveEquipWithCell }),
     setFaceDragResize: (faceDragResize) => set({ faceDragResize }),
-    openContextMenu: (x, y, cellId) => set({ contextMenu: { x, y, cellId } }),
+    openContextMenu: (x, y, cellId, faceIndex) =>
+      set({ contextMenu: faceIndex === undefined ? { x, y, cellId } : { x, y, cellId, faceIndex } }),
     closeContextMenu: () => set({ contextMenu: null }),
-    openInsertMenu: (x, y, equipmentId) =>
-      set({ insertMenu: { x, y, equipmentId }, contextMenu: null }),
+    openInsertMenu: (x, y, equipmentId, cellId) =>
+      set({ insertMenu: cellId ? { x, y, equipmentId, cellId } : { x, y, equipmentId }, contextMenu: null }),
+    renamePrompt: null,
+    openRenamePrompt: (x, y, cellId) => set({ renamePrompt: { x, y, cellId }, contextMenu: null }),
+    closeRenamePrompt: () => set({ renamePrompt: null }),
     closeInsertMenu: () => set({ insertMenu: null }),
     openPortMenu: (x, y, cellId, portName) =>
       set({ portMenu: { x, y, cellId, portName }, contextMenu: null }),
@@ -253,7 +271,8 @@ export const createSelectionSlice: CellBuilderSlice<SelectionSlice> = (set, get)
     cycleSelectMode: (dir) =>
       set((s) => {
         const sel = s.selection;
-        if (!sel) return {};
+        // A ref has no faces or edges to cycle through.
+        if (!sel || sel.kind === "ref") return {};
         const order: SelectMode[] = ["cell", "face", "edge"];
         const i = order.indexOf(sel.kind);
         const mode = order[(((i < 0 ? 0 : i) + dir) % 3 + 3) % 3];
@@ -270,7 +289,7 @@ export const createSelectionSlice: CellBuilderSlice<SelectionSlice> = (set, get)
     cycleSelectionElement: (dir) =>
       set((s) => {
         const sel = s.selection;
-        if (!sel) return {};
+        if (!sel || sel.kind === "ref") return {};
         const cell = s.cells[sel.cellId];
         if (!cell) return {};
         // Loft band: cycle between the member's bays (its stations).

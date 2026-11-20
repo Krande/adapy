@@ -30,6 +30,7 @@ export type {
   SceneObjectRef,
 } from "./sceneContact";
 export type { PlaceBoxOptions, PlacedBox, PlacedBoxMode, PlacedBoxPose } from "./sceneBox";
+export type { SelectedObjectBox } from "@/viewport/api/viewportApi";
 
 // Bumped on a breaking change to any slot interface below. A plugin declares the
 // core range it was built against via `coreApiRange`; an out-of-range plugin is
@@ -312,7 +313,129 @@ export type { PlaceBoxOptions, PlacedBox, PlacedBoxMode, PlacedBoxPose } from ".
 //          - `ctx.scene.onSceneCleared(listener)`: `listener(cleared)` after each clear, once,
 //            whatever asked for it, with `SceneCleared` ({reason, replacing, overlaysRemoved}); returns
 //            the unsubscribe. Additive: an older core has no `onSceneCleared`, so a plugin asks first.
-export const PLUGIN_API_VERSION = "1.30.0";
+// 1.31.0 — `ctx.scene.selectionBoxes()`: the objects the user has selected, each with its box in
+//          the model's own coordinates (the frame `addLines` / `addPointLayer` take, not the
+//          viewport's recentred world), its name and the names above it (`SelectedObjectBox`), on
+//          either viewport. For a tool that works from the selection: it groups the boxes by
+//          structure by their names and converts them to its own frame. The builder store's
+//          `setDocExtra(key, value)` (state/cellbuilder/documentSlice.ts): a shell edits an
+//          engine's own doc list (a key the builder does not own, e.g. `modifications`) as one
+//          undo step that dirties the model and is committed with it; `docExtras` holds them.
+//          Additive: an older core has no `selectionBoxes`, so a plugin asks for it first.
+//          Builder refs: a plugin's rows shown as boxes among the cell builder's cells
+//          (`ctx.scene.registerBuilderRefs(provider)`, and `registerBuilderRefs` on
+//          `@/viewer-core/app`). The provider's `project(docExtras, cells)` makes the refs (id
+//          `owner:key`, name, kind label, box in the model frame, structure / space, include,
+//          look, what may be edited, colour); the builder store holds them as `refs`, projected
+//          again when the doc's extras or the cells change. The builder draws them, puts them in
+//          its model tree (`GroupNode.refs`), picks them (`BuilderSelection` kind "ref"), and moves
+//          and resizes them with the cells' gizmos and snapping; each edit is handed back
+//          (`setIncluded`, `rename`, `remove`, `write`) for the plugin to write with
+//          `setDocExtra`; a provider's optional `renameSpace(from, to, docExtras)` rewrites its rows
+//          that name a space being renamed, in the rename's own undo step. `SelectionSnapshot`
+//          kind "ref" with `refOwner` / `refKey`, and the
+//          `structure` / `space` a builder selection belongs to. Additive: an older core has no
+//          `registerBuilderRefs`, so a plugin asks for it first. `registerBeforeCommit(owner, hook)`
+//          on `@/viewer-core/app`: an engine-agnostic async check before every commit of the
+//          procedural model, handed `{doc, docExtras}`; answering false vetoes the commit (the
+//          store's `commit` returns false, the model stays dirty), a hook that throws does not.
+//          `UiShellMode.toolbarEnd(ctx)` (and `modeArrangements[id].toolbarEnd` for a plugin's
+//          mode): a shell's controls at the far right of the mode's toolbar region, outside the
+//          clip the toolbars sit in, so never folded behind "»"; run as the shell. Additive.
+//          `SelectionSnapshot.shellMode`: the composed shell's active mode (absent without modes),
+//          so a provider can keep to the modes it is for. The Properties panel's options
+//          (`ObjectInfoBodyProps`, a shell sets them per mode with `PanelOverride.options` as a
+//          function of the mode): `sections(providerId, sel)` filters the matching sections,
+//          and `flat` draws the picked element's properties open with no foldable heading.
+//          `registerShortcut({id, keys, label, group, local: true}, owner)` (`LocalShortcutSpec`):
+//          a shell's widget's own key, listed in the shortcuts dialog and never dispatched (no
+//          `run`); it may share a dispatched chord and holds none. Not an API change, but seen
+//          in the dialog: every cell-builder key is listed (a "typed values" group too), a run
+//          of digits as one line (`RegisteredShortcut.keysLabel`, "1–9"), a command's own chord
+//          beside the core key it names (`KeyRow.extraKeys`), and the search matches chords.
+//          `BuilderRef.info` / `BuilderRefSpec.info` (`string[]`): what the builder's info label
+//          (I, the store's `infoLabel` / `setInfoLabel`) shows of a ref under its kind and name;
+//          its size when absent. Not an API change, but a user sees it: the keyboard equipment
+//          insert moved from I to Q, and its readout reads "Insert <type> in <host>".
+//          Field help: an engine summary's `field_help` (`{list: {COLUMN: text}}`, from
+//          /procedural-engines: adapy's entity descriptions under the engine's own, which win per
+//          column; an engine gives it with `register_procedural_engine_capabilities(...,
+//          field_help=...)`), read with `fieldHelp(list, column)` / `useFieldHelp` (and the pure
+//          `engineFieldHelp`, `fieldHelpText`) on `@/viewer-core/app`. Additive.
+//          `PropertyItemLayout` and `Field` / `FieldCheck` on `@/viewer-core/layout`: one layout
+//          for a topology item in the Properties panel (the parents line "in <space> · <structure>
+//          [blueprint]" of links first, then its badge and name renamed in place, a Geometry grid,
+//          then its groups); `Field({label, help, inline})` a compact row, its help text or
+//          `{list, column}` of the engine's field help. Core's builder item is drawn on it (no
+//          gizmo buttons, include toggles or nested Properties there: the Model panel and the
+//          toolbar have them), the space and structure are its parents line (no
+//          `cellbuilder-space` section), and `cellbuilder-structure` is a structure on its own.
+//          `BuilderRefEdit.form`: the provider draws its ref's whole form (on
+//          `PropertyItemLayout`), core draws nothing for that item. `ObjectInfoBodyProps.
+//          builderSummary: false`: no summary (name, Hide, Unhide all, Add mode) for a builder pick.
+//          A floating window's body (`WINDOW_CARD`) is opaque: `--ada-window-bg` laid over
+//          `--ada-window-base` (the theme store sets it, dark or light with the theme; a shell may
+//          set its own), so a translucent panel colour no longer shows the model through a window.
+//          Not an API change, but seen by every plugin that draws on FEA elements: a hidden element
+//          (hide, isolate) is hidden in what is drawn over it too, on both viewports, and a repaint
+//          after the hide keeps it so. `paintFeaElements`, `addLabels` (`atElements`: a label whose
+//          elements are all hidden is taken away until one is shown) and `addElementOutlines` (the
+//          outline of the shown elements) follow every hide / show; `highlightObjects` marks too.
+//          A mesh a plugin hangs on the FEA mesh it got from `getActiveFeaMesh` (or on its beam
+//          solids) that copies the mesh's index list -- de-indexed, vertex k = index entry k, or
+//          sharing the index -- is given the hidden ranges on add and on every hide / show
+//          (`CustomBatchedMesh.isAlignedOverlay`), so its colours leave hidden elements alone with
+//          no change to the plugin. Lines and sprites of a plugin's own are not: those it hides.
+//          `ShellModeToolbarEnd` (on `/layout`) and `ShellModeToolbar end={false}`: a shell whose
+//          toolbar row is its own mounts the mode's end controls at the row's end itself; inside
+//          the region they sit at its right edge only as far as the region is given room (`flex-1`).
+//          Not an API change, but seen by a shell: a builder pick (a cell or a ref) while the
+//          builder's cells are not on screen (a mode that keeps the model open behind it) is no
+//          selection of the Properties panel: `SelectionSnapshot.kind` is not "cell" / "ref" then, so
+//          neither the summary nor a builder section is drawn, and a provider matching builder picks
+//          is not asked. `builderCellsShown()` (state/cellbuilder/builderVisibility) is the rule.
+//          A result sidecar loader's disposer belongs to the model it loaded for (its `sourceName`):
+//          a load of another model beside it (a design GLB over a SIN's results, with no manifest)
+//          runs that model's loaders alongside and no longer disposes it. It is disposed when its
+//          model is loaded again, leaves the scene, or the scene is cleared (a replace load).
+//          `disposeResultSidecarLoaders(sourceName?)`: one model's, or every one's. Before, every
+//          load disposed every loader, so overlaying a GLB took a capacity plugin's colours away.
+//          Core section `fea-element` (order 32): a picked FEA element in the flat Properties
+//          layout (`flat: true`): ELEMENT badge, its type, instance and nodes, its section and
+//          dimensions, plate thickness and material (E, ν, ρ, σ_y, σ_u), from the bake's element
+//          properties and the manifest's tables. The flat object metadata leaves those rows to it.
+//          Nodal result values (on `@/viewer-core/scene`): `feaValuesForElement(label, scope,
+//          {nodal: true})` also returns the nodal attributes `scope` names ("active": the displayed
+//          one; "all": every nodal one) at the element's nodes, for the step on screen, as
+//          `NodalFieldValues` {kind: "nodal", field, position, attribute, unit, components,
+//          nodes: [{node, values}], stepIndex, stepLabel}; element entries carry `kind: "element"`
+//          (`FeaFieldValues` is the union; `ElementValuesResult<FeaFieldValues>` the result).
+//          `feaValuesForNode(nodeLabel, scope)` reads one node's (`NodeValuesResult`). Without
+//          `nodal`, as before (typed element entries only). `elementNodes` also gives `indices`.
+//          `ObjectInfoBodyProps.summary: "full" | "menu"` (default "full", as before): "menu" draws
+//          no name row, no Hide / Hide others / Unhide all, no notices, no "Clicked at" row and no
+//          "Mesh (n tris)" section; one "⋯" at the body's top right instead, whose menu holds Show
+//          in data, Download as… (greyed out with the reason as its tooltip), Copy clicked position
+//          and the mesh's stats as a line. The sections below are drawn and get the pick as before.
+//          `PropertyGroup` on `/layout` (with `PropertyItemLayout`): one titled group drawn as the
+//          item layout draws its groups. Core's `fea-sets` section is one in the flat panel.
+// 1.32.0 — Core's modes and their behaviour, assigned per UI (layout/modes.ts). `Mode` names core's
+//          modes as typed constants (TopologyInput, TopologyOutput, FemModel, FemResults,
+//          ConstructionFabrication), grouped under `ModeGroup` (Topology, Fem, Construction); a
+//          string is only how a mode is stored. A composed shell offers core's modes by their
+//          constant (`UiShellMode.id`; `label` and `hint` now default to core's) and gives each a
+//          `behaviour` (`ModeBehaviour`): `builder` ("edit" | "compare" | "away"), `sceneColor`,
+//          `deformation`, and `scene` (which loaded models the mode draws, applied by core
+//          reversibly). `UiShellLayout.modeSwitching` (remember, `?mode=`, fallback, `aliases` for
+//          ids a UI used before); `PluginModeSpec.group` and `.behaviour`
+//          (`modeArrangements[id].behaviour` wins). Core reacts to a mode ONLY through the active
+//          mode's declared behaviour: the Properties panel's builder pick follows `builder` (a mode
+//          that declares none: "compare", as since 1.31.0; core's own UI, which has no modes:
+//          always shown), and the builder panel is offered in an "edit" mode instead of a mode
+//          called "build". The mode state is a zustand store (`modeStore`); the functions are as
+//          before. The Desktop UI's modes are core's now (Model = TopologyOutput, Results =
+//          FemResults, Build = TopologyInput); its old ids are aliases.
+export const PLUGIN_API_VERSION = "1.32.0";
 
 /** What the Simulations panel writes on a run's open-result button. */
 export function openResultButtonLabel(

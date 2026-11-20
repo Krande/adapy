@@ -163,3 +163,36 @@ def test_a_point_mass_that_is_not_one_scalar_is_named(example_files, tmp_path):
 
     _, findings = _read(example_files, tmp_path, "genie_loads_all_kinds.xml", tensor_mass)
     assert ("omitted", "point_mass") in findings
+
+
+def _no_properties(root):
+    """Every beam segment and plate without a material, and the plates without a thickness: what GeniE writes for
+    concepts that have none assigned."""
+    for tag in ("straight_segment", "flat_plate", "curved_shell"):
+        for el in root.iter(tag):
+            el.attrib.pop("material_ref", None)
+            if tag != "straight_segment":
+                el.attrib.pop("thickness_ref", None)
+
+
+@pytest.mark.parametrize(
+    "fixture, keywords",
+    [
+        ("genie_loads_all_kinds.xml", ("flat_plate", "straight_segment")),
+        ("curved_plates.xml", ("curved_shell",)),
+    ],
+)
+def test_a_concept_with_no_material_is_read_with_s355_and_named(example_files, tmp_path, fixture, keywords):
+    """A plate with no ``material_ref`` stopped the read with ``KeyError: 'material_ref'`` (a beam with a
+    ``ValueError``). Both are read with S355 and named; a plate with no thickness is read without one, named too."""
+    untouched, _ = _read(example_files, tmp_path, fixture)
+    n_untouched = len(list(untouched.get_all_physical_objects()))
+    a, findings = _read(example_files, tmp_path, fixture, _no_properties)
+    objs = list(a.get_all_physical_objects())
+    assert len(objs) == n_untouched
+    assert {o.material.name for o in objs} == {"S355"}
+    for kw in keywords:
+        assert ("approximated", kw) in findings, sorted(findings)
+    plates = [o for o in objs if not isinstance(o, ada.Beam)]
+    assert plates and all(p.t is None for p in plates)
+    assert ("note", keywords[0]) in findings, sorted(findings)

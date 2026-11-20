@@ -193,8 +193,10 @@ async function ensureFemStack() {
             // pydantic: ada's FEM-deck import path (ada.from_fem → concept
             // build) pulls it, same as the SAT stack — without it FEM-deck
             // cells fail with ModuleNotFoundError: pydantic.
-            log("installing FEM stack (h5py + pydantic + Pillow)");
-            await pyodide.loadPackage(["h5py", "pydantic", "Pillow"]);
+            // sqlite3: ada's FEA results readers import it at module load (as the
+            // viewer's pyodide_worker.js stack loads it too).
+            log("installing FEM stack (h5py + pydantic + Pillow + sqlite3)");
+            await pyodide.loadPackage(["h5py", "pydantic", "Pillow", "sqlite3"]);
             await ensureTrimesh();
             await ensurePyquaternion();
             await ensureAdacppWheel();

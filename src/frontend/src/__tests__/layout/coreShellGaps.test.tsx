@@ -11,6 +11,7 @@ const React = (await import("react")).default;
 const { renderToStaticMarkup } = await import("react-dom/server");
 const C = await import("@/layout/commands");
 const D = await import("@/layout/desktop/desktopShell");
+const { Mode } = await import("@/layout/modes");
 const { desktopMenus, menuCommandIds } = await import("@/layout/desktop/desktopMenus");
 const { CORE_COMMAND_IDS: ID } = await import("@/layout/coreCommandIds");
 const { CORE_COMMAND_ICONS } = await import("@/layout/commandIcons");
@@ -189,20 +190,20 @@ test("the component list is a core panel of its own, available with a procedural
   assert.equal(useCellBuilderStore.getState().componentListVisible, true);
   spec.binding!.setOpen(false);
   assert.equal(useCellBuilderStore.getState().componentListVisible, before);
-  assert.ok(menuCommandIds(desktopMenus({ modes: [{ id: "build" }], workspaces: [], shells: [], themes: [] })).includes(`panel:${CORE_PANEL_IDS.componentList}`));
+  assert.ok(menuCommandIds(desktopMenus({ modes: [{ id: Mode.TopologyInput }], workspaces: [], shells: [], themes: [] })).includes(`panel:${CORE_PANEL_IDS.componentList}`));
 });
 
 test("the Build mode is always offered in the Desktop UI, its menu has the first action", () => {
   const spec = D.desktopUiShellSpec();
-  const build = spec.layout!.modes!.find((m) => m.id === "build")!;
+  const build = spec.layout!.modes!.find((m) => m.id === Mode.TopologyInput)!;
   assert.equal(build.requires, undefined);
-  const menus = desktopMenus({ modes: [{ id: "build" }], workspaces: [], shells: [], themes: [] });
+  const menus = desktopMenus({ modes: [{ id: Mode.TopologyInput }], workspaces: [], shells: [], themes: [] });
   const ids = menuCommandIds(menus);
   for (const id of [ID.builderNew, ID.builderAddCell, ID.builderTranslate, ID.builderRepSimulation, ID.toggleUiFreeze, ID.labelsValues, ID.selectParent, ID.dataDock]) {
     assert.ok(ids.includes(id), `${id} is in a menu`);
   }
   assert.ok(menuCommandIds(menus).every((id) => id.includes(":")), "ids only");
-  assert.ok(spec.layout!.modes!.find((m) => m.id === "build")!.toolbars!.includes("build"));
+  assert.ok(spec.layout!.modes!.find((m) => m.id === Mode.TopologyInput)!.toolbars!.includes("build"));
 });
 
 test("the builder's commands grey with their reason with no model open", () => {

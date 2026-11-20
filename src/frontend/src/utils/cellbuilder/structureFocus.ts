@@ -23,7 +23,7 @@ export function focusedStructure(
   loftMembers: readonly {NAME: string; STRUCTURE_NAME?: string}[] = [],
 ): string | undefined {
   const ids = new Set(selectedCellIds);
-  if (selection) ids.add(selection.cellId);
+  if (selection?.cellId) ids.add(selection.cellId);
   let found: string | undefined;
   for (const id of ids) {
     const cell = cells[id];

@@ -15,6 +15,9 @@ import {Section, btn, describeToolState, inputCls} from "./chrome";
 import {CompileSettingsSection} from "./CompileSettingsSection";
 import {GroupsSection} from "./GroupsSection";
 import {ComponentList} from "./ComponentList";
+import {GridSnappingLink} from "./GridSnappingOptions";
+import {runCommand} from "@/layout/commands";
+import {CORE_COMMAND_IDS} from "@/layout/coreCommandIds";
 
 export const BuildTab: React.FC<{
   equipBtnRef: React.RefObject<HTMLButtonElement | null>;
@@ -236,85 +239,10 @@ export const BuildTab: React.FC<{
           standalone dropdowns are gone. The full catalogs live in the
           Equipment / Systems tabs. */}
 
+      {/* Grid step, snap distance, select mode and the move / resize options live on the
+          Settings window's "Grid & snapping" page; this links to it. */}
       <Section title="Grid & snapping">
-        <div className="flex items-center gap-x-2 gap-y-1 flex-wrap">
-          <label className="flex items-center gap-1">
-            grid
-            <input
-              type="number"
-              step={0.05}
-              min={0}
-              value={s.gridStep}
-              onChange={(e) => s.setGridStep(Number(e.target.value))}
-              className={`${inputCls} w-14`}
-            />
-          </label>
-          <label className="flex items-center gap-1">
-            snap
-            <input
-              type="number"
-              step={0.05}
-              min={0}
-              value={s.snapThreshold}
-              onChange={(e) => s.setSnapThreshold(Number(e.target.value))}
-              className={`${inputCls} w-14`}
-            />
-          </label>
-        </div>
-        <span
-          className="flex items-center gap-0.5"
-          title="What a plain click selects — explicit: the mode decides (cell / face / nearest border edge), no hover auto-pick"
-        >
-          <span className="text-gray-300 mr-1">select</span>
-          {(["none", "cell", "face", "edge"] as const).map((m) => (
-            <button
-              key={m}
-              className={
-                "px-1.5 py-0.5 rounded-sm " +
-                (s.selectMode === m
-                  ? "bg-blue-600 text-white"
-                  : "bg-gray-700 text-gray-300 hover:bg-gray-600")
-              }
-              onClick={() => s.setSelectMode(m)}
-              aria-pressed={s.selectMode === m}
-            >
-              {m}
-            </button>
-          ))}
-        </span>
-        <label
-          className="flex items-center gap-1"
-          title="Vertex snapping: while moving a cell with the translate gizmo, magnetically align its corners onto neighbouring cells' corners (within the snap distance). With an axis lock (X/Y/Z) active, the snap is constrained to that axis only, Blender-style."
-        >
-          <input
-            type="checkbox"
-            checked={s.gizmoVertexSnap}
-            onChange={(e) => s.setGizmoVertexSnap(e.target.checked)}
-          />
-          Vertex snap (move)
-        </label>
-        <label
-          className="flex items-center gap-1"
-          title="When you translate a space cell, carry the equipment sitting inside it along with the cell (rigid move). Turn off to move a cell without disturbing its equipment."
-        >
-          <input
-            type="checkbox"
-            checked={s.moveEquipWithCell}
-            onChange={(e) => s.setMoveEquipWithCell(e.target.checked)}
-          />
-          Move equipment with cell
-        </label>
-        <label
-          className="flex items-center gap-1"
-          title="Allow dragging a cell face in the scene to resize it. Off by default — use the Resize gizmo (long-press / right-click a cell, or the selection panel) instead."
-        >
-          <input
-            type="checkbox"
-            checked={s.faceDragResize}
-            onChange={(e) => s.setFaceDragResize(e.target.checked)}
-          />
-          Drag faces to resize
-        </label>
+        <GridSnappingLink onOpen={() => runCommand(CORE_COMMAND_IDS.builderGridSettings)} />
       </Section>
 
       {showComponentList && (

@@ -275,11 +275,16 @@ def add_acceleration_field_load(
         global_elem (ET.Element): The <global> analysis element.
         lc_elem (ET.Element): The <loadcase_basic> element.
         acceleration (tuple): Acceleration vector (x, y, z).
-        include_selfweight (bool): Whether to include selfweight.
-        rotational_field (RotationalAccelerationField): Whether to include a rotational field.
+        include_selfweight (bool): Whether the gravity field includes selfweight.
+        rotational_field (RotationalAccelerationField): Whether to include a rotational field. Its own
+            ``include_self_weight`` is written on the rotation field and the dummy rotation field.
 
     Returns:
         ET.Element: The created <gravity_load> element.
+
+    GeniE holds an "include self weight" flag for the gravity field and one for the rotation field. Without a
+    rotation field the dummy rotation field gets ``"true"``, GeniE's own default (its exports write it so whatever
+    the gravity flag says).
     """
     loadcase_ref = lc_elem.attrib["name"]
 
@@ -292,8 +297,9 @@ def add_acceleration_field_load(
     if env_loads_elem is None:
         env_loads_elem = ET.SubElement(loads_elem, "environmental_loads")
 
-    # Add <gravity_load> (always with selfweight)
-    self_weight_str = str(include_selfweight).lower()
+    self_weight_str = str(bool(include_selfweight)).lower()
+    rot_self_weight = rotational_field.include_self_weight if rotational_field else True
+    rot_self_weight_str = str(bool(rot_self_weight)).lower()
     gravity_elem = ET.SubElement(
         env_loads_elem,
         "gravity_load",
@@ -303,7 +309,7 @@ def add_acceleration_field_load(
     ET.SubElement(
         env_loads_elem,
         "dummy_rotation_field",
-        {"loadcase_ref": loadcase_ref, "include_selfweight": self_weight_str},
+        {"loadcase_ref": loadcase_ref, "include_selfweight": rot_self_weight_str},
     )
     ET.SubElement(
         gravity_elem, "acceleration", {"x": str(acceleration[0]), "y": str(acceleration[1]), "z": str(acceleration[2])}
@@ -314,7 +320,7 @@ def add_acceleration_field_load(
             "rotation_field",
             {
                 "loadcase_ref": loadcase_ref,
-                "include_selfweight": self_weight_str,
+                "include_selfweight": rot_self_weight_str,
                 "angular_velocity": str(rotational_field.angular_velocity),
                 "angular_acceleration": str(rotational_field.angular_acceleration),
             },

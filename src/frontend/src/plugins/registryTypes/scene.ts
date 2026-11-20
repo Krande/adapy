@@ -6,6 +6,8 @@ import type { ScenePickOptions, ScenePickSession } from "../scenePicks";
 import type { SceneHighlight, SceneHighlightOptions, SceneHighlightRef } from "../sceneHighlights";
 import type { PlaceBoxOptions, PlacedBox } from "../sceneBox";
 import type { SceneContactAnswer, SceneContactOptions, SceneObjectRef } from "../sceneContact";
+import type { SelectedObjectBox } from "@/viewport/api/viewportApi";
+import type { BuilderRefProvider } from "@/state/cellbuilder/refsSlice";
 
 /** Values a color-field provider returns for core to paint + legend. */
 export interface SceneColorFieldResult {
@@ -417,6 +419,22 @@ export interface SceneHandle {
   // convex hulls meet, in the scene's own coordinates. Measured by the viewer's clash module on the
   // stored GLBs, not on what a viewport holds: the same answer on either viewport.
   contactBetween: (a: SceneObjectRef, b: SceneObjectRef, options?: SceneContactOptions) => Promise<SceneContactAnswer>;
+  // (1.31.0) The objects the user has selected, each with its box in the model's own coordinates
+  // (the frame `addLines` / `addPointLayer` take, not the viewport's recentred world), its name and
+  // the names above it: one entry per selected object that draws something, hidden ones included;
+  // [] when nothing is selected or there is no 3D view. For a tool that works from the selection
+  // ("make a modification from the selected plates"). Works on either viewport. Additive and
+  // optional: an older core has no `selectionBoxes`, so ask for it before calling it.
+  selectionBoxes?: () => SelectedObjectBox[];
+  // (1.31.0) Show rows of the plugin's own as boxes among the cell builder's cells ("builder
+  // refs"): `project` makes them from the open doc's extras and its cells, and is called again
+  // when either changes. The builder draws them, lists them in its model tree, and picks, moves
+  // and resizes them with the cells' gizmos and snapping, as each ref's `edit` allows; every
+  // edit is handed back (`setIncluded`, `rename`, `remove`, `write`) for the plugin to write
+  // to its own doc key (the builder store's `setDocExtra`), and the refs follow. A gizmo drag
+  // is one undo step. Returns the unregister; `remove(owner)` unregisters too (the provider's
+  // `owner` is the plugin's owner). Optional: an older core has none, so ask for it first.
+  registerBuilderRefs?: (provider: BuilderRefProvider) => () => void;
   // (1.29.0) Draw `refs` (objects as a `ScenePick` names them: model and id) in `color`, unlit, over
   // their own colour and over the selection's, until `remove()`; `set(refs)` changes which. Not the
   // selection, not a colour the user gave, and no undo step. For a tool that takes the scene's clicks

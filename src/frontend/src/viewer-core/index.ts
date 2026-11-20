@@ -710,7 +710,57 @@
 //   1.30.0 Kept in step with PLUGIN_API_VERSION 1.30.0. Additive: `ctx.scene.onSceneCleared` and the
 //          type `SceneCleared`. A clear of the scene now removes the plugins' overlays (see
 //          PLUGIN_API_VERSION's 1.30.0 note).
-export const VIEWER_CORE_API_VERSION = "1.30.0";
+//   1.31.0 Kept in step with PLUGIN_API_VERSION 1.31.0. Additive: `ctx.scene.selectionBoxes` (the
+//          selected objects' boxes in the model's own coordinates, with their names and the names
+//          above them, on either viewport) and its type `SelectedObjectBox`. The builder store's
+//          `setDocExtra(key, value)` (state/cellbuilder/documentSlice.ts): a shell edits an engine's
+//          own doc list (a key the builder does not own, e.g. `modifications`) as one undo step that
+//          dirties the model and is committed with it; `docExtras` holds them.
+//          Also additive: builder refs -- a plugin's rows
+//          shown as boxes among the cell builder's cells. `registerBuilderRefs(provider)` and
+//          `builderRefId` on `/app` (and `ctx.scene.registerBuilderRefs`); the types `BuilderRef`,
+//          `BuilderRefEdit`, `BuilderRefProvider`, `BuilderRefSpec` and the tree's `RefNode` here.
+//          The builder store's `refs` (projected, never set) and `setRefIncluded` / `renameRef` /
+//          `removeRef` / `writeRef`; `BuilderSelection` kind "ref" (`refId`; no `cellId`). A
+//          provider's optional `renameSpace` rewrites its rows when a space they name is renamed,
+//          in the rename's undo step.
+//          `buildModelTree` takes `refs` and hangs them off the group rows (`GroupNode.refs`,
+//          kinds "all" and "other"; in the flat view a space's own row,
+//          `ItemNode.refs`). `SelectionSnapshot` kind "ref", `refOwner`, `refKey`,
+//          `structure`, `space`. The builder's Selected Object sections are two providers:
+//          `cellbuilder-item` (70: the pick as a `PropertyItemLayout`, its space and structure
+//          its parents line) and `cellbuilder-structure` (74: a structure on its own, the active
+//          one with nothing picked), so a plugin's section slots between.
+//          Settings page `grid` ("Grid & snapping", the builder's grid and snapping options, from
+//          the Builder panel) and `CORE_COMMAND_IDS.builderGridSettings`, which opens it. On
+//          `/layout`: `CompileLogView`, `CompileSettingsSection`, `GridSnappingOptions`. On
+//          `/app`: `onCompileFailed`, `selectCompileFailure`, `CompileFailure`; `registerBeforeCommit`
+//          and the types `BeforeCommitContext`, `BeforeCommitHook` (a check that may veto a commit).
+//          `UiShellMode.toolbarEnd` / `modeArrangements[id].toolbarEnd`: a shell's controls at the
+//          far right of the mode's toolbar region (`ModeToolbarRegion`'s `end`, outside its clip).
+//          `SelectionSnapshot.shellMode`; `ObjectInfoBodyProps.sections(providerId, sel)` and
+//          `.flat` (on `/layout`), set per mode by a shell's `PanelOverride.options(mode)`.
+//          `LocalShortcutSpec` (`registerShortcut` with `local: true`: listed, never dispatched);
+//          `RegisteredShortcut.keysLabel`.
+//          `BuilderRef.info` (the info label's lines for a ref); the builder store's `infoLabel`
+//          and `setInfoLabel` (I). The keyboard equipment insert is Q now.
+//          `fieldHelp`, `useFieldHelp`, `engineFieldHelp`, `fieldHelpText` and the type `FieldHelp`
+//          on `/app`; `ProceduralEngineSummary.field_help`.
+//          `PropertyItemLayout`, `Field`, `FieldCheck` and their types (`PropertyItemLayoutProps`,
+//          `PropertyItemParents`, `PropertyItemGeometry`, `PropertyItemGroup`, `FieldProps`,
+//          `FieldHelpSource`) on `/layout`; `BuilderRefEdit.form`; `ObjectInfoBodyProps.builderSummary`.
+//          `feaValuesForNode`, `feaValuesForElement(..., {nodal: true})` and the types
+//          `NodalFieldValues`, `FeaFieldValues`, `FeaValuesOptions`, `NodeValuesResult` on `/scene`.
+//          `ObjectInfoBodyProps.summary` ("full" | "menu").
+//   1.32.0 Kept in step with PLUGIN_API_VERSION 1.32.0. Additive: `Mode`, `ModeGroup`, `CORE_MODES`,
+//          `MODE_GROUPS`, `coreModeDef`, `isCoreMode` and the types `CoreModeId`, `ModeId`,
+//          `ModeGroupId`, `CoreModeDef`, `ModeBehaviour`, `BuilderPresence`, `SceneScopeSpec`,
+//          `SceneModel`, `ModeSwitching`; `modeStore` (`ModeState`), `activeModeDef`,
+//          `builderPresence`, `modeOwnsSceneColor`, `modeShowsDeformation`, `modeSwitching` on the
+//          root. `UiShellMode.behaviour` (label optional for core's modes),
+//          `UiShellLayout.modeSwitching`, `modeArrangements[id].behaviour`, `PluginModeSpec.group`
+//          and `.behaviour`. See PLUGIN_API_VERSION's 1.32.0 note.
+export const VIEWER_CORE_API_VERSION = "1.32.0";
 
 // ---------------------------------------------------------------------------
 // Plugin declaration. `registerPlugin` is how a package announces itself —
@@ -790,6 +840,7 @@ export type {
   SceneOverlay,
   ScenePointLayer,
   ScenePointLayerSpec,
+  SelectedObjectBox,
   SidecarFetcher,
   SimulationOpenResultArgs,
   SimulationParameterFormArgs,
@@ -836,14 +887,33 @@ export type {
 } from "@/plugins/uiShells";
 // A composed shell's modes (dependency-free; the switcher components are on `@/viewer-core/layout`).
 export {
+  activeModeDef,
   activeShellMode,
+  builderPresence,
   listShellModes,
+  modeOwnsSceneColor,
+  modeShowsDeformation,
+  modeStore,
+  modeSwitching,
   offeredInMode,
   setShellMode,
   shellModesVersion,
   subscribeShellModes,
 } from "@/layout/shellModes";
-export type { CoreModeToolbarId, ShellMode, ShellModeBadge } from "@/layout/shellModes";
+export type { CoreModeToolbarId, ModeState, ShellMode, ShellModeBadge } from "@/layout/shellModes";
+// Core's modes as typed constants, their headings, and what a mode does (assigned per UI).
+export { CORE_MODES, MODE_GROUPS, Mode, ModeGroup, coreModeDef, isCoreMode } from "@/layout/modes";
+export type {
+  BuilderPresence,
+  CoreModeDef,
+  CoreModeId,
+  ModeBehaviour,
+  ModeGroupId,
+  ModeId,
+  ModeSwitching,
+  SceneModel,
+  SceneScopeSpec,
+} from "@/layout/modes";
 export { CORE_MODE_TOOLBAR_IDS } from "@/layout/shellModes";
 // The status bar's model: core's items by id, what an item is, the bars' look (`UiShellChrome.statusItems`). The bar itself is on `/layout`.
 export { CORE_STATUS_ITEM_IDS, SHELL_BAR, isCoreStatusItem } from "@/layout/statusItems";
@@ -926,7 +996,7 @@ export {
   subscribeShortcutBindings,
   unregisterShortcut,
 } from "@/layout/shortcuts";
-export type { KeyOverrides, RegisteredShortcut, ShortcutKeys, ShortcutSpec } from "@/layout/shortcuts";
+export type { KeyOverrides, LocalShortcutSpec, RegisteredShortcut, ShortcutKeys, ShortcutSpec } from "@/layout/shortcuts";
 export { CORE_SHORTCUTS, CORE_SHORTCUT_GROUPS } from "@/layout/coreShortcutTable";
 export type { CoreShortcutDef } from "@/layout/coreShortcutTable";
 export { installShortcutDispatcher } from "@/layout/shortcutDispatch";
@@ -1076,7 +1146,9 @@ export type { SettingsHost } from "@/components/settings/settingsTab";
 // the components' and structures' include flags, the structures' blueprint colours, and the Model panel's
 // remembered view. Pure helpers (and one small store), so a shell draws its own Model panel from them.
 export { DEFAULT_MODEL_VIEW, MODEL_VIEWS, buildModelTree, nodeItemIds } from "@/utils/cellbuilder/modelTree";
-export type { GroupNode as ModelGroupNode, IncludeMark, ItemNode, ModelNode, ModelTreeInput, ModelView } from "@/utils/cellbuilder/modelTree";
+export type { GroupNode as ModelGroupNode, IncludeMark, ItemNode, ModelNode, ModelTreeInput, ModelView, RefNode as ModelRefNode } from "@/utils/cellbuilder/modelTree";
+// Builder refs (1.31.0): the shape of a plugin's ref and of its provider; `registerBuilderRefs` is on /app.
+export type { BuilderRef, BuilderRefEdit, BuilderRefProvider, BuilderRefSpec } from "@/state/cellbuilder/refsSlice";
 export { isItemIncluded, itemIncludeState } from "@/utils/cellbuilder/include";
 export type { IncludeState } from "@/utils/cellbuilder/include";
 export { blueprintColour, blueprintsInUse, structureColour } from "@/utils/cellbuilder/blueprintColours";

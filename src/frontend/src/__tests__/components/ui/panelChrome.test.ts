@@ -50,8 +50,8 @@ test("a window title bar carries the drag handle first, only while draggable", (
 test("window and group chrome read tokens that fall back to the classic colours", () => {
   // Tailwind's gray scale, which the classes used before they were tokenised.
   const GRAY = { 100: "#f3f4f6", 400: "#9ca3af", 600: "#4b5563", 700: "#374151", 800: "#1f2937", 900: "#111827" };
-  const fallbacks = (s: string) => Object.fromEntries([...s.matchAll(/var\((--ada-[a-z-]+),([^)\]]+\)?)\)/g)].map((m) => [m[1], m[2]]));
-  assert.deepEqual(fallbacks(WINDOW_CARD), { "--ada-window-bg": GRAY[900], "--ada-window-border": GRAY[700] });
+  const fallbacks = (s: string) => Object.fromEntries([...s.matchAll(/var\((--ada-[a-z-]+),([^()\]]+(?:\([^)]*\))?)\)/g)].map((m) => [m[1], m[2]]));
+  assert.deepEqual(fallbacks(WINDOW_CARD), { "--ada-window-bg": GRAY[900], "--ada-window-base": GRAY[900], "--ada-window-border": GRAY[700] });
   assert.deepEqual(fallbacks(WINDOW_HEADER), {
     "--ada-window-header-bg": GRAY[800],
     "--ada-window-header-text": GRAY[100],
@@ -68,4 +68,21 @@ test("window and group chrome read tokens that fall back to the classic colours"
   for (const s of [WINDOW_CARD, WINDOW_HEADER, WINDOW_HEADER_BUTTON, GROUP_HEADER, GROUP_DIVIDER]) {
     assert.doesNotMatch(s, /\b(bg|border|text)-gray-(700|800|900)\b/, "no colour left untokenised");
   }
+});
+
+test("a window's body is opaque in every theme: its colour laid over an opaque base", async () => {
+  // A translucent panel colour (the glass themes, a shell's surface token) must not show the model through it.
+  assert.ok(!WINDOW_CARD.split(" ").some((c) => c.startsWith("bg-[var(--ada-window-bg")), "not the bare (possibly translucent) colour");
+  assert.ok(
+    WINDOW_CARD.includes(
+      "[background:linear-gradient(var(--ada-window-bg,#111827),var(--ada-window-bg,#111827)),var(--ada-window-base,#111827)]",
+    ),
+  );
+  const { windowBaseFor } = await import("@/components/ui/panelChrome");
+  for (const text of ["#f3f4f6", "#ffffff", "#111827", "#000000"]) assert.match(windowBaseFor({ text }), /^#[0-9a-f]{6}$/i, text);
+  assert.equal(windowBaseFor({ text: "#f3f4f6" }), "#111827", "dark under light text");
+  assert.equal(windowBaseFor({ text: "#111827" }), "#f9fafb", "light under dark text");
+  // The theme store sets the base on the document with the other panel tokens.
+  const store = readFileSync(new URL("../../../state/themeStore.ts", import.meta.url), "utf8");
+  assert.match(store, /root\.setProperty\("--ada-window-base", windowBaseFor\(theme\)\)/);
 });

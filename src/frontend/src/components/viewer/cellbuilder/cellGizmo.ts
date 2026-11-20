@@ -10,10 +10,12 @@
 
 import * as THREE from "three";
 import {useCellBuilderStore, type BuilderCell} from "@/state/cellBuilderStore";
+import {boxMoves, boxTarget, selectedBox, writeBox, type GizmoBox} from "./gizmoBox";
 import {requestRender} from "@/state/perfStore";
 import {getViewerRuntime} from "@/state/viewerRuntime";
-import {boxCorners, originFromCenter, quantize, type Vec3} from "@/utils/cellbuilder/snap";
+import {axesOfHandle, boxCorners, movedOrigin, type CellBox, type Vec3} from "@/utils/cellbuilder/snap";
 import {gizmoMoveStep} from "@/utils/gizmo/transformKeys";
+import {freeMove, snapStep} from "@/utils/gizmo/freeMove";
 import {HANDLE_AXIS_COLOR, SNAP_PX} from "./sceneConstants";
 import {offsetVec, type CellBuilderScene} from "./sceneContext";
 import {viewportInputElement} from "@/viewport/input";
@@ -21,17 +23,17 @@ import {boxFrameMatrix} from "@/utils/cellbuilder/cellResize";
 import {syncMoveMeasure} from "./cellDimensions";
 
 // --- Move measure ----------------------------------------------------------
-// While a cell is moved (a gizmo drag or the axis-locked modal move), dimension
-// lines show how far it is from where the move began (cellDimensions.ts). The
-// start is captured when the move begins and dropped when it ends or is
-// cancelled; syncGizmo redraws the lines on every cell change, so they follow
-// the snapped position live.
-export const beginMoveMeasure = (ctx: CellBuilderScene, cell: BuilderCell) => {
+// While a cell (or a plugin's ref) is moved (a gizmo drag or the axis-locked modal
+// move), dimension lines show how far it is from where the move began
+// (cellDimensions.ts). The start is captured when the move begins and dropped
+// when it ends or is cancelled; syncGizmo redraws the lines on every cell change,
+// so they follow the snapped position live.
+export const beginMoveMeasure = (ctx: CellBuilderScene, box: GizmoBox) => {
     // A loft band moves its whole member, not this box: not measured.
-    if (cell.kind === "loft") return;
+    if (box.cell?.kind === "loft") return;
     // A new leg of the same grab (another axis lock) keeps measuring from the first start.
-    if (ctx.moveMeasure?.cellId === cell.id) return;
-    ctx.moveMeasure = {cellId: cell.id, start: {origin: [...cell.origin], size: [...cell.size]}};
+    if (ctx.moveMeasure?.cellId === box.id) return;
+    ctx.moveMeasure = {cellId: box.id, ref: !!box.ref, start: {origin: [...box.origin], size: [...box.size]}};
 };
 
 export const endMoveMeasure = (ctx: CellBuilderScene) => {
@@ -44,12 +46,13 @@ export const reconcileMoveMeasure = (ctx: CellBuilderScene) => {
     const mm = ctx.moveMeasure;
     if (!mm) return syncMoveMeasure(ctx, null, null);
     const st = useCellBuilderStore.getState();
-    const cell = st.cells[mm.cellId];
-    if (!cell || !st.active || st.gizmoMode !== "translate" || st.selection?.cellId !== mm.cellId) {
+    const box = boxTarget(st, mm.cellId, mm.ref);
+    if (!box || !st.active || st.gizmoMode !== "translate" || selectedBox(st)?.id !== mm.cellId) {
         return endMoveMeasure(ctx);
     }
     // A rotated equipment's start outline is turned as the box is (moving never rotates it).
-    syncMoveMeasure(ctx, mm.start, cell, boxFrameMatrix(mm.start, cell.kind === "equipment" ? cell.rotation : null));
+    const cell = box.cell;
+    syncMoveMeasure(ctx, mm.start, box, boxFrameMatrix(mm.start, cell?.kind === "equipment" ? cell.rotation : null));
 };
 
 
@@ -76,7 +79,7 @@ export const showGuideLine = (ctx: CellBuilderScene, axis: 0 | 1 | 2, centerMode
     ctx.guideLine.visible = true;
 };
 
-export const cellCenterModel = (ctx: CellBuilderScene, cell: BuilderCell): Vec3 => [
+export const cellCenterModel = (ctx: CellBuilderScene, cell: CellBox): Vec3 => [
     cell.origin[0] + cell.size[0] / 2,
     cell.origin[1] + cell.size[1] / 2,
     cell.origin[2] + cell.size[2] / 2,
@@ -163,48 +166,44 @@ export const nearestCornerToPointer = (ctx: CellBuilderScene, excludeCellId: str
 // magnetism along ONE axis: if a neighbour vertex is under the cursor, slide
 // the cell along `axis` so its nearest face lands on that vertex's `axis`
 // coordinate. Only single-axis moves snap (arrow handles + the axis-locked
-// modal move) — a plane/centre drag (`axis` null) would otherwise jump the
+// modal move) — a plane/centre drag (several `axes`) would otherwise jump the
 // cell out of its drag plane. No target under the cursor ⇒ grid-quantize.
+// Only the moved `axes` change (and snap): the others keep the cell's own
+// values exactly. While the left Shift key is held (free move) nothing snaps.
 export const computeMove = (
     ctx: CellBuilderScene,
     cell: {id: string; origin: Vec3; size: Vec3},
     center: Vec3,
-    axis: 0 | 1 | 2 | null,
+    axes: readonly (0 | 1 | 2)[],
 ): {origin: Vec3; target: Vec3 | null} => {
     const st = useCellBuilderStore.getState();
-    const step = gizmoMoveStep(st.gridStep);
-    if (st.gizmoVertexSnap && axis !== null) {
+    const step = snapStep(gizmoMoveStep(st.gridStep));
+    if (st.gizmoVertexSnap && axes.length === 1 && !freeMove()) {
+        const axis = axes[0];
         const target = nearestCornerToPointer(ctx, cell.id);
         if (target) {
-            const rawOrigin: Vec3 = [
-                center[0] - cell.size[0] / 2,
-                center[1] - cell.size[1] / 2,
-                center[2] - cell.size[2] / 2,
-            ];
             // Snap the near-or-far face depending on which the cursor is by:
             // pick whichever of the box's two faces along `axis` is closer to
-            // the target's axis coordinate.
-            const near = rawOrigin[axis]; // low face
-            const far = rawOrigin[axis] + cell.size[axis]; // high face
+            // the target's axis coordinate. The face lands ON the vertex.
+            const near = center[axis] - cell.size[axis] / 2; // low face
+            const far = near + cell.size[axis]; // high face
             const alignLow = Math.abs(target[axis] - near) <= Math.abs(target[axis] - far);
-            const origin: Vec3 = [...rawOrigin];
+            const origin: Vec3 = [...cell.origin];
             origin[axis] = alignLow ? target[axis] : target[axis] - cell.size[axis];
-            return {
-                origin: [quantize(origin[0], step), quantize(origin[1], step), quantize(origin[2], step)],
-                target,
-            };
+            return {origin, target};
         }
     }
-    return {origin: originFromCenter(center, cell.size, step), target: null};
+    return {origin: movedOrigin(cell.origin, cell.size, center, axes, step), target: null};
 };
 
-export const startModalMove = (ctx: CellBuilderScene, cell: BuilderCell, axis: 0 | 1 | 2) => {
+export const startModalMove = (ctx: CellBuilderScene, cell: GizmoBox, axis: 0 | 1 | 2) => {
     // Switching axis/cell mid-grab: close the previous leg's undo step first
     // (keeping its position — a plain re-lock is a confirm, not a cancel).
     if (ctx.modalMove && ctx.modalMove.startT !== null) useCellBuilderStore.getState().endTransaction();
     const centerModel = cellCenterModel(ctx, cell);
     ctx.modalMove = {
         cellId: cell.id,
+        ref: !!cell.ref,
         axis,
         lineDir: new THREE.Vector3(axis === 0 ? 1 : 0, axis === 1 ? 1 : 0, axis === 2 ? 1 : 0),
         lineOrigin: new THREE.Vector3(centerModel[0], centerModel[1], centerModel[2]).add(offsetVec(ctx)),
@@ -221,7 +220,10 @@ export const endModalMove = (ctx: CellBuilderScene, cancel: boolean) => {
     const mm = ctx.modalMove;
     ctx.modalMove = null;
     if (mm.startT !== null) {
-        if (cancel) {
+        if (cancel && mm.ref) {
+            // A ref goes back through its plugin, as it was moved.
+            writeBox({id: mm.cellId, ref: useCellBuilderStore.getState().refs[mm.cellId] ?? null}, mm.startBox);
+        } else if (cancel) {
             const st = useCellBuilderStore.getState();
             // Revert the cell — and any equipment that rode along — together.
             if (ctx.translateEquip.length)
@@ -241,17 +243,19 @@ export const endModalMove = (ctx: CellBuilderScene, cancel: boolean) => {
 };
 
 // Reconcile the modal-move with the store: active whenever the translate
-// gizmo is locked to an axis on a (non-loft) cell. Called at the end of
-// syncGizmo, so it can re-hide the gizmo helper that syncGizmo just showed.
+// gizmo is locked to an axis on a (non-loft) cell, or on a ref its plugin lets
+// move. Called at the end of syncGizmo, so it can re-hide the gizmo helper that
+// syncGizmo just showed.
 export const reconcileModalMove = (ctx: CellBuilderScene) => {
     const st = useCellBuilderStore.getState();
-    const cell = st.selection ? st.cells[st.selection.cellId] : null;
+    const cell = selectedBox(st);
     const on = !!(
         st.active &&
         st.gizmoMode === "translate" &&
         st.gizmoAxisLock !== null &&
         cell &&
-        cell.kind !== "loft" &&
+        cell.cell?.kind !== "loft" &&
+        boxMoves(cell) &&
         st.cellsVisible
     );
     if (on && cell) {
@@ -282,10 +286,9 @@ export function installCellGizmo(ctx: CellBuilderScene): void {
             // centre) position; cleared when the drag ends.
             ctx.loftDragLast = ctx.gizmoProxy.position.clone();
             // Capture the equipment sitting in the cell so they ride along.
-            const sel = st.selection;
-            const cell = sel ? st.cells[sel.cellId] : null;
-            ctx.translateEquip = cell && st.gizmoMode === "translate" ? equipContainedIn(ctx, cell) : [];
-            if (cell && st.gizmoMode === "translate") beginMoveMeasure(ctx, cell);
+            const box = selectedBox(st);
+            ctx.translateEquip = box?.cell && st.gizmoMode === "translate" ? equipContainedIn(ctx, box.cell) : [];
+            if (box && st.gizmoMode === "translate") beginMoveMeasure(ctx, box);
         } else {
             st.endTransaction();
             ctx.loftDragLast = null;
@@ -297,9 +300,20 @@ export function installCellGizmo(ctx: CellBuilderScene): void {
     });
     ctx.gizmo.addEventListener("objectChange", () => {
         const st = useCellBuilderStore.getState();
-        const sel = st.selection;
-        if (!sel) return;
-        const cell = st.cells[sel.cellId];
+        const box = selectedBox(st);
+        if (!box) return;
+        // A ref moves through its plugin, snapped as a cell is (only the dragged axes); it never turns.
+        if (box.ref) {
+            if (st.gizmoMode !== "translate" || !box.ref.edit.move) return;
+            const handle = (ctx.gizmo as unknown as {axis: string | null}).axis;
+            const axes = st.gizmoAxisLock !== null ? [st.gizmoAxisLock as 0 | 1 | 2] : axesOfHandle(handle);
+            const center: Vec3 = [ctx.gizmoProxy.position.x, ctx.gizmoProxy.position.y, ctx.gizmoProxy.position.z];
+            const {origin, target} = computeMove(ctx, box, center, axes);
+            writeBox(box, {origin, size: box.size});
+            showSnapMarker(ctx, target);
+            return;
+        }
+        const cell = box.cell;
         if (!cell) return;
         if (st.gizmoMode === "translate") {
             const step = gizmoMoveStep(st.gridStep);
@@ -308,9 +322,11 @@ export function installCellGizmo(ctx: CellBuilderScene): void {
             // position so the member steps in exact grid multiples with no drift.
             if (cell.kind === "loft" && cell.loft) {
                 if (!ctx.loftDragLast) ctx.loftDragLast = ctx.gizmoProxy.position.clone();
-                const dx = Math.round((ctx.gizmoProxy.position.x - ctx.loftDragLast.x) / step) * step;
-                const dy = Math.round((ctx.gizmoProxy.position.y - ctx.loftDragLast.y) / step) * step;
-                const dz = Math.round((ctx.gizmoProxy.position.z - ctx.loftDragLast.z) / step) * step;
+                // Free move (left Shift held): the raw delta, no steps.
+                const stepped = (d: number) => (freeMove() ? d : Math.round(d / step) * step);
+                const dx = stepped(ctx.gizmoProxy.position.x - ctx.loftDragLast.x);
+                const dy = stepped(ctx.gizmoProxy.position.y - ctx.loftDragLast.y);
+                const dz = stepped(ctx.gizmoProxy.position.z - ctx.loftDragLast.z);
                 if (dx || dy || dz) {
                     st.moveLoftMember(cell.loft.member, [dx, dy, dz]);
                     ctx.loftDragLast.set(ctx.loftDragLast.x + dx, ctx.loftDragLast.y + dy, ctx.loftDragLast.z + dz);
@@ -323,14 +339,13 @@ export function installCellGizmo(ctx: CellBuilderScene): void {
             // within range in the other two axes). Match Blender: snap along the
             // drag axis. An explicit X/Y/Z lock wins; a plane/centre handle (no
             // single axis) falls back to full-3D snap.
+            // Only the dragged axes move: an X arrow leaves Y and Z as they were.
             const handle = (ctx.gizmo as unknown as {axis: string | null}).axis;
-            const handleAxis =
-                handle === "X" ? 0 : handle === "Y" ? 1 : handle === "Z" ? 2 : null;
-            const snapAxis = st.gizmoAxisLock ?? handleAxis;
+            const axes = st.gizmoAxisLock !== null ? [st.gizmoAxisLock as 0 | 1 | 2] : axesOfHandle(handle);
             const {origin, target} = computeMove(ctx,
                 cell,
                 [ctx.gizmoProxy.position.x, ctx.gizmoProxy.position.y, ctx.gizmoProxy.position.z],
-                snapAxis,
+                axes,
             );
             applyCellTranslate(ctx, cell, origin);
             showSnapMarker(ctx, target);
