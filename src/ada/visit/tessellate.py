@@ -6,7 +6,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from itertools import groupby
-from typing import TYPE_CHECKING, Iterable, Iterator
+from typing import TYPE_CHECKING, Callable, Iterable, Iterator
 
 import numpy as np
 
@@ -182,6 +182,25 @@ def collect_tessellation_failures() -> Iterator[list[TessellationFailure]]:
         _TESSELLATION_FAILURES.reset(token)
 
 
+#: ``(done, total)``: told by :meth:`BatchTessellator.tessellate_part` as it takes each object.
+TessellationProgress = Callable[[int, int], None]
+
+_TESSELLATION_PROGRESS: ContextVar[TessellationProgress | None] = ContextVar("ada_tessellation_progress", default=None)
+
+
+@contextmanager
+def report_tessellation_progress(callback: TessellationProgress | None) -> Iterator[None]:
+    """Have a part's tessellation inside the block (``Part.to_gltf`` and anything else going through
+    :meth:`BatchTessellator.tessellate_part`) call ``callback(done, total)`` as it takes each object
+    -- before the first, after each, and ``(total, total)`` once every mesh is in the scene. ``None``
+    reports nothing. Scoped to the calling context, as :func:`collect_tessellation_failures` is."""
+    token = _TESSELLATION_PROGRESS.set(callback)
+    try:
+        yield
+    finally:
+        _TESSELLATION_PROGRESS.reset(token)
+
+
 def _parent_path(obj) -> tuple[str, ...]:
     names: list[str] = []
     parent = getattr(obj, "parent", None)
@@ -193,8 +212,11 @@ def _parent_path(obj) -> tuple[str, ...]:
     return tuple(reversed(names))
 
 
-def record_tessellation_failure(obj, stage: str, exc: BaseException) -> TessellationFailure:
-    """Log a skipped object and hand it to the active :func:`collect_tessellation_failures`."""
+def record_tessellation_failure(obj, stage: str, exc: BaseException, *, log: bool = True) -> TessellationFailure:
+    """Log a skipped object and hand it to the active :func:`collect_tessellation_failures`.
+
+    ``log=False`` for a skip the caller has already logged at its own level: it is only handed to
+    the collector."""
     failure = TessellationFailure(
         guid=getattr(obj, "guid", None),
         name=getattr(obj, "name", None),
@@ -204,16 +226,17 @@ def record_tessellation_failure(obj, stage: str, exc: BaseException) -> Tessella
         error_type=type(exc).__name__,
         error=str(exc),
     )
-    logger.error(
-        "tessellation: skipped %s %r (guid=%s, under %s) at %s: %s: %s",
-        failure.kind,
-        failure.name,
-        failure.guid,
-        " > ".join(failure.path) or "-",
-        stage,
-        failure.error_type,
-        failure.error,
-    )
+    if log:
+        logger.error(
+            "tessellation: skipped %s %r (guid=%s, under %s) at %s: %s: %s",
+            failure.kind,
+            failure.name,
+            failure.guid,
+            " > ".join(failure.path) or "-",
+            stage,
+            failure.error_type,
+            failure.error,
+        )
     sink = _TESSELLATION_FAILURES.get()
     if sink is not None:
         sink.append(failure)
@@ -1562,6 +1585,9 @@ class BatchTessellator:
                     # imported without a body, or a type with no solid_geom mapping) must
                     # not abort tessellation of the whole scene — skip it.
                     logger.warning(f"Skipping {getattr(obj, 'name', obj)!r}: no tessellable geometry ({e})")
+                    # Handed to a collector too (already logged above): a caller reporting what its
+                    # GLB is missing must hear of this skip as of any other.
+                    record_tessellation_failure(obj, "geometry", e, log=False)
                     continue
             else:
                 geom = obj
@@ -1570,6 +1596,7 @@ class BatchTessellator:
 
             # resolve transform based on parent transforms
             ms = None
+            recorded = False
             try:
                 ms = self.tessellate_geom(geom, ada_obj, graph_store=graph_store, mesh_type=mesh_type)
             except TessellationFallbackError:
@@ -1580,6 +1607,7 @@ class BatchTessellator:
                 # and continue with the rest of the model. The plate fallback
                 # below may still draw it.
                 record_tessellation_failure(ada_obj if ada_obj is not None else geom, "tessellate", e)
+                recorded = True
             if ms is not None:
                 # Treat an empty MeshStore the same as a thrown
                 # tessellation error: BRepMesh produced 0 triangles
@@ -1617,6 +1645,15 @@ class BatchTessellator:
             ms_fb = self._recover_plate_curved(ada_obj, node_ref, graph_store)
             if ms_fb is not None:
                 yield ms_fb
+            elif not recorded:
+                # Meshed to nothing and nothing recovered it: the object is missing from the output
+                # as surely as one that raised (already logged above, so only collected here).
+                record_tessellation_failure(
+                    ada_obj if ada_obj is not None else geom,
+                    "tessellate",
+                    ValueError("tessellation produced an empty mesh"),
+                    log=False,
+                )
 
     def batch_tessellate_solids(
         self,
@@ -1708,6 +1745,21 @@ class BatchTessellator:
             part.get_all_welds(),
         )
 
+        progress = _TESSELLATION_PROGRESS.get()
+        if progress is not None:
+            # Counted only when someone asks: the objects are listed up front for the total.
+            objects = list(objects_iter)
+            total = len(objects)
+
+            def _counted(objs):
+                progress(0, total)
+                for done, obj in enumerate(objs):
+                    if done:
+                        progress(done, total)
+                    yield obj
+
+            objects_iter = _counted(objects)
+
         shapes_tess_iter = self.batch_tessellate(
             objects=objects_iter,
             render_override=params.render_override,
@@ -1724,6 +1776,8 @@ class BatchTessellator:
         scene = self.meshes_to_trimesh(
             _scanned(shapes_tess_iter), graph, merge_meshes=params.merge_meshes, apply_transform=params.apply_transform
         )
+        if progress is not None:
+            progress(total, total)
 
         return scene
 

@@ -31,7 +31,7 @@ type Scene = import("@/viewport/native/nativeScene").NativeScene;
 /** The box the GLB reports before it is loaded: far from the origin. */
 const FILE_BOX = [400000, 6500000, 10, 400200, 6500040, 50];
 
-function makeScene() {
+function makeScene(cameraUp: number[] = [0, 0, 1]) {
     const heap = new ArrayBuffer(1 << 20);
     const loads: {offset?: number[]}[] = [];
     const lines: {count: number; flags: number}[] = [];
@@ -71,7 +71,7 @@ function makeScene() {
             const g = geometries.get(-inst)!;
             lines.push({count: geometries.get(g)!, flags});
         },
-        cameraPose: () => ({eye: [-5, 5, 5], target: [0, 0, 0], up: [0, 0, 1], fov: 60, orthographic: false, orthoHeight: 0, azimuth: 0, elevation: 0, roll: 0, distance: 1}),
+        cameraPose: () => ({eye: [-5, 5, 5], target: [0, 0, 0], up: cameraUp, fov: 60, orthographic: false, orthoHeight: 0, azimuth: 0, elevation: 0, roll: 0, distance: 1}),
         cameraSetPose: (...args: number[]) => void poses.push(args),
         cameraSetClipRange: (near: number, far: number) => void clips.push([near, far]),
         cameraUpdate: () => false,
@@ -126,6 +126,19 @@ test("a model that joins is placed by the scene's offset; a locked translation l
     assert.deepEqual(locked.loads[0].offset, [0, 0, 0]);
     assert.deepEqual(locked.scene.sceneOffset, [0, 0, 0]);
     useOptionsStore.setState({lockTranslation: false});
+});
+
+test("a double-click's new orbit pivot keeps the world's up, whatever way the camera's own up leans", () => {
+    // After an orbit drag the camera's own up leans with its pitch (here: looking down at 45 degrees).
+    const s = Math.SQRT1_2;
+    const {scene, poses} = makeScene([s / Math.SQRT2, -s / Math.SQRT2, s]);
+    const before = poses.length;
+    scene.setOrbitPivot([2, 1, 0]);
+    assert.equal(poses.length, before + 1);
+    const pose = poses[poses.length - 1];
+    assert.deepEqual(pose.slice(0, 3), [-5, 5, 5], "the camera stays where it is");
+    assert.deepEqual(pose.slice(3, 6), [2, 1, 0], "and looks at the new pivot");
+    assert.deepEqual(pose.slice(6, 9), [0, 0, 1], "against the world's up: no roll, the orbit axis stays upright");
 });
 
 test("a replacing load frames the model with auto-fit on, and keeps the camera when told to", () => {

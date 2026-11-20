@@ -2,63 +2,59 @@
 // members' ROLE colours, with the contact normal as an arrow -- what the run measured, where it is.
 //
 // WHAT IS DRAWN is decided in `clashContactPlan.contactOverlayPlan` (pure, tested); this file only
-// turns that plan into ONE THREE group -- two filled meshes (the emphasised contacts and the rest,
-// at two opacities), one set of outlines, the arrow shafts and an instanced cone per arrow head --
-// and tears it down again. Rebuilt whole on every change of what it shows: a run is a few hundred
+// turns that plan into plain buffers -- two filled meshes (the emphasised contacts and the rest, at
+// two opacities), one set of outlines and arrow shafts, a cone per arrow head -- and hands them to
+// the viewport on screen. Rebuilt whole on every change of what it shows: a run is a few hundred
 // contacts, a rebuild is a few thousand vertices.
 //
-// SPACE. The plan is in the run's model frame (Z up, untranslated); the group carries the
-// source -> world matrix of the loaded model's glTF scene node, exactly as the joint markers do
-// (`clashJointMarkers`, `sourceSpaceRoot`): the loader's up-axis fix and recentring offset both sit
-// on that node.
+// DRAWN THROUGH THE VIEWPORT ON SCREEN (viewport/api): the buffers go into an overlay layer, so the
+// three.js viewport and the three.js-free one both draw them. They were a three.js group added to the
+// three.js scene ("clash-contact-overlay", its parts "clash-contact-fills", "clash-contact-fills-dimmed",
+// "clash-contact-lines" and "clash-contact-arrow-heads" -- names the committed viewer bundle still
+// carries), which the three.js-free viewport never draws.
 //
-// PICKING. The fills are raycast (`pickContactPatch`) before the model pickers, like a marker: a
-// patch sits ON the geometry, and asked after it would never win. A triangle names its contact.
+// SPACE. The plan is in the run's model frame (Z up, untranslated). Every viewport places a loaded
+// model by one rule, world = model + its source's origin (`ViewportApi.sourceOrigin`); a saved
+// group's members come from several sources, so each contact is moved by the origin of the model its
+// members are in (`originOf`, which `clashJointMarkers` works out per part).
+//
+// PICKING. The layers take no clicks: the patch triangles are kept, in the world, for the click test
+// every viewport asks first (`clashOverlayPicks`). A triangle names its contact. No three.js here.
 
-import * as THREE from "three";
-
-import { requestRender } from "@/state/perfStore";
-import { getViewerRuntime } from "@/state/viewerRuntime";
 import { NORMAL_COLOUR, type OverlayContact } from "@/utils/scene/clashContactPlan";
+import { linearColor } from "@/utils/scene/sceneColor";
+import type { Point3 } from "@/viewport/api/billboards";
+import type { OverlayLayer } from "@/viewport/api/overlayLayer";
 
 const FILL_OPACITY = { emphasised: 0.72, dimmed: 0.2 } as const;
 const DIMMED = 0.35;
+/** Cone segments of an arrow head. */
+const HEAD_SIDES = 10;
 
-let overlay: THREE.Group | null = null;
-/** Per fill mesh: triangle index -> contact id. */
-const triangleIds = new WeakMap<THREE.Object3D, string[]>();
+/** Where a contact's model-frame points are in the world: its source's origin; null leaves it out. */
+export type ContactOrigin = (contactId: string) => Point3 | null;
 
-const raycaster = new THREE.Raycaster();
-const pointer = new THREE.Vector2();
+const AT_ORIGIN: ContactOrigin = () => [0, 0, 0];
 
-export function clearContactOverlay(): void {
-  if (!overlay) return;
-  overlay.removeFromParent();
-  overlay.traverse((obj) => {
-    const o = obj as THREE.Mesh;
-    o.geometry?.dispose();
-    const mat = o.material as THREE.Material | THREE.Material[] | undefined;
-    if (Array.isArray(mat)) mat.forEach((m) => m.dispose());
-    else mat?.dispose();
-  });
-  overlay = null;
-  requestRender();
-}
-
-/** The flat buffers of one fill mesh: triangle-fanned polygons, a colour per vertex, an id per
- *  triangle. Exported for the test: what is drawn and what a pick resolves to are one array. */
-export function fillBuffers(contacts: readonly OverlayContact[]): { positions: Float32Array; colors: Float32Array; ids: string[] } {
+/** The flat buffers of one fill mesh: triangle-fanned polygons, a colour (linear RGB) per vertex, an
+ *  id per triangle, in the world. Exported for the test: what is drawn and what a pick resolves to are
+ *  one array. */
+export function fillBuffers(
+  contacts: readonly OverlayContact[],
+  originOf: ContactOrigin = AT_ORIGIN,
+): { positions: Float32Array; colors: Float32Array; ids: string[] } {
   const pos: number[] = [];
   const col: number[] = [];
   const ids: string[] = [];
-  const c = new THREE.Color();
   for (const contact of contacts) {
+    const o = originOf(contact.id);
+    if (!o) continue;
     for (const poly of contact.polygons) {
-      c.set(poly.color);
+      const c = linearColor(poly.color);
       for (let k = 1; k + 1 < poly.points.length; k++) {
         for (const p of [poly.points[0], poly.points[k], poly.points[k + 1]]) {
-          pos.push(p[0], p[1], p[2]);
-          col.push(c.r, c.g, c.b);
+          pos.push(p[0] + o[0], p[1] + o[1], p[2] + o[2]);
+          col.push(c[0], c[1], c[2]);
         }
         ids.push(contact.id);
       }
@@ -67,139 +63,114 @@ export function fillBuffers(contacts: readonly OverlayContact[]): { positions: F
   return { positions: new Float32Array(pos), colors: new Float32Array(col), ids };
 }
 
-function fillMesh(contacts: readonly OverlayContact[], opacity: number, name: string): THREE.Mesh | null {
-  const { positions, colors, ids } = fillBuffers(contacts);
-  if (ids.length === 0) return null;
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-  geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
-  geometry.computeBoundingSphere();
-  const material = new THREE.MeshBasicMaterial({
-    vertexColors: true,
-    transparent: true,
-    opacity,
-    side: THREE.DoubleSide,
-    depthWrite: false,
-    // Drawn on the faces it lies in: pulled towards the camera so it is not lost in them.
-    polygonOffset: true,
-    polygonOffsetFactor: -2,
-    polygonOffsetUnits: -2,
-  });
-  const mesh = new THREE.Mesh(geometry, material);
-  mesh.name = name;
-  mesh.renderOrder = 3;
-  triangleIds.set(mesh, ids);
-  return mesh;
-}
-
-function lines(contacts: readonly OverlayContact[]): THREE.LineSegments | null {
+/** The outlines and arrow shafts: six numbers per segment, a colour per segment. */
+export function lineBuffers(contacts: readonly OverlayContact[], originOf: ContactOrigin = AT_ORIGIN): { segments: Float32Array; colors: Float32Array } {
   const pos: number[] = [];
   const col: number[] = [];
-  const c = new THREE.Color();
-  const push = (a: readonly number[], b: readonly number[]) => {
-    pos.push(a[0], a[1], a[2], b[0], b[1], b[2]);
-    col.push(c.r, c.g, c.b, c.r, c.g, c.b);
-  };
   for (const contact of contacts) {
+    const o = originOf(contact.id);
+    if (!o) continue;
     const dim = contact.emphasised ? 1 : DIMMED;
+    const push = (a: readonly number[], b: readonly number[], c: readonly number[]) => {
+      pos.push(a[0] + o[0], a[1] + o[1], a[2] + o[2], b[0] + o[0], b[1] + o[1], b[2] + o[2]);
+      col.push(c[0] * dim, c[1] * dim, c[2] * dim);
+    };
     for (const poly of contact.polygons) {
-      c.set(poly.color).multiplyScalar(dim);
-      poly.points.forEach((p, k) => push(p, poly.points[(k + 1) % poly.points.length]));
+      const c = linearColor(poly.color);
+      poly.points.forEach((p, k) => push(p, poly.points[(k + 1) % poly.points.length], c));
     }
-    if (contact.arrow) {
-      c.set(NORMAL_COLOUR).multiplyScalar(dim);
-      push(contact.arrow.from, contact.arrow.to);
-    }
+    if (contact.arrow) push(contact.arrow.from, contact.arrow.to, linearColor(NORMAL_COLOUR));
   }
-  if (pos.length === 0) return null;
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
-  geometry.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
-  const seg = new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.95 }));
-  seg.name = "clash-contact-lines";
-  seg.renderOrder = 4;
-  return seg;
+  return { segments: new Float32Array(pos), colors: new Float32Array(col) };
 }
 
-function arrowHeads(contacts: readonly OverlayContact[]): THREE.InstancedMesh | null {
-  const arrows = contacts.filter((c) => c.arrow);
-  if (arrows.length === 0) return null;
-  // Unit cone along +Y with its TIP at the origin: placed at the arrow's end, scaled and turned below.
-  const geometry = new THREE.ConeGeometry(0.35, 1, 10);
-  geometry.translate(0, -0.5, 0);
-  const mesh = new THREE.InstancedMesh(geometry, new THREE.MeshBasicMaterial(), arrows.length);
-  mesh.name = "clash-contact-arrow-heads";
-  mesh.renderOrder = 4;
-  const up = new THREE.Vector3(0, 1, 0);
-  const from = new THREE.Vector3();
-  const to = new THREE.Vector3();
-  const dir = new THREE.Vector3();
-  const q = new THREE.Quaternion();
-  const s = new THREE.Vector3();
-  const m = new THREE.Matrix4();
-  const c = new THREE.Color();
-  arrows.forEach((contact, k) => {
-    from.set(...contact.arrow!.from);
-    to.set(...contact.arrow!.to);
-    dir.subVectors(to, from);
-    const length = dir.length() || 1;
-    q.setFromUnitVectors(up, dir.normalize());
+/** A cone per arrow, its tip at the arrow's end: a quarter of the arrow long, its base 0.35 of that
+ *  across (as the three.js cone it replaced). Vertices, triangles and a colour per vertex. */
+export function arrowHeadBuffers(
+  contacts: readonly OverlayContact[],
+  originOf: ContactOrigin = AT_ORIGIN,
+): { positions: Float32Array; indices: Uint32Array; colors: Float32Array } {
+  const pos: number[] = [];
+  const idx: number[] = [];
+  const col: number[] = [];
+  const normal = linearColor(NORMAL_COLOUR);
+  for (const contact of contacts) {
+    const o = originOf(contact.id);
+    if (!contact.arrow || !o) continue;
+    const from = contact.arrow.from, to = contact.arrow.to;
+    let dx = to[0] - from[0], dy = to[1] - from[1], dz = to[2] - from[2];
+    const length = Math.hypot(dx, dy, dz);
+    if (!(length > 0)) continue;
+    dx /= length, dy /= length, dz /= length;
     const head = length * 0.25;
-    s.set(head, head, head);
-    m.compose(to, q, s);
-    mesh.setMatrixAt(k, m);
-    mesh.setColorAt(k, c.set(NORMAL_COLOUR).multiplyScalar(contact.emphasised ? 1 : DIMMED));
-  });
-  mesh.instanceMatrix.needsUpdate = true;
-  if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-  return mesh;
-}
-
-/** Draw `contacts` (model frame) placed by `sourceToWorld`. Returns how many were drawn. */
-export function renderContactOverlay(contacts: readonly OverlayContact[], sourceToWorld: THREE.Matrix4 | null): number {
-  clearContactOverlay();
-  const scene = getViewerRuntime().scene.current;
-  if (!scene || contacts.length === 0) return 0;
-  const group = new THREE.Group();
-  group.name = "clash-contact-overlay";
-  // An annotation, not geometry: the scene's own picking, measuring and stats walks skip it.
-  group.userData.__overlay = true;
-  const parts = [
-    fillMesh(contacts.filter((c) => c.emphasised), FILL_OPACITY.emphasised, "clash-contact-fills"),
-    fillMesh(contacts.filter((c) => !c.emphasised), FILL_OPACITY.dimmed, "clash-contact-fills-dimmed"),
-    lines(contacts),
-    arrowHeads(contacts),
-  ];
-  for (const p of parts) {
-    if (!p) continue;
-    p.userData.__overlay = true;
-    p.frustumCulled = false;
-    group.add(p);
+    const radius = head * 0.35;
+    // Two directions across the arrow.
+    const [ux, uy, uz] = Math.abs(dz) < 0.9 ? cross(dx, dy, dz, 0, 0, 1) : cross(dx, dy, dz, 1, 0, 0);
+    const un = Math.hypot(ux, uy, uz);
+    const a = [ux / un, uy / un, uz / un];
+    const b = cross(dx, dy, dz, a[0], a[1], a[2]);
+    const tip = [to[0] + o[0], to[1] + o[1], to[2] + o[2]];
+    const base = [tip[0] - dx * head, tip[1] - dy * head, tip[2] - dz * head];
+    const dim = contact.emphasised ? 1 : DIMMED;
+    const first = pos.length / 3;
+    pos.push(tip[0], tip[1], tip[2], base[0], base[1], base[2]);
+    for (let k = 0; k < HEAD_SIDES; k++) {
+      const t = (k / HEAD_SIDES) * Math.PI * 2;
+      const c = Math.cos(t) * radius, s = Math.sin(t) * radius;
+      pos.push(base[0] + a[0] * c + b[0] * s, base[1] + a[1] * c + b[1] * s, base[2] + a[2] * c + b[2] * s);
+    }
+    for (let k = 0; k < HEAD_SIDES + 2; k++) col.push(normal[0] * dim, normal[1] * dim, normal[2] * dim);
+    for (let k = 0; k < HEAD_SIDES; k++) {
+      const r0 = first + 2 + k, r1 = first + 2 + ((k + 1) % HEAD_SIDES);
+      idx.push(first, r0, r1, first + 1, r1, r0);
+    }
   }
-  group.matrixAutoUpdate = false;
-  if (sourceToWorld) group.matrix.copy(sourceToWorld);
-  group.matrix.decompose(group.position, group.quaternion, group.scale);
-  scene.add(group);
-  group.updateMatrixWorld(true);
-  overlay = group;
-  requestRender();
-  return contacts.length;
+  return { positions: new Float32Array(pos), indices: new Uint32Array(idx), colors: new Float32Array(col) };
 }
 
-/** The contact whose patch is under the cursor, or null. */
-export function pickContactPatch(
-  event: { clientX: number; clientY: number },
-  camera: THREE.Camera,
-  renderer: THREE.WebGLRenderer,
-): string | null {
-  if (!overlay) return null;
-  const rect = renderer.domElement.getBoundingClientRect();
-  if (rect.width === 0 || rect.height === 0) return null;
-  pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-  pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-  raycaster.setFromCamera(pointer, camera);
-  const fills = overlay.children.filter((o) => triangleIds.has(o));
-  const hit = raycaster.intersectObjects(fills, false)[0];
-  if (!hit || hit.faceIndex == null) return null;
-  return triangleIds.get(hit.object)?.[hit.faceIndex] ?? null;
+function cross(ax: number, ay: number, az: number, bx: number, by: number, bz: number): [number, number, number] {
+  return [ay * bz - az * by, az * bx - ax * bz, ax * by - ay * bx];
+}
+
+/** `count` vertices as triangles of their own, in order. */
+function sequence(count: number): Uint32Array {
+  const out = new Uint32Array(count);
+  for (let i = 0; i < count; i++) out[i] = i;
+  return out;
+}
+
+/** Draw `contacts` into `layer` (cleared first), each placed by `originOf`. Returns what was drawn,
+ *  in the world, for the click test: the patch triangles and the contact each is. */
+export function drawContactOverlay(
+  layer: OverlayLayer,
+  contacts: readonly OverlayContact[],
+  originOf: ContactOrigin,
+): { drawn: number; triangles: Float32Array; triangleIds: string[] } {
+  layer.clear();
+  const tris: Float32Array[] = [];
+  const triIds: string[] = [];
+  let drawn = 0;
+  const look = { onTop: true, fitted: false } as const;
+  for (const [subset, opacity] of [
+    [contacts.filter((c) => c.emphasised), FILL_OPACITY.emphasised],
+    [contacts.filter((c) => !c.emphasised), FILL_OPACITY.dimmed],
+  ] as const) {
+    const { positions, colors, ids } = fillBuffers(subset, originOf);
+    if (ids.length === 0) continue;
+    layer.addMesh({ positions, indices: sequence(positions.length / 3), colors, opacity, ...look });
+    tris.push(positions);
+    triIds.push(...ids);
+  }
+  const { segments, colors } = lineBuffers(contacts, originOf);
+  if (segments.length) layer.addLines({ segments, colors, widthPx: 1.5, opacity: 0.95, ...look });
+  const heads = arrowHeadBuffers(contacts, originOf);
+  if (heads.indices.length) layer.addMesh({ ...heads, ...look });
+  for (const c of contacts) if (originOf(c.id)) drawn++;
+  const triangles = new Float32Array(tris.reduce((n, t) => n + t.length, 0));
+  let at = 0;
+  for (const t of tris) {
+    triangles.set(t, at);
+    at += t.length;
+  }
+  return { drawn, triangles, triangleIds: triIds };
 }

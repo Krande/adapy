@@ -32,7 +32,7 @@ import {
   type SimulationProviderInfo,
   type SimulationRun,
 } from "@/services/api/simulations";
-import { durationLabel, runLabel, runOutcome, runSubjectLabel, startedLabel } from "@/services/simulations/runRow";
+import { durationLabel, runLabel, runOutcome, runSubjectLabel, runTone, startedLabel } from "@/services/simulations/runRow";
 import { defaultParameters, missingRequired } from "@/services/simulations/schemaForm";
 import { useViewerStores } from "@/state/AdaViewerContext";
 import { useRunConsoleStore } from "@/state/runConsoleStore";
@@ -62,6 +62,7 @@ const STATUS_DOT: Record<string, string> = {
   queued: "bg-gray-400",
   running: "bg-blue-400",
   done: "bg-green-400",
+  attention: "bg-orange-400",
   error: "bg-red-400",
   cancelled: "bg-yellow-400",
 };
@@ -69,6 +70,7 @@ const STATUS_COLOR: Record<string, string> = {
   queued: "text-[var(--ada-panel-text)]",
   running: "text-[var(--ada-accent)]",
   done: "text-[var(--ada-pass)]",
+  attention: "text-[var(--ada-warn)]",
   error: "text-[var(--ada-fail)]",
   cancelled: "text-[var(--ada-warn)]",
 };
@@ -140,6 +142,7 @@ const RunRow: React.FC<{
   const offered = useSimulationSubjectStore((s) => s.offered);
   const subjectLabel = runSubjectLabel(run, scope, offered);
   const outcome = runOutcome(run);
+  const tone = runTone(run);
   const took = durationLabel(run.started_at ?? run.created_at, run.finished_at);
 
   const open = async () => {
@@ -166,7 +169,7 @@ const RunRow: React.FC<{
           title={`${label}: ${status}`}
           onClick={onToggle}
         >
-          <span className={`h-2 w-2 rounded-full shrink-0 ${STATUS_DOT[run.status] ?? "bg-gray-400"}`} aria-hidden />
+          <span className={`h-2 w-2 rounded-full shrink-0 ${STATUS_DOT[tone] ?? "bg-gray-400"}`} aria-hidden />
           <span className="font-medium truncate">{label}</span>
           {subjectLabel && (
             <span className="text-[var(--ada-panel-text)] truncate min-w-0" title={`On ${subjectLabel}`} data-run-subject>
@@ -206,7 +209,7 @@ const RunRow: React.FC<{
       {expanded && (
         <div className="flex flex-col gap-1 px-1 pb-1 pt-0.5 border-t border-[var(--ada-panel-border)]" data-run-details>
           <div className="text-[var(--ada-panel-text)]">
-            <span className={STATUS_COLOR[run.status] ?? "text-[var(--ada-panel-text)]"}>{status}</span>
+            <span className={STATUS_COLOR[tone] ?? "text-[var(--ada-panel-text)]"}>{status}</span>
             {outcome && <span> · {outcome}</span>}
           </div>
           <div className="text-[var(--ada-panel-text-muted)]">

@@ -1,18 +1,10 @@
-# Sesam SIN (Norsam) binary format — reverse-engineering notes
+# Sesam SIN (Norsam) binary format — reader notes
 
-This document captures the on-disk structure of Sesam's **SIN
-direct-access binary** result file ("Norsam format"), worked out by
-comparing a known SIF (text) cantilever model against the SIN produced
-by `dnv-sifio` (the official DNV Python wrapper around `SifIO.dll`).
-The goal is a pure-Python reader so adapy doesn't have to shell out to
-`Prepost.exe` (current behaviour — see `sin2sif.py`) or take a hard
-dependency on the .NET-backed `dnv-sifio` (an optional gated backend
-is fine; a default hard dep is not).
-
-The official binary spec isn't on the public web; DNV's own
-`SESAM Manager / Framework / Prepost` PDFs document the *user-facing*
-side and the *SIF text* layout, but not the on-disk Norsam record
-encoding. Everything below is verified empirically.
+The on-disk structure of Sesam's **SIN direct-access binary** result
+file ("Norsam format"), as `sin_reader.py` decodes it, checked against
+the SIF (text) file of the same cantilever model. The reader is pure
+Python, so adapy needs neither `Prepost.exe` (see `sin2sif.py`) nor any
+other external tool to read a SIN file.
 
 ## Top-level file layout
 
@@ -181,38 +173,21 @@ pointers index a flat 32-bit-word array.
 
 ## Text records (TDNODE, TDRESREF, TDMATER…)
 
-Not yet decoded; the `dnv-sifio` reader exposes them via `ReadText()`
-returning `List[str]` per id, and `GetTabDimensions()` returns an
-empty array for text types. Layout TBD — likely a length-prefixed
-ASCII payload following the same per-type block header convention.
+Not yet decoded. Layout TBD — likely a length-prefixed ASCII payload
+following the same per-type block header convention.
 
-## Next steps
+## Open questions
 
-1. Pin down the +0x20 / +0x28 header fields by emitting a SIN file
-   with `dnv-sifio` for many distinct (NFIELD, ndim, count) shapes
-   and diffing the resulting bytes.
-2. Decode text records (TDNODE, TDELEM, TDMATER, TDRESREF, TDSUPNAM).
-3. Decode multi-D table layout (e.g. `RVNODDIS` with `dims=[1, 403]`
-   stores 403 records but the pointer table semantics under multi-D
-   need verification — does the 2D case nest pointers).
-4. Verify the assumption that the four file-header records (NORSAM /
-   ALLOCATE / RESULTS / IEND) are fixed-shape across all SIN files.
-5. Lift the working bits into a streaming reader in
-   `read_sin.py` that returns the same `MeshData` /
-   `FieldArtefactMeta` shape `read_sif.py` already produces.
-6. Add a checked-in tiny `STATIC_SHELL_CANTILEVER_SESAMR1.SIN`
-   (regenerable from the corresponding SIF via the `dnv-sifio`
-   round-trip in `scripts/codegen/regen_sin_fixtures.py`) so the reader has
-   a stable test fixture.
+1. The +0x20 / +0x28 header fields, across more (NFIELD, ndim, count)
+   shapes.
+2. Text records (TDNODE, TDELEM, TDMATER, TDRESREF, TDSUPNAM).
+3. Multi-D table layout (e.g. `RVNODDIS` with `dims=[1, 403]` stores
+   403 records; does the 2D case nest pointers).
+4. Whether the four file-header records (NORSAM / ALLOCATE / RESULTS /
+   IEND) are fixed-shape across all SIN files.
 
 ## Tooling
 
-* `scripts/diagnostics/sin_probe.py` (this repo) — dump the file structure of any
+* `scripts/diagnostics/sin_probe.py` — dump the file structure of any
   SIN: header records, per-type blocks with NFIELD / count / pointer
-  table sample. Used to validate decode hypotheses against
-  `dnv-sifio`-generated SINs.
-* `scripts/codegen/regen_sin_fixtures.py` — runs in an *isolated* env with
-  `dnv-sifio` installed and re-generates the SIN test fixtures from
-  the existing SIF files in `files/fem_files/cantilever/sesam/`. Not
-  a runtime dep of adapy; only invoked by maintainers when test
-  fixtures need refreshing.
+  table sample.

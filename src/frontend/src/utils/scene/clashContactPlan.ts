@@ -14,8 +14,10 @@
 //
 // ONE FRAME. Every point a run stores is in its GLB's own model frame (Z up, untranslated). The
 // loaded models share one recentring offset (`modelStore.translation`, reused by every overlay load)
-// and the same up-axis rule, so the frame of the first part's loaded model is every part's: that is
-// the source the markers and the overlay take their transform from (`contactSpaceSource`).
+// and the same up-axis rule, so the frame of the first part's loaded model is every part's. Even so,
+// each contact is placed by the origin of the model its own members are in (`contactOrigins`): a
+// viewport places every loaded model by its source's origin, and that is the one rule to follow.
+// `contactSpaceSource` names the first part's model.
 
 import type { ContactRecordDoc, ContactRunDoc, ContactTarget } from "@/services/clash/contactRuns";
 import { roleOf } from "@/services/clash/contactRuns";
@@ -82,6 +84,44 @@ export function contactSpaceSource(
 ): string | null {
   for (const names of loadedSourcesByPart(run, loadedNames, loaded)) if (names.length) return names[0];
   return null;
+}
+
+/** Where each contact's points are in the world: the origin (`ViewportApi.sourceOrigin`) of the
+ *  loaded model its first member is in -- a saved group's parts are several models, each placed by
+ *  its own origin. Null while that model is not on screen: nothing is drawn for it. A contact whose
+ *  members name no part takes the first loaded part's origin, else `fallback` (the model the run was
+ *  filed under). */
+export function contactOrigins(
+  run: ContactRunDoc,
+  loadedNames: Iterable<string>,
+  loaded: readonly LoadedRef[],
+  sourceOrigin: (sourceName: string) => Vec3 | null,
+  fallback: Vec3 | null = null,
+): (contactId: string) => Vec3 | null {
+  const partOrigins = loadedSourcesByPart(run, loadedNames, loaded).map((names) => {
+    for (const n of names) {
+      const o = sourceOrigin(n);
+      if (o) return o;
+    }
+    return null;
+  });
+  // A run over one model loaded under another name is drawn over the model it was filed under.
+  if (run.target.kind !== "group" && partOrigins[0] == null) partOrigins[0] = fallback;
+  const first = partOrigins.find((o) => o !== null) ?? fallback;
+  const partOf = new Map<string, number>();
+  for (const c of run.contacts) {
+    for (const k of c.members) {
+      const e = memberElement(run, k);
+      if (e) {
+        partOf.set(c.id, e.part);
+        break;
+      }
+    }
+  }
+  return (id) => {
+    const part = partOf.get(id);
+    return part !== undefined ? (partOrigins[part] ?? null) : first;
+  };
 }
 
 /** Member `k` of the run as `(part, element id)`, or null for a group member missing either. */

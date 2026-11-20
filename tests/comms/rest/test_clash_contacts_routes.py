@@ -228,6 +228,15 @@ def test_detail_from_a_run(client):
     assert done["status"] == "done", done
     assert (client.scope_dir / d.json()["glb_key"]).exists()
 
+    # Kept and listed as a detail model, naming the run it came from.
+    (model,) = client.get(f"/api/scopes/{SCOPE}/clash-detail/models").json()["models"]
+    assert model["detail_id"] == d.json()["detail_id"] and model["status"] == "done"
+    assert model["source"]["kind"] == "run" and model["source"]["run_key"] == run_key
+    assert model["source"]["target"] == TARGET and model["counts"]["joints"] >= 1
+    # A detail model's record is not a clash run.
+    record = f"_clash/details/{model['detail_id']}/record.json"
+    assert client.get(f"/api/scopes/{SCOPE}/clash-contacts/run", params={"key": record}).status_code == 400
+
 
 def test_detail_refuses_a_run_whose_glb_changed(client, frame_bytes):
     run_key = _run_on_worker(client)

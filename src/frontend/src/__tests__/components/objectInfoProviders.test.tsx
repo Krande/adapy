@@ -30,15 +30,15 @@ test("core's sections keep their order and rules", () => {
     assert.deepEqual(
         CORE_PROPERTY_PROVIDERS.map((p) => p.id),
         [
-            "selection-summary", "fem-concepts", "source-jump", "object-metadata", "fea-element", "fea-sets", "indexed-attributes", "related", "tree-node",
-            "cellbuilder-item", "cellbuilder-structure",
+            "selection-summary", "clash-contact", "fem-concepts", "source-jump", "object-metadata", "fea-element", "fea-sets", "indexed-attributes",
+            "related", "tree-node", "cellbuilder-item", "cellbuilder-structure",
         ],
     );
     const ids = (sel: Snapshot) => providersFor(sel, CORE_PROPERTY_PROVIDERS, []).map((p) => p.id);
-    assert.deepEqual(ids(none), ["fem-concepts", "source-jump", "indexed-attributes", "related", "tree-node"]);
+    assert.deepEqual(ids(none), ["clash-contact", "fem-concepts", "source-jump", "indexed-attributes", "related", "tree-node"]);
     assert.ok(ids({ ...none, hasEntities: true }).includes("selection-summary"), "the summary stays while the scene holds anything");
     const cell = ids({ ...none, kind: "cell", name: "c", meshName: "m", count: 1, cellBuilderActive: true });
-    assert.deepEqual(cell, ["selection-summary", "fem-concepts", "object-metadata", "tree-node", "cellbuilder-item"]);
+    assert.deepEqual(cell, ["selection-summary", "clash-contact", "fem-concepts", "object-metadata", "tree-node", "cellbuilder-item"]);
 });
 
 test("a plugin provider slots in by order, after core's on a tie, and a throwing match is skipped", () => {
@@ -54,7 +54,7 @@ test("a plugin provider slots in by order, after core's on a tie, and a throwing
     try {
         const ids = providersFor(sel, CORE_PROPERTY_PROVIDERS, plugins).map((p) => p.id);
         assert.deepEqual(ids, [
-            "selection-summary", "fem-concepts", "source-jump", "object-metadata", "tie", "between",
+            "selection-summary", "clash-contact", "fem-concepts", "source-jump", "object-metadata", "tie", "between",
             "indexed-attributes", "related", "tree-node", "late",
         ]);
     } finally {

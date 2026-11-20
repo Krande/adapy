@@ -9,9 +9,10 @@ import {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
 // from the GPU mesh picker; the raycast fallback still passes only
 // the intersection.
 import {useOptionsStore} from "@/state/optionsStore";
-import {pickJointMarker} from "@/utils/scene/clashJointMarkers";
-import {pickContactPatch} from "@/utils/scene/clashContactOverlay";
+import {clashPickAt} from "@/utils/scene/clashOverlayPicks";
 import {focusJoint} from "@/utils/scene/clashJointFocus";
+import {onEmptySpaceClick} from "@/utils/scene/jointViewExit";
+import {useClashContactPickStore} from "@/state/clashContactPickStore";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {pickResultLineSegment} from "@/utils/scene/fea/resultLineSegments";
 import {OrbitControls} from "three/examples/jsm/controls/OrbitControls";
@@ -221,12 +222,17 @@ export function setupPointerHandler(
         //    pickers, a sphere sitting on a beam would never be clickable. One object and a few
         //    hundred instances, so the cost of asking on every click is nil.
         //    A contact patch of the contacts overlay (`clashContactOverlay`) counts the same: it
-        //    names one contact, and clicking it focuses that contact like its marker would.
-        const jointId = pickJointMarker(e, camera, renderer) ?? pickContactPatch(e, camera, renderer);
+        //    names one contact, and clicking it focuses that contact like its marker would. Both are
+        //    drawn through the viewport's layers and matched on the screen (`clashOverlayPicks`).
+        const clashView = activeViewport();
+        const clashRect = renderer.domElement.getBoundingClientRect();
+        const jointId = clashView ? clashPickAt(clashView, e.clientX - clashRect.left, e.clientY - clashRect.top) : null;
         if (jointId) {
             await focusJoint(jointId, {revealPanel: true});
             return;
         }
+        // Anything else clicked is what the Selected Object panel describes now, not the contact.
+        useClashContactPickStore.getState().clear();
 
         // 0b) A FEM concept glyph (mass, support, load arrow, constraint node, equipment box). The
         //     point glyphs are drawn over the structure, so -- like the joint markers -- they are
@@ -404,7 +410,7 @@ export function setupPointerHandler(
             if (nearestMesh.object instanceof CustomBatchedMesh) {
                 await handleClickMesh(nearestMesh, e);
             } else {
-                handleClickEmptySpace(e);
+                clickedEmptySpace(e);
             }
             return;
         }
@@ -413,8 +419,15 @@ export function setupPointerHandler(
         if (nearestPoints) {
             await handleClickPoints(nearestPoints, e);
         } else {
-            handleClickEmptySpace(e);
+            clickedEmptySpace(e);
         }
+    }
+
+    /** A click that hit no object: the selection is cleared, and a left click also leaves a joint's
+     *  faded connection view (`jointViewExit`; a drag never gets here, see the click handler). */
+    function clickedEmptySpace(e: MouseEvent): void {
+        handleClickEmptySpace(e);
+        if (e.button === 0) onEmptySpaceClick();
     }
 
     return () => listeners.abort();

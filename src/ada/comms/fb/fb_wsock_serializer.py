@@ -44,6 +44,9 @@ def serialize_message(builder: flatbuffers.Builder, obj: Optional[MessageDC]) ->
     request_id_str = None
     if obj.request_id is not None:
         request_id_str = builder.CreateString(str(obj.request_id))
+    payload_json_str = None
+    if obj.payload_json is not None:
+        payload_json_str = builder.CreateString(str(obj.payload_json))
 
     Message.Start(builder)
     if obj.instance_id is not None:
@@ -74,6 +77,8 @@ def serialize_message(builder: flatbuffers.Builder, obj: Optional[MessageDC]) ->
         Message.AddPackage(builder, package_obj)
     if request_id_str is not None:
         Message.AddRequestId(builder, request_id_str)
+    if payload_json_str is not None:
+        Message.AddPayloadJson(builder, payload_json_str)
     return Message.End(builder)
 
 
@@ -111,6 +116,9 @@ def serialize_root_message(message: MessageDC, builder: flatbuffers.Builder = No
     request_id_str = None
     if message.request_id is not None:
         request_id_str = builder.CreateString(message.request_id)
+    payload_json_str = None
+    if message.payload_json is not None:
+        payload_json_str = builder.CreateString(message.payload_json)
 
     Message.Start(builder)
     if message.instance_id is not None:
@@ -142,6 +150,8 @@ def serialize_root_message(message: MessageDC, builder: flatbuffers.Builder = No
         Message.AddPackage(builder, package_obj)
     if message.request_id is not None:
         Message.AddRequestId(builder, request_id_str)
+    if message.payload_json is not None:
+        Message.AddPayloadJson(builder, payload_json_str)
 
     message_flatbuffer = Message.End(builder)
     builder.Finish(message_flatbuffer)

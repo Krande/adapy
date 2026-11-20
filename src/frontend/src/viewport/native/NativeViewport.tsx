@@ -25,6 +25,7 @@ import {bindNativeHistory} from "./nativeViewportHistory";
 import {useNativeViewport} from "./nativeModel";
 import {glbBufferViews} from "@/utils/glb/glbBufferView";
 import {takeConceptClick} from "@/utils/fem/conceptPicking";
+import {takeClashClick} from "@/utils/scene/clashOverlayPicks";
 import {linearHexText} from "@/utils/scene/sceneColor";
 import {describeScenePick, modelPoint, offerScenePick, scenePicksHeld} from "@/plugins/scenePicks";
 import {offerSceneClick, sceneClicksHeld} from "@/viewport/api/sceneClicks";
@@ -85,6 +86,9 @@ const NativeViewport: React.FC = () => {
                     if (offerSceneClick({x: clientX - rect.left, y: clientY - rect.top, additive})) return true;
                 }
                 const view = host.getBoundingClientRect();
+                // A clash marker or contact patch (the Clashes tab's overlay) is drawn on the geometry
+                // it describes: asked before the model, as on the three.js viewport.
+                if (takeClashClick(api, clientX - view.left, clientY - view.top)) return true;
                 if (await takeConceptClick(api, clientX - view.left, clientY - view.top, additive, async () => (await scene.pickHit(clientX, clientY))?.world ?? null)) return true;
                 // Then a plugin holding the scene's clicks (`ctx.scene.pickObjects`): the object
                 // under the cursor is handed to it, and a click it takes selects nothing.

@@ -22,7 +22,7 @@
 // The committed viewer bundle still has the three.js group these replaced, named
 // "ada-connection-overlay"; kept here for the bundle provenance check until the bundle is rebuilt.
 
-import type { DevBuildResult } from "@/services/api/devConnections";
+import type { DevBuildResult, DevJointMember, DevJointWeld } from "@/services/api/devConnections";
 import type { ConnectionOverlays } from "@/state/connectionBuilderStore";
 import { useModelState } from "@/state/modelState";
 import { linearColor } from "@/utils/scene/sceneColor";
@@ -95,13 +95,40 @@ export function renderConnectionOverlay(
   const lines = viewport.overlays(CONNECTION_OVERLAY_LAYER);
   const labels = viewport.billboards(CONNECTION_OVERLAY_LAYER);
   drawn = { lines, labels, file: file! };
+  const mine = generation;
+  const marks = drawJointMarks(lines, labels, origin, result.properties.members, result.properties.welds, toggles, () => mine === generation);
+  if (marks === 0) clearConnectionOverlay();
+  return marks;
+}
+
+/** A member of a joint as its annotations need it: `DevJointMember`'s fields the marks read. */
+export type JointMarkMember = Pick<DevJointMember, "name" | "role" | "type" | "section" | "thickness" | "axis" | "centre">;
+/** A weld of a joint as its annotations need it. */
+export type JointMarkWeld = Pick<DevJointWeld, "name" | "weld_type" | "throat" | "at"> &
+  Partial<Pick<DevJointWeld, "joins_its_members" | "symbol_svg">>;
+
+/**
+ * Draw a joint's annotations into `lines` and `labels`: each member's axis and label (with
+ * `toggles.axes`), each weld's label (with `toggles.welds`). Positions are model coordinates, placed
+ * at `origin` in the world. `alive` says whether a weld symbol that decodes later still belongs on
+ * screen. Returns how many marks were drawn. The Connections panel's per-joint overlays of a loaded
+ * model (`jointFocusOverlay`) draw through this as well as the preview's.
+ */
+export function drawJointMarks(
+  lines: OverlayLayer,
+  labels: BillboardLayer,
+  origin: Point3,
+  members: readonly JointMarkMember[],
+  welds: readonly JointMarkWeld[],
+  toggles: ConnectionOverlayToggles,
+  alive: () => boolean,
+): number {
   const matrix = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, origin[0], origin[1], origin[2], 1];
   const world = (p: readonly number[]): Point3 => [p[0] + origin[0], p[1] + origin[1], p[2] + origin[2]];
-  const mine = generation;
 
   let marks = 0;
   if (toggles.axes) {
-    for (const m of result.properties.members) {
+    for (const m of members) {
       const colour = ROLE_COLOUR[m.role ?? ""] ?? OTHER_COLOUR;
       const what = m.section?.name ?? (typeof m.thickness === "number" ? `t=${mm(m.thickness)}` : m.type);
       const text = `${m.role ?? m.name} · ${what}`;
@@ -117,27 +144,26 @@ export function renderConnectionOverlay(
         });
         // Out along the member, clear of the joint the weld labels crowd (a landing beam's axis
         // centre IS the joint; an incoming one starts there).
-        addLabel(labels, text, world(along(m.axis[0], m.axis[1], LABEL_ALONG_AXIS)), colour, null, mine);
+        addLabel(labels, text, world(along(m.axis[0], m.axis[1], LABEL_ALONG_AXIS)), colour, null, alive);
         marks++;
       } else if (m.centre) {
-        addLabel(labels, text, world(m.centre), colour, null, mine);
+        addLabel(labels, text, world(m.centre), colour, null, alive);
         marks++;
       }
     }
   }
   if (toggles.welds) {
-    for (const w of result.properties.welds) {
+    for (const w of welds) {
       if (!w.at) continue;
       const bad = w.joins_its_members === false;
       const type = weldTypeName(w.weld_type);
       const text = `${toggles.weldDetails ? `${w.name} · ${type} a=${mm(w.throat)}` : type}${bad ? " · not joined" : ""}`;
       // The server's symbol where it sent one; an older server's result has none, and the viewer draws the same one.
       const svg = toggles.weldSymbols ? (w.symbol_svg ?? weldSymbolSvg(w.weld_type, { size: 20 })) : null;
-      addLabel(labels, text, world(w.at), bad ? WELD_BAD_COLOUR : WELD_COLOUR, svg, mine);
+      addLabel(labels, text, world(w.at), bad ? WELD_BAD_COLOUR : WELD_COLOUR, svg, alive);
       marks++;
     }
   }
-  if (marks === 0) clearConnectionOverlay();
   return marks;
 }
 
@@ -160,7 +186,7 @@ function addLabel(
   at: Point3,
   colour: string,
   svg: string | null,
-  mine: number,
+  alive: () => boolean,
 ): void {
   const billboard = (icon: CanvasImageSource | null): Billboard => ({
     position: at,
@@ -175,7 +201,7 @@ function addLabel(
   // An SVG decodes asynchronously; the label it was for may be gone by then.
   const img = new Image();
   img.onload = () => {
-    if (mine === generation) layer.update(handle, billboard(img));
+    if (alive()) layer.update(handle, billboard(img));
   };
   img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg.replace(/currentColor/g, colour))}`;
 }

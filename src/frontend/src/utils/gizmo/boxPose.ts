@@ -3,9 +3,10 @@
  *
  * Owns: where a box stands for a pose (its position and its turn about Z), as
  * the edges and faces a viewport draws; the move arrows, the plane square and
- * the turn ring drawn at its position; and what a pointer's travel on screen is
- * as a move along an axis, a move in the floor's plane or a turn, with the snap
- * steps the transform gizmo uses (./transformKeys.ts).
+ * the turn ring drawn at its position, and the resize handles on its faces; and
+ * what a pointer's travel on screen is as a move along an axis, a move in the
+ * floor's plane, a turn or a face moved, with the snap steps the transform
+ * gizmo uses (./transformKeys.ts).
  *
  * The handles are found and dragged on screen: a viewport says where a point of
  * the world is in the view, and nothing else is asked of it, so one set of
@@ -21,11 +22,17 @@ export interface ScreenPoint {
     y: number;
 }
 
-/** Where a box stands: its own origin in the scene, and its turn about Z (anticlockwise seen from above). */
+/** Where a box stands: its own origin in the scene, and its turn about Z (anticlockwise seen from
+ *  above). A box that turns every way has `axes` too: its own x, y and z in the scene (unit vectors,
+ *  at right angles, right-handed), which then say how it is turned, `yawDeg` only where its x heads. */
 export interface BoxPose {
     position: Vec3;
     yawDeg: number;
+    axes?: BoxAxes;
 }
+
+/** A box's own x, y and z axes in the scene. */
+export type BoxAxes = [Vec3, Vec3, Vec3];
 
 /** A box in its own frame: min xyz, max xyz. Its origin (0, 0, 0) is what a pose places and turns about. */
 export type LocalBox = readonly [number, number, number, number, number, number];
@@ -43,6 +50,11 @@ export function axisVector(axis: GizmoAxis): Vec3 {
 
 /** A point of the box's own frame where the pose puts it. */
 export function poseToScene(pose: BoxPose, local: readonly number[]): Vec3 {
+    const axes = pose.axes;
+    if (axes) {
+        const p = pose.position;
+        return [0, 1, 2].map((k) => p[k] + axes[0][k] * local[0] + axes[1][k] * local[1] + axes[2][k] * local[2]) as Vec3;
+    }
     const yaw = (pose.yawDeg * Math.PI) / 180;
     const c = Math.cos(yaw), s = Math.sin(yaw);
     return [pose.position[0] + c * local[0] - s * local[1], pose.position[1] + s * local[0] + c * local[1], pose.position[2] + local[2]];
@@ -180,6 +192,146 @@ export function inPlane(p: ScreenPoint, o: ScreenPoint, ex: ScreenPoint, ey: Scr
     if (Math.abs(det) < 1) return null;
     const px = p.x - o.x, py = p.y - o.y;
     return [((d * px - b * py) / det) * length, ((a * py - c * px) / det) * length];
+}
+
+// ----- the box's faces, and the handles that move one ----------------------------------------------
+
+/** A face of the box, by the axis of its own frame it faces along and which way: "+x" is the face at max x. */
+export type BoxFace = "-x" | "+x" | "-y" | "+y" | "-z" | "+z";
+export const BOX_FACES: readonly BoxFace[] = ["-x", "+x", "-y", "+y", "-z", "+z"];
+
+/** The axis of the box's own frame a face is across. */
+export function faceAxis(face: BoxFace): GizmoAxis {
+    return face[1] === "x" ? 0 : face[1] === "y" ? 1 : 2;
+}
+
+/** 1 for a face at the max end of its axis, -1 for one at the min end. */
+export function faceSign(face: BoxFace): 1 | -1 {
+    return face[0] === "+" ? 1 : -1;
+}
+
+/** The middle of a face, in the scene, for where the box stands. */
+export function faceCentre(box: LocalBox, pose: BoxPose, face: BoxFace): Vec3 {
+    const axis = faceAxis(face);
+    const local = [0, 1, 2].map((k) => (k === axis ? box[faceSign(face) > 0 ? k + 3 : k] : 0.5 * (box[k] + box[k + 3])));
+    return poseToScene(pose, local);
+}
+
+/** A face's outward normal in the scene: its axis turned by the pose's turn about Z. */
+export function faceNormal(pose: BoxPose, face: BoxFace): Vec3 {
+    const axis = faceAxis(face), s = faceSign(face);
+    if (pose.axes) return pose.axes[axis].map((v) => s * v) as Vec3;
+    if (axis === 2) return [0, 0, s];
+    const yaw = (pose.yawDeg * Math.PI) / 180;
+    const c = Math.cos(yaw), n = Math.sin(yaw);
+    return axis === 0 ? [s * c, s * n, 0] : [-s * n, s * c, 0];
+}
+
+/** An arrow from `origin` along the unit vector `dir`, `length` long, its barbs along `side` (three segments). */
+export function arrowAlong(origin: readonly number[], dir: readonly number[], side: readonly number[], length: number): Float32Array {
+    const tip: Vec3 = [origin[0] + dir[0] * length, origin[1] + dir[1] * length, origin[2] + dir[2] * length];
+    const head = length * 0.3;
+    const barb = (sign: number): Vec3 => [
+        tip[0] - dir[0] * head + side[0] * head * 0.5 * sign,
+        tip[1] - dir[1] * head + side[1] * head * 0.5 * sign,
+        tip[2] - dir[2] * head + side[2] * head * 0.5 * sign,
+    ];
+    return new Float32Array([origin[0], origin[1], origin[2], ...tip, ...tip, ...barb(1), ...tip, ...barb(-1)]);
+}
+
+/** How long a face's resize handle is: a third of the move arrows. */
+export function faceHandleLength(box: LocalBox): number {
+    return handleReach(box) / 3;
+}
+
+/** A face's resize handle: an arrow out of its middle along its normal, its barbs in the face's
+ *  plane (up and down for a side face, along the box's own x for its top and its floor). */
+export function faceHandleSegments(box: LocalBox, pose: BoxPose, face: BoxFace): Float32Array {
+    const normal = faceNormal(pose, face);
+    const side: Vec3 = faceNormal(pose, faceAxis(face) === 2 ? "+x" : "+z");
+    return arrowAlong(faceCentre(box, pose, face), normal, side, faceHandleLength(box));
+}
+
+/**
+ * The box with `face` moved `outward` along its normal from where it was in `start` (inward for a
+ * negative one), the opposite face staying where it is. The box's size across that face is what
+ * snaps -- to multiples of `step`, as a move does -- and never goes under `minSize`.
+ */
+export function resizedBox(start: LocalBox, face: BoxFace, outward: number, step: number | null | undefined, minSize: number): LocalBox {
+    const axis = faceAxis(face);
+    const size = Math.max(snapTo(start[axis + 3] - start[axis] + outward, step), minSize);
+    const out = [...start];
+    if (faceSign(face) > 0) out[axis + 3] = Math.round((start[axis] + size) * 1e6) / 1e6;
+    else out[axis] = Math.round((start[axis + 3] - size) * 1e6) / 1e6;
+    return out as unknown as LocalBox;
+}
+
+// ----- a box turned every way ---------------------------------------------------------------------
+
+/** The axes of a box turned `yawDeg` about Z only. */
+export function axesOfYaw(yawDeg: number): BoxAxes {
+    const a = (yawDeg * Math.PI) / 180;
+    const c = Math.cos(a), s = Math.sin(a);
+    return [[c, s, 0], [-s || 0, c, 0], [0, 0, 1]];
+}
+
+/** Where a box's own x heads seen from above, in degrees from +X (0 for an x along Z). */
+export function yawOfAxes(axes: BoxAxes): number {
+    const x = axes[0];
+    return Math.hypot(x[0], x[1]) > 1e-9 ? Math.round(((Math.atan2(x[1], x[0]) * 180) / Math.PI) * 10) / 10 || 0 : 0;
+}
+
+/** Axes a plugin gives, made a box's: x and y as given made unit and square to each other (y kept as
+ *  near as it can be), z their cross product. Null for numbers that are not two directions. */
+export function orthonormalAxes(raw: readonly (readonly number[])[]): BoxAxes | null {
+    if (raw.length < 2 || !raw.slice(0, 2).every((v) => v.length >= 3 && v.slice(0, 3).every((n) => Number.isFinite(n)))) return null;
+    const unit = (v: readonly number[]): Vec3 | null => {
+        const n = Math.hypot(v[0], v[1], v[2]);
+        return n > 1e-9 ? [v[0] / n, v[1] / n, v[2] / n] : null;
+    };
+    const x = unit(raw[0]);
+    if (!x) return null;
+    const d = raw[1][0] * x[0] + raw[1][1] * x[1] + raw[1][2] * x[2];
+    const y = unit([raw[1][0] - d * x[0], raw[1][1] - d * x[1], raw[1][2] - d * x[2]]);
+    if (!y) return null;
+    const z: Vec3 = [x[1] * y[2] - x[2] * y[1], x[2] * y[0] - x[0] * y[2], x[0] * y[1] - x[1] * y[0]];
+    // No -0: a pose read back reads as it was given.
+    return [x, y, z].map((a) => a.map((v) => v || 0)) as BoxAxes;
+}
+
+/** The two world axes a ring about `axis` lies along, in the turn's own order: a turn about it by a
+ *  positive angle takes the first towards the second (Y to Z about X, Z to X about Y, X to Y about Z). */
+export function ringPlane(axis: GizmoAxis): [Vec3, Vec3] {
+    return axis === 0 ? [axisVector(1), axisVector(2)] : axis === 1 ? [axisVector(2), axisVector(0)] : [axisVector(0), axisVector(1)];
+}
+
+/** A turn ring's points about a world axis: a circle through `origin`, square to `axis`. */
+export function ringPointsAbout(origin: readonly number[], axis: GizmoAxis, radius: number, sides = RING_SIDES): Vec3[] {
+    const [u, v] = ringPlane(axis);
+    const out: Vec3[] = [];
+    for (let i = 0; i < sides; i++) {
+        const a = (i / sides) * 2 * Math.PI;
+        const c = radius * Math.cos(a), s = radius * Math.sin(a);
+        out.push([origin[0] + u[0] * c + v[0] * s, origin[1] + u[1] * c + v[1] * s, origin[2] + u[2] * c + v[2] * s]);
+    }
+    return out;
+}
+
+/** A vector turned `deg` about a world axis (anticlockwise, looking down the axis at the origin). */
+export function turnAbout(v: readonly number[], axis: GizmoAxis, deg: number): Vec3 {
+    const a = (deg * Math.PI) / 180;
+    const c = Math.cos(a), s = Math.sin(a);
+    const [i, j] = axis === 0 ? [1, 2] : axis === 1 ? [2, 0] : [0, 1];
+    const out = [v[0], v[1], v[2]] as Vec3;
+    out[i] = c * v[i] - s * v[j];
+    out[j] = s * v[i] + c * v[j];
+    return out;
+}
+
+/** A box's axes turned `deg` about a world axis, rounded to the micro-unit so a quarter turn reads 0 and 1. */
+export function turnedAxes(axes: BoxAxes, axis: GizmoAxis, deg: number): BoxAxes {
+    const round = (v: number) => Math.round(v * 1e9) / 1e9 || 0;
+    return axes.map((a) => turnAbout(a, axis, deg).map(round)) as BoxAxes;
 }
 
 /** `value` on the nearest multiple of `step`; as it is for no step. */

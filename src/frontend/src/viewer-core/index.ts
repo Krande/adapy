@@ -760,7 +760,14 @@
 //          root. `UiShellMode.behaviour` (label optional for core's modes),
 //          `UiShellLayout.modeSwitching`, `modeArrangements[id].behaviour`, `PluginModeSpec.group`
 //          and `.behaviour`. See PLUGIN_API_VERSION's 1.32.0 note.
-export const VIEWER_CORE_API_VERSION = "1.32.0";
+//   1.33.0 Kept in step with PLUGIN_API_VERSION 1.33.0. Additive: `ctx.scene.loadSavedGroup` and the
+//          types `SceneGroupLoad` (with the group's `bounds`), `SceneGroupLoadOptions`. A `scene-info` panel with `asTab` is a
+//          tab of the Scene panel (`SceneBody`'s strip, after core's groups), and `getSceneTabs`
+//          on `@/viewer-core/plugins`, for a shell that draws that strip itself. `placeBox`'s
+//          `resize` handles and `constrain.rotate: "xyz"` (`axes`), `ctx.scene.placeCamera` and the
+//          types `BoxFace`, `PlaceBoxResize`, `PlaceCameraOptions`, `PlacedCamera`,
+//          `PlacedCameraMode`, `PlacedCameraPose`.
+export const VIEWER_CORE_API_VERSION = "1.33.0";
 
 // ---------------------------------------------------------------------------
 // Plugin declaration. `registerPlugin` is how a package announces itself —
@@ -780,10 +787,16 @@ export type {
   ActivationPredicate,
   AdaPluginContext,
   PanelSlot,
+  BoxFace,
   PlaceBoxOptions,
+  PlaceBoxResize,
   PlacedBox,
   PlacedBoxMode,
   PlacedBoxPose,
+  PlaceCameraOptions,
+  PlacedCamera,
+  PlacedCameraMode,
+  PlacedCameraPose,
   PluginDockId,
   PluginLayers,
   PluginSimulations,
@@ -818,6 +831,8 @@ export type {
   SceneFace,
   SceneHandle,
   SceneCleared,
+  SceneGroupLoad,
+  SceneGroupLoadOptions,
   SceneHighlight,
   SceneHighlightOptions,
   SceneHighlightRef,

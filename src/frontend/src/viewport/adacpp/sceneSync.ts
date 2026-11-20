@@ -23,6 +23,11 @@ interface Entry {
     segmentIds: ReadonlyArray<string> | null; // batched: range id per segment
     segmentRangeIdx: Int32Array | null; // edges: rangeId per segment
     stateVersion: number;
+    /** A batched mesh whose hidden ranges are drawn as a ghost (`CustomBatchedMesh.hiddenGhostOpacity`,
+     *  what fading the rest of a model is): the translucent instance of the same geometry that draws
+     *  only those ranges. A segment state is a colour and a hidden flag, with no opacity of its own,
+     *  so the instance that draws the rest cannot draw them see-through itself. */
+    ghost?: number;
     // Per-vertex data that changes in place, tracked by identity AND version: applyField installs a
     // fresh morph BufferAttribute on every FEA step, which starts at the version of the one it
     // replaces, so the version alone cannot tell the swap apart.
@@ -357,6 +362,8 @@ export class SceneSync {
     }
 
     private drop(e: Entry): void {
+        if (e.ghost !== undefined) this.r.removeInstance(e.ghost);
+        e.ghost = undefined;
         for (const id of e.instances) {
             this.r.removeInstance(id);
             this.byInstance.delete(id);
@@ -857,6 +864,29 @@ export class SceneSync {
                 metalness, roughness, specular, lineWidth, dash, gap,
             );
         }
+        if (obj instanceof CustomBatchedMesh) this.pushGhost(obj, e, flags, influence);
+    }
+
+    /** The ghost of a batched mesh whose hidden ranges are drawn see-through: made when they are,
+     *  placed with the mesh, taken away when they are not. Never picked. */
+    private pushGhost(obj: CustomBatchedMesh, e: Entry, flags: number, influence: number): void {
+        const opacity = obj.hiddenGhostOpacity();
+        if (opacity === null || obj.getHiddenRanges().size === 0) {
+            if (e.ghost !== undefined) {
+                this.r.removeInstance(e.ghost);
+                e.ghost = undefined;
+            }
+            return;
+        }
+        if (e.ghost === undefined) {
+            e.ghost = this.r.addInstance(e.geometry);
+            e.stateVersion = -1; // its segments are written with the mesh's (pushSegmentStates)
+        }
+        const color = materialColor(Array.isArray(obj.material) ? (obj.material[2] as AnyMaterial) : undefined, 0x8a8f98);
+        const ghostFlags = InstanceFlag.Transparent | InstanceFlag.DoubleSided | InstanceFlag.NoPick | InstanceFlag.Unlit |
+            (flags & (InstanceFlag.Clipped | InstanceFlag.MorphRelative));
+        // The matrix is still the mesh's, set for its last instance above.
+        this.r.setInstance(e.ghost, this.matrixPtr, color.r, color.g, color.b, opacity, ghostFlags, influence, 0, 1, false, 1, 0, 0);
     }
 
     /** Device-pixel width of a fat line (LineMaterial.linewidth, in CSS px unless in world units) or
@@ -871,14 +901,18 @@ export class SceneSync {
 
     private pushSegmentStates(obj: THREE.Object3D, e: Entry): void {
         let packed: Uint32Array | null = null;
+        let ghostStates: Uint32Array | null = null;
         if (e.segmentKind === "batched" && obj instanceof CustomBatchedMesh) {
             if (obj.renderStateVersion === e.stateVersion) return;
             e.stateVersion = obj.renderStateVersion;
             const ids = e.segmentIds!;
             const highlight = packColor(selectedMaterial.color);
             packed = new Uint32Array(ids.length * 2);
+            // The ghost draws the hidden ranges, and nothing else (`pushGhost`).
+            const ghost = (ghostStates = e.ghost !== undefined ? new Uint32Array(ids.length * 2) : null);
             for (let s = 0; s < ids.length; s++) {
                 const id = ids[s];
+                if (ghost && (!id || !obj.isRangeHidden(id))) ghost[s * 2 + 1] = SegmentFlag.Hidden;
                 if (!id) continue;
                 if (obj.isRangeHidden(id)) packed[s * 2 + 1] = SegmentFlag.Hidden;
                 else if (obj.isRangeSelected(id)) {
@@ -913,6 +947,10 @@ export class SceneSync {
         this.module.HEAPU32.set(packed, p >> 2);
         try {
             for (const id of e.instances) this.r.setSegmentStates(id, p, packed.length / 2);
+            if (ghostStates && e.ghost !== undefined) {
+                this.module.HEAPU32.set(ghostStates, p >> 2);
+                this.r.setSegmentStates(e.ghost, p, ghostStates.length / 2);
+            }
         } finally {
             this.module._free(p);
         }

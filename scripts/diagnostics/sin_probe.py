@@ -2,8 +2,8 @@
 
 Walks a `.sin` file and prints the file-header records + per-type
 blocks (name, NFIELD, count, first/last pointer, first record bytes
-decoded as float32). Used as a scratch tool while reverse-engineering
-the format — see ``src/ada/fem/formats/sesam/results/SIN_FORMAT.md``.
+decoded as float32). The layout is described in
+``src/ada/fem/formats/sesam/results/SIN_FORMAT.md``.
 
 Run via::
 

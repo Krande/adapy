@@ -15,6 +15,7 @@ import {objectKey, splitObjectKey, type NativeScene} from "./nativeScene";
 import {withNativeHistory} from "./nativeViewportHistory";
 import {hexLinear} from "@/state/appearanceStore";
 import {parseHexColor} from "@/viewport/api/objectColors";
+import {fadeOpacity} from "@/viewport/api/objectFade";
 
 /** One key press orbits by this much, and pans by this fraction of the view: as on the three.js viewport. */
 const ORBIT_STEP_RAD = (15 * Math.PI) / 180;
@@ -69,6 +70,9 @@ export function createNativeViewportApi(scene: NativeScene): ViewportApi {
             }
             scene.setObjectMarks(keyed);
         },
+        // Fading: the faded objects are hidden segments of their instances, and drawn by a
+        // translucent instance of the same geometry that draws only them (NativeScene).
+        setObjectFade: (fade) => scene.setObjectFade(fade && {keep: fade.keep, opacity: fadeOpacity(fade.opacity)}),
         results: {createResultMesh: (data, opts) => scene.createResultLayer(data, opts)},
         objectVisibility: () => (model, id) => {
             const key = objectKey(model, id);

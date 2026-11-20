@@ -148,6 +148,13 @@ export const CORE_SHORTCUTS: readonly CoreShortcutDef[] = [
     group: VIEWER,
     local: true,
   },
+  {
+    id: "core:joint-view-exit",
+    keys: "Escape",
+    label: "While a clash joint is shown with the rest faded or hidden: leave that view (as does a click on empty space)",
+    group: VIEWER,
+    local: true,
+  },
   { id: "core:measure-finish", keys: "Enter", label: "While the Measure tab's Path tool is on: finish the path", group: VIEWER, local: true },
   // Panels -- local (layout/zoneFocus.tsx)
   {

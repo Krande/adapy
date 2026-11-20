@@ -38,6 +38,7 @@ import {customisablePanels, customisablePanelsRequired, setCustomisablePanels} f
 import {CORE_PANEL_IDS, reveal as revealPanel} from "./panelActions";
 import type {SettingsSectionId} from "@/components/settings/settingsSections";
 import {settingsHost, showSettingsTab} from "@/components/settings/settingsTab";
+import {revealInScroller} from "@/utils/dom/revealInScroller";
 
 /** The id of the command for option `id`: `core:option.<id>`; a choice's values add `.<value>`. */
 export const optionCommandId = (id: string, value?: string): string => `core:option.${id}${value === undefined ? "" : `.${value}`}`;
@@ -324,7 +325,7 @@ export function openOption(focus: string, group?: string): void {
   const go = () => {
     const el = find();
     if (!el) return;
-    el.scrollIntoView?.({block: "center"});
+    revealInScroller(el, "center");
     el.focus?.();
   };
   // The window mounts after the intent, and its tab is drawn a render later.

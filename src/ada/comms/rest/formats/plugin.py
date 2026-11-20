@@ -93,7 +93,10 @@ async def _run_plugin_job(
         return
 
     loop = asyncio.get_running_loop()
-    sync_storage = _SyncStorageFacade(storage, scope, loop)
+    # Reads of provider data follow the scope's grants (a plugin rebuilding a saved group reads its
+    # provider-published members from the provider store); an asset provider's own job runs in the
+    # store and is unchanged.
+    sync_storage = _SyncStorageFacade(storage, scope, loop, db_pool)
 
     async def _aprog(stage: str, frac: float) -> None:
         await queue.update(job_id, stage=stage, progress=max(0.1, min(0.95, float(frac))))

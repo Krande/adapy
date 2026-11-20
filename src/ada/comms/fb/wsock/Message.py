@@ -179,9 +179,16 @@ class Message(object):
             return self._tab.String(o + self._tab.Pos)
         return None
 
+    # Message
+    def PayloadJson(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(32))
+        if o != 0:
+            return self._tab.String(o + self._tab.Pos)
+        return None
+
 
 def MessageStart(builder):
-    builder.StartObject(14)
+    builder.StartObject(15)
 
 
 def Start(builder):
@@ -306,6 +313,14 @@ def MessageAddRequestId(builder, requestId):
 
 def AddRequestId(builder, requestId):
     MessageAddRequestId(builder, requestId)
+
+
+def MessageAddPayloadJson(builder, payloadJson):
+    builder.PrependUOffsetTRelativeSlot(14, flatbuffers.number_types.UOffsetTFlags.py_type(payloadJson), 0)
+
+
+def AddPayloadJson(builder, payloadJson):
+    MessageAddPayloadJson(builder, payloadJson)
 
 
 def MessageEnd(builder):

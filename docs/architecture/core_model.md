@@ -140,6 +140,10 @@ flowchart LR
 The `*_geom()` methods return plain data (`ada.geom`), which the IFC writer, NGEOM
 serialiser and tessellators consume without a kernel. The `*_occ()` methods build a kernel
 shape through the active `ada.cad` backend and are cached by `ada.cad.shape_cache`.
+To build many bodies up front, `shape_cache.prebuild_solids(objects, threads=0)` fills that
+cache in one go and returns a per-object error (or None); under the adacpp backend the faceted
+B-rep bodies among them (weld beads, `FacetedBrep` of plain polygons) are built together in
+parallel in C++ (`ada.cad.build_solids` is the same over bare `ada.geom.Geometry`).
 [Geometry & visualisation](geometry_and_visualisation.md) covers this in more detail.
 
 ## FEM ownership

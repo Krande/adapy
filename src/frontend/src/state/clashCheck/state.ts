@@ -142,7 +142,7 @@ export interface ClashCheckState {
   /** The produced GLB's key, which is what the scene overlays. Separate from `detailDerivedKey`
    *  because they are different documents: loading the take-off json as a model answers 415. */
   detailGlbKey: string | null;
-  /** What this session's detail runs have PRODUCED, accumulated across specs -- the `Joints` tab's
+  /** What this session's detail runs have PRODUCED, accumulated across specs -- the Review tab's
    *  produced section reads this beside the loaded model's own take-off. */
   producedJoints: ProducedJoints | null;
   /** Joints a builder refused during those runs, reported rather than hidden. */
@@ -150,6 +150,9 @@ export interface ClashCheckState {
   /** Where a batched "generate detail model" run has got to, for the button's label. `null` when
    *  no batched run is in flight. */
   detailProgress: { done: number; total: number } | null;
+  /** The running detail job's own stage (`"detail 120/392"`: the worker reports it per joint).
+   *  `null` when no detail job is running. */
+  detailStage: string | null;
 
   setSource: (sourceName: string | null, sourceKey: string | null) => void;
   /** The panel following the LOADED model: `setSource`, unless a node or group was picked

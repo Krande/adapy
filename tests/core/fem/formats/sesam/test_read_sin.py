@@ -13,7 +13,7 @@ Covers:
 
 Fixture is the cantilever shell static analysis
 (``files/fem_files/cantilever/sesam/static/shell/STATIC_SHELL_CANTILEVER_SESAMR1.SIN``)
-regenerable from its SIF sibling via ``scripts/codegen/regen_sin_fixtures.py``.
+and its SIF sibling.
 """
 
 from __future__ import annotations
@@ -68,7 +68,7 @@ def test_sin_reader_decodes_all_known_types(sin_file):
 
 
 def test_sin_reader_decodes_block_metadata(sin_file):
-    """NFIELD / dims / count line up with what dnv-sifio reports for the same file."""
+    """NFIELD / dims / count line up with the model in the sibling SIF file."""
     cases = {
         "GNODE": (5, 1, (403,), 403),  # NFIELD, ndim, dims, count
         "GCOORD": (5, 1, (403,), 403),
@@ -113,7 +113,7 @@ def test_sin_iter_records_matches_sif_for_gnode_gcoord(sin_file):
 
 def test_sin_header_control_fields_decoded(sin_file):
     """slot[2] (type-flag enum) and slot[3] (ptr-table cross-check)
-    decode to the values reverse-engineered from the cantilever fixture.
+    decode to the values of the cantilever fixture.
 
     ``ptr_table_word * 8`` must point exactly to the first pointer
     slot's value field — that's the invariant the NDIM derivation

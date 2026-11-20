@@ -16,9 +16,11 @@ import { browserClashCheckSupports } from "@/services/clash/browserClashCheck";
 import { CONTACT_ORIGIN } from "@/services/clash/contactRuns";
 import { isConnectionPreview } from "@/services/devConnections/connectionBuilderSession";
 import { requestRender } from "@/state/perfStore";
+import { isDetailModelKey } from "@/state/detailModelsStore";
 import { useModelState } from "@/state/modelState";
 import { useProviderName } from "@/state/providerNamesStore";
 import { providerIdTitle } from "@/assets/providerNames";
+import CollapsibleSection from "@/components/common/CollapsibleSection";
 import ClashRootPicker from "@/components/info_box_scene/ClashRootPicker";
 import IsolationControls from "@/components/info_box_scene/joints/IsolationControls";
 import {
@@ -806,14 +808,18 @@ const ClashesPanel: React.FC = () => {
   // exactly when those callers switch to it, and following then wiped the target they had just
   // set. `followLoadedSource` leaves an explicit target alone; the run form's "use loaded model"
   // goes back to following.
+  //
+  // Nor is a detail model loaded back from Review's "Detail models": it is a product of a check,
+  // never the thing a check is of (`isDetailModelKey`).
   useEffect(() => {
-    if (loadedSourceName && loadedSourceName === detailGlbKey) return;
+    if (loadedSourceName && (loadedSourceName === detailGlbKey || isDetailModelKey(loadedSourceName))) return;
     followLoadedSource(loadedSourceName);
   }, [loadedSourceName, detailGlbKey, followLoadedSource]);
 
   // A finished hand-off is loaded as an ordinary overlay source, the same path
   // `SourceSection`'s "Re-convert" uses -- `overlay_file_in_scene` registers it under its own
-  // source name, so it appears in `Files` and its `.stats.json` joints feed the `Joints` tab.
+  // source name, so it appears in `Files` and its `.stats.json` joints feed the Review tab.
+  // (The message below said "loaded — see the Joints tab" while that tab was called Joints.)
   useEffect(() => {
     if (!detailGlbKey) return;
     let cancelled = false;
@@ -823,7 +829,7 @@ const ClashesPanel: React.FC = () => {
         const { overlay_file_in_scene } = await import("@/utils/scene/handlers/overlay_file_in_scene");
         await overlay_file_in_scene(detailGlbKey, detailGlbKey, { scope });
         if (!cancelled) {
-          setLoadMsg("loaded — see the Joints tab");
+          setLoadMsg("loaded — see the Review tab");
           requestRender();
         }
       } catch (e) {
@@ -856,7 +862,11 @@ const ClashesPanel: React.FC = () => {
       {preview ? (
         <Banner tone="info">The joint previewed in the Inspect tab: its measured contact, renewed with every build.</Banner>
       ) : (
-        <RunForm scope={scope} sourceKey={sourceKey} loadedSourceName={loadedSourceName} />
+        // The run form folds away under its header, the Connections panel's own disclosure (the
+        // Inspect tab's "Inputs", "Members" and "Welds"), so a long result list can have the room.
+        <CollapsibleSection title="Input" defaultOpen>
+          <RunForm scope={scope} sourceKey={sourceKey} loadedSourceName={loadedSourceName} />
+        </CollapsibleSection>
       )}
       {error && <Banner tone="error">{error}</Banner>}
       {result && <GeometrySourceLine result={result} />}

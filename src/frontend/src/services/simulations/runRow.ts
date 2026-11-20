@@ -25,6 +25,19 @@ export function runSubjectLabel(
   return file.replace(/\.(weld-assembly\.)?json(\.gz)?$/, "");
 }
 
+/** Simulation outcomes (a provider's `summary.outcome`) that mean the run ended but its simulation did
+ *  not do all it set out to. */
+const SHORT_OUTCOMES = new Set(["partial", "failed"]);
+
+/** How a run's line is coloured: its status, except that a run which ended ("done") while its provider
+ *  says the simulation itself fell short (`summary.outcome` "partial" or "failed") is "attention" --
+ *  orange, not the green of a run that did all it set out to. A run that errored stays an error. */
+export function runTone(run: Pick<SimulationRun, "status" | "summary">): string {
+  if (run.status !== "done") return run.status;
+  const outcome = text(run.summary?.outcome);
+  return SHORT_OUTCOMES.has(outcome) ? "attention" : "done";
+}
+
 /** The one-line outcome a finished run's summary carries, when it has one. */
 export function runOutcome(run: Pick<SimulationRun, "summary">): string {
   return text(run.summary?.status);

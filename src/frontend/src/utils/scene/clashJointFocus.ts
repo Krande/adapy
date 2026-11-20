@@ -1,17 +1,19 @@
 // Putting the cursor on ONE joint, from wherever the user pointed at it.
 //
 // Three surfaces name the same joint -- a sphere in the 3D view, a row in the Clashes tab, an
-// arrow key in the Joints tab -- and all three must end in the same state: the joint is the
+// arrow key in the Review tab -- and all three must end in the same state: the joint is the
 // store's cursor, its group is open, its members are selected in the model, and the panel showing
 // its detail is the one on screen. That is one function, not three nearly-identical handlers,
 // because the difference between them is only where the id came from.
 
 import type { ContactRunDoc } from "@/services/clash/contactRuns";
 import { checkedSourceName, contactRunOf, useClashCheckStore } from "@/state/clashCheckStore";
-import { loadedSourceGroups, useModelState } from "@/state/modelState";
+import { useModelState } from "@/state/modelState";
 import { contactSceneElements } from "@/utils/scene/clashContactPlan";
 import { JOINTS_REVIEW_TAB } from "@/state/connectionBuilderTabStore";
 import { openConnectionsTab } from "@/layout/connectionsTabActions";
+import { CORE_PANEL_IDS, reveal } from "@/layout/panelActions";
+import { useClashContactPickStore } from "@/state/clashContactPickStore";
 import { selectInOtherModel } from "@/utils/scene/crossModelSelect";
 
 export interface FocusOptions {
@@ -26,8 +28,14 @@ export async function focusJoint(jointId: string, opts: FocusOptions = {}): Prom
   const store = useClashCheckStore.getState();
   store.focusJoint(jointId);
 
-  // The joints review is the Connections panel's tab.
-  if (opts.revealPanel) openConnectionsTab(JOINTS_REVIEW_TAB);
+  // The joints review is the Connections panel's tab. A contact pointed at in the 3D view is also
+  // described in the Selected Object panel (its Contact section, `ClashContactSection`), which is
+  // brought up with it; the list opens at the contact, its detail open (`clashContactPickStore`).
+  if (opts.revealPanel) {
+    useClashContactPickStore.getState().pick(jointId);
+    openConnectionsTab(JOINTS_REVIEW_TAB);
+    reveal(CORE_PANEL_IDS.objectInfo);
+  }
 
   const joint = store.result?.jointsById.get(jointId);
   // A convex-contact run names its members by model and ELEMENT ID (a saved group's pairs members of
@@ -61,7 +69,9 @@ async function selectContactElements(run: ContactRunDoc, jointIds: readonly stri
     import("@/utils/groups/groupScene"),
     import("@/state/assetBrowserStore"),
   ]);
-  const refs = contactSceneElements(run, jointIds, loadedSourceGroups.keys(), useAssetBrowserStore.getState().loaded);
+  // The loaded models as the model store lists them, which both viewports keep (the three.js scene's
+  // own groups are only the three.js viewport's).
+  const refs = contactSceneElements(run, jointIds, useModelState.getState().loadedSourceNames, useAssetBrowserStore.getState().loaded);
   if (refs.length === 0) return 0;
   return selectSourceElements(refs, label ?? `${refs.length} clash member(s)`);
 }

@@ -31,6 +31,7 @@ import { memberKinds, memberSources, type KindSummary } from "@/utils/groups/gro
 import { attributeSearchApi } from "@/services/api/attributeSearch";
 import { useTreeViewStore } from "@/state/treeViewStore";
 import { loadSavedGroup } from "@/utils/groups/groupLoad";
+import { groupLoadNote, listMembers } from "@/utils/groups/groupLoadNote";
 import { describeRequestOutcome, planNodeCount, requestGroupGeometry } from "@/utils/groups/groupRequest";
 import { realDeliveryDeps } from "@/components/asset_browser/AssetsTab";
 import { getSingletonViewerStores } from "@/state/AdaViewerContext";
@@ -49,11 +50,6 @@ const BTN =
   "rounded-sm px-1.5 py-0.5 text-[11px] bg-gray-700 hover:bg-gray-600 text-gray-100 disabled:opacity-50 disabled:cursor-not-allowed";
 const BTN_PRIMARY =
   "rounded-sm px-2 py-0.5 text-[11px] bg-blue-700 hover:bg-blue-600 text-gray-100 disabled:opacity-50 disabled:cursor-not-allowed";
-
-function listMembers(members: readonly GroupMember[], max = 4): string {
-  const shown = members.slice(0, max).map(describeMember);
-  return members.length > max ? `${shown.join("; ")}; and ${members.length - max} more` : shown.join("; ");
-}
 
 /** "Group selection…": capture, name, save. */
 const CreateGroupForm: React.FC<{ scope: string; onDone: () => void }> = ({ scope, onDone }) => {
@@ -416,18 +412,7 @@ const GroupDetails: React.FC<{ scope: string; group: SavedGroup; shared: boolean
     setNote(null);
     const deps = realDeliveryDeps((name) => getSingletonViewerStores().useModelState.getState().loadedSourceNames.has(name));
     void loadSavedGroup(group, scope, deps, setLoading)
-      .then((out) => {
-        const parts: string[] = [];
-        parts.push(`${out.loaded} model${out.loaded === 1 ? "" : "s"} loaded${out.already ? `, ${out.already} already in the scene` : ""}`);
-        if (out.hidden) parts.push(`${out.hidden} other object${out.hidden === 1 ? "" : "s"} of the loaded documents hidden`);
-        parts.push(`${out.selection.ranges} object${out.selection.ranges === 1 ? "" : "s"} selected`);
-        if (out.failed.length) {
-          parts.push(
-            `not loaded: ${out.failed.map((f) => `${listMembers(f.members, 2)} (${f.reason})`).join("; ")}`,
-          );
-        }
-        setNote({ tone: out.failed.length || out.selection.notFound.length ? "warn" : "info", text: parts.join(" · ") });
-      })
+      .then((out) => setNote(groupLoadNote(out)))
       .catch((e) => setNote({ tone: "warn", text: e instanceof Error ? e.message : String(e) }))
       .finally(() => setLoading(null));
   };

@@ -46,9 +46,11 @@ import {
 } from "./sceneLayers";
 import { makePluginSimulations } from "./pluginSimulations";
 import { onSceneCleared } from "./sceneCleared";
+import { liveGroupLoadEnv, loadSavedGroupFor } from "./sceneGroupLoad";
 import { endScenePicks, pickObjects } from "./scenePicks";
 import { endSceneHighlights, highlightObjects } from "./sceneHighlights";
 import { placeBox } from "./sceneBox";
+import { placeCamera } from "./sceneCamera";
 import { contactBetween } from "./sceneContact";
 import { registerBuilderRefs, releaseBuilderRefs } from "./builderRefs";
 import { findObjectsByName } from "@/utils/tree_view/modelSource";
@@ -195,6 +197,9 @@ function makeSceneHandle(): SceneHandle {
       requestRender();
     },
     onSceneCleared,
+    // The Scene panel's "Load into scene" for a saved group, in the scope it lists them for.
+    loadSavedGroup: (id, opts) =>
+      loadSavedGroupFor(liveGroupLoadEnv(() => scopeUrlPart(useScopeStore.getState().current)), id, opts),
     addLines,
     addLineLayer,
     addPointLayer,
@@ -222,6 +227,7 @@ function makeSceneHandle(): SceneHandle {
     focusFace: (face, opts) => focusFace(face, { frame: opts?.frame }),
     pickObjects,
     placeBox,
+    placeCamera,
     contactBetween,
     selectionBoxes,
     registerBuilderRefs,

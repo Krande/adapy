@@ -5,6 +5,7 @@
 import {requestRender} from "@/state/perfStore";
 import {getViewerRuntime} from "@/state/viewerRuntime";
 import {disposeObject3D} from "@/utils/scene/dispose_object";
+import {forgetThreeObjectFade} from "@/utils/scene/threeObjectFade";
 
 export function clearThreeSceneModels(): void {
     const threeScene = getViewerRuntime().scene.current;
@@ -19,6 +20,8 @@ export function clearThreeSceneModels(): void {
         }
         modelKeyMap.clear();
     }
+    // What was faded went with its meshes (utils/scene/threeObjectFade.ts).
+    forgetThreeObjectFade();
     // The on-demand render loop will not fire until the camera moves otherwise, leaving the
     // just-cleared models on screen as ghosts.
     requestRender();

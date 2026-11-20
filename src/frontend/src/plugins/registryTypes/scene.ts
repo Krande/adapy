@@ -5,6 +5,7 @@ import type { ColorScale } from "@/utils/colorScale";
 import type { ScenePickOptions, ScenePickSession } from "../scenePicks";
 import type { SceneHighlight, SceneHighlightOptions, SceneHighlightRef } from "../sceneHighlights";
 import type { PlaceBoxOptions, PlacedBox } from "../sceneBox";
+import type { PlaceCameraOptions, PlacedCamera } from "../sceneCamera";
 import type { SceneContactAnswer, SceneContactOptions, SceneObjectRef } from "../sceneContact";
 import type { SelectedObjectBox } from "@/viewport/api/viewportApi";
 import type { BuilderRefProvider } from "@/state/cellbuilder/refsSlice";
@@ -42,6 +43,41 @@ export interface SceneCleared {
   // `addElementOutlines`, `paintFeaElements`, `addLineLayer`, `addPointLayer` and `addImage`. True
   // for every clear but a replace, which leaves them (those pinned to an FEA result still go with it).
   overlaysRemoved: boolean;
+}
+
+/** (1.33.0) Options of `SceneHandle.loadSavedGroup`. */
+export interface SceneGroupLoadOptions {
+  // Each stage of the load, in a few words ("loading 3 of 7", ...): for a progress line, not to
+  // branch on.
+  onStage?: (stage: string) => void;
+}
+
+/** (1.33.0) What `SceneHandle.loadSavedGroup` did. Plain data: members are named as the Scene panel
+ *  names them. */
+export interface SceneGroupLoad {
+  groupId: string;
+  groupName: string;
+  // Models put in the scene by this call: one per member loaded alone, one per document loaded whole.
+  loaded: number;
+  // Documents already in the scene, left as they were.
+  already: number;
+  // Objects hidden in the documents that had to be loaded whole, so only the members show.
+  hidden: number;
+  // What could not be loaded: the document, its members, and why.
+  failed: { source: string; members: string[]; reason: string }[];
+  // Objects selected afterwards.
+  selected: number;
+  // Members loaded but not found in their model.
+  notFound: string[];
+  // The camera was moved to frame the members (the scene was empty before).
+  framed: boolean;
+  // (1.33.0) The box round what was selected afterwards -- the group's members as drawn -- in the
+  // scene's own coordinates (those `placeBox` takes and gives: world less the scene's offset); null
+  // when nothing of the group draws. For a plugin that places something in or over the group.
+  bounds: SceneBox | null;
+  // The outcome in one line, as the Scene panel shows it; "warn" when something was not loaded or found.
+  text: string;
+  tone: "info" | "warn";
 }
 
 /** Line segments in the FEA model's coordinates (world coordinates without an FEA model). */
@@ -350,6 +386,14 @@ export interface SceneHandle {
   // (they do nothing now) or what it held of the models that went. Returns the function that stops
   // it. Additive: an older core has no `onSceneCleared`, so a plugin asks for it first.
   onSceneCleared: (listener: (cleared: SceneCleared) => void) => () => void;
+  // (1.33.0) The Scene panel's "Load into scene" for the saved group `id` of the current scope: its
+  // members put in the scene from what is already published or stored (nothing is requested of a
+  // provider), the rest of a document loaded whole hidden, and the group selected. For a plugin
+  // whose view follows a saved group (one that draws it, say). Resolves what was done
+  // (`SceneGroupLoad`), a member that could not be loaded included; rejects when there is no scope
+  // or no saved group `id` in it. `onStage` is told each stage, in words. Additive: an older core
+  // has no `loadSavedGroup`, so a plugin asks for it first.
+  loadSavedGroup: (id: string, opts?: SceneGroupLoadOptions) => Promise<SceneGroupLoad>;
 
   // ── Renderer-neutral overlays (1.9.0). Core builds and owns the scene objects; they draw
   // the same under three.js and the WebGPU renderer, move and clip with the model, and go
@@ -413,6 +457,14 @@ export interface SceneHandle {
   // `remove(owner)` ends it too. (1.29.0) `frame: true` frames the camera on the box when it is first
   // drawn: a box in a large model is otherwise a few pixels of the view of the whole.
   placeBox: (owner: string, options: PlaceBoxOptions) => PlacedBox;
+  // (1.33.0) Put a camera in the scene with a transform gizmo on it until `end()`: its body, its lens
+  // and an arrow to what it looks at. The user moves it (G, X / Y / Z; it goes on looking at its
+  // target) and turns it about where it stands (R: a flat ring for its yaw, a standing one for its
+  // pitch; the target goes round with it), and each change is handed to `onChange` as where it is and
+  // what it looks at, in the scene's own coordinates. For a tool that asks where a view is seen from.
+  // Works on either viewport; `remove(owner)` ends it too. Additive: an older core has no
+  // `placeCamera`, so a plugin asks for it first.
+  placeCamera: (owner: string, options: PlaceCameraOptions) => PlacedCamera;
   // (1.27.0) Where two objects of the loaded models touch: `{contact}` (null when they do not touch
   // within the security margin) or `{unavailable}` with the reason (a model whose geometry is not a
   // stored GLB the viewer can read again). The patches are the polygons where the two objects'

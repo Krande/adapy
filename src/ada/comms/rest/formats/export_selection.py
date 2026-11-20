@@ -186,7 +186,7 @@ class ExportSelectionAssetHandler(SyntheticFormatHandler):
             )
             return
 
-        storage = _SyncStorageFacade(ctx.storage, ctx.scope, asyncio.get_running_loop())
+        storage = _SyncStorageFacade(ctx.storage, ctx.scope, asyncio.get_running_loop(), ctx.db_pool)
         attributes = _attribute_lookup(ctx)
         relations = _relation_lookup(ctx)
 
@@ -226,7 +226,8 @@ class ExportSelectionGroupHandler(SyntheticFormatHandler):
             await _fail(job, ctx, "export", f"{EXPORT_SELECTION_GROUP_KIND} needs 'group' in conversion_options")
             return
 
-        storage = _SyncStorageFacade(ctx.storage, ctx.scope, asyncio.get_running_loop())
+        # A group's provider-published members are read through the scope's grants.
+        storage = _SyncStorageFacade(ctx.storage, ctx.scope, asyncio.get_running_loop(), ctx.db_pool)
         attributes = _attribute_lookup(ctx)
         relations = _relation_lookup(ctx)
         geometry_provider = opts.get("geometry_provider") or None

@@ -31,7 +31,13 @@ from typing import Any, Callable
 import asyncpg
 
 from ada.clash import ClashOptions, ClashResultError, parse_clash_result
-from ada.clash.detail import build_detail, found_id, joints_by_id
+from ada.clash.detail import (
+    build_detail,
+    detail_progress,
+    found_id,
+    joints_by_id,
+    upload_stage,
+)
 from ada.config import logger
 
 from ..converters.ada_load import _load_with_ada
@@ -135,8 +141,16 @@ async def _run_clash_detail(
                 "joint id(s) not reproducible from this source at these options: "
                 f"{', '.join(absent)} -- the cached result and the source may have drifted apart"
             )
+        # Per joint from here ("detail 120/392"), then the bodies, the tessellation, the GLB and the
+        # stats (`detail_progress`): a run of hundreds of joints takes minutes, and a stage that never
+        # moved read as a job that had hung.
         glb_bytes, stats = build_detail(
-            registered, spec_name=spec_name, joint_ids=joint_ids, by_id=by_id, gen_options=gen_options
+            registered,
+            spec_name=spec_name,
+            joint_ids=joint_ids,
+            by_id=by_id,
+            gen_options=gen_options,
+            on_progress=detail_progress(progress),
         )
         (out_dir / "detail.glb").write_bytes(glb_bytes)
         (out_dir / "stats.json").write_bytes(json.dumps(stats).encode("utf-8"))
@@ -157,9 +171,13 @@ async def _run_clash_detail(
         return  # cancelled / failed -- already reported
 
     try:
-        await queue.update(job_id, stage="upload", progress=0.85)
         if glb_key:
-            await storage.put_path(scope, glb_key, out_dir / "detail.glb", content_encoding="gzip")
+            glb = out_dir / "detail.glb"
+            stage, frac = upload_stage("GLB", glb.stat().st_size, index=0, count=2)
+            await queue.update(job_id, stage=stage, progress=frac)
+            await storage.put_path(scope, glb_key, glb, content_encoding="gzip")
+        stage, frac = upload_stage("stats", index=1, count=2)
+        await queue.update(job_id, stage=stage, progress=frac)
         await storage.put_bytes(scope, job.derived_key, (out_dir / "stats.json").read_bytes(), content_encoding="gzip")
     except Exception as exc:
         logger.exception("worker: clash_detail upload failed for job %s", job_id)
