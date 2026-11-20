@@ -21,8 +21,9 @@ Two switches, both off unless turned on:
   only when it is on. The read-only clash routes below do not depend on it.
 * **The tab**: Settings > *External controls* > "Let an agent drive this tab", offered only on a
   server that allows it. Off by default, and per tab (kept in the tab's `sessionStorage`): the user
-  consents for the tab in front of them, until it is closed. Until both are on, the tab registers
-  nothing and opens no channel; turning the switch off closes its session.
+  consents for the tab in front of them, until it is closed. Until both are on, the tab asks for no
+  ticket and opens no socket; turning the switch off closes it. (The desktop viewer offers the same
+  switch; there it decides whether the tab answers a local client's commands.)
 
 ## Whose viewer
 
@@ -62,7 +63,7 @@ websocket carrying the same FlatBuffer `Message` the desktop viewer and its webs
 and keep an idle connection open (uvicorn pings it every 20 s; an idle timeout of a minute or more
 is enough).
 
-**One process.** Sessions and pending commands live in the API process's memory: the API runs as
+**One process.** Sessions (open sockets) and commands' answers live in the API process's memory: the API runs as
 one replica. A scaled-out API would need the hub moved onto NATS, as the job queue is.
 
 ## Driving the viewer
@@ -78,7 +79,7 @@ one replica. A scaled-out API would need the hub moved onto NATS, as the job que
 `POST /api/viewer/commands` takes one `command`, or `commands`: a **batch** of up to 20 that each tab
 runs in order -- `open_detail_model`, then `focus_joint`, then `camera`, say -- stopping at the first
 that fails. It validates them (`400` with the reasons for anything outside the vocabulary, or for both
-or neither of `command` / `commands`), queues them, and waits up to `wait_s` seconds (default 10, at
+or neither of `command` / `commands`), sends them down the tabs' sockets, and waits up to `wait_s` seconds (default 10, at
 most 60; `0` returns at once) for the tabs to answer. `404` when the caller has no such, or no,
 viewer open.
 
@@ -89,7 +90,7 @@ when every step was, else `error`, its `error` naming the command that failed
 
 ```text
 Session        = {session_id, created_at, last_seen, idle_s, client: {title, path},
-                  state: ViewerState, state_at, pending_commands}
+                  state: ViewerState, state_at}
 CommandOutcome = {command_id, command | commands, issued_at,
                   results: [{session_id, status, error, result, state, answered_at, steps?}]}
                  status: "done" | "error" | "pending" (not answered yet) | "gone" (tab closed)

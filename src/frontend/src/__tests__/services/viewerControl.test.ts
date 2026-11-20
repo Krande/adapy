@@ -1,21 +1,19 @@
 // The viewer's side of `/api/viewer/...`: the commands an agent sends (services/viewerControl/
 // commands.ts) run against the viewer's own functions -- `focus_joint` through the joints review's
 // focus, `open_detail_model` through the Detail models list's Load -- and answer with what the
-// viewer shows; the session loop registers, polls, answers, and registers again when its session
-// is gone.
+// viewer shows, one command or a batch; and a tab takes part only while the server and the tab both
+// allow it. The transport is services/viewerControl/socket.ts (viewerControlSocket.test.ts).
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import type { WireDetailModel } from "@/services/api/clashCheck";
-import type { WireViewerCommand } from "@/services/api/viewerControl";
 import {
   collectViewerState,
   runViewerCommand,
   type ViewerCommand,
   type ViewerControlDeps,
 } from "@/services/viewerControl/commands";
-import { answerCommand, startViewerControl, type ViewerControlApi } from "@/services/viewerControl/session";
 import type { ObjectRef, ViewportApi } from "@/viewport/api/viewportApi";
 
 const JOINT = "0123456789ab";
@@ -190,82 +188,19 @@ test("open_detail_model refuses a model not built yet, or unknown", async () => 
 });
 
 test("a command's answer carries its outcome and the state; a failure is answered as an error", async () => {
+  const { answerPayload } = await import("@/services/viewerControl/answer");
   const { deps } = fakeDeps({ viewport: () => null });
-  const answers: unknown[] = [];
-  const api = { answer: async (_s: string, _c: string, a: unknown) => void answers.push(a) } as unknown as ViewerControlApi;
-  const wire = (command: Record<string, unknown>): WireViewerCommand =>
-    ({ command_id: "c1", issued_at: 0, command }) as unknown as WireViewerCommand;
-  await answerCommand(api, deps, "s1", wire({ action: "get_state" }));
-  await answerCommand(api, deps, "s1", wire({ action: "clear_selection" }));
-  const [ok, err] = answers as { ok: boolean; error?: string; state: { loaded_models: string[] } }[];
+  const ok = (await answerPayload(deps, { command: { action: "get_state" } })) as { ok: boolean; state: { loaded_models: string[] } };
+  const err = (await answerPayload(deps, { command: { action: "clear_selection" } })) as {
+    ok: boolean;
+    error: string | null;
+    state: { loaded_models: string[] };
+  };
   assert.equal(ok.ok, true);
   assert.deepEqual(ok.state.loaded_models, [SOURCE]);
   assert.equal(err.ok, false);
   assert.match(err.error ?? "", /no 3D view/);
   assert.deepEqual(err.state.loaded_models, [SOURCE]);
-});
-
-test("the session registers, answers what it polls, and registers again when its session is gone", async () => {
-  const { deps } = fakeDeps();
-  const calls: string[] = [];
-  let registrations = 0;
-  let polls = 0;
-  let stop: () => void = () => {};
-  const done = new Promise<void>((resolve) => {
-    const api: ViewerControlApi = {
-      register: async () => {
-        registrations += 1;
-        calls.push(`register`);
-        return { session_id: `s${registrations}`, poll_s: 25 };
-      },
-      poll: async (sid) => {
-        polls += 1;
-        calls.push(`poll:${sid}`);
-        if (polls === 1) return [{ command_id: "c1", issued_at: 0, command: { action: "get_state" } }];
-        if (polls === 2) throw Object.assign(new Error("gone"), { status: 404 });
-        stop();
-        resolve();
-        return [];
-      },
-      answer: async (sid, cid, a) => void calls.push(`answer:${sid}:${cid}:${a.ok}`),
-      reportState: async () => {},
-      close: (sid) => void calls.push(`close:${sid}`),
-    };
-    stop = startViewerControl(api, deps, { retryMs: 0, sleep: async () => {} });
-  });
-  await done;
-  assert.deepEqual(calls, ["register", "poll:s1", "answer:s1:c1:true", "poll:s1", "register", "poll:s2", "close:s2"]);
-});
-
-test("a state change is reported once, after it settles", async () => {
-  const { deps, vp } = fakeDeps();
-  const reports: unknown[] = [];
-  let changed: () => void = () => {};
-  let release: () => void = () => {};
-  const api: ViewerControlApi = {
-    register: async () => ({ session_id: "s1", poll_s: 25 }),
-    poll: (_sid, _w, signal) =>
-      new Promise((resolve) => {
-        release = () => resolve([]);
-        signal?.addEventListener("abort", () => resolve([]));
-      }),
-    answer: async () => {},
-    reportState: async (_sid, state) => void reports.push(state),
-    close: () => {},
-  };
-  const stop = startViewerControl(api, deps, { watch: (cb) => ((changed = cb), () => {}), reportDelayMs: 5 });
-  await new Promise((r) => setTimeout(r, 5));
-  changed(); // nothing changed since registering: not reported
-  await new Promise((r) => setTimeout(r, 20));
-  assert.equal(reports.length, 0);
-  vp.select([{ model: "m1", id: "3" }]);
-  changed();
-  changed();
-  await new Promise((r) => setTimeout(r, 20));
-  assert.equal(reports.length, 1);
-  assert.equal((reports[0] as { selection: { count: number } }).selection.count, 1);
-  stop();
-  release();
 });
 
 test("a joint's connections in a take-off are the ones named after it", async () => {

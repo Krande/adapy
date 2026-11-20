@@ -172,6 +172,51 @@ def test_off_by_default_no_ticket_and_no_socket(tmp_path):
                 pass
 
 
+def test_a_command_goes_to_every_tab_or_to_the_one_named(client):
+    with client.websocket_connect(f"/api/viewer/ws?ticket={_ticket(client)}") as one:
+        with client.websocket_connect(f"/api/viewer/ws?ticket={_ticket(client)}") as two:
+            sessions = [s["session_id"] for s in client.get("/api/viewer/sessions").json()["sessions"]]
+            assert len(sessions) == 2
+            both = client.post("/api/viewer/commands", json={"command": {"action": "get_state"}, "wait_s": 0})
+            assert sorted(r["session_id"] for r in both.json()["results"]) == sorted(sessions)
+            assert read(one.receive_bytes()).request_id == both.json()["command_id"]
+            assert read(two.receive_bytes()).request_id == both.json()["command_id"]
+            named = sessions[0]
+            only = client.post("/api/viewer/commands", json={"command": FOCUS, "session_id": named, "wait_s": 0}).json()
+            assert [r["session_id"] for r in only["results"]] == [named]
+
+
+def test_a_tab_that_closes_before_answering_is_gone(client):
+    with client.websocket_connect(f"/api/viewer/ws?ticket={_ticket(client)}") as ws:
+        cid = client.post("/api/viewer/commands", json={"command": FOCUS, "wait_s": 0}).json()["command_id"]
+        assert read(ws.receive_bytes()).request_id == cid
+    (answer,) = client.get(f"/api/viewer/commands/{cid}").json()["results"]
+    assert answer["status"] == "gone"
+
+
+def test_an_oversized_state_is_not_kept(client):
+    with client.websocket_connect(f"/api/viewer/ws?ticket={_ticket(client)}") as ws:
+        ws.send_bytes(state_message({"names": ["n" * 100] * 5000}))
+        ws.send_bytes(state_message({"scope": "user:me"}))
+        client.post("/api/viewer/commands", json={"command": {"action": "get_state"}, "wait_s": 0})
+        ws.receive_bytes()
+        (session,) = client.get("/api/viewer/sessions").json()["sessions"]
+        assert session["state"] == {"scope": "user:me"}
+
+
+def test_another_user_can_neither_drive_nor_read_a_tab(client):
+    with client.websocket_connect(f"/api/viewer/ws?ticket={_ticket(client, ALICE)}") as ws:
+        (session,) = client.get("/api/viewer/sessions").json()["sessions"]
+        sid = session["session_id"]
+        cid = client.post("/api/viewer/commands", json={"command": FOCUS, "wait_s": 0}).json()["command_id"]
+        ws.receive_bytes()
+        client.who["user"] = BOB
+        assert client.get(f"/api/viewer/sessions/{sid}").status_code == 404
+        assert client.post("/api/viewer/commands", json={"command": FOCUS, "session_id": sid}).status_code == 404
+        assert client.get(f"/api/viewer/commands/{cid}").status_code == 404
+        client.who["user"] = ALICE
+
+
 # ── the desktop websocket server ─────────────────────────────────────────────────────────────────
 
 

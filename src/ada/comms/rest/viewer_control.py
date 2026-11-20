@@ -10,13 +10,13 @@ THE VOCABULARY. One typed command per action (:data:`ViewerCommand`, a union dis
 (``GET /api/viewer/commands/schema``) so a tool layer can be generated from it. The browser runs
 them (``src/frontend/src/services/viewerControl``).
 
-THE TRANSPORT. A viewer tab REGISTERS a session, then LONG-POLLS for its commands and posts each
-command's outcome back, with what it shows now. Long-polling rather than server-sent events: the
-SPA authenticates with a bearer header, which ``EventSource`` cannot send, and the deployed studio
-already follows server state by polling (the connection builder does); a poll that holds for
-:data:`POLL_MAX_S` costs one idle request per tab and needs nothing from a proxy.
+THE TRANSPORT. Agents call the REST routes; a viewer tab holds a websocket (``/api/viewer/ws``,
+opened with a single-use ticket from ``POST /api/viewer/ws-ticket``: a browser's websocket cannot
+send the bearer header) and the hub pushes each command down it as a FlatBuffer ``VIEWER_COMMAND``
+(``ada.comms.viewer_wire``). The tab answers ``VIEWER_ANSWER`` and reports ``VIEWER_STATE``. A session
+is one open socket.
 
-WHOSE VIEWER. A session belongs to the user who registered it; every lookup is by (user, session),
+WHOSE VIEWER. A session belongs to the user whose ticket opened it; every lookup is by (user, session),
 so a session id alone neither reads nor drives another user's viewer. A command goes to one named
 session, or to all of the caller's live sessions (each tab answers for itself).
 
@@ -40,8 +40,7 @@ __all__ = [
     "COMMAND_ADAPTER",
     "MAX_SESSIONS_PER_USER",
     "MAX_STATE_BYTES",
-    "POLL_MAX_S",
-    "SESSION_STALE_S",
+    "TICKET_TTL_S",
     "ViewerCommand",
     "ViewerHub",
     "CommandRequest",
@@ -52,10 +51,6 @@ __all__ = [
     "state_size_ok",
 ]
 
-#: The longest a browser's poll is held open before it answers "nothing".
-POLL_MAX_S = 25.0
-#: A session not heard from (no poll, no state) for this long is gone: its tab closed or slept.
-SESSION_STALE_S = 75.0
 #: The longest an agent's command waits for the viewers to answer.
 COMMAND_WAIT_MAX_S = 60.0
 #: Sessions kept per user; the longest-silent one is dropped for a new one past this.
@@ -224,12 +219,10 @@ class _Session:
     created_at: float
     last_seen: float
     client: dict
+    #: Sends bytes on the session's websocket (``/api/viewer/ws``).
+    send: Any
     state: dict = field(default_factory=dict)
     state_at: float | None = None
-    pending: list[dict] = field(default_factory=list)
-    wake: asyncio.Event = field(default_factory=asyncio.Event)
-    #: Sends bytes on the session's websocket (``/api/viewer/ws``); None for a polling session.
-    send: Any = None
 
     def public(self, now: float) -> dict:
         return {
@@ -240,7 +233,6 @@ class _Session:
             "client": self.client,
             "state": self.state,
             "state_at": self.state_at,
-            "pending_commands": len(self.pending),
         }
 
 
@@ -265,7 +257,8 @@ class _Issued:
 
 
 class ViewerHub:
-    """The viewer sessions and their commands, per user. Async methods run on the API's event loop."""
+    """The viewer sessions (one per open websocket) and their commands, per user. Runs on the API's
+    event loop."""
 
     def __init__(self, clock=time.time) -> None:
         self._clock = clock
@@ -275,25 +268,17 @@ class ViewerHub:
 
     # -- sessions ------------------------------------------------------------------------------
 
-    def _prune(self) -> None:
-        now = self._clock()
-        for sid, s in list(self._sessions.items()):
-            # A websocket session lives as long as its socket; the socket's end closes it.
-            if s.send is None and now - s.last_seen > SESSION_STALE_S:
-                self._drop(sid)
-
     def _drop(self, sid: str) -> None:
-        s = self._sessions.pop(sid, None)
-        if s is None:
+        if self._sessions.pop(sid, None) is None:
             return
-        s.wake.set()
         for issued in self._issued.values():
             if sid in issued.sessions and sid not in issued.results:
                 issued.results[sid] = {"status": "gone", "error": "the viewer session closed before it answered"}
                 self._maybe_done(issued)
 
-    def register(self, owner: str, client: dict | None = None, state: dict | None = None, send: Any = None) -> dict:
-        self._prune()
+    def register(self, owner: str, send: Any, client: dict | None = None, state: dict | None = None) -> dict:
+        """A new session of ``owner``'s, whose commands go out through ``send`` (an async function
+        taking bytes). Past :data:`MAX_SESSIONS_PER_USER` the longest-silent one is dropped."""
         mine = sorted((s for s in self._sessions.values() if s.owner == owner), key=lambda s: s.last_seen)
         for old in mine[: max(0, len(mine) - MAX_SESSIONS_PER_USER + 1)]:
             self._drop(old.session_id)
@@ -316,12 +301,10 @@ class ViewerHub:
         return s if s is not None and s.owner == owner else None
 
     def session(self, owner: str, sid: str) -> dict | None:
-        self._prune()
         s = self._mine(owner, sid)
         return s.public(self._clock()) if s else None
 
     def sessions(self, owner: str) -> list[dict]:
-        self._prune()
         now = self._clock()
         mine = [s for s in self._sessions.values() if s.owner == owner]
         return [s.public(now) for s in sorted(mine, key=lambda s: s.last_seen, reverse=True)]
@@ -340,33 +323,14 @@ class ViewerHub:
         s.last_seen = s.state_at
         return True
 
-    async def poll(self, owner: str, sid: str, wait_s: float) -> list[dict] | None:
-        """The session's commands, waiting up to ``wait_s`` for one. None: no such session."""
-        s = self._mine(owner, sid)
-        if s is None:
-            return None
-        s.last_seen = self._clock()
-        if not s.pending and wait_s > 0:
-            s.wake.clear()
-            try:
-                await asyncio.wait_for(s.wake.wait(), timeout=min(wait_s, POLL_MAX_S))
-            except asyncio.TimeoutError:
-                pass
-        if self._sessions.get(sid) is not s:
-            return None
-        s.last_seen = self._clock()
-        out, s.pending = s.pending, []
-        return out
-
     # -- commands ------------------------------------------------------------------------------
 
     def issue(self, owner: str, payload: dict, session_id: str | None = None) -> dict | None:
-        """Queue ``payload`` (already validated: ``{"command"}`` or ``{"commands"}``, or a bare
-        command) for one of the owner's sessions, or all of them. None when there is no such session
-        (or none at all)."""
+        """Send ``payload`` (already validated: ``{"command"}`` or ``{"commands"}``, or a bare command)
+        to one of the owner's sessions, or all of them. None when there is no such session (or none
+        at all)."""
         if "command" not in payload and "commands" not in payload:
             payload = {"command": payload}
-        self._prune()
         if session_id is not None:
             targets = [s for s in [self._mine(owner, session_id)] if s is not None]
         else:
@@ -384,12 +348,9 @@ class ViewerHub:
         mine = [cid for cid, i in self._issued.items() if i.owner == owner]
         for cid in mine[: max(0, len(mine) - RESULTS_KEPT)]:
             self._issued.pop(cid, None)
+        loop = asyncio.get_running_loop()
         for s in targets:
-            if s.send is not None:
-                asyncio.get_running_loop().create_task(self._push(s, issued.command_id, payload))
-                continue
-            s.pending.append({"command_id": issued.command_id, **payload, "issued_at": issued.issued_at})
-            s.wake.set()
+            loop.create_task(self._push(s, issued.command_id, payload))
         return issued.public()
 
     async def _push(self, s: _Session, command_id: str, payload: dict) -> None:
@@ -433,10 +394,6 @@ class ViewerHub:
             except asyncio.TimeoutError:
                 pass
         return issued.public()
-
-    def result(self, owner: str, command_id: str) -> dict | None:
-        issued = self._issued.get(command_id)
-        return issued.public() if issued is not None and issued.owner == owner else None
 
     def complete(self, owner: str, sid: str, command_id: str, outcome: dict) -> bool:
         """Record a session's answer to a command it was sent. False when either is not the
