@@ -419,7 +419,23 @@ export type { SelectedObjectBox } from "@/viewport/api/viewportApi";
 //          and the mesh's stats as a line. The sections below are drawn and get the pick as before.
 //          `PropertyGroup` on `/layout` (with `PropertyItemLayout`): one titled group drawn as the
 //          item layout draws its groups. Core's `fea-sets` section is one in the flat panel.
-export const PLUGIN_API_VERSION = "1.31.0";
+// 1.32.0 — Core's modes and their behaviour, assigned per UI (layout/modes.ts). `Mode` names core's
+//          modes as typed constants (TopologyInput, TopologyOutput, FemModel, FemResults,
+//          ConstructionFabrication), grouped under `ModeGroup` (Topology, Fem, Construction); a
+//          string is only how a mode is stored. A composed shell offers core's modes by their
+//          constant (`UiShellMode.id`; `label` and `hint` now default to core's) and gives each a
+//          `behaviour` (`ModeBehaviour`): `builder` ("edit" | "compare" | "away"), `sceneColor`,
+//          `deformation`, and `scene` (which loaded models the mode draws, applied by core
+//          reversibly). `UiShellLayout.modeSwitching` (remember, `?mode=`, fallback, `aliases` for
+//          ids a UI used before); `PluginModeSpec.group` and `.behaviour`
+//          (`modeArrangements[id].behaviour` wins). Core reacts to a mode ONLY through the active
+//          mode's declared behaviour: the Properties panel's builder pick follows `builder` (a mode
+//          that declares none: "compare", as since 1.31.0; core's own UI, which has no modes:
+//          always shown), and the builder panel is offered in an "edit" mode instead of a mode
+//          called "build". The mode state is a zustand store (`modeStore`); the functions are as
+//          before. The Desktop UI's modes are core's now (Model = TopologyOutput, Results =
+//          FemResults, Build = TopologyInput); its old ids are aliases.
+export const PLUGIN_API_VERSION = "1.32.0";
 
 /** What the Simulations panel writes on a run's open-result button. */
 export function openResultButtonLabel(

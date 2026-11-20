@@ -11,6 +11,7 @@ const { renderToStaticMarkup } = await import("react-dom/server");
 const C = await import("@/layout/commands");
 const M = await import("@/layout/shellModes");
 const D = await import("@/layout/desktop/desktopShell");
+const { Mode } = await import("@/layout/modes");
 const { CORE_COMMAND_IDS: ID } = await import("@/layout/coreCommandIds");
 const { CORE_COMMAND_ICONS } = await import("@/layout/commandIcons");
 const { registerCoreCommands } = await import("@/layout/coreCommands");
@@ -214,11 +215,11 @@ test("the Desktop UI's modes name core toolbars that exist", () => {
   const named = modes.flatMap((m) => m.toolbars ?? []);
   assert.ok(named.includes("playback") && named.includes("section") && named.includes("representation"));
   for (const id of named) assert.ok((M.CORE_MODE_TOOLBAR_IDS as readonly string[]).includes(id), id);
-  assert.deepEqual(modes.find((m) => m.id === "results")!.toolbars, ["playback", "representation", "colorBy"]);
+  assert.deepEqual(modes.find((m) => m.id === Mode.FemResults)!.toolbars, ["playback", "representation", "colorBy"]);
 });
 
 test("the facade publishes the toolbars, and the API version moved with them", () => {
-  assert.equal(V.VIEWER_CORE_API_VERSION, "1.31.0");
+  assert.equal(V.VIEWER_CORE_API_VERSION, "1.32.0");
   assert.deepEqual([...V.CORE_MODE_TOOLBAR_IDS], ["playback", "section", "representation", "colorBy", "build"]);
   // The layout entry imports every panel (and their styles), so its exports are read from the source.
   const facade = readFileSync(new URL("../../viewer-core/layout.ts", import.meta.url), "utf8");

@@ -257,22 +257,46 @@ test("core's Model panel lists a ref as a row of its own, under its space, with 
   }
 });
 
-test("a builder pick while the builder's cells are not shown (another mode) is no selection: no summary, no section", async () => {
+test("whether a builder pick is the panel's is the active mode's declared builder presence", async () => {
   const { setBuilderVisibilityHost } = await import("@/state/cellbuilder/builderVisibility");
+  const M = await import("@/layout/shellModes");
   st().open("m", "Model", 1, doc);
   let shown = false;
   const release = setBuilderVisibilityHost({ cellsShown: () => shown, selected: () => [], all: () => [], hide: () => {}, unhide: () => {}, unhideAll: () => {} });
+  const panel = () => inViewer(React.createElement(ObjectInfoBody));
+  const isPick = (html: string) => /data-builder-section="item"/.test(html);
   try {
     const pump = Object.values(st().cells).find((c) => c.name === "pump")!;
     st().setSelection({ kind: "cell", cellId: pump.id });
-    const hidden = inViewer(React.createElement(ObjectInfoBody));
-    assert.doesNotMatch(hidden, /data-builder-section/, "no builder section");
-    assert.doesNotMatch(hidden, />pump</, "no summary naming it");
-    assert.doesNotMatch(hidden, /Add mode/);
+
+    // Core's own UI has no modes: the pick is the panel's, whatever the builder draws (a compile
+    // shows its model and hides the cells).
+    M.setShellModes([]);
+    assert.ok(isPick(panel()), "no modes: the pick stays with the cells hidden");
+
+    // "away": the model is open behind the mode -- no section, no summary naming it.
+    M.setShellModes([{ id: "away", label: "Away", order: 0, behaviour: { builder: "away" } }], "away");
     shown = true;
-    const back = inViewer(React.createElement(ObjectInfoBody));
-    assert.match(back, /data-builder-section="item"/, "its mode again: the pick is the panel's");
+    const away = panel();
+    assert.doesNotMatch(away, /data-builder-section/, "no builder section");
+    assert.doesNotMatch(away, />pump</, "no summary naming it");
+    assert.doesNotMatch(away, /Add mode/);
+
+    // "compare" (and a mode that declares nothing): the pick follows whether the cells are drawn.
+    for (const behaviour of [{ builder: "compare" as const }, undefined]) {
+      M.setShellModes([{ id: "cmp", label: "Compare", order: 0, ...(behaviour ? { behaviour } : {}) }], "cmp");
+      shown = false;
+      assert.ok(!isPick(panel()), "cells hidden: not the panel's");
+      shown = true;
+      assert.ok(isPick(panel()), "cells drawn: the panel's");
+    }
+
+    // "edit": the model is worked on here; the pick is the panel's with the cells hidden too.
+    M.setShellModes([{ id: "edit", label: "Edit", order: 0, behaviour: { builder: "edit" } }], "edit");
+    shown = false;
+    assert.ok(isPick(panel()), "edit: the pick stays after a compile hides the cells");
   } finally {
+    M.setShellModes([]);
     release();
     st().close();
   }

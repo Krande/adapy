@@ -1021,6 +1021,8 @@ export function coreCommandSpecs(): CommandSpec[] {
       id: ID.builderAddCell,
       label: "Add cell",
       group: "Build",
+      // The builder's own A key (keyboard.ts) does the same: shown with the command, listed once.
+      shortcut: "core:builder-place-cell",
       checked: () => useCellBuilderStore.getState().mode === "add-cell",
       disabledReason: builderReadOnly,
       run: () => {

@@ -13,6 +13,7 @@ import {
   workspaceCommandId,
 } from "../coreCommandIds";
 import { CORE_PANEL_IDS as P } from "../corePanelIds";
+import { Mode } from "../modes";
 
 const panel = (id: string) => `panel:${id}`;
 const SEP: MenuItemDef = { separator: true };
@@ -109,7 +110,7 @@ export function desktopMenus({ modes, workspaces, shells, themes }: DesktopMenuI
   ];
   if (modes.length) menus.push({ label: "Modes", items: modes.map((m) => `mode:${m.id}`) });
   // The builder's commands, once the shell has a mode for it; greyed, with the reason, until a model is open.
-  if (modes.some((m) => m.id === "build")) {
+  if (modes.some((m) => m.id === Mode.TopologyInput)) {
     menus.push({
       label: "Build",
       items: [C.builderNew, SEP, C.builderUndo, C.builderRedo, SEP, C.builderAddCell, C.builderAddLoft, C.builderAddOpening, C.builderAddEquipment, SEP, C.builderTranslate, C.builderRotate, C.builderResize, SEP, C.builderRepTopology, C.builderRepSimulation, C.builderRepDetail, C.builderSuperimpose, C.builderSideBySide, SEP, C.builderIncludeDimmed, C.builderIncludeOnly, C.builderIncludeAll, SEP, C.builderCompile, C.builderRecompile, C.builderCompileBrowser, SEP, C.builderCommit, C.builderClose, SEP, panel(P.cellbuilder), panel(P.componentList)],
