@@ -69,6 +69,7 @@ from .routes.source_nodes import router as source_nodes_router
 from .routes.storage import router as storage_router
 from .routes.system_templates import router as system_templates_router
 from .routes.viewer_control import router as viewer_control_router
+from .routes.viewer_control import ws_router as viewer_control_ws_router
 from .storage import Storage
 
 
@@ -340,6 +341,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     # /api/config and /config.js (routes/runtime_config.py): public, on the app itself.
     app.include_router(runtime_config_router)
+    # /api/viewer/ws (routes/viewer_control.py): a viewer tab's websocket. On the app itself, as a
+    # websocket handshake carries no bearer header: a ticket from the authenticated
+    # POST /api/viewer/ws-ticket is its credential.
+    app.include_router(viewer_control_ws_router)
 
     # Every /api/* below this line requires a verified user. The dep is
     # attached to the router so individual routes don't have to repeat

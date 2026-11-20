@@ -46,6 +46,14 @@ enum CommandType : byte {
   // websocket viewer (no /wasm to load from file://) do the same work. Replies over
   // SERVER_REPLY like every other verb.
   CALL_KERNEL = 27,
+  // Viewer control ("external controls"): an agent drives a viewer that turned it on. VIEWER_COMMAND
+  // (-> web) carries a command or a batch as JSON in Message.payload_json, its id in request_id;
+  // the viewer answers with VIEWER_ANSWER (echoing request_id; the outcome as JSON) to the sender,
+  // and reports what it shows with VIEWER_STATE. Over the REST server's /api/viewer/ws, or relayed
+  // by the websocket server between a local client and a viewer.
+  VIEWER_COMMAND = 28,
+  VIEWER_ANSWER = 29,
+  VIEWER_STATE = 30,
 }
 
 enum TargetType : byte {

@@ -33,6 +33,22 @@ export async function handleFlatbufferMessage(buffer: ArrayBuffer): Promise<void
                 await open_fea_source_from_message(message);
                 break;
 
+            case CommandType.VIEWER_COMMAND: {
+                // A local client driving this viewer through the websocket server (external controls).
+                const [{answerDesktopCommand}, {useExternalControlsStore}, {comms}] = await Promise.all([
+                    import('@/services/viewerControl/desktop'),
+                    import('@/state/externalControlsStore'),
+                    import('../comms'),
+                ]);
+                await answerDesktopCommand(message, {
+                    enabled: () => useExternalControlsStore.getState().enabled,
+                    deps: async () => (await import('@/services/viewerControl/realDeps')).realViewerControlDeps,
+                    send: (bytes) => comms.sendCommand(bytes),
+                    instanceId: () => comms.getInstanceId(),
+                });
+                break;
+            }
+
             case CommandType.LIST_WEB_CLIENTS: {
                 const clients = [];
                 const clientCount = message.webClientsLength();

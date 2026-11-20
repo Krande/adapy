@@ -80,3 +80,33 @@ export const viewerControlApi = {
     void authedFetch(`${base()}/${encodeURIComponent(sessionId)}`, { method: "DELETE", keepalive: true }).catch(() => {});
   },
 };
+
+/** The browser's websocket leg (services/viewerControl/socket.ts): a ticket from the authenticated
+ *  `POST /api/viewer/ws-ticket`, then `wss://<this host>/api/viewer/ws?ticket=...`. */
+export const browserViewerSocketIO = {
+  async ticket(client: Record<string, unknown>): Promise<{ ticket: string; path: string }> {
+    return jsonOrThrow<{ ticket: string; path: string }>(
+      await authedFetch(`${runtime.apiBase()}/viewer/ws-ticket`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ client }),
+      }),
+      "viewerControl.ticket",
+    );
+  },
+  url(path: string, ticket: string): string {
+    return viewerSocketUrl(window.location.href, runtime.apiBase(), path, ticket);
+  },
+  open(url: string) {
+    return new WebSocket(url);
+  },
+};
+
+/** The websocket URL for the ticket's `path`: on the API's own origin (`apiBase` may be absolute),
+ *  `ws:` for `http:`, `wss:` for `https:`. */
+export function viewerSocketUrl(pageUrl: string, apiBase: string, path: string, ticket: string): string {
+  const url = new URL(path, new URL(apiBase, pageUrl));
+  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  url.searchParams.set("ticket", ticket);
+  return url.toString();
+}

@@ -37,6 +37,7 @@ def deserialize_message(fb_obj) -> MessageDC | None:
         screenshot=deserialize_screenshot(fb_obj.Screenshot()),
         package=deserialize_appendmesh(fb_obj.Package()),
         request_id=fb_obj.RequestId().decode("utf-8") if fb_obj.RequestId() is not None else None,
+        payload_json=fb_obj.PayloadJson().decode("utf-8") if fb_obj.PayloadJson() is not None else None,
     )
 
 

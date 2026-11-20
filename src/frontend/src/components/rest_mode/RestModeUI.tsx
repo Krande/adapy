@@ -34,12 +34,12 @@ const RestModeUI: React.FC<{toastAnchor?: ToastAnchor}> = ({toastAnchor}) => {
                 let stop: (() => void) | null = null;
                 let stopped = false;
                 void Promise.all([
-                    import("@/services/viewerControl/session"),
+                    import("@/services/viewerControl/socket"),
                     import("@/services/viewerControl/realDeps"),
                     import("@/services/api/viewerControl"),
-                ]).then(([{startViewerControl}, {realViewerControlDeps, watchViewerState}, {viewerControlApi}]) => {
+                ]).then(([{startViewerSocket}, {realViewerControlDeps, watchViewerState}, {browserViewerSocketIO}]) => {
                     if (stopped) return;
-                    stop = startViewerControl(viewerControlApi, realViewerControlDeps, {
+                    stop = startViewerSocket(realViewerControlDeps, browserViewerSocketIO, {
                         watch: watchViewerState,
                         client: {title: document.title, path: window.location.pathname},
                     });

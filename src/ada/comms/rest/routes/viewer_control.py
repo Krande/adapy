@@ -29,14 +29,26 @@ a tab registers only once its user has also turned it on in the viewer's setting
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+import asyncio
+
+from fastapi import (
+    APIRouter,
+    Depends,
+    HTTPException,
+    Request,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
+
+from ada.config import logger
 
 from .. import auth as auth_module
 from ..auth import User
 from ..viewer_control import (
     POLL_MAX_S,
+    TICKET_TTL_S,
     ViewerHub,
     command_schema,
     parse_request,
@@ -64,10 +76,14 @@ DEFAULT_WAIT_S = 10.0
 
 def viewer_hub(request: Request) -> ViewerHub:
     """The app's hub, made on first use."""
-    hub = getattr(request.app.state, "viewer_hub", None)
+    return _app_hub(request.app)
+
+
+def _app_hub(app) -> ViewerHub:
+    hub = getattr(app.state, "viewer_hub", None)
     if hub is None:
         hub = ViewerHub()
-        request.app.state.viewer_hub = hub
+        app.state.viewer_hub = hub
     return hub
 
 
@@ -251,3 +267,78 @@ async def api_viewer_close(
     if not hub.close(user.sub, session_id):
         raise _no_session(session_id)
     return JSONResponse({"ok": True})
+
+
+# ── the websocket leg ────────────────────────────────────────────────────────────────────────────
+
+
+@router.post("/viewer/ws-ticket")
+async def api_viewer_ws_ticket(
+    request: Request,
+    hub: ViewerHub = Depends(viewer_hub),
+    user: User = Depends(auth_module.current_user),
+) -> JSONResponse:
+    """A single-use ticket for ``/api/viewer/ws`` (a browser's websocket cannot send the bearer header):
+    ``{ticket, expires_s, path}``. Body ``{client?: {...}}``: how the tab describes itself."""
+    body = await _body(request)
+    client = body.get("client") or {}
+    if not isinstance(client, dict) or not state_size_ok(client):
+        raise HTTPException(status_code=400, detail="'client' must be a small object")
+    return JSONResponse(
+        {"ticket": hub.mint_ticket(user.sub, client), "expires_s": TICKET_TTL_S, "path": "/api/viewer/ws"}
+    )
+
+
+#: Outside the authenticated ``/api`` router: a websocket handshake carries no bearer header, so the
+#: ticket is the credential. Included on the app itself (``create_app``).
+ws_router = APIRouter()
+
+#: Close codes: the server has viewer control off; the ticket was not (or no longer) valid.
+WS_CLOSE_DISABLED = 4404
+WS_CLOSE_TICKET = 4403
+
+
+@ws_router.websocket("/api/viewer/ws")
+async def api_viewer_ws(websocket: WebSocket, ticket: str = "") -> None:
+    """A viewer tab's session: commands pushed down as ``VIEWER_COMMAND``, answers and state sent up as
+    ``VIEWER_ANSWER`` / ``VIEWER_STATE`` (``ada.comms.viewer_wire``). The session is the ticket's
+    user's, and lives as long as the socket."""
+    from ada.comms.fb_wrap_model_gen import CommandTypeDC
+    from ada.comms.viewer_wire import payload_of, read
+
+    if not websocket.app.state.rest.settings.viewer_control:
+        await websocket.close(code=WS_CLOSE_DISABLED)
+        return
+    hub = _app_hub(websocket.app)
+    redeemed = hub.redeem_ticket(ticket)
+    if redeemed is None:
+        await websocket.close(code=WS_CLOSE_TICKET)
+        return
+    owner, client = redeemed
+    await websocket.accept()
+    lock = asyncio.Lock()
+
+    async def send(data: bytes) -> None:
+        async with lock:
+            await websocket.send_bytes(data)
+
+    sid = hub.register(owner, client=client, send=send)["session_id"]
+    try:
+        while True:
+            data = await websocket.receive_bytes()
+            try:
+                msg = read(data)
+            except Exception:  # noqa: BLE001 - not a message: ignored, the socket stays
+                logger.debug("viewer ws: an unreadable message on session %s", sid)
+                continue
+            payload = payload_of(msg)
+            if msg.command_type == CommandTypeDC.VIEWER_ANSWER and isinstance(payload, dict) and msg.request_id:
+                if state_size_ok(payload):
+                    hub.complete(owner, sid, msg.request_id, payload)
+            elif msg.command_type == CommandTypeDC.VIEWER_STATE and isinstance(payload, dict):
+                if state_size_ok(payload):
+                    hub.report_state(owner, sid, payload)
+    except WebSocketDisconnect:
+        pass
+    finally:
+        hub.close(owner, sid)

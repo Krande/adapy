@@ -99,11 +99,12 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
     {id: "conversion", title: "Conversion engine", available: restOnly, render: () => <ExperimentalOptions/>},
     // A server with no job queue runs every job itself: how many at once, and the CPU they share.
     {id: "jobs", title: "Local jobs", available: () => runtime.localJobs(), render: () => <LocalJobsOptions/>},
-    // Letting an agent drive this tab over the REST API: offered only where the server allows it (ADA_VIEWER_CONTROL).
+    // Letting an agent drive this tab: on a hosted viewer only where the server allows it (ADA_VIEWER_CONTROL);
+    // on the desktop viewer always (a local script, through its own websocket server).
     {
         id: "external-controls",
         title: "External controls",
-        available: () => runtime.isRestMode() && runtime.viewerControl(),
+        available: () => !runtime.isRestMode() || runtime.viewerControl(),
         render: () => <ExternalControlsOptions/>,
     },
 ];

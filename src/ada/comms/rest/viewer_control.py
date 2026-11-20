@@ -62,6 +62,8 @@ COMMAND_WAIT_MAX_S = 60.0
 MAX_SESSIONS_PER_USER = 16
 #: A state report larger than this is refused (it is a summary, not a model).
 MAX_STATE_BYTES = 256 * 1024
+#: How long a websocket ticket (``POST /api/viewer/ws-ticket``) may wait to be used.
+TICKET_TTL_S = 60.0
 #: Commands' outcomes kept per user, for ``GET /viewer/commands/{id}`` after the wait ran out.
 RESULTS_KEPT = 64
 
@@ -226,6 +228,8 @@ class _Session:
     state_at: float | None = None
     pending: list[dict] = field(default_factory=list)
     wake: asyncio.Event = field(default_factory=asyncio.Event)
+    #: Sends bytes on the session's websocket (``/api/viewer/ws``); None for a polling session.
+    send: Any = None
 
     def public(self, now: float) -> dict:
         return {
@@ -267,13 +271,15 @@ class ViewerHub:
         self._clock = clock
         self._sessions: dict[str, _Session] = {}
         self._issued: OrderedDict[str, _Issued] = OrderedDict()
+        self._tickets: dict[str, tuple[str, float, dict]] = {}
 
     # -- sessions ------------------------------------------------------------------------------
 
     def _prune(self) -> None:
         now = self._clock()
         for sid, s in list(self._sessions.items()):
-            if now - s.last_seen > SESSION_STALE_S:
+            # A websocket session lives as long as its socket; the socket's end closes it.
+            if s.send is None and now - s.last_seen > SESSION_STALE_S:
                 self._drop(sid)
 
     def _drop(self, sid: str) -> None:
@@ -286,7 +292,7 @@ class ViewerHub:
                 issued.results[sid] = {"status": "gone", "error": "the viewer session closed before it answered"}
                 self._maybe_done(issued)
 
-    def register(self, owner: str, client: dict | None = None, state: dict | None = None) -> dict:
+    def register(self, owner: str, client: dict | None = None, state: dict | None = None, send: Any = None) -> dict:
         self._prune()
         mine = sorted((s for s in self._sessions.values() if s.owner == owner), key=lambda s: s.last_seen)
         for old in mine[: max(0, len(mine) - MAX_SESSIONS_PER_USER + 1)]:
@@ -298,6 +304,7 @@ class ViewerHub:
             created_at=now,
             last_seen=now,
             client=dict(client or {}),
+            send=send,
         )
         if state is not None:
             s.state, s.state_at = dict(state), now
@@ -378,9 +385,39 @@ class ViewerHub:
         for cid in mine[: max(0, len(mine) - RESULTS_KEPT)]:
             self._issued.pop(cid, None)
         for s in targets:
+            if s.send is not None:
+                asyncio.get_running_loop().create_task(self._push(s, issued.command_id, payload))
+                continue
             s.pending.append({"command_id": issued.command_id, **payload, "issued_at": issued.issued_at})
             s.wake.set()
         return issued.public()
+
+    async def _push(self, s: _Session, command_id: str, payload: dict) -> None:
+        """Send a command down a session's websocket; a socket that cannot take it ends the session."""
+        from ada.comms.viewer_wire import command_message
+
+        try:
+            await s.send(command_message(command_id, payload))
+        except Exception:  # noqa: BLE001 - a dead socket: the session is gone
+            self._drop(s.session_id)
+
+    # -- websocket tickets ---------------------------------------------------------------------
+
+    def mint_ticket(self, owner: str, client: dict | None = None) -> str:
+        """A single-use ticket that opens ``/api/viewer/ws`` as ``owner`` within :data:`TICKET_TTL_S`:
+        a browser's websocket cannot carry the bearer header the rest of the API reads."""
+        now = self._clock()
+        self._tickets = {k: v for k, v in self._tickets.items() if v[1] > now}
+        ticket = uuid.uuid4().hex + uuid.uuid4().hex
+        self._tickets[ticket] = (owner, now + TICKET_TTL_S, dict(client or {}))
+        return ticket
+
+    def redeem_ticket(self, ticket: str) -> tuple[str, dict] | None:
+        """The ticket's (owner, client), once; None for an unknown, used or expired ticket."""
+        found = self._tickets.pop(ticket or "", None)
+        if found is None or found[1] <= self._clock():
+            return None
+        return found[0], found[2]
 
     def _maybe_done(self, issued: _Issued) -> None:
         if all(sid in issued.results for sid in issued.sessions):

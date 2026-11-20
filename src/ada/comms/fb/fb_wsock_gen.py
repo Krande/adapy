@@ -26,3 +26,4 @@ class MessageDC:
     screenshot: Optional[ScreenshotDC] = None
     package: Optional[AppendMeshDC] = None
     request_id: str = ""
+    payload_json: str = ""

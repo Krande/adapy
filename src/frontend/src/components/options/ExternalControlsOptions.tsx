@@ -21,7 +21,7 @@ const ExternalControlsOptions: React.FC = () => {
                 <span className="leading-tight">
                     Let an agent drive this tab
                     <span className="block text-xs text-gray-400">
-                        Scripts and assistants signed in as you can then select objects, focus clash joints, move
+                        Scripts and assistants -- signed in as you on a hosted viewer, or on this machine with the desktop one -- can then select objects, focus clash joints, move
                         the camera and load detail models here, and read what this tab shows. This tab only, until
                         it is closed; off by default.
                     </span>

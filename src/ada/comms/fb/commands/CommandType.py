@@ -29,3 +29,6 @@ class CommandType(object):
     GET_FEA_MANIFEST = 25
     GET_FEA_BLOB = 26
     CALL_KERNEL = 27
+    VIEWER_COMMAND = 28
+    VIEWER_ANSWER = 29
+    VIEWER_STATE = 30

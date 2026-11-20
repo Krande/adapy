@@ -27,6 +27,7 @@ from ada.comms.msg_handling.start_local_app import start_local_app
 from ada.comms.msg_handling.update_scene import update_scene
 from ada.comms.msg_handling.update_server import update_server
 from ada.comms.msg_handling.view_file_object import view_file_object
+from ada.comms.msg_handling.viewer_control import handle_viewer_message
 from ada.config import logger
 
 if TYPE_CHECKING:
@@ -78,6 +79,12 @@ def default_on_message(server: WebSocketAsyncServer, client: ConnectedClient, me
             get_fea_blob(server, client, message)
         elif message.command_type == CommandTypeDC.CALL_KERNEL:
             call_kernel(server, client, message)
+        elif message.command_type in (
+            CommandTypeDC.VIEWER_COMMAND,
+            CommandTypeDC.VIEWER_ANSWER,
+            CommandTypeDC.VIEWER_STATE,
+        ):
+            handle_viewer_message(server, client, message)
         else:
             logger.error(f"Unknown command type: {message.command_type}")
             on_error_reply(

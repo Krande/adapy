@@ -26,20 +26,41 @@ Two switches, both off unless turned on:
 
 ## Whose viewer
 
-A viewer tab registers a **session**. A session belongs to the user who registered it, and every
-lookup is by (user, session id): another user's session id answers `404` exactly as an unknown one
-does, so no user can see, drive, poll or answer for another user's viewer.
+A viewer tab opens a **session**. A session belongs to the user who opened it, and every lookup is
+by (user, session id): another user's session id answers `404` exactly as an unknown one does, so no
+user can see, drive or answer for another user's viewer.
 
 **Several tabs.** Each open tab is one session. A command goes to the session named in
 `session_id`, or -- when none is named -- to *every* live session of the caller; each tab answers
 for itself. `GET /api/viewer/sessions` lists them, most recently heard from first, so an agent can
 pick one.
 
-**Transport.** The tab long-polls (`GET .../commands`, held up to 25 s) and posts each command's
-answer back. Not server-sent events: the viewer authenticates with a bearer header, which
-`EventSource` cannot send, and the deployed viewer already follows server state by polling. A
-session not heard from for 75 s (a closed or sleeping tab) is dropped; the tab registers again on
-its next poll.
+**Transport: the websocket envelope.** Agents talk REST (below); the server relays to the tab over a
+websocket carrying the same FlatBuffer `Message` the desktop viewer and its websocket server use
+(`src/flatbuffers/schemas`), with three verbs (`ada.comms.viewer_wire`):
+
+| `command_type` | Direction | `request_id` | `payload_json` |
+|---|---|---|---|
+| `VIEWER_COMMAND` (28) | to the viewer | the command id | `{"command": {...}}` or `{"commands": [...]}` |
+| `VIEWER_ANSWER` (29) | from the viewer | echoed | `{ok, error, result, steps?, state}` |
+| `VIEWER_STATE` (30) | from the viewer | -- | `ViewerState`, when the tab opens and when what it shows changes |
+
+* **Hosted (REST) viewer.** The tab asks `POST /api/viewer/ws-ticket` (authenticated like every
+  route; body `{client?}`) for a single-use ticket valid for 60 s -- a browser's websocket cannot
+  send the bearer header -- and opens `GET /api/viewer/ws?ticket=...` (`wss:` on an `https:` page).
+  The socket is one session of the ticket's user, for as long as it is open; it is opened again
+  with a new ticket when it drops. A refused ticket, or a server with viewer control off, closes
+  the handshake.
+* **Desktop viewer.** It already holds a websocket to its `ada` websocket server. A local client
+  (a script) sends `VIEWER_COMMAND` with `target_group` WEB and the viewer's `target_id` (from
+  `LIST_WEB_CLIENTS`); the server relays it, and the viewer answers `VIEWER_ANSWER` to that client
+  (`target_group` LOCAL, `target_id` the sender's instance id), or refuses while its external
+  controls are off. `VIEWER_STATE` sent to the server is kept per viewer
+  (`ada.comms.msg_handling.viewer_control`).
+
+**Deployment.** The ingress in front of the API must pass websocket upgrades on `/api/viewer/ws`
+and keep an idle connection open (uvicorn pings it every 20 s; an idle timeout of a minute or more
+is enough).
 
 **One process.** Sessions and pending commands live in the API process's memory: the API runs as
 one replica. A scaled-out API would need the hub moved onto NATS, as the job queue is.
