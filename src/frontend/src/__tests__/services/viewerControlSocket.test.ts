@@ -60,6 +60,10 @@ function deps(): { deps: ViewerControlDeps; log: string[]; select(n: number): vo
       listDetailModels: async () => [],
       openDetailModel: async () => {},
       detailConnections: async () => [],
+      savedGroups: async () => [],
+      loadSavedGroup: async () => {
+        throw new Error("not in this test");
+      },
       settle: async () => {},
     },
   };

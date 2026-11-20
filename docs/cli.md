@@ -763,7 +763,13 @@ answer in time.
 
 `ada viewer open-detail`
 :   Load a detail model (`DETAIL_ID`); `--joint` shows that joint in it, or in the run it was made
-    from when it was not built.
+    from when it was not built. `--with-source` also loads the saved group its run was made on, so
+    the welds sit in their structure.
+
+`ada viewer load-group`
+:   Load a saved group into the scene by name (case-insensitive) or id, as the Scene panel's "Load
+    into scene" does. `--id` takes the argument as an id; `--select` keeps its members selected,
+    `--frame` fits the camera to them.
 
 `ada viewer find`
 :   Look objects up by name: which model, how many, centre and box. Changes nothing.
@@ -779,6 +785,10 @@ answer in time.
 :   A clash run's joints (hosted only): members with their roles, centre, applicable specs.
     `--run` a run key or `latest` (default), `--ids`, `--member`, `--limit`, `--scope`.
 
+`ada viewer groups`
+:   The scope's saved groups (hosted only): id, name, how many members, which models. `--name`
+    narrows it.
+
 `ada viewer detail`
 :   A detail model per joint (hosted only): built (connections, welds with type, throat and
     length), declined or failed and why, failed welds, and a joint's members from its run.
@@ -788,6 +798,8 @@ answer in time.
 ada viewer sessions
 ada viewer focus-joint 0123456789ab --run-key _clash/0000/run.json
 ada viewer camera --view isometric
+ada viewer load-group "Frame A" --frame
+ada viewer open-detail 20260101T120000000Z-0123abcd --joint 0123456789ab --with-source
 echo '[{"action": "open_detail_model", "detail_id": "20260101T120000000Z-0123abcd"},
        {"action": "focus_joint", "joint_id": "0123456789ab"}]' | ada viewer run -
 ada viewer detail 20260101T120000000Z-0123abcd --joints 0123456789ab

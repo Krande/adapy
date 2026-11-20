@@ -56,6 +56,20 @@ export const realViewerControlDeps: ViewerControlDeps = {
     const stats = parseDetailStats(await clashCheckApi.getDetailStats(scope, model.stats_key));
     return connectionsOfJoint(stats.joints?.items.map((i) => i.name) ?? [], jointId);
   },
+  savedGroups: async (scope) => {
+    const { useSavedGroupsStore } = await import("@/state/savedGroupsStore");
+    const store = useSavedGroupsStore;
+    await store.getState().load(scope);
+    const now = store.getState();
+    if (now.scope !== scope) return [];
+    if (now.error) throw new Error(`the saved groups could not be read: ${now.error}`);
+    return now.groups.map((g) => ({ id: g.id, name: g.name }));
+  },
+  loadSavedGroup: async (scope, groupId) => {
+    // The plugin API's `ctx.scene.loadSavedGroup`: the Scene panel's "Load into scene".
+    const { liveGroupLoadEnv, loadSavedGroupFor } = await import("@/plugins/sceneGroupLoad");
+    return loadSavedGroupFor(liveGroupLoadEnv(() => scope), groupId);
+  },
   settle: async () => {
     const { requestRender } = await import("@/state/perfStore");
     requestRender();

@@ -128,7 +128,8 @@ One object per command, discriminated by `action`. Unknown fields are refused.
 | `select` | `names: [str]`, `file?`, `frame` (true) | Selects the objects of those names in a loaded model (`file`, a loaded source name; default the active one) and fits the camera to them. An error when none is found. | `{file, selected, bounds}` |
 | `clear_selection` | | Clears the selection. | `{selected: 0}` |
 | `camera` | exactly one of `fit` (`selection` \| `all`), `view` (`top`, `bottom`, `front`, `back`, `left`, `right`, `isometric`), `eye` + `target`, `box: {min, max}` | Moves the camera. `eye`/`target` keep the world's up axis up; `box` frames a world box keeping the viewing direction. | `{camera}` |
-| `open_detail_model` | `detail_id`, `scope?`, `joint_id?`, `frame` (true) | Loads a kept detail model, as its Load button does (it must be `done`). With `joint_id`: selects that joint's connection in it and frames it; a joint the model does not hold (declined, failed) is focused in the clash run the model was made from instead, so its members are still on screen. | `{detail_id, glb_key}` or `{detail_id, joint_id, shown_in: "detail_model", connections}` or `{..., shown_in: "source_model", run_key, selected}` |
+| `open_detail_model` | `detail_id`, `scope?`, `joint_id?`, `frame` (true), `with_source` (false) | Loads a kept detail model, as its Load button does (it must be `done`). With `joint_id`: selects that joint's connection in it and frames it; a joint the model does not hold (declined, failed) is focused in the clash run the model was made from instead, so its members are still on screen. `with_source` also loads the saved group the model's run was made on (`load_saved_group`), so the welds sit in their structure; the answer then has `source_group` (null when the run was not on a group). | `{detail_id, glb_key}` or `{detail_id, joint_id, shown_in: "detail_model", connections}` or `{..., shown_in: "source_model", run_key, selected}` |
+| `load_saved_group` | `group_id` or `name`, `scope?`, `select` (false), `frame` (false) | Loads a saved group (the Scene panel's Groups) into the scene as its "Load into scene" does: each member's model, only the members showing. `name` is matched case-insensitively; an unknown or ambiguous name is an error naming the candidates. The load selects the members: `select` keeps that, `frame` fits the camera to them. | `{groupId, groupName, loaded, already, hidden, failed, selected, notFound, framed, bounds, text, tone}` |
 | `find_objects` | `names: [str]`, `file?` | Looks names up in the loaded models without changing anything (the selection is put back). | `{found: [{name, file, objects, centre, bounds}], missing: [name]}` |
 | `get_state` | | Nothing; the answer's `state` is the point. | `null` |
 
@@ -143,6 +144,7 @@ model's record and take-off). Nothing is recomputed.
 |---|---|---|
 | `GET /api/scopes/{scope}/clash-contacts/latest` | `target?` (a target object as JSON: `{"kind": "file", "source_key"}`, `{"kind": "node", ...}`, `{"kind": "group", "group_id"}`) | `{run: {run_id, key, target, label, created_at, contacts, members, ...}}` -- the newest run of that target, else of the scope; `404` for none |
 | `GET /api/scopes/{scope}/clash-contacts/joints` | `key` (a run key, or `latest`), `target?`, `ids?` (comma-separated), `member?` (a member name), `limit?` (100, at most 500) | `{run: {key, run_id, label, target, created_at, contacts}, joints: [Joint], missing: [id], truncated}` |
+| `GET /api/scopes/{scope}/saved-groups` | `name?` (contains, case-insensitive) | `{groups: [{id, name, members, sources, created_at, updated_at}]}` -- the scope's saved groups in brief |
 | `GET /api/scopes/{scope}/clash-detail/models` | | the scope's detail models (existing route) |
 | `GET /api/scopes/{scope}/clash-detail/models/{detail_id}` | `joint_ids?` (comma-separated; default the joints it was asked to build) | `DetailView` |
 | `POST /api/scopes/{scope}/clash-contacts/detail` | `{run_key, contact_ids, spec, options?, target?}` -- `run_key: "latest"` details the newest run (of `target` when given) | `{job_id, detail_id, glb_key, derived_key, run_key}`; poll `GET /api/convert/{job_id}` |
@@ -205,8 +207,8 @@ POST /api/viewer/commands  {"command": {"action": "open_detail_model", "detail_i
 
 `ada viewer` (`ada_cli/viewer.py`; the full reference is in the [CLI page](../cli.md)) wraps all of
 the above: `sessions`, `state`, `focus-joint`, `select`, `clear-selection`, `camera`, `open-detail`,
-`find`, `run` (a command or a batch from JSON, the same body as `POST /api/viewer/commands`),
-`schema`, and the read-outs `joints` and `detail`.
+`load-group`, `find`, `run` (a command or a batch from JSON, the same body as `POST /api/viewer/commands`),
+`schema`, and the read-outs `joints`, `groups` and `detail`.
 
 **Where it goes.** `--via auto` (the default) talks to a hosted viewer's REST API when a viewer URL
 is configured -- `--url`, or `ADAPY_API_BASE` (`ADAPY_BASE_URL`, `ADAPY_VIEWER_URL`) with the token

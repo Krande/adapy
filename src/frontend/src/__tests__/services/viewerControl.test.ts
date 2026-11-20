@@ -64,7 +64,7 @@ function detailModel(over: Partial<WireDetailModel> = {}): WireDetailModel {
     created_at: "2026-01-01T00:00:00Z",
     status: "done",
     spec: "provider.high",
-    source: { kind: "run", run_key: RUN },
+    source: { kind: "run", run_key: RUN, target: { kind: "group", group_id: "g-frame" } },
     label: "provider.high · frame",
     glb_key: DETAIL_GLB,
     stats_key: `_clash/details/${DETAIL_ID}/result.stats.json`,
@@ -109,6 +109,16 @@ function fakeDeps(over: Partial<ViewerControlDeps> = {}) {
       loaded.add(model.glb_key);
     },
     detailConnections: async (_scope, _model, jointId) => (jointId === JOINT ? [`provider.high_${JOINT}`] : []),
+    savedGroups: async () => [
+      { id: "g-frame", name: "Frame A" },
+      { id: "g-deck", name: "Deck" },
+      { id: "g-deck-2", name: "deck" },
+    ],
+    loadSavedGroup: async (scope, groupId) => {
+      log.push(`loadSavedGroup:${scope}:${groupId}`);
+      vp.select([{ model: "m2", id: "1" }]);
+      return { groupId, groupName: groupId, loaded: 1, already: 0, hidden: 0, failed: [], selected: 1, notFound: [], framed: false, bounds: null, text: "loaded", tone: "info" };
+    },
     settle: async () => {},
     ...over,
   };
@@ -299,4 +309,35 @@ test("the page reads the server's mode from /config.js", async () => {
 test("the switch is not chosen until the user touches it", async () => {
   const { useExternalControlsStore } = await import("@/state/externalControlsStore");
   assert.equal(useExternalControlsStore.getInitialState().chosen, null);
+});
+
+
+test("load_saved_group loads a group by id or by name, and leaves the selection unless asked", async () => {
+  const { deps, log, vp } = fakeDeps();
+  const out = (await run(deps, { action: "load_saved_group", group_id: "g-frame" })) as { groupId: string; loaded: number };
+  assert.deepEqual([out.groupId, out.loaded], ["g-frame", 1]);
+  assert.equal(vp.selectionCount(), 0, "the load's selection is cleared unless select");
+  await run(deps, { action: "load_saved_group", name: "frame a", select: true, frame: true });
+  assert.equal(vp.selectionCount(), 1);
+  assert.deepEqual(log, ["loadSavedGroup:user:me:g-frame", "clearSelection", "loadSavedGroup:user:me:g-frame", "fitSelection"]);
+});
+
+test("load_saved_group names the candidates for an unknown or ambiguous name", async () => {
+  const { deps } = fakeDeps();
+  await assert.rejects(run(deps, { action: "load_saved_group", name: "Hull" }), /no saved group 'Hull' in user:me; there are: Frame A, Deck, deck/);
+  await assert.rejects(run(deps, { action: "load_saved_group", name: "DECK" }), /2 saved groups are called 'DECK'.*\(g-deck\).*\(g-deck-2\)/);
+});
+
+test("open_detail_model with_source also loads the group its run was made on", async () => {
+  const { deps, log } = fakeDeps();
+  const out = (await run(deps, { action: "open_detail_model", detail_id: DETAIL_ID, with_source: true })) as {
+    source_group: { groupId: string } | null;
+  };
+  assert.equal(out.source_group?.groupId, "g-frame");
+  assert.deepEqual(log.slice(0, 3), [`openDetailModel:${DETAIL_ID}`, "loadSavedGroup:user:me:g-frame", "clearSelection"]);
+  // Without it, nothing more is loaded.
+  const plain = fakeDeps();
+  const without = (await run(plain.deps, { action: "open_detail_model", detail_id: DETAIL_ID })) as Record<string, unknown>;
+  assert.equal("source_group" in without, false);
+  assert.ok(!plain.log.some((l) => l.startsWith("loadSavedGroup")));
 });

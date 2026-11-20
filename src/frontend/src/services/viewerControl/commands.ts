@@ -7,6 +7,7 @@
 // Everything the commands touch comes in through `ViewerControlDeps`, so the commands run under
 // `node --test` against a fake viewer; `realViewerControlDeps` (./realDeps.ts) is the app's.
 
+import type { SceneGroupLoad } from "@/plugins/registry";
 import type { WireDetailModel } from "@/services/api/clashCheck";
 import type { ObjectRef, ViewportApi, ViewportCameraPose } from "@/viewport/api/viewportApi";
 
@@ -24,7 +25,22 @@ export type ViewerCommand =
       target?: Vec3 | null;
       box?: { min: Vec3; max: Vec3 } | null;
     }
-  | { action: "open_detail_model"; detail_id: string; scope?: string | null; joint_id?: string | null; frame?: boolean }
+  | {
+      action: "open_detail_model";
+      detail_id: string;
+      scope?: string | null;
+      joint_id?: string | null;
+      frame?: boolean;
+      with_source?: boolean;
+    }
+  | {
+      action: "load_saved_group";
+      group_id?: string | null;
+      name?: string | null;
+      scope?: string | null;
+      select?: boolean;
+      frame?: boolean;
+    }
   | { action: "find_objects"; names: string[]; file?: string | null }
   | { action: "get_state" };
 
@@ -34,6 +50,7 @@ export const VIEWER_ACTIONS = [
   "clear_selection",
   "camera",
   "open_detail_model",
+  "load_saved_group",
   "find_objects",
   "get_state",
 ] as const;
@@ -72,6 +89,11 @@ export interface ViewerControlDeps {
   openDetailModel(scope: string, model: WireDetailModel): Promise<void>;
   /** The connection names a detail model's take-off lists for `jointId` (`<spec>_<joint id>`). */
   detailConnections(scope: string, model: WireDetailModel, jointId: string): Promise<string[]>;
+  /** The scope's saved groups (the Scene panel's Groups), by id and name. */
+  savedGroups(scope: string): Promise<readonly { id: string; name: string }[]>;
+  /** Load a saved group into the scene, as its "Load into scene" does (`ctx.scene.loadSavedGroup`);
+   *  the load ends with the group's members selected. */
+  loadSavedGroup(scope: string, groupId: string): Promise<SceneGroupLoad>;
   /** Let the scene catch up with a change (a frame), before reading it back. */
   settle(): Promise<void>;
 }
@@ -191,9 +213,11 @@ async function openDetailModel(deps: ViewerControlDeps, c: Extract<ViewerCommand
   if (model.status !== "done") throw new ViewerCommandError(`detail model ${c.detail_id} is ${model.status}, not built yet`);
   if (!deps.loadedSources().includes(model.glb_key)) await deps.openDetailModel(scope, model);
   if (!deps.loadedSources().includes(model.glb_key)) throw new ViewerCommandError(`could not load ${model.label}`);
+  const source_group = c.with_source ? await loadSourceGroup(deps, scope, model) : undefined;
+  const extra = c.with_source ? { source_group } : {};
   if (!c.joint_id) {
     if (c.frame !== false) needViewport(deps).fitAll();
-    return { detail_id: c.detail_id, glb_key: model.glb_key };
+    return { detail_id: c.detail_id, glb_key: model.glb_key, ...extra };
   }
   // The joint's connection(s) in the detail model; a joint it does not hold (declined, failed) is
   // shown in the clash run it was detailed from instead, so its members are still on screen.
@@ -201,12 +225,56 @@ async function openDetailModel(deps: ViewerControlDeps, c: Extract<ViewerCommand
   if (names.length > 0) {
     await deps.selectNames(model.glb_key, names);
     const selected = c.frame === false ? 0 : await frameSelection(deps);
-    if (c.frame === false || selected > 0) return { detail_id: c.detail_id, joint_id: c.joint_id, shown_in: "detail_model", connections: names };
+    if (c.frame === false || selected > 0) {
+      return { detail_id: c.detail_id, joint_id: c.joint_id, shown_in: "detail_model", connections: names, ...extra };
+    }
   }
   const runKey = model.source.kind === "run" ? model.source.run_key ?? null : null;
   if (!runKey) throw new ViewerCommandError(`joint ${c.joint_id} is not in this detail model, and it was not made from a clash run`);
   const out = await focusJoint(deps, { action: "focus_joint", joint_id: c.joint_id, run_key: runKey, scope, frame: c.frame, reveal_panel: true });
-  return { detail_id: c.detail_id, joint_id: c.joint_id, shown_in: "source_model", run_key: runKey, selected: out.selected };
+  return { detail_id: c.detail_id, joint_id: c.joint_id, shown_in: "source_model", run_key: runKey, selected: out.selected, ...extra };
+}
+
+/** The saved group `name` names in `scope`: matched case-insensitively; an unknown or ambiguous name
+ *  is an error naming the candidates. */
+async function groupIdByName(deps: ViewerControlDeps, scope: string, name: string): Promise<string> {
+  const groups = await deps.savedGroups(scope);
+  const wanted = name.trim().toLowerCase();
+  const hits = groups.filter((g) => g.name.trim().toLowerCase() === wanted);
+  if (hits.length === 1) return hits[0].id;
+  if (hits.length > 1) {
+    throw new ViewerCommandError(
+      `${hits.length} saved groups are called '${name}' in ${scope}: ${hits.map((g) => `${g.name} (${g.id})`).join(", ")}; give its group_id`,
+    );
+  }
+  const names = groups.map((g) => g.name);
+  throw new ViewerCommandError(
+    `no saved group '${name}' in ${scope}` + (names.length ? `; there are: ${names.slice(0, 30).join(", ")}` : "; it has none"),
+  );
+}
+
+async function loadGroup(deps: ViewerControlDeps, c: Extract<ViewerCommand, { action: "load_saved_group" }>) {
+  const scope = needScope(deps, c.scope);
+  const id = c.group_id || (await groupIdByName(deps, scope, c.name ?? ""));
+  const out = await deps.loadSavedGroup(scope, id);
+  await deps.settle();
+  const v = deps.viewport();
+  if (v) {
+    if (c.frame && v.selectionCount() > 0) v.fitSelection();
+    if (!c.select) v.clearSelection();
+  }
+  return out;
+}
+
+/** The saved group a detail model's clash run was made on, loaded beside it; null when the model
+ *  was not made from a group (a file's or a node's run has nothing more to load). */
+async function loadSourceGroup(deps: ViewerControlDeps, scope: string, model: WireDetailModel): Promise<SceneGroupLoad | null> {
+  const target = model.source.target ?? {};
+  if (target.kind !== "group") return null;
+  const groupId = typeof target.group_id === "string" ? target.group_id : null;
+  const name = typeof target.name === "string" ? target.name : null;
+  if (!groupId && !name) return null;
+  return loadGroup(deps, { action: "load_saved_group", group_id: groupId, name: groupId ? null : name, scope, select: false, frame: false });
 }
 
 async function findObjects(deps: ViewerControlDeps, c: Extract<ViewerCommand, { action: "find_objects" }>) {
@@ -286,6 +354,8 @@ export async function runViewerCommand(deps: ViewerControlDeps, command: ViewerC
       return camera(deps, command);
     case "open_detail_model":
       return openDetailModel(deps, command);
+    case "load_saved_group":
+      return loadGroup(deps, command);
     case "find_objects":
       return findObjects(deps, command);
     case "get_state":

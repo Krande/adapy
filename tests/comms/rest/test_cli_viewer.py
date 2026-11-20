@@ -125,6 +125,9 @@ def test_every_subcommand_parses():
         ["viewer", "find", "column_1"],
         ["viewer", "run", "-"],
         ["viewer", "schema"],
+        ["viewer", "load-group", "Frame A", "--select", "--frame"],
+        ["viewer", "groups", "--name", "frame"],
+        ["viewer", "open-detail", "20260101T000000000Z-0123abcd", "--with-source"],
         ["viewer", "joints", "--run", "latest", "--ids", JOINT, "--member", "column_1"],
         ["viewer", "detail", "20260101T000000000Z-0123abcd", "--joints", JOINT],
     ):
@@ -337,3 +340,38 @@ def test_the_desktop_viewer_refusing_is_exit_1(ws_server, capsys):
 def test_no_desktop_server_is_exit_1(capsys):
     assert main(["viewer", "sessions", "--via", "local", "--ws-port", "1"]) == 1
     assert "no websocket server" in capsys.readouterr().err
+
+
+def test_saved_groups_listed_and_loaded_by_name_or_id(tmp_path, monkeypatch, capsys):
+    http = _http(tmp_path, monkeypatch)
+    groups_dir = tmp_path / "store" / "users" / "local-dev" / "_groups"
+    groups_dir.mkdir(parents=True)
+    doc = {
+        "schema": "ada.viewer/groups@2",
+        "groups": [
+            {
+                "id": "g1",
+                "name": "Frame A",
+                "created_at": "2026-01-01T00:00:00Z",
+                "members": [{"target": {"kind": "file", "source_key": "models/frame.ifc"}, "element": "column_1"}],
+            }
+        ],
+    }
+    (groups_dir / "groups.json").write_text(json.dumps(doc))
+    assert main(["viewer", "groups", "--via", "remote", "--url", URL]) == 0
+    assert "g1  Frame A  1 members  in models/frame.ifc" in capsys.readouterr().out
+
+    tab = _Tab(http, _ok)
+    assert main(_remote("load-group", "frame a", "--frame")) == 0
+    assert tab.received[-1]["command"] == {
+        "action": "load_saved_group",
+        "group_id": None,
+        "name": "frame a",
+        "scope": None,
+        "select": False,
+        "frame": True,
+    }
+    assert main(_remote("load-group", "g1")) == 0  # an id the scope has: sent as the id
+    assert tab.received[-1]["command"]["group_id"] == "g1"
+    assert main(_remote("open-detail", "20260101T000000000Z-0123abcd", "--with-source")) == 0
+    assert tab.received[-1]["command"]["with_source"] is True

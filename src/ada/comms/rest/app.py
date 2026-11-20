@@ -64,6 +64,7 @@ from .routes.projects import router as projects_router
 from .routes.public_settings import router as public_settings_router
 from .routes.rpc import router as rpc_router
 from .routes.runtime_config import router as runtime_config_router
+from .routes.saved_groups import router as saved_groups_router
 from .routes.simulations import router as simulations_router
 from .routes.source_nodes import router as source_nodes_router
 from .routes.storage import router as storage_router
@@ -425,6 +426,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     api.include_router(clash_contacts_router)
     # Driving the caller's own open viewer (routes/viewer_control.py): fixed ``/viewer/...`` paths.
     api.include_router(viewer_control_router)
+    # The scope's saved groups in brief (routes/saved_groups.py): ``/scopes/{scope}/saved-groups``.
+    api.include_router(saved_groups_router)
 
     # Simulation providers and runs (routes/simulations.py): ``/simulation/providers`` and
     # ``/scopes/{scope}/simulations...``, neither colliding with a fixed/parameterised sibling.

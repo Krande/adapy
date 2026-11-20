@@ -139,6 +139,32 @@ class OpenDetailModel(_Command):
     scope: str | None = Field(None, description="Default the viewer's own scope.")
     joint_id: str | None = None
     frame: bool = True
+    with_source: bool = Field(
+        False,
+        description="Also load the saved group the model's clash run was made on, so its welds sit in their "
+        "structure (a run on a file or a node has no group: nothing more is loaded).",
+    )
+
+
+class LoadSavedGroup(_Command):
+    """Load a saved group (the Scene panel's Groups, ``GET /scopes/{scope}/saved-groups``) into the
+    scene, as its "Load into scene" does: each member's model, only the members showing. By
+    ``group_id``, or by ``name`` (case-insensitive; an unknown or ambiguous name is an error naming
+    the candidates). The load selects the members; ``select`` keeps that selection, ``frame`` fits
+    the camera to them."""
+
+    action: Literal["load_saved_group"]
+    group_id: str | None = None
+    name: str | None = None
+    scope: str | None = Field(None, description="Default the viewer's own scope.")
+    select: bool = False
+    frame: bool = False
+
+    @model_validator(mode="after")
+    def _one_key(self) -> "LoadSavedGroup":
+        if (self.group_id is None) == (self.name is None):
+            raise ValueError("give exactly one of 'group_id' or 'name'")
+        return self
 
 
 class FindObjects(_Command):
@@ -157,7 +183,7 @@ class GetState(_Command):
 
 
 ViewerCommand = Annotated[
-    Union[FocusJoint, Select, ClearSelection, Camera, OpenDetailModel, FindObjects, GetState],
+    Union[FocusJoint, Select, ClearSelection, Camera, OpenDetailModel, LoadSavedGroup, FindObjects, GetState],
     Field(discriminator="action"),
 ]
 COMMAND_ADAPTER: TypeAdapter = TypeAdapter(ViewerCommand)

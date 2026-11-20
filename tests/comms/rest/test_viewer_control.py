@@ -81,6 +81,7 @@ def test_the_schema_has_one_branch_per_action_for_a_command_and_a_batch(client):
         "clear_selection",
         "camera",
         "open_detail_model",
+        "load_saved_group",
         "find_objects",
         "get_state",
     }
@@ -208,3 +209,57 @@ def test_a_ticket_is_its_users_once_and_only_for_a_while():
     now[0] += 3600
     assert hub.redeem_ticket(late) is None
     assert hub.redeem_ticket("") is None
+
+
+# ── saved groups ─────────────────────────────────────────────────────────────────────────────────
+
+
+def test_load_saved_group_takes_an_id_or_a_name():
+    assert parse_command({"action": "load_saved_group", "name": "Frame A"}) == {
+        "action": "load_saved_group",
+        "group_id": None,
+        "name": "Frame A",
+        "scope": None,
+        "select": False,
+        "frame": False,
+    }
+    for bad in ({"action": "load_saved_group"}, {"action": "load_saved_group", "name": "a", "group_id": "b"}):
+        with pytest.raises(ValueError):
+            parse_command(bad)
+    assert parse_command({"action": "open_detail_model", "detail_id": "x"})["with_source"] is False
+
+
+def test_the_scopes_saved_groups_in_brief(tmp_path):
+    import json
+
+    app = _app(tmp_path)
+    groups_dir = tmp_path / "store" / "users" / "local-dev" / "_groups"
+    with TestClient(app) as c:
+        assert c.get("/api/scopes/user:me/saved-groups").json() == {"groups": []}
+        groups_dir.mkdir(parents=True)
+        doc = {
+            "schema": "ada.viewer/groups@2",
+            "groups": [
+                {
+                    "id": "g1",
+                    "name": "Frame A",
+                    "created_at": "2026-01-01T00:00:00Z",
+                    "members": [
+                        {"target": {"kind": "file", "source_key": "models/frame.ifc"}, "element": "column_1"},
+                        {"target": {"kind": "file", "source_key": "models/frame.ifc"}, "element": "brace_1"},
+                    ],
+                },
+                {"id": "g2", "name": "Deck", "created_at": "2026-01-01T00:00:00Z", "members": []},
+            ],
+        }
+        (groups_dir / "groups.json").write_text(json.dumps(doc))
+        groups = c.get("/api/scopes/user:me/saved-groups").json()["groups"]
+        assert [(g["id"], g["name"], g["members"], g["sources"]) for g in groups] == [
+            ("g1", "Frame A", 2, ["models/frame.ifc"]),
+            ("g2", "Deck", 0, []),
+        ]
+        assert [
+            g["id"] for g in c.get("/api/scopes/user:me/saved-groups", params={"name": "frame"}).json()["groups"]
+        ] == ["g1"]
+        (groups_dir / "groups.json").write_text(json.dumps({"schema": "something else"}))
+        assert c.get("/api/scopes/user:me/saved-groups").status_code == 502

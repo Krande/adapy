@@ -20,7 +20,8 @@ Subcommand layout:
     ada desktop [FILE]                the local viewer in a native window (needs ada-desktop)
     ada dev connections --dir DIR     develop a connection library live in the studio (alias: joints)
     ada viewers                      list the installed viewer bundles (--viewer)
-    ada viewer sessions|state|focus-joint|select|clear-selection|camera|open-detail|find|run|schema|joints|detail
+    ada viewer sessions|state|focus-joint|select|clear-selection|camera|open-detail|load-group|find|run|schema
+               |joints|groups|detail
                                       drive your open viewer and read clash results (hosted or desktop)
 
 This listing is the CLI's own claim about its surface, so it is checked against

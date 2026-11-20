@@ -88,6 +88,9 @@ class RemoteViewer:
     def detail(self, scope: str, detail_id: str, params: dict) -> dict:
         return self._call("GET", f"/api/scopes/{scope}/clash-detail/models/{detail_id}", params=params)
 
+    def groups(self, scope: str, params: dict | None = None) -> dict:
+        return self._call("GET", f"/api/scopes/{scope}/saved-groups", params=params or {})
+
 
 class LocalViewer:
     """The desktop viewer through its websocket server: a session is a viewer's instance id."""
@@ -415,6 +418,25 @@ def cmd_open_detail(args: argparse.Namespace) -> int:
         command["joint_id"] = args.joint
     if args.scope:
         command["scope"] = args.scope
+    if args.with_source:
+        command["with_source"] = True
+    return _send(args, {"command": command})
+
+
+def cmd_load_group(args: argparse.Namespace) -> int:
+    command: dict = {"action": "load_saved_group", "select": args.select, "frame": args.frame}
+    if args.scope:
+        command["scope"] = args.scope
+    key = "name"
+    if args.id:
+        key = "group_id"
+    elif _via(args) == "remote":
+        # An id given where a name was expected: the hosted server lists the scope's groups.
+        viewer, scope = _remote(args)
+        ids = {g["id"] for g in viewer.groups(args.scope or scope)["groups"]}
+        if args.group in ids:
+            key = "group_id"
+    command[key] = args.group
     return _send(args, {"command": command})
 
 
@@ -482,6 +504,20 @@ def cmd_joints(args: argparse.Namespace) -> int:
     if out.get("truncated"):
         print(f"(first {len(out['joints'])}; --limit for more)", file=sys.stderr)
     return 1 if out.get("missing") else 0
+
+
+def cmd_groups(args: argparse.Namespace) -> int:
+    viewer, scope = _need_remote(args, "ada viewer groups")
+    out = viewer.groups(scope, {"name": args.name} if args.name else None)
+    if args.json:
+        _print_json(out)
+        return 0
+    if not out["groups"]:
+        print("(no saved groups)", file=sys.stderr)
+    for g in out["groups"]:
+        sources = ", ".join(g.get("sources") or [])
+        print(f"{g['id']}  {g['name']}  {g['members']} members" + (f"  in {sources}" if sources else ""))
+    return 0
 
 
 def cmd_detail(args: argparse.Namespace) -> int:
@@ -593,7 +629,16 @@ def add_parser(sub: argparse._SubParsersAction) -> None:
     p.add_argument("detail_id")
     p.add_argument("--joint", default=None, help="A joint to show in it (or in its run, when not built).")
     p.add_argument("--scope", default=None, help="The model's scope (default: the tab's).")
+    p.add_argument("--with-source", action="store_true", help="Also load the saved group its clash run was made on.")
     p.set_defaults(func=_guarded(cmd_open_detail))
+
+    p = common(vsub.add_parser("load-group", help="Load a saved group into the scene, by name or id."))
+    p.add_argument("group", help="The group's name (case-insensitive) or id.")
+    p.add_argument("--id", action="store_true", help="GROUP is an id.")
+    p.add_argument("--select", action="store_true", help="Keep its members selected.")
+    p.add_argument("--frame", action="store_true", help="Fit the camera to its members.")
+    p.add_argument("--scope", default=None, help="The group's scope (default: the tab's).")
+    p.set_defaults(func=_guarded(cmd_load_group))
 
     p = common(vsub.add_parser("find", help="Look objects up by name in the loaded models (centre, box)."))
     p.add_argument("names", nargs="+")
@@ -616,6 +661,11 @@ def add_parser(sub: argparse._SubParsersAction) -> None:
     p.add_argument("--limit", type=int, default=100, help="At most this many (default 100).")
     p.add_argument("--scope", default=None, help="Scope (default: $ADAPY_API_SCOPE or user:me).")
     p.set_defaults(func=_guarded(cmd_joints))
+
+    p = common(vsub.add_parser("groups", help="The scope's saved groups: id, name, members (hosted)."), tab=False)
+    p.add_argument("--name", default=None, help="Only groups whose name contains this.")
+    p.add_argument("--scope", default=None, help="Scope (default: $ADAPY_API_SCOPE or user:me).")
+    p.set_defaults(func=_guarded(cmd_groups))
 
     p = common(
         vsub.add_parser("detail", help="A detail model per joint: built, declined, its welds (hosted)."), tab=False
