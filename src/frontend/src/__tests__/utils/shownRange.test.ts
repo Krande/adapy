@@ -6,6 +6,7 @@ import * as THREE from "three";
 import type { FeaManifestField } from "../../services/viewerApi";
 import { applyElemFieldToMesh, shownElemFieldRange } from "../../utils/scene/fea/applyElemField";
 import { applyFieldToMesh } from "../../utils/scene/fea/applyField";
+import { beamSolidVertexValue } from "../../utils/scene/fea/beamSolidNodalColors";
 import { legendScopeFor } from "../../utils/scene/fea/caseSteps";
 import { setResultLineSegmentsExcluded } from "../../utils/scene/fea/resultLineSegments";
 import { elementShownPredicate, shownNodalRange } from "../../utils/scene/fea/shownRange";
@@ -91,6 +92,41 @@ test("nodal range takes the end nodes of drawn beam solids, only while they are 
   assert.deepEqual(shownNodalRange(scalars, surfaces), [-40, 3]);
   solids.visible = false;
   assert.deepEqual(shownNodalRange(scalars, surfaces), [1, 3]);
+});
+
+test("nodal range ends where the beam solids' painted values do, not at a node they never reach", () => {
+  // Node 4 moves far, but the section drawn for the beam 0 -> 4 covers only the part
+  // near node 0: its vertices sit at t <= 0.4. The far
+  // node's value is painted nowhere, so it must not set the top of the scale -- counted,
+  // it pushed every colour on screen into the bottom of the legend.
+  const scalars = new Float32Array([1, 2, 3, 500, 101]);
+  const main = makeMesh(["E2"]);
+  const solidGeom = new THREE.BufferGeometry();
+  solidGeom.setAttribute("position", new THREE.BufferAttribute(new Float32Array(9), 3));
+  solidGeom.setIndex([0, 1, 2]);
+  const solids = new THREE.Mesh(solidGeom, new THREE.MeshBasicMaterial());
+  Object.assign(solids, {
+    drawRanges: new Map<string, [number, number]>([["E9", [0, 3]]]),
+    getHiddenRanges: () => new Set<string>(),
+  });
+  const warp = {
+    n_verts: 3,
+    node0: new Uint32Array([0, 0, 0]),
+    node1: new Uint32Array([4, 4, 4]),
+    t: new Float32Array([0, 0.2, 0.4]),
+  };
+  const range = shownNodalRange(scalars, { mesh: main, nPoints: 5, beamSolidMesh: solids, beamSolidWarp: warp });
+  assert.ok(range);
+  const [lo, hi] = range;
+  assert.equal(lo, 1);
+  // 1 + 0.4 * (101 - 1): the most a drawn vertex is painted with.
+  assert.ok(Math.abs(hi - 41) < 1e-4, `top of the scale ${hi}, expected 41`);
+  for (let v = 0; v < 3; v++) {
+    const value = beamSolidVertexValue(scalars, warp, v, 5);
+    assert.ok(value >= lo && value <= hi + 1e-4);
+  }
+  // The topmost painted vertex sits at the top of the scale: the full colormap is used.
+  assert.ok(Math.abs(beamSolidVertexValue(scalars, warp, 2, 5) - hi) < 1e-4);
 });
 
 test("element range skips hidden faces and excluded beam lines", () => {

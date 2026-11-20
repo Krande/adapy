@@ -44,7 +44,7 @@ import {linearHex as linear} from "@/utils/scene/sceneColor";
 import {positionsDiagonal, type ResultMeshLayer, type ResultMeshObjects, type ViewportResults} from "@/viewport/api/resultLayer";
 import {addObjectAt} from "@/viewport/api/objectAt";
 import {activeViewport, followActiveViewport, notifyModelLoaded, type ObjectRef, type ViewportApi} from "@/viewport/api/viewportApi";
-import {beamSolidNodalColors, nodalScalars} from "../beamSolidNodalColors";
+import {beamSolidNodalColors, beamSolidVertexValue, nodalScalars} from "../beamSolidNodalColors";
 import {computeBeamSolidEdges, type BeamSolidEdgeData} from "../beamSolidFeatureEdges";
 import {beamSolidDisplacement} from "../beamSolidWarp";
 import {hasLazyCases, legendScopeFor, mergeCaseSteps, nextCaseToPrefetch, slotCount, slotRef} from "../caseSteps";
@@ -113,8 +113,8 @@ interface LayerSession {
     hiddenEdgesKept: boolean;
     /** 1 for each node a face uses, or null when every node is drawn. */
     drawn: Uint8Array | null;
-    /** The same over the faces of the elements that are not hidden, while some are. */
-    shownNodes: Uint8Array | null;
+    /** What is drawn in colour now, worked out once per visibility (``drawnColoured``). */
+    shownNodes: DrawnColoured | null;
     /** The displacement the layers hold now, xyz per node: what a layer made later starts from. */
     lastDisplacement: Float32Array | null;
     /** The colours the faces and the beam sections were last given, in the numbering each is
@@ -619,41 +619,57 @@ function solidsOn(s: Pick<LayerSession, "solids">): boolean {
     return !!s.solids && useFeaAnimationStore.getState().beamSolidsVisible;
 }
 
-/** 1 for each node that something drawn in colour uses: the faces that are not hidden and, while
- *  the beam sections are on, the end nodes of the beams that are not; null when every node is. */
-function drawnNodes(s: LayerSession): Uint8Array | null {
+/** What a nodal field is drawn in colour on, the surfaces its range is measured over. */
+interface DrawnColoured {
+    /** 1 for each node a face that is not hidden uses; null when every node is. */
+    nodes: Uint8Array | null;
+    /** 1 for each beam-section vertex of a beam that is not hidden, while the sections are on;
+     *  null while they are off. A vertex, not its beam's end nodes: it is painted with the value
+     *  between them at its own place (beamSolidVertexValue), and a section need not reach both. */
+    solidVerts: Uint8Array | null;
+}
+
+function drawnColoured(s: LayerSession): DrawnColoured {
+    if (s.shownNodes) return s.shownNodes;
     const {objects, hidden} = s;
     const indices = s.mesh.indices;
-    const solids = solidsOn(s) ? s.solids! : null;
-    if (!solids?.warp && (!hidden.size || !objects || !indices || s.mesh.topology !== "triangles")) return s.drawn;
-    if (!s.shownNodes) {
-        const nPoints = s.basePositions.length / 3;
-        const shown = new Uint8Array(nPoints);
-        if (!hidden.size || !objects || !indices || s.mesh.topology !== "triangles") {
-            if (s.drawn) shown.set(s.drawn);
-            else shown.fill(1);
-        } else {
-            for (let seg = 0; seg < objects.objectOf.length; seg++) {
-                if (hidden.has(objects.ids[objects.objectOf[seg]])) continue;
-                const start = objects.segments[seg * 2], end = start + objects.segments[seg * 2 + 1];
-                for (let i = start; i < end; i++) shown[indices[i]] = 1;
-            }
+    let nodes = s.drawn;
+    if (hidden.size && objects && indices && s.mesh.topology === "triangles") {
+        nodes = new Uint8Array(s.basePositions.length / 3);
+        for (let seg = 0; seg < objects.objectOf.length; seg++) {
+            if (hidden.has(objects.ids[objects.objectOf[seg]])) continue;
+            const start = objects.segments[seg * 2], end = start + objects.segments[seg * 2 + 1];
+            for (let i = start; i < end; i++) nodes[indices[i]] = 1;
         }
-        if (solids?.warp) {
-            const {node0, node1} = solids.warp;
-            for (let beam = 0; beam < solids.labels.length; beam++) {
-                if (hidden.size && hidden.has(`E${solids.labels[beam]}`)) continue;
-                const start = solids.segments[beam * 2], end = start + solids.segments[beam * 2 + 1];
-                for (let i = start; i < end; i++) {
-                    const v = solids.indices[i];
-                    if (node0[v] < nPoints) shown[node0[v]] = 1;
-                    if (node1[v] < nPoints) shown[node1[v]] = 1;
-                }
-            }
-        }
-        s.shownNodes = shown;
     }
+    let solidVerts: Uint8Array | null = null;
+    const solids = solidsOn(s) ? s.solids! : null;
+    if (solids?.warp) {
+        solidVerts = new Uint8Array(solids.warp.n_verts);
+        for (let beam = 0; beam < solids.labels.length; beam++) {
+            if (hidden.size && hidden.has(`E${solids.labels[beam]}`)) continue;
+            const start = solids.segments[beam * 2], end = start + solids.segments[beam * 2 + 1];
+            for (let i = start; i < end; i++) solidVerts[solids.indices[i]] = 1;
+        }
+    }
+    s.shownNodes = {nodes, solidVerts};
     return s.shownNodes;
+}
+
+/** The range of a nodal field's per-node ``scalars`` over what is drawn in colour now: the face
+ *  nodes, and the values the beam sections are painted with. The three.js viewport's measure is
+ *  ``shownNodalRange``; the two follow the same rule. */
+function drawnNodalRange(s: LayerSession, scalars: Float32Array, nPoints: number): [number, number] | null {
+    const {nodes, solidVerts} = drawnColoured(s);
+    const range = new RangeAccumulator();
+    for (let v = 0; v < nPoints; v++) if (!nodes || nodes[v]) range.add(scalars[v]);
+    const warp = s.solids?.warp;
+    if (solidVerts && warp) {
+        for (let v = 0; v < solidVerts.length; v++) {
+            if (solidVerts[v]) range.add(beamSolidVertexValue(scalars, warp, v, nPoints));
+        }
+    }
+    return range.result();
 }
 
 /** Is element ``label`` drawn in colour now: by a face that is not hidden, by its beam section
@@ -1336,10 +1352,7 @@ export async function loadFeaOnLayers(
             if (!stillCurrent()) return;
             if (rangeFromShown) {
                 const scalars = nodalScalars(paintField, colorStepValues, reductionStr, nPoints);
-                const range = new RangeAccumulator();
-                const drawn = drawnNodes(active);
-                for (let v = 0; v < nPoints; v++) if (!drawn || drawn[v]) range.add(scalars[v]);
-                shownRange = range.result();
+                shownRange = drawnNodalRange(active, scalars, nPoints);
             }
             paintNodalField(
                 {
