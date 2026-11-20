@@ -2,6 +2,16 @@
 
 
 
+## v0.164.3 (2026-11-20)
+
+### Fix
+
+* fix(ci): the committed viewer bundle carries a stamp of its inputs, checked on every PR and rebuilt by a bot (#582)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt;
+Co-authored-by: adapy-bundle-bot &lt;adapy-bundle-bot@users.noreply.github.com&gt; ([`7e53147`](https://github.com/Krande/adapy/commit/7e531479392d6bdf74e43a88657a8ee2c34108a9))
+
+
 ## v0.164.2 (2026-11-20)
 
 ### Fix
