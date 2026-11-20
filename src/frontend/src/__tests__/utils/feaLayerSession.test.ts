@@ -20,6 +20,7 @@ const {setResultStep, stepResults} = await import("@/utils/scene/fea/playbackAct
 const {closeLayerSession, layerSessionActive, loadFeaOnLayers} = await import("@/utils/scene/fea/streaming/layerSession");
 const {onModelLoaded, setActiveViewport} = await import("@/viewport/api/viewportApi");
 const {useVisibilityStore} = await import("@/state/visibilityStore");
+const {topLevelName} = await import("@/utils/tree_view/rootLabels");
 const overlays = await import("@/plugins/sceneOverlays");
 const {runBeforeDraw} = await import("@/viewport/api/beforeDraw");
 import type {Billboard} from "@/viewport/api/billboards";
@@ -562,6 +563,24 @@ test("the elements are the viewport's objects and the Scene tree's rows, by the 
         id_hierarchy: {"fea-root": ["FEA elements", "*"], E7: ["E7", "fea-root"], E8: ["E8", "fea-root"]},
         draw_ranges_node0: {E7: [0, 3], E8: [3, 3]},
     });
+});
+
+test("a result is listed by its file name, not by the hierarchy's root \"FEA elements\"", async () => {
+    const viewport = fakeViewport();
+    withdraw = viewport.withdraw;
+    const announced: {sourceName?: string; displayName?: string; extras?: Record<string, unknown>}[] = [];
+    const off = onModelLoaded((info) => announced.push(info));
+    try {
+        await load(stress(), {manifest: manifest([displacement(), stress()]), reduction: "S"});
+    } finally {
+        off();
+    }
+    assert.equal(announced.length, 1);
+    assert.equal(announced[0].displayName, "deck.frd");
+    // What the Scene tree makes of it: the root row is named by the file, as the loaded-models list reads it.
+    const hierarchy = announced[0].extras!.id_hierarchy as Record<string, [string, string]>;
+    assert.equal(hierarchy["fea-root"][0], "FEA elements");
+    assert.equal(topLevelName(announced[0].displayName, hierarchy["fea-root"][0], "deck.frd"), "deck.frd");
 });
 
 test("hiding elements takes their edges with them and measures the scale over what is left", async () => {
