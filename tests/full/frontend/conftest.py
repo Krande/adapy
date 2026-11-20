@@ -46,6 +46,41 @@ class MockWSClient:
         return f"ws://{self.host}:{self.port}"
 
 
+def _shard_weight(item) -> int:
+    """What a browser test costs, roughly: the three.js viewport renders in software WebGL and takes
+    two to four times as long as the same test on the WebGPU viewports."""
+    return 3 if "three" in item.name else 1
+
+
+def shard_items(items, index: int, count: int):
+    """Split `items` into `count` shards of about equal cost (greedy, heaviest first onto the lightest
+    shard); returns (kept, removed) for shard `index` (1-based). Deterministic, so every shard of one
+    run sees the same split and together they cover every test exactly once."""
+    loads = [0] * count
+    owner: dict[str, int] = {}
+    for item in sorted(items, key=lambda i: (-_shard_weight(i), i.nodeid)):
+        k = loads.index(min(loads))
+        owner[item.nodeid] = k
+        loads[k] += _shard_weight(item)
+    kept = [i for i in items if owner[i.nodeid] == index - 1]
+    removed = [i for i in items if owner[i.nodeid] != index - 1]
+    return kept, removed
+
+
+@pytest.hookimpl(trylast=True)
+def pytest_collection_modifyitems(config, items):
+    """CI runs the browser tests as several parallel jobs (pr-tests.yml `browser`): `ADA_TEST_SHARD=i/N`
+    keeps this job's share. trylast, so the split is of what `-m` has already selected. Unset: all."""
+    spec = os.environ.get("ADA_TEST_SHARD")
+    if not spec:
+        return
+    index, count = (int(x) for x in spec.split("/"))
+    assert 1 <= index <= count, f"ADA_TEST_SHARD={spec!r}: expected i/N with 1 <= i <= N"
+    kept, removed = shard_items(items, index, count)
+    config.hook.pytest_deselected(items=removed)
+    items[:] = kept
+
+
 @pytest.fixture(scope="session", autouse=True)
 def ensure_playwright_installed():
     """For every browser test in this directory, whichever file runs first."""
