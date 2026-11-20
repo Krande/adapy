@@ -24,7 +24,7 @@ const mm = (m: number) => `${(m * 1000).toFixed(1)} mm`;
 
 /** What the checker measured at this contact. Every line is optional -- absent means not
  *  measured -- and an axis pass measured nothing, so the whole block is absent for it. */
-const ContactFacts: React.FC<{ contact: ClashContact }> = ({ contact }) => {
+export const ContactFacts: React.FC<{ contact: ClashContact }> = ({ contact }) => {
   const rows: [string, string][] = [];
   if (contact.penetrationDepth !== null) rows.push(["penetration", mm(contact.penetrationDepth)]);
   if (contact.contactArea !== null) rows.push(["contact area", `${(contact.contactArea * 1e6).toFixed(0)} mm²`]);

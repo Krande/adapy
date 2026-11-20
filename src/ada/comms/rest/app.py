@@ -64,10 +64,13 @@ from .routes.projects import router as projects_router
 from .routes.public_settings import router as public_settings_router
 from .routes.rpc import router as rpc_router
 from .routes.runtime_config import router as runtime_config_router
+from .routes.saved_groups import router as saved_groups_router
 from .routes.simulations import router as simulations_router
 from .routes.source_nodes import router as source_nodes_router
 from .routes.storage import router as storage_router
 from .routes.system_templates import router as system_templates_router
+from .routes.viewer_control import router as viewer_control_router
+from .routes.viewer_control import ws_router as viewer_control_ws_router
 from .storage import Storage
 
 
@@ -339,6 +342,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     # /api/config and /config.js (routes/runtime_config.py): public, on the app itself.
     app.include_router(runtime_config_router)
+    # /api/viewer/ws (routes/viewer_control.py): a viewer tab's websocket. On the app itself, as a
+    # websocket handshake carries no bearer header: a ticket from the authenticated
+    # POST /api/viewer/ws-ticket is its credential.
+    app.include_router(viewer_control_ws_router)
 
     # Every /api/* below this line requires a verified user. The dep is
     # attached to the router so individual routes don't have to repeat
@@ -417,6 +424,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     api.include_router(clash_check_router)
     # Convex-contact clash runs on the viewer GLB: ``/scopes/{scope}/clash-contacts...``.
     api.include_router(clash_contacts_router)
+    # Driving the caller's own open viewer (routes/viewer_control.py): fixed ``/viewer/...`` paths.
+    api.include_router(viewer_control_router)
+    # The scope's saved groups in brief (routes/saved_groups.py): ``/scopes/{scope}/saved-groups``.
+    api.include_router(saved_groups_router)
 
     # Simulation providers and runs (routes/simulations.py): ``/simulation/providers`` and
     # ``/scopes/{scope}/simulations...``, neither colliding with a fixed/parameterised sibling.

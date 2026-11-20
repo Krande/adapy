@@ -5,7 +5,10 @@
 // The welds are draw ranges of the preview's batched meshes, painted through the mesh's range colours
 // (`CustomBatchedMesh.setRangeColors`). A vertex colour MULTIPLIES the material's colour, so a painted
 // mesh's material goes white and every range it does not paint keeps the material's colour as its
-// vertex colour: the members look as they did, the welds take the colour asked for.
+// vertex colour: the members look as they did, the welds take the colour asked for. A selected weld
+// is drawn by the mesh's selection overlay over its colour, in the selection's blue -- which is why
+// the default weld colour is not a blue (`DEFAULT_OVERLAYS`): one was, and a selected weld looked
+// the same as an unselected one.
 
 import * as THREE from "three";
 

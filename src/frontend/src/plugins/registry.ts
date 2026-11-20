@@ -18,7 +18,7 @@ import { isPlacedElsewhere } from "@/layout/placedElsewhere";
 import type { AdaPluginContext, PanelSlot, PluginModeSpec, PluginRegion, PluginSpec, RegisteredPlugin, RenderableFileProvider, ResultSidecarLoader, SceneColorFieldProvider, SimulationProviderUi, StorageAssetType, StorageAssetTypeArgs, UrlParamHandler } from "./registryTypes/slots";
 
 export { type PluginRegion, type PluginDockId, type PluginModeId, type PluginModeSpec, type PluginLogLevel, type PluginApiClient, type PluginTheme, type AdaPluginContext, type ActivationPredicate, type TopBarButtonSpec, type PanelSlot, type SceneColorFieldProvider, type ResultSidecarLoader, type RenderableFileProvider, type SimulationParameterFormArgs, type SimulationFormSubject, type SimulationOpenResultArgs, type SimulationProviderUi, type UrlParamHandler, type PluginSpec, type RegisteredPlugin, type StorageAssetTypeArgs, type StorageAssetUpload, type StorageAssetType } from "./registryTypes/slots";
-export { type SceneColorFieldResult, type SceneColor, type SceneOverlay, type SceneLines, type SceneElementOutline, type SceneLabel, type SceneLabelOptions, type SceneElementPaint, type SceneLayerRef, type SceneLayerLook, type SceneLineLayerSpec, type SceneLineLayer, type ScenePointLayerSpec, type ScenePointLayer, type SceneImageRect, type SceneImageSpec, type SceneImage, type SceneModelSource, type SceneModelPose, type SidecarFetcher, type SceneHandle, type SceneCleared, type SceneBox, type SceneFace, type SceneObjectMatch } from "./registryTypes/scene";
+export { type SceneColorFieldResult, type SceneColor, type SceneOverlay, type SceneLines, type SceneElementOutline, type SceneLabel, type SceneLabelOptions, type SceneElementPaint, type SceneLayerRef, type SceneLayerLook, type SceneLineLayerSpec, type SceneLineLayer, type ScenePointLayerSpec, type ScenePointLayer, type SceneImageRect, type SceneImageSpec, type SceneImage, type SceneModelSource, type SceneModelPose, type SidecarFetcher, type SceneHandle, type SceneCleared, type SceneGroupLoad, type SceneGroupLoadOptions, type SceneBox, type SceneFace, type SceneObjectMatch } from "./registryTypes/scene";
 export { type PluginPlaybackTrack, type PluginPlaybackTrackHandle, type PluginPlaybackState, type PluginPlayback, type PluginLayerState, type PluginLayers, type PluginSimulationSubject, type PluginSimulationSubjectHandle, type PluginSimulations } from "./registryTypes/playback";
 export type { ScenePick, ScenePickOptions, ScenePickSession } from "./scenePicks";
 export type { SceneHighlight, SceneHighlightOptions, SceneHighlightRef } from "./sceneHighlights";
@@ -29,7 +29,8 @@ export type {
   SceneContactPatch,
   SceneObjectRef,
 } from "./sceneContact";
-export type { PlaceBoxOptions, PlacedBox, PlacedBoxMode, PlacedBoxPose } from "./sceneBox";
+export type { BoxFace, PlaceBoxOptions, PlaceBoxResize, PlacedBox, PlacedBoxMode, PlacedBoxPose } from "./sceneBox";
+export type { PlaceCameraOptions, PlacedCamera, PlacedCameraMode, PlacedCameraPose } from "./sceneCamera";
 export type { SelectedObjectBox } from "@/viewport/api/viewportApi";
 
 // Bumped on a breaking change to any slot interface below. A plugin declares the
@@ -435,7 +436,40 @@ export type { SelectedObjectBox } from "@/viewport/api/viewportApi";
 //          called "build". The mode state is a zustand store (`modeStore`); the functions are as
 //          before. The Desktop UI's modes are core's now (Model = TopologyOutput, Results =
 //          FemResults, Build = TopologyInput); its old ids are aliases.
-export const PLUGIN_API_VERSION = "1.32.0";
+// 1.33.0 — `ctx.scene.loadSavedGroup(id, {onStage})`: the Scene panel's "Load into scene" for a saved
+//          group of the current scope, for a plugin whose view follows a saved group (one that draws
+//          it, say). Puts the members in the scene from what is already published or stored, hides the
+//          rest of a document loaded whole, selects the group, and resolves `SceneGroupLoad`
+//          ({groupId, groupName, loaded, already, hidden, failed, selected, notFound, framed, bounds,
+//          text, tone}; `bounds` the box round the selected members in the scene's own coordinates,
+//          the ones `placeBox` takes, or null); rejects when there is no scope or no such group. Additive: an older core has no
+//          `loadSavedGroup`, so a plugin asks first.
+//          - a `scene-info` panel with `asTab` is a tab of the Scene panel, in its strip after core's
+//            own groups (Model, View, Measure, Tools), ordered by `asTab.order`, with its
+//            `contextual` dot and `badge`; only the tab on show is mounted (`getSceneTabs`). Before,
+//            core's Scene panel mounted no `scene-info` panel at all. One without `asTab` is a
+//            section as before. A plugin that wants its tab there on a newer core and elsewhere on an
+//            older one reads the version first (`PLUGIN_API_VERSION` >= 1.33.0).
+//          - `placeBox`'s `resize` (`true`, or `{faces, minSize}`): a handle on each face of the box,
+//            in a gizmo of its own (S, by the cell builder's rules, or `setMode("resize")`), that drags
+//            that face along its normal, the opposite face staying put and the box's size across it
+//            snapping to the move's step; X / Y / Z keep that axis' handles. The pose then has the
+//            box as it is now (`box`); its origin and turn do not change. On either viewport.
+//          - `placeBox`'s `constrain.rotate: "xyz"`: a box that turns every way -- R brings up a ring
+//            about each of the scene's X, Y and Z (R then X / Y / Z keeps the one), snapped as the
+//            turn about Z is -- with `axes` (its own x, y, z in the scene) in its pose, in the
+//            options and in `set` to say how it is turned. An older core reads it as "z".
+//          - `placeBox`'s `set({box})` moves what is drawn for the box instead of drawing it anew,
+//            so what a plugin drew over the box stays over it.
+//          - `ctx.scene.placeCamera(owner, {position, target, size?, snap?, mode?, color?, frame?,
+//            onChange, ...})`: a camera in the scene -- a body, a lens and an arrow to what it looks
+//            at -- with a transform gizmo: G moves it (it goes on looking at its target), R turns it
+//            about where it stands (a flat ring for its yaw, a standing one for its pitch; the target
+//            goes round with it), the box's keys otherwise. `onChange` is handed `{position, target}`
+//            in the scene's own coordinates. For a tool that asks where a view is seen from. On either
+//            viewport; `end()` (or `scene.remove(owner)`) takes it away.
+//          All additive: an older core ignores `resize` and `axes`, and has no `placeCamera`.
+export const PLUGIN_API_VERSION = "1.33.0";
 
 /** What the Simulations panel writes on a run's open-result button. */
 export function openResultButtonLabel(
@@ -769,6 +803,21 @@ export function getConnectionBuilderTabs(ctx: AdaPluginContext): SimulationTabEn
     (a, b) =>
       (a.asTab.order ?? a.panel.order ?? 0) - (b.asTab.order ?? b.panel.order ?? 0) ||
       a.panel.id.localeCompare(b.panel.id),
+  );
+  return entries;
+}
+
+/** `scene-info` panels with `asTab` (1.33.0): a plugin's tabs of the Scene panel, filtered by
+ * activation exactly like `getPanelsForRegion` and ordered by `(asTab.order ?? 0, id)`. Core's
+ * Scene panel draws these in its strip after its own groups (Model, View, Measure, Tools). A
+ * `scene-info` panel without `asTab` is not one of them. Empty when no plugin has an active one
+ * (the strip is then core's groups only, as before). */
+export function getSceneTabs(ctx: AdaPluginContext): SimulationTabEntry[] {
+  const entries = getPanelsForRegion("scene-info", ctx)
+    .filter(({ panel }) => !!panel.asTab)
+    .map(({ pluginId, panel }) => ({ pluginId, panel, asTab: panel.asTab! }));
+  entries.sort(
+    (a, b) => (a.asTab.order ?? 0) - (b.asTab.order ?? 0) || a.panel.id.localeCompare(b.panel.id),
   );
   return entries;
 }

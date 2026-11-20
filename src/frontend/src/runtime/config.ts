@@ -122,6 +122,10 @@ declare global {
         // connection library live (/api/dev/connections), and the page opens the
         // connection builder on it.
         ADA_DEV_CONNECTIONS?: boolean;
+        // How a server lets an agent drive a viewer over /api/viewer (ADA_VIEWER_CONTROL): "opt-in" (each
+        // tab turns "External controls" on) or "auto" (every tab takes part unless switched off). Absent
+        // (the default) = off. `true`, from a server before the modes, reads as "opt-in".
+        ADA_VIEWER_CONTROL?: boolean | string;
         // True on a server without a database (a local / desktop viewer): the
         // admin and audit routes answer 503, so the page does not ask them.
         ADA_NO_DATABASE?: boolean;
@@ -143,6 +147,15 @@ declare global {
 
 const w = (): Window => window;
 
+/** ADA_VIEWER_CONTROL's modes, as /config.js tells them. */
+export type ViewerControlMode = "off" | "opt-in" | "auto";
+
+export function viewerControlModeOf(raw: unknown): ViewerControlMode {
+    if (raw === "auto") return "auto";
+    if (raw === "opt-in" || raw === true) return "opt-in";
+    return "off";
+}
+
 export const runtime = {
     // Transport
     commsMode: (): string | undefined => w().COMMS_MODE,
@@ -160,6 +173,10 @@ export const runtime = {
 
     // A connection library served live by `ada dev connections` (see services/devConnections).
     devConnections: (): boolean => w().ADA_DEV_CONNECTIONS === true,
+
+    // Whether, and how, the server lets an agent drive a viewer (see services/viewerControl).
+    viewerControlMode: (): ViewerControlMode => viewerControlModeOf(w().ADA_VIEWER_CONTROL),
+    viewerControl: (): boolean => viewerControlModeOf(w().ADA_VIEWER_CONTROL) !== "off",
 
     // What the server offers. Absent (an older server) = offered.
     hasDatabase: (): boolean => w().ADA_NO_DATABASE !== true,

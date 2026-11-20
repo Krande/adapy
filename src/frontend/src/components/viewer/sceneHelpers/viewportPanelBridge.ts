@@ -4,6 +4,8 @@
 // panels' code, which the viewport's own chunk must not import.
 import {cacheAndBuildTree} from "@/state/model_worker/cacheModelUtils";
 import {useModelState} from "@/state/modelState";
+import {useClashContactPickStore} from "@/state/clashContactPickStore";
+import {useConnectionGraphStore} from "@/state/connectionGraphStore";
 import {useLineageStore} from "@/state/lineageStore";
 import {useObjectInfoStore} from "@/state/objectInfoStore";
 import {setScenePickDescriber} from "@/plugins/scenePicks";
@@ -35,9 +37,14 @@ function listModel(info: LoadedModelInfo): void {
 function keepExtension(info: LoadedModelInfo): void {
     if (!info.sourceName || info.adaExtData === undefined) return;
     const extension = announcedExtension(info);
-    if (!info.added) clearSourceExtensions();
+    if (!info.added) {
+        clearSourceExtensions();
+        useConnectionGraphStore.getState().clearIndex();
+    }
     setSourceExtension(info.sourceName, extension);
     useLineageStore.getState().unregister(info.sourceName);
+    // Its joints (which connection each member and weld is part of), as the three.js loader keeps them.
+    useConnectionGraphStore.getState().register(info.sourceName, extension);
     if (!extension) return;
     // The ids of a large group are in a buffer view, copied now: the reader is good for this call only.
     const read = info.bufferView;
@@ -48,6 +55,9 @@ function keepExtension(info: LoadedModelInfo): void {
 }
 
 function showPick(pick: ViewportPick): void {
+    // What was clicked is what the Selected Object panel describes now, not a clash contact (a click
+    // on a contact's marker or patch is taken before the viewport picks: `takeClashClick`).
+    useClashContactPickStore.getState().clear();
     const info = useObjectInfoStore.getState();
     info.setClickedFace(null);
     // The clicked coordinate of the Selected Object panel, as a click in the other viewport sets it;

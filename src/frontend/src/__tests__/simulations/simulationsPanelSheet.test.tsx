@@ -25,9 +25,12 @@ test("on a phone the frame is a bottom sheet; from sm up, the card it was", () =
   // The desktop card: in the column, bordered like the other cards, 300-420 px wide.
   for (const k of ["sm:static", "sm:z-auto", "sm:w-auto", "sm:max-h-[calc(100dvh-5.5rem)]", "sm:p-2", "sm:rounded-md",
     "sm:border", "sm:border-[var(--ada-panel-border)]",
-    "sm:min-w-[300px]", "sm:max-w-[420px]", "sm:overflow-visible"]) {
+    "sm:min-w-[300px]", "sm:max-w-[420px]"]) {
     assert.ok(c.has(k), k);
   }
+  // It clips on desktop too: a frame that does not is never shrunk below its content, and squeezed
+  // the column's other panels (Selected Object Info) to a sliver beside it.
+  assert.ok(![...c].some((k) => /^sm:overflow-(?:visible|auto|scroll)$/.test(k)), "no overflow but hidden from sm up");
 });
 
 test("the frame draws the grab handle (phones only) above its pinned heading", () => {

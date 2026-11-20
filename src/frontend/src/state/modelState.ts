@@ -142,10 +142,10 @@ export const useModelState = create<ModelState>((set) => ({
             // Build the reverse member→connection index so the
             // selection inspector can show "Connections (N)" for a
             // clicked beam/plate without re-reading the GLB.
-            // Synchronous + cheap (small dict walk); a future model
-            // load replaces it.
-            void import('@/state/connectionGraphStore').then(({buildConnectionIndex, useConnectionGraphStore}) => {
-                useConnectionGraphStore.getState().setIndex(buildConnectionIndex(ext));
+            // Synchronous + cheap (small dict walk); kept as this
+            // source's, beside the other loaded sources' connections.
+            void import('@/state/connectionGraphStore').then(({useConnectionGraphStore}) => {
+                useConnectionGraphStore.getState().register(name, ext);
             }).catch((err) => console.warn('connection graph: build failed for', name, err));
         }
         set((s) => {

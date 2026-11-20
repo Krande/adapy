@@ -3,7 +3,7 @@
 
 import { describeClashTarget, type ClashCheckOptions, type ClashCheckTarget, type ClashCheckResponse, type ClashDetailResponse } from "@/services/api/clashCheck";
 import { ClashResultError, parseClashResult, type ClashResult } from "./result";
-import { parseDetailStats, type DetailStats } from "./detail";
+import { emptyDetailStats, parseDetailStats, type DetailStats } from "./detail";
 
 // ---------------------------------------------------------------------------------------------
 // Job orchestration. Pure aside from the injected `api`/`trackJob`/`wait`/`now`, so it runs under
@@ -18,12 +18,14 @@ export interface ClashFlowApi {
   ): Promise<ClashDetailResponse>;
   getClashResult(scope: string, key: string): Promise<unknown>;
   getDetailStats(scope: string, key: string): Promise<unknown>;
-  jobStatus(jobId: string): Promise<{ status: string; error: string | null }>;
+  jobStatus(jobId: string): Promise<{ status: string; error: string | null; stage?: string | null; progress?: number | null }>;
 }
 
 export interface ClashFlowDeps {
   api: ClashFlowApi;
   trackJob?: (opts: { jobId: string; label: string; derivedKey?: string; scope?: string }) => void;
+  /** The running job's stage as it is polled (e.g. a detail job's `"detail 120/392"`). */
+  onJobStage?: (stage: string | null) => void;
   /** Poll backoff. Defaults to a real 1.5s timer; tests inject an instant no-op. */
   wait?: (ms: number) => Promise<void>;
   now?: () => number;
@@ -32,22 +34,29 @@ export interface ClashFlowDeps {
 const POLL_INTERVAL_MS = 1500;
 /** Same 10-minute ceiling `assets/delivery.ts` uses, for the same reason: a capability no live
  *  pool advertises is an ordinary deployment state, not a bug, and an unbounded poll would render
- *  that as a spinner that never resolves. */
+ *  that as a spinner that never resolves. Counted from the job's last SIGN OF LIFE (a change of
+ *  stage or progress), not from its start: a detail run of hundreds of joints moves for longer than
+ *  ten minutes, and giving up on a job that is visibly getting on is not a timeout. */
 const POLL_TIMEOUT_MS = 10 * 60 * 1000;
 
 async function pollToTerminal(deps: ClashFlowDeps, jobId: string, label: string): Promise<void> {
   const wait = deps.wait ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
   const now = deps.now ?? (() => Date.now());
-  const startedAt = now();
+  let startedAt = now();
+  let lastSign: string | null = null;
   for (;;) {
     const status = await deps.api.jobStatus(jobId);
+    const sign = `${status.stage ?? ""}|${status.progress ?? ""}`;
+    if (lastSign !== null && sign !== lastSign) startedAt = now();
+    lastSign = sign;
+    deps.onJobStage?.(status.status === "running" ? (status.stage ?? null) : null);
     if (status.status === "done") return;
     if (status.status === "error" || status.status === "cancelled") {
       throw new ClashResultError(`${label} ${status.status}${status.error ? `: ${status.error}` : ""}`);
     }
     if (now() - startedAt >= POLL_TIMEOUT_MS) {
       throw new ClashResultError(
-        `${label} is still ${status.status} after ${Math.round(POLL_TIMEOUT_MS / 60000)} min. The job was not ` +
+        `${label} is still ${status.status} after ${Math.round(POLL_TIMEOUT_MS / 60000)} min without progress. The job was not ` +
           `cancelled -- running the check again will pick up its result if it does finish.`,
       );
     }
@@ -107,11 +116,11 @@ export async function runClashDetailFlow(
   // panel: a surface that fetched it itself could show a table for a run whose document had not
   // been written yet. A document that cannot be read is not a failed run -- the geometry is
   // built and loadable -- so this degrades to an empty take-off rather than throwing.
-  let stats: DetailStats = { joints: null, skipped: [] };
+  let stats: DetailStats = emptyDetailStats();
   try {
     stats = parseDetailStats(await deps.api.getDetailStats(scope, resp.derived_key));
   } catch {
-    stats = { joints: null, skipped: [] };
+    stats = emptyDetailStats();
   }
   return { derivedKey: resp.derived_key, glbKey: resp.glb_key ?? null, cached, stats };
 }

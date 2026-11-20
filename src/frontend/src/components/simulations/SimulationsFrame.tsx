@@ -22,7 +22,10 @@ export const SIMULATIONS_FRAME_CLASS =
   // desktop: the card in the menu column, at most the window's height less the top bar and a margin
   "sm:static sm:z-auto sm:w-auto sm:max-h-[calc(100dvh-5.5rem)] sm:p-2 sm:rounded-md sm:backdrop-blur-none " +
   "sm:border sm:border-[var(--ada-panel-border)] sm:shadow-lg " +
-  "sm:min-w-[300px] sm:max-w-[420px] sm:overflow-visible";
+  // It clips on desktop too (it was `sm:overflow-visible`): a frame that does not clip is not
+  // shrunk below its content, so beside it the column's other panels were squeezed to a sliver
+  // (`layout/presets/columnSlot`). Clipping, it shrinks to its share and its body scrolls.
+  "sm:min-w-[300px] sm:max-w-[420px]";
 
 /** The body under the pinned heading: it scrolls, with its scrollbar clear of the content. */
 export const SIMULATIONS_BODY_CLASS =

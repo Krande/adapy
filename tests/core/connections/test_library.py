@@ -237,3 +237,30 @@ def test_devhost_protocol(tmp_path):
     finally:
         if proc.poll() is None:
             proc.kill()
+
+
+class _Line:
+    def __init__(self, pts):
+        self.points3d = pts
+
+
+class _Weld:
+    def __init__(self, pts):
+        self.sweep_curve = _Line(pts) if pts is not None else None
+
+
+def test_a_weld_is_labelled_halfway_along_its_line():
+    """A straight weld's line is its two ends; its label is at its middle, not at the end nearest
+    its contacts (that put a box side's label at the corner, beside the corner weld's)."""
+    from ada.api.connections.library import _weld_position
+
+    top = (0.0, 0.0, 0.3)
+    assert _weld_position(_Weld([(0, 0, 0), (0, 0, 0.3)]), [top, top]) == pytest.approx([0, 0, 0.15])
+    # By length along a bent line: 0.1 up, then 0.3 across -> 0.2 along is 0.1 into the second leg.
+    assert _weld_position(_Weld([(0, 0, 0), (0, 0, 0.1), (0.3, 0, 0.1)]), []) == pytest.approx([0.1, 0, 0.1])
+    # A closed loop (round a tube) is labelled on the loop, not at its centre.
+    loop = [(1, 0, 0), (0, 1, 0), (-1, 0, 0), (0, -1, 0), (1, 0, 0)]
+    assert _weld_position(_Weld(loop), [(0, 0, 0)]) == pytest.approx([-1, 0, 0])
+    # No line: where it meets its members.
+    assert _weld_position(_Weld(None), [(0, 0, 0), (0, 0, 2)]) == pytest.approx([0, 0, 1])
+    assert _weld_position(_Weld(None), []) is None

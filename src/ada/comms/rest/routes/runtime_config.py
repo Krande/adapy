@@ -132,6 +132,9 @@ async def api_config(request: Request, ctx: RestContext = Depends(rest_context))
             # and the token that does it. JSON read by fetch, so another
             # origin cannot read it; never in /config.js. See local_shutdown.
             "localShutdown": local_shutdown.config_entry(settings, request),
+            # Whether an agent may drive a viewer over /api/viewer (ADA_VIEWER_CONTROL): "off" (the default),
+            # "opt-in" (each tab turns it on) or "auto" (every tab takes part unless switched off).
+            "viewerControl": settings.viewer_control,
         }
     )
 
@@ -194,6 +197,10 @@ async def config_js(request: Request, ctx: RestContext = Depends(rest_context)) 
     if local_shutdown.enabled(settings):
         body += "window.ADA_LOCAL_SHUTDOWN = true;\n"
     # `ada dev connections`: the studio opens its connection builder. Emitted only when true.
+    # Viewer control (ADA_VIEWER_CONTROL): "opt-in" or "auto", the page's "External controls" switch off or
+    # on by default. Emitted only when enabled.
+    if settings.viewer_control_enabled:
+        body += f"window.ADA_VIEWER_CONTROL = {_json.dumps(settings.viewer_control)};\n"
     if app.state.dev_connections is not None:
         body += "window.ADA_DEV_CONNECTIONS = true;\n"
     # What a local (desktop) viewer lacks, so the page does not ask for it: no database (the

@@ -50,6 +50,9 @@ import { useViewerStores } from "@/state/AdaViewerContext";
 import { useClashCheckStore } from "@/state/clashCheckStore";
 import { useComponentControlsStore } from "@/state/componentControlsStore";
 import { useConnectionsOfferStore } from "@/state/connectionsOfferStore";
+import { useDetailModelsStore } from "@/state/detailModelsStore";
+import { scopeUrlPart, useScopeStore } from "@/state/scopeStore";
+import { useJointFocusStore } from "@/state/jointFocusStore";
 import { useStatsStore } from "@/state/statsStore";
 import { runtime } from "@/runtime/config";
 import {
@@ -91,7 +94,24 @@ function useHasJoints(): boolean {
   // no stats of its own, so the compiled model's take-off never sees them.
   const generated = useClashCheckStore((s) => (s.producedJoints?.count ?? 0) > 0);
   const identified = useClashCheckStore((s) => (s.result?.joints.length ?? 0) > 0);
-  return produced || generated || identified;
+  // A joint of a model on screen opened from a picked weld ("Show joint") is reviewed there too.
+  const shown = useJointFocusStore((s) => s.joints.length > 0);
+  // The scope's kept detail models are listed there too, so while it has any the tab is there.
+  const kept = useKeptDetailModels();
+  return produced || generated || identified || shown || kept;
+}
+
+/** Whether the scope has kept detail models; the list is asked for when the scope changes and
+ *  again whenever a detail run starts or ends, so a new model is listed as it is made. */
+function useKeptDetailModels(): boolean {
+  const scope = scopeUrlPart(useScopeStore((s) => s.current));
+  const detailBusy = useClashCheckStore((s) => s.detailBusy);
+  const detailKey = useClashCheckStore((s) => s.detailDerivedKey);
+  const load = useDetailModelsStore((s) => s.load);
+  useEffect(() => {
+    void load(scope);
+  }, [scope, detailBusy, detailKey, load]);
+  return useDetailModelsStore((s) => s.scope === scope && s.models.length > 0);
 }
 
 /** One of core's tabs' content. */

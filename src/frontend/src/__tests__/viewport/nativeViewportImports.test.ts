@@ -180,7 +180,7 @@ for (const module of [
 
 // A box a plugin places in the scene: its maths, the gizmo's key rules (which the cell builder's key
 // handler reads too) and the placement itself go through the viewport interface.
-for (const module of ["utils/gizmo/transformKeys.ts", "utils/gizmo/boxPose.ts", "plugins/sceneBox.ts"]) {
+for (const module of ["utils/gizmo/transformKeys.ts", "utils/gizmo/boxPose.ts", "plugins/sceneBox.ts", "utils/gizmo/cameraPose.ts", "plugins/sceneCamera.ts"]) {
     test(`${module} imports no three.js`, () => {
         walkFreeOfThree(join(ROOT, "src", module));
     });

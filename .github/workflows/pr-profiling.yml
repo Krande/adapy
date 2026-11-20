@@ -57,7 +57,7 @@ jobs:
       - name: Setup Pixi
         uses: prefix-dev/setup-pixi@v0.11.3
         with:
-          pixi-version: v0.81.0
+          pixi-version: v0.84.2
           environments: profile
           cache: true
 

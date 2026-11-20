@@ -153,26 +153,44 @@ def _build_connection_entries(part_or_assembly):
         if not isinstance(subp, Connection):
             continue
 
+        # What the connection owns: its own objects and those of its plain sub-parts (a builder may
+        # group its welds or plates in a Part of their own), but not those of a Connection nested in
+        # it, which has an entry of its own. Only its own lists left a weld kept in such a sub-part
+        # belonging to no connection, and the viewer could not say which joint it was a weld of.
+        owned = _owned_parts(subp, Connection)
+
         # Roles encoded in sample_<role>_<...> beam names from the
         # build_sample synthesiser. Real-model Connections won't have
         # this naming pattern — member_roles stays None and the
         # inspector falls back to the flat beam_names list.
         member_roles: dict[str, list[str]] = {}
         beam_names: list[str] = []
-        for beam in subp.beams:
+        for beam in (b for p in owned for b in p.beams):
             if beam.name:
                 beam_names.append(beam.name)
                 if beam.name.startswith("sample_"):
                     role = beam.name[len("sample_") :]
                     member_roles.setdefault(role, []).append(beam.name)
 
-        plate_names = [p.name for p in subp.plates if p.name]
-        weld_names = [w.name for w in subp.welds if w.name]
+        plate_names = [pl.name for p in owned for pl in p.plates if pl.name]
+        weld_names = [w.name for p in owned for w in p.welds if w.name]
+
+        # A connection built at a joint of a model (a clash detail run, `ada.clash.detail`) records
+        # its roles and spec in ``connection_info``: its members are the model's, named as the model
+        # names them, so the sample_<role> names say nothing there.
+        info = getattr(subp, "metadata", {}).get("connection_info") or {}
+        if not member_roles and isinstance(info.get("member_roles"), dict):
+            member_roles = {
+                str(role): [str(n) for n in names if n]
+                for role, names in info["member_roles"].items()
+                if isinstance(names, (list, tuple))
+            }
+        spec_name = getattr(subp, "spec_name", None) or info.get("spec_name")
 
         entries.append(
             design_ext.ConnectionInfo(
                 name=subp.name,
-                spec_name=getattr(subp, "spec_name", None),
+                spec_name=spec_name,
                 spec_inputs=getattr(subp, "spec_inputs", None),
                 member_roles=member_roles or None,
                 beam_names=beam_names or None,
@@ -181,6 +199,19 @@ def _build_connection_entries(part_or_assembly):
             )
         )
     return entries
+
+
+def _owned_parts(conn, connection_cls) -> list:
+    """``conn`` and every part below it that is not a Connection or inside one."""
+    out = [conn]
+    stack = list(conn.parts.values())
+    while stack:
+        p = stack.pop()
+        if isinstance(p, connection_cls):
+            continue
+        out.append(p)
+        stack.extend(p.parts.values())
+    return out
 
 
 def _weld_metadata(weld) -> dict:
@@ -192,7 +223,7 @@ def _weld_metadata(weld) -> dict:
     metadata dict — `{"type": "weld", ...}` distinguishes weld entries
     from beam/plate ones that already live in the same map.
     """
-    return {
+    meta = {
         "type": "weld",
         "weld_type": weld.type.value if weld.type is not None else None,
         "throat": weld.throat,
@@ -211,6 +242,49 @@ def _weld_metadata(weld) -> dict:
         "sweep_curve_present": weld.sweep_curve is not None,
         "members": [m.name for m in weld.members if getattr(m, "name", None)],
     }
+    # Where the weld runs, read from its line (the sweep curve, else p1 -> p2): its ``length`` (m) for
+    # the inspector, and ``at``, the point halfway along it by length, where the viewer labels it. Left
+    # out for a weld with no line (a bead given as a shape).
+    line = weld_line(weld)
+    if len(line) >= 2:
+        meta["length"] = _polyline_length(line)
+        meta["at"] = _halfway_along(line)
+    return meta
+
+
+def weld_line(weld) -> list[list[float]]:
+    """The points of a weld's line, in the model's coordinates: its sweep curve's points, or its two
+    end points for a straight weld; empty when it has neither."""
+    try:
+        points = getattr(getattr(weld, "sweep_curve", None), "points3d", None)
+        if points is not None:
+            return [[float(v) for v in p] for p in points]
+        p1, p2 = getattr(weld, "p1", None), getattr(weld, "p2", None)
+        if p1 is not None and p2 is not None:
+            return [[float(v) for v in p1.p], [float(v) for v in p2.p]]
+    except Exception:  # noqa: BLE001 - metadata never fails a scene for what it cannot say
+        return []
+    return []
+
+
+def _segment_lengths(line: list[list[float]]) -> list[float]:
+    return [sum((b[i] - a[i]) ** 2 for i in range(3)) ** 0.5 for a, b in zip(line, line[1:])]
+
+
+def _polyline_length(line: list[list[float]]) -> float:
+    return float(sum(_segment_lengths(line)))
+
+
+def _halfway_along(line: list[list[float]]) -> list[float]:
+    """The point halfway along the polyline ``line``, by length."""
+    lengths = _segment_lengths(line)
+    rest = sum(lengths) / 2
+    for a, b, seg in zip(line, line[1:], lengths):
+        if seg > 0 and rest <= seg:
+            t = rest / seg
+            return [a[i] + t * (b[i] - a[i]) for i in range(3)]
+        rest -= seg
+    return list(line[-1])
 
 
 def _build_design_stats(part_or_assembly):

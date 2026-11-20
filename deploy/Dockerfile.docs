@@ -11,7 +11,7 @@
 # this Dockerfile, or the workflow itself — see the ``docs`` filter in
 # .forgejo/workflows/build.yaml.
 
-ARG PIXI_VERSION=0.81.0
+ARG PIXI_VERSION=0.84.2
 # CI passes --build-arg IMAGE_TAG=sha-XXXXXXX; it labels the image.
 # Defaults to "dev" for local builds.
 ARG IMAGE_TAG=dev

@@ -145,6 +145,15 @@ class NotApplicable(Exception):
     """
 
 
+#: The ``Connection.metadata`` key under which a builder lists the seams it could NOT build -- a
+#: connection that is built but missing welds. A list of ``{"place", "weld_type", "reason"}`` dicts
+#: (all strings: where the seam would have run, e.g. "flange top"; the weld type it would have
+#: been; why it was not made). A builder that skips a seam rather than failing the whole joint puts
+#: it here, and the detail run (``ada.clash.detail.build_detail``) reports it per joint in
+#: ``stats["weld_failures"]`` -- otherwise the seam is silently absent from the model.
+WELD_FAILURES_KEY = "weld_failures"
+
+
 _REGISTRY: dict[str, RegisteredConnection] = {}
 
 

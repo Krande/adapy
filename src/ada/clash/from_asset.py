@@ -27,11 +27,18 @@ __all__ = ["part_for_asset_node", "clash_check_from_asset_node"]
 
 
 def _manifest_for(storage: Any, collection: str, subject: str, revision: str | None):
+    from ada.assets.keys import ASSET_PREFIX
     from ada.assets.published import PublishedAssetProvider, StorageReader
 
     reader = StorageReader(list_prefix=storage.list_keys, get_bytes=storage.get_bytes)
     manifest = PublishedAssetProvider(reader).manifest(collection, subject, revision=revision)
     if manifest is None:
+        # A worker's facade knows when the node is provider data the job's scope has no grant on;
+        # then that is the reason, not "nothing was published".
+        denial = getattr(storage, "provider_denial", None)
+        reason = denial(f"{ASSET_PREFIX}/{collection}/{subject}/") if callable(denial) else None
+        if reason:
+            raise FileNotFoundError(f"node {collection}/{subject} cannot be read in this scope: {reason}")
         raise FileNotFoundError(
             f"no published manifest for collection={collection!r} subject={subject!r}"
             + (f" at revision={revision!r}" if revision else " (and no complete revision to fall back to)")

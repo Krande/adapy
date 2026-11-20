@@ -33,6 +33,20 @@ import {useFemConceptsStore} from "@/state/femConceptsStore";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {useIsMobile} from "@/utils/useIsMobile";
 import {isMirroredWindow} from "@/layout/sceneActions";
+import {usePlacedElsewhereVersion} from "@/layout/usePlacedElsewhere";
+import {SimTabButton} from "@/components/simulation/simulationControls/tabs";
+import {makePluginContext} from "@/plugins/context";
+import {PluginPanelMount} from "@/plugins/PluginSlots";
+import {
+    disablePlugin,
+    getSceneTabs,
+    pluginActivationVersion,
+    subscribePluginActivation,
+    type AdaPluginContext,
+    type SimulationTabEntry,
+} from "@/plugins/registry";
+import {useViewerStores} from "@/state/AdaViewerContext";
+import {usePluginTheme} from "@/state/themeStore";
 
 export type SceneArrangement = "tabs" | "stacked" | "auto";
 
@@ -73,6 +87,11 @@ export interface SceneBodyProps extends SceneTabOptions {
 // overlays) moved to the Connections panel (`ConnectionBuilderPanel`); a mode that
 // named one of its tabs opens that panel there (`layout/connectionsTabActions`).
 //
+// After core's groups, a plugin's tabs (a `scene-info` panel with `asTab`, plugin API 1.33.0;
+// `getSceneTabs`), drawn and mounted the way the Connections panel draws its plugins' tabs: only
+// the one on show is mounted. The one on show is the store's `pluginTab`, which any of core's
+// tabs being opened clears. Not in a pop-out window, which has the Model tab only.
+//
 // Three regions: the pinned model list, the tab strip(s), and a body that scrolls on
 // its own. A frame lays them out in a flex column (the card has no padding of its
 // own, so the strip can span edge to edge).
@@ -110,19 +129,35 @@ const SceneBody: React.FC<SceneBodyProps> = ({tabs: tabIds, hiddenTabs, femTab =
         openTab(last && g.tabs.some((t) => t.id === last) ? last : g.tabs[0].id);
     };
 
+    // A plugin's tabs, after core's groups.
+    const stores = useViewerStores();
+    const theme = usePluginTheme();
+    // A tab the layout shows in a group or window of its own leaves the strip...
+    usePlacedElsewhereVersion();
+    // ...and one whose plugin says its activation changed is asked again.
+    React.useSyncExternalStore(subscribePluginActivation, pluginActivationVersion, pluginActivationVersion);
+    const pickedPluginTab = useSceneInfoStore((s) => s.pluginTab);
+    const setPluginTab = useSceneInfoStore((s) => s.setPluginTab);
+    const ctxFor = (pluginId: string) => makePluginContext(pluginId, stores, theme);
+    const pluginTabs = mirrored ? [] : getSceneTabs(ctxFor(""));
+    // A plugin tab that went away (deactivated, disabled) leaves core's tab on show.
+    const activePlugin = pluginTabs.find((t) => t.panel.id === pickedPluginTab) ?? null;
+    const coreGroup = activePlugin ? null : group;
+
     const bodyRef = useRef<HTMLDivElement | null>(null);
     const [autoStacked, setAutoStacked] = useState(false);
+    const sectionCount = tabs.length + pluginTabs.length;
     // Measured before paint, then on every resize; only in "auto".
     useLayoutEffect(() => {
         const el = bodyRef.current;
         if (arrangement !== "auto" || !el) return;
-        const measure = () => setAutoStacked((was) => shouldStackTabs(tabs.length, el.clientHeight, was));
+        const measure = () => setAutoStacked((was) => shouldStackTabs(sectionCount, el.clientHeight, was));
         measure();
         if (typeof ResizeObserver === "undefined") return;
         const ro = new ResizeObserver(measure);
         ro.observe(el);
         return () => ro.disconnect();
-    }, [arrangement, tabs.length]);
+    }, [arrangement, sectionCount]);
     const stacked = arrangement === "stacked" || (arrangement === "auto" && autoStacked);
 
     return (
@@ -152,11 +187,11 @@ const SceneBody: React.FC<SceneBodyProps> = ({tabs: tabIds, hiddenTabs, femTab =
                         key={g.id}
                         type="button"
                         role="tab"
-                        aria-selected={group?.id === g.id}
+                        aria-selected={coreGroup?.id === g.id}
                         onClick={() => openGroup(g)}
                         className={
                             "px-2.5 py-1.5 font-semibold whitespace-nowrap border-b-2 -mb-px flex items-center gap-1.5 " +
-                            (group?.id === g.id
+                            (coreGroup?.id === g.id
                                 ? "border-blue-400 text-[var(--ada-panel-text)]"
                                 : "border-transparent text-gray-400 hover:text-[var(--ada-panel-text)]")
                         }
@@ -172,15 +207,26 @@ const SceneBody: React.FC<SceneBodyProps> = ({tabs: tabIds, hiddenTabs, femTab =
                         {g.label}
                     </button>
                 ))}
+                {pluginTabs.map((t) => (
+                    <SimTabButton
+                        key={t.panel.id}
+                        id={t.panel.id}
+                        label={t.asTab.label}
+                        active={activePlugin?.panel.id === t.panel.id}
+                        contextual={t.asTab.contextual}
+                        badge={pluginTabBadge(t, ctxFor)}
+                        onClick={() => setPluginTab(t.panel.id)}
+                    />
+                ))}
             </div>
             {/* ── the group's own tabs, where it has more than one ── */}
-            {group && group.tabs.length > 1 && (
+            {coreGroup && coreGroup.tabs.length > 1 && (
                 <div
                     className="shrink-0 flex gap-0.5 px-1.5 border-b border-white/10 overflow-x-auto overflow-y-hidden text-xs"
                     role="tablist"
-                    aria-label={`${group.label} section`}
+                    aria-label={`${coreGroup.label} section`}
                 >
-                    {group.tabs.map((t) => (
+                    {coreGroup.tabs.map((t) => (
                         <button
                             key={t.id}
                             type="button"
@@ -213,11 +259,19 @@ const SceneBody: React.FC<SceneBodyProps> = ({tabs: tabIds, hiddenTabs, femTab =
                     <div className="flex flex-col">
                         {tabs.map((t) => (
                             // The tab the store points at opens, so an opener lands on it here too.
-                            <CollapsibleSection key={t.id} title={t.label} defaultOpen={t.id === tab}>
+                            <CollapsibleSection key={t.id} title={t.label} defaultOpen={!activePlugin && t.id === tab}>
                                 <TabContent tab={t.id} isMobile={isMobile} />
                             </CollapsibleSection>
                         ))}
+                        {pluginTabs.map((t) => (
+                            <CollapsibleSection key={t.panel.id} title={t.asTab.label} defaultOpen={activePlugin?.panel.id === t.panel.id}>
+                                <PluginPanelMount ctx={ctxFor(t.pluginId)} panel={t.panel} />
+                            </CollapsibleSection>
+                        ))}
                     </div>
+                ) : activePlugin ? (
+                    // Only the tab on show is mounted: one left is unmounted, and ends what it was doing.
+                    <PluginPanelMount key={activePlugin.panel.id} ctx={ctxFor(activePlugin.pluginId)} panel={activePlugin.panel} />
                 ) : (
                     <TabContent tab={tab} isMobile={isMobile} />
                 )}
@@ -225,6 +279,16 @@ const SceneBody: React.FC<SceneBodyProps> = ({tabs: tabIds, hiddenTabs, femTab =
         </>
     );
 };
+
+/** A plugin tab's badge; one that throws disables its plugin, not the panel. */
+function pluginTabBadge(t: SimulationTabEntry, ctxFor: (pluginId: string) => AdaPluginContext): number | string | null {
+    try {
+        return t.asTab.badge ? t.asTab.badge(ctxFor(t.pluginId)) : null;
+    } catch (err) {
+        disablePlugin(t.pluginId, `tab badge threw: ${String(err)}`);
+        return null;
+    }
+}
 
 /** One tab's content, the same in either arrangement. */
 const TabContent: React.FC<{tab: SceneTab; isMobile: boolean}> = ({tab, isMobile}) =>

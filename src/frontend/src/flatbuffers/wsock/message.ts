@@ -111,8 +111,15 @@ requestId(optionalEncoding?:any):string|Uint8Array|null {
   return offset ? this.bb!.__string(this.bb_pos + offset, optionalEncoding) : null;
 }
 
+payloadJson():string|null
+payloadJson(optionalEncoding:flatbuffers.Encoding):string|Uint8Array|null
+payloadJson(optionalEncoding?:any):string|Uint8Array|null {
+  const offset = this.bb!.__offset(this.bb_pos, 32);
+  return offset ? this.bb!.__string(this.bb_pos + offset, optionalEncoding) : null;
+}
+
 static startMessage(builder:flatbuffers.Builder) {
-  builder.startObject(14);
+  builder.startObject(15);
 }
 
 static addInstanceId(builder:flatbuffers.Builder, instanceId:number) {
@@ -183,6 +190,10 @@ static addRequestId(builder:flatbuffers.Builder, requestIdOffset:flatbuffers.Off
   builder.addFieldOffset(13, requestIdOffset, 0);
 }
 
+static addPayloadJson(builder:flatbuffers.Builder, payloadJsonOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(14, payloadJsonOffset, 0);
+}
+
 static endMessage(builder:flatbuffers.Builder):flatbuffers.Offset {
   const offset = builder.endObject();
   return offset;
@@ -212,7 +223,8 @@ unpack(): MessageT {
     (this.serverReply() !== null ? this.serverReply()!.unpack() : null),
     (this.screenshot() !== null ? this.screenshot()!.unpack() : null),
     (this.package_() !== null ? this.package_()!.unpack() : null),
-    this.requestId()
+    this.requestId(),
+    this.payloadJson()
   );
 }
 
@@ -232,6 +244,7 @@ unpackTo(_o: MessageT): void {
   _o.screenshot = (this.screenshot() !== null ? this.screenshot()!.unpack() : null);
   _o.package_ = (this.package_() !== null ? this.package_()!.unpack() : null);
   _o.requestId = this.requestId();
+  _o.payloadJson = this.payloadJson();
 }
 }
 
@@ -250,7 +263,8 @@ constructor(
   public serverReply: ServerReplyT|null = null,
   public screenshot: ScreenshotT|null = null,
   public package_: AppendMeshT|null = null,
-  public requestId: string|Uint8Array|null = null
+  public requestId: string|Uint8Array|null = null,
+  public payloadJson: string|Uint8Array|null = null
 ){}
 
 
@@ -264,6 +278,7 @@ pack(builder:flatbuffers.Builder): flatbuffers.Offset {
   const screenshot = (this.screenshot !== null ? this.screenshot!.pack(builder) : 0);
   const package_ = (this.package_ !== null ? this.package_!.pack(builder) : 0);
   const requestId = (this.requestId !== null ? builder.createString(this.requestId!) : 0);
+  const payloadJson = (this.payloadJson !== null ? builder.createString(this.payloadJson!) : 0);
 
   Message.startMessage(builder);
   Message.addInstanceId(builder, this.instanceId);
@@ -280,6 +295,7 @@ pack(builder:flatbuffers.Builder): flatbuffers.Offset {
   Message.addScreenshot(builder, screenshot);
   Message.addPackage(builder, package_);
   Message.addRequestId(builder, requestId);
+  Message.addPayloadJson(builder, payloadJson);
 
   return Message.endMessage(builder);
 }

@@ -1,4 +1,5 @@
 import React, {useEffect, useRef, useState} from "react";
+import {revealInScroller} from "@/utils/dom/revealInScroller";
 import type {ServerFileEntry} from "@/state/serverInfoStore";
 import {alertDialog} from "@/plugins/dialogs";
 import type {ServerFileTreeNode} from "./helpers";
@@ -43,7 +44,7 @@ export function useListKeyboardNav(p: {
         const el = listScrollRef.current?.querySelector(
             `[data-rowkey="${CSS.escape(focusedKey)}"]`,
         ) as HTMLElement | null;
-        el?.scrollIntoView({block: "nearest"});
+        revealInScroller(el);
     }, [focusedKey]);
 
     const flatRows: FlatRow[] = [];

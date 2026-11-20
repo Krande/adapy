@@ -59,6 +59,10 @@ interface SceneInfoState {
   /** @deprecated The Scene panel's flag. Ask `isPanelOpen("core:scene")` (`@/viewer-core`); open and close it with `reveal` / `hide`. */
   show_scene_info_box: boolean;
   mode: SceneInfoMode;
+  /** A plugin's tab of the Scene panel on show (a `scene-info` panel with `asTab`, by its id), in
+   *  place of the tab `mode` names; null for core's. `setMode` clears it, so an opener of one of
+   *  core's tabs lands there. */
+  pluginTab: string | null;
   selectedGroup: GroupInfo | null;
   availableGroups: GroupInfo[];
   // Utilities panel state
@@ -70,6 +74,7 @@ interface SceneInfoState {
   /** @deprecated Use `reveal("core:scene")` / `hide("core:scene")` from `@/viewer-core`, which the layout controls. */
   setShowSceneInfoBox: (show: boolean) => void;
   setMode: (mode: SceneInfoMode) => void;
+  setPluginTab: (panelId: string | null) => void;
   setSelectedGroup: (group: GroupInfo | null) => void;
   setAvailableGroups: (groups: GroupInfo[]) => void;
   setUtilities: (u: UtilitySpec[]) => void;
@@ -84,6 +89,7 @@ interface SceneInfoState {
 export const useSceneInfoStore = create<SceneInfoState>((set, get) => ({
   show_scene_info_box: false,
   mode: 'info',
+  pluginTab: null,
   selectedGroup: null,
   availableGroups: [],
   utilities: [],
@@ -92,7 +98,8 @@ export const useSceneInfoStore = create<SceneInfoState>((set, get) => ({
   running: false,
   lastResult: null,
   setShowSceneInfoBox: (show) => set({ show_scene_info_box: show }),
-  setMode: (mode) => set({ mode }),
+  setMode: (mode) => set({ mode, pluginTab: null }),
+  setPluginTab: (pluginTab) => set({ pluginTab }),
   setSelectedGroup: (group) => set({ selectedGroup: group }),
   setAvailableGroups: (groups) => set({ availableGroups: groups }),
   setUtilities: (utilities) => set({ utilities }),

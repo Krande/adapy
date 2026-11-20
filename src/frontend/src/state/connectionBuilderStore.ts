@@ -90,8 +90,13 @@ export const DEFAULT_OVERLAYS: ConnectionOverlays = {
   weldDetails: true,
   showWelds: true,
   tintWelds: true,
-  weldColour: "#3b82f6",
+  // Not a blue: the selection is drawn blue, and a weld in a blue of its own did not look selected.
+  weldColour: "#d946ef",
 };
+
+/** The weld colour this store started with ("#3b82f6", a blue next to the selection's), which every
+ *  stored preference holds that was saved before the default changed: read as the default today. */
+const OLD_DEFAULT_WELD_COLOUR = "#3b82f6";
 
 const STORAGE_PREFIX = "ada-connection-builder:";
 // One for every library: how a joint is drawn is the viewer's preference, not the library's.
@@ -100,7 +105,11 @@ const OVERLAYS_KEY = STORAGE_PREFIX + "overlays";
 function loadOverlays(): ConnectionOverlays {
   try {
     const raw = localStorage.getItem(OVERLAYS_KEY);
-    return raw ? { ...DEFAULT_OVERLAYS, ...(JSON.parse(raw) as Partial<ConnectionOverlays>) } : DEFAULT_OVERLAYS;
+    if (!raw) return DEFAULT_OVERLAYS;
+    const saved = JSON.parse(raw) as Partial<ConnectionOverlays>;
+    // Every overlay is stored whenever one changes, so a stored old default was never chosen.
+    if (saved.weldColour?.toLowerCase() === OLD_DEFAULT_WELD_COLOUR) delete saved.weldColour;
+    return { ...DEFAULT_OVERLAYS, ...saved };
   } catch {
     return DEFAULT_OVERLAYS;
   }

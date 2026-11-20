@@ -4,6 +4,9 @@ import {runtime} from "@/runtime/config";
 import {useConnectionsOfferStore} from "@/state/connectionsOfferStore";
 import {useClashCheckStore} from "@/state/clashCheckStore";
 import {DEFAULT_OVERLAYS, useConnectionBuilderStore, type ConnectionOverlays} from "@/state/connectionBuilderStore";
+import {JOINTS_REVIEW_TAB} from "@/state/connectionBuilderTabStore";
+import {useJointFocusStore} from "@/state/jointFocusStore";
+import {openConnectionsTab} from "@/layout/connectionsTabActions";
 
 /** Connections > Overlays (it was Scene > Joints > Overlays): everything the joint tabs draw in 3D, each a toggle. The joint being
  *  developed (`ada dev connections`) where one is, then the clash run's markers and contacts -- the
@@ -13,6 +16,7 @@ const JointOverlaysPanel: React.FC = () => {
     return (
         <div className="flex flex-col gap-3 text-sm">
             {(runtime.devConnections() || offered) && <ConnectionSection />}
+            <ShownJointsSection />
             <ClashSection />
         </div>
     );
@@ -103,6 +107,31 @@ const ConnectionSection = () => {
                     </button>
                 )}
             </Toggle>
+        </div>
+    );
+};
+
+/** The joints of a loaded model shown in Review, each drawn with overlays of its own: those switches
+ *  are on each joint's card there, not here. Nothing while none is shown. */
+const ShownJointsSection = () => {
+    const joints = useJointFocusStore((s) => s.joints);
+    const clear = useJointFocusStore((s) => s.clear);
+    if (joints.length === 0) return null;
+    return (
+        <div className="flex flex-col gap-1.5 pb-2 border-b border-white/10" data-overlays="shown-joints">
+            <Heading>Joints of the model</Heading>
+            <p className="text-xs text-gray-400">
+                {joints.length} joint{joints.length === 1 ? " is" : "s are"} drawn with overlays of {joints.length === 1 ? "its" : "their"} own:{" "}
+                {joints.map((j) => j.name).join(", ")}. Each joint's switches are on its card in Review.
+            </p>
+            <div className="flex gap-3 text-xs">
+                <button type="button" className="text-blue-300 hover:text-blue-200 hover:underline" onClick={() => openConnectionsTab(JOINTS_REVIEW_TAB)}>
+                    Open Review
+                </button>
+                <button type="button" className="text-gray-400 hover:text-white" onClick={clear}>
+                    Stop drawing them
+                </button>
+            </div>
         </div>
     );
 };

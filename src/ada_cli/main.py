@@ -20,6 +20,9 @@ Subcommand layout:
     ada desktop [FILE]                the local viewer in a native window (needs ada-desktop)
     ada dev connections --dir DIR     develop a connection library live in the studio (alias: joints)
     ada viewers                      list the installed viewer bundles (--viewer)
+    ada viewer sessions|state|focus-joint|select|clear-selection|camera|open-detail|load-group|find|run|schema
+               |joints|groups|detail
+                                      drive your open viewer and read clash results (hosted or desktop)
 
 This listing is the CLI's own claim about its surface, so it is checked against
 the parser in tests/core/test_cli_surface_docs.py — as are the README table and
@@ -742,6 +745,12 @@ def _add_dev(sub: argparse._SubParsersAction) -> None:
     p.set_defaults(func=_cmd_dev_connections)
 
 
+def _add_viewer(sub: argparse._SubParsersAction) -> None:
+    from ada_cli.viewer import add_parser
+
+    add_parser(sub)
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="ada",
@@ -764,6 +773,7 @@ def _build_parser() -> argparse.ArgumentParser:
     _add_desktop(sub)
     _add_dev(sub)
     _add_viewers(sub)
+    _add_viewer(sub)
 
     return parser
 

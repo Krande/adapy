@@ -865,14 +865,11 @@ class AdacppBackend:
             # volume reads right, but a boolean with it is not a solid boolean -- a box minus a
             # faceted cube came out empty, and a faceted cube minus a cylinder lost only part of
             # the bore. The faces are made into the volume they bound, whichever way they wind.
-            from ada.geom import Geometry as _Geometry
             from ada.geom.booleans import BoolOpEnum
 
-            shape = self._solid_from_faces(self._shell_faces(geometry.id, g.outer))
+            shape = self._faceted_solid(geometry.id, g.outer)
             for void in g.voids:
-                shape = self.boolean(
-                    BoolOpEnum.DIFFERENCE, shape, self._solid_from_faces(self._shell_faces(geometry.id, void))
-                )
+                shape = self.boolean(BoolOpEnum.DIFFERENCE, shape, self._faceted_solid(geometry.id, void))
         elif isinstance(g, so.AdvancedBrep):
             # A solid bounded by B-rep faces (an oblique cone's two rational B-spline faces, say):
             # the volume they bound, as for a FacetedBrep -- a sewn shell is not a solid to a boolean.
@@ -913,6 +910,108 @@ class AdacppBackend:
         for op in geometry.bool_operations:
             shape = self.boolean(op.operator, shape, self.build(op.second_operand))
         return shape
+
+    def _has_polygon_solids(self) -> bool:
+        """Whether this ada-cpp builds a solid from point loops in one call (``solid_from_polygons``,
+        ada-cpp 0.43). An older one builds each face from Python and partitions them with
+        MakerVolume -- the same solid, at a hundred times the cost on a bead of a few hundred
+        triangles."""
+        return hasattr(self._cad, "solid_from_polygons")
+
+    @classmethod
+    def _faceted_loops(cls, shell) -> "list[list[list[float]]] | None":
+        """The point loops of a shell whose every face is a plain polygon (one PolyLoop bound of at
+        least three points), as plain [x, y, z] lists, or None for any other shell (a face with
+        holes, a curved or FaceSurface face): those take the face-by-face route."""
+        import numpy as np
+
+        import ada.geom.curves as cu
+        import ada.geom.surfaces as su
+
+        loops = []
+        for face in shell.cfs_faces:
+            if not isinstance(face, su.Face) or isinstance(face, su.FaceSurface) or len(face.bounds) != 1:
+                return None
+            bound = face.bounds[0].bound
+            if not isinstance(bound, cu.PolyLoop) or len(bound.polygon) < 3:
+                return None
+            loops.append(bound.polygon)
+        if not loops:
+            return None
+        flat = [p for loop in loops for p in loop]
+        try:
+            pts = np.asarray(flat, dtype=float)  # one conversion, not one per point
+        except ValueError:
+            pts = None  # 2D and 3D points mixed
+        if pts is None or pts.ndim != 2 or pts.shape[1] not in (2, 3):
+            xyz = [cls._xyz(p) for p in flat]
+        else:
+            if pts.shape[1] == 2:
+                pts = np.hstack([pts, np.zeros((len(pts), 1))])
+            xyz = pts.tolist()
+        out, start = [], 0
+        for loop in loops:
+            out.append(xyz[start : start + len(loop)])
+            start += len(loop)
+        return out
+
+    def _faceted_solid(self, geometry_id, shell) -> ShapeHandle:
+        """The solid a FacetedBrep shell bounds: straight from its point loops in C++ when the faces
+        are all plain polygons and this ada-cpp can, else each face built and partitioned."""
+        if self._has_polygon_solids():
+            loops = self._faceted_loops(shell)
+            if loops is not None:
+                return self._cad.solid_from_polygons(loops)
+        return self._solid_from_faces(self._shell_faces(geometry_id, shell))
+
+    def build_many(self, geometries: "list[Geometry]", threads: int = 0) -> "tuple[list, list]":
+        """:meth:`build` for many geometries at once. Returns ``(shapes, errors)``, both as long as
+        ``geometries``: ``shapes[i]`` the handle and ``errors[i]`` None, or ``shapes[i]`` None and
+        ``errors[i]`` why that one failed -- one failure does not stop the rest.
+
+        FacetedBrep shells of plain polygons are built together in parallel on ``threads`` threads
+        (0: every core) with the GIL released, when this ada-cpp has
+        ``solids_from_polygons_batch``; their voids and boolean operations are then applied one by
+        one. Everything else goes through :meth:`build`, in order."""
+        import ada.geom.solids as so
+        from ada.geom.booleans import BoolOpEnum
+
+        n = len(geometries)
+        shapes: list = [None] * n
+        errors: list = [None] * n
+        batched: dict[int, list[int]] = {}  # geometry index -> its items (outer, then voids)
+        items: list = []
+        if hasattr(self._cad, "solids_from_polygons_batch"):
+            for i, geometry in enumerate(geometries):
+                g = geometry.geometry
+                if not isinstance(g, so.FacetedBrep):
+                    continue
+                loops = [self._faceted_loops(sh) for sh in [g.outer, *g.voids]]
+                if any(lp is None for lp in loops):
+                    continue
+                batched[i] = list(range(len(items), len(items) + len(loops)))
+                items.extend(loops)
+        built, item_errors = self._cad.solids_from_polygons_batch(items, threads=threads) if items else ([], [])
+
+        for i, geometry in enumerate(geometries):
+            try:
+                if i not in batched:
+                    shapes[i] = self.build(geometry)
+                    continue
+                first, *voids = batched[i]
+                failed = next((item_errors[k] for k in batched[i] if item_errors[k] is not None), None)
+                if failed is not None:
+                    raise ValueError(failed)
+                shape = built[first]
+                for k in voids:
+                    shape = self.boolean(BoolOpEnum.DIFFERENCE, shape, built[k])
+                for op in geometry.bool_operations:
+                    shape = self.boolean(op.operator, shape, self.build(op.second_operand))
+                shapes[i] = shape
+            except Exception as exc:  # noqa: BLE001 - reported per geometry, by design
+                shapes[i] = None
+                errors[i] = f"{type(exc).__name__}: {exc}"
+        return shapes, errors
 
     def _shell_faces(self, geometry_id, shell) -> list:
         """The face handles of a ClosedShell / OpenShell, each built on its own."""
@@ -2103,6 +2202,32 @@ def reset_active_backend() -> None:
     _ACTIVE_BACKEND = None
 
 
+def build_solids(
+    geometries: "list[Geometry]", threads: int = 0, backend: "CadBackend | None" = None
+) -> "tuple[list, list]":
+    """Build many ``ada.geom.Geometry`` at once with ``backend`` (default: the active one).
+
+    Returns ``(shapes, errors)``, both as long as ``geometries``: ``shapes[i]`` the handle and
+    ``errors[i]`` None, or ``shapes[i]`` None and ``errors[i]`` a message -- one failure does not
+    stop the rest. A backend with a ``build_many`` verb (adacpp) builds faceted B-reps together in
+    parallel there; any other backend builds them one by one, with the same result shape.
+    """
+    backend = backend or active_backend()
+    many = getattr(backend, "build_many", None)
+    if many is not None:
+        return many(list(geometries), threads=threads)
+    shapes: list = []
+    errors: list = []
+    for geometry in geometries:
+        try:
+            shapes.append(backend.build(geometry))
+            errors.append(None)
+        except Exception as exc:  # noqa: BLE001 - reported per geometry, by design
+            shapes.append(None)
+            errors.append(f"{type(exc).__name__}: {exc}")
+    return shapes, errors
+
+
 def is_shape_handle(obj: Any) -> bool:
     """True if ``obj`` is a shape handle produced by the active backend.
 
@@ -2222,6 +2347,7 @@ __all__ = [
     "OccBackend",
     "ShapeHandle",
     "active_backend",
+    "build_solids",
     "is_shape_handle",
     "minimal_distance_between_shapes",
     "reset_active_backend",

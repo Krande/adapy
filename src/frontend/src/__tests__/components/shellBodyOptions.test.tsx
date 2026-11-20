@@ -72,8 +72,19 @@ test("a shell's own Settings window: core's open-a-setting commands open it on t
 test("Settings: one tab per available section, in the classic order, the first open, the build line below", () => {
   const html = renderToStaticMarkup(React.createElement(SettingsBody));
   const tabs = [...html.matchAll(/role="tab"[^>]*>([^<]+)</g)].map((m) => m[1]);
-  // The REST-only sections (Session restore, Conversion engine) are left out outside REST mode.
-  assert.deepEqual(tabs, ["Scene config", "Appearance", "Theme", "Performance", "Calculations", "Controls", "3D mouse", "Grid &amp; snapping"]);
+  // The REST-only sections (Session restore, Conversion engine) are left out outside REST mode; the
+  // desktop viewer offers External controls (a local script driving it through its websocket server).
+  assert.deepEqual(tabs, [
+    "Scene config",
+    "Appearance",
+    "Theme",
+    "Performance",
+    "Calculations",
+    "Controls",
+    "3D mouse",
+    "Grid &amp; snapping",
+    "External controls",
+  ]);
   assert.match(html, /aria-selected="true"[^>]*>Scene config</);
   assert.match(html, /role="tabpanel" aria-label="Scene config"/);
   assert.match(html, /Build:/);

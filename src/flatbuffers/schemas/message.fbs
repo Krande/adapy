@@ -25,6 +25,10 @@ table Message {
   // request_id of the message it answers; unsolicited pushes leave it unset.
   // Appended last so older readers/writers stay wire-compatible.
   request_id: string;
+  // JSON text for the verbs whose payload is a typed document of its own rather than a table here:
+  // VIEWER_COMMAND (a command or a batch, ada.comms.rest.viewer_control.CommandRequest), and the
+  // VIEWER_ANSWER / VIEWER_STATE a viewer sends back. Appended last, as request_id was.
+  payload_json: string;
 }
 
 root_type Message;

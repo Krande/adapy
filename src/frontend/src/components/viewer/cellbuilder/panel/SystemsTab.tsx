@@ -8,6 +8,7 @@
  */
 
 import React from "react";
+import {revealInScroller} from "@/utils/dom/revealInScroller";
 
 import {capabilities} from "@/services/capabilities";
 import {useCellBuilderStore} from "@/state/cellBuilderStore";
@@ -31,7 +32,7 @@ export const SystemsTab: React.FC = () => {
   const focusedRowRef = React.useRef<HTMLDivElement | null>(null);
   React.useEffect(() => {
     if (focused && focusedRowRef.current)
-      focusedRowRef.current.scrollIntoView({ block: "nearest" });
+      revealInScroller(focusedRowRef.current);
   }, [focused]);
   const equipmentNames = Object.values(s.cells)
     .filter((c) => c.kind === "equipment")

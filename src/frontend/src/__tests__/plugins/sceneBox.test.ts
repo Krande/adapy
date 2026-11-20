@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {afterEach, test} from "node:test";
 
 import {BoxPlacement, placeBox, type BoxPlacementEnv, type PlaceBoxOptions, type PlacedBoxPose} from "@/plugins/sceneBox";
+import {CameraPlacement, placeCamera, type PlaceCameraOptions, type PlacedCameraPose} from "@/plugins/sceneCamera";
 import {removeOwnerOverlays} from "@/plugins/sceneOverlays";
 import {setSceneOffset} from "@/state/sceneFrameStore";
 import type {OverlayLayer, OverlayLines, OverlayMesh} from "@/viewport/api/overlayLayer";
@@ -389,10 +390,14 @@ test("the plugin moves the box (a form's numbers): it is redrawn there and nobod
     page.pointer("pointermove", 750 + 200, -100);
     assert.deepEqual(poses.at(-1), {position: [5, 4, 1], yawDeg: 33.5});
     page.pointer("pointerup", 950, -100);
-    // Another box: drawn anew, its handles in proportion.
+    // Another box (1.33.0): what was drawn, moved -- nothing drawn anew, so what a plugin drew over the
+    // box stays over it -- its handles in proportion.
     const before = view.drawn.length;
     box.set({box: [-2, -2, 0, 2, 2, 3]});
-    assert.ok(view.drawn.length > before);
+    assert.equal(view.drawn.length, before);
+    const xs = lines(view)[0].positions.filter((_, i) => i % 3 === 0);
+    assert.equal(Math.max(...xs) - Math.min(...xs) > 3.9, true, "the edges are the new box's");
+    assert.ok(Math.abs(lines(view)[1].positions[3] - lines(view)[1].positions[0]) > 2, "the arrows as long as the new box is large");
     assert.throws(() => box.set({box: [0, 0, 0, 1, 1]}), /six finite numbers/);
     assert.throws(() => box.set({position: [0, Number.NaN, 0]}), /three finite numbers/);
 });
@@ -506,4 +511,188 @@ test("with no viewport on screen there is nothing to draw in, and the box appear
     withdraw();
     assert.equal(view.shown().length, 0);
     placed.end();
+});
+
+// ----- 1.33.0: the resize handles, a box that turns every way --------------------------------------
+
+test("resize: S brings up a handle on each face, and a drag moves that face, the opposite one staying, the size snapped", () => {
+    const {box, view, page, poses, modes} = setup({resize: true});
+    assert.equal(page.key("s").taken, true);
+    assert.deepEqual(modes, ["resize"]);
+    // Six arrows (three segments each), one a face.
+    assert.deepEqual(lines(view).slice(1).map((h) => h.positions.length / 6), [3, 3, 3, 3, 3, 3]);
+    // The +x face's handle runs from its middle (1, 0, 1) out half a unit: (500, 300) to (550, 300) seen from above.
+    assert.equal(page.pointer("pointerdown", 525, 301).taken, true);
+    page.pointer("pointermove", 575, 301);
+    assert.deepEqual(poses.at(-1), {position: [0, 0, 0], yawDeg: 0, box: [-1, -0.5, 0, 1.5, 0.5, 2]});
+    // Pushed in past the opposite face: the box keeps the least size, the move's step.
+    page.pointer("pointermove", 100, 301);
+    assert.deepEqual(poses.at(-1)?.box, [-1, -0.5, 0, -0.9, 0.5, 2]);
+    page.pointer("pointerup", 100, 301);
+    assert.deepEqual(box.pose(), {position: [0, 0, 0], yawDeg: 0, box: [-1, -0.5, 0, -0.9, 0.5, 2]});
+    // The edges went with it.
+    const xs = lines(view)[0].positions.filter((_, i) => i % 3 === 0);
+    assert.deepEqual([Math.min(...xs), Math.max(...xs)], [-1, -0.9]);
+});
+
+test("resize: the -y face of a turned box is dragged along its own normal", () => {
+    const {page, poses} = setup({resize: {faces: ["-y", "+y"], minSize: 0.2}, yawDeg: 90, mode: "resize"});
+    // Turned a quarter: the box's -y face looks along the scene's +x; its middle (0.5, 0, 1), its handle to (1, 0, 1).
+    assert.equal(page.pointer("pointerdown", 460, 300).taken, true);
+    page.pointer("pointermove", 460 + 120, 300);
+    assert.deepEqual(poses.at(-1), {position: [0, 0, 0], yawDeg: 90, box: [-1, -1.7, 0, 1, 0.5, 2]});
+});
+
+test("resize: the faces named only, X / Y / Z keep one axis' handles, and S is not taken by a box without them", () => {
+    const named = setup({resize: {faces: ["+x", "-x", "+z"]}});
+    named.page.key("s");
+    assert.equal(lines(named.view).length - 1, 3);
+    assert.equal(named.page.key("x").taken, true);
+    assert.deepEqual(named.box.gizmo(), {mode: "resize", axisLock: 0, following: false, dragging: false});
+    assert.equal(lines(named.view).length - 1, 2);
+    // No face of y has a handle: the key is the gizmo's, and changes nothing.
+    named.page.key("y");
+    assert.equal(named.box.gizmo().axisLock, 0);
+    named.page.key("g");
+    assert.equal(named.box.gizmo().mode, "translate");
+
+    const plain = setup();
+    assert.equal(plain.page.key("s").taken, false);
+    plain.box.setMode("resize");
+    assert.equal(plain.box.gizmo().mode, "translate");
+    assert.equal("box" in plain.box.pose(), false, "no box in the pose of a box that cannot be resized");
+});
+
+test("rotate xyz: three rings; the Z ring turns the axes about Z, X then the X ring turns them about X", () => {
+    const flat = setup({constrain: {rotate: "xyz"}});
+    assert.deepEqual(flat.box.pose(), {position: [0, 0, 0], yawDeg: 0, axes: [[1, 0, 0], [0, 1, 0], [0, 0, 1]]});
+    flat.page.key("r");
+    assert.deepEqual(lines(flat.view).slice(1).map((h) => h.positions.length / 6), [48, 48, 48]);
+    // Seen from above the X and Y rings are lines through the middle: the Z ring's east point is its own.
+    assert.equal(flat.page.pointer("pointerdown", 550, 300).taken, true);
+    flat.page.pointer("pointermove", 400, 150);
+    assert.deepEqual(flat.poses.at(-1), {position: [0, 0, 0], yawDeg: 90, axes: [[0, 1, 0], [-1, 0, 0], [0, 0, 1]]});
+    flat.page.pointer("pointerup", 400, 150);
+
+    // Leaning view; X keeps the X ring only (its top is the Z ring's north point too).
+    const lean = setup({constrain: {rotate: "xyz"}}, 50);
+    lean.page.key("r");
+    assert.equal(lean.page.key("x").taken, true);
+    assert.deepEqual(lines(lean.view).slice(1).map((h) => h.positions.length / 6), [48]);
+    // The X ring: (400 + 45 sin a, 300 - 150 cos a - 60 sin a). From a = 0 to a quarter round.
+    assert.equal(lean.page.pointer("pointerdown", 400, 150).taken, true);
+    lean.page.pointer("pointermove", 445, 240);
+    assert.deepEqual(lean.poses.at(-1), {position: [0, 0, 0], yawDeg: 0, axes: [[1, 0, 0], [0, 0, 1], [0, -1, 0]]});
+});
+
+test("rotate xyz: the plugin turns the box by its axes; a box turned about Z only has none", () => {
+    const {box, view} = setup({constrain: {rotate: "xyz"}, axes: [[0, 2, 0], [0, 0.1, 3]]});
+    // y made square to x and unit, z their cross product.
+    assert.deepEqual(box.pose().axes, [[0, 1, 0], [0, 0, 1], [1, 0, 0]]);
+    // The box's own x (2 long) along the scene's y, its z (2 high) along the scene's x.
+    const edges = lines(view)[0].positions;
+    const range = (k: number) => {
+        const v = edges.filter((_, i) => i % 3 === k);
+        return [Math.min(...v), Math.max(...v)];
+    };
+    assert.deepEqual([range(0), range(1), range(2)], [[0, 2], [-1, 1], [-0.5, 0.5]]);
+    box.set({yawDeg: 90});
+    // A yaw given such a box stands it upright, turned by that much.
+    const turned = box.pose().axes!.flat().map((v) => Math.round(v * 1e9) / 1e9 || 0);
+    assert.deepEqual(turned, [0, 1, 0, -1, 0, 0, 0, 0, 1]);
+    assert.equal(box.pose().yawDeg, 90);
+    assert.throws(() => box.set({axes: [[0, 0, 0], [0, 1, 0]]}), /axes needs/);
+    assert.equal("axes" in setup().box.pose(), false);
+});
+// ----- `ctx.scene.placeCamera` (1.33.0): a camera placed with the same gizmo's keys ---------------
+
+function cameraSetup(options: Partial<PlaceCameraOptions> = {}, tilt = 0) {
+    const view = fakeView(tilt);
+    const page = fakePage();
+    const env: BoxPlacementEnv = {
+        viewport: view.viewport,
+        input: page.input as unknown as BoxPlacementEnv["input"],
+        keys: page.keys as unknown as BoxPlacementEnv["keys"],
+        offset: () => null,
+        onOffsetChange: () => () => {},
+    };
+    const poses: PlacedCameraPose[] = [];
+    const ends: string[] = [];
+    // Five back from its target along -y, looking along +y: a body half a unit long, handles 0.75.
+    const camera = new CameraPlacement(
+        {position: [0, -5, 0], target: [0, 0, 0], onChange: (pose) => void poses.push(pose), onEnd: (how) => void ends.push(how), ...options},
+        "plugin:test:camera",
+    );
+    camera.attach(env);
+    return {camera, view, page, poses, ends};
+}
+const round3 = (v: readonly number[]) => v.map((x) => Math.round(x * 1e3) / 1e3 || 0);
+
+test("placeCamera: a body, a lens and an arrow to the target; a move takes the camera and it goes on looking at the target", () => {
+    const {camera, view, page, poses} = cameraSetup();
+    const [faces, body, arrow, ...handles] = view.shown();
+    assert.equal(faces.kind, "mesh");
+    assert.equal(body.positions.length / 6, 12 + 4 + 4 + 2);
+    assert.deepEqual(arrow.positions.slice(0, 6), [0, -5, 0, 0, 0, 0]);
+    assert.deepEqual(handles.map((h) => h.positions.length / 6), [3, 3, 3, 4]);
+    // The X arrow: (400, 800) to (475, 800) seen from above.
+    assert.equal(page.pointer("pointerdown", 450, 801).taken, true);
+    page.pointer("pointermove", 550, 801);
+    assert.deepEqual(poses.at(-1), {position: [1, -5, 0], target: [0, 0, 0]});
+    page.pointer("pointerup", 550, 801);
+    assert.deepEqual(view.shown()[2].positions.slice(0, 6), [1, -5, 0, 0, 0, 0]);
+    camera.set({target: [2, 2, 2]});
+    assert.deepEqual(camera.pose(), {position: [1, -5, 0], target: [2, 2, 2]});
+    assert.equal(poses.length, 1, "the plugin's own set tells nobody");
+});
+
+test("placeCamera: R turns it about where it stands, the flat ring its yaw, the standing ring its pitch, the target round with it", () => {
+    const flat = cameraSetup();
+    assert.equal(flat.page.key("r").taken, true);
+    assert.deepEqual(lines(flat.view).slice(2).map((h) => h.positions.length / 6), [48, 48]);
+    // The flat ring's east point, dragged a quarter round anticlockwise: it looks along -x now.
+    assert.equal(flat.page.pointer("pointerdown", 475, 800).taken, true);
+    flat.page.pointer("pointermove", 400, 725);
+    assert.deepEqual(flat.poses.at(-1), {position: [0, -5, 0], target: [-5, -5, 0]});
+    flat.page.pointer("pointerup", 400, 725);
+    // Z keeps the flat ring alone; X is no axis of the turn.
+    flat.page.key("z");
+    assert.deepEqual(lines(flat.view).slice(2).map((h) => h.positions.length / 6), [48]);
+    flat.page.key("x");
+    assert.equal(flat.camera.gizmo().axisLock, 2);
+
+    // Leaning, so the standing ring shows: from its top (straight up of the camera) an eighth round, back and down.
+    const lean = cameraSetup({mode: "rotate"}, 50);
+    assert.equal(lean.page.pointer("pointerdown", 422.5, 770).taken, true);
+    lean.page.pointer("pointermove", 415.9, 831.8);
+    const pose = lean.poses.at(-1)!;
+    assert.deepEqual(pose.position, [0, -5, 0]);
+    // Tilted 45 degrees up from looking along +y, still 5 from the camera.
+    assert.deepEqual(round3(pose.target), [0, -1.464, 3.536]);
+});
+
+test("placeCamera: keys as a box's -- S is not the camera's, Escape ends it -- and a bad pose is refused", () => {
+    const {camera, page, ends} = cameraSetup();
+    assert.equal(page.key("s").taken, false);
+    assert.equal(page.key("x").taken, true);
+    assert.equal(camera.gizmo().following, true);
+    page.key("Escape");
+    assert.equal(camera.gizmo().following, false);
+    assert.deepEqual(ends, []);
+    page.key("Enter");
+    assert.deepEqual(ends, ["enter"]);
+    assert.throws(() => new CameraPlacement({position: [0, 0], target: [0, 0, 0], onChange: () => {}}, "x"), /three finite numbers/);
+    assert.throws(() => camera.set({size: 0}), /size/);
+});
+
+test("placeCamera through ctx: drawn on the viewport on screen and taken away with its owner", () => {
+    onPage();
+    const view = fakeView();
+    const withdraw = setActiveViewport(view.viewport);
+    const placed = placeCamera("p", {position: [0, -5, 0], target: [0, 0, 0], onChange: () => {}});
+    assert.equal(view.shown().length, 3 + 4);
+    removeOwnerOverlays("p");
+    assert.equal(view.shown().length, 0);
+    placed.end();
+    withdraw();
 });

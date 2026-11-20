@@ -63,6 +63,7 @@ import {useIsNarrow} from "@/utils/useIsMobile";
 import type {WindowDock} from "@/components/ui/PanelFrame";
 import {ClassicZoneKeys, ColumnDropTarget, MinimisedTray, UndockedLayer, columnActions} from "./classicUndock";
 import {GridView, ViewportDropTarget} from "./classicGrid";
+import {ColumnSlot} from "./columnSlot";
 import {setPlacedElsewhere} from "../placedElsewhere";
 import {installMainWindow, windowBus} from "../windows";
 import {hostMirror} from "../windowMirror";
@@ -164,7 +165,7 @@ function ClassicToolbar() {
   const end = panels.filter(pinEnd);
   return (
     <div
-      className={"flex flex-row items-center gap-2 px-2 max-w-full min-w-0 pointer-events-auto [&>*]:shrink-0"}
+      className={"flex flex-row items-center gap-2 px-2 max-w-full min-w-0 shrink-0 pointer-events-auto [&>*]:shrink-0"}
       {...(customisable ? {[ZONE_ATTR]: "toolbar"} : {})}
     >
       {start.map(button)}
@@ -270,6 +271,29 @@ function PluginColumnFrame({panelId, customisable, doc, children}: {panelId: Pan
   );
 }
 
+// THE COLUMN STAYS ON THE SCREEN. The top bar and the panel column are one absolutely placed box over
+// the viewport, sized by what is in it. Each panel caps its own height (the Selected Object Info
+// card at 80svh, the Connections panel at the window less the top bar), but two of them stacked --
+// a clash marker clicked opens both -- made the box taller than the window, and the page does not
+// scroll (`html, body { overflow: hidden }`). A row brought into view in such a panel
+// (`scrollIntoView`, which scrolls every ancestor, an overflow-hidden one too) then scrolled the
+// whole box up, the top bar with it, with no way to scroll it back. So the box is never taller than
+// the window (`max-h-[100dvh]`), the top bar keeps its height (`shrink-0`, below), and the column
+// takes what is left and scrolls (`min-h-0 overflow-y-auto`) when its panels need more: the top bar
+// stays where it is. Each panel in it sits in a slot of its own (`./columnSlot`), so panels sharing
+// the column stack and each scrolls inside its share: none is squeezed away or drawn over another.
+// The column was "px-2 gap-2 flex flex-col pointer-events-auto max-w-[100vw]"
+// and the box "absolute left-0 top-0 z-10 max-w-[100vw] py-2 gap-2 flex flex-col pointer-events-none
+// transition-[padding] duration-150" in the committed viewer bundle.
+
+/** The box over the viewport that holds the top bar and the panel column. */
+export const CLASSIC_MENU_CLASS =
+  "absolute left-0 top-0 z-10 max-w-[100vw] max-h-[100dvh] py-2 gap-2 flex flex-col pointer-events-none transition-[padding] duration-150";
+
+/** The panel column: whatever height the top bar leaves, scrolling when its panels need more. */
+export const CLASSIC_COLUMN_CLASS =
+  "px-2 gap-2 flex flex-col min-h-0 overflow-y-auto overscroll-contain pointer-events-auto max-w-[100vw]";
+
 function ClassicColumn({proceduralActive}: {proceduralActive: boolean}) {
   const {preset, env} = useLayout();
   const customisable = useCustomisablePanels();
@@ -281,14 +305,16 @@ function ClassicColumn({proceduralActive}: {proceduralActive: boolean}) {
   const render = (p: RegisteredPanel) => (
     <React.Fragment key={p.id}>
       {shownPlace(doc, p.id, customisable, narrow) === "home" && (
-        <ColumnPanel
-          panel={p}
-          state={states.get(p.id)!}
-          env={env}
-          proceduralActive={proceduralActive}
-          customisable={customisable}
-          doc={doc}
-        />
+        <ColumnSlot panelId={p.id}>
+          <ColumnPanel
+            panel={p}
+            state={states.get(p.id)!}
+            env={env}
+            proceduralActive={proceduralActive}
+            customisable={customisable}
+            doc={doc}
+          />
+        </ColumnSlot>
       )}
       {/* Once: a shell that puts them over the view (`overlays.builder`) has them there. Twice, each
           menu closed the other on the press that picks an item, so none of its items ran. */}
@@ -298,7 +324,7 @@ function ClassicColumn({proceduralActive}: {proceduralActive: boolean}) {
   const order = (p: RegisteredPanel) => p.placement?.[CLASSIC_PRESET_ID]?.order ?? 0;
   return (
     <div
-      className={"px-2 gap-2 flex flex-col pointer-events-auto max-w-[100vw]"}
+      className={CLASSIC_COLUMN_CLASS}
       {...(customisable ? {[ZONE_ATTR]: "column"} : {})}
     >
       {panels.filter((p) => order(p) < PLUGIN_MENU_COLUMN_ORDER).map(render)}
@@ -309,6 +335,7 @@ function ClassicColumn({proceduralActive}: {proceduralActive: boolean}) {
             {mounted}
           </PluginColumnFrame>
         )}
+        slot={(slot, node) => <ColumnSlot panelId={slot.id}>{node}</ColumnSlot>}
       />
       {panels.filter((p) => order(p) >= PLUGIN_MENU_COLUMN_ORDER).map(render)}
     </div>
@@ -337,7 +364,7 @@ function ClassicMenu({viewport}: {viewport: Rect | null}) {
       {/* Capped by the viewport, not the parent: this overlay's host is sized by its absolute
           children (0 px wide), so `max-w-full` would collapse the top bar's scrolling row. */}
       <div
-        className="absolute left-0 top-0 z-10 max-w-[100vw] py-2 gap-2 flex flex-col pointer-events-none transition-[padding] duration-150"
+        className={CLASSIC_MENU_CLASS}
         style={top > 0 ? {paddingLeft: `${menuShiftPx}px`, paddingTop: `${top + 8}px`} : {paddingLeft: `${menuShiftPx}px`}}
       >
         {classicToolbarShown() && <ClassicToolbar />}
