@@ -29,10 +29,6 @@ const ALLOWED: Record<string, string> = {
     "plugins/sceneCamera.ts": "a placed camera: the plugin's tool",
     // The cell builder's own scene, drawn through the three.js-free viewport while it is open.
     "components/viewer/cellbuilder/nativeViewHost.ts": "the cell builder's scene",
-    // Not moved onto the manager yet.
-    "components/viewer/FemConceptsController.tsx": "not yet moved",
-    "components/viewer/NameLabelController.tsx": "not yet moved",
-    "components/viewer/TypeIconController.tsx": "not yet moved",
 };
 
 const LAYER = /(?:viewport|Viewport\(\))\s*[!?]?\.\s*(?:overlays|billboards|images)\(/;

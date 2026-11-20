@@ -12,7 +12,8 @@ import {buildConceptGlyphs, glyphSize} from "@/utils/fem/conceptGlyphs";
 import {setShownConcepts} from "@/utils/fem/conceptPicking";
 import {refKey} from "@/utils/fem/femSelection";
 import {visibleEquipment} from "@/utils/fem/femTakeoff";
-import {followActiveViewport, onModelLoaded, type ViewportApi} from "@/viewport/api/viewportApi";
+import {register, type OverlayHandle} from "@/viewport/api/overlayManager";
+import {onModelLoaded, type ViewportApi} from "@/viewport/api/viewportApi";
 import type {
     MassGlyph,
     BcGlyph,
@@ -28,7 +29,12 @@ import type {
 // (utils/fem/conceptGlyphs.ts), and a click is resolved against the same data
 // (utils/fem/conceptPicking.ts), so both viewports show and pick the same thing.
 const FemConceptsController: React.FC = () => {
-    React.useEffect(() => followActiveViewport(init), []);
+    // A view of the overlay manager (viewport/api/overlayManager.ts): drawn on whichever viewport is on
+    // screen, again on the one that takes its place; its layer is the manager's to release.
+    React.useEffect(() => {
+        const view = register({owner: "core:fem-concepts", id: "glyphs", lifetime: {kind: "view"}, draw: (h) => init(h.viewport!, h)});
+        return () => view.remove();
+    }, []);
     return null;
 };
 
@@ -103,8 +109,9 @@ const ANALYSIS_SOURCE = /\.(xml|gnx)$/i;
 // The page's, not a viewport's: the same models are on screen when another viewport takes over.
 const seen = new Set<string>();
 
-function init(viewport: ViewportApi): () => void {
-    const layer = viewport.overlays("__fem_concepts__");
+function init(viewport: ViewportApi, h: OverlayHandle): (() => void) | void {
+    const layer = h.lines("__fem_concepts__");
+    if (!layer) return;
 
     const rebuild = () => {
         layer.clear();
@@ -186,7 +193,6 @@ function init(viewport: ViewportApi): () => void {
     return () => {
         for (const off of offs) off();
         setShownConcepts(viewport, null);
-        layer.dispose();
     };
 }
 

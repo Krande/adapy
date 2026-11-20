@@ -10,7 +10,8 @@ import { boltImage, diskImage, dropImage, warnImage } from "@/utils/viewer/iconI
 import { layoutTypeIcons, typeIconScale, type TypeIcon } from "@/utils/viewer/typeIconLayout";
 import type { EquipIcon, MediumMarker } from "@/utils/viewer/typeIconClassify";
 import type { BillboardImage } from "@/viewport/api/billboards";
-import { followActiveViewport, onModelLoaded, type ViewportApi } from "@/viewport/api/viewportApi";
+import { register, type OverlayHandle } from "@/viewport/api/overlayManager";
+import { onModelLoaded, type ViewportApi } from "@/viewport/api/viewportApi";
 
 // Headless: draws the Factorio-style type-icon overlay from the cellbuilder
 // model (equipment archetype icons, fluid/service markers along system runs, and
@@ -18,7 +19,12 @@ import { followActiveViewport, onModelLoaded, type ViewportApi } from "@/viewpor
 // viewport is on screen. Renders nothing. Store-driven so it needs no GLB
 // parsing and works while editing or viewing a procedural model.
 const TypeIconController: React.FC = () => {
-  React.useEffect(() => followActiveViewport(init), []);
+  // A view of the overlay manager (viewport/api/overlayManager.ts): drawn on whichever viewport is on
+  // screen, again on the one that takes its place; its layer is the manager's to release.
+  React.useEffect(() => {
+    const view = register({ owner: "core:type-icons", id: "icons", lifetime: { kind: "view" }, draw: (h) => init(h.viewport!, h) });
+    return () => view.remove();
+  }, []);
   return null;
 };
 
@@ -53,8 +59,9 @@ function mediumImage(kind: MediumMarker): BillboardImage {
 const imageOf = (icon: TypeIcon): BillboardImage =>
   icon.kind === "equipment" ? equipImage(icon.icon) : icon.kind === "medium" ? mediumImage(icon.icon) : warnImage();
 
-function init(viewport: ViewportApi): () => void {
-  const layer = viewport.billboards("__type_icons__");
+function init(viewport: ViewportApi, h: OverlayHandle): (() => void) | void {
+  const layer = h.labels("__type_icons__");
+  if (!layer) return;
 
   const rebuild = () => {
     layer.clear();
@@ -126,7 +133,6 @@ function init(viewport: ViewportApi): () => void {
     unsubModel();
     unsubLoaded();
     unsubTree();
-    layer.dispose();
   };
 }
 

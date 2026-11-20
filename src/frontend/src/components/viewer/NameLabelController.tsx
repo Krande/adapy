@@ -3,18 +3,25 @@ import React from "react";
 import {useLabelsStore} from "@/state/labelsStore";
 import {useTreeViewStore} from "@/state/treeViewStore";
 import {nameLabels, showNameLabels, type NameLabel} from "@/utils/viewer/nameLabels";
-import {followActiveViewport, onModelLoaded, type ViewportApi} from "@/viewport/api/viewportApi";
+import {register, type OverlayHandle} from "@/viewport/api/overlayManager";
+import {onModelLoaded, type ViewportApi} from "@/viewport/api/viewportApi";
 
 // Headless: labels each selected object with its name while the "Object names" switch is on
 // (`useLabelsStore.names`), as billboards of whichever viewport is on screen. The name is the Scene
 // tree row's; the viewport says where the object is. Renders nothing.
 const NameLabelController: React.FC = () => {
-    React.useEffect(() => followActiveViewport(init), []);
+    // A view of the overlay manager (viewport/api/overlayManager.ts): drawn on whichever viewport is on
+    // screen, again on the one that takes its place; its layer is the manager's to release.
+    React.useEffect(() => {
+        const view = register({owner: "core:name-labels", id: "labels", lifetime: {kind: "view"}, draw: (h) => init(h.viewport!, h)});
+        return () => view.remove();
+    }, []);
     return null;
 };
 
-function init(viewport: ViewportApi): () => void {
-    const layer = viewport.billboards("__name_labels__");
+function init(viewport: ViewportApi, h: OverlayHandle): (() => void) | void {
+    const layer = h.labels("__name_labels__");
+    if (!layer) return;
     const shown = new Map<string, {handle: number; label: NameLabel}>();
 
     const refresh = () => {
@@ -49,7 +56,6 @@ function init(viewport: ViewportApi): () => void {
     ];
     return () => {
         for (const off of offs) off();
-        layer.dispose();
     };
 }
 
