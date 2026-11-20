@@ -2,6 +2,15 @@
 
 
 
+## v0.164.0 (2026-11-20)
+
+### Feature
+
+* feat(viewer): the cell builder on the three.js-free viewport (#579)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`3f4cb95`](https://github.com/Krande/adapy/commit/3f4cb959a904a8db5e931897e4c8c8b0eebb7964))
+
+
 ## v0.163.0 (2026-11-20)
 
 ### Feature
