@@ -145,6 +145,24 @@ test("the Build menu names the builder's commands, only where the shell has the 
   assert.ok(!desktopMenus({ ...inputs, modes: [{ id: Mode.TopologyOutput }] }).some((m) => m.label === "Build"));
 });
 
+test("Add cell is one action: the command shows the builder's A key, and both toggle the tool", async () => {
+  setup();
+  const { CORE_SHORTCUTS } = await import("@/layout/coreShortcutTable");
+  try {
+    const cmd = C.getCommand(ID.builderAddCell)!;
+    assert.equal(C.commandChord(cmd), "A", "the command shows A");
+    const entry = CORE_SHORTCUTS.find((s) => s.keys === "A" && s.id.startsWith("core:builder"))!;
+    assert.match(entry.label, /^Add cell/, "the dialog's entry is the same action, by the same name");
+    // The builder's vocabulary is "cell", not "space".
+    for (const s of CORE_SHORTCUTS.filter((x) => x.id.startsWith("core:builder"))) assert.doesNotMatch(s.label, /\bspaces?\b/i, s.id);
+    // A toggles, as the command does (a second press puts the tool away).
+    const kb = readFileSync(new URL("../../components/viewer/cellbuilder/keyboard.ts", import.meta.url), "utf8");
+    assert.match(kb, /setMode\(st\.mode === "add-cell" \? "idle" : "add-cell"\)/);
+  } finally {
+    C.resetCommands();
+  }
+});
+
 test("the API version moved with the Build mode", () => {
   const index = readFileSync(new URL("../../viewer-core/index.ts", import.meta.url), "utf8");
   // At least the Build mode's version (1.18.0); later additions move it on.
