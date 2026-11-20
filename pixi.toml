@@ -400,9 +400,12 @@ test-compat = { cmd = "pytest tests -m pyocc --ignore=tests/profiling --ignore=t
 # textured quads (adacpp#81), and the GLB offset applied in double precision (adacpp#82).
 # 0.42.2 for the native STEP reader's ellipse-edge fix: a short arc of an eccentric ellipse no longer
 # wraps the long way round and spikes the libtess2 mesh (adacpp#84).
+# 0.43 for faceted solids built directly from their polygons, one at a time or a batch across
+# threads (`cad.solid_from_polygons`, `solids_from_polygons_batch`, adacpp#85): a weld bead
+# in a few milliseconds instead of half a second through BOPAlgo_MakerVolume.
 # KEEP IN STEP with ADACPP_BASE_IMAGE in deploy/Dockerfile.viewer: the browser runs the
 # same release's wasm build of this same code.
-ada-cpp = ">=0.42.2,<0.43"
+ada-cpp = ">=0.43.0,<0.44"
 
 # ada-cpp CAD backend (AdacppBackend) with ADAPY_CAD_BACKEND=adacpp set explicitly --
 # native CPython build of the wasm-capable kernel. Brings its own occt (8.0.1 since the
@@ -488,7 +491,10 @@ ada-cpp = ">=0.42.2,<0.43"
 # 0.42 (adacpp#78-#82): the renderer's section caps, sprites, point picking, object table, camera
 # controller, node animation, Draco meshes, textured quads and double-precision GLB offset.
 # 0.42.2 (adacpp#84): the native STEP reader's ellipse-edge fix (no libtess2 spikes).
-ada-cpp = ">=0.42.2,<0.43"
+# 0.43 (adacpp#85): faceted solids straight from their polygons, and in parallel batches; the
+# AdacppBackend's FacetedBrep path and `ada.cad.build_solids` take it (the old route is kept for
+# an older build, so a lower pin would leave the fast path untested here while looking green).
+ada-cpp = ">=0.43.0,<0.44"
 
 [feature.adacpp.activation.env]
 ADAPY_CAD_BACKEND = "adacpp"
