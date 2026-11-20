@@ -56,6 +56,7 @@ import {
 } from "@/utils/scene/clashContactPlan";
 import { drawContactOverlay, type ContactOrigin } from "@/utils/scene/clashContactOverlay";
 import { setShownClashPicks } from "@/utils/scene/clashOverlayPicks";
+import { installJointViewExit } from "@/utils/scene/jointViewExit";
 import { linearColor } from "@/utils/scene/sceneColor";
 import type { Point3 } from "@/viewport/api/billboards";
 import type { OverlayLayer } from "@/viewport/api/overlayLayer";
@@ -245,6 +246,8 @@ export function resultOrigins(
 export function startClashMarkerSync(): void {
   if (syncing) return;
   syncing = true;
+  // Esc, or a click on empty space, leaves the faded connection view this sync draws (`jointViewExit`).
+  if (typeof window !== "undefined") installJointViewExit();
 
   // The store changes for reasons the overlay does not care about (a job's busy flag, a detail
   // key), and a redraw rebuilds every point. So compare the facts the drawing is a function of --

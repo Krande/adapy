@@ -11,6 +11,7 @@ import {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
 import {useOptionsStore} from "@/state/optionsStore";
 import {clashPickAt} from "@/utils/scene/clashOverlayPicks";
 import {focusJoint} from "@/utils/scene/clashJointFocus";
+import {onEmptySpaceClick} from "@/utils/scene/jointViewExit";
 import {useClashContactPickStore} from "@/state/clashContactPickStore";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {pickResultLineSegment} from "@/utils/scene/fea/resultLineSegments";
@@ -409,7 +410,7 @@ export function setupPointerHandler(
             if (nearestMesh.object instanceof CustomBatchedMesh) {
                 await handleClickMesh(nearestMesh, e);
             } else {
-                handleClickEmptySpace(e);
+                clickedEmptySpace(e);
             }
             return;
         }
@@ -418,8 +419,15 @@ export function setupPointerHandler(
         if (nearestPoints) {
             await handleClickPoints(nearestPoints, e);
         } else {
-            handleClickEmptySpace(e);
+            clickedEmptySpace(e);
         }
+    }
+
+    /** A click that hit no object: the selection is cleared, and a left click also leaves a joint's
+     *  faded connection view (`jointViewExit`; a drag never gets here, see the click handler). */
+    function clickedEmptySpace(e: MouseEvent): void {
+        handleClickEmptySpace(e);
+        if (e.button === 0) onEmptySpaceClick();
     }
 
     return () => listeners.abort();
