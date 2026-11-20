@@ -2,6 +2,16 @@
 
 
 
+## v0.164.4 (2026-11-20)
+
+### Fix
+
+* fix(viewer): FEA results shaded in the legend&#39;s hue with edge settings; WebGPU viewport lists results by file name and drops stale face highlights (#585)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt;
+Co-authored-by: adapy-bundle-bot &lt;adapy-bundle-bot@users.noreply.github.com&gt; ([`133196e`](https://github.com/Krande/adapy/commit/133196e0c133638677fef4025121fd5a8824e356))
+
+
 ## v0.164.3 (2026-11-20)
 
 ### Fix
