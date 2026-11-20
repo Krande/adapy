@@ -201,6 +201,33 @@ POST /api/viewer/commands  {"command": {"action": "open_detail_model", "detail_i
                                         "joint_id": "0123456789ab"}}
 ```
 
+## From the command line
+
+`ada viewer` (`ada_cli/viewer.py`; the full reference is in the [CLI page](../cli.md)) wraps all of
+the above: `sessions`, `state`, `focus-joint`, `select`, `clear-selection`, `camera`, `open-detail`,
+`find`, `run` (a command or a batch from JSON, the same body as `POST /api/viewer/commands`),
+`schema`, and the read-outs `joints` and `detail`.
+
+**Where it goes.** `--via auto` (the default) talks to a hosted viewer's REST API when a viewer URL
+is configured -- `--url`, or `ADAPY_API_BASE` (`ADAPY_BASE_URL`, `ADAPY_VIEWER_URL`) with the token
+in `ADAPY_API_TOKEN`, as every remote `ada` command reads them -- and otherwise to the desktop
+viewer's websocket server (`--ws-host` / `--ws-port`, default `localhost:8765`): there it lists the
+viewers (`LIST_WEB_CLIENTS`; a session is a viewer's instance id), sends `VIEWER_COMMAND` to them
+and waits for each `VIEWER_ANSWER` by request id. `--via remote` / `--via local` force one. `joints`
+and `detail` read stored documents and need the hosted server.
+
+A short summary is printed by default, `--json` prints the raw answer. The exit code is 0 when every
+targeted tab answered `done`, 1 when the server refused (no viewer open, viewer control disabled --
+its message is printed) or any tab answered `error`, closed or did not answer within `--wait`, and 2
+for a wrong invocation.
+
+```bash
+ada viewer sessions
+ada viewer focus-joint 0123456789ab --run-key <run key>
+ada viewer camera --eye 10,10,10 --target 0,0,0
+ada viewer run batch.json --session <session id> --wait 30
+ada viewer joints --run latest --member brace_1
+```
 ## As tools
 
 Each read route and each command is meant to become one tool of an MCP server wrapping this API:

@@ -64,6 +64,7 @@ ada --help
 | `ada desktop` | Run the local viewer (local storage, no login) and open it in a native window, optionally on a file. Needs the `ada-desktop` window shell from the separate `ada-py-desktop` conda package (Windows only for now). Local. |
 | `ada dev` | `ada dev connections --dir DIR`: develop a connection library live. Opens the studio's connection builder on the specs in DIR's `ada_connections.toml`, with editable member sections and plate thicknesses, and rebuilds the joint on every saved change. Local. |
 | `ada viewers` | List the installed viewer bundles: adapy's viewer built with plugins, which a package installs and `--viewer` / `ADA_VIEWER_BUNDLE` picks. |
+| `ada viewer` | Drive your open viewer and read clash results: `sessions`, `state`, `focus-joint`, `select`, `clear-selection`, `camera`, `open-detail`, `find`, `run` (a command or a batch from JSON), `schema`, `joints`, `detail`. A hosted viewer when a URL is configured, else the desktop viewer. |
 
 The `build`, `files` and `audit` groups talk to a hosted viewer and read their base URL and token
 from the environment (a `.env` in the working directory is picked up too; real environment variables

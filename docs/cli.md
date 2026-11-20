@@ -721,3 +721,74 @@ installed.
 ada viewers
 ada serve api --viewer asa
 ```
+
+## `ada viewer`
+
+Drive your open viewer -- focus a clash joint, select, move the camera, load a detail model --
+and read what the clash pipeline stored. See the
+[viewer control API](architecture/viewer_control.md) for what each command does in the viewer.
+
+**Where it goes.** `--via auto` (the default) uses a hosted viewer's REST API when a viewer URL
+is configured (`--url`, or `ADAPY_API_BASE` / `ADAPY_BASE_URL` / `ADAPY_VIEWER_URL`, with the
+token from `--token` / `ADAPY_API_TOKEN`), and otherwise the desktop viewer's websocket server
+(`--ws-host`, `--ws-port`; default `localhost:8765`, what `ada view` starts). `--via remote` or
+`--via local` forces one. A hosted server must allow it (`ADA_VIEWER_CONTROL`), and a tab takes
+part only with its *External controls* switch on.
+
+Every command takes `--json` for the raw answer instead of a summary. Those that drive a tab take
+`--session` (one tab; locally a viewer's instance id; default every tab) and `--wait` (seconds to
+wait for the answers, default 10). Exit code 1 when the server refuses (no viewer open, viewer
+control disabled -- its message is printed) or any tab answers an error, has closed or did not
+answer in time.
+
+`ada viewer sessions`
+:   List your open viewer tabs.
+
+`ada viewer state`
+:   What each tab shows: scope, loaded and detail models, selection, camera, clash run and joint.
+
+`ada viewer focus-joint`
+:   Focus a clash joint (`JOINT_ID`): select its members and frame them. `--run-key` opens that
+    convex-contact run first; `--no-frame` leaves the camera.
+
+`ada viewer select`
+:   Select objects by name (`NAMES...`) and frame them; `--file` names the loaded model.
+
+`ada viewer clear-selection`
+:   Clear the selection.
+
+`ada viewer camera`
+:   One of `--fit selection|all`, `--view top|bottom|front|back|left|right|isometric`,
+    `--eye x,y,z --target x,y,z`, `--box xmin,ymin,zmin,xmax,ymax,zmax`.
+
+`ada viewer open-detail`
+:   Load a detail model (`DETAIL_ID`); `--joint` shows that joint in it, or in the run it was made
+    from when it was not built.
+
+`ada viewer find`
+:   Look objects up by name: which model, how many, centre and box. Changes nothing.
+
+`ada viewer run`
+:   Send a command or a batch from a JSON file (`-` for stdin): one command, a list of commands
+    (run in order, stopping at the first that fails), or a `POST /api/viewer/commands` body.
+
+`ada viewer schema`
+:   The command vocabulary as JSON schema.
+
+`ada viewer joints`
+:   A clash run's joints (hosted only): members with their roles, centre, applicable specs.
+    `--run` a run key or `latest` (default), `--ids`, `--member`, `--limit`, `--scope`.
+
+`ada viewer detail`
+:   A detail model per joint (hosted only): built (connections, welds with type, throat and
+    length), declined or failed and why, failed welds, and a joint's members from its run.
+    `--joints` narrows it.
+
+```bash
+ada viewer sessions
+ada viewer focus-joint 0123456789ab --run-key _clash/0000/run.json
+ada viewer camera --view isometric
+echo '[{"action": "open_detail_model", "detail_id": "20260101T120000000Z-0123abcd"},
+       {"action": "focus_joint", "joint_id": "0123456789ab"}]' | ada viewer run -
+ada viewer detail 20260101T120000000Z-0123abcd --joints 0123456789ab
+```
