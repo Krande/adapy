@@ -411,6 +411,8 @@ HIDDEN_PREFIXES: tuple[str, ...] = (
     "_catalogs/",
     "_engines/",
     "_groups/",
+    # Saved scene states (``_scenes/states.json``), written by the viewer like the saved groups.
+    "_scenes/",
     # Convex-contact clash runs (ada.clash.sidecar). Not client-written through the blob route: a
     # browser's run is POSTed to /clash-contacts/runs, which validates it before storing it.
     "_clash/",
@@ -435,11 +437,11 @@ def is_hidden_key(key: str) -> bool:
     return key.lstrip("/").startswith(HIDDEN_PREFIXES)
 
 
-# Per-scope state the VIEWER writes through the generic blob route -- today the saved clash groups
-# at ``_groups/groups.json``. Hidden like the rest (it is not a user file), but unlike ``_derived/``
-# it is client-written, so the upload route exempts it from the source-extension whitelist rather
-# than refusing a ``.json`` that no converter reads.
-SCOPE_STATE_PREFIXES: tuple[str, ...] = ("_groups/",)
+# Per-scope state the VIEWER writes through the generic blob route -- the saved groups at
+# ``_groups/groups.json`` and the saved scene states at ``_scenes/states.json``. Hidden like the rest
+# (it is not a user file), but unlike ``_derived/`` it is client-written, so the upload route exempts
+# it from the source-extension whitelist rather than refusing a ``.json`` that no converter reads.
+SCOPE_STATE_PREFIXES: tuple[str, ...] = ("_groups/", "_scenes/")
 
 
 def is_scope_state_key(key: str) -> bool:

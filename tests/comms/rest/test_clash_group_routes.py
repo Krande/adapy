@@ -365,6 +365,26 @@ def test_saved_groups_round_trip_through_the_blob_route_and_stay_out_of_listings
     assert "_groups/" not in listing.text
 
 
+def test_saved_scene_states_round_trip_through_the_blob_route_and_stay_out_of_listings(client_and_scope):
+    client, _ = client_and_scope
+    body = json.dumps(
+        {
+            "schema": "ada.viewer/scene-states@1",
+            "states": [{"id": "s1", "name": "deck", "created_at": "", "state": {"v": 1, "models": [], "camera": None}}],
+        }
+    ).encode()
+    put = client.put(f"/api/scopes/{SCOPE}/blobs/_scenes/states.json", content=body)
+    assert put.status_code == 201, put.text
+
+    got = client.get(f"/api/scopes/{SCOPE}/blobs/_scenes/states.json")
+    assert got.status_code == 200, got.text
+    assert json.loads(got.content) == json.loads(body)
+
+    listing = client.get(f"/api/scopes/{SCOPE}/files")
+    assert listing.status_code == 200, listing.text
+    assert "_scenes/" not in listing.text
+
+
 # ── the worker's synthetic kinds, through _process_one ─────────────────
 
 

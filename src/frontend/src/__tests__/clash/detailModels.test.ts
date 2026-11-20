@@ -24,6 +24,9 @@ const { useDetailModelsStore, detailModelLine, isDetailModelKey } = await import
 const { useClashCheckStore, contactRunToResult } = await import("@/state/clashCheckStore");
 type Model = Parameters<typeof detailModelLine>[0];
 type DetailContext = import("@/state/clashCheck/detailContext").DetailContext;
+type SceneRecord = import("@/utils/scene/sceneRecord").SceneRecord;
+type ApplyOptions = import("@/utils/scene/applySceneState").ApplyOptions;
+type ApplyOutcome = import("@/utils/scene/applySceneState").ApplyOutcome;
 
 function model(id: string, over: Partial<Model> = {}): Model {
   return {
@@ -51,10 +54,14 @@ function takeoff(names: readonly string[]) {
   };
 }
 
+type Applied = { scope: string; state: SceneRecord; opts?: ApplyOptions };
+
 function fakeDeps(models: Model[]) {
   const calls: string[] = [];
+  const applied: Applied[] = [];
   return {
     calls,
+    applied,
     deps: {
       list: async (scope: string) => {
         calls.push(`list ${scope}`);
@@ -65,16 +72,15 @@ function fakeDeps(models: Model[]) {
         calls.push(`stats ${key}`);
         return takeoff(["a1", "a2"]);
       },
-      overlay: async (scope: string, glb: string) => void calls.push(`overlay ${scope} ${glb}`),
       context: async (_scope: string, m: Model): Promise<DetailContext> => {
         calls.push(`context ${m.detail_id}`);
         throw new Error("no check");
       },
-      loadInputs: async (scope: string, name: string, members: readonly unknown[]) => {
-        calls.push(`inputs ${scope} ${name} ${members.length}`);
-        return [] as string[];
+      apply: async (scope: string, state: SceneRecord, opts?: ApplyOptions): Promise<ApplyOutcome> => {
+        calls.push(`apply ${scope}`);
+        applied.push({ scope, state, opts });
+        return { failed: [], notes: [], detailError: null };
       },
-      markers: async () => void calls.push("markers"),
     },
   };
 }
@@ -120,94 +126,74 @@ test("the list is the scope's, and a list that cannot be read is an empty one", 
   assert.deepEqual(useDetailModelsStore.getState().models, []);
 });
 
-test("loading one brings back the check it came from: its elements, its target and result, its markers", async () => {
-  const { deps, calls } = fakeDeps([]);
+test("loading one applies a scene state: the check's elements and result, then the model as the active detail", async () => {
+  const { deps, calls, applied } = fakeDeps([]);
   const check = fileCheck();
   useDetailModelsStore.setState({ deps: { ...deps, context: async (_s, m) => (calls.push(`context ${m.detail_id}`), check) }, busyId: null, error: null });
-  useClashCheckStore.setState({ sourceKey: null, assetTarget: null, result: null, producedJoints: null, producedSkipped: [] });
   const m = model("x");
   await useDetailModelsStore.getState().open("user:me", m);
-  // The elements first, then the model itself last (so it is the loaded source the Clashes tab sees).
-  assert.deepEqual(calls, [
-    "context x",
-    "inputs user:me models/frame.ifc 1",
-    "markers",
-    `overlay user:me ${m.glb_key}`,
-    `stats ${m.stats_key}`,
-  ]);
-  const clash = useClashCheckStore.getState();
-  assert.equal(clash.sourceKey, "models/frame.ifc");
-  assert.equal(clash.result, check.result);
-  assert.equal(clash.derivedKey, check.derivedKey);
-  assert.equal(clash.runKey, null);
-  // The active detail model, as a detail run leaves it -- and its joints, which the target set
-  // before them did not clear.
-  assert.equal(clash.detailGlbKey, m.glb_key);
-  assert.equal(clash.detailDerivedKey, m.glb_key);
-  assert.equal(clash.producedJoints?.count, 2);
+  assert.deepEqual(calls, ["context x", "apply user:me"]);
+  const { state, opts } = applied[0];
+  assert.deepEqual(state, {
+    v: 1,
+    models: [],
+    camera: null,
+    members: check.members,
+    clash: { target: check.target, resultKey: check.derivedKey },
+    detail: { glbKey: m.glb_key, statsKey: m.stats_key, spec: m.spec },
+  });
+  // The result read for the check is handed on, not read again; the members are named after it.
+  assert.equal(opts?.clashResult, check.result);
+  assert.equal(opts?.membersName, "models/frame.ifc");
   assert.deepEqual(useDetailModelsStore.getState().notes, []);
+  assert.equal(useDetailModelsStore.getState().busyId, null);
+});
+
+test("a run's check is restored by its run key", async () => {
+  const { deps, applied } = fakeDeps([]);
+  const check = { ...fileCheck(), derivedKey: null, runKey: "_clash/runs/r1.json" };
+  useDetailModelsStore.setState({ deps: { ...deps, context: async () => check }, busyId: null, error: null });
+  await useDetailModelsStore.getState().open("user:me", model("x"));
+  assert.deepEqual(applied[0].state.clash, { target: check.target, runKey: "_clash/runs/r1.json" });
 });
 
 test("a check that cannot be read is said, and the model loads on its own as before", async () => {
-  const { deps, calls } = fakeDeps([]);
+  const { deps, calls, applied } = fakeDeps([]);
   useDetailModelsStore.setState({ deps, busyId: null, error: null });
-  useClashCheckStore.setState({ producedJoints: null, producedSkipped: [] });
   const m = model("x");
   await useDetailModelsStore.getState().open("user:me", m);
-  assert.deepEqual(calls, ["context x", `overlay user:me ${m.glb_key}`, `stats ${m.stats_key}`]);
+  assert.deepEqual(calls, ["context x", "apply user:me"]);
+  assert.deepEqual(applied[0].state, { v: 1, models: [], camera: null, detail: { glbKey: m.glb_key, statsKey: m.stats_key, spec: m.spec } });
   assert.match(useDetailModelsStore.getState().notes[0] ?? "", /could not be read: no check/);
   assert.equal(useDetailModelsStore.getState().error, null);
-  assert.equal(useClashCheckStore.getState().producedJoints?.count, 2);
 });
 
-test("what could not be loaded of the check's elements is said, and the rest goes on", async () => {
-  const { deps, calls } = fakeDeps([]);
-  const check = { ...fileCheck(), notes: ["The group \"gone\" is no longer saved in this scope, so its members were not loaded."] };
+test("what the check and the restore could not bring back is said, in order", async () => {
+  const { deps } = fakeDeps([]);
+  const check = { ...fileCheck(), notes: ['The group "gone" is no longer saved in this scope, so its members were not loaded.'] };
   useDetailModelsStore.setState({
     deps: {
       ...deps,
       context: async () => check,
-      loadInputs: async () => {
-        calls.push("inputs");
-        throw new Error("offline");
-      },
+      apply: async () => ({ failed: [], notes: ["The elements could not be loaded: offline"], detailError: null }),
     },
     busyId: null,
     error: null,
   });
   await useDetailModelsStore.getState().open("user:me", model("x"));
-  assert.deepEqual(useDetailModelsStore.getState().notes, [
-    check.notes[0],
-    "The checked elements could not be loaded: offline",
-  ]);
-  assert.ok(calls.includes("markers"));
-  assert.equal(useClashCheckStore.getState().result, check.result);
+  assert.deepEqual(useDetailModelsStore.getState().notes, [check.notes[0], "The elements could not be loaded: offline"]);
+  assert.equal(useDetailModelsStore.getState().error, null);
 });
 
-test("loading one overlays its GLB and adds its joints to the produced ones, as a fresh run does", async () => {
-  const { deps, calls } = fakeDeps([]);
-  useDetailModelsStore.setState({ deps, busyId: null, error: null });
-  useClashCheckStore.setState({ producedJoints: null, producedSkipped: [] });
-  const m = model("x");
-  await useDetailModelsStore.getState().open("user:me", m);
-  assert.deepEqual(calls.filter((c) => !c.startsWith("context")), [`overlay user:me ${m.glb_key}`, `stats ${m.stats_key}`]);
-  const produced = useClashCheckStore.getState().producedJoints;
-  assert.equal(produced?.count, 2);
-  assert.deepEqual(useClashCheckStore.getState().producedSkipped, ["j9: refused"]);
-  // Loading it again lists its joints once.
-  await useDetailModelsStore.getState().open("user:me", m);
-  assert.equal(useClashCheckStore.getState().producedJoints?.count, 2);
-  assert.deepEqual(useClashCheckStore.getState().producedSkipped, ["j9: refused"]);
-  assert.equal(useDetailModelsStore.getState().busyId, null);
-});
-
-test("a model whose GLB cannot be loaded says so and adds no joints", async () => {
+test("a model whose GLB cannot be loaded says so as the load's error", async () => {
   const { deps } = fakeDeps([]);
-  useDetailModelsStore.setState({ deps: { ...deps, overlay: async () => Promise.reject(new Error("415")) }, busyId: null, error: null });
-  useClashCheckStore.setState({ producedJoints: null, producedSkipped: [] });
+  useDetailModelsStore.setState({
+    deps: { ...deps, apply: async () => ({ failed: [], notes: [], detailError: "415" }) },
+    busyId: null,
+    error: null,
+  });
   await useDetailModelsStore.getState().open("user:me", model("x"));
   assert.match(useDetailModelsStore.getState().error ?? "", /Could not load .*415/);
-  assert.equal(useClashCheckStore.getState().producedJoints, null);
 });
 
 test("deleting one takes it off the list", async () => {

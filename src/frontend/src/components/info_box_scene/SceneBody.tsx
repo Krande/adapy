@@ -7,6 +7,7 @@ import StatsSection from "./StatsSection";
 import ModelStatsSection from "./ModelStatsSection";
 import GroupsSection from "./GroupsSection";
 import SavedGroupsSection from "./SavedGroupsSection";
+import SavedStatesSection from "./SavedStatesSection";
 import UtilitiesSection from "./UtilitiesSection";
 import BBoxSelectionSection from "./BBoxSelectionSection";
 import FacePickingToggle from "./FacePickingToggle";
@@ -326,6 +327,14 @@ const TabContent: React.FC<{tab: SceneTab; isMobile: boolean}> = ({tab, isMobile
                                 )}
                             </div>
                         </CollapsibleSection>
+                        {/* Saved states beside the saved groups: both are kept per scope for
+                            everyone in it. A state is the whole scene -- models, view, clash
+                            check, detail model, camera -- where a group is a set of elements. */}
+                        {!isMirroredWindow() && (
+                            <CollapsibleSection title="Saved states" defaultOpen={false}>
+                                <SavedStatesSection />
+                            </CollapsibleSection>
+                        )}
                         {/* Selection boxes beside the groups: both are ways of naming a selection.
                             Folded until opened: most sessions have none. */}
                         <CollapsibleSection title="Selection boxes" defaultOpen={false}>
