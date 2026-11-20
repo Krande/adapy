@@ -92,9 +92,19 @@ jobs:
 
     # The Playwright browser tests (tests/full/frontend), Linux only: on the Windows and macOS
     # runners they render in software, took most of the run, and covered nothing Linux doesn't.
-    browser:
-        name: Browser tests (Playwright)
+    #
+    # They are one browser per test, rendering in software, and run one after another: ~28 minutes
+    # on a single runner, of which setup is about one. So they are split across runners instead
+    # (ADA_TEST_SHARD=i/N, tests/full/frontend/conftest.py: a deterministic split balanced by an
+    # estimate of each test's cost). Every test still runs exactly once; each owns its browser,
+    # its ephemeral ports and its tmp_path, so the shards share nothing.
+    browser-shard:
+        name: Browser tests (shard ${{ matrix.shard }}/4)
         runs-on: ubuntu-latest
+        strategy:
+          fail-fast: false
+          matrix:
+            shard: [1, 2, 3, 4]
         defaults:
           run:
             shell: bash -l {0}
@@ -120,9 +130,27 @@ jobs:
             done
             dpkg -s mesa-vulkan-drivers > /dev/null
 
-        - name: Run browser tests
+        - name: Run browser tests (shard ${{ matrix.shard }}/4)
+          env:
+            ADA_TEST_SHARD: ${{ matrix.shard }}/4
           run: pixi run -e tests test-browser
 
+    # The one check for the browser tests, under the name the single job had: the shards above are
+    # an implementation detail, and a check that is required (or later made so) should not have to
+    # know how many there are. `if: always()` so a failed or cancelled shard fails this too instead
+    # of leaving it skipped.
+    browser:
+        name: Browser tests (Playwright)
+        needs: browser-shard
+        if: always()
+        runs-on: ubuntu-latest
+        steps:
+        - name: Every shard passed
+          env:
+            RESULT: ${{ needs.browser-shard.result }}
+          run: |
+            echo "browser-shard: $RESULT"
+            [ "$RESULT" = "success" ]
     # tests/full against a freshly built viewer bundle, as the push workflow (test.yml) runs it on
     # main. `test-quick` above includes tests/full but runs it on the committed bundle; a change to
     # the frontend sources is only exercised end to end once the bundle is built from them. It is

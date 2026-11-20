@@ -83,6 +83,7 @@ export function createNativeOverlayLayer(scene: NativeScene): OverlayLayer {
             lit: spec.lit,
             normals: spec.lit && spec.normals ? new Float32Array(spec.normals) : null,
             renderOrder: spec.renderOrder,
+            depthWrite: spec.depthWrite,
         },
     });
 

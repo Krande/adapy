@@ -7,7 +7,8 @@
 // What is mirrored, as three.js draws it:
 //  - a Mesh: one overlay mesh per material group, in the material's colour and opacity; a material
 //    that is lit (not a MeshBasicMaterial) has a fixed light baked into its colours, as overlays are
-//    unlit. `depthTest: false` draws it over the model;
+//    unlit. `depthTest: false` draws it over the model; `depthWrite: false` hides nothing drawn
+//    after it (a mesh or a line);
 //  - LineSegments, Line, LineLoop and fat lines (LineSegments2): overlay lines, dashed as their
 //    material says, their own colours per vertex when they have them;
 //  - a Sprite: a billboard of its texture, at one size on screen (`sizeAttenuation: false`) or in
@@ -279,7 +280,7 @@ export function createSceneMirror(scene: THREE.Scene, camera: THREE.Camera, targ
     const meshSignature = (mesh: THREE.Mesh, materials: AnyMaterial[]): string => {
         const g = mesh.geometry as THREE.BufferGeometry;
         const groups = g.groups.map((x) => `${x.start},${x.count},${x.materialIndex}`).join(";");
-        const looks = materials.map((m) => `${m.depthTest ? 1 : 0}${m.clippingPlanes?.length ? 1 : 0}${isLit(m) ? 1 : 0}${m.side}`).join("");
+        const looks = materials.map((m) => `${m.depthTest ? 1 : 0}${m.depthWrite ? 1 : 0}${m.clippingPlanes?.length ? 1 : 0}${isLit(m) ? 1 : 0}${m.side}`).join("");
         return `m|${g.uuid}|${attrVersion(g.getAttribute("position"))}|${attrVersion(g.index)}|${groups}|${looks}|${mesh.renderOrder}`;
     };
 
@@ -322,6 +323,7 @@ export function createSceneMirror(scene: THREE.Scene, camera: THREE.Camera, targ
                     clipped: !!m.clippingPlanes?.length,
                     frontOnly: m.side === THREE.FrontSide,
                     renderOrder: mesh.renderOrder,
+                    depthWrite: m.depthWrite,
                     matrix,
                     fitted: false,
                 });
@@ -350,7 +352,7 @@ export function createSceneMirror(scene: THREE.Scene, camera: THREE.Camera, targ
         const source = fat ? geometry.getAttribute("instanceStart") : geometry.getAttribute("position");
         const dashes = dashesOf(m);
         const signature = `l|${geometry.uuid}|${attrVersion(source)}|${attrVersion(geometry.index)}|${attrVersion(geometry.getAttribute("color"))}|` +
-            `${m.depthTest ? 1 : 0}${m.clippingPlanes?.length ? 1 : 0}|${dashes ? `${dashes.dash},${dashes.gap}` : ""}|${fat ? m.linewidth : 1}|${line.renderOrder}`;
+            `${m.depthTest ? 1 : 0}${m.depthWrite ? 1 : 0}${m.clippingPlanes?.length ? 1 : 0}|${dashes ? `${dashes.dash},${dashes.gap}` : ""}|${fat ? m.linewidth : 1}|${line.renderOrder}`;
         const matrix = line.matrixWorld.elements;
         const color = rgbOf(m);
         const opacity = opacityOf(m);
@@ -371,6 +373,7 @@ export function createSceneMirror(scene: THREE.Scene, camera: THREE.Camera, targ
                 onTop: m.depthTest === false,
                 clipped: !!m.clippingPlanes?.length,
                 renderOrder: line.renderOrder,
+                depthWrite: m.depthWrite,
                 matrix,
                 fitted: false,
             });

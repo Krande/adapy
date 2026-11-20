@@ -244,6 +244,10 @@ export interface ViewportApi {
     setGroundGridHidden?(hidden: boolean): void;
     /** The objects drawn whose own name is `name`, each with its box in the world. */
     objectsNamed?(name: string): {ref: ObjectRef; min: Point3; max: Point3}[];
+    /** One object's vertices in the world, three numbers each, in the order its file lists them:
+     *  what the three.js viewport's mesh of it holds (an equipment's port snaps to them). Null when
+     *  the viewport cannot say. */
+    objectVertices?(ref: ObjectRef): Float32Array | null;
     /** Draw the model loaded from `sourceName` moved by `shift` in the world from where it was
      *  placed ([0, 0, 0] puts it back), and return its box as placed (min xyz, max xyz, without the
      *  shift); null when no such model is on screen. What shows a compiled model beside the cell

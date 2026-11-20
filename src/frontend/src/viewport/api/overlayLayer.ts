@@ -19,6 +19,11 @@ export interface OverlayLook {
     matrix?: ArrayLike<number> | null;
     /** three.js' renderOrder: where a see-through or on-top overlay comes among the others. */
     renderOrder?: number;
+    /** False: it leaves the depth as it found it (three.js' `depthWrite: false`), so what is drawn
+     *  after it still shows where it is -- the edges of a see-through box that lie on a grid drawn
+     *  under them. The three.js viewport's overlays never write depth; the three.js-free one's do
+     *  unless this is false. */
+    depthWrite?: boolean;
     /** False keeps it out of what the camera frames when it fits the model: a marker of the model's,
      *  not a part of it. Only a viewport that frames what is in its scene looks at this. */
     fitted?: boolean;
