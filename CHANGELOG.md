@@ -2,6 +2,15 @@
 
 
 
+## v0.163.0 (2026-11-20)
+
+### Feature
+
+* feat(viewer): core&#39;s modes as typed constants, their behaviour assigned per UI (plugin API 1.32.0) (#578)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`e41ad1d`](https://github.com/Krande/adapy/commit/e41ad1dd1d32686403dac810642ca77e9b7d74ca))
+
+
 ## v0.162.1 (2026-11-19)
 
 ### Fix
