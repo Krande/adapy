@@ -1,7 +1,7 @@
 # The inputs src/ada/visit/rendering/resources/index.zip was built from. Do not edit.
 # Refresh with `pixi run wbuild` (rebuilds the bundle and rewrites this), then commit both.
 # Checked by `pixi run check-bundle-inputs` and by CI. See scripts/packaging/bundle_inputs.py.
-inputs-sha256 16be57acdf5f838cf6fe50fdc17c2d30a1dc3d98006e6f705a920135a6bad702
+inputs-sha256 2938b75bc2c285b067d3c3a7a90611256aa8916ce08ae7a40bc578666485929e
 pin:ADACPP_BASE_IMAGE ghcr.io/krande/adacpp-wasm-base:0.44.0
 pin:ADACPP_RENDER_REF c1a7b3ab434a916e08170c634c23b9dc1974d32f
 src/frontend/clean.cjs 548054390de442a02ca36bd4de94f25095f10ae9
@@ -562,7 +562,7 @@ src/frontend/src/flatbuffers/server/server-reply.ts 863b7fc22d1ad04dd37f9f1be206
 src/frontend/src/flatbuffers/server/server.ts 14e7112068dd993da57cb6540b939b56c70b3f43
 src/frontend/src/flatbuffers/wsock.ts e21c792766f96939b99f40b2e8294061543715a9
 src/frontend/src/flatbuffers/wsock/message.ts b4ae6a8f545cda716f3a1b7f801eb5d9c2a2b328
-src/frontend/src/globals.d.ts 1743434aba16667473984063c3ba72216a46ea84
+src/frontend/src/globals.d.ts 40589b986f8a7e44df4260dd1f3f4b1e03a58fcc
 src/frontend/src/hooks/deepLinkCarry.ts 6c5fb83cd013f75061ac359218d982bcba81de56
 src/frontend/src/hooks/deepLinkParams.ts ab0c23d8f4035629a00dc9899ff1158cc8030d9a
 src/frontend/src/hooks/proceduralDeepLink.ts 61ebd4e552b7eff5df997e3130671c0db09bf9e1
