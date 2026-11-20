@@ -1,6 +1,7 @@
 // Connections > Review, "Detail models": the scope's kept detail models, newest first -- every
 // detail run of a clash check or a clash run is one (`detailModelsStore`). Each can be loaded into
-// the scene, which also lists its joints under the produced ones, or deleted.
+// the scene -- with the elements it was made from and its check back on the Clashes tab, and its
+// joints listed under the produced ones -- or deleted.
 
 import React from "react";
 
@@ -56,7 +57,13 @@ const DetailModelRow: React.FC<{ scope: string; model: WireDetailModel }> = ({ s
         type="button"
         className={btn}
         disabled={!done || loaded || busyId !== null}
-        title={loaded ? "In the scene" : done ? "Load this model into the scene and list its joints above" : "Not built"}
+        title={
+          loaded
+            ? "In the scene"
+            : done
+              ? "Load this model into the scene with the elements it was made from, put its clash check back on the Clashes tab, and list its joints above"
+              : "Not built"
+        }
         onClick={() => void open(scope, model)}
       >
         {busyId === model.detail_id ? "…" : loaded ? "loaded" : "Load"}
@@ -105,6 +112,7 @@ const DetailModels: React.FC = () => {
   const models = useDetailModelsStore((s) => s.models);
   const listScope = useDetailModelsStore((s) => s.scope);
   const error = useDetailModelsStore((s) => s.error);
+  const notes = useDetailModelsStore((s) => s.notes);
   if (listScope !== scope || models.length === 0) return null;
   return (
     <section className="flex flex-col gap-1 text-[11px]" aria-label="Detail models">
@@ -113,6 +121,11 @@ const DetailModels: React.FC = () => {
         <span className="text-gray-500">— generated from clashes, newest first</span>
       </div>
       {error && <div className="text-red-300/80">{error}</div>}
+      {notes.map((n) => (
+        <div key={n} className="text-amber-200/80">
+          {n}
+        </div>
+      ))}
       <ul className="max-h-56 overflow-y-auto divide-y divide-gray-800 rounded-sm border border-gray-800">
         {models.map((m) => (
           <DetailModelRow key={m.detail_id} scope={scope} model={m} />

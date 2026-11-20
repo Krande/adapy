@@ -820,8 +820,15 @@ const ClashesPanel: React.FC = () => {
   // `SourceSection`'s "Re-convert" uses -- `overlay_file_in_scene` registers it under its own
   // source name, so it appears in `Files` and its `.stats.json` joints feed the Review tab.
   // (The message below said "loaded — see the Joints tab" while that tab was called Joints.)
+  //
+  // Not again when it is in the scene already: a detail model loaded back from Review's "Detail
+  // models" is the active one too, and loading a source twice puts it in the scene twice.
   useEffect(() => {
     if (!detailGlbKey) return;
+    if (useModelState.getState().loadedSourceNames.has(detailGlbKey)) {
+      setLoadMsg("loaded — see the Review tab");
+      return;
+    }
     let cancelled = false;
     (async () => {
       setLoadMsg("loading detailed joints…");
