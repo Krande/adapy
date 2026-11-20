@@ -16,7 +16,9 @@ code ships in four forms:
 was built from: one hash over the tracked files under `src/frontend` the build reads (sources,
 `index.html`, `public/`, the configs, `package.json` and the lock, the committed plugin registry; not
 tests or markdown) and the two adacpp pins in `deploy/Dockerfile.viewer` (`ADACPP_BASE_IMAGE`,
-`ADACPP_RENDER_REF`) that decide the WebGPU renderer inlined into it. The stamp also lists each input
+`ADACPP_RENDER_REF`) that decide the WebGPU renderer inlined into it. The stamp also records the sha256 of `index.zip` itself, so a bundle changed from outside (rebuilt from
+other sources, replaced by hand, the other side of a merge conflict) fails the check even when the inputs
+match, with its own message ("changed without its stamp"). The stamp also lists each input
 with its git blob id, so a failing check can name what changed. The package `version` is not an input:
 the release bumps it and nothing bundles it.
 

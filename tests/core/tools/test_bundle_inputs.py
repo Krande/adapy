@@ -181,6 +181,39 @@ def test_a_hand_edited_stamp_fails(bi, repo, capsys):
     assert "edited by hand" in capsys.readouterr().err
 
 
+def test_a_bundle_changed_from_outside_fails_with_its_own_message(bi, repo, capsys):
+    bi.write(repo)
+    assert bi.check(repo) == 0
+    _put(repo, bi.BUNDLE, "a different zip")  # the inputs are untouched
+    assert bi.check(repo) == 1
+    err = capsys.readouterr().err
+    assert "changed without its stamp" in err
+    assert "the viewer bundle is stale" not in err
+    assert "pixi run wbuild" in err
+
+
+def test_a_stamp_without_the_bundle_line_fails(bi, repo, capsys):
+    bi.write(repo)
+    stamp = repo / bi.STAMP
+    kept = [ln for ln in stamp.read_text().splitlines() if not ln.startswith(bi.BUNDLE_LINE)]
+    stamp.write_text("\n".join(kept) + "\n")
+    assert bi.check(repo) == 1
+    assert "no bundle-sha256 line" in capsys.readouterr().err
+
+
+def test_the_stamp_records_the_bundle_hash(bi, repo):
+    import hashlib
+
+    bi.write(repo)
+    stamped = (repo / bi.STAMP).read_text()
+    assert f"{bi.BUNDLE_LINE} {hashlib.sha256(b'zip').hexdigest()}" in stamped
+
+
+def test_write_without_a_bundle_fails(bi, repo):
+    (repo / bi.BUNDLE).unlink()
+    assert bi.write(repo) == 1
+
+
 def test_cli_exit_code(repo):
     def run(cmd):
         return subprocess.run([sys.executable, str(_SCRIPT), cmd, "--root", str(repo)], capture_output=True, text=True)

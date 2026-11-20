@@ -12,6 +12,9 @@ name: Rebuild the viewer bundle
 # would never get pr-tests.yml and the required checks would wait forever. A deploy-key push does start
 # them, and the rebuilt head is then checked like any other.
 #
+# Any failing check counts: stale inputs, or a bundle whose bytes are not the stamped ones (it was changed
+# from outside, e.g. a merge that kept the other side's zip); either way the bundle is rebuilt from the branch.
+#
 # Loops: nothing is pushed unless the check fails and the build changes the bundle or the stamp; the
 # rebuilt head passes the check, so the run this push triggers does nothing. A head commit that is
 # already a rebuild and still fails the check is an error here, not another rebuild.

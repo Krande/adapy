@@ -20,6 +20,10 @@ renderer inlined into the bundle (``ARG ADACPP_BASE_IMAGE`` and ``ARG ADACPP_REN
 desktop dev server) or the tooling around them read. When unsure, a file is an input: a needless
 rebuild costs a minute, a missed input ships a stale bundle.
 
+The stamp also records the sha256 of index.zip itself (``bundle-sha256``), so a bundle changed from outside
+-- rebuilt from other sources, replaced by hand, the other side of a merge conflict -- fails ``check`` even
+when the inputs match. index.zip is binary (``-text`` in git), so the working file is the committed bytes.
+
 The package ``version`` in ``package.json`` and ``package-lock.json`` is ignored. The release bumps it
 in the tagged commit and nothing bundles it, so counting it would make every release stale.
 """
@@ -43,6 +47,7 @@ BUNDLE = "src/ada/visit/rendering/resources/index.zip"
 DOCKERFILE = "deploy/Dockerfile.viewer"
 PINS = ("ADACPP_BASE_IMAGE", "ADACPP_RENDER_REF")
 HASH_LINE = "inputs-sha256"
+BUNDLE_LINE = "bundle-sha256"
 
 # Directories under src/frontend (prefix match on the path relative to it) that no default build reads.
 _EXCLUDED_DIRS = (
@@ -139,18 +144,26 @@ def digest(inputs: dict[str, str]) -> str:
     return hashlib.sha256(lines.encode()).hexdigest()
 
 
-def render(inputs: dict[str, str]) -> str:
+def bundle_digest(root: pathlib.Path = REPO) -> str:
+    """sha256 of index.zip's bytes ("" when it is missing). The zip is binary (`-text` in git), so the
+    working file is the committed file byte for byte."""
+    path = root / BUNDLE
+    return hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else ""
+
+
+def render(inputs: dict[str, str], bundle: str) -> str:
     header = (
-        "# The inputs src/ada/visit/rendering/resources/index.zip was built from. Do not edit.\n"
+        "# The inputs src/ada/visit/rendering/resources/index.zip was built from, and its own hash. Do not edit.\n"
         "# Refresh with `pixi run wbuild` (rebuilds the bundle and rewrites this), then commit both.\n"
         "# Checked by `pixi run check-bundle-inputs` and by CI. See scripts/packaging/bundle_inputs.py.\n"
     )
     body = "".join(f"{name} {inputs[name]}\n" for name in sorted(inputs))
-    return f"{header}{HASH_LINE} {digest(inputs)}\n{body}"
+    return f"{header}{HASH_LINE} {digest(inputs)}\n{BUNDLE_LINE} {bundle}\n{body}"
 
 
-def parse(text: str) -> tuple[str, dict[str, str]]:
+def parse(text: str) -> tuple[str, str, dict[str, str]]:
     stamped = ""
+    bundle = ""
     inputs: dict[str, str] = {}
     for line in text.splitlines():
         if not line.strip() or line.startswith("#"):
@@ -158,9 +171,11 @@ def parse(text: str) -> tuple[str, dict[str, str]]:
         key, _, value = line.partition(" ")
         if key == HASH_LINE:
             stamped = value.strip()
+        elif key == BUNDLE_LINE:
+            bundle = value.strip()
         else:
             inputs[key] = value.strip()
-    return stamped, inputs
+    return stamped, bundle, inputs
 
 
 def changes(stamped: dict[str, str], now: dict[str, str]) -> list[str]:
@@ -183,9 +198,13 @@ def write(root: pathlib.Path = REPO) -> int:
             file=sys.stderr,
         )
     path = root / STAMP
-    text = render(collect(root))
-    path.write_text(text, encoding="utf-8", newline="\n")
-    print(f"wrote {STAMP} ({digest(collect(root))[:12]})")
+    inputs = collect(root)
+    bundle = bundle_digest(root)
+    if not bundle:
+        print(f"{BUNDLE} does not exist; build it first (`pixi run wbuild`)", file=sys.stderr)
+        return 1
+    path.write_text(render(inputs, bundle), encoding="utf-8", newline="\n")
+    print(f"wrote {STAMP} (inputs {digest(inputs)[:12]}, bundle {bundle[:12]})")
     return 0
 
 
@@ -195,10 +214,22 @@ def check(root: pathlib.Path = REPO) -> int:
     if not path.is_file():
         print(f"the viewer bundle has no stamp ({STAMP}); {_FIX}", file=sys.stderr)
         return 1
-    stamped_hash, stamped = parse(path.read_text(encoding="utf-8"))
+    stamped_hash, stamped_bundle, stamped = parse(path.read_text(encoding="utf-8"))
     if stamped_hash == digest(now) and stamped == now:
-        print(f"the viewer bundle is up to date ({stamped_hash[:12]})")
-        return 0
+        if stamped_bundle and stamped_bundle == bundle_digest(root):
+            print(f"the viewer bundle is up to date (inputs {stamped_hash[:12]}, bundle {stamped_bundle[:12]})")
+            return 0
+        why = (
+            "the stamp has no bundle-sha256 line"
+            if not stamped_bundle
+            else "index.zip's bytes differ from the stamped ones"
+        )
+        print(
+            f"the viewer bundle changed without its stamp: index.zip is not the one built from these inputs ({why}) "
+            f"-- {_FIX}",
+            file=sys.stderr,
+        )
+        return 1
     moved = changes(stamped, now)
     print(f"the viewer bundle is stale: its inputs changed since it was built -- {_FIX}", file=sys.stderr)
     if moved:
