@@ -47,6 +47,9 @@ export interface OverlayMesh extends OverlayLook {
     positions: Float32Array;
     /** Three vertices per triangle. Drawn from both sides, in its colour as it is (no lighting). */
     indices: Uint32Array;
+    /** Drawn from its front only (the side its triangles turn counter-clockwise), as a one-sided
+     *  three.js material draws: fewer layers to see through on a see-through box. */
+    frontOnly?: boolean;
     /** A colour per vertex (linear RGB, three numbers each) instead of `color`. */
     colors?: Float32Array;
 }

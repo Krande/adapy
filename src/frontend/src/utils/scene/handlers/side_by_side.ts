@@ -3,6 +3,7 @@ import * as THREE from "three";
 import { loadedSourceGroups, useModelState } from "@/state/modelState";
 import { requestRender } from "@/state/perfStore";
 import { sideBySideOffsetX } from "@/utils/cellbuilder/sideBySide";
+import { activeViewport, onModelLoaded, type ViewportApi } from "@/viewport/api/viewportApi";
 
 // Side-by-side procedural view: draw the compiled result group beside the
 // editable topology instead of on top of it. A single scene, one camera — only
@@ -25,7 +26,11 @@ export function applySideBySideOffset(
   topologyMaxX = 0,
 ): void {
   const group = loadedSourceGroups.get(sourceName);
-  if (!group) return;
+  if (!group) {
+    // No three.js group: the three.js-free viewport, which holds its models itself.
+    sideBySideOnViewport(sourceName, on, topologyMaxX);
+    return;
+  }
   const translation = useModelState.getState().translation;
   const baseX = translation ? translation.x : 0;
   if (!on) {
@@ -43,4 +48,41 @@ export function applySideBySideOffset(
   group.position.x =
     baseX + sideBySideOffsetX(topologyMaxX, resultMinX, Math.max(topologyMaxX, resultWidth));
   requestRender();
+}
+
+/** Models asked to be placed before the viewport had them, by source name: the wait to drop. */
+const waiting = new Map<string, () => void>();
+
+/** The same placement on a viewport that keeps its models itself (`ViewportApi.shiftSource`): the
+ *  model moved along X from where it was placed, by the same offset. A model still on its way (that
+ *  viewport loads it a moment after it is fetched) is placed when it arrives. */
+export function sideBySideOnViewport(
+  sourceName: string,
+  on: boolean,
+  topologyMaxX = 0,
+  viewport: Pick<ViewportApi, "shiftSource" | "sourceOrigin"> | null = activeViewport(),
+): boolean {
+  waiting.get(sourceName)?.();
+  waiting.delete(sourceName);
+  if (!viewport?.shiftSource) return false;
+  const place = (): boolean => {
+    // Back where it was placed, which also says where that is.
+    const box = viewport.shiftSource!(sourceName, [0, 0, 0]);
+    if (!box) return false;
+    if (!on) return true;
+    const origin = viewport.sourceOrigin(sourceName) ?? [0, 0, 0];
+    const resultMinX = box[0] - origin[0];
+    const resultWidth = box[3] - box[0];
+    viewport.shiftSource!(sourceName, [sideBySideOffsetX(topologyMaxX, resultMinX, Math.max(topologyMaxX, resultWidth)), 0, 0]);
+    return true;
+  };
+  if (place() || !on) return true;
+  const off = onModelLoaded((info) => {
+    if (info.sourceName !== sourceName) return;
+    off();
+    waiting.delete(sourceName);
+    place();
+  });
+  waiting.set(sourceName, off);
+  return true;
 }

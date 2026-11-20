@@ -11,7 +11,6 @@ import * as THREE from "three";
 import {useCellBuilderStore} from "@/state/cellBuilderStore";
 import {useModelState} from "@/state/modelState";
 import {requestRender} from "@/state/perfStore";
-import {useGroundGridStore} from "@/state/groundGridStore";
 import type {CellBuilderScene} from "./sceneContext";
 
 // While a procedural model is open, the scene's static 1 m helper grid is
@@ -33,19 +32,8 @@ export const syncBuilderGrid = (ctx: CellBuilderScene) => {
     const st = useCellBuilderStore.getState();
     const wantGrid = st.active !== null && st.gridStep > 0;
 
-    // Toggle the default scene grid(s) opposite to ours.
-    if (wantGrid && ctx.hiddenDefaultGrids.length === 0) {
-        for (const o of ctx.scene.children) {
-            if (o instanceof THREE.GridHelper && o !== ctx.builderGrid && o.visible) {
-                o.visible = false;
-                ctx.hiddenDefaultGrids.push(o);
-            }
-        }
-    } else if (!wantGrid && ctx.hiddenDefaultGrids.length > 0) {
-        // Back as the "Ground grid" toggle has it (it may have been turned off meanwhile).
-        ctx.hiddenDefaultGrids.forEach((g) => (g.visible = useGroundGridStore.getState().visible));
-        ctx.hiddenDefaultGrids.length = 0;
-    }
+    // Toggle the viewport's ground grid opposite to ours.
+    ctx.host.setGroundGridHidden(wantGrid);
 
     if (!wantGrid) {
         disposeBuilderGrid(ctx);
@@ -63,6 +51,7 @@ export const syncBuilderGrid = (ctx: CellBuilderScene) => {
     ctx.builderGrid = new THREE.GridHelper(extent, divisions, 0x6b7280, 0x374151);
     (ctx.builderGrid.material as THREE.Material).depthWrite = false;
     ctx.builderGrid.renderOrder = -1;
+    ctx.builderGrid.userData.__builderGrid = true;
     ctx.builderGrid.layers.set(1);
     if (useModelState.getState().zIsUp) {
         ctx.builderGrid.rotation.x = Math.PI / 2; // XZ default -> model XY plane

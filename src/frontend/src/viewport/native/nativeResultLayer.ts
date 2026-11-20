@@ -64,7 +64,8 @@ export class NativeResultLayer implements ResultMeshLayer {
         if (overlay) {
             // An annotation: unlit, a click passes through it, and it wins over the faces it lies on.
             this.baseFlags = InstanceFlag.MorphRelative | InstanceFlag.Unlit | InstanceFlag.NoPick |
-                (triangles ? InstanceFlag.DoubleSided : 0) |
+                // One-sided: the renderer draws both sides of a transparent instance unless told so.
+                (triangles ? (overlay.frontOnly ? InstanceFlag.CullBack : InstanceFlag.DoubleSided) : 0) |
                 (overlay.onTop ? InstanceFlag.OnTop : InstanceFlag.DepthOffset) |
                 (overlay.clipped === false ? 0 : InstanceFlag.Clipped) |
                 (this.opacity < 1 ? InstanceFlag.Transparent : 0);

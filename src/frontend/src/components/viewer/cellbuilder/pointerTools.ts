@@ -10,7 +10,6 @@
 import * as THREE from "three";
 import {useCellBuilderStore, type BuilderCell} from "@/state/cellBuilderStore";
 import {requestRender} from "@/state/perfStore";
-import {getViewerRuntime} from "@/state/viewerRuntime";
 import {BOX_FACE_SIDES, edgeHitOnFace, quantize, snapBox, type CellBox, type EdgeHit, type Vec3} from "@/utils/cellbuilder/snap";
 import {DRAG_START_PX, GHOST_COLOR, LONG_PRESS_MOVE_PX, LONG_PRESS_MS, OPENING_COLOR, addModeSize} from "./sceneConstants";
 import {offsetVec, worldToModel, type CellBuilderScene} from "./sceneContext";
@@ -20,7 +19,7 @@ import {applyCellTranslate, cellCenterModel, computeMove, endModalMove, equipCon
 import {pickPort} from "./portGizmo";
 import {resizable} from "./resizeHandles";
 import {boxFrameMatrix, isRotated, resizeBoxFace} from "@/utils/cellbuilder/cellResize";
-import {viewportInputElement} from "@/viewport/input";
+import {builderCamera} from "./viewHost";
 import {snapStep} from "@/utils/gizmo/freeMove";
 import {isAdditiveClick} from "@/utils/mesh_select/additiveClick";
 import {claimPress} from "./cellBoxSelect";
@@ -69,9 +68,8 @@ export const startFaceDrag = (ctx: CellBuilderScene, box: GizmoBox, faceIndex: n
         ctx.drag.started = true;
         st.setMode("drag-face");
         st.beginTransaction();
-        const runtimeCtl = getViewerRuntime().controls.current;
-        if (runtimeCtl) runtimeCtl.enabled = false;
-        viewportInputElement(ctx.renderer).setPointerCapture(ev.pointerId);
+        ctx.host.setCameraEnabled(false);
+        ctx.host.input().setPointerCapture(ev.pointerId);
     }
     return true;
 };
@@ -122,10 +120,10 @@ export const armLongPress = (ctx: CellBuilderScene, ev: PointerEvent) => {
 };
 
 export const setPointer = (ctx: CellBuilderScene, ev: PointerEvent) => {
-    const rect = ctx.renderer.domElement.getBoundingClientRect();
+    const rect = ctx.host.rect();
     ctx.pointer.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
     ctx.pointer.y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
-    ctx.raycaster.setFromCamera(ctx.pointer, getViewerRuntime().camera.current ?? (ctx.camera as any));
+    ctx.raycaster.setFromCamera(ctx.pointer, builderCamera(ctx));
 };
 
 export const pickBuilderMesh = (ctx: CellBuilderScene): THREE.Intersection | null => {
@@ -157,7 +155,7 @@ export const refHitWins = (ctx: CellBuilderScene, refHit: THREE.Intersection | n
 };
 
 export const syncCursor = (ctx: CellBuilderScene) => {
-    viewportInputElement(ctx.renderer).style.cursor = ctx.hoveredEdge ? "crosshair" : ctx.hovered ? "pointer" : "";
+    ctx.host.input().style.cursor = ctx.hoveredEdge ? "crosshair" : ctx.hovered ? "pointer" : "";
 };
 
 export const setHoveredFace = (ctx: CellBuilderScene, mesh: THREE.Mesh | null, faceIndex: number) => {
@@ -461,9 +459,8 @@ export const onPointerMove = (ctx: CellBuilderScene, ev: PointerEvent) => {
             st.setMode("drag-face");
             // Coalesce the whole drag into one undo step.
             st.beginTransaction();
-            const runtimeCtl = getViewerRuntime().controls.current;
-            if (runtimeCtl) runtimeCtl.enabled = false;
-            viewportInputElement(ctx.renderer).setPointerCapture(ctx.drag.pointerId);
+            ctx.host.setCameraEnabled(false);
+            ctx.host.input().setPointerCapture(ctx.drag.pointerId);
         }
         const t = lineParamFromRay(ctx.raycaster.ray, ctx.drag.lineOrigin, ctx.drag.lineDir);
         if (t === null) return;
@@ -499,7 +496,7 @@ export const onPointerMove = (ctx: CellBuilderScene, ev: PointerEvent) => {
             st.selectMode !== "none" &&
             st.gizmoMode === "none" &&
             (pickBuilderMesh(ctx) !== null || pickRefMesh(ctx) !== null);
-        viewportInputElement(ctx.renderer).style.cursor =
+        ctx.host.input().style.cursor =
             overCell ? (st.selectMode === "edge" ? "crosshair" : "pointer") : "";
     }
 };
@@ -519,10 +516,9 @@ export const finalizeDrag = (ctx: CellBuilderScene, ev: PointerEvent, cancelled:
         const st = useCellBuilderStore.getState();
         st.setMode("idle");
         st.endTransaction(); // close the coalesced-drag undo step
-        const runtimeCtl = getViewerRuntime().controls.current;
-        if (runtimeCtl) runtimeCtl.enabled = true;
+        ctx.host.setCameraEnabled(true);
         try {
-            viewportInputElement(ctx.renderer).releasePointerCapture(pending.pointerId);
+            ctx.host.input().releasePointerCapture(pending.pointerId);
         } catch {
             /* already released */
         }

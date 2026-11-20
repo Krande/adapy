@@ -10,7 +10,7 @@
 import * as THREE from "three";
 import {useCellBuilderStore} from "@/state/cellBuilderStore";
 import {requestRender} from "@/state/perfStore";
-import {getViewerRuntime} from "@/state/viewerRuntime";
+import {builderCamera} from "./viewHost";
 import {bandFaceIds} from "@/utils/cellbuilder/loft";
 import {BOX_FACE_SIDES, faceCenter, neighbourFaceInDirection, type Vec3} from "@/utils/cellbuilder/snap";
 import {gizmoAxisOfKey, gizmoModeOfKey, isTextEntry, toggledAxisLock} from "@/utils/gizmo/transformKeys";
@@ -643,7 +643,7 @@ export const onKeyDown = (ctx: CellBuilderScene, ev: KeyboardEvent) => {
                 st.selection?.kind === "face" &&
                 st.selection.faceIndex != null
             ) {
-                const camObj = getViewerRuntime().camera.current;
+                const camObj = builderCamera(ctx);
                 if (camObj) {
                     const camRight = new THREE.Vector3()
                         .setFromMatrixColumn(camObj.matrixWorld, 0)

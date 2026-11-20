@@ -62,6 +62,8 @@ export interface ResultOverlayLook {
     clipped?: boolean;
     /** Lines: dashes, measured by `distances` (the length along the line at each vertex). */
     dashed?: {dash: number; gap: number; distances: Float32Array};
+    /** Triangles: drawn from their front only; from both sides when left out. */
+    frontOnly?: boolean;
 }
 
 /** One mesh of a shown result. Each call replaces what the previous one of its kind set; the arrays

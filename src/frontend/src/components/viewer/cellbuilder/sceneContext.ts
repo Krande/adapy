@@ -16,17 +16,13 @@ import {LineMaterial} from "three/examples/jsm/lines/LineMaterial";
 import {TransformControls} from "three/examples/jsm/controls/TransformControls";
 import {useModelState} from "@/state/modelState";
 import {requestRender} from "@/state/perfStore";
-import {getViewerRuntime} from "@/state/viewerRuntime";
 import type {CellBox, Vec3} from "@/utils/cellbuilder/snap";
 import {GHOST_COLOR, HOVER_EDGE_COLOR, HOVER_EDGE_WIDTH, SELECTED_EDGE_COLOR, SELECTED_EDGE_WIDTH, SELECTED_FACE_COLOR} from "./sceneConstants";
 import type {DragState, EquipEntry, HoveredEdge, HoveredFace, LoftActive, ModalMove, NumEntry, OpenEntry, PendingGizmoExit, PendingSelect, PlaceEntry} from "./sceneTypes";
-import {viewportInputElement} from "@/viewport/input";
+import type {BuilderViewHost} from "./viewHost";
 
-export function createCellBuilderScene(
-    renderer: THREE.WebGLRenderer,
-    scene: THREE.Scene,
-    camera: THREE.Camera,
-) {
+export function createCellBuilderScene(host: BuilderViewHost) {
+    const scene = host.scene;
     const container = new THREE.Group();
     container.name = "__cellbuilder__";
     container.userData.__excludeFromFit = true;
@@ -79,11 +75,6 @@ export function createCellBuilderScene(
     );
     ghost.visible = false;
     container.add(ghost); // inherits the model offset
-    // While a procedural model is open, the scene's static 1 m helper grid is
-    // swapped for a builder grid whose line spacing IS the snap gridStep (and
-    // which lives inside the container, so its intersections are exactly the
-    // model-space points quantize() snaps to).
-    const hiddenDefaultGrids: THREE.GridHelper[] = [];
     const raycaster = new THREE.Raycaster();
     const pointer = new THREE.Vector2();
     const meshById = new Map<string, THREE.Mesh>();
@@ -128,7 +119,7 @@ export function createCellBuilderScene(
     // produces round-trips to identical ROT_X/Y/Z on the built equipment.
     gizmoProxy.rotation.order = "ZYX";
     container.add(gizmoProxy);
-    const gizmo = new TransformControls(getViewerRuntime().camera.current ?? (camera as THREE.Camera), viewportInputElement(renderer));
+    const gizmo = new TransformControls(host.camera(), host.input());
     gizmo.setSpace("world");
     const gizmoHelper = gizmo.getHelper();
     gizmoHelper.userData.__excludeFromFit = true;
@@ -168,7 +159,7 @@ export function createCellBuilderScene(
     const portProxy = new THREE.Object3D();
     portProxy.userData.__excludeFromFit = true;
     container.add(portProxy);
-    const portGizmo = new TransformControls(getViewerRuntime().camera.current ?? (camera as THREE.Camera), viewportInputElement(renderer));
+    const portGizmo = new TransformControls(host.camera(), host.input());
     portGizmo.setSpace("world");
     const portGizmoHelper = portGizmo.getHelper();
     portGizmoHelper.userData.__excludeFromFit = true;
@@ -217,9 +208,9 @@ export function createCellBuilderScene(
     container.add(ringPreview);
 
     return {
-        renderer,
+        /** The viewport the builder is drawn in (./viewHost.ts). */
+        host,
         scene,
-        camera,
         container,
         cellsGroup,
         refsGroup,
@@ -231,7 +222,6 @@ export function createCellBuilderScene(
         cadPreviewShown,
         portMarkerGeom,
         ghost,
-        hiddenDefaultGrids,
         raycaster,
         pointer,
         meshById,

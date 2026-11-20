@@ -20,6 +20,8 @@ const moved = { origin: [3, 0, 0] as [number, number, number], size: start.size 
 /** The scene while a modal move along X has carried the cell 3 m: what Escape reads and resets. */
 function liveMove() {
   const moveMeasureGroup = new THREE.Group();
+  // The element the view's pointer arrives on: its cursor.
+  const input = { style: { cursor: "move" } };
   const ctx = {
     modalMove: { cellId: "c1", axis: 0 as const, lineDir: new THREE.Vector3(1, 0, 0), lineOrigin: new THREE.Vector3(), startT: 0, startBox: start },
     moveMeasure: { cellId: "c1", start },
@@ -29,7 +31,8 @@ function liveMove() {
     gizmoHelper: { visible: false },
     guideLine: { visible: true },
     snapMarker: { visible: true },
-    renderer: { domElement: { parentElement: null, style: { cursor: "move" } } },
+    input,
+    host: { input: () => input, camera: () => new THREE.PerspectiveCamera() },
   };
   useCellBuilderStore.setState({
     active: { modelId: "m", name: "demo/demo", revision: 1 },
@@ -63,7 +66,7 @@ test("Escape in the HUD's Move field cancels the move: cell back, measure gone, 
   assert.equal(st.gizmoAxisLock, null, "the lock is dropped");
   assert.equal(st.gizmoMode, "translate", "the gizmo itself stays (a second Escape closes it)");
   assert.equal(ctx.guideLine.visible, false);
-  assert.equal(ctx.renderer.domElement.style.cursor, "");
+  assert.equal(ctx.input.style.cursor, "");
   assert.equal(prevented(), true);
 });
 
