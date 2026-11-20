@@ -194,6 +194,12 @@ async def _viewport_pixels(page: Page) -> Image.Image:
         await page.evaluate(SETTINGS_VISIBLE, True)
 
 
+async def _default_brightness(page: Page) -> float:
+    """The brightness the slider shows after a Reset: the viewer's default (1 before the appearance
+    settings' version 2, 0.5 from it). The tests start from brightness 1 either way (``BASE_LOOK``)."""
+    return float(await page.locator("[data-option=brightness]").input_value())
+
+
 async def _set_option(page: Page, option: str, value: str) -> None:
     await page.evaluate(SET_INPUT, [f"[data-option={option}]", value])
 
@@ -323,7 +329,7 @@ async def test_brightness_the_default_colour_and_the_background_change_at_once(w
             await face_is(_srgb(0.8 * 0.9 * (math.pi / 2 + 1.4) / math.pi), "ambient light only")
 
             await page.locator("[data-option=appearance-reset]").click()
-            await face_is(_lit(0.8, 1.0), "reset")
+            await face_is(_lit(0.8, 1.0, brightness=await _default_brightness(page)), "reset")
 
             # The model has no colour of its own: it takes the default colour.
             await _set_option(page, "default-colour", "#ff0000")
@@ -342,7 +348,7 @@ async def test_brightness_the_default_colour_and_the_background_change_at_once(w
             await _until(page, blue_background, f"{backend}: the background to change")
 
             await page.locator("[data-option=appearance-reset]").click()
-            await face_is(_lit(0.8, 1.0), "reset after the colours")
+            await face_is(_lit(0.8, 1.0, brightness=await _default_brightness(page)), "reset after the colours")
             assert max(_patch(await _viewport_pixels(page), *corner)) < 80, f"{backend}: the background did not go back"
         finally:
             await browser.close()

@@ -35,6 +35,7 @@
 
 import * as THREE from "three";
 import {FEA_EDGE_COLOR} from "./edgeColors";
+import {withFeaEdgeColor} from "./threeEdgeLook";
 import {GLTFLoader} from "three/examples/jsm/loaders/GLTFLoader";
 import {GLTFExporter} from "three/examples/jsm/exporters/GLTFExporter";
 
@@ -379,10 +380,8 @@ export async function assembleAnimatedFeaGlbWithInfo(
                     lineGeom.morphTargetsRelative = true;
                 }
                 lineGeom.setIndex(new THREE.BufferAttribute(idx, 1));
-                const lineMat = new THREE.LineBasicMaterial({
-                    color: FEA_EDGE_COLOR,
-                    depthTest: true,
-                });
+                // In the setting's colour and brightness (edgeLook.ts), live.
+                const lineMat = withFeaEdgeColor(new THREE.LineBasicMaterial({depthTest: true}), FEA_EDGE_COLOR);
                 (lineMat as any).morphTargets = true;
                 const segments = new THREE.LineSegments(lineGeom, lineMat);
                 segments.name = FEA_EDGE_LINES_NAME;

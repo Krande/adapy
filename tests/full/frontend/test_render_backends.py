@@ -155,6 +155,15 @@ async def _steady(page: Page, box: tuple[int, int, int, int], seconds: float = 2
     raise AssertionError("the picture never stopped changing")
 
 
+# The look the pixel thresholds here are measured under: the lights at brightness 1 and FEA results
+# drawn flat. Stored as version 2 of the appearance settings, so a viewer bundle of either version
+# starts from it: version 2's own defaults are brightness 0.5 with shaded results, and version 1's
+# were these (a version-1 bundle reads no settings of another version and keeps its defaults).
+# Only when nothing is stored: a test's own settings, and a reload's, stand.
+BASE_LOOK = """if (!localStorage.getItem('ada-appearance')) localStorage.setItem('ada-appearance',
+    JSON.stringify({state: {brightness: 1, shadeResults: false}, version: 2}));"""
+
+
 async def _open_viewer(playwright, ws_server, backend: str, init_script: str | None = None, empty_pixels: int = 500000):
     """A viewer page on `backend`, connected to the websocket server; skips when WebGPU has no adapter here.
     `init_script` runs in the page before the viewer starts (stored settings); `empty_pixels` is how much
@@ -164,6 +173,7 @@ async def _open_viewer(playwright, ws_server, backend: str, init_script: str | N
     page = await browser.new_page(viewport=VIEWPORT)
     console = capture_console(page)
     await page.add_init_script(COUNT_WEBGL)
+    await page.add_init_script(BASE_LOOK)
     if init_script:
         await page.add_init_script(init_script)
     if perf:

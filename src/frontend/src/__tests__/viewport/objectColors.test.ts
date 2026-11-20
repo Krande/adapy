@@ -250,7 +250,7 @@ test("recolouring 10,000 objects is one pass over the segments: one write per in
 
 test("the lights and the background are the appearance settings', set when they change", () => {
     const {calls} = h.fake;
-    assert.deepEqual(calls.setLighting, [[Math.PI / 2, 1.4]]);
+    assert.deepEqual(calls.setLighting, [[Math.PI / 4, 0.7]], "the default brightness, 0.5");
     assert.deepEqual(calls.setBackground.map((c) => c.map((v) => Math.round(v * 255))), [[0x39, 0x39, 0x39]]);
     useAppearanceStore.getState().setBrightness(2);
     assert.deepEqual(calls.setLighting.at(-1), [Math.PI, 2.8]);

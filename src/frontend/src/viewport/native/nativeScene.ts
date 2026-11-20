@@ -301,8 +301,10 @@ export class NativeScene {
         this.defaultSegmentColor = packSegmentColor(...defaultColorLinear());
         this.cleanups.push(useAppearanceStore.subscribe((now, before) => {
             if (now.background !== before.background) background();
-            if (now.brightness !== before.brightness || now.ambientShare !== before.ambientShare) lights();
-            if (now.shadeResults !== before.shadeResults) for (const layer of this.resultLayers) layer.refreshLook();
+            const lightsChanged = now.brightness !== before.brightness || now.ambientShare !== before.ambientShare;
+            if (lightsChanged) lights();
+            // A shaded result's colour is scaled by the lights (its exposure) as well.
+            if (now.shadeResults !== before.shadeResults || lightsChanged) for (const layer of this.resultLayers) layer.refreshLook();
             if (now.defaultColor !== before.defaultColor) {
                 this.defaultSegmentColor = packSegmentColor(...defaultColorLinear());
                 this.writeStates();

@@ -50,6 +50,7 @@ import {beamSolidDisplacement} from "../beamSolidWarp";
 import {hasLazyCases, legendScopeFor, mergeCaseSteps, nextCaseToPrefetch, slotCount, slotRef} from "../caseSteps";
 import {FEA_BEAM_EDGE_COLOR, FEA_EDGE_COLOR, FEA_UNDEFORMED_COLOR} from "../edgeColors";
 import {edgeFadeOpacity, pixelsPerUnitAtFocus, typicalEdgeLength} from "../edgeFade";
+import {feaEdgeLinear, onFeaEdgeLookChange} from "../edgeLook";
 import {withoutEdges} from "../edgeSplit";
 import {elementLocalVertices, expandTriplesInto, paintElemField, shownElemFieldRange, type PaintedPoints} from "../elemFieldPaint";
 import {notifyFeaTargetGone, registerFeaTarget, type FeaOverlayTarget} from "../elementSource";
@@ -609,9 +610,9 @@ function applyView(s: LayerSession): void {
     }
 }
 
-/** Element edges as a layer of lines over the nodes. */
+/** Element edges as a layer of lines over the nodes, in the edge colour the settings make of `color`. */
 function edgeLines(s: Pick<LayerSession, "results" | "mesh">, indices: Uint32Array, color: number): ResultMeshLayer {
-    return s.results.createResultMesh({positions: s.mesh.positions, indices, topology: "lines", matrix: s.mesh.matrix, color: linear(color)});
+    return s.results.createResultMesh({positions: s.mesh.positions, indices, topology: "lines", matrix: s.mesh.matrix, color: feaEdgeLinear(color)});
 }
 
 /** Whether the beam sections are what draws the beams now. */
@@ -799,7 +800,7 @@ function drawSolidEdges(s: LayerSession): void {
     }
     const before = s.solidEdges;
     s.solidEdges = s.group.add(
-        s.results.createResultMesh({positions: solids.positions, indices: pairs, topology: "lines", matrix: s.mesh.matrix, color: linear(FEA_EDGE_COLOR)}),
+        s.results.createResultMesh({positions: solids.positions, indices: pairs, topology: "lines", matrix: s.mesh.matrix, color: feaEdgeLinear(FEA_EDGE_COLOR)}),
         solidsOn(s) && useFeaAnimationStore.getState().beamSolidEdgesVisible,
     );
     s.group.drop(before);
@@ -925,8 +926,16 @@ async function openLayerSession(args: {
     const shellEdges = lines(edges.shell, FEA_EDGE_COLOR);
     const beamEdges = lines(edges.beam, FEA_BEAM_EDGE_COLOR);
     // The panels list the viewport's model: the Scene tree gets the result's elements, which are
-    // the viewport's objects by the same ids.
-    notifyModelLoaded({model: resultModelKey(sourceName), sourceName, sceneExtras: "", extras: elements?.extras});
+    // the viewport's objects by the same ids. The result is listed by its file name: the hierarchy's
+    // root ("FEA elements") is not the name of anything the user opened, and with no name given the
+    // Scene tree, and the loaded-models list that follows it, would call the model that.
+    notifyModelLoaded({
+        model: resultModelKey(sourceName),
+        sourceName,
+        displayName: sourceName.split("/").pop() || sourceName,
+        sceneExtras: "",
+        extras: elements?.extras,
+    });
 
     const nPoints = mesh.positions.length / 3;
     let drawn: Uint8Array | null = null;
@@ -1034,6 +1043,12 @@ async function openLayerSession(args: {
         opened.faces.setColor(color);
         opened.solidsLayer?.setColor(color);
     });
+    // The element-edge colour and brightness settings, on the edges drawn now.
+    const offEdgeLook = onFeaEdgeLookChange(() => {
+        opened.shellEdges?.setColor(feaEdgeLinear(FEA_EDGE_COLOR));
+        opened.solidEdges?.setColor(feaEdgeLinear(FEA_EDGE_COLOR));
+        opened.beamEdges?.setColor(feaEdgeLinear(FEA_BEAM_EDGE_COLOR));
+    });
     // The dummy-mass beams became known (a result's sets are read after its first paint): the
     // coloured lines are worked out again without them.
     const offDummies = useFemConceptsStore.subscribe((now, before) => {
@@ -1066,6 +1081,7 @@ async function openLayerSession(args: {
         offView();
         offVisibility();
         offPlain();
+        offEdgeLook();
         offDummies();
     };
     session = opened;

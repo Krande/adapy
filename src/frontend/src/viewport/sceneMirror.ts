@@ -14,7 +14,7 @@
 //  - a Sprite: a billboard of its texture, at one size on screen (`sizeAttenuation: false`) or in
 //    the world, anchored at its centre.
 // A material's clipping planes make it cut by the section planes; nothing else is. Geometry is sent
-// once per buffer version; a move, a colour, an opacity or a hide is a change of look.
+// once per buffer and version of it (a buffer put in another's place is new geometry); a move, a colour, an opacity or a hide is a change of look.
 import * as THREE from "three";
 import type {Billboard, BillboardLayer} from "@/viewport/api/billboards";
 import type {OverlayLayer} from "@/viewport/api/overlayLayer";
@@ -93,9 +93,19 @@ function dashesOf(m: AnyMaterial | undefined): {dash: number; gap: number} | nul
     return {dash: (m.dashSize ?? 0) / scale, gap: (m.gapSize ?? 0) / scale};
 }
 
-function attrVersion(a: THREE.BufferAttribute | THREE.InterleavedBufferAttribute | null | undefined): number {
-    if (!a) return -1;
-    return (a as THREE.InterleavedBufferAttribute).isInterleavedBufferAttribute ? (a as THREE.InterleavedBufferAttribute).data.version : (a as THREE.BufferAttribute).version;
+/** A number for each attribute (or interleaved buffer) object, as long as it lives. */
+const attrIds = new WeakMap<object, number>();
+let nextAttrId = 1;
+
+/** Which attribute a geometry holds and which version of it: a fresh attribute put in its place
+ *  (`geometry.setAttribute(name, new BufferAttribute(...))`, starting again at version 0) is new
+ *  geometry as much as a bumped version of the old one is. */
+function attrVersion(a: THREE.BufferAttribute | THREE.InterleavedBufferAttribute | null | undefined): string {
+    if (!a) return "-";
+    const source: {version: number} = (a as THREE.InterleavedBufferAttribute).isInterleavedBufferAttribute ? (a as THREE.InterleavedBufferAttribute).data : (a as THREE.BufferAttribute);
+    let id = attrIds.get(source);
+    if (id === undefined) attrIds.set(source, (id = nextAttrId++));
+    return `${id}.${source.version}`;
 }
 
 function floats(a: THREE.BufferAttribute | THREE.InterleavedBufferAttribute): Float32Array {
@@ -254,6 +264,8 @@ export function createSceneMirror(scene: THREE.Scene, camera: THREE.Camera, targ
         entry.parts = [];
         if (entry.sprite) target.billboards.remove(entry.sprite.handle);
         entry.sprite = null;
+        // Nothing of it is drawn now: whatever it is next is drawn anew, even the geometry it had.
+        entry.signature = "";
     };
 
     const sameMatrix = (a: Float64Array, b: ArrayLike<number>): boolean => {

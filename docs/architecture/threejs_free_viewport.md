@@ -339,7 +339,7 @@ Neither imports three.js.
 
 ```mermaid
 flowchart LR
-    OPT["Options > Appearance<br/>palette: Appearance: …"] --> STORE["appearanceStore<br/>default colour, background,<br/>brightness, ambient share, shade results"]
+    OPT["Options > Appearance<br/>palette: Appearance: …"] --> STORE["appearanceStore<br/>default colour, background,<br/>brightness, ambient share, shade results,<br/>FEA edge colour and brightness"]
     STORE -->|"AmbientLight / DirectionalLight intensity,<br/>scene.background, material colour, one uniform"| T["three.js"]
     STORE -->|"setLighting, instance flags<br/>(the scene's materials are mirrored)"| M["adacpp mirror<br/>sceneSync.ts"]
     STORE -->|"setLighting, setBackground,<br/>segment colours, instance flags"| N["NativeScene"]
@@ -395,8 +395,22 @@ the face is turned. So:
   the mirror reads that as `Unlit`. Unpainted, the faces are lit like any model.
 - A result's faces are a **matte surface** on three.js too (metalness 0, roughness 1), so the
   unpainted model and a shaded result are the same there.
-- **"Shade FEA results"** (off by default) lights a painted result like the model, for a user who
-  wants the shape more than the exact colour. It is the same picture on all three.
+- **"Shade FEA results"** (on by default since version 2 of the settings) lights a painted result,
+  for a user who wants the shape as well as the colour. It is the same picture on all three, and it
+  only darkens the legend's colour: in linear light the colour times
+  `min(1, exposure * (ambient + headlight * N.L) / pi)`, one factor for all three channels
+  (`utils/scene/fea/resultShading.ts`). Two things used to make it paler than the legend instead,
+  mint and pale teal where the legend shows green and cyan: the matte material's highlight, which
+  adds the same light to every channel and so lifts a saturated colour's weak channels off zero
+  (about 0.06 of saturation lost on a large shell-and-beam model, both renderers), and, at a
+  brightness that lights a face past its colour, each channel clipped at 1, which brings the weak
+  channels up towards the strong one. A shaded result has no highlight now, and `exposure` scales
+  the lights down so a face square to the headlight is at most its legend colour. three.js computes
+  the factor in its shader from its own lights' diffuse terms (`threeResultLook.ts`); the adacpp
+  renderer lights a colour by exactly that factor without the highlight, so the instance is given
+  `specular = false` and `exposure` as its colour, in both the mirror and the three.js-free viewport.
+  Measured against the flat picture on the same camera (the flat colours are the legend's), the
+  shaded faces' hue is within 0.4 degrees (median 0.1) and their saturation unchanged, on both.
 
 After, at the same three pixels (the shaded rows are from another load, which the three.js-free
 viewport framed a few pixels differently):
@@ -432,19 +446,26 @@ Two things are left, both the renderer's to finish:
 |---|---|---|---|
 | Default colour: what geometry without a colour of its own is drawn in | `#e7e7e7` (0.8 linear, the grey ada writes) | the colour of each material marked as having none (`defaultBlackColor.ts`): black, or exactly ada's grey | the mirror follows the materials; `NativeScene` reads the GLB's materials once at load (`utils/glb/glbUncoloured.ts`) and draws those objects with the default colour as their segments' colour |
 | Background | `#393939` | `scene.background` | `setBackground` |
-| Brightness: multiplies both lights | 1 | the two lights' intensities | `setLighting(ambient, headlight)` |
+| Brightness: multiplies both lights | 0.5 (1 is the lights the viewer had before the settings) | the two lights' intensities | `setLighting(ambient, headlight)` |
 | Ambient share: how the light is split between the ambient light and the headlight | 0.529 (pi / 2 of pi / 2 + 1.4) | the two lights' intensities | `setLighting` |
-| Shade FEA results | off | one uniform | the instance's `Unlit` flag |
+| Shade FEA results | on | two uniforms (flat, exposure) | the instance's `Unlit` flag; shaded, no highlight and the exposure as its colour |
+| FEA edge colour: a result's element edges (the shell grid, the beam solids' edges) | `#ffffff` | one shared `THREE.Color` per edge colour (`threeEdgeLook.ts`) | the edge layers' `setColor` (`layerSession.ts`) |
+| FEA edge brightness: the edges' colour times this, on its sRGB value; the beam elements' grey edges too | 1 | the same | the same |
 
-The defaults are the look the viewer had, to the number. A change is applied when the store
-changes, by a subscription: a light is two numbers, a colour is three on a material or one pass over
-the segment states, and no geometry is touched. Nothing is read per frame. They are kept in the
-browser (`ada-appearance`), shown under Options > Appearance with a Reset, and each is a command of
+Brightness 1 and an ambient share of 0.529 are the look the viewer had before the settings, to the
+number. A change is applied when the store changes, by a subscription: a light is two numbers, a
+colour is three on a material or one pass over the segment states, and no geometry is touched.
+Nothing is read per frame. They are kept in the browser (`ada-appearance`), shown under Options >
+Appearance with a Reset (and a "Default edges" for the two edge settings), and each is a command of
 the palette (`core:option.*`, `layout/optionCommands.ts`).
 
-The edges are not a setting. three.js smooths a one-pixel line and the adacpp renderer does not,
-which is the difference left between two pictures of a model with its edges; an edge colour would
-need the renderer to change the colour of an instance it loaded.
+Version 2 of the stored settings made brightness 0.5 and shaded results the defaults. Version 1
+stored every setting whenever one changed, so a stored value cannot tell "left at the default" from
+"chosen": `migrateAppearance` takes a version-1 value equal to the version-1 default (brightness 1,
+results not shaded) as never chosen and gives it the new default, and keeps any other value.
+
+three.js smooths a one-pixel line and the adacpp renderer does not, which is the difference left
+between two pictures of a model with its edges.
 
 ### Colours given to objects
 

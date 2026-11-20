@@ -81,12 +81,15 @@ function fakeRenderer() {
         },
         _free: () => {},
     } as unknown as AdacppModule;
-    const seen = {flags: 0, sets: 0, colors: [] as number[]};
+    const seen = {flags: 0, sets: 0, colors: [] as number[], rgb: [] as number[], specular: true};
     const renderer = {
         addGeometry: () => 1,
         addInstance: () => 2,
-        setInstance: (_i: number, _m: number, _r: number, _g: number, _b: number, _a: number, flags: number) => {
+        setInstance: (_i: number, _m: number, r: number, g: number, b: number, _a: number, flags: number,
+                      _influence: number, _metalness: number, _roughness: number, specular: boolean) => {
             seen.flags = flags;
+            seen.rgb = [r, g, b];
+            seen.specular = specular;
             seen.sets++;
         },
         updateColors: (_g: number, p: number, n: number) => void (seen.colors = [...module.HEAPU32.subarray(p >> 2, (p >> 2) + n)]),
@@ -99,6 +102,7 @@ const TRIANGLE = {positions: new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]), indi
 
 test("a painted result is drawn flat, an unpainted one lit; 'Shade FEA results' lights it at once", () => {
     useAppearanceStore.getState().reset();
+    useAppearanceStore.getState().setShadeResults(false);
     const {module, renderer, seen} = fakeRenderer();
     const layer = new NativeResultLayer(module, renderer, TRIANGLE, () => {});
     assert.equal(seen.flags & InstanceFlag.Unlit, 0, "unpainted: lit like a model");
@@ -117,9 +121,19 @@ test("a painted result is drawn flat, an unpainted one lit; 'Shade FEA results' 
     layer.refreshLook();
     assert.equal(seen.sets, sets + 1, "one instance update, no geometry");
     assert.equal(seen.flags & InstanceFlag.Unlit, 0);
+    // Shaded: the diffuse light alone, no highlight (it greys a colour), and the lights scaled so a
+    // face square to the headlight is at most its legend colour.
+    assert.equal(seen.specular, false);
+    assert.deepEqual(seen.rgb, [1, 1, 1]);
+    useAppearanceStore.getState().setBrightness(2);
+    layer.refreshLook();
+    const k = Math.PI / (2 * (Math.PI / 2 + 1.4));
+    seen.rgb.forEach((c) => assert.ok(Math.abs(c - k) < 1e-9, String(c)));
     useAppearanceStore.getState().setShadeResults(false);
     layer.refreshLook();
     assert.ok(seen.flags & InstanceFlag.Unlit);
+    assert.deepEqual(seen.rgb, [1, 1, 1], "flat: the colours as painted");
+    useAppearanceStore.getState().reset();
 });
 
 test("lines and annotations are untouched by the setting", () => {

@@ -152,6 +152,10 @@ export function optionDescriptors(): OptionDescriptor[] {
       setters: ["setAmbientShare"], focus: "light-balance"},
     {kind: "toggle", id: "shade-results", title: "Appearance: shade FEA results", group: "Appearance", keywords: [...LOOK, "fea", "result", "lit", "unlit", "flat", "legend", "contour"],
       setters: ["setShadeResults"], get: () => useAppearanceStore.getState().shadeResults, set: (v) => useAppearanceStore.getState().setShadeResults(v)},
+    {kind: "open", id: "fea-edge-colour", title: "Appearance: FEA edge colour…", group: "Appearance", keywords: [...LOOK, "fea", "result", "element", "edges", "wireframe", "mesh", "lines", "grid"],
+      setters: ["setEdgeColor"], focus: "fea-edge-colour"},
+    {kind: "open", id: "fea-edge-brightness", title: "Appearance: FEA edge brightness…", group: "Appearance", keywords: [...LOOK, "fea", "result", "element", "edges", "wireframe", "mesh", "lines", "dim", "slider"],
+      setters: ["setEdgeBrightness"], focus: "fea-edge-brightness"},
     // --- Session ---
     {kind: "toggle", id: "scene-restore", title: "Restore the scene on reload", group: "Session", keywords: ["session", "reopen", "remember", ...GEN],
       setters: ["setEnabled"], get: () => useSceneRestoreStore.getState().enabled, set: (v) => useSceneRestoreStore.getState().setEnabled(v)},

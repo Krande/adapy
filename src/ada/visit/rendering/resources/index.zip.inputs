@@ -1,8 +1,8 @@
 # The inputs src/ada/visit/rendering/resources/index.zip was built from, and its own hash. Do not edit.
 # Refresh with `pixi run wbuild` (rebuilds the bundle and rewrites this), then commit both.
 # Checked by `pixi run check-bundle-inputs` and by CI. See scripts/packaging/bundle_inputs.py.
-inputs-sha256 2938b75bc2c285b067d3c3a7a90611256aa8916ce08ae7a40bc578666485929e
-bundle-sha256 60e74ccff0c5d9a5f65cf01991b4f8e1b4fb9c096c008af94aaa0f50240faadb
+inputs-sha256 b6766ced96da46f89f1578f903981f40a2c303a16802528ea4627958c3b52012
+bundle-sha256 56a8052797a13fa7d0550feea45b1a0d565ccfb5cf7c36eaa2bddb810e853ad6
 pin:ADACPP_BASE_IMAGE ghcr.io/krande/adacpp-wasm-base:0.44.0
 pin:ADACPP_RENDER_REF c1a7b3ab434a916e08170c634c23b9dc1974d32f
 src/frontend/clean.cjs 548054390de442a02ca36bd4de94f25095f10ae9
@@ -321,7 +321,7 @@ src/frontend/src/components/info_box_selected_object/cellBuilderSelection/fields
 src/frontend/src/components/layers/LayersPanel.tsx 96e59808d181e66eca5527b1ff59bbc9293f2a98
 src/frontend/src/components/navButton.ts 4a595cdc4b7bb861b574641f645ba4c57242575a
 src/frontend/src/components/options/ActionButtons.tsx a5c1d88124bbee7acc39c4efc2c373816080f132
-src/frontend/src/components/options/AppearanceOptions.tsx bbb36c4ff3df5c2687d0ca9a5958823cbc308752
+src/frontend/src/components/options/AppearanceOptions.tsx 89666e87aff14931f66801dab4bc3ef840f9b3ad
 src/frontend/src/components/options/CameraControlsOptions.tsx 7759f365ea805b9ffa8dab87e1b7ac4b544f61d7
 src/frontend/src/components/options/ComputeOptions.tsx 8d64e8756ea22bca73f1e90aee4b1e9eb639a7e7
 src/frontend/src/components/options/ControlsProfileOptions.tsx 16bedb5bba32620b004ff64a4059898eb7637738
@@ -636,7 +636,7 @@ src/frontend/src/layout/markingMenuState.ts f9b0937230ffe716a196f8aa5b65ebfaed3a
 src/frontend/src/layout/measureActions.ts 54fdd419b53fa4d27e5034110c9aa17a9263c9e2
 src/frontend/src/layout/modeRequirements.ts dd3d65fc3176ae6f1b0e1f38dbd46836b64a7bc4
 src/frontend/src/layout/modes.ts c766cc417f9d4ac7018ce43d11a43e9fadbdce2c
-src/frontend/src/layout/optionCommands.ts 362f39a65da7d2496350f286c20efaac641b10a7
+src/frontend/src/layout/optionCommands.ts 16f42710a80f121eebfb53966975eb3890c9c94e
 src/frontend/src/layout/panel.ts 10d4a5bd410ec4ba26bd275355de9f192717902b
 src/frontend/src/layout/panelActions.ts 2e121b00e28e5c1e5a0061aa8723e2a881e5b40f
 src/frontend/src/layout/panelStates.ts 0784b5edc483e5ff3d5fefb78b43a431a5c1a255
@@ -837,7 +837,7 @@ src/frontend/src/services/viewerControl/wire.ts 69a7312288214e2666e44b0fc4b63c4c
 src/frontend/src/state/AdaViewerContext.tsx 2c87bc6aeaa5990d361ab02ede7e0d80f647f77d
 src/frontend/src/state/adminPanelStore.ts bf6ee48e64e997bab512ead127224376b4cce1d3
 src/frontend/src/state/animationStore.ts 79b8eb664bbcd85f59bc8fe362ec21d1f18c2e90
-src/frontend/src/state/appearanceStore.ts 725bb527fcbb30532c468f44a425f45f779e1003
+src/frontend/src/state/appearanceStore.ts 7406bbc9c3723b8b2f3d1775aab9904507368c9f
 src/frontend/src/state/assetBrowserCache.ts 835b601fc6ada24d0f05ea73e2256bd78821dc6a
 src/frontend/src/state/assetBrowserLoader.ts ba3fccc83a820ec8d09834c373fa26e27552bced
 src/frontend/src/state/assetBrowserStore.ts f7a2ab3faaa52c294bd13a54901296c29dd3e095
@@ -1161,10 +1161,10 @@ src/frontend/src/utils/scene/fea/animationExport/frameSink.ts 763a772d94508f11a5
 src/frontend/src/utils/scene/fea/animationExport/mp4Sink.ts 13a3728c7dd6b71ccb3d3cecb6e002772c9a440d
 src/frontend/src/utils/scene/fea/applyElemField.ts 3f76314c826f95c0eec4a7ae41830e59d90565f5
 src/frontend/src/utils/scene/fea/applyField.ts 59b0a51c5b062ee4383fb67e6ec7d97de8c3c315
-src/frontend/src/utils/scene/fea/assembleFeaGlb.ts 60305ff6d7128c60411b8c08831b3ca89f257837
+src/frontend/src/utils/scene/fea/assembleFeaGlb.ts a1cf158c5cc6674f5cf3804294e9ca0658c16a79
 src/frontend/src/utils/scene/fea/bakedSteps.ts aa3f0d4a860cec9fb3cf9da1a2066a5d7925471a
 src/frontend/src/utils/scene/fea/beamLinesFromEdges.ts 3f2364968fc1bd37eed2cdca03d52ac3f5ba1f3c
-src/frontend/src/utils/scene/fea/beamSolidEdges.ts 977863ad72fa13c40ba8dbe61b4d847e1a4fedd6
+src/frontend/src/utils/scene/fea/beamSolidEdges.ts 82d6ab0ef0cdb75d7a21dbbab94b8d1a10a54038
 src/frontend/src/utils/scene/fea/beamSolidEdges.worker.ts 4d57308bb4362889672ca450a5a07fd42411b397
 src/frontend/src/utils/scene/fea/beamSolidEdgesInWorker.ts 6c196ed00aaeab3b3bff868119f92045ac7c4ffb
 src/frontend/src/utils/scene/fea/beamSolidFeatureEdges.ts ac14f6e4e2c3f78aa5c8f77da5f44a200555585a
@@ -1177,6 +1177,7 @@ src/frontend/src/utils/scene/fea/deformationGate.ts 8421d8d9cc93d7ccb8577589fb46
 src/frontend/src/utils/scene/fea/dummyMassVisibility.ts 84a356ecf150ef70b56e77a83c369caa87d441be
 src/frontend/src/utils/scene/fea/edgeColors.ts 5b690d759d14b4d6d7755e69565c47c577f6c725
 src/frontend/src/utils/scene/fea/edgeFade.ts 40292e05a8c01e5940826a22f7dbb2dc8e8ed4a2
+src/frontend/src/utils/scene/fea/edgeLook.ts 87db398ff25d71d48574b5f4bb5006866556d6bd
 src/frontend/src/utils/scene/fea/edgeSplit.ts 06bf2d7c7e62d715f6f40139e9072819af837734
 src/frontend/src/utils/scene/fea/elemFieldPaint.ts 119da7c60360881c3e3201b4757194b5c607db6e
 src/frontend/src/utils/scene/fea/elementInstances.ts 722570c4034c71eb2c1546878e1a2053b0456425
@@ -1222,6 +1223,7 @@ src/frontend/src/utils/scene/fea/resultLayers.ts 1ff8581f9124ceac251c2fae92bbc92
 src/frontend/src/utils/scene/fea/resultLineSegments.ts 300f7ff5f9797a665245d6d394dd72dea92495ae
 src/frontend/src/utils/scene/fea/resultPointMarkers.ts 6bd68fa4de462963ba24d6957099d5e95ad48aa1
 src/frontend/src/utils/scene/fea/resultSelection.ts 7a5d90c9d8b34e364d9b971b57ec0f23fbea68bd
+src/frontend/src/utils/scene/fea/resultShading.ts 4e6c9e3c5a8f7c849dd78281bc64305a06419e2a
 src/frontend/src/utils/scene/fea/resultUnits.ts 37097099ceb9a18d65640d14661ce0b9ac2b375e
 src/frontend/src/utils/scene/fea/shownRange.ts 968056016a7cb9a877ac1f2f3f1068200b88c68c
 src/frontend/src/utils/scene/fea/sourceMorph.ts b1b0bfa5f0b47704fb955314f3e5ab0488fb2199
@@ -1230,7 +1232,7 @@ src/frontend/src/utils/scene/fea/streaming/beamSolidsExpand.worker.ts f3366ae459
 src/frontend/src/utils/scene/fea/streaming/beamSolidsToggle.ts 1699191895f3b28b9ae216db249e496c10367094
 src/frontend/src/utils/scene/fea/streaming/defaultField.ts 3cff26b679bf7a7b207843d9580a92ffc4f5da32
 src/frontend/src/utils/scene/fea/streaming/edgeVisibility.ts 042d230c83f1ce496af6a5142aa02ab3611e4fd5
-src/frontend/src/utils/scene/fea/streaming/elementEdges.ts 8f865e089b748ca6803de2effa9bcdcf941190b5
+src/frontend/src/utils/scene/fea/streaming/elementEdges.ts a22eb5d2e859fb0eeebd41f0bead85a37c654a4e
 src/frontend/src/utils/scene/fea/streaming/frameRecording.ts 647b9c780d4f2f22f7e26fa7f703b9008b68b210
 src/frontend/src/utils/scene/fea/streaming/framesKey.ts 643481118829d82559a04abb8b750155a273ea34
 src/frontend/src/utils/scene/fea/streaming/layerBeamSolids.ts cf0f2a639df8b771d5e685031fd516d0d847bb0a
@@ -1239,7 +1241,7 @@ src/frontend/src/utils/scene/fea/streaming/layerGroup.ts 651e16e9f4f12870ad97bb3
 src/frontend/src/utils/scene/fea/streaming/layerLinePick.ts b5f06cc255c2581b7339f81420396d1464d1cd21
 src/frontend/src/utils/scene/fea/streaming/layerLines.ts 29fd6dca6931f1713be3975229b6b72065160e54
 src/frontend/src/utils/scene/fea/streaming/layerOverlayTarget.ts 1b544b20bdb238f952b2b95f9d5f79978e5b5dbc
-src/frontend/src/utils/scene/fea/streaming/layerSession.ts c9898a4ba3e6bd65ef463b4fba2e3be1725acda8
+src/frontend/src/utils/scene/fea/streaming/layerSession.ts 02fa25dff5d9ed775d27530eaffd49c057155025
 src/frontend/src/utils/scene/fea/streaming/legendSync.ts 63d46221d1a56c43bd62bc6ae6df3dea66a634c2
 src/frontend/src/utils/scene/fea/streaming/loadWithDefaults.ts d21dff3aef279dc2c67405bffa1b4dc28b014bc6
 src/frontend/src/utils/scene/fea/streaming/manifestStores.ts 4e3ed949a0259271fa74ffd7bfb0650875f7b2b0
@@ -1259,8 +1261,9 @@ src/frontend/src/utils/scene/fea/streaming/visibility.ts 06a78f627ce41956acaa02b
 src/frontend/src/utils/scene/fea/streaming/warp.ts d34b4ae9ad9d8a8264e60a2068d93e1b7dc99989
 src/frontend/src/utils/scene/fea/streaming/warpSource.ts 777ff61432ca4a5a11289454983109ca2147c202
 src/frontend/src/utils/scene/fea/threeDeformationGate.ts 50b9bfd79fb7de8ab7e327996150cbcc636edc82
+src/frontend/src/utils/scene/fea/threeEdgeLook.ts 1f58de5e8f34867cd5aaa1ebe54cab03ddaa6609
 src/frontend/src/utils/scene/fea/threeResultLayer.ts 4a589bc44dd4c5f04065de245c0c648c95af2e77
-src/frontend/src/utils/scene/fea/threeResultLook.ts 639bda0ded7211a5b55655a366e79f10218a8778
+src/frontend/src/utils/scene/fea/threeResultLook.ts 2ede515ba26b10d3ec503ceebedb0bf13ecdb41e
 src/frontend/src/utils/scene/fea/threeUnpaintedColor.ts 0d563c117272fbc36b6d0253dbd9232a7175beb9
 src/frontend/src/utils/scene/fea/timeHistory.ts cd2fe5884eb45fffd1c2ccb42491d0dd68a5395b
 src/frontend/src/utils/scene/fea/undeformedGhost.ts 6253fc06949b9f9b824651479e2dae8e0412b439
@@ -1385,7 +1388,7 @@ src/frontend/src/viewer-core/scene.ts 04edd3c64026ce95361a940ea83f9170415f6f36
 src/frontend/src/viewer-core/theme.ts ea22faadc2520371ef6149b97437359f63a109b5
 src/frontend/src/viewport/adacpp/adacppViewport.ts 8fdacdef15c82334c6da6a048f6bc8697d2c55ef
 src/frontend/src/viewport/adacpp/rendererModule.ts 020e4cf8dac6c39ddcc6262420a69c920e1f661a
-src/frontend/src/viewport/adacpp/sceneSync.ts 4fe1bc273b9ff8302f7d3028bd260fc09e64216b
+src/frontend/src/viewport/adacpp/sceneSync.ts cd63c4557d6b59c99047a0e978cc951530345892
 src/frontend/src/viewport/adacpp/types.ts 141c25a4427a073d712757db32f9a69939f27b9d
 src/frontend/src/viewport/api/beforeDraw.ts 2142637dd2476e16ad78cba20673b0cb6b5d7bf5
 src/frontend/src/viewport/api/billboards.ts 2bc524634b48f951aeb35381394cc885a41d4387
@@ -1425,8 +1428,8 @@ src/frontend/src/viewport/native/nativeBoxSelection.ts a1ae736a54aaeb3b976c6d12a
 src/frontend/src/viewport/native/nativeImages.ts 56dd94125cf9034aa41504da4cdcc8430cea6a5e
 src/frontend/src/viewport/native/nativeModel.ts c2a7901fe446fa9d15d0f8787c1a65586e2aefcb
 src/frontend/src/viewport/native/nativeOverlays.ts c38f5b7af3772753b50ebf48c8b94f12f6796083
-src/frontend/src/viewport/native/nativeResultLayer.ts b25083cb251a1c90d6379587e0808703fab9f0c2
-src/frontend/src/viewport/native/nativeScene.ts f1dc1df4f4469048d0e4d28fc40f0de9e95b57b6
+src/frontend/src/viewport/native/nativeResultLayer.ts f7dc7a0c7afcc3b01f403c7322be7cdefa82f3c1
+src/frontend/src/viewport/native/nativeScene.ts 2cb2d7245911e448f49cd2ffc8a8fd496bf69816
 src/frontend/src/viewport/native/nativeViewportApi.ts 8ef65f8fc4e331e81c6c24d559fa250606b027f6
 src/frontend/src/viewport/native/nativeViewportHistory.ts 8e0ad3ea441759375dd87b8e7cc5754138a32d50
 src/frontend/src/viewport/native/nodePlacement.ts c41034464a0fd19af49620b4317e8274b730210c
@@ -1435,7 +1438,7 @@ src/frontend/src/viewport/native/resultObjects.ts 20f35c7825afcf93211935b40343c1
 src/frontend/src/viewport/native/sectionGizmo.ts b09c7ae7c4fa588e63f0bc965ef24b84ec7886f4
 src/frontend/src/viewport/nullRenderer.ts f000d1ceac7645e6992b39f1b37497053beb3eeb
 src/frontend/src/viewport/picking.ts fbc670fe813a5b3aac920c4c233835695c017d2d
-src/frontend/src/viewport/sceneMirror.ts e1e27d1b1b1551e95f34dee041e20ffce4f4fede
+src/frontend/src/viewport/sceneMirror.ts 5b120c6e308356c509418ccbe84519435e2b436d
 src/frontend/src/workers/feaEngine.worker.ts 9152fb16276d280dbf3be0193b37b0970b4a9c4a
 src/frontend/src/x e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
 src/frontend/tailwind.config.js 75043ed08337884ae4b2c724cd93bcb58214e554

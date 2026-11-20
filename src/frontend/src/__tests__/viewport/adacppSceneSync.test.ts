@@ -24,6 +24,7 @@ interface Recorded {
     flags: Map<number, number>; // geometry -> flags of its latest setInstance
     clipPlanes: number[][] | null; // the latest setClipPlanes, as (nx, ny, nz, constant) rows
     lighting: [number, number][]; // every setLighting: ambient, headlight
+    looks: Map<number, {rgb: number[]; specular: boolean}>; // geometry -> colour and highlight of its latest setInstance
 }
 
 function fakeModule(): {module: AdacppModule; renderer: WebRendererApi; rec: Recorded} {
@@ -41,7 +42,7 @@ function fakeModule(): {module: AdacppModule; renderer: WebRendererApi; rec: Rec
         _free: () => {},
     } as unknown as AdacppModule;
     const u32 = (p: number, n: number) => (p ? Array.from(module.HEAPU32.subarray(p >> 2, (p >> 2) + n)) : []);
-    const rec: Recorded = {geometries: new Map(), states: new Map(), removed: [], colorUpdates: 0, morphUpdates: new Map(), influences: new Map(), flags: new Map(), clipPlanes: null, lighting: []};
+    const rec: Recorded = {geometries: new Map(), states: new Map(), removed: [], colorUpdates: 0, morphUpdates: new Map(), influences: new Map(), flags: new Map(), clipPlanes: null, lighting: [], looks: new Map()};
     const f32 = (p: number, n: number) => (p ? Array.from(module.HEAPF32.subarray(p >> 2, (p >> 2) + n)) : []);
     let nextGeom = 0;
     let nextInst = 0;
@@ -63,9 +64,10 @@ function fakeModule(): {module: AdacppModule; renderer: WebRendererApi; rec: Rec
         },
         removeGeometry: (g: number) => rec.removed.push(g),
         updateColors: () => rec.colorUpdates++,
-        setInstance: (instance: number, _m: number, _r: number, _g: number, _b: number, _a: number, flags: number,
-                      influence: number) => {
+        setInstance: (instance: number, _m: number, r: number, g: number, b: number, _a: number, flags: number,
+                      influence: number, _metalness: number, _roughness: number, specular: boolean) => {
             rec.influences.set(geomOfInst.get(instance)!, influence);
+            rec.looks.set(geomOfInst.get(instance)!, {rgb: [r, g, b], specular});
             rec.flags.set(geomOfInst.get(instance)!, flags);
         },
         setClipPlanes: (p: number, count: number) => {
@@ -479,7 +481,7 @@ test("the lights are the appearance settings', set when they change and not per 
     const sync = new SceneSync(module, renderer);
     sync.sync(scene, camera);
     sync.sync(scene, camera);
-    assert.deepEqual(rec.lighting, [[Math.PI / 2, 1.4]]);
+    assert.deepEqual(rec.lighting, [[Math.PI / 4, 0.7]], "the default brightness, 0.5");
     useAppearanceStore.getState().setBrightness(2);
     assert.deepEqual(rec.lighting.at(-1), [Math.PI, 2.8]);
     useAppearanceStore.getState().reset();
@@ -497,7 +499,11 @@ test("a painted FEA result is mirrored unlit, as three.js draws it; shaded resul
     const sync = new SceneSync(module, renderer);
     sync.sync(scene, camera);
     const flags = () => [...rec.flags.values()][0];
+    const look = () => [...rec.looks.values()][0];
+    useAppearanceStore.getState().setShadeResults(false);
+    sync.sync(scene, camera);
     assert.equal(flags() & InstanceFlag.Unlit, 0, "unpainted: lit");
+    assert.equal(look().specular, true, "unpainted: the model's matte material");
     mesh.geometry.setAttribute("color", new THREE.BufferAttribute(new Float32Array(12 * 3).fill(0.5), 3));
     (mesh.originalMaterial as THREE.MeshStandardMaterial).vertexColors = true;
     sync.sync(scene, camera);
@@ -506,6 +512,13 @@ test("a painted FEA result is mirrored unlit, as three.js draws it; shaded resul
     useAppearanceStore.getState().setShadeResults(true);
     sync.sync(scene, camera);
     assert.equal(flags() & InstanceFlag.Unlit, 0);
+    // Shaded: the diffuse light alone (a highlight greys a colour), at most the colour itself.
+    assert.equal(look().specular, false);
+    assert.deepEqual(look().rgb, [1, 1, 1]);
+    useAppearanceStore.getState().setBrightness(2);
+    sync.sync(scene, camera);
+    const k = Math.PI / (2 * (Math.PI / 2 + 1.4));
+    look().rgb.forEach((c) => assert.ok(Math.abs(c - k) < 1e-6, `over-bright lights scaled down: ${c}`));
     useAppearanceStore.getState().reset();
 });
 

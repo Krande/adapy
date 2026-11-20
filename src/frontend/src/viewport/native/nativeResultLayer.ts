@@ -4,6 +4,7 @@
 // (viewport/adacpp/sceneSync.ts), without a three.js object behind them. No three.js in this module.
 import type {ResultMeshData, ResultMeshLayer, ResultOverlayLook} from "@/viewport/api/resultLayer";
 import {useAppearanceStore} from "@/state/appearanceStore";
+import {resultExposure} from "@/utils/scene/fea/resultShading";
 import {InstanceFlag, Topology, type AdacppModule, type WebRendererApi} from "@/viewport/adacpp/types";
 
 const WHITE = 0xffffffff;
@@ -147,17 +148,30 @@ export class NativeResultLayer implements ResultMeshLayer {
         // A painted result is drawn flat unless the user asked for shaded results: lighting darkens
         // a colour by how its face is turned, and a colour read against a legend must not depend
         // on that. Unpainted, the faces are lit like any model.
-        if (painted && this.faces && !useAppearanceStore.getState().shadeResults) flags |= InstanceFlag.Unlit;
+        const resultFaces = painted && this.faces;
+        const shaded = resultFaces && useAppearanceStore.getState().shadeResults;
+        if (resultFaces && !shaded) flags |= InstanceFlag.Unlit;
         if (!this.visible) flags |= InstanceFlag.Hidden;
         // Painted colours are drawn times the layer's own colour, so a given one waits for them to go.
-        const [r, g, b] = this.plain && !painted ? this.plain : this.color;
+        let [r, g, b] = this.plain && !painted ? this.plain : this.color;
+        // A shaded result is its colours darkened by the diffuse light and nothing else, as the
+        // three.js viewport draws it (utils/scene/fea/resultShading.ts): no highlight, which greys a
+        // saturated colour, and the lights scaled so a face square to the headlight is at most its
+        // legend colour, never a clipped, paler one. The renderer lights a colour by
+        // (ambient + headlight N.L) / PI; the instance's colour is that scale.
+        if (shaded) {
+            const k = resultExposure();
+            r *= k;
+            g *= k;
+            b *= k;
+        }
         // Lit faces are a matte surface with the faint highlight three.js' standard material gives
-        // one (metalness 0, roughness 1): what the three.js viewport draws a result's faces with. A lit
-        // annotation has the material it was given.
+        // one (metalness 0, roughness 1): what the three.js viewport draws an unpainted result's faces
+        // with. A lit annotation has the material it was given.
         const lit = this.lit;
         this.renderer.setInstance(
             this.instance, this.matrixPtr, r, g, b, this.opacity, flags, this.influence,
-            lit ? lit.metalness : 0, lit ? lit.roughness : 1, this.faces || !!lit, this.size, this.dash, this.gap,
+            lit ? lit.metalness : 0, lit ? lit.roughness : 1, !shaded && (this.faces || !!lit), this.size, this.dash, this.gap,
         );
         this.changed();
     }
