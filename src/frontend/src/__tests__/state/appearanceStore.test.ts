@@ -1,5 +1,5 @@
-// The appearance settings every renderer reads: their defaults are the look the viewer had before
-// they existed, and each renderer is handed the same two light numbers.
+// The appearance settings every renderer reads: their defaults (and how a version-1 user's stored
+// settings meet them), and each renderer is handed the same two light numbers.
 import assert from "node:assert/strict";
 import {beforeEach, test} from "node:test";
 
@@ -15,14 +15,62 @@ const store = () => A.useAppearanceStore.getState();
 
 beforeEach(() => store().reset());
 
-test("the defaults are the lights, the background and the grey the viewer always had", () => {
-    assert.deepEqual(A.lightIntensities(), {ambient: Math.PI / 2, headlight: 1.4});
+test("the defaults: half the viewer's old lights, results shaded, the background and grey it always had, white edges", () => {
+    assert.equal(store().brightness, 0.5);
+    assert.deepEqual(A.lightIntensities(), {ambient: Math.PI / 4, headlight: 0.7});
+    // Brightness 1 is exactly the lights the viewer had before the settings.
+    assert.deepEqual(A.lightIntensities({brightness: 1, ambientShare: A.APPEARANCE_DEFAULTS.ambientShare}), {ambient: Math.PI / 2, headlight: 1.4});
     assert.equal(store().background, "#393939");
     assert.deepEqual(A.defaultColorLinear(), [0.8, 0.8, 0.8]);
     // #e7e7e7 is what 0.8 linear looks like on screen.
     A.hexLinear(A.APPEARANCE_DEFAULTS.defaultColor).forEach((c) => assert.ok(Math.abs(c - 0.8) < 0.005, String(c)));
-    assert.equal(store().shadeResults, false);
+    assert.equal(store().shadeResults, true);
+    assert.equal(store().edgeColor, "#ffffff");
+    assert.equal(store().edgeBrightness, 1);
     assert.equal(A.appearanceIsDefault(), true);
+    assert.equal(A.edgeLookIsDefault(), true);
+});
+
+test("version-1 settings: the old defaults become the new ones, a value the user chose is kept", () => {
+    // Never touched brightness or shading (another setting was changed, so all were stored).
+    assert.deepEqual(A.migrateAppearance({brightness: 1, shadeResults: false, background: "#102030"}, 1), {
+        brightness: 0.5, shadeResults: true, background: "#102030",
+    });
+    // Chosen: kept.
+    assert.deepEqual(A.migrateAppearance({brightness: 1.25, shadeResults: true}, 1), {brightness: 1.25, shadeResults: true});
+    assert.deepEqual(A.migrateAppearance({brightness: 0.75, shadeResults: false}, 1), {brightness: 0.75, shadeResults: true});
+    // This version's own values are never touched.
+    assert.deepEqual(A.migrateAppearance({brightness: 1, shadeResults: false}, 2), {brightness: 1, shadeResults: false});
+    assert.equal(A.migrateAppearance(null, 1), null);
+});
+
+test("version-1 settings in storage are read through the migration", async () => {
+    memory.set("ada-appearance", JSON.stringify({state: {...A.APPEARANCE_DEFAULTS, brightness: 1, shadeResults: false, background: "#102030"}, version: 1}));
+    await A.useAppearanceStore.persist.rehydrate();
+    assert.equal(store().brightness, 0.5);
+    assert.equal(store().shadeResults, true);
+    assert.equal(store().background, "#102030");
+    assert.match(memory.get("ada-appearance") ?? "", /"version":2/);
+    memory.set("ada-appearance", JSON.stringify({state: {brightness: 1, shadeResults: false}, version: 2}));
+    await A.useAppearanceStore.persist.rehydrate();
+    assert.equal(store().brightness, 1, "chosen under version 2: kept");
+    assert.equal(store().shadeResults, false);
+});
+
+test("the edge colour and brightness are refused when not values, and have their own reset", () => {
+    store().setEdgeColor("#FF8800");
+    store().setEdgeBrightness(0.4);
+    store().setBrightness(1.5);
+    assert.equal(store().edgeColor, "#ff8800");
+    assert.equal(store().edgeBrightness, 0.4);
+    store().setEdgeColor("orange");
+    store().setEdgeBrightness(3);
+    assert.equal(store().edgeColor, "#ff8800");
+    assert.equal(store().edgeBrightness, A.EDGE_BRIGHTNESS_RANGE.max);
+    assert.equal(A.edgeLookIsDefault(), false);
+    store().resetEdges();
+    assert.equal(A.edgeLookIsDefault(), true);
+    assert.equal(store().brightness, 1.5, "the edges' reset leaves the rest");
 });
 
 test("brightness multiplies both lights, the balance moves light between them", () => {
@@ -50,9 +98,15 @@ test("a value that is not one is refused, and reset goes back to the defaults", 
     store().setDefaultColor("#3366CC");
     assert.equal(store().defaultColor, "#3366cc");
     store().setBackground("#ffffff");
-    store().setShadeResults(true);
+    store().setShadeResults(false);
+    store().setEdgeColor("#000000");
     store().reset();
     assert.equal(A.appearanceIsDefault(), true);
+    assert.deepEqual(A.sanitizeAppearance({brightness: "2", background: "#12", ambientShare: 7, shadeResults: 1, edgeColor: "#fff", edgeBrightness: -1}), {
+        ...A.APPEARANCE_DEFAULTS,
+        ambientShare: 1,
+        edgeBrightness: 0,
+    });
     assert.deepEqual(A.sanitizeAppearance({brightness: "2", background: "#12", ambientShare: 7, shadeResults: 1}), {
         ...A.APPEARANCE_DEFAULTS,
         ambientShare: 1,

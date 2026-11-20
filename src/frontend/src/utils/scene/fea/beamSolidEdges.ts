@@ -28,6 +28,7 @@ import {requestRender} from "@/state/perfStore";
 import {clipWithModel} from "@/utils/scene/section_clipping";
 import {computeBeamSolidEdges, type BeamSolidEdgeData} from "./beamSolidFeatureEdges";
 import {FEA_EDGE_COLOR} from "./edgeColors";
+import {withFeaEdgeColor} from "./threeEdgeLook";
 import {elementLocalMap} from "./elementLocalGeometry";
 import {setSourceMorph} from "./sourceMorph";
 import {fadeAtSpacing} from "./streaming/elementEdges";
@@ -149,7 +150,8 @@ function attachBeamSolidEdges(
     lineGeom.morphTargetsRelative = true;
     const segments = new THREE.LineSegments(
         lineGeom,
-        new THREE.LineBasicMaterial({color: FEA_EDGE_COLOR, depthTest: true, transparent: true}),
+        // The shell grid's colour and brightness setting (edgeLook.ts), live.
+        withFeaEdgeColor(new THREE.LineBasicMaterial({depthTest: true, transparent: true}), FEA_EDGE_COLOR),
     );
     segments.name = BEAM_SOLID_EDGES_NAME;
     // As the shell grid: above face overlays, below the selection highlight, and

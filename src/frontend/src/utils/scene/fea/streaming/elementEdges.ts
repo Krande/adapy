@@ -20,6 +20,7 @@ import {clipWithModel} from "@/utils/scene/section_clipping";
 import {edgeFadeOpacity, typicalEdgeLength as typicalLength} from "../edgeFade";
 import {FEA_BEAM_EDGE_COLOR, FEA_EDGE_COLOR} from "../edgeColors";
 import {withoutEdges} from "../edgeSplit";
+import {withFeaEdgeColor} from "../threeEdgeLook";
 
 // The shell grid is faded by how far apart its edges are on screen (../edgeFade.ts has the numbers,
 // which the three.js-free viewport fades by too).
@@ -151,8 +152,8 @@ export async function installElementEdges(
                 const lineGeom = new THREE.BufferGeometry();
                 lineGeom.setAttribute("position", mesh.geometry.attributes.position);
                 lineGeom.setIndex(new THREE.BufferAttribute(shellEdgeIndices, 1));
-                const lineMat = new THREE.LineBasicMaterial({
-                    color: FEA_EDGE_COLOR,
+                // In the setting's colour and brightness (edgeLook.ts), live.
+                const lineMat = withFeaEdgeColor(new THREE.LineBasicMaterial({
                     depthTest: true,
                     // Transparent (opacity 1 until zoomed out: fadeWithDensity) so the
                     // element-edge wireframe joins the transparent render pass
@@ -162,7 +163,7 @@ export async function installElementEdges(
                     // element edges). Opaque lines would render in the opaque
                     // pass, before any transparent overlay draws over them.
                     transparent: true,
-                });
+                }), FEA_EDGE_COLOR);
                 const segments = new THREE.LineSegments(lineGeom, lineMat);
                 segments.name = "fea-element-edges";
                 // Above field/plugin face overlays (renderOrder 2), below the
@@ -198,11 +199,7 @@ export async function installElementEdges(
                 const beamGeom = new THREE.BufferGeometry();
                 beamGeom.setAttribute("position", mesh.geometry.attributes.position);
                 beamGeom.setIndex(new THREE.BufferAttribute(lineEdgeIndices, 1));
-                const beamMat = new THREE.LineBasicMaterial({
-                    color: FEA_BEAM_EDGE_COLOR,
-                    depthTest: true,
-                    transparent: true,
-                });
+                const beamMat = withFeaEdgeColor(new THREE.LineBasicMaterial({depthTest: true, transparent: true}), FEA_BEAM_EDGE_COLOR);
                 const beamSegments = new THREE.LineSegments(beamGeom, beamMat);
                 beamSegments.name = "fea-beam-element-edges";
                 beamSegments.renderOrder = 3;

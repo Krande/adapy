@@ -50,6 +50,7 @@ import {beamSolidDisplacement} from "../beamSolidWarp";
 import {hasLazyCases, legendScopeFor, mergeCaseSteps, nextCaseToPrefetch, slotCount, slotRef} from "../caseSteps";
 import {FEA_BEAM_EDGE_COLOR, FEA_EDGE_COLOR, FEA_UNDEFORMED_COLOR} from "../edgeColors";
 import {edgeFadeOpacity, pixelsPerUnitAtFocus, typicalEdgeLength} from "../edgeFade";
+import {feaEdgeLinear, onFeaEdgeLookChange} from "../edgeLook";
 import {withoutEdges} from "../edgeSplit";
 import {elementLocalVertices, expandTriplesInto, paintElemField, shownElemFieldRange, type PaintedPoints} from "../elemFieldPaint";
 import {notifyFeaTargetGone, registerFeaTarget, type FeaOverlayTarget} from "../elementSource";
@@ -609,9 +610,9 @@ function applyView(s: LayerSession): void {
     }
 }
 
-/** Element edges as a layer of lines over the nodes. */
+/** Element edges as a layer of lines over the nodes, in the edge colour the settings make of `color`. */
 function edgeLines(s: Pick<LayerSession, "results" | "mesh">, indices: Uint32Array, color: number): ResultMeshLayer {
-    return s.results.createResultMesh({positions: s.mesh.positions, indices, topology: "lines", matrix: s.mesh.matrix, color: linear(color)});
+    return s.results.createResultMesh({positions: s.mesh.positions, indices, topology: "lines", matrix: s.mesh.matrix, color: feaEdgeLinear(color)});
 }
 
 /** Whether the beam sections are what draws the beams now. */
@@ -799,7 +800,7 @@ function drawSolidEdges(s: LayerSession): void {
     }
     const before = s.solidEdges;
     s.solidEdges = s.group.add(
-        s.results.createResultMesh({positions: solids.positions, indices: pairs, topology: "lines", matrix: s.mesh.matrix, color: linear(FEA_EDGE_COLOR)}),
+        s.results.createResultMesh({positions: solids.positions, indices: pairs, topology: "lines", matrix: s.mesh.matrix, color: feaEdgeLinear(FEA_EDGE_COLOR)}),
         solidsOn(s) && useFeaAnimationStore.getState().beamSolidEdgesVisible,
     );
     s.group.drop(before);
@@ -1034,6 +1035,12 @@ async function openLayerSession(args: {
         opened.faces.setColor(color);
         opened.solidsLayer?.setColor(color);
     });
+    // The element-edge colour and brightness settings, on the edges drawn now.
+    const offEdgeLook = onFeaEdgeLookChange(() => {
+        opened.shellEdges?.setColor(feaEdgeLinear(FEA_EDGE_COLOR));
+        opened.solidEdges?.setColor(feaEdgeLinear(FEA_EDGE_COLOR));
+        opened.beamEdges?.setColor(feaEdgeLinear(FEA_BEAM_EDGE_COLOR));
+    });
     // The dummy-mass beams became known (a result's sets are read after its first paint): the
     // coloured lines are worked out again without them.
     const offDummies = useFemConceptsStore.subscribe((now, before) => {
@@ -1066,6 +1073,7 @@ async function openLayerSession(args: {
         offView();
         offVisibility();
         offPlain();
+        offEdgeLook();
         offDummies();
     };
     session = opened;

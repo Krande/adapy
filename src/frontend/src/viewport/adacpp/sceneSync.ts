@@ -6,7 +6,7 @@ import * as THREE from "three";
 import {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
 import {selectedMaterial} from "@/utils/default_materials";
 import {lightIntensities, useAppearanceStore} from "@/state/appearanceStore";
-import {resultDrawnFlat} from "@/utils/scene/fea/threeResultLook";
+import {resultDrawnFlat, resultShadedExposure} from "@/utils/scene/fea/threeResultLook";
 import {isOrthographic, sizeSpriteForView} from "@/utils/scene/orthographicProjection";
 import {quadMatrix} from "@/viewport/native/nativeImages";
 import {InstanceFlag, NO_TEXTURE, SegmentFlag, SpriteFlag, Topology, type AdacppModule, type WebRendererApi} from "./types";
@@ -843,9 +843,13 @@ export class SceneSync {
         const influence = (obj as THREE.Mesh).morphTargetInfluences?.[0] ?? 0;
         // MeshStandardMaterial's metalness/roughness; Lambert/Phong light as diffuse-only.
         const pbr = mat as unknown as {isMeshStandardMaterial?: boolean; metalness?: number; roughness?: number};
-        const specular = !!pbr?.isMeshStandardMaterial;
+        // A shaded FEA result is its colours darkened by the diffuse light alone, the lights scaled by
+        // its exposure (utils/scene/fea/resultShading.ts): no highlight, the scale as its colour.
+        const exposure = resultShadedExposure(mat);
+        const specular = !!pbr?.isMeshStandardMaterial && exposure === null;
         const metalness = specular ? (pbr.metalness ?? 0) : 0;
         const roughness = specular ? (pbr.roughness ?? 1) : 1;
+        const tint = exposure ?? 1;
         const lineWidth = this.lineWidth(obj, mat);
         const [dash, gap] = dashOf(mat);
 
@@ -860,7 +864,7 @@ export class SceneSync {
                 heap.set(obj.matrixWorld.elements, this.matrixPtr >> 2);
             }
             this.r.setInstance(
-                e.instances[i], this.matrixPtr, color.r, color.g, color.b, opacity, flags, influence,
+                e.instances[i], this.matrixPtr, color.r * tint, color.g * tint, color.b * tint, opacity, flags, influence,
                 metalness, roughness, specular, lineWidth, dash, gap,
             );
         }

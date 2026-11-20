@@ -5,12 +5,13 @@
 //   * Matte. The bake's GLB names no metalness, and glTF's default is fully metallic: without an
 //     environment map such a surface shows only the headlight's weak highlight, about a ninth of
 //     its colour. A result is drawn as a matte surface, as the three.js-free viewport draws it.
-//   * Flat while painted. Lighting darkens a colour by how its face is turned, and a colour read
-//     against a legend must not depend on that. While the vertex colours are on, the material's
-//     output is its colour and nothing else, unless the user asked for shaded results
-//     (state/appearanceStore.ts). Unpainted, the mesh is lit like any model.
+//   * Its colours the legend's while painted. Flat by default: the material's output is its colour
+//     and nothing else. Shaded when the user asks (state/appearanceStore.ts): the colour darkened by
+//     the diffuse light on its face and nothing more -- no highlight, no channel clipped -- so the
+//     hue and saturation stay the legend's (resultShading.ts has the numbers). Unpainted, the mesh
+//     is lit like any model.
 //
-// The switch is one uniform shared by every such material, so changing the setting recompiles
+// The switches are uniforms shared by every such material, so changing a setting recompiles
 // nothing; whether the colours are on is the shader's own USE_COLOR, which follows the
 // material's `vertexColors` wherever that is set.
 
@@ -18,12 +19,16 @@ import * as THREE from "three";
 
 import {useAppearanceStore} from "@/state/appearanceStore";
 import {requestRender} from "@/state/perfStore";
+import {resultExposure} from "./resultShading";
 
 /** 1 while a painted result is drawn flat, 0 while it is shaded. */
 const FLAT = {value: useAppearanceStore.getState().shadeResults ? 0 : 1};
+/** What the lights are scaled by on a shaded result (resultShading.ts). */
+const EXPOSURE = {value: resultExposure()};
 useAppearanceStore.subscribe((s, prev) => {
-    if (s.shadeResults === prev.shadeResults) return;
+    if (s.shadeResults === prev.shadeResults && s.brightness === prev.brightness && s.ambientShare === prev.ambientShare) return;
     FLAT.value = s.shadeResults ? 0 : 1;
+    EXPOSURE.value = resultExposure(s);
     requestRender();
 });
 
@@ -32,13 +37,40 @@ const LOOK_KEY = "adaResultLook";
  *  the shader patch. */
 const looked = new WeakSet<THREE.Material>();
 
+/** Whether `material` is a result's base material with its vertex colours on. */
+function painted(material: THREE.Material | undefined): material is THREE.Material {
+    return !!material && looked.has(material) && (material as {vertexColors?: boolean}).vertexColors === true;
+}
+
 /** Whether `material` is a result's base material, drawn flat now (its vertex colours are on and
  *  results are not shaded): what the adacpp mirror of the scene asks. */
 export function resultDrawnFlat(material: THREE.Material | undefined): boolean {
-    return !!material && FLAT.value === 1 && looked.has(material) && (material as {vertexColors?: boolean}).vertexColors === true;
+    return FLAT.value === 1 && painted(material);
+}
+
+/** For a result's base material shaded now (its vertex colours on, results shaded): the factor its
+ *  lights are scaled by, which the adacpp mirror draws as the instance's colour, with no highlight.
+ *  Null for anything else. */
+export function resultShadedExposure(material: THREE.Material | undefined): number | null {
+    return FLAT.value === 0 && painted(material) ? EXPOSURE.value : null;
 }
 
 type Lit = THREE.Material & {metalness?: number; roughness?: number; isMeshStandardMaterial?: boolean};
+
+/** The fragment code put after the material's `outgoingLight`: the painted colour, flat or darkened by
+ *  the diffuse light alone. `irradiance` is the ambient light (lights_fragment_begin); the direct
+ *  diffuse is the colour times the headlight's N.L / PI, so its ratio to the colour is that factor. */
+const SHADE_GLSL = `
+#if defined( USE_COLOR ) || defined( USE_COLOR_ALPHA )
+#ifdef RE_IndirectDiffuse
+	float adaLight = dot( irradiance, vec3( 1.0 / 3.0 ) ) * RECIPROCAL_PI
+		+ dot( reflectedLight.directDiffuse, vec3( 1.0 ) ) / max( dot( diffuseColor.rgb, vec3( 1.0 ) ), 1e-6 );
+	vec3 adaShaded = diffuseColor.rgb * min( adaLight * adaResultExposure, 1.0 );
+#else
+	vec3 adaShaded = outgoingLight;
+#endif
+	outgoingLight = mix( adaShaded, diffuseColor.rgb, adaResultFlat );
+#endif`;
 
 function giveLook(material: THREE.Material): void {
     if (looked.has(material)) return;
@@ -50,12 +82,10 @@ function giveLook(material: THREE.Material): void {
     }
     material.onBeforeCompile = (shader) => {
         shader.uniforms.adaResultFlat = FLAT;
+        shader.uniforms.adaResultExposure = EXPOSURE;
         shader.fragmentShader = shader.fragmentShader
-            .replace("void main() {", "uniform float adaResultFlat;\nvoid main() {")
-            .replace(
-                /vec3 outgoingLight = ([^;]+);/,
-                "vec3 outgoingLight = $1;\n#if defined( USE_COLOR ) || defined( USE_COLOR_ALPHA )\n\toutgoingLight = mix( outgoingLight, diffuseColor.rgb, adaResultFlat );\n#endif",
-            );
+            .replace("void main() {", "uniform float adaResultFlat;\nuniform float adaResultExposure;\nvoid main() {")
+            .replace(/vec3 outgoingLight = ([^;]+);/, `vec3 outgoingLight = $1;${SHADE_GLSL}`);
     };
     // Its own program: an unpatched material of the same kind must not be handed this one's.
     material.customProgramCacheKey = () => LOOK_KEY;
