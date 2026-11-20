@@ -145,6 +145,30 @@ test("a replace leaves the plugins' drawings, and says so", async () => {
   }
 });
 
+test("a renderer switch draws what the plugins drew on the viewport that comes up, as last set", async () => {
+  // A renderer switch is a replace (the models handed over through one): what the plugins drew stays,
+  // and it used to stay on the viewport that left, drawn nowhere.
+  const first = strictViewport();
+  withdraw = setActiveViewport(first.viewport);
+  const { lines, points, image } = drawEverything();
+  lines.setSegments(new Float32Array([0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 2, 0]));
+  await clearScene({ reason: "replace", replacing: true, keepQueuedLoads: true, keepProcedural: true });
+  const second = strictViewport();
+  withdraw();
+  assert.equal(first.live.drawn, 0, "nothing is left on the viewport that went");
+  assert.equal(first.live.layers, 0, "and its layers are released");
+  withdraw = setActiveViewport(second.viewport);
+  assert.equal(second.live.drawn, 5, "every line, point, image and label is drawn on the one that came");
+  // The handles reach the new viewport's layers.
+  const calls = second.live.calls;
+  points.setPoints(new Float32Array(3), 1, new Float32Array(3));
+  image.setLook({ opacity: 0.5 });
+  assert.ok(second.live.calls > calls);
+  await clearScene({ reason: "test" });
+  assert.equal(second.live.drawn, 0);
+  assert.equal(second.live.layers, 0);
+});
+
 test("onSceneCleared is told once per clear, whatever asked, until unsubscribed", async () => {
   const { viewport } = strictViewport();
   withdraw = setActiveViewport(viewport);

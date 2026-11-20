@@ -27,10 +27,10 @@ import {
 } from "@/utils/scene/fea/elementSource";
 import {onBeforeDraw} from "@/viewport/api/beforeDraw";
 import {linearChannel as channel, linearColor as linear, linearColorInto as linearInto} from "@/utils/scene/sceneColor";
-import type {Billboard, BillboardLayer} from "@/viewport/api/billboards";
-import type {OverlayLayer} from "@/viewport/api/overlayLayer";
-import {activeViewport, type SelectedObjectBox, type ViewportApi} from "@/viewport/api/viewportApi";
-import {releaseDrawnLayers, releaseOwnerLayers} from "./sceneLayers";
+import type {Billboard} from "@/viewport/api/billboards";
+import {register, removeOwner, removeWhere, type OverlayHandle} from "@/viewport/api/overlayManager";
+import {activeViewport, type SelectedObjectBox} from "@/viewport/api/viewportApi";
+import {DRAWING_KIND, releaseOwnerLayers} from "./sceneLayers";
 import type {
     SceneBox,
     SceneColor,
@@ -47,102 +47,67 @@ export {boundaryEdges} from "@/utils/scene/fea/elementSource";
 
 // ----- what an owner has on screen ---------------------------------------------
 
-/** Something drawn for a plugin: how to take it away, and the FEA result it is pinned to (null
- *  for none), with which it leaves the screen. */
-interface Drawn {
-    take(): void;
-    result: object | null;
-    /** Moves it to where the result is drawn now; called before each frame. */
-    follow: (() => void) | null;
-}
+// Each thing drawn here is an entry of the overlay manager (viewport/api/overlayManager.ts), tagged as
+// a plugin's drawing. In the world, it lives with the scene: a clear removes it, a replace leaves it,
+// and a viewport that takes the place of the one it was drawn on draws it again. Pinned to an FEA
+// result, it lives with that result and goes with it (a renderer switch draws the result anew).
+// The layers an owner draws through (`plugin:<owner>`) are shared by all it draws, and released by
+// the manager with the last of them.
 
-const owned = new Map<string, Set<Drawn>>();
-/** Everything that follows a result, and the frame hook while there is any. */
-const following = new Set<Drawn>();
+/** What moves each drawn thing to where its FEA result is drawn now, and the frame hook while there
+ *  is any. */
+const following = new Set<() => void>();
 let offBeforeDraw: (() => void) | null = null;
 let offTargetGone: (() => void) | null = null;
 
-function followAll(): void {
-    for (const drawn of following) drawn.follow!();
-}
-
-function track(owner: string, drawn: Drawn): SceneOverlay {
-    let set = owned.get(owner);
-    if (!set) owned.set(owner, (set = new Set()));
-    set.add(drawn);
-    if (drawn.follow) {
-        following.add(drawn);
-        offBeforeDraw ??= onBeforeDraw(followAll);
-    }
-    // A result that leaves the screen takes what was drawn in its coordinates along.
-    offTargetGone ??= onFeaTargetGone((result) => {
-        for (const [who, all] of owned) for (const d of [...all]) if (d.result === result) dispose(who, d);
+function startFollowing(move: () => void): () => void {
+    following.add(move);
+    offBeforeDraw ??= onBeforeDraw(() => {
+        for (const each of following) each();
     });
-    requestRender();
-    return {remove: () => dispose(owner, drawn)};
+    return () => {
+        if (following.delete(move) && following.size === 0) {
+            offBeforeDraw?.();
+            offBeforeDraw = null;
+        }
+    };
 }
 
-function dispose(owner: string, drawn: Drawn): void {
-    const set = owned.get(owner);
-    if (!set?.delete(drawn)) return;
-    if (following.delete(drawn) && following.size === 0) {
-        offBeforeDraw?.();
-        offBeforeDraw = null;
-    }
-    drawn.take();
-    // The owner's last overlay: its layers go too.
-    if (set.size === 0) {
-        owned.delete(owner);
-        const layers = layersOf.get(owner);
-        layersOf.delete(owner);
-        layers?.lines?.dispose();
-        layers?.labels?.dispose();
-    }
-    requestRender();
+/** Keep what `owner` draws: pinned to `result` (null: in the world), drawn by `draw` on the viewport
+ *  it is on, and `onRemoved` run when it is removed. */
+function track(owner: string, result: object | null, draw?: (h: OverlayHandle) => void | (() => void), onRemoved?: () => void): SceneOverlay {
+    // A result that leaves the screen takes what was drawn in its coordinates along.
+    offTargetGone ??= onFeaTargetGone((gone) => removeWhere((info) => info.lifetime.kind === "fea-result" && info.lifetime.token === gone));
+    const entry = register({
+        owner,
+        kind: DRAWING_KIND,
+        lifetime: result ? {kind: "fea-result", token: result} : {kind: "scene"},
+        onReplace: "keep",
+        draw,
+        onRemoved,
+    });
+    return {remove: () => entry.remove()};
 }
 
 /** Remove every overlay `owner` added through these verbs (SceneHandle.remove(owner) calls this). */
 export function removeOwnerOverlays(owner: string): void {
-    for (const drawn of [...(owned.get(owner) ?? [])]) dispose(owner, drawn);
-    // Its layers that change over time, and its playback tracks (./sceneLayers.ts).
+    // What it drew, by these verbs and as line, point and image layers (./sceneLayers.ts).
+    removeOwner(owner, DRAWING_KIND);
+    // Its playback tracks, posed models and placed boxes.
     releaseOwnerLayers(owner);
-}
-
-/** Remove what every plugin drew over the scene: the overlays of these verbs, and the line, point
- *  and image layers of ./sceneLayers.ts. A clear of the scene calls this
- *  (utils/scene/handlers/clear_scene.ts); the plugins' playback tracks, posed models and placed
- *  boxes stay theirs. A handle to something removed stays safe to call: it does nothing. */
-export function removeAllPluginDrawings(): void {
-    for (const [owner, all] of [...owned]) for (const drawn of [...all]) dispose(owner, drawn);
-    releaseDrawnLayers();
 }
 
 const layerName = (owner: string): string => `plugin:${owner}`;
 
-/** The layers an owner draws through, in the viewport they were made in: made when first drawn
- *  to, released with the owner's last overlay. */
-const layersOf = new Map<string, {viewport: ViewportApi; lines: OverlayLayer | null; labels: BillboardLayer | null}>();
-
-function layers(owner: string, viewport: ViewportApi): {lines: OverlayLayer | null; labels: BillboardLayer | null} {
-    let entry = layersOf.get(owner);
-    // Another viewport took the place of the one the owner drew in: what it draws now goes there.
-    if (entry?.viewport !== viewport) layersOf.set(owner, (entry = {viewport, lines: null, labels: null}));
-    return entry;
-}
-
-const lineLayer = (owner: string, viewport: ViewportApi): OverlayLayer => (layers(owner, viewport).lines ??= viewport.overlays(layerName(owner)));
-const labelLayer = (owner: string, viewport: ViewportApi): BillboardLayer => (layers(owner, viewport).labels ??= viewport.billboards(layerName(owner)));
-
 // ----- lines ------------------------------------------------------------------
 
 type LineLook = Pick<SceneLines, "color" | "widthPx" | "dashed" | "opacity" | "throughModel">;
+type FeaTarget = NonNullable<ReturnType<typeof activeFeaTarget>>;
 
-/** A line overlay in the result's coordinates (or the world's without one); null without a viewport. */
-function drawLines(owner: string, segments: Float32Array, look: LineLook, colors?: Float32Array): {drawn: Drawn; move: (positions: Float32Array) => void} | null {
-    const viewport = activeViewport();
-    if (!viewport) return null;
-    const target = activeFeaTarget();
-    const layer = lineLayer(owner, viewport);
+/** A line overlay in the result's coordinates (or the world's without one), on the viewport `h` is on. */
+function drawLines(owner: string, h: OverlayHandle, target: FeaTarget | null, segments: Float32Array, look: LineLook, colors?: Float32Array): {take: () => void; move: (positions: Float32Array) => void} | null {
+    const layer = h.lines(layerName(owner));
+    if (!layer) return null;
     const handle = layer.addLines({
         segments,
         colors,
@@ -155,7 +120,7 @@ function drawLines(owner: string, segments: Float32Array, look: LineLook, colors
         matrix: target?.matrix() ?? null,
     });
     return {
-        drawn: {take: () => layer.remove(handle), result: target?.token ?? null, follow: null},
+        take: () => layer.remove(handle),
         move: (positions) => layer.setPositions(handle, positions),
     };
 }
@@ -174,8 +139,9 @@ export function addLines(owner: string, spec: SceneLines): SceneOverlay {
         colors = new Float32Array(spec.colors.length);
         for (let i = 0; i < colors.length; i++) colors[i] = channel(spec.colors[i]);
     }
-    const lines = drawLines(owner, positions, spec, colors);
-    return lines ? track(owner, lines.drawn) : NOTHING;
+    if (!activeViewport()) return NOTHING;
+    const target = activeFeaTarget();
+    return track(owner, target?.token ?? null, (h) => drawLines(owner, h, target, positions, spec, colors)?.take);
 }
 
 /** The outline of `outline.elements`' faces on the active FEA mesh, kept on the warped surface. */
@@ -194,21 +160,19 @@ export function addElementOutlines(owner: string, outline: SceneElementOutline):
     };
     const hiddenNow = () => new Set(target.hidden());
     if (!outlineOf(new Set()).edges.length) return null;
-    let current = outlineOf(hiddenNow());
-    let lines = current.edges.length ? drawLines(owner, current.positions, outline) : null;
-    if (current.edges.length && !lines) return NOTHING;
-    let placedAt = geometry.version();
-    let seenVisibility = useVisibilityStore.getState().version;
-    const drawn: Drawn = {
-        take: () => lines?.drawn.take(),
-        result: target.token,
-        follow: () => {
+    if (!activeViewport()) return NOTHING;
+    return track(owner, target.token, (h) => {
+        let current = outlineOf(hiddenNow());
+        let lines = current.edges.length ? drawLines(owner, h, target, current.positions, outline) : null;
+        let placedAt = geometry.version();
+        let seenVisibility = useVisibilityStore.getState().version;
+        const stop = startFollowing(() => {
             const visibility = useVisibilityStore.getState().version;
             if (visibility !== seenVisibility) {
                 seenVisibility = visibility;
-                lines?.drawn.take();
+                lines?.take();
                 current = outlineOf(hiddenNow());
-                lines = current.edges.length ? drawLines(owner, current.positions, outline) : null;
+                lines = current.edges.length ? drawLines(owner, h, target, current.positions, outline) : null;
                 placedAt = geometry.version();
                 requestRender();
                 return;
@@ -217,9 +181,12 @@ export function addElementOutlines(owner: string, outline: SceneElementOutline):
             if (now === placedAt || !lines) return;
             placedAt = now;
             lines.move(placeVertices(geometry, current.edges, current.positions));
-        },
-    };
-    return track(owner, drawn);
+        });
+        return () => {
+            stop();
+            lines?.take();
+        };
+    });
 }
 
 // ----- labels -----------------------------------------------------------------
@@ -291,18 +258,26 @@ const ABOVE_RIGHT: readonly [number, number] = [0, -0.15];
 
 const pinnedAny = (labels: readonly SceneLabel[]): boolean => labels.some((l) => l.atElements);
 
+/** A label pinned to elements, as it is drawn. */
+interface Pinned {
+    handle: number;
+    billboard: Billboard;
+    position: [number, number, number];
+    vertices: number[];
+    elements: readonly number[];
+}
+
 export function addLabels(owner: string, labels: SceneLabel[], opts?: SceneLabelOptions): SceneOverlay {
-    const viewport = activeViewport();
-    if (!viewport) return NOTHING;
+    if (!activeViewport()) return NOTHING;
     const heightPx = opts?.heightPx ?? 18;
     const target = activeFeaTarget();
     const geometry = target?.elements("model") ?? null;
     const frame = target?.matrix() ?? null;
-    const layer = labelLayer(owner, viewport);
-    const handles: number[] = [];
     /** The labels pinned to elements: what `follow` moves, and takes away while all its elements
      *  are hidden (`handle` -1 then). */
-    const pinned: {handle: number; billboard: Billboard; position: [number, number, number]; vertices: number[]; elements: readonly number[]}[] = [];
+    const pinned: Pinned[] = [];
+    /** Every label, at a point or pinned, in the order given: drawn again on a viewport that comes on screen. */
+    const order: (Billboard | Pinned)[] = [];
     const hiddenNow = (): ReadonlySet<number> => new Set(target?.hidden() ?? []);
     let hidden = pinnedAny(labels) ? hiddenNow() : new Set<number>();
     /** A label on elements that are all hidden names nothing on screen. */
@@ -334,21 +309,22 @@ export function addLabels(owner: string, labels: SceneLabel[], opts?: SceneLabel
             // Cut away with the point it names, whole.
             clipped: true,
         };
-        const elements = vertices ? [...label.atElements!] : [];
-        const handle = vertices && allHidden(elements) ? -1 : layer.add(billboard);
-        if (vertices) pinned.push({handle, billboard, position, vertices, elements});
-        else handles.push(handle);
+        if (vertices) pinned.push({handle: -1, billboard, position, vertices, elements: [...label.atElements!]});
+        order.push(vertices ? pinned[pinned.length - 1] : billboard);
     }
-    let placedAt = geometry && pinned.length ? geometry.version() : 0;
-    let seenVisibility = useVisibilityStore.getState().version;
-    return track(owner, {
-        take: () => {
-            for (const handle of handles) layer.remove(handle);
-            for (const p of pinned) if (p.handle >= 0) layer.remove(p.handle);
-        },
-        result: target?.token ?? null,
-        follow: geometry && pinned.length
-            ? () => {
+    return track(owner, target?.token ?? null, (h) => {
+        const layer = h.labels(layerName(owner));
+        if (!layer) return;
+        // In the order they were given.
+        const handles: number[] = [];
+        for (const one of order) {
+            if ("vertices" in one) one.handle = allHidden(one.elements) ? -1 : layer.add(one.billboard);
+            else handles.push(layer.add(one));
+        }
+        let placedAt = geometry && pinned.length ? geometry.version() : 0;
+        let seenVisibility = useVisibilityStore.getState().version;
+        const stop = geometry && pinned.length
+            ? startFollowing(() => {
                 const visibility = useVisibilityStore.getState().version;
                 if (visibility !== seenVisibility) {
                     // Hidden, shown or isolated since: a label on hidden elements goes, and comes back with them.
@@ -373,8 +349,14 @@ export function addLabels(owner: string, labels: SceneLabel[], opts?: SceneLabel
                     centreInto(geometry, p.vertices, p.position);
                     if (p.handle >= 0) layer.update(p.handle, p.billboard);
                 }
-            }
-            : null,
+            })
+            : null;
+        return () => {
+            stop?.();
+            for (const handle of handles) layer.remove(handle);
+            for (const p of pinned) if (p.handle >= 0) layer.remove(p.handle);
+            for (const p of pinned) p.handle = -1;
+        };
     });
 }
 
@@ -399,7 +381,7 @@ export function paintFeaElements(owner: string, paint: SceneElementPaint): Scene
             return true;
         },
     });
-    return painted ? track(owner, {take: () => painted.remove(), result: target.token, follow: null}) : null;
+    return painted ? track(owner, target.token, undefined, () => painted.remove()) : null;
 }
 
 /** Show only `elements` of the active FEA mesh (null: show all). */

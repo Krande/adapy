@@ -28,6 +28,11 @@
 // through one; taking what the plugin drew there would undo the plugin's own work. What is pinned
 // to an FEA result still goes with that result.
 //
+// What is drawn over the scene is the overlay manager's (viewport/api/overlayManager.ts): ONE call,
+// `sceneOverlays.clear`, applies each overlay's own lifetime and replace policy, so an overlay that
+// registers there cannot be missed by a clear. A guard test holds that what draws over the scene
+// draws through it.
+//
 // Then every plugin listening (`ctx.scene.onSceneCleared`) is told, once, with what was done.
 
 import {getSingletonViewerStores} from "@/state/AdaViewerContext";
@@ -41,14 +46,13 @@ import {useTreeViewStore} from "@/state/treeViewStore";
 import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
 import {getViewerRuntime} from "@/state/viewerRuntime";
 import {notifySceneCleared} from "@/plugins/sceneCleared";
-import {endAllSceneHighlights} from "@/plugins/sceneHighlights";
-import {removeAllPluginDrawings} from "@/plugins/sceneOverlays";
 import {forgetPreviewIfUnloaded} from "@/services/devConnections/previewOnShow";
 import {clearJointIsolation} from "@/utils/scene/clashIsolation";
 import {clearThreeSceneModels} from "@/utils/scene/clearThreeSceneModels";
 import {clearConnectionOverlay} from "@/utils/scene/connectionOverlay";
 import {clearWeldMarks} from "@/utils/scene/connectionWeldMarks";
 import {clearWeldTint} from "@/utils/scene/connectionWeldTint";
+import {sceneOverlays} from "@/viewport/api/overlayManager";
 import {activeViewport} from "@/viewport/api/viewportApi";
 import {clearActiveFeaStreaming} from "./load_fea_streaming";
 
@@ -95,7 +99,9 @@ export async function clearScene(options: ClearSceneOptions = {}): Promise<void>
     // What was measured on the models goes with them (the Measure tab), and every highlight of
     // their objects.
     clearMeasurements();
-    endAllSceneHighlights();
+    // What is drawn over the scene, each overlay as its lifetime and replace policy say: the
+    // highlights of the models' objects, what plugins drew (a replace leaves that).
+    sceneOverlays.clear({replacing});
     // A clash's "fade rest" / "hide rest", put back while its models are still there to put back.
     clearJointIsolation();
 
@@ -133,8 +139,6 @@ export async function clearScene(options: ClearSceneOptions = {}): Promise<void>
     // The Sources tab's `loaded` mirror, now rather than when that tab next renders.
     getSingletonViewerStores().useAssetBrowserStore.getState().reconcileLoaded(new Set());
 
-    // What the plugins drew over the scene; a replace leaves it (see the header).
-    if (!replacing) removeAllPluginDrawings();
     // The clash check's result and the markers drawn from it (they follow the store, not the
     // models, so they outlived them); the check's target and settings stay. A replace keeps it: a
     // renderer switch hands the same models over through one.

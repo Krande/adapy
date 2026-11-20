@@ -6,8 +6,11 @@
 // A plugin states what to draw in plain data, in the scene's own coordinates (those of the loaded
 // model's file, z-up); core draws it through the viewport on screen (viewport/api/overlayLayer.ts,
 // imageLayer.ts) and places it where that viewport places the model. Colours are sRGB, as CSS.
-// Everything a plugin made here goes with `releaseOwnerLayers(owner)`; its lines, points and images also go
-// with a clear of the scene (`releaseDrawnLayers`, from utils/scene/handlers/clear_scene.ts).
+//
+// Each line, point and image layer is an entry of the overlay manager (viewport/api/overlayManager.ts):
+// a clear of the scene takes it (a replace leaves it), and a viewport that takes the place of the one
+// it was drawn on draws it again, with its data as last set. Everything a plugin made here goes with
+// `releaseOwnerLayers(owner)` and `removeOwner(owner)` (`scene.remove(owner)` calls both).
 //
 // No three.js in this module or in anything it imports.
 
@@ -15,9 +18,10 @@ import {joinLayer, listLayers, setLayerOpacity, setLayerVisible, subscribeLayers
 import {playbackClock} from "@/state/playbackClock";
 import {useSceneFrameStore} from "@/state/sceneFrameStore";
 import {linearChannel, linearColor} from "@/utils/scene/sceneColor";
-import type {ImageLayer} from "@/viewport/api/imageLayer";
+import type {ImageLayer, ImageRect} from "@/viewport/api/imageLayer";
 import type {OverlayLayer} from "@/viewport/api/overlayLayer";
-import {activeViewport, type ViewportApi} from "@/viewport/api/viewportApi";
+import {register, type OverlayHandle} from "@/viewport/api/overlayManager";
+import {activeViewport} from "@/viewport/api/viewportApi";
 import {createModelPose} from "@/viewport/api/modelPose";
 import type {
     PluginLayers,
@@ -53,34 +57,22 @@ export function own(owner: string, release: () => void): () => void {
     return once;
 }
 
-/** Remove every layer and playback track `owner` made (SceneHandle.remove(owner) reaches this
- *  through `removeOwnerOverlays`). */
+/** Remove every playback track, posed model and placed box `owner` made (SceneHandle.remove(owner)
+ *  reaches this through `removeOwnerOverlays`, which removes its drawings from the manager). */
 export function releaseOwnerLayers(owner: string): void {
     for (const release of [...(owned.get(owner) ?? [])]) release();
 }
 
-/** The lines, points and images drawn now, whoever made them, each as what takes it away. Not the
- *  playback tracks, the posed models or a placed box: a clear of the scene takes only these. */
-const drawnLayers = new Set<() => void>();
+/** The manager's tag for what a plugin draws over the scene (its lines, points, images, labels),
+ *  apart from its highlights: `scene.remove(owner)` takes both, each by its own verb. */
+export const DRAWING_KIND = "drawing";
 
-/** `own`, for something a line, point or image handle draws: a clear of the scene takes it too.
- *  `gone()` says it has been taken (by the handle's `remove`, `scene.remove(owner)` or a clear),
- *  after which the handle's calls do nothing: the viewport's layer may be disposed by then. */
-function ownDrawn(owner: string, release: () => void): {remove: () => void; gone: () => boolean} {
-    let gone = false;
-    const remove = own(owner, () => {
-        gone = true;
-        drawnLayers.delete(remove);
-        release();
-    });
-    drawnLayers.add(remove);
-    return {remove, gone: () => gone};
-}
-
-/** Remove every line, point and image layer any plugin drew (a clear of the scene,
- *  utils/scene/handlers/clear_scene.ts). Their handles stay safe to call, and do nothing. */
-export function releaseDrawnLayers(): void {
-    for (const remove of [...drawnLayers]) remove();
+/** A line, point or image layer a plugin drew, as an entry of the overlay manager: the `scene`
+ *  lifetime (a clear removes it, a replace leaves it), drawn again on each viewport that comes on
+ *  screen. Once removed -- by the handle's `remove`, `scene.remove(owner)` or a clear -- the handle's
+ *  `alive` is false, and the layer handle's calls do nothing. */
+function drawing(owner: string, draw: (handle: OverlayHandle) => () => void, onRemoved: () => void): OverlayHandle {
+    return register({owner, kind: DRAWING_KIND, lifetime: {kind: "scene"}, onReplace: "keep", draw, onRemoved});
 }
 
 // ----- a model's nodes, placed by the plugin ---------------------------------------
@@ -102,14 +94,14 @@ let offFrame: (() => void) | null = null;
 /** The scene's own coordinates in the viewport's world, as a matrix; null when they are the same.
  *  Either viewport recentres what it loads and publishes by how much (viewport/api/sceneFrame,
  *  state/sceneFrameStore). */
-function sceneMatrix(_viewport: ViewportApi): number[] | null {
+function sceneMatrix(): number[] | null {
     const offset = useSceneFrameStore.getState().offset;
     if (!offset || (offset[0] === 0 && offset[1] === 0 && offset[2] === 0)) return null;
     return [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, offset[0], offset[1], offset[2], 1];
 }
 
-function follow(viewport: ViewportApi, move: (matrix: number[] | null) => void): () => void {
-    const held = (): void => move(sceneMatrix(viewport));
+function follow(move: (matrix: number[] | null) => void): () => void {
+    const held = (): void => move(sceneMatrix());
     placed.add(held);
     // A model loaded later is recentred then: what was drawn before it moves with it.
     offFrame ??= useSceneFrameStore.subscribe(() => placed.forEach((each) => each()));
@@ -123,25 +115,11 @@ function follow(viewport: ViewportApi, move: (matrix: number[] | null) => void):
 }
 
 // ----- the layers a viewport draws an owner's things through ---------------------------
+// One per owner and kind, shared by everything the owner draws through it; the manager releases it
+// with the last of them.
 
 const layerName = (owner: string): string => `plugin:${owner}:layers`;
 const rowId = (owner: string, id: string): string => `${owner}:${id}`;
-
-/** How many things an owner draws through each of its viewport layers, so the layer can be
- *  released with the last. */
-const inUse = new Map<OverlayLayer | ImageLayer, number>();
-
-function retain<T extends OverlayLayer | ImageLayer>(layer: T): T {
-    inUse.set(layer, (inUse.get(layer) ?? 0) + 1);
-    return layer;
-}
-
-function letGo(layer: OverlayLayer | ImageLayer): void {
-    const left = (inUse.get(layer) ?? 1) - 1;
-    if (left > 0) return void inUse.set(layer, left);
-    inUse.delete(layer);
-    layer.dispose();
-}
 
 /** A drawn thing's look: the plugin's own, times its row's in the Layers panel. */
 class Look {
@@ -159,13 +137,13 @@ class Look {
         this.opacity = spec.opacity ?? 1;
     }
 
-    /** What it is drawn with to begin with, before a row has had its say. */
-    get startVisible(): boolean {
-        return this.visible;
+    /** What it is drawn with now: the plugin's own look and its row's. */
+    get drawnVisible(): boolean {
+        return this.visible && this.rowVisible;
     }
 
-    get startOpacity(): number {
-        return this.opacity;
+    get drawnOpacity(): number {
+        return this.opacity * this.rowOpacity;
     }
 
     join(owner: string, row: SceneLayerRef | undefined): void {
@@ -186,7 +164,7 @@ class Look {
     }
 
     private push(): void {
-        this.apply(this.visible && this.rowVisible, this.opacity * this.rowOpacity);
+        this.apply(this.drawnVisible, this.drawnOpacity);
     }
 
     release(): void {
@@ -217,13 +195,18 @@ export function polylineSegments(points: ArrayLike<number>, count: number, out: 
     return segments;
 }
 
+/** Where a thing is drawn now: the viewport's layer and its handle in it. */
+interface DrawnIn<L> {
+    layer: L;
+    handle: number;
+}
+
 // ----- lines ------------------------------------------------------------------
 
 const NO_LINES: SceneLineLayer = {setSegments: () => {}, setPolyline: () => {}, setLook: () => {}, remove: () => {}};
 
 export function addLineLayer(owner: string, spec: SceneLineLayerSpec = {}): SceneLineLayer {
-    const viewport = activeViewport();
-    if (!viewport) return NO_LINES;
+    if (!activeViewport()) return NO_LINES;
     let scratch: Float32Array = new Float32Array(0);
     let segments = asFloats(spec.segments);
     if (segments.length % 6 !== 0) throw new Error(`addLineLayer: segments needs 6 numbers per segment, got ${segments.length}`);
@@ -234,45 +217,64 @@ export function addLineLayer(owner: string, spec: SceneLineLayerSpec = {}): Scen
         polylineSegments(points, points.length / 3, scratch);
         segments = scratch;
     }
-    const layer = retain(viewport.overlays(layerName(owner)));
-    const look = new Look(spec, (visible, opacity) => layer.setLook(handle, {visible, opacity}));
-    // A layer of no segments yet is made with one of no length: there is nothing to draw of it.
-    const empty = segments.length === 0;
-    const handle = layer.addLines({
-        segments: empty ? new Float32Array(6) : segments,
-        color: linearColor(spec.color ?? "#ffffff"),
-        widthPx: spec.widthPx,
-        opacity: look.startOpacity,
-        onTop: !!spec.throughModel,
-        clipped: true,
-        matrix: sceneMatrix(viewport),
-    });
-    if (empty) layer.setGeometry(handle, segments, 0);
-    if (!look.startVisible) layer.setLook(handle, {visible: false});
-    look.join(owner, spec.layer);
-    const unfollow = follow(viewport, (matrix) => layer.setLook(handle, {matrix}));
-    const {remove, gone} = ownDrawn(owner, () => {
-        unfollow();
-        look.release();
-        layer.remove(handle);
-        letGo(layer);
-    });
-    return {
-        setSegments: (next, count) => {
-            if (!gone()) layer.setGeometry(handle, next, count);
+    // What it draws, as last set: drawn again on a viewport that comes on screen.
+    let data = segments;
+    let count = segments.length / 6;
+    let color = linearColor(spec.color ?? "#ffffff");
+    let at: DrawnIn<OverlayLayer> | null = null;
+    const look = new Look(spec, (visible, opacity) => at?.layer.setLook(at.handle, {visible, opacity}));
+    const entry = drawing(
+        owner,
+        (h) => {
+            const layer = h.lines(layerName(owner))!;
+            // A layer of no segments yet is made with one of no length: there is nothing to draw of it.
+            const empty = count === 0;
+            const handle = layer.addLines({
+                segments: empty ? new Float32Array(6) : data.length === count * 6 ? data : data.subarray(0, count * 6),
+                color,
+                widthPx: spec.widthPx,
+                opacity: look.drawnOpacity,
+                onTop: !!spec.throughModel,
+                clipped: true,
+                matrix: sceneMatrix(),
+            });
+            if (empty) layer.setGeometry(handle, data, 0);
+            if (!look.drawnVisible) layer.setLook(handle, {visible: false});
+            at = {layer, handle};
+            const unfollow = follow((matrix) => layer.setLook(handle, {matrix}));
+            return () => {
+                unfollow();
+                at = null;
+                layer.remove(handle);
+            };
         },
-        setPolyline: (points, count) => {
-            if (gone()) return;
-            const vertices = Math.max(0, Math.min(count ?? Infinity, Math.floor(points.length / 3)));
+        () => look.release(),
+    );
+    look.join(owner, spec.layer);
+    return {
+        setSegments: (next, n) => {
+            if (!entry.alive) return;
+            data = next;
+            count = Math.max(0, Math.min(n ?? Infinity, Math.floor(next.length / 6)));
+            at?.layer.setGeometry(at.handle, next, n);
+        },
+        setPolyline: (points, n) => {
+            if (!entry.alive) return;
+            const vertices = Math.max(0, Math.min(n ?? Infinity, Math.floor(points.length / 3)));
             scratch = room(scratch, Math.max(0, vertices - 1) * 6);
-            layer.setGeometry(handle, scratch, polylineSegments(points, vertices, scratch));
+            data = scratch;
+            count = polylineSegments(points, vertices, scratch);
+            at?.layer.setGeometry(at.handle, scratch, count);
         },
         setLook: (change) => {
-            if (gone()) return;
-            if (change.color !== undefined) layer.setLook(handle, {color: linearColor(change.color)});
+            if (!entry.alive) return;
+            if (change.color !== undefined) {
+                color = linearColor(change.color);
+                at?.layer.setLook(at.handle, {color});
+            }
             look.set(change);
         },
-        remove,
+        remove: () => entry.remove(),
     };
 }
 
@@ -281,8 +283,7 @@ export function addLineLayer(owner: string, spec: SceneLineLayerSpec = {}): Scen
 const NO_POINTS: ScenePointLayer = {setPoints: () => {}, setLook: () => {}, remove: () => {}};
 
 export function addPointLayer(owner: string, spec: ScenePointLayerSpec = {}): ScenePointLayer {
-    const viewport = activeViewport();
-    if (!viewport) return NO_POINTS;
+    if (!activeViewport()) return NO_POINTS;
     const positions = asFloats(spec.positions);
     if (positions.length % 3 !== 0) throw new Error(`addPointLayer: positions needs 3 numbers per point, got ${positions.length}`);
     const colored = spec.colors !== undefined;
@@ -295,47 +296,61 @@ export function addPointLayer(owner: string, spec: ScenePointLayerSpec = {}): Sc
         for (let i = 0; i < numbers; i++) tint[i] = linearChannel(colors[i]);
     };
     if (colored) linearInto(spec.colors!, positions.length);
-    const layer = retain(viewport.overlays(layerName(owner)));
-    const look = new Look(spec, (visible, opacity) => layer.setLook(handle, {visible, opacity}));
-    const empty = positions.length === 0;
-    const handle = layer.addPoints({
-        positions: empty ? new Float32Array(3) : positions,
-        colors: colored ? (empty ? new Float32Array(3) : tint.subarray(0, positions.length)) : undefined,
-        color: colored ? undefined : linearColor(spec.color ?? "#ffffff"),
-        sizePx: spec.sizePx,
-        opacity: look.startOpacity,
-        onTop: !!spec.throughModel,
-        clipped: true,
-        matrix: sceneMatrix(viewport),
-    });
-    if (empty) layer.setGeometry(handle, positions, 0);
-    if (!look.startVisible) layer.setLook(handle, {visible: false});
+    let data = positions;
+    let count = positions.length / 3;
+    let color = linearColor(spec.color ?? "#ffffff");
+    let at: DrawnIn<OverlayLayer> | null = null;
+    const look = new Look(spec, (visible, opacity) => at?.layer.setLook(at.handle, {visible, opacity}));
+    const entry = drawing(
+        owner,
+        (h) => {
+            const layer = h.lines(layerName(owner))!;
+            const empty = count === 0;
+            const handle = layer.addPoints({
+                positions: empty ? new Float32Array(3) : data.length === count * 3 ? data : data.subarray(0, count * 3),
+                colors: colored ? (empty ? new Float32Array(3) : tint.subarray(0, count * 3)) : undefined,
+                color: colored ? undefined : color,
+                sizePx: spec.sizePx,
+                opacity: look.drawnOpacity,
+                onTop: !!spec.throughModel,
+                clipped: true,
+                matrix: sceneMatrix(),
+            });
+            if (empty) layer.setGeometry(handle, data, 0);
+            if (!look.drawnVisible) layer.setLook(handle, {visible: false});
+            at = {layer, handle};
+            const unfollow = follow((matrix) => layer.setLook(handle, {matrix}));
+            return () => {
+                unfollow();
+                at = null;
+                layer.remove(handle);
+            };
+        },
+        () => look.release(),
+    );
     look.join(owner, spec.layer);
-    const unfollow = follow(viewport, (matrix) => layer.setLook(handle, {matrix}));
-    const {remove, gone} = ownDrawn(owner, () => {
-        unfollow();
-        look.release();
-        layer.remove(handle);
-        letGo(layer);
-    });
     return {
-        setPoints: (next, count, colors) => {
-            if (gone()) return;
-            const n = Math.max(0, Math.min(count ?? Infinity, Math.floor(next.length / 3)));
-            if (colored && colors) {
-                tint = room(tint, n * 3);
-                linearInto(colors, Math.min(n * 3, colors.length));
-                layer.setGeometry(handle, next, n, tint);
-            } else {
-                layer.setGeometry(handle, next, n);
+        setPoints: (next, n, colors) => {
+            if (!entry.alive) return;
+            const points = Math.max(0, Math.min(n ?? Infinity, Math.floor(next.length / 3)));
+            data = next;
+            count = points;
+            if (colored) {
+                tint = room(tint, points * 3);
+                if (colors) linearInto(colors, Math.min(points * 3, colors.length));
             }
+            if (colored && colors) at?.layer.setGeometry(at.handle, next, points, tint);
+            else at?.layer.setGeometry(at.handle, next, points);
         },
         setLook: (change) => {
-            if (gone()) return;
-            if (change.color !== undefined && !colored) layer.setLook(handle, {color: linearColor(change.color)});
+            if (!entry.alive) return;
+            if (change.color !== undefined && !colored) {
+                color = linearColor(change.color);
+                at?.layer.setLook(at.handle, {color});
+            }
             look.set(change);
         },
-        remove,
+        remove: () => entry.remove(),
     };
 }
 
@@ -344,64 +359,74 @@ export function addPointLayer(owner: string, spec: ScenePointLayerSpec = {}): Sc
 const NO_IMAGE: SceneImage = {setPixels: () => {}, setRect: () => {}, setLook: () => {}, unavailable: () => null, remove: () => {}};
 
 export function addImage(owner: string, image: SceneImageSpec): SceneImage {
-    const viewport = activeViewport();
-    if (!viewport) return NO_IMAGE;
+    if (!activeViewport()) return NO_IMAGE;
     if (image.pixels.length < image.width * image.height * 4) {
         throw new Error(`addImage: pixels needs 4 bytes per pixel (${image.width * image.height * 4}), got ${image.pixels.length}`);
     }
-    const layer = retain(viewport.images(layerName(owner)));
-    const look = new Look(image, (visible, opacity) => layer.setLook(handle, {visible, opacity}));
     let width = image.width, height = image.height;
-    const handle = layer.add({
-        origin: image.origin,
-        u: image.u,
-        v: image.v,
-        width,
-        height,
-        pixels: image.pixels,
-        opacity: look.startOpacity,
-        visible: look.startVisible,
-        onTop: !!image.throughModel,
-        nearest: !!image.nearest,
-        clipped: true,
-        matrix: sceneMatrix(viewport),
-    });
+    let pixels = image.pixels;
+    let rect: ImageRect = {origin: image.origin, u: image.u, v: image.v};
+    let at: DrawnIn<ImageLayer> | null = null;
+    const look = new Look(image, (visible, opacity) => at?.layer.setLook(at.handle, {visible, opacity}));
+    const entry = drawing(
+        owner,
+        (h) => {
+            const layer = h.images(layerName(owner))!;
+            const handle = layer.add({
+                ...rect,
+                width,
+                height,
+                pixels,
+                opacity: look.drawnOpacity,
+                visible: look.drawnVisible,
+                onTop: !!image.throughModel,
+                nearest: !!image.nearest,
+                clipped: true,
+                matrix: sceneMatrix(),
+            });
+            at = {layer, handle};
+            const unfollow = follow((matrix) => layer.setLook(handle, {matrix}));
+            return () => {
+                unfollow();
+                at = null;
+                layer.remove(handle);
+            };
+        },
+        () => look.release(),
+    );
     look.join(owner, image.layer);
-    const unfollow = follow(viewport, (matrix) => layer.setLook(handle, {matrix}));
-    const {remove, gone} = ownDrawn(owner, () => {
-        unfollow();
-        look.release();
-        layer.remove(handle);
-        letGo(layer);
-    });
     return {
-        setPixels: (pixels, w, h) => {
-            if (gone()) return;
+        setPixels: (next, w, h) => {
+            if (!entry.alive) return;
             width = w ?? width;
             height = h ?? height;
-            layer.setPixels(handle, pixels, w, h);
+            pixels = next;
+            at?.layer.setPixels(at.handle, next, w, h);
         },
-        setRect: (rect) => {
-            if (!gone()) layer.setRect(handle, rect);
+        setRect: (next) => {
+            if (!entry.alive) return;
+            rect = {origin: next.origin, u: next.u, v: next.v};
+            at?.layer.setRect(at.handle, next);
         },
         setLook: (change) => {
-            if (!gone()) look.set(change);
+            if (entry.alive) look.set(change);
         },
         // Removed, it is not drawn at all; that is not something the viewport cannot do.
-        unavailable: () => (gone() ? null : layer.unavailable(width, height)),
-        remove,
+        unavailable: () => (entry.alive && at ? at.layer.unavailable(width, height) : null),
+        remove: () => entry.remove(),
     };
 }
 
 /** Why the viewport on screen cannot draw an image of this size; null when it can (or there is none). */
 export function imageUnavailable(width: number, height: number): string | null {
-    const viewport = activeViewport();
-    if (!viewport) return null;
+    if (!activeViewport()) return null;
     // Asked of a layer of the viewport's, made for the asking and released again.
-    const probe = viewport.images("plugin:probe");
-    const answer = probe.unavailable(width, height);
-    probe.dispose();
-    return answer;
+    const probe = register({owner: "plugin:probe", lifetime: {kind: "until-removed"}});
+    try {
+        return probe.images("plugin:probe")?.unavailable(width, height) ?? null;
+    } finally {
+        probe.remove();
+    }
 }
 
 // ----- the playback clock and the Layers panel, as one plugin sees them ---------------------
