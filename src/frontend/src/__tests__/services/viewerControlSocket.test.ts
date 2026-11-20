@@ -64,6 +64,8 @@ function deps(): { deps: ViewerControlDeps; log: string[]; select(n: number): vo
       loadSavedGroup: async () => {
         throw new Error("not in this test");
       },
+      isSelectable: () => true,
+      onSceneChange: () => () => {},
       settle: async () => {},
     },
   };

@@ -6,7 +6,7 @@
 import { clashCheckApi } from "@/services/api/clashCheck";
 import { parseDetailStats, useClashCheckStore } from "@/state/clashCheckStore";
 import { useDetailModelsStore } from "@/state/detailModelsStore";
-import { useModelState } from "@/state/modelState";
+import { loadedSourceGroups, useModelState } from "@/state/modelState";
 import { scopeUrlPart, useScopeStore } from "@/state/scopeStore";
 import { useTreeViewStore } from "@/state/treeViewStore";
 import { rootsForSource } from "@/utils/cellbuilder/structureNodes";
@@ -69,6 +69,19 @@ export const realViewerControlDeps: ViewerControlDeps = {
     // The plugin API's `ctx.scene.loadSavedGroup`: the Scene panel's "Load into scene".
     const { liveGroupLoadEnv, loadSavedGroupFor } = await import("@/plugins/sceneGroupLoad");
     return loadSavedGroupFor(liveGroupLoadEnv(() => scope), groupId);
+  },
+  isSelectable: (file) => {
+    if (!useModelState.getState().loadedSourceNames.has(file)) return false;
+    // Names are resolved through the model's row in the Scene tree (its model key, the worker's
+    // hierarchy behind it): `selectInOtherModel` on the native viewport, `objectsNamed` on both.
+    const root = rootsForSource(useTreeViewStore.getState().treeData, file).at(-1);
+    if (!root?.model_key) return false;
+    // The three.js viewport's select also needs the model's root object in the scene.
+    return activeViewport()?.kind !== "three" || loadedSourceGroups.has(file);
+  },
+  onSceneChange: (changed) => {
+    const offs = [useTreeViewStore.subscribe(changed), useModelState.subscribe(changed)];
+    return () => offs.forEach((off) => off());
   },
   settle: async () => {
     const { requestRender } = await import("@/state/perfStore");

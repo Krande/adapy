@@ -119,6 +119,8 @@ function fakeDeps(over: Partial<ViewerControlDeps> = {}) {
       vp.select([{ model: "m2", id: "1" }]);
       return { groupId, groupName: groupId, loaded: 1, already: 0, hidden: 0, failed: [], selected: 1, notFound: [], framed: false, bounds: null, text: "loaded", tone: "info" };
     },
+    isSelectable: (file) => loaded.has(file),
+    onSceneChange: () => () => {},
     settle: async () => {},
     ...over,
   };
@@ -340,4 +342,54 @@ test("open_detail_model with_source also loads the group its run was made on", a
   const without = (await run(plain.deps, { action: "open_detail_model", detail_id: DETAIL_ID })) as Record<string, unknown>;
   assert.equal("source_group" in without, false);
   assert.ok(!plain.log.some((l) => l.startsWith("loadSavedGroup")));
+});
+
+
+test("a batch that opens a model and selects in it waits until the model's names can be found", async () => {
+  const { answerPayload } = await import("@/services/viewerControl/answer");
+  const { deps, vp, loaded } = fakeDeps();
+  // The model is in the scene at once, its name index a moment later -- as a GLB's tree arrives.
+  const indexed = new Set<string>([SOURCE]);
+  const listeners = new Set<() => void>();
+  deps.isSelectable = (file) => indexed.has(file);
+  deps.onSceneChange = (cb) => (listeners.add(cb), () => void listeners.delete(cb));
+  deps.openDetailModel = async (_scope, model) => {
+    loaded.add(model.glb_key);
+    setTimeout(() => {
+      indexed.add(model.glb_key);
+      listeners.forEach((l) => l());
+    }, 30);
+  };
+  deps.selectNames = async (file, names) => vp.select(indexed.has(file) ? names.map((n, i) => ({ model: file, id: String(i), node: n })) : []);
+  const answer = await answerPayload(deps, {
+    commands: [
+      { action: "open_detail_model", detail_id: DETAIL_ID, frame: false },
+      { action: "select", names: ["weld_1", "weld_2"], file: DETAIL_GLB, frame: true },
+    ],
+  });
+  assert.equal(answer.error, null);
+  assert.deepEqual(answer.steps?.map((s) => s.status), ["done", "done"]);
+  assert.deepEqual((answer.steps?.[1].result as { selected: number }).selected, 2);
+  assert.equal(listeners.size, 0, "the wait unsubscribed");
+});
+
+test("a select names a model whose index is late: it is waited for, not failed", async () => {
+  const { deps, vp } = fakeDeps();
+  let ready = false;
+  deps.isSelectable = () => ready;
+  deps.selectNames = async (file, names) => vp.select(ready ? names.map((n, i) => ({ model: file, id: String(i), node: n })) : []);
+  setTimeout(() => (ready = true), 150); // no change event: the periodic recheck sees it
+  const out = (await run(deps, { action: "select", names: ["column_1"], frame: false })) as { selected: number };
+  assert.equal(out.selected, 1);
+});
+
+test("a load that never becomes selectable fails with the timeout", async () => {
+  const { deps } = fakeDeps();
+  deps.isSelectable = (file) => file === SOURCE;
+  deps.waitMs = { load: 60, select: 60 };
+  await assert.rejects(
+    run(deps, { action: "open_detail_model", detail_id: DETAIL_ID }),
+    /detail model 20260101T000000000Z-0123abcd: _clash\/details\/.*model\.glb did not become selectable by name within 0\.1 s/,
+  );
+  await assert.rejects(run(deps, { action: "load_saved_group", group_id: "g-frame" }), /saved group g-frame: .* did not become selectable/);
 });

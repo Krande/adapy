@@ -133,6 +133,8 @@ One object per command, discriminated by `action`. Unknown fields are refused.
 | `find_objects` | `names: [str]`, `file?` | Looks names up in the loaded models without changing anything (the selection is put back). | `{found: [{name, file, objects, centre, bounds}], missing: [name]}` |
 | `get_state` | | Nothing; the answer's `state` is the point. | `null` |
 
+**Loading, then using what was loaded.** `open_detail_model` and `load_saved_group` (and `with_source`) answer only once what they loaded can be found by name -- the model is in the scene, its Scene-tree rows are built and its objects indexed -- so the next command of a batch can select in it; one that does not get there within 60 s is the command's error. `select`, `find_objects` and `focus_joint` wait (up to 20 s) for a loaded model that is not yet selectable instead of finding nothing in it.
+
 Coordinates are model units, in the viewer's world (`up` is the model's up axis).
 
 ## Reading what was stored

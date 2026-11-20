@@ -94,11 +94,62 @@ export interface ViewerControlDeps {
   /** Load a saved group into the scene, as its "Load into scene" does (`ctx.scene.loadSavedGroup`);
    *  the load ends with the group's members selected. */
   loadSavedGroup(scope: string, groupId: string): Promise<SceneGroupLoad>;
+  /** Whether the model loaded as `file` can be found by name now: on screen, its scene tree built
+   *  and its objects indexed (what `selectNames` / `objectsNamed` resolve names through). A model
+   *  is in `loadedSources` a little before that. */
+  isSelectable(file: string): boolean;
+  /** Calls `changed` whenever a model's loading may have moved on; returns the unsubscribe. */
+  onSceneChange(changed: () => void): () => void;
+  /** How long to wait, ms: for what a command loaded to become selectable (`load`), and for a
+   *  model a command names that is still loading (`select`). Defaults: 60 s and 20 s. */
+  waitMs?: { load?: number; select?: number };
   /** Let the scene catch up with a change (a frame), before reading it back. */
   settle(): Promise<void>;
 }
 
 export class ViewerCommandError extends Error {}
+
+const LOAD_WAIT_MS = 60_000;
+const SELECT_WAIT_MS = 20_000;
+/** A change the scene does not announce is still seen this often while waiting. */
+const RECHECK_MS = 100;
+
+/** Resolve true once every one of `files` is selectable (`deps.isSelectable`), false after `timeoutMs`:
+ *  checked on every scene change, and every RECHECK_MS for what changes unannounced (a worker's index). */
+export function whenSelectable(deps: ViewerControlDeps, files: readonly string[], timeoutMs: number): Promise<boolean> {
+  const ready = () => files.every((f) => deps.isSelectable(f));
+  if (ready()) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (ok: boolean) => {
+      if (done) return;
+      done = true;
+      clearInterval(tick);
+      clearTimeout(timer);
+      off();
+      resolve(ok);
+    };
+    const check = () => {
+      if (ready()) finish(true);
+    };
+    const off = deps.onSceneChange(check);
+    const tick = setInterval(check, RECHECK_MS);
+    const timer = setTimeout(() => finish(ready()), timeoutMs);
+  });
+}
+
+/** Wait for `files` to become selectable; a `what` that does not within `timeoutMs` is the error. */
+async function requireSelectable(deps: ViewerControlDeps, files: readonly string[], timeoutMs: number, what: string): Promise<void> {
+  if (await whenSelectable(deps, files, timeoutMs)) return;
+  const late = files.filter((f) => !deps.isSelectable(f));
+  throw new ViewerCommandError(
+    `${what}: ${late.join(", ")} did not become selectable by name within ${seconds(timeoutMs)} (still loading?)`,
+  );
+}
+
+const seconds = (ms: number): string => `${(ms / 1000).toFixed(ms < 10_000 ? 1 : 0)} s`;
+const loadWait = (deps: ViewerControlDeps) => deps.waitMs?.load ?? LOAD_WAIT_MS;
+const selectWait = (deps: ViewerControlDeps) => deps.waitMs?.select ?? SELECT_WAIT_MS;
 
 /** Objects listed in a state report at most: the count says how many there are. */
 const MAX_LISTED_OBJECTS = 50;
@@ -168,24 +219,34 @@ async function focusJoint(deps: ViewerControlDeps, c: Extract<ViewerCommand, { a
       `joint ${c.joint_id} is not in the clash result open here${run ? ` (${run})` : ""}; pass the run_key it is in`,
     );
   }
+  // Its members are found in the loaded models: one still loading would select nothing yet.
+  await whenSelectable(deps, deps.loadedSources(), selectWait(deps));
   await deps.focusJoint(c.joint_id, c.reveal_panel !== false);
   const selected = c.frame === false ? (await deps.settle(), deps.viewport()?.selectionCount() ?? 0) : await frameSelection(deps);
   return { joint_id: c.joint_id, selected };
 }
 
-function fileFor(deps: ViewerControlDeps, file: string | null | undefined): string {
+/** The model a command looks in -- `file`, else the active one -- once it is selectable: a model
+ *  still loading (the one the previous command of a batch opened) is waited for, not failed. */
+async function fileFor(deps: ViewerControlDeps, file: string | null | undefined): Promise<string> {
   const loaded = deps.loadedSources();
-  if (file) {
-    if (!loaded.includes(file)) throw new ViewerCommandError(`${file} is not loaded in this viewer`);
-    return file;
+  let target = file ?? null;
+  if (!target) {
+    target = deps.activeSource() ?? (loaded.length === 1 ? loaded[0] : null);
+    if (!target) throw new ViewerCommandError("several models are loaded: name the one to look in ('file')");
   }
-  const active = deps.activeSource() ?? (loaded.length === 1 ? loaded[0] : null);
-  if (!active) throw new ViewerCommandError("several models are loaded: name the one to look in ('file')");
-  return active;
+  if (!loaded.includes(target)) throw new ViewerCommandError(`${target} is not loaded in this viewer`);
+  if (deps.isSelectable(target)) return target;
+  if (!(await whenSelectable(deps, [target], selectWait(deps)))) {
+    throw new ViewerCommandError(
+      `${target} is loaded but not yet selectable by name after ${seconds(selectWait(deps))} (still loading?)`,
+    );
+  }
+  return target;
 }
 
 async function select(deps: ViewerControlDeps, c: Extract<ViewerCommand, { action: "select" }>) {
-  const file = fileFor(deps, c.file);
+  const file = await fileFor(deps, c.file);
   await deps.selectNames(file, c.names);
   const selected = c.frame === false ? (await deps.settle(), deps.viewport()?.selectionCount() ?? 0) : await frameSelection(deps);
   if (selected === 0) throw new ViewerCommandError(`none of ${c.names.length} name(s) is in ${file}`);
@@ -213,6 +274,8 @@ async function openDetailModel(deps: ViewerControlDeps, c: Extract<ViewerCommand
   if (model.status !== "done") throw new ViewerCommandError(`detail model ${c.detail_id} is ${model.status}, not built yet`);
   if (!deps.loadedSources().includes(model.glb_key)) await deps.openDetailModel(scope, model);
   if (!deps.loadedSources().includes(model.glb_key)) throw new ViewerCommandError(`could not load ${model.label}`);
+  // Answer once the model's objects can be found by name: the next command of a batch selects in it.
+  await requireSelectable(deps, [model.glb_key], loadWait(deps), `detail model ${c.detail_id}`);
   const source_group = c.with_source ? await loadSourceGroup(deps, scope, model) : undefined;
   const extra = c.with_source ? { source_group } : {};
   if (!c.joint_id) {
@@ -257,6 +320,8 @@ async function loadGroup(deps: ViewerControlDeps, c: Extract<ViewerCommand, { ac
   const scope = needScope(deps, c.scope);
   const id = c.group_id || (await groupIdByName(deps, scope, c.name ?? ""));
   const out = await deps.loadSavedGroup(scope, id);
+  // What it loaded is selectable by name before this answers (the next command may select in it).
+  await requireSelectable(deps, deps.loadedSources(), loadWait(deps), `saved group ${out.groupName || id}`);
   await deps.settle();
   const v = deps.viewport();
   if (v) {
@@ -279,7 +344,8 @@ async function loadSourceGroup(deps: ViewerControlDeps, scope: string, model: Wi
 
 async function findObjects(deps: ViewerControlDeps, c: Extract<ViewerCommand, { action: "find_objects" }>) {
   const viewport = needViewport(deps);
-  const files = c.file ? [fileFor(deps, c.file)] : [...deps.loadedSources()];
+  const files = c.file ? [await fileFor(deps, c.file)] : [...deps.loadedSources()];
+  if (!c.file) await whenSelectable(deps, files, selectWait(deps));
   const found: { name: string; file: string; objects: number; centre: Vec3 | null; bounds: ViewerState["selection"]["bounds"] }[] = [];
   const missing: string[] = [];
   // A box is the viewport's answer for a SELECTION: each name is selected in turn, measured, and
