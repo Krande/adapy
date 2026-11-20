@@ -10,6 +10,31 @@ code ships in four forms:
 | Inline viewer | the same `index.zip` bundle | `obj.show()` in Jupyter: an `<iframe srcdoc>` in the cell output with the GLB inlined (`window.B64GLTF`) |
 | Embeddable viewer | `vite.config.embed.ts` | `mountViewer(element, {modelBytes, camera, showControls})` → `{dispose()}`; several per page (`embed/viewerInstances.ts`), used by the paradoc FEA report |
 
+## The committed bundle and its stamp
+
+`resources/index.zip` is committed, and `resources/index.zip.inputs` next to it is a stamp of what it
+was built from: one hash over the tracked files under `src/frontend` the build reads (sources,
+`index.html`, `public/`, the configs, `package.json` and the lock, the committed plugin registry; not
+tests or markdown) and the two adacpp pins in `deploy/Dockerfile.viewer` (`ADACPP_BASE_IMAGE`,
+`ADACPP_RENDER_REF`) that decide the WebGPU renderer inlined into it. The stamp also lists each input
+with its git blob id, so a failing check can name what changed. The package `version` is not an input:
+the release bumps it and nothing bundles it.
+
+The CI job "Viewer bundle is up to date" runs `python scripts/packaging/bundle_inputs.py check` (also
+`pixi run -e frontend check-bundle-inputs`) on every pull request, and the release workflow runs it
+before it builds. It needs no build, so it is fast. When it fails, the bundle is stale:
+
+- On a pull request from a branch of this repository, the "Rebuild the viewer bundle" workflow builds
+  the bundle and pushes `chore: rebuild the viewer bundle` to the branch, so there is nothing to do
+  but pull it before you push again.
+- Otherwise (a fork, or a bot that could not push), run `pixi run -e frontend wbuild` and commit
+  `index.zip` and `index.zip.inputs`. Use that task, not `npm run build`: it writes the stamp after
+  the build. Rebuild from a clean checkout with no plugin overlay (`ADA_PLUGINS_EXTRA` unset), or the
+  provenance job rejects the result.
+
+After a merge that touched the frontend, a pull request that also rebuilt the bundle conflicts in
+`index.zip` and the stamp: take either side and run `pixi run -e frontend wbuild` again.
+
 ## Structure
 
 ```mermaid
