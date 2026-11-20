@@ -419,14 +419,22 @@ export type { SelectedObjectBox } from "@/viewport/api/viewportApi";
 //          and the mesh's stats as a line. The sections below are drawn and get the pick as before.
 //          `PropertyGroup` on `/layout` (with `PropertyItemLayout`): one titled group drawn as the
 //          item layout draws its groups. Core's `fea-sets` section is one in the flat panel.
-// 1.32.0 — UI behaviours (plugins/uiBehaviours.ts): what core does that one UI wants and another
-//          might not, by name, each with a default for core's own UI and one for every other shell.
-//          A shell chooses its own with `UiShellSpec.behaviours` (`{id: boolean}`); core's code
-//          reads the UI on screen's with `uiBehaviour(id)` / `useUiBehaviour(id)`. A new behaviour
-//          keeps every UI as it was until a UI opts in, so a change one UI asks for no longer
-//          reaches the others. The first: `builder.pickHiddenWhileCellsHidden` (the Properties
-//          panel leaves a cell builder pick out while the builder's cells are not drawn), on by
-//          default in every UI, as before. A name a shell gives that this core lacks is ignored.
+// 1.32.0 — Core's modes and their behaviour, assigned per UI (layout/modes.ts). `Mode` names core's
+//          modes as typed constants (TopologyInput, TopologyOutput, FemModel, FemResults,
+//          ConstructionFabrication), grouped under `ModeGroup` (Topology, Fem, Construction); a
+//          string is only how a mode is stored. A composed shell offers core's modes by their
+//          constant (`UiShellMode.id`; `label` and `hint` now default to core's) and gives each a
+//          `behaviour` (`ModeBehaviour`): `builder` ("edit" | "compare" | "away"), `sceneColor`,
+//          `deformation`, and `scene` (which loaded models the mode draws, applied by core
+//          reversibly). `UiShellLayout.modeSwitching` (remember, `?mode=`, fallback, `aliases` for
+//          ids a UI used before); `PluginModeSpec.group` and `.behaviour`
+//          (`modeArrangements[id].behaviour` wins). Core reacts to a mode ONLY through the active
+//          mode's declared behaviour: the Properties panel's builder pick follows `builder` (a mode
+//          that declares none: "compare", as since 1.31.0; core's own UI, which has no modes:
+//          always shown), and the builder panel is offered in an "edit" mode instead of a mode
+//          called "build". The mode state is a zustand store (`modeStore`); the functions are as
+//          before. The Desktop UI's modes are core's now (Model = TopologyOutput, Results =
+//          FemResults, Build = TopologyInput); its old ids are aliases.
 export const PLUGIN_API_VERSION = "1.32.0";
 
 /** What the Simulations panel writes on a run's open-result button. */

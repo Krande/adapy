@@ -16,6 +16,7 @@ import { CORE_COMMAND_IDS, cameraViewCommandId } from "../coreCommandIds";
 import { CORE_PANEL_IDS } from "../corePanelIds";
 import { RAIL_SEPARATOR } from "../toolRailModel";
 import { SHELL_BAR } from "../statusItems";
+import { Mode } from "../modes";
 import type { GridNode } from "../splitTree";
 import { getUiShell, registerUiShell, type UiShellSpec } from "@/plugins/uiShells";
 
@@ -163,6 +164,13 @@ export const DESKTOP_RAIL_TOOLS: readonly string[] = [
 /** Where plugin panels that name a dock go, the first time they are seen. */
 const DOCKS = { left: DESKTOP_GROUPS.left, right: DESKTOP_GROUPS.rightBottom, bottom: DESKTOP_GROUPS.bottom };
 
+/** The ids the Desktop UI's modes had before they were core's modes, and the mode each is now. */
+export const DESKTOP_MODE_ALIASES = {
+  model: Mode.TopologyOutput,
+  results: Mode.FemResults,
+  build: Mode.TopologyInput,
+} as const;
+
 /** The Desktop UI's spec. */
 export function desktopUiShellSpec(): UiShellSpec {
   return {
@@ -174,38 +182,45 @@ export function desktopUiShellSpec(): UiShellSpec {
       grid: DESKTOP_GRID,
       open: [tree, objectInfo, scene],
       docks: DOCKS,
+      // Core's modes (`Mode`), under this UI's own labels.
       modes: [
         {
-          id: "model",
+          id: Mode.TopologyOutput,
           label: "Model",
           hint: "The model, its tree and properties",
           toolbars: ["section", "representation", "colorBy"],
+          behaviour: { builder: "compare" },
         },
         {
-          id: "results",
+          id: Mode.FemResults,
           label: "Results",
           hint: "Simulation results under the view",
           grid: DESKTOP_RESULTS_GRID,
           open: [tree, objectInfo, simulation],
           toolbars: ["playback", "representation", "colorBy"],
+          behaviour: { builder: "compare" },
         },
         {
-          id: "build",
+          id: Mode.TopologyInput,
           label: "Build",
           hint: "Build a procedural model: cells, equipment and systems, compile and commit",
           grid: DESKTOP_BUILD_GRID,
           open: [cellbuilder, objectInfo, scene],
           toolbars: ["build", "section"],
           // Always offered: Build is where a model is started or opened, so its commands grey with their reasons until one is open.
+          // The model is edited here: a pick stays in Properties whatever the builder draws after a compile.
+          behaviour: { builder: "edit" },
         },
       ],
-      defaultMode: "model",
+      defaultMode: Mode.TopologyOutput,
+      // The ids these modes had before they were core's: an old `?mode=` link or remembered mode lands on the mode it means.
+      modeSwitching: { aliases: DESKTOP_MODE_ALIASES },
       // Raise when the arrangements above change, so saved ones start over.
       version: 3,
     },
     panels: {
       // In the Build mode the toolbar carries undo / redo, compile and commit, so the panel leaves out its footer and undo / redo.
-      [cellbuilder]: { options: (mode) => (mode === "build" ? { showFooter: false, showUndoRedo: false } : {}) },
+      [cellbuilder]: { options: (mode) => (mode === Mode.TopologyInput ? { showFooter: false, showUndoRedo: false } : {}) },
     },
     chrome: {
       header: () => import("./DesktopHeader"),

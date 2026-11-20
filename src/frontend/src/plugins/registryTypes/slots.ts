@@ -6,6 +6,7 @@
 import type React from "react";
 import type { AdaViewerStores } from "@/state/AdaViewerContext";
 import type { UiShellSpec } from "../uiShells";
+import type { ModeBehaviour, ModeGroupId } from "@/layout/modes";
 import type { SimulationProviderInfo, SimulationRun } from "@/services/api/simulations";
 import type { SceneColorFieldResult, SceneHandle, SidecarFetcher } from "./scene";
 import type { PluginLayers, PluginPlayback, PluginSimulations } from "./playback";
@@ -118,6 +119,13 @@ export interface PluginModeSpec {
    * shell's own modes (`UiShellMode`) default to shown.
    */
   showsDeformation?: boolean;
+  /** The heading it sits under in a switcher with headings (`ModeGroup.Fem`, ...). */
+  group?: ModeGroupId;
+  /**
+   * What the mode does (`ModeBehaviour`) unless the shell says otherwise
+   * (`UiShellLayout.modeArrangements[id].behaviour` wins, field by field).
+   */
+  behaviour?: ModeBehaviour;
 }
 
 export type PluginLogLevel = "debug" | "info" | "warn" | "error";

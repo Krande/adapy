@@ -264,6 +264,8 @@ the chrome it draws in the slots.
 |---|---|---|
 | Arrangement | `layout.grid`, `open`, `docks` | The starting split grid, the panels opened on load, where dock-naming plugin panels go. |
 | | `layout.modes[]` | Modes, each with its own `grid` / `open` / `docks`, saved arrangement, and `viewportCover` (a panel drawn over the 3D view, a converter say), `ownsSceneColor`, `showsDeformation: false` (a shell's own mode shows the deformed FEA model unless it says false; a **plugin's** mode (`PluginModeSpec`) holds it undeformed unless it opts in with `true`), `toolbar`, `toolbars` (core's own: `playback`, `section`, `representation`, `colorBy`, `build`, see "Core's mode toolbars"), `requires: "builder"` (offered only while a procedural model is open; the Desktop UI does not use it). `?mode=` opens one; `setShellModeBadge` marks one. |
+| | `layout.modes[].id`, `.behaviour` | One of core's modes by its constant (`Mode.TopologyInput`, ...; its `label` and `hint` default to core's), and what it does in this shell (`ModeBehaviour`): `builder`, `sceneColor`, `deformation`, `scene`. See [Modes and what they do](#modes-and-what-they-do). |
+| | `layout.modeSwitching` | Remember the last mode (`remember`), honour `?mode=` (`urlParam`), where to fall back (`fallback`), and `aliases` for ids the shell used before. |
 | | `layout.defaultMode` | The mode used when there is no `?mode=` and none stored from an earlier visit (else the first by order). |
 | | `layout.version`, `migrate` | Re-seed or migrate users' saved arrangements when the shell ships new ones. |
 | | `layout.customisablePanels` | `"required"` (default): floating, docking and the split grid are always on in the shell, whatever the user set in another UI, and Options → Theme → Customisable panels shows the toggle on and disabled ("Always on in the … UI"); a docked layout is built on them. `"optional"`: the user's own setting for this shell. The setting is kept per shell (`LayoutPrefs.customisablePanelsByShell`; core's own UI's under `core`, where the single setting of older versions moves), so turning it off in Classic leaves the Desktop UI as designed and comes back on the way back. Read it through `customisablePanels()` / `useCustomisablePanels()`. |
@@ -288,7 +290,6 @@ the chrome it draws in the slots.
 | | `bodyPalette` | Tailwind palette variables (`--color-gray-800`, `--color-blue-600`, ...) redefined inside core's panel bodies only (elements marked `data-ada-panel-body`), so every core body takes the shell's colours without a copy; or a function of the user's theme. Also on the canvas-less pages. A core body drawn outside a panel (a dialog, a flyout) is wrapped in `<PanelBodyPalette>` (`@/viewer-core/layout`; `panelId` adds that panel's own palette) to take it. |
 | | group header | In a group narrower than `COMPACT_GROUP_PX` (340 px) the header's actions fold into one "More actions" menu; close stays in the bar. Nothing to configure. |
 | | `chrome.toastAnchor` | The corner core's progress toast sits in. |
-| Behaviour | `behaviours: {[id]: boolean}` | The shell's choice of core's UI behaviours (`UI_BEHAVIOURS`): what core does that one UI wants and another might not. Any left out gets the default for a shell. Also for a shell with `load`. See [UI behaviours](#ui-behaviours). |
 | Keys | `registerShortcut`, `registerCommand({keys})` | Chords other than core's own (`RESERVED_SHORTCUTS`, derived from the registry, see below). A refused chord is warned about and ignored. |
 | | `registerCommand({shortcut})` | The id of a core shortcut (`core:fit-all`, ...): the command shows that entry's chord in the palette and menus. Binds nothing itself; ignored when `keys` is given. Core's own commands name their keys this way. |
 | | `registerCommand({chordLabel})` | A display-only chord for a key handled outside the registry. Prefer `shortcut`. |
@@ -311,37 +312,42 @@ listed in the dialog and (F6, Esc) reserved, but never dispatched. Rebinding a c
 Layout state helpers on `@/viewer-core/layout`: `resetArrangement`, `saveWorkspace`,
 `loadWorkspace`, `deleteWorkspace`, `listWorkspaces`.
 
-### UI behaviours
+### Modes and what they do
 
-Core's code is shared by every UI: core's own (classic, shell `core`), the built-in Desktop UI and
-every plugin's shell. A change to how that code behaves reaches all of them at once, so a change one
-UI asked for could alter another. A behaviour that may differ between UIs is therefore a named entry
-in `UI_BEHAVIOURS` (`@/viewer-core`), with a default for core's own UI and one for every other shell,
-and each shell chooses its own:
+**Core names the modes; each UI decides what they do.** Core's modes are typed constants on
+`@/viewer-core` (`Mode`), grouped under headings (`ModeGroup`, `MODE_GROUPS`):
 
-```ts
-uiShells: [{
-  id: "my-shell",
-  label: "My shell",
-  behaviours: { "builder.pickHiddenWhileCellsHidden": false },
-}]
-```
+| Heading | Mode | Constant |
+|---|---|---|
+| Topology | Input | `Mode.TopologyInput` |
+| | Output | `Mode.TopologyOutput` |
+| Fem | Model | `Mode.FemModel` |
+| | Results | `Mode.FemResults` |
+| Construction | Fabrication-cad | `Mode.ConstructionFabrication` |
 
-Core's code asks `uiBehaviour(id)` (or `useUiBehaviour(id)` in a component, which follows an in-place
-switch): the shell on screen's choice, else the default for its kind of UI. It never asks which UI is up.
-`uiBehaviourFor(shellId, id)` answers for any shell. A name a shell gives that its core does not have
-(a shell built for a newer core) is ignored; `unknownUiBehaviours(spec.behaviours)` lists them, for the
-shell's own tests.
+Code names a mode by its constant, never by a string: the string is only how a mode is stored (a
+`?mode=` link, the remembered mode, a saved layout). A plugin's mode (`PluginModeSpec`) joins a heading
+with `group`.
 
-**Adding one.** Its defaults keep every UI as it was; the UI that wants the new behaviour opts in from
-its own spec. An existing behaviour moved behind an entry keeps today's behaviour as its defaults, so
-the move changes nothing. The defaults are pinned in `__tests__/plugins/uiBehaviours.test.ts`:
-changing one changes every UI that has not chosen, and shows up there in a review. A shell that depends
-on a value sets it in its spec rather than relying on the default.
+A composed shell offers the modes it wants (`layout.modes`) and gives each a `behaviour`:
 
-| Id | Core's UI | Other shells | When on |
-|---|---|---|---|
-| `builder.pickHiddenWhileCellsHidden` | on | on | The Properties panel leaves a cell builder pick (a cell, a ref) out while the builder's cells are not drawn: in a mode that keeps the procedural model open behind it, and in the builder's own Sim and Detail views after a compile. |
+| `ModeBehaviour` | Values | Default (a mode that says nothing) |
+|---|---|---|
+| `builder` | `"edit"`: the procedural model is worked on here; its picks are in Properties and the builder panel is offered, whatever the builder draws. `"compare"`: the builder is drawn to compare; a pick is in Properties while its cells are drawn. `"away"`: the model stays open behind the mode; a pick is not this mode's selection. | `"compare"` |
+| `sceneColor` | `"own"`: core sets the FEA field colouring aside while the mode is active. `"results"`: shown. | the mode's `ownsSceneColor` |
+| `deformation` | Draw the FEA model deformed. | the mode's `showsDeformation` |
+| `scene` | `{draws(model)}`: which loaded models the mode draws. Core applies it reversibly: what a model's visibility was before is what it goes back to, and a model the user shows or hides by hand is theirs until the mode changes. | every model, untouched |
+
+A plugin's mode may carry a `behaviour` of its own; the shell's `modeArrangements[id].behaviour` wins,
+field by field.
+
+**The rule.** Core reacts to a mode only through the active mode's declared behaviour: it never compares
+mode ids and never infers what a UI meant from what is drawn. Core's own UI has no modes, so nothing
+here ever applies to it. A shell that scopes its scene itself declares no `scene`, and core leaves its
+models alone.
+
+`modeStore` (zustand) holds the modes on offer, the active one, the badges and the switching rules; the
+functions (`activeShellMode`, `setShellMode`, `builderPresence`, ...) are its API.
 
 ### The marking menu
 
@@ -677,8 +683,8 @@ shell needs no code for them:
 
 ```ts
 modes: [
-  { id: "model", label: "Model", toolbars: ["section", "representation", "colorBy"] },
-  { id: "results", label: "Results", toolbars: ["playback", "representation", "colorBy"] },
+  { id: Mode.TopologyOutput, label: "Model", toolbars: ["section", "representation", "colorBy"] },
+  { id: Mode.FemResults, label: "Results", toolbars: ["playback", "representation", "colorBy"] },
 ]
 ```
 

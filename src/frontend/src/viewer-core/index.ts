@@ -752,10 +752,14 @@
 //          `feaValuesForNode`, `feaValuesForElement(..., {nodal: true})` and the types
 //          `NodalFieldValues`, `FeaFieldValues`, `FeaValuesOptions`, `NodeValuesResult` on `/scene`.
 //          `ObjectInfoBodyProps.summary` ("full" | "menu").
-//   1.32.0 Kept in step with PLUGIN_API_VERSION 1.32.0. Additive: UI behaviours --
-//          `UiShellSpec.behaviours` (`UiShellBehaviours`), `UI_BEHAVIOURS`, `uiBehaviour`,
-//          `uiBehaviourFor`, `useUiBehaviour`, `isUiBehaviour`, `unknownUiBehaviours` and the types
-//          `UiBehaviourId`, `UiBehaviourDef` on the root. See PLUGIN_API_VERSION's 1.32.0 note.
+//   1.32.0 Kept in step with PLUGIN_API_VERSION 1.32.0. Additive: `Mode`, `ModeGroup`, `CORE_MODES`,
+//          `MODE_GROUPS`, `coreModeDef`, `isCoreMode` and the types `CoreModeId`, `ModeId`,
+//          `ModeGroupId`, `CoreModeDef`, `ModeBehaviour`, `BuilderPresence`, `SceneScopeSpec`,
+//          `SceneModel`, `ModeSwitching`; `modeStore` (`ModeState`), `activeModeDef`,
+//          `builderPresence`, `modeOwnsSceneColor`, `modeShowsDeformation`, `modeSwitching` on the
+//          root. `UiShellMode.behaviour` (label optional for core's modes),
+//          `UiShellLayout.modeSwitching`, `modeArrangements[id].behaviour`, `PluginModeSpec.group`
+//          and `.behaviour`. See PLUGIN_API_VERSION's 1.32.0 note.
 export const VIEWER_CORE_API_VERSION = "1.32.0";
 
 // ---------------------------------------------------------------------------
@@ -872,16 +876,6 @@ export {
   UI_SHELL_STORAGE_KEY,
   UI_SHELL_URL_PARAM,
 } from "@/plugins/uiShells";
-// UI behaviours: what core does that one UI wants and another might not, chosen per shell.
-export {
-  isUiBehaviour,
-  UI_BEHAVIOURS,
-  uiBehaviour,
-  uiBehaviourFor,
-  unknownUiBehaviours,
-  useUiBehaviour,
-} from "@/plugins/uiBehaviours";
-export type { UiBehaviourDef, UiBehaviourId, UiShellBehaviours } from "@/plugins/uiBehaviours";
 export type {
   RegisteredUiShell,
   ShellSwitchCarry,
@@ -893,14 +887,33 @@ export type {
 } from "@/plugins/uiShells";
 // A composed shell's modes (dependency-free; the switcher components are on `@/viewer-core/layout`).
 export {
+  activeModeDef,
   activeShellMode,
+  builderPresence,
   listShellModes,
+  modeOwnsSceneColor,
+  modeShowsDeformation,
+  modeStore,
+  modeSwitching,
   offeredInMode,
   setShellMode,
   shellModesVersion,
   subscribeShellModes,
 } from "@/layout/shellModes";
-export type { CoreModeToolbarId, ShellMode, ShellModeBadge } from "@/layout/shellModes";
+export type { CoreModeToolbarId, ModeState, ShellMode, ShellModeBadge } from "@/layout/shellModes";
+// Core's modes as typed constants, their headings, and what a mode does (assigned per UI).
+export { CORE_MODES, MODE_GROUPS, Mode, ModeGroup, coreModeDef, isCoreMode } from "@/layout/modes";
+export type {
+  BuilderPresence,
+  CoreModeDef,
+  CoreModeId,
+  ModeBehaviour,
+  ModeGroupId,
+  ModeId,
+  ModeSwitching,
+  SceneModel,
+  SceneScopeSpec,
+} from "@/layout/modes";
 export { CORE_MODE_TOOLBAR_IDS } from "@/layout/shellModes";
 // The status bar's model: core's items by id, what an item is, the bars' look (`UiShellChrome.statusItems`). The bar itself is on `/layout`.
 export { CORE_STATUS_ITEM_IDS, SHELL_BAR, isCoreStatusItem } from "@/layout/statusItems";
