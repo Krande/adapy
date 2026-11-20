@@ -14,7 +14,7 @@ import hashlib
 import time
 from typing import Any, Callable, Mapping
 
-__all__ = ["build_detail", "found_id", "joints_by_id", "stage_progress"]
+__all__ = ["build_detail", "connection_records", "found_id", "joints_by_id", "stage_progress"]
 
 #: ``on_progress(done, total)``: called by :func:`build_detail` before the first joint and after each.
 DetailProgress = Callable[[int, int], None]
@@ -96,6 +96,11 @@ def build_detail(
       (:data:`ada.api.connections.spec.WELD_FAILURES_KEY`: a list of ``{"place", "weld_type",
       "reason"}``) -- and the GLB export, for a weld the connection lists whose solid produced no
       geometry (``reason`` ``"no geometry: ..."``).
+
+    WHAT WAS BUILT, per connection, in ``stats["connections"]`` (:func:`connection_records`): the
+    joint id it was built for, its name, spec, member roles and centre, its plates, and each weld with
+    its type, throat, sides, length, members and the weld's own scalar metadata -- what the take-off's
+    counts summarise, for a reader that has to say which seam is where.
     """
     from ada import Part
     from ada.core.file_system import new_temp_path
@@ -177,7 +182,94 @@ def build_detail(
         stats["skipped"] = skipped
     stats["not_built"] = not_built
     stats["weld_failures"] = weld_failures
+    stats["connections"] = connection_records(built)
     return glb_bytes, stats
+
+
+def _scalar(value: Any) -> Any:
+    """``value`` when JSON writes it as itself (str, bool, int, finite float), else None."""
+    if isinstance(value, bool) or isinstance(value, (str, int)):
+        return value
+    if isinstance(value, float):
+        return value if value == value and abs(value) != float("inf") else None
+    return None
+
+
+def _point(p: Any) -> tuple[float, float, float] | None:
+    p = getattr(p, "p", p)
+    try:
+        x, y, z = (float(c) for c in p)
+    except (TypeError, ValueError):
+        return None
+    return (x, y, z)
+
+
+def _polyline_length(points: Any) -> float | None:
+    pts = [q for q in (_point(p) for p in (points or ())) if q is not None]
+    if len(pts) < 2:
+        return None
+    return sum(sum((b[i] - a[i]) ** 2 for i in range(3)) ** 0.5 for a, b in zip(pts, pts[1:]))
+
+
+def _weld_length(weld) -> float | None:
+    """The weld line's length: ``p1`` to ``p2``, or along its sweep curve's points. None when the
+    weld says neither."""
+    p1, p2 = _point(getattr(weld, "p1", None)), _point(getattr(weld, "p2", None))
+    if p1 is not None and p2 is not None:
+        return _polyline_length([p1, p2])
+    curve = getattr(weld, "sweep_curve", None)
+    if curve is None:
+        return None
+    for attr in ("points3d", "points"):
+        length = _polyline_length(getattr(curve, attr, None))
+        if length is not None:
+            return length
+    return None
+
+
+def _weld_record(weld) -> dict[str, Any]:
+    metadata = getattr(weld, "metadata", None)
+    weld_type = getattr(getattr(weld, "type", None), "value", None) or getattr(weld, "type", None)
+    length = _weld_length(weld)
+    throat = getattr(weld, "throat", None)
+    return {
+        "name": str(getattr(weld, "name", "") or ""),
+        "weld_type": str(weld_type or ""),
+        "throat": _scalar(float(throat)) if isinstance(throat, (int, float)) else None,
+        "sided": str(getattr(weld, "sided", "") or ""),
+        "length": round(length, 6) if length is not None else None,
+        "members": [str(getattr(m, "name", m)) for m in (getattr(weld, "members", None) or ())],
+        # A builder's own words for the seam (where it is, which side, which corner), where it wrote any.
+        "metadata": (
+            {str(k): v for k, v in ((k, _scalar(v)) for k, v in metadata.items()) if v is not None}
+            if isinstance(metadata, Mapping)
+            else {}
+        ),
+    }
+
+
+def connection_records(built: list[tuple[str, Any]]) -> list[dict[str, Any]]:
+    """One record per built connection: ``{"joint_id", "connection", "spec", "member_roles",
+    "centre", "plates", "welds"}``, each weld as :func:`_weld_record` reads it. Read defensively:
+    a provider's builder made these objects."""
+    out: list[dict[str, Any]] = []
+    for jid, conn in built:
+        metadata = getattr(conn, "metadata", None)
+        info = (metadata.get("connection_info") if isinstance(metadata, Mapping) else None) or {}
+        roles = info.get("member_roles") if isinstance(info.get("member_roles"), Mapping) else {}
+        centre = info.get("centre")
+        out.append(
+            {
+                "joint_id": jid,
+                "connection": str(getattr(conn, "name", "") or ""),
+                "spec": str(info.get("spec_name") or getattr(conn, "spec_name", "") or ""),
+                "member_roles": {str(r): [str(n) for n in (names or [])] for r, names in roles.items()},
+                "centre": list(centre) if isinstance(centre, (list, tuple)) else None,
+                "plates": [str(getattr(p, "name", p)) for p in (getattr(conn, "plates", None) or ())],
+                "welds": [_weld_record(w) for w in _welds_of(conn)],
+            }
+        )
+    return out
 
 
 def _prebuild_bodies(part) -> None:

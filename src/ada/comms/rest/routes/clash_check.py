@@ -896,6 +896,41 @@ async def api_clash_detail_models(
     return JSONResponse({"models": models})
 
 
+@router.get("/scopes/{scope}/clash-detail/models/{detail_id}")
+async def api_clash_detail_model(
+    detail_id: str,
+    joint_ids: str | None = None,
+    scope_obj: Scope = Depends(scope_from_path),
+    ctx: RestContext = Depends(rest_context),
+) -> JSONResponse:
+    """One detail model, per joint (``clash_inspect.detail_view``): its record, its take-off, and
+    for each joint (``joint_ids``, comma-separated; default every joint it was asked to build) its
+    ``status`` (built, declined, failed, pending, not_requested, unknown), the connections built for
+    it with their welds (type, throat, sides, length, members, the builder's own metadata), why it
+    was not built, which of its welds failed, and -- from the convex-contact run it was detailed from,
+    while that is stored -- its members and contact."""
+    from ada.clash.sidecar import SidecarError, parse_run
+
+    from .. import clash_inspect
+
+    _require_detail_id(detail_id)
+    found = await clash_details.read_model(ctx.storage, scope_obj, ctx.jobs, detail_id)
+    if found is None:
+        raise HTTPException(status_code=404, detail=f"no detail model {detail_id!r}")
+    record, stats = found
+    run = None
+    source = record.get("source") or {}
+    if source.get("kind") == "run" and source.get("run_key"):
+        try:
+            run = parse_run(await ctx.storage.get_bytes(scope_obj, str(source["run_key"])))
+        except (FileNotFoundError, KeyError, SidecarError, ValueError):
+            run = None
+    wanted = [j.strip() for j in joint_ids.split(",") if j.strip()] if joint_ids else None
+    view = clash_inspect.detail_view(record, stats, run, wanted)
+    view["run_found"] = run is not None
+    return JSONResponse(view)
+
+
 @router.delete("/scopes/{scope}/clash-detail/models/{detail_id}")
 async def api_clash_detail_model_delete(
     detail_id: str,

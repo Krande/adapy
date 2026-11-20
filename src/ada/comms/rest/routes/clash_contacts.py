@@ -13,7 +13,10 @@ A clash run measures the members of a viewer GLB (``ada.clash.contacts``) and is
   the scope's newest runs over every target.
 * ``POST /clash-contacts/annotate`` -- the specs half alone, for an existing run.
 * ``POST /clash-contacts/detail`` -- build named clashes of a run with a registered spec, from the
-  stored contacts.
+  stored contacts. ``run_key: "latest"`` (with an optional ``target``) details the newest run.
+* ``GET /clash-contacts/latest?target=...`` -- the newest run's index line, of a target or the scope.
+* ``GET /clash-contacts/joints?key=...&ids=...`` -- a run's clashes as an agent reads them: members
+  by name and role, centre, measured contact, applicable specs (``ada.comms.rest.clash_inspect``).
 
 A saved GROUP's run (``{"kind": "group", "group_id"}``, see ``ada.clash.sidecar``) spans several GLBs:
 it is measured in the browser only, then stored, listed, read, annotated and detailed like any other
@@ -42,7 +45,7 @@ from ada.clash.sidecar import (
 )
 
 from .. import auth as auth_module
-from .. import clash_details
+from .. import clash_details, clash_inspect
 from ..auth import User
 from ..clash_runs import write_run_and_index
 from ..job_transport import JobRequest
@@ -54,6 +57,8 @@ router = APIRouter()
 
 KIND = "clash_contacts"
 _UP_AXES = ("z", "y")
+#: A run key that means "the newest run" (of the ``target`` given beside it, else of the scope).
+LATEST = "latest"
 
 
 def _target_from(raw: Any) -> dict:
@@ -140,6 +145,55 @@ async def _read_run(ctx: RestContext, scope_obj: Scope, key: str):
         return parse_run(raw)
     except SidecarError as exc:
         raise HTTPException(status_code=502, detail=f"{key}: {exc}") from exc
+
+
+async def _all_index_lines(ctx: RestContext, scope_obj: Scope) -> list[dict]:
+    """Every run index line in the scope, over every target, newest first."""
+    runs: list[dict] = []
+    for entry in await ctx.storage.list_prefix(scope_obj, CLASH_SIDECAR_PREFIX):
+        if not entry.key.endswith("/index.json"):
+            continue
+        try:
+            runs.extend(parse_index(await ctx.storage.get_bytes(scope_obj, entry.key)))
+        except (FileNotFoundError, KeyError, SidecarError, json.JSONDecodeError):
+            continue
+    runs.sort(key=lambda r: str(r.get("created_at", "")), reverse=True)
+    return runs
+
+
+def _target_query(target: str | None) -> dict | None:
+    if target is None or not target.strip():
+        return None
+    try:
+        return _target_from(json.loads(target))
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=400, detail="'target' must be a JSON object") from exc
+
+
+async def _latest_line(ctx: RestContext, scope_obj: Scope, target: dict | None) -> dict:
+    """The newest run's index line: of ``target`` when one is named, else of the whole scope. 404
+    when there is none."""
+    if target is not None:
+        try:
+            lines = parse_index(await ctx.storage.get_bytes(scope_obj, index_key(target)))
+        except (FileNotFoundError, KeyError):
+            lines = []
+        except (SidecarError, json.JSONDecodeError) as exc:
+            raise HTTPException(status_code=502, detail=f"unreadable clash run index: {exc}") from exc
+    else:
+        lines = await _all_index_lines(ctx, scope_obj)
+    line = clash_inspect.newest(lines)
+    if line is None:
+        what = "this target" if target is not None else "this scope"
+        raise HTTPException(status_code=404, detail=f"no clash run for {what}")
+    return line
+
+
+async def _resolve_run_key(ctx: RestContext, scope_obj: Scope, key: str, target: dict | None) -> str:
+    """A run key as given, or ``"latest"`` resolved (:func:`_latest_line`)."""
+    if key.strip() == LATEST:
+        return _require_run_key(str((await _latest_line(ctx, scope_obj, target)).get("key") or ""))
+    return _require_run_key(key)
 
 
 async def _submit(ctx, request, user, scope_obj, *, feature, source_key, derived_key, options, capability=None):
@@ -297,15 +351,7 @@ async def api_clash_contacts_recent(
     a run is reopened when the panel is on another target. A line indexed before it carried those is
     completed from the run itself; one whose run cannot be read is left out."""
     limit = max(1, min(int(limit), 100))
-    runs: list[dict] = []
-    for entry in await ctx.storage.list_prefix(scope_obj, CLASH_SIDECAR_PREFIX):
-        if not entry.key.endswith("/index.json"):
-            continue
-        try:
-            runs.extend(parse_index(await ctx.storage.get_bytes(scope_obj, entry.key)))
-        except (FileNotFoundError, KeyError, SidecarError, json.JSONDecodeError):
-            continue
-    runs.sort(key=lambda r: str(r.get("created_at", "")), reverse=True)
+    runs = await _all_index_lines(ctx, scope_obj)
     out: list[dict] = []
     for line in runs[:limit]:
         if "target" not in line or "label" not in line:
@@ -327,6 +373,68 @@ async def api_clash_contacts_read(
     """One run, validated."""
     run = await _read_run(ctx, scope_obj, _require_run_key(key))
     return JSONResponse(run.to_dict())
+
+
+@router.get("/scopes/{scope}/clash-contacts/latest")
+async def api_clash_contacts_latest(
+    target: str | None = None,
+    scope_obj: Scope = Depends(scope_from_path),
+    ctx: RestContext = Depends(rest_context),
+) -> JSONResponse:
+    """The newest run: of ``target`` (the target object as JSON) when given, else of the whole
+    scope. ``{"run": <index line: run_id, key, target, label, created_at, contacts, ...>}``; 404 when
+    there is none."""
+    return JSONResponse({"run": await _latest_line(ctx, scope_obj, _target_query(target))})
+
+
+#: How many clashes ``/clash-contacts/joints`` answers with at most, when no ids are named.
+JOINTS_LIMIT = 500
+
+
+@router.get("/scopes/{scope}/clash-contacts/joints")
+async def api_clash_contacts_joints(
+    key: str = LATEST,
+    target: str | None = None,
+    ids: str | None = None,
+    member: str | None = None,
+    limit: int = 100,
+    scope_obj: Scope = Depends(scope_from_path),
+    ctx: RestContext = Depends(rest_context),
+) -> JSONResponse:
+    """A run's clashes as an agent reads them (``clash_inspect.contact_view``). ``key`` is a run key or
+    ``latest`` (of ``target``, else of the scope). ``ids`` (comma-separated) picks clashes -- an id
+    not in the run is listed in ``missing`` rather than refused; ``member`` keeps the clashes with a
+    member of that name. ``{"run": {key, run_id, label, target, created_at, contacts}, "joints",
+    "missing", "truncated"}``."""
+    run_key_ = await _resolve_run_key(ctx, scope_obj, key, _target_query(target))
+    run = await _read_run(ctx, scope_obj, run_key_)
+    limit = max(1, min(int(limit), JOINTS_LIMIT))
+    missing: list[str] = []
+    if ids:
+        wanted = list(dict.fromkeys(i.strip() for i in ids.split(",") if i.strip()))
+        contacts = [c for c in (run.contact(i) for i in wanted) if c is not None]
+        missing = [i for i in wanted if run.contact(i) is None]
+    else:
+        contacts = list(run.contacts)
+    if member:
+        contacts = [c for c in contacts if member in run.names(c)]
+    truncated = not ids and len(contacts) > limit
+    joints = [clash_inspect.contact_view(run, c) for c in (contacts if ids else contacts[:limit])]
+    return JSONResponse(
+        {
+            "run": {
+                "key": run_key_,
+                "run_id": run.run_id,
+                "label": run.label(),
+                "target": dict(run.target),
+                "created_at": run.created_at,
+                "contacts": len(run.contacts),
+            },
+            "joints": joints,
+            "missing": missing,
+            "truncated": truncated,
+        }
+    )
 
 
 @router.post("/scopes/{scope}/clash-contacts/annotate")
@@ -379,8 +487,14 @@ async def api_clash_contacts_detail(
     The members are rebuilt as the run's last annotate bound them: through the ``geometry_provider``
     it recorded, unless the body names another. Routed to the spec's pool (a built-in runs anywhere)
     that also reads that provider. The ids are checked against the run before anything is enqueued,
-    so a stale selection is a 404 naming them rather than a failed job."""
-    key = _require_run_key(str(body.get("run_key") or ""))
+    so a stale selection is a 404 naming them rather than a failed job.
+
+    ``run_key: "latest"`` details the newest run of ``target`` (a target object, as for a check)
+    when the body names one, else the scope's newest run; the answer's ``run_key`` says which."""
+    raw_target = body.get("target")
+    key = await _resolve_run_key(
+        ctx, scope_obj, str(body.get("run_key") or ""), _target_from(raw_target) if raw_target is not None else None
+    )
     ids = sorted({str(i) for i in (body.get("contact_ids") or []) if str(i).strip()})
     spec_name = str(body.get("spec") or "")
     gen_options = body.get("options") if body.get("options") is not None else {}
@@ -448,5 +562,11 @@ async def api_clash_contacts_detail(
         ),
     )
     return JSONResponse(
-        {"job_id": submitted.job_id, "derived_key": derived_key, "glb_key": glb_key, "detail_id": paths.detail_id}
+        {
+            "job_id": submitted.job_id,
+            "derived_key": derived_key,
+            "glb_key": glb_key,
+            "detail_id": paths.detail_id,
+            "run_key": key,
+        }
     )

@@ -68,6 +68,7 @@ from .routes.simulations import router as simulations_router
 from .routes.source_nodes import router as source_nodes_router
 from .routes.storage import router as storage_router
 from .routes.system_templates import router as system_templates_router
+from .routes.viewer_control import router as viewer_control_router
 from .storage import Storage
 
 
@@ -417,6 +418,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     api.include_router(clash_check_router)
     # Convex-contact clash runs on the viewer GLB: ``/scopes/{scope}/clash-contacts...``.
     api.include_router(clash_contacts_router)
+    # Driving the caller's own open viewer (routes/viewer_control.py): fixed ``/viewer/...`` paths.
+    api.include_router(viewer_control_router)
 
     # Simulation providers and runs (routes/simulations.py): ``/simulation/providers`` and
     # ``/scopes/{scope}/simulations...``, neither colliding with a fixed/parameterised sibling.

@@ -20,6 +20,30 @@ const RestModeUI: React.FC<{toastAnchor?: ToastAnchor}> = ({toastAnchor}) => {
     // switch to a different browser session, and reflects sweeps
     // another admin session may have started.
     useCompressionSweepPoll();
+    // This tab as a viewer an agent can drive over the REST API (`/api/viewer/...`, the caller's own
+    // sessions only): it registers, waits for commands, and reports what it shows.
+    useEffect(() => {
+        let stop: (() => void) | null = null;
+        let cancelled = false;
+        void Promise.all([
+            import("@/services/viewerControl/session"),
+            import("@/services/viewerControl/realDeps"),
+            import("@/services/api/viewerControl"),
+        ]).then(([{startViewerControl}, {realViewerControlDeps, watchViewerState}, {viewerControlApi}]) => {
+            if (cancelled) return;
+            stop = startViewerControl(viewerControlApi, realViewerControlDeps, {
+                watch: watchViewerState,
+                client: {title: document.title, path: window.location.pathname},
+            });
+        });
+        const onUnload = () => stop?.();
+        window.addEventListener("pagehide", onUnload);
+        return () => {
+            cancelled = true;
+            window.removeEventListener("pagehide", onUnload);
+            stop?.();
+        };
+    }, []);
     // Pre-warm the in-browser (WASM) engine in the background whenever it's
     // enabled — both when the user flips it on and on a reload where the
     // persisted toggle is already on — so opening a file converts immediately

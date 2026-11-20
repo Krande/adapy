@@ -48,6 +48,7 @@ __all__ = [
     "make_record",
     "new_detail_id",
     "parse_record",
+    "read_model",
     "record_new",
     "summary_from_stats",
 ]
@@ -121,6 +122,8 @@ def make_record(
         "source": dict(source),
         "label": f"{spec} · {source.get('label') or 'model'}",
         "requested": len(joint_ids),
+        # Which joints, so a joint can be looked up later as built, not built or never asked for.
+        "joint_ids": list(joint_ids),
         "options": dict(options),
         "glb_key": paths.glb,
         "stats_key": paths.stats,
@@ -246,6 +249,24 @@ async def _settle(storage, scope, record: dict, jobs) -> dict:
         return {**record, "status": str(snap.status)}
     await _put_record(storage, scope, settled)
     return settled
+
+
+async def read_model(storage, scope, jobs, detail_id: str) -> tuple[dict, dict | None] | None:
+    """One detail model: its (settled) record and its take-off, None while there is none. None for
+    a model that does not exist or whose record cannot be read."""
+    paths = detail_paths(detail_id)
+    try:
+        record = parse_record(await storage.get_bytes(scope, paths.record))
+    except Exception:  # noqa: BLE001 - missing or unreadable: no such model
+        return None
+    record = await _settle(storage, scope, record, jobs)
+    stats = None
+    if record.get("status") == STATUS_DONE:
+        try:
+            stats = json.loads(await storage.get_bytes(scope, paths.stats))
+        except Exception:  # noqa: BLE001 - a take-off that cannot be read is reported as absent
+            stats = None
+    return record, stats if isinstance(stats, dict) else None
 
 
 async def list_models(storage, scope, jobs, *, limit: int | None = None) -> list[dict]:

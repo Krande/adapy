@@ -143,6 +143,26 @@ def test_seams_that_failed_are_reported_from_the_builder_and_from_the_glb():
     assert stats["joints"]["items"][0]["welds"] == 2
 
 
+def test_what_was_built_is_recorded_per_connection_with_its_welds():
+    _register_builder()
+    _, stats = _run()
+    (conn,) = stats["connections"]
+    assert conn["joint_id"] == "j3" and conn["connection"] == "provider.spec_j3"
+    assert conn["spec"] == "provider.spec"
+    assert conn["member_roles"] == {"landing": ["column_j3"], "incoming": ["brace_j3"]}
+    assert conn["centre"] == [1.0, 0.0, 0.0]
+    good, bad = conn["welds"]
+    assert good["name"] == "w_good" and good["weld_type"] == "FILLET"
+    assert good["throat"] == 0.005 and good["sided"] == "one"
+    assert good["length"] == pytest.approx(0.3)
+    assert sorted(good["members"]) == ["brace_j3", "column_j3"]
+    # A weld whose solid failed is still a weld of the connection (and also a weld failure).
+    assert bad["name"] == "w_bad"
+    import json
+
+    json.dumps(stats)  # the record is plain JSON
+
+
 def test_a_run_with_nothing_lost_has_empty_records():
     @register_connection(SPEC)
     def builder(*, landing, incoming, name, **_):
