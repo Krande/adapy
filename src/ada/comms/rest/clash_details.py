@@ -160,6 +160,7 @@ def summary_from_stats(stats: Mapping[str, Any]) -> dict:
     skipped = len(stats.get("skipped") or [])
     not_built = stats.get("not_built")
     weld_failures = stats.get("weld_failures")
+    duplicates = stats.get("duplicate_welds")
     built_by = stats.get("built_by")
     return {
         "counts": {
@@ -169,6 +170,7 @@ def summary_from_stats(stats: Mapping[str, Any]) -> dict:
             "skipped": skipped,
             "not_built": len(not_built) if isinstance(not_built, list) else skipped,
             "weld_failures": len(weld_failures) if isinstance(weld_failures, list) else 0,
+            "duplicate_welds": len(duplicates) if isinstance(duplicates, list) else 0,
         },
         "built_by": dict(built_by) if isinstance(built_by, Mapping) else None,
     }

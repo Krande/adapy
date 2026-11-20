@@ -17,10 +17,13 @@ core's -- and this module keeps the ROLE rules a detail applies to a run's clash
 bound (:func:`found_from_contact`):
 
 ROLES. A contact names which member is INCOMING (the one whose end is at the contact) and which is
-LANDING: the member end nearest the contact point is the incoming member's, and that end is the
-joint's ``end``. A plate has no ends; its centroid stands in for both, so a plate lands unless it is
-nearer than either beam end. Where the roles cannot be resolved the contact is still reported, with
-the roles left unset.
+LANDING. The contact PATCH decides first where it can (:func:`pick_incoming`): a face patch whose plane
+runs along a beam's axis lies on that beam's SIDE, so where it does so for one beam and not the other,
+the other is incoming -- its end is on the first one's side. Otherwise (a line contact, a beam on a
+plate, two beams side by side, no patches) the member end nearest the contact point is the incoming
+member's, and that end is the joint's ``end``. A plate has no ends; its centroid stands in for both, so
+a plate lands unless it is nearer than either beam end. Where the roles cannot be resolved the contact
+is still reported, with the roles left unset.
 
 ORDER. The contact is written incoming-first: ``near_points[0]`` is on the incoming member and
 ``normal`` points from incoming towards landing. ``penetration_depth`` is the overlap, positive.
@@ -28,7 +31,7 @@ ORDER. The contact is written incoming-first: ``near_points[0]`` is on the incom
 
 from __future__ import annotations
 
-from typing import Any, Iterable, Sequence
+from typing import Any, Iterable, Mapping, Sequence
 
 import numpy as np
 
@@ -68,10 +71,11 @@ def _anchors(member) -> list[tuple[np.ndarray, str | None]] | None:
     return None
 
 
-def _roles(m1, m2, near1: np.ndarray):
-    """``(incoming, landing, end)`` -- the member whose anchor is nearest the contact point lands on
-    the other -- or ``None`` where either member has no anchors. ``end`` is None for a plate."""
-    picked = pick_incoming(_anchors(m1), _anchors(m2), near1)
+def _roles(m1, m2, near1: np.ndarray, patches=None):
+    """``(incoming, landing, end)`` -- the member whose end the contact patch is on, else the one whose
+    anchor is nearest the contact point (:func:`pick_incoming`) -- or ``None`` where either member has
+    no anchors. ``end`` is None for a plate."""
+    picked = pick_incoming(_anchors(m1), _anchors(m2), near1, patches=patches)
     if picked is None:
         return None
     which, anchor, end = picked
@@ -81,14 +85,84 @@ def _roles(m1, m2, near1: np.ndarray):
     return incoming, landing, anchor, end
 
 
-def pick_incoming(a1, a2, near1) -> tuple[int, np.ndarray, str | None] | None:
+#: The least area a contact patch must have to say anything about the roles [m^2]: a line contact's
+#: patch (two points, or a row of them) has none, and says nothing about which member's end is there.
+MIN_ROLE_PATCH_AREA = 1e-5
+
+#: A face patch whose normal is within this many degrees of square to a beam's axis lies on that beam's
+#: side: its plane runs along the beam, so it cannot be the beam's end. An incoming meets its landing at
+#: 20 degrees or more, so its end face's normal is never more than 70 degrees off its own axis.
+SIDE_ON_DEG = 80.0
+
+
+def _polygon_area(points: np.ndarray) -> float:
+    if len(points) < 3:
+        return 0.0
+    rel = points - points.mean(axis=0)
+    return float(np.linalg.norm(np.cross(rel, np.roll(rel, -1, axis=0)).sum(axis=0)) / 2.0)
+
+
+def _face_patch(patches) -> tuple[np.ndarray, np.ndarray] | None:
+    """``(unit normal, centroid)`` of the largest patch with area (:data:`MIN_ROLE_PATCH_AREA`), or None.
+
+    ``patches`` are ``{"normal", "points"}`` mappings (or objects with those attributes, a sidecar's
+    ``ContactPatch`` with ``points1``): only the normal's line and the polygon's area matter here, so
+    which member's side of the patch the points are on does not."""
+    best: tuple[float, np.ndarray, np.ndarray] | None = None
+    for patch in patches or ():
+        get = patch.get if isinstance(patch, Mapping) else lambda k, _p=patch: getattr(_p, k, None)
+        normal, points = get("normal"), get("points")
+        if points is None:
+            points = get("points1") if get("points1") is not None else get("points_incoming")
+        if normal is None or points is None:
+            continue
+        pts = np.asarray([[float(c) for c in q[:3]] for q in points], dtype=float).reshape(-1, 3)
+        n = np.asarray([float(c) for c in normal[:3]], dtype=float)
+        if not np.linalg.norm(n) or len(pts) < 3:
+            continue
+        area = _polygon_area(pts)
+        if area >= MIN_ROLE_PATCH_AREA and (best is None or area > best[0]):
+            best = (area, n / np.linalg.norm(n), pts.mean(axis=0))
+    return None if best is None else (best[1], best[2])
+
+
+def _side_on(anchors, normal: np.ndarray) -> bool | None:
+    """Whether a face patch of normal ``normal`` lies on the SIDE of the member with ``anchors``: its
+    plane runs along the member's axis (:data:`SIDE_ON_DEG`). None for a member with no axis (a plate,
+    a stubby part's centroid): the patch says nothing about it."""
+    if len(anchors) != 2 or anchors[0][1] is None or anchors[1][1] is None:
+        return None
+    axis = np.asarray(anchors[1][0], dtype=float) - np.asarray(anchors[0][0], dtype=float)
+    if not np.linalg.norm(axis):
+        return None
+    cos = abs(float(np.dot(axis / np.linalg.norm(axis), normal)))
+    return cos < np.cos(np.radians(SIDE_ON_DEG))
+
+
+def pick_incoming(a1, a2, near1, *, patches=None) -> tuple[int, np.ndarray, str | None] | None:
     """Which of two members is INCOMING, from their anchors (``[(point, end)]``, see :func:`_anchors`):
-    ``(0 | 1, anchor, end)`` -- the member with the anchor nearest ``near1`` -- or ``None`` where either
-    has no anchors. The one rule, whether the anchors come from rebuilt members or from the members'
-    meshes (``ada.clash.contacts.mesh_anchors``)."""
+    ``(0 | 1, anchor, end)``, or ``None`` where either has no anchors. The one rule, whether the
+    anchors come from rebuilt members or from the members' meshes (``ada.clash.contacts.mesh_anchors``).
+
+    1. The contact's ``patches``, where they decide it: the largest patch with area lies on the side of
+       one beam (its plane along that beam's axis, :func:`_side_on`) and not on the other's -- the other
+       beam's END is on the first one's side, so the other is incoming, at its end nearer the patch. A
+       member its end is nearest to the contact point can still be the landing this way: a brace cut
+       to run along a post, its end on the post's side a short way up from the post's foot.
+    2. Otherwise -- no patch with area (a line contact), a member with no axis (a plate), both beams
+       side-on (side by side) or neither -- the member with the anchor nearest ``near1``."""
     if a1 is None or a2 is None:
         return None
     near1 = np.asarray(near1, dtype=float)
+    face = _face_patch(patches)
+    if face is not None:
+        normal, centre = face
+        side = (_side_on(a1, normal), _side_on(a2, normal))
+        if side in ((True, False), (False, True)):
+            which = 0 if side[1] else 1
+            anchors = a1 if which == 0 else a2
+            point, end = min(anchors, key=lambda a: float(np.linalg.norm(centre - np.asarray(a[0], dtype=float))))
+            return which, np.asarray(point, dtype=float), end
     candidates = [(0, p, end) for p, end in a1] + [(1, p, end) for p, end in a2]
     # First of the nearest, in (m1 start, m1 end, m2 start, m2 end) order, so a tie is reproducible.
     distances = [float(np.linalg.norm(near1 - np.asarray(p, dtype=float))) for _, p, _ in candidates]
@@ -120,7 +194,7 @@ def found_from_contact(members: Sequence[Any], c: dict, security_margin: float):
     near1, near2 = np.asarray(c["near1"]), np.asarray(c["near2"])
     normal = np.asarray(c["normal"])
 
-    resolved = _roles(m1, m2, near1)
+    resolved = _roles(m1, m2, near1, patches=c.get("patches"))
     angle = None
     if resolved is not None:
         incoming, landing, _, end = resolved
@@ -222,7 +296,7 @@ def register() -> bool:
                     "type": "number",
                     "default": DEFAULT_MIN_CONTACT_AREA,
                     "min": 0,
-                    "unit": "m²",
+                    "unit": "mÂ²",
                     "help": "Contacts with a smaller patch than this (a corner grazing a face) are dropped.",
                 },
             ),
