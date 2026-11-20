@@ -35,13 +35,13 @@ export async function handleFlatbufferMessage(buffer: ArrayBuffer): Promise<void
 
             case CommandType.VIEWER_COMMAND: {
                 // A local client driving this viewer through the websocket server (external controls).
-                const [{answerDesktopCommand}, {useExternalControlsStore}, {comms}] = await Promise.all([
+                const [{answerDesktopCommand}, {externalControlsEnabled}, {comms}] = await Promise.all([
                     import('@/services/viewerControl/desktop'),
                     import('@/state/externalControlsStore'),
                     import('../comms'),
                 ]);
                 await answerDesktopCommand(message, {
-                    enabled: () => useExternalControlsStore.getState().enabled,
+                    enabled: externalControlsEnabled,
                     deps: async () => (await import('@/services/viewerControl/realDeps')).realViewerControlDeps,
                     send: (bytes) => comms.sendCommand(bytes),
                     instanceId: () => comms.getInstanceId(),

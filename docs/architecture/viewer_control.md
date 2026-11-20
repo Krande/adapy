@@ -13,17 +13,28 @@ Code: `src/ada/comms/rest/viewer_control.py` (vocabulary and session hub),
 
 ## Off by default
 
-Two switches, both off unless turned on:
+Two switches: the server's, and each tab's.
 
-* **The server**: `ADA_VIEWER_CONTROL=true` (`Settings.viewer_control`). Off, every `/api/viewer/...`
-  route answers `404` ("viewer control is disabled on this server ..."), and the page is not told
-  about it: `/config.js` sets `window.ADA_VIEWER_CONTROL = true` and `/api/config` `viewerControl: true`
-  only when it is on. The read-only clash routes below do not depend on it.
-* **The tab**: Settings > *External controls* > "Let an agent drive this tab", offered only on a
-  server that allows it. Off by default, and per tab (kept in the tab's `sessionStorage`): the user
-  consents for the tab in front of them, until it is closed. Until both are on, the tab asks for no
-  ticket and opens no socket; turning the switch off closes it. (The desktop viewer offers the same
-  switch; there it decides whether the tab answers a local client's commands.)
+**The server**: `ADA_VIEWER_CONTROL` (`Settings.viewer_control`), one of three modes. On a Helm
+deployment, set it through the chart's `extraEnv`.
+
+| `ADA_VIEWER_CONTROL` | Mode | What happens |
+|---|---|---|
+| unset, `false`, `off` | `off` (the default) | Every `/api/viewer/...` route answers `404` ("viewer control is disabled on this server ..."), no socket is accepted, and the page shows no switch. |
+| `true`, `opt-in` | `opt-in` | On; each tab's switch starts **off**: a user turns it on for the tab they want driven. For a deployed server. |
+| `on`, `auto` | `auto` | On; each tab's switch starts **on**, so every tab takes part without being touched. For a local dev stack. |
+
+Any other value stops the server from starting (a typo must not turn on a way to drive viewers). The
+page learns the mode from `/config.js` (`window.ADA_VIEWER_CONTROL = "opt-in"` or `"auto"`, absent when
+off) and `/api/config` (`viewerControl: "off" | "opt-in" | "auto"`). The read-only clash routes below
+do not depend on it.
+
+**The tab**: Settings > *External controls* > "Let an agent drive this tab", offered only on a server
+that allows it. Per tab (kept in the tab's `sessionStorage`): it starts as the server's mode says, and
+once the user switches it, their choice holds for that tab until it is closed -- a tab switched off on
+an `auto` server stays off. While it is off the tab asks for no ticket and opens no socket; switching
+it off closes the socket. (The desktop viewer offers the same switch, off until turned on; there it
+decides whether the tab answers a local client's commands.)
 
 ## Whose viewer
 

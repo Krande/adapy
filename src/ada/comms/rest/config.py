@@ -186,8 +186,41 @@ class Settings:
     # but a studio set up for it) means they are not.
     simulation_remote: SimulationRemote | None = None
     # Whether an agent may drive a user's open viewer over the REST API (``/api/viewer/...``,
-    # routes/viewer_control.py). Off by default: the routes answer 404 and no page registers.
-    viewer_control: bool = False
+    # routes/viewer_control.py), as one of VIEWER_CONTROL_MODES (ADA_VIEWER_CONTROL,
+    # :func:`parse_viewer_control`). "off" by default: the routes answer 404 and no page connects.
+    viewer_control: str = "off"
+
+    @property
+    def viewer_control_enabled(self) -> bool:
+        return self.viewer_control != VIEWER_CONTROL_OFF
+
+
+#: ``ADA_VIEWER_CONTROL``'s modes: off (the default); on, each tab opting in ("opt-in", a deployed
+#: server); on, every tab taking part unless its user switches it off ("auto", a local dev stack).
+VIEWER_CONTROL_OFF, VIEWER_CONTROL_OPT_IN, VIEWER_CONTROL_AUTO = "off", "opt-in", "auto"
+VIEWER_CONTROL_MODES = (VIEWER_CONTROL_OFF, VIEWER_CONTROL_OPT_IN, VIEWER_CONTROL_AUTO)
+_VIEWER_CONTROL_VALUES = {
+    "": VIEWER_CONTROL_OFF,
+    "false": VIEWER_CONTROL_OFF,
+    "off": VIEWER_CONTROL_OFF,
+    "true": VIEWER_CONTROL_OPT_IN,
+    "opt-in": VIEWER_CONTROL_OPT_IN,
+    "on": VIEWER_CONTROL_AUTO,
+    "auto": VIEWER_CONTROL_AUTO,
+}
+
+
+def parse_viewer_control(raw: str | None) -> str:
+    """``ADA_VIEWER_CONTROL`` as a mode: unset, ``false`` or ``off`` -> ``"off"``; ``true`` or
+    ``opt-in`` -> ``"opt-in"``; ``on`` or ``auto`` -> ``"auto"``. Anything else is refused rather than
+    guessed: a typo must not turn on a way to drive users' viewers."""
+    value = (raw or "").strip().lower()
+    if value not in _VIEWER_CONTROL_VALUES:
+        raise ValueError(
+            f"ADA_VIEWER_CONTROL={raw!r}: expected one of off/false (disabled), true/opt-in (each tab "
+            "turns it on), on/auto (every tab takes part by default)"
+        )
+    return _VIEWER_CONTROL_VALUES[value]
 
 
 def _bool(v: str | None, default: bool) -> bool:
@@ -266,7 +299,7 @@ def load_settings() -> Settings:
     # built with a default UI keeps it unless a deployment says otherwise.
     ui_default = os.environ.get("ADA_VIEWER_UI_DEFAULT", "").strip()
     local_shutdown_token = os.environ.get("ADA_VIEWER_LOCAL_SHUTDOWN_TOKEN", "").strip()
-    viewer_control = _bool(os.environ.get("ADA_VIEWER_CONTROL"), default=False)
+    viewer_control = parse_viewer_control(os.environ.get("ADA_VIEWER_CONTROL"))
     remote_url = os.environ.get("ADA_SIMULATION_REMOTE_URL", "").strip().rstrip("/")
     simulation_remote = (
         SimulationRemote(

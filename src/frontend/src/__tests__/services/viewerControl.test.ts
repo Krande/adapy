@@ -242,23 +242,24 @@ test("a batch runs in order and stops at the first failure: the rest are skipped
   assert.deepEqual(ok.steps?.[0].result, { joint_id: JOINT, selected: 2 });
 });
 
-test("external controls connect only where the server allows them and the tab turned them on", async () => {
+test("off on the server: no socket, whatever the switch says", async () => {
   const { followExternalControls } = await import("@/services/viewerControl/gate");
   const { useExternalControlsStore } = await import("@/state/externalControlsStore");
   const events: string[] = [];
-  const start = () => {
-    events.push("start");
-    return () => void events.push("stop");
-  };
-  useExternalControlsStore.setState({ enabled: true });
-  // A server with viewer control off: nothing, whatever the switch says.
-  const offServer = followExternalControls(start, () => false);
+  useExternalControlsStore.setState({ chosen: true });
+  const unfollow = followExternalControls(() => (events.push("start"), () => void events.push("stop")), () => "off");
   assert.deepEqual(events, []);
-  offServer();
+  unfollow();
+  useExternalControlsStore.setState({ chosen: null });
+});
 
-  // Allowed, switch off (the default): nothing until it is turned on; off again stops it.
-  useExternalControlsStore.setState({ enabled: false });
-  const unfollow = followExternalControls(start, () => true);
+test("opt-in: the switch starts off; the tab connects once turned on, and closes when turned off", async () => {
+  const { followExternalControls } = await import("@/services/viewerControl/gate");
+  const { useExternalControlsStore, externalControlsOn } = await import("@/state/externalControlsStore");
+  const events: string[] = [];
+  useExternalControlsStore.setState({ chosen: null });
+  assert.equal(externalControlsOn(null, "opt-in"), false);
+  const unfollow = followExternalControls(() => (events.push("start"), () => void events.push("stop")), () => "opt-in");
   assert.deepEqual(events, []);
   useExternalControlsStore.getState().setEnabled(true);
   assert.deepEqual(events, ["start"]);
@@ -267,10 +268,35 @@ test("external controls connect only where the server allows them and the tab tu
   useExternalControlsStore.getState().setEnabled(true);
   unfollow();
   assert.deepEqual(events, ["start", "stop", "start", "stop"]);
-  useExternalControlsStore.setState({ enabled: false });
+  useExternalControlsStore.setState({ chosen: null });
 });
 
-test("the switch is off by default", async () => {
+test("auto: the tab connects untouched; switched off it stays off", async () => {
+  const { followExternalControls } = await import("@/services/viewerControl/gate");
+  const { useExternalControlsStore, externalControlsOn } = await import("@/state/externalControlsStore");
+  const events: string[] = [];
+  useExternalControlsStore.setState({ chosen: null });
+  assert.equal(externalControlsOn(null, "auto"), true);
+  const unfollow = followExternalControls(() => (events.push("start"), () => void events.push("stop")), () => "auto");
+  assert.deepEqual(events, ["start"], "on without touching the switch");
+  useExternalControlsStore.getState().setEnabled(false);
+  assert.deepEqual(events, ["start", "stop"]);
+  assert.equal(externalControlsOn(useExternalControlsStore.getState().chosen, "auto"), false, "a tab switched off stays off");
+  unfollow();
+  assert.deepEqual(events, ["start", "stop"]);
+  useExternalControlsStore.setState({ chosen: null });
+});
+
+test("the page reads the server's mode from /config.js", async () => {
+  const { viewerControlModeOf } = await import("@/runtime/config");
+  assert.equal(viewerControlModeOf(undefined), "off");
+  assert.equal(viewerControlModeOf("opt-in"), "opt-in");
+  assert.equal(viewerControlModeOf(true), "opt-in");
+  assert.equal(viewerControlModeOf("auto"), "auto");
+  assert.equal(viewerControlModeOf("something else"), "off");
+});
+
+test("the switch is not chosen until the user touches it", async () => {
   const { useExternalControlsStore } = await import("@/state/externalControlsStore");
-  assert.equal(useExternalControlsStore.getInitialState().enabled, false);
+  assert.equal(useExternalControlsStore.getInitialState().chosen, null);
 });

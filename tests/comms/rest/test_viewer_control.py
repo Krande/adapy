@@ -31,7 +31,7 @@ from ada.comms.rest.viewer_control import (  # noqa: E402
 FOCUS = {"action": "focus_joint", "joint_id": "0123456789ab"}
 
 
-def _settings(tmp_path, *, viewer_control: bool = True) -> Settings:
+def _settings(tmp_path, *, viewer_control: str = "opt-in") -> Settings:
     return Settings(
         storage_kind="local",
         s3=None,
@@ -52,7 +52,7 @@ def _settings(tmp_path, *, viewer_control: bool = True) -> Settings:
     )
 
 
-def _app(tmp_path, viewer_control: bool = True):
+def _app(tmp_path, viewer_control: str = "opt-in"):
     (tmp_path / "store").mkdir()
     return create_app(_settings(tmp_path / "store", viewer_control=viewer_control))
 
@@ -137,7 +137,7 @@ def test_no_viewer_open_is_a_404(client):
 
 
 def test_a_server_with_viewer_control_off_answers_404_and_tells_the_page(tmp_path):
-    with TestClient(_app(tmp_path, viewer_control=False)) as c:
+    with TestClient(_app(tmp_path, viewer_control="off")) as c:
         for method, path in (
             ("get", "/api/viewer/sessions"),
             ("get", "/api/viewer/commands/schema"),
@@ -148,22 +148,51 @@ def test_a_server_with_viewer_control_off_answers_404_and_tells_the_page(tmp_pat
             assert r.status_code == 404, (path, r.text)
             assert "ADA_VIEWER_CONTROL" in r.json()["detail"]
         assert "ADA_VIEWER_CONTROL" not in c.get("/config.js").text
-        assert c.get("/api/config").json()["viewerControl"] is False
+        assert c.get("/api/config").json()["viewerControl"] == "off"
 
 
-def test_a_server_with_viewer_control_on_tells_the_page(client):
-    assert "window.ADA_VIEWER_CONTROL = true;" in client.get("/config.js").text
-    assert client.get("/api/config").json()["viewerControl"] is True
+@pytest.mark.parametrize("mode", ["opt-in", "auto"])
+def test_a_server_with_viewer_control_on_tells_the_page_its_mode(tmp_path, mode):
+    with TestClient(_app(tmp_path, viewer_control=mode)) as c:
+        assert f'window.ADA_VIEWER_CONTROL = "{mode}";' in c.get("/config.js").text
+        assert c.get("/api/config").json()["viewerControl"] == mode
+        assert c.get("/api/viewer/sessions").status_code == 200
 
 
-def test_the_setting_is_read_from_the_environment(monkeypatch):
+@pytest.mark.parametrize(
+    "raw, mode",
+    [
+        (None, "off"),
+        ("", "off"),
+        ("false", "off"),
+        ("off", "off"),
+        ("true", "opt-in"),
+        ("opt-in", "opt-in"),
+        ("on", "auto"),
+        ("auto", "auto"),
+        ("AUTO", "auto"),
+    ],
+)
+def test_the_setting_is_read_from_the_environment(monkeypatch, raw, mode):
     from ada.comms.rest.config import load_settings
 
     monkeypatch.setenv("ADA_VIEWER_STORAGE_KIND", "local")
-    monkeypatch.delenv("ADA_VIEWER_CONTROL", raising=False)
-    assert load_settings().viewer_control is False
-    monkeypatch.setenv("ADA_VIEWER_CONTROL", "true")
-    assert load_settings().viewer_control is True
+    if raw is None:
+        monkeypatch.delenv("ADA_VIEWER_CONTROL", raising=False)
+    else:
+        monkeypatch.setenv("ADA_VIEWER_CONTROL", raw)
+    settings = load_settings()
+    assert settings.viewer_control == mode
+    assert settings.viewer_control_enabled is (mode != "off")
+
+
+def test_an_unknown_value_is_refused(monkeypatch):
+    from ada.comms.rest.config import load_settings
+
+    monkeypatch.setenv("ADA_VIEWER_STORAGE_KIND", "local")
+    monkeypatch.setenv("ADA_VIEWER_CONTROL", "yes please")
+    with pytest.raises(ValueError, match="ADA_VIEWER_CONTROL"):
+        load_settings()
 
 
 # ── the hub alone ────────────────────────────────────────────────────────────────────────────────

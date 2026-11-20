@@ -51,7 +51,7 @@ ALICE, BOB = _user("alice"), _user("bob")
 FOCUS = {"action": "focus_joint", "joint_id": "0123456789ab"}
 
 
-def _settings(tmp_path, viewer_control: bool) -> Settings:
+def _settings(tmp_path, viewer_control: str) -> Settings:
     return Settings(
         storage_kind="local",
         s3=None,
@@ -72,7 +72,7 @@ def _settings(tmp_path, viewer_control: bool) -> Settings:
     )
 
 
-def _client(tmp_path, viewer_control: bool = True):
+def _client(tmp_path, viewer_control: str = "opt-in"):
     (tmp_path / "store").mkdir()
     app = create_app(_settings(tmp_path / "store", viewer_control))
     who = {"user": ALICE}
@@ -165,7 +165,7 @@ def test_a_tab_is_its_tickets_users_only(client):
 
 
 def test_off_by_default_no_ticket_and_no_socket(tmp_path):
-    with _client(tmp_path, viewer_control=False) as c:
+    with _client(tmp_path, viewer_control="off") as c:
         assert c.post("/api/viewer/ws-ticket", json={}).status_code == 404
         with pytest.raises(WebSocketDisconnect):
             with c.websocket_connect("/api/viewer/ws?ticket=anything"):

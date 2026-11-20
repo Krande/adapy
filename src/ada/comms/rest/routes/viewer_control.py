@@ -20,9 +20,10 @@ Viewer side (``src/frontend/src/services/viewerControl``):
 * ``GET  /api/viewer/ws?ticket=``            -- the tab's websocket: one session while it is open;
   commands come down as ``VIEWER_COMMAND``, answers and state go up (``ada.comms.viewer_wire``)
 
-OFF BY DEFAULT. Every route answers 404 unless the server is started with ``ADA_VIEWER_CONTROL=true``
-(``Settings.viewer_control``); ``/config.js`` then tells the page (``window.ADA_VIEWER_CONTROL``), and
-a tab opens its socket only once its user has also turned it on in the viewer's settings.
+OFF BY DEFAULT. Every route answers 404 unless the server is started with ``ADA_VIEWER_CONTROL`` set
+to ``opt-in`` (or ``true``: a tab connects once its user turns "External controls" on) or ``auto``
+(or ``on``: every tab connects unless its user turns it off) -- ``Settings.viewer_control``;
+``/config.js`` tells the page the mode (``window.ADA_VIEWER_CONTROL``).
 """
 
 from __future__ import annotations
@@ -59,9 +60,10 @@ ENV_VAR = "ADA_VIEWER_CONTROL"
 
 def require_viewer_control(ctx: RestContext = Depends(rest_context)) -> None:
     """404 on a server that has viewer control off (the default)."""
-    if not ctx.settings.viewer_control:
+    if not ctx.settings.viewer_control_enabled:
         raise HTTPException(
-            status_code=404, detail=f"viewer control is disabled on this server (set {ENV_VAR}=true to enable it)"
+            status_code=404,
+            detail=f"viewer control is disabled on this server (set {ENV_VAR}=opt-in or {ENV_VAR}=auto to enable it)",
         )
 
 
@@ -215,7 +217,7 @@ async def api_viewer_ws(websocket: WebSocket, ticket: str = "") -> None:
     from ada.comms.fb_wrap_model_gen import CommandTypeDC
     from ada.comms.viewer_wire import payload_of, read
 
-    if not websocket.app.state.rest.settings.viewer_control:
+    if not websocket.app.state.rest.settings.viewer_control_enabled:
         await websocket.close(code=WS_CLOSE_DISABLED)
         return
     hub = _app_hub(websocket.app)
