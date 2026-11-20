@@ -203,5 +203,10 @@ export interface ClashCheckState {
   runDetail: (scope: string, jointIds: readonly string[], spec: string) => Promise<void>;
   /** Detail every joint that has a matching generator, one job per spec. */
   runDetailAll: (scope: string, only?: readonly string[] | null) => Promise<void>;
+  /** The scene was cleared: drop what was found ON its models -- the result and its markers, the
+   *  selection in it, the detail model and its produced joints. What the user set up stays: the
+   *  target, the options, the filters, the runs listed for the target. A check still running is
+   *  left to finish. */
+  forgetResult: () => void;
   reset: () => void;
 }

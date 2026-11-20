@@ -183,6 +183,38 @@ test("onSceneCleared is told once per clear, whatever asked, until unsubscribed"
   assert.equal(told.length, 8, "an unsubscribed listener is not told");
 });
 
+test("a clear drops the clash check's result and markers but keeps its target; a replace keeps both", async () => {
+  const { viewport } = strictViewport();
+  withdraw = setActiveViewport(viewport);
+  const { useClashCheckStore } = await import("@/state/clashCheckStore");
+  const target = { kind: "group" as const, name: "g", members: [] };
+  const seed = () =>
+    useClashCheckStore.setState({
+      assetTarget: target,
+      result: { groups: [] } as never,
+      runKey: "_clash/runs/r.json",
+      selectedJoint: "j1",
+      detailGlbKey: "_clash/details/d/model.glb",
+      producedJoints: [] as never,
+    });
+  try {
+    seed();
+    await clearScene({ reason: "replace", replacing: true, keepQueuedLoads: true, keepProcedural: true });
+    assert.notEqual(useClashCheckStore.getState().result, null, "a replace keeps the result");
+
+    await clearScene({ reason: "test" });
+    const s = useClashCheckStore.getState();
+    assert.equal(s.result, null, "the result, and the markers drawn from it, go");
+    assert.equal(s.runKey, null);
+    assert.equal(s.selectedJoint, null);
+    assert.equal(s.detailGlbKey, null);
+    assert.equal(s.producedJoints, null);
+    assert.deepEqual(s.assetTarget, target, "what the check is of stays");
+  } finally {
+    useClashCheckStore.getState().reset();
+  }
+});
+
 test("a listener that draws again draws into the scene as cleared", async () => {
   const { viewport, live } = strictViewport();
   withdraw = setActiveViewport(viewport);
