@@ -2,6 +2,15 @@
 
 
 
+## v0.164.1 (2026-11-20)
+
+### Fix
+
+* fix: weld labels on their line; clash jobs read provider-store members through grants; run outcome colour; ctx.scene.loadSavedGroup and Scene panel plugin tabs (plugin API 1.33.0) (#573)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`058ba62`](https://github.com/Krande/adapy/commit/058ba625f7e94ff1e1f1e0a186e06d5971706bb6))
+
+
 ## v0.164.0 (2026-11-20)
 
 ### Feature
