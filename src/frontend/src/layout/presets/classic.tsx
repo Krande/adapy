@@ -63,6 +63,7 @@ import {useIsNarrow} from "@/utils/useIsMobile";
 import type {WindowDock} from "@/components/ui/PanelFrame";
 import {ClassicZoneKeys, ColumnDropTarget, MinimisedTray, UndockedLayer, columnActions} from "./classicUndock";
 import {GridView, ViewportDropTarget} from "./classicGrid";
+import {ColumnSlot} from "./columnSlot";
 import {setPlacedElsewhere} from "../placedElsewhere";
 import {installMainWindow, windowBus} from "../windows";
 import {hostMirror} from "../windowMirror";
@@ -279,7 +280,9 @@ function PluginColumnFrame({panelId, customisable, doc, children}: {panelId: Pan
 // whole box up, the top bar with it, with no way to scroll it back. So the box is never taller than
 // the window (`max-h-[100dvh]`), the top bar keeps its height (`shrink-0`, below), and the column
 // takes what is left and scrolls (`min-h-0 overflow-y-auto`) when its panels need more: the top bar
-// stays where it is. The column was "px-2 gap-2 flex flex-col pointer-events-auto max-w-[100vw]"
+// stays where it is. Each panel in it sits in a slot of its own (`./columnSlot`), so panels sharing
+// the column stack and each scrolls inside its share: none is squeezed away or drawn over another.
+// The column was "px-2 gap-2 flex flex-col pointer-events-auto max-w-[100vw]"
 // and the box "absolute left-0 top-0 z-10 max-w-[100vw] py-2 gap-2 flex flex-col pointer-events-none
 // transition-[padding] duration-150" in the committed viewer bundle.
 
@@ -302,14 +305,16 @@ function ClassicColumn({proceduralActive}: {proceduralActive: boolean}) {
   const render = (p: RegisteredPanel) => (
     <React.Fragment key={p.id}>
       {shownPlace(doc, p.id, customisable, narrow) === "home" && (
-        <ColumnPanel
-          panel={p}
-          state={states.get(p.id)!}
-          env={env}
-          proceduralActive={proceduralActive}
-          customisable={customisable}
-          doc={doc}
-        />
+        <ColumnSlot panelId={p.id}>
+          <ColumnPanel
+            panel={p}
+            state={states.get(p.id)!}
+            env={env}
+            proceduralActive={proceduralActive}
+            customisable={customisable}
+            doc={doc}
+          />
+        </ColumnSlot>
       )}
       {/* Once: a shell that puts them over the view (`overlays.builder`) has them there. Twice, each
           menu closed the other on the press that picks an item, so none of its items ran. */}
@@ -330,6 +335,7 @@ function ClassicColumn({proceduralActive}: {proceduralActive: boolean}) {
             {mounted}
           </PluginColumnFrame>
         )}
+        slot={(slot, node) => <ColumnSlot panelId={slot.id}>{node}</ColumnSlot>}
       />
       {panels.filter((p) => order(p) >= PLUGIN_MENU_COLUMN_ORDER).map(render)}
     </div>

@@ -90,6 +90,7 @@ test("every class of the menu-column frames is one Tailwind generates, from a fi
     [
       ...MENU,
       ...COLUMN,
+      ...constString(read("layout/presets/columnSlot.tsx"), "CLASSIC_COLUMN_SLOT_CLASS").split(/\s+/),
       ...constString(frames, "SIMULATIONS_FRAME_CLASS").split(/\s+/),
       ...constString(frames, "SIMULATIONS_BODY_CLASS").split(/\s+/),
       ...objectInfo[1].split(/\s+/),
