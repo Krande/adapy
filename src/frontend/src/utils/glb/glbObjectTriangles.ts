@@ -20,6 +20,10 @@ export interface ObjectTriangles {
 export interface GlbObjectReader {
     /** The triangles that draw object `id`, placed by `offset`; null when it draws none. */
     triangles(id: string, offset?: readonly [number, number, number]): ObjectTriangles | null;
+    /** The vertices object `id`'s triangles use, xyz each in the world, placed by `offset`: each once,
+     *  in the order its file lists them (a mesh's own vertex order, what three.js' loader keeps); null
+     *  when it draws none. */
+    vertices(id: string, offset?: readonly [number, number, number]): Float32Array | null;
 }
 
 const GLB_MAGIC = 0x46546c67; // "glTF"
@@ -183,47 +187,70 @@ export function glbObjectReader(bytes: Uint8Array): GlbObjectReader {
         }
     };
 
+    /** Each readable part of object `id`: its vertex reader, where the node places it, and the
+     *  corners of each of its triangles (indices into the primitive's vertices), in order. */
+    const partsOf = (id: string): {pos: (i: number, c: number) => number; matrix: number[]; corners: number[]}[] => {
+        const out: {pos: (i: number, c: number) => number; matrix: number[]; corners: number[]}[] = [];
+        for (const {primitive, matrix, start, count} of index().get(id) ?? []) {
+            if ((primitive.mode ?? 4) !== 4) continue;
+            if (Object.keys(primitive.extensions ?? {}).some((e) => /draco|meshopt/i.test(e))) continue;
+            const posAccessor = primitive.attributes?.POSITION;
+            const pos = posAccessor !== undefined ? reader(posAccessor) : null;
+            const posCount = posAccessor !== undefined ? (doc.accessors?.[posAccessor]?.count ?? 0) : 0;
+            if (!pos) continue;
+            const idx = primitive.indices !== undefined ? reader(primitive.indices) : null;
+            const idxCount = primitive.indices !== undefined ? (doc.accessors?.[primitive.indices]?.count ?? 0) : posCount;
+            if (primitive.indices !== undefined && !idx) continue;
+            const from = Math.max(0, start);
+            const to = Math.min(idxCount, count < 0 ? idxCount : from + count);
+            const corners: number[] = [];
+            for (let k = from; k + 2 < to; k += 3) {
+                const a = idx ? idx(k, 0) : k, b = idx ? idx(k + 1, 0) : k + 1, c = idx ? idx(k + 2, 0) : k + 2;
+                if (a >= posCount || b >= posCount || c >= posCount) continue;
+                corners.push(a, b, c);
+            }
+            out.push({pos, matrix, corners});
+        }
+        return out;
+    };
+
+    /** Vertex `v` of a part, placed by its node and then `offset`, onto the end of `out`. */
+    const place = (out: number[], pos: (i: number, c: number) => number, m: number[], v: number, offset: readonly [number, number, number]): void => {
+        const x = pos(v, 0), y = pos(v, 1), z = pos(v, 2);
+        out.push(
+            m[0] * x + m[4] * y + m[8] * z + m[12] + offset[0],
+            m[1] * x + m[5] * y + m[9] * z + m[13] + offset[1],
+            m[2] * x + m[6] * y + m[10] * z + m[14] + offset[2],
+        );
+    };
+
     return {
         triangles(id, offset = [0, 0, 0]) {
-            const list = index().get(id);
-            if (!list) return null;
             const positions: number[] = [];
             const indices: number[] = [];
-            for (const {primitive, matrix: m, start, count} of list) {
-                if ((primitive.mode ?? 4) !== 4) continue;
-                if (Object.keys(primitive.extensions ?? {}).some((e) => /draco|meshopt/i.test(e))) continue;
-                const posAccessor = primitive.attributes?.POSITION;
-                const pos = posAccessor !== undefined ? reader(posAccessor) : null;
-                const posCount = posAccessor !== undefined ? (doc.accessors?.[posAccessor]?.count ?? 0) : 0;
-                if (!pos) continue;
-                const idx = primitive.indices !== undefined ? reader(primitive.indices) : null;
-                const idxCount = primitive.indices !== undefined ? (doc.accessors?.[primitive.indices]?.count ?? 0) : posCount;
-                if (primitive.indices !== undefined && !idx) continue;
-                const from = Math.max(0, start);
-                const to = Math.min(idxCount, count < 0 ? idxCount : from + count);
+            for (const {pos, matrix, corners} of partsOf(id)) {
                 // Only the vertices the range uses, each placed once.
                 const remap = new Map<number, number>();
-                for (let k = from; k + 2 < to; k += 3) {
-                    const corners = idx ? [idx(k, 0), idx(k + 1, 0), idx(k + 2, 0)] : [k, k + 1, k + 2];
-                    if (corners.some((v) => v >= posCount)) continue;
-                    for (const v of corners) {
-                        let at = remap.get(v);
-                        if (at === undefined) {
-                            const x = pos(v, 0), y = pos(v, 1), z = pos(v, 2);
-                            at = positions.length / 3;
-                            remap.set(v, at);
-                            positions.push(
-                                m[0] * x + m[4] * y + m[8] * z + m[12] + offset[0],
-                                m[1] * x + m[5] * y + m[9] * z + m[13] + offset[1],
-                                m[2] * x + m[6] * y + m[10] * z + m[14] + offset[2],
-                            );
-                        }
-                        indices.push(at);
+                for (const v of corners) {
+                    let at = remap.get(v);
+                    if (at === undefined) {
+                        at = positions.length / 3;
+                        remap.set(v, at);
+                        place(positions, pos, matrix, v, offset);
                     }
+                    indices.push(at);
                 }
             }
             if (!indices.length) return null;
             return {positions: Float32Array.from(positions), indices: Uint32Array.from(indices)};
+        },
+        vertices(id, offset = [0, 0, 0]) {
+            const positions: number[] = [];
+            for (const {pos, matrix, corners} of partsOf(id)) {
+                const used = Array.from(new Set(corners)).sort((a, b) => a - b);
+                for (const v of used) place(positions, pos, matrix, v, offset);
+            }
+            return positions.length ? Float32Array.from(positions) : null;
         },
     };
 }

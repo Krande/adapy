@@ -1,7 +1,9 @@
 import asyncio
 import contextlib
 import http.server
+import json
 import os
+import pathlib
 import subprocess
 import sys
 import threading
@@ -44,6 +46,54 @@ class MockWSClient:
     @property
     def url(self):
         return f"ws://{self.host}:{self.port}"
+
+
+def _shard_durations() -> dict[str, float]:
+    """Measured seconds per test (setup + call + teardown) from a CI run, in shard_durations.json,
+    keyed by the node id below tests/full/frontend/. Regenerate it from a run's `--durations=0` when
+    the tests change a lot; a stale table only makes the split less even, never drops a test."""
+    path = pathlib.Path(__file__).with_name("shard_durations.json")
+    return json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+
+
+def _shard_weight(item, table: dict[str, float]) -> float:
+    """What a browser test costs: its measured time; a test not in the table (new, or renamed) weighs
+    the table's median, so it is spread out rather than piled onto one shard."""
+    key = item.nodeid.split("tests/full/frontend/")[-1]
+    if key in table:
+        return table[key]
+    known = sorted(table.values())
+    return known[len(known) // 2] if known else 1.0
+
+
+def shard_items(items, index: int, count: int):
+    """Split `items` into `count` shards of about equal cost (greedy, heaviest first onto the lightest
+    shard); returns (kept, removed) for shard `index` (1-based). Deterministic, so every shard of one
+    run sees the same split and together they cover every test exactly once."""
+    table = _shard_durations()
+    loads = [0.0] * count
+    owner: dict[str, int] = {}
+    for item in sorted(items, key=lambda i: (-_shard_weight(i, table), i.nodeid)):
+        k = loads.index(min(loads))
+        owner[item.nodeid] = k
+        loads[k] += _shard_weight(item, table)
+    kept = [i for i in items if owner[i.nodeid] == index - 1]
+    removed = [i for i in items if owner[i.nodeid] != index - 1]
+    return kept, removed
+
+
+@pytest.hookimpl(trylast=True)
+def pytest_collection_modifyitems(config, items):
+    """CI runs the browser tests as several parallel jobs (pr-tests.yml `browser`): `ADA_TEST_SHARD=i/N`
+    keeps this job's share. trylast, so the split is of what `-m` has already selected. Unset: all."""
+    spec = os.environ.get("ADA_TEST_SHARD")
+    if not spec:
+        return
+    index, count = (int(x) for x in spec.split("/"))
+    assert 1 <= index <= count, f"ADA_TEST_SHARD={spec!r}: expected i/N with 1 <= i <= N"
+    kept, removed = shard_items(items, index, count)
+    config.hook.pytest_deselected(items=removed)
+    items[:] = kept
 
 
 @pytest.fixture(scope="session", autouse=True)

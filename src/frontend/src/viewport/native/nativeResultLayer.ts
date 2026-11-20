@@ -2,13 +2,25 @@
 // per-vertex colours and a morph (the displacement), one instance whose morph influence is the
 // deformation scale. The same renderer calls the three.js scene mirror makes for a result mesh
 // (viewport/adacpp/sceneSync.ts), without a three.js object behind them. No three.js in this module.
-import type {ResultMeshData, ResultMeshLayer} from "@/viewport/api/resultLayer";
+import type {ResultMeshData, ResultMeshLayer, ResultOverlayLook} from "@/viewport/api/resultLayer";
 import {useAppearanceStore} from "@/state/appearanceStore";
 import {InstanceFlag, Topology, type AdacppModule, type WebRendererApi} from "@/viewport/adacpp/types";
 
 const WHITE = 0xffffffff;
 const IDENTITY = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
 const TOPOLOGY = {triangles: Topology.Triangles, lines: Topology.Lines, points: Topology.Points} as const;
+
+/**
+ * The renderer's flags for an annotation that writes no depth (three.js' `depthWrite: false`). The
+ * renderer leaves the depth alone only for what it blends, so such an annotation is blended whatever
+ * its opacity (at full opacity that is its colour as it is). Lines and points that three.js draws
+ * before everything else (a negative render order, as the builder's grid has) are drawn first here
+ * too, under the faces and the lines that lie on them, which then win over them as on three.js.
+ */
+export function noDepthWriteFlags(overlay: ResultOverlayLook, triangles: boolean): number {
+    if (overlay.depthWrite !== false || overlay.onTop) return 0;
+    return InstanceFlag.Transparent | (!triangles && (overlay.renderOrder ?? 0) < 0 ? InstanceFlag.Underlay : 0);
+}
 
 export class NativeResultLayer implements ResultMeshLayer {
     readonly vertexCount: number;
@@ -72,7 +84,8 @@ export class NativeResultLayer implements ResultMeshLayer {
                 (triangles ? (overlay.frontOnly ? InstanceFlag.CullBack : InstanceFlag.DoubleSided) : 0) |
                 (overlay.onTop ? InstanceFlag.OnTop : InstanceFlag.DepthOffset) |
                 (overlay.clipped === false ? 0 : InstanceFlag.Clipped) |
-                (this.opacity < 1 ? InstanceFlag.Transparent : 0);
+                (this.opacity < 1 ? InstanceFlag.Transparent : 0) |
+                noDepthWriteFlags(overlay, triangles);
             this.dash = overlay.dashed?.dash ?? 0;
             this.gap = overlay.dashed?.gap ?? 0;
         } else {

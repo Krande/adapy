@@ -66,6 +66,25 @@ export function nodalScalars(
 }
 
 /**
+ * The value beam-solid vertex `v` is painted with: its beam's two end-node `scalars`,
+ * interpolated at the vertex's axial parameter. NaN for a vertex whose nodes run past
+ * `nPoints`. The colour range measured over what is drawn uses this too, so the scale
+ * ends where the painted values do: a section need not reach both of its nodes.
+ */
+export function beamSolidVertexValue(
+    scalars: Float32Array,
+    warp: Pick<ParsedBeamSolidsWarp, "node0" | "node1" | "t">,
+    v: number,
+    nPoints: number,
+): number {
+    const a = warp.node0[v];
+    const b = warp.node1[v];
+    if (a >= nPoints || b >= nPoints) return NaN;
+    const w = warp.t[v];
+    return (1 - w) * scalars[a] + w * scalars[b];
+}
+
+/**
  * Per-vertex RGB for the beam-solid mesh, in SOURCE vertex numbering.
  *
  * Returns null when the mapping does not fit the field — a warp sidecar whose
@@ -89,6 +108,7 @@ export function beamSolidNodalColors(
 
     const {n_verts: nVerts, node0, node1, t} = warp;
     if (node0.length < nVerts || node1.length < nVerts || t.length < nVerts) return null;
+    for (let v = 0; v < nVerts; v++) if (node0[v] >= nPoints || node1[v] >= nPoints) return null;
 
     const scalars = nodalScalars(field, stepValues, reduction, nPoints);
     const colormap = linearColormap(bandedColormap(getColormap(colormapName), contour?.levels ?? null));
@@ -98,11 +118,7 @@ export function beamSolidNodalColors(
 
     const colors = new Float32Array(nVerts * 3);
     for (let v = 0; v < nVerts; v++) {
-        const a = node0[v];
-        const b = node1[v];
-        if (a >= nPoints || b >= nPoints) return null;
-        const w = t[v];
-        const value = (1 - w) * scalars[a] + w * scalars[b];
+        const value = beamSolidVertexValue(scalars, warp, v, nPoints);
         const u = isFinite(value) ? (value - lo) * scale : 0;
         colormap(u, colors, v * 3);
     }

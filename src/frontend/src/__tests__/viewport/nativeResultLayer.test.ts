@@ -124,6 +124,31 @@ test("a line layer keeps its colour, stands where its matrix says, and is not pi
     assert.ok(state.instance!.flags & InstanceFlag.Unlit);
 });
 
+test("an annotation that writes no depth is blended at any opacity; a grid drawn first is drawn under the faces", () => {
+    const LINES: ResultMeshData = {positions: TRIANGLE.positions, indices: new Uint32Array([0, 1, 1, 2]), topology: "lines"};
+    const flagsOf = (data: ResultMeshData) => {
+        const {module, renderer, state} = fakeRenderer();
+        const layer = new NativeResultLayer(module, renderer, data, () => {});
+        return {flags: () => state.instance!.flags, layer};
+    };
+    // Opaque, writing depth: neither blended nor drawn first.
+    const plain = flagsOf({...LINES, overlay: {}}).flags();
+    assert.equal(plain & (InstanceFlag.Transparent | InstanceFlag.Underlay), 0);
+    // The builder's grid: opaque, no depth written, render order -1.
+    const grid = flagsOf({...LINES, overlay: {depthWrite: false, renderOrder: -1}});
+    assert.ok(grid.flags() & InstanceFlag.Transparent, "blended: the renderer writes no depth for what it blends");
+    assert.ok(grid.flags() & InstanceFlag.Underlay, "before the faces and the edges on them");
+    grid.layer.setOpacity(1);
+    assert.ok(grid.flags() & InstanceFlag.Transparent, "still, at full opacity");
+    // Lines in the usual order are blended among the see-through ones; faces are never underlays.
+    assert.equal(flagsOf({...LINES, overlay: {depthWrite: false}}).flags() & InstanceFlag.Underlay, 0);
+    const face = flagsOf({...TRIANGLE, overlay: {depthWrite: false, renderOrder: -1}}).flags();
+    assert.ok(face & InstanceFlag.Transparent);
+    assert.equal(face & InstanceFlag.Underlay, 0);
+    // Over the model already writes no depth.
+    assert.equal(flagsOf({...LINES, overlay: {depthWrite: false, onTop: true}}).flags() & InstanceFlag.Transparent, 0);
+});
+
 test("a plain colour given to the layer shows while its painted colours do not, and its own comes back", () => {
     const {module, renderer, state, calls} = fakeRenderer();
     const layer = new NativeResultLayer(module, renderer, {...TRIANGLE, color: [0.5, 0.5, 0.5]}, () => {});

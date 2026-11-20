@@ -424,3 +424,13 @@ test("an object's triangles are read out of the GLB, placed by its node and the 
     assert.equal(edges.length / 6, 4, "the shared diagonal is no feature edge");
     assert.equal(featureGraph(edges).corners.length / 3, 4);
 });
+
+test("an object's vertices are read out of the GLB in the file's order, each once, placed as its triangles are", () => {
+    const reader = glbObjectReader(tinyGlb([100, 0, 0]));
+    // The quad's triangles use 0, 1, 2 and 0, 2, 3: four vertices, in the order the file lists them.
+    const plate = reader.vertices("plate", [-100, 1, 0])!;
+    assert.deepEqual(Array.from(plate), [0, 1, 0, 1, 1, 0, 1, 2, 0, 0, 2, 0]);
+    // Every corner, not only the ends of its outline: a fold-free plate has no corner left out.
+    assert.deepEqual(Array.from(reader.vertices("tri")!), [105, 5, 5, 106, 5, 5, 105, 6, 5]);
+    assert.equal(reader.vertices("nothing"), null);
+});

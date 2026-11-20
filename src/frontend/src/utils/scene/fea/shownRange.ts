@@ -20,6 +20,7 @@
 import * as THREE from "three";
 
 import type {ParsedBeamSolidsWarp} from "@/services/feaBeamSolidsWarp";
+import {beamSolidVertexValue} from "./beamSolidNodalColors";
 import {sourceVertexIndices} from "./elementLocalGeometry";
 import {resultLineShown} from "./resultLineSegments";
 
@@ -75,9 +76,16 @@ export function elementShownPredicate(surfaces: ShownSurfaces): (label: number) 
     };
 }
 
-/** The range of a nodal field's per-node ``scalars`` over the nodes that are drawn in
- *  colour: the vertices of drawn faces, and the end nodes of drawn beam solids (whose
- *  colour is interpolated between them). Null when nothing coloured is drawn. */
+/** The range of a nodal field's per-node ``scalars`` over what is drawn in colour: the
+ *  nodes of drawn faces, and on drawn beam solids the value each vertex is painted with,
+ *  interpolated between its beam's end nodes (beamSolidNodalColors).
+ *
+ *  Not the end nodes themselves. A solid need not span its beam: its vertices can sit
+ *  on one part of the element only (an axial parameter that never reaches 1), so the
+ *  far node's value is painted nowhere. Counted anyway, a few such nodes with large
+ *  values set the top of the scale and nothing on screen came near it: the whole
+ *  picture sat in the lower half of the legend, with no red anywhere. Null
+ *  when nothing coloured is drawn. */
 export function shownNodalRange(scalars: Float32Array, surfaces: ShownSurfaces): [number, number] | null {
     const {mesh, nPoints} = surfaces;
     const shown = new Uint8Array(nPoints);
@@ -94,24 +102,24 @@ export function shownNodalRange(scalars: Float32Array, surfaces: ShownSurfaces):
         shown.fill(1);
     }
 
+    const acc = new RangeAccumulator();
+    for (let v = 0; v < nPoints; v++) if (shown[v]) acc.add(scalars[v]);
+
     const solids = beamSolidsOn(surfaces);
     const warp = surfaces.beamSolidWarp;
     const solidIndex = solids?.geometry.getIndex()?.array as ArrayLike<number> | undefined;
     const solidFaces = solids ? drawnFaceRanges(solids) : null;
     if (solids && warp && solidIndex && solidFaces) {
         const renderToSource = sourceVertexIndices(solids.geometry, warp.n_verts);
+        const seen = new Uint8Array(warp.n_verts);
         for (const [start, count] of solidFaces) {
             for (let i = start; i < start + count; i++) {
                 const v = renderToSource[solidIndex[i]];
-                const a = warp.node0[v];
-                const b = warp.node1[v];
-                if (a < nPoints) shown[a] = 1;
-                if (b < nPoints) shown[b] = 1;
+                if (seen[v]) continue;
+                seen[v] = 1;
+                acc.add(beamSolidVertexValue(scalars, warp, v, nPoints));
             }
         }
     }
-
-    const acc = new RangeAccumulator();
-    for (let v = 0; v < nPoints; v++) if (shown[v]) acc.add(scalars[v]);
     return acc.result();
 }
