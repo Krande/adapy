@@ -29,6 +29,7 @@ import {navBtnClass} from "@/components/navButton";
 import {useIsNarrow} from "@/utils/useIsMobile";
 
 import {DROP_ATTR, dockDragStore, endDockDragAt, moveDockDrag} from "../dockDrag";
+import {CORE_PANEL_IDS} from "../corePanelIds";
 import {CLASSIC_ZONES, type LayoutDoc} from "../layout";
 import {PanelMount, usePanelStates, useLayout} from "../LayoutHost";
 import type {PanelAction, PanelEnv, PanelId, PanelProps, RegisteredPanel} from "../panel";
@@ -46,6 +47,7 @@ import {
   canFloat,
   dropPanel,
   floatOut,
+  homeLabel,
   homeOf,
   moveAction,
   popoutActions,
@@ -82,7 +84,7 @@ export function ClassicZoneKeys() {
 export function floatActions(panel: RegisteredPanel, doc: LayoutDoc): PanelAction[] {
   const home = homeOf(panel);
   return [
-    ...(home === "column" || home === "tree" ? [{id: "dock", label: HOME_LABEL[home], icon: DockGlyph, run: () => backHome(panel.id)}] : []),
+    ...(home === "column" || home === "tree" ? [{id: "dock", label: homeLabel(panel, home), icon: DockGlyph, run: () => backHome(panel.id)}] : []),
     {id: "minimise", label: "Minimise", icon: MinimiseGlyph, run: () => updateClassic((d) => minimisePanel(d, panel.id))},
     moveAction(panel, doc),
     ...popoutActions(panel),
@@ -226,7 +228,8 @@ export function ColumnDropTarget() {
   const dragging = useStore(dockDragStore, (s) => s.panel);
   const over = useStore(dockDragStore, (s) => s.over === CLASSIC_ZONES.menuColumn);
   const [rect, setRect] = React.useState<{left: number; top: number; width: number; height: number} | null>(null);
-  const columnPanel = !!dragging && homeOf(getPanel(dragging) ?? {}) === "column";
+  // The mode helper's home is the top of the view, not the column: no column to drop it on.
+  const columnPanel = !!dragging && dragging !== CORE_PANEL_IDS.modeHelper && homeOf(getPanel(dragging) ?? {}) === "column";
   React.useLayoutEffect(() => {
     if (!columnPanel) return setRect(null);
     const column = document.querySelector(`[${ZONE_ATTR}="column"]`);

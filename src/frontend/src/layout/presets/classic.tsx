@@ -70,6 +70,7 @@ import {hostMirror} from "../windowMirror";
 import {registerCoreMirror} from "../windowMirrorCore";
 import {ShortcutKeys} from "../ShortcutKeys";
 import {ViewportOverlays} from "../ViewportOverlayLayer";
+import {ModeHelperHome} from "../ModeHelper";
 import {offeredInMode} from "../shellModes";
 import {
   adoptDockedPanels,
@@ -300,7 +301,8 @@ function ClassicColumn({proceduralActive}: {proceduralActive: boolean}) {
   const doc = useClassicDoc();
   const narrow = useIsNarrow();
   // Core's panels; the plugin `top-panel` region host draws the plugins' at their slot.
-  const panels = zonePanels(preset, CLASSIC_ZONES.menuColumn).filter((p) => p.owner === CORE_PANEL_OWNER);
+  // The mode helper is the exception: its home is a card at the top of the view (`ModeHelperHome`).
+  const panels = zonePanels(preset, CLASSIC_ZONES.menuColumn).filter((p) => p.owner === CORE_PANEL_OWNER && p.id !== CORE_PANEL_IDS.modeHelper);
   const states = usePanelStates(panels, env);
   const render = (p: RegisteredPanel) => (
     <React.Fragment key={p.id}>
@@ -630,6 +632,9 @@ function ClassicFrame() {
       {customisable && <ClassicZoneKeys />}
       {/* Shells' and plugins' own shortcuts, and their panels'. */}
       <ShortcutKeys />
+
+      {/* Core's own UI only: the mode helper at home, a fixed card at the top middle of the view. */}
+      {!shellId && <ModeHelperHome />}
 
       {customisable && <ColumnDropTarget />}
       {gridOn && <ViewportDropTarget viewport={viewportRef} />}

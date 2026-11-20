@@ -70,6 +70,8 @@ const MOUNT: Readonly<Record<PanelId, (c: MountCtx) => boolean>> = {
   [CORE_PANEL_IDS.simulations]: ({state, env}) => env.restMode === true && state.open,
   // Its flag is the user's and outlives the run: it is drawn only while there is a run to show.
   [CORE_PANEL_IDS.runConsole]: ({state}) => state.open && state.available,
+  // Core's own UI only; at home it is a fixed card the frame draws (`ModeHelperHome`), in a window or group it is mounted.
+  [CORE_PANEL_IDS.modeHelper]: ({state}) => state.open && state.available,
 };
 
 /** Is the classic UI mounting this panel right now. */

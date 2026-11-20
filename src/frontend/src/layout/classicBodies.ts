@@ -36,6 +36,7 @@ import CellBuilderPanel, { CellBuilderBody } from "@/components/viewer/CellBuild
 import { ComponentListBody, ComponentListPanel } from "@/components/viewer/cellbuilder/panel/ComponentList";
 
 import { CORE_PANEL_IDS } from "./corePanels";
+import { ModeHelperBody } from "./ModeHelper";
 import type { PanelId, PanelProps } from "./panel";
 
 /** A component that ignores the host's `PanelProps`, as a panel body. */
@@ -82,6 +83,8 @@ export const CLASSIC_PANEL_COMPONENTS: Readonly<Record<PanelId, React.ComponentT
   [CORE_PANEL_IDS.cellbuilder]: asBody(CellBuilderPanel),
   [CORE_PANEL_IDS.componentList]: asBody(ComponentListPanel),
   [CORE_PANEL_IDS.runConsole]: asBody(RunConsole),
+  // At home it is drawn by the classic frame (a fixed card), so this is not mounted there.
+  [CORE_PANEL_IDS.modeHelper]: asBody(ModeHelperBody),
 };
 
 /** Each core panel's content without its classic frame. */
@@ -99,6 +102,7 @@ export const CLASSIC_PANEL_CONTENTS: Readonly<Record<PanelId, React.ComponentTyp
   [CORE_PANEL_IDS.cellbuilder]: withOptions(CellBuilderBody),
   [CORE_PANEL_IDS.componentList]: asBody(ComponentListBody),
   [CORE_PANEL_IDS.runConsole]: asBody(RunConsoleBody),
+  [CORE_PANEL_IDS.modeHelper]: asBody(ModeHelperBody),
 };
 
 type Loader = () => Promise<React.ComponentType<PanelProps>>;

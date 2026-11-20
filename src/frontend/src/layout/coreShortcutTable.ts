@@ -102,6 +102,7 @@ export const CORE_SHORTCUTS: readonly CoreShortcutDef[] = [
   { id: "core:pan-down", keys: "Ctrl+Shift+ArrowDown", label: "Camera: pan down", group: CAMERA },
   { id: "core:toggle-options", keys: "Shift+Q", label: "Toggle the Options menu", group: VIEWER, keepDefault: true },
   { id: "core:toggle-gallery", keys: "Shift+W", label: "Toggle gallery mode", group: VIEWER },
+  { id: "core:toggle-mode-helper", keys: "Shift+B", label: "Show or hide the mode helper (which of Topology, FEM and Construction is on screen; classic UI only)", group: VIEWER },
   { id: "core:toggle-admin", keys: "Shift+P", label: "Toggle the Admin panel (administrators only)", group: VIEWER },
   { id: "core:render-profiling", keys: "Shift+R", label: "Start / end a render-profiling session (administrators only)", group: VIEWER },
   {

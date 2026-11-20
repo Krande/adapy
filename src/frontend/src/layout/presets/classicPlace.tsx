@@ -16,7 +16,7 @@ import {defaultRect} from "@/assets/floatingWindow";
 import {ExternalGlyph, MoveGlyph} from "@/components/ui/PanelFrame";
 
 import type {DropTarget} from "../dockDrag";
-import {CORE_PANEL_OWNER} from "../corePanelIds";
+import {CORE_PANEL_IDS, CORE_PANEL_OWNER} from "../corePanelIds";
 import {CLASSIC_PRESET_ID, CLASSIC_ZONES, DOCKED_PRESET_ID, type LayoutDoc} from "../layout";
 import {useCustomisablePanels as useServedCustomisablePanels} from "../customisable";
 import type {PanelAction, PanelId, PanelMenuItem, RegisteredPanel} from "../panel";
@@ -192,6 +192,11 @@ export const HOME_LABEL: Readonly<Record<Home, string>> = {
   window: "Float in its own window",
 };
 
+/** The label of a panel's move back home: the mode helper's home is a card at the top of the view, not the column. */
+export function homeLabel(panel: Pick<RegisteredPanel, "id">, home: Home): string {
+  return panel.id === CORE_PANEL_IDS.modeHelper ? "Back to the top" : HOME_LABEL[home];
+}
+
 // ---------------------------------------------------------------------------
 // Moves.
 // ---------------------------------------------------------------------------
@@ -250,7 +255,7 @@ export function dropPanel(id: PanelId, target: DropTarget | null): boolean {
   const p = getPanel(id);
   if (!target || !p) return false;
   if (target.zone === CLASSIC_ZONES.menuColumn) {
-    if (homeOf(p) !== "column") return false;
+    if (homeOf(p) !== "column" || p.id === CORE_PANEL_IDS.modeHelper) return false;
     backHome(id);
     return true;
   }
@@ -356,7 +361,7 @@ export function moveAction(panel: RegisteredPanel, doc: LayoutDoc): PanelAction 
   if (home === "column" || home === "tree") {
     items.push({
       id: "home",
-      label: HOME_LABEL[home],
+      label: homeLabel(panel, home),
       current: place === "home",
       disabled: place === "home",
       run: () => {

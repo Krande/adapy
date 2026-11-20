@@ -35,6 +35,8 @@ export const CORE_PANEL_IDS = {
   layers: "core:layers",
   /** The console of the run whose result is on screen: what its actors are doing, and its log. */
   runConsole: "core:run-console",
+  /** The classic UI's mode helper: which kinds of content are on screen, and the topology comparison. Core's own UI only. */
+  modeHelper: "core:mode-helper",
 } as const;
 
 export type CorePanelId = (typeof CORE_PANEL_IDS)[keyof typeof CORE_PANEL_IDS];

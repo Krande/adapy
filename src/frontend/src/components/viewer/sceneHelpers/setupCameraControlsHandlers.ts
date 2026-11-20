@@ -25,6 +25,7 @@ import {frameCells} from "@/utils/scene/frameCells";
 import {requestRender} from "@/state/perfStore";
 import {historyShortcutHandlers, viewportShortcutHandlers} from "@/viewport/api/viewportShortcuts";
 import {bindCoreShortcuts, type CoreShortcutHandler} from "@/layout/shortcuts";
+import {toggleModeHelper} from "@/layout/modeHelperRules";
 import {installShortcutDispatcher} from "@/layout/shortcutDispatch";
 import {bindViewerHistoryReset} from "@/utils/scene/viewerHistoryBindings";
 import {anyShownRange} from "@/utils/mesh_select/selectionSets";
@@ -109,6 +110,8 @@ export function setupCameraControlsHandlers(
             void cb.compilePreviewSelected();
         }),
         "core:toggle-gallery": shortcut(() => useGalleryStore.getState().toggle()),
+        // Only where the mode helper is offered (core's own UI); elsewhere the key is not ours.
+        "core:toggle-mode-helper": shortcut(() => toggleModeHelper()),
         "core:toggle-options": shortcut(() => void togglePanel(CORE_PANEL_IDS.options)),
         // The admin panel, toggled -- offered to the same people as Options' "Admin panel" button;
         // for anyone else the key does nothing.

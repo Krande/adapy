@@ -64,7 +64,9 @@ import { layerCount, subscribeLayers } from "@/state/layerRegistry";
 import { useLayersPanelStore } from "@/state/layersPanelStore";
 import { playbackClock } from "@/state/playbackClock";
 import { useRunConsoleStore } from "@/state/runConsoleStore";
+import { useModeHelperStore } from "@/state/modeHelperStore";
 import { bindStoreFlag, watchStores } from "./bindings";
+import { modeHelperOffered } from "./modeHelperRules";
 import { CLASSIC_PRESET_ID, CLASSIC_ZONES } from "./layout";
 import type { PanelBinding, PanelBodyLoader, PanelPlacement, PanelProps, PanelSpec } from "./panel";
 import { getPanel, registerPanel } from "./registry";
@@ -557,6 +559,23 @@ export function corePanelSpecs(): PanelSpec[] {
         float: { w: 440, h: 480 },
         floatAt: { right: 12, top: 56, maxHeight: 0.62 },
       }),
+    },
+    // The mode helper (`./ModeHelper`): core's own UI only. Its home is a fixed card at the top middle of
+    // the view, drawn by the classic frame, not the column; the column zone is what lets the layout float
+    // and dock it. No top-bar button: the Mode helper command and its key open and close it.
+    {
+      id: CORE_PANEL_IDS.modeHelper,
+      title: "Mode helper",
+      hint: "Show or hide the mode helper",
+      body: classicBody(CORE_PANEL_IDS.modeHelper),
+      content: classicContent(CORE_PANEL_IDS.modeHelper),
+      binding: bindStoreFlag(
+        useModeHelperStore,
+        (s) => s.on,
+        (open, s) => s.setOn(open),
+      ),
+      available: () => modeHelperOffered(),
+      placement: classic({ zone: CLASSIC_ZONES.menuColumn, order: 140, float: { w: 380, h: 130 } }),
     },
   ];
 }

@@ -66,6 +66,8 @@ import {listShellModes} from "./shellModes";
 import {openSettingsTab, registerOptionCommands} from "./optionCommands";
 import {setUiFrozen, uiFreezeOffered, uiFrozen} from "./uiFreeze";
 import {builderLoaded} from "./modeRequirements";
+import {MODE_HELPER_COMMAND_ID, modeHelperOffered, toggleModeHelper} from "./modeHelperRules";
+import {useModeHelperStore} from "@/state/modeHelperStore";
 import {deleteWorkspace, listWorkspaces, loadWorkspace, resetArrangement, saveWorkspace} from "./presets/classicPlace";
 import {openNewWindow, thisWindowId, windowBus} from "./windows";
 import {MAIN_WINDOW_ID} from "./windowBus";
@@ -520,6 +522,16 @@ export function coreCommandSpecs(): CommandSpec[] {
       shortcut: "core:toggle-gallery",
       checked: () => useGalleryStore.getState().enabled,
       run: () => useGalleryStore.getState().toggle(),
+    },
+    {
+      id: MODE_HELPER_COMMAND_ID,
+      label: "Mode helper",
+      group: "View",
+      shortcut: "core:toggle-mode-helper",
+      // Core's own UI: a composed shell (the Desktop UI, a plugin's) is not offered it.
+      when: modeHelperOffered,
+      checked: () => useModeHelperStore.getState().on,
+      run: () => void toggleModeHelper(),
     },
     {
       id: ID.fullscreen,
