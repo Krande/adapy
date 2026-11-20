@@ -33,11 +33,6 @@ const ALLOWED: Record<string, string> = {
     "components/viewer/FemConceptsController.tsx": "not yet moved",
     "components/viewer/NameLabelController.tsx": "not yet moved",
     "components/viewer/TypeIconController.tsx": "not yet moved",
-    "utils/measure/measureDrawing.ts": "not yet moved",
-    "utils/scene/clashIsolation.ts": "not yet moved",
-    "utils/scene/clashJointMarkers.ts": "not yet moved",
-    "utils/scene/connectionOverlay.ts": "not yet moved",
-    "utils/scene/jointFocusOverlay.ts": "not yet moved",
 };
 
 const LAYER = /(?:viewport|Viewport\(\))\s*[!?]?\.\s*(?:overlays|billboards|images)\(/;

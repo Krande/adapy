@@ -15,16 +15,20 @@
 //
 // No three.js in this module.
 
-import { highlightObjects, type SceneHighlight } from "@/plugins/sceneHighlights";
 import { useModelState } from "@/state/modelState";
+import "@/utils/scene/overlaySources";
+import { srgbHexText } from "@/utils/scene/sceneColor";
 import { findObjectsByName } from "@/utils/tree_view/modelSource";
+import { register, type OverlayHandle } from "@/viewport/api/overlayManager";
 import { activeViewport, subscribeSelection, type ObjectRef } from "@/viewport/api/viewportApi";
 
 import type { WeldLook } from "./connectionWeldTint";
 
 const OWNER = "core:connection-preview";
 
-let marked: SceneHighlight | null = null;
+/** The marks, as an entry of the overlay manager (its marks merged with every other entry's). */
+let marked: OverlayHandle | null = null;
+let markedColor = "";
 /** The welds marked in their colour, selected or not. */
 let markedRefs: ObjectRef[] = [];
 let stopFollowing: (() => void) | null = null;
@@ -34,10 +38,16 @@ let markedFile: string | null = null;
 
 /** Put back whatever `markWelds` changed. */
 export function clearWeldMarks(): void {
+  const was = marked;
+  marked = null;
+  // Removed, the entry puts the rest back (`restore`).
+  if (was) was.remove();
+  else restore();
+}
+
+function restore(): void {
   stopFollowing?.();
   stopFollowing = null;
-  marked?.remove();
-  marked = null;
   markedRefs = [];
   // Shown again only while their model is: a cleared scene has nothing left to show.
   if (hidden.length && markedFile && useModelState.getState().loadedSourceNames.has(markedFile)) activeViewport()?.show(hidden);
@@ -45,10 +55,8 @@ export function clearWeldMarks(): void {
   markedFile = null;
 }
 
-// LIFETIME: the marks are the model's, and go when it leaves the scene by whichever route.
-useModelState.subscribe((s, prev) => {
-  if (s.loadedSourceNames !== prev.loadedSourceNames && markedFile && !s.loadedSourceNames.has(markedFile)) clearWeldMarks();
-});
+// LIFETIME: the marks are the model's, an overlay with the `model` lifetime: they go when it leaves
+// the scene by whichever route, and with every clear of the scene (a replace takes the model too).
 
 /** The marked welds that are not selected now: what is drawn in the weld colour. */
 export function unselectedWelds(refs: readonly ObjectRef[], selection: readonly ObjectRef[]): ObjectRef[] {
@@ -58,7 +66,7 @@ export function unselectedWelds(refs: readonly ObjectRef[], selection: readonly 
 }
 
 function remark(): void {
-  marked?.set(unselectedWelds(markedRefs, activeViewport()?.selection() ?? []));
+  marked?.setMarks(unselectedWelds(markedRefs, activeViewport()?.selection() ?? []), markedColor);
 }
 
 /** Draw the welds named `weldNames` of the loaded source `file` as `look` says, through the viewport
@@ -69,12 +77,24 @@ export function markWelds(file: string | null, weldNames: string[], look: WeldLo
   const refs: ObjectRef[] = findObjectsByName(weldNames, { sourceName: file }).map(({ model, id }) => ({ model, id }));
   if (refs.length === 0) return 0;
   markedFile = file;
+  const entry = register({
+    owner: OWNER,
+    id: "welds",
+    lifetime: { kind: "model", sources: [file] },
+    onReplace: "remove",
+    onRemoved: () => {
+      if (marked === entry) marked = null;
+      restore();
+    },
+  });
+  marked = entry;
   if (look.hidden) {
     activeViewport()?.hide(refs);
     hidden = refs;
   } else if (look.colour) {
     markedRefs = refs;
-    marked = highlightObjects(OWNER, unselectedWelds(refs, activeViewport()?.selection() ?? []), { color: look.colour });
+    markedColor = srgbHexText(look.colour);
+    entry.setMarks(unselectedWelds(refs, activeViewport()?.selection() ?? []), markedColor);
     stopFollowing = subscribeSelection(remark);
   }
   return refs.length;

@@ -31,6 +31,7 @@ import { runClashCheckFlow } from "./clashCheck/flows";
 import type { ClashCheckState } from "./clashCheck/state";
 import { contactRunOf, contactRunOptions, contactRunToResult, contactWasmAvailable, detailOnce, groupContactRequest, nodeGlbKey, realContactDeps, realFlowDeps } from "./clashCheck/realDeps";
 import { resolveChecker, runsInBrowser, withBrowserContact } from "./clashCheck/engine";
+import { register } from "@/viewport/api/overlayManager";
 
 export { contactRunOptions, contactRunToResult, contactRunOf, groupContactElements } from "./clashCheck/realDeps";
 export { BUILTIN_CHECKER_DESCRIPTION, BUILTIN_CHECKER_LABEL, CONTACT_CHECKER_LABEL, BROWSER_CONTACT_CHECKER, CONTACT_UNAVAILABLE_NOTE, contactOffered, resolveChecker, runsInBrowser, withBrowserContact } from "./clashCheck/engine";
@@ -766,3 +767,16 @@ export const useClashCheckStore = create<ClashCheckState>((set, get) => ({
     });
   },
 }));
+
+// What a clash check found is drawn over the scene (its markers, utils/scene/clashJointMarkers.ts),
+// from this store rather than from the models: a clear of the scene must make the store forget it,
+// or the markers would be drawn again over the empty scene. The overlay manager tells it to
+// (`forgetResult`) on every clear but a replace -- a renderer switch hands the same models over
+// through one. Registered here, beside the result, so it holds whether or not the markers are drawn.
+register({
+  owner: "core:clash",
+  id: "result",
+  lifetime: { kind: "view" },
+  onReplace: "keep",
+  forget: () => useClashCheckStore.getState().forgetResult(),
+});

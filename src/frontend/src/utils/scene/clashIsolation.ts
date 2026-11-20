@@ -16,42 +16,37 @@
 //
 // Per OBJECT of each model, by the source it was loaded from: a model is one batched mesh (or one
 // renderer instance) with a draw range per member, and a group's run has members in several models.
+//
+// The fade is the overlay manager's one fade of the rest (viewport/api/overlayManager.ts), held by a
+// view of its own: the manager puts it on the viewport on screen, takes it off one that leaves, and
+// a clear of the scene -- any clear, a replace included -- puts every member back (`forget`), while
+// the fade's models are still there to put back.
 // No three.js here.
 
 import { modelStore } from "@/state/model_worker/modelStore";
 import { useTreeViewStore } from "@/state/treeViewStore";
 import { modelKeyOfSource, type ModelRow } from "@/utils/groups/selectGroup";
-import { activeViewport, type ViewportApi } from "@/viewport/api/viewportApi";
+import { register, type OverlayHandle } from "@/viewport/api/overlayManager";
 
 export type IsolationMode = "off" | "ghost" | "hidden";
 
-/** The viewport the last fade was put on (null: nothing faded), to be taken off that one even when
- *  another has taken its place since. */
-let fadedOn: ViewportApi | null = null;
 /** Bumped by every call: a name lookup still under way when another call came is not applied. */
 let serial = 0;
+
+let held: OverlayHandle | null = null;
+const fade = (): OverlayHandle =>
+  (held ??= register({ owner: "core:clash", id: "fade", lifetime: { kind: "view" }, onReplace: "forget", forget: () => clearJointIsolation() }));
 
 /** Put every member back. Safe to call when nothing is isolated. */
 export function clearJointIsolation(): void {
   serial++;
-  const viewport = fadedOn;
-  fadedOn = null;
-  if (!viewport) return;
-  try {
-    viewport.setObjectFade?.(null);
-  } catch {
-    /* its renderer is gone, and what it faded with it */
-  }
+  held?.setFade(null);
 }
 
 /** Fade, on the viewport on screen, every object of the models `keep` names but the ones it keeps. */
 function fadeRest(keep: ReadonlyMap<string, ReadonlySet<string>>, mode: IsolationMode, opacity: number): void {
-  const viewport = activeViewport();
-  if (fadedOn && fadedOn !== viewport) clearJointIsolation();
-  if (!viewport?.setObjectFade) return;
   // The ghost is never quite gone: at 0 the joint's neighbours would vanish, which is "hide rest".
-  viewport.setObjectFade({ keep, opacity: mode === "ghost" ? Math.max(0.01, Math.min(1, opacity)) : 0 });
-  fadedOn = viewport;
+  fade().setFade({ keep, opacity: mode === "ghost" ? Math.max(0.01, Math.min(1, opacity)) : 0 });
 }
 
 /** Isolate by OBJECT ID, across several loaded models at once: each target's `keep` ids stay solid
