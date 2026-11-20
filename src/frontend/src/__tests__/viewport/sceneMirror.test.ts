@@ -138,6 +138,28 @@ test("depthTest off draws over the model; clipping planes cut it", () => {
     assert.equal(b.clipped, true);
 });
 
+test("depthWrite off is handed on, for meshes and lines: a grid drawn under a see-through box hides none of its edges", () => {
+    const scene = new THREE.Scene();
+    const face = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial({transparent: true, opacity: 0.3, depthWrite: false}));
+    const edges = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(1, 1, 1)), new THREE.LineBasicMaterial());
+    const grid = new THREE.GridHelper(10, 10);
+    (grid.material as THREE.Material).depthWrite = false;
+    grid.renderOrder = -1;
+    scene.add(face, edges, grid);
+    const rec = recordingTarget();
+    const mirror = createSceneMirror(scene, camera, rec.target);
+    mirror.sync();
+    assert.equal([...rec.meshes.values()][0].depthWrite, false);
+    const [edgeLines, gridLines] = [...rec.lines.values()];
+    assert.equal(edgeLines.depthWrite, true);
+    assert.equal(gridLines.depthWrite, false);
+    assert.equal(gridLines.renderOrder, -1);
+    // Turned back on, it is drawn again with it.
+    (grid.material as THREE.Material).depthWrite = true;
+    mirror.sync();
+    assert.equal([...rec.lines.values()].filter((l) => l.depthWrite === false).length, 0);
+});
+
 test("a lit material is drawn with its light baked into its colours", () => {
     const scene = new THREE.Scene();
     scene.add(new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial({color: 0xffffff})));

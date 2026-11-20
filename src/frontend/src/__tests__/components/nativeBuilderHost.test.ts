@@ -75,6 +75,37 @@ test("... and orthographically, as the three.js viewport's orthographic mode: pa
     assert.ok(Math.abs(ray.ray.direction.y - 1) < 1e-6, "a ray off the middle still runs along the view");
 });
 
+test("a CAD-fitted equipment's port snaps to the same points on both viewports: every vertex of its CAD, sampled alike", async () => {
+    const {loadedGeometry} = await import("@/components/viewer/cellbuilder/nativeViewHost");
+    const {meshPoints} = await import("@/components/viewer/cellbuilder/viewHost");
+    // A cylinder: its side's vertices are no ends of its outline (the side folds less than the
+    // outline's angle), so a snap set made of the outline would leave them out.
+    const mesh = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 2, 24, 3));
+    mesh.position.set(10, 0, 0);
+    mesh.updateMatrixWorld(true);
+    const position = mesh.geometry.getAttribute("position");
+    const world = new Float32Array(position.count * 3);
+    for (let i = 0; i < position.count; i++) new THREE.Vector3().fromBufferAttribute(position, i).applyMatrix4(mesh.matrixWorld).toArray(world, i * 3);
+    const box = new THREE.Box3().setFromObject(mesh);
+    const ref = {model: "m", id: "EQ_01"};
+    const viewport = {
+        objectsNamed: (name: string) => (name === "EQ_01" ? [{ref, min: box.min.toArray(), max: box.max.toArray()}] : []),
+        objectVertices: (r: {id: string}) => (r.id === "EQ_01" ? world : null),
+    } as unknown as Pick<ViewportApi, "objectsNamed" | "objectVertices">;
+    const native = loadedGeometry(viewport, "EQ_01")!;
+    for (const max of [4000, 50]) {
+        const three = meshPoints(mesh, max);
+        const got = native.points(max);
+        assert.equal(got.length, three.length, `as many points for at most ${max}`);
+        got.forEach((p, i) => assert.ok(p.distanceTo(three[i]) < 1e-5, `point ${i}`));
+    }
+    assert.ok(native.box.equals(box));
+    // A viewport that cannot read the vertices snaps to the box's corners.
+    const bare = loadedGeometry({objectsNamed: viewport.objectsNamed} as Pick<ViewportApi, "objectsNamed">, "EQ_01")!;
+    assert.equal(bare.points(4000).length, 8);
+    assert.equal(loadedGeometry(viewport, "OTHER"), null);
+});
+
 /** A three.js-free viewport as far as the builder uses it, recording what it is asked. */
 function fakeViewport(camera: T.PerspectiveCamera) {
     const listeners = new Map<string, ((e: unknown) => void)[]>();

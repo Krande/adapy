@@ -70,6 +70,9 @@ export interface ResultOverlayLook {
     normals?: Float32Array | null;
     /** three.js' renderOrder, among see-through and on-top annotations. */
     renderOrder?: number;
+    /** False: it leaves the depth as it found it (three.js' `depthWrite: false`), so what is drawn
+     *  after it still shows where it is. True when left out. */
+    depthWrite?: boolean;
 }
 
 /** One mesh of a shown result. Each call replaces what the previous one of its kind set; the arrays

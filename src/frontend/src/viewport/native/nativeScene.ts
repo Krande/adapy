@@ -1102,21 +1102,39 @@ export class NativeScene {
         const id = model.table.ids[at.index];
         model.edges ??= new Map();
         if (model.edges.has(id)) return model.edges.get(id) ?? null;
-        if (model.reader === undefined) {
-            try {
-                model.reader = glbObjectReader(model.file);
-            } catch (err) {
-                console.warn("[adacpp-native] reading the model's objects:", err);
-                model.reader = null;
-            }
-        }
-        const triangles = model.reader?.triangles(id, this.offset) ?? null;
+        const triangles = this.objectReader(model)?.triangles(id, this.offset) ?? null;
         const edges = triangles
             ? computeEdgeArrays(triangles.positions, triangles.indices, [[0, triangles.indices.length]], Math.cos((FEATURE_EDGE_ANGLE_DEG * Math.PI) / 180)).positions
             : null;
         if (model.edges.size >= 64) model.edges.delete(model.edges.keys().next().value!);
         model.edges.set(id, edges);
         return edges;
+    }
+
+    /**
+     * The vertices of the object `key` names, in the world (three numbers each): each vertex its
+     * triangles use, once, in the order the file lists them -- the vertices three.js has of the same
+     * object when it loads the file. Read from the file as `objectFeatureEdges` reads it, and null in
+     * the same cases.
+     */
+    objectVertices(key: string): Float32Array | null {
+        const at = this.where.get(key);
+        const model = at?.model;
+        if (!at || !model?.file || model.animations || model.pose) return null;
+        return this.objectReader(model)?.vertices(model.table.ids[at.index], this.offset) ?? null;
+    }
+
+    /** The reader of `model`'s file, made on first use; null when the file cannot be read. */
+    private objectReader(model: LoadedModel): GlbObjectReader | null {
+        if (model.reader === undefined) {
+            try {
+                model.reader = glbObjectReader(model.file!);
+            } catch (err) {
+                console.warn("[adacpp-native] reading the model's objects:", err);
+                model.reader = null;
+            }
+        }
+        return model.reader;
     }
 
     /** Frame the whole model, along the current view (the shared fit, viewport/api/cameraFrame). */

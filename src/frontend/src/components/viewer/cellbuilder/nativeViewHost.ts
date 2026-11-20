@@ -101,9 +101,9 @@ export function nativeViewHost(viewport: ViewportApi): BuilderViewHost {
 }
 
 /** The viewport's objects called `name` as one piece of loaded geometry: their boxes together, and
- *  the ends of their outlines as the viewport draws them (`featureEdges`) for its points, else the
- *  box's corners. */
-export function loadedGeometry(viewport: Pick<ViewportApi, "objectsNamed" | "featureEdges">, name: string): LoadedGeometry | null {
+ *  their vertices (`objectVertices`) for its points, sampled as the three.js viewport samples its mesh
+ *  of them (./viewHost.ts `meshPoints`), else the box's corners. */
+export function loadedGeometry(viewport: Pick<ViewportApi, "objectsNamed" | "objectVertices">, name: string): LoadedGeometry | null {
     const found = viewport.objectsNamed?.(name) ?? [];
     if (!found.length) return null;
     const box = new THREE.Box3();
@@ -116,8 +116,8 @@ export function loadedGeometry(viewport: Pick<ViewportApi, "objectsNamed" | "fea
         points: (max) => {
             const all: THREE.Vector3[] = [];
             for (const o of found) {
-                const edges = viewport.featureEdges?.(o.ref);
-                if (edges) for (let i = 0; i + 2 < edges.length; i += 3) all.push(new THREE.Vector3(edges[i], edges[i + 1], edges[i + 2]));
+                const vertices = viewport.objectVertices?.(o.ref);
+                if (vertices) for (let i = 0; i + 2 < vertices.length; i += 3) all.push(new THREE.Vector3(vertices[i], vertices[i + 1], vertices[i + 2]));
             }
             if (!all.length) {
                 for (let k = 0; k < 8; k++) {

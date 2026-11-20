@@ -166,6 +166,7 @@ export function createNativeViewportApi(scene: NativeScene): ViewportApi {
         setGroundGridHidden: (hidden) => scene.setGroundGridHidden(hidden),
         objectsNamed: (name) =>
             scene.objectsNamed(name).map(({key, box}) => ({ref: splitObjectKey(key), min: [box[0], box[1], box[2]], max: [box[3], box[4], box[5]]})),
+        objectVertices: (ref) => scene.objectVertices(objectKey(ref.model, ref.id)),
         shiftSource: (sourceName, shift) => scene.shiftSource(sourceName, shift),
     });
 }
