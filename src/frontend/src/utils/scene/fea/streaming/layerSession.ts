@@ -926,8 +926,16 @@ async function openLayerSession(args: {
     const shellEdges = lines(edges.shell, FEA_EDGE_COLOR);
     const beamEdges = lines(edges.beam, FEA_BEAM_EDGE_COLOR);
     // The panels list the viewport's model: the Scene tree gets the result's elements, which are
-    // the viewport's objects by the same ids.
-    notifyModelLoaded({model: resultModelKey(sourceName), sourceName, sceneExtras: "", extras: elements?.extras});
+    // the viewport's objects by the same ids. The result is listed by its file name: the hierarchy's
+    // root ("FEA elements") is not the name of anything the user opened, and with no name given the
+    // Scene tree, and the loaded-models list that follows it, would call the model that.
+    notifyModelLoaded({
+        model: resultModelKey(sourceName),
+        sourceName,
+        displayName: sourceName.split("/").pop() || sourceName,
+        sceneExtras: "",
+        extras: elements?.extras,
+    });
 
     const nPoints = mesh.positions.length / 3;
     let drawn: Uint8Array | null = null;
