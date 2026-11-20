@@ -77,7 +77,9 @@ export const PluginPanelRegion: React.FC<{
   excludeTabs?: boolean;
   /** The host's frame around a panel that has none of its own to be closed by (`toggled`). */
   frame?: (panel: PanelSlot, mounted: React.ReactNode) => React.ReactNode;
-}> = ({ region, excludeTabs, frame }) => {
+  /** The host's place for each panel drawn (framed or not): the classic column's slot, which keeps it from overlapping the others. */
+  slot?: (panel: PanelSlot, drawn: React.ReactNode) => React.ReactNode;
+}> = ({ region, excludeTabs, frame, slot }) => {
   const stores = useViewerStores();
   // Subscribe to visibility so a top-bar toggle re-renders this region.
   const visible = usePluginUiStore((s) => s.visible);
@@ -107,7 +109,9 @@ export const PluginPanelRegion: React.FC<{
               panel={panel}
             />
           );
-          return frame && panel.toggled ? <React.Fragment key={panel.id}>{frame(panel, mounted)}</React.Fragment> : mounted;
+          const drawn = frame && panel.toggled ? frame(panel, mounted) : mounted;
+          if (slot) return <React.Fragment key={panel.id}>{slot(panel, drawn)}</React.Fragment>;
+          return frame && panel.toggled ? <React.Fragment key={panel.id}>{drawn}</React.Fragment> : mounted;
         })}
     </>
   );
