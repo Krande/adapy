@@ -14,7 +14,17 @@ import hashlib
 import time
 from typing import Any, Callable, Mapping
 
-__all__ = ["build_detail", "connection_records", "found_id", "joints_by_id", "stage_progress"]
+__all__ = [
+    "DETAIL_SHARES",
+    "DetailReporter",
+    "build_detail",
+    "connection_records",
+    "detail_progress",
+    "found_id",
+    "joints_by_id",
+    "stage_progress",
+    "upload_stage",
+]
 
 #: ``on_progress(done, total)``: called by :func:`build_detail` before the first joint and after each.
 DetailProgress = Callable[[int, int], None]
@@ -65,6 +75,86 @@ def stage_progress(
     return _on_progress
 
 
+#: ``on_stage(name, done, total)``: a phase of :func:`build_detail` after the joints, with its count
+#: (``total`` 0 for a phase that is one step).
+DetailStage = Callable[[str, int, int], None]
+
+#: The share of a detail job's progress each phase takes, (start, end); the job wrappers' uploads
+#: follow at :data:`UPLOAD_SHARE`. A phase's label is what the viewer shows as the job's stage.
+DETAIL_SHARES: dict[str, tuple[float, float]] = {
+    "detail": (0.55, 0.75),
+    "bodies": (0.75, 0.82),
+    "tessellating": (0.82, 0.93),
+    "writing GLB": (0.93, 0.95),
+    "stats": (0.95, 0.95),
+}
+UPLOAD_SHARE = (0.95, 0.99)
+
+
+class DetailReporter:
+    """A detail job's progress through every phase, reported to its ``report(stage, fraction)``:
+    the joints (``"detail 120/392"``, :meth:`__call__` -- the ``on_progress(done, total)`` of
+    :func:`build_detail`), then the bodies built (``"bodies 1200/3400"``), the objects tessellated
+    into the GLB (``"tessellating 1500/3800"``), ``"writing GLB"`` and ``"stats"`` (:meth:`stage`, the
+    ``on_stage``), and the job's own uploads (:meth:`upload`). Each phase moves through its share of
+    the fraction (:data:`DETAIL_SHARES`). At most one report per ``min_interval_s`` -- a step can take
+    milliseconds and every report is a queue write -- but the first and the last of each phase are
+    always reported, so a phase that starts is seen to start."""
+
+    def __init__(
+        self,
+        report: Callable[[str, float], None],
+        *,
+        shares: Mapping[str, tuple[float, float]] | None = None,
+        min_interval_s: float = 1.0,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        self.report = report
+        self.shares = dict(DETAIL_SHARES if shares is None else shares)
+        self.min_interval_s = min_interval_s
+        self.clock = clock
+        self._last: float | None = None
+        self._phase: str | None = None
+        self._frac = 0.0
+
+    def __call__(self, done: int, total: int) -> None:
+        self.stage("detail", done, total)
+
+    def stage(self, name: str, done: int = 0, total: int = 0) -> None:
+        now = self.clock()
+        first = name != self._phase
+        last = total == 0 or done >= total
+        if not (first or last) and self._last is not None and now - self._last < self.min_interval_s:
+            return
+        self._phase, self._last = name, now
+        if name in self.shares:
+            start, end = self.shares[name]
+            self._frac = start + (end - start) * (done / total if total else 1.0)
+        self.report(f"{name} {done}/{total}" if total else name, round(self._frac, 4))
+
+    def upload(self, what: str, size_bytes: int | None = None, *, index: int = 0, count: int = 1) -> None:
+        """``"uploading GLB (12.3 MB)"``: the job's ``index``-th of ``count`` uploads, within
+        :data:`UPLOAD_SHARE`."""
+        label, frac = upload_stage(what, size_bytes, index=index, count=count)
+        self._phase, self._last = label, self.clock()
+        self.report(label, frac)
+
+
+def upload_stage(what: str, size_bytes: int | None = None, *, index: int = 0, count: int = 1) -> tuple[str, float]:
+    """The stage and fraction a detail job reports as it uploads ``what`` (its ``index``-th of
+    ``count`` uploads): ``("uploading GLB (12.3 MB)", 0.95)``. For a job wrapper that reports
+    through its queue rather than a :class:`DetailReporter`."""
+    start, end = UPLOAD_SHARE
+    label = f"uploading {what}" + (f" ({size_bytes / 1e6:.1f} MB)" if size_bytes is not None else "")
+    return label, round(start + (end - start) * (index / max(count, 1)), 4)
+
+
+def detail_progress(report: Callable[[str, float], None], **kw: Any) -> DetailReporter:
+    """A :class:`DetailReporter` for ``report``: pass it as :func:`build_detail`'s ``on_progress``
+    (its phases after the joints are reported through it too)."""
+    return DetailReporter(report, **kw)
+
+
 def build_detail(
     registered,
     *,
@@ -73,6 +163,7 @@ def build_detail(
     by_id: Mapping[str, Any],
     gen_options: Mapping[str, Any],
     on_progress: DetailProgress | None = None,
+    on_stage: DetailStage | None = None,
 ) -> tuple[bytes, dict]:
     """Build every named joint with ``registered`` and return ``(glb_bytes, stats)``.
 
@@ -81,7 +172,11 @@ def build_detail(
     built; a joint the builder refuses is reported and the rest go on.
 
     ``on_progress(done, total)`` is called before the first joint and after each one
-    (:func:`stage_progress` turns it into a job's stage and fraction).
+    (:func:`stage_progress` turns it into a job's stage and fraction). ``on_stage(name, done,
+    total)`` is told the phases after the joints: ``bodies`` (per chunk of :data:`BODY_CHUNK`
+    bodies built), ``tessellating`` (per object of the GLB), ``writing GLB`` and ``stats``. Given a
+    :class:`DetailReporter` (:func:`detail_progress`) as ``on_progress`` and no ``on_stage``, its
+    :meth:`~DetailReporter.stage` is used, so one object reports every phase.
 
     WHAT DID NOT SURVIVE, in ``stats``:
 
@@ -105,7 +200,10 @@ def build_detail(
     from ada import Part
     from ada.core.file_system import new_temp_path
     from ada.topo_model.takeoff import _joints_takeoff
-    from ada.visit.tessellate import collect_tessellation_failures
+    from ada.visit.tessellate import (
+        collect_tessellation_failures,
+        report_tessellation_progress,
+    )
 
     joints_part = Part("Joints")
     skipped: list[str] = []
@@ -163,15 +261,32 @@ def build_detail(
             f"{spec_name} detailed none of the {len(joint_ids)} joint(s) handed to it: " + "; ".join(skipped[:5])
         )
 
-    _prebuild_bodies(joints_part)
+    if on_stage is None:
+        on_stage = getattr(on_progress, "stage", None)
+
+    def _phase(name: str, done: int = 0, total: int = 0) -> None:
+        if on_stage is not None:
+            on_stage(name, done, total)
+
+    def _tessellated(done: int, total: int) -> None:
+        _phase("tessellating", done, total)
+        if done >= total:
+            # The objects are meshed; what is left of to_gltf is the scene's export to bytes.
+            _phase("writing GLB")
+
+    _prebuild_bodies(joints_part, on_chunk=lambda done, total: _phase("bodies", done, total))
     glb_path = new_temp_path(suffix=".glb")
     try:
-        with collect_tessellation_failures() as tess_failures:
+        with (
+            collect_tessellation_failures() as tess_failures,
+            report_tessellation_progress(_tessellated if on_stage is not None else None),
+        ):
             joints_part.to_gltf(glb_path)
         glb_bytes = glb_path.read_bytes()
     finally:
         glb_path.unlink(missing_ok=True)
 
+    _phase("stats")
     weld_failures = [*_reported_weld_failures(built), *_weld_geometry_failures(built, tess_failures)]
 
     stats: dict[str, Any] = {"joints": _joints_takeoff(joints_part)}
@@ -272,23 +387,34 @@ def connection_records(built: list[tuple[str, Any]]) -> list[dict[str, Any]]:
     return out
 
 
-def _prebuild_bodies(part) -> None:
-    """Build the bodies of everything the joints made in one batch, before the GLB writer asks for
-    them one by one: faceted ones (weld beads) together and in parallel where the CAD backend can
-    (:func:`ada.cad.shape_cache.prebuild_solids`). Bodies a builder already built (one that checks
-    its welds' solids as it goes) are cached and skipped. A body that fails here is left to the
-    writer, which reports it as a weld without geometry -- so nothing is lost or said twice."""
+#: Bodies built per :func:`ada.cad.shape_cache.prebuild_solids` call: big enough that each call's
+#: parallel batch keeps every core busy, small enough that a run of thousands reports as it goes.
+BODY_CHUNK = 256
+
+
+def _prebuild_bodies(part, on_chunk: Callable[[int, int], None] | None = None) -> None:
+    """Build the bodies of everything the joints made in batches of :data:`BODY_CHUNK`, before the
+    GLB writer asks for them one by one: faceted ones (weld beads) together and in parallel where
+    the CAD backend can (:func:`ada.cad.shape_cache.prebuild_solids`). Bodies a builder already built
+    (one that checks its welds' solids as it goes) are cached and skipped. A body that fails here is
+    left to the writer, which reports it as a weld without geometry -- so nothing is lost or said
+    twice. ``on_chunk(done, total)`` before the first batch and after each."""
     # The objects the GLB writer tessellates (`tessellate_part`): the physical ones and the welds.
     objects = [
         o
         for o in (*part.get_all_physical_objects(pipe_to_segments=True), *part.get_all_welds())
         if hasattr(o, "solid_geom")
     ]
+    if on_chunk is not None:
+        on_chunk(0, len(objects))
     if not objects:
         return
     from ada.cad.shape_cache import prebuild_solids
 
-    prebuild_solids(objects)
+    for start in range(0, len(objects), BODY_CHUNK):
+        prebuild_solids(objects[start : start + BODY_CHUNK])
+        if on_chunk is not None:
+            on_chunk(min(start + BODY_CHUNK, len(objects)), len(objects))
 
 
 def _reported_weld_failures(built: list[tuple[str, Any]]) -> list[dict[str, str]]:

@@ -223,3 +223,92 @@ def test_stage_progress_moves_through_the_stage_share_at_most_once_a_second():
     now[0] += 0.1
     on_progress(4, 4)  # the last is always reported
     assert reports == [("detail 0/4", 0.55), ("detail 2/4", 0.7), ("detail 4/4", 0.85)]
+
+
+def test_every_phase_after_the_joints_is_reported_in_order_with_its_count():
+    """bodies, tessellating, writing GLB, stats -- after the joints -- each first and last at least,
+    moving through its share of the fraction; the output is what it is without a reporter."""
+    from ada.clash.detail import DETAIL_SHARES, detail_progress
+
+    _register_builder()
+    reports: list[tuple[str, float]] = []
+    glb, stats = _run(on_progress=detail_progress(lambda stage, frac: reports.append((stage, frac))))
+    stages = [s for s, _ in reports]
+    # "bodies 2/2" -> "bodies"; "writing GLB" stays itself. The phase names, in order, each once in a row.
+    phases = [s.rsplit(" ", 1)[0] if "/" in s else s for s in stages]
+    order = [p for i, p in enumerate(phases) if i == 0 or phases[i - 1] != p]
+    assert order == ["detail", "bodies", "tessellating", "writing GLB", "stats"]
+    assert stages[0] == "detail 0/3" and "detail 3/3" in stages
+    # Two objects carry bodies here (the connection's two welds); each phase's last report is its total.
+    bodies = [s for s in stages if s.startswith("bodies ")]
+    assert bodies[0] == "bodies 0/2" and bodies[-1] == "bodies 2/2"
+    tess = [s for s in stages if s.startswith("tessellating ")]
+    total = int(tess[-1].split("/")[1])
+    assert tess[0] == f"tessellating 0/{total}" and tess[-1] == f"tessellating {total}/{total}"
+    # The fraction never goes back, and each phase ends where its share ends.
+    fracs = [f for _, f in reports]
+    assert fracs == sorted(fracs)
+    for name in ("detail", "bodies", "tessellating"):
+        assert [f for s, f in reports if s.startswith(f"{name} ")][-1] == DETAIL_SHARES[name][1]
+
+    # The same GLB and stats without anyone listening.
+    _clear_registry()
+    _register_builder()
+    glb_quiet, stats_quiet = _run()
+    assert stats_quiet == stats
+    assert len(glb_quiet) == len(glb)
+
+
+def test_a_detail_reporter_throttles_within_a_phase_but_never_drops_a_phase_s_first_or_last():
+    from ada.clash.detail import detail_progress, upload_stage
+
+    now = [0.0]
+    reports: list[tuple[str, float]] = []
+    p = detail_progress(lambda stage, frac: reports.append((stage, frac)), clock=lambda: now[0])
+    p(0, 4)
+    now[0] += 0.1
+    p(1, 4)  # too soon: dropped
+    now[0] += 0.1
+    p(4, 4)  # the last: kept
+    p.stage("bodies", 0, 600)  # a new phase's first: kept at once
+    for done in (256, 512):
+        now[0] += 0.2
+        p.stage("bodies", done, 600)  # too soon: dropped
+    p.stage("bodies", 600, 600)  # the last: kept
+    now[0] += 5
+    p.stage("tessellating", 0, 10)
+    now[0] += 1.5
+    p.stage("tessellating", 5, 10)  # a second later: kept
+    p.stage("writing GLB")
+    p.stage("stats")
+    p.upload("GLB", 12_345_678, index=0, count=2)
+    p.upload("stats", index=1, count=2)
+    assert reports == [
+        ("detail 0/4", 0.55),
+        ("detail 4/4", 0.75),
+        ("bodies 0/600", 0.75),
+        ("bodies 600/600", 0.82),
+        ("tessellating 0/10", 0.82),
+        ("tessellating 5/10", 0.875),
+        ("writing GLB", 0.95),
+        ("stats", 0.95),
+        ("uploading GLB (12.3 MB)", 0.95),
+        ("uploading stats", 0.97),
+    ]
+    assert upload_stage("GLB", 2_000_000) == ("uploading GLB (2.0 MB)", 0.95)
+
+
+def test_the_bodies_are_built_in_chunks_and_reported_per_chunk(monkeypatch):
+    import ada.cad.shape_cache as shape_cache
+    from ada.clash import detail
+
+    calls: list[int] = []
+    monkeypatch.setattr(shape_cache, "prebuild_solids", lambda objs, threads=0: calls.append(len(list(objs))))
+    monkeypatch.setattr(detail, "BODY_CHUNK", 2)
+    part = ada.Part("P")
+    for i in range(5):
+        part.add_beam(ada.Beam(f"column_{i}", (i, 0, 0), (i, 0, 1), "IPE200"))
+    seen: list[tuple[int, int]] = []
+    detail._prebuild_bodies(part, on_chunk=lambda done, total: seen.append((done, total)))
+    assert calls == [2, 2, 1]
+    assert seen == [(0, 5), (2, 5), (4, 5), (5, 5)]

@@ -6,7 +6,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from itertools import groupby
-from typing import TYPE_CHECKING, Iterable, Iterator
+from typing import TYPE_CHECKING, Callable, Iterable, Iterator
 
 import numpy as np
 
@@ -180,6 +180,25 @@ def collect_tessellation_failures() -> Iterator[list[TessellationFailure]]:
         yield sink
     finally:
         _TESSELLATION_FAILURES.reset(token)
+
+
+#: ``(done, total)``: told by :meth:`BatchTessellator.tessellate_part` as it takes each object.
+TessellationProgress = Callable[[int, int], None]
+
+_TESSELLATION_PROGRESS: ContextVar[TessellationProgress | None] = ContextVar("ada_tessellation_progress", default=None)
+
+
+@contextmanager
+def report_tessellation_progress(callback: TessellationProgress | None) -> Iterator[None]:
+    """Have a part's tessellation inside the block (``Part.to_gltf`` and anything else going through
+    :meth:`BatchTessellator.tessellate_part`) call ``callback(done, total)`` as it takes each object
+    -- before the first, after each, and ``(total, total)`` once every mesh is in the scene. ``None``
+    reports nothing. Scoped to the calling context, as :func:`collect_tessellation_failures` is."""
+    token = _TESSELLATION_PROGRESS.set(callback)
+    try:
+        yield
+    finally:
+        _TESSELLATION_PROGRESS.reset(token)
 
 
 def _parent_path(obj) -> tuple[str, ...]:
@@ -1726,6 +1745,21 @@ class BatchTessellator:
             part.get_all_welds(),
         )
 
+        progress = _TESSELLATION_PROGRESS.get()
+        if progress is not None:
+            # Counted only when someone asks: the objects are listed up front for the total.
+            objects = list(objects_iter)
+            total = len(objects)
+
+            def _counted(objs):
+                progress(0, total)
+                for done, obj in enumerate(objs):
+                    if done:
+                        progress(done, total)
+                    yield obj
+
+            objects_iter = _counted(objects)
+
         shapes_tess_iter = self.batch_tessellate(
             objects=objects_iter,
             render_override=params.render_override,
@@ -1742,6 +1776,8 @@ class BatchTessellator:
         scene = self.meshes_to_trimesh(
             _scanned(shapes_tess_iter), graph, merge_meshes=params.merge_meshes, apply_transform=params.apply_transform
         )
+        if progress is not None:
+            progress(total, total)
 
         return scene
 

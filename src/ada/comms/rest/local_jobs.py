@@ -1502,7 +1502,7 @@ def start_clash_detail(
         ) from exc
 
     from ada.clash import ClashOptions, ClashResultError, parse_clash_result
-    from ada.clash.detail import build_detail, joints_by_id, stage_progress
+    from ada.clash.detail import build_detail, detail_progress, joints_by_id
     from ada.comms.rest.converters.ada_load import _load_with_ada
     from ada.core.file_system import new_temp_path
 
@@ -1562,20 +1562,22 @@ def start_clash_detail(
                 if job.status == STATUS_RUNNING:
                     job.stage, job.progress = stage, progress
 
+            reporter = detail_progress(_report)
             glb_bytes, stats = build_detail(
                 registered,
                 spec_name=spec_name,
                 joint_ids=joint_ids,
                 by_id=by_id,
                 gen_options=options,
-                on_progress=stage_progress(_report, end=0.9),
+                on_progress=reporter,
             )
 
             if job.status != STATUS_RUNNING:
                 return
-            job.stage, job.progress = "upload", 0.9
             if glb_key:
+                reporter.upload("GLB", len(glb_bytes), index=0, count=2)
                 sync_storage.put_bytes(glb_key, glb_bytes, content_encoding="gzip")
+            reporter.upload("stats", index=1, count=2)
             payload = stats
             sync_storage.put_bytes(derived_key, json.dumps(payload).encode("utf-8"), content_encoding="gzip")
             job.result = payload
