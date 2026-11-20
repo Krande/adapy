@@ -18,7 +18,7 @@ import type { PluginLayers, PluginPlayback, PluginSimulations } from "./playback
 export type PluginRegion =
   | "fem-sidebar"
   | "top-panel"
-  // The Scene panel. (1.31.0) With `asTab`, a tab of its strip after core's own groups (Model,
+  // The Scene panel. (1.32.0) With `asTab`, a tab of its strip after core's own groups (Model,
   // View, Measure, Tools), ordered by `asTab.order`, with its `contextual` dot and `badge`; only
   // the tab on show is mounted, and not in a pop-out window. Without `asTab`, a section.
   | "scene-info"
@@ -267,7 +267,7 @@ export interface PanelSlot {
   // panel, after core's own (Builder, Clashes, Overlays, Review; 1.29.0): `asTab` supplies the label, order
   // and badge; without it the panel's `title`, else its id, is the label.
   //
-  // `scene-info` panels (1.31.0) with `asTab` are tabs of the Scene panel, after core's own
+  // `scene-info` panels (1.32.0) with `asTab` are tabs of the Scene panel, after core's own
   // groups (Model, View, Measure, Tools); without it they stay sections.
   asTab?: {
     label: string;

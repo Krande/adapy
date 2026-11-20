@@ -6,6 +6,8 @@
 // html/body/#root sizing rules. The alternative UI rendered unstyled, and `?ui=core`
 // was the only way to see a styled viewer.
 import "./app.css";
+// Before anything that could strip the deep-link params: whether a run's link opened this page.
+import "./utils/openedByRunLink";
 import { createRoot } from "react-dom/client";
 import React from "react";
 import { initWebSocket } from "./utils/websocket/initWebSocket";

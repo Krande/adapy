@@ -2,6 +2,39 @@
 
 
 
+## v0.162.1 (2026-11-19)
+
+### Fix
+
+* fix: admin providers, in-browser FEM conversion and provider IFC sweeps (#576)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`dc0ba25`](https://github.com/Krande/adapy/commit/dc0ba2501bd45974ae6b7fb8209e2b43876dbf7b))
+
+
+## v0.162.0 (2026-11-19)
+
+### Feature
+
+* feat(viewer): add and rename in the cell builder; what an engine&#39;s modifications editor needs (doc extras, selection boxes) (#567)
+
+Co-authored-by: Claude Opus 5.5 (1M context) &lt;noreply@anthropic.com&gt;
+Co-authored-by: krande &lt;kristoffer_andersen@outlook.com&gt; ([`fbe06f6`](https://github.com/Krande/adapy/commit/fbe06f67ce632a66897966eea2cc58fffc3fd6c0))
+
+
+## v0.161.5 (2026-11-19)
+
+### Fix
+
+* fix: the job memory watchdog no longer counts reclaimable file-backed pages (#575) ([`230d110`](https://github.com/Krande/adapy/commit/230d110e69ac478ba3d9283faa082c344f32da82))
+
+
+## v0.161.4 (2026-11-19)
+
+### Fix
+
+* fix: wait for the canvas before opening an FEA result pushed to the viewer (#574) ([`14ea94d`](https://github.com/Krande/adapy/commit/14ea94de949bd20d64dcc2ab082594f6f893394a))
+
+
 ## v0.161.3 (2026-11-19)
 
 ### Fix

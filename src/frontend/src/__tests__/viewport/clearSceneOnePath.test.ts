@@ -181,3 +181,20 @@ test("every trigger that empties the scene goes through clearScene", () => {
   const alias = files.find((f) => f.path === "utils/scene/handlers/clear_loaded_model.ts")!.text;
   assert.ok(!/clearTreeData|clearLoadedSources|clearModels/.test(alias), "clear_loaded_model tears nothing down itself");
 });
+
+// adapy 0.161.3 sent the three.js-free viewport's replace through this teardown, which ended the
+// loaded sources (with their session and lineage) before the viewport swapped the model in place:
+// a model shown again was drawn only in part (test_render_backends' three-free undo test). That
+// replace keeps them; every other clear, a replace on the three.js viewport included, ends them.
+test("a replace that the viewport swaps in place keeps the loaded sources; every other clear ends them", async () => {
+  useModelState.getState().setLoadedSourceName(OTHER);
+  await clearScene({ reason: "replace", replacing: true, keepQueuedLoads: true, keepProcedural: true, keepLoadedSources: true });
+  assert.deepEqual([...useModelState.getState().loadedSourceNames], [OTHER]);
+  await clearScene({ reason: "replace", replacing: true, keepQueuedLoads: true, keepProcedural: true });
+  assert.deepEqual([...useModelState.getState().loadedSourceNames], []);
+});
+
+test("the three.js-free viewport's replace load asks the teardown to keep the loaded sources", () => {
+  const source = readFileSync(new URL("../../components/viewer/sceneHelpers/loadModel.ts", import.meta.url), "utf8");
+  assert.match(source, /clearScene\(\{[^}]*replacing: true[^}]*keepLoadedSources: true[^}]*\}\)/);
+});

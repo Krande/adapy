@@ -77,7 +77,9 @@ interface MissingGeometryPrompt {
  * that as data (`noProviderGeometryOf`), and the panel asks whether to request the geometry -- the
  * members left out, from a provider's node request -- and exports again once it is published.
  */
-const DownloadSelectionButton: React.FC = () => {
+/** `inMenu`: drawn as a row of a menu (the panel's summary menu): no notice under it -- why it is
+ *  greyed out is its tooltip -- and the export options beside it as a small icon. */
+const DownloadSelectionButton: React.FC<{inMenu?: boolean}> = ({inMenu = false}) => {
     const {useObjectInfoStore, useTreeViewStore} = useViewerStores();
     const name = useObjectInfoStore((s) => s.name);
     const selectedNodeId = useObjectInfoStore((s) => s.selectedNodeId);
@@ -379,14 +381,18 @@ const DownloadSelectionButton: React.FC = () => {
     const showSource = group.hasNodes && (group.choices.length > 1 || group.meshProviders.length > 0);
 
     return (
-        <div className="relative inline-flex flex-col">
-            <div className="inline-flex items-center gap-1">
+        <div className={inMenu ? "relative flex flex-col" : "relative inline-flex flex-col"}>
+            <div className={inMenu ? "flex items-center gap-1" : "inline-flex items-center gap-1"}>
                 <button
                     ref={buttonRef}
                     type="button"
                     onClick={() => setOpen((o) => !o)}
                     disabled={busy !== null || (!enabled && !showSource)}
-                    className="bg-gray-700 hover:bg-gray-600 active:bg-gray-800 disabled:opacity-50 disabled:hover:bg-gray-700 text-white text-[11px] rounded-sm px-2 py-1 inline-flex items-center gap-1"
+                    className={
+                        inMenu
+                            ? "flex-1 text-left text-[11px] text-white px-2 py-1 rounded-sm hover:bg-gray-600 disabled:opacity-40 disabled:hover:bg-transparent inline-flex items-center gap-1"
+                            : "bg-gray-700 hover:bg-gray-600 active:bg-gray-800 disabled:opacity-50 disabled:hover:bg-gray-700 text-white text-[11px] rounded-sm px-2 py-1 inline-flex items-center gap-1"
+                    }
                     title={title}
                     aria-label="Download selection as"
                     aria-haspopup="menu"
@@ -472,7 +478,7 @@ const DownloadSelectionButton: React.FC = () => {
             )}
             {/* The reason is on screen, not only in the tooltip: a tooltip does not exist on a
                 touch screen, and "why is this greyed out" is the first question it raises. */}
-            {!enabled && reason && <div className="text-[10px] opacity-70 mt-0.5 max-w-64">{reason}</div>}
+            {!enabled && reason && !inMenu && <div className="text-[10px] opacity-70 mt-0.5 max-w-64">{reason}</div>}
             {missing && (
                 <MissingGeometryStep
                     prompt={missing}

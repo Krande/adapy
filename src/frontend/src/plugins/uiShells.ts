@@ -77,7 +77,7 @@ export interface UiShellLayout {
    * context, not the mode plugin's -- and an error in it disables the shell, not the mode's
    * plugin. Data the shell needs from the mode's plugin, that plugin exposes.
    */
-  modeArrangements?: Record<string, Pick<UiShellMode, "grid" | "open" | "docks" | "viewportCover" | "toolbar">>;
+  modeArrangements?: Record<string, Pick<UiShellMode, "grid" | "open" | "docks" | "viewportCover" | "toolbar" | "toolbarEnd">>;
   /**
    * Panels that are one panel for every mode rather than part of each mode's
    * arrangement (a file browser, say): open or closed, and their docked size, are
@@ -130,6 +130,11 @@ export interface UiShellMode {
   showsDeformation?: boolean;
   /** The mode's own controls, drawn by `ShellModeToolbar` while it is active (in the shell's plugin context). */
   toolbar?: (ctx: AdaPluginContext) => React.ReactNode;
+  /**
+   * Controls at the far right of the mode's toolbar region (a view menu, say), outside the clip
+   * the toolbars sit in: they stay in place and are never folded behind "»". Run as the shell.
+   */
+  toolbarEnd?: (ctx: AdaPluginContext) => React.ReactNode;
   /**
    * Core's own toolbars to draw for the mode, left to right, before `toolbar`: `"playback"`
    * (play / pause, step, the step slider, period, deformation scale), `"section"` (section

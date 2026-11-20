@@ -123,6 +123,12 @@ export interface ProceduralEngineSummary {
    * hardcoded engine slug.
    */
   supports_grouping?: boolean;
+  /**
+   * What the doc's columns mean, for the builder's field help: `{list: {COLUMN: text}}` (lists
+   * "spaces", "equipments", "openings", ..., and "structures" / "supports"), plain text. adapy's
+   * entity descriptions under the engine's own, which win per column. Absent from an older server.
+   */
+  field_help?: Readonly<Record<string, Readonly<Record<string, string>>>>;
   created_by?: string | null;
   updated_at?: string | null;
 }

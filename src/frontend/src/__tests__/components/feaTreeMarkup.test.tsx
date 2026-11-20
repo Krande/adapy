@@ -127,6 +127,14 @@ test("the Selected Object panel's FEA section lists the pick's values and sets, 
     assert.match(html, /In 1 set:/);
     assert.match(html, />Deck</);
     assert.equal((html.match(/>Isolate</g) ?? []).length, 2);
+    assert.doesNotMatch(html, /data-property-group/, "classic: its own look");
+    // Flat: one group as the item above draws its groups, a Field per row, a compact Isolate at its right.
+    const flat = renderToStaticMarkup(React.createElement(FeaSetsSection, { flat: true }));
+    assert.match(flat, /data-property-group="FEA sets and properties"/);
+    assert.match(flat, /data-field="Material"[\s\S]*?>Steel<\/span><button[^>]*class="ml-auto[^"]*"[^>]*>Isolate<\/button>/);
+    assert.match(flat, /data-field="Set"[\s\S]*?>Deck</);
+    assert.equal((flat.match(/>Isolate</g) ?? []).length, 2);
+    assert.doesNotMatch(flat, /Material:|In 1 set:/, "no classic labels");
     useObjectInfoStore.setState({ name: "E9" });
     assert.equal(render(), "", "an element no set or property names");
   } finally {

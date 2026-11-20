@@ -22,6 +22,18 @@ export type { SceneArrangement, SceneBodyProps } from "@/components/info_box_sce
 export type { SceneTab } from "@/components/info_box_scene/sceneTabs";
 export { CORE_PROPERTY_PROVIDERS, ObjectInfoBody } from "@/components/info_box_selected_object/ObjectInfoBoxComponent";
 export type { ObjectInfoBodyProps } from "@/components/info_box_selected_object/ObjectInfoBoxComponent";
+// One layout for a topology item in the Properties panel (1.31.0): its parents line, badge and name,
+// geometry and groups; `Field` is a group's compact label / value row, its help text or the engine's
+// field help for a doc list and column. For a plugin's own form of its builder ref (`BuilderRefEdit.form`).
+export { Field, FieldCheck, PropertyGroup, PropertyItemLayout } from "@/components/info_box_selected_object/cellBuilderSelection/PropertyItemLayout";
+export type {
+  FieldHelpSource,
+  FieldProps,
+  PropertyItemGeometry,
+  PropertyItemGroup,
+  PropertyItemLayoutProps,
+  PropertyItemParents,
+} from "@/components/info_box_selected_object/cellBuilderSelection/PropertyItemLayout";
 export { STORAGE_MODIFIED_MIN_PX, StorageBody } from "@/components/storage/StorageBrowser";
 export type { StorageBodyProps } from "@/components/storage/StorageBrowser";
 export { OptionsBody } from "@/components/OptionsComponent";
@@ -39,6 +51,14 @@ export type { SettingsHost } from "@/components/settings/settingsTab";
 export { default as ComputeOptionsBody } from "@/components/options/ComputeOptions";
 // The procedural model's cells, lofts, openings and equipment as a list (the `core:component-list` panel's content).
 export { ComponentList, ComponentListBody } from "@/components/viewer/cellbuilder/panel/ComponentList";
+// The builder's compile log (the Tools tab's "Compile log"), for a shell's own place for it -- a
+// drawer it opens when a compile fails (`onCompileFailed`, on /app); and the "Compile settings"
+// block of the Build tab.
+export { CompileLogView } from "@/components/viewer/cellbuilder/panel/CompileLogSection";
+export { CompileSettingsSection } from "@/components/viewer/cellbuilder/panel/CompileSettingsSection";
+// The builder's grid & snapping settings: the Settings window's "Grid & snapping" page (`grid`),
+// which `CORE_COMMAND_IDS.builderGridSettings` opens.
+export { GridSnappingOptions } from "@/components/viewer/cellbuilder/panel/GridSnappingOptions";
 export type { SceneTreeRowOptions } from "@/components/tree_view/CustomNode";
 export {
   AnimationControls,
@@ -320,7 +340,7 @@ export type { SceneMirrorState } from "@/state/sceneMirrorStore";
 export { CLASSIC_GRID_OPS, GridOpsProvider, GridView } from "@/layout/presets/classicGrid";
 export type { GridOps, GridViewProps } from "@/layout/presets/classicGrid";
 export { default as PopoutPage, POPOUT_ZONE } from "@/layout/PopoutPage";
-export { ShellModeSwitcher, ShellModeToolbar, useShellMode } from "@/layout/ShellModeSwitcher";
+export { ShellModeSwitcher, ShellModeToolbar, ShellModeToolbarEnd, useShellMode } from "@/layout/ShellModeSwitcher";
 export type { ShellModeSwitcherProps } from "@/layout/ShellModeSwitcher";
 // Core's mode toolbars: a mode names them (`UiShellMode.toolbars`) or a shell mounts them itself.
 export {

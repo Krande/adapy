@@ -49,11 +49,10 @@ interface Agg {
     volume: number;
 }
 
-const MeshStatsSection: React.FC = () => {
+/** The selection's tessellation, summed over every selected range; null when it has none. */
+export function useSelectionMeshStats(): Agg | null {
     const {useSelectedObjectStore} = useViewerStores();
     const selectedObjects = useSelectedObjectStore((s) => s.selectedObjects);
-    const [expanded, setExpanded] = useState(false);
-
     const agg: Agg = {geoms: 0, triangles: 0, vertices: 0, area: 0, volume: 0};
     selectedObjects.forEach((rangeIds, obj) => {
         if (!(obj instanceof CustomBatchedMesh)) return;
@@ -68,7 +67,18 @@ const MeshStatsSection: React.FC = () => {
         });
     });
 
-    if (agg.geoms === 0) return null;
+    return agg.geoms === 0 ? null : agg;
+}
+
+/** The mesh stats as one line, for a menu: "2 tris · 4 verts · 1.00 m²". */
+export function meshStatsLine(agg: Pick<Agg, "triangles" | "vertices" | "area">): string {
+    return `${fmtInt(agg.triangles)} tris · ${fmtInt(agg.vertices)} verts · ${fmtNum(agg.area)} m²`;
+}
+
+const MeshStatsSection: React.FC = () => {
+    const [expanded, setExpanded] = useState(false);
+    const agg = useSelectionMeshStats();
+    if (!agg) return null;
 
     const density = agg.area > 0 ? agg.triangles / agg.area : 0;
 

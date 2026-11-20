@@ -30,6 +30,11 @@ export interface CoreShortcutDef {
   keepDefault?: boolean;
   /** Listed only while this holds (the dialog reads it). */
   requires?: "customisable-panels";
+  /**
+   * A local key that is one of a run (the digits that pick a cell type): every chord of it, `keys`
+   * first. Listed as one line, its chord shown as "first–last".
+   */
+  range?: readonly ShortcutKeys[];
 }
 
 const VIEWER = "Global / viewer";
@@ -37,6 +42,10 @@ const CAMERA = "Camera";
 const PANELS = "Panels";
 const GALLERY = "Gallery walk";
 const BUILDER = "Procedural cellbuilder";
+const TYPED = "Procedural cellbuilder: typed values";
+
+/** The digit keys `from` to `to`, as a `range`. */
+const digits = (from: number, to: number): ShortcutKeys[] => Array.from({ length: to - from + 1 }, (_, i) => String(from + i));
 
 /** The dialog's core groups, in order, with the line saying when their keys are live. */
 export const CORE_SHORTCUT_GROUPS: ReadonlyArray<{ group: string; when: string }> = [
@@ -45,6 +54,10 @@ export const CORE_SHORTCUT_GROUPS: ReadonlyArray<{ group: string; when: string }
   { group: PANELS, when: "Active with Options → Theme → Customisable panels on" },
   { group: GALLERY, when: "Active while stepping through a files/geometry gallery" },
   { group: BUILDER, when: "Active when a procedural model's cell builder is open (these keys preempt the global ones)" },
+  {
+    group: TYPED,
+    when: "While a value is being typed in the cell builder: an extrude (E), a loft resize (S), a placement (digits in add mode), an equipment insert or an opening (O)",
+  },
 ];
 
 export const CORE_SHORTCUTS: readonly CoreShortcutDef[] = [
@@ -196,4 +209,76 @@ export const CORE_SHORTCUTS: readonly CoreShortcutDef[] = [
     local: true,
   },
   { id: "core:builder-apply", keys: "Enter", label: "Apply the value typed in the gizmo HUD field", group: BUILDER, local: true },
+  // The builder's own tools and walks (keyboard.ts): listed so the dialog is the whole story.
+  { id: "core:builder-add-space", keys: "A", label: "Add a space: place it with the pointer, or type X, Y, Z", group: BUILDER, local: true },
+  {
+    id: "core:builder-loft",
+    keys: "L",
+    label: "New loft member (on a selected space face: a tube the size of the face, along its normal)",
+    group: BUILDER,
+    local: true,
+  },
+  {
+    id: "core:builder-insert-equipment",
+    keys: "Q",
+    label: "Insert equipment from the keyboard: T type, N / P host space, Enter, then type its local X, Y",
+    group: BUILDER,
+    local: true,
+  },
+  { id: "core:builder-info", keys: "I", label: "Show the selection's info beside it (dimensions, masses, centre of gravity); press again to hide", group: BUILDER, local: true },
+  { id: "core:builder-opening", keys: "O", label: "Opening on the selected space face: type X, Y, W, H and depth", group: BUILDER, local: true },
+  {
+    id: "core:builder-extrude",
+    keys: "E",
+    label: "Extrude: a new space from the selected face, or a loft one station further up its spine",
+    group: BUILDER,
+    local: true,
+  },
+  { id: "core:builder-loft-resize", keys: "S", label: "On a loft: resize the active station's section (type the value)", group: BUILDER, local: true },
+  { id: "core:builder-select-granularity", keys: "Tab", label: "Cycle what a pick selects: space, face, edge", group: BUILDER, local: true },
+  { id: "core:builder-next-space", keys: "N", label: "Select the next space (in an equipment insert: the next host)", group: BUILDER, local: true },
+  { id: "core:builder-prev-space", keys: "P", label: "Select the previous space (in an equipment insert: the previous host)", group: BUILDER, local: true },
+  { id: "core:builder-next-element", keys: "F", label: "Next face or edge of the selection (on a loft: the next station)", group: BUILDER, local: true },
+  { id: "core:builder-prev-element", keys: "D", label: "Previous face or edge (on a loft: the previous station)", group: BUILDER, local: true },
+  { id: "core:builder-face-up", keys: "ArrowUp", label: "With a space face selected: the neighbouring face above it on screen", group: BUILDER, local: true },
+  { id: "core:builder-face-down", keys: "ArrowDown", label: "With a space face selected: the neighbouring face below it on screen", group: BUILDER, local: true },
+  { id: "core:builder-face-left", keys: "ArrowLeft", label: "With a space face selected: the neighbouring face to its left on screen", group: BUILDER, local: true },
+  { id: "core:builder-face-right", keys: "ArrowRight", label: "With a space face selected: the neighbouring face to its right on screen", group: BUILDER, local: true },
+  {
+    id: "core:builder-cycle-type",
+    keys: "T",
+    label: "Cycle the cell type (a loft station: rectangle / circle; an equipment insert: the equipment type)",
+    group: BUILDER,
+    local: true,
+  },
+  {
+    id: "core:builder-cell-type",
+    keys: "1",
+    range: digits(1, 9),
+    label: "Pick that cell type of the catalog (the first nine)",
+    group: BUILDER,
+    local: true,
+  },
+  { id: "core:builder-rep-next", keys: "`", label: "Next representation: topology, simulation, detail", group: BUILDER, local: true },
+  { id: "core:builder-rep-prev", keys: "Shift+`", label: "Previous representation", group: BUILDER, local: true },
+  { id: "core:builder-rep-topology", keys: "Shift+1", label: "Representation: topology", group: BUILDER, local: true },
+  { id: "core:builder-rep-simulation", keys: "Shift+2", label: "Representation: simulation", group: BUILDER, local: true },
+  { id: "core:builder-rep-detail", keys: "Shift+3", label: "Representation: detail", group: BUILDER, local: true },
+  { id: "core:builder-exclude-face", keys: "Shift+X", label: "On a selected loft face: leave its plate out (press again to put it back)", group: BUILDER, local: true },
+  {
+    id: "core:builder-delete",
+    keys: "Delete",
+    label: "Delete the selection (a loft bay: one station off; its last bay: the whole loft)",
+    group: BUILDER,
+    local: true,
+  },
+  { id: "core:builder-delete-alt", keys: "Backspace", label: "Delete the selection (as Delete)", group: BUILDER, local: true },
+  // Typed values -- local (numericEntry.ts, insertTools.ts): while one is being entered these keys are its own.
+  { id: "core:typed-digit", keys: "0", range: digits(0, 9), label: "Type the value (the numpad too)", group: TYPED, local: true },
+  { id: "core:typed-decimal", keys: ".", label: "Decimal point (in an extrude also \",\")", group: TYPED, local: true },
+  { id: "core:typed-minus", keys: "-", label: "Minus, as the first character", group: TYPED, local: true },
+  { id: "core:typed-next-field", keys: ",", label: "Next field: X, Y, Z of a placement; X, Y, W, H, depth of an opening", group: TYPED, local: true },
+  { id: "core:typed-backspace", keys: "Backspace", label: "Delete the last character typed", group: TYPED, local: true },
+  { id: "core:typed-enter", keys: "Enter", label: "Commit (an opening: the next stage, then commit)", group: TYPED, local: true },
+  { id: "core:typed-escape", keys: "Escape", label: "Cancel the entry", group: TYPED, local: true },
 ];

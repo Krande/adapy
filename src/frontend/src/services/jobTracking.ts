@@ -23,6 +23,21 @@ export const POLL_INTERVAL_MS = 1500;
 /** ~45 min ceiling, generous for a big bake. */
 export const MAX_POLL_ATTEMPTS = 60 * 30;
 
+/** Whether a status poll's failure means the job is GONE rather than a blip.
+ *
+ *  A 404, and -- from a server older than the fix -- the queue gate's 503 "conversion
+ *  disabled". A queue-less local server answered that for an in-process `local-` id an
+ *  earlier server process had started (its registry dies with the process), and the id
+ *  comes back from this browser's memory, which outlives the server and is shared by every
+ *  local store served on the same origin. Read as a blip, it polled for the full ceiling
+ *  under a "restoring" toast. Without a queue no worker job can ever answer, so no retry
+ *  can help either. */
+export function isJobGoneError(err: unknown): boolean {
+    if (!(err instanceof ApiError)) return false;
+    if (err.status === 404) return true;
+    return err.status === 503 && /conversion disabled/i.test(`${err.detail ?? ""} ${err.message}`);
+}
+
 /** A flag the caller can flip to stop a poll — a scope change, an unmount. */
 export interface PollSignal {
     aborted: boolean;
@@ -67,7 +82,8 @@ export async function pollJobUntilTerminal(
                 return;
             }
         } catch (err) {
-            // A 404 is not a blip: the job is GONE server-side. Its status row lives
+            // A 404 is not a blip: the job is GONE server-side (and so is one an older
+            // server answers with its queue gate's 503, see `isJobGoneError`). Its status row lives
             // in the queue's KV, which expires, while the audit row that /my-jobs
             // reads does not — so a job whose KV entry aged out (or was never
             // written) leaves an audit row stuck at `queued` for ever. Treating that
@@ -77,7 +93,7 @@ export async function pollJobUntilTerminal(
             // in-browser audit route only takes `wasm-` ids, so a worker job's row left
             // there was refused and came back, and was polled into a 404 again, on every
             // reload.
-            if (err instanceof ApiError && err.status === 404) {
+            if (isJobGoneError(err)) {
                 const prev = useConversionStore.getState().jobs[storeKey];
                 if (prev) {
                     store.setJob(storeKey, {
@@ -170,6 +186,20 @@ function writeRemembered(storeKey: string, entry: Remembered | null): void {
         globalThis.localStorage?.setItem(STORAGE_KEY, JSON.stringify(all));
     } catch {
         // No storage (a private window): the toast still works, it just does not survive a reload.
+    }
+}
+
+/** Forget every remembered entry, so no later load resumes it. For a page that must not
+ *  restore an earlier session's jobs (see `utils/openedByRunLink`): skipping the resume once
+ *  is not enough, the entries would be back on the next plain reload. Entries this page is
+ *  watching itself are kept -- they are this session's. */
+export function forgetRememberedJobs(): void {
+    try {
+        const all = readRemembered();
+        for (const key of Object.keys(all)) if (!watching.has(key)) delete all[key];
+        globalThis.localStorage?.setItem(STORAGE_KEY, JSON.stringify(all));
+    } catch {
+        // No storage: nothing was remembered.
     }
 }
 

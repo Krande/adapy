@@ -7,6 +7,8 @@ import type { SceneHighlight, SceneHighlightOptions, SceneHighlightRef } from ".
 import type { PlaceBoxOptions, PlacedBox } from "../sceneBox";
 import type { PlaceCameraOptions, PlacedCamera } from "../sceneCamera";
 import type { SceneContactAnswer, SceneContactOptions, SceneObjectRef } from "../sceneContact";
+import type { SelectedObjectBox } from "@/viewport/api/viewportApi";
+import type { BuilderRefProvider } from "@/state/cellbuilder/refsSlice";
 
 /** Values a color-field provider returns for core to paint + legend. */
 export interface SceneColorFieldResult {
@@ -43,14 +45,14 @@ export interface SceneCleared {
   overlaysRemoved: boolean;
 }
 
-/** (1.31.0) Options of `SceneHandle.loadSavedGroup`. */
+/** (1.32.0) Options of `SceneHandle.loadSavedGroup`. */
 export interface SceneGroupLoadOptions {
   // Each stage of the load, in a few words ("loading 3 of 7", ...): for a progress line, not to
   // branch on.
   onStage?: (stage: string) => void;
 }
 
-/** (1.31.0) What `SceneHandle.loadSavedGroup` did. Plain data: members are named as the Scene panel
+/** (1.32.0) What `SceneHandle.loadSavedGroup` did. Plain data: members are named as the Scene panel
  *  names them. */
 export interface SceneGroupLoad {
   groupId: string;
@@ -69,7 +71,7 @@ export interface SceneGroupLoad {
   notFound: string[];
   // The camera was moved to frame the members (the scene was empty before).
   framed: boolean;
-  // (1.31.0) The box round what was selected afterwards -- the group's members as drawn -- in the
+  // (1.32.0) The box round what was selected afterwards -- the group's members as drawn -- in the
   // scene's own coordinates (those `placeBox` takes and gives: world less the scene's offset); null
   // when nothing of the group draws. For a plugin that places something in or over the group.
   bounds: SceneBox | null;
@@ -384,7 +386,7 @@ export interface SceneHandle {
   // (they do nothing now) or what it held of the models that went. Returns the function that stops
   // it. Additive: an older core has no `onSceneCleared`, so a plugin asks for it first.
   onSceneCleared: (listener: (cleared: SceneCleared) => void) => () => void;
-  // (1.31.0) The Scene panel's "Load into scene" for the saved group `id` of the current scope: its
+  // (1.32.0) The Scene panel's "Load into scene" for the saved group `id` of the current scope: its
   // members put in the scene from what is already published or stored (nothing is requested of a
   // provider), the rest of a document loaded whole hidden, and the group selected. For a plugin
   // whose view follows a saved group (one that draws it, say). Resolves what was done
@@ -455,7 +457,7 @@ export interface SceneHandle {
   // `remove(owner)` ends it too. (1.29.0) `frame: true` frames the camera on the box when it is first
   // drawn: a box in a large model is otherwise a few pixels of the view of the whole.
   placeBox: (owner: string, options: PlaceBoxOptions) => PlacedBox;
-  // (1.31.0) Put a camera in the scene with a transform gizmo on it until `end()`: its body, its lens
+  // (1.32.0) Put a camera in the scene with a transform gizmo on it until `end()`: its body, its lens
   // and an arrow to what it looks at. The user moves it (G, X / Y / Z; it goes on looking at its
   // target) and turns it about where it stands (R: a flat ring for its yaw, a standing one for its
   // pitch; the target goes round with it), and each change is handed to `onChange` as where it is and
@@ -469,6 +471,22 @@ export interface SceneHandle {
   // convex hulls meet, in the scene's own coordinates. Measured by the viewer's clash module on the
   // stored GLBs, not on what a viewport holds: the same answer on either viewport.
   contactBetween: (a: SceneObjectRef, b: SceneObjectRef, options?: SceneContactOptions) => Promise<SceneContactAnswer>;
+  // (1.31.0) The objects the user has selected, each with its box in the model's own coordinates
+  // (the frame `addLines` / `addPointLayer` take, not the viewport's recentred world), its name and
+  // the names above it: one entry per selected object that draws something, hidden ones included;
+  // [] when nothing is selected or there is no 3D view. For a tool that works from the selection
+  // ("make a modification from the selected plates"). Works on either viewport. Additive and
+  // optional: an older core has no `selectionBoxes`, so ask for it before calling it.
+  selectionBoxes?: () => SelectedObjectBox[];
+  // (1.31.0) Show rows of the plugin's own as boxes among the cell builder's cells ("builder
+  // refs"): `project` makes them from the open doc's extras and its cells, and is called again
+  // when either changes. The builder draws them, lists them in its model tree, and picks, moves
+  // and resizes them with the cells' gizmos and snapping, as each ref's `edit` allows; every
+  // edit is handed back (`setIncluded`, `rename`, `remove`, `write`) for the plugin to write
+  // to its own doc key (the builder store's `setDocExtra`), and the refs follow. A gizmo drag
+  // is one undo step. Returns the unregister; `remove(owner)` unregisters too (the provider's
+  // `owner` is the plugin's owner). Optional: an older core has none, so ask for it first.
+  registerBuilderRefs?: (provider: BuilderRefProvider) => () => void;
   // (1.29.0) Draw `refs` (objects as a `ScenePick` names them: model and id) in `color`, unlit, over
   // their own colour and over the selection's, until `remove()`; `set(refs)` changes which. Not the
   // selection, not a colour the user gave, and no undo step. For a tool that takes the scene's clicks

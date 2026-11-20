@@ -1,122 +1,122 @@
-// The parameter editors of the cell builder's selection detail: the shared control classes,
-// the space and equipment parameter lists, and one parameter's row.
+// The parameter editors of the cell builder's selection detail: the shared control classes, and
+// one parameter as a compact `Field` (PropertyItemLayout) whose help is the engine's for that
+// column. Each writes `BuilderCell.params[column]`; anything not edited here still round-trips
+// untouched through the params.
 
 import React from "react";
 import { useCellBuilderStore, type BuilderCell } from "@/state/cellBuilderStore";
+import { Field, FieldCheck, propertyInputCls } from "./PropertyItemLayout";
 
 export const btn =
   "px-2 py-1 rounded-sm bg-blue-600 text-white disabled:opacity-50 hover:bg-blue-500";
 export const inputCls =
   "text-gray-100 bg-gray-700 border border-gray-600 rounded-sm px-1 py-0.5";
 
-// Editable per-cell parameters, mirrored from ada/topology/entities.py
-// (TopoSpace / TopoEquipment). Anything not listed still round-trips
-// untouched through BuilderCell.params.
-type ParamField =
-  | { key: string; label: string; type: "bool" }
-  | { key: string; label: string; type: "number"; step?: number }
-  | { key: string; label: string; type: "text" }
-  | { key: string; label: string; type: "select"; options: string[] };
+/** The doc list a cell's row is kept in, which its field help is keyed by. */
+export function docListOf(cell: Pick<BuilderCell, "kind">): string {
+  return cell.kind === "equipment" ? "equipments" : cell.kind === "opening" ? "openings" : cell.kind === "loft" ? "loft_members" : "spaces";
+}
 
-export const SPACE_PARAMS: ParamField[] = [
-  { key: "AREA", label: "Area", type: "text" },
-  { key: "PRIORITY", label: "Priority", type: "number", step: 1 },
-  { key: "FLIP_FLOOR", label: "Flip floor", type: "bool" },
-  { key: "GRID_X_CREATE", label: "Grid X", type: "bool" },
-  { key: "GRID_Y_CREATE", label: "Grid Y", type: "bool" },
-  { key: "GRID_Z_CREATE", label: "Grid Z", type: "bool" },
-  { key: "SWITCH_BM_DIR_VERTICAL", label: "Switch vert. beams", type: "bool" },
-  {
-    key: "SWITCH_BM_DIR_HORIZONTAL",
-    label: "Switch horiz. beams",
-    type: "bool",
-  },
-];
+const help = (cell: BuilderCell, column: string) => ({ list: docListOf(cell), column });
 
-export const EQUIPMENT_PARAMS: ParamField[] = [
-  {
-    key: "SPACE_LOC",
-    label: "Location",
-    type: "select",
-    options: ["FLOOR", "ROOF"],
-  },
-  { key: "massDry", label: "Mass dry [kg]", type: "number", step: 100 },
-  { key: "massCont", label: "Mass content [kg]", type: "number", step: 100 },
-  { key: "COGx", label: "COG x", type: "number", step: 0.1 },
-  { key: "COGy", label: "COG y", type: "number", step: 0.1 },
-  { key: "COGz", label: "COG z", type: "number", step: 0.1 },
-];
-
-export const ParamRow: React.FC<{ cell: BuilderCell; field: ParamField }> = ({
-  cell,
-  field,
-}) => {
+/** A boolean column as a small checkbox, for an inline field. */
+export const ParamCheck: React.FC<{ cell: BuilderCell; column: string; label: string }> = ({ cell, column, label }) => {
   const setCellParam = useCellBuilderStore((s) => s.setCellParam);
-  const value = cell.params[field.key];
-  if (field.type === "bool") {
-    return (
-      <label className="flex items-center gap-1">
-        <input
-          type="checkbox"
-          checked={Boolean(value)}
-          onChange={(e) => setCellParam(cell.id, field.key, e.target.checked)}
-        />
-        {field.label}
-      </label>
-    );
-  }
-  if (field.type === "select") {
-    return (
-      <label className="flex items-center gap-1">
-        <span className="text-gray-300">{field.label}</span>
-        <select
-          className={inputCls}
-          value={typeof value === "string" ? value : ""}
-          onChange={(e) =>
-            setCellParam(cell.id, field.key, e.target.value || null)
-          }
-        >
-          <option value=""></option>
-          {field.options.map((o) => (
-            <option key={o} value={o}>
-              {o}
-            </option>
-          ))}
-        </select>
-      </label>
-    );
-  }
-  if (field.type === "number") {
-    return (
-      <label className="flex items-center gap-1">
-        <span className="text-gray-300">{field.label}</span>
-        <input
-          type="number"
-          step={field.step ?? 0.1}
-          className={`${inputCls} w-20`}
-          value={typeof value === "number" ? value : ""}
-          onChange={(e) =>
-            setCellParam(
-              cell.id,
-              field.key,
-              e.target.value === "" ? null : Number(e.target.value),
-            )
-          }
-        />
-      </label>
-    );
-  }
   return (
-    <label className="flex items-center gap-1">
-      <span className="text-gray-300">{field.label}</span>
+    <FieldCheck
+      label={label}
+      ariaLabel={`${label} (${column})`}
+      help={help(cell, column)}
+      checked={Boolean(cell.params[column])}
+      onChange={(v) => setCellParam(cell.id, column, v || null)}
+    />
+  );
+};
+
+/** A number column as a field. */
+export const ParamNumber: React.FC<{ cell: BuilderCell; column: string; label: string; step?: number }> = ({ cell, column, label, step = 0.1 }) => {
+  const setCellParam = useCellBuilderStore((s) => s.setCellParam);
+  const value = cell.params[column];
+  return (
+    <Field label={label} help={help(cell, column)}>
+      <input
+        type="number"
+        step={step}
+        className={`${propertyInputCls} w-24`}
+        aria-label={`${label} (${column})`}
+        value={typeof value === "number" ? value : ""}
+        onChange={(e) => setCellParam(cell.id, column, e.target.value === "" ? null : Number(e.target.value))}
+      />
+    </Field>
+  );
+};
+
+/** A text column as a field. */
+export const ParamText: React.FC<{ cell: BuilderCell; column: string; label: string }> = ({ cell, column, label }) => {
+  const setCellParam = useCellBuilderStore((s) => s.setCellParam);
+  const value = cell.params[column];
+  return (
+    <Field label={label} help={help(cell, column)}>
       <input
         type="text"
-        className={`${inputCls} w-24`}
+        className={`${propertyInputCls} w-full`}
+        aria-label={`${label} (${column})`}
         value={typeof value === "string" ? value : ""}
-        onChange={(e) =>
-          setCellParam(cell.id, field.key, e.target.value || null)
-        }
+        onChange={(e) => setCellParam(cell.id, column, e.target.value || null)}
       />
-    </label>
+    </Field>
+  );
+};
+
+/** A column of a few values as a select (an empty choice leaves it unset). */
+export const ParamSelect: React.FC<{ cell: BuilderCell; column: string; label: string; options: readonly string[] }> = ({ cell, column, label, options }) => {
+  const setCellParam = useCellBuilderStore((s) => s.setCellParam);
+  const value = cell.params[column];
+  return (
+    <Field label={label} help={help(cell, column)}>
+      <select
+        className={`${propertyInputCls} w-full`}
+        aria-label={`${label} (${column})`}
+        value={typeof value === "string" ? value : ""}
+        onChange={(e) => setCellParam(cell.id, column, e.target.value || null)}
+      >
+        <option value=""></option>
+        {options.map((o) => (
+          <option key={o} value={o}>
+            {o}
+          </option>
+        ))}
+      </select>
+    </Field>
+  );
+};
+
+/** A row of number columns sharing one field (COG x / y / z). */
+export const ParamNumbersInline: React.FC<{ cell: BuilderCell; label: string; columns: readonly { column: string; label: string }[]; step?: number }> = ({
+  cell,
+  label,
+  columns,
+  step = 0.1,
+}) => {
+  const setCellParam = useCellBuilderStore((s) => s.setCellParam);
+  return (
+    <Field label={label} help={help(cell, columns[0].column)} inline>
+      {columns.map(({ column, label: l }) => {
+        const value = cell.params[column];
+        return (
+          <label key={column} className="inline-flex min-w-0 flex-1 items-center gap-0.5">
+            <span className="text-gray-500">{l}</span>
+            <input
+              type="number"
+              step={step}
+              className={`${propertyInputCls} w-full`}
+              aria-label={`${label} ${l} (${column})`}
+              value={typeof value === "number" ? value : ""}
+              onChange={(e) => setCellParam(cell.id, column, e.target.value === "" ? null : Number(e.target.value))}
+            />
+          </label>
+        );
+      })}
+    </Field>
   );
 };

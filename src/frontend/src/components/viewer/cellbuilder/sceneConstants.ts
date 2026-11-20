@@ -77,3 +77,9 @@ export const LONG_PRESS_MOVE_PX = 10;
 // vertex. Screen-space so it behaves the same whether zoomed in or out — the
 // old world-distance snap drifted and matched far-away corners on zoom-out.
 export const SNAP_PX = 22;
+
+/** A plugin's ref (state/cellbuilder/refsSlice.ts) with no colour of its own: violet, apart from
+ * every cell kind. Its faces are fainter than a cell's: a ref outlines a row, it is no volume. */
+export const REF_COLOR = 0xa855f7;
+export const REF_OPACITY = 0.12;
+export const REF_SELECTED_OPACITY = 0.3;

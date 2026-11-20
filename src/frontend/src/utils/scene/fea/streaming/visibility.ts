@@ -167,7 +167,8 @@ export function setFeaResultColorsVisible(visible: boolean): void {
         if (visible && !target.geometry.getAttribute("color")) continue;
         ensureResultLook(target);
         const m = target.material;
-        if (Array.isArray(m)) m.forEach(setVc);
+        // Not the hidden ranges' slot (2): a ghosted hidden element is grey, never in result colours.
+        if (Array.isArray(m)) m.forEach((mat, i) => (i === 2 && visible ? undefined : setVc(mat)));
         else if (m) setVc(m as THREE.Material);
     }
     // Which of a beam's three renderings is on screen, and the result-point markers,

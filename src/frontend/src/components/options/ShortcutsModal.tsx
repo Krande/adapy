@@ -3,7 +3,7 @@ import React, { useEffect, useState, useSyncExternalStore } from "react";
 import { OverlayPortal } from "@/components/ui/OverlayPortal";
 import { CORE_SHORTCUT_GROUPS } from "@/layout/coreShortcutTable";
 import { commandRank } from "@/layout/commands";
-import { assignKeys, chordFromEvent, keyRows, resetAllKeyBindings, setKeyBinding, type KeyRow } from "@/layout/keyBindings";
+import { assignKeys, chordFromEvent, chordQueryRank, keyRows, parseKeyQuery, resetAllKeyBindings, setKeyBinding, type KeyRow } from "@/layout/keyBindings";
 import { listShortcuts, shortcutBindingsVersion, subscribeShortcutBindings, type RegisteredShortcut } from "@/layout/shortcuts";
 import { useCameraControlsStore } from "@/state/cameraControlsStore";
 import { DRAG_MODIFIERS, MOUSE_BUTTONS, type CameraAction, type CameraMapping, type DragModifier } from "@/utils/camera/cameraMapping";
@@ -87,7 +87,7 @@ export function shortcutDialogGroups(customisable: boolean): ShortcutGroup[] {
     if (s.requires === "customisable-panels" && !customisable) continue;
     const g = s.group ?? "Shell and plugins";
     if (!byGroup.has(g)) byGroup.set(g, []);
-    byGroup.get(g)!.push({ keys: keyTokens(s.keys), description: s.label });
+    byGroup.get(g)!.push({ keys: keyTokens(s.keysLabel ?? s.keys), description: s.label });
   }
   const when = new Map(CORE_SHORTCUT_GROUPS.map((g) => [g.group, g.when]));
   return [...byGroup]
@@ -153,13 +153,46 @@ const ShortcutsModal: React.FC = () => {
   );
 };
 
+/**
+ * The dialog's rows that answer `query`. Keys, when the query reads as keys (`parseKeyQuery`):
+ * "alt" every chord with Alt, "g" every chord on G, "ctrl+k" / "shift h" that chord first --
+ * a single letter is a key, not every label with a "g" in it. Words otherwise: the name, group
+ * or keyword (`commandRank`). A key's name that is also a word ("delete") finds both.
+ */
+export function shortcutRowsFor(query: string, rows: readonly KeyRow[]): KeyRow[] {
+  const keys = parseKeyQuery(query);
+  return rows
+    .map((r) => {
+      const byKey = keys ? chordQueryRank(query, r) : null;
+      const byName =
+        !keys || keys.wordToo ? commandRank(query, { id: r.commandId ?? r.shortcutId, label: r.label, group: r.group, keywords: r.keywords }) : null;
+      const rank = byKey !== null ? byKey - 2 : byName;
+      return { r, rank };
+    })
+    .filter((x): x is { r: KeyRow; rank: number } => x.rank !== null)
+    .sort((a, b) => a.rank - b.rank || a.r.group.localeCompare(b.r.group) || a.r.label.localeCompare(b.r.label))
+    .map((x) => x.r);
+}
+
+/** A row's other chords for the same command (a shell's alias), shown after the one in force. */
+const ExtraChords: React.FC<{ row: KeyRow }> = ({ row }) =>
+  row.extraKeys?.length ? (
+    <span className="inline-flex items-center gap-1 text-xs text-gray-400" title="Also runs it (the shell's own key)" data-extra-chords="">
+      or
+      {row.extraKeys.map((k) => (
+        <KeyCombo key={k} keys={keyTokens(k)} />
+      ))}
+    </span>
+  ) : null;
+
 /** A key row's chord button: click, then press the new combination; Escape cancels. */
 const ChordCapture: React.FC<{ row: KeyRow; onAssign: (keys: string) => void }> = ({ row, onAssign }) => {
   const [capturing, setCapturing] = useState(false);
   if (row.locked) {
+    const shown = row.keysLabel ?? row.keys;
     return (
       <span className="inline-flex items-center" title="A widget's own key: not editable">
-        {row.keys ? <KeyCombo keys={keyTokens(row.keys)} /> : null}
+        {shown ? <KeyCombo keys={keyTokens(shown)} /> : null}
       </span>
     );
   }
@@ -195,11 +228,7 @@ const ShortcutsDialog: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   const [query, setQuery] = useState("");
   const [problem, setProblem] = useState<{ row: KeyRow; keys: string; reason: string; holder?: RegisteredShortcut } | null>(null);
   const rows = keyRows();
-  const shown = rows
-    .map((r) => ({ r, rank: commandRank(query, { id: r.commandId ?? r.shortcutId, label: r.label, group: r.group, keywords: r.keywords }) }))
-    .filter((x): x is { r: KeyRow; rank: number } => x.rank !== null)
-    .sort((a, b) => a.rank - b.rank || a.r.group.localeCompare(b.r.group) || a.r.label.localeCompare(b.r.label))
-    .map((x) => x.r);
+  const shown = shortcutRowsFor(query, rows);
   const assign = (row: KeyRow, keys: string) => {
     const res = assignKeys(row.shortcutId, keys);
     setProblem(res.ok ? null : { row, keys, reason: res.reason, holder: res.conflict });
@@ -239,7 +268,7 @@ const ShortcutsDialog: React.FC<{ onClose: () => void }> = ({ onClose }) => {
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search commands (name, group or keyword)"
+              placeholder="Search commands (name, group, keyword) or keys (ctrl+k, alt, g)"
               aria-label="Search shortcuts"
               className="w-full rounded-sm bg-gray-800 px-2 py-1 text-sm outline-none"
               autoFocus
@@ -275,6 +304,7 @@ const ShortcutsDialog: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                     {row.label}
                   </span>
                   <ChordCapture row={row} onAssign={(keys) => assign(row, keys)} />
+                  <ExtraChords row={row} />
                   <button
                     type="button"
                     className="w-14 text-xs text-gray-400 hover:text-white disabled:opacity-30"

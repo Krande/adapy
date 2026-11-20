@@ -52,6 +52,33 @@ class _ReadOnlyIfcStoreAdapter:
         )
 
 
+#: An optional staged role: ``{"collection": str, "options": {...}}``, what to publish the IFC as.
+PUBLISH_DOC_ROLE = "publish.json"
+
+
+def _staged_publish_doc(staged: Mapping[str, str], storage: Any) -> dict:
+    """The staged ``publish.json``, or ``{}``.
+
+    WHY A STAGED DOCUMENT. A provider's sweep publishes each staging core is handed back with
+    nothing but the staged files (``routes/asset_sweeps.py`` -> ``submit_asset_publish``): no
+    collection, no options. A format that names its own collection inside the file needs nothing
+    more; an IFC file does not, so a provider sweeping IFC states it beside the file. A publish
+    started with a collection (the publish route, a CLI) is unaffected: what the caller passes
+    wins over the document."""
+    key = staged.get(PUBLISH_DOC_ROLE)
+    if not key:
+        return {}
+    import json
+
+    try:
+        doc = json.loads(storage.get_bytes(key))
+    except ValueError as exc:
+        raise IfcPublishError(f"staged {PUBLISH_DOC_ROLE} is not JSON: {exc}") from exc
+    if not isinstance(doc, dict) or not isinstance(doc.get("options", {}), dict):
+        raise IfcPublishError(f"staged {PUBLISH_DOC_ROLE} must be an object with an optional 'options' object")
+    return doc
+
+
 def _resolve_staged_key(staged: Mapping[str, str]) -> str:
     """Which staged blob is the IFC source. ``staged`` maps ROLE (the staged filename) -> key
     (``routes/assets.py``'s publish route: everything under ``assets/_staging/<id>/`` keyed by
@@ -61,8 +88,9 @@ def _resolve_staged_key(staged: Mapping[str, str]) -> str:
     files with none of them named ``source.ifc`` is refused rather than guessed."""
     if SOURCE_FILENAME in staged:
         return staged[SOURCE_FILENAME]
-    if len(staged) == 1:
-        return next(iter(staged.values()))
+    files = {role: key for role, key in staged.items() if role != PUBLISH_DOC_ROLE}
+    if len(files) == 1:
+        return next(iter(files.values()))
     raise IfcPublishError(
         f"staged={sorted(staged)}: expected a {SOURCE_FILENAME!r} role, or exactly one staged "
         f"file -- the IFC publisher does not guess which staged blob is the source"
@@ -87,9 +115,14 @@ class IfcAssetPublisher:
         dry_run: bool = False,
     ) -> PublishPlan:
         del scope, dry_run  # neither changes what WOULD be written -- core decides whether to write it
+        doc = _staged_publish_doc(staged, storage)
+        collection = collection or doc.get("collection")
         if not collection:
-            raise IfcPublishError("derive() needs a 'collection': the IFC provider has no default one to publish into")
-        opts = dict(options or {})
+            raise IfcPublishError(
+                "derive() needs a 'collection': the IFC provider has no default one to publish into "
+                f"(pass one, or stage a {PUBLISH_DOC_ROLE} naming it)"
+            )
+        opts = {**dict(doc.get("options") or {}), **dict(options or {})}
         staged_key = _resolve_staged_key(staged)
 
         plan = _derive_ifc_plan(

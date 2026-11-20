@@ -32,6 +32,7 @@ import {
   isolateFeaElements,
   paintFeaElements,
   removeOwnerOverlays,
+  selectionBoxes,
   setFeaElementEdgesVisible,
 } from "./sceneOverlays";
 import {
@@ -51,6 +52,7 @@ import { endSceneHighlights, highlightObjects } from "./sceneHighlights";
 import { placeBox } from "./sceneBox";
 import { placeCamera } from "./sceneCamera";
 import { contactBetween } from "./sceneContact";
+import { registerBuilderRefs, releaseBuilderRefs } from "./builderRefs";
 import { findObjectsByName } from "@/utils/tree_view/modelSource";
 import { releaseFeaDeformation, setFeaDeformationShown } from "@/utils/scene/fea/deformationGate";
 import { releaseFeaUnpaintedColor, setFeaUnpaintedColor } from "@/utils/scene/fea/unpaintedColor";
@@ -114,6 +116,7 @@ function makeSceneHandle(): SceneHandle {
         endSceneHighlights(owner);
         releaseFeaDeformation(owner);
         releaseFeaUnpaintedColor(owner);
+        releaseBuilderRefs(owner);
         usePluginColorScaleStore.getState().show(owner, null);
       }
       requestRender();
@@ -226,6 +229,8 @@ function makeSceneHandle(): SceneHandle {
     placeBox,
     placeCamera,
     contactBetween,
+    selectionBoxes,
+    registerBuilderRefs,
     highlightObjects,
     findObjects: (names, options) => findObjectsByName(names, options),
   };

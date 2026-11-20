@@ -20,6 +20,7 @@ import SceneRestoreOptions from "@/components/options/SceneRestoreOptions";
 import SpaceMouseOptions from "@/components/options/SpaceMouseOptions";
 import ThemeOptions from "@/components/options/ThemeOptions";
 import ToolbarButtonsOptions from "@/components/options/ToolbarButtonsOptions";
+import {GridSnappingOptions} from "@/components/viewer/cellbuilder/panel/GridSnappingOptions";
 
 /** The settings sections, by id. The same ids as `OptionsSectionId`'s settings sections. */
 export type SettingsSectionId =
@@ -31,6 +32,7 @@ export type SettingsSectionId =
     | "compute"
     | "camera"
     | "spacemouse"
+    | "grid"
     | "conversion"
     | "jobs"
     | "external-controls";
@@ -90,6 +92,9 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
         ),
     },
     {id: "spacemouse", title: "3D mouse", available: always, render: () => <SpaceMouseOptions/>},
+    // The cell builder's grid step, snap distance, select mode and its move / resize options: the
+    // Builder panel links here (`core:builder-grid-settings`).
+    {id: "grid", title: "Grid & snapping", available: always, render: () => <GridSnappingOptions/>},
     // The in-browser (WASM) conversion engine only makes sense for the hosted REST viewer.
     {id: "conversion", title: "Conversion engine", available: restOnly, render: () => <ExperimentalOptions/>},
     // A server with no job queue runs every job itself: how many at once, and the CPU they share.

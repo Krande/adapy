@@ -2,7 +2,8 @@
 // same behaviour: the region takes the room that is left (`flex: 1`, `min-width: 0`), the toolbars
 // sit left-aligned in it, and when they do not fit they are clipped behind a "»" button that opens
 // them in a wrapping popover -- they never push what sits beside the region (the mode switcher
-// stays where it is whichever mode is active).
+// stays where it is whichever mode is active). What a mode wants at the far right (`end`) sits outside
+// the clip: the toolbars sit in a shrink-0 row there, so an `ml-auto` among them cannot push anything right.
 
 import React from "react";
 
@@ -13,7 +14,12 @@ const POPOVER =
 /** Does `el` hold more than it shows (sideways)? */
 export const overflows = (el: {scrollWidth: number; clientWidth: number}): boolean => el.scrollWidth > el.clientWidth + 1;
 
-export const ModeToolbarRegion: React.FC<{children?: React.ReactNode; className?: string}> = ({children, className = ""}) => {
+export const ModeToolbarRegion: React.FC<{
+  children?: React.ReactNode;
+  /** Drawn at the region's far right, outside the clip: never folded into the "»" popover. */
+  end?: React.ReactNode;
+  className?: string;
+}> = ({children, end, className = ""}) => {
   const clip = React.useRef<HTMLDivElement>(null);
   const [over, setOver] = React.useState(false);
   const [open, setOpen] = React.useState(false);
@@ -53,6 +59,11 @@ export const ModeToolbarRegion: React.FC<{children?: React.ReactNode; className?
       {over && open && (
         <div className={POPOVER} role="group" aria-label="More tools" data-mode-toolbar-popover="">
           {children}
+        </div>
+      )}
+      {end != null && end !== false && (
+        <div className="ml-auto flex shrink-0 items-center gap-2 pl-2" data-mode-toolbar-end="">
+          {end}
         </div>
       )}
     </div>

@@ -1259,7 +1259,9 @@ class Part(BackendGeom):
 
         num_elem_changed = 0
         new_materials = Materials(parent=self)
-        _reassignable = (Beam, Plate, FemSection, PipeSegStraight, PipeSegElbow, Pipe)
+        # PlateCurved is not a Plate subclass: a GeniE curved_shell (or a flat_plate whose edges
+        # curve) reads as one, so two XMLs sharing a material name stopped here.
+        _reassignable = (Beam, Plate, PlateCurved, FemSection, PipeSegStraight, PipeSegElbow, Pipe)
         for mat in self.get_all_materials(include_self=include_self):
             res = new_materials.add(mat)
             if res.guid == mat.guid:

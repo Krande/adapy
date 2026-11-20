@@ -33,6 +33,9 @@ export interface BuilderCell extends CellBox {
    * which reinforcement the compiler frames around the hole (door: jambs +
    * lintel + threshold; window & opening: jambs + head + sill). */
   subtype?: "door" | "window" | "opening";
+  /** An opening placed on a side of its space (SPACE_NAME, SPACE_SIDE, POS_X/POS_Y, SIZE_X/SIZE_Y,
+   * DEPTH), as a workbook places it: drawn as its box, written back in that local form. */
+  openingFrame?: "local";
   /** Per-axis rotation in degrees (X, Y, Z), pivoting on the footprint centre —
    * equipment only. Undefined/all-zero means axis-aligned. Round-trips as the
    * entity's ROT_X/ROT_Y/ROT_Z; the compiler spins the body + ports to match. */
@@ -116,17 +119,34 @@ export interface ModelSnapshot {
   /** Cell groups (name + per-group blueprint). Undoable alongside cells so a
    * group add/rename/delete and its cell reassignments restore atomically. */
   groups: CellGroup[];
+  /** The doc's keys the builder does not own (an engine's own lists): a shell's edit of
+   * them undoes like the builder's own (`setDocExtra`). */
+  docExtras: Record<string, unknown>;
 }
 
-/** Current pick: a whole cell, one of its 6 faces (BoxGeometry materialIndex),
+/** A pick of a cell: the whole cell, one of its 6 faces (BoxGeometry materialIndex),
  * or a face border edge (full descriptor, so its endpoints re-derive from the
  * live box through resizes). */
-export interface BuilderSelection {
+export interface CellSelection {
   kind: "cell" | "face" | "edge";
   cellId: string;
   faceIndex?: number;
   edge?: EdgeHit;
 }
+
+/** A pick of a plugin's builder ref (state/cellbuilder/refsSlice.ts): a box a plugin shows
+ * among the cells for a row of its own. It names no cell, so code that looks a cell up by
+ * `cellId` finds none and leaves it be. */
+export interface RefSelection {
+  kind: "ref";
+  refId: string;
+  cellId?: undefined;
+  faceIndex?: undefined;
+  edge?: undefined;
+}
+
+/** Current pick: a cell (whole, face or edge) or a plugin's builder ref. */
+export type BuilderSelection = CellSelection | RefSelection;
 
 /** What a plain click picks: nothing, the whole cell, the face under the
  * cursor, or the nearest border edge of that face. Selection is explicit —

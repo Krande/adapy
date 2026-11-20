@@ -100,6 +100,7 @@ test("a snapshot keeps the undoable model fields only", () => {
     "blueprintOptions",
     "cells",
     "designRules",
+    "docExtras",
     "equipmentCad",
     "groups",
     "loftMembers",

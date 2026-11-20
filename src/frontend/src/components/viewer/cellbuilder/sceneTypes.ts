@@ -13,7 +13,9 @@ import type {CellBox, EdgeHit, Vec3} from "@/utils/cellbuilder/snap";
 
 /** An in-progress face drag (positive face scales size, negative shifts origin). */
 export interface DragState {
+    /** The dragged cell, or with `ref` the plugin's ref (its ref id). */
     cellId: string;
+    ref?: boolean;
     faceIndex: number;
     axis: 0 | 1 | 2;
     positiveFace: boolean;
@@ -46,7 +48,9 @@ export interface HoveredEdge {
 /** Blender-style axis-locked move: the cell tracks the pointer along one axis
  * with no click-drag; left-click confirms, Escape restores `startBox`. */
 export interface ModalMove {
+    /** The moved cell, or with `ref` the plugin's ref (its ref id). */
     cellId: string;
+    ref?: boolean;
     axis: 0 | 1 | 2;
     lineOrigin: THREE.Vector3; // world-space point on the constraint axis
     lineDir: THREE.Vector3; // unit axis direction
@@ -56,7 +60,9 @@ export interface ModalMove {
 
 /** A tap on a cell that resolves to a selection on pointerup (face-drag off). */
 export interface PendingSelect {
+    /** The tapped cell, or with `ref` the plugin's ref (its ref id). */
     cellId: string;
+    ref?: boolean;
     faceIndex: number;
     x: number;
     y: number;

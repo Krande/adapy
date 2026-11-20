@@ -77,7 +77,7 @@ const FACE_OVERLAY_IDX = new Uint16Array([0, 1, 2, 0, 2, 3]);
 export const updateFaceOverlay = (ctx: CellBuilderScene) => {
     const st = useCellBuilderStore.getState();
     const sel = st.selection;
-    const cell = sel ? st.cells[sel.cellId] : null;
+    const cell = sel?.cellId ? st.cells[sel.cellId] : null;
     if (
         !cell ||
         cell.kind !== "cell" ||

@@ -13,10 +13,12 @@ import {Vector3} from "three";
 import {useModelState} from "@/state/modelState";
 import {isItemIncluded, withInclude} from "@/utils/cellbuilder/include";
 import {PORT_OVERRIDES_KEY, readPortOverrides, withPortOverride} from "@/utils/cellbuilder/ports";
-import {BOX_FACE_SIDES, applyFaceOffset, quantizeVec, withAxisLength, type Vec3} from "@/utils/cellbuilder/snap";
+import {BOX_FACE_SIDES, applyFaceOffset, quantize, quantizeVec, withAxisLength, type Vec3} from "@/utils/cellbuilder/snap";
 import type {BuilderCell} from "./types";
 import type {CellBuilderSlice} from "./state";
 import {makeWithHistory} from "./historySlice";
+import {extrasForSpaceRename} from "./refsSlice";
+import {BUILDER_DOC_KEYS} from "./docCodec";
 
 export interface CellsSlice {
   cells: Record<string, BuilderCell>;
@@ -92,12 +94,13 @@ export const createCellsSlice: CellBuilderSlice<CellsSlice> = (set, get) => {
       withHistory((s) => {
         const cur = s.cells[id];
         if (!cur || !delta) return {};
+        // Only `axis` moves (and lands on the grid); the other two keep their values exactly.
         const origin: Vec3 = [...cur.origin];
-        origin[axis] = origin[axis] + delta;
+        origin[axis] = quantize(origin[axis] + delta, s.gridStep);
         return {
           cells: {
             ...s.cells,
-            [id]: { ...cur, origin: quantizeVec(origin, s.gridStep) },
+            [id]: { ...cur, origin },
           },
           dirty: true,
         };
@@ -237,7 +240,7 @@ export const createCellsSlice: CellBuilderSlice<CellsSlice> = (set, get) => {
     bumpSelectedFloor: (delta) =>
       withHistory((s) => {
         const sel = s.selection;
-        if (!sel) return {};
+        if (!sel?.cellId) return {};
         const cell = s.cells[sel.cellId];
         // Equipment and openings ride on a floor; a space cell defines the
         // floors itself, so it doesn't bump.
@@ -279,7 +282,7 @@ export const createCellsSlice: CellBuilderSlice<CellsSlice> = (set, get) => {
           ? { ...cell.params, SPACE_NAME: host.name }
           : cell.params;
         return {
-          cells: { ...s.cells, [sel.cellId]: { ...cell, origin, params } },
+          cells: { ...s.cells, [cell.id]: { ...cell, origin, params } },
           dirty: true,
         };
       }),
@@ -295,6 +298,14 @@ export const createCellsSlice: CellBuilderSlice<CellsSlice> = (set, get) => {
         )
           return {};
         const cells = { ...s.cells, [id]: { ...cur, name: trimmed } };
+        // A workbook opening is placed on a side of its space BY NAME (SPACE_NAME): it follows
+        // the renamed space, or it would be written back against a space that is no longer there.
+        if (cur.kind === "cell") {
+          for (const c of Object.values(s.cells)) {
+            if (c.kind === "opening" && c.openingFrame === "local" && c.params?.SPACE_NAME === cur.name)
+              cells[c.id] = { ...c, params: { ...c.params, SPACE_NAME: trimmed } };
+          }
+        }
         // Equipment names are referenced by system connections; rewrite them
         // in the same history step so a rename never orphans a run.
         let systems = s.systems;
@@ -325,7 +336,10 @@ export const createCellsSlice: CellBuilderSlice<CellsSlice> = (set, get) => {
             enclosed_cells: enc.map((n) => (n === cur.name ? trimmed : n)),
           };
         }
-        return { cells, systems, blueprintOptions, dirty: true };
+        // The plugins' rows that name a space by name (a shell's modifications) follow it too, in
+        // this same undo step (refsSlice `renameSpace`).
+        const docExtras = cur.kind === "cell" ? extrasForSpaceRename(s.docExtras, cur.name, trimmed, BUILDER_DOC_KEYS) : s.docExtras;
+        return { cells, systems, blueprintOptions, ...(docExtras !== s.docExtras ? { docExtras } : {}), dirty: true };
       }),
     setCellParam: (id, key, value) =>
       withHistory((s) => {

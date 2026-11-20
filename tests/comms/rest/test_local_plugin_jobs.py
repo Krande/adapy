@@ -296,3 +296,23 @@ def test_a_job_swept_mid_run_is_not_resurrected_when_it_finally_returns(tmp_path
             assert after["status"] == STATUS_ERROR and after["stage"] == "timeout"
     finally:
         _slow_entrypoint.release.set()
+
+
+# --------------------------------------------------------------------------
+# A job id from an earlier server is gone, not "try again"
+# --------------------------------------------------------------------------
+
+
+def test_an_unknown_in_process_job_id_is_a_404_not_the_queue_gate_503(tmp_path):
+    """A page remembers its jobs in browser storage, which outlives the server
+    that ran them. Asked about such an id, a queue-less server used to fall
+    through to the "conversion disabled" 503 -- an answer the poller reads as
+    transient, so it polled the dead job for its whole ceiling."""
+    app = create_app(_settings(tmp_path))
+    with TestClient(app) as client:
+        r = client.get("/api/convert/local-0123456789abcdef")
+        assert r.status_code == 404, r.text
+        assert "not known to this server" in r.json()["detail"]
+        # A queue job id without a queue still meets the gate.
+        r = client.get("/api/convert/0123456789abcdef0123456789abcdef")
+        assert r.status_code == 503, r.text

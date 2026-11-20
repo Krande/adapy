@@ -390,7 +390,7 @@ test("the plugin moves the box (a form's numbers): it is redrawn there and nobod
     page.pointer("pointermove", 750 + 200, -100);
     assert.deepEqual(poses.at(-1), {position: [5, 4, 1], yawDeg: 33.5});
     page.pointer("pointerup", 950, -100);
-    // Another box (1.31.0): what was drawn, moved -- nothing drawn anew, so what a plugin drew over the
+    // Another box (1.32.0): what was drawn, moved -- nothing drawn anew, so what a plugin drew over the
     // box stays over it -- its handles in proportion.
     const before = view.drawn.length;
     box.set({box: [-2, -2, 0, 2, 2, 3]});
@@ -513,7 +513,7 @@ test("with no viewport on screen there is nothing to draw in, and the box appear
     placed.end();
 });
 
-// ----- 1.31.0: the resize handles, a box that turns every way --------------------------------------
+// ----- 1.32.0: the resize handles, a box that turns every way --------------------------------------
 
 test("resize: S brings up a handle on each face, and a drag moves that face, the opposite one staying, the size snapped", () => {
     const {box, view, page, poses, modes} = setup({resize: true});
@@ -604,7 +604,7 @@ test("rotate xyz: the plugin turns the box by its axes; a box turned about Z onl
     assert.throws(() => box.set({axes: [[0, 0, 0], [0, 1, 0]]}), /axes needs/);
     assert.equal("axes" in setup().box.pose(), false);
 });
-// ----- `ctx.scene.placeCamera` (1.31.0): a camera placed with the same gizmo's keys ---------------
+// ----- `ctx.scene.placeCamera` (1.32.0): a camera placed with the same gizmo's keys ---------------
 
 function cameraSetup(options: Partial<PlaceCameraOptions> = {}, tilt = 0) {
     const view = fakeView(tilt);

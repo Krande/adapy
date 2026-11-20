@@ -1,4 +1,4 @@
-// A plugin's tabs of the Scene panel (plugin API 1.31.0): a `scene-info` panel with `asTab` is a
+// A plugin's tabs of the Scene panel (plugin API 1.32.0): a `scene-info` panel with `asTab` is a
 // tab of the Scene panel's strip, after core's groups, ordered by `asTab.order`; only the tab on
 // show is mounted, and opening one of core's tabs leaves it. One without `asTab` is not a tab.
 
@@ -41,7 +41,7 @@ const registerDemo = () =>
   });
 
 test("the API version that has them", () => {
-  assert.equal(PLUGIN_API_VERSION, "1.31.0");
+  assert.equal(PLUGIN_API_VERSION, "1.32.0");
 });
 
 test("a scene-info panel with asTab is placed as a tab of the Scene panel; one without, a section", () => {

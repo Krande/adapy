@@ -1,9 +1,11 @@
 /**
  * The engine COMPILE LOG readout.
  *
- * Owns: the Tools-tab section that shows the messages the engine emitted during
- * the last build, including whether the log belongs to this run or to the run
- * that originally built a cached artifact.
+ * Owns: the messages the engine emitted during the last build, including whether
+ * the log belongs to this run or to the run that originally built a cached
+ * artifact -- as a view of its own (`CompileLogView`, which a shell shows where it
+ * likes, a drawer that opens when a compile fails, say) and as the Tools tab's
+ * section.
  */
 
 import React from "react";
@@ -11,7 +13,9 @@ import React from "react";
 import {useCellBuilderStore} from "@/state/cellBuilderStore";
 import {Section, btnGray} from "./chrome";
 
-export const CompileLogSection: React.FC = () => {
+/** The log, its Copy button and where it came from. `maxHeightClass` bounds the log's height
+ * (default `max-h-56`; `max-h-none` for a host that scrolls it itself). */
+export const CompileLogView: React.FC<{maxHeightClass?: string}> = ({maxHeightClass = "max-h-56"}) => {
   const log = useCellBuilderStore((st) => st.compileLog);
   const runId = useCellBuilderStore((st) => st.compileLogRunId);
   const isCurrentRun = useCellBuilderStore((st) => st.compileLogIsCurrentRun);
@@ -27,7 +31,7 @@ export const CompileLogSection: React.FC = () => {
     );
   };
   return (
-    <Section title="Compile log">
+    <div className="flex flex-col gap-1" data-compile-log="">
       {log ? (
         <>
           <div className="flex items-center gap-2">
@@ -49,7 +53,7 @@ export const CompileLogSection: React.FC = () => {
                 : "engine messages from the last compile"}
             </span>
           </div>
-          <pre className="max-h-56 overflow-auto whitespace-pre-wrap break-words bg-black/40 border border-gray-700 rounded-sm p-1.5 text-[11px] font-mono text-gray-200">
+          <pre className={`${maxHeightClass} overflow-auto whitespace-pre-wrap break-words bg-black/40 border border-gray-700 rounded-sm p-1.5 text-[11px] font-mono text-gray-200`}>
             {log.trim() ? log : "(engine emitted no messages)"}
           </pre>
         </>
@@ -58,6 +62,12 @@ export const CompileLogSection: React.FC = () => {
           No log yet — compile to see engine messages.
         </p>
       )}
-    </Section>
+    </div>
   );
 };
+
+export const CompileLogSection: React.FC = () => (
+  <Section title="Compile log">
+    <CompileLogView />
+  </Section>
+);
