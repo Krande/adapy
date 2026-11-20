@@ -41,6 +41,12 @@ jobs:
         with:
           python-version: "3.12"
 
+      # The wheel ships the committed viewer bundle as package data. If src/frontend changed since it
+      # was built, publishing would put a stale viewer on PyPI permanently (it has happened). The
+      # release bump of the package version is not an input, so a healthy tag passes.
+      - name: Check the viewer bundle is up to date
+        run: python scripts/packaging/bundle_inputs.py check
+
       # The previous implementation OVERWROTE pyproject.toml's version with the
       # tag before building, which silently papered over any mismatch. deputy
       # bumps the version in the commit it tags, so the two must already agree —

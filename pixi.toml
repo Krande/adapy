@@ -203,7 +203,13 @@ topo-model-demo = { cmd = "python topo_model_demo.py", env = { "PYTHONPATH" = "$
 npm = { cmd = "npm", cwd = "./src/frontend" }
 winstall = { cmd = "npm install", cwd = "./src/frontend", outputs = ["$PIXI_PROJECT_ROOT/src/frontend/node_modules"] }
 wdev = { cmd = "npm run dev", cwd = "./src/frontend", depends-on = ["winstall", "wasm-adacpp-current"] }
-wbuild = { cmd = "npm run build", cwd = "./src/frontend", depends-on = ["winstall", "wasm-adacpp-current"] }
+wbuild-bundle = { cmd = "npm run build", cwd = "./src/frontend", depends-on = ["winstall", "wasm-adacpp-current"] }
+# The committed viewer bundle (src/ada/visit/rendering/resources/index.zip): build it, then stamp the
+# inputs it was built from (index.zip.inputs, checked by CI). Commit both. Always go through this
+# task, never `npm run build` alone, or the stamp is left behind.
+wbuild = { cmd = "python scripts/packaging/bundle_inputs.py write", depends-on = ["wbuild-bundle"] }
+# Fails when src/frontend (or the wasm pins) changed since the bundle was built. Needs no build.
+check-bundle-inputs = { cmd = "python scripts/packaging/bundle_inputs.py check" }
 # The code-split SPA the REST API serves (ADA_VIEWER_STATIC_PATH), as Dockerfile.viewer builds it.
 # scripts/docs/ui_stories.py drives it for the Ada Studio docs page.
 wbuild-serve = { cmd = "npm run gen:plugins && npm run build:serve", cwd = "./src/frontend", depends-on = ["winstall"] }

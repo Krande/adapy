@@ -1,0 +1,108 @@
+name: Rebuild the viewer bundle
+
+# The committed viewer bundle (src/ada/visit/rendering/resources/index.zip) must match src/frontend.
+# index.zip.inputs stamps what it was built from, and the "Viewer bundle is up to date" job in
+# pr-tests.yml fails when that has moved on. This workflow is the other half: on a pull request from a
+# branch of THIS repository, when the stamp is out of date it builds the bundle (`pixi run wbuild`, the
+# one command contributors run by hand), checks it with the provenance checker, and pushes
+# `chore: rebuild the viewer bundle` (index.zip + the stamp) to the PR branch.
+#
+# The push is made over SSH with the SOURCE_KEY deploy key, as tag-on-pr-merge.yaml does for its tag, NOT
+# with the default GITHUB_TOKEN: a GITHUB_TOKEN push starts no workflow runs, so the new head commit
+# would never get pr-tests.yml and the required checks would wait forever. A deploy-key push does start
+# them, and the rebuilt head is then checked like any other.
+#
+# Any failing check counts: stale inputs, or a bundle whose bytes are not the stamped ones (it was changed
+# from outside, e.g. a merge that kept the other side's zip); either way the bundle is rebuilt from the branch.
+#
+# Loops: nothing is pushed unless the check fails and the build changes the bundle or the stamp; the
+# rebuilt head passes the check, so the run this push triggers does nothing. A head commit that is
+# already a rebuild and still fails the check is an error here, not another rebuild.
+#
+# Pull requests from forks get no secrets and are skipped: they only see the failing check, and run
+# `pixi run -e frontend wbuild` themselves (docs/architecture/frontend.md). Dependabot's runs have
+# no SOURCE_KEY either; its PRs touch package-lock.json, so a maintainer rebuilds those by hand.
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bundle-rebuild-${{ github.head_ref }}
+  cancel-in-progress: true
+
+env:
+  REBUILD_SUBJECT: "chore: rebuild the viewer bundle"
+
+jobs:
+  rebuild:
+    name: Rebuild the viewer bundle
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.head_ref }}
+          ssh-key: ${{ secrets.SOURCE_KEY }}
+
+      - name: Is the bundle stale?
+        id: stale
+        env:
+          EVENT_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if [ "$(git rev-parse HEAD)" != "$EVENT_SHA" ]; then
+            echo "The branch moved on since this run started; the run for its new head decides."
+            echo "stale=false" >> "$GITHUB_OUTPUT"
+          elif python3 scripts/packaging/bundle_inputs.py check; then
+            echo "stale=false" >> "$GITHUB_OUTPUT"
+          elif [ "$(git log -1 --format=%s)" = "$REBUILD_SUBJECT" ]; then
+            echo "::error::the head commit is already a bundle rebuild and the bundle is still stale; not rebuilding again."
+            exit 1
+          else
+            echo "stale=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: prefix-dev/setup-pixi@v0.11.3 # https://github.com/prefix-dev/setup-pixi
+        if: steps.stale.outputs.stale == 'true'
+        with:
+          pixi-version: v0.84.2
+          environments: frontend
+          cache: true
+
+      # wbuild fetches the adacpp wasm first (docker builds the WebGPU renderer the bundle inlines),
+      # then builds, then rewrites the stamp.
+      - name: Build the bundle
+        if: steps.stale.outputs.stale == 'true'
+        run: pixi run -e frontend wbuild
+
+      # npm install must not have touched the inputs (a lock file it rewrote would put the stamp out of
+      # step with what is committed), and what was built must still trace to src/frontend.
+      - name: Check what was built
+        if: steps.stale.outputs.stale == 'true'
+        run: |
+          if ! git diff --quiet -- src/frontend deploy; then
+            echo "::error::the build changed tracked inputs; commit those first:"
+            git diff --stat -- src/frontend deploy
+            exit 1
+          fi
+          pixi run -e frontend python scripts/packaging/check_bundle_provenance.py -v
+          python3 scripts/packaging/bundle_inputs.py check
+
+      - name: Commit and push the rebuilt bundle
+        if: steps.stale.outputs.stale == 'true'
+        env:
+          BRANCH: ${{ github.head_ref }}
+        run: |
+          git add src/ada/visit/rendering/resources/index.zip src/ada/visit/rendering/resources/index.zip.inputs
+          if git diff --cached --quiet; then
+            echo "::error::the build changed neither the bundle nor its stamp"
+            exit 1
+          fi
+          git config user.name "adapy-bundle-bot"
+          git config user.email "adapy-bundle-bot@users.noreply.github.com"
+          git commit -m "$REBUILD_SUBJECT" -m "The inputs of the viewer bundle changed (see the failing check on the previous commit). Built by .github/workflows/bundle-rebuild.yml with \`pixi run wbuild\`."
+          git push origin "HEAD:refs/heads/$BRANCH"
