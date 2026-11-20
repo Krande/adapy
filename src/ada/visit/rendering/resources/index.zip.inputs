@@ -1,8 +1,8 @@
 # The inputs src/ada/visit/rendering/resources/index.zip was built from, and its own hash. Do not edit.
 # Refresh with `pixi run wbuild` (rebuilds the bundle and rewrites this), then commit both.
 # Checked by `pixi run check-bundle-inputs` and by CI. See scripts/packaging/bundle_inputs.py.
-inputs-sha256 f190a05ec01ff646e23fae1ebcf80425e7532e4b68b723412be46619447f5ce1
-bundle-sha256 dbe4495e1e5f52be66ea7e279788d87219867348ac1ef33fe1aff27941c91297
+inputs-sha256 2b29974dd97c84dcabe908754955032106d413501eb1e8059c1407ee8b77f672
+bundle-sha256 995ff222e7ef9e8f8a7a1274bc10e2c5d1511e90efa6381bc229bb15ce5cef6c
 pin:ADACPP_BASE_IMAGE ghcr.io/krande/adacpp-wasm-base:0.44.0
 pin:ADACPP_RENDER_REF c1a7b3ab434a916e08170c634c23b9dc1974d32f
 src/frontend/clean.cjs 548054390de442a02ca36bd4de94f25095f10ae9
@@ -1304,7 +1304,7 @@ src/frontend/src/utils/scene/jointViewExit.ts da5bb28cc8466c5abcca6e3e8a9f042028
 src/frontend/src/utils/scene/loadGLTFfrombase64.ts 9be0fcfbace3351201807cacd3fd84533272a34e
 src/frontend/src/utils/scene/loadMetrics.ts cf32da4581fa351b9da232d8dc98bda7287562a6
 src/frontend/src/utils/scene/loadTimingEntries.ts 0257c46c4e49df0e209720f7f3db7f1727697016
-src/frontend/src/utils/scene/loadingView.ts 5292f7f3256e991e454b1f3a2390ede3f5aa0ae8
+src/frontend/src/utils/scene/loadingView.ts f15a2b4ac73e51d33958f0d3268d9b551dbab48a
 src/frontend/src/utils/scene/meshLookup.ts c86b84b82bed35195b74aac77694c6e23c35e185
 src/frontend/src/utils/scene/modelHistory.ts 305630c1ae4ee72e06fa52e28172c4282e9ce96a
 src/frontend/src/utils/scene/modelViews.ts a679b8678850661bedfa25f82a3b76d953efc22d
@@ -1318,7 +1318,7 @@ src/frontend/src/utils/scene/renderProfiler.ts 63910b12865a641a6b3eb386d25c4cfec
 src/frontend/src/utils/scene/savedSceneStates.ts 849812b4d695d4206208a874938d4c5900c80152
 src/frontend/src/utils/scene/sceneColor.ts 86000e7b9fe18379e05cbc9cde22389bf2ef60c8
 src/frontend/src/utils/scene/sceneRecord.ts d07da771915c69507b4af1dd44f02573280d2b41
-src/frontend/src/utils/scene/sceneRestore.ts 87cb0edaf9c0a1fd061c36b47bac4a47fb5a1621
+src/frontend/src/utils/scene/sceneRestore.ts 29b1c3f89df532053804e6afd844b3ae69abebd3
 src/frontend/src/utils/scene/sceneStateLive.ts 0c1c595056e694befc9500583fc1c27d1107496c
 src/frontend/src/utils/scene/sceneViewRestore.ts 505b66785e6a50ce3c023661f95e69e7659ab145
 src/frontend/src/utils/scene/sectionOffset.ts 433a7d4e5c40286f020e09289be8d3fdfe05857b
