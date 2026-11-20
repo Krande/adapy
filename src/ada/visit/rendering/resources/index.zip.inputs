@@ -1,8 +1,8 @@
 # The inputs src/ada/visit/rendering/resources/index.zip was built from, and its own hash. Do not edit.
 # Refresh with `pixi run wbuild` (rebuilds the bundle and rewrites this), then commit both.
 # Checked by `pixi run check-bundle-inputs` and by CI. See scripts/packaging/bundle_inputs.py.
-inputs-sha256 06a7f29ef5d11bf3b7e871c493120ba181f79df5cd0dace1b57da58c5ab18638
-bundle-sha256 0d234cf9734978aed14e6d22b21b543ffdd90ec6b313651ee72e527f9252ee11
+inputs-sha256 f190a05ec01ff646e23fae1ebcf80425e7532e4b68b723412be46619447f5ce1
+bundle-sha256 dbe4495e1e5f52be66ea7e279788d87219867348ac1ef33fe1aff27941c91297
 pin:ADACPP_BASE_IMAGE ghcr.io/krande/adacpp-wasm-base:0.44.0
 pin:ADACPP_RENDER_REF c1a7b3ab434a916e08170c634c23b9dc1974d32f
 src/frontend/clean.cjs 548054390de442a02ca36bd4de94f25095f10ae9
@@ -890,8 +890,8 @@ src/frontend/src/state/clashCheck/geometry.ts 6ae3b4880f2612ffe4db5bfb73255be95b
 src/frontend/src/state/clashCheck/markers.ts f44f2b811800b2b0139188704cad2997af1407f1
 src/frontend/src/state/clashCheck/realDeps.ts 86e850a50361a40304142ded806801fe5d4bf6e1
 src/frontend/src/state/clashCheck/result.ts af3646dd230ece78ed5d8beb5bca0a28365b2895
-src/frontend/src/state/clashCheck/state.ts 0361a77e2199f6835fae045985a3f65457404da1
-src/frontend/src/state/clashCheckStore.ts 388d93c67afe26aeb97a78b62196794b82a198b5
+src/frontend/src/state/clashCheck/state.ts e1df8c6f84523f9dfeb8fc5f923ee4763a623d8a
+src/frontend/src/state/clashCheckStore.ts 66baecb822803e7607de0c5ffe9f49cfc1acf200
 src/frontend/src/state/clashContactPickStore.ts 218407c8acc989aa05eb3fb715cbef26e82b822e
 src/frontend/src/state/clashGeometryDeps.ts bf82368852f3f43921c9b436f8415e835322d710
 src/frontend/src/state/colorByStore.ts b373540b3de20e36a091dbc2461ed7e8c20aeb18
@@ -1282,7 +1282,7 @@ src/frontend/src/utils/scene/frameCells.ts 6b97cfc3d78588a85d2fb434f56e1ea122d2b
 src/frontend/src/utils/scene/galleryWalk.ts c1d47ed3040e51c766ca169ba4ee00ba21b61fe4
 src/frontend/src/utils/scene/handlers/append_to_scene_from_message.ts 9c7aae13f5259baed2151001960937cb82935a6c
 src/frontend/src/utils/scene/handlers/clear_loaded_model.ts 99c34c678a6ea030078a1554e9beac9ffa849e60
-src/frontend/src/utils/scene/handlers/clear_scene.ts 6cf6931742ceb230305b43b20cac3d28dd9933ff
+src/frontend/src/utils/scene/handlers/clear_scene.ts 0b54d0a8ee3b2dcbb822c6c5a37b583ed38af592
 src/frontend/src/utils/scene/handlers/load_fea_streaming.ts 06f107d7d07e523aecb95d1250fbf2fcd545cb26
 src/frontend/src/utils/scene/handlers/localOpenPlan.ts 203d8cd9aef3a532c34154d6e0f6bd37f8c7b8be
 src/frontend/src/utils/scene/handlers/model_translate.ts e307bf6c6f270e404c2bb0988eb5258349df2d25
