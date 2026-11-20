@@ -1,4 +1,4 @@
-// `ctx.scene.loadSavedGroup` (plugin API 1.32.0): the Scene panel's "Load into scene" for a saved
+// `ctx.scene.loadSavedGroup` (plugin API 1.33.0): the Scene panel's "Load into scene" for a saved
 // group, asked by a plugin -- one whose view follows a saved group, such as one that draws it. The
 // same load (`loadSavedGroup` in utils/groups/groupLoad.ts) and the same words (`groupLoadNote`), handed
 // back as plain data.

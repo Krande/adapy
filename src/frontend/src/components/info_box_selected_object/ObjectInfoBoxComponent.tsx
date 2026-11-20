@@ -18,7 +18,7 @@ import {selectedRef, selectionName, selectionPlace} from '@/utils/cellbuilder/bo
 import {useSceneMirrorStore} from '@/state/sceneMirrorStore';
 import {parentLevelName} from '@/utils/tree_view/treeSelection';
 import {isMirroredWindow, useSceneActions} from '@/layout/sceneActions';
-import {activeShellMode, subscribeShellModes} from '@/layout/shellModes';
+import {activeShellMode, builderPresence, shellModesVersion, subscribeShellModes} from '@/layout/shellModes';
 import ObjectMetadataPanel, {useClickedPosition} from './ObjectMetadataPanel';
 import {meshStatsLine, useSelectionMeshStats} from './MeshStatsSection';
 import ClashContactSection from './ClashContactSection';
@@ -34,22 +34,32 @@ import DownloadSelectionButton from './DownloadSelectionButton';
 import {builderCellsShown} from '@/state/cellbuilder/builderVisibility';
 import {onBeforeDraw} from '@/viewport/api/beforeDraw';
 
+/** Whether a builder pick is the panel's now, by what the active mode declared (`builderPresence`). */
+function builderPickShownNow(): boolean {
+    const presence = builderPresence();
+    if (presence === "edit") return true;
+    if (presence === "away") return false;
+    // "compare": while the builder's cells are on screen (or no builder scene says otherwise).
+    return builderCellsShown() !== false;
+}
+
 /**
- * Whether a builder pick is the panel's: the builder's cells are on screen (or no builder scene says
- * otherwise). A shell may keep the procedural model open behind a mode that hides them -- the docked
- * UI's Output, its FEM modes --, and a cell or ref picked back in Input is no selection there: no
- * summary for it, no section. Followed frame by frame, as a mode hides the builder's layer after
- * it has switched.
+ * Whether a builder pick is the panel's. The active mode says (`ModeBehaviour.builder`): where the
+ * procedural model is edited ("edit", and core's own UI, which has no modes) it always is; in a mode
+ * that keeps the model open behind it ("away") it is no selection there -- no summary, no section;
+ * in a mode that draws the builder to compare ("compare") it is while the cells are drawn, followed
+ * frame by frame as the builder's layer is hidden after a switch.
  */
 function useBuilderPickShown(): boolean {
+    useSyncExternalStore(subscribeShellModes, shellModesVersion, shellModesVersion);
     const [, redraw] = React.useReducer((n: number) => n + 1, 0);
-    const shown = builderCellsShown() !== false;
+    const shown = builderPickShownNow();
     const seen = React.useRef(shown);
     seen.current = shown;
     React.useEffect(
         () =>
             onBeforeDraw(() => {
-                if ((builderCellsShown() !== false) !== seen.current) redraw();
+                if (builderPickShownNow() !== seen.current) redraw();
             }),
         [],
     );

@@ -118,7 +118,7 @@ function classicPlacement(slot: PanelSlot): PanelPlacement {
     case "admin":
       return { zone: CLASSIC_ZONES.window, parent: "core:admin", as: "tab", order: slot.order ?? 0 };
     case "scene-info":
-      // With `asTab` (1.32.0) a tab of the Scene panel, after core's own groups; else a section.
+      // With `asTab` (1.33.0) a tab of the Scene panel, after core's own groups; else a section.
       return {
         zone: CLASSIC_ZONES.menuColumn,
         parent: "core:scene",

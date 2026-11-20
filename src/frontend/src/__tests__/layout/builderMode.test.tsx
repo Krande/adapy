@@ -21,6 +21,7 @@ const { ShellModeSwitcher, ShellModeToolbar } = await import("@/layout/ShellMode
 const { AdaViewerProvider } = await import("@/state/AdaViewerContext");
 const { useCellBuilderStore } = await import("@/state/cellBuilderStore");
 const { CORE_PANEL_IDS } = await import("@/layout/corePanelIds");
+const { Mode } = await import("@/layout/modes");
 const { readFileSync } = await import("node:fs");
 
 const html = (el: React.ReactElement) => renderToStaticMarkup(React.createElement(AdaViewerProvider, null, el));
@@ -110,7 +111,7 @@ test("a mode that requires a builder model is offered only while one is open", (
 
 test("the Desktop UI has a Build mode docking the builder, with its toolbar, menu and overlays", () => {
   const spec = D.desktopUiShellSpec();
-  const build = spec.layout!.modes!.find((m) => m.id === "build")!;
+  const build = spec.layout!.modes!.find((m) => m.id === Mode.TopologyInput)!;
   assert.ok(build, "a Build mode");
   assert.equal(build.requires, undefined, "Build is always offered: it is where a model is started");
   assert.deepEqual(build.toolbars, ["build", "section"]);
@@ -127,21 +128,39 @@ test("the Desktop UI has a Build mode docking the builder, with its toolbar, men
   assert.ok(groups.some((g) => g.panels.includes(CORE_PANEL_IDS.equipmentAdmin)));
   // The toolbar carries compile and commit, so the docked panel leaves its footer out in this mode only.
   const opts = spec.panels![CORE_PANEL_IDS.cellbuilder].options as (m: string | null) => Record<string, unknown>;
-  assert.deepEqual(opts("build"), { showFooter: false, showUndoRedo: false });
-  assert.deepEqual(opts("model"), {});
+  assert.deepEqual(opts(Mode.TopologyInput), { showFooter: false, showUndoRedo: false });
+  assert.deepEqual(opts(Mode.TopologyOutput), {});
   assert.equal(spec.chrome!.overlays!.builder, true);
   // The other modes stay as they were.
-  assert.equal(spec.layout!.modes!.find((m) => m.id === "model")!.requires, undefined);
+  assert.equal(spec.layout!.modes!.find((m) => m.id === Mode.TopologyOutput)!.requires, undefined);
 });
 
 test("the Build menu names the builder's commands, only where the shell has the mode", () => {
   const inputs = { workspaces: [], shells: [], themes: [] };
-  const withMode = desktopMenus({ ...inputs, modes: [{ id: "model" }, { id: "build" }] });
+  const withMode = desktopMenus({ ...inputs, modes: [{ id: Mode.TopologyOutput }, { id: Mode.TopologyInput }] });
   const menu = withMode.find((m) => m.label === "Build")!;
   assert.ok(menu);
   const ids = menuCommandIds([menu]);
   for (const id of BUILDER_COMMANDS) assert.ok(ids.includes(id), id);
-  assert.ok(!desktopMenus({ ...inputs, modes: [{ id: "model" }] }).some((m) => m.label === "Build"));
+  assert.ok(!desktopMenus({ ...inputs, modes: [{ id: Mode.TopologyOutput }] }).some((m) => m.label === "Build"));
+});
+
+test("Add cell is one action: the command shows the builder's A key, and both toggle the tool", async () => {
+  setup();
+  const { CORE_SHORTCUTS } = await import("@/layout/coreShortcutTable");
+  try {
+    const cmd = C.getCommand(ID.builderAddCell)!;
+    assert.equal(C.commandChord(cmd), "A", "the command shows A");
+    const entry = CORE_SHORTCUTS.find((s) => s.keys === "A" && s.id.startsWith("core:builder"))!;
+    assert.match(entry.label, /^Add cell/, "the dialog's entry is the same action, by the same name");
+    // The builder's vocabulary is "cell", not "space".
+    for (const s of CORE_SHORTCUTS.filter((x) => x.id.startsWith("core:builder"))) assert.doesNotMatch(s.label, /\bspaces?\b/i, s.id);
+    // A toggles, as the command does (a second press puts the tool away).
+    const kb = readFileSync(new URL("../../components/viewer/cellbuilder/keyboard.ts", import.meta.url), "utf8");
+    assert.match(kb, /setMode\(st\.mode === "add-cell" \? "idle" : "add-cell"\)/);
+  } finally {
+    C.resetCommands();
+  }
 });
 
 test("the API version moved with the Build mode", () => {

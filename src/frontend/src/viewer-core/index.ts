@@ -752,14 +752,22 @@
 //          `feaValuesForNode`, `feaValuesForElement(..., {nodal: true})` and the types
 //          `NodalFieldValues`, `FeaFieldValues`, `FeaValuesOptions`, `NodeValuesResult` on `/scene`.
 //          `ObjectInfoBodyProps.summary` ("full" | "menu").
-//   1.32.0 Kept in step with PLUGIN_API_VERSION 1.32.0. Additive: `ctx.scene.loadSavedGroup` and the
+//   1.32.0 Kept in step with PLUGIN_API_VERSION 1.32.0. Additive: `Mode`, `ModeGroup`, `CORE_MODES`,
+//          `MODE_GROUPS`, `coreModeDef`, `isCoreMode` and the types `CoreModeId`, `ModeId`,
+//          `ModeGroupId`, `CoreModeDef`, `ModeBehaviour`, `BuilderPresence`, `SceneScopeSpec`,
+//          `SceneModel`, `ModeSwitching`; `modeStore` (`ModeState`), `activeModeDef`,
+//          `builderPresence`, `modeOwnsSceneColor`, `modeShowsDeformation`, `modeSwitching` on the
+//          root. `UiShellMode.behaviour` (label optional for core's modes),
+//          `UiShellLayout.modeSwitching`, `modeArrangements[id].behaviour`, `PluginModeSpec.group`
+//          and `.behaviour`. See PLUGIN_API_VERSION's 1.32.0 note.
+//   1.33.0 Kept in step with PLUGIN_API_VERSION 1.33.0. Additive: `ctx.scene.loadSavedGroup` and the
 //          types `SceneGroupLoad` (with the group's `bounds`), `SceneGroupLoadOptions`. A `scene-info` panel with `asTab` is a
 //          tab of the Scene panel (`SceneBody`'s strip, after core's groups), and `getSceneTabs`
 //          on `@/viewer-core/plugins`, for a shell that draws that strip itself. `placeBox`'s
 //          `resize` handles and `constrain.rotate: "xyz"` (`axes`), `ctx.scene.placeCamera` and the
 //          types `BoxFace`, `PlaceBoxResize`, `PlaceCameraOptions`, `PlacedCamera`,
 //          `PlacedCameraMode`, `PlacedCameraPose`.
-export const VIEWER_CORE_API_VERSION = "1.32.0";
+export const VIEWER_CORE_API_VERSION = "1.33.0";
 
 // ---------------------------------------------------------------------------
 // Plugin declaration. `registerPlugin` is how a package announces itself —
@@ -894,14 +902,33 @@ export type {
 } from "@/plugins/uiShells";
 // A composed shell's modes (dependency-free; the switcher components are on `@/viewer-core/layout`).
 export {
+  activeModeDef,
   activeShellMode,
+  builderPresence,
   listShellModes,
+  modeOwnsSceneColor,
+  modeShowsDeformation,
+  modeStore,
+  modeSwitching,
   offeredInMode,
   setShellMode,
   shellModesVersion,
   subscribeShellModes,
 } from "@/layout/shellModes";
-export type { CoreModeToolbarId, ShellMode, ShellModeBadge } from "@/layout/shellModes";
+export type { CoreModeToolbarId, ModeState, ShellMode, ShellModeBadge } from "@/layout/shellModes";
+// Core's modes as typed constants, their headings, and what a mode does (assigned per UI).
+export { CORE_MODES, MODE_GROUPS, Mode, ModeGroup, coreModeDef, isCoreMode } from "@/layout/modes";
+export type {
+  BuilderPresence,
+  CoreModeDef,
+  CoreModeId,
+  ModeBehaviour,
+  ModeGroupId,
+  ModeId,
+  ModeSwitching,
+  SceneModel,
+  SceneScopeSpec,
+} from "@/layout/modes";
 export { CORE_MODE_TOOLBAR_IDS } from "@/layout/shellModes";
 // The status bar's model: core's items by id, what an item is, the bars' look (`UiShellChrome.statusItems`). The bar itself is on `/layout`.
 export { CORE_STATUS_ITEM_IDS, SHELL_BAR, isCoreStatusItem } from "@/layout/statusItems";

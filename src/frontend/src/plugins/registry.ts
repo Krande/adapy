@@ -420,7 +420,23 @@ export type { SelectedObjectBox } from "@/viewport/api/viewportApi";
 //          and the mesh's stats as a line. The sections below are drawn and get the pick as before.
 //          `PropertyGroup` on `/layout` (with `PropertyItemLayout`): one titled group drawn as the
 //          item layout draws its groups. Core's `fea-sets` section is one in the flat panel.
-// 1.32.0 — `ctx.scene.loadSavedGroup(id, {onStage})`: the Scene panel's "Load into scene" for a saved
+// 1.32.0 — Core's modes and their behaviour, assigned per UI (layout/modes.ts). `Mode` names core's
+//          modes as typed constants (TopologyInput, TopologyOutput, FemModel, FemResults,
+//          ConstructionFabrication), grouped under `ModeGroup` (Topology, Fem, Construction); a
+//          string is only how a mode is stored. A composed shell offers core's modes by their
+//          constant (`UiShellMode.id`; `label` and `hint` now default to core's) and gives each a
+//          `behaviour` (`ModeBehaviour`): `builder` ("edit" | "compare" | "away"), `sceneColor`,
+//          `deformation`, and `scene` (which loaded models the mode draws, applied by core
+//          reversibly). `UiShellLayout.modeSwitching` (remember, `?mode=`, fallback, `aliases` for
+//          ids a UI used before); `PluginModeSpec.group` and `.behaviour`
+//          (`modeArrangements[id].behaviour` wins). Core reacts to a mode ONLY through the active
+//          mode's declared behaviour: the Properties panel's builder pick follows `builder` (a mode
+//          that declares none: "compare", as since 1.31.0; core's own UI, which has no modes:
+//          always shown), and the builder panel is offered in an "edit" mode instead of a mode
+//          called "build". The mode state is a zustand store (`modeStore`); the functions are as
+//          before. The Desktop UI's modes are core's now (Model = TopologyOutput, Results =
+//          FemResults, Build = TopologyInput); its old ids are aliases.
+// 1.33.0 — `ctx.scene.loadSavedGroup(id, {onStage})`: the Scene panel's "Load into scene" for a saved
 //          group of the current scope, for a plugin whose view follows a saved group (one that draws
 //          it, say). Puts the members in the scene from what is already published or stored, hides the
 //          rest of a document loaded whole, selects the group, and resolves `SceneGroupLoad`
@@ -433,7 +449,7 @@ export type { SelectedObjectBox } from "@/viewport/api/viewportApi";
 //            `contextual` dot and `badge`; only the tab on show is mounted (`getSceneTabs`). Before,
 //            core's Scene panel mounted no `scene-info` panel at all. One without `asTab` is a
 //            section as before. A plugin that wants its tab there on a newer core and elsewhere on an
-//            older one reads the version first (`PLUGIN_API_VERSION` >= 1.32.0).
+//            older one reads the version first (`PLUGIN_API_VERSION` >= 1.33.0).
 //          - `placeBox`'s `resize` (`true`, or `{faces, minSize}`): a handle on each face of the box,
 //            in a gizmo of its own (S, by the cell builder's rules, or `setMode("resize")`), that drags
 //            that face along its normal, the opposite face staying put and the box's size across it
@@ -453,7 +469,7 @@ export type { SelectedObjectBox } from "@/viewport/api/viewportApi";
 //            in the scene's own coordinates. For a tool that asks where a view is seen from. On either
 //            viewport; `end()` (or `scene.remove(owner)`) takes it away.
 //          All additive: an older core ignores `resize` and `axes`, and has no `placeCamera`.
-export const PLUGIN_API_VERSION = "1.32.0";
+export const PLUGIN_API_VERSION = "1.33.0";
 
 /** What the Simulations panel writes on a run's open-result button. */
 export function openResultButtonLabel(
@@ -791,7 +807,7 @@ export function getConnectionBuilderTabs(ctx: AdaPluginContext): SimulationTabEn
   return entries;
 }
 
-/** `scene-info` panels with `asTab` (1.32.0): a plugin's tabs of the Scene panel, filtered by
+/** `scene-info` panels with `asTab` (1.33.0): a plugin's tabs of the Scene panel, filtered by
  * activation exactly like `getPanelsForRegion` and ordered by `(asTab.order ?? 0, id)`. Core's
  * Scene panel draws these in its strip after its own groups (Model, View, Measure, Tools). A
  * `scene-info` panel without `asTab` is not one of them. Empty when no plugin has an active one

@@ -28,7 +28,24 @@ import {railConfig} from "./toolRailModel";
 import {setPanelOverrides} from "./registry";
 import {setClassicShell, setClassicToolbar, type ClassicArrangement} from "./presets/classicPlace";
 import {modeAvailable, subscribeModeRequirements} from "./modeRequirements";
-import {SHELL_MODE_PARAM,activeShellMode, listShellModes, setShellMode, setShellModes, subscribeShellModes, type ShellMode} from "./shellModes";
+import {
+  SHELL_MODE_PARAM,
+  activeModeDef,
+  initialShellMode,
+  listShellModes,
+  modeOwnsSceneColor,
+  modeShowsDeformation,
+  modeSwitching,
+  setModeSwitching,
+  setShellMode,
+  setShellModes,
+  subscribeShellModes,
+  type ShellMode,
+} from "./shellModes";
+import {coreModeDef} from "./modes";
+
+/** Which loaded models the active mode draws: lazy, as it reads the scene's stores. */
+const ModeSceneScope = React.lazy(() => import("./ModeSceneScope").then((m) => ({default: m.ModeSceneScope})));
 
 /** The core dialogs a command of the palette opens in every layout, menus or not. */
 const PALETTE_DIALOGS = ["object-colour"] as const;
@@ -55,11 +72,14 @@ export function shellModes(spec: UiShellSpec): ShellMode[] {
   const shellPlugin = (spec as Partial<RegisteredUiShell>).pluginId;
   const mine: ShellMode[] = own.map((m, i) => ({
     id: m.id,
-    label: m.label,
-    hint: m.hint,
+    // One of core's modes takes core's label, hint and heading unless the shell gives its own.
+    label: m.label ?? coreModeDef(m.id)?.label ?? m.id,
+    hint: m.hint ?? coreModeDef(m.id)?.hint,
+    group: coreModeDef(m.id)?.group,
     icon: m.icon,
     order: m.order ?? i,
     pluginId: m.toolbar ? shellPlugin : undefined,
+    behaviour: m.behaviour,
     ownsSceneColor: m.ownsSceneColor,
     showsDeformation: m.showsDeformation,
     toolbar: m.toolbar,
@@ -77,7 +97,10 @@ export function shellModes(spec: UiShellSpec): ShellMode[] {
       hint: mode.hint,
       icon: mode.icon,
       order: mode.order ?? 100,
+      group: mode.group,
       pluginId,
+      // The plugin's own behaviour, with the shell's arrangement for the mode over it, field by field.
+      behaviour: mode.behaviour || extra[mode.id]?.behaviour ? {...mode.behaviour, ...extra[mode.id]?.behaviour} : undefined,
       ownsSceneColor: mode.ownsSceneColor,
       // A plugin's mode opts in to the deformed model; the shell's own modes keep the default (shown).
       showsDeformation: mode.showsDeformation ?? false,
@@ -93,19 +116,8 @@ export function shellModes(spec: UiShellSpec): ShellMode[] {
   return [...mine, ...theirs];
 }
 
-/**
- * The mode a shell opens in: `?mode=`, else the one used last, else the shell's
- * `layout.defaultMode`, else the first. An id that is not one of `modes` is passed over.
- */
-export function initialShellMode(
-  modes: readonly Pick<ShellMode, "id">[],
-  asked: string | null,
-  stored: string | null,
-  fallback?: string,
-): string | null {
-  const has = (id: string | null | undefined): id is string => !!id && modes.some((m) => m.id === id);
-  return [asked, stored, fallback].find(has) ?? null;
-}
+// The mode a shell opens in (kept on the light `./shellModes`, re-exported here as before).
+export {initialShellMode} from "./shellModes";
 
 /** What a plugin shell had registered under its plugin's id when it was taken down, put back when it is installed again. */
 interface ShellRegistrations {
@@ -150,7 +162,9 @@ export function registrationsOf(owner: string): ShellRegistrations {
  */
 export function installShell(spec: UiShellSpec | null, baseline?: ShellRegistrations | null): () => void {
   if (!spec) {
+    // Core's own UI has no modes: nothing about a mode applies to it.
     setShellModes([]);
+    setModeSwitching(undefined);
     setClassicShell(null);
     setClassicToolbar(true);
     setPanelOverrides(null);
@@ -159,8 +173,10 @@ export function installShell(spec: UiShellSpec | null, baseline?: ShellRegistrat
     return () => {};
   }
   const modes = shellModes(spec);
+  const switching = spec.layout?.modeSwitching ?? {};
   const asked = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get(SHELL_MODE_PARAM) : null;
-  setShellModes(modes, initialShellMode(modes, asked, readMode(spec.id), spec.layout?.defaultMode));
+  setModeSwitching(switching);
+  setShellModes(modes, initialShellMode(modes, asked, readMode(spec.id), spec.layout?.defaultMode, switching));
   const byMode: Record<string, ClassicArrangement> = {};
   for (const m of spec.layout?.modes ?? []) byMode[m.id] = {grid: m.grid, open: m.open, docks: m.docks, cover: m.viewportCover};
   // A plugin's mode the shell has an arrangement for (it does not declare the mode itself).
@@ -261,22 +277,25 @@ function useModeEffects(shellId: string | null): void {
     const report = () => {
       // A shell without modes has nothing to report, as core's own UI does not.
       if (!listShellModes().length) return;
-      const id = activeShellMode();
-      const mode = listShellModes().find((m) => m.id === id) ?? null;
-      notifyActiveModeSceneColor(mode ? {id: mode.id, ownsSceneColor: mode.ownsSceneColor} : null);
+      const mode = activeModeDef();
+      // What the mode declared (`behaviour`), else its older flags.
+      notifyActiveModeSceneColor(mode ? {id: mode.id, ownsSceneColor: modeOwnsSceneColor(mode)} : null);
       // A mode that shows no deformation holds the FEA model undeformed while it is active.
-      setFeaDeformationShown(MODE_DEFORMATION_OWNER, mode?.showsDeformation !== false);
+      setFeaDeformationShown(MODE_DEFORMATION_OWNER, modeShowsDeformation(mode));
+      if (!mode || modeSwitching().remember === false) return;
       try {
-        if (id) localStorage.setItem(modeKey(shellId), id);
+        localStorage.setItem(modeKey(shellId), mode.id);
       } catch {
         // Storage unavailable: the shell starts in its first mode next time.
       }
     };
-    // A mode whose requirement no longer holds (the builder's model was closed) hands over to the first on offer.
+    // A mode whose requirement no longer holds (the builder's model was closed) hands over to the
+    // shell's fallback (`modeSwitching.fallback`) when that one is on offer, else the first that is.
     const settle = () => {
-      const cur = listShellModes().find((m) => m.id === activeShellMode());
+      const cur = activeModeDef();
       if (!cur || modeAvailable(cur)) return;
-      const next = listShellModes().find(modeAvailable);
+      const offered = listShellModes().filter(modeAvailable);
+      const next = offered.find((m) => m.id === modeSwitching().fallback) ?? offered[0];
       if (next) setShellMode(next.id);
     };
     settle();
@@ -340,6 +359,11 @@ export default function ComposedLayout({spec, children}: {spec: UiShellSpec | nu
       )}
       {/* The marking menu over the 3D view, where the served UI has it on (nothing otherwise). */}
       <MarkingMenuHost />
+      {/* Which loaded models the active mode draws, where its UI declared it (`behaviour.scene`); nothing otherwise. */}
+      <Suspense fallback={null}>
+        <ModeSceneScope />
+      </Suspense>
+
       {/* Core's rail's customise dialog (Window -> Customise tool rail…, the rail's own button). */}
       {spec && tools && <ToolRailCustomiseHost shell={spec.id} config={tools} />}
 

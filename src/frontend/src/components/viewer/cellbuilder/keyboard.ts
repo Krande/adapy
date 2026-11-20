@@ -574,9 +574,10 @@ export const onKeyDown = (ctx: CellBuilderScene, ev: KeyboardEvent) => {
                 ev.stopPropagation();
                 return;
             }
-            // A: enter add-cell placement (pointer ghost).
+            // A: add cell -- enter placement (pointer ghost, or typed X, Y, Z and Enter); a second A
+            // puts the tool away, as the "Add cell" command does.
             if (k === "a") {
-                st.setMode("add-cell");
+                st.setMode(st.mode === "add-cell" ? "idle" : "add-cell");
                 ev.preventDefault();
                 ev.stopPropagation();
                 return;

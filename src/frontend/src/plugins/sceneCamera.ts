@@ -1,4 +1,4 @@
-// A camera a plugin places in the scene (`ctx.scene.placeCamera`, plugin API 1.32.0).
+// A camera a plugin places in the scene (`ctx.scene.placeCamera`, plugin API 1.33.0).
 //
 // A tool that asks the user where a view is seen from -- "draw the frame from up here, looking at its
 // middle" -- needs a thing to look at that says which way it looks, and handles to move and aim it.

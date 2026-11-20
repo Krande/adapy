@@ -38,7 +38,8 @@ function registerShells(): void {
 }
 
 const spec = D.desktopUiShellSpec();
-const modes = (spec.layout?.modes ?? []).map((m, i) => ({ id: m.id, label: m.label, order: i }));
+const modes = (spec.layout?.modes ?? []).map((m, i) => ({ id: m.id, label: m.label ?? m.id, order: i }));
+const { Mode } = await import("@/layout/modes");
 const html = (el: React.ReactElement) => renderToStaticMarkup(React.createElement(AdaViewerProvider, null, el));
 
 test("the Desktop UI registers next to the classic one, composed, and the classic stays the default", () => {
@@ -78,7 +79,7 @@ test("its grids are already normal, and name only core panels the docks can find
 
 test("every menu item names a command core registers, or a panel or mode that exists", () => {
   registerShells();
-  M.setShellModes(modes, "model");
+  M.setShellModes(modes, Mode.TopologyOutput);
   registerCoreCommands();
   C.registerCommand({ id: CORE_COMMAND_IDS.commandPalette, label: "Command palette", run() {} }, "core");
   try {
@@ -119,7 +120,7 @@ test("a menu's separators are tidied once items drop out", () => {
 
 test("the menu bar, the status bar and the page header render", () => {
   registerShells();
-  M.setShellModes(modes, "model");
+  M.setShellModes(modes, Mode.TopologyOutput);
   registerCoreCommands();
   try {
     const head = html(React.createElement(DesktopHeader));

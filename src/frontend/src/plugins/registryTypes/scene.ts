@@ -45,14 +45,14 @@ export interface SceneCleared {
   overlaysRemoved: boolean;
 }
 
-/** (1.32.0) Options of `SceneHandle.loadSavedGroup`. */
+/** (1.33.0) Options of `SceneHandle.loadSavedGroup`. */
 export interface SceneGroupLoadOptions {
   // Each stage of the load, in a few words ("loading 3 of 7", ...): for a progress line, not to
   // branch on.
   onStage?: (stage: string) => void;
 }
 
-/** (1.32.0) What `SceneHandle.loadSavedGroup` did. Plain data: members are named as the Scene panel
+/** (1.33.0) What `SceneHandle.loadSavedGroup` did. Plain data: members are named as the Scene panel
  *  names them. */
 export interface SceneGroupLoad {
   groupId: string;
@@ -71,7 +71,7 @@ export interface SceneGroupLoad {
   notFound: string[];
   // The camera was moved to frame the members (the scene was empty before).
   framed: boolean;
-  // (1.32.0) The box round what was selected afterwards -- the group's members as drawn -- in the
+  // (1.33.0) The box round what was selected afterwards -- the group's members as drawn -- in the
   // scene's own coordinates (those `placeBox` takes and gives: world less the scene's offset); null
   // when nothing of the group draws. For a plugin that places something in or over the group.
   bounds: SceneBox | null;
@@ -386,7 +386,7 @@ export interface SceneHandle {
   // (they do nothing now) or what it held of the models that went. Returns the function that stops
   // it. Additive: an older core has no `onSceneCleared`, so a plugin asks for it first.
   onSceneCleared: (listener: (cleared: SceneCleared) => void) => () => void;
-  // (1.32.0) The Scene panel's "Load into scene" for the saved group `id` of the current scope: its
+  // (1.33.0) The Scene panel's "Load into scene" for the saved group `id` of the current scope: its
   // members put in the scene from what is already published or stored (nothing is requested of a
   // provider), the rest of a document loaded whole hidden, and the group selected. For a plugin
   // whose view follows a saved group (one that draws it, say). Resolves what was done
@@ -457,7 +457,7 @@ export interface SceneHandle {
   // `remove(owner)` ends it too. (1.29.0) `frame: true` frames the camera on the box when it is first
   // drawn: a box in a large model is otherwise a few pixels of the view of the whole.
   placeBox: (owner: string, options: PlaceBoxOptions) => PlacedBox;
-  // (1.32.0) Put a camera in the scene with a transform gizmo on it until `end()`: its body, its lens
+  // (1.33.0) Put a camera in the scene with a transform gizmo on it until `end()`: its body, its lens
   // and an arrow to what it looks at. The user moves it (G, X / Y / Z; it goes on looking at its
   // target) and turns it about where it stands (R: a flat ring for its yaw, a standing one for its
   // pitch; the target goes round with it), and each change is handed to `onChange` as where it is and

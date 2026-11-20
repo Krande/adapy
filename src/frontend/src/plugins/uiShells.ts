@@ -28,6 +28,7 @@ import type { MarkingMenuConfig } from "@/layout/markingMenuModel";
 import type { ToolRailConfig } from "@/layout/toolRailModel";
 import type { PanelOverride } from "@/layout/registry";
 import type { CoreModeToolbarId } from "@/layout/shellModes";
+import type { ModeBehaviour, ModeId, ModeSwitching } from "@/layout/modes";
 import type { GridNode } from "@/layout/splitTree";
 import type { ViewportAnchor } from "@/layout/viewportOverlays";
 import type { StatusItemSpec } from "@/layout/statusItems";
@@ -77,7 +78,13 @@ export interface UiShellLayout {
    * context, not the mode plugin's -- and an error in it disables the shell, not the mode's
    * plugin. Data the shell needs from the mode's plugin, that plugin exposes.
    */
-  modeArrangements?: Record<string, Pick<UiShellMode, "grid" | "open" | "docks" | "viewportCover" | "toolbar" | "toolbarEnd">>;
+  modeArrangements?: Record<string, Pick<UiShellMode, "grid" | "open" | "docks" | "viewportCover" | "toolbar" | "toolbarEnd" | "behaviour">>;
+  /**
+   * How the shell switches modes (`ModeSwitching`): remember the last one, honour `?mode=`, where
+   * to fall back, and the ids it used before (`aliases`, so an old link or remembered mode lands
+   * on the mode it means now). Absent: all defaults.
+   */
+  modeSwitching?: ModeSwitching;
   /**
    * Panels that are one panel for every mode rather than part of each mode's
    * arrangement (a file browser, say): open or closed, and their docked size, are
@@ -89,7 +96,7 @@ export interface UiShellLayout {
    * The id of the mode used when there is no `?mode=` and none stored from an
    * earlier visit. Absent, or not one of the modes: the first by order.
    */
-  defaultMode?: string;
+  defaultMode?: ModeId;
   /**
    * The version of these arrangements. Raise it when the shell ships a new one: a
    * user's saved arrangement made under another version is passed to `migrate`,
@@ -109,10 +116,20 @@ export interface UiShellLayout {
 
 /** One of a composed shell's modes. */
 export interface UiShellMode {
-  /** Kebab-case; what a panel's `modes` names. */
-  id: string;
-  label: string;
+  /**
+   * One of core's modes (`Mode.TopologyInput`, ...), or an id of the shell's own (kebab-case).
+   * What a panel's `modes` names.
+   */
+  id: ModeId;
+  /** The switcher's label. Default for one of core's modes: core's (`CORE_MODES`). */
+  label?: string;
+  /** Default for one of core's modes: core's. */
   hint?: string;
+  /**
+   * What the mode does in this shell (`ModeBehaviour`): the cell builder's presence, the FEA field
+   * colouring, deformation, which loaded models it draws. Core reacts to a mode only through this.
+   */
+  behaviour?: ModeBehaviour;
   icon?: React.FC;
   /** Sort key; plugins' modes sort among these by theirs. Default: the position in the list. */
   order?: number;

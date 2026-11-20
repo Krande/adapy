@@ -11,11 +11,11 @@
 // turn ring, X / Y / Z lock the gizmo to that axis (the same key again releases it), and a move locked
 // to an axis follows the pointer with no button held until a click confirms it or Escape puts the box
 // back. A drag snaps as the builder's does: a move to the grid step, a turn to 15 degrees. Escape and
-// Enter end the placement where the box stands. A box placed with `resize` (1.32.0) has the builder's
+// Enter end the placement where the box stands. A box placed with `resize` (1.33.0) has the builder's
 // third gizmo too: S brings up a handle on each face it may resize, which drags that face along its
 // normal (the opposite face staying put, the box's size across it snapping to the move's step), and
 // X / Y / Z keep only the handles of that axis of the box's own frame. A box placed with
-// `constrain.rotate: "xyz"` (1.32.0) turns every way, as the builder's objects do: R brings up a ring
+// `constrain.rotate: "xyz"` (1.33.0) turns every way, as the builder's objects do: R brings up a ring
 // about each of the scene's X, Y and Z, R then X / Y / Z keeps the one ring, and its pose says how it
 // is turned as its own axes in the scene (`axes`). What is NOT the builder's own is the widget: the
 // builder's is three.js's TransformControls, an object of a three.js scene, and the three.js-free
@@ -90,22 +90,22 @@ import {own} from "./sceneLayers";
 export interface PlacedBoxPose {
     position: [number, number, number];
     yawDeg: number;
-    /** (1.32.0) The box in its own frame as it is now (min x, y, z, then max x, y, z): there for a box
+    /** (1.33.0) The box in its own frame as it is now (min x, y, z, then max x, y, z): there for a box
      *  placed with `resize`, whose faces the user moves; absent for any other. */
     box?: number[];
-    /** (1.32.0) The box's own x, y and z axes in the scene (unit vectors at right angles,
+    /** (1.33.0) The box's own x, y and z axes in the scene (unit vectors at right angles,
      *  right-handed): there for a box placed with `constrain.rotate: "xyz"`, which turns every way,
      *  and then what says how it is turned (`yawDeg` is where its x heads, seen from above); absent
      *  for any other. */
     axes?: [[number, number, number], [number, number, number], [number, number, number]];
 }
 
-/** "resize" (1.32.0) only for a box placed with `resize`. */
+/** "resize" (1.33.0) only for a box placed with `resize`. */
 export type PlacedBoxMode = "translate" | "rotate" | "resize";
 
 export type {BoxFace} from "@/utils/gizmo/boxPose";
 
-/** (1.32.0) Which of the box's faces the user may move, and how small the box may get. */
+/** (1.33.0) Which of the box's faces the user may move, and how small the box may get. */
 export interface PlaceBoxResize {
     /** The faces with a handle: every face when left out. A face is named in the box's own frame
      *  ("+x" is the face at max x), before the turn. */
@@ -122,12 +122,12 @@ export interface PlaceBoxOptions {
     position: readonly number[];
     /** 0 when left out. */
     yawDeg?: number;
-    /** (1.32.0) How a box that turns every way (`constrain.rotate: "xyz"`) is turned: its own x and y
+    /** (1.33.0) How a box that turns every way (`constrain.rotate: "xyz"`) is turned: its own x and y
      *  axes in the scene (z is their cross product; y is made square to x). Left out, it is turned
      *  `yawDeg` about Z. Ignored for any other box. */
     axes?: readonly (readonly number[])[];
     /** What the gizmo may do. `translate`: "xyz" (the default) or "xy" for a box that stays on its
-     *  floor; `rotate`: "z" (the default), "none", or (1.32.0) "xyz": turn rings about the scene's X,
+     *  floor; `rotate`: "z" (the default), "none", or (1.33.0) "xyz": turn rings about the scene's X,
      *  Y and Z, R then X / Y / Z keeping the one ring, and the pose's `axes` the turn. An older core
      *  reads "xyz" as "z". */
     constrain?: {translate?: "xyz" | "xy"; rotate?: "z" | "none" | "xyz"};
@@ -142,7 +142,7 @@ export interface PlaceBoxOptions {
     /** Frame the camera on the box when it is first drawn (1.29.0): for a box placed in a large model,
      *  where the view of the whole would show it a few pixels wide. Once: the view is the user's after. */
     frame?: boolean;
-    /** (1.32.0) Resize handles on the box's faces, in a gizmo of their own (S, or `setMode("resize")`):
+    /** (1.33.0) Resize handles on the box's faces, in a gizmo of their own (S, or `setMode("resize")`):
      *  `true` for every face, or which. A drag moves one face along its normal, the opposite face
      *  staying where it is: the box's origin and pose do not change, its `box` does (in `onChange`).
      *  An older core has no such handles and ignores it. */
@@ -159,7 +159,7 @@ export interface PlaceBoxOptions {
 /** A box being placed. */
 export interface PlacedBox {
     /** Put the box somewhere else, or make it another box: what is left out stays. Tells nobody.
-     *  `axes` (1.32.0) turns a box that turns every way; a `yawDeg` given such a box turns it upright, by that much about Z. */
+     *  `axes` (1.33.0) turns a box that turns every way; a `yawDeg` given such a box turns it upright, by that much about Z. */
     set: (change: {position?: readonly number[]; yawDeg?: number; box?: readonly number[]; axes?: readonly (readonly number[])[]}) => void;
     pose: () => PlacedBoxPose;
     /** Show the move arrows, the turn ring or (a box placed with `resize`) the resize handles: what G, R and S do. */
@@ -363,7 +363,7 @@ export class BoxPlacement {
         // A drag in progress is left alone: a form that follows the box says each pose back, and the
         // pointer's next move places the box again.
         this.at = next;
-        // Another box is the same things moved (1.32.0; it was drawn anew): the handles, as long as the
+        // Another box is the same things moved (1.33.0; it was drawn anew): the handles, as long as the
         // box is large, are worked out from it as they are moved. So what was drawn over the box stays
         // over it, as it did when the box was resized by a face dragged.
         this.move();

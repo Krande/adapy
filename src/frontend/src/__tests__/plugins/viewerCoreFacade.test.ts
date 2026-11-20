@@ -124,6 +124,7 @@ test("the root entry point re-exports only the dependency-free leaves", () => {
     "@/layout/corePanelIds",
     "@/layout/splitTree",
     "@/layout/shellModes",
+    "@/layout/modes",
     "@/layout/shortcuts",
     "@/layout/coreShortcutTable",
     "@/layout/shortcutDispatch",

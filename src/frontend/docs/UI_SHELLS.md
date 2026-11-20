@@ -264,6 +264,8 @@ the chrome it draws in the slots.
 |---|---|---|
 | Arrangement | `layout.grid`, `open`, `docks` | The starting split grid, the panels opened on load, where dock-naming plugin panels go. |
 | | `layout.modes[]` | Modes, each with its own `grid` / `open` / `docks`, saved arrangement, and `viewportCover` (a panel drawn over the 3D view, a converter say), `ownsSceneColor`, `showsDeformation: false` (a shell's own mode shows the deformed FEA model unless it says false; a **plugin's** mode (`PluginModeSpec`) holds it undeformed unless it opts in with `true`), `toolbar`, `toolbars` (core's own: `playback`, `section`, `representation`, `colorBy`, `build`, see "Core's mode toolbars"), `requires: "builder"` (offered only while a procedural model is open; the Desktop UI does not use it). `?mode=` opens one; `setShellModeBadge` marks one. |
+| | `layout.modes[].id`, `.behaviour` | One of core's modes by its constant (`Mode.TopologyInput`, ...; its `label` and `hint` default to core's), and what it does in this shell (`ModeBehaviour`): `builder`, `sceneColor`, `deformation`, `scene`. See [Modes and what they do](#modes-and-what-they-do). |
+| | `layout.modeSwitching` | Remember the last mode (`remember`), honour `?mode=` (`urlParam`), where to fall back (`fallback`), and `aliases` for ids the shell used before. |
 | | `layout.defaultMode` | The mode used when there is no `?mode=` and none stored from an earlier visit (else the first by order). |
 | | `layout.version`, `migrate` | Re-seed or migrate users' saved arrangements when the shell ships new ones. |
 | | `layout.customisablePanels` | `"required"` (default): floating, docking and the split grid are always on in the shell, whatever the user set in another UI, and Options → Theme → Customisable panels shows the toggle on and disabled ("Always on in the … UI"); a docked layout is built on them. `"optional"`: the user's own setting for this shell. The setting is kept per shell (`LayoutPrefs.customisablePanelsByShell`; core's own UI's under `core`, where the single setting of older versions moves), so turning it off in Classic leaves the Desktop UI as designed and comes back on the way back. Read it through `customisablePanels()` / `useCustomisablePanels()`. |
@@ -309,6 +311,43 @@ listed in the dialog and (F6, Esc) reserved, but never dispatched. Rebinding a c
 
 Layout state helpers on `@/viewer-core/layout`: `resetArrangement`, `saveWorkspace`,
 `loadWorkspace`, `deleteWorkspace`, `listWorkspaces`.
+
+### Modes and what they do
+
+**Core names the modes; each UI decides what they do.** Core's modes are typed constants on
+`@/viewer-core` (`Mode`), grouped under headings (`ModeGroup`, `MODE_GROUPS`):
+
+| Heading | Mode | Constant |
+|---|---|---|
+| Topology | Input | `Mode.TopologyInput` |
+| | Output | `Mode.TopologyOutput` |
+| Fem | Model | `Mode.FemModel` |
+| | Results | `Mode.FemResults` |
+| Construction | Fabrication-cad | `Mode.ConstructionFabrication` |
+
+Code names a mode by its constant, never by a string: the string is only how a mode is stored (a
+`?mode=` link, the remembered mode, a saved layout). A plugin's mode (`PluginModeSpec`) joins a heading
+with `group`.
+
+A composed shell offers the modes it wants (`layout.modes`) and gives each a `behaviour`:
+
+| `ModeBehaviour` | Values | Default (a mode that says nothing) |
+|---|---|---|
+| `builder` | `"edit"`: the procedural model is worked on here; its picks are in Properties and the builder panel is offered, whatever the builder draws. `"compare"`: the builder is drawn to compare; a pick is in Properties while its cells are drawn. `"away"`: the model stays open behind the mode; a pick is not this mode's selection. | `"compare"` |
+| `sceneColor` | `"own"`: core sets the FEA field colouring aside while the mode is active. `"results"`: shown. | the mode's `ownsSceneColor` |
+| `deformation` | Draw the FEA model deformed. | the mode's `showsDeformation` |
+| `scene` | `{draws(model)}`: which loaded models the mode draws. Core applies it reversibly: what a model's visibility was before is what it goes back to, and a model the user shows or hides by hand is theirs until the mode changes. | every model, untouched |
+
+A plugin's mode may carry a `behaviour` of its own; the shell's `modeArrangements[id].behaviour` wins,
+field by field.
+
+**The rule.** Core reacts to a mode only through the active mode's declared behaviour: it never compares
+mode ids and never infers what a UI meant from what is drawn. Core's own UI has no modes, so nothing
+here ever applies to it. A shell that scopes its scene itself declares no `scene`, and core leaves its
+models alone.
+
+`modeStore` (zustand) holds the modes on offer, the active one, the badges and the switching rules; the
+functions (`activeShellMode`, `setShellMode`, `builderPresence`, ...) are its API.
 
 ### The marking menu
 
@@ -644,8 +683,8 @@ shell needs no code for them:
 
 ```ts
 modes: [
-  { id: "model", label: "Model", toolbars: ["section", "representation", "colorBy"] },
-  { id: "results", label: "Results", toolbars: ["playback", "representation", "colorBy"] },
+  { id: Mode.TopologyOutput, label: "Model", toolbars: ["section", "representation", "colorBy"] },
+  { id: Mode.FemResults, label: "Results", toolbars: ["playback", "representation", "colorBy"] },
 ]
 ```
 

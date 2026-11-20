@@ -218,7 +218,7 @@ test("a reset opens the active mode's starting panels again, one closed since in
   }
 });
 
-test("a mode that opens the Builder at the start offers it with no model, whatever the mode is called", async () => {
+test("a mode that opens the Builder at the start, or edits the model, offers it with no model, whatever the mode is called", async () => {
   const { corePanelSpecs } = await import("@/layout/corePanels");
   const { CORE_PANEL_IDS } = await import("@/layout/corePanelIds");
   const builder = corePanelSpecs().find((p) => p.id === CORE_PANEL_IDS.cellbuilder)!;
@@ -227,8 +227,14 @@ test("a mode that opens the Builder at the start offers it with no model, whatev
     assert.equal(builder.available?.({} as never), false, "not in a mode that does not open it");
     M.setShellMode("topology-input");
     assert.equal(builder.available?.({} as never), true, "the docked UI's Topology > Input");
+    // A mode where the model is edited offers it, by its declared behaviour, not by what it is called.
+    M.setShellModes([{ id: "anything", label: "Build", order: 0, behaviour: { builder: "edit" } }], "anything");
+    assert.equal(builder.available?.({} as never), true, "an edit mode (the Desktop UI's Build)");
     M.setShellModes([{ id: "build", label: "Build", order: 0 }], "build");
-    assert.equal(builder.available?.({} as never), true, "the Desktop UI's Build, as before");
+    assert.equal(builder.available?.({} as never), false, "a mode called \"build\" that declares nothing is not one");
+    // Core's own UI (no modes): only with a model loaded, as it always has been.
+    M.setShellModes([]);
+    assert.equal(builder.available?.({} as never), false);
   } finally {
     M.setShellModes([]);
   }

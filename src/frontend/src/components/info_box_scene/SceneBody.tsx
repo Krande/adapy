@@ -87,7 +87,7 @@ export interface SceneBodyProps extends SceneTabOptions {
 // overlays) moved to the Connections panel (`ConnectionBuilderPanel`); a mode that
 // named one of its tabs opens that panel there (`layout/connectionsTabActions`).
 //
-// After core's groups, a plugin's tabs (a `scene-info` panel with `asTab`, plugin API 1.32.0;
+// After core's groups, a plugin's tabs (a `scene-info` panel with `asTab`, plugin API 1.33.0;
 // `getSceneTabs`), drawn and mounted the way the Connections panel draws its plugins' tabs: only
 // the one on show is mounted. The one on show is the store's `pluginTab`, which any of core's
 // tabs being opened clears. Not in a pop-out window, which has the Model tab only.
