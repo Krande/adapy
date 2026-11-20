@@ -226,8 +226,17 @@ export function perfOptionsSnapshot(): Record<string, unknown> {
 // the next frame even if no controls event fires. The render loop
 // reads + clears the flag once per animate tick.
 let _dirty = true;
+const renderRequestListeners = new Set<() => void>();
 export function requestRender(): void {
     _dirty = true;
+    if (renderRequestListeners.size) for (const listener of renderRequestListeners) listener();
+}
+/** Called on each `requestRender`: what draws a three.js scene through a viewport that has no
+ *  three.js render loop to read the flag (the cell builder's on the three.js-free viewport).
+ *  Returns the unsubscribe function. */
+export function onRenderRequest(listener: () => void): () => void {
+    renderRequestListeners.add(listener);
+    return () => void renderRequestListeners.delete(listener);
 }
 export function consumeDirty(): boolean {
     const wasDirty = _dirty;

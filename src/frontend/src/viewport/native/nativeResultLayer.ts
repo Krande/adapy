@@ -24,6 +24,8 @@ export class NativeResultLayer implements ResultMeshLayer {
     /** A plain colour given in place of the layer's own (setColor). */
     private plain: readonly [number, number, number] | null = null;
     private readonly baseFlags: number;
+    /** A lit annotation's material; null draws an annotation unlit. */
+    private readonly lit: {metalness: number; roughness: number} | null;
     /** Lit faces of a result (not an annotation, not lines or points): what a field paints. */
     private readonly faces: boolean;
     /** Lines' width and points' diameter in the drawing buffer's pixels, and the layer's opacity. */
@@ -61,10 +63,13 @@ export class NativeResultLayer implements ResultMeshLayer {
         this.size = Math.max(1, (data.sizePx ?? 1) * pixelRatio);
         const overlay = data.overlay;
         this.faces = triangles && !overlay;
+        // A lit annotation (a three.js MeshStandardMaterial mirrored) is shaded with the model's lights.
+        this.lit = triangles && overlay?.lit ? overlay.lit : null;
         if (overlay) {
-            // An annotation: unlit, a click passes through it, and it wins over the faces it lies on.
-            this.baseFlags = InstanceFlag.MorphRelative | InstanceFlag.Unlit | InstanceFlag.NoPick |
-                (triangles ? InstanceFlag.DoubleSided : 0) |
+            // An annotation: unlit unless asked, a click passes through it, and it wins over the faces it lies on.
+            this.baseFlags = InstanceFlag.MorphRelative | (this.lit ? 0 : InstanceFlag.Unlit) | InstanceFlag.NoPick |
+                // One-sided: the renderer draws both sides of a transparent instance unless told so.
+                (triangles ? (overlay.frontOnly ? InstanceFlag.CullBack : InstanceFlag.DoubleSided) : 0) |
                 (overlay.onTop ? InstanceFlag.OnTop : InstanceFlag.DepthOffset) |
                 (overlay.clipped === false ? 0 : InstanceFlag.Clipped) |
                 (this.opacity < 1 ? InstanceFlag.Transparent : 0);
@@ -91,24 +96,32 @@ export class NativeResultLayer implements ResultMeshLayer {
         const segmentsPtr = segmentCount ? M._malloc(segments!.byteLength) : 0;
         const distances = this.dash > 0 ? data.overlay!.dashed!.distances : null;
         const distancesPtr = distances ? M._malloc(Math.max(1, n) * 4) : 0;
+        const normals = this.lit && overlay?.normals && overlay.normals.length >= n * 3 ? overlay.normals : null;
+        const normalsPtr = normals ? M._malloc(Math.max(1, n) * 12) : 0;
         try {
+            if (normalsPtr) M.HEAPF32.set(normals!.subarray(0, n * 3), normalsPtr >> 2);
             if (distancesPtr) M.HEAPF32.set(distances!.length === n ? distances! : distances!.subarray(0, n), distancesPtr >> 2);
             M.HEAPF32.set(data.positions, positionsPtr >> 2);
             if (indicesPtr) M.HEAPU32.set(data.indices!, indicesPtr >> 2);
             if (segmentsPtr) M.HEAPU32.set(segments!, segmentsPtr >> 2);
             // No normals: the renderer shades each face by its own, which follows the deformed shape.
             this.geometry = renderer.addGeometry(
-                TOPOLOGY[data.topology], positionsPtr, n, 0, this.colorsPtr, this.morphPtr, indicesPtr, indexCount,
+                TOPOLOGY[data.topology], positionsPtr, n, normalsPtr, this.colorsPtr, this.morphPtr, indicesPtr, indexCount,
                 segmentsPtr, segmentCount, distancesPtr,
             );
         } finally {
             if (distancesPtr) M._free(distancesPtr);
+            if (normalsPtr) M._free(normalsPtr);
             M._free(positionsPtr);
             if (indicesPtr) M._free(indicesPtr);
             if (segmentsPtr) M._free(segmentsPtr);
         }
         this.instance = renderer.addInstance(this.geometry);
         this.push();
+        // Sorted among the see-through and on-top annotations as three.js sorts them (a module without
+        // it draws them in the order they were made).
+        const order = overlay?.renderOrder ?? 0;
+        if (order) renderer.setInstanceRenderOrder?.(this.instance, order);
     }
 
     /** The instance's state: its matrix, colour, flags and the morph influence. */
@@ -126,8 +139,13 @@ export class NativeResultLayer implements ResultMeshLayer {
         // Painted colours are drawn times the layer's own colour, so a given one waits for them to go.
         const [r, g, b] = this.plain && !painted ? this.plain : this.color;
         // Lit faces are a matte surface with the faint highlight three.js' standard material gives
-        // one (metalness 0, roughness 1): what the three.js viewport draws a result's faces with.
-        this.renderer.setInstance(this.instance, this.matrixPtr, r, g, b, this.opacity, flags, this.influence, 0, 1, this.faces, this.size, this.dash, this.gap);
+        // one (metalness 0, roughness 1): what the three.js viewport draws a result's faces with. A lit
+        // annotation has the material it was given.
+        const lit = this.lit;
+        this.renderer.setInstance(
+            this.instance, this.matrixPtr, r, g, b, this.opacity, flags, this.influence,
+            lit ? lit.metalness : 0, lit ? lit.roughness : 1, this.faces || !!lit, this.size, this.dash, this.gap,
+        );
         this.changed();
     }
 

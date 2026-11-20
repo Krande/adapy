@@ -65,7 +65,7 @@ export function createNativeOverlayLayer(scene: NativeScene): OverlayLayer {
         dashed ? {dash: dashed.dash, gap: dashed.gap, distances: segmentDistances(positions, new Float32Array(positions.length / 3))} : undefined;
 
     const look = (
-        spec: OverlayLook, topology: ResultMeshData["topology"], positions: Float32Array, sizePx: number,
+        spec: OverlayLook & {frontOnly?: boolean; lit?: OverlayMesh["lit"]; normals?: Float32Array}, topology: ResultMeshData["topology"], positions: Float32Array, sizePx: number,
         dashed?: OverlayLines["dashed"], indices: Uint32Array | null = null,
     ): ResultMeshData => ({
         positions,
@@ -75,7 +75,15 @@ export function createNativeOverlayLayer(scene: NativeScene): OverlayLayer {
         color: spec.color ?? [1, 1, 1],
         sizePx,
         opacity: spec.opacity,
-        overlay: {onTop: !!spec.onTop, clipped: !!spec.clipped, dashed: measured(dashed, positions)},
+        overlay: {
+            onTop: !!spec.onTop,
+            clipped: !!spec.clipped,
+            dashed: measured(dashed, positions),
+            frontOnly: !!spec.frontOnly,
+            lit: spec.lit,
+            normals: spec.lit && spec.normals ? new Float32Array(spec.normals) : null,
+            renderOrder: spec.renderOrder,
+        },
     });
 
     const put = (data: ResultMeshData, colors: Float32Array | null, dashed?: OverlayLines["dashed"]): number => {

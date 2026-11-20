@@ -12,13 +12,12 @@ import * as THREE from "three";
 import {useCellBuilderStore, type BuilderCell} from "@/state/cellBuilderStore";
 import {boxMoves, boxTarget, selectedBox, writeBox, type GizmoBox} from "./gizmoBox";
 import {requestRender} from "@/state/perfStore";
-import {getViewerRuntime} from "@/state/viewerRuntime";
 import {axesOfHandle, boxCorners, movedOrigin, type CellBox, type Vec3} from "@/utils/cellbuilder/snap";
 import {gizmoMoveStep} from "@/utils/gizmo/transformKeys";
 import {freeMove, snapStep} from "@/utils/gizmo/freeMove";
 import {HANDLE_AXIS_COLOR, SNAP_PX} from "./sceneConstants";
 import {offsetVec, type CellBuilderScene} from "./sceneContext";
-import {viewportInputElement} from "@/viewport/input";
+import {builderCamera} from "./viewHost";
 import {boxFrameMatrix} from "@/utils/cellbuilder/cellResize";
 import {syncMoveMeasure} from "./cellDimensions";
 
@@ -136,10 +135,10 @@ export const showSnapMarker = (ctx: CellBuilderScene, targetModel: Vec3 | null) 
 // within SNAP_PX, or null. This is the snap TARGET — the vertex under the
 // cursor — so the marker lands exactly where the user is pointing.
 export const nearestCornerToPointer = (ctx: CellBuilderScene, excludeCellId: string): Vec3 | null => {
-    const cam = getViewerRuntime().camera.current ?? (ctx.camera as THREE.PerspectiveCamera);
+    const cam = builderCamera(ctx);
     const off = offsetVec(ctx);
-    const rect = ctx.renderer.domElement.getBoundingClientRect();
-    const px = (ctx.pointer.x * 0.5 + 0.5) * rect.width;
+    const rect = ctx.host.rect();
+    const px =(ctx.pointer.x * 0.5 + 0.5) * rect.width;
     const py = (-ctx.pointer.y * 0.5 + 0.5) * rect.height;
     const v = new THREE.Vector3();
     let best: Vec3 | null = null;
@@ -212,7 +211,7 @@ export const startModalMove = (ctx: CellBuilderScene, cell: GizmoBox, axis: 0 | 
     };
     beginMoveMeasure(ctx, cell);
     showGuideLine(ctx, axis, centerModel);
-    viewportInputElement(ctx.renderer).style.cursor = "move";
+    ctx.host.input().style.cursor = "move";
 };
 
 export const endModalMove = (ctx: CellBuilderScene, cancel: boolean) => {
@@ -238,7 +237,7 @@ export const endModalMove = (ctx: CellBuilderScene, cancel: boolean) => {
     ctx.gizmo.enabled = true;
     ctx.guideLine.visible = false;
     ctx.snapMarker.visible = false;
-    viewportInputElement(ctx.renderer).style.cursor = "";
+    ctx.host.input().style.cursor = "";
     requestRender();
 };
 
@@ -277,8 +276,7 @@ export function installCellGizmo(ctx: CellBuilderScene): void {
 
     ctx.gizmo.addEventListener("dragging-changed", (e: any) => {
         const st = useCellBuilderStore.getState();
-        const runtimeCtl = getViewerRuntime().controls.current;
-        if (runtimeCtl) runtimeCtl.enabled = !e.value;
+        ctx.host.setCameraEnabled(!e.value);
         // Coalesce the whole widget drag into one undo step.
         if (e.value) {
             st.beginTransaction();

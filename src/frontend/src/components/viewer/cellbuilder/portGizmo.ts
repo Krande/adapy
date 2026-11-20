@@ -11,7 +11,7 @@
 import * as THREE from "three";
 import {useCellBuilderStore, type BuilderCell} from "@/state/cellBuilderStore";
 import {requestRender} from "@/state/perfStore";
-import {getViewerRuntime} from "@/state/viewerRuntime";
+import {builderCamera} from "./viewHost";
 import {portSnapTargets, portsForEquipment} from "@/utils/cellbuilder/ports";
 import type {Vec3} from "@/utils/cellbuilder/snap";
 import {SNAP_PX} from "./sceneConstants";
@@ -75,9 +75,9 @@ export const portGeom = (
 // compiler spliced in), or null. The compiler emits one mesh per equipment
 // named for the cell (see collectCadVerts / _cad_transform).
 export const nearestPortSnapToPointer = (ctx: CellBuilderScene, cell: BuilderCell): Vec3 | null => {
-    const cam = getViewerRuntime().camera.current ?? (ctx.camera as THREE.PerspectiveCamera);
+    const cam = builderCamera(ctx);
     const off = offsetVec(ctx);
-    const rect = ctx.renderer.domElement.getBoundingClientRect();
+    const rect = ctx.host.rect();
     const sx0 = (ctx.pointer.x * 0.5 + 0.5) * rect.width;
     const sy0 = (-ctx.pointer.y * 0.5 + 0.5) * rect.height;
     const v = new THREE.Vector3();
@@ -103,7 +103,7 @@ export const nearestPortSnapToPointer = (ctx: CellBuilderScene, cell: BuilderCel
 export const pickPort = (ctx: CellBuilderScene): {cellId: string; portName: string} | null => {
     const st = useCellBuilderStore.getState();
     if (!st.active || !st.portsOverlayVisible) return null;
-    ctx.portRaycaster.setFromCamera(ctx.pointer, getViewerRuntime().camera.current ?? (ctx.camera as THREE.Camera));
+    ctx.portRaycaster.setFromCamera(ctx.pointer, builderCamera(ctx));
     const hits = ctx.portRaycaster.intersectObjects(ctx.portsGroup.children, true);
     for (const h of hits) {
         let o: THREE.Object3D | null = h.object;
@@ -119,8 +119,7 @@ export const pickPort = (ctx: CellBuilderScene): {cellId: string; portName: stri
 
 export const syncPortGizmo = (ctx: CellBuilderScene) => {
     const st = useCellBuilderStore.getState();
-    const runtimeCam = getViewerRuntime().camera.current;
-    if (runtimeCam) ctx.portGizmo.camera = runtimeCam;
+    ctx.portGizmo.camera = builderCamera(ctx);
     const pg = st.portGizmo;
     const info = pg ? portGeom(ctx, pg.cellId, pg.portName) : null;
     const on = !!(st.active && pg && info && st.portsOverlayVisible && st.cellsVisible);
@@ -149,8 +148,7 @@ export function installPortGizmo(ctx: CellBuilderScene): void {
 
     ctx.portGizmo.addEventListener("dragging-changed", (e: any) => {
         const st = useCellBuilderStore.getState();
-        const runtimeCtl = getViewerRuntime().controls.current;
-        if (runtimeCtl) runtimeCtl.enabled = !e.value;
+        ctx.host.setCameraEnabled(!e.value);
         if (e.value) {
             st.beginTransaction();
             const pg = st.portGizmo;

@@ -223,6 +223,29 @@ export interface ViewportApi {
      *  folds sharper than 30 degrees -- in the world, six numbers per segment. Null when the viewport
      *  cannot say (an object it does not draw, a part that moves). */
     featureEdges?(ref: ObjectRef): Float32Array | null;
+
+    // What a tool that keeps a three.js scene of its own reads to draw it through this viewport (the
+    // cell builder on the three.js-free viewport, components/viewer/cellbuilder/nativeViewHost.ts).
+    // Optional: the three.js viewport draws such a scene itself.
+    /** The camera as it draws now: its view and projection matrices (column-major, clip depth 0 at
+     *  the near plane and 1 at the far one) and the view's size in CSS pixels. */
+    cameraMatrices?(): {view: Float32Array; proj: Float32Array; width: number; height: number};
+    /** The element the view fills and the one its pointer events arrive on. */
+    elements?(): {view: HTMLElement; input: HTMLElement};
+    /** Ask `taker` at each press, before the camera and the viewport's own drags: a handler it
+     *  returns gets every move of that drag, and the camera neither moves for it nor selects on its
+     *  release. Returns the function that stops asking. */
+    takePresses?(taker: (e: PointerEvent) => ((move: PointerEvent) => void) | null): () => void;
+    /** Leave the ground grid out (a tool draws a grid of its own), or draw it again as the Ground
+     *  grid switch says. */
+    setGroundGridHidden?(hidden: boolean): void;
+    /** The objects drawn whose own name is `name`, each with its box in the world. */
+    objectsNamed?(name: string): {ref: ObjectRef; min: Point3; max: Point3}[];
+    /** Draw the model loaded from `sourceName` moved by `shift` in the world from where it was
+     *  placed ([0, 0, 0] puts it back), and return its box as placed (min xyz, max xyz, without the
+     *  shift); null when no such model is on screen. What shows a compiled model beside the cell
+     *  builder's cells (utils/scene/handlers/side_by_side.ts). */
+    shiftSource?(sourceName: string, shift: Point3): [number, number, number, number, number, number] | null;
 }
 
 /** What `surfaceAt` found under a point of the view. */

@@ -78,8 +78,10 @@ export function updateProjection(camera: THREE.PerspectiveCamera, orthographic: 
 
 let isRaycasterPatched = false;
 
-/** Rays from the pointer through an orthographic view of our camera: parallel, from far behind. */
-function patchRaycaster(): void {
+/** Rays from the pointer through an orthographic view of our camera: parallel, from far behind.
+ *  Also for a camera kept in step with another viewport's (the cell builder's on the three.js-free
+ *  one), which no `bindOrthographic` ever patched for. */
+export function patchRaycaster(): void {
     if (isRaycasterPatched) return;
     isRaycasterPatched = true;
     const original = THREE.Raycaster.prototype.setFromCamera;
