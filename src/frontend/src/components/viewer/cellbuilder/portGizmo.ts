@@ -18,6 +18,8 @@ import {SNAP_PX} from "./sceneConstants";
 import {offsetVec, type CellBuilderScene} from "./sceneContext";
 import {collectCadVerts, displayBoxForCell} from "./cadPreview";
 import {showSnapMarker} from "./cellGizmo";
+import {freeMove} from "@/utils/gizmo/freeMove";
+import {translationSnapFor} from "./resizeHandles";
 
 
 // Resolve an equipment port's anchor (nozzle) + outward direction in MODEL
@@ -133,9 +135,7 @@ export const syncPortGizmo = (ctx: CellBuilderScene) => {
             ctx.portGizmo.setRotationSnap(THREE.MathUtils.degToRad(15));
         } else {
             ctx.portGizmo.setMode("translate");
-            ctx.portGizmo.setTranslationSnap(
-                st.gizmoVertexSnap ? null : st.gridStep > 0 ? st.gridStep : null,
-            );
+            ctx.portGizmo.setTranslationSnap(translationSnapFor(st));
         }
         ctx.portGizmoHelper.visible = true;
     } else {
@@ -178,7 +178,7 @@ export function installPortGizmo(ctx: CellBuilderScene): void {
             // pulls it onto the nearest bbox corner / CAD vertex under the cursor.
             let nozzle: Vec3 = [ctx.portProxy.position.x, ctx.portProxy.position.y, ctx.portProxy.position.z];
             let target: Vec3 | null = null;
-            if (st.gizmoVertexSnap) {
+            if (st.gizmoVertexSnap && !freeMove()) {
                 target = nearestPortSnapToPointer(ctx, cell);
                 if (target) nozzle = target;
             }

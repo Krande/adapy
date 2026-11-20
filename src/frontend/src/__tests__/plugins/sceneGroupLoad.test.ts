@@ -1,4 +1,4 @@
-// `ctx.scene.loadSavedGroup` (plugin API 1.31.0): the Scene panel's "Load into scene" for a saved
+// `ctx.scene.loadSavedGroup` (plugin API 1.32.0): the Scene panel's "Load into scene" for a saved
 // group, asked by a plugin, answered as plain data -- and refused clearly without a scope or a group.
 
 import { test } from "node:test";

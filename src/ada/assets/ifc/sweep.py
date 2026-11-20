@@ -70,10 +70,15 @@ __all__ = [
     "sweep_ifc",
 ]
 
-# `source_nodes.source` for every row this module writes. It EQUALS the provider id, which is the
-# convention that lets the browser ask one question per provider: the tab groups its evidence
+# `source_nodes.source` for every row this module writes by default. It EQUALS the provider id, which is
+# the convention that lets the browser ask one question per provider: the tab groups its evidence
 # fetches by the producing provider of each subject, and a source id that differed from it would
 # need a second mapping nobody owns.
+#
+# A provider whose collections live in the PROVIDER STORE passes its own ``source`` instead:
+# members read the store's feed only through a grant on ``(provider, collection)``, so it must be
+# ``<provider>:<collection>`` (``routes.source_nodes.source_dataset``), declared on the provider's
+# spec as ``asset_change_source`` so the Sources tab asks for the same thing.
 IFC_SOURCE_ID = "ifc"
 
 _ACTIONS = ("added", "modified", "deleted")
@@ -128,6 +133,7 @@ def sweep_ifc(
     staged_key: str,
     root: str | None = None,
     extracted_at: str | None = None,
+    source: str | None = None,
 ) -> SweepResult:
     """Derive the rows a sweep of ``staged_key`` against ``collection``'s published spine(s)
     would write. Pure: reads through ``store`` (the same read-only slice ``publish_ifc`` uses),
@@ -171,7 +177,9 @@ def sweep_ifc(
     for subject in targets:
         rows.extend(_sweep_one_subject(store, ifc_store, staged_nodes, staged_by_id, collection, subject, instant, idx))
 
-    return SweepResult(collection=collection, source=IFC_SOURCE_ID, covered_roots=tuple(targets), rows=tuple(rows))
+    return SweepResult(
+        collection=collection, source=source or IFC_SOURCE_ID, covered_roots=tuple(targets), rows=tuple(rows)
+    )
 
 
 def _sweep_one_subject(
@@ -285,6 +293,7 @@ def run_ifc_sweep(
     staged_key: str,
     root: str | None = None,
     extracted_at: str | None = None,
+    source: str | None = None,
 ) -> int:
     """The worker-side entry: sweep, then hand the rows to whichever recorder the caller holds.
 
@@ -302,5 +311,6 @@ def run_ifc_sweep(
         staged_key=staged_key,
         root=root,
         extracted_at=extracted_at,
+        source=source,
     )
     return record(result.source, result.to_records())

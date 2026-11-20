@@ -161,8 +161,12 @@ describe("feaFieldDetail", () => {
   it("finds a picked element's type and solver node numbers", async () => {
     const { fetcher } = fakeFetcher(FILES);
     const m = splitManifest();
-    assert.deepEqual(await elementNodes(m, 12, fetcher, "k"), { elemType: "quad", nodes: [101, 102, 104, 105] });
-    assert.deepEqual(await elementNodes(m, 20, fetcher, "k"), { elemType: "line", nodes: [105, 106] });
+    // `indices`: the points the nodes are, by which a nodal field lists its values.
+    const quad = await elementNodes(m, 12, fetcher, "k");
+    assert.deepEqual({ elemType: quad?.elemType, nodes: quad?.nodes }, { elemType: "quad", nodes: [101, 102, 104, 105] });
+    assert.equal(quad?.indices.length, 4);
+    const line = await elementNodes(m, 20, fetcher, "k");
+    assert.deepEqual({ elemType: line?.elemType, nodes: line?.nodes }, { elemType: "line", nodes: [105, 106] });
     assert.equal(await elementNodes(m, 999, fetcher, "k"), null);
   });
 });

@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 
 from ada.api.plates import PlateCurved
 from ada.cadit.gxml.read.read_beams import el_to_beam
-from ada.cadit.gxml.read.read_materials import get_materials
+from ada.cadit.gxml.read.read_materials import concept_material, get_materials
 from ada.cadit.gxml.read.read_sections import get_sections
 from ada.cadit.gxml.xml_parse import read_genie_xml_root
 from ada.config import Config, logger
@@ -247,20 +247,22 @@ def yield_plate_elems_to_plate(
     of a GeniE ``<hole>``, which GeniE keeps in the plate's sheet and cuts out when it meshes.
     """
     base_name = plate_elem.attrib["name"]
-    if plate_elem.attrib["material_ref"] not in parent.materials.name_map:
-        # its material was not read (a kind read_materials has no model for, reported there)
+    mat = concept_material(parent, plate_elem.tag, base_name, plate_elem.attrib.get("material_ref"))
+    if mat is None:
+        return
+    t = thick_map.get(plate_elem.attrib.get("thickness_ref"))
+    if t is None:
         from ada.fem.formats import conversion_report
 
-        conversion_report.current().omitted(
+        # GeniE writes no thickness_ref for a plate with no thickness assigned. It is read without one, which
+        # a viewer can show, but a writer that needs a thickness (GeniE XML, FEM shells) cannot use.
+        conversion_report.current().note(
             "genie xml reader",
             plate_elem.tag,
             base_name,
-            "its material was not read",
-            material=plate_elem.attrib["material_ref"],
+            "no thickness assigned (no thickness_ref, or one not read); read without a thickness",
+            thickness=plate_elem.attrib.get("thickness_ref"),
         )
-        return
-    mat = parent.materials.get_by_name(plate_elem.attrib["material_ref"])
-    t = thick_map.get(plate_elem.attrib.get("thickness_ref"))
     if flat_fallback_d is None:
         flat_fallback_d = {}
     if edge_curves_d is None:

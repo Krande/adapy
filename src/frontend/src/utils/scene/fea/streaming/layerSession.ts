@@ -66,7 +66,7 @@ import {framesKey} from "./framesKey";
 import {colorsFromBytes, LayerFrameRecorder} from "./layerFrames";
 import {PaintedPointsLayer, ResultGroup} from "./layerGroup";
 import {inFrontOf, lineAt} from "./layerLinePick";
-import {elementLabels, lineObjects, linesWithout} from "./layerLines";
+import {elementLabels, lineObjects, linesWithout, pointObjects} from "./layerLines";
 import {makeLayerOverlayTarget, type LayerMeshView} from "./layerOverlayTarget";
 import {preloadFrames, prefetchFieldSteps, upcomingSteps} from "./prefetch";
 import {syncResultStores} from "./resultStores";
@@ -920,14 +920,31 @@ async function openLayerSession(args: {
     }
 
     const lineElements = elements?.lineElements ?? null;
+    // An element's object index by its label, for the markers: any element can carry result points.
+    let objectIndex: Map<number, number> | null = null;
+    const objectOfLabel = (label: number): number | undefined => {
+        if (!objects) return undefined;
+        if (!objectIndex) {
+            const index = new Map<number, number>();
+            objects.ids.forEach((id, i) => {
+                const l = Number(id.slice(1));
+                if (id.startsWith("E") && Number.isInteger(l)) index.set(l, i);
+            });
+            objectIndex = index;
+        }
+        return objectIndex.get(label);
+    };
     const points = (topology: "points" | "lines", sizePx: number) =>
         new PaintedPointsLayer(group, ({positions, labels}) => results.createResultMesh({
             // White under the painted colours, which a layer draws times its own colour.
             positions, indices: null, topology, matrix: mesh.matrix, sizePx, color: [1, 1, 1],
-            // A line is the object its element is.
+            // A line is the object its element is, and so is a result-point marker: each hides,
+            // shows and isolates with its element.
             objects: topology === "lines" && labels && objects && lineElements
                 ? lineObjects(objects, labels, (label) => lineElements.get(label))
-                : undefined,
+                : topology === "points" && labels?.length && objects
+                  ? pointObjects(objects, labels, objectOfLabel)
+                  : undefined,
         }));
     const opened: LayerSession = {
         sourceName,

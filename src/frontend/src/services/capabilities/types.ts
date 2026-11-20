@@ -52,6 +52,7 @@ import type {
   SystemTemplateDoc,
   SystemTemplateSummary,
 } from "@/services/viewerApi";
+import type { FileEntry } from "@/services/api/types/common";
 import type { FeaFetcher, FeaRangeFetcher } from "@/services/fea/feaFetcher";
 import type { ExpandedBeamSolids } from "@/services/feaBeamSolidsCompact";
 import type { ModelStats } from "@/utils/stats/modelStats";
@@ -445,6 +446,7 @@ export interface ProceduralRelocationResponse {
 // presigned straight to the object store with progress heartbeats).
 
 export type FilesVerb =
+  | "listFiles"
   | "fetchBlob"
   | "blobUrl"
   | "requestDownloadUrl"
@@ -477,6 +479,8 @@ export type UploadProgressHandler = (loaded: number, total: number) => void;
 export interface FilesCapability {
   readonly transport: CapabilityTransport;
   supports(verb: FilesVerb): boolean;
+  /** The scope's stored files (keys and sizes), as the storage browser lists them. */
+  listFiles(scope: ScopeUrl): Promise<FileEntry[]>;
 
   /** The whole object under `key`, decoded (the server forwards Content-Encoding). */
   fetchBlob(scope: ScopeUrl, key: string): Promise<ArrayBuffer>;

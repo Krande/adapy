@@ -10,7 +10,7 @@ import { create } from "zustand";
 
 import { parseProviderLabels, providerDisplayName, type ProviderLabels } from "@/assets/providerNames";
 import { assetsApi } from "@/services/api/assets";
-import { useViewerStores } from "@/state/AdaViewerContext";
+import { useViewerOrAppStores } from "@/state/AdaViewerContext";
 import { scopeUrlPart, useScopeStore } from "@/state/scopeStore";
 
 interface ProviderNamesState {
@@ -51,9 +51,10 @@ export function providerName(id: string): string {
   return providerDisplayName(id, useProviderNamesStore.getState().byScope[scope]);
 }
 
-/** `(id) => display name` for the scope this viewer browses; loads that scope's names on first use. */
+/** `(id) => display name` for the scope this viewer browses; loads that scope's names on first use.
+ *  Outside a viewer (the admin page) it is the scope the app has chosen. */
 export function useProviderName(): (id: string) => string {
-  const { useScopeStore: useViewerScope } = useViewerStores();
+  const { useScopeStore: useViewerScope } = useViewerOrAppStores();
   const scope = scopeUrlPart(useViewerScope((s) => s.current));
   const labels = useProviderNamesStore((s) => s.byScope[scope]);
   useEffect(() => {

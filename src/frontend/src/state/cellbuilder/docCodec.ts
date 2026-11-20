@@ -49,6 +49,101 @@ const OPENING_OWN_KEYS = new Set([
   "DZ",
 ]);
 
+/** The doc's top-level keys the builder writes (toDoc), each whenever it has one: everything else in a
+ * loaded doc is someone else's -- an engine's own lists (pm's `modifications`), `engine`, `structures`
+ * -- and goes back as it came (`docExtras`). Writing only these dropped the rest on every commit. */
+export const BUILDER_DOC_KEYS: ReadonlySet<string> = new Set([
+  "schema_version",
+  "grid",
+  "blueprint",
+  "blueprint_name",
+  "design_rules",
+  "detailing",
+  "equipment_cad",
+  "spaces",
+  "equipments",
+  "systems",
+  "openings",
+  "loft_members",
+  "groups",
+]);
+
+/** The loaded doc's keys the builder does not write, to write back untouched. */
+export function docExtras(doc: object | null | undefined): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(doc ?? {})) if (!BUILDER_DOC_KEYS.has(k) && v !== undefined) out[k] = v;
+  return out;
+}
+
+/** The sides of a space an opening can be placed on (TopoOpening.SPACE_SIDE). */
+export const OPENING_SIDES = ["X", "-X", "Y", "-Y", "Z", "-Z"] as const;
+export type OpeningSide = (typeof OPENING_SIDES)[number];
+
+type Vec3 = [number, number, number];
+
+/** A side's axes: `n` through the side, `u` / `v` the plane POS_X / POS_Y run in (ada's
+ * TopoOpening._calculate_p1_p2_from_local), and whether the side is at the far end of `n`. */
+function sideAxes(side: OpeningSide): {n: 0 | 1 | 2; u: 0 | 1 | 2; v: 0 | 1 | 2; far: boolean} {
+  const far = !side.startsWith("-");
+  if (side.endsWith("Z")) return {n: 2, u: 0, v: 1, far};
+  if (side.endsWith("Y")) return {n: 1, u: 0, v: 2, far};
+  return {n: 0, u: 1, v: 2, far};
+}
+
+const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : typeof v === "string" && v.trim() !== "" && Number.isFinite(Number(v)) ? Number(v) : null);
+
+/** The box of an opening placed on a side of `space` (its POS / SIZE / DEPTH), as ada builds it; null
+ * when a column is missing or the side is not one of the six. */
+export function localOpeningBox(o: Record<string, unknown>, space: {origin: Vec3; size: Vec3}): {origin: Vec3; size: Vec3} | null {
+  const side = o.SPACE_SIDE as OpeningSide;
+  if (!OPENING_SIDES.includes(side)) return null;
+  const [px, py, sx, sy, depth] = [num(o.POS_X), num(o.POS_Y), num(o.SIZE_X), num(o.SIZE_Y), num(o.DEPTH)];
+  if (px === null || py === null || sx === null || sy === null || depth === null) return null;
+  const {n, u, v, far} = sideAxes(side);
+  const origin: Vec3 = [0, 0, 0];
+  const size: Vec3 = [0, 0, 0];
+  origin[u] = space.origin[u] + px;
+  size[u] = sx;
+  origin[v] = space.origin[v] + py;
+  size[v] = sy;
+  origin[n] = space.origin[n] + (far ? space.size[n] : 0) - depth / 2;
+  size[n] = depth;
+  return {origin, size};
+}
+
+/** The local columns that place `box` on `side` of `space` (the inverse of localOpeningBox). The box's
+ * position through the side is not kept: the side is the plane it sits in. */
+export function localOpeningColumns(box: {origin: Vec3; size: Vec3}, space: {origin: Vec3}, side: OpeningSide) {
+  const {n, u, v} = sideAxes(side);
+  // To the micrometre: the subtraction back from the space origin leaves float noise (2.5999999999999996)
+  // that would otherwise land in the workbook.
+  const um = (x: number) => Math.round(x * 1e6) / 1e6;
+  return {
+    POS_X: um(box.origin[u] - space.origin[u]),
+    POS_Y: um(box.origin[v] - space.origin[v]),
+    SIZE_X: um(box.size[u]),
+    SIZE_Y: um(box.size[v]),
+    DEPTH: um(box.size[n]),
+  };
+}
+
+const spaceBox = (s: Record<string, unknown>): {origin: Vec3; size: Vec3} => ({
+  origin: [Number(s.X ?? 0), Number(s.Y ?? 0), Number(s.Z ?? 0)],
+  size: [Number(s.DX ?? 1), Number(s.DY ?? 1), Number(s.DZ ?? 1)],
+});
+
+/** The doc's openings the builder cannot draw (no global box, and no space side it can resolve): kept
+ * as they came, so a commit writes them back instead of dropping them. */
+export function unplacedOpeningsFromDoc(doc: ProceduralDoc): Record<string, unknown>[] {
+  const spaces = new Map<string, Record<string, unknown>>();
+  for (const s of doc.spaces ?? []) if (typeof s.NAME === "string") spaces.set(s.NAME, s);
+  return ((doc as {openings?: Record<string, unknown>[]}).openings ?? []).filter((o) => {
+    if (o.X != null && o.DX != null) return false;
+    const space = typeof o.SPACE_NAME === "string" ? spaces.get(o.SPACE_NAME) : undefined;
+    return !space || !localOpeningBox(o, spaceBox(space));
+  });
+}
+
 /** The doc schema the builder writes (ada.topo_model.engines.PROCEDURAL_SCHEMA_VERSION). */
 export const DOC_SCHEMA_VERSION = "1.1";
 
@@ -160,13 +255,16 @@ export function cellsFromDoc(doc: ProceduralDoc): Record<string, BuilderCell> {
       params: extractParams(e, EQUIPMENT_OWN_KEYS),
     };
   }
-  // Openings are UI-placed as global-coord negative-volume boxes (X/Y/Z/DX/DY/DZ).
-  // A locally-placed opening imported from elsewhere without global coords is
-  // skipped in the builder (still round-trips through params on commit only if it
-  // has coords) — the cellbuilder authors global ones.
+  // Openings: the builder's own are global boxes (X/Y/Z/DX/DY/DZ); a workbook's are placed on a
+  // side of their space (SPACE_NAME, SPACE_SIDE, POS_X/POS_Y, SIZE_X/SIZE_Y, DEPTH). Both are drawn;
+  // a local one keeps its local form (`openingFrame`). One the builder can place neither way is kept
+  // aside as it came (unplacedOpeningsFromDoc) and written back unchanged.
   for (const o of (doc as { openings?: Record<string, unknown>[] }).openings ??
     []) {
-    if (o.X == null || o.DX == null) continue;
+    const global = o.X != null && o.DX != null;
+    const space = typeof o.SPACE_NAME === "string" ? spaceByName.get(o.SPACE_NAME) : undefined;
+    const local = !global && space ? localOpeningBox(o, spaceBox(space)) : null;
+    if (!global && !local) continue;
     const id = nextId();
     out[id] = {
       id,
@@ -174,8 +272,9 @@ export function cellsFromDoc(doc: ProceduralDoc): Record<string, BuilderCell> {
       kind: "opening",
       subtype:
         o.SUBTYPE === "window" ? "window" : o.SUBTYPE === "opening" ? "opening" : "door",
-      origin: [Number(o.X ?? 0), Number(o.Y ?? 0), Number(o.Z ?? 0)],
-      size: [Number(o.DX ?? 1), Number(o.DY ?? 1), Number(o.DZ ?? 1)],
+      origin: local ? local.origin : [Number(o.X ?? 0), Number(o.Y ?? 0), Number(o.Z ?? 0)],
+      size: local ? local.size : [Number(o.DX ?? 1), Number(o.DY ?? 1), Number(o.DZ ?? 1)],
+      ...(local ? { openingFrame: "local" as const } : {}),
       params: extractParams(o, OPENING_OWN_KEYS),
     };
   }

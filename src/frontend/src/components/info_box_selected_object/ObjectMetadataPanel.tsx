@@ -56,7 +56,7 @@ const M_TO_MM = 1000;
 const PA_TO_MPA = 1e-6;
 const PA_TO_GPA = 1e-9;
 
-type MaterialDict = {
+export type MaterialDict = {
     name?: string | null;
     E?: number | null;
     rho?: number | null;
@@ -65,7 +65,7 @@ type MaterialDict = {
     v?: number | null;
 };
 
-type SectionDict = {
+export type SectionDict = {
     name?: string | null;
     type?: string | null;
     h?: number | null;
@@ -101,6 +101,11 @@ type CurvedPlateMeta = {
 
 type Props = {
     data: any | null;
+    /** Plain rows, always open: no foldable "Properties" heading (`ObjectInfoBodyProps.flat`). */
+    flat?: boolean;
+    /** The summary is the panel's menu (`ObjectInfoBodyProps.summary: "menu"`): the clicked-at row and
+     *  the mesh stats are in it, not here. */
+    menuSummary?: boolean;
 };
 
 const fmtMm = (v: number | null | undefined): string => {
@@ -134,6 +139,39 @@ const Row: React.FC<{label: string; children: React.ReactNode}> = ({label, child
         <div className="table-cell w-48 break-all">{children}</div>
     </div>
 );
+
+/** A section's dimensions as label / text pairs, in the units the rows show (mm). */
+export function sectionFields(section: SectionDict): [string, string][] {
+    const out: [string, string][] = [];
+    if (section.type) out.push(["Profile", section.type]);
+    if (section.h != null) out.push(["h", fmtMm(section.h)]);
+    if (section.w_top != null || section.w_btn != null) {
+        const b = section.w_top != null ? fmtMm(section.w_top) : "—";
+        out.push(["b", section.w_btn != null && section.w_btn !== section.w_top ? `${b} / ${fmtMm(section.w_btn)}` : b]);
+    }
+    if (section.t_w != null) out.push(["t_w", fmtMm(section.t_w)]);
+    if (section.t_ftop != null || section.t_fbtn != null) {
+        const t = section.t_ftop != null ? fmtMm(section.t_ftop) : "—";
+        out.push(["t_f", section.t_fbtn != null && section.t_fbtn !== section.t_ftop ? `${t} / ${fmtMm(section.t_fbtn)}` : t]);
+    }
+    if (section.r != null) out.push(["r", fmtMm(section.r)]);
+    if (section.wt != null) out.push(["wt", fmtMm(section.wt)]);
+    return out;
+}
+
+/** A material's constants as label / text pairs (GPa, MPa, kg/m³). */
+export function materialFields(material: MaterialDict): [string, string][] {
+    const out: [string, string][] = [];
+    if (material.E != null) out.push(["E", fmtGpa(material.E)]);
+    if (material.v != null) out.push(["ν", fmtNu(material.v)]);
+    if (material.rho != null) out.push(["ρ", fmtDensity(material.rho)]);
+    if (material.sig_y != null) out.push(["σ_y", fmtMpa(material.sig_y)]);
+    if (material.sig_u != null) out.push(["σ_u", fmtMpa(material.sig_u)]);
+    return out;
+}
+
+/** A thickness, as the rows show it. */
+export const formatThickness = (v: number | null | undefined): string => fmtMm(v);
 
 const SectionRows: React.FC<{section: SectionDict | null | undefined}> = ({section}) => {
     if (!section) return <Row label="Section:">—</Row>;
@@ -183,7 +221,23 @@ const MaterialRows: React.FC<{material: MaterialDict | null | undefined}> = ({ma
  *  material the analysis gave it. From the bake (AFEP sidecar + manifest tables + the
  *  element buckets' node indices), so it reads the same over REST as over the websocket;
  *  nothing here asks the server. Renders nothing for a name that is not an FEA element. */
-const FeaElementRows: React.FC<{name: string | null}> = ({name}) => {
+/** What core knows of a picked FEA element (`name` its draw range, "E12"): its type, nodes,
+ *  instance, thickness, section and material. Null for a name that is not an FEA element of the
+ *  loaded result. Shared by the classic rows below and the flat `FeaElementSection`. */
+export interface FeaElementData {
+    label: number;
+    elemType: string | null;
+    typeName: string | null;
+    instance: string | null;
+    nodes: readonly number[];
+    thickness: number | null;
+    section: SectionDict | null;
+    material: MaterialDict | null;
+    /** The element's property record has been read (a section or material may still be absent). */
+    hasProps: boolean;
+}
+
+export function useFeaElementData(name: string | null): FeaElementData | null {
     const manifest = useFeaAnimationStore((s) => s.manifest);
     const sourceName = useFeaAnimationStore((s) => s.sourceName);
     const label = name ? elementLabelNumber(name) : null;
@@ -222,21 +276,34 @@ const FeaElementRows: React.FC<{name: string | null}> = ({name}) => {
         };
     }, [isElement, label, manifest, sourceName]);
 
-    if (!isElement || !manifest) return null;
+    if (!isElement || !manifest || label === null) return null;
     const tables = manifest.element_properties ?? {};
-    const typeName = props?.eltype ? tables.element_types?.[String(props.eltype)] : undefined;
-    const section = props?.section ? tables.sections?.[String(props.section)] ?? null : null;
-    const material = props?.material ? tables.materials?.[String(props.material)] ?? null : null;
-    const thickness = props && Number.isFinite(props.thickness) ? props.thickness : null;
-    const instanceLabel = label !== null ? movedElementName(manifest, label) : null;
+    return {
+        label,
+        elemType: nodes?.elemType ?? null,
+        typeName: (props?.eltype ? tables.element_types?.[String(props.eltype)] : undefined) ?? (props?.eltype ? `type ${props.eltype}` : null),
+        instance: movedElementName(manifest, label),
+        nodes: nodes?.nodes ?? [],
+        thickness: props && Number.isFinite(props.thickness) ? props.thickness : null,
+        section: props?.section ? tables.sections?.[String(props.section)] ?? null : null,
+        material: props?.material ? tables.materials?.[String(props.material)] ?? null : null,
+        hasProps: !!props,
+    };
+}
+
+const FeaElementRows: React.FC<{name: string | null}> = ({name}) => {
+    const data = useFeaElementData(name);
+    if (!data) return null;
+    const {elemType, typeName, instance: instanceLabel, nodes, thickness, section, material} = data;
+    const props = data.hasProps;
     return (
         <>
             <Row label="Element:">
-                {nodes?.elemType ?? '—'}
-                {typeName ? ` (${typeName})` : props?.eltype ? ` (type ${props.eltype})` : ''}
+                {elemType ?? '—'}
+                {typeName ? ` (${typeName})` : ''}
             </Row>
             {instanceLabel && <Row label="Instance:">{instanceLabel}</Row>}
-            {nodes && nodes.nodes.length > 0 && <Row label="Nodes:">{nodes.nodes.join(', ')}</Row>}
+            {nodes.length > 0 && <Row label="Nodes:">{nodes.join(', ')}</Row>}
             {thickness !== null && <Row label="Thickness:">{fmtMm(thickness)}</Row>}
             {section && <SectionRows section={section} />}
             {props && <MaterialRows material={material} />}
@@ -286,12 +353,14 @@ const LinkRow: React.FC<{link: NonNullable<LinkResult>}> = ({link}) => {
     );
 };
 
-const ClickedAtRow: React.FC = () => {
+/** `menu`: drawn after the coordinates (the flat panel's decimals menu, which has no heading to sit on). */
+/** Where the pick was clicked, as shown ("(1.264, 0.500, 0.402)") and as copied (the same numbers,
+ *  comma-separated, no parentheses, so they paste straight into code); null without a click. */
+export function useClickedPosition(): {display: string; copy: string} | null {
     const {useObjectInfoStore, useModelState} = useViewerStores();
     const clickCoord = useObjectInfoStore((s) => s.clickCoordinate);
     const zIsUp = useModelState((s) => s.zIsUp);
     const decimals = useOptionsStore((s) => s.clickedCoordDecimals);
-    const [copied, setCopied] = useState(false);
     if (!clickCoord) return null;
     const x = clickCoord.x.toFixed(decimals);
     const y = clickCoord.y.toFixed(decimals);
@@ -301,11 +370,16 @@ const ClickedAtRow: React.FC = () => {
     // users think in — so when zIsUp is set, show the world tuple
     // (x, y, z) directly; otherwise re-order to compensate.
     const ordered = zIsUp ? [x, y, z] : [x, z, y];
-    const display = `(${ordered.join(', ')})`;
-    // Clipboard gets the same numbers in the same displayed order, but as bare
-    // comma-separated floats (no parentheses) so they paste straight into code.
+    return {display: `(${ordered.join(', ')})`, copy: ordered.join(', ')};
+}
+
+const ClickedAtRow: React.FC<{menu?: React.ReactNode}> = ({menu}) => {
+    const position = useClickedPosition();
+    const [copied, setCopied] = useState(false);
+    if (!position) return null;
+    const {display} = position;
     const onCopy = () => {
-        void writeToClipboard(ordered.join(', ')).then((ok) => {
+        void writeToClipboard(position.copy).then((ok) => {
             if (!ok) return;
             setCopied(true);
             window.setTimeout(() => setCopied(false), COPIED_FEEDBACK_MS);
@@ -313,14 +387,17 @@ const ClickedAtRow: React.FC = () => {
     };
     return (
         <Row label="Clicked at:">
-            <button
-                type="button"
-                onClick={onCopy}
-                className="text-left text-gray-100 hover:text-white cursor-pointer"
-                title="Copy coordinates as comma-separated floats"
-            >
-                {copied ? `${display} ✓` : display}
-            </button>
+            <span className="inline-flex items-center gap-1" data-clicked-at="">
+                <button
+                    type="button"
+                    onClick={onCopy}
+                    className="text-left text-gray-100 hover:text-white cursor-pointer"
+                    title="Copy coordinates as comma-separated floats"
+                >
+                    {copied ? `${display} ✓` : display}
+                </button>
+                {menu}
+            </span>
         </Row>
     );
 };
@@ -355,7 +432,7 @@ const ClickedFaceRow: React.FC = () => {
     );
 };
 
-const ObjectMetadataPanel: React.FC<Props> = ({data}) => {
+const ObjectMetadataPanel: React.FC<Props> = ({data, flat = false, menuSummary = false}) => {
     const {useObjectInfoStore, useLineageStore} = useViewerStores();
     const showMeshStats = useOptionsStore((s) => s.showMeshStats);
     // Default collapsed: most clicks are just for selection / hide /
@@ -363,7 +440,9 @@ const ObjectMetadataPanel: React.FC<Props> = ({data}) => {
     // compact and the chevron tells the user where the data lives.
     // Open from the start on an FEA result, though: there the properties ARE what a click
     // on an element is for -- its section, thickness and material.
-    const [expanded, setExpanded] = useState(() => !!useFeaAnimationStore.getState().manifest);
+    // Flat: always open, there is no heading to fold it under.
+    const [expandedState, setExpanded] = useState(() => !!useFeaAnimationStore.getState().manifest);
+    const expanded = flat || expandedState;
     // The link is derived live from the lineage store and the current
     // selection (file + name) — keeps it reactive to file load/unload
     // without going back through the server.
@@ -399,31 +478,36 @@ const ObjectMetadataPanel: React.FC<Props> = ({data}) => {
         icon: d === decimals ? <CheckIcon /> : <span className="inline-block w-3.5" />,
         onClick: () => setDecimals(d),
     }));
+    const decimalsMenu = (
+        <RowKebabMenu
+            ariaLabel="Properties display options"
+            header="Clicked-at decimals"
+            items={decimalItems}
+            buttonClassName="h-5 w-5"
+        />
+    );
     return (
-        <div className="mt-2">
-            <div className="flex items-center gap-1">
-                <button
-                    type="button"
-                    onClick={() => setExpanded((v) => !v)}
-                    className="flex items-center gap-1 text-[12px] text-gray-100 hover:text-white"
-                    aria-expanded={expanded}
-                    aria-controls="object-properties"
-                >
-                    <Chevron open={expanded} />
-                    <span className="font-semibold">Properties</span>
-                </button>
-                <RowKebabMenu
-                    ariaLabel="Properties display options"
-                    header="Clicked-at decimals"
-                    items={decimalItems}
-                    buttonClassName="h-5 w-5"
-                />
-            </div>
+        <div className={flat ? "mt-1" : "mt-2"} data-object-metadata={flat ? "flat" : ""}>
+            {!flat && (
+                <div className="flex items-center gap-1">
+                    <button
+                        type="button"
+                        onClick={() => setExpanded((v) => !v)}
+                        className="flex items-center gap-1 text-[12px] text-gray-100 hover:text-white"
+                        aria-expanded={expanded}
+                        aria-controls="object-properties"
+                    >
+                        <Chevron open={expanded} />
+                        <span className="font-semibold">Properties</span>
+                    </button>
+                    {decimalsMenu}
+                </div>
+            )}
             {expanded && (
-                <div id="object-properties" className="mt-1 ml-4 table">
+                <div id="object-properties" className={flat ? "table" : "mt-1 ml-4 table"}>
                     {meta && !known && <Row label="Type:">{(meta as any).type ?? 'Unknown'}</Row>}
                     {meta && !known && <Row label="Info:">No metadata available</Row>}
-                    {!known && <FeaElementRows name={clickedName} />}
+                    {!known && !flat && <FeaElementRows name={clickedName} />}
                     {meta?.type === 'Beam' && (
                         <>
                             <Row label="Type:">Beam</Row>
@@ -446,13 +530,14 @@ const ObjectMetadataPanel: React.FC<Props> = ({data}) => {
                             <MaterialRows material={meta.material} />
                         </>
                     )}
-                    <ClickedAtRow />
+                    {/* Flat: the decimals menu goes with the row it formats. */}
+                    {!menuSummary && <ClickedAtRow menu={flat ? decimalsMenu : undefined} />}
                     <ClickedFaceRow />
                     {link && <LinkRow link={link} />}
                 </div>
             )}
-            {expanded && showMeshStats && (
-                <div className="ml-4">
+            {expanded && showMeshStats && !menuSummary && (
+                <div className={flat ? "" : "ml-4"}>
                     <MeshStatsSection />
                 </div>
             )}

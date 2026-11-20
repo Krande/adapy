@@ -65,10 +65,15 @@ export interface ClearSceneOptions {
     keepQueuedLoads?: boolean;
     /** Keep an open procedural model. Closed otherwise. */
     keepProcedural?: boolean;
+    /** Keep the loaded sources, their model session and lineage: for a replace whose viewport swaps
+     *  the model in place itself (the three.js-free viewport's replace), which reads them to put the
+     *  new model where the old one was. Ended here first, the model shown again was drawn only in
+     *  part (adapy 0.161.3, the three.js-free viewport undo test). */
+    keepLoadedSources?: boolean;
 }
 
 export async function clearScene(options: ClearSceneOptions = {}): Promise<void> {
-    const {replacing = false, keepQueuedLoads = false, keepProcedural = false} = options;
+    const {replacing = false, keepQueuedLoads = false, keepProcedural = false, keepLoadedSources = false} = options;
 
     if (!keepQueuedLoads) {
         const {useLoadQueueStore} = await import("@/state/loadQueueStore");
@@ -103,7 +108,7 @@ export async function clearScene(options: ClearSceneOptions = {}): Promise<void>
     if (!replacing) ms.setModelUrl(null, null);
     // Every loaded source goes at once, so the storage list's checkboxes all uncheck, and whatever
     // follows the loaded sources (the load journal, the preview's lifetime) sees them go.
-    ms.clearLoadedSources();
+    if (!keepLoadedSources) ms.clearLoadedSources();
     // What the connection builder drew over its preview: its annotations, weld colours and marks,
     // and the preview's clash. Each also goes when the preview alone is unloaded (their own rule,
     // beside what draws them); here they go whatever that rule saw.

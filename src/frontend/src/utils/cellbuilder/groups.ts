@@ -157,3 +157,9 @@ export function resolveCellGroup(
   if (!g.length) return undefined;
   return groups.some((x) => x.name === g) ? g : undefined;
 }
+
+/** The structure a new space goes into: `activeGroup` while it still names a group, else none. */
+export function activeStructure(s: {activeGroup: string | null; groups: readonly CellGroup[]}): string | undefined {
+  const name = s.activeGroup;
+  return name !== null && s.groups.some((g) => g.name === name) ? name : undefined;
+}

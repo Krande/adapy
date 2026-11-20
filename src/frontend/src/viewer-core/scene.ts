@@ -67,12 +67,18 @@ export { buildFeaResultHierarchy } from "@/utils/scene/fea/resultHierarchy";
 export { availableResultLayers } from "@/utils/scene/fea/resultLayers";
 // Reading a picked element back out as numbers, using the same layer filter and
 // IP reduction the colouring used.
-export { feaValuesForElement, elementLabelNumber } from "@/utils/scene/fea/elementValues";
+// With `{nodal: true}` (1.31.0) also the nodal attributes at the element's nodes; `feaValuesForNode`
+// reads one node's.
+export { feaValuesForElement, feaValuesForNode, elementLabelNumber } from "@/utils/scene/fea/elementValues";
 export type {
     ElementValuesResult,
     ElementFieldValues,
     ElementComponentValue,
     ElementValueScope,
+    FeaFieldValues,
+    FeaValuesOptions,
+    NodalFieldValues,
+    NodeValuesResult,
 } from "@/utils/scene/fea/elementValues";
 export { loadElementValueTable, valueLabelText } from "@/utils/scene/fea/elementValueTable";
 export type { ElementValueTable } from "@/utils/scene/fea/elementValueTable";

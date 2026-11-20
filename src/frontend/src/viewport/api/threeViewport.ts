@@ -33,7 +33,10 @@ import {createThreeImageLayer} from "./threeImages";
 import {sceneNodeAnimation} from "@/utils/scene/animations/nodeAnimation";
 import {threeModelNodes} from "./threeModelPose";
 import {frameBox} from "@/components/viewer/sceneHelpers/cameraFit";
-import type {ObjectRef, ObjectVisibilityReader, SetSelectionOptions, ViewportApi} from "./viewportApi";
+import {rangeBounds} from "@/utils/bboxSelection/rangeBounds";
+import {ancestorChain, buildTreeIndices, type TreeIndices} from "@/utils/tree_view/treeGraph";
+import type {TreeNodeData} from "@/components/tree_view/CustomNode";
+import {modelBox, type ObjectRef, type ObjectVisibilityReader, type SelectedObjectBox, type SetSelectionOptions, type ViewportApi} from "./viewportApi";
 
 /** The GLB node that draws `ref`: the caller's, or the Scene tree row's. */
 const nodeOf = (ref: ObjectRef): string | null | undefined =>
@@ -77,6 +80,40 @@ export function threeSelectionRefs(): ObjectRef[] {
         const model = modelKeyOf(mesh);
         if (!model) continue;
         for (const id of ranges) out.push({model, id});
+    }
+    return out;
+}
+
+/** The Scene tree's parent index, per tree: made the first time it is asked after the tree changed. */
+const treeIndices = new WeakMap<TreeNodeData, TreeIndices>();
+
+/** An object's name as its Scene tree row has it, and the rows above it from the model's root row
+ *  down (the container of the loaded models left out). */
+function treeNamePath(model: string, id: string): {name: string | null; path: string[]} {
+    const tree = useTreeViewStore.getState();
+    const node = tree.findNodeByRangeId(model, id);
+    if (!node || !tree.treeData) return {name: node?.name || null, path: []};
+    let idx = treeIndices.get(tree.treeData);
+    if (!idx) treeIndices.set(tree.treeData, (idx = buildTreeIndices(tree.treeData)));
+    const above = ancestorChain(node, idx).slice(1).filter((n) => n.id !== "__roots__");
+    return {name: node.name || null, path: above.reverse().map((n) => n.name)};
+}
+
+/** The three.js selection, a box per draw range in the model's own coordinates: the range's world
+ *  box less the offset the loader recentred the models by (state/modelState's `translation`). */
+export function threeSelectionBoxes(): SelectedObjectBox[] {
+    const out: SelectedObjectBox[] = [];
+    const t = useModelState.getState().translation;
+    const offset = t ? [t.x, t.y, t.z] : null;
+    for (const [mesh, ids] of useSelectedObjectStore.getState().selectedObjects) {
+        const model = isBatched(mesh) && ids.size ? modelKeyOf(mesh) : undefined;
+        const rb = model ? rangeBounds(mesh as CustomBatchedMesh) : null;
+        if (!model || !rb) continue;
+        for (let r = 0; r < rb.ids.length; r++) {
+            const id = rb.ids[r], o = r * 6;
+            if (!ids.has(id) || !Number.isFinite(rb.bounds[o])) continue;
+            out.push({model, id, ...treeNamePath(model, id), ...modelBox(rb.bounds.subarray(o, o + 3), rb.bounds.subarray(o + 3, o + 6), offset)});
+        }
     }
     return out;
 }
@@ -364,6 +401,7 @@ export function createThreeViewport(h: ThreeViewportHandles): ViewportApi {
         objectsInBox: rangesInWorldBox,
         objectsInScreenRect: (rect, mode) => rangesInCameraRect(rect, mode, h.camera),
         selectionBounds: threeSelectionBounds,
+        selectionBoxes: threeSelectionBoxes,
         projectToScreen: (world, count, out) => {
             const rt = getViewerRuntime();
             const camera = rt.camera.current ?? h.camera;

@@ -70,3 +70,21 @@ export function lineObjects(
     }
     return {model: model.model, sourceName: model.sourceName, ids: model.ids, segments, objectOf};
 }
+
+/** The result-point markers (`labels` naming the element of each point) as objects of the viewport:
+ *  each point the object its element is, so a hidden element's markers hide with it, and an
+ *  isolation leaves only the kept elements' markers. `indexOf` is the element's object index. */
+export function pointObjects(
+    model: ResultMeshObjects,
+    labels: readonly number[],
+    indexOf: (label: number) => number | undefined,
+): ResultMeshObjects {
+    const segments = new Uint32Array(labels.length * 2);
+    const objectOf = new Int32Array(labels.length);
+    for (let p = 0; p < labels.length; p++) {
+        segments[p * 2] = p;
+        segments[p * 2 + 1] = 1;
+        objectOf[p] = indexOf(labels[p]) ?? -1;
+    }
+    return {model: model.model, sourceName: model.sourceName, ids: model.ids, segments, objectOf};
+}

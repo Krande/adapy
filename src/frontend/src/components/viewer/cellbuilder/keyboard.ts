@@ -329,7 +329,10 @@ export const onKeyDown = (ctx: CellBuilderScene, ev: KeyboardEvent) => {
 
     // Bump the selected equipment up/down a cell floor (desktop shortcut).
     // PageUp = up a floor, PageDown = down; no-op without an equipment pick.
-    if (!inField && (ev.key === "PageUp" || ev.key === "PageDown")) {
+    // Bare keys only: Ctrl+PageUp/Down is the browser's tab switch, and a chord the
+    // shortcuts list does not name is not the builder's to take.
+    const bare = !ev.ctrlKey && !ev.metaKey && !ev.altKey && !ev.shiftKey;
+    if (!inField && bare && (ev.key === "PageUp" || ev.key === "PageDown")) {
         if (st.selection) {
             st.bumpSelectedFloor(ev.key === "PageUp" ? 1 : -1);
             requestRender();
@@ -343,7 +346,17 @@ export const onKeyDown = (ctx: CellBuilderScene, ev: KeyboardEvent) => {
     // undo step. A loft bay: shrink the member by one station, or remove the
     // whole member when it's down to its last bay (2 stations) — so Del peels
     // bays and finally deletes the loft.
-    if (!inField && (ev.key === "Delete" || ev.key === "Backspace")) {
+    if (!inField && bare && (ev.key === "Delete" || ev.key === "Backspace")) {
+        // A selected ref is removed by its plugin, when it allows it.
+        if (st.selection?.kind === "ref") {
+            const ref = st.refs[st.selection.refId];
+            if (!ref?.edit.remove) return;
+            ev.preventDefault();
+            ev.stopPropagation();
+            st.removeRef(ref.id);
+            requestRender();
+            return;
+        }
         const ids = st.selectedCellIds.length
             ? st.selectedCellIds
             : st.selection
@@ -383,7 +396,7 @@ export const onKeyDown = (ctx: CellBuilderScene, ev: KeyboardEvent) => {
     // — same phase, but this listener runs in capture — doesn't also fire.
     if (!inField && !ev.ctrlKey && !ev.metaKey && !ev.altKey) {
         const k = ev.key.toLowerCase();
-        const cell = st.selection ? st.cells[st.selection.cellId] : null;
+        const cell = st.selection?.cellId ? st.cells[st.selection.cellId] : null;
         // Representation-mode shortcuts (work regardless of selection so you
         // can flip views mid-edit), mirroring the Representation button row:
         // backtick cycles topology→simulation→detail, Shift+backtick reverses;
@@ -472,6 +485,17 @@ export const onKeyDown = (ctx: CellBuilderScene, ev: KeyboardEvent) => {
                 return;
             }
         }
+        // G / S on a ref: move or resize it, as its plugin allows. A ref never turns.
+        const ref = st.selection?.kind === "ref" ? st.refs[st.selection.refId] : undefined;
+        if (!ev.shiftKey && ref) {
+            const mode = gizmoModeOfKey(k);
+            if ((mode === "translate" && ref.edit.move) || (mode === "resize" && ref.edit.resize)) {
+                st.setGizmoMode(mode);
+                ev.preventDefault();
+                ev.stopPropagation();
+                return;
+            }
+        }
         // G/R/S activate the translate / rotate / resize gizmo (Blender keys):
         // rotate is equipment-only; resize takes spaces, openings and equipment, not an
         // equipment box fitted to its CAD model (matches the menus, cellResize.ts).
@@ -491,7 +515,8 @@ export const onKeyDown = (ctx: CellBuilderScene, ev: KeyboardEvent) => {
         // X/Y/Z lock the active translate/rotate gizmo to that axis (press the
         // same axis again to release). The HUD's numeric field then applies
         // along it.
-        const axis = gizmoAxisOfKey(k);
+        // Bare X/Y/Z only, as listed (Shift+X is the loft face's exclude above).
+        const axis = ev.shiftKey ? null : gizmoAxisOfKey(k);
         if ((st.gizmoMode === "translate" || st.gizmoMode === "rotate") && axis !== null) {
             st.setGizmoAxisLock(toggledAxisLock(st.gizmoAxisLock, axis));
             ev.preventDefault();
@@ -505,7 +530,7 @@ export const onKeyDown = (ctx: CellBuilderScene, ev: KeyboardEvent) => {
             // loft on that face — a rectangle tube sized to the face, growing
             // out along its normal. Otherwise a default circle at the ground.
             if (k === "l") {
-                const selCell = st.selection ? st.cells[st.selection.cellId] : null;
+                const selCell = st.selection?.cellId ? st.cells[st.selection.cellId] : null;
                 let base:
                     | {placement: number[][]; width: number; height: number}
                     | undefined;
@@ -556,9 +581,16 @@ export const onKeyDown = (ctx: CellBuilderScene, ev: KeyboardEvent) => {
                 ev.stopPropagation();
                 return;
             }
-            // I: keyboard equipment insert (pick type + host cell, then type
-            // the local X,Y). No cell needed to start.
+            // I: the info label on or off (the selection's dimensions, masses, ... beside it).
             if (k === "i") {
+                st.setInfoLabel(!st.infoLabel);
+                ev.preventDefault();
+                ev.stopPropagation();
+                return;
+            }
+            // Q: keyboard equipment insert (pick type + host cell, then type
+            // the local X,Y). No cell needed to start.
+            if (k === "q") {
                 st.setMode("idle");
                 if (startEquipInsert(ctx)) {
                     ev.preventDefault();

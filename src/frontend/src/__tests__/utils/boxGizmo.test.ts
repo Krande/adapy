@@ -141,7 +141,7 @@ test("the gizmo's steps, and whose a key is", () => {
     assert.equal(isTextEntry(null), false);
 });
 
-// ----- 1.31.0: faces, a box turned every way, a camera's look -------------------------------------
+// ----- 1.32.0: faces, a box turned every way, a camera's look -------------------------------------
 
 test("a face's middle and normal follow the turn; a resize keeps the opposite face and snaps the size", async () => {
     const {faceCentre, faceNormal, resizedBox} = await import("@/utils/gizmo/boxPose");

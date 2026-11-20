@@ -29,13 +29,16 @@ const none: Snapshot = { kind: "none", name: null, meshName: null, count: 0, has
 test("core's sections keep their order and rules", () => {
     assert.deepEqual(
         CORE_PROPERTY_PROVIDERS.map((p) => p.id),
-        ["selection-summary", "clash-contact", "fem-concepts", "source-jump", "object-metadata", "fea-sets", "indexed-attributes", "related", "tree-node", "cellbuilder-cell"],
+        [
+            "selection-summary", "clash-contact", "fem-concepts", "source-jump", "object-metadata", "fea-element", "fea-sets", "indexed-attributes",
+            "related", "tree-node", "cellbuilder-item", "cellbuilder-structure",
+        ],
     );
     const ids = (sel: Snapshot) => providersFor(sel, CORE_PROPERTY_PROVIDERS, []).map((p) => p.id);
-    assert.deepEqual(ids(none), ["clash-contact", "fem-concepts", "source-jump", "indexed-attributes", "related", "tree-node", "cellbuilder-cell"]);
+    assert.deepEqual(ids(none), ["clash-contact", "fem-concepts", "source-jump", "indexed-attributes", "related", "tree-node"]);
     assert.ok(ids({ ...none, hasEntities: true }).includes("selection-summary"), "the summary stays while the scene holds anything");
     const cell = ids({ ...none, kind: "cell", name: "c", meshName: "m", count: 1, cellBuilderActive: true });
-    assert.deepEqual(cell, ["selection-summary", "clash-contact", "fem-concepts", "object-metadata", "tree-node", "cellbuilder-cell"]);
+    assert.deepEqual(cell, ["selection-summary", "clash-contact", "fem-concepts", "object-metadata", "tree-node", "cellbuilder-item"]);
 });
 
 test("a plugin provider slots in by order, after core's on a tie, and a throwing match is skipped", () => {
@@ -52,7 +55,7 @@ test("a plugin provider slots in by order, after core's on a tie, and a throwing
         const ids = providersFor(sel, CORE_PROPERTY_PROVIDERS, plugins).map((p) => p.id);
         assert.deepEqual(ids, [
             "selection-summary", "clash-contact", "fem-concepts", "source-jump", "object-metadata", "tie", "between",
-            "indexed-attributes", "related", "tree-node", "cellbuilder-cell", "late",
+            "indexed-attributes", "related", "tree-node", "late",
         ]);
     } finally {
         console.warn = warn;
@@ -104,4 +107,82 @@ test("onShowInData leaves the markup as it is, the Show in data button included"
         setServerState(useFeaAnimationStore, { sessionActive: false, mesh: null } as never);
         setServerState(useObjectInfoStore, { name: "" });
     }
+});
+
+test("a shell's `sections` keeps a section out by id, given the shell's mode on the snapshot; a throwing filter keeps it", async () => {
+    const { visibleSections } = await import("@/components/info_box_selected_object/ObjectInfoBoxComponent");
+    const { setShellModes } = await import("@/layout/shellModes");
+    setServerState(useObjectInfoStore, { name: "Element 1" });
+    const off = registerPropertyProvider({
+        id: "probe",
+        order: 35,
+        match: () => true,
+        render: (sel) => React.createElement("p", { id: "probe" }, `in ${sel.shellMode ?? "no mode"}`),
+    });
+    try {
+        assert.match(render(), /<p id="probe">in no mode<\/p>/, "no shell modes: no shellMode");
+        setShellModes([{ id: "output", label: "Output", order: 0 }], "output");
+        assert.match(render(), /<p id="probe">in output<\/p>/);
+        const seen: string[] = [];
+        const html = render({ sections: (id, sel) => (seen.push(`${id}@${sel.shellMode}`), id !== "probe") });
+        assert.doesNotMatch(html, /id="probe"/);
+        assert.match(html, /Element 1/, "the others stay");
+        assert.ok(seen.includes("probe@output"));
+
+        const list = providersFor({ ...none, kind: "mesh", name: "x", meshName: "x" }, CORE_PROPERTY_PROVIDERS, []);
+        const boom = () => {
+            throw new Error("bug");
+        };
+        assert.deepEqual(visibleSections(list, none, boom).map((p) => p.id), list.map((p) => p.id));
+        assert.deepEqual(visibleSections(list, none, undefined).map((p) => p.id), list.map((p) => p.id));
+    } finally {
+        off();
+        setShellModes([]);
+        setServerState(useObjectInfoStore, { name: "" });
+    }
+});
+
+test("`flat` draws the picked element's properties open, with no foldable heading, and the decimals menu on the clicked-at row", () => {
+    setServerState(useObjectInfoStore, { name: "Element 1", clickCoordinate: { x: 1, y: 2, z: 3 } } as never);
+    try {
+        const folded = render();
+        assert.match(folded, /aria-controls="object-properties"/, "the classic panel folds under a heading");
+        assert.doesNotMatch(folded, /Clicked at:/, "and starts folded");
+        const flat = render({ flat: true });
+        assert.doesNotMatch(flat, /aria-controls="object-properties"/, "no chevron");
+        assert.doesNotMatch(flat, /<span class="font-semibold">Properties<\/span>/, "no title");
+        assert.match(flat, /data-object-metadata="flat"/);
+        assert.match(flat, /Clicked at:[\s\S]*data-clicked-at=""[\s\S]*aria-label="Properties display options"/, "the menu sits in the row");
+    } finally {
+        setServerState(useObjectInfoStore, { name: "", clickCoordinate: null } as never);
+    }
+});
+
+test("summary 'menu': no name row, hide buttons, notices, Clicked at or Mesh section -- one ⋯ menu; the sections below still get the pick", () => {
+    setServerState(useObjectInfoStore, { name: "E163", clickCoordinate: { x: 1.264, y: 0.5, z: 0.402 } } as never);
+    const off = registerPropertyProvider({ id: "probe", order: 36, match: (sel) => sel.kind === "mesh", render: (sel) => React.createElement("p", { id: "probe" }, `item ${sel.meshName}`) });
+    try {
+        const full = render({ flat: true });
+        assert.match(full, /aria-label="Unhide all"/, "full: as before");
+        assert.match(full, /Clicked at:/);
+        const menu = render({ flat: true, summary: "menu" });
+        assert.match(menu, /data-summary-menu=""/);
+        assert.match(menu, /aria-label="Selection actions"[^>]*>⋯</);
+        for (const gone of [/Name:/, /aria-label="Unhide all"/, /aria-label="Hide selected"/, /Hide others/, /Clicked at:/, /Mesh \(/, /Copy name to clipboard/]) {
+            assert.doesNotMatch(menu, gone, String(gone));
+        }
+        assert.match(menu, /<p id="probe">item E163<\/p>/, "an item below still gets the pick");
+        assert.doesNotMatch(menu, /data-summary-menu-items/, "the menu is closed until asked");
+        // Nothing picked: no menu either.
+        setServerState(useObjectInfoStore, { name: "", clickCoordinate: null } as never);
+        assert.doesNotMatch(render({ summary: "menu" }), /data-summary-menu/);
+    } finally {
+        off();
+        setServerState(useObjectInfoStore, { name: "", clickCoordinate: null } as never);
+    }
+});
+
+test("the summary menu's mesh line", async () => {
+    const { meshStatsLine } = await import("@/components/info_box_selected_object/MeshStatsSection");
+    assert.equal(meshStatsLine({ triangles: 2, vertices: 4, area: 1 }), "2 tris · 4 verts · 1.00 m²");
 });

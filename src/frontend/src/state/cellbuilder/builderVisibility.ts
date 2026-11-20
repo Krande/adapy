@@ -37,3 +37,10 @@ export function builderCellSelection(): string[] | null {
     const ids = b?.selected() ?? [];
     return ids.length ? ids : null;
 }
+
+/** Whether the builder's cells are on screen: null when no builder scene is up (nothing says either
+ *  way). The Properties panel leaves a builder pick out while they are not (a shell's mode that keeps
+ *  the procedural model open behind it, the docked UI's Output). */
+export function builderCellsShown(): boolean | null {
+    return host ? host.cellsShown() : null;
+}

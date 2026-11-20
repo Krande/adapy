@@ -21,12 +21,13 @@
 import {useEffect} from "react";
 import {viewerApi, ApiError} from "@/services/viewerApi";
 import {useConversionStore} from "@/state/conversionStore";
-import {isJobTracked, pollJobUntilTerminal, resumeTrackedJobs} from "@/services/jobTracking";
+import {forgetRememberedJobs, isJobTracked, pollJobUntilTerminal, resumeTrackedJobs} from "@/services/jobTracking";
 // Registers the rescan's finisher, so a rescan resumed after a reload finishes too.
 import "@/services/providerRescan";
 import {resumeTrackedSweeps} from "@/services/sweepTracking";
 import {useScopeStore, scopeUrlPart} from "@/state/scopeStore";
 import {runtime} from "@/runtime/config";
+import {openedByRunLink} from "@/utils/openedByRunLink";
 
 // The poll loop lives in services/jobTracking.ts, shared with `trackJob`. Two
 // implementations of "poll a job to terminal" drift, and the 404 handling in it was
@@ -44,6 +45,13 @@ export function useRestoreInflightJobs(): void {
         // Provider sweeps an admin chose to watch in the toast. Not scoped like the jobs below,
         // and idempotent, so a scope change re-attaching them is harmless.
         resumeTrackedSweeps();
+        // A page a run's link opened is about that run: it restores no job of an earlier
+        // session, and forgets the remembered ones so a later plain reload does not bring
+        // them back either (utils/openedByRunLink). Jobs it starts itself are tracked as usual.
+        if (openedByRunLink()) {
+            forgetRememberedJobs();
+            return;
+        }
         // Jobs handed to the toast with `persist` (a provider rescan, say): first, so the
         // my-jobs rows below that follow the same job are seen as already tracked.
         resumeTrackedJobs();

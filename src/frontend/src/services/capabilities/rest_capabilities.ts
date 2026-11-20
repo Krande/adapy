@@ -390,6 +390,11 @@ export class RESTFilesCapability implements FilesCapability {
     return true;
   }
 
+  async listFiles(scope: ScopeUrl) {
+    const { viewerApi } = await api();
+    return await viewerApi.listFiles(scope);
+  }
+
   async fetchBlob(scope: ScopeUrl, key: string): Promise<ArrayBuffer> {
     const { viewerApi } = await api();
     return await viewerApi.getBlob(scope, key);

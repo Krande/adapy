@@ -60,7 +60,7 @@ const CellBuilderInsertMenu: React.FC = () => {
   // equipment's containing cell when re-seating.
   React.useEffect(() => {
     if (!menu) return;
-    setCellId(defaultCellId(cells, menu.equipmentId));
+    setCellId(menu.cellId && cells[menu.cellId] ? menu.cellId : defaultCellId(cells, menu.equipmentId));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [menu]);
 

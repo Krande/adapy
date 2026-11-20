@@ -153,7 +153,7 @@ export const createLoftSlice: CellBuilderSlice<LoftSlice> = (set) => {
             removed.add(id);
           }
         }
-        const selGone = s.selection ? removed.has(s.selection.cellId) : false;
+        const selGone = s.selection?.cellId ? removed.has(s.selection.cellId) : false;
         return {
           loftMembers: s.loftMembers.filter((m) => m.NAME !== memberName),
           cells,

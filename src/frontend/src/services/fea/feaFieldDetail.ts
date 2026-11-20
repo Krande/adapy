@@ -99,7 +99,7 @@ export async function elementNodes(
     label: number,
     fetcher: FeaFetcher,
     cacheKey: string,
-): Promise<{elemType: string; nodes: number[]} | null> {
+): Promise<{elemType: string; nodes: number[]; indices: number[]} | null> {
     const fields = [...(manifest.fields ?? [])]
         .filter((f) => f.per_type?.length)
         .sort((a, b) => Number(b.category === "property") - Number(a.category === "property"));
@@ -110,7 +110,8 @@ export async function elementNodes(
             if (i < 0) continue;
             const idx = bucket.element_node_indices?.[i] ?? [];
             const nodeLabels = await manifestNodeLabels(manifest, fetcher, cacheKey);
-            return {elemType: bucket.elem_type, nodes: idx.map((n) => nodeLabels?.[n] ?? n)};
+            // `indices`: the points the nodes are, which a nodal field's values are listed by.
+            return {elemType: bucket.elem_type, nodes: idx.map((n) => nodeLabels?.[n] ?? n), indices: [...idx]};
         }
     }
     return null;

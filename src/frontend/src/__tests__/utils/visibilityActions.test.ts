@@ -16,7 +16,7 @@ const lend = (drawn: boolean) =>
     cellsShown: () => drawn && useCellBuilderStore.getState().active !== null,
     selected: () => {
       const st = useCellBuilderStore.getState();
-      return st.selectedCellIds.length ? [...st.selectedCellIds] : st.selection ? [st.selection.cellId] : [];
+      return st.selectedCellIds.length ? [...st.selectedCellIds] : st.selection?.cellId ? [st.selection.cellId] : [];
     },
     all: () => Object.keys(useCellBuilderStore.getState().cells),
     hide: (ids) => useCellBuilderStore.getState().hideCells([...ids]),

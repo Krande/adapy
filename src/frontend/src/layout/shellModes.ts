@@ -28,8 +28,11 @@ export interface ShellMode {
    *  mode's: run as the shell (`shellPluginId`), never as the mode's plugin, and an error in them
    *  is the shell's. */
   shellToolbar?: (ctx: AdaPluginContext) => React.ReactNode;
-  /** The shell plugin `shellToolbar` runs as. */
+  /** The shell plugin `shellToolbar` and `shellToolbarEnd` run as. */
   shellPluginId?: string;
+  /** A shell's controls drawn at the far right of the mode's toolbar region (`UiShellMode.toolbarEnd`,
+   *  `modeArrangements[id].toolbarEnd`), outside its clip; run as the shell (`shellPluginId`). */
+  shellToolbarEnd?: (ctx: AdaPluginContext) => React.ReactNode;
   /** Core toolbars drawn for the mode (`UiShellMode.toolbars`), before its own `toolbar`. */
   toolbars?: readonly string[];
   /** Offered only while this holds (`UiShellMode.requires`; `./modeRequirements`). */

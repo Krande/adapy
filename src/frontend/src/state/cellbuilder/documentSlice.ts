@@ -14,7 +14,9 @@ import type {ProceduralDoc} from "@/services/viewerApi";
 import {groupToStructureName, normalizeGroups} from "@/utils/cellbuilder/groups";
 import type {CellBuilderSlice} from "./state";
 import {currentScopePart} from "./shared";
-import {cellsFromDoc, containingCellName, DOC_SCHEMA_VERSION, groupsFromDoc, loftMembersFromDoc, systemsFromDoc} from "./docCodec";
+import {makeWithHistory} from "./historySlice";
+import {runBeforeCommit} from "./beforeCommit";
+import {BUILDER_DOC_KEYS, OPENING_SIDES, localOpeningColumns, type OpeningSide, unplacedOpeningsFromDoc, cellsFromDoc, containingCellName, DOC_SCHEMA_VERSION, docExtras, groupsFromDoc, loftMembersFromDoc, systemsFromDoc} from "./docCodec";
 
 /** Is a procedural document loaded for VIEWING with no editable session behind
  * it -- the GLB-embedded document on the websocket path (`loadFromDoc`)?
@@ -45,6 +47,16 @@ export interface DocumentSlice {
    * mean "there is somewhere to save this", not merely "there is something to
    * look at". */
   active: { modelId: string; name: string; revision: number } | null;
+  /** The loaded doc's top-level keys the builder does not own (docCodec.docExtras): written back
+   *  untouched by toDoc, so a commit keeps an engine's own lists (pm's `modifications`). */
+  docExtras: Record<string, unknown>;
+  /** The loaded doc's openings the builder cannot draw (docCodec.unplacedOpeningsFromDoc): written back
+   *  by toDoc as they came, so a commit never drops them. */
+  unplacedOpenings: Record<string, unknown>[];
+  /** Set one of those keys (`undefined` removes it), for a shell that edits an engine's own list
+   *  (an engine's `modifications`, say): one undo step, marks the model dirty, and the next
+   *  commit carries it. A key the builder owns (`BUILDER_DOC_KEYS`) is refused (returns false). */
+  setDocExtra: (key: string, value: unknown) => boolean;
   dirty: boolean;
   /** The open model's doc named no engine / no blueprint, and the user has not picked
    *  one since: the selection is a default the shell's `builderDefaults` may set. */
@@ -65,8 +77,22 @@ export interface DocumentSlice {
 }
 
 export const createDocumentSlice: CellBuilderSlice<DocumentSlice> = (set, get) => {
+  const withHistory = makeWithHistory(set);
   return {
     active: null,
+    docExtras: {},
+    unplacedOpenings: [],
+    setDocExtra: (key, value) => {
+      if (BUILDER_DOC_KEYS.has(key)) return false;
+      withHistory((s) => {
+        if (s.docExtras[key] === value) return {};
+        const docExtras = { ...s.docExtras };
+        if (value === undefined) delete docExtras[key];
+        else docExtras[key] = value;
+        return { docExtras, dirty: true };
+      });
+      return true;
+    },
     dirty: false,
     engineIsDefault: false,
     blueprintIsDefault: false,
@@ -83,6 +109,9 @@ export const createDocumentSlice: CellBuilderSlice<DocumentSlice> = (set, get) =
         loftMembers: loftMembersFromDoc(doc),
         systems: systemsFromDoc(doc),
         groups: groupsFromDoc(doc),
+        activeGroup: null,
+        docExtras: docExtras(doc),
+        unplacedOpenings: unplacedOpeningsFromDoc(doc),
         blueprintOptions: doc.blueprint ?? {},
         equipmentCad: Boolean(doc.equipment_cad),
         designRules: doc.design_rules ?? "standard",
@@ -160,6 +189,8 @@ export const createDocumentSlice: CellBuilderSlice<DocumentSlice> = (set, get) =
       get().hideDetail();
       set({
         active: null,
+        docExtras: {},
+        unplacedOpenings: [],
         cells: {},
         loftMembers: [],
         systems: {},
@@ -236,21 +267,41 @@ export const createDocumentSlice: CellBuilderSlice<DocumentSlice> = (set, get) =
           ROT_Y: c.rotation?.[1] ?? 0,
           ROT_Z: c.rotation?.[2] ?? 0,
         }));
-      const openings = Object.values(cells)
-        .filter((c) => c.kind === "opening")
-        .map((c) => ({
-          INCLUDE: true,
-          ...c.params,
-          NAME: c.name,
-          SUBTYPE: c.subtype ?? "door",
-          USE_GLOBAL_COORDS: true,
-          X: c.origin[0],
-          Y: c.origin[1],
-          Z: c.origin[2],
-          DX: c.size[0],
-          DY: c.size[1],
-          DZ: c.size[2],
-        }));
+      const openings = [
+        ...Object.values(cells)
+          .filter((c) => c.kind === "opening")
+          .map((c) => {
+            // A workbook's opening, placed on a side of its space, goes back in that form: its box
+            // as POS / SIZE / DEPTH on the side. Its space gone, its columns stay as they were.
+            if (c.openingFrame === "local") {
+              const space = Object.values(cells).find((s) => s.kind === "cell" && s.name === c.params?.SPACE_NAME);
+              const side = c.params?.SPACE_SIDE as OpeningSide;
+              return {
+                INCLUDE: true,
+                ...c.params,
+                NAME: c.name,
+                SUBTYPE: c.subtype ?? "door",
+                USE_GLOBAL_COORDS: false,
+                ...(space && OPENING_SIDES.includes(side) ? localOpeningColumns(c, space, side) : {}),
+              };
+            }
+            return {
+              INCLUDE: true,
+              ...c.params,
+              NAME: c.name,
+              SUBTYPE: c.subtype ?? "door",
+              USE_GLOBAL_COORDS: true,
+              X: c.origin[0],
+              Y: c.origin[1],
+              Z: c.origin[2],
+              DX: c.size[0],
+              DY: c.size[1],
+              DZ: c.size[2],
+            };
+          }),
+        // The ones the builder could not draw, as they came.
+        ...get().unplacedOpenings,
+      ];
       const systems = Object.values(get().systems).map((sys) => ({
         NAME: sys.name,
         TYPE: sys.type,
@@ -275,6 +326,8 @@ export const createDocumentSlice: CellBuilderSlice<DocumentSlice> = (set, get) =
       // grouping-unaware engine ignores the key regardless).
       const groups = normalizeGroups(get().groups);
       return {
+        // What the builder does not own, as it came: the keys below override it.
+        ...get().docExtras,
         // The schema this doc is written in: from 1.1 an entity's INCLUDE false leaves it out of the build.
         schema_version: DOC_SCHEMA_VERSION,
         grid: {},
@@ -316,6 +369,9 @@ export const createDocumentSlice: CellBuilderSlice<DocumentSlice> = (set, get) =
         loftMembers: loftMembersFromDoc(doc),
         systems,
         groups: groupsFromDoc(doc),
+        activeGroup: null,
+        docExtras: docExtras(doc),
+        unplacedOpenings: unplacedOpeningsFromDoc(doc),
         blueprintOptions: doc.blueprint ?? {},
         equipmentCad: Boolean(doc.equipment_cad),
         designRules: doc.design_rules ?? "standard",
@@ -335,14 +391,25 @@ export const createDocumentSlice: CellBuilderSlice<DocumentSlice> = (set, get) =
       if (!s.active || s.committing) return false;
       set({ committing: true, conflict: null });
       try {
+        // The shell's and the plugins' checks first (beforeCommit.ts): one may veto the commit.
+        if (!(await runBeforeCommit({ doc: s.toDoc(), docExtras: s.docExtras }))) {
+          set({ committing: false });
+          return false;
+        }
+        // The model as it is now is committed: an edit made while the checks ran goes too.
+        const cur = get();
+        if (!cur.active || cur.active.modelId !== s.active.modelId) {
+          set({ committing: false });
+          return false;
+        }
         const res = await capabilities.procedural.commitModel(
           currentScopePart(),
-          s.active.modelId,
-          s.toDoc(),
-          s.active.revision,
+          cur.active.modelId,
+          cur.toDoc(),
+          cur.active.revision,
         );
         set({
-          active: { ...s.active, revision: res.revision },
+          active: { ...cur.active, revision: res.revision },
           dirty: false,
           committing: false,
         });

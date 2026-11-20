@@ -228,3 +228,67 @@ test("a shell's tools for a plugin's mode run as the shell, after the plugin's, 
     resetRegistry();
   }
 });
+
+test("a shell's end controls sit at the far right of the mode's toolbar region, outside its clip", async () => {
+  const { modeEndTools } = await import("@/layout/ShellModeSwitcher");
+  const { ModeToolbarRegion } = await import("@/layout/ModeToolbarRegion");
+  resetRegistry();
+  registerPlugin({ id: "the-shell", version: "1.0.0", coreApiRange: ">=1.0 <2.0" });
+  registerPlugin({ id: "mode-plugin", version: "1.0.0", coreApiRange: ">=1.0 <2.0", modes: [{ id: "check", label: "Check" }] });
+  try {
+    const modes = shellModes({
+      id: "s",
+      label: "S",
+      pluginId: "the-shell",
+      layout: {
+        modes: [{ id: "own", label: "Own", toolbarEnd: (ctx: { pluginId: string }) => `view menu as ${ctx.pluginId}` }],
+        modeArrangements: { check: { toolbarEnd: () => "check's end" } },
+      },
+    } as never);
+    const by = (id: string) => modes.find((m) => m.id === id)!;
+    const ctxFor = (pluginId: string) => ({ pluginId }) as never;
+    assert.equal(modeEndTools(by("own"), ctxFor), "view menu as the-shell", "the shell's own mode: run as the shell");
+    assert.equal(modeEndTools(by("check"), ctxFor), "check's end", "a plugin's mode: the shell's arrangement for it");
+
+    const out = renderToStaticMarkup(
+      React.createElement(ModeToolbarRegion, { end: React.createElement("i", { id: "end" }) }, React.createElement("b", { id: "t" })),
+    );
+    const clip = out.indexOf("data-mode-toolbar-clip");
+    const endAt = out.indexOf("data-mode-toolbar-end");
+    assert.ok(clip >= 0 && endAt > out.indexOf('id="t"'), "the end slot follows the clip, not inside it");
+    assert.match(out, /ml-auto[^"]*shrink-0[^>]*data-mode-toolbar-end=""><i id="end">/);
+    assert.doesNotMatch(renderToStaticMarkup(React.createElement(ModeToolbarRegion, null, "x")), /data-mode-toolbar-end/);
+  } finally {
+    resetRegistry();
+  }
+});
+
+test("a shell that lays its toolbar row out itself mounts the end controls on their own, at the row's end", async () => {
+  await import("../fixtures/panelRealm");
+  const { ShellModeToolbar, ShellModeToolbarEnd } = await import("@/layout/ShellModeSwitcher");
+  const { setShellModes } = await import("@/layout/shellModes");
+  const { AdaViewerProvider } = await import("@/state/AdaViewerContext");
+  resetRegistry();
+  registerPlugin({ id: "the-shell", version: "1.0.0", coreApiRange: ">=1.0 <2.0" });
+  const modes = shellModes({
+    id: "s",
+    label: "S",
+    pluginId: "the-shell",
+    layout: { modes: [{ id: "own", label: "Own", toolbar: () => React.createElement("b", null, "tools"), toolbarEnd: () => React.createElement("i", null, "log") }] },
+  } as never);
+  setShellModes(modes, "own");
+  const draw = (el: React.ReactElement) => renderToStaticMarkup(React.createElement(AdaViewerProvider, null, el));
+  try {
+    const region = draw(React.createElement(ShellModeToolbar));
+    assert.match(region, /data-mode-toolbar-clip=""[\s\S]*<b>tools<\/b>[\s\S]*data-mode-toolbar-end=""><i>log<\/i>/, "in the region: after the clip, at its right edge");
+    const without = draw(React.createElement(ShellModeToolbar, { end: false }));
+    assert.match(without, /<b>tools<\/b>/);
+    assert.doesNotMatch(without, /<i>log<\/i>/, "end={false}: the shell mounts it");
+    assert.match(draw(React.createElement(ShellModeToolbarEnd)), /^<div class="ml-auto flex shrink-0 items-center gap-2" data-mode-toolbar-end=""><i>log<\/i><\/div>$/);
+    setShellModes([{ id: "bare", label: "Bare", order: 0 }], "bare");
+    assert.equal(draw(React.createElement(ShellModeToolbarEnd)), "", "a mode without end controls: nothing");
+  } finally {
+    setShellModes([]);
+    resetRegistry();
+  }
+});

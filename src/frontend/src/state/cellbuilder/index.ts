@@ -38,3 +38,4 @@ export type {
     SystemType,
 } from "./types";
 export type {CellBuilderState} from "./state";
+export type {BuilderRef, BuilderRefEdit, BuilderRefProvider, BuilderRefSpec} from "./refsSlice";

@@ -22,7 +22,7 @@ import {NoModel} from "./cellbuilder/panel/NoModel";
 // The procedural-modelling context panel: add cells / typed equipment, list the
 // boxes, edit systems, commit to postgres (revision-tracked) and compile via
 // the worker. The per-selection cell/equipment detail lives in the Selected
-// Object Info panel (see CellBuilderSelectionInfo), not here.
+// Object Info panel (see cellBuilderSelection/BuilderSections), not here.
 //
 // Layout: a pinned header (model identity + undo/redo/close), a four-tab body
 // (Build · Systems · View · Tools) whose long groups collapse, and a pinned

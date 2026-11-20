@@ -93,10 +93,19 @@ function paint(host: LayerOverlayHost, spec: ElementPaint): {remove(): void} | n
     const local = new Float32Array(corners * 3);
     const colors = new Float32Array(corners * 3);
     let at = 0;
+    // Each element's corners as a segment of the layer, the object it paints: hidden with it, so a
+    // hidden element has no colour on top (the segments name the element; `objectOf` its index).
+    const objectIndex = host.ids ? new Map(host.ids.map((id, i) => [id, i] as const)) : null;
+    const segments: number[] = [];
+    const objectOf: number[] = [];
     for (const [id, range] of ranges) {
         const label = elementLabel(id);
         if (label < 0 || !spec.colorOf(label, c)) continue;
         const end = Math.min(range[0] + range[1], indices.length);
+        if (objectIndex && end > range[0]) {
+            segments.push(at, end - range[0]);
+            objectOf.push(objectIndex.get(id) ?? -1);
+        }
         for (let i = range[0]; i < end; i++, at++) {
             const v = indices[i], o = at * 3, s = v * 3;
             toSource[at] = v;
@@ -108,7 +117,12 @@ function paint(host: LayerOverlayHost, spec: ElementPaint): {remove(): void} | n
             colors[o + 2] = c[2];
         }
     }
-    const layer = host.results.createResultMesh({positions: local, indices: null, topology: "triangles", matrix: host.matrix, overlay: {}});
+    // Segments must ascend and not overlap: draw ranges are in index order, and `at` only grows.
+    const objects =
+        objectIndex && host.model !== null && host.ids
+            ? {model: host.model, ids: host.ids, segments: Uint32Array.from(segments), objectOf: Int32Array.from(objectOf)}
+            : undefined;
+    const layer = host.results.createResultMesh({positions: local, indices: null, topology: "triangles", matrix: host.matrix, overlay: {}, objects});
     layer.setColors(colors);
     return {remove: host.pin(layer, toSource, spec.on)};
 }
