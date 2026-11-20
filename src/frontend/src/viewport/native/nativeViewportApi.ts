@@ -163,5 +163,27 @@ export function createNativeViewportApi(scene: NativeScene): ViewportApi {
             return hit ? {ref: hit.id ? splitObjectKey(hit.id) : null, world: hit.world} : null;
         },
         featureEdges: (ref) => scene.objectFeatureEdges(objectKey(ref.model, ref.id)),
+        // For a tool that draws a three.js scene of its own through this viewport (the cell builder).
+        cameraMatrices: () => scene.screenProjection(),
+        elements: () => scene.elements,
+        takePresses: (taker) => takePresses(scene, taker),
+        setGroundGridHidden: (hidden) => scene.setGroundGridHidden(hidden),
+        objectsNamed: (name) =>
+            scene.objectsNamed(name).map(({key, box}) => ({ref: splitObjectKey(key), min: [box[0], box[1], box[2]], max: [box[3], box[4], box[5]]})),
+        shiftSource: (sourceName, shift) => scene.shiftSource(sourceName, shift),
     });
+}
+
+/** Ask `taker` at each press before whoever had the scene's drags (a selection box's handles, the
+ *  section plane's arrow, the selection rectangle) and before the camera. */
+export function takePresses(
+    scene: Pick<NativeScene, "dragInterceptor">,
+    taker: (e: PointerEvent) => ((move: PointerEvent) => void) | null,
+): () => void {
+    const before = scene.dragInterceptor;
+    const intercept = (e: PointerEvent) => taker(e) ?? before?.(e) ?? null;
+    scene.dragInterceptor = intercept;
+    return () => {
+        if (scene.dragInterceptor === intercept) scene.dragInterceptor = before;
+    };
 }

@@ -15,7 +15,7 @@ import {useGroupViewStore} from "@/state/cellbuilder/groupViewStore";
 import {useIncludeViewStore} from "@/state/includeViewStore";
 import {useModelState} from "@/state/modelState";
 import {requestRender} from "@/state/perfStore";
-import {getViewerRuntime} from "@/state/viewerRuntime";
+import type {BuilderViewHost} from "./viewHost";
 import {createCellBuilderScene, syncOffset} from "./sceneContext";
 import {disposeBuilderGrid, syncBuilderGrid} from "./builderGrid";
 import {disposeMesh, refreshEdgeOverlays, refreshFaceStyles} from "./overlays";
@@ -29,7 +29,6 @@ import {disposeResizeHandles, keepHandlesScreenSized, syncGizmo, translationSnap
 import {installFreeMoveKeys, onFreeMoveChange} from "@/utils/gizmo/freeMove";
 import {keepScreenSized} from "@/utils/gizmo/screenSize";
 import {disposeCellDimensions, disposeMoveMeasure} from "./cellDimensions";
-import {useGroundGridStore} from "@/state/groundGridStore";
 import {clearLongPress, onContextMenu, onPointerCancel, onPointerDown, onPointerMove, onPointerUp} from "./pointerTools";
 import {itemIncludeState} from "@/utils/cellbuilder/include";
 
@@ -43,18 +42,13 @@ const includeStates = (s: BuilderState): string =>
 import {endPlaceEntry} from "./numericEntry";
 import {endEquipEntry, endOpenEntry} from "./insertTools";
 import {onKeyDown} from "./keyboard";
-import {viewportInputElement} from "@/viewport/input";
 import {openedModelFramer} from "./frameOpened";
 import {shownInScene} from "./cellBoxSelect";
 import {setBuilderVisibilityHost} from "@/state/cellbuilder/builderVisibility";
 import {disposeInfoLabel, syncInfoLabel} from "./infoLabel";
 
-export function initCellBuilderScene(
-    renderer: THREE.WebGLRenderer,
-    scene: THREE.Scene,
-    camera: THREE.Camera,
-): () => void {
-    const ctx = createCellBuilderScene(renderer, scene, camera);
+export function initCellBuilderScene(host: BuilderViewHost): () => void {
+    const ctx = createCellBuilderScene(host);
     syncOffset(ctx);
     installCellGizmo(ctx);
     installPortGizmo(ctx);
@@ -94,17 +88,23 @@ export function initCellBuilderScene(
     const hPointerMove = (ev: PointerEvent) => void ((shown() || busy()) && onPointerMove(ctx, ev));
     const hPointerUp = (ev: PointerEvent) => onPointerUp(ctx, ev);
     const hPointerCancel = (ev: PointerEvent) => onPointerCancel(ctx, ev);
-    const hContextMenu = (ev: MouseEvent) => void (shown() && onContextMenu(ctx, ev));
+    const hContextMenu = (ev: MouseEvent) => {
+        if (!shown()) return;
+        onContextMenu(ctx, ev);
+        // A menu the builder opened stops the event: the scene's own menus (whether on an element
+        // above this one or on this one, as the three.js-free viewport's are) stay shut.
+        if (ev.cancelBubble) ev.stopImmediatePropagation();
+    };
     const hKeyDown = (ev: KeyboardEvent) => void ((shown() || busy()) && onKeyDown(ctx, ev));
 
-    const el = viewportInputElement(ctx.renderer);
+    const el = ctx.host.input();
     // Capture phase so a grab on a builder face wins over the scene's own
     // click-selection/orbit-pivot handlers.
     el.addEventListener("pointerdown", hPointerDown, true);
     el.addEventListener("pointermove", hPointerMove, true);
     el.addEventListener("pointerup", hPointerUp, true);
     el.addEventListener("pointercancel", hPointerCancel, true);
-    el.addEventListener("contextmenu", hContextMenu);
+    el.addEventListener("contextmenu", hContextMenu, true);
     // Capture phase so the builder's Shift+H / gizmo keys can preempt (and
     // stopPropagation) the global viewer key handler, which listens on bubble.
     window.addEventListener("keydown", hKeyDown, true);
@@ -271,6 +271,9 @@ export function initCellBuilderScene(
             requestAnimationFrame(() => rebuild(ctx));
         }
     });
+    // What the viewport on screen needs of the builder's scene (./viewHost.ts): nothing on the
+    // three.js viewport, which draws it; the three.js-free one draws it through its overlays.
+    const unbindHost = ctx.host.bind?.(ctx) ?? (() => {});
 
     return () => {
         framer.dispose();
@@ -286,11 +289,11 @@ export function initCellBuilderScene(
         el.removeEventListener("pointermove", hPointerMove, true);
         el.removeEventListener("pointerup", hPointerUp, true);
         el.removeEventListener("pointercancel", hPointerCancel, true);
-        el.removeEventListener("contextmenu", hContextMenu);
+        el.removeEventListener("contextmenu", hContextMenu, true);
         unprobe();
         window.removeEventListener("keydown", hKeyDown, true);
-        const runtimeCtl = getViewerRuntime().controls.current;
-        if (runtimeCtl) runtimeCtl.enabled = true;
+        unbindHost();
+        ctx.host.setCameraEnabled(true);
         clearLongPress(ctx);
         ctx.gizmo.detach();
         ctx.gizmo.dispose();
@@ -320,8 +323,7 @@ export function initCellBuilderScene(
         disposeInfoLabel(ctx);
         disposeMoveMeasure(ctx);
         ctx.container.remove(ctx.moveMeasureGroup);
-        ctx.hiddenDefaultGrids.forEach((g) => (g.visible = useGroundGridStore.getState().visible));
-        ctx.hiddenDefaultGrids.length = 0;
+        ctx.host.setGroundGridHidden(false);
         disposeBuilderGrid(ctx);
         clearPorts(ctx);
         // Free the CAD-preview cache prototypes (the scene clones share their

@@ -72,10 +72,13 @@ export function bindSectionGizmo(scene: NativeScene): () => void {
         shown = {plane, base: g.base, tip: g.tip, length: g.length};
     };
 
-    scene.dragInterceptor = (e) => {
-        if (!shown || e.button !== 0) return null;
+    // A press on the arrow is its drag; any other goes on to whoever asked for the presses before
+    // (a tool drawing through the viewport may have, as soon as the viewport was up).
+    const before = scene.dragInterceptor;
+    const intercept = (e: PointerEvent): ((move: PointerEvent) => void) | null => {
+        if (!shown || e.button !== 0) return before?.(e) ?? null;
         const base = scene.worldToClient(shown.base), tip = scene.worldToClient(shown.tip);
-        if (!base || !tip || distanceToSegment({x: e.clientX, y: e.clientY}, base, tip) > GRAB_PX) return null;
+        if (!base || !tip || distanceToSegment({x: e.clientX, y: e.clientY}, base, tip) > GRAB_PX) return before?.(e) ?? null;
         const {plane, length} = shown;
         const from = {x: e.clientX, y: e.clientY};
         // The plane keeps what is on its +normal side, at normal . x + constant = 0: moving it along the
@@ -83,6 +86,7 @@ export function bindSectionGizmo(scene: NativeScene): () => void {
         return (move) =>
             useSectionStore.getState().setConstant(plane.id, plane.constant - dragAlongArrow(move.clientX - from.x, move.clientY - from.y, base, tip, length));
     };
+    scene.dragInterceptor = intercept;
 
     draw();
     const unsubscribe = useSectionStore.subscribe(draw);
@@ -90,7 +94,7 @@ export function bindSectionGizmo(scene: NativeScene): () => void {
     return () => {
         unsubscribe();
         scene.onLoaded.delete(draw);
-        scene.dragInterceptor = null;
+        if (scene.dragInterceptor === intercept) scene.dragInterceptor = before;
         for (const h of handles) scene.removeLines(h);
         handles = [];
     };

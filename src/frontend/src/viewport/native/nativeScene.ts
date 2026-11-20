@@ -150,6 +150,9 @@ interface LoadedModel {
     reader?: GlbObjectReader | null;
     /** Feature edges already found, by object id (a few, the ones measured on lately). */
     edges?: Map<string, Float32Array | null>;
+    /** While it is drawn moved from where it was placed (`shiftSource`): each instance's matrix
+     *  as placed, in the order of `instances`. */
+    unshifted?: Float32Array[];
 }
 
 let canvasSerial = 0;
@@ -647,6 +650,45 @@ export class NativeScene {
                 this.invalidate();
             },
         };
+    }
+
+    /**
+     * Draw the model loaded from `sourceName` moved by `shift` in the world from where it was placed
+     * ([0, 0, 0] puts it back): every instance of it, as one. Returns its box as placed, without the
+     * shift; null when there is no such model. What a compiled model is shown beside the cell
+     * builder's cells with. Its objects' boxes stay where it was placed.
+     */
+    shiftSource(sourceName: string, shift: readonly [number, number, number]): Bounds | null {
+        const model = [...this.models.values()].find((m) => m.sourceName === sourceName);
+        if (!model) return null;
+        const moved = shift[0] !== 0 || shift[1] !== 0 || shift[2] !== 0;
+        if (!model.unshifted && !moved) return [...model.bounds];
+        const base = (model.unshifted ??= model.instances.map((instance) => Float32Array.from(this.renderer.instanceMatrix(instance))));
+        const p = (this.matrixRoom ||= this.module._malloc(64));
+        model.instances.forEach((instance, k) => {
+            // The view is taken now: the heap may have grown.
+            const heap = this.module.HEAPF32;
+            const at = p >> 2;
+            heap.set(base[k], at);
+            heap[at + 12] += shift[0];
+            heap[at + 13] += shift[1];
+            heap[at + 14] += shift[2];
+            this.renderer.setInstanceMatrix(instance, p);
+        });
+        if (!moved) model.unshifted = undefined;
+        this.invalidate();
+        return [...model.bounds];
+    }
+
+    /** The objects drawn whose own name is `name`, with their boxes in the world. */
+    objectsNamed(name: string): {key: string; box: Bounds}[] {
+        const out: {key: string; box: Bounds}[] = [];
+        for (const o of this.objectList) {
+            if (o.path[o.path.length - 1] !== name) continue;
+            const box = this.boxOf(o.id);
+            if (box) out.push({key: o.id, box});
+        }
+        return out;
     }
 
     /** The models on screen changed: what there is to play may have. */
@@ -1217,13 +1259,23 @@ export class NativeScene {
         return offset;
     }
 
+    /** A tool draws a grid of its own: the ground grid is left out until it is done. */
+    private gridHidden = false;
+
+    setGroundGridHidden(hidden: boolean): void {
+        if (hidden === this.gridHidden) return;
+        this.gridHidden = hidden;
+        this.addGrid();
+        this.invalidate();
+    }
+
     /** The ground grid every viewport draws (viewport/api/groundGrid), at the origin. Drawn before the
      *  faces, so the model hides it; renderer.clear() takes it with the helper lines, so it is drawn
      *  again after each. */
     private addGrid(): void {
         for (const handle of this.gridHandles) this.removeLines(handle);
         this.gridHandles = [];
-        if (!useGroundGridStore.getState().visible) return;
+        if (!useGroundGridStore.getState().visible || this.gridHidden) return;
         const flags = InstanceFlag.Unlit | InstanceFlag.NoPick | InstanceFlag.Underlay;
         const {lines, centre} = groundGridLines(true);
         this.gridHandles = [

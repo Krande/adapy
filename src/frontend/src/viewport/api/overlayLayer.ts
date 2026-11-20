@@ -17,6 +17,8 @@ export interface OverlayLook {
     clipped?: boolean;
     /** Where the coordinates stand in the world: a column-major 4x4, identity when absent. */
     matrix?: ArrayLike<number> | null;
+    /** three.js' renderOrder: where a see-through or on-top overlay comes among the others. */
+    renderOrder?: number;
     /** False keeps it out of what the camera frames when it fits the model: a marker of the model's,
      *  not a part of it. Only a viewport that frames what is in its scene looks at this. */
     fitted?: boolean;
@@ -47,8 +49,16 @@ export interface OverlayMesh extends OverlayLook {
     positions: Float32Array;
     /** Three vertices per triangle. Drawn from both sides, in its colour as it is (no lighting). */
     indices: Uint32Array;
+    /** Drawn from its front only (the side its triangles turn counter-clockwise), as a one-sided
+     *  three.js material draws: fewer layers to see through on a see-through box. */
+    frontOnly?: boolean;
     /** A colour per vertex (linear RGB, three numbers each) instead of `color`. */
     colors?: Float32Array;
+    /** Lit as the model is (three.js' MeshStandardMaterial) instead of drawn in its colour as it is. */
+    lit?: {metalness: number; roughness: number};
+    /** With `lit`: a normal per vertex (three numbers each, in the axes of `positions`); each face's own
+     *  when left out. */
+    normals?: Float32Array;
 }
 
 /** What of an overlay's look can change after it was added. A member left out stays as it is. */

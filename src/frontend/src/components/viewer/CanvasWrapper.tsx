@@ -165,6 +165,8 @@ const CanvasWrapper: React.FC<CanvasWrapperProps> = ({legend = true}) => {
         <TypeIconController />
         <NameLabelController />
         <FemConceptsController />
+        {/* The procedural cellbuilder: its scene drawn through this viewport's overlays. */}
+        <CellBuilderController native />
       </div>
     );
   }

@@ -89,7 +89,7 @@ function makeMesh(spec: OverlayMesh): THREE.Mesh {
     const opacity = spec.opacity ?? 1;
     const material = new THREE.MeshBasicMaterial({
         vertexColors: !!spec.colors,
-        side: THREE.DoubleSide,
+        side: spec.frontOnly ? THREE.FrontSide : THREE.DoubleSide,
         opacity,
         transparent: opacity < 1 || !!spec.onTop,
         depthTest: !spec.onTop,

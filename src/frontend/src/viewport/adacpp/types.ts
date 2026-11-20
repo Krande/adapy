@@ -156,6 +156,9 @@ export interface WebRendererApi {
     removeInstance(instance: number): void;
     /** Place an instance: a column-major 4x4 at `matrix` (heap pointer). Its other state stays. */
     setInstanceMatrix(instance: number, matrix: number): void;
+    /** three.js' renderOrder for a transparent or on-top instance; kept by setInstance. Absent on a
+     *  module that predates it (it then draws transparent instances in the order they were added). */
+    setInstanceRenderOrder?(instance: number, order: number): void;
     instanceMatrix(instance: number): Float32Array;
     // Node animations of a loaded GLB (`LoadGlbOptions.animations`), by the set `loadGlb` returned.
     // `clear()` forgets every set; a call with a set that is gone throws.
@@ -259,6 +262,10 @@ export interface RawPick {
     /** What was hit: Topology.Triangles or Topology.Points. Absent from renderers that only pick triangles. */
     topology?: number;
     world: [number, number, number];
+    /** The hit triangle's corner nearest to `world` (a point: the point). Absent on an older module. */
+    vertex?: [number, number, number];
+    /** The nearest point on the hit triangle's sides (diagonals included). Absent on an older module. */
+    edge?: [number, number, number];
 }
 
 export interface AdacppModule {
@@ -319,6 +326,7 @@ export const InstanceFlag = {
     OnTop: 1 << 17, // drawn over the model, no depth test (three.js' depthTest: false, e.g. gizmo handles)
     CullBack: 1 << 18, // transparent, yet back faces culled (a single-sided transparent material)
     Nearest: 1 << 19, // a quad's texture sampled without blending between pixels
+    VertexColorsSrgb: 1 << 20, // vertex colours are sRGB-encoded, blended so and decoded per pixel
 } as const;
 export const SpriteFlag = {
     SizeAttenuation: 1 << 0, // three.js' sizeAttenuation; clear = constant size on screen (perspective)
