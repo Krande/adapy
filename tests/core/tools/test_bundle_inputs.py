@@ -49,7 +49,13 @@ def repo(tmp_path):
     _put(
         root,
         "src/frontend/package-lock.json",
-        json.dumps({"name": "v", "version": "1.0.0", "packages": {"": {"version": "1.0.0"}, "node_modules/a": {"version": "1.2.3"}}}),
+        json.dumps(
+            {
+                "name": "v",
+                "version": "1.0.0",
+                "packages": {"": {"version": "1.0.0"}, "node_modules/a": {"version": "1.2.3"}},
+            }
+        ),
     )
     _put(root, "src/ada/visit/rendering/resources/index.zip", "zip")
     subprocess.run(["git", "-C", str(root), "add", "-A"], check=True)
@@ -137,7 +143,13 @@ def test_a_release_version_bump_does_not_make_it_stale(bi, repo):
     _put(
         repo,
         "src/frontend/package-lock.json",
-        json.dumps({"name": "v", "version": "2.0.0", "packages": {"": {"version": "2.0.0"}, "node_modules/a": {"version": "1.2.3"}}}),
+        json.dumps(
+            {
+                "name": "v",
+                "version": "2.0.0",
+                "packages": {"": {"version": "2.0.0"}, "node_modules/a": {"version": "1.2.3"}},
+            }
+        ),
     )
     assert bi.check(repo) == 0
 
@@ -150,7 +162,13 @@ def test_a_dependency_change_does_make_it_stale(bi, repo):
     _put(
         repo,
         "src/frontend/package-lock.json",
-        json.dumps({"name": "v", "version": "1.0.0", "packages": {"": {"version": "1.0.0"}, "node_modules/a": {"version": "1.2.4"}}}),
+        json.dumps(
+            {
+                "name": "v",
+                "version": "1.0.0",
+                "packages": {"": {"version": "1.0.0"}, "node_modules/a": {"version": "1.2.4"}},
+            }
+        ),
     )
     assert bi.check(repo) == 1
 
@@ -164,7 +182,9 @@ def test_a_hand_edited_stamp_fails(bi, repo, capsys):
 
 
 def test_cli_exit_code(repo):
-    run = lambda cmd: subprocess.run([sys.executable, str(_SCRIPT), cmd, "--root", str(repo)], capture_output=True, text=True)
+    def run(cmd):
+        return subprocess.run([sys.executable, str(_SCRIPT), cmd, "--root", str(repo)], capture_output=True, text=True)
+
     assert run("check").returncode == 1
     assert run("write").returncode == 0
     assert run("check").returncode == 0

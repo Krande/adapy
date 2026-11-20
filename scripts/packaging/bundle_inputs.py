@@ -119,7 +119,9 @@ def collect(root: pathlib.Path = REPO) -> dict[str, str]:
     """Every input, as {name: id}, where the name is a repo path or ``pin:<ARG>``."""
     tracked = _git(root, "ls-files", "-z", "--", FRONTEND).decode().split("\0")
     wanted = sorted(
-        p for p in tracked if p and p.startswith(FRONTEND + "/") and is_input(p[len(FRONTEND) + 1 :]) and (root / p).is_file()
+        p
+        for p in tracked
+        if p and p.startswith(FRONTEND + "/") and is_input(p[len(FRONTEND) + 1 :]) and (root / p).is_file()
     )
     ids = dict(zip(wanted, _blob_ids(root, wanted)))
     for p in wanted:
