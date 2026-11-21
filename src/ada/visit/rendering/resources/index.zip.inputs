@@ -1,8 +1,8 @@
 # The inputs src/ada/visit/rendering/resources/index.zip was built from, and its own hash. Do not edit.
 # Refresh with `pixi run wbuild` (rebuilds the bundle and rewrites this), then commit both.
 # Checked by `pixi run check-bundle-inputs` and by CI. See scripts/packaging/bundle_inputs.py.
-inputs-sha256 2b29974dd97c84dcabe908754955032106d413501eb1e8059c1407ee8b77f672
-bundle-sha256 995ff222e7ef9e8f8a7a1274bc10e2c5d1511e90efa6381bc229bb15ce5cef6c
+inputs-sha256 a045828a5edd557f1bb1a3999e489431ea7205b950dcf49de76e121633ecb298
+bundle-sha256 b60a36b89a913099e2a09def60031f1e031b5a63f1d3e91b14b0fe3620ad0f53
 pin:ADACPP_BASE_IMAGE ghcr.io/krande/adacpp-wasm-base:0.44.0
 pin:ADACPP_RENDER_REF c1a7b3ab434a916e08170c634c23b9dc1974d32f
 src/frontend/clean.cjs 548054390de442a02ca36bd4de94f25095f10ae9
@@ -431,17 +431,17 @@ src/frontend/src/components/viewer/CellBuilderPortMenu.tsx 4f1ae85ccc1b9466da513
 src/frontend/src/components/viewer/CellBuilderRenamePrompt.tsx 87d694d8bfa10a050fc5c3ef5ff49dc5266e354a
 src/frontend/src/components/viewer/ColorLegend.tsx 702fa30e6777b040ca8a48a3322cae15b95878ff
 src/frontend/src/components/viewer/DetailingPanel.tsx 300a68803d444a92b18fce80e2479af6dfcaad8d
-src/frontend/src/components/viewer/FemConceptsController.tsx 50bebbab951a666cff72ba468573d8553255ca50
+src/frontend/src/components/viewer/FemConceptsController.tsx 738ca1ee2fb1efe9b4ebdcc601593442902de6bb
 src/frontend/src/components/viewer/GalleryControls.tsx 1c49b4ca4b833539d5c9cd2564cf07b5cc056b73
 src/frontend/src/components/viewer/GalleryProvenance.tsx 42d2bc9abae8ec17d92243f0451163e417d3083e
-src/frontend/src/components/viewer/NameLabelController.tsx 0630ae875dcbd179f48fb8dba42467e83a70fad5
+src/frontend/src/components/viewer/NameLabelController.tsx 284f93294ae6f3b1b77188dfec941145b7d46d08
 src/frontend/src/components/viewer/ProceduralFollowerController.tsx d59a9ff3a1f4c1ed36eac967c351dfc655bdc164
 src/frontend/src/components/viewer/RenderRecordingHud.tsx 2962586a46204ecdfcf77ce8be77113870d46c25
 src/frontend/src/components/viewer/RequestDesignGeometryButton.tsx 87ce30bf0b43f6428941c6c058af33f8377f6025
 src/frontend/src/components/viewer/SectionPlanesController.tsx 8e974af91e6366b128dd8d0be0d802d19c0dba04
 src/frontend/src/components/viewer/SpaceMouseConnectChip.tsx 8b7d08eaded37e615320b44d3c1e650690316d36
 src/frontend/src/components/viewer/ThreeCanvas.tsx aa223616a43b3fd1ba6d738fdc44f734d3f65ade
-src/frontend/src/components/viewer/TypeIconController.tsx c2e1b0054d481f8e4f99dfe73d0174e0325d0a60
+src/frontend/src/components/viewer/TypeIconController.tsx 0cce486a109eb69b75ae2b9b06b2f264a30148df
 src/frontend/src/components/viewer/cellbuilder/builderGrid.ts 810d204726f540db3693d0c93597a9de497d62c3
 src/frontend/src/components/viewer/cellbuilder/cadPreview.ts 4c9e273c2bb8a5c91ebdae9b26b2990b42af826d
 src/frontend/src/components/viewer/cellbuilder/cellBoxSelect.ts d1c7dfd5b9c283590f72583bd927b4f9650d22fe
@@ -712,9 +712,9 @@ src/frontend/src/plugins/sceneCamera.ts 1898f639023f275df4f53ca80c3e66e6d6095d79
 src/frontend/src/plugins/sceneCleared.ts 8081436e6c713c583444228bd54cbafc02970185
 src/frontend/src/plugins/sceneContact.ts 3348f74d69005703711ef0b94792bec135784d8f
 src/frontend/src/plugins/sceneGroupLoad.ts 250e1fe5a150fad41f3b3bf745280ceb955dcfca
-src/frontend/src/plugins/sceneHighlights.ts db6c898c9248f18b938e099bf5d83bac97721718
-src/frontend/src/plugins/sceneLayers.ts 9707f6316114192fffac527ff94e680533a0d045
-src/frontend/src/plugins/sceneOverlays.ts 8f87364be33912e781bb0af46999bfeb4626bd24
+src/frontend/src/plugins/sceneHighlights.ts efc4a4c86dfd3c30eb5902e8c92f6c0974134e6f
+src/frontend/src/plugins/sceneLayers.ts 7ec61e138902906c9cfd343c2bb45a159e4c50cd
+src/frontend/src/plugins/sceneOverlays.ts 6db6e9db16a32389ac6dd907da67594cfb1af903
 src/frontend/src/plugins/scenePicks.ts 970da8fe4e0e4495f65fc87275ef48d757c17fc1
 src/frontend/src/plugins/sceneTreeRoots.ts 19959197f5dea7a4f29b3f17e2ef0c227afa88aa
 src/frontend/src/plugins/sidecarLoaders.ts 9fb03af55889c64f28a963e2360698a451090c11
@@ -891,7 +891,7 @@ src/frontend/src/state/clashCheck/markers.ts f44f2b811800b2b0139188704cad2997af1
 src/frontend/src/state/clashCheck/realDeps.ts 86e850a50361a40304142ded806801fe5d4bf6e1
 src/frontend/src/state/clashCheck/result.ts af3646dd230ece78ed5d8beb5bca0a28365b2895
 src/frontend/src/state/clashCheck/state.ts e1df8c6f84523f9dfeb8fc5f923ee4763a623d8a
-src/frontend/src/state/clashCheckStore.ts 66baecb822803e7607de0c5ffe9f49cfc1acf200
+src/frontend/src/state/clashCheckStore.ts 11e35f3088c60b533b065c697c937061871e8d6f
 src/frontend/src/state/clashContactPickStore.ts 218407c8acc989aa05eb3fb715cbef26e82b822e
 src/frontend/src/state/clashGeometryDeps.ts bf82368852f3f43921c9b436f8415e835322d710
 src/frontend/src/state/colorByStore.ts b373540b3de20e36a091dbc2461ed7e8c20aeb18
@@ -1085,7 +1085,7 @@ src/frontend/src/utils/gunzipToBlob.ts f919270d8d6c0a147ccdc1fa7c6bd5181f2811cb
 src/frontend/src/utils/keyboard/undoRedoKeys.ts 31a16c17ad001fb08932fde737a925f0fd7982f3
 src/frontend/src/utils/lineage/registerLineageFromExtension.ts e1ca69479b0becb0f7bd422c097be8e8bf388191
 src/frontend/src/utils/measure/measureController.ts 9c6b60291895991f5f02e3bf70cfa65c305a0dae
-src/frontend/src/utils/measure/measureDrawing.ts 75885e575d65492bc62898fee25fdfe4b49fb807
+src/frontend/src/utils/measure/measureDrawing.ts 2e024d076525a420ab858ebfaf4fa31c9462388d
 src/frontend/src/utils/measure/measureMath.ts ba4a77230148d52d831385240107958f2b5f8b44
 src/frontend/src/utils/measure/measurements.ts 7c2c15b7a45303d9e835ce89d6b7b5d21df4968d
 src/frontend/src/utils/measure/snap.ts e93aebe257ecc0bdf59d0780d89f176f3b9656dd
@@ -1130,7 +1130,7 @@ src/frontend/src/utils/overlays/overlayModel.ts 9b0e2c6b404c7ad72926a9d9a1e2d919
 src/frontend/src/utils/portColor.ts 766b572d46af22aa1176a09cdb55301774ef08a5
 src/frontend/src/utils/pyodide/pyodide_converter.ts dc40fa51a4143d6e52bf0441667ab0b10cc83e7f
 src/frontend/src/utils/pyodide/pyodide_worker.js 8852d0a48ddf3ac10e2fa3cb0c5352a81dfee617
-src/frontend/src/utils/robots.ts 9130f288fe64ea850dd5a20ef649331dfdc2f0bc
+src/frontend/src/utils/robots.ts fcfba20891e067065a9d668fe9b04ceb7cc8de2d
 src/frontend/src/utils/scene/analysis/colorize_vector_data.ts 920799c2eaf55682d540d0a402db876d11b11e5c
 src/frontend/src/utils/scene/animations/AnimationController.ts 1e1b6eb137863c08e2b8ea98bdf228e7261b5988
 src/frontend/src/utils/scene/animations/assignMorphToEdgeAlso.ts cfc893a7d8d2dca142f40cd4b64f60ac855ed0f2
@@ -1145,14 +1145,14 @@ src/frontend/src/utils/scene/callProfiler.ts de3b62ae3f911d55ddccd503097db0b1828
 src/frontend/src/utils/scene/centerViewOnSelection.ts 408238791bc361f31851762603e75cac68dab5ee
 src/frontend/src/utils/scene/clashContactOverlay.ts 66e2530b5d26af61ded785708956f2e46a1fc0e5
 src/frontend/src/utils/scene/clashContactPlan.ts 51e73ac9f77b9d2db9d989e5721080dec37de7f0
-src/frontend/src/utils/scene/clashIsolation.ts 11f419163f99b28170044e96da60ecb1dd3360b9
+src/frontend/src/utils/scene/clashIsolation.ts daa8fc5deba80ed3d79f158813ddd883a0dd2215
 src/frontend/src/utils/scene/clashJointFocus.ts 61413a94e41d63ed8fa46c34d55c1d8d82733d10
-src/frontend/src/utils/scene/clashJointMarkers.ts 2cf280e192ba919ae644783890fb49d624378755
+src/frontend/src/utils/scene/clashJointMarkers.ts a141536d9add79fe72c46d9128cd45ce985306cb
 src/frontend/src/utils/scene/clashOverlayPicks.ts 6bef198311411c07dd775ad6fe5b01324d3a3d04
-src/frontend/src/utils/scene/clearThreeSceneModels.ts c9916184dec3d13ae4ffbcae52ef2b9968e30fa0
+src/frontend/src/utils/scene/clearThreeSceneModels.ts f9095e6748c5c3dd82486d1d0e61e7655b85784a
 src/frontend/src/utils/scene/colorBy.ts 37a5ec0f9e19541d39ff9f98d78bbde829c6739d
-src/frontend/src/utils/scene/connectionOverlay.ts 7e794247269830d31a41b05e465c21a769663598
-src/frontend/src/utils/scene/connectionWeldMarks.ts f1b5a1c14cc52ef839c09ff3ce161e1cf4ae4511
+src/frontend/src/utils/scene/connectionOverlay.ts 74160507398f73393af8e014192f36b50e2a2565
+src/frontend/src/utils/scene/connectionWeldMarks.ts 431b5fc7858ba74705a8d20b2c2f97c8ee959aaf
 src/frontend/src/utils/scene/connectionWeldTint.ts 64022df4b31cb69b0d512132f50e9d9c509e6fb7
 src/frontend/src/utils/scene/convert_to_custom_batch_mesh.ts 6585ce6312236ea0cbb125222ad5bc4020b2291c
 src/frontend/src/utils/scene/crossModelSelect.ts 23d9490453a5f3b63e67ae6093756603451cf4ca
@@ -1282,7 +1282,7 @@ src/frontend/src/utils/scene/frameCells.ts 6b97cfc3d78588a85d2fb434f56e1ea122d2b
 src/frontend/src/utils/scene/galleryWalk.ts c1d47ed3040e51c766ca169ba4ee00ba21b61fe4
 src/frontend/src/utils/scene/handlers/append_to_scene_from_message.ts 9c7aae13f5259baed2151001960937cb82935a6c
 src/frontend/src/utils/scene/handlers/clear_loaded_model.ts 99c34c678a6ea030078a1554e9beac9ffa849e60
-src/frontend/src/utils/scene/handlers/clear_scene.ts 0b54d0a8ee3b2dcbb822c6c5a37b583ed38af592
+src/frontend/src/utils/scene/handlers/clear_scene.ts 1d7ef821f3381df52500a382bdf1792e48e59534
 src/frontend/src/utils/scene/handlers/load_fea_streaming.ts 06f107d7d07e523aecb95d1250fbf2fcd545cb26
 src/frontend/src/utils/scene/handlers/localOpenPlan.ts 203d8cd9aef3a532c34154d6e0f6bd37f8c7b8be
 src/frontend/src/utils/scene/handlers/model_translate.ts e307bf6c6f270e404c2bb0988eb5258349df2d25
@@ -1299,7 +1299,7 @@ src/frontend/src/utils/scene/handlers/view_file_object_from_server.ts f651c12439
 src/frontend/src/utils/scene/handlers/view_in_3d.ts 925ca276ecee735d9f816f40519e23cb4076cfc3
 src/frontend/src/utils/scene/handlers/view_picked_fea_render.ts 9d94e78c0f053c9701761c3cf194563fcf3986ff
 src/frontend/src/utils/scene/heldHidden.ts f9173e3b7204731f64b1f4a8bae8233833bd898c
-src/frontend/src/utils/scene/jointFocusOverlay.ts 08970a07e3b94c0bf06ad9853b94cd067fa0e56a
+src/frontend/src/utils/scene/jointFocusOverlay.ts 624671c121bcd783b3eef8765daa72d1bac0f450
 src/frontend/src/utils/scene/jointViewExit.ts da5bb28cc8466c5abcca6e3e8a9f042028ffa964
 src/frontend/src/utils/scene/loadGLTFfrombase64.ts 9be0fcfbace3351201807cacd3fd84533272a34e
 src/frontend/src/utils/scene/loadMetrics.ts cf32da4581fa351b9da232d8dc98bda7287562a6
@@ -1310,6 +1310,7 @@ src/frontend/src/utils/scene/modelHistory.ts 305630c1ae4ee72e06fa52e28172c4282e9
 src/frontend/src/utils/scene/modelViews.ts a679b8678850661bedfa25f82a3b76d953efc22d
 src/frontend/src/utils/scene/objectColorActions.ts 3793ebb685d8563ee562f44d09b07d99ee87d7c4
 src/frontend/src/utils/scene/orthographicProjection.ts b333395b835881c540bbcec6a230e706d218eb60
+src/frontend/src/utils/scene/overlaySources.ts 9f88a523847572c5ce947979cdb77a1894f39348
 src/frontend/src/utils/scene/ownedSceneObjects.ts e1383d2ef8a8dd07b4310f6b519fba815205d40e
 src/frontend/src/utils/scene/pointsImpostor.ts 556c98ba558742ec54145fd95cf69d44bdf2628c
 src/frontend/src/utils/scene/refreshEdgeOverlays.ts af543de2058b5c071c1d7c2f7eec10b949d35a95
@@ -1410,6 +1411,7 @@ src/frontend/src/viewport/api/objectAt.ts 4db9648bb05762275507930f4cf9d982cc4e39
 src/frontend/src/viewport/api/objectColors.ts 79564394fa60ca47435dd45b131619723716e10a
 src/frontend/src/viewport/api/objectFade.ts 1ad67a373dcaf350706dea31d2ebf0c068b07dc0
 src/frontend/src/viewport/api/overlayLayer.ts 781eef54666e7d69e2118aff1ef715d9ab664503
+src/frontend/src/viewport/api/overlayManager.ts 5a002e762f20a7270175f5c601c3d2269ddf82f9
 src/frontend/src/viewport/api/resultLayer.ts e1b5329d609bfbb1ed7f1c811605abfc38006070
 src/frontend/src/viewport/api/sceneClicks.ts 47e0030ba134b1f7009c3df5e48def2de9453a22
 src/frontend/src/viewport/api/sceneFrame.ts 481e1a118c3fd344292b79f6aa5987a279b82042

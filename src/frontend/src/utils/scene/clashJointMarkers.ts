@@ -30,7 +30,8 @@
 // LIFETIME. The overlay is a view of the RESULT, not of the panel: it is driven by a store
 // subscription (`startClashMarkerSync`), so switching to another scene tab, or closing the panel,
 // leaves the markers where they are. Unloading the model takes them down (its origin is gone), and
-// another viewport taking over draws them there. Nothing here draws with three.js, and neither does
+// another viewport taking over draws them there (they are a view of the overlay manager, which draws
+// them again on it), and a clear of the scene takes the result they are drawn from. Nothing here draws with three.js, and neither does
 // fading the rest (`clashIsolation`, through the viewport's `setObjectFade`), which was the three.js
 // viewport's own until it too went through the viewport on screen.
 
@@ -60,7 +61,8 @@ import { installJointViewExit } from "@/utils/scene/jointViewExit";
 import { linearColor } from "@/utils/scene/sceneColor";
 import type { Point3 } from "@/viewport/api/billboards";
 import type { OverlayLayer } from "@/viewport/api/overlayLayer";
-import { activeViewport, onActiveViewportChange, onModelLoaded, type ViewportApi } from "@/viewport/api/viewportApi";
+import { register, type OverlayHandle } from "@/viewport/api/overlayManager";
+import { activeViewport, onModelLoaded, type ViewportApi } from "@/viewport/api/viewportApi";
 
 /** The viewport layers the markers and the contacts are drawn in. */
 export const CLASH_MARKER_LAYER = "core:clash-joints";
@@ -74,38 +76,53 @@ const MAX_PX = 64;
 /** Dim factor applied to a marker outside the expanded group (see `JointMarker.emphasised`). */
 const DIMMED = 0.28;
 
-/** The layers drawn in, and the viewport they are of. */
-let drawn: { viewport: ViewportApi; markers: OverlayLayer; contacts: OverlayLayer } | null = null;
 /** What is drawn, in the world, for the click test. */
 let markerPicks: { positions: Float32Array; ids: string[]; radii: number[] } = { positions: new Float32Array(0), ids: [], radii: [] };
 let contactPicks: { triangles: Float32Array; ids: string[] } = { triangles: new Float32Array(0), ids: [] };
 let syncing = false;
+/** The sync's redraw, once it runs (`startClashMarkerSync`). */
+let redrawSync: ((force?: boolean) => void) | null = null;
+/** The viewport the markers' layers were made on, while they are held there. */
+let drawnOn: ViewportApi | null = null;
 
-/** The layers of the viewport on screen; those of a viewport that has left are let go. */
-function layers(): typeof drawn {
-  const viewport = activeViewport();
-  if (drawn && drawn.viewport !== viewport) {
-    const old = drawn;
-    drawn = null;
-    // Each on its own: one that fails (a renderer gone) must not keep the other.
-    try {
-      old.markers.dispose();
-    } catch {
-      /* its viewport is gone */
-    }
-    try {
-      old.contacts.dispose();
-    } catch {
-      /* its viewport is gone */
-    }
-  }
-  if (!viewport) return null;
-  if (!drawn) drawn = { viewport, markers: viewport.overlays(CLASH_MARKER_LAYER), contacts: viewport.overlays(CLASH_CONTACT_LAYER) };
-  return drawn;
+const emptyPicks = (): void => {
+  markerPicks = { positions: new Float32Array(0), ids: [], radii: [] };
+  contactPicks = { triangles: new Float32Array(0), ids: [] };
+};
+
+// A view of the overlay manager (viewport/api/overlayManager.ts): drawn again from the store on the
+// viewport that comes on screen; a replace keeps it (a renderer switch hands the same models over),
+// and a clear empties it through the store (state/clashCheckStore.ts forgets its result).
+const view: OverlayHandle = register({
+  owner: "core:clash",
+  id: "markers",
+  lifetime: { kind: "view" },
+  onReplace: "keep",
+  draw: () => {
+    redrawSync?.(true);
+    return () => {
+      // Its layers leave with the viewport: what was drawn in them is not there to click.
+      drawnOn = null;
+      emptyPicks();
+      publishPicks();
+    };
+  },
+});
+
+/** The layers of the viewport on screen. */
+function layers(): { viewport: ViewportApi; markers: OverlayLayer; contacts: OverlayLayer } | null {
+  const markers = view.lines(CLASH_MARKER_LAYER);
+  const contacts = view.lines(CLASH_CONTACT_LAYER);
+  if (!markers || !contacts || !view.viewport) return null;
+  drawnOn = view.viewport;
+  return { viewport: view.viewport, markers, contacts };
 }
 
+/** The layers they are drawn in, when they are made on the viewport on screen: none is made to be cleared. */
+const heldLayer = (name: string): OverlayLayer | null => (drawnOn && drawnOn === view.viewport ? view.lines(name) : null);
+
 function publishPicks(): void {
-  const viewport = drawn?.viewport ?? null;
+  const viewport = drawnOn;
   if (!viewport || (markerPicks.ids.length === 0 && contactPicks.ids.length === 0)) {
     setShownClashPicks(null, null);
     return;
@@ -127,14 +144,14 @@ function publishPicks(): void {
 /** Remove the markers. Safe to call when nothing is drawn. */
 export function clearJointMarkers(): void {
   markerPicks = { positions: new Float32Array(0), ids: [], radii: [] };
-  drawn?.markers.clear();
+  heldLayer(CLASH_MARKER_LAYER)?.clear();
   publishPicks();
 }
 
 /** Remove the contacts overlay. Safe to call when nothing is drawn. */
 export function clearContactOverlay(): void {
   contactPicks = { triangles: new Float32Array(0), ids: [] };
-  drawn?.contacts.clear();
+  heldLayer(CLASH_CONTACT_LAYER)?.clear();
   publishPicks();
 }
 
@@ -347,7 +364,8 @@ export function startClashMarkerSync(): void {
   // The three.js-free viewport takes a model after its load returned: its origin is known from then
   // (after the model's other listeners). Another viewport taking over draws them there.
   onModelLoaded(() => void setTimeout(() => redraw(true), 0));
-  onActiveViewportChange(() => redraw(true));
+  // Another viewport taking over draws them there: the manager draws the view again on it.
+  redrawSync = redraw;
   redraw(true);
 }
 

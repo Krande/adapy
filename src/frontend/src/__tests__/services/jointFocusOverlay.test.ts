@@ -37,6 +37,7 @@ function recordingViewport() {
     hide: (refs: Iterable<ObjectRef>) => hidden.push(...refs),
     show: () => {},
     setObjectMarks: (m: Map<string, Map<string, string>>) => marks.push(m),
+    clearModels: () => {},
     overlays: () => ({ addLines: (l: OverlayLines) => lines.push(l), dispose: () => void (lines.length = 0) }),
     billboards: () => ({ add: (b: Billboard) => labels.push(b), update: () => {}, dispose: () => void (labels.length = 0) }),
   } as unknown as ViewportApi;
@@ -119,6 +120,24 @@ test("each joint keeps its own switches", () => {
   assert.deepEqual(rec.hidden, [{ model: "m1", id: "8" }], "j2's weld is hidden, j1's is not");
   focus.remove(FILE, "j1");
   assert.equal(drawFocusedJoints(), 0);
+});
+
+test("a clear of the scene takes the shown joints at once; a replace that keeps the model keeps their weld colour", async () => {
+  const { clearScene } = await import("@/utils/scene/handlers/clear_scene");
+  useJointFocusStore.getState().focus(FILE, "j1");
+  assert.equal(drawFocusedJoints(), 2);
+  const weldColoured = () => [...(rec.marks.at(-1)?.get("m1")?.keys() ?? [])];
+  assert.deepEqual(weldColoured(), ["7"]);
+  // The three.js-free viewport's replace swaps the model in place: its joints stay, and so does the
+  // colour of their welds (it went with the plugins' highlights, which a replace takes).
+  await clearScene({ reason: "replace", replacing: true, keepQueuedLoads: true, keepProcedural: true, keepLoadedSources: true });
+  assert.deepEqual(weldColoured(), ["7"], "the weld colour stays");
+  assert.equal(rec.lines.length, 1);
+  // A clear takes them in the same turn, not a turn later when the store would drop them.
+  await clearScene({ reason: "test" });
+  assert.equal(rec.lines.length + rec.labels.length, 0, "nothing of the joint is left over the cleared scene");
+  assert.deepEqual(weldColoured(), []);
+  assert.equal(useJointFocusStore.getState().joints.length, 0);
 });
 
 test("a joint whose model is not on screen draws nothing", () => {

@@ -24,12 +24,13 @@
 
 import type { DevBuildResult, DevJointMember, DevJointWeld } from "@/services/api/devConnections";
 import type { ConnectionOverlays } from "@/state/connectionBuilderStore";
-import { useModelState } from "@/state/modelState";
+import "@/utils/scene/overlaySources";
 import { linearColor } from "@/utils/scene/sceneColor";
 import { weldSymbolSvg } from "@/utils/weldSymbols";
 import { weldTypeName } from "@/utils/weldTypeNames";
 import type { Billboard, BillboardImage, BillboardLayer, Point3 } from "@/viewport/api/billboards";
 import type { OverlayLayer } from "@/viewport/api/overlayLayer";
+import { register, type OverlayHandle } from "@/viewport/api/overlayManager";
 import { activeViewport } from "@/viewport/api/viewportApi";
 
 export type ConnectionOverlayToggles = Pick<ConnectionOverlays, "axes" | "welds" | "weldSymbols" | "weldDetails">;
@@ -49,35 +50,24 @@ const LABEL_ALONG_AXIS = 0.8;
 const AXIS_DASH = { dash: 0.05, gap: 0.03 };
 const LABEL_ORDER = 21;
 
-/** What is drawn, in which layers, and over which loaded source. */
-let drawn: { lines: OverlayLayer; labels: BillboardLayer; file: string } | null = null;
+/** What is drawn: an entry of the overlay manager, whose layers go with it. */
+let drawn: OverlayHandle | null = null;
 /** Bumped by every clear: a weld symbol that decodes after it has nothing left to update. */
 let generation = 0;
 
 export function clearConnectionOverlay(): void {
   generation++;
-  if (!drawn) return;
-  const { lines, labels } = drawn;
+  const was = drawn;
   drawn = null;
-  // Each on its own: one that fails (a renderer gone) must not leave the other on screen.
-  try {
-    lines.dispose();
-  } finally {
-    labels.dispose();
-  }
+  was?.remove();
 }
 
-// LIFETIME. The annotations are the model's: they go when the source they were drawn over leaves the
-// scene, by whichever route -- the storage browser's Clear and the Scene tab's Remove all
-// (`clearScene`), unloading that one model, another model replacing the scene, a scope
-// change. The viewport layers they are drawn in are not the model's, so clearing the models leaves
-// them; this takes them away. Beside what draws them rather than in the builder's session: whatever
-// drew them takes them away, whether a session is running or not.
-useModelState.subscribe((s, prev) => {
-  if (s.loadedSourceNames !== prev.loadedSourceNames && drawn && !s.loadedSourceNames.has(drawn.file)) {
-    clearConnectionOverlay();
-  }
-});
+// LIFETIME. The annotations are the model's: an overlay with the `model` lifetime
+// (viewport/api/overlayManager.ts), which goes when the source it was drawn over leaves the scene,
+// by whichever route -- the storage browser's Clear and the Scene tab's Remove all (`clearScene`),
+// unloading that one model, another model replacing the scene, a scope change. The viewport layers
+// they are drawn in are not the model's, so clearing the models leaves them; the manager takes them
+// away. Whatever drew them, a session running or not.
 
 /** Draw `result`'s annotations over the preview loaded as `file`, in the viewport on screen. Returns
  *  how many marks were drawn (0, and nothing drawn, when there is no viewport, that source is not on
@@ -92,9 +82,25 @@ export function renderConnectionOverlay(
   const origin = viewport && file ? viewport.sourceOrigin(file) : null;
   if (!viewport || !origin || !result || (!toggles.axes && !toggles.welds)) return 0;
 
-  const lines = viewport.overlays(CONNECTION_OVERLAY_LAYER);
-  const labels = viewport.billboards(CONNECTION_OVERLAY_LAYER);
-  drawn = { lines, labels, file: file! };
+  const entry = register({
+    owner: "core:connection-preview",
+    id: "annotations",
+    lifetime: { kind: "model", sources: [file!] },
+    // A replace takes the model they are drawn over.
+    onReplace: "remove",
+    onRemoved: () => {
+      if (drawn !== entry) return;
+      drawn = null;
+      generation++;
+    },
+  });
+  const lines = entry.lines(CONNECTION_OVERLAY_LAYER);
+  const labels = entry.labels(CONNECTION_OVERLAY_LAYER);
+  if (!lines || !labels) {
+    entry.remove();
+    return 0;
+  }
+  drawn = entry;
   const mine = generation;
   const marks = drawJointMarks(lines, labels, origin, result.properties.members, result.properties.welds, toggles, () => mine === generation);
   if (marks === 0) clearConnectionOverlay();

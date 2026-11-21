@@ -6,7 +6,8 @@ import {useMeasureStore, clearMeasurements, type Measurement, type MeasurePoint}
 import {requestRender} from "@/state/perfStore";
 import type {BillboardLayer, Billboard} from "@/viewport/api/billboards";
 import type {OverlayLayer} from "@/viewport/api/overlayLayer";
-import {followActiveViewport, onModelLoaded, type ViewportApi} from "@/viewport/api/viewportApi";
+import {register} from "@/viewport/api/overlayManager";
+import {onModelLoaded} from "@/viewport/api/viewportApi";
 import {arcMiddle, arcSegments, distance, lerp, type Vec3} from "./measureMath";
 import {summarise} from "./measurements";
 import type {SnapKind, SnapResult} from "./snap";
@@ -153,14 +154,16 @@ export function drawAll(lines: OverlayLayer, labels: BillboardLayer, hoverLines:
 
 let unbind: (() => void) | null = null;
 
-/** Keep the measurements drawn on whichever viewport is on screen, from now on (idempotent). A model
- *  that replaces the scene takes them away. */
+/** Keep the measurements drawn on whichever viewport is on screen, from now on (idempotent): a view
+ *  of the overlay manager (viewport/api/overlayManager.ts) whose clear -- any clear, a replace
+ *  included -- empties the Measure tab's store. A model that replaces the scene takes them away too. */
 export function bindMeasureDrawing(): void {
     if (unbind) return;
-    const offViewport = followActiveViewport((viewport: ViewportApi) => {
-        const lines = viewport.overlays(MEASURE_LAYER);
-        const labels = viewport.billboards(MEASURE_LAYER);
-        const hoverLines = viewport.overlays(MEASURE_HOVER_LAYER);
+    const view = register({owner: "core:measure", id: "measurements", lifetime: {kind: "view"}, onReplace: "forget", forget: clearMeasurements, draw: (h) => {
+        const lines = h.lines(MEASURE_LAYER);
+        const labels = h.labels(MEASURE_LAYER);
+        const hoverLines = h.lines(MEASURE_HOVER_LAYER);
+        if (!lines || !labels || !hoverLines) return;
         const redraw = () => {
             drawAll(lines, labels, hoverLines);
             requestRender();
@@ -177,20 +180,16 @@ export function bindMeasureDrawing(): void {
             }
             redraw();
         });
-        return () => {
-            offStore();
-            lines.dispose();
-            labels.dispose();
-            hoverLines.dispose();
-        };
-    });
+        // The layers are the manager's to release.
+        return offStore;
+    }});
     // A model that replaces what is on screen: what was measured is gone with what it was measured on.
     const offLoaded = onModelLoaded((info) => {
         if (!info.added) clearMeasurements();
     });
     unbind = () => {
         offLoaded();
-        offViewport();
+        view.remove();
     };
 }
 

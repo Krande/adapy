@@ -17,32 +17,28 @@
 // Drawn again whenever the joints or their switches change, a model's joints or metadata arrive, a
 // joint's model comes on screen, or another viewport takes over. No three.js in this module.
 
-import { highlightObjects, type SceneHighlight } from "@/plugins/sceneHighlights";
 import { findConnection, useConnectionGraphStore, type ConnectionRef } from "@/state/connectionGraphStore";
 import { useJointFocusStore, type FocusedJoint } from "@/state/jointFocusStore";
 import { useLineageStore } from "@/state/lineageStore";
 import { useModelState } from "@/state/modelState";
 import { drawJointMarks, type JointMarkMember, type JointMarkWeld } from "@/utils/scene/connectionOverlay";
 import { unselectedWelds } from "@/utils/scene/connectionWeldMarks";
+import { srgbHexText } from "@/utils/scene/sceneColor";
 import { findObjectsByName } from "@/utils/tree_view/modelSource";
-import type { BillboardLayer, Point3 } from "@/viewport/api/billboards";
-import type { OverlayLayer } from "@/viewport/api/overlayLayer";
-import {
-  activeViewport,
-  onActiveViewportChange,
-  onModelLoaded,
-  subscribeSelection,
-  type ObjectRef,
-  type ViewportApi,
-} from "@/viewport/api/viewportApi";
+import type { Point3 } from "@/viewport/api/billboards";
+import { register, type OverlayHandle } from "@/viewport/api/overlayManager";
+import { activeViewport, onModelLoaded, subscribeSelection, type ObjectRef, type ViewportApi } from "@/viewport/api/viewportApi";
 
 /** The viewport layers (lines, billboards) the shown joints are drawn in, and their marks' owner. */
 export const JOINT_FOCUS_LAYER = "core:joint-focus";
 
 const WORLD: Point3 = [0, 0, 0];
 
-let layers: { lines: OverlayLayer; labels: BillboardLayer } | null = null;
-let tints: { highlight: SceneHighlight; refs: ObjectRef[] }[] = [];
+/** One draw of the shown joints' axes and labels, an entry of the overlay manager: removed, its
+ *  layers go with it. */
+let drawing: OverlayHandle | null = null;
+/** Each joint's welds in its colour: an entry of the manager each, whose marks it merges. */
+let tints: { handle: OverlayHandle; refs: ObjectRef[]; color: string }[] = [];
 let hidden: { file: string; refs: ObjectRef[] }[] = [];
 let stopFollowing: (() => void) | null = null;
 /** Bumped by every clear: a weld symbol that decodes after it has nothing left to update. */
@@ -53,22 +49,19 @@ export function clearJointFocusOverlay(): void {
   generation++;
   stopFollowing?.();
   stopFollowing = null;
-  for (const t of tints) t.highlight.remove();
+  for (const t of tints) t.handle.remove();
   tints = [];
   const loaded = useModelState.getState().loadedSourceNames;
   const show = hidden.filter((h) => loaded.has(h.file)).flatMap((h) => h.refs);
   hidden = [];
   if (show.length) activeViewport()?.show(show);
-  if (!layers) return;
-  const { lines, labels } = layers;
-  layers = null;
-  // Each on its own: one that fails (a renderer gone) must not leave the other on screen.
-  try {
-    lines.dispose();
-  } finally {
-    labels.dispose();
-  }
+  drawing?.remove();
+  drawing = null;
 }
+
+/** What one draw of the shown joints is drawn through. */
+const drawn = (): OverlayHandle =>
+  (drawing ??= register({ owner: "core:joint-focus", id: "drawing", lifetime: { kind: "scene" }, onReplace: "keep" }));
 
 const refsOf = (names: Iterable<string>, file: string): ObjectRef[] =>
   findObjectsByName(names, { sourceName: file }).map(({ model, id }) => ({ model, id }));
@@ -152,7 +145,7 @@ function weldsOf(conn: ConnectionRef, file: string, origin: Point3, viewport: Vi
 
 function retint(): void {
   const selection = activeViewport()?.selection() ?? [];
-  for (const t of tints) t.highlight.set(unselectedWelds(t.refs, selection));
+  for (const t of tints) t.handle.setMarks(unselectedWelds(t.refs, selection), t.color);
 }
 
 /** Draw every shown joint's overlays in the viewport on screen. Returns how many marks were drawn
@@ -179,18 +172,20 @@ function drawJoint(viewport: ViewportApi, joint: FocusedJoint, alive: () => bool
   if (o.axes || o.welds) {
     const members = o.axes ? membersOf(conn, joint.file, viewport) : [];
     const welds = o.welds ? weldsOf(conn, joint.file, origin, viewport) : [];
-    if (members.length || welds.some((w) => w.at)) {
-      layers ??= { lines: viewport.overlays(JOINT_FOCUS_LAYER), labels: viewport.billboards(JOINT_FOCUS_LAYER) };
-      marks = drawJointMarks(layers.lines, layers.labels, WORLD, members, welds, o, alive);
-    }
+    const lines = members.length || welds.some((w) => w.at) ? drawn().lines(JOINT_FOCUS_LAYER) : null;
+    const labels = lines ? drawn().labels(JOINT_FOCUS_LAYER) : null;
+    if (lines && labels) marks = drawJointMarks(lines, labels, WORLD, members, welds, o, alive);
   }
   const refs = conn.weldNames.length ? refsOf(conn.weldNames, joint.file) : [];
   if (refs.length && !o.showWelds) {
     viewport.hide(refs);
     hidden.push({ file: joint.file, refs });
   } else if (refs.length && o.tintWelds) {
-    const highlight = highlightObjects(JOINT_FOCUS_LAYER, unselectedWelds(refs, viewport.selection()), { color: o.weldColour });
-    tints.push({ highlight, refs });
+    // The weld colour is the joint's, not a highlight of the models: a replace that keeps the joint keeps it.
+    const handle = register({ owner: "core:joint-focus", kind: "tint", lifetime: { kind: "scene" }, onReplace: "keep" });
+    const color = srgbHexText(o.weldColour);
+    handle.setMarks(unselectedWelds(refs, viewport.selection()), color);
+    tints.push({ handle, refs, color });
   }
   return marks;
 }
@@ -220,6 +215,22 @@ useLineageStore.subscribe((s, prev) => {
 onModelLoaded((info) => {
   if (info.sourceName && useJointFocusStore.getState().joints.some((j) => j.file === info.sourceName)) schedule();
 });
-onActiveViewportChange(() => {
-  if (anyShown()) schedule();
+
+// The shown joints as a view of the overlay manager (viewport/api/overlayManager.ts): another viewport
+// taking over draws them there. A clear of the scene takes them at once, joints and drawing -- the
+// joints are of the models it takes -- rather than a turn later, when the store would have dropped
+// them. A replace leaves them: one that swaps a model in place keeps its joints, and any other takes
+// the models and with them their joints (`jointFocusStore`).
+register({
+  owner: "core:joint-focus",
+  id: "joints",
+  lifetime: { kind: "view" },
+  onReplace: "keep",
+  forget: () => {
+    useJointFocusStore.getState().clear();
+    clearJointFocusOverlay();
+  },
+  draw: () => {
+    if (anyShown()) schedule();
+  },
 });

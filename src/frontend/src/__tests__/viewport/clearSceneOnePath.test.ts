@@ -103,6 +103,23 @@ test("unloading the preview alone takes its annotations and marks; unloading ano
   }
 });
 
+test("a clear, a replace too, empties the Measure tab through the view its drawing registers", async () => {
+  const { bindMeasureDrawing, unbindMeasureDrawing } = await import("@/utils/measure/measureDrawing");
+  const { useMeasureStore } = await import("@/state/measureStore");
+  bindMeasureDrawing();
+  try {
+    const measured = () => useMeasureStore.setState({ measurements: [{ id: "m1", tool: "distance", points: [] }] as never });
+    measured();
+    await clearScene({ reason: "replace", replacing: true, keepQueuedLoads: true, keepProcedural: true });
+    assert.equal(useMeasureStore.getState().measurements.length, 0, "a replace takes what was measured on the models");
+    measured();
+    await clearScene({ reason: "test" });
+    assert.equal(useMeasureStore.getState().measurements.length, 0);
+  } finally {
+    unbindMeasureDrawing();
+  }
+});
+
 test("a replace keeps what its own load sets, and the queue", async () => {
   const { viewport } = countingViewport();
   const release = setActiveViewport(viewport);
@@ -143,9 +160,9 @@ test("nothing but clearScene calls the scene's teardown primitives", () => {
     [/\bclearThreeSceneModels\(\)/, ["utils/scene/handlers/clear_scene.ts", "utils/scene/clearThreeSceneModels.ts", "viewport/api/threeViewport.ts"]],
     [/\.clearModels\(\)/, ["utils/scene/handlers/clear_scene.ts", "viewport/native/nativeViewportApi.ts"]],
     [/\.clearLoadedSources\(\)/, ["utils/scene/handlers/clear_scene.ts"]],
-    // What the plugins drew over the scene, and telling them it was cleared (plugin API 1.30.0).
-    [/\bremoveAllPluginDrawings\(\)/, ["utils/scene/handlers/clear_scene.ts", "plugins/sceneOverlays.ts"]],
-    [/\breleaseDrawnLayers\(\)/, ["plugins/sceneOverlays.ts", "plugins/sceneLayers.ts"]],
+    // What is drawn over the scene (the overlay manager: what plugins drew, the highlights, ...), and
+    // telling the plugins it was cleared (plugin API 1.30.0).
+    [/\bsceneOverlays\.clear\(/, ["utils/scene/handlers/clear_scene.ts"]],
     [/\bnotifySceneCleared\(/, ["utils/scene/handlers/clear_scene.ts", "plugins/sceneCleared.ts"]],
   ];
   for (const [pattern, allowed] of primitives) {
