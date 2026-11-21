@@ -83,6 +83,13 @@ class Resolver:
     #: GLB id -> published node id.
     node_ids: Mapping[str, str] = field(default_factory=dict)
 
+    @property
+    def single_root(self) -> bool:
+        if not hasattr(self, "_single_root"):
+            roots = [i for i, (_, parent) in self.by_id.items() if parent == "*" or parent not in self.by_id]
+            self._single_root = len(roots) == 1
+        return self._single_root
+
     def chain(self, eid: str) -> list[str]:
         """The ids from the top of the hierarchy down to ``eid``."""
         out: list[str] = []
@@ -97,7 +104,10 @@ class Resolver:
     def identity(self, eid: str, name: str | None = None) -> tuple[str, list[str]]:
         """``(key, ancestors)`` of GLB element ``eid`` (named ``name`` when the GLB is not known)."""
         chain = self.chain(eid)
-        names = [self.by_id[i][0] for i in chain] if chain else [name or str(eid)]
+        # A hierarchy with one top row: that row is the model itself (the file, the subject), so a
+        # path starts below it -- as a saved group's member path does -- and its own key is the anchor.
+        top = 1 if chain and self.single_root else 0
+        names = [self.by_id[i][0] for i in chain[top:]] if chain else [name or str(eid)]
         kind = self.target.get("kind")
         anchor = target_anchor(self.target)
         if kind == "node":

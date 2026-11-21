@@ -214,3 +214,84 @@ def test_a_detail_files_connections_welds_and_subjects_and_a_run_on_a_subject_fo
         time.sleep(0.05)
     assert view["status"] == "done", view
     assert {r.data["status"] for r in _rows(client, "sim_run")} == {"done"}
+
+
+def _query(client, **body) -> dict:
+    r = client.post(f"/api/scopes/{SCOPE}/elements/links/query", json=body)
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def _ended(client, run_id) -> dict:
+    deadline = time.monotonic() + 60
+    while time.monotonic() < deadline:
+        view = client.get(f"/api/scopes/{SCOPE}/simulations/{run_id}").json()["run"]
+        if view["status"] in ("done", "error", "cancelled"):
+            return view
+        time.sleep(0.05)
+    raise AssertionError(view)
+
+
+def test_the_query_routes_reindex_subjects_and_batches(client):
+    run_key = _run_on_worker(client)
+    _detail(client, run_key)
+    client.get(f"/api/scopes/{SCOPE}/clash-detail/models")  # settles it
+
+    # Under the file: its contacts and its connections, grouped per ck / pair.
+    page = _query(client, nodes=[{"key": FILE}])
+    assert page["summary"]["kinds"]["contact"] == 2 and page["summary"]["kinds"]["connection"] == 2
+    (ck,) = {g["ck"] for g in page["groups"] if g["ck"]}
+    # A saved group's member names the same element by its path below the model's root row.
+    groups = {
+        "schema": "ada.viewer/groups@2",
+        "groups": [
+            {"id": "g-1", "name": "rack", "members": [{"target": TARGET, "element": "g1", "path": ["p", "g1"]}]}
+        ],
+    }
+    _stage(client.scope_dir, "_groups/groups.json", json.dumps(groups).encode("utf-8"))
+    by_group = _query(client, group_id="g-1", kinds=["connection"])
+    assert by_group["summary"]["rows"] == 1 and by_group["keys"] == [f"{FILE}#p:P/G1"]
+    one = client.get(f"/api/scopes/{SCOPE}/elements/{FILE}%23p:P%2FG1/links")
+    assert one.status_code == 200 and one.json()["summary"]["rows"] >= 2, one.text
+    conn = client.get(f"/api/scopes/{SCOPE}/connections/{ck}").json()
+    assert len(conn["members"]) == 2 and len(conn["connections"]) == 2 and len(conn["contacts"]) == 2
+    assert (
+        client.post(f"/api/scopes/{SCOPE}/elements/links/query", json={"kinds": ["x"], "cks": [ck]}).status_code == 400
+    )
+
+    # A reindex from the documents gives the same rows.
+    import shutil
+
+    shutil.rmtree(client.scope_dir / "_assoc")
+    report = client.post(f"/api/scopes/{SCOPE}/elements/links/reindex", json={"wait": True}).json()["report"]
+    assert report["runs"] == 1 and report["details"] == 1 and not report["errors"], report
+    assert _query(client, nodes=[{"key": FILE}])["summary"]["rows"] == page["summary"]["rows"]
+    assert client.get(f"/api/scopes/{SCOPE}/elements/links/reindex").json()["indexed"] is True
+
+    # The missing subject, made by rebuilding the run's members and the joint.
+    made = client.post(f"/api/scopes/{SCOPE}/elements/subjects", json={"nodes": [{"key": FILE}]}).json()
+    assert made["missing"] == [ck] and len(made["jobs"]) == 1
+    assert _wait(client, made["jobs"][0]["job_id"])["status"] == "done"
+    assert (client.scope_dir / f"_clash/subjects/{ck}.weld-assembly.json").exists()
+    assert _query(client, cks=[ck], kinds=["subject"])["summary"]["rows"] == 2
+
+    # One press: one run per connection that has none, in one batch; a second press starts nothing.
+    register_simulation_provider(FakeSimulationProvider("fake-sim", domain="robotics", accepts=("weld-assembly",)))
+    body = {"nodes": [{"key": FILE}], "provider": "fake-sim", "parameters": {"steps": 1}, "policy": "missing"}
+    dry = client.post(f"/api/scopes/{SCOPE}/simulations/batch", json={**body, "dry_run": True}).json()
+    assert [s["ck"] for s in dry["started"]] == [ck] and dry["started"][0]["run_id"] is None
+    first = client.post(f"/api/scopes/{SCOPE}/simulations/batch", json=body).json()
+    assert [s["ck"] for s in first["started"]] == [ck], first
+    run_id = first["started"][0]["run_id"]
+    again = client.post(f"/api/scopes/{SCOPE}/simulations/batch", json=body).json()
+    assert not again["started"] and again["skipped"][0]["ck"] == ck
+    assert _ended(client, run_id)["batch"]["id"] == first["batch"]["id"]
+    sims = _query(client, cks=[ck], kinds=["sim_run"])
+    assert sims["summary"]["sim_runs"] == {"done": 2} and sims["active"] is False
+    # `failed` does not start one over a run that is done; `all` does.
+    assert not client.post(f"/api/scopes/{SCOPE}/simulations/batch", json={**body, "policy": "failed"}).json()[
+        "started"
+    ]
+    rerun = client.post(f"/api/scopes/{SCOPE}/simulations/batch", json={**body, "policy": "all"}).json()
+    assert len(rerun["started"]) == 1, rerun
+    assert rerun["started"][0]["run_id"] != run_id

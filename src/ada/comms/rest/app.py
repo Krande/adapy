@@ -50,6 +50,7 @@ from .routes.deps import (  # noqa: F401 — _merge_spec re-exported for tests/i
     publish_capability_requirements,
     refresh_worker_registry,
 )
+from .routes.element_links import router as element_links_router
 from .routes.equipment_types import router as equipment_types_router
 from .routes.export_selection import router as export_selection_router
 from .routes.fea import router as fea_router
@@ -441,6 +442,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # Simulation providers and runs (routes/simulations.py): ``/simulation/providers`` and
     # ``/scopes/{scope}/simulations...``, neither colliding with a fixed/parameterised sibling.
     api.include_router(simulations_router)
+    # Per-element associations: links under a node, subjects and batches of runs (routes/element_links.py).
+    api.include_router(element_links_router)
 
     # A selection as a STEP/IFC download (routes/export_selection.py). One fixed path,
     # ``/scopes/{scope}/export-selection``, with no parameterised sibling to collide with.

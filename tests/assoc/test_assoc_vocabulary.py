@@ -145,8 +145,8 @@ def test_members_resolve_through_the_glb_hierarchy_and_node_ids():
     }
     file_run = _run({"kind": "file", "source_key": "m.stp"}, [{"id": "2", "name": "Beam A"}])
     [ident] = member_identities(file_run, js)
-    assert ident["key"] == "file:m.stp#p:RACK/LEVEL 1/BEAM A"
-    assert ident["anc"] == ["file:m.stp", "file:m.stp#p:RACK", "file:m.stp#p:RACK/LEVEL 1"]
+    assert ident["key"] == "file:m.stp#p:LEVEL 1/BEAM A"
+    assert ident["anc"] == ["file:m.stp", "file:m.stp#p:LEVEL 1"]
 
     node_run = _run(
         {"kind": "node", "collection": "c", "subject": "s"},
@@ -155,7 +155,7 @@ def test_members_resolve_through_the_glb_hierarchy_and_node_ids():
     by_node, by_path = member_identities(node_run, js, {"2": "fp2"})
     assert by_node["key"] == "node:/c/n2" and by_node["fp"] == "fp2"
     assert by_node["anc"] == ["node:/c/s", "node:/c/n0"]
-    assert by_path["key"] == "node:/c/s#p:RACK/LEVEL 1"
+    assert by_path["key"] == "node:/c/s#p:LEVEL 1"
 
     # Without the GLB a member is its name.
     [bare] = member_identities(file_run)
