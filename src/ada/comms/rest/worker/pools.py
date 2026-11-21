@@ -4,8 +4,10 @@ fetch cadence and the round-robin cursor.
 
 from __future__ import annotations
 
+import asyncio
 import os
 import time
+from collections.abc import Awaitable
 
 from ada.config import logger
 
@@ -90,6 +92,79 @@ BUS_HEARTBEAT_SECONDS = 15.0
 # failures — far longer than a reconnect after a routine bus restart, short
 # enough that nothing waits on it for long.
 BUS_HEARTBEAT_FAILURE_LIMIT = 4
+
+
+# How many jobs one worker may have in flight at once: ``ADA_WORKER_MAX_CONCURRENT_JOBS``,
+# 1 by default, which is the worker as it always was -- one leased message, processed to its
+# end before the next fetch.
+#
+# More is for a worker whose jobs do not run in this process's CPU: a simulation provider
+# whose runs are containers or cluster Jobs it only follows (``ada.simulation``), where one
+# worker can supervise several runs instead of one worker process per run. Each job in flight
+# holds its own leased message and refreshes its own ack deadline (``IN_PROGRESS_REFRESH_SECONDS``),
+# so a second lease no longer lapses while the first job runs; a new message is fetched only
+# while a slot is free, so the worker never holds a lease it is not working on.
+#
+# The convert pools fork a child per job and size their memory for one at a time: raise it
+# for those only knowing that.
+def _max_concurrent_jobs(environ: dict[str, str] | None = None) -> int:
+    raw = (os.environ if environ is None else environ).get("ADA_WORKER_MAX_CONCURRENT_JOBS", "")
+    try:
+        value = int(str(raw).strip() or "1")
+    except ValueError:
+        logger.warning("worker: ADA_WORKER_MAX_CONCURRENT_JOBS=%r is not a number; taking one job at a time", raw)
+        return 1
+    return max(1, value)
+
+
+class _JobSlots:
+    """The jobs this worker has in flight, and how many it may have (``_max_concurrent_jobs``).
+
+    The poll loop asks ``wait_for_free`` before each fetch and hands each message it gets to
+    ``start``; on its way out it ``drain``s, so a stopped worker finishes what it holds, as the
+    one-job worker always did with the job it was awaiting.
+    """
+
+    def __init__(self, limit: int) -> None:
+        self.limit = max(1, int(limit))
+        self.tasks: set[asyncio.Task] = set()
+
+    @property
+    def free(self) -> bool:
+        return len(self.tasks) < self.limit
+
+    def start(self, job: Awaitable[None], name: str = "") -> asyncio.Task:
+        task = asyncio.ensure_future(job)
+        if name:
+            task.set_name(f"job-{name}")
+        self.tasks.add(task)
+        task.add_done_callback(self._done)
+        return task
+
+    def _done(self, task: asyncio.Task) -> None:
+        self.tasks.discard(task)
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc is not None:
+            # The job's own handler records failures; this is a failure of that handler.
+            logger.error("worker: %s ended with an unhandled error", task.get_name(), exc_info=exc)
+
+    async def wait_for_free(self, stop: asyncio.Event, timeout: float) -> bool:
+        """Until a slot is free, ``stop`` is set or ``timeout`` passes. Whether a slot is free."""
+        if self.free:
+            return True
+        stopping = asyncio.ensure_future(stop.wait())
+        try:
+            await asyncio.wait({*self.tasks, stopping}, timeout=timeout, return_when=asyncio.FIRST_COMPLETED)
+        finally:
+            stopping.cancel()
+        return self.free
+
+    async def drain(self) -> None:
+        if self.tasks:
+            logger.info("worker: waiting for the %d job(s) in flight to finish", len(self.tasks))
+            await asyncio.gather(*list(self.tasks), return_exceptions=True)
 
 
 def _bool_env(name: str, *, default: bool) -> bool:

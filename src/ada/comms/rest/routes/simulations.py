@@ -25,8 +25,10 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 
+from ada.simulation.batches import BatchError, batch_prefix, check_batch
 from ada.simulation.interfaces import SIMULATION_DOMAINS
 from ada.simulation.runs import (
+    ACTIVE_STATUSES,
     STATUS_CANCELLED,
     STATUS_QUEUED,
     TERMINAL_STATUSES,
@@ -47,12 +49,18 @@ from ..job_transport import JobRequest
 from ..scope import Scope
 from ..simulation_relay import SimulationRelay, merge_providers, relay_of
 from ..simulation_runs import (
+    batch_index,
+    batch_run_ids,
+    batch_summaries,
+    delete_batch_member,
     domain_listing,
     list_providers,
     list_run_ids,
     provider_by_id,
     read_run,
+    read_runs,
     run_view,
+    write_batch_member,
     write_run,
 )
 from .deps import RestContext, pending_upload_detail, rest_context, scope_from_path
@@ -61,6 +69,23 @@ router = APIRouter()
 
 KIND = "simulation_run"
 _MAX_INPUTS = 64
+#: The most records one filtered listing reads; ``next`` says where to go on from.
+_MAX_SCAN = 2000
+_RUN_STATUSES = frozenset(ACTIVE_STATUSES | TERMINAL_STATUSES)
+
+
+def _batch_from(raw, parameters: dict) -> dict | None:
+    """The batch the run is started in: the body's ``batch``, else a ``batch`` among the parameters
+    when the provider's schema has one (a client that put it there before core had the field)."""
+    try:
+        if raw is not None:
+            return check_batch(raw)
+    except BatchError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    try:
+        return check_batch(parameters.get("batch"))
+    except BatchError:
+        return None  # the provider's own parameter, not one core can read as a batch
 
 
 async def _providers(ctx: RestContext, request: Request) -> list[dict]:
@@ -157,11 +182,13 @@ async def api_simulation_start(
     ctx: RestContext = Depends(rest_context),
     user: User = Depends(auth_module.current_user),
 ) -> JSONResponse:
-    """Start a run. Body ``{provider, parameters?, inputs?, kind?, subject?}``: the provider's id, its
-    parameters, the storage keys of the run's input files in this scope, which of the provider's
-    kinds of run, and what the run is ON (``subject: {kind, key}``, see ``ada.simulation.subjects``;
-    its key is put first among the inputs and the record keeps it as ``subject``). Returns
-    ``{"run": {...}}`` -- the run record, with its ``job_id``.
+    """Start a run. Body ``{provider, parameters?, inputs?, kind?, subject?, batch?}``: the provider's
+    id, its parameters, the storage keys of the run's input files in this scope, which of the
+    provider's kinds of run, what the run is ON (``subject: {kind, key}``, see
+    ``ada.simulation.subjects``; its key is put first among the inputs and the record keeps it as
+    ``subject``), and the batch it is one of (``batch: {id, label?, source?: {kind, key}}``, see
+    ``ada.simulation.batches``; the record keeps it as ``batch``, and the batch's runs are listed
+    together). Returns ``{"run": {...}}`` -- the run record, with its ``job_id``.
 
     Refused before anything is queued: an unknown provider (404), one no live worker serves
     (409), parameters that do not fit the provider's schema (400, naming each problem), a
@@ -198,6 +225,7 @@ async def api_simulation_start(
         raise HTTPException(status_code=400, detail=f"invalid parameters: {exc}") from exc
 
     subject = _subject_from(body.get("subject"), provider)
+    batch = _batch_from(body.get("batch"), parameters)
     inputs = _inputs_from(body.get("inputs"))
     if subject is not None:
         # The subject is one of the run's input files: the provider reads it through the context.
@@ -222,7 +250,10 @@ async def api_simulation_start(
             kind=kind,
             subject=subject,
             inputs=inputs,
+            batch=batch,
         )
+        if batch is not None:
+            await write_batch_member(ctx.storage, scope_obj, batch["id"], record["run_id"])
         await ctx.audit(
             request,
             user,
@@ -242,10 +273,13 @@ async def api_simulation_start(
         started_by={"id": user.sub, "display": user.display_name},
         kind=kind,
         subject=subject,
+        batch=batch,
     )
     key = run_record_key(record["run_id"])
     # Written before the job exists, so whatever picks the job up finds its record.
     await write_run(ctx.storage, scope_obj, record)
+    if batch is not None:
+        await write_batch_member(ctx.storage, scope_obj, batch["id"], record["run_id"])
 
     async def before_dispatch(submitted) -> None:
         # Behind a queue: the job is durable and not yet visible to a worker, so the record can
@@ -282,10 +316,32 @@ async def api_simulation_start(
             await ctx.storage.delete(scope_obj, key)
         except Exception:  # noqa: BLE001 - the submit error is the one to report
             pass
+        if batch is not None:
+            await delete_batch_member(ctx.storage, scope_obj, batch["id"], record["run_id"])
         raise
     # In-process the job has already started and stamps its own id on the record; the answer
     # carries it either way.
     return JSONResponse({"run": {**record, "job_id": submitted.job_id, "cancel_requested": False}})
+
+
+def _statuses_from(raw: str | None) -> frozenset[str] | None:
+    if raw is None or not raw.strip():
+        return None
+    wanted = frozenset(s.strip() for s in raw.split(",") if s.strip())
+    unknown = sorted(wanted - _RUN_STATUSES)
+    if unknown:
+        raise HTTPException(
+            status_code=400, detail=f"unknown run status {unknown[0]!r} (known: {', '.join(sorted(_RUN_STATUSES))})"
+        )
+    return wanted
+
+
+def _batch_id_from(raw: str) -> str:
+    try:
+        batch_prefix(raw)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"'batch' must be a batch id or 'none' ({exc})") from exc
+    return raw
 
 
 @router.get("/scopes/{scope}/simulations")
@@ -294,28 +350,102 @@ async def api_simulation_list(
     limit: int = 50,
     provider: str | None = None,
     domain: str | None = None,
+    batch: str | None = None,
+    status: str | None = None,
+    before: str | None = None,
     scope_obj: Scope = Depends(scope_from_path),
     ctx: RestContext = Depends(rest_context),
 ) -> JSONResponse:
-    """The scope's runs, newest first: ``{"runs": [...]}``, each as ``GET .../{run_id}`` returns
-    it. ``limit`` (default 50, at most 200) bounds how many records are read; ``provider`` and
-    ``domain`` keep only that provider's or that kind's runs among them."""
+    """The scope's runs, newest first: ``{"runs": [...], "next": run_id | null}``, each run as
+    ``GET .../{run_id}`` returns it.
+
+    * ``limit`` (default 50, at most 200): how many runs are returned;
+    * ``provider`` / ``domain``: only that provider's, or that kind's, runs;
+    * ``batch``: only the runs of that batch (``ada.simulation.batches``), or with ``batch=none``
+      only the runs that belong to no batch;
+    * ``status``: only runs in these statuses (comma-separated, e.g. ``queued,running,done,error``);
+    * ``before``: only runs older than this run id -- the ``next`` of the page before, to page on.
+
+    Filtering reads records until ``limit`` runs match, at most ``_MAX_SCAN`` per request; ``next``
+    is where the next page starts, null when there is nothing after this one."""
     limit = max(1, min(int(limit), 200))
     _require_domain(domain)
+    statuses = _statuses_from(status)
+    if batch is None:
+        ids = await list_run_ids(ctx.storage, scope_obj)
+    elif batch == "none":
+        index = await batch_index(ctx.storage, scope_obj)
+        batched = {i for members in index.values() for i in members}
+        ids = [i for i in await list_run_ids(ctx.storage, scope_obj) if i not in batched]
+    else:
+        ids = await batch_run_ids(ctx.storage, scope_obj, _batch_id_from(batch))
+    if before:
+        ids = [i for i in ids if i < before]
+
     runs: list[dict] = []
-    for run_id in (await list_run_ids(ctx.storage, scope_obj))[:limit]:
-        try:
-            record = await read_run(ctx.storage, scope_obj, run_id)
-        except RunRecordError:
-            continue  # a record that cannot be read is left out, not a failed listing
-        if record is None:
-            continue
-        if provider is not None and record["provider"].get("id") != provider:
-            continue
-        if domain is not None and record["provider"].get("domain") != domain:
-            continue
-        runs.append(await _view(ctx, request, scope_obj, record, strict=False))
-    return JSONResponse({"runs": runs})
+    scanned = 0
+    while ids and len(runs) < limit and scanned < _MAX_SCAN:
+        chunk, ids = ids[: limit - len(runs)], ids[limit - len(runs) :]
+        scanned += len(chunk)
+        last = chunk[-1]
+        for record in await read_runs(ctx.storage, scope_obj, chunk):
+            if provider is not None and record["provider"].get("id") != provider:
+                continue
+            if domain is not None and record["provider"].get("domain") != domain:
+                continue
+            view = await _view(ctx, request, scope_obj, record, strict=False)
+            if statuses is not None and view.get("status") not in statuses:
+                continue
+            runs.append(view)
+    if not ids:
+        next_id = None
+    elif len(runs) >= limit:
+        next_id = runs[-1]["run_id"]
+    else:
+        next_id = last  # the scan stopped before the end: go on from the last record read
+    return JSONResponse({"runs": runs, "next": next_id})
+
+
+@router.get("/scopes/{scope}/simulations/batches")
+async def api_simulation_batches(
+    provider: str | None = None,
+    domain: str | None = None,
+    scope_obj: Scope = Depends(scope_from_path),
+    ctx: RestContext = Depends(rest_context),
+) -> JSONResponse:
+    """The scope's batches of runs, the newest first: ``{"batches": [...], "unbatched": n}``, each
+    ``{id, label, source, provider, providers, count, counts: {done, running, queued, error,
+    cancelled}, active, progress, newest_at, oldest_at}`` (``ada.simulation.batches``), and how
+    many of the scope's runs belong to no batch. ``provider`` / ``domain`` keep the batches that
+    have a run on that provider, or of that kind.
+
+    The counts are the stored records' statuses: a run's job is not asked, so a run whose job was
+    lost is counted as its record left it until that run is looked at (``GET .../{run_id}``)."""
+    _require_domain(domain)
+    index = await batch_index(ctx.storage, scope_obj)
+    batches = await batch_summaries(ctx.storage, scope_obj, index)
+    if provider is not None:
+        batches = [b for b in batches if any(p["id"] == provider for p in b["providers"])]
+    if domain is not None:
+        batches = [b for b in batches if any(p["domain"] == domain for p in b["providers"])]
+    batched = {i for members in index.values() for i in members}
+    unbatched = sum(1 for i in await list_run_ids(ctx.storage, scope_obj) if i not in batched)
+    return JSONResponse({"batches": batches, "unbatched": unbatched})
+
+
+@router.get("/scopes/{scope}/simulations/batches/{batch_id}")
+async def api_simulation_batch(
+    batch_id: str,
+    scope_obj: Scope = Depends(scope_from_path),
+    ctx: RestContext = Depends(rest_context),
+) -> JSONResponse:
+    """One batch's line: ``{"batch": {...}}`` as ``GET .../batches`` lists it; 404 for a batch the
+    scope has no runs of. Its runs are ``GET .../simulations?batch=<id>``."""
+    run_ids = await batch_run_ids(ctx.storage, scope_obj, _batch_id_from(batch_id))
+    summaries = await batch_summaries(ctx.storage, scope_obj, {batch_id: run_ids} if run_ids else {})
+    if not summaries:
+        raise HTTPException(status_code=404, detail=f"no batch {batch_id!r} in this scope")
+    return JSONResponse({"batch": summaries[0]})
 
 
 async def _view(ctx: RestContext, request: Request, scope_obj: Scope, record: dict, *, strict: bool) -> dict:

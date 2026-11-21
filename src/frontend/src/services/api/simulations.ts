@@ -101,12 +101,65 @@ export interface SimulationSubjectRef {
   readonly key: string;
 }
 
+/** The runs a client started together (`ada.simulation.batches`): one per connection of a saved
+ *  group, say. `id` is letters, digits, `.`, `_` and `-`; `label` is what a list shows; `source` says
+ *  what the runs were started from, when the client said. */
+export interface SimulationBatchRef {
+  readonly id: string;
+  readonly label?: string;
+  readonly source?: { readonly kind: "group" | "node"; readonly key: string } | null;
+}
+
+/** A batch's line (`GET .../simulations/batches`): its runs counted by status, from their records. */
+export interface SimulationBatch {
+  readonly id: string;
+  readonly label: string;
+  readonly source: SimulationBatchRef["source"];
+  /** The newest run's provider; `providers` names every one the batch's runs ran on. */
+  readonly provider: { readonly id: string; readonly domain: SimulationDomainId };
+  readonly providers: ReadonlyArray<{ readonly id: string; readonly domain: SimulationDomainId }>;
+  readonly count: number;
+  readonly counts: Readonly<Record<SimulationRunStatus, number>>;
+  /** Queued and running. */
+  readonly active: number;
+  /** 0..1: the share of the runs that are not cancelled which has finished (done or error). */
+  readonly progress: number;
+  readonly newest_at: string | null;
+  readonly oldest_at: string | null;
+}
+
+export interface SimulationBatchesResponse {
+  readonly batches: readonly SimulationBatch[];
+  /** How many of the scope's runs belong to no batch. */
+  readonly unbatched: number;
+}
+
+/** A page of runs and where the next starts (`before`), null at the end. */
+export interface SimulationRunsPage {
+  readonly runs: SimulationRun[];
+  readonly next: string | null;
+}
+
+export interface ListRunsOptions {
+  readonly limit?: number;
+  readonly provider?: string;
+  readonly domain?: SimulationDomainId;
+  /** A batch id: only its runs. `"none"`: only the runs of no batch. */
+  readonly batch?: string;
+  /** Only runs in these statuses. */
+  readonly status?: readonly SimulationRunStatus[];
+  /** Only runs older than this run id: a page's `next`. */
+  readonly before?: string;
+}
+
 export interface SimulationRun {
   readonly run_id: string;
   readonly provider: { readonly id: string; readonly domain: SimulationDomainId; readonly engine: string; readonly version: string };
   readonly kind: string | null;
   /** What the run was started on; null (or absent, from a server without subjects) for none. */
   readonly subject?: SimulationSubjectRef | null;
+  /** The batch it was started in; null (or absent, from an older server) for none. */
+  readonly batch?: SimulationBatchRef | null;
   /** Where a run handed off to a remote Ada Studio lives there; absent for one run here. */
   readonly remote?: { readonly url: string; readonly scope: string; readonly run_id: string };
   readonly parameters: Readonly<Record<string, unknown>>;
@@ -135,6 +188,9 @@ export interface StartSimulationBody {
   /** What to run ON: a stored file of a subject kind the provider accepts. The server puts its
    *  key among the inputs, so a provider reads it as `case.subject`. */
   readonly subject?: SimulationSubjectRef;
+  /** The batch this run is one of: every run a client starts together carries the same one, and
+   *  the runs list shows them as one line. An older server ignores it. */
+  readonly batch?: SimulationBatchRef;
 }
 
 /** Part of an artefact to fetch: from byte `start` (0 when left out) to byte `end` inclusive
@@ -206,17 +262,32 @@ export const simulationsApi = {
   },
 
   /** The scope's runs, newest first. */
-  async listRuns(
-    scope: ScopeUrl,
-    opts: { limit?: number; provider?: string; domain?: SimulationDomainId } = {},
-  ): Promise<SimulationRun[]> {
+  async listRuns(scope: ScopeUrl, opts: ListRunsOptions = {}): Promise<SimulationRun[]> {
+    return (await simulationsApi.listRunsPage(scope, opts)).runs;
+  },
+
+  /** A page of the scope's runs, newest first, and where the next page starts (`opts.before`). An
+   *  older server answers no `next`: read as the end. */
+  async listRunsPage(scope: ScopeUrl, opts: ListRunsOptions = {}): Promise<SimulationRunsPage> {
     const params = new URLSearchParams();
     if (opts.limit) params.set("limit", String(opts.limit));
     if (opts.provider) params.set("provider", opts.provider);
     if (opts.domain) params.set("domain", opts.domain);
+    if (opts.batch) params.set("batch", opts.batch);
+    if (opts.status?.length) params.set("status", opts.status.join(","));
+    if (opts.before) params.set("before", opts.before);
     const query = params.toString();
     const r = await authedFetch(`${scoped(scope)}${query ? `?${query}` : ""}`);
-    return (await jsonOrThrow<{ runs: SimulationRun[] }>(r, "listSimulations")).runs;
+    const body = await jsonOrThrow<{ runs: SimulationRun[]; next?: string | null }>(r, "listSimulations");
+    return { runs: body.runs, next: body.next ?? null };
+  },
+
+  /** The scope's batches of runs, newest first, and how many runs are in none. Null from a server
+   *  that has no batches (it answers 404 or 405): its runs are then listed one by one. */
+  async listBatches(scope: ScopeUrl): Promise<SimulationBatchesResponse | null> {
+    const r = await authedFetch(`${scoped(scope)}/batches`);
+    if (r.status === 404 || r.status === 405) return null;
+    return jsonOrThrow<SimulationBatchesResponse>(r, "listSimulationBatches");
   },
 
   async getRun(scope: ScopeUrl, runId: string): Promise<SimulationRun> {

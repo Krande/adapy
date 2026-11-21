@@ -324,6 +324,11 @@ Layout state helpers on `@/viewer-core/layout`: `resetArrangement`, `saveWorkspa
 | Fem | Model | `Mode.FemModel` |
 | | Results | `Mode.FemResults` |
 | Construction | Fabrication-cad | `Mode.ConstructionFabrication` |
+| | Robot-sim (weld): the robot cell, from the stock material through cutting to welding | `Mode.ConstructionRobotSim` |
+| | Installation-sim: the assembly cell | `Mode.ConstructionInstallationSim` |
+
+Construction is a chain of phases in work order. The stock material is not a mode of its own: it is
+shown in Robot-sim (weld), whose cell takes the parts from the stock through cutting to welding.
 
 Code names a mode by its constant, never by a string: the string is only how a mode is stored (a
 `?mode=` link, the remembered mode, a saved layout). A plugin's mode (`PluginModeSpec`) joins a heading
@@ -337,6 +342,19 @@ A composed shell offers the modes it wants (`layout.modes`) and gives each a `be
 | `sceneColor` | `"own"`: core sets the FEA field colouring aside while the mode is active. `"results"`: shown. | the mode's `ownsSceneColor` |
 | `deformation` | Draw the FEA model deformed. | the mode's `showsDeformation` |
 | `scene` | `{draws(model)}`: which loaded models the mode draws. Core applies it reversibly: what a model's visibility was before is what it goes back to, and a model the user shows or hides by hand is theirs until the mode changes. | every model, untouched |
+| `simulations` | `{domain, empty}`: what the Simulations panel lists in the mode -- one domain's providers and runs, the providers whose plugin UI declares this mode (`SimulationProviderUi.mode`) first (none is hidden for declaring no mode), and what it says while none declares it. | everything |
+
+Some of core's modes have a default behaviour of their own (`CoreModeDef.behaviour`), which a shell's
+`behaviour` overrides field by field (`withCoreBehaviour`). Robot-sim (weld) and Installation-sim
+default to `builder: "away"`, `sceneColor: "own"`, `deformation: false` and
+`simulations: {domain: "robotics", empty}`: every loaded model is drawn (the replayed cell and the
+subject it works on), and the panel lists every robotics provider, the cell's own first.
+
+A simulation provider's UI says which mode its runs belong to (`SimulationProviderUi.mode`): the
+Simulations panel switches there before it opens a run's result, where the UI on screen offers it.
+A plugin may follow through on something the user did the same way with `ctx.modes.activate(id,
+{reason})` (`ctx.modes.active`, `.offered(id)`, `.subscribe(cb)`); in core's own UI, which has no
+modes, it returns false and changes nothing. It is never for switching by itself.
 
 A plugin's mode may carry a `behaviour` of its own; the shell's `modeArrangements[id].behaviour` wins,
 field by field.

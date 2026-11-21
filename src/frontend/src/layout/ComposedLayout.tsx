@@ -42,7 +42,7 @@ import {
   subscribeShellModes,
   type ShellMode,
 } from "./shellModes";
-import {coreModeDef} from "./modes";
+import {coreModeDef, withCoreBehaviour} from "./modes";
 
 /** Which loaded models the active mode draws: lazy, as it reads the scene's stores. */
 const ModeSceneScope = React.lazy(() => import("./ModeSceneScope").then((m) => ({default: m.ModeSceneScope})));
@@ -79,7 +79,8 @@ export function shellModes(spec: UiShellSpec): ShellMode[] {
     icon: m.icon,
     order: m.order ?? i,
     pluginId: m.toolbar ? shellPlugin : undefined,
-    behaviour: m.behaviour,
+    // The shell's declared behaviour over core's default for the mode, field by field.
+    behaviour: withCoreBehaviour(m.id, m.behaviour),
     ownsSceneColor: m.ownsSceneColor,
     showsDeformation: m.showsDeformation,
     toolbar: m.toolbar,

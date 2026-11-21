@@ -448,7 +448,7 @@ def test_runs_are_listed_newest_first_and_filtered(client):
     assert [r["run_id"] for r in client.get(url, params={"domain": "robotics"}).json()["runs"]] == [ids[2], ids[0]]
     assert [r["run_id"] for r in client.get(url, params={"limit": 1}).json()["runs"]] == [ids[2]]
     # Another scope has none of them.
-    assert client.get("/api/scopes/shared/simulations").json() == {"runs": []}
+    assert client.get("/api/scopes/shared/simulations").json() == {"runs": [], "next": None}
     assert client.get(f"/api/scopes/shared/simulations/{ids[0]}").status_code == 404
 
 
@@ -463,7 +463,7 @@ def test_parameters_are_checked_before_anything_is_queued(client):
     assert _start(client, {"steps": 1}, inputs=["missing.glb"]).status_code == 404
     assert _start(client, {"steps": 1}, inputs="missing.glb").status_code == 400
     assert client.post(f"/api/scopes/{SCOPE}/simulations", json={"parameters": {}}).status_code == 400
-    assert client.get(f"/api/scopes/{SCOPE}/simulations").json() == {"runs": []}
+    assert client.get(f"/api/scopes/{SCOPE}/simulations").json() == {"runs": [], "next": None}
 
 
 def test_a_run_is_started_on_a_subject_the_provider_accepts(client):
@@ -519,7 +519,7 @@ def test_a_subject_that_cannot_be_served_is_refused_before_anything_is_queued(cl
         assert _start(client, {"steps": 1}, subject=good).status_code == 409
     finally:
         pending_uploads.mark_complete(scope, "joint.json")
-    assert client.get(f"/api/scopes/{SCOPE}/simulations").json() == {"runs": []}
+    assert client.get(f"/api/scopes/{SCOPE}/simulations").json() == {"runs": [], "next": None}
 
 
 def test_a_provider_from_an_older_worker_lists_no_accepted_kinds():
@@ -550,7 +550,7 @@ def test_a_provider_from_an_older_worker_lists_no_accepted_kinds():
 def test_a_provider_nobody_registered_is_a_clear_error_not_a_queued_run(client):
     r = _start(client)
     assert r.status_code == 404 and r.json()["detail"] == f"unknown simulation provider {PROVIDER!r}"
-    assert client.get(f"/api/scopes/{SCOPE}/simulations").json() == {"runs": []}
+    assert client.get(f"/api/scopes/{SCOPE}/simulations").json() == {"runs": [], "next": None}
 
 
 def test_cancelling_a_running_run_stops_it(client):
@@ -727,7 +727,7 @@ def test_a_run_for_a_provider_no_live_worker_serves_is_refused_not_queued(monkey
         assert f"no live worker serves simulation provider {PROVIDER!r}" in r.json()["detail"]
         unknown = c.post("/api/scopes/shared/simulations", json={"provider": "nope", "parameters": {}})
         assert unknown.status_code == 404
-        assert c.get("/api/scopes/shared/simulations").json() == {"runs": []}
+        assert c.get("/api/scopes/shared/simulations").json() == {"runs": [], "next": None}
     assert enqueued == []
 
 

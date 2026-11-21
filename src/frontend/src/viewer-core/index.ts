@@ -767,7 +767,16 @@
 //          `resize` handles and `constrain.rotate: "xyz"` (`axes`), `ctx.scene.placeCamera` and the
 //          types `BoxFace`, `PlaceBoxResize`, `PlaceCameraOptions`, `PlacedCamera`,
 //          `PlacedCameraMode`, `PlacedCameraPose`.
-export const VIEWER_CORE_API_VERSION = "1.33.0";
+//   1.34.0 Kept in step with PLUGIN_API_VERSION 1.34.0. Additive: Construction's phases on `Mode`
+//          (`ConstructionRobotSim`, `ConstructionInstallationSim`), `ROBOTICS_SIMULATION_DOMAIN`,
+//          `withCoreBehaviour` and the types `ModeSimulations`, `PluginModes`,
+//          `PluginModeActivateOptions` on the root; `CoreModeDef.behaviour`,
+//          `ModeBehaviour.simulations`, `SimulationProviderUi.mode`, `ctx.modes`.
+//          See PLUGIN_API_VERSION's 1.34.0 note.
+//   1.35.0 Kept in step with PLUGIN_API_VERSION 1.35.0. Additive: batches of simulation runs --
+//          `StartSimulationBody.batch`, `SimulationRun.batch`, `simulationsApi.listBatches` and
+//          `.listRunsPage`. See PLUGIN_API_VERSION's 1.35.0 note.
+export const VIEWER_CORE_API_VERSION = "1.35.0";
 
 // ---------------------------------------------------------------------------
 // Plugin declaration. `registerPlugin` is how a package announces itself —
@@ -809,6 +818,8 @@ export type {
   PluginPlaybackTrackHandle,
   PluginModeId,
   PluginModeSpec,
+  PluginModes,
+  PluginModeActivateOptions,
   PluginApiClient,
   PluginLogLevel,
   PluginRegion,
@@ -917,12 +928,22 @@ export {
 } from "@/layout/shellModes";
 export type { CoreModeToolbarId, ModeState, ShellMode, ShellModeBadge } from "@/layout/shellModes";
 // Core's modes as typed constants, their headings, and what a mode does (assigned per UI).
-export { CORE_MODES, MODE_GROUPS, Mode, ModeGroup, coreModeDef, isCoreMode } from "@/layout/modes";
+export {
+  CORE_MODES,
+  MODE_GROUPS,
+  Mode,
+  ModeGroup,
+  ROBOTICS_SIMULATION_DOMAIN,
+  coreModeDef,
+  isCoreMode,
+  withCoreBehaviour,
+} from "@/layout/modes";
 export type {
   BuilderPresence,
   CoreModeDef,
   CoreModeId,
   ModeBehaviour,
+  ModeSimulations,
   ModeGroupId,
   ModeId,
   ModeSwitching,

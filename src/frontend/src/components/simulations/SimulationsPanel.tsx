@@ -14,25 +14,46 @@
 //   * the scope's runs, newest first, a line each: its status, what it is called, when it was
 //     started, a cancel button while it is going, and a plugin's "open" handler when there is
 //     one. A line opens to the rest (who started it, how long it took, its outcome, its
-//     artefacts as downloads), one at a time. The list scrolls within the panel.
+//     artefacts as downloads), one at a time. The list scrolls within the panel. The runs a
+//     client started together (a batch) are ONE line -- label, provider, runs by status, progress,
+//     the newest start -- that opens to its runs, indented, a page at a time (`BatchRow`).
 //
 // It knows no engine. Everything specific to one is the server's description of the provider or
 // a plugin's registration.
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 
 import ErrorBoundary from "@/components/common/ErrorBoundary";
 import { PanelHeaderActions, usePanelHeaderActions } from "@/components/ui/PanelFrame";
+import { activeModeDef, activeShellMode, shellModesVersion, subscribeShellModes } from "@/layout/shellModes";
 import { makePluginContext } from "@/plugins/context";
+import { activateMode, modeOffered } from "@/plugins/pluginModes";
 import { openResultButtonLabel, resolveSimulationProviderUi, type AdaPluginContext } from "@/plugins/registry";
 import { filesApi } from "@/services/api/files";
 import {
   isActiveRun,
   type SimulationArtefact,
+  type SimulationBatch,
   type SimulationProviderInfo,
   type SimulationRun,
 } from "@/services/api/simulations";
+import {
+  batchCountsLabel,
+  batchPercent,
+  batchTone,
+  isBatchOpen,
+  listedRunCount,
+  runListItems,
+  setBatchOpen,
+} from "@/services/simulations/batchRows";
 import { durationLabel, runLabel, runOutcome, runSubjectLabel, runTone, startedLabel } from "@/services/simulations/runRow";
+import {
+  modeHasOwnProvider,
+  modeProvidersFirst,
+  modeToOpenIn,
+  providerShownInMode,
+  simulationsFilterFor,
+} from "@/services/simulations/modeScope";
 import { defaultParameters, missingRequired } from "@/services/simulations/schemaForm";
 import { useViewerStores } from "@/state/AdaViewerContext";
 import { useRunConsoleStore } from "@/state/runConsoleStore";
@@ -148,6 +169,10 @@ const RunRow: React.FC<{
   const open = async () => {
     if (!opener?.ui.openResult) return;
     setOpenError(null);
+    // A provider whose runs belong to a mode (a robot cell's) opens its result there, where the UI
+    // on screen offers it: the user asked to look at this run, and that is where it is looked at.
+    const target = modeToOpenIn(resolveSimulationProviderUi(baseCtx, run.provider).mode, activeShellMode(), modeOffered);
+    if (target) activateMode(target, { reason: `open ${label}` });
     try {
       await opener.ui.openResult(contextFor(opener.pluginId), { run, scope, provider });
       // The run on screen is this one from here on: its console follows its activity feed.
@@ -333,13 +358,128 @@ const StartForm: React.FC<{ scope: string; provider: SimulationProviderInfo; sub
   );
 };
 
-/** The panel's content, without a frame: providers by domain, the start form, the scope's runs. */
-export const SimulationsBody: React.FC = () => {
+/** A batch's line: what it is, how many runs in which status, how far along; it opens to its runs,
+ *  indented, each the same line as a run of no batch (Replay / open and Cancel included), a page at
+ *  a time, the cancelled ones behind a toggle. Closed until opened; then as it was left, for the
+ *  session. */
+export const BatchRow: React.FC<{
+  scope: string;
+  batch: SimulationBatch;
+  providers: readonly SimulationProviderInfo[];
+  expandedRun: string | null;
+  onToggleRun: (runId: string) => void;
+}> = ({ scope, batch, providers, expandedRun, onToggleRun }) => {
+  const [open, setOpen] = useState(() => isBatchOpen(scope, batch.id));
+  const page = useSimulationStore((s) => s.batchRuns[batch.id]);
+  const loadBatchRuns = useSimulationStore((s) => s.loadBatchRuns);
+  // Read when opened -- also when it was left open and the panel comes back -- and not before.
+  useEffect(() => {
+    if (open && !page) void loadBatchRuns(scope, batch.id);
+  }, [open, page, scope, batch.id, loadBatchRuns]);
+
+  const toggle = () => {
+    setBatchOpen(scope, batch.id, !open);
+    setOpen(!open);
+  };
+  const provider = providers.find((p) => p.id === batch.provider.id) ?? null;
+  const providerTitle = batch.providers.length > 1 ? `${batch.providers.length} providers` : provider?.title ?? batch.provider.id;
+  const tone = batchTone(batch);
+  const percent = batchPercent(batch);
+  const cancelledShown = page?.cancelled ?? false;
+  const cancelledCount = batch.counts?.cancelled ?? 0;
+  const shown = page?.runs ?? [];
+  const remaining = Math.max(0, (cancelledShown ? batch.count : batch.count - cancelledCount) - shown.length);
+  const counts = batchCountsLabel(batch);
+
+  return (
+    <li className="flex flex-col rounded-sm bg-[var(--ada-panel-surface)]" data-batch-id={batch.id}>
+      <button
+        type="button"
+        className="flex items-center gap-1.5 px-1 py-0.5 min-w-0 text-left hover:text-[var(--ada-panel-text)]"
+        aria-expanded={open}
+        title={`${batch.label}: ${batch.count} run${batch.count === 1 ? "" : "s"}${counts ? ` (${counts})` : ""}`}
+        data-batch-toggle
+        onClick={toggle}
+      >
+        <span aria-hidden="true" className="w-3 shrink-0 text-[var(--ada-panel-text-muted)]">{open ? "▾" : "▸"}</span>
+        <span className={`h-2 w-2 rounded-full shrink-0 ${STATUS_DOT[tone] ?? "bg-gray-400"}`} aria-hidden />
+        <span className="font-medium truncate">{batch.label}</span>
+        <span className="text-[var(--ada-panel-text-muted)] shrink-0" data-batch-count>
+          {batch.count} run{batch.count === 1 ? "" : "s"}
+        </span>
+        <span className="text-[var(--ada-panel-text-muted)] truncate min-w-0">{providerTitle}</span>
+        <span className="flex-1" />
+        <span className="text-[var(--ada-panel-text-muted)] shrink-0">{batch.newest_at ? startedLabel(batch.newest_at) : ""}</span>
+      </button>
+      <div className="flex items-center gap-1.5 px-1 pb-0.5 pl-5 min-w-0 text-[var(--ada-panel-text-muted)]" data-batch-counts>
+        <span className="truncate">{counts || "no runs"}</span>
+        <span className="flex-1" />
+        <span className="shrink-0">{percent}%</span>
+      </div>
+      {batch.active > 0 && (
+        <div className="h-0.5 bg-[var(--ada-panel-surface)] overflow-hidden" role="progressbar" aria-valuenow={percent} aria-valuemin={0} aria-valuemax={100}>
+          <div className="h-full bg-blue-400" style={{ width: `${percent}%` }} />
+        </div>
+      )}
+      {open && (
+        <div className="flex flex-col gap-0.5 ml-3 pl-1.5 pb-1 border-l border-[var(--ada-panel-border)]" data-batch-runs>
+          {cancelledCount > 0 && (
+            <label className="flex items-center gap-1.5 text-[var(--ada-panel-text-muted)]">
+              <input
+                type="checkbox"
+                checked={cancelledShown}
+                disabled={page?.loading}
+                data-batch-show-cancelled
+                onChange={() => void loadBatchRuns(scope, batch.id, { cancelled: !cancelledShown })}
+              />
+              Show cancelled ({cancelledCount})
+            </label>
+          )}
+          {page?.error && <div className="text-[var(--ada-fail)] break-words">{page.error}</div>}
+          {shown.length > 0 && (
+            <ul className="flex flex-col gap-0.5">
+              {shown.map((run) => (
+                <RunRow
+                  key={run.run_id}
+                  scope={scope}
+                  run={run}
+                  provider={providers.find((p) => p.id === run.provider.id) ?? null}
+                  expanded={run.run_id === expandedRun}
+                  onToggle={() => onToggleRun(run.run_id)}
+                />
+              ))}
+            </ul>
+          )}
+          {page?.loading ? (
+            <div className="text-[var(--ada-panel-text-muted)]">Loading…</div>
+          ) : page && shown.length === 0 && !page.error ? (
+            <div className="text-[var(--ada-panel-text-muted)]">{cancelledCount > 0 && !cancelledShown ? "Every run of it was cancelled." : "No runs to show."}</div>
+          ) : null}
+          {page?.next && !page.loading && (
+            <button
+              type="button"
+              className={`${BUTTON} self-start`}
+              data-batch-more
+              onClick={() => void loadBatchRuns(scope, batch.id, { more: true })}
+            >
+              Show more{remaining > 0 ? ` (${remaining})` : ""}
+            </button>
+          )}
+        </div>
+      )}
+    </li>
+  );
+};
+
+/** The panel's content, without a frame: providers by domain, the start form, the scope's runs.
+ *  `initialRunsOpen` opens the runs list from the start (it is folded otherwise). */
+export const SimulationsBody: React.FC<{ initialRunsOpen?: boolean }> = ({ initialRunsOpen = false }) => {
   const domains = useSimulationStore((s) => s.domains);
   const providers = useSimulationStore((s) => s.providers);
   const providersLoaded = useSimulationStore((s) => s.providersLoaded);
   const providersError = useSimulationStore((s) => s.providersError);
   const runs = useSimulationStore((s) => s.runs);
+  const batches = useSimulationStore((s) => s.batches);
   const runsError = useSimulationStore((s) => s.runsError);
   const loadProviders = useSimulationStore((s) => s.loadProviders);
   const loadRuns = useSimulationStore((s) => s.loadRuns);
@@ -366,7 +506,7 @@ export const SimulationsBody: React.FC = () => {
 
   const [refreshing, setRefreshing] = useState(false);
   // The runs list starts folded (see the heading below).
-  const [runsOpen, setRunsOpen] = useState(false);
+  const [runsOpen, setRunsOpen] = useState(initialRunsOpen);
   const refresh = async () => {
     setRefreshing(true);
     try {
@@ -377,9 +517,28 @@ export const SimulationsBody: React.FC = () => {
     }
   };
 
-  const groups = useMemo(() => providersByDomain(domains, providers), [domains, providers]);
+  // The active mode may narrow the lists to its domain (`ModeBehaviour.simulations`), with the
+  // providers that declare the mode first; none is hidden for declaring no mode.
+  useSyncExternalStore(subscribeShellModes, shellModesVersion, shellModesVersion);
+  const mode = activeModeDef();
+  const modeFilter = simulationsFilterFor(mode);
+  const baseCtx = usePluginContextFor()("");
+  const modeOf = (p: { id: string; domain: string }) => resolveSimulationProviderUi(baseCtx, p).mode;
+  const modeProviders = modeFilter
+    ? modeProvidersFirst(providers.filter((p) => providerShownInMode(p, mode)), mode, modeOf)
+    : providers;
+  const modeRuns = modeFilter ? runs.filter((r) => providerShownInMode(r.provider, mode)) : runs;
+  // Nothing declares this mode yet: the mode says so (`simulations.empty`), over whatever else is listed.
+  const modeEmpty = modeFilter && providersLoaded && !modeHasOwnProvider(modeProviders, mode, modeOf) ? modeFilter.empty : undefined;
+  const modeBatches = modeFilter ? batches.filter((b) => providerShownInMode(b.provider, mode)) : batches;
+
+  const groups = useMemo(() => providersByDomain(domains, modeProviders), [domains, modeProviders]);
   const shownGroups = domainFilter ? groups.filter((g) => g.domain.id === domainFilter) : groups;
-  const shownRuns = domainFilter ? runs.filter((r) => r.provider.domain === domainFilter) : runs;
+  const shownRuns = domainFilter ? modeRuns.filter((r) => r.provider.domain === domainFilter) : modeRuns;
+  const shownBatches = domainFilter ? modeBatches.filter((b) => b.provider.domain === domainFilter) : modeBatches;
+  const items = useMemo(() => runListItems(shownRuns, shownBatches), [shownRuns, shownBatches]);
+  const runCount = listedRunCount(shownRuns, shownBatches);
+  const toggleRun = (runId: string) => setExpandedRun(runId === expandedRun ? null : runId);
   const selected = providers.find((p) => p.id === selectedId) ?? null;
 
   return (
@@ -446,8 +605,17 @@ export const SimulationsBody: React.FC = () => {
       )}
 
       {providersError && <div className="text-[var(--ada-fail)] break-words">{providersError}</div>}
-      {providersLoaded && groups.length === 0 && !providersError && (
-        <div className="text-[var(--ada-panel-text-muted)]">No simulation providers are registered on this server.</div>
+      {modeEmpty && !providersError && (
+        <div className="text-[var(--ada-panel-text-muted)]" data-simulations-mode-empty>
+          {modeEmpty}
+        </div>
+      )}
+      {providersLoaded && groups.length === 0 && !providersError && !modeEmpty && (
+        <div className="text-[var(--ada-panel-text-muted)]" data-simulations-empty>
+          {modeFilter?.domain
+            ? "No simulation provider of this kind is registered on this server."
+            : "No simulation providers are registered on this server."}
+        </div>
       )}
       {shownGroups.map((group) => (
         <div key={group.domain.id} className="flex flex-col gap-0.5">
@@ -495,7 +663,7 @@ export const SimulationsBody: React.FC = () => {
         >
           <span aria-hidden="true" className="w-3 text-[var(--ada-panel-text-muted)]">{runsOpen ? "\u25BE" : "\u25B8"}</span>
           <span className="text-[var(--ada-panel-text-muted)] uppercase tracking-wide flex-1">
-            Runs{shownRuns.length > 0 ? ` (${shownRuns.length})` : ""}
+            Runs{runCount > 0 ? ` (${runCount})` : ""}
           </span>
         </button>
         {/* The store follows the runs it knows are unfinished; a run somebody else started since the
@@ -513,22 +681,34 @@ export const SimulationsBody: React.FC = () => {
         </button>
       </div>
       {runsError && <div className="text-[var(--ada-fail)] break-words">{runsError}</div>}
-      {!runsOpen ? null : shownRuns.length === 0 ? (
+      {!runsOpen ? null : items.length === 0 ? (
         <div className="text-[var(--ada-panel-text-muted)]">No runs in this scope yet.</div>
       ) : (
         // The list scrolls within itself: many runs do not push the panel off the screen. On a phone
-        // the whole sheet scrolls instead (one scroller, not one inside another).
+        // the whole sheet scrolls instead (one scroller, not one inside another). A batch is one line
+        // that opens to its runs (`BatchRow`); a run of no batch is a line of its own.
         <ul id="simulation-runs" className="flex flex-col gap-0.5 sm:max-h-[45vh] sm:overflow-y-auto overscroll-contain pr-0.5" data-runs-list>
-          {shownRuns.map((run) => (
-            <RunRow
-              key={run.run_id}
-              scope={scope}
-              run={run}
-              provider={providers.find((p) => p.id === run.provider.id) ?? null}
-              expanded={run.run_id === expandedRun}
-              onToggle={() => setExpandedRun(run.run_id === expandedRun ? null : run.run_id)}
-            />
-          ))}
+          {items.map((item) =>
+            item.kind === "batch" ? (
+              <BatchRow
+                key={item.key}
+                scope={scope}
+                batch={item.batch}
+                providers={providers}
+                expandedRun={expandedRun}
+                onToggleRun={toggleRun}
+              />
+            ) : (
+              <RunRow
+                key={item.key}
+                scope={scope}
+                run={item.run}
+                provider={providers.find((p) => p.id === item.run.provider.id) ?? null}
+                expanded={item.run.run_id === expandedRun}
+                onToggle={() => toggleRun(item.run.run_id)}
+              />
+            ),
+          )}
         </ul>
       )}
     </div>

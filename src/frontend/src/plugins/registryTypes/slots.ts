@@ -6,7 +6,8 @@
 import type React from "react";
 import type { AdaViewerStores } from "@/state/AdaViewerContext";
 import type { UiShellSpec } from "../uiShells";
-import type { ModeBehaviour, ModeGroupId } from "@/layout/modes";
+import type { ModeBehaviour, ModeGroupId, ModeId } from "@/layout/modes";
+import type { PluginModes } from "../pluginModes";
 import type { SimulationProviderInfo, SimulationRun } from "@/services/api/simulations";
 import type { SceneColorFieldResult, SceneHandle, SidecarFetcher } from "./scene";
 import type { PluginLayers, PluginPlayback, PluginSimulations } from "./playback";
@@ -171,6 +172,12 @@ export interface AdaPluginContext {
   layers: PluginLayers;
   /** Offer something to simulate (1.21.0). */
   simulations: PluginSimulations;
+  /**
+   * The mode of the UI on screen (1.34.0): `active`, `offered(id)`, `activate(id, {reason})` and
+   * `subscribe`. In core's own UI, which has no modes, `active` is null and `activate` returns
+   * false. Absent on an older core, so a plugin asks first (`ctx.modes?.activate(...)`).
+   */
+  modes?: PluginModes;
   scope: () => string;
   /** Active theme tokens (mirrors of the `--ada-*` CSS vars) so plugin panels
    * match core's chrome in light + dark without hardcoding colours. */
@@ -454,6 +461,12 @@ export interface SimulationProviderUi {
   domain?: string;
   /** Tie-break among entries matching equally well; ties broken by id. */
   order?: number;
+  /**
+   * (1.34.0) The mode its runs belong to (`Mode.ConstructionRobotSim`, ...). In a UI that offers
+   * it, the Simulations panel opens a run's result there, and a mode with a Simulations filter
+   * (`ModeBehaviour.simulations`) lists this provider first. An older core ignores it.
+   */
+  mode?: ModeId;
   /**
    * The start form's parameter section, in place of the one core builds from the provider's
    * JSON Schema. The server still checks what is sent against the schema.
