@@ -8,6 +8,8 @@
  */
 
 import {assetSourceName, type NodeRef} from "@/assets/delivery";
+import type {ClashCheckTarget} from "@/services/api/clashCheck";
+import type {GroupMember} from "@/utils/groups/savedGroups";
 
 export type RecordedModel =
     | {kind: "file"; name: string; streamer?: true}
@@ -51,12 +53,37 @@ export interface RecordedView {
     sources: Record<string, RecordedSourceView>;
 }
 
+/** The clash check on the Clashes tab: what was checked, and where its result is kept -- a clash
+ *  result's key, or a convex-contact run's. Restoring it reads the result back and shows its markers. */
+export interface RecordedClash {
+    target: ClashCheckTarget;
+    resultKey?: string;
+    runKey?: string;
+}
+
+/** The active detail model: the GLB in the scene and the take-off its produced joints come from. */
+export interface RecordedDetail {
+    glbKey: string;
+    statsKey: string;
+    spec?: string;
+}
+
+/**
+ * What the scene shows, as far as it can be loaded again: the record a reload restores, and a saved
+ * scene state (`./savedSceneStates`). Every block past `models` is optional, so a record written
+ * before a block existed still reads, and a reader that does not know a block leaves it alone.
+ */
 export interface SceneRecord {
     v: 1;
     models: RecordedModel[];
     camera: RecordedCamera | null;
     /** Absent in records written before visibility and selection were kept. */
     view?: RecordedView | null;
+    /** Elements loaded as a saved group's members are -- an element of a published node alone, a
+     *  whole file with only its members shown -- and selected. */
+    members?: GroupMember[];
+    clash?: RecordedClash | null;
+    detail?: RecordedDetail | null;
 }
 
 export const EMPTY_SCENE_RECORD: SceneRecord = {v: 1, models: [], camera: null};
@@ -222,8 +249,82 @@ export function parseRecordedCamera(raw: unknown): RecordedCamera | null {
     };
 }
 
-/** The record in `raw`. Never throws: malformed models are dropped, and a model recorded twice
- *  is kept once, at its first place. */
+/** Group members as a group stores them, or none: anything without a known target is dropped. */
+export function parseRecordedMembers(raw: unknown): GroupMember[] {
+    if (!Array.isArray(raw)) return [];
+    return raw.filter((m): m is GroupMember => {
+        if (!isRecord(m) || !isRecord(m.target)) return false;
+        const t = m.target;
+        const element = m.element === null || typeof m.element === "string";
+        if (!element || !Array.isArray(m.path)) return false;
+        if (t.kind === "file") return nonEmpty(t.source_key);
+        return t.kind === "node" && nonEmpty(t.provider) && nonEmpty(t.collection) && nonEmpty(t.subject);
+    });
+}
+
+/** A clash check's target in the Clashes tab's own shape, or null. */
+export function parseClashTarget(raw: unknown): ClashCheckTarget | null {
+    if (!isRecord(raw)) return null;
+    if (raw.kind === "file") return nonEmpty(raw.sourceKey) ? {kind: "file", sourceKey: raw.sourceKey} : null;
+    if (raw.kind === "node") {
+        if (!nonEmpty(raw.collection) || !nonEmpty(raw.subject)) return null;
+        const opt = (v: unknown) => (nonEmpty(v) ? v : null);
+        return {
+            kind: "node",
+            collection: raw.collection,
+            subject: raw.subject,
+            revision: opt(raw.revision),
+            node: opt(raw.node),
+            provider: opt(raw.provider),
+        };
+    }
+    if (raw.kind === "group") {
+        if (!nonEmpty(raw.name)) return null;
+        return {kind: "group", name: raw.name, members: parseRecordedMembers(raw.members), ...(nonEmpty(raw.id) ? {id: raw.id} : {})};
+    }
+    return null;
+}
+
+export function parseRecordedClash(raw: unknown): RecordedClash | null {
+    if (!isRecord(raw)) return null;
+    const target = parseClashTarget(raw.target);
+    if (!target) return null;
+    const resultKey = nonEmpty(raw.resultKey) ? raw.resultKey : undefined;
+    const runKey = nonEmpty(raw.runKey) ? raw.runKey : undefined;
+    if (!resultKey && !runKey) return null;
+    return {target, ...(resultKey ? {resultKey} : {}), ...(runKey ? {runKey} : {})};
+}
+
+export function parseRecordedDetail(raw: unknown): RecordedDetail | null {
+    if (!isRecord(raw) || !nonEmpty(raw.glbKey) || !nonEmpty(raw.statsKey)) return null;
+    return {glbKey: raw.glbKey, statsKey: raw.statsKey, ...(nonEmpty(raw.spec) ? {spec: raw.spec} : {})};
+}
+
+/** The record in a parsed document, or null when it is not one. Never throws: malformed models are
+ *  dropped, and a model recorded twice is kept once, at its first place. */
+export function sceneRecordFrom(doc: unknown): SceneRecord | null {
+    if (!isRecord(doc) || doc.v !== 1 || !Array.isArray(doc.models)) return null;
+    let models: RecordedModel[] = [];
+    for (const r of doc.models) {
+        const m = parseRecordedModel(r);
+        if (m) models = withModel(models, m);
+    }
+    const view = parseRecordedView(doc.view);
+    const members = parseRecordedMembers(doc.members);
+    const clash = parseRecordedClash(doc.clash);
+    const detail = parseRecordedDetail(doc.detail);
+    return {
+        v: 1,
+        models,
+        camera: parseRecordedCamera(doc.camera),
+        ...(view ? {view} : {}),
+        ...(members.length ? {members} : {}),
+        ...(clash ? {clash} : {}),
+        ...(detail ? {detail} : {}),
+    };
+}
+
+/** The record in `raw`. Never throws (see `sceneRecordFrom`). */
 export function parseSceneRecord(raw: string | null): SceneRecord {
     if (!raw) return EMPTY_SCENE_RECORD;
     let doc: unknown;
@@ -232,19 +333,30 @@ export function parseSceneRecord(raw: string | null): SceneRecord {
     } catch {
         return EMPTY_SCENE_RECORD;
     }
-    if (!isRecord(doc) || doc.v !== 1 || !Array.isArray(doc.models)) return EMPTY_SCENE_RECORD;
-    let models: RecordedModel[] = [];
-    for (const r of doc.models) {
-        const m = parseRecordedModel(r);
-        if (m) models = withModel(models, m);
-    }
-    const view = parseRecordedView(doc.view);
-    return {v: 1, models, camera: parseRecordedCamera(doc.camera), ...(view ? {view} : {})};
+    return sceneRecordFrom(doc) ?? EMPTY_SCENE_RECORD;
+}
+
+/** The record as a plain object, its view cut to fit (`fitView`) and empty blocks left out. */
+export function sceneRecordDoc(r: SceneRecord): Record<string, unknown> {
+    const view = fitView(r.view ?? null);
+    return {
+        v: 1,
+        models: r.models,
+        camera: r.camera,
+        ...(view ? {view} : {}),
+        ...(r.members?.length ? {members: r.members} : {}),
+        ...(r.clash ? {clash: r.clash} : {}),
+        ...(r.detail ? {detail: r.detail} : {}),
+    };
 }
 
 export function serialiseSceneRecord(r: SceneRecord): string {
-    const view = fitView(r.view ?? null);
-    return JSON.stringify({v: 1, models: r.models, camera: r.camera, ...(view ? {view} : {})});
+    return JSON.stringify(sceneRecordDoc(r));
+}
+
+/** Whether a record holds anything to restore. */
+export function sceneRecordEmpty(r: SceneRecord): boolean {
+    return !r.models.length && !r.members?.length && !r.clash && !r.detail;
 }
 
 /** `models` with `m` appended, unless a model of the same scene name is already there. */

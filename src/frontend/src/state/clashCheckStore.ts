@@ -712,6 +712,24 @@ export const useClashCheckStore = create<ClashCheckState>((set, get) => ({
     set({ detailBusy: false, detailProgress: null, detailStage: null });
   },
 
+  forgetResult: () => {
+    set({
+      result: null,
+      derivedKey: null,
+      runKey: null,
+      cached: false,
+      error: null,
+      selectedGroup: null,
+      selectedJoints: [],
+      selectedJoint: null,
+      detailError: null,
+      detailDerivedKey: null,
+      detailGlbKey: null,
+      producedJoints: null,
+      producedSkipped: [],
+    });
+  },
+
   reset: () => {
     // A run waiting on the prompt is cancelled, not left hanging on an answer nobody can give.
     get().answerGeometryPrompt("cancel");

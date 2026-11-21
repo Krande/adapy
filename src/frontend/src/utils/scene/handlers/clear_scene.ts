@@ -19,7 +19,8 @@
 //     procedural model (its proxies are part of what is in the scene);
 //   * unless it is a replace: what plugins drew over the scene, their lines, labels, element
 //     paints and line, point and image layers (`ctx.scene.addLines` ... `addImage`). Their handles
-//     do nothing after (plugins/sceneLayers.ts).
+//     do nothing after (plugins/sceneLayers.ts). And the clash check's result with its markers and
+//     detail model (`forgetResult`); its target and settings stay.
 //
 // A replace leaves the plugins' overlays (it used to be that every clear did: "What stays: a
 // plugin's own line, point and image layers"). A replace is a load, not a clear anyone asked for:
@@ -134,6 +135,13 @@ export async function clearScene(options: ClearSceneOptions = {}): Promise<void>
 
     // What the plugins drew over the scene; a replace leaves it (see the header).
     if (!replacing) removeAllPluginDrawings();
+    // The clash check's result and the markers drawn from it (they follow the store, not the
+    // models, so they outlived them); the check's target and settings stay. A replace keeps it: a
+    // renderer switch hands the same models over through one.
+    if (!replacing) {
+        const {useClashCheckStore} = await import("@/state/clashCheckStore");
+        useClashCheckStore.getState().forgetResult();
+    }
 
     // The on-demand render loop would not paint until the camera moves: the models stay as ghosts.
     requestRender();

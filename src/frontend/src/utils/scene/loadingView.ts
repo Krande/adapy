@@ -27,6 +27,7 @@ import { useModelState } from "@/state/modelState";
 import { useOptionsStore } from "@/state/optionsStore";
 import { requestRender } from "@/state/perfStore";
 import { getViewerRuntime } from "@/state/viewerRuntime";
+import { activeViewport, type ViewportApi } from "@/viewport/api/viewportApi";
 
 type Vec3 = [number, number, number];
 
@@ -102,9 +103,29 @@ function sceneOffset(): THREE.Vector3 {
   return useModelState.getState().translation?.clone() ?? new THREE.Vector3();
 }
 
+/** The viewport on screen when it is not the three.js one: its camera is its own, reached through
+ *  `cameraPose` / `setCameraPose`, and the three.js camera in the runtime is not the one shown. */
+function otherViewport(): ViewportApi | null {
+  const vp = activeViewport();
+  return vp && vp.kind !== "three" ? vp : null;
+}
+
 /** Put the camera at `view`. Pins the recentring offset first when the scene has none yet, so the
  *  models about to load land where the view expects them. False when there is no camera. */
 export function applyLoadingView(view: LoadingView): boolean {
+  const vp = otherViewport();
+  if (vp) {
+    const models = useModelState.getState();
+    if (!models.translation && view.translation && !useOptionsStore.getState().lockTranslation) {
+      models.setTranslation(new THREE.Vector3(...view.translation));
+    }
+    const offset = sceneOffset();
+    const position = new THREE.Vector3(...view.position).add(offset);
+    const target = new THREE.Vector3(...view.target).add(offset);
+    vp.setCameraPose(vec(position), vec(target), 0);
+    requestRender();
+    return true;
+  }
   const rt = getViewerRuntime();
   const camera = rt.camera.current as THREE.PerspectiveCamera | null;
   const controls = rt.controls.current as OrbitControls | CameraControls | null;
@@ -125,6 +146,19 @@ export function applyLoadingView(view: LoadingView): boolean {
 
 /** The camera as it stands, as a loading view. Null when there is no camera. */
 export function captureLoadingView(): LoadingView | null {
+  const vp = otherViewport();
+  if (vp) {
+    const pose = vp.cameraPose();
+    if (!pose) return null;
+    const offset = sceneOffset();
+    return {
+      v: 1,
+      translation: useModelState.getState().translation ? vec(offset) : null,
+      position: vec(new THREE.Vector3(...pose.eye).sub(offset)),
+      target: vec(new THREE.Vector3(...pose.target).sub(offset)),
+      up: pose.up,
+    };
+  }
   const rt = getViewerRuntime();
   const camera = rt.camera.current as THREE.PerspectiveCamera | null;
   const controls = rt.controls.current as OrbitControls | CameraControls | null;

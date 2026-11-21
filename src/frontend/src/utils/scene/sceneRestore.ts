@@ -23,7 +23,7 @@ import {useSceneRestoreStore} from "@/state/sceneRestoreStore";
 import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
 import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
 import {useVisibilityStore} from "@/state/visibilityStore";
-import {beginBulkLoad, captureLoadingView, endBulkLoad} from "@/utils/scene/loadingView";
+import {applyLoadingView, beginBulkLoad, captureLoadingView, endBulkLoad} from "@/utils/scene/loadingView";
 import {applyRecordedView, captureView} from "@/utils/scene/sceneViewRestore";
 import {useViewerHistoryStore} from "@/state/viewerHistoryStore";
 import {beginOperation, type Operation} from "@/services/operationTracking";
@@ -324,6 +324,9 @@ export async function restoreScene(skip: ReadonlySet<string> = new Set()): Promi
             }
         } finally {
             endBulkLoad(session);
+            // The three.js-free viewport frames the first model into an empty scene itself (its loader
+            // does not ask the bulk session), so the camera is put back once the models are in.
+            if (rec.camera) applyLoadingView(rec.camera);
             if (progress.failed) op.fail(`${progress.failed} of ${progress.total} models could not be loaded; kept for the next reload`);
             if (!progress.failed) op.stage("restoring hidden objects and selection");
         }

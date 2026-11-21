@@ -2,15 +2,23 @@
 // clash result or a convex-contact run is a model of its own on the server (`ada.comms.rest.
 // clash_details`), listed here newest first, loaded back into the scene, or deleted.
 //
-// Loading one does what the end of a fresh detail run does: the GLB is overlaid as a source of its
-// own (`overlay_file_in_scene`, the Clashes tab's post-job load) and its take-off joins the
-// produced joints the Review tab lists (`clashCheckStore.producedJoints`).
+// Loading one puts back what the check and the detail run left on screen, as a SCENE STATE
+// (`utils/scene/sceneRecord`) applied through the one restore path saved states use too
+// (`utils/scene/applySceneState`): the elements that were checked (as a saved group's members are
+// loaded), the check's target and result on the Clashes tab with its markers, and the model itself --
+// overlaid as a source of its own, its take-off joining the produced joints the Review tab lists
+// (`clashCheckStore.producedJoints`), the active detail model. What cannot be brought back is said,
+// and the model loads regardless.
 
 import { create } from "zustand";
 
 import { clashCheckApi, type WireDetailModel } from "@/services/api/clashCheck";
 import { capabilities } from "@/services/capabilities";
-import { mergeProducedJoints, parseDetailStats, useClashCheckStore, type DetailStats } from "@/state/clashCheckStore";
+import { contactRunsApi } from "@/services/clash/contactRuns";
+import { parseDetailStats, type DetailStats } from "@/state/clashCheckStore";
+import { detailContext, type DetailContext } from "@/state/clashCheck/detailContext";
+import type { ApplyOptions, ApplyOutcome } from "@/utils/scene/applySceneState";
+import type { SceneRecord } from "@/utils/scene/sceneRecord";
 
 /** A model's "Not built" report, read from its take-off when it is first opened. */
 export type DetailReport =
@@ -33,7 +41,10 @@ export interface DetailModelDeps {
   list(scope: string): Promise<readonly WireDetailModel[]>;
   remove(scope: string, detailId: string): Promise<void>;
   stats(scope: string, key: string): Promise<unknown>;
-  overlay(scope: string, glbKey: string): Promise<void>;
+  /** The check the model was detailed from (`state/clashCheck/detailContext`). */
+  context(scope: string, model: WireDetailModel): Promise<DetailContext>;
+  /** Put a scene state back (`utils/scene/applySceneState`). */
+  apply(scope: string, state: SceneRecord, opts?: ApplyOptions): Promise<ApplyOutcome>;
 }
 
 const realDeps: DetailModelDeps = {
@@ -42,15 +53,48 @@ const realDeps: DetailModelDeps = {
   list: (scope) => (capabilities.files.supports("blobUrl") ? clashCheckApi.listDetailModels(scope) : Promise.resolve([])),
   remove: (scope, id) => clashCheckApi.deleteDetailModel(scope, id),
   stats: (scope, key) => clashCheckApi.getDetailStats(scope, key),
-  async overlay(scope, glbKey) {
-    const [{ overlay_file_in_scene }, { requestRender }] = await Promise.all([
-      import("@/utils/scene/handlers/overlay_file_in_scene"),
-      import("@/state/perfStore"),
-    ]);
-    await overlay_file_in_scene(glbKey, glbKey, { scope });
-    requestRender();
+  async apply(scope, state, opts) {
+    const { applySceneStateLive } = await import("@/utils/scene/sceneStateLive");
+    return applySceneStateLive(scope, state, opts);
   },
+  context: (scope, model) =>
+    detailContext(
+      {
+        readResult: (s, key) => clashCheckApi.getClashResult(s, key),
+        readRun: (s, key) => contactRunsApi.getRun(s, key),
+        async findGroup(s, by) {
+          const { useSavedGroupsStore } = await import("@/state/savedGroupsStore");
+          const pick = () => {
+            const held = useSavedGroupsStore.getState();
+            if (held.scope !== s) return undefined;
+            return held.groups.find((g) => (by.id ? g.id === by.id : g.name === by.name));
+          };
+          const known = pick();
+          if (known) return known;
+          await useSavedGroupsStore.getState().load(s);
+          return pick() ?? null;
+        },
+      },
+      scope,
+      model,
+    ),
 };
+
+/** The scene state a detail model is loaded as: the check it came from (`ctx`, when it could be
+ *  read) -- its elements and its result -- and the model as the active detail. No camera: the
+ *  scene is not moved. */
+export function detailModelState(model: WireDetailModel, ctx: DetailContext | null): SceneRecord {
+  return {
+    v: 1,
+    models: [],
+    camera: null,
+    ...(ctx?.members.length ? { members: [...ctx.members] } : {}),
+    ...(ctx
+      ? { clash: { target: ctx.target, ...(ctx.runKey ? { runKey: ctx.runKey } : { resultKey: ctx.derivedKey ?? "" }) } }
+      : {}),
+    detail: { glbKey: model.glb_key, statsKey: model.stats_key, spec: model.spec },
+  };
+}
 
 interface DetailModelsState {
   /** The scope the list is of. */
@@ -59,6 +103,8 @@ interface DetailModelsState {
   /** The model being loaded or deleted. */
   busyId: string | null;
   error: string | null;
+  /** What the last load could not bring back of the check it came from (the model itself loaded). */
+  notes: readonly string[];
   /** The model whose "Not built" report is open (one at a time). */
   reportId: string | null;
   /** Reports read so far, by detail id: a take-off does not change once written. */
@@ -68,7 +114,8 @@ interface DetailModelsState {
   toggleReport: (scope: string, model: WireDetailModel) => Promise<void>;
   /** List the scope's detail models. Best effort: a list that cannot be read is an empty one. */
   load: (scope: string) => Promise<void>;
-  /** Load one into the scene, and its joints into the produced section. */
+  /** Load one into the scene with the elements it was made from, put its check back on the Clashes
+   *  tab, and its joints into the produced section. */
   open: (scope: string, model: WireDetailModel) => Promise<void>;
   /** Delete one (the caller asks first). */
   remove: (scope: string, detailId: string) => Promise<void>;
@@ -79,6 +126,7 @@ export const useDetailModelsStore = create<DetailModelsState>((set, get) => ({
   models: [],
   busyId: null,
   error: null,
+  notes: [],
   reportId: null,
   reports: {},
   deps: realDeps,
@@ -113,22 +161,31 @@ export const useDetailModelsStore = create<DetailModelsState>((set, get) => ({
 
   open: async (scope, model) => {
     if (get().busyId) return;
-    set({ busyId: model.detail_id, error: null });
+    set({ busyId: model.detail_id, error: null, notes: [] });
+    const deps = get().deps;
+    const notes: string[] = [];
+    // The check it came from; one that cannot be read is said, and the model loads on its own.
+    let ctx: DetailContext | null = null;
     try {
-      await get().deps.overlay(scope, model.glb_key);
-      let stats = parseDetailStats(null);
-      try {
-        stats = parseDetailStats(await get().deps.stats(scope, model.stats_key));
-      } catch {
-        // The geometry is loaded; a take-off that cannot be read leaves the produced list as it was.
-      }
-      useClashCheckStore.setState((s) => ({
-        producedJoints: mergeProducedJoints(s.producedJoints, stats.joints),
-        producedSkipped: [...s.producedSkipped, ...stats.skipped.filter((x) => !s.producedSkipped.includes(x))],
-      }));
-      set({ busyId: null });
+      ctx = await deps.context(scope, model);
+      notes.push(...ctx.notes);
     } catch (e) {
-      set({ busyId: null, error: `Could not load ${model.label}: ${e instanceof Error ? e.message : String(e)}` });
+      notes.push(`The clash check it was made from could not be read: ${e instanceof Error ? e.message : String(e)}`);
+    }
+    try {
+      // The model goes in last of the state (`applySceneState`'s order), so it is the loaded source
+      // the Clashes tab sees -- and a detail model is never followed as the thing a check is of.
+      const out = await deps.apply(scope, detailModelState(model, ctx), {
+        ...(ctx ? { membersName: ctx.label, clashResult: ctx.result } : {}),
+      });
+      notes.push(...out.notes);
+      set({
+        busyId: null,
+        notes,
+        ...(out.detailError ? { error: `Could not load ${model.label}: ${out.detailError}` } : {}),
+      });
+    } catch (e) {
+      set({ busyId: null, notes, error: `Could not load ${model.label}: ${e instanceof Error ? e.message : String(e)}` });
     }
   },
 
