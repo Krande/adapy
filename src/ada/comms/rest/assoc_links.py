@@ -175,11 +175,20 @@ async def members_of_ck(store: LinkStore, ck: str) -> list[tuple]:
     return []
 
 
-async def _subject_ck(storage, scope, subject_key: str) -> str | None:
-    """The ck a subject is of: from its key under ``_clash/subjects/``, else its file's ``source.ck``."""
+async def _subject_ck(storage, scope, subject_key: str, store: LinkStore | None = None) -> str | None:
+    """The ck a subject is of: from its key under ``_clash/subjects/``, else a subject row naming it
+    (an adopted subject index), else its file's ``source.ck``."""
     ck = ck_of_subject_key(subject_key)
     if ck:
         return ck
+    if store is not None:
+        try:
+            rows = await store.rows(LinkQuery(kinds=["subject"]))
+        except Exception:  # noqa: BLE001
+            rows = []
+        hit = next((r.ck for r in rows if r.data.get("subject_key") == subject_key and r.ck), None)
+        if hit:
+            return hit
     try:
         import gzip
 
@@ -212,8 +221,8 @@ async def sim_run_link(storage, scope, record: Mapping[str, Any], *, pool=None, 
     if not force and _FILED_STATUS.get(marker) == status:
         return False
     try:
-        ck = await _subject_ck(storage, scope, str(subject["key"]))
         store = link_store(storage, scope, pool)
+        ck = await _subject_ck(storage, scope, str(subject["key"]), store)
         members = await members_of_ck(store, ck) if ck else []
         if not members:
             # Not a connection's subject (or one not filed yet): looked at once per status, not per read.

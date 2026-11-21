@@ -144,7 +144,8 @@ def weld_assemblies_for_detail(
             if e["joint_id"] in problems:
                 out["errors"].append({"ck": e["ck"], "joint_id": e["joint_id"], "error": problems[e["joint_id"]]})
         for jid in [j for j in jids if j in founds]:
-            spec = next(e["spec"] for e in by_ck.values() if e["joint_id"] == jid)
+            # The spec the detail run was asked for: a builder may name its connections' spec otherwise.
+            spec = str(record.get("spec") or next(e["spec"] for e in by_ck.values() if e["joint_id"] == jid))
             try:
                 _, conns = build_joint(
                     _registered(spec), founds[jid], joint_id=jid, gen_options=record.get("options") or {}
@@ -165,7 +166,7 @@ def weld_assemblies_for_detail(
             out["errors"].append({"ck": e["ck"], "joint_id": e["joint_id"], "error": "the connection was not rebuilt"})
             continue
         try:
-            capability = getattr(_registered(e["spec"]).spec, "capability", None)
+            capability = getattr(_registered(str(record.get("spec") or e["spec"])).spec, "capability", None)
         except KeyError:
             capability = None
         try:

@@ -20,6 +20,8 @@ from .resolve import ELEMENTS_PROVENANCE, member_identities
 __all__ = [
     "SUBJECTS_PREFIX",
     "Member",
+    "adopted_subject_rows",
+    "classic_rows",
     "ck_of_subject_key",
     "connection_ck",
     "connection_members",
@@ -220,7 +222,7 @@ def detail_rows(
                 source=source,
                 fp=fp,
                 created_at=created,
-                data={"detail_id": detail_id, **data},
+                data={"detail_id": detail_id, "requested_spec": record.get("spec"), **data},
             )
         )
 
@@ -331,6 +333,79 @@ def detail_rows(
                 },
             )
     return rows
+
+
+def classic_rows(result, result_key: str) -> list[LinkRow]:
+    """A classic clash check's joints (``ada.clash.result``) as ``contact`` rows: one per member per
+    other member of each joint. Its members are known by guid (a file that persists them) or name."""
+    source_key = str(getattr(result, "source_key", "") or "")
+    if not source_key:
+        return []
+    created = (getattr(result, "provenance", None) or {}).get("created_at")
+    out: list[LinkRow] = []
+    for joint in result.joints:
+        keys = [file_key(source_key, guid=m.guid, path=None if m.guid else [m.name]) for m in joint.members]
+        names = [m.name for m in joint.members]
+        for i, key in enumerate(keys):
+            for j, other in enumerate(keys):
+                if i == j or key == other:
+                    continue
+                out.append(
+                    LinkRow(
+                        kind="contact",
+                        element_key=key,
+                        doc_key=result_key,
+                        anc=(file_key(source_key),),
+                        group=contact_group(key, other),
+                        created_at=created,
+                        data={
+                            "result_key": result_key,
+                            "joint_id": joint.id,
+                            "contact_id": joint.id,
+                            "other_key": other,
+                            "name": names[i],
+                            "other_name": names[j],
+                            "role": joint.members[i].role,
+                            "type_label": joint.type_label,
+                            "applicable": [a.spec for a in joint.applicable],
+                            "centre": list(joint.centre),
+                            "classic": True,
+                        },
+                    )
+                )
+    return out
+
+
+def adopted_subject_rows(doc: Mapping[str, Any], doc_key: str) -> list[LinkRow]:
+    """The rows of a subject index another tool kept (``ada.assoc/subject-index@1``)::
+
+        {"schema": "ada.assoc/subject-index@1",
+         "subjects": [{"key": <subject storage key>, "kind"?: "weld-assembly", "ck"?: <16 hex>,
+                       "elements": [{"key": <element key>, "role"?: ..., "anc"?: [...]}]}]}
+
+    A subject without a ck gets one of its elements (spec ``adopted``, no centre)."""
+    out: list[LinkRow] = []
+    for s in doc.get("subjects") or ():
+        if not isinstance(s, Mapping) or not s.get("key"):
+            continue
+        elements = [e for e in s.get("elements") or () if isinstance(e, Mapping) and e.get("key")]
+        if not elements:
+            continue
+        members = [
+            (str(e.get("role") or "member"), str(e["key"]), tuple(e.get("anc") or ()), None, None) for e in elements
+        ]
+        ck = str(s.get("ck") or "") or connection_key("adopted", [(m[0], m[1]) for m in members], None)
+        for row in subject_rows(
+            str(s["key"]),
+            ck,
+            members,
+            subject_kind=str(s.get("kind") or "weld-assembly"),
+            created_at=s.get("created_at"),
+        ):
+            row.doc_key = doc_key
+            row.data["adopted"] = True
+            out.append(row)
+    return out
 
 
 def subject_rows(
