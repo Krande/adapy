@@ -303,6 +303,10 @@ COPY src/ada/plugins/ /app/src/ada/plugins/
 # the slim API on `No module named 'ada.simulation'`. Safe on the same test as ada.plugins: the
 # whole package is stdlib-only by construction.
 COPY src/ada/simulation/ /app/src/ada/simulation/
+# ada.assoc -- the per-element associations' vocabulary, rows and stores, which the clash, detail and
+# simulation writers and the element-links routes import at module level. Stdlib-only (its numpy
+# fingerprints are imported lazily, on a worker), like ada.simulation above.
+COPY src/ada/assoc/ /app/src/ada/assoc/
 # pyproject.toml is the single source of truth for the version. The viewer copies adapy source
 # (no installed-dist metadata) and a stripped ada/__init__ (no __version__), so config.js reads
 # the version from here for window.ADAPY_VERSION (see _resolve_adapy_version).

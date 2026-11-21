@@ -33,6 +33,9 @@ import FeaElementSection from './FeaElementSection';
 import DownloadSelectionButton from './DownloadSelectionButton';
 import {builderCellsShown} from '@/state/cellbuilder/builderVisibility';
 import {onBeforeDraw} from '@/viewport/api/beforeDraw';
+import {savedGroupOfSelection} from '@/utils/groups/groupScene';
+import {selectionNodes} from '@/utils/groups/selectionNodes';
+import ElementLinksSection from './ElementLinksSection';
 
 /** Whether a builder pick is the panel's now, by what the active mode declared (`builderPresence`). */
 function builderPickShownNow(): boolean {
@@ -145,7 +148,20 @@ function useSelectionSnapshot(): SelectionSnapshot {
             if (ref) return {...base, ...place, kind: "ref", name, refOwner: ref.owner, refKey: ref.key, count: 1};
             return {...base, ...place, kind: "cell", name, count: cbSelectedIds.length};
         }
-        if (rangeCount > 0 || name) return {...base, kind: "mesh", name: name || null, count: rangeCount};
+        if (rangeCount > 0 || name) {
+            // What is selected as element-link nodes (the Results section, a plugin's links); not in a
+            // pop-out window, which has no 3D selection of its own.
+            const nodes = isMirroredWindow() ? undefined : selectionNodes();
+            const groupId = savedGroupOfSelection(name || null);
+            return {
+                ...base,
+                kind: "mesh",
+                name: name || null,
+                count: rangeCount,
+                ...(nodes ? {nodes} : {}),
+                ...(groupId ? {group_id: groupId} : {}),
+            };
+        }
         // Nothing picked in an open model: the active structure still has its section.
         const structure = cbActive && cbActiveGroup && cbGroups.some((g) => g.name === cbActiveGroup) ? cbActiveGroup : undefined;
         return {...base, kind: "none", name: null, count: 0, ...(structure ? {structure} : {})};
@@ -232,6 +248,10 @@ export const CORE_PROPERTY_PROVIDERS: readonly PropertyProvider[] = [
     {id: "indexed-attributes", order: 40, match: notCell, render: () => <IndexedAttributesSection/>},
     // Its system, run and related elements from the relations index; nothing without.
     {id: "related", order: 50, match: notCell, render: () => <RelatedSection/>},
+    // What has been found, built and simulated under the selection, from the element links: its
+    // contacts, connections, welds, subjects and simulation runs (each run's status, open / replay
+    // through its provider's own UI), stale and orphaned links flagged. Nothing without links.
+    {id: "element-links", order: 55, match: (sel) => notCell(sel) && !!sel.nodes?.length, render: (sel) => <ElementLinksSection sel={sel}/>},
     // Structural facts about the selected hierarchy node. Renders for any tree selection,
     // and is the ONLY section a spatial container can populate -- everything above is
     // keyed on geometry the container does not have.

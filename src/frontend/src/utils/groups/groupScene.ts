@@ -255,6 +255,14 @@ export function namedRowsInModel(
   return { root, rows };
 }
 
+let selectedSavedGroup: { readonly id: string; readonly label: string } | null = null;
+
+/** The saved group the selection is, while the selection is still the one `selectSavedGroup` made
+ *  (the panel's name is still the group's): what `SelectionSnapshot.group_id` reports. */
+export function savedGroupOfSelection(name: string | null): string | undefined {
+  return selectedSavedGroup && name === selectedSavedGroup.label ? selectedSavedGroup.id : undefined;
+}
+
 /** Select every member of `group` that is in the scene now, all models together. */
 export function selectSavedGroup(group: SavedGroup): GroupSelectionOutcome {
   const idx = indices();
@@ -271,7 +279,10 @@ export function selectSavedGroup(group: SavedGroup): GroupSelectionOutcome {
   // last model selected.
   const selected = select(found);
   const info = useObjectInfoStore.getState();
-  info.setName(selected ? `Group: ${group.name}` : "");
+  const label = selected ? `Group: ${group.name}` : "";
+  info.setName(label);
+  // While the selection is this group (the panel's name says so), sections know which group it is.
+  selectedSavedGroup = selected ? { id: group.id, label } : null;
   // No single tree row stands for a group; a stale level id would let the panel claim one.
   info.setSelectedNodeId(rows.length === 1 ? rows[0].id : null);
   requestRender();

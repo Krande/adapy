@@ -7,6 +7,31 @@
 
 import type React from "react";
 
+/** A node element links are asked for (`queryElementLinks`): an element key (`node:...`,
+ *  `file:...#p:...`), a published node, or a member of a loaded model as a saved group keeps it
+ *  (`{target, element, path}`). */
+export type ElementNodeRef =
+  | { readonly key: string }
+  | { readonly collection: string; readonly node_id: string; readonly provider?: string }
+  | {
+      readonly target:
+        | { readonly kind: "file"; readonly source_key: string }
+        | {
+            readonly kind: "node";
+            readonly provider?: string;
+            readonly collection: string;
+            readonly subject: string;
+            readonly node?: string | null;
+            readonly revision?: string | null;
+          };
+      /** The row's name; null for the model's root row (the whole model). */
+      readonly element: string | null;
+      /** Row names from below the model's root row down to `element`. */
+      readonly path?: readonly string[];
+      /** The provider's own node id, when the tree carries it. */
+      readonly element_id?: string | null;
+    };
+
 /** What is selected, for `match`. A builder selection (a cell, or a plugin's ref) wins over a
  *  mesh pick behind it. */
 export interface SelectionSnapshot {
@@ -32,6 +57,13 @@ export interface SelectionSnapshot {
   cellBuilderActive: boolean;
   /** The composed shell's active mode (`activeShellMode`); absent in a shell without modes. */
   shellMode?: string;
+  /** The selection as the nodes it is -- each a member of a model loaded from storage, folded up to
+   *  whole levels as a saved group folds it -- for the element links (`queryElementLinks`, the
+   *  `useElementLinks` hook): what has been found, built and simulated under them. Absent when
+   *  nothing of a stored model is selected, and in a pop-out window. */
+  nodes?: readonly ElementNodeRef[];
+  /** The saved group the selection is, while it is the selection Scene > Groups made of it. */
+  group_id?: string;
 }
 
 export interface PropertyProvider {

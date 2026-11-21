@@ -62,6 +62,26 @@ export type {
   SimulationSubjectRef,
   StartSimulationBody,
 } from "@/services/api/simulations";
+// Per-element associations (1.36.0): the contacts, connections, welds, subjects and simulation runs
+// filed under a model's elements and their ancestors, a page at a time; the hook follows a run that
+// is going.
+export { elementLinks, elementLinksApi, latestRun, queryElementLinks } from "@/services/api/elementLinks";
+export type {
+  ConnectionLinks,
+  ElementLink,
+  ElementLinkGroup,
+  ElementLinkKind,
+  ElementLinksPage,
+  ElementLinksQuery,
+  ElementLinksSummary,
+  ElementNodeRef,
+  MakeSubjectsResult,
+  SimulationBatchPolicy,
+  StartElementsBatchBody,
+  StartElementsBatchResult,
+} from "@/services/api/elementLinks";
+export { ELEMENT_LINKS_REFRESH_MS, useElementLinks } from "@/hooks/useElementLinks";
+export type { ElementLinksState, UseElementLinksOptions } from "@/hooks/useElementLinks";
 // What a run can be started ON (1.21.0): core chrome that has no plugin context offers a subject
 // through the store; a plugin uses `ctx.simulations.offerSubject`.
 export { useSimulationSubjectStore } from "@/state/simulationSubjects";
