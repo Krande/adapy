@@ -39,6 +39,8 @@ from .pools import (
     _bool_env,
     _capabilities_to_add,
     _fetch_plan,
+    _JobSlots,
+    _max_concurrent_jobs,
     _PendingProbe,
     _per_fetch_timeout,
     _pool_capabilities,
@@ -335,6 +337,8 @@ async def _run() -> None:
     # message currently being processed, so holding a second leased message
     # would let its ack_wait lapse while the first job runs, and JetStream would
     # redeliver a job that is not actually stuck. One leased message at a time.
+    # (With ADA_WORKER_MAX_CONCURRENT_JOBS above 1, each job in flight runs its own
+    # keep-alive, so the worker leases one message per free slot -- see _JobSlots.)
     #
     # The per-fetch timeout is divided across the pools so a full cycle still
     # takes about FETCH_TIMEOUT: pickup latency stays what it was for a
@@ -442,6 +446,157 @@ async def _run() -> None:
     # When to ask the stream which pools hold messages (see JobQueue.pending_pools): every round
     # while it answers, and once per PENDING_PROBE_RETRY_SECONDS after it did not.
     probe = _PendingProbe()
+
+    async def _handle(msg, cap: str, via: str) -> None:
+        """One leased message, processed to its end and acked: the loop runs as many of these at once
+        as it has slots (``_JobSlots``), each with its own lease keep-alive."""
+        job_id = msg.data.decode("utf-8")
+        # NATS message metadata carries the delivery counter.
+        # We only get here if the previous attempt didn't ack
+        # (typically: the worker died mid-conversion). Pass
+        # the counter into _process_one so it can refuse to
+        # retry past MAX_DELIVERIES.
+        try:
+            delivery_count = int(msg.metadata.num_delivered)
+        except Exception:
+            delivery_count = 1
+
+        # Misrouted-message safety net. Routing is now done at
+        # the NATS subject layer (each pool subscribes to its
+        # own capability-suffixed subject), so a message
+        # arriving here should always be one this pool can
+        # handle. If it isn't — bug in routing or a job
+        # enqueued before the upgrade — fail it immediately
+        # rather than NAK-looping. NAK would burn through the
+        # delivery budget and surface as the misleading
+        # "worker exceeded N delivery attempts" error; the
+        # explicit failure points at the real problem.
+        peeked = await queue.get(job_id)
+        if peeked is not None:
+            misroute_msg = misroute_reason(
+                peeked.target_format,
+                peeked.source_key,
+                cap=cap,
+                source_ext_set=source_ext_set,
+                ext_allow_set=ext_allow_set,
+                conversion_options=peeked.conversion_options,
+            )
+            if misroute_msg is not None:
+                logger.warning(
+                    "worker: %s — job %s",
+                    misroute_msg,
+                    job_id,
+                )
+                try:
+                    await queue.update(
+                        job_id,
+                        status=JOB_STATUS_ERROR,
+                        stage="misrouted",
+                        progress=0.0,
+                        error=misroute_msg,
+                    )
+                    await _audit_done(
+                        db_pool,
+                        job_id,
+                        "error",
+                        misroute_msg,
+                        time.monotonic(),
+                    )
+                except Exception:
+                    logger.exception(
+                        "worker: failed to mark misrouted job %s as error",
+                        job_id,
+                    )
+                await msg.ack()
+                return
+
+        # Already cancelled before anyone started it? Ack and drop.
+        #
+        # Every other cancel check in this file is MID-RUN -- the
+        # convert watchdog's `_cancel_check`, the plugin job's 2-second
+        # poller. Both assume the job is running, which means a job
+        # cancelled while queued was still picked up, started, and only
+        # stopped a couple of seconds later. Harmless for a cancel
+        # clicked during a normal queue wait; not harmless for a job
+        # cancelled precisely BECAUSE nothing was ever going to serve
+        # it (see the admin cancel route), where the worker that
+        # eventually appears is the one that should not touch it.
+        #
+        # Best-effort: no pool means no audit row to consult, and a
+        # failed query must not stop a worker from doing its job.
+        if await _should_skip_cancelled(db_pool, job_id):
+            logger.info("worker: job %s was cancelled before it started — dropping", job_id)
+            await msg.ack()
+            return
+
+        logger.info(
+            "worker: picked up job %s from %s%s (delivery %d/%d)",
+            job_id,
+            cap,
+            via,
+            delivery_count,
+            MAX_DELIVERIES,
+        )
+
+        # Hold the JetStream lease while the job runs: refresh the ack
+        # deadline periodically so a long but healthy job is never
+        # redelivered, while a worker that dies mid-job (OOM-killed pod,
+        # crash) stops refreshing and the message is redelivered within
+        # ~one short ack_wait — not the previous fixed 30 min window.
+        ka_stop = asyncio.Event()
+
+        async def _keep_alive(m=msg, jid=job_id) -> None:
+            while not ka_stop.is_set():
+                try:
+                    await asyncio.wait_for(ka_stop.wait(), timeout=IN_PROGRESS_REFRESH_SECONDS)
+                except asyncio.TimeoutError:
+                    try:
+                        await m.in_progress()
+                    except Exception:
+                        logger.debug("worker: in_progress refresh failed for %s", jid)
+                else:
+                    return
+
+        ka_task = asyncio.create_task(_keep_alive())
+        job_started_at = time.monotonic()
+        try:
+            await _process_one(
+                job_id,
+                queue,
+                storage,
+                None,
+                db_pool,
+                delivery_count=delivery_count,
+            )
+        except Exception as exc:  # noqa: BLE001 - one job must never kill the consumer
+            # Anything _process_one didn't handle itself (e.g. a transient
+            # S3 body timeout while streaming the source) used to escape
+            # here and CRASH THE WORKER PROCESS: the message was acked in
+            # the finally, so the job sat "running" forever in the UI,
+            # and every queued job showed "waiting for worker" until the
+            # pod restarted. Fail the JOB instead and keep consuming.
+            logger.exception("worker: job %s failed outside the handled paths", job_id)
+            try:
+                await queue.update(job_id, status=JOB_STATUS_ERROR, stage="worker", error=str(exc))
+            except Exception:  # noqa: BLE001
+                logger.warning("worker: could not record job error for %s", job_id)
+            await _audit_done(db_pool, job_id, "error", str(exc), job_started_at)
+        finally:
+            ka_stop.set()
+            try:
+                await ka_task
+            except Exception:
+                pass
+            await msg.ack()
+            # Release the freed-but-retained arena memory this job left in the parent, so it
+            # doesn't accumulate across the run and inflate the next conversion's fork baseline.
+            _trim_parent_memory()
+
+    # Jobs in flight: one at a time unless ADA_WORKER_MAX_CONCURRENT_JOBS says more (see pools).
+    slots = _JobSlots(_max_concurrent_jobs())
+    if slots.limit > 1:
+        logger.info("worker: up to %d jobs in flight at once (ADA_WORKER_MAX_CONCURRENT_JOBS)", slots.limit)
+
     try:
         while not stop.is_set():
             _touch_liveness()  # each pull round — a stalled fetch lets this go stale -> livenessProbe restart
@@ -454,6 +609,9 @@ async def _run() -> None:
                 # whole design is meant to remove. Idle at the same cadence a
                 # fetch would have taken, so the liveness file stays fresh.
                 await asyncio.sleep(FETCH_TIMEOUT)
+                continue
+            # A message is leased only for a free slot: never one this worker is not working on.
+            if not await slots.wait_for_free(stop, FETCH_TIMEOUT):
                 continue
             pending = None
             if streak == 0 and probe.due():
@@ -479,7 +637,7 @@ async def _run() -> None:
                 yielded=yielded,
                 preferred=preferred,
             )
-            # One fetch at a time, first message wins: never a second message leased.
+            # One fetch at a time, first message wins: never more messages leased than slots free.
             msgs, idx = [], rr % len(subs)
             for idx, timeout in plan:
                 try:
@@ -497,148 +655,10 @@ async def _run() -> None:
             cap = subs[idx][0]
             via = " (preferred)" if idx in preferred else ""
             for msg in msgs:
-                job_id = msg.data.decode("utf-8")
-                # NATS message metadata carries the delivery counter.
-                # We only get here if the previous attempt didn't ack
-                # (typically: the worker died mid-conversion). Pass
-                # the counter into _process_one so it can refuse to
-                # retry past MAX_DELIVERIES.
-                try:
-                    delivery_count = int(msg.metadata.num_delivered)
-                except Exception:
-                    delivery_count = 1
-
-                # Misrouted-message safety net. Routing is now done at
-                # the NATS subject layer (each pool subscribes to its
-                # own capability-suffixed subject), so a message
-                # arriving here should always be one this pool can
-                # handle. If it isn't — bug in routing or a job
-                # enqueued before the upgrade — fail it immediately
-                # rather than NAK-looping. NAK would burn through the
-                # delivery budget and surface as the misleading
-                # "worker exceeded N delivery attempts" error; the
-                # explicit failure points at the real problem.
-                peeked = await queue.get(job_id)
-                if peeked is not None:
-                    misroute_msg = misroute_reason(
-                        peeked.target_format,
-                        peeked.source_key,
-                        cap=cap,
-                        source_ext_set=source_ext_set,
-                        ext_allow_set=ext_allow_set,
-                        conversion_options=peeked.conversion_options,
-                    )
-                    if misroute_msg is not None:
-                        logger.warning(
-                            "worker: %s — job %s",
-                            misroute_msg,
-                            job_id,
-                        )
-                        try:
-                            await queue.update(
-                                job_id,
-                                status=JOB_STATUS_ERROR,
-                                stage="misrouted",
-                                progress=0.0,
-                                error=misroute_msg,
-                            )
-                            await _audit_done(
-                                db_pool,
-                                job_id,
-                                "error",
-                                misroute_msg,
-                                time.monotonic(),
-                            )
-                        except Exception:
-                            logger.exception(
-                                "worker: failed to mark misrouted job %s as error",
-                                job_id,
-                            )
-                        await msg.ack()
-                        continue
-
-                # Already cancelled before anyone started it? Ack and drop.
-                #
-                # Every other cancel check in this file is MID-RUN -- the
-                # convert watchdog's `_cancel_check`, the plugin job's 2-second
-                # poller. Both assume the job is running, which means a job
-                # cancelled while queued was still picked up, started, and only
-                # stopped a couple of seconds later. Harmless for a cancel
-                # clicked during a normal queue wait; not harmless for a job
-                # cancelled precisely BECAUSE nothing was ever going to serve
-                # it (see the admin cancel route), where the worker that
-                # eventually appears is the one that should not touch it.
-                #
-                # Best-effort: no pool means no audit row to consult, and a
-                # failed query must not stop a worker from doing its job.
-                if await _should_skip_cancelled(db_pool, job_id):
-                    logger.info("worker: job %s was cancelled before it started — dropping", job_id)
-                    await msg.ack()
-                    continue
-
-                logger.info(
-                    "worker: picked up job %s from %s%s (delivery %d/%d)",
-                    job_id,
-                    cap,
-                    via,
-                    delivery_count,
-                    MAX_DELIVERIES,
-                )
-
-                # Hold the JetStream lease while the job runs: refresh the ack
-                # deadline periodically so a long but healthy job is never
-                # redelivered, while a worker that dies mid-job (OOM-killed pod,
-                # crash) stops refreshing and the message is redelivered within
-                # ~one short ack_wait — not the previous fixed 30 min window.
-                ka_stop = asyncio.Event()
-
-                async def _keep_alive(m=msg, jid=job_id) -> None:
-                    while not ka_stop.is_set():
-                        try:
-                            await asyncio.wait_for(ka_stop.wait(), timeout=IN_PROGRESS_REFRESH_SECONDS)
-                        except asyncio.TimeoutError:
-                            try:
-                                await m.in_progress()
-                            except Exception:
-                                logger.debug("worker: in_progress refresh failed for %s", jid)
-                        else:
-                            return
-
-                ka_task = asyncio.create_task(_keep_alive())
-                job_started_at = time.monotonic()
-                try:
-                    await _process_one(
-                        job_id,
-                        queue,
-                        storage,
-                        None,
-                        db_pool,
-                        delivery_count=delivery_count,
-                    )
-                except Exception as exc:  # noqa: BLE001 - one job must never kill the consumer
-                    # Anything _process_one didn't handle itself (e.g. a transient
-                    # S3 body timeout while streaming the source) used to escape
-                    # here and CRASH THE WORKER PROCESS: the message was acked in
-                    # the finally, so the job sat "running" forever in the UI,
-                    # and every queued job showed "waiting for worker" until the
-                    # pod restarted. Fail the JOB instead and keep consuming.
-                    logger.exception("worker: job %s failed outside the handled paths", job_id)
-                    try:
-                        await queue.update(job_id, status=JOB_STATUS_ERROR, stage="worker", error=str(exc))
-                    except Exception:  # noqa: BLE001
-                        logger.warning("worker: could not record job error for %s", job_id)
-                    await _audit_done(db_pool, job_id, "error", str(exc), job_started_at)
-                finally:
-                    ka_stop.set()
-                    try:
-                        await ka_task
-                    except Exception:
-                        pass
-                    await msg.ack()
-                    # Release the freed-but-retained arena memory this job left in the parent, so it
-                    # doesn't accumulate across the run and inflate the next conversion's fork baseline.
-                    _trim_parent_memory()
+                slots.start(_handle(msg, cap, via), name=msg.data.decode("utf-8", "replace"))
     finally:
+        # A stopped worker finishes the jobs it holds, as it always finished the one.
+        await slots.drain()
         heartbeat_task.cancel()
         try:
             await heartbeat_task
