@@ -170,6 +170,9 @@ markers = [
     # The mirror of `pyocc`: a test whose subject is the adacpp kernel, deselected in the
     # pythonocc-only envs rather than skipped there.
     "adacpp: test requiring the adacpp kernel",
+    # EXPERIMENTAL prototype backend (ext/solidcore-py). Only parametrised in where solidcore_py
+    # imports, so envs without it neither run nor report these.
+    "solidcore: test requiring the experimental solidcore kernel",
     # Calls ifcopenshell's geometry kernel (ifcopenshell.geom.iterator / create_shape) directly.
     # When tests/conftest.py's session probe finds that kernel crashing the interpreter (the
     # conda-forge 0.9.0 macOS build), these SKIP instead of killing the run; indirect callers are

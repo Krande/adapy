@@ -260,6 +260,10 @@ tests-adacpp-dev = { features = ["adacpp", "adacpp-dev", "tests", "tests-core", 
 # parity. Its own solve: pythonocc-core must not leak into the `prod` group every shipped env
 # shares. Run with: pixi run -e tests-xkernel test-xkernel
 tests-xkernel = { features = ["pyocc8", "tests", "tests-core", "prod", "adacpp-runtime", "desktop"], no-default-feature = true }
+# EXPERIMENTAL: the solidcore (pure-Rust B-rep) prototype backend, built from source into this env
+# next to pythonocc so the two can be compared. See ext/solidcore-py/README.md.
+# Run with: pixi run -e tests-solidcore build-solidcore && pixi run -e tests-solidcore test-solidcore
+tests-solidcore = { features = ["solidcore", "pyocc8", "tests", "tests-core", "prod", "adacpp-runtime", "desktop"], no-default-feature = true }
 fem-deps = { features = ["fem-deps", "prod", "adacpp-runtime", "tests-core"], no-default-feature = true }
 # `tests` feature added so the pyocc side of `test-all` can run the whole
 # non-REST suite, including the playwright frontend e2e tests (which live
@@ -756,6 +760,19 @@ rust = ">=1.85"
 
 [feature.desktop-shell.tasks]
 build-desktop = { cmd = "cargo build --release --locked --manifest-path src/desktop/Cargo.toml", description = "Build src/desktop into src/desktop/target/release/ada-desktop.exe" }
+
+# EXPERIMENTAL solidcore backend: Rust from conda-forge plus maturin, to build the PyO3 binding in
+# ext/solidcore-py against solidcore's sources (it publishes no Python package). On Windows the
+# MSVC linker comes from the Visual Studio Build Tools, as for desktop-shell.
+[feature.solidcore.dependencies]
+rust = ">=1.88"
+maturin = ">=1.8,<2"
+# `maturin develop` installs the built wheel with pip.
+pip = "*"
+
+[feature.solidcore.tasks]
+build-solidcore = { cmd = "maturin develop --release --manifest-path ext/solidcore-py/Cargo.toml", env = { "CARGO_NET_GIT_FETCH_WITH_CLI" = "true" }, description = "Build + install the solidcore PyO3 binding into this env" }
+test-solidcore = { cmd = "pytest tests/compat/test_backend_parity.py tests/compat/test_solidcore_backend.py -p no:cacheprovider", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 
 [feature.test-pyodide.tasks]
 install-pyodide = { cmd = "npm install", cwd = "scripts/testing/pyodide-test", outputs = ["scripts/testing/pyodide-test/node_modules"] }

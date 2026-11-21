@@ -150,6 +150,9 @@ def stream_tess_model_scale(default: bool = DEFAULT_STREAM_TESS_ADAPTIVE) -> flo
 class CadBackendName(str, Enum):
     OCC = "occ"  # pythonocc-core (native BRepMesh)
     ADACPP = "adacpp"  # the adacpp extension (NGEOM / libtess2 + linked OCCT/CGAL/ifc kernels)
+    # EXPERIMENTAL: the pure-Rust solidcore kernel through ext/solidcore-py. Opt-in only
+    # (ADAPY_CAD_BACKEND=solidcore or select_backend(prefer="solidcore")); never auto-selected.
+    SOLIDCORE = "solidcore"
 
 
 @dataclass(frozen=True)
@@ -345,6 +348,8 @@ def _module_available(name: str) -> bool:
 def backend_available(backend: CadBackendName) -> bool:
     if backend is CadBackendName.ADACPP:
         return _module_available("adacpp")
+    if backend is CadBackendName.SOLIDCORE:
+        return _module_available("solidcore_py")
     return _module_available("OCC")  # pythonocc-core package
 
 
