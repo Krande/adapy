@@ -463,8 +463,8 @@ export interface SimulationProviderUi {
   order?: number;
   /**
    * (1.34.0) The mode its runs belong to (`Mode.ConstructionRobotSim`, ...). In a UI that offers
-   * it, the Simulations panel opens a run's result there, and a mode that lists only its own
-   * providers (`ModeBehaviour.simulations.ownProviders`) lists this one. An older core ignores it.
+   * it, the Simulations panel opens a run's result there, and a mode with a Simulations filter
+   * (`ModeBehaviour.simulations`) lists this provider first. An older core ignores it.
    */
   mode?: ModeId;
   /**

@@ -9,7 +9,7 @@
 
 import { activeShellMode, listShellModes, setShellMode, subscribeShellModes } from "@/layout/shellModes";
 import { modeAvailable } from "@/layout/modeRequirements";
-import { isPlannedMode, type ModeId } from "@/layout/modes";
+import type { ModeId } from "@/layout/modes";
 
 /** Why a plugin asks for a mode: shown nowhere yet, logged, and kept for a later switcher hint. */
 export interface PluginModeActivateOptions {
@@ -21,7 +21,7 @@ export interface PluginModeActivateOptions {
 export interface PluginModes {
   /** The active mode's id; null in a UI without modes (core's own). */
   readonly active: ModeId | null;
-  /** Does the UI on screen offer mode `id` now (offered, its requirement holds, not planned)? */
+  /** Does the UI on screen offer mode `id` now (offered, and its requirement holds)? */
   offered: (id: ModeId) => boolean;
   /**
    * Switch to mode `id`, after something the user did. False, and nothing changes, when the UI on
@@ -34,7 +34,6 @@ export interface PluginModes {
 
 /** Does the UI on screen offer mode `id` now. */
 export function modeOffered(id: ModeId): boolean {
-  if (isPlannedMode(id)) return false;
   const mode = listShellModes().find((m) => m.id === id);
   return !!mode && modeAvailable(mode);
 }

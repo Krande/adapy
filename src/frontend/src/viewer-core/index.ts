@@ -768,11 +768,10 @@
 //          types `BoxFace`, `PlaceBoxResize`, `PlaceCameraOptions`, `PlacedCamera`,
 //          `PlacedCameraMode`, `PlacedCameraPose`.
 //   1.34.0 Kept in step with PLUGIN_API_VERSION 1.34.0. Additive: Construction's phases on `Mode`
-//          (`ConstructionStock`, `ConstructionRobotSim`,
-//          `ConstructionInstallationSim`), `ROBOTICS_SIMULATION_DOMAIN`, `coreModesIn`,
-//          `isPlannedMode`, `withCoreBehaviour` and the types `CoreModeStatus`, `ModeSimulations`,
-//          `PluginModes`, `PluginModeActivateOptions` on the root; `CoreModeDef.status` and
-//          `.behaviour`, `ModeBehaviour.simulations`, `SimulationProviderUi.mode`, `ctx.modes`.
+//          (`ConstructionRobotSim`, `ConstructionInstallationSim`), `ROBOTICS_SIMULATION_DOMAIN`,
+//          `withCoreBehaviour` and the types `ModeSimulations`, `PluginModes`,
+//          `PluginModeActivateOptions` on the root; `CoreModeDef.behaviour`,
+//          `ModeBehaviour.simulations`, `SimulationProviderUi.mode`, `ctx.modes`.
 //          See PLUGIN_API_VERSION's 1.34.0 note.
 export const VIEWER_CORE_API_VERSION = "1.34.0";
 
@@ -933,16 +932,13 @@ export {
   ModeGroup,
   ROBOTICS_SIMULATION_DOMAIN,
   coreModeDef,
-  coreModesIn,
   isCoreMode,
-  isPlannedMode,
   withCoreBehaviour,
 } from "@/layout/modes";
 export type {
   BuilderPresence,
   CoreModeDef,
   CoreModeId,
-  CoreModeStatus,
   ModeBehaviour,
   ModeSimulations,
   ModeGroupId,

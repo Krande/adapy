@@ -42,7 +42,7 @@ import {
   subscribeShellModes,
   type ShellMode,
 } from "./shellModes";
-import {coreModeDef, isPlannedMode, withCoreBehaviour} from "./modes";
+import {coreModeDef, withCoreBehaviour} from "./modes";
 
 /** Which loaded models the active mode draws: lazy, as it reads the scene's stores. */
 const ModeSceneScope = React.lazy(() => import("./ModeSceneScope").then((m) => ({default: m.ModeSceneScope})));
@@ -70,8 +70,7 @@ export function shellModes(spec: UiShellSpec): ShellMode[] {
   if (!own.length) return [];
   // The shell's own modes' toolbars run in the shell plugin's context.
   const shellPlugin = (spec as Partial<RegisteredUiShell>).pluginId;
-  // A planned mode (`CoreModeDef.status`) is named, never offered: nothing does it yet.
-  const mine: ShellMode[] = own.filter((m) => !isPlannedMode(m.id)).map((m, i) => ({
+  const mine: ShellMode[] = own.map((m, i) => ({
     id: m.id,
     // One of core's modes takes core's label, hint and heading unless the shell gives its own.
     label: m.label ?? coreModeDef(m.id)?.label ?? m.id,

@@ -32,7 +32,6 @@ test("the catalogue: every core mode under a heading, in work order, with the Do
       "topology-output",
       "fem-model",
       "fem-results",
-      "construction-stock",
       "construction-fabrication",
       "construction-robot-sim",
       "construction-installation-sim",
@@ -40,7 +39,7 @@ test("the catalogue: every core mode under a heading, in work order, with the Do
   );
   assert.deepEqual(
     CORE_MODES.map((m) => m.label),
-    ["Input", "Output", "Model", "Results", "Stock", "Fabrication-cad", "Robot-sim (weld)", "Installation-sim"],
+    ["Input", "Output", "Model", "Results", "Fabrication-cad", "Robot-sim (weld)", "Installation-sim"],
   );
   const orders = CORE_MODES.map((m) => m.order);
   assert.deepEqual(orders, [...orders].sort((a, b) => a - b), "listed in work order");

@@ -471,19 +471,17 @@ export type { SelectedObjectBox } from "@/viewport/api/viewportApi";
 //            viewport; `end()` (or `scene.remove(owner)`) takes it away.
 //          All additive: an older core ignores `resize` and `axes`, and has no `placeCamera`.
 // 1.34.0 — Construction's phases, and a plugin asking for a mode.
-//          - `Mode` names the Construction chain in work order: `ConstructionStock` (planned:
-//            `CoreModeDef.status: "planned"`, `isPlannedMode`, `coreModesIn(group)`, so a UI can
-//            show it greyed; a planned mode a shell lists is never offered),
-//            `ConstructionFabrication`, `ConstructionRobotSim` ("Robot-sim (weld)", the robot cell:
+//          - `Mode` names the Construction chain in work order: `ConstructionFabrication`,
+//            `ConstructionRobotSim` ("Robot-sim (weld)", the robot cell: the stock material,
 //            cutting and welding) and `ConstructionInstallationSim` ("Installation-sim", the
 //            assembly cell).
 //          - `CoreModeDef.behaviour`: core's default for a mode, which the offering UI's `behaviour`
 //            overrides field by field (`withCoreBehaviour`). The two simulation cells default to the
 //            builder `"away"`, `sceneColor: "own"`, no deformation, and
-//            `simulations: {domain: "robotics", ownProviders: true, empty}`.
-//          - `ModeBehaviour.simulations` ({domain, ownProviders, empty}): what the Simulations panel
-//            lists in the mode -- one domain's providers, only those whose UI declares the mode,
-//            and what it says when none is left.
+//            `simulations: {domain: "robotics", empty}`.
+//          - `ModeBehaviour.simulations` ({domain, empty}): what the Simulations panel lists in the
+//            mode -- one domain's providers and runs, the providers whose UI declares the mode
+//            first (none is hidden for declaring no mode), and what it says while none declares it.
 //          - `SimulationProviderUi.mode`: the mode a provider's runs belong to. The Simulations
 //            panel switches there before it opens a run's result (where the UI offers it);
 //            `resolveSimulationProviderUi(...).mode`.

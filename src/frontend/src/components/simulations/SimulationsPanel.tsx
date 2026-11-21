@@ -35,7 +35,13 @@ import {
   type SimulationRun,
 } from "@/services/api/simulations";
 import { durationLabel, runLabel, runOutcome, runSubjectLabel, runTone, startedLabel } from "@/services/simulations/runRow";
-import { modeToOpenIn, providerShownInMode, simulationsFilterFor } from "@/services/simulations/modeScope";
+import {
+  modeHasOwnProvider,
+  modeProvidersFirst,
+  modeToOpenIn,
+  providerShownInMode,
+  simulationsFilterFor,
+} from "@/services/simulations/modeScope";
 import { defaultParameters, missingRequired } from "@/services/simulations/schemaForm";
 import { useViewerStores } from "@/state/AdaViewerContext";
 import { useRunConsoleStore } from "@/state/runConsoleStore";
@@ -384,15 +390,19 @@ export const SimulationsBody: React.FC = () => {
     }
   };
 
-  // The active mode may narrow the lists (`ModeBehaviour.simulations`): a cell's mode lists its own.
+  // The active mode may narrow the lists to its domain (`ModeBehaviour.simulations`), with the
+  // providers that declare the mode first; none is hidden for declaring no mode.
   useSyncExternalStore(subscribeShellModes, shellModesVersion, shellModesVersion);
   const mode = activeModeDef();
   const modeFilter = simulationsFilterFor(mode);
   const baseCtx = usePluginContextFor()("");
-  const inMode = (p: { id: string; domain: string }) =>
-    providerShownInMode(p, mode, (q) => resolveSimulationProviderUi(baseCtx, q).mode);
-  const modeProviders = modeFilter ? providers.filter(inMode) : providers;
-  const modeRuns = modeFilter ? runs.filter((r) => inMode(r.provider)) : runs;
+  const modeOf = (p: { id: string; domain: string }) => resolveSimulationProviderUi(baseCtx, p).mode;
+  const modeProviders = modeFilter
+    ? modeProvidersFirst(providers.filter((p) => providerShownInMode(p, mode)), mode, modeOf)
+    : providers;
+  const modeRuns = modeFilter ? runs.filter((r) => providerShownInMode(r.provider, mode)) : runs;
+  // Nothing declares this mode yet: the mode says so (`simulations.empty`), over whatever else is listed.
+  const modeEmpty = modeFilter && providersLoaded && !modeHasOwnProvider(modeProviders, mode, modeOf) ? modeFilter.empty : undefined;
 
   const groups = useMemo(() => providersByDomain(domains, modeProviders), [domains, modeProviders]);
   const shownGroups = domainFilter ? groups.filter((g) => g.domain.id === domainFilter) : groups;
@@ -463,10 +473,15 @@ export const SimulationsBody: React.FC = () => {
       )}
 
       {providersError && <div className="text-[var(--ada-fail)] break-words">{providersError}</div>}
-      {providersLoaded && groups.length === 0 && !providersError && (
+      {modeEmpty && !providersError && (
+        <div className="text-[var(--ada-panel-text-muted)]" data-simulations-mode-empty>
+          {modeEmpty}
+        </div>
+      )}
+      {providersLoaded && groups.length === 0 && !providersError && !modeEmpty && (
         <div className="text-[var(--ada-panel-text-muted)]" data-simulations-empty>
-          {modeFilter
-            ? (modeFilter.empty ?? "No simulation provider belongs to this mode.")
+          {modeFilter?.domain
+            ? "No simulation provider of this kind is registered on this server."
             : "No simulation providers are registered on this server."}
         </div>
       )}

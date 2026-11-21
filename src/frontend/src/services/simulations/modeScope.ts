@@ -16,26 +16,42 @@ export interface ScopedProvider {
   domain: string;
 }
 
-/** The panel's filter in `mode`; null where it lists everything. */
-export function simulationsFilterFor(
-  mode: SimulationsModeView | null,
-): { mode: ModeId; domain?: string; ownProviders: boolean; empty?: string } | null {
+/** The panel's filter in `mode`; null where it lists everything, in the server's order. */
+export function simulationsFilterFor(mode: SimulationsModeView | null): { mode: ModeId; domain?: string; empty?: string } | null {
   const s = mode?.behaviour?.simulations;
   if (!mode || !s) return null;
-  return { mode: mode.id, domain: s.domain, ownProviders: !!s.ownProviders, empty: s.empty };
+  return { mode: mode.id, domain: s.domain, empty: s.empty };
 }
 
-/** Is `provider` listed in `mode`. `modeOf` reads the mode its plugin UI declares (or null). */
-export function providerShownInMode(
-  provider: ScopedProvider,
+/** Is `provider` listed in `mode`: of the mode's domain, when it names one. No provider is hidden for its declared mode. */
+export function providerShownInMode(provider: ScopedProvider, mode: SimulationsModeView | null): boolean {
+  const f = simulationsFilterFor(mode);
+  return !f?.domain || provider.domain === f.domain;
+}
+
+/**
+ * `providers` with the ones whose plugin UI declares `mode` first (`modeOf` reads that, or null),
+ * each part in its own order. Unchanged without a filter.
+ */
+export function modeProvidersFirst<P extends ScopedProvider>(
+  providers: readonly P[],
   mode: SimulationsModeView | null,
-  modeOf: (provider: ScopedProvider) => ModeId | null,
+  modeOf: (provider: P) => ModeId | null,
+): P[] {
+  const f = simulationsFilterFor(mode);
+  if (!f) return [...providers];
+  const own = providers.filter((p) => modeOf(p) === f.mode);
+  return [...own, ...providers.filter((p) => !own.includes(p))];
+}
+
+/** Does any of `providers` declare `mode`: false is when the panel says the mode's `empty`. */
+export function modeHasOwnProvider<P extends ScopedProvider>(
+  providers: readonly P[],
+  mode: SimulationsModeView | null,
+  modeOf: (provider: P) => ModeId | null,
 ): boolean {
   const f = simulationsFilterFor(mode);
-  if (!f) return true;
-  if (f.domain && provider.domain !== f.domain) return false;
-  if (f.ownProviders && modeOf(provider) !== f.mode) return false;
-  return true;
+  return !f || providers.some((p) => modeOf(p) === f.mode);
 }
 
 /**
