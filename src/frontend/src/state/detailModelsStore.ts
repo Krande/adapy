@@ -224,15 +224,29 @@ export function detailModelLine(m: WireDetailModel): string {
   return parts.join(" · ");
 }
 
-/** What a done model is missing, as "N joints not built · M welds failed" -- `null` when nothing
- *  is. A record from before the structured counts says only how many joints were skipped. */
+/** What a done model's report has to say, as "N joints not built · M welds failed · K duplicate
+ *  welds dropped" -- `null` when nothing (and then there is no report to open). A record from before
+ *  the structured counts says only how many joints were skipped; one from before seams were
+ *  de-duplicated has no duplicates. */
 export function detailModelLosses(m: WireDetailModel): string | null {
   const c = m.counts;
   if (!c) return null;
   const notBuilt = c.not_built ?? c.skipped ?? 0;
   const welds = c.weld_failures ?? 0;
+  const duplicates = c.duplicate_welds ?? 0;
   const out: string[] = [];
   if (notBuilt) out.push(c.not_built == null ? `${notBuilt} skipped` : `${notBuilt} joint${notBuilt === 1 ? "" : "s"} not built`);
   if (welds) out.push(`${welds} weld${welds === 1 ? "" : "s"} failed`);
+  if (duplicates) out.push(`${duplicates} duplicate weld${duplicates === 1 ? "" : "s"} dropped`);
   return out.length ? out.join(" · ") : null;
+}
+
+/** The name of a model's report, by what is in it: "Not built" (joints or welds missing),
+ *  "Duplicate welds" (only welds dropped as duplicates), or both. */
+export function detailReportLabel(m: WireDetailModel): string {
+  const c = m.counts;
+  const missing = !!(c && ((c.not_built ?? c.skipped ?? 0) || (c.weld_failures ?? 0)));
+  const duplicates = !!(c && (c.duplicate_welds ?? 0));
+  if (missing && duplicates) return "Not built / duplicates";
+  return duplicates ? "Duplicate welds" : "Not built";
 }

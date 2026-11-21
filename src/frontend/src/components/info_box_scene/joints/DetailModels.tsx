@@ -7,7 +7,7 @@ import React from "react";
 
 import { useModelState } from "@/state/modelState";
 import { scopeUrlPart, useScopeStore } from "@/state/scopeStore";
-import { detailModelLine, detailModelLosses, useDetailModelsStore } from "@/state/detailModelsStore";
+import { detailModelLine, detailModelLosses, detailReportLabel, useDetailModelsStore } from "@/state/detailModelsStore";
 import { useClashCheckStore } from "@/state/clashCheckStore";
 import { focusJoint } from "@/utils/scene/clashJointFocus";
 import type { WireDetailModel } from "@/services/api/clashCheck";
@@ -46,10 +46,10 @@ const DetailModelRow: React.FC<{ scope: string; model: WireDetailModel }> = ({ s
             type="button"
             className="text-amber-200/80 hover:text-amber-100 text-left"
             aria-expanded={reportOpen}
-            title="Which joints were not built and which welds failed, and why"
+            title="Which joints were not built, which welds failed, and which welds were dropped as duplicates of another joint's weld on the same seam -- and why"
             onClick={() => void toggleReport(scope, model)}
           >
-            {reportOpen ? "▼" : "▶"} Not built
+            {reportOpen ? "▼" : "▶"} {detailReportLabel(model)}
           </button>
         )}
       </div>
@@ -95,7 +95,7 @@ const OpenReport: React.FC<{ models: readonly WireDetailModel[] }> = ({ models }
   return (
     <div className="rounded-sm border border-gray-800" data-not-built-report={model.detail_id}>
       <div className="px-2 pt-1 text-gray-400 truncate" title={model.label}>
-        Not built — {model.label}
+        {detailReportLabel(model)} — {model.label}
       </div>
       {report.status === "loading" && <div className="px-2 py-1 text-gray-500">reading its take-off…</div>}
       {report.status === "error" && <div className="px-2 py-1 text-red-300/80">{report.error}</div>}

@@ -91,6 +91,22 @@ export interface WeldFailure {
   readonly reason: string;
 }
 
+/** A weld taken out of the model because another joint's weld lies on the same seam
+ *  (`stats.duplicate_welds`, `ada.clash.detail.dedup_seams`): two joints whose builders each welded
+ *  one physical seam. The seam is still welded -- once, by the kept weld. */
+export interface DuplicateWeld {
+  /** The joint whose weld was dropped. */
+  readonly jointId: string;
+  readonly connection: string;
+  readonly weld: string;
+  readonly weldType: string;
+  /** The joint whose weld kept the seam. */
+  readonly keptJointId: string;
+  readonly keptConnection: string;
+  readonly keptWeld: string;
+  readonly reason: string;
+}
+
 export interface DetailStats {
   readonly joints: ProducedJoints | null;
   /** Joints the builder refused, as `"<joint id>: <reason>"`. A run reports these rather than
@@ -100,11 +116,14 @@ export interface DetailStats {
   /** The same joints as records (empty for a take-off from before they were written). */
   readonly notBuilt: readonly NotBuiltJoint[];
   readonly weldFailures: readonly WeldFailure[];
+  /** Welds dropped as duplicates of another joint's weld on the same seam (empty for a take-off from
+   *  before seams were de-duplicated). */
+  readonly duplicateWelds: readonly DuplicateWeld[];
 }
 
 /** A take-off with nothing in it. */
 export function emptyDetailStats(): DetailStats {
-  return { joints: null, skipped: [], notBuilt: [], weldFailures: [] };
+  return { joints: null, skipped: [], notBuilt: [], weldFailures: [], duplicateWelds: [] };
 }
 
 const str = (v: unknown): string => (v == null ? "" : String(v));
@@ -142,16 +161,39 @@ function parseWeldFailures(raw: unknown): WeldFailure[] {
   });
 }
 
+function parseDuplicateWelds(raw: unknown): DuplicateWeld[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((r) => {
+    if (typeof r !== "object" || r === null) return [];
+    const row = r as Record<string, unknown>;
+    const jointId = str(row.joint_id);
+    if (!jointId) return [];
+    return [
+      {
+        jointId,
+        connection: str(row.connection),
+        weld: str(row.weld),
+        weldType: str(row.weld_type),
+        keptJointId: str(row.kept_joint_id),
+        keptConnection: str(row.kept_connection),
+        keptWeld: str(row.kept_weld),
+        reason: str(row.reason),
+      } satisfies DuplicateWeld,
+    ];
+  });
+}
+
 /** Read a detail run's `result.stats.json`. Shape-checked field by field: this is a document from
  *  a worker, and a take-off that half-parsed would put made-up counts in front of a user. */
 export function parseDetailStats(doc: unknown): DetailStats {
   if (typeof doc !== "object" || doc === null || Array.isArray(doc)) return emptyDetailStats();
-  const raw = doc as { joints?: unknown; skipped?: unknown; not_built?: unknown; weld_failures?: unknown };
+  const raw = doc as { joints?: unknown; skipped?: unknown; not_built?: unknown; weld_failures?: unknown; duplicate_welds?: unknown };
   const skipped = Array.isArray(raw.skipped) ? raw.skipped.map((x) => String(x)) : [];
   const notBuilt = parseNotBuilt(raw.not_built);
   const weldFailures = parseWeldFailures(raw.weld_failures);
+  const duplicateWelds = parseDuplicateWelds(raw.duplicate_welds);
   const j = raw.joints;
-  if (typeof j !== "object" || j === null) return { joints: null, skipped, notBuilt, weldFailures };
+  if (typeof j !== "object" || j === null) return { joints: null, skipped, notBuilt, weldFailures, duplicateWelds };
   const t = j as { count?: unknown; by_type?: unknown; items?: unknown };
   const by_type: ProducedJointType[] = (Array.isArray(t.by_type) ? t.by_type : []).map((r) => {
     const row = r as Record<string, unknown>;
@@ -170,7 +212,7 @@ export function parseDetailStats(doc: unknown): DetailStats {
       centre: centre as [number, number, number] | null,
     };
   });
-  return { joints: { count: Number(t.count ?? items.length), by_type, items }, skipped, notBuilt, weldFailures };
+  return { joints: { count: Number(t.count ?? items.length), by_type, items }, skipped, notBuilt, weldFailures, duplicateWelds };
 }
 
 // ---------------------------------------------------------------------------------------------

@@ -7,10 +7,14 @@
 // are one sentence with a different angle or name in it, and that sentence is the fact to act on.
 // Each group shows its count and a few joints; opened, every joint, each a button that focuses its
 // contact the way the identified joints' rows do (the contact ids ARE the joint ids).
+//
+// DUPLICATE WELDS last: welds the run took out because another joint's weld lies on the same seam
+// (`stats.duplicate_welds`). Nothing is missing there -- the seam is welded once -- but the take-off
+// has fewer welds than the joints' builders made, and this says which, and which weld kept the seam.
 
 import React, { useMemo, useState } from "react";
 
-import { groupNotBuilt, weldFailuresByJoint, type DetailStats, type NotBuiltJoint } from "@/state/clashCheckStore";
+import { groupNotBuilt, weldFailuresByJoint, type DetailStats, type DuplicateWeld, type NotBuiltJoint } from "@/state/clashCheckStore";
 
 /** How many joints a closed group names. */
 const EXAMPLES = 3;
@@ -41,6 +45,38 @@ function jointTitle(j: NotBuiltJoint): string {
   return lines.join("\n");
 }
 
+/** One weld dropped as a duplicate: the dropped weld (its joint, connection, name and type) and the
+ *  weld that kept the seam, each joint a button that focuses its contact. */
+export const DuplicateWeldRow: React.FC<{ dup: DuplicateWeld; selected: string | null; onFocus: (id: string) => void }> = ({
+  dup,
+  selected,
+  onFocus,
+}) => (
+  <li className="border-t border-gray-800 py-0.5 flex flex-col" data-duplicate-weld={dup.jointId} title={dup.reason}>
+    <div className="flex items-start gap-2">
+      <JointButton id={dup.jointId} selected={selected === dup.jointId} title="Focus the joint whose weld was dropped" onFocus={onFocus} />
+      <span className="shrink-0 text-gray-300">{dup.weld || "—"}</span>
+      <span className="shrink-0 text-gray-400">{dup.weldType || "—"}</span>
+      <span className="flex-1 min-w-0 truncate text-gray-500" title={dup.connection}>
+        {dup.connection}
+      </span>
+    </div>
+    <div className="pl-4 flex items-start gap-2 text-gray-500">
+      <span className="shrink-0">kept by</span>
+      {dup.keptJointId ? (
+        <JointButton id={dup.keptJointId} selected={selected === dup.keptJointId} title="Focus the joint whose weld kept the seam" onFocus={onFocus} />
+      ) : (
+        <span className="shrink-0">—</span>
+      )}
+      <span className="shrink-0 text-gray-300">{dup.keptWeld || "—"}</span>
+      <span className="flex-1 min-w-0 truncate" title={dup.keptConnection}>
+        {dup.keptConnection}
+      </span>
+    </div>
+    {dup.reason && <div className="pl-4 text-gray-500 break-words">{dup.reason}</div>}
+  </li>
+);
+
 export const NotBuiltReport: React.FC<{
   stats: DetailStats;
   /** The focused contact, drawn as such. */
@@ -53,7 +89,9 @@ export const NotBuiltReport: React.FC<{
   // A take-off from before the records were written: its sentences are all there is.
   const legacy = stats.notBuilt.length === 0 ? stats.skipped : [];
 
-  if (groups.length === 0 && welds.size === 0 && legacy.length === 0) {
+  const duplicates = stats.duplicateWelds;
+
+  if (groups.length === 0 && welds.size === 0 && legacy.length === 0 && duplicates.length === 0) {
     return <div className="px-2 py-1 text-gray-500">Every joint was built, with every weld.</div>;
   }
 
@@ -148,6 +186,21 @@ export const NotBuiltReport: React.FC<{
               </ul>
             </div>
           ))}
+        </div>
+      )}
+
+      {duplicates.length > 0 && (
+        <div className="flex flex-col" aria-label="Duplicate welds">
+          <div className="text-gray-300">
+            <span className="font-semibold">{duplicates.length}</span> duplicate weld{duplicates.length === 1 ? "" : "s"} dropped
+            <span className="text-gray-500"> — another joint's weld is on the same seam, which is welded once</span>
+          </div>
+          <ul className="flex flex-col">
+            {duplicates.slice(0, LIST_LIMIT).map((d, i) => (
+              <DuplicateWeldRow key={`${d.jointId}-${d.connection}-${d.weld}-${i}`} dup={d} selected={selected} onFocus={onFocusJoint} />
+            ))}
+            {duplicates.length > LIST_LIMIT && <li className="text-gray-500">and {duplicates.length - LIST_LIMIT} more</li>}
+          </ul>
         </div>
       )}
     </div>

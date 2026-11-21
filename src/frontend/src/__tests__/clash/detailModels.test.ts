@@ -20,7 +20,7 @@ const globals = globalThis as unknown as { sessionStorage: unknown; localStorage
 globals.sessionStorage = storage;
 globals.localStorage = storage;
 
-const { useDetailModelsStore, detailModelLine, isDetailModelKey } = await import("@/state/detailModelsStore");
+const { useDetailModelsStore, detailModelLine, detailModelLosses, detailReportLabel, isDetailModelKey } = await import("@/state/detailModelsStore");
 const { useClashCheckStore, contactRunToResult } = await import("@/state/clashCheckStore");
 type Model = Parameters<typeof detailModelLine>[0];
 type DetailContext = import("@/state/clashCheck/detailContext").DetailContext;
@@ -226,12 +226,35 @@ test("a model's line says how many joints were not built and how many welds fail
   );
 });
 
+test("a model's line counts the welds dropped as duplicates, and they alone open the report", () => {
+  const counts = { joints: 3, welds: 9, not_built: 0, weld_failures: 0, duplicate_welds: 2 };
+  const m = model("a", { counts });
+  assert.equal(detailModelLine(m), "2026-11-19 10:15:00 · clash check of a file · 3 joints · 9 welds · 2 duplicate welds dropped");
+  assert.equal(detailModelLosses(m), "2 duplicate welds dropped", "duplicates alone show the report toggle");
+  assert.equal(detailReportLabel(m), "Duplicate welds");
+
+  const both = model("a", { counts: { ...counts, not_built: 1, duplicate_welds: 1 } });
+  assert.equal(detailModelLosses(both), "1 joint not built · 1 duplicate weld dropped");
+  assert.equal(detailReportLabel(both), "Not built / duplicates");
+
+  const lost = model("a", { counts: { ...counts, weld_failures: 1, duplicate_welds: 0 } });
+  assert.equal(detailReportLabel(lost), "Not built");
+
+  // A record from before seams were de-duplicated has no key: nothing dropped, no toggle.
+  const old = model("a", { counts: { joints: 3, welds: 9, not_built: 0, weld_failures: 0 } });
+  assert.equal(detailModelLosses(old), null);
+  assert.equal(detailModelLine(old), "2026-11-19 10:15:00 · clash check of a file · 3 joints · 9 welds");
+});
+
 test("a model's Not built report is read from its take-off once, and toggles", async () => {
   const { deps, calls } = fakeDeps([]);
   const doc = {
     ...takeoff(["a1"]),
     not_built: [{ joint_id: "j9", kind: "failed", spec: "provider.spec", reason: "ValueError: refused", declined: [] }],
     weld_failures: [{ joint_id: "a1", connection: "c", place: "web", weld_type: "fillet", reason: "no room" }],
+    duplicate_welds: [
+      { joint_id: "a2", connection: "c2", weld: "w_foot", weld_type: "fillet", kept_joint_id: "a1", kept_connection: "c", kept_weld: "w_end", reason: "the same seam" },
+    ],
   };
   useDetailModelsStore.setState({ deps: { ...deps, stats: async (_s: string, key: string) => (calls.push(`stats ${key}`), doc) }, reportId: null, reports: {} });
   const m = model("x");
@@ -243,6 +266,7 @@ test("a model's Not built report is read from its take-off once, and toggles", a
   if (report?.status === "ready") {
     assert.deepEqual(report.stats.notBuilt.map((j) => [j.jointId, j.kind]), [["j9", "failed"]]);
     assert.deepEqual(report.stats.weldFailures.map((w) => [w.jointId, w.place, w.weldType]), [["a1", "web", "fillet"]]);
+    assert.deepEqual(report.stats.duplicateWelds.map((d) => [d.jointId, d.weld, d.keptJointId, d.keptWeld]), [["a2", "w_foot", "a1", "w_end"]]);
   }
   await useDetailModelsStore.getState().toggleReport("user:me", m);
   assert.equal(useDetailModelsStore.getState().reportId, null);
