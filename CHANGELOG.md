@@ -2,6 +2,16 @@
 
 
 
+## v0.168.0 (2026-11-21)
+
+### Feature
+
+* feat: per-element associations of contacts, connections, welds and simulation runs (#591)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt;
+Co-authored-by: adapy-bundle-bot &lt;adapy-bundle-bot@users.noreply.github.com&gt; ([`225ded1`](https://github.com/Krande/adapy/commit/225ded12868ab56b2868c211012e082f66e94cba))
+
+
 ## v0.167.0 (2026-11-21)
 
 ### Feature
