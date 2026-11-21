@@ -2,6 +2,15 @@
 
 
 
+## v0.165.0 (2026-11-21)
+
+### Feature
+
+* feat(scene): saved scene states; a detail model&#39;s Load restores its clash check (#586)
+
+Co-authored-by: adapy-bundle-bot &lt;adapy-bundle-bot@users.noreply.github.com&gt; ([`feda6a2`](https://github.com/Krande/adapy/commit/feda6a240d6e9d7a5f256a0dd0b786c532a6867f))
+
+
 ## v0.164.4 (2026-11-20)
 
 ### Fix
