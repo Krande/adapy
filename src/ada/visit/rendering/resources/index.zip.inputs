@@ -1,8 +1,8 @@
 # The inputs src/ada/visit/rendering/resources/index.zip was built from, and its own hash. Do not edit.
 # Refresh with `pixi run wbuild` (rebuilds the bundle and rewrites this), then commit both.
 # Checked by `pixi run check-bundle-inputs` and by CI. See scripts/packaging/bundle_inputs.py.
-inputs-sha256 4e16b04c005294243cd0e4d92d103d949efcb94cb504f17500a1c4e9e5ce7e28
-bundle-sha256 42843ce78500a205bd4205d331046b3c9c9b43ecdafe52cfde564fccfe1e4cb9
+inputs-sha256 94350691a3bbdd7afd0d776b20c5009db3c99b036c5304a763e95536be653835
+bundle-sha256 4d760c6793c271f56a1edab4d243015465e9996fb45141e267a0e8826e713485
 pin:ADACPP_BASE_IMAGE ghcr.io/krande/adacpp-wasm-base:0.44.0
 pin:ADACPP_RENDER_REF c1a7b3ab434a916e08170c634c23b9dc1974d32f
 src/frontend/clean.cjs 548054390de442a02ca36bd4de94f25095f10ae9
@@ -299,12 +299,13 @@ src/frontend/src/components/info_box_selected_object/ClashContactSection.tsx 639
 src/frontend/src/components/info_box_selected_object/ConnectionsSection.tsx 75fe4924ee0880d7d8c820c26f4433a81956bc38
 src/frontend/src/components/info_box_selected_object/CoordinateDisplay.tsx 738fdb4f80482d72184059fac68f214102f2a313
 src/frontend/src/components/info_box_selected_object/DownloadSelectionButton.tsx 4c1de1192ae9d8361fa1972cee5dab4a75ed756f
+src/frontend/src/components/info_box_selected_object/ElementLinksSection.tsx 62d0834afd6095a057d28f4cdc11f3aa79b83255
 src/frontend/src/components/info_box_selected_object/FeaElementSection.tsx 9254e83e71dd26447e64eb5a6cba8bff45788ae7
 src/frontend/src/components/info_box_selected_object/FeaSetsSection.tsx f844536d3ffbefa3ffaba2f98dee3de99c7e1aa1
 src/frontend/src/components/info_box_selected_object/FemConceptSelectionInfo.tsx 4217178c12c36f5406383c50ff57960db456123d
 src/frontend/src/components/info_box_selected_object/IndexedAttributesSection.tsx bb2994cff489600d24c030a244b792c65969e0c4
 src/frontend/src/components/info_box_selected_object/MeshStatsSection.tsx 2eb147c57389928d6df6b4e741da11027edf3ebd
-src/frontend/src/components/info_box_selected_object/ObjectInfoBoxComponent.tsx 302d46e3e9edeb176358653a96c4bc9985e924eb
+src/frontend/src/components/info_box_selected_object/ObjectInfoBoxComponent.tsx 819fb2d6bc8ebcf7ce870e092515fa4024cbfdaf
 src/frontend/src/components/info_box_selected_object/ObjectMetadataPanel.tsx 1953e867287be9bbd5516d8009473fbee00d2b2d
 src/frontend/src/components/info_box_selected_object/ProceduralEquipmentSection.tsx e68f929efaf62dbf5b638318ff8e9f7023d641f8
 src/frontend/src/components/info_box_selected_object/ProceduralSystemSection.tsx 4dd5e450ab00de2989ff5d2f850828b793bbfbde
@@ -571,6 +572,7 @@ src/frontend/src/hooks/proceduralDeepLink.ts 61ebd4e552b7eff5df997e3130671c0db09
 src/frontend/src/hooks/useBuildSidecars.ts 3ba65b71fb68ea724a2ef06c5871fdee8bca6c9e
 src/frontend/src/hooks/useCompressionSweepPoll.ts 75f172e7e0e62ca90f4b618130b7d7b6c20bf459
 src/frontend/src/hooks/useConnectionBuilderBoot.ts 78bff819f10901b49723bf85129277b437da3c5e
+src/frontend/src/hooks/useElementLinks.ts a19e0fb6aa85d685e904c4925f28940fb76e9384
 src/frontend/src/hooks/useJobPoll.ts 6f25269db15b5a2d08d258d597d2ca0424a24b23
 src/frontend/src/hooks/useRelatedActions.ts 2a54783d9dce6198dc9965189b1e1f361a5c9e85
 src/frontend/src/hooks/useRestoreInflightJobs.ts 0c4a6d517c7e0cd46ed0681b62a5fe4bfd904b2a
@@ -700,10 +702,10 @@ src/frontend/src/plugins/loadClaims.ts b9c26679fa6faf15367737e9876a799b3e8a2045
 src/frontend/src/plugins/pluginModes.ts 4a81368ed190073f938d8d0ac51cb3a4debb711d
 src/frontend/src/plugins/pluginSimulations.ts 6864fa7fe3d17ac5a981588261bfa41b869bfe88
 src/frontend/src/plugins/pluginUiStore.ts 964311171a9ea8c32114d52b7f901abc2c24f16b
-src/frontend/src/plugins/propertyProviders.ts f272de93880c163e9e8994c6d7bf3876357eda34
+src/frontend/src/plugins/propertyProviders.ts de118ca51a69948e9ed3fdc81be9386717b618b8
 src/frontend/src/plugins/registry.generated.css 65b0f00a8c6dd85ec7550f5e38bd7d4679f56066
 src/frontend/src/plugins/registry.generated.ts a16322ca6cc5ded5f53b9333634397e460569d5e
-src/frontend/src/plugins/registry.ts 0f7e7e30aa5dd4b9f61a90da1b3479a88c470c2a
+src/frontend/src/plugins/registry.ts 465155c0cff9137dfb9e42abe215d77d2addff41
 src/frontend/src/plugins/registryTypes/playback.ts 47783e2224c107c0896febdfe26387f900f5327d
 src/frontend/src/plugins/registryTypes/scene.ts db69bdddee2bf54d990aea1bdd62a9f6577c61cf
 src/frontend/src/plugins/registryTypes/slots.ts 1533764688ca3536c325087826fbcc16e9abb724
@@ -739,6 +741,7 @@ src/frontend/src/services/api/client.ts 12955067cb3c41cc4e3c964d1a93d94d1b4b7c97
 src/frontend/src/services/api/components.ts e3776b5b1d463e9cd1e3bb790be3978ee9456528
 src/frontend/src/services/api/conversion.ts 52c083c3080d8006af02a149f12a0c5309211979
 src/frontend/src/services/api/devConnections.ts a3b6f477f85cd6e8bf8a26b2ced17aa126d880c3
+src/frontend/src/services/api/elementLinks.ts 169e91397557f618ecfd3edbedd9f3b23ad85980
 src/frontend/src/services/api/equipmentTypes.ts 1d043d8b3a1f97853c3ddd95f7195030ae2cd8b4
 src/frontend/src/services/api/fea.ts 76eace4bd4def090cf8279c2cc263131d7a83162
 src/frontend/src/services/api/files.ts 48dbb700e597673359960ca92260231b81780ff4
@@ -1076,7 +1079,7 @@ src/frontend/src/utils/groups/groupLoad.ts 5ee241ef9740dacc1d96c1a27766a631ecce5
 src/frontend/src/utils/groups/groupLoadNote.ts a3274ee3684551e942871156fe724296784dbbe5
 src/frontend/src/utils/groups/groupLoadRun.ts 1df80bd2d954115a77cad06263c053fc34315913
 src/frontend/src/utils/groups/groupRequest.ts 69e5d52aefffeb91ca864a29a7be096798e7db4b
-src/frontend/src/utils/groups/groupScene.ts cb521e9f9a6ba7243158a8f4c37fa50c9cfcbba6
+src/frontend/src/utils/groups/groupScene.ts 0903cb0e3ae481da94c0447a816fbc8b3f2ba512
 src/frontend/src/utils/groups/groupShortcut.ts f681eb6db51e38ef174ff51f1d758a44d7f688af
 src/frontend/src/utils/groups/groupSourceRefs.ts 8ecf56ee716a79d12f4a80417ae6db8b042145a2
 src/frontend/src/utils/groups/groupSources.ts 69decc9d1d562f00a464e0b5253aed12eae631ec
@@ -1084,6 +1087,7 @@ src/frontend/src/utils/groups/groupSummary.ts afdde0e929ede70aa4e30f99efd604add0
 src/frontend/src/utils/groups/localSources.ts 58c5de9428416b0df2dfdbee0c30a69080005f41
 src/frontend/src/utils/groups/savedGroups.ts 9803ad8444a27c4c420810718700b39ce2070079
 src/frontend/src/utils/groups/selectGroup.ts bdfbb5770d49a86f46e23cd55618a1d78187f38c
+src/frontend/src/utils/groups/selectionNodes.ts b0ea059e5b7397361ec76bb3b8fb01b83f95bf73
 src/frontend/src/utils/gunzipToBlob.ts f919270d8d6c0a147ccdc1fa7c6bd5181f2811cb
 src/frontend/src/utils/keyboard/undoRedoKeys.ts 31a16c17ad001fb08932fde737a925f0fd7982f3
 src/frontend/src/utils/lineage/registerLineageFromExtension.ts e1ca69479b0becb0f7bd422c097be8e8bf388191
@@ -1391,8 +1395,8 @@ src/frontend/src/utils/weldSymbols.generated.ts b3a91e31e9f1b338b5029e167aeda679
 src/frontend/src/utils/weldSymbols.ts 5591f36077c474b3cb2fc0075b60a81f1a7c80e9
 src/frontend/src/utils/weldTypeNames.ts 44a66f31d3a44606fde7a8da308c5b2c4c3d667d
 src/frontend/src/vendor-gifenc.d.ts a1eedc5ae72023ac9cd0f251d9ab8e7cc664ffdd
-src/frontend/src/viewer-core/app.ts 7525e183e9784f916463b5f7481e1aa3ba7d6237
-src/frontend/src/viewer-core/index.ts e692e78f35f5bde21c3775bc9b0ff56724f75afb
+src/frontend/src/viewer-core/app.ts d1aa5e0e90c61790f755a2a89d6f49c3c70fc2e1
+src/frontend/src/viewer-core/index.ts edadfe2f5eb93be4463c1c04f5c64527f2d02e30
 src/frontend/src/viewer-core/layout.ts c2f25228fb67e388b3a6f65098f958d858c9e19e
 src/frontend/src/viewer-core/plugins.ts ba538bd6eeeee5a6a245836f202caf20c8677530
 src/frontend/src/viewer-core/scene.ts 04edd3c64026ce95361a940ea83f9170415f6f36

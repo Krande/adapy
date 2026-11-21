@@ -776,7 +776,11 @@
 //   1.35.0 Kept in step with PLUGIN_API_VERSION 1.35.0. Additive: batches of simulation runs --
 //          `StartSimulationBody.batch`, `SimulationRun.batch`, `simulationsApi.listBatches` and
 //          `.listRunsPage`. See PLUGIN_API_VERSION's 1.35.0 note.
-export const VIEWER_CORE_API_VERSION = "1.35.0";
+//   1.36.0 Kept in step with PLUGIN_API_VERSION 1.36.0. Additive: per-element associations --
+//          `SelectionSnapshot.nodes` / `.group_id` and the type `ElementNodeRef` on the root;
+//          `queryElementLinks`, `elementLinks`, `elementLinksApi`, `latestRun`, `useElementLinks`
+//          and their types on `/app`. See PLUGIN_API_VERSION's 1.36.0 note.
+export const VIEWER_CORE_API_VERSION = "1.36.0";
 
 // ---------------------------------------------------------------------------
 // Plugin declaration. `registerPlugin` is how a package announces itself —
@@ -1205,7 +1209,7 @@ export {
   providersFor,
   registerPropertyProvider,
 } from "@/plugins/propertyProviders";
-export type { PropertyProvider, SelectionSnapshot } from "@/plugins/propertyProviders";
+export type { ElementNodeRef, PropertyProvider, SelectionSnapshot } from "@/plugins/propertyProviders";
 export {
   alertDialog,
   confirmDialog,

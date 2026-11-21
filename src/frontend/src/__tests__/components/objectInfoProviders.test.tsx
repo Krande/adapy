@@ -31,11 +31,15 @@ test("core's sections keep their order and rules", () => {
         CORE_PROPERTY_PROVIDERS.map((p) => p.id),
         [
             "selection-summary", "clash-contact", "fem-concepts", "source-jump", "object-metadata", "fea-element", "fea-sets", "indexed-attributes",
-            "related", "tree-node", "cellbuilder-item", "cellbuilder-structure",
+            "related", "element-links", "tree-node", "cellbuilder-item", "cellbuilder-structure",
         ],
     );
     const ids = (sel: Snapshot) => providersFor(sel, CORE_PROPERTY_PROVIDERS, []).map((p) => p.id);
     assert.deepEqual(ids(none), ["clash-contact", "fem-concepts", "source-jump", "indexed-attributes", "related", "tree-node"]);
+    // The Results section: only for a selection of nodes of a stored model.
+    const nodes = [{ key: "file:m.ifc#p:RACK" }];
+    assert.ok(ids({ ...none, kind: "mesh", name: "e", meshName: "e", count: 1, nodes }).includes("element-links"));
+    assert.ok(!ids({ ...none, kind: "mesh", name: "e", meshName: "e", count: 1 }).includes("element-links"));
     assert.ok(ids({ ...none, hasEntities: true }).includes("selection-summary"), "the summary stays while the scene holds anything");
     const cell = ids({ ...none, kind: "cell", name: "c", meshName: "m", count: 1, cellBuilderActive: true });
     assert.deepEqual(cell, ["selection-summary", "clash-contact", "fem-concepts", "object-metadata", "tree-node", "cellbuilder-item"]);

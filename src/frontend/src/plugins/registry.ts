@@ -503,7 +503,23 @@ export type { SelectedObjectBox } from "@/viewport/api/viewportApi";
 //            `batch: "none"` the runs of no batch. `listRuns` takes the same options.
 //          All additive: an older core has neither call (a plugin that pages a batch asks first)
 //          and sends a body's `batch` on as it is; an older server ignores it.
-export const PLUGIN_API_VERSION = "1.35.0";
+// 1.36.0 — Per-element associations: what has been found, built and simulated under a node.
+//          - `SelectionSnapshot.nodes` (`ElementNodeRef[]`: the selection's members of stored models,
+//            folded to whole levels as a saved group folds them) and `SelectionSnapshot.group_id`
+//            (the saved group the selection is, while it is the selection Scene > Groups made).
+//          - `queryElementLinks(scope, {nodes | group_id | keys | cks, kinds, include_stale,
+//            latest_only, cursor, limit})` and `elementLinks(scope, key)` (@/viewer-core/app): the
+//            contacts, connections, welds, subjects and simulation runs under the nodes -- summary
+//            counts, rows grouped per connection (`ck`) with `stale` / `orphan` / `superseded` flags,
+//            a keyset `next`. `elementLinksApi.connection(scope, ck)`, `.makeSubjects(scope, body)`
+//            and `.startBatch(scope, {nodes | group_id | cks, provider, parameters, policy:
+//            "missing" | "failed" | "all", dry_run, batch, cursor})` -- one press is one batch, a
+//            connection is never queued twice.
+//          - `useElementLinks(scope, query, {limit, refreshMs})`: pages on `loadMore`, read again
+//            every 5 s while a run on them is queued or running.
+//          - The Selected Object panel's Results section (core `element-links`, order 55).
+//          All additive: an older server answers 404 to the calls (a plugin asks first).
+export const PLUGIN_API_VERSION = "1.36.0";
 
 /** What the Simulations panel writes on a run's open-result button. */
 export function openResultButtonLabel(

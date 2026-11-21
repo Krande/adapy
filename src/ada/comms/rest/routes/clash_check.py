@@ -45,7 +45,7 @@ from ..catalog import merge_catalog_specs
 from ..job_transport import JobRequest
 from ..queue import capability_token
 from ..scope import Scope
-from .deps import RestContext, rest_context, scope_from_path
+from .deps import RestContext, optional_pool, rest_context, scope_from_path
 
 router = APIRouter()
 
@@ -847,6 +847,7 @@ async def api_clash_detail(
             options=gen_options,
             job_id=submitted.job_id,
         ),
+        pool=optional_pool(request),
     )
     return JSONResponse(
         {
@@ -884,6 +885,7 @@ def _require_detail_id(detail_id: str) -> str:
 
 @router.get("/scopes/{scope}/clash-detail/models")
 async def api_clash_detail_models(
+    request: Request,
     limit: int = clash_details.KEEP,
     scope_obj: Scope = Depends(scope_from_path),
     ctx: RestContext = Depends(rest_context),
@@ -892,13 +894,14 @@ async def api_clash_detail_models(
     convex-contact run, each with what it was made from, its spec, how it ended (``status``: queued,
     running, done, error or cancelled), its counts once done, and the ``glb_key`` to load it by."""
     limit = max(1, min(int(limit), clash_details.KEEP))
-    models = await clash_details.list_models(ctx.storage, scope_obj, ctx.jobs, limit=limit)
+    models = await clash_details.list_models(ctx.storage, scope_obj, ctx.jobs, limit=limit, pool=optional_pool(request))
     return JSONResponse({"models": models})
 
 
 @router.get("/scopes/{scope}/clash-detail/models/{detail_id}")
 async def api_clash_detail_model(
     detail_id: str,
+    request: Request,
     joint_ids: str | None = None,
     scope_obj: Scope = Depends(scope_from_path),
     ctx: RestContext = Depends(rest_context),
@@ -914,7 +917,7 @@ async def api_clash_detail_model(
     from .. import clash_inspect
 
     _require_detail_id(detail_id)
-    found = await clash_details.read_model(ctx.storage, scope_obj, ctx.jobs, detail_id)
+    found = await clash_details.read_model(ctx.storage, scope_obj, ctx.jobs, detail_id, pool=optional_pool(request))
     if found is None:
         raise HTTPException(status_code=404, detail=f"no detail model {detail_id!r}")
     record, stats = found

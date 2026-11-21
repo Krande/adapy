@@ -50,6 +50,7 @@ from .routes.deps import (  # noqa: F401 — _merge_spec re-exported for tests/i
     publish_capability_requirements,
     refresh_worker_registry,
 )
+from .routes.element_links import router as element_links_router
 from .routes.equipment_types import router as equipment_types_router
 from .routes.export_selection import router as export_selection_router
 from .routes.fea import router as fea_router
@@ -232,6 +233,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 background_tasks.job_cleanup_loop(queue),
                 name="job-kv-cleanup",
             )
+        # Element links of simulation runs still queued or running follow their runs (assoc_links):
+        # a run nobody looks at still ends in its links. With or without a database.
+        from .assoc_links import sweeper_loop
+
+        app.state.assoc_sweeper_task = asyncio.create_task(
+            sweeper_loop(storage, rest_ctx.jobs, app.state.db_pool),
+            name="assoc-sweeper",
+        )
         # `ada dev connections`: the library's host process and file watcher (dev_connections.py).
         if app.state.dev_connections is not None:
             app.state.dev_connections.start()
@@ -250,6 +259,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "worker_prune_task",
             "worker_registry_task",
             "job_cleanup_task",
+            "assoc_sweeper_task",
         ):
             task = getattr(app.state, attr, None)
             if task is not None and not task.done():
@@ -432,6 +442,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # Simulation providers and runs (routes/simulations.py): ``/simulation/providers`` and
     # ``/scopes/{scope}/simulations...``, neither colliding with a fixed/parameterised sibling.
     api.include_router(simulations_router)
+    # Per-element associations: links under a node, subjects and batches of runs (routes/element_links.py).
+    api.include_router(element_links_router)
 
     # A selection as a STEP/IFC download (routes/export_selection.py). One fixed path,
     # ``/scopes/{scope}/export-selection``, with no parameterised sibling to collide with.

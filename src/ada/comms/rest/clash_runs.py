@@ -6,6 +6,9 @@ LIGHT ON PURPOSE: stdlib plus ``ada.clash.sidecar``, so the slim API can store a
 without the modelling stack. A run goes to its sidecar key (``ada.clash.sidecar.run_key``) and a line
 for it into its target's index; the index is read-modify-write and last write wins, the ``_groups/``
 precedent -- two runs finishing in the same instant can drop a line from the listing, never a run.
+
+Its contacts are filed under their elements too (``assoc_links``: two rows per clash), with the keys
+its annotate resolved (``provenance.elements``) or, before that, by member name.
 """
 
 from __future__ import annotations
@@ -13,6 +16,8 @@ from __future__ import annotations
 import json
 
 from ada.clash.sidecar import ContactRun, index_key, index_with, parse_run
+
+from .assoc_links import store_run_links, store_run_links_sync
 
 __all__ = ["index_update", "write_run_and_index", "write_run_and_index_sync"]
 
@@ -22,8 +27,9 @@ def index_update(run: ContactRun, run_key: str, current: bytes | None) -> tuple[
     return index_key(run.target), json.dumps(index_with(current, run.summary(run_key))).encode("utf-8")
 
 
-async def write_run_and_index(storage, scope, run_key: str, run_bytes: bytes) -> ContactRun:
-    """Store a run (async storage) and record it in its target's index. Returns the parsed run."""
+async def write_run_and_index(storage, scope, run_key: str, run_bytes: bytes, *, pool=None) -> ContactRun:
+    """Store a run (async storage), record it in its target's index and file its contacts (in
+    Postgres too with ``pool``). Returns the parsed run."""
     run = parse_run(run_bytes)
     await storage.put_bytes(scope, run_key, run_bytes, content_encoding="gzip")
     key = index_key(run.target)
@@ -33,6 +39,7 @@ async def write_run_and_index(storage, scope, run_key: str, run_bytes: bytes) ->
         current = None
     key, data = index_update(run, run_key, current)
     await storage.put_bytes(scope, key, data, content_encoding="gzip")
+    await store_run_links(storage, scope, run, run_key, pool=pool)
     return run
 
 
@@ -46,4 +53,5 @@ def write_run_and_index_sync(storage, run_key: str, run_bytes: bytes) -> Contact
         current = None
     key, data = index_update(run, run_key, current)
     storage.put_bytes(key, data, content_encoding="gzip")
+    store_run_links_sync(storage, run, run_key)
     return run

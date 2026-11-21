@@ -44,6 +44,7 @@ from ada.simulation.subjects import SUBJECT_KINDS
 
 from .. import auth as auth_module
 from .. import pending_uploads
+from ..assoc_links import sim_run_link
 from ..auth import User
 from ..job_transport import JobRequest
 from ..scope import Scope
@@ -63,7 +64,13 @@ from ..simulation_runs import (
     write_batch_member,
     write_run,
 )
-from .deps import RestContext, pending_upload_detail, rest_context, scope_from_path
+from .deps import (
+    RestContext,
+    optional_pool,
+    pending_upload_detail,
+    rest_context,
+    scope_from_path,
+)
 
 router = APIRouter()
 
@@ -194,6 +201,13 @@ async def api_simulation_start(
     (409), parameters that do not fit the provider's schema (400, naming each problem), a
     subject of an unknown kind or one the provider does not accept (400), an input or subject
     that is missing (404) or still uploading (409)."""
+    return JSONResponse({"run": await start_run(ctx, request, user, scope_obj, body)})
+
+
+async def start_run(ctx: RestContext, request: Request, user: User, scope_obj: Scope, body: dict) -> dict:
+    """Start one run as ``user`` (``POST .../simulations``'s whole work) and return its record, with
+    its ``job_id``. HTTPException for anything the route refuses. A run on a connection's subject is
+    filed under the connection's elements as queued (``assoc_links.sim_run_link``)."""
     provider_id = body.get("provider")
     if not isinstance(provider_id, str) or not provider_id:
         raise HTTPException(status_code=400, detail="'provider' (a simulation provider id) is required")
@@ -263,7 +277,8 @@ async def api_simulation_start(
             target_format=KIND,
             status="queued",
         )
-        return JSONResponse({"run": record})
+        await sim_run_link(ctx.storage, scope_obj, record, pool=optional_pool(request))
+        return record
 
     record = new_run_record(
         run_id=new_run_id(),
@@ -321,7 +336,9 @@ async def api_simulation_start(
         raise
     # In-process the job has already started and stamps its own id on the record; the answer
     # carries it either way.
-    return JSONResponse({"run": {**record, "job_id": submitted.job_id, "cancel_requested": False}})
+    started = {**record, "job_id": submitted.job_id, "cancel_requested": False}
+    await sim_run_link(ctx.storage, scope_obj, started, pool=optional_pool(request))
+    return started
 
 
 def _statuses_from(raw: str | None) -> frozenset[str] | None:
@@ -458,8 +475,12 @@ async def _view(ctx: RestContext, request: Request, scope_obj: Scope, record: di
                 detail=f"run {record['run_id']} was handed to {record['remote'].get('url')}, "
                 "but no remote Ada Studio is configured (ADA_SIMULATION_REMOTE_URL)",
             )
-        return await relay.view(ctx.storage, scope_obj, record, strict=strict)
-    return await run_view(ctx.storage, scope_obj, ctx.jobs, record)
+        view = await relay.view(ctx.storage, scope_obj, record, strict=strict)
+    else:
+        view = await run_view(ctx.storage, scope_obj, ctx.jobs, record)
+    # A run on a connection's subject: its links follow its status (filed again only when it moves).
+    await sim_run_link(ctx.storage, scope_obj, view, pool=optional_pool(request))
+    return view
 
 
 async def _require_run(ctx: RestContext, scope_obj: Scope, run_id: str) -> dict:

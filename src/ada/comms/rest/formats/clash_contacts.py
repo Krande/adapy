@@ -30,16 +30,21 @@ The work itself is :func:`contacts_work`, a plain function the queue-less viewer
 
 from __future__ import annotations
 
-import hashlib
 import json
 import pathlib
 import shutil
-import tempfile
 import traceback as tb_module
 from typing import Callable
 
+from ada.clash.rebuild import (
+    RebuildError,
+    check_geometry_unchanged,
+    load_target_model,
+    rebuild_run_members,
+)
 from ada.config import logger
 
+from ..assoc_links import store_source_states, store_subject_links
 from ..clash_runs import write_run_and_index
 from ..queue import JOB_STATUS_DONE, JOB_STATUS_ERROR, Job
 from ..worker.audit import _audit_done
@@ -48,7 +53,7 @@ from .clash_isolation import run_clash_work
 from .registry import JobContext, SyntheticFormatHandler
 
 CLASH_CONTACTS_KIND = "clash_contacts"
-CONTACT_MODES = ("check", "annotate", "detail")
+CONTACT_MODES = ("check", "annotate", "detail", "subjects")
 
 __all__ = [
     "CLASH_CONTACTS_KIND",
@@ -59,167 +64,13 @@ __all__ = [
 ]
 
 
-class ContactsJobError(ValueError):
+class ContactsJobError(RebuildError):
     """A request the job cannot answer; its message is the whole story."""
 
 
-def load_target_model(target: dict, storage):
-    """The model a run's target names, rebuilt with the members a builder needs.
-
-    A file is read with the full reader (``ada_load._load_with_ada``): its members carry the names the
-    viewer GLB was written with (the native IFC -> GLB stream names products as ``ada.from_ifc`` does),
-    which is what a run's member names are bound against. A published node is read by its provider.
-    """
-    kind = target.get("kind")
-    if kind == "file":
-        from ..converters.ada_load import _load_with_ada
-
-        source_key = str(target.get("source_key") or "")
-        if not source_key:
-            raise ContactsJobError("a file target needs its source_key")
-        suffix = pathlib.PurePosixPath(source_key).suffix.lower()
-        with tempfile.TemporaryDirectory() as tmp:
-            path = pathlib.Path(tmp) / f"source{suffix}"
-            storage.fetch_to_path(source_key, path)
-            return _load_with_ada(path, suffix)
-    if kind == "node":
-        from ada.clash.from_asset import part_for_asset_node
-
-        return part_for_asset_node(
-            collection=str(target["collection"]),
-            subject=str(target["subject"]),
-            storage=storage,
-            revision=target.get("revision") or None,
-            node=target.get("node") or None,
-        )
-    raise ContactsJobError(f"a clash run over a {kind!r} target cannot be rebuilt into members")
-
-
-def _load_part_models(run, storage) -> list:
-    """One rebuilt model per part of a GROUP run, each by the loader its own target needs; ``None``
-    for a part that does not rebuild (its members stay unbound). Raises when no part rebuilds."""
-    models, errors = [], []
-    for k, part in enumerate(run.parts):
-        try:
-            models.append(load_target_model(dict(part["source"]), storage))
-        except Exception as exc:  # noqa: BLE001 - one model that does not rebuild is not all of them
-            logger.warning(f"clash contacts: part {k} ({part.get('key')}) of run {run.run_id} did not rebuild: {exc}")
-            models.append(None)
-            errors.append(f"part {k}: {type(exc).__name__}: {exc}")
-    if all(m is None for m in models):
-        raise ContactsJobError("no model of this group rebuilt: " + "; ".join(errors))
-    return models
-
-
-def _normal_target(target) -> dict:
-    """A member target as ``ada.clash.group`` normalises it -- so a run's part source and its group's
-    members compare as one identity (an unnamed node IS its subject)."""
-    from ada.clash.group import normalise_group
-
-    return normalise_group({"members": [{"target": dict(target)}]})["members"][0]["target"]
-
-
-def _provider_group_model(group: dict, storage, geometry_provider: str):
-    """``group``'s model read from ``geometry_provider``'s publish of the same elements -- the classic
-    check's group builder, so a member matched here is matched there. Returns the ``GroupModel``."""
-    from ada.clash.group import normalise_group
-    from ada.clash.group_model import build_group_model
-
-    return build_group_model(normalise_group(group), storage=storage, geometry_provider=geometry_provider)
-
-
-def _load_through_provider(run, storage, geometry_provider: str) -> tuple[object, dict]:
-    """The model(s) a run's members bind in, read from ``geometry_provider`` rather than each member's
-    own provider (``ClashOptions.geometry_provider``'s rule, applied to a stored run), and what to
-    record about it: ``{geometry_provider, geometry_remap, geometry_unmatched, geometry_warnings}``.
-
-    A node run is its node re-addressed; a GROUP run rebuilds one model per part, from the group's
-    members in that part (or, when none is recorded, the part's whole source) -- each member then
-    binds in its own part's model, as without a provider. Raises when nothing rebuilds."""
-    from ada.clash.geometry_source import node_group
-
-    remapped: list = []
-    unmatched: list = []
-    warnings: list[str] = []
-
-    def built(group: dict):
-        out = _provider_group_model(group, storage, geometry_provider)
-        if out.remap is not None:
-            remapped.extend(out.remap.remapped)
-            unmatched.extend(out.remap.unmatched)
-        warnings.extend(out.warnings)
-        return out.model
-
-    if run.target.get("kind") == "group":
-        members = list((run.group or {}).get("members") or ())
-        models, errors, causes = [], [], []
-        for k, part in enumerate(run.parts):
-            source = _normal_target(part["source"])
-            mine = [m for m in members if _normal_target(m["target"]) == source]
-            group = {"name": f"part {k}", "members": mine or [{"target": source}]}
-            try:
-                models.append(built(group))
-            except Exception as exc:  # noqa: BLE001 - one part that does not rebuild is not all of them
-                logger.warning(
-                    f"clash contacts: part {k} of run {run.run_id} not read from {geometry_provider!r}: {exc}"
-                )
-                models.append(None)
-                causes.append(exc)
-                errors.append(f"part {k}: {type(exc).__name__}: {exc}")
-        if all(m is None for m in models):
-            failure = ContactsJobError(
-                f"no model of this group was read from {geometry_provider!r}: " + "; ".join(errors)
-            )
-            failure.parts = tuple(causes)
-            raise failure
-        model = models
-    elif run.target.get("kind") == "node":
-        t = run.target
-        model = built(
-            node_group(
-                provider=str(t.get("provider") or ""),
-                collection=str(t["collection"]),
-                subject=str(t["subject"]),
-                revision=str(t.get("revision") or "") or None,
-                node=t.get("node") or None,
-            )
-        )
-    else:
-        raise ContactsJobError(f"a {run.target.get('kind')!r} target has no provider to read geometry from")
-    return model, {
-        "geometry_provider": geometry_provider,
-        "geometry_remap": remapped,
-        "geometry_unmatched": unmatched,
-        **({"geometry_warnings": warnings[:50]} if warnings else {}),
-    }
-
-
-def _rebuild_members(run, storage, geometry_provider: str | None) -> tuple[object, dict]:
-    """The model(s) a run's members bind in, and what to record about where they were read from
-    (empty without a provider): through ``geometry_provider`` when one is named, else a group run's
-    one model per part, else its target's model. Annotate and detail rebuild alike, so a clash that
-    bound when its specs were resolved binds when it is detailed."""
-    if run.target.get("kind") == "file":
-        geometry_provider = None
-    if geometry_provider:
-        return _load_through_provider(run, storage, geometry_provider)
-    if run.target.get("kind") == "group":
-        return _load_part_models(run, storage), {}
-    return load_target_model(dict(run.target), storage), {}
-
-
-def _check_geometry_unchanged(run, storage) -> None:
-    """Refuse a run whose measured GLB(s) changed since: its stored clashes would describe geometry
-    that is no longer there. A group run checks each of its parts."""
-    parts = run.parts or ({"key": run.geometry.get("key"), "sha256": run.geometry.get("sha256")},)
-    for part in parts:
-        key = str(part.get("key") or "")
-        if key and hashlib.sha256(storage.get_bytes(key)).hexdigest() != part.get("sha256"):
-            raise ContactsJobError(
-                f"the geometry of this run has changed since it was checked ({key}): run the clash "
-                "check again before detailing from it"
-            )
-
+# Moved to ``ada.clash.rebuild`` (public there); the old names stay for callers that import them here.
+_rebuild_members = rebuild_run_members
+_check_geometry_unchanged = check_geometry_unchanged
 
 #: Provenance one annotate writes about where its members were read from; dropped by the next.
 _GEOMETRY_PROVENANCE = ("geometry_provider", "geometry_remap", "geometry_unmatched", "geometry_warnings")
@@ -260,7 +111,7 @@ def _annotate(run, storage, capability_of, progress, geometry_provider: str | No
     if run.target.get("kind") == "file":
         geometry_provider = None
     try:
-        model, geometry = _rebuild_members(run, storage, geometry_provider)
+        model, geometry = rebuild_run_members(run, storage, geometry_provider)
     except Exception as exc:  # noqa: BLE001 - a run without specs is still a run
         logger.warning(f"clash contacts: specs not resolved, the target did not rebuild: {exc}")
         model, error = None, f"{type(exc).__name__}: {exc}"
@@ -281,9 +132,98 @@ def _annotate(run, storage, capability_of, progress, geometry_provider: str | No
     return replace(annotated, provenance=provenance)
 
 
+#: The most elements one annotate fingerprints for the element state (``ada.assoc``): beyond it the
+#: links are filed without fingerprints, and none of them reads as stale or orphaned.
+MAX_FINGERPRINTED = 250_000
+
+
+def _identified(run, storage, glb: bytes | None = None):
+    """``(run, states)``: the run with each member's element key, ancestors and fingerprint in
+    ``provenance["elements"]`` (``ada.assoc.resolve``), and one element-state snapshot per GLB it
+    measured. Best effort: a run whose GLB cannot be read keeps what it had, and no state."""
+    from dataclasses import replace
+
+    from ada.assoc.fingerprints import element_fingerprints
+    from ada.assoc.resolve import (
+        ELEMENTS_PROVENANCE,
+        glb_json,
+        member_identities,
+        resolver_for,
+    )
+    from ada.assoc.store import utc_now
+    from ada.clash.sidecar import target_token
+
+    group = run.target.get("kind") == "group"
+    parts = list(run.parts) if group else [{"key": run.geometry.get("key"), "source": dict(run.target)}]
+    jsons, fps, states = [], [], []
+    seen_at = utc_now()
+    for k, part in enumerate(parts):
+        try:
+            data = glb if (glb is not None and not group) else storage.get_bytes(str(part.get("key") or ""))
+            js = glb_json(data)
+            by_id = element_fingerprints(data) if js else {}
+        except Exception as exc:  # noqa: BLE001 - a run is still a run without its element keys
+            logger.info(f"clash contacts: part {k} of run {run.run_id} not fingerprinted: {exc}")
+            jsons.append(None)
+            fps.append(None)
+            continue
+        jsons.append(js)
+        fps.append(by_id)
+        if not by_id or len(by_id) > MAX_FINGERPRINTED:
+            continue
+        target = dict(part["source"])
+        resolver = resolver_for(target, js)
+        keyed: dict[str, str] = {}
+        for eid, fp in by_id.items():
+            try:
+                keyed[resolver.identity(eid)[0]] = fp
+            except (KeyError, ValueError):
+                continue
+        states.append(
+            {
+                "source": target_token(target),
+                "seen_at": seen_at,
+                "revision": target.get("revision"),
+                "geometry_sha256": part.get("sha256") or run.geometry.get("sha256"),
+                "fps": keyed,
+            }
+        )
+    identities = member_identities(run, jsons if group else jsons[0], fps if group else fps[0])
+    provenance = {**dict(run.provenance), ELEMENTS_PROVENANCE: identities}
+    return replace(run, provenance=provenance), states
+
+
+def _run_outputs(run, storage, glb: bytes | None = None) -> dict[str, bytes]:
+    run, states = _identified(run, storage, glb)
+    out = {"run": run.to_json().encode("utf-8")}
+    if states:
+        out["states"] = json.dumps(states).encode("utf-8")
+    return out
+
+
+def _subjects_work(opts: dict, storage, progress) -> dict[str, bytes]:
+    """``subjects``: write the simulation subject of every built connection of a detail model (or of
+    the ``cks`` named), rebuilding its members and joints (``ada.clash.subjects``)."""
+    from ada.clash.subjects import weld_assemblies_for_detail
+
+    from ..clash_details import detail_paths, parse_record
+
+    paths = detail_paths(str(opts.get("detail_id") or ""))
+    progress("record", 0.1)
+    record = parse_record(storage.get_bytes(paths.record))
+    stats = json.loads(storage.get_bytes(paths.stats))
+    progress("subjects", 0.3)
+    cks = [str(c) for c in opts.get("cks") or ()] or None
+    out = weld_assemblies_for_detail(record, stats, storage, record_key=paths.record, cks=cks)
+    for s in out["subjects"]:
+        s["members"] = [list(m) for m in s["members"]]
+    return {"subjects": json.dumps(out).encode("utf-8")}
+
+
 def contacts_work(opts: dict, storage, progress: Callable[[str, float], None], capability_of=None) -> dict[str, bytes]:
-    """One ``clash_contacts`` job's work. Returns its outputs by name: ``run`` (the run document) for
-    ``check`` / ``annotate``; ``glb`` and ``stats`` for ``detail``."""
+    """One ``clash_contacts`` job's work. Returns its outputs by name: ``run`` (the run document) and
+    ``states`` (its element fingerprints, ``ada.assoc``) for ``check`` / ``annotate``; ``glb`` and
+    ``stats`` (and ``subjects`` with ``make_subjects``) for ``detail``; ``subjects`` for ``subjects``."""
     from ada.clash.contacts import check_glb, founds_by_id
     from ada.clash.sidecar import parse_run
 
@@ -307,7 +247,10 @@ def contacts_work(opts: dict, storage, progress: Callable[[str, float], None], c
         # asking the user about; resolving the specs here first would be a read thrown away.
         if opts.get("annotate", True):
             run = _annotate(run, storage, capability_of, progress, opts.get("geometry_provider") or None)
-        return {"run": run.to_json().encode("utf-8")}
+        return _run_outputs(run, storage, glb)
+
+    if mode == "subjects":
+        return _subjects_work(opts, storage, progress)
 
     run_key = str(opts.get("run_key") or "")
     if not run_key:
@@ -316,7 +259,7 @@ def contacts_work(opts: dict, storage, progress: Callable[[str, float], None], c
 
     if mode == "annotate":
         annotated = _annotate(run, storage, capability_of, progress, opts.get("geometry_provider") or None)
-        return {"run": annotated.to_json().encode("utf-8")}
+        return _run_outputs(annotated, storage)
 
     if mode != "detail":
         raise ContactsJobError(f"unknown clash_contacts mode {mode!r} (one of {', '.join(CONTACT_MODES)})")
@@ -339,9 +282,9 @@ def contacts_work(opts: dict, storage, progress: Callable[[str, float], None], c
         ) from exc
 
     progress("geometry", 0.1)
-    _check_geometry_unchanged(run, storage)
+    check_geometry_unchanged(run, storage)
     progress("members", 0.3)
-    model, _geometry = _rebuild_members(run, storage, opts.get("geometry_provider") or None)
+    model, _geometry = rebuild_run_members(run, storage, opts.get("geometry_provider") or None)
     by_id, problems = founds_by_id(run, model, ids)
     if not by_id:
         raise ContactsJobError(
@@ -349,6 +292,10 @@ def contacts_work(opts: dict, storage, progress: Callable[[str, float], None], c
             + "; ".join(f"{cid}: {why}" for cid, why in problems.items())
         )
     progress("detail", 0.55)
+    from ada.assoc.rows import connection_ck, member_identities_of
+
+    identities = member_identities_of(run)
+    built: list = []
     glb_bytes, stats = build_detail(
         registered,
         spec_name=spec_name,
@@ -356,6 +303,8 @@ def contacts_work(opts: dict, storage, progress: Callable[[str, float], None], c
         by_id=by_id,
         gen_options=dict(opts.get("options") or {}),
         on_progress=detail_progress(progress),
+        ck_of=lambda rec: connection_ck(rec, run=run, identities=identities),
+        keep_built=built,
     )
     if problems:
         stats.setdefault("skipped", []).extend(f"{cid}: {why}" for cid, why in problems.items())
@@ -364,7 +313,37 @@ def contacts_work(opts: dict, storage, progress: Callable[[str, float], None], c
             {"joint_id": cid, "kind": "failed", "reason": why, "declined": []} for cid, why in problems.items()
         )
     stats["run_id"] = run.run_id
-    return {"glb": glb_bytes, "stats": json.dumps(stats).encode("utf-8")}
+    out = {"glb": glb_bytes, "stats": json.dumps(stats).encode("utf-8")}
+    if opts.get("make_subjects") and opts.get("detail_id"):
+        # The subjects of the connections just built, made of these very objects (``ada.clash.subjects``).
+        from ada.clash.subjects import weld_assemblies_for_detail
+
+        from ..clash_details import detail_paths
+
+        paths = detail_paths(str(opts["detail_id"]))
+        record = {
+            "detail_id": paths.detail_id,
+            "spec": spec_name,
+            "source": {"kind": "run", "run_key": run_key},
+            "options": dict(opts.get("options") or {}),
+        }
+        try:
+            made = weld_assemblies_for_detail(record, stats, storage, record_key=paths.record, run=run, built=built)
+        except Exception as exc:  # noqa: BLE001 - the model is made; its subjects can be made again
+            logger.warning(f"clash contacts: the subjects of detail {paths.detail_id} were not made: {exc}")
+            made = {"subjects": [], "errors": [{"ck": None, "error": f"{type(exc).__name__}: {exc}"}]}
+        for s in made["subjects"]:
+            s["members"] = [list(m) for m in s["members"]]
+        out["subjects"] = json.dumps(made).encode("utf-8")
+    return out
+
+
+async def _store_subjects(ctx, out_dir: pathlib.Path) -> None:
+    """File the subjects a job made (its ``subjects`` output), when it made any."""
+    path = out_dir / "subjects"
+    if path.exists():
+        made = json.loads(path.read_bytes())
+        await store_subject_links(ctx.storage, ctx.scope, made.get("subjects") or (), pool=ctx.db_pool)
 
 
 class ClashContactsHandler(SyntheticFormatHandler):
@@ -385,7 +364,7 @@ class ClashContactsHandler(SyntheticFormatHandler):
         if mode not in CONTACT_MODES:
             await _fail("clash", f"clash_contacts needs a mode, one of {', '.join(CONTACT_MODES)} (got {mode!r})")
             return
-        capability_of = await _capability_of_factory(ctx.queue) if mode != "detail" else None
+        capability_of = await _capability_of_factory(ctx.queue) if mode in ("check", "annotate") else None
 
         def _work(out_dir: pathlib.Path, storage, progress) -> None:
             for name, data in contacts_work(opts, storage, progress, capability_of).items():
@@ -419,8 +398,20 @@ class ClashContactsHandler(SyntheticFormatHandler):
                 await ctx.storage.put_bytes(
                     ctx.scope, job.derived_key, (out_dir / "stats").read_bytes(), content_encoding="gzip"
                 )
+                await _store_subjects(ctx, out_dir)
+            elif mode == "subjects":
+                await ctx.storage.put_bytes(
+                    ctx.scope, job.derived_key, (out_dir / "subjects").read_bytes(), content_encoding="gzip"
+                )
+                await _store_subjects(ctx, out_dir)
             else:
-                await write_run_and_index(ctx.storage, ctx.scope, job.derived_key, (out_dir / "run").read_bytes())
+                await write_run_and_index(
+                    ctx.storage, ctx.scope, job.derived_key, (out_dir / "run").read_bytes(), pool=ctx.db_pool
+                )
+                if (out_dir / "states").exists():
+                    await store_source_states(
+                        ctx.storage, ctx.scope, json.loads((out_dir / "states").read_bytes()), pool=ctx.db_pool
+                    )
         except Exception as exc:
             logger.exception("worker: clash_contacts upload failed for job %s", job.job_id)
             await _fail("upload", str(exc), tb_module.format_exc())
