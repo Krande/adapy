@@ -112,11 +112,11 @@ test("an entry is namespaced to its plugin, and a plugin without any has an empt
 test("an entry naming neither a provider nor a domain is ignored", () => {
   registerPlugin({ id: "alpha", simulationProviders: [{ id: "everything", openResult: open }] });
   assert.deepEqual(getRegisteredPlugins()[0].simulationProviders, []);
-  assert.deepEqual(resolveSimulationProviderUi(fakeCtx(), ARM), { parameters: null, openResult: null });
+  assert.deepEqual(resolveSimulationProviderUi(fakeCtx(), ARM), { parameters: null, openResult: null, mode: null });
 });
 
 test("with nothing registered, core's own form and download list are used", () => {
-  assert.deepEqual(resolveSimulationProviderUi(fakeCtx(), ARM), { parameters: null, openResult: null });
+  assert.deepEqual(resolveSimulationProviderUi(fakeCtx(), ARM), { parameters: null, openResult: null, mode: null });
 });
 
 test("a domain entry serves every provider of that kind, and no other kind", () => {
@@ -129,7 +129,7 @@ test("a domain entry serves every provider of that kind, and no other kind", () 
   assert.equal(arm.openResult?.pluginId, "robots");
   const other = resolveSimulationProviderUi(fakeCtx(), { id: "second-arm-sim", domain: "robotics" });
   assert.equal(other.openResult?.ui.id, "robots:any");
-  assert.deepEqual(resolveSimulationProviderUi(fakeCtx(), BEAM), { parameters: null, openResult: null });
+  assert.deepEqual(resolveSimulationProviderUi(fakeCtx(), BEAM), { parameters: null, openResult: null, mode: null });
 });
 
 test("a provider-id entry beats a domain entry, whatever their order", () => {

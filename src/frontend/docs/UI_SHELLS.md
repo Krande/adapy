@@ -323,7 +323,14 @@ Layout state helpers on `@/viewer-core/layout`: `resetArrangement`, `saveWorkspa
 | | Output | `Mode.TopologyOutput` |
 | Fem | Model | `Mode.FemModel` |
 | | Results | `Mode.FemResults` |
-| Construction | Fabrication-cad | `Mode.ConstructionFabrication` |
+| Construction | Stock (planned) | `Mode.ConstructionStock` |
+| | Fabrication-cad | `Mode.ConstructionFabrication` |
+| | Robot-sim (weld): the robot cell, cutting and welding | `Mode.ConstructionRobotSim` |
+| | Installation-sim: the assembly cell | `Mode.ConstructionInstallationSim` |
+
+Construction is a chain of phases in work order. A **planned** mode (`CoreModeDef.status: "planned"`,
+`isPlannedMode`) is named so a UI can show where it will sit, greyed (`coreModesIn(ModeGroup.Construction)`
+lists the heading's modes, planned ones included); core never offers it, even when a shell lists it.
 
 Code names a mode by its constant, never by a string: the string is only how a mode is stored (a
 `?mode=` link, the remembered mode, a saved layout). A plugin's mode (`PluginModeSpec`) joins a heading
@@ -337,6 +344,19 @@ A composed shell offers the modes it wants (`layout.modes`) and gives each a `be
 | `sceneColor` | `"own"`: core sets the FEA field colouring aside while the mode is active. `"results"`: shown. | the mode's `ownsSceneColor` |
 | `deformation` | Draw the FEA model deformed. | the mode's `showsDeformation` |
 | `scene` | `{draws(model)}`: which loaded models the mode draws. Core applies it reversibly: what a model's visibility was before is what it goes back to, and a model the user shows or hides by hand is theirs until the mode changes. | every model, untouched |
+| `simulations` | `{domain, ownProviders, empty}`: what the Simulations panel lists in the mode -- one domain's providers and runs, only the providers whose plugin UI declares this mode (`SimulationProviderUi.mode`), and what it says when none is left. | everything |
+
+Some of core's modes have a default behaviour of their own (`CoreModeDef.behaviour`), which a shell's
+`behaviour` overrides field by field (`withCoreBehaviour`). Robot-sim (weld) and Installation-sim
+default to `builder: "away"`, `sceneColor: "own"`, `deformation: false` and
+`simulations: {domain: "robotics", ownProviders: true, empty}`: every loaded model is drawn (the
+replayed cell and the subject it works on), and the panel lists that cell's providers only.
+
+A simulation provider's UI says which mode its runs belong to (`SimulationProviderUi.mode`): the
+Simulations panel switches there before it opens a run's result, where the UI on screen offers it.
+A plugin may follow through on something the user did the same way with `ctx.modes.activate(id,
+{reason})` (`ctx.modes.active`, `.offered(id)`, `.subscribe(cb)`); in core's own UI, which has no
+modes, it returns false and changes nothing. It is never for switching by itself.
 
 A plugin's mode may carry a `behaviour` of its own; the shell's `modeArrangements[id].behaviour` wins,
 field by field.

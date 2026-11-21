@@ -21,6 +21,7 @@ export { type PluginRegion, type PluginDockId, type PluginModeId, type PluginMod
 export { type SceneColorFieldResult, type SceneColor, type SceneOverlay, type SceneLines, type SceneElementOutline, type SceneLabel, type SceneLabelOptions, type SceneElementPaint, type SceneLayerRef, type SceneLayerLook, type SceneLineLayerSpec, type SceneLineLayer, type ScenePointLayerSpec, type ScenePointLayer, type SceneImageRect, type SceneImageSpec, type SceneImage, type SceneModelSource, type SceneModelPose, type SidecarFetcher, type SceneHandle, type SceneCleared, type SceneGroupLoad, type SceneGroupLoadOptions, type SceneBox, type SceneFace, type SceneObjectMatch } from "./registryTypes/scene";
 export { type PluginPlaybackTrack, type PluginPlaybackTrackHandle, type PluginPlaybackState, type PluginPlayback, type PluginLayerState, type PluginLayers, type PluginSimulationSubject, type PluginSimulationSubjectHandle, type PluginSimulations } from "./registryTypes/playback";
 export type { ScenePick, ScenePickOptions, ScenePickSession } from "./scenePicks";
+export type { PluginModes, PluginModeActivateOptions } from "./pluginModes";
 export type { SceneHighlight, SceneHighlightOptions, SceneHighlightRef } from "./sceneHighlights";
 export type {
   SceneContact,
@@ -469,7 +470,31 @@ export type { SelectedObjectBox } from "@/viewport/api/viewportApi";
 //            in the scene's own coordinates. For a tool that asks where a view is seen from. On either
 //            viewport; `end()` (or `scene.remove(owner)`) takes it away.
 //          All additive: an older core ignores `resize` and `axes`, and has no `placeCamera`.
-export const PLUGIN_API_VERSION = "1.33.0";
+// 1.34.0 — Construction's phases, and a plugin asking for a mode.
+//          - `Mode` names the Construction chain in work order: `ConstructionStock` (planned:
+//            `CoreModeDef.status: "planned"`, `isPlannedMode`, `coreModesIn(group)`, so a UI can
+//            show it greyed; a planned mode a shell lists is never offered),
+//            `ConstructionFabrication`, `ConstructionRobotSim` ("Robot-sim (weld)", the robot cell:
+//            cutting and welding) and `ConstructionInstallationSim` ("Installation-sim", the
+//            assembly cell).
+//          - `CoreModeDef.behaviour`: core's default for a mode, which the offering UI's `behaviour`
+//            overrides field by field (`withCoreBehaviour`). The two simulation cells default to the
+//            builder `"away"`, `sceneColor: "own"`, no deformation, and
+//            `simulations: {domain: "robotics", ownProviders: true, empty}`.
+//          - `ModeBehaviour.simulations` ({domain, ownProviders, empty}): what the Simulations panel
+//            lists in the mode -- one domain's providers, only those whose UI declares the mode,
+//            and what it says when none is left.
+//          - `SimulationProviderUi.mode`: the mode a provider's runs belong to. The Simulations
+//            panel switches there before it opens a run's result (where the UI offers it);
+//            `resolveSimulationProviderUi(...).mode`.
+//          - `ctx.modes` (`PluginModes`): `active`, `offered(id)`, `activate(id, {reason})` and
+//            `subscribe(cb)`. For following through on what the user just did (they pressed Replay,
+//            say), never for switching by itself. In core's own UI (no modes) `active` is null and
+//            `activate` returns false. Optional on the context: an older core has none, so a plugin
+//            asks first (`ctx.modes?.activate(...)`) or reads `PLUGIN_API_VERSION` >= 1.34.0.
+//          - The Desktop UI offers Robot-sim (weld) and Installation-sim.
+//          All additive.
+export const PLUGIN_API_VERSION = "1.34.0";
 
 /** What the Simulations panel writes on a run's open-result button. */
 export function openResultButtonLabel(
@@ -1023,7 +1048,12 @@ export interface ResolvedSimulationUi {
 export function resolveSimulationProviderUi(
   ctx: AdaPluginContext,
   provider: { id: string; domain: string },
-): { parameters: ResolvedSimulationUi | null; openResult: ResolvedSimulationUi | null } {
+): {
+  parameters: ResolvedSimulationUi | null;
+  openResult: ResolvedSimulationUi | null;
+  /** The mode the provider's runs belong to (`SimulationProviderUi.mode`, 1.34.0); null for none. */
+  mode: string | null;
+} {
   const matches: Array<ResolvedSimulationUi & { rank: number; order: number }> = [];
   for (const p of _registry.values()) {
     if (!isActive(p, { ...ctx, pluginId: p.id })) continue;
@@ -1042,6 +1072,7 @@ export function resolveSimulationProviderUi(
   return {
     parameters: pick((ui) => typeof ui.renderParameters === "function"),
     openResult: pick((ui) => typeof ui.openResult === "function"),
+    mode: pick((ui) => typeof ui.mode === "string" && ui.mode !== "")?.ui.mode ?? null,
   };
 }
 

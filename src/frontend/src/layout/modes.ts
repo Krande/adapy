@@ -6,6 +6,10 @@
 // remembered mode, a saved layout). They are grouped under headings (`ModeGroup`): Topology, Fem,
 // Construction. A plugin's mode (`PluginModeSpec`) joins a group with `group`.
 //
+// Construction is a chain of phases, in work order: Stock (planned: named, so a UI can show it
+// greyed, but nothing does it yet), Fabrication-cad, Robot-sim (weld) -- the robot cell, cutting
+// and welding -- and Installation-sim -- the assembly cell. A planned mode is never offered.
+//
 // THE BEHAVIOUR IS EACH UI'S. Core's own (classic) UI has no modes, so nothing here ever applies to
 // it. A UI with modes (a composed shell: the Desktop UI, a plugin's) lists the modes it offers in
 // `UiShellLayout.modes` and gives each its `ModeBehaviour`. Core reacts to a mode ONLY through the
@@ -24,8 +28,17 @@ export const Mode = {
   FemModel: "fem-model",
   /** FEA results: fields, deformation, playback, the data table. */
   FemResults: "fem-results",
+  /** Planned: the stock material a fabrication is cut from. */
+  ConstructionStock: "construction-stock",
   /** The fabrication model: the compile's detailed CAD. */
   ConstructionFabrication: "construction-fabrication",
+  /** The robot cell: a simulation of cutting and welding the parts, its runs and their replay. */
+  ConstructionRobotSim: "construction-robot-sim",
+  /**
+   * The assembly cell: a simulation of putting the welded parts together with a crane or a large
+   * handler, and welding the assembly.
+   */
+  ConstructionInstallationSim: "construction-installation-sim",
 } as const;
 
 export type CoreModeId = (typeof Mode)[keyof typeof Mode];
@@ -52,14 +65,59 @@ export interface CoreModeDef {
   hint: string;
   /** Switcher order: work flows left to right. */
   order: number;
+  /**
+   * `"planned"`: named so a UI can show where it will sit (greyed, not offered); nothing does it
+   * yet. Default `"available"`.
+   */
+  status?: CoreModeStatus;
+  /**
+   * What the mode does when the UI offering it declares nothing for a field (`ModeBehaviour`):
+   * a UI's `behaviour` wins field by field. Most modes have none, and keep core's defaults.
+   */
+  behaviour?: ModeBehaviour;
 }
+
+/** Whether a mode can be offered yet. */
+export type CoreModeStatus = "available" | "planned";
+
+/** The domain the robot and installation simulations' providers are listed under. */
+export const ROBOTICS_SIMULATION_DOMAIN = "robotics";
+
+/**
+ * A simulation cell's default behaviour: the procedural model put away, the scene coloured by the
+ * mode's own content (no FEA field), undeformed, every loaded model drawn (the replayed cell and
+ * the subject it works on), and the Simulations panel listing the providers that declare the mode.
+ */
+const simulationCell = (empty: string): ModeBehaviour => ({
+  builder: "away",
+  sceneColor: "own",
+  deformation: false,
+  simulations: { domain: ROBOTICS_SIMULATION_DOMAIN, ownProviders: true, empty },
+});
 
 export const CORE_MODES: readonly CoreModeDef[] = [
   { id: Mode.TopologyInput, group: ModeGroup.Topology, label: "Input", order: 10, hint: "The procedural topology: cells, equipment, systems; compile it into Output" },
   { id: Mode.TopologyOutput, group: ModeGroup.Topology, label: "Output", order: 20, hint: "The compiled CAD model: properties, selection, tree, sections, quantities" },
   { id: Mode.FemModel, group: ModeGroup.Fem, label: "Model", order: 30, hint: "The FE model, meshed: elements, groups, properties — no results" },
   { id: Mode.FemResults, group: ModeGroup.Fem, label: "Results", order: 40, hint: "Post-process FEA results — fields, deformation, playback, data table" },
+  { id: Mode.ConstructionStock, group: ModeGroup.Construction, label: "Stock", order: 50, status: "planned", hint: "The stock material the parts are cut from (planned)" },
   { id: Mode.ConstructionFabrication, group: ModeGroup.Construction, label: "Fabrication-cad", order: 60, hint: "The fabrication model: the compile's detailed CAD" },
+  {
+    id: Mode.ConstructionRobotSim,
+    group: ModeGroup.Construction,
+    label: "Robot-sim (weld)",
+    order: 70,
+    hint: "The robot cell: simulate cutting and welding the parts with robots, follow the runs, replay one",
+    behaviour: simulationCell("No robot cell simulation provider is registered yet."),
+  },
+  {
+    id: Mode.ConstructionInstallationSim,
+    group: ModeGroup.Construction,
+    label: "Installation-sim",
+    order: 80,
+    hint: "The assembly cell: put the welded parts together with a crane or handler, and weld the assembly",
+    behaviour: simulationCell("No installation simulation provider yet."),
+  },
 ];
 
 /** The headings, in switcher order, with their labels. */
@@ -77,6 +135,26 @@ export function isCoreMode(id: string | null | undefined): id is CoreModeId {
 /** Core's definition of one of its modes; undefined for any other id. */
 export function coreModeDef(id: string | null | undefined): CoreModeDef | undefined {
   return id ? CORE_MODES.find((m) => m.id === id) : undefined;
+}
+
+/** Is `id` one of core's modes that nothing does yet (`CoreModeDef.status`). */
+export function isPlannedMode(id: string | null | undefined): boolean {
+  return coreModeDef(id)?.status === "planned";
+}
+
+/** Core's modes under heading `group`, in switcher order, planned ones included. */
+export function coreModesIn(group: ModeGroupId): readonly CoreModeDef[] {
+  return CORE_MODES.filter((m) => m.group === group).sort((a, b) => a.order - b.order);
+}
+
+/**
+ * A mode's behaviour: the UI's declared fields over core's default for the mode
+ * (`CoreModeDef.behaviour`), field by field. Undefined when neither says anything.
+ */
+export function withCoreBehaviour(id: string, declared: ModeBehaviour | undefined): ModeBehaviour | undefined {
+  const core = coreModeDef(id)?.behaviour;
+  if (!core) return declared;
+  return { ...core, ...declared };
 }
 
 // ---------------------------------------------------------------------------
@@ -128,6 +206,21 @@ export interface ModeBehaviour {
   deformation?: boolean;
   /** Which loaded models the mode draws. Default: all of them, untouched. */
   scene?: SceneScopeSpec;
+  /** What the Simulations panel lists while the mode is active. Default: everything. */
+  simulations?: ModeSimulations;
+}
+
+/** What the Simulations panel lists in a mode (`ModeBehaviour.simulations`). */
+export interface ModeSimulations {
+  /** Only the providers of this domain (`"robotics"`, ...), and their runs. */
+  domain?: string;
+  /**
+   * Only the providers whose plugin UI declares this mode (`SimulationProviderUi.mode`), and their
+   * runs: a cell's mode lists its own simulations, not another cell's of the same domain.
+   */
+  ownProviders?: boolean;
+  /** What the panel says when no provider is left to list. */
+  empty?: string;
 }
 
 /**

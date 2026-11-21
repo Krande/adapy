@@ -42,7 +42,7 @@ import {
   subscribeShellModes,
   type ShellMode,
 } from "./shellModes";
-import {coreModeDef} from "./modes";
+import {coreModeDef, isPlannedMode, withCoreBehaviour} from "./modes";
 
 /** Which loaded models the active mode draws: lazy, as it reads the scene's stores. */
 const ModeSceneScope = React.lazy(() => import("./ModeSceneScope").then((m) => ({default: m.ModeSceneScope})));
@@ -70,7 +70,8 @@ export function shellModes(spec: UiShellSpec): ShellMode[] {
   if (!own.length) return [];
   // The shell's own modes' toolbars run in the shell plugin's context.
   const shellPlugin = (spec as Partial<RegisteredUiShell>).pluginId;
-  const mine: ShellMode[] = own.map((m, i) => ({
+  // A planned mode (`CoreModeDef.status`) is named, never offered: nothing does it yet.
+  const mine: ShellMode[] = own.filter((m) => !isPlannedMode(m.id)).map((m, i) => ({
     id: m.id,
     // One of core's modes takes core's label, hint and heading unless the shell gives its own.
     label: m.label ?? coreModeDef(m.id)?.label ?? m.id,
@@ -79,7 +80,8 @@ export function shellModes(spec: UiShellSpec): ShellMode[] {
     icon: m.icon,
     order: m.order ?? i,
     pluginId: m.toolbar ? shellPlugin : undefined,
-    behaviour: m.behaviour,
+    // The shell's declared behaviour over core's default for the mode, field by field.
+    behaviour: withCoreBehaviour(m.id, m.behaviour),
     ownsSceneColor: m.ownsSceneColor,
     showsDeformation: m.showsDeformation,
     toolbar: m.toolbar,

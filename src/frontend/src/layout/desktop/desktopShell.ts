@@ -211,12 +211,28 @@ export function desktopUiShellSpec(): UiShellSpec {
           // The model is edited here: a pick stays in Properties whatever the builder draws after a compile.
           behaviour: { builder: "edit" },
         },
+        // Construction's simulation cells, under core's labels. Their behaviour is core's default
+        // (`CORE_MODES`): the builder put away, no FEA colouring or warp, and the Simulations panel
+        // listing the providers that declare the mode. The panel is open under the view, with
+        // storage beside the tree and the selected object on the right.
+        {
+          id: Mode.ConstructionRobotSim,
+          grid: DESKTOP_RESULTS_GRID,
+          open: [storage, objectInfo, simulation],
+          toolbars: ["playback", "representation", "colorBy"],
+        },
+        {
+          id: Mode.ConstructionInstallationSim,
+          grid: DESKTOP_RESULTS_GRID,
+          open: [storage, objectInfo, simulation],
+          toolbars: ["playback", "representation", "colorBy"],
+        },
       ],
       defaultMode: Mode.TopologyOutput,
       // The ids these modes had before they were core's: an old `?mode=` link or remembered mode lands on the mode it means.
       modeSwitching: { aliases: DESKTOP_MODE_ALIASES },
       // Raise when the arrangements above change, so saved ones start over.
-      version: 3,
+      version: 4,
     },
     panels: {
       // In the Build mode the toolbar carries undo / redo, compile and commit, so the panel leaves out its footer and undo / redo.

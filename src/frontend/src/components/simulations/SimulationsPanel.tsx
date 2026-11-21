@@ -19,11 +19,13 @@
 // It knows no engine. Everything specific to one is the server's description of the provider or
 // a plugin's registration.
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 
 import ErrorBoundary from "@/components/common/ErrorBoundary";
 import { PanelHeaderActions, usePanelHeaderActions } from "@/components/ui/PanelFrame";
+import { activeModeDef, activeShellMode, shellModesVersion, subscribeShellModes } from "@/layout/shellModes";
 import { makePluginContext } from "@/plugins/context";
+import { activateMode, modeOffered } from "@/plugins/pluginModes";
 import { openResultButtonLabel, resolveSimulationProviderUi, type AdaPluginContext } from "@/plugins/registry";
 import { filesApi } from "@/services/api/files";
 import {
@@ -33,6 +35,7 @@ import {
   type SimulationRun,
 } from "@/services/api/simulations";
 import { durationLabel, runLabel, runOutcome, runSubjectLabel, runTone, startedLabel } from "@/services/simulations/runRow";
+import { modeToOpenIn, providerShownInMode, simulationsFilterFor } from "@/services/simulations/modeScope";
 import { defaultParameters, missingRequired } from "@/services/simulations/schemaForm";
 import { useViewerStores } from "@/state/AdaViewerContext";
 import { useRunConsoleStore } from "@/state/runConsoleStore";
@@ -148,6 +151,10 @@ const RunRow: React.FC<{
   const open = async () => {
     if (!opener?.ui.openResult) return;
     setOpenError(null);
+    // A provider whose runs belong to a mode (a robot cell's) opens its result there, where the UI
+    // on screen offers it: the user asked to look at this run, and that is where it is looked at.
+    const target = modeToOpenIn(resolveSimulationProviderUi(baseCtx, run.provider).mode, activeShellMode(), modeOffered);
+    if (target) activateMode(target, { reason: `open ${label}` });
     try {
       await opener.ui.openResult(contextFor(opener.pluginId), { run, scope, provider });
       // The run on screen is this one from here on: its console follows its activity feed.
@@ -377,9 +384,19 @@ export const SimulationsBody: React.FC = () => {
     }
   };
 
-  const groups = useMemo(() => providersByDomain(domains, providers), [domains, providers]);
+  // The active mode may narrow the lists (`ModeBehaviour.simulations`): a cell's mode lists its own.
+  useSyncExternalStore(subscribeShellModes, shellModesVersion, shellModesVersion);
+  const mode = activeModeDef();
+  const modeFilter = simulationsFilterFor(mode);
+  const baseCtx = usePluginContextFor()("");
+  const inMode = (p: { id: string; domain: string }) =>
+    providerShownInMode(p, mode, (q) => resolveSimulationProviderUi(baseCtx, q).mode);
+  const modeProviders = modeFilter ? providers.filter(inMode) : providers;
+  const modeRuns = modeFilter ? runs.filter((r) => inMode(r.provider)) : runs;
+
+  const groups = useMemo(() => providersByDomain(domains, modeProviders), [domains, modeProviders]);
   const shownGroups = domainFilter ? groups.filter((g) => g.domain.id === domainFilter) : groups;
-  const shownRuns = domainFilter ? runs.filter((r) => r.provider.domain === domainFilter) : runs;
+  const shownRuns = domainFilter ? modeRuns.filter((r) => r.provider.domain === domainFilter) : modeRuns;
   const selected = providers.find((p) => p.id === selectedId) ?? null;
 
   return (
@@ -447,7 +464,11 @@ export const SimulationsBody: React.FC = () => {
 
       {providersError && <div className="text-[var(--ada-fail)] break-words">{providersError}</div>}
       {providersLoaded && groups.length === 0 && !providersError && (
-        <div className="text-[var(--ada-panel-text-muted)]">No simulation providers are registered on this server.</div>
+        <div className="text-[var(--ada-panel-text-muted)]" data-simulations-empty>
+          {modeFilter
+            ? (modeFilter.empty ?? "No simulation provider belongs to this mode.")
+            : "No simulation providers are registered on this server."}
+        </div>
       )}
       {shownGroups.map((group) => (
         <div key={group.domain.id} className="flex flex-col gap-0.5">

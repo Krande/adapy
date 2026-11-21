@@ -27,12 +27,23 @@ const mode = (id: string, behaviour?: Record<string, unknown>, extra: Record<str
 test("the catalogue: every core mode under a heading, in work order, with the Docked UI's names", () => {
   assert.deepEqual(
     CORE_MODES.map((m) => m.id),
-    ["topology-input", "topology-output", "fem-model", "fem-results", "construction-fabrication"],
+    [
+      "topology-input",
+      "topology-output",
+      "fem-model",
+      "fem-results",
+      "construction-stock",
+      "construction-fabrication",
+      "construction-robot-sim",
+      "construction-installation-sim",
+    ],
   );
   assert.deepEqual(
     CORE_MODES.map((m) => m.label),
-    ["Input", "Output", "Model", "Results", "Fabrication-cad"],
+    ["Input", "Output", "Model", "Results", "Stock", "Fabrication-cad", "Robot-sim (weld)", "Installation-sim"],
   );
+  const orders = CORE_MODES.map((m) => m.order);
+  assert.deepEqual(orders, [...orders].sort((a, b) => a - b), "listed in work order");
   for (const m of CORE_MODES) {
     assert.ok(MODE_GROUPS.some((g) => g.id === m.group), `${m.id}: a heading`);
     assert.ok(m.hint.length > 10, `${m.id}: a hint`);
@@ -106,7 +117,7 @@ test("switching rules: the link, the memory, the default, and old ids as aliases
   assert.equal(initialShellMode(modes, null, Mode.TopologyInput, Mode.TopologyOutput, { remember: false }), Mode.TopologyOutput);
 });
 
-test("the Desktop UI offers core's modes, under its own labels, its old ids as aliases", () => {
+test("the Desktop UI offers core's modes, under its own labels, its old ids as aliases", async () => {
   const spec = D.desktopUiShellSpec();
   const modes = spec.layout!.modes!;
   assert.deepEqual(
@@ -115,8 +126,18 @@ test("the Desktop UI offers core's modes, under its own labels, its old ids as a
       [Mode.TopologyOutput, "Model", "compare"],
       [Mode.FemResults, "Results", "compare"],
       [Mode.TopologyInput, "Build", "edit"],
+      [Mode.ConstructionRobotSim, undefined, undefined],
+      [Mode.ConstructionInstallationSim, undefined, undefined],
     ],
   );
+  await import("../fixtures/panelRealm");
+  const shown = (await import("@/layout/ComposedLayout")).shellModes(spec);
+  const robot = shown.find((m) => m.id === Mode.ConstructionRobotSim)!;
+  assert.equal(robot.label, "Robot-sim (weld)", "core's label");
+  assert.equal(robot.behaviour?.builder, "away", "core's default behaviour");
+  const { CORE_PANEL_IDS } = await import("@/layout/corePanelIds");
+  assert.ok(robot.open?.includes(CORE_PANEL_IDS.simulation), "the Simulations panel opens there");
+  assert.ok(robot.open?.includes(CORE_PANEL_IDS.storage), "and storage");
   for (const m of modes) assert.ok(isCoreMode(m.id), `${m.id} is one of core's`);
   assert.equal(spec.layout!.defaultMode, Mode.TopologyOutput);
   assert.deepEqual(spec.layout!.modeSwitching?.aliases, { model: Mode.TopologyOutput, results: Mode.FemResults, build: Mode.TopologyInput });

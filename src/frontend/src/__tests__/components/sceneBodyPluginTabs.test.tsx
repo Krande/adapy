@@ -41,8 +41,13 @@ const registerDemo = () =>
   });
 
 test("the API version that has them", () => {
-  assert.equal(PLUGIN_API_VERSION, "1.33.0");
+  assert.ok(_atLeast(PLUGIN_API_VERSION, 33), "1.33.0 or later");
 });
+
+function _atLeast(v: string, minor: number): boolean {
+  const [maj, min] = v.split(".").map(Number);
+  return maj > 1 || min >= minor;
+}
 
 test("a scene-info panel with asTab is placed as a tab of the Scene panel; one without, a section", () => {
   registerDemo();

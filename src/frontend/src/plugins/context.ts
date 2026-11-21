@@ -45,6 +45,7 @@ import {
   poseModel,
 } from "./sceneLayers";
 import { makePluginSimulations } from "./pluginSimulations";
+import { makePluginModes } from "./pluginModes";
 import { onSceneCleared } from "./sceneCleared";
 import { liveGroupLoadEnv, loadSavedGroupFor } from "./sceneGroupLoad";
 import { endScenePicks, pickObjects } from "./scenePicks";
@@ -259,6 +260,7 @@ export function makePluginContext(
     playback: makePluginPlayback(pluginId),
     layers: makePluginLayers(pluginId),
     simulations: makePluginSimulations(pluginId, () => scopeUrlPart(useScopeStore.getState().current)),
+    modes: makePluginModes((msg) => log("info", msg)),
     scope: () => scopeUrlPart(useScopeStore.getState().current),
     // A React caller passes the SUBSCRIBED theme (`usePluginTheme`), which is
     // what makes a plugin panel repaint on a theme switch. The fallback is a

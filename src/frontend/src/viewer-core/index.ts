@@ -767,7 +767,14 @@
 //          `resize` handles and `constrain.rotate: "xyz"` (`axes`), `ctx.scene.placeCamera` and the
 //          types `BoxFace`, `PlaceBoxResize`, `PlaceCameraOptions`, `PlacedCamera`,
 //          `PlacedCameraMode`, `PlacedCameraPose`.
-export const VIEWER_CORE_API_VERSION = "1.33.0";
+//   1.34.0 Kept in step with PLUGIN_API_VERSION 1.34.0. Additive: Construction's phases on `Mode`
+//          (`ConstructionStock`, `ConstructionRobotSim`,
+//          `ConstructionInstallationSim`), `ROBOTICS_SIMULATION_DOMAIN`, `coreModesIn`,
+//          `isPlannedMode`, `withCoreBehaviour` and the types `CoreModeStatus`, `ModeSimulations`,
+//          `PluginModes`, `PluginModeActivateOptions` on the root; `CoreModeDef.status` and
+//          `.behaviour`, `ModeBehaviour.simulations`, `SimulationProviderUi.mode`, `ctx.modes`.
+//          See PLUGIN_API_VERSION's 1.34.0 note.
+export const VIEWER_CORE_API_VERSION = "1.34.0";
 
 // ---------------------------------------------------------------------------
 // Plugin declaration. `registerPlugin` is how a package announces itself —
@@ -809,6 +816,8 @@ export type {
   PluginPlaybackTrackHandle,
   PluginModeId,
   PluginModeSpec,
+  PluginModes,
+  PluginModeActivateOptions,
   PluginApiClient,
   PluginLogLevel,
   PluginRegion,
@@ -917,12 +926,25 @@ export {
 } from "@/layout/shellModes";
 export type { CoreModeToolbarId, ModeState, ShellMode, ShellModeBadge } from "@/layout/shellModes";
 // Core's modes as typed constants, their headings, and what a mode does (assigned per UI).
-export { CORE_MODES, MODE_GROUPS, Mode, ModeGroup, coreModeDef, isCoreMode } from "@/layout/modes";
+export {
+  CORE_MODES,
+  MODE_GROUPS,
+  Mode,
+  ModeGroup,
+  ROBOTICS_SIMULATION_DOMAIN,
+  coreModeDef,
+  coreModesIn,
+  isCoreMode,
+  isPlannedMode,
+  withCoreBehaviour,
+} from "@/layout/modes";
 export type {
   BuilderPresence,
   CoreModeDef,
   CoreModeId,
+  CoreModeStatus,
   ModeBehaviour,
+  ModeSimulations,
   ModeGroupId,
   ModeId,
   ModeSwitching,
