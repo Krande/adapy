@@ -1,0 +1,2487 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="A python library for structural analysis and design, focused on interoperability between IFC and Finite Element formats.">
+      
+      
+        <meta name="author" content="Kristoffer H. Andersen">
+      
+      
+        <link rel="canonical" href="https://krande.github.io/adapy/architecture/viewer_control/">
+      
+      
+        <link rel="prev" href="../platform/">
+      
+      
+        <link rel="next" href="../frontend/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="zensical-0.0.68">
+    
+    
+      
+        <title>Viewer control API - ADA - Advanced Design & Analysis</title>
+      
+    
+    
+      
+        
+      
+      <link rel="stylesheet" href="../../assets/stylesheets/modern/main.595f2bf5.min.css">
+      
+        
+          
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/modern/palette.b27955a4.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,500,500i,700,700i%7CJetBrains+Mono:400,400i,700,700i&amp;display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../_static/extra.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_scope.pathname.endsWith("/")||(__md_scope=new URL(__md_scope.pathname+"/",location)),__md_hash=e=>[...e].reduce(((e,t)=>(e<<5)-e+t.charCodeAt(0)),0),__md_get=(e,t=localStorage,_=__md_scope)=>JSON.parse(t.getItem(_.pathname+"."+e)),__md_set=(e,t,_=localStorage,a=__md_scope)=>{try{_.setItem(a.pathname+"."+e,JSON.stringify(t))}catch(e){}},document.documentElement.setAttribute("data-platform",navigator.platform)</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer" aria-hidden="true"></label>
+    <div data-md-component="skip">
+      <a href="#__skip" class="md-skip">
+        Skip to content
+      </a>
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="ADA - Advanced Design &amp; Analysis" class="md-header__button md-logo" aria-label="ADA - Advanced Design & Analysis" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-book-open" viewBox="0 0 24 24"><path d="M12 5v16M20.001 19A2 2 0 0 0 22 17V5a2 2 0 0 0-1.999-2L16 3.002A5 5 0 0 0 12 5a5 5 0 0 0-4-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 1.999 2H8a5 5 0 0 1 4 2 5 5 0 0 1 4-2z"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer" aria-label="Navigation">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-menu" viewBox="0 0 24 24"><path d="M4 5h16M4 12h16M4 19h16"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            ADA - Advanced Design & Analysis
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Viewer control API
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-moon" viewBox="0 0 24 24"><path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search" aria-label="Search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-search" viewBox="0 0 24 24"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog" aria-label="Search">
+  <button type="button" class="md-search__button">
+    Search
+  </button>
+</div>
+      
+    
+    <div class="md-header__source">
+      
+        <a href="https://github.com/Krande/adapy" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    Krande/adapy
+  </div>
+</a>
+      
+    </div>
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="ADA - Advanced Design &amp; Analysis" class="md-nav__button md-logo" aria-label="ADA - Advanced Design & Analysis" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-book-open" viewBox="0 0 24 24"><path d="M12 5v16M20.001 19A2 2 0 0 0 22 17V5a2 2 0 0 0-1.999-2L16 3.002A5 5 0 0 0 12 5a5 5 0 0 0-4-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 1.999 2H8a5 5 0 0 1 4 2 5 5 0 0 1 4-2z"/></svg>
+
+    </a>
+    ADA - Advanced Design & Analysis
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/Krande/adapy" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    Krande/adapy
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Home
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Features
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_2">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Features
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../ada_studio/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Ada Studio
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../procedural_modelling/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Procedural modelling
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../dexpi/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  From P&amp;ID to 3D model
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../path_to_software_agnosticism/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Path to Software Agnosticism
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../meshing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Build mesh recipes, not meshes
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../drawings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Drawings
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Command line interface
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Primitives
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_3">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Primitives
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/design/primitives/box/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Box
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/design/primitives/sphere/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Sphere
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/design/primitives/cylinder/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Cylinder
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/design/primitives/cone/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Cone
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/design/primitives/extrusion/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Extrusion
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/design/primitives/revolve/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Revolution
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/design/primitives/sweeps/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Sweeps
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/design/primitives/beams/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Beams
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/design/primitives/plates/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Plates
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/design/primitives/pipe/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Pipe
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Modelling
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_4">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Modelling
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/design/boolean_operations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Boolean Operations
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/design/parts_and_assemblies/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Parts and Assemblies
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/design/placement/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Placement of parts and objects
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/design/sections/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Sections in ADA
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  FEA
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_5">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  FEA
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../fea/software/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  FEA Software
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../fea/verification/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  FEA Verification Report
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" checked>
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Architecture
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6" id="__nav_6_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="true">
+            <label class="md-nav__title" for="__nav_6">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Architecture
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../core_model/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Core object model
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../topology_engine/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Topology engine
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../geometry_and_visualisation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Geometry &amp; visualisation
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../interop/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Interoperability
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../fea/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  FEA
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../platform/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Viewer platform
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Viewer control API
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="././" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Viewer control API
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#off-by-default" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Off by default
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#whose-viewer" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Whose viewer
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#driving-the-viewer" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Driving the viewer
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Driving the viewer">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#commands" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Commands
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reading-what-was-stored" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Reading what was stored
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#example-a-declined-joint" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Example: a declined joint
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#from-the-command-line" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        From the command line
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#as-tools" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        As tools
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../frontend/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Frontend
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../threejs_free_viewport/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  A viewer without three.js
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../docs_pipeline/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Docs pipeline
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Code
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_7">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Code
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../code/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Code Documentation
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Profiling
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_8">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Profiling
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../profiling/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Profiling Dashboard
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  
+                    
+                    
+                    
+                      
+                    
+                    
+                      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+                      <div class="md-sidebar-button__wrapper">
+                        <label class="md-sidebar-button" for="__toc"></label>
+                      </div>
+                    
+                  
+                  <div class="md-sidebar__inner">
+                    
+
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#off-by-default" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Off by default
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#whose-viewer" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Whose viewer
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#driving-the-viewer" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Driving the viewer
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Driving the viewer">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#commands" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Commands
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reading-what-was-stored" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Reading what was stored
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#example-a-declined-joint" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Example: a declined joint
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#from-the-command-line" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        From the command line
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#as-tools" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        As tools
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                <a id="__skip" tabindex="-1"></a>
+                
+                  
+
+  
+    <a href="https://github.com/Krande/adapy/edit/main/docs/architecture/viewer_control.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-file-pen" viewBox="0 0 24 24"><path d="M12.659 22H18a2 2 0 0 0 2-2V8a2.4 2.4 0 0 0-.706-1.706l-3.588-3.588A2.4 2.4 0 0 0 14 2H6a2 2 0 0 0-2 2v9.34"/><path d="M14 2v5a1 1 0 0 0 1 1h5M10.378 12.622a1 1 0 0 1 3 3.003L8.36 20.637a2 2 0 0 1-.854.506l-2.867.837a.5.5 0 0 1-.62-.62l.836-2.869a2 2 0 0 1 .506-.853z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="viewer-control-api">Viewer control API<a class="headerlink" href="#viewer-control-api" title="Permanent link">&para;</a></h1>
+<p>An agent -- a script, or later an MCP server that wraps these routes one tool per route or command --
+can <strong>look at</strong> what the clash pipeline stored and <strong>drive</strong> the viewer a user has open: focus a
+joint, select objects by name, move the camera, load a detail model, and read back what the viewer
+shows so it can confirm. Everything is under <code>/api</code> and behind the same authentication as the rest
+of the REST API (<code>auth.current_user</code>); scoped routes take the scope in the path as everywhere else
+(<code>user:me</code>, <code>project:&lt;id&gt;</code>, <code>shared</code>).</p>
+<p>Code: <code>src/ada/comms/rest/viewer_control.py</code> (vocabulary and session hub),
+<code>routes/viewer_control.py</code>, <code>clash_inspect.py</code> (read-only clash views), and on the browser side
+<code>src/frontend/src/services/viewerControl/</code>.</p>
+<h2 id="off-by-default">Off by default<a class="headerlink" href="#off-by-default" title="Permanent link">&para;</a></h2>
+<p>Two switches: the server's, and each tab's.</p>
+<p><strong>The server</strong>: <code>ADA_VIEWER_CONTROL</code> (<code>Settings.viewer_control</code>), one of three modes. On a Helm
+deployment, set it through the chart's <code>extraEnv</code>.</p>
+<table>
+<thead>
+<tr>
+<th><code>ADA_VIEWER_CONTROL</code></th>
+<th>Mode</th>
+<th>What happens</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>unset, <code>false</code>, <code>off</code></td>
+<td><code>off</code> (the default)</td>
+<td>Every <code>/api/viewer/...</code> route answers <code>404</code> ("viewer control is disabled on this server ..."), no socket is accepted, and the page shows no switch.</td>
+</tr>
+<tr>
+<td><code>true</code>, <code>opt-in</code></td>
+<td><code>opt-in</code></td>
+<td>On; each tab's switch starts <strong>off</strong>: a user turns it on for the tab they want driven. For a deployed server.</td>
+</tr>
+<tr>
+<td><code>on</code>, <code>auto</code></td>
+<td><code>auto</code></td>
+<td>On; each tab's switch starts <strong>on</strong>, so every tab takes part without being touched. For a local dev stack.</td>
+</tr>
+</tbody>
+</table>
+<p>Any other value stops the server from starting (a typo must not turn on a way to drive viewers). The
+page learns the mode from <code>/config.js</code> (<code>window.ADA_VIEWER_CONTROL = "opt-in"</code> or <code>"auto"</code>, absent when
+off) and <code>/api/config</code> (<code>viewerControl: "off" | "opt-in" | "auto"</code>). The read-only clash routes below
+do not depend on it.</p>
+<p><strong>The tab</strong>: Settings &gt; <em>External controls</em> &gt; "Let an agent drive this tab", offered only on a server
+that allows it. Per tab (kept in the tab's <code>sessionStorage</code>): it starts as the server's mode says, and
+once the user switches it, their choice holds for that tab until it is closed -- a tab switched off on
+an <code>auto</code> server stays off. While it is off the tab asks for no ticket and opens no socket; switching
+it off closes the socket. (The desktop viewer offers the same switch, off until turned on; there it
+decides whether the tab answers a local client's commands.)</p>
+<h2 id="whose-viewer">Whose viewer<a class="headerlink" href="#whose-viewer" title="Permanent link">&para;</a></h2>
+<p>A viewer tab opens a <strong>session</strong>. A session belongs to the user who opened it, and every lookup is
+by (user, session id): another user's session id answers <code>404</code> exactly as an unknown one does, so no
+user can see, drive or answer for another user's viewer.</p>
+<p><strong>Several tabs.</strong> Each open tab is one session. A command goes to the session named in
+<code>session_id</code>, or -- when none is named -- to <em>every</em> live session of the caller; each tab answers
+for itself. <code>GET /api/viewer/sessions</code> lists them, most recently heard from first, so an agent can
+pick one.</p>
+<p><strong>Transport: the websocket envelope.</strong> Agents talk REST (below); the server relays to the tab over a
+websocket carrying the same FlatBuffer <code>Message</code> the desktop viewer and its websocket server use
+(<code>src/flatbuffers/schemas</code>), with three verbs (<code>ada.comms.viewer_wire</code>):</p>
+<table>
+<thead>
+<tr>
+<th><code>command_type</code></th>
+<th>Direction</th>
+<th><code>request_id</code></th>
+<th><code>payload_json</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>VIEWER_COMMAND</code> (28)</td>
+<td>to the viewer</td>
+<td>the command id</td>
+<td><code>{"command": {...}}</code> or <code>{"commands": [...]}</code></td>
+</tr>
+<tr>
+<td><code>VIEWER_ANSWER</code> (29)</td>
+<td>from the viewer</td>
+<td>echoed</td>
+<td><code>{ok, error, result, steps?, state}</code></td>
+</tr>
+<tr>
+<td><code>VIEWER_STATE</code> (30)</td>
+<td>from the viewer</td>
+<td>--</td>
+<td><code>ViewerState</code>, when the tab opens and when what it shows changes</td>
+</tr>
+</tbody>
+</table>
+<ul>
+<li><strong>Hosted (REST) viewer.</strong> The tab asks <code>POST /api/viewer/ws-ticket</code> (authenticated like every
+  route; body <code>{client?}</code>) for a single-use ticket valid for 60 s -- a browser's websocket cannot
+  send the bearer header -- and opens <code>GET /api/viewer/ws?ticket=...</code> (<code>wss:</code> on an <code>https:</code> page).
+  The socket is one session of the ticket's user, for as long as it is open; it is opened again
+  with a new ticket when it drops. A refused ticket, or a server with viewer control off, closes
+  the handshake.</li>
+<li><strong>Desktop viewer.</strong> It already holds a websocket to its <code>ada</code> websocket server. A local client
+  (a script) sends <code>VIEWER_COMMAND</code> with <code>target_group</code> WEB and the viewer's <code>target_id</code> (from
+  <code>LIST_WEB_CLIENTS</code>); the server relays it, and the viewer answers <code>VIEWER_ANSWER</code> to that client
+  (<code>target_group</code> LOCAL, <code>target_id</code> the sender's instance id), or refuses while its external
+  controls are off. <code>VIEWER_STATE</code> sent to the server is kept per viewer
+  (<code>ada.comms.msg_handling.viewer_control</code>).</li>
+</ul>
+<p><strong>Deployment.</strong> The ingress in front of the API must pass websocket upgrades on <code>/api/viewer/ws</code>
+and keep an idle connection open (uvicorn pings it every 20 s; an idle timeout of a minute or more
+is enough).</p>
+<p><strong>One process.</strong> Sessions (open sockets) and commands' answers live in the API process's memory: the API runs as
+one replica. A scaled-out API would need the hub moved onto NATS, as the job queue is.</p>
+<h2 id="driving-the-viewer">Driving the viewer<a class="headerlink" href="#driving-the-viewer" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Route</th>
+<th>Body / query</th>
+<th>Answer</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GET /api/viewer/sessions</code></td>
+<td></td>
+<td><code>{sessions: [Session]}</code></td>
+</tr>
+<tr>
+<td><code>GET /api/viewer/sessions/{session_id}</code></td>
+<td></td>
+<td><code>Session</code></td>
+</tr>
+<tr>
+<td><code>POST /api/viewer/commands</code></td>
+<td><code>{command \| commands, session_id?, wait_s?}</code></td>
+<td><code>CommandOutcome</code></td>
+</tr>
+<tr>
+<td><code>GET /api/viewer/commands/{command_id}</code></td>
+<td><code>wait_s?</code></td>
+<td><code>CommandOutcome</code></td>
+</tr>
+<tr>
+<td><code>GET /api/viewer/commands/schema</code></td>
+<td></td>
+<td>that body as JSON schema (each action a branch in <code>$defs</code>)</td>
+</tr>
+</tbody>
+</table>
+<p><code>POST /api/viewer/commands</code> takes one <code>command</code>, or <code>commands</code>: a <strong>batch</strong> of up to 20 that each tab
+runs in order -- <code>open_detail_model</code>, then <code>focus_joint</code>, then <code>camera</code>, say -- stopping at the first
+that fails. It validates them (<code>400</code> with the reasons for anything outside the vocabulary, or for both
+or neither of <code>command</code> / <code>commands</code>), sends them down the tabs' sockets, and waits up to <code>wait_s</code> seconds (default 10, at
+most 60; <code>0</code> returns at once) for the tabs to answer. <code>404</code> when the caller has no such, or no,
+viewer open.</p>
+<p>A batch's answer per tab has <code>steps</code>, one per command in order:
+<code>{index, action, status: "done" | "error" | "skipped", error, result}</code>. The tab's <code>status</code> is <code>done</code>
+when every step was, else <code>error</code>, its <code>error</code> naming the command that failed
+("command 2 of 3 (focus_joint) failed: ..."); the commands after it are <code>skipped</code>.</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>Session        = {session_id, created_at, last_seen, idle_s, client: {title, path},
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>                  state: ViewerState, state_at}
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>CommandOutcome = {command_id, command | commands, issued_at,
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>                  results: [{session_id, status, error, result, state, answered_at, steps?}]}
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>                 status: &quot;done&quot; | &quot;error&quot; | &quot;pending&quot; (not answered yet) | &quot;gone&quot; (tab closed)
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>ViewerState    = {scope, viewport: &quot;three&quot; | &quot;native&quot; | null,
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>                  loaded_models: [source name], active_model,
+</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>                  detail_models_loaded: [detail_id],
+</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>                  selection: {count, objects: [{model, id, node?}] (first 50), truncated,
+</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>                              bounds: {min, max} | null},
+</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>                  camera: {eye, target, up, fovDeg} | null,
+</span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>                  clash: {run_key, joints, selected_joint}}
+</span></code></pre></div>
+<p>Every answer carries the <code>state</code> the command left; a tab also reports its state when the selection,
+the loaded models, the scope or the open clash run change, so <code>GET /api/viewer/sessions</code> is current
+without sending anything.</p>
+<h3 id="commands">Commands<a class="headerlink" href="#commands" title="Permanent link">&para;</a></h3>
+<p>One object per command, discriminated by <code>action</code>. Unknown fields are refused.</p>
+<table>
+<thead>
+<tr>
+<th><code>action</code></th>
+<th>Fields</th>
+<th>Does</th>
+<th><code>result</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>focus_joint</code></td>
+<td><code>joint_id</code>, <code>run_key?</code>, <code>scope?</code>, <code>frame</code> (true), <code>reveal_panel</code> (true)</td>
+<td>What clicking a joint does: makes it the joints review's cursor, opens its group, selects its members in the loaded model(s), brings up Connections &gt; Review, and fits the camera to them. <code>run_key</code> opens that convex-contact run first when it is not the one open.</td>
+<td><code>{joint_id, selected}</code></td>
+</tr>
+<tr>
+<td><code>select</code></td>
+<td><code>names: [str]</code>, <code>file?</code>, <code>frame</code> (true)</td>
+<td>Selects the objects of those names in a loaded model (<code>file</code>, a loaded source name; default the active one) and fits the camera to them. An error when none is found.</td>
+<td><code>{file, selected, bounds}</code></td>
+</tr>
+<tr>
+<td><code>clear_selection</code></td>
+<td></td>
+<td>Clears the selection.</td>
+<td><code>{selected: 0}</code></td>
+</tr>
+<tr>
+<td><code>camera</code></td>
+<td>exactly one of <code>fit</code> (<code>selection</code> | <code>all</code>), <code>view</code> (<code>top</code>, <code>bottom</code>, <code>front</code>, <code>back</code>, <code>left</code>, <code>right</code>, <code>isometric</code>), <code>eye</code> + <code>target</code>, <code>box: {min, max}</code></td>
+<td>Moves the camera. <code>eye</code>/<code>target</code> keep the world's up axis up; <code>box</code> frames a world box keeping the viewing direction.</td>
+<td><code>{camera}</code></td>
+</tr>
+<tr>
+<td><code>open_detail_model</code></td>
+<td><code>detail_id</code>, <code>scope?</code>, <code>joint_id?</code>, <code>frame</code> (true), <code>with_source</code> (false)</td>
+<td>Loads a kept detail model, as its Load button does (it must be <code>done</code>). With <code>joint_id</code>: selects that joint's connection in it and frames it; a joint the model does not hold (declined, failed) is focused in the clash run the model was made from instead, so its members are still on screen. <code>with_source</code> also loads the saved group the model's run was made on (<code>load_saved_group</code>), so the welds sit in their structure; the answer then has <code>source_group</code> (null when the run was not on a group).</td>
+<td><code>{detail_id, glb_key}</code> or <code>{detail_id, joint_id, shown_in: "detail_model", connections}</code> or <code>{..., shown_in: "source_model", run_key, selected}</code></td>
+</tr>
+<tr>
+<td><code>load_saved_group</code></td>
+<td><code>group_id</code> or <code>name</code>, <code>scope?</code>, <code>select</code> (false), <code>frame</code> (false)</td>
+<td>Loads a saved group (the Scene panel's Groups) into the scene as its "Load into scene" does: each member's model, only the members showing. <code>name</code> is matched case-insensitively; an unknown or ambiguous name is an error naming the candidates. The load selects the members: <code>select</code> keeps that, <code>frame</code> fits the camera to them.</td>
+<td><code>{groupId, groupName, loaded, already, hidden, failed, selected, notFound, framed, bounds, text, tone}</code></td>
+</tr>
+<tr>
+<td><code>find_objects</code></td>
+<td><code>names: [str]</code>, <code>file?</code></td>
+<td>Looks names up in the loaded models without changing anything (the selection is put back).</td>
+<td><code>{found: [{name, file, objects, centre, bounds}], missing: [name]}</code></td>
+</tr>
+<tr>
+<td><code>get_state</code></td>
+<td></td>
+<td>Nothing; the answer's <code>state</code> is the point.</td>
+<td><code>null</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong>Loading, then using what was loaded.</strong> <code>open_detail_model</code> and <code>load_saved_group</code> (and <code>with_source</code>) answer only once what they loaded can be found by name -- the model is in the scene, its Scene-tree rows are built and its objects indexed -- so the next command of a batch can select in it; one that does not get there within 60 s is the command's error. <code>select</code>, <code>find_objects</code> and <code>focus_joint</code> wait (up to 20 s) for a loaded model that is not yet selectable instead of finding nothing in it.</p>
+<p>Coordinates are model units, in the viewer's world (<code>up</code> is the model's up axis).</p>
+<h2 id="reading-what-was-stored">Reading what was stored<a class="headerlink" href="#reading-what-was-stored" title="Permanent link">&para;</a></h2>
+<p>Read-only, from the documents the clash pipeline already writes (a convex-contact run, a detail
+model's record and take-off). Nothing is recomputed.</p>
+<table>
+<thead>
+<tr>
+<th>Route</th>
+<th>Query / body</th>
+<th>Answer</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GET /api/scopes/{scope}/clash-contacts/latest</code></td>
+<td><code>target?</code> (a target object as JSON: <code>{"kind": "file", "source_key"}</code>, <code>{"kind": "node", ...}</code>, <code>{"kind": "group", "group_id"}</code>)</td>
+<td><code>{run: {run_id, key, target, label, created_at, contacts, members, ...}}</code> -- the newest run of that target, else of the scope; <code>404</code> for none</td>
+</tr>
+<tr>
+<td><code>GET /api/scopes/{scope}/clash-contacts/joints</code></td>
+<td><code>key</code> (a run key, or <code>latest</code>), <code>target?</code>, <code>ids?</code> (comma-separated), <code>member?</code> (a member name), <code>limit?</code> (100, at most 500)</td>
+<td><code>{run: {key, run_id, label, target, created_at, contacts}, joints: [Joint], missing: [id], truncated}</code></td>
+</tr>
+<tr>
+<td><code>GET /api/scopes/{scope}/saved-groups</code></td>
+<td><code>name?</code> (contains, case-insensitive)</td>
+<td><code>{groups: [{id, name, members, sources, created_at, updated_at}]}</code> -- the scope's saved groups in brief</td>
+</tr>
+<tr>
+<td><code>GET /api/scopes/{scope}/clash-detail/models</code></td>
+<td></td>
+<td>the scope's detail models (existing route)</td>
+</tr>
+<tr>
+<td><code>GET /api/scopes/{scope}/clash-detail/models/{detail_id}</code></td>
+<td><code>joint_ids?</code> (comma-separated; default the joints it was asked to build)</td>
+<td><code>DetailView</code></td>
+</tr>
+<tr>
+<td><code>POST /api/scopes/{scope}/clash-contacts/detail</code></td>
+<td><code>{run_key, contact_ids, spec, options?, target?}</code> -- <code>run_key: "latest"</code> details the newest run (of <code>target</code> when given)</td>
+<td><code>{job_id, detail_id, glb_key, derived_key, run_key}</code>; poll <code>GET /api/convert/{job_id}</code></td>
+</tr>
+</tbody>
+</table>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>Joint      = {id, members: [{index, id, name, role: &quot;incoming&quot; | &quot;landing&quot; | null, element?, part?}],
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>              centre: [x, y, z], normal, distance, contact_area,
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>              applicable: [{spec, capability, priority, tags?}] (highest priority first)}
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>DetailView = {model: &lt;record: detail_id, status, spec, source, joint_ids, counts, glb_key, ...&gt;,
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>              takeoff, built_by, has_connection_records, run_found,
+</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>              joints: [{joint_id,
+</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>                        status: &quot;built&quot; | &quot;declined&quot; | &quot;failed&quot; | &quot;pending&quot; | &quot;not_requested&quot; | &quot;unknown&quot;,
+</span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>                        connections: [{joint_id, connection, spec, member_roles, centre, plates,
+</span><span id="__span-1-9"><a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>                                       welds: [{name, weld_type, throat, sided, length, members, metadata}]}],
+</span><span id="__span-1-10"><a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a>                        not_built: {joint_id, kind, reason, spec?, declined: [{spec, reason}]} | null,
+</span><span id="__span-1-11"><a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a>                        weld_failures: [{joint_id, connection, place, weld_type, reason}],
+</span><span id="__span-1-12"><a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a>                        contact: Joint | null}]}
+</span></code></pre></div>
+<p><code>connections</code> and their welds come from the take-off's <code>connections</code> records
+(<code>ada.clash.detail.connection_records</code>); a detail model built before those were written has
+<code>has_connection_records: false</code> and only the take-off's counts. A weld's <code>metadata</code> is whatever
+scalar metadata its builder gave it (where a builder names the seam's place, side or corner, it is
+there). <code>contact</code> is read from the run the model was detailed from while that run is stored
+(<code>run_found</code>).</p>
+<h2 id="example-a-declined-joint">Example: a declined joint<a class="headerlink" href="#example-a-declined-joint" title="Permanent link">&para;</a></h2>
+<p>A joint was declined, so it is in no detail model's GLB. The agent finds it, says which members it
+is, and shows them to the user in the source model:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>GET  /api/scopes/user:me/clash-detail/models
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>     -&gt; the newest model, detail_id &quot;20260101T120000000Z-0123abcd&quot;
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>GET  /api/scopes/user:me/clash-detail/models/20260101T120000000Z-0123abcd?joint_ids=0123456789ab
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>     -&gt; joints[0].status &quot;declined&quot;, not_built.reason &quot;takes an incoming at 60 to 120 degrees; ...&quot;,
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>        contact.members [column_1 (landing), brace_1 (incoming)], contact.centre [x, y, z]
+</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>POST /api/viewer/commands
+</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>     {&quot;command&quot;: {&quot;action&quot;: &quot;open_detail_model&quot;,
+</span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>                  &quot;detail_id&quot;: &quot;20260101T120000000Z-0123abcd&quot;, &quot;joint_id&quot;: &quot;0123456789ab&quot;}}
+</span><span id="__span-2-9"><a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a>     -&gt; results[0].result.shown_in &quot;source_model&quot;: the run was opened, the joint focused and framed
+</span></code></pre></div>
+<p>Or, without a detail model: <code>GET .../clash-contacts/joints?key=latest&amp;member=brace_1</code>, then
+<code>{"action": "focus_joint", "joint_id": "...", "run_key": "&lt;run.key&gt;"}</code>, or
+<code>{"action": "select", "names": ["column_1", "brace_1"]}</code>.</p>
+<p>And to re-run a detail for a subset of a run's joints:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>POST /api/scopes/user:me/clash-contacts/detail
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>     {&quot;run_key&quot;: &quot;latest&quot;, &quot;contact_ids&quot;: [&quot;0123456789ab&quot;], &quot;spec&quot;: &quot;&lt;spec name&gt;&quot;}
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>     -&gt; {job_id, detail_id, run_key, ...}
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>GET  /api/convert/{job_id}            (until done)
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>POST /api/viewer/commands  {&quot;command&quot;: {&quot;action&quot;: &quot;open_detail_model&quot;, &quot;detail_id&quot;: &quot;...&quot;,
+</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>                                        &quot;joint_id&quot;: &quot;0123456789ab&quot;}}
+</span></code></pre></div>
+<h2 id="from-the-command-line">From the command line<a class="headerlink" href="#from-the-command-line" title="Permanent link">&para;</a></h2>
+<p><code>ada viewer</code> (<code>ada_cli/viewer.py</code>; the full reference is in the <a href="../../cli/">CLI page</a>) wraps all of
+the above: <code>sessions</code>, <code>state</code>, <code>focus-joint</code>, <code>select</code>, <code>clear-selection</code>, <code>camera</code>, <code>open-detail</code>,
+<code>load-group</code>, <code>find</code>, <code>run</code> (a command or a batch from JSON, the same body as <code>POST /api/viewer/commands</code>),
+<code>schema</code>, and the read-outs <code>joints</code>, <code>groups</code> and <code>detail</code>.</p>
+<p><strong>Where it goes.</strong> <code>--via auto</code> (the default) talks to a hosted viewer's REST API when a viewer URL
+is configured -- <code>--url</code>, or <code>ADAPY_API_BASE</code> (<code>ADAPY_BASE_URL</code>, <code>ADAPY_VIEWER_URL</code>) with the token
+in <code>ADAPY_API_TOKEN</code>, as every remote <code>ada</code> command reads them -- and otherwise to the desktop
+viewer's websocket server (<code>--ws-host</code> / <code>--ws-port</code>, default <code>localhost:8765</code>): there it lists the
+viewers (<code>LIST_WEB_CLIENTS</code>; a session is a viewer's instance id), sends <code>VIEWER_COMMAND</code> to them
+and waits for each <code>VIEWER_ANSWER</code> by request id. <code>--via remote</code> / <code>--via local</code> force one. <code>joints</code>
+and <code>detail</code> read stored documents and need the hosted server.</p>
+<p>A short summary is printed by default, <code>--json</code> prints the raw answer. The exit code is 0 when every
+targeted tab answered <code>done</code>, 1 when the server refused (no viewer open, viewer control disabled --
+its message is printed) or any tab answered <code>error</code>, closed or did not answer within <code>--wait</code>, and 2
+for a wrong invocation.</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>ada<span class="w"> </span>viewer<span class="w"> </span>sessions
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>ada<span class="w"> </span>viewer<span class="w"> </span>focus-joint<span class="w"> </span>0123456789ab<span class="w"> </span>--run-key<span class="w"> </span>&lt;run<span class="w"> </span>key&gt;
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>ada<span class="w"> </span>viewer<span class="w"> </span>camera<span class="w"> </span>--eye<span class="w"> </span><span class="m">10</span>,10,10<span class="w"> </span>--target<span class="w"> </span><span class="m">0</span>,0,0
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>ada<span class="w"> </span>viewer<span class="w"> </span>run<span class="w"> </span>batch.json<span class="w"> </span>--session<span class="w"> </span>&lt;session<span class="w"> </span>id&gt;<span class="w"> </span>--wait<span class="w"> </span><span class="m">30</span>
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>ada<span class="w"> </span>viewer<span class="w"> </span>joints<span class="w"> </span>--run<span class="w"> </span>latest<span class="w"> </span>--member<span class="w"> </span>brace_1
+</span></code></pre></div>
+<h2 id="as-tools">As tools<a class="headerlink" href="#as-tools" title="Permanent link">&para;</a></h2>
+<p>Each read route and each command is meant to become one tool of an MCP server wrapping this API:
+<code>list_viewer_sessions</code>, <code>viewer_focus_joint</code>, <code>viewer_select</code>, <code>viewer_clear_selection</code>,
+<code>viewer_camera</code>, <code>viewer_open_detail_model</code>, <code>viewer_find_objects</code>, <code>viewer_get_state</code> (each a
+<code>POST /api/viewer/commands</code> with that <code>action</code>; their input schemas are the branches of
+<code>GET /api/viewer/commands/schema</code>), and <code>latest_clash_run</code>, <code>clash_joints</code>, <code>detail_model</code>,
+<code>detail_from_run</code> for the routes above.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-circle-arrow-up" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m16 12-4-4-4 4M12 16V8"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="../platform/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Viewer platform">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-arrow-left" viewBox="0 0 24 24"><path d="m12 19-7-7 7-7M19 12H5"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                Viewer platform
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../frontend/" class="md-footer__link md-footer__link--next" aria-label="Next: Frontend">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                Frontend
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      &copy; Kristoffer H. Andersen
+    </div>
+  
+  
+    Made with
+    <a href="https://zensical.org/" target="_blank" rel="noopener">
+      Zensical
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog" role="status" aria-atomic="true">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      
+      
+        
+        
+      <script id="__config" type="application/json">{"annotate":null,"base":"../..","features":["content.action.edit","content.code.copy","content.tabs.link","navigation.indexes","navigation.sections","navigation.top","navigation.footer","search.highlight","toc.follow"],"redirect":null,"search":"../../assets/javascripts/workers/search.7d14d953.min.js","tags":null,"translations":{"clipboard.copied":"Copied to clipboard","clipboard.copy":"Copy to clipboard","clipboard.error":"Could not copy to clipboard","search.result.more.one":"1 more on this page","search.result.more.other":"# more on this page","search.result.none":"No matching documents","search.result.one":"1 matching document","search.result.other":"# matching documents","search.result.placeholder":"Type to start searching","search.result.term.missing":"Missing","select.version":"Select version"},"version":null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.3c842f4c.min.js"></script>
+      
+        <script src="../../_static/diagrams.js"></script>
+      
+    
+  </body>
+</html>
