@@ -492,7 +492,18 @@ export type { SelectedObjectBox } from "@/viewport/api/viewportApi";
 //            asks first (`ctx.modes?.activate(...)`) or reads `PLUGIN_API_VERSION` >= 1.34.0.
 //          - The Desktop UI offers Robot-sim (weld) and Installation-sim.
 //          All additive.
-export const PLUGIN_API_VERSION = "1.34.0";
+// 1.35.0 — Batches of simulation runs.
+//          - `StartSimulationBody.batch` ({id, label?, source?: {kind: "group" | "node", key}}): the
+//            runs a plugin starts together carry the same batch, and the Simulations panel lists
+//            them as one line (label, provider, runs by status, progress, the newest start) that
+//            opens to its runs. `SimulationRun.batch` is the batch a run was started in, or null.
+//          - `simulationsApi.listBatches(scope)` ({batches: SimulationBatch[], unbatched}, or null
+//            from a server without batches) and `simulationsApi.listRunsPage(scope, {batch, status,
+//            before, limit, ...})` ({runs, next}): a batch's runs a page at a time, or with
+//            `batch: "none"` the runs of no batch. `listRuns` takes the same options.
+//          All additive: an older core has neither call (a plugin that pages a batch asks first)
+//          and sends a body's `batch` on as it is; an older server ignores it.
+export const PLUGIN_API_VERSION = "1.35.0";
 
 /** What the Simulations panel writes on a run's open-result button. */
 export function openResultButtonLabel(

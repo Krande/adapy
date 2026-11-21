@@ -50,10 +50,15 @@ export { simulationsApi } from "@/services/api/simulations";
 export type {
   ArtefactBytes,
   ArtefactRange,
+  ListRunsOptions,
   SimulationArtefact,
+  SimulationBatch,
+  SimulationBatchRef,
+  SimulationBatchesResponse,
   SimulationDomain,
   SimulationProviderInfo,
   SimulationRun,
+  SimulationRunsPage,
   SimulationSubjectRef,
   StartSimulationBody,
 } from "@/services/api/simulations";

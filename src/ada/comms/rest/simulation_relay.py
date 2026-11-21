@@ -152,9 +152,11 @@ class SimulationRelay:
         kind: str | None,
         subject: dict | None,
         inputs: list[str],
+        batch: dict | None = None,
     ) -> dict:
         """Upload the inputs to the remote scope, start the run there, and store the local record
-        that points at it. Returns that record."""
+        that points at it. Returns that record. ``batch`` is kept on the local record whatever the
+        remote does with it (an older one ignores it)."""
         for key in inputs:
             try:
                 data = await storage.get_bytes(scope, key)
@@ -172,8 +174,10 @@ class SimulationRelay:
             body["kind"] = kind
         if subject is not None:
             body["subject"] = subject
+        if batch is not None:
+            body["batch"] = batch
         r = await self._call("POST", f"{self._scope_path()}/simulations", what="starting the run", json=body)
-        record = self._mirror(None, _run_of(self, r))
+        record = self._mirror({"batch": batch}, _run_of(self, r))
         await write_run(storage, scope, record)
         return {**record, "cancel_requested": False}
 
@@ -181,6 +185,9 @@ class SimulationRelay:
         """The local record of a remote run: the remote's fields, and where it lives."""
         record = {k: v for k, v in remote_run.items() if k != "cancel_requested"}
         record["remote"] = {"url": self.url, "scope": self.remote.scope, "run_id": record["run_id"]}
+        # The batch is this side's: the list here groups by it, whatever the remote kept.
+        if local is not None and local.get("batch"):
+            record["batch"] = local["batch"]
         try:
             return parse_run_record(json.dumps(record))
         except RunRecordError as exc:

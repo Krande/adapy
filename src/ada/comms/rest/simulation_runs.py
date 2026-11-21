@@ -11,10 +11,19 @@ here imports a format handler.
 
 from __future__ import annotations
 
+import asyncio
 import time
+from collections import OrderedDict
 from datetime import datetime, timezone
 from typing import Any
 
+from ada.simulation.batches import (
+    BATCHES_PREFIX,
+    batch_member_key,
+    batch_of_record,
+    batch_prefix,
+    summarise_batch,
+)
 from ada.simulation.interfaces import SIMULATION_DOMAINS
 from ada.simulation.runs import (
     RUNS_PREFIX,
@@ -37,13 +46,20 @@ from .queue import capability_token
 from .scope import Scope
 
 __all__ = [
+    "SETTLED",
+    "batch_index",
+    "batch_run_ids",
+    "batch_summaries",
+    "delete_batch_member",
     "domain_listing",
     "list_providers",
     "list_run_ids",
     "provider_by_id",
     "providers_from_workers",
     "read_run",
+    "read_runs",
     "run_view",
+    "write_batch_member",
     "write_run",
 ]
 
@@ -187,6 +203,126 @@ async def list_run_ids(storage, scope: Scope) -> list[str]:
     """The scope's run ids, newest first. One delimited listing: run ids sort by creation time."""
     names = await storage.list_child_names(scope, RUNS_PREFIX)
     return sorted((n for n in names if len(n) == 32), reverse=True)
+
+
+# ── batches ──────────────────────────────────────────────────────────────────────────────────────
+
+#: How many records a listing reads at once.
+_READ_CONCURRENCY = 16
+
+
+async def write_batch_member(storage, scope: Scope, batch_id: str, run_id: str) -> None:
+    """Index ``run_id`` under its batch (``ada.simulation.batches``)."""
+    await storage.put_bytes(scope, batch_member_key(batch_id, run_id), b"{}")
+
+
+async def delete_batch_member(storage, scope: Scope, batch_id: str, run_id: str) -> None:
+    try:
+        await storage.delete(scope, batch_member_key(batch_id, run_id))
+    except Exception:  # noqa: BLE001 - an index entry left behind names a run that is not there: skipped
+        pass
+
+
+def _member_ids(entries, prefix: str) -> list[str]:
+    ids = []
+    for entry in entries:
+        run_id = entry.key[len(prefix) :] if entry.key.startswith(prefix) else ""
+        if len(run_id) == 32 and "/" not in run_id:
+            ids.append(run_id)
+    return sorted(ids, reverse=True)
+
+
+async def batch_index(storage, scope: Scope) -> dict[str, list[str]]:
+    """Every batch of the scope and its run ids, newest first, from one listing of the index."""
+    grouped: dict[str, list] = {}
+    for entry in await storage.list_prefix(scope, BATCHES_PREFIX):
+        rest = entry.key[len(BATCHES_PREFIX) :] if entry.key.startswith(BATCHES_PREFIX) else ""
+        batch_id, sep, _ = rest.partition("/")
+        if batch_id and sep:
+            grouped.setdefault(batch_id, []).append(entry)
+    out = {b: _member_ids(entries, f"{BATCHES_PREFIX}{b}/") for b, entries in grouped.items()}
+    return {b: ids for b, ids in out.items() if ids}
+
+
+async def batch_run_ids(storage, scope: Scope, batch_id: str) -> list[str]:
+    """The batch's run ids, newest first; empty for a batch the scope does not have."""
+    prefix = batch_prefix(batch_id)
+    return _member_ids(await storage.list_prefix(scope, prefix), prefix)
+
+
+async def read_runs(storage, scope: Scope, run_ids: list[str]) -> list[dict]:
+    """The records of ``run_ids``, in that order, a few at a time. One that is missing or cannot be
+    read is left out."""
+    gate = asyncio.Semaphore(_READ_CONCURRENCY)
+
+    async def one(run_id: str) -> dict | None:
+        async with gate:
+            try:
+                return await read_run(storage, scope, run_id)
+            except RunRecordError:
+                return None
+
+    return [r for r in await asyncio.gather(*(one(i) for i in run_ids)) if r is not None]
+
+
+class _SettledRecords:
+    """The fields a batch summary reads of the runs that have ended, kept in memory by scope and run
+    id: a finished record is not written again, so a batch of hundreds is summed from what is going
+    and what is new, not read whole each time it is asked for. Bounded; the oldest are dropped."""
+
+    _FIELDS = ("run_id", "status", "progress", "created_at", "provider", "batch")
+
+    def __init__(self, size: int = 20_000) -> None:
+        self._size = size
+        self._held: OrderedDict[tuple[str, str], dict] = OrderedDict()
+
+    def get(self, scope: Scope, run_id: str) -> dict | None:
+        key = (scope.prefix(), run_id)
+        held = self._held.get(key)
+        if held is not None:
+            self._held.move_to_end(key)
+        return held
+
+    def keep(self, scope: Scope, record: dict) -> None:
+        if record.get("status") not in TERMINAL_STATUSES:
+            return
+        self._held[(scope.prefix(), record["run_id"])] = {k: record.get(k) for k in self._FIELDS}
+        while len(self._held) > self._size:
+            self._held.popitem(last=False)
+
+    def forget(self, scope: Scope, run_id: str) -> None:
+        self._held.pop((scope.prefix(), run_id), None)
+
+    def clear(self) -> None:
+        self._held.clear()
+
+
+SETTLED = _SettledRecords()
+
+
+async def batch_summaries(storage, scope: Scope, index: dict[str, list[str]] | None = None) -> list[dict]:
+    """A line for each batch of the scope (``ada.simulation.batches.summarise_batch``), the newest
+    batch first. Read from the stored records -- a run's job is not asked -- so a run whose job was
+    lost reads as the record left it until the run itself is looked at."""
+    if index is None:
+        index = await batch_index(storage, scope)
+    out = []
+    for batch_id, run_ids in index.items():
+        held = {i: SETTLED.get(scope, i) for i in run_ids}
+        for record in await read_runs(storage, scope, [i for i, r in held.items() if r is None]):
+            SETTLED.keep(scope, record)
+            held[record["run_id"]] = record
+        records = [r for r in held.values() if r is not None]
+        if not records:
+            continue
+        # What the batch is called, from its newest record that says (one rewritten by a worker that
+        # read it before the batch was set on it may not).
+        named = (
+            batch_of_record(r) for r in sorted(records, key=lambda r: str(r.get("created_at") or ""), reverse=True)
+        )
+        batch = next((b for b in named if b is not None and b["id"] == batch_id), None)
+        out.append(summarise_batch(batch or {"id": batch_id, "label": batch_id, "source": None}, records))
+    return sorted(out, key=lambda s: str(s.get("newest_at") or ""), reverse=True)
 
 
 def _age_s(iso: Any) -> float:

@@ -773,7 +773,10 @@
 //          `PluginModeActivateOptions` on the root; `CoreModeDef.behaviour`,
 //          `ModeBehaviour.simulations`, `SimulationProviderUi.mode`, `ctx.modes`.
 //          See PLUGIN_API_VERSION's 1.34.0 note.
-export const VIEWER_CORE_API_VERSION = "1.34.0";
+//   1.35.0 Kept in step with PLUGIN_API_VERSION 1.35.0. Additive: batches of simulation runs --
+//          `StartSimulationBody.batch`, `SimulationRun.batch`, `simulationsApi.listBatches` and
+//          `.listRunsPage`. See PLUGIN_API_VERSION's 1.35.0 note.
+export const VIEWER_CORE_API_VERSION = "1.35.0";
 
 // ---------------------------------------------------------------------------
 // Plugin declaration. `registerPlugin` is how a package announces itself —

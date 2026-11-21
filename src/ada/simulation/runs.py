@@ -6,6 +6,7 @@ a job writes there (``_derived/clash/...``, ``_derived/plugin_jobs/...``)::
     _simulations/<run_id>/run.json          the run record (this module)
     _simulations/<run_id>/artefacts/<name>  what the provider stored
     _simulations/<run_id>/cancel            present once a cancel was asked for
+    _simulations/_batches/<batch>/<run_id>  the run belongs to that batch (``ada.simulation.batches``)
 
 The record is a JSON manifest beside the artefacts, the way a clash run is kept as a document in
 storage: it needs no database, so it exists the same on a single-node viewer and in a cluster,
@@ -139,9 +140,12 @@ def new_run_record(
     started_by: Mapping[str, Any],
     kind: str | None = None,
     subject: Mapping[str, Any] | None = None,
+    batch: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """The record of a run that has just been accepted and not yet picked up. ``subject`` is
-    ``{"kind", "key"}`` of what the run is on (``ada.simulation.subjects``)."""
+    ``{"kind", "key"}`` of what the run is on (``ada.simulation.subjects``); ``batch`` is
+    ``{"id", "label", "source"}`` of the runs it was started with (``ada.simulation.batches``,
+    already checked), or None."""
     return {
         "schema": RUN_SCHEMA,
         "run_id": _checked(run_id),
@@ -153,6 +157,7 @@ def new_run_record(
         },
         "kind": kind,
         "subject": {"kind": str(subject["kind"]), "key": str(subject["key"])} if subject else None,
+        "batch": dict(batch) if batch else None,
         "parameters": dict(parameters),
         "inputs": list(inputs),
         "started_by": {"id": str(started_by.get("id") or ""), "display": started_by.get("display")},
