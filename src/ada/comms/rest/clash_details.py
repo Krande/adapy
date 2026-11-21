@@ -22,7 +22,8 @@ read back when the list is asked for: a take-off present means done (its counts 
 the record, once); otherwise the job's own status says whether it is still running or failed.
 
 RETENTION. The newest :data:`KEEP` per scope are kept; older ones are deleted with their files when a
-new one is recorded. The clash runs' index keeps its newest 50 lines per target the same way, but
+new one is recorded -- except a model a simulation subject or run is of (one of its connections' ck
+has a ``subject`` or ``sim_run`` link, ``ada.assoc``), which is kept whatever its age. The clash runs' index keeps its newest 50 lines per target the same way, but
 leaves the runs themselves in place -- a detail model's GLB is the large part, so here the files go too.
 
 LIGHT ON PURPOSE: stdlib only, so the slim API imports it.
@@ -199,15 +200,20 @@ async def delete_model(storage, scope, detail_id: str) -> list[str]:
     return keys
 
 
-async def record_new(storage, scope, record: dict, *, keep: int | None = None) -> list[str]:
-    """Store a new run's record, then delete the runs beyond the newest ``keep`` (:data:`KEEP`).
-    Returns the ids deleted. A prune that fails is not the new run's failure: the next one retries."""
+async def record_new(storage, scope, record: dict, *, keep: int | None = None, pool=None) -> list[str]:
+    """Store a new run's record, then delete the runs beyond the newest ``keep`` (:data:`KEEP`) --
+    never one a subject or a simulation run is of. Returns the ids deleted. A prune that fails is
+    not the new run's failure: the next one retries."""
+    from .assoc_links import pinned_detail_ids
+
     keep = KEEP if keep is None else keep
     await _put_record(storage, scope, record)
     dropped: list[str] = []
     try:
-        for old in (await _ids(storage, scope))[keep:]:
-            if old != record["detail_id"]:
+        old_ids = [i for i in (await _ids(storage, scope))[keep:] if i != record["detail_id"]]
+        pinned = await pinned_detail_ids(storage, scope, old_ids, pool=pool) if old_ids else set()
+        for old in old_ids:
+            if old not in pinned:
                 await delete_model(storage, scope, old)
                 dropped.append(old)
     except Exception:  # noqa: BLE001 - retention is housekeeping
@@ -215,9 +221,10 @@ async def record_new(storage, scope, record: dict, *, keep: int | None = None) -
     return dropped
 
 
-async def _settle(storage, scope, record: dict, jobs) -> dict:
-    """The record with how its run ended, stored once that is known. A take-off present means done;
-    otherwise the job's own status, while the transport still knows the job."""
+async def _settle(storage, scope, record: dict, jobs, pool=None) -> dict:
+    """The record with how its run ended, stored once that is known. A take-off present means done
+    (its connections and welds are then filed under their elements, ``assoc_links``); otherwise the
+    job's own status, while the transport still knows the job."""
     if record.get("status") in TERMINAL:
         return record
     paths = detail_paths(record["detail_id"])
@@ -229,6 +236,9 @@ async def _settle(storage, scope, record: dict, jobs) -> dict:
         stats = None
     if isinstance(stats, dict):
         settled = {**record, **summary_from_stats(stats), "status": STATUS_DONE, "error": None}
+        from .assoc_links import store_detail_links
+
+        await store_detail_links(storage, scope, settled, stats, pool=pool)
         await _put_record(storage, scope, settled)
         return settled
 
@@ -253,7 +263,7 @@ async def _settle(storage, scope, record: dict, jobs) -> dict:
     return settled
 
 
-async def read_model(storage, scope, jobs, detail_id: str) -> tuple[dict, dict | None] | None:
+async def read_model(storage, scope, jobs, detail_id: str, *, pool=None) -> tuple[dict, dict | None] | None:
     """One detail model: its (settled) record and its take-off, None while there is none. None for
     a model that does not exist or whose record cannot be read."""
     paths = detail_paths(detail_id)
@@ -261,7 +271,7 @@ async def read_model(storage, scope, jobs, detail_id: str) -> tuple[dict, dict |
         record = parse_record(await storage.get_bytes(scope, paths.record))
     except Exception:  # noqa: BLE001 - missing or unreadable: no such model
         return None
-    record = await _settle(storage, scope, record, jobs)
+    record = await _settle(storage, scope, record, jobs, pool)
     stats = None
     if record.get("status") == STATUS_DONE:
         try:
@@ -271,7 +281,7 @@ async def read_model(storage, scope, jobs, detail_id: str) -> tuple[dict, dict |
     return record, stats if isinstance(stats, dict) else None
 
 
-async def list_models(storage, scope, jobs, *, limit: int | None = None) -> list[dict]:
+async def list_models(storage, scope, jobs, *, limit: int | None = None, pool=None) -> list[dict]:
     """The scope's detail models, newest first. A record that cannot be read is left out."""
     out: list[dict] = []
     for detail_id in (await _ids(storage, scope))[: KEEP if limit is None else limit]:
@@ -279,5 +289,5 @@ async def list_models(storage, scope, jobs, *, limit: int | None = None) -> list
             record = parse_record(await storage.get_bytes(scope, detail_paths(detail_id).record))
         except Exception:  # noqa: BLE001 - a run whose record is missing or unreadable is not listed
             continue
-        out.append(await _settle(storage, scope, record, jobs))
+        out.append(await _settle(storage, scope, record, jobs, pool))
     return out

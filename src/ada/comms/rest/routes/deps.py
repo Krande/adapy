@@ -303,6 +303,11 @@ def require_catalog_store(request: Request, storage: Storage, queue: JobQueue):
     return store
 
 
+def optional_pool(request: Request | None):
+    """The DB pool, or None in a deployment without Postgres (shared-only, the local viewer)."""
+    return getattr(getattr(getattr(request, "app", None), "state", None), "db_pool", None)
+
+
 def require_pool(request: Request):
     """The DB pool, or 503 — the generic gate most ``/api/*`` routes need."""
     pool = getattr(request.app.state, "db_pool", None)

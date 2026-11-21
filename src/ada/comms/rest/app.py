@@ -232,6 +232,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 background_tasks.job_cleanup_loop(queue),
                 name="job-kv-cleanup",
             )
+        # Element links of simulation runs still queued or running follow their runs (assoc_links):
+        # a run nobody looks at still ends in its links. With or without a database.
+        from .assoc_links import sweeper_loop
+
+        app.state.assoc_sweeper_task = asyncio.create_task(
+            sweeper_loop(storage, rest_ctx.jobs, app.state.db_pool),
+            name="assoc-sweeper",
+        )
         # `ada dev connections`: the library's host process and file watcher (dev_connections.py).
         if app.state.dev_connections is not None:
             app.state.dev_connections.start()
@@ -250,6 +258,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "worker_prune_task",
             "worker_registry_task",
             "job_cleanup_task",
+            "assoc_sweeper_task",
         ):
             task = getattr(app.state, attr, None)
             if task is not None and not task.done():

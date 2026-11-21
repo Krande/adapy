@@ -51,7 +51,7 @@ from ..clash_runs import write_run_and_index
 from ..job_transport import JobRequest
 from ..scope import Scope
 from .clash_check import _route_with_reader, _spec_capability
-from .deps import RestContext, rest_context, scope_from_path
+from .deps import RestContext, optional_pool, rest_context, scope_from_path
 
 router = APIRouter()
 
@@ -299,7 +299,7 @@ async def api_clash_contacts_store(
     key = run_key(target, run.run_id)
     if await ctx.storage.exists(scope_obj, key):
         raise HTTPException(status_code=409, detail=f"a clash run {run.run_id!r} already exists for this target")
-    await write_run_and_index(ctx.storage, scope_obj, key, run.to_json().encode("utf-8"))
+    await write_run_and_index(ctx.storage, scope_obj, key, run.to_json().encode("utf-8"), pool=optional_pool(request))
     await ctx.audit(request, user, scope_obj, "clash_run_store", key=key, target_format=KIND, status="done")
 
     job_id = None
@@ -481,7 +481,8 @@ async def api_clash_contacts_detail(
     user: User = Depends(auth_module.current_user),
 ) -> JSONResponse:
     """Detail clashes of a run with a registered spec, from the stored contacts. Body
-    ``{run_key, contact_ids, spec, options?, geometry_provider?}``. Returns ``{job_id, derived_key,
+    ``{run_key, contact_ids, spec, options?, geometry_provider?, make_subjects?}`` (``make_subjects``: also
+    write the simulation subject of every connection built, ``_clash/subjects/<ck>.weld-assembly.json``). Returns ``{job_id, derived_key,
     glb_key, detail_id}``: the run is a detail model of its own, listed by ``GET /clash-detail/models``.
 
     The members are rebuilt as the run's last annotate bound them: through the ``geometry_provider``
@@ -538,6 +539,9 @@ async def api_clash_contacts_detail(
             "spec": spec_name,
             "options": gen_options,
             "glb_key": glb_key,
+            "detail_id": paths.detail_id,
+            # The simulation subject of every connection built, made of the built objects (ada.clash.subjects).
+            **({"make_subjects": True} if body.get("make_subjects") else {}),
             **({"geometry_provider": provider} if provider else {}),
         },
         capability=capability,
@@ -560,6 +564,7 @@ async def api_clash_contacts_detail(
             options=gen_options,
             job_id=submitted.job_id,
         ),
+        pool=optional_pool(request),
     )
     return JSONResponse(
         {

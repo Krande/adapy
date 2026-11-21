@@ -1284,6 +1284,10 @@ def start_clash_contacts(
     """Run a ``clash_contacts`` job (check / annotate / detail) in a thread -- the queue-less half of
     ``formats/clash_contacts.py``, calling the very same ``contacts_work``. A detail here can serve a
     built-in spec, or one whose package this process imported; anything else fails by name."""
+    from ada.comms.rest.assoc_links import (
+        store_source_states_sync,
+        store_subject_links_sync,
+    )
     from ada.comms.rest.clash_runs import write_run_and_index_sync
     from ada.comms.rest.formats.clash_contacts import CONTACT_MODES, contacts_work
 
@@ -1321,8 +1325,16 @@ def start_clash_contacts(
                     sync_storage.put_bytes(str(options["glb_key"]), outputs["glb"], content_encoding="gzip")
                 sync_storage.put_bytes(derived_key, outputs["stats"], content_encoding="gzip")
                 job.result = json.loads(outputs["stats"])
+                if "subjects" in outputs:
+                    store_subject_links_sync(sync_storage, json.loads(outputs["subjects"]).get("subjects") or ())
+            elif mode == "subjects":
+                sync_storage.put_bytes(derived_key, outputs["subjects"], content_encoding="gzip")
+                job.result = json.loads(outputs["subjects"])
+                store_subject_links_sync(sync_storage, job.result.get("subjects") or ())
             else:
                 write_run_and_index_sync(sync_storage, derived_key, outputs["run"])
+                if "states" in outputs:
+                    store_source_states_sync(sync_storage, json.loads(outputs["states"]))
             job.status, job.stage, job.progress = STATUS_DONE, "done", 1.0
         except Exception as exc:  # noqa: BLE001 — the job's failure is data, not ours
             if job.status != STATUS_RUNNING:
