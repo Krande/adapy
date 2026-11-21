@@ -17,7 +17,9 @@ from typing import Any, Callable, Mapping
 __all__ = [
     "DETAIL_SHARES",
     "DetailReporter",
+    "JointNotBuilt",
     "build_detail",
+    "build_joint",
     "connection_records",
     "dedup_seams",
     "detail_progress",
@@ -165,6 +167,8 @@ def build_detail(
     gen_options: Mapping[str, Any],
     on_progress: DetailProgress | None = None,
     on_stage: DetailStage | None = None,
+    ck_of: Callable[[Mapping[str, Any]], "str | None"] | None = None,
+    keep_built: list | None = None,
 ) -> tuple[bytes, dict]:
     """Build every named joint with ``registered`` and return ``(glb_bytes, stats)``.
 
@@ -200,7 +204,11 @@ def build_detail(
     WHAT WAS BUILT, per connection, in ``stats["connections"]`` (:func:`connection_records`): the
     joint id it was built for, its name, spec, member roles and centre, its plates, and each weld with
     its type, throat, sides, length, members and the weld's own scalar metadata -- what the take-off's
-    counts summarise, for a reader that has to say which seam is where.
+    counts summarise, for a reader that has to say which seam is where. ``ck_of(record)`` gives each
+    record its connection key (``ada.assoc``), where the caller can say which elements it joins.
+
+    ``keep_built``, a list, is given every ``(joint id, connection)`` built -- for a caller that makes
+    more of the objects than the model (a simulation subject per connection).
     """
     from ada import Part
     from ada.core.file_system import new_temp_path
@@ -308,7 +316,9 @@ def build_detail(
     stats["not_built"] = not_built
     stats["weld_failures"] = weld_failures
     stats["duplicate_welds"] = duplicate_welds
-    stats["connections"] = connection_records(built)
+    stats["connections"] = connection_records(built, ck_of=ck_of)
+    if keep_built is not None:
+        keep_built.extend(built)
     return glb_bytes, stats
 
 
@@ -548,10 +558,13 @@ def _weld_record(weld) -> dict[str, Any]:
     }
 
 
-def connection_records(built: list[tuple[str, Any]]) -> list[dict[str, Any]]:
+def connection_records(
+    built: list[tuple[str, Any]], *, ck_of: Callable[[Mapping[str, Any]], "str | None"] | None = None
+) -> list[dict[str, Any]]:
     """One record per built connection: ``{"joint_id", "connection", "spec", "member_roles",
-    "centre", "plates", "welds"}``, each weld as :func:`_weld_record` reads it. Read defensively:
-    a provider's builder made these objects."""
+    "centre", "plates", "welds"}``, each weld as :func:`_weld_record` reads it, and its ``ck``
+    (``ada.assoc.keys.connection_key``) when ``ck_of`` gives one. Read defensively: a provider's
+    builder made these objects."""
     out: list[dict[str, Any]] = []
     for jid, conn in built:
         metadata = getattr(conn, "metadata", None)
@@ -569,6 +582,13 @@ def connection_records(built: list[tuple[str, Any]]) -> list[dict[str, Any]]:
                 "welds": [_weld_record(w) for w in _welds_of(conn)],
             }
         )
+        if ck_of is not None:
+            try:
+                ck = ck_of(out[-1])
+            except Exception:  # noqa: BLE001 - a connection whose elements are not known has no ck
+                ck = None
+            if ck:
+                out[-1]["ck"] = ck
     return out
 
 
@@ -675,6 +695,40 @@ def _welds_of(conn):
     if callable(get_all):
         return get_all()
     return list(getattr(conn, "welds", None) or [])
+
+
+class JointNotBuilt(ValueError):
+    """:func:`build_joint` built nothing: every spec declined (``declined`` lists them), or a builder
+    failed (``failed``: its spec and error)."""
+
+    def __init__(self, message: str, *, declined: list | None = None, failed: dict | None = None) -> None:
+        super().__init__(message)
+        self.declined = list(declined or [])
+        self.failed = failed
+
+
+def build_joint(registered, found, *, joint_id: str, gen_options: Mapping[str, Any] | None = None) -> tuple[str, list]:
+    """Build ONE joint as :func:`build_detail` builds each of its joints: the requested spec first,
+    then the same provider's other applicable specs when it declines. Returns ``(the name of the
+    spec that built it, its connections)``; :class:`JointNotBuilt` when none did.
+
+    The connections are named as a detail run names them (``<spec>_<joint id>``, ``_<i>`` after the
+    first), so the same joint built again carries the same names -- how a subject is made of the
+    connection a detail model listed, without the model."""
+    declined: list[dict[str, str]] = []
+    for reg in [registered, *_fallbacks(registered, found)]:
+        name = reg.spec.name
+        outcome = _build_with(reg, name, joint_id, found, dict(gen_options or {}))
+        if isinstance(outcome, _Declined):
+            declined.append({"spec": name, "reason": outcome.reason})
+            continue
+        if isinstance(outcome, str):
+            raise JointNotBuilt(f"{joint_id}: {outcome}", declined=declined, failed={"spec": name, "reason": outcome})
+        return name, outcome
+    raise JointNotBuilt(
+        f"{joint_id}: no applicable spec took it (" + "; ".join(f"{d['spec']}: {d['reason']}" for d in declined) + ")",
+        declined=declined,
+    )
 
 
 class _Declined:
