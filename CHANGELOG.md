@@ -2,6 +2,16 @@
 
 
 
+## v0.166.0 (2026-11-21)
+
+### Feature
+
+* feat(viewer): one overlay manager for what is drawn over the scene (#587)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt;
+Co-authored-by: adapy-bundle-bot &lt;adapy-bundle-bot@users.noreply.github.com&gt; ([`6944e24`](https://github.com/Krande/adapy/commit/6944e2420c355da1ed01900e8a348eae14bef754))
+
+
 ## v0.165.0 (2026-11-21)
 
 ### Feature
