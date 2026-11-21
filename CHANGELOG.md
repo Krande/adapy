@@ -2,6 +2,16 @@
 
 
 
+## v0.167.0 (2026-11-21)
+
+### Feature
+
+* feat: construction modes, simulation batches and concurrent worker jobs (plugin API 1.35.0) (#590)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt;
+Co-authored-by: adapy-bundle-bot &lt;adapy-bundle-bot@users.noreply.github.com&gt; ([`0a698fb`](https://github.com/Krande/adapy/commit/0a698fb856a750c7e94756d285e902d33762a489))
+
+
 ## v0.166.1 (2026-11-21)
 
 ### Fix
