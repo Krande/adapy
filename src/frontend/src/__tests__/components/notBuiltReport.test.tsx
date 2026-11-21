@@ -1,5 +1,6 @@
 // A detail model's "Not built" report: the joints a run did not build, grouped by their reason with
-// the numbers and names taken out, and the failed welds of the joints it did build, per joint.
+// the numbers and names taken out, the failed welds of the joints it did build, per joint, and the
+// welds dropped as duplicates of another joint's weld on the same seam.
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -7,7 +8,7 @@ import { test } from "node:test";
 const React = (await import("react")).default;
 const { renderToStaticMarkup } = await import("react-dom/server");
 const { groupNotBuilt, normaliseReason, parseDetailStats } = await import("@/state/clashCheckStore");
-const { NotBuiltReport, JointButton } = await import("@/components/info_box_scene/joints/NotBuiltReport");
+const { NotBuiltReport, JointButton, DuplicateWeldRow } = await import("@/components/info_box_scene/joints/NotBuiltReport");
 
 const angle = (deg: number) => `takes an incoming at 60 to 120 degrees to the landing; this one is at ${deg}`;
 
@@ -75,6 +76,66 @@ test("a joint row focuses its contact", () => {
   };
   button.props.onClick();
   assert.deepEqual(focused, ["a1"]);
+});
+
+const DUP = {
+  joint_id: "d2",
+  connection: "conn_d2",
+  weld: "w_foot",
+  weld_type: "fillet",
+  kept_joint_id: "d1",
+  kept_connection: "conn_d1",
+  kept_weld: "w_end",
+  reason: "the same seam as w_end of conn_d1, kept",
+};
+
+test("duplicate welds are parsed, and a take-off from before them has none", () => {
+  const stats = parseDetailStats({ joints: null, duplicate_welds: [DUP, { connection: "no joint id" }, "junk"] });
+  assert.deepEqual(stats.duplicateWelds, [
+    {
+      jointId: "d2",
+      connection: "conn_d2",
+      weld: "w_foot",
+      weldType: "fillet",
+      keptJointId: "d1",
+      keptConnection: "conn_d1",
+      keptWeld: "w_end",
+      reason: "the same seam as w_end of conn_d1, kept",
+    },
+  ]);
+  assert.deepEqual(parseDetailStats({ joints: { count: 0, by_type: [], items: [] }, not_built: [] }).duplicateWelds, []);
+  assert.deepEqual(parseDetailStats({ joints: null, duplicate_welds: "nope" }).duplicateWelds, []);
+});
+
+test("the report lists each dropped weld and the weld that kept its seam", () => {
+  const stats = parseDetailStats({ joints: { count: 2, by_type: [], items: [] }, not_built: [], weld_failures: [], duplicate_welds: [DUP] });
+  const html = renderToStaticMarkup(React.createElement(NotBuiltReport, { stats, onFocusJoint: () => {} }));
+  assert.doesNotMatch(html, /Every joint was built/, "a run with duplicates has something to report");
+  assert.match(html, /1<\/span> duplicate weld dropped/);
+  assert.match(html, /data-duplicate-weld="d2"/);
+  for (const id of ["d2", "d1"]) assert.match(html, new RegExp(`data-not-built-joint="${id}"`));
+  for (const text of ["w_foot", "fillet", "conn_d2", "kept by", "w_end", "conn_d1", "the same seam as w_end of conn_d1, kept"]) {
+    assert.match(html, new RegExp(text));
+  }
+});
+
+test("a duplicate's dropped and kept joints each focus their contact", () => {
+  const focused: string[] = [];
+  const dup = parseDetailStats({ duplicate_welds: [DUP] }).duplicateWelds[0];
+  const row = DuplicateWeldRow({ dup, selected: null, onFocus: (id: string) => void focused.push(id) }) as unknown;
+  // The JointButtons in the row, in order: the dropped joint's, then the kept one's.
+  const buttons: { props: { id: string; onFocus: (id: string) => void } }[] = [];
+  const walk = (node: unknown): void => {
+    if (Array.isArray(node)) return node.forEach(walk);
+    if (!node || typeof node !== "object" || !("props" in node)) return;
+    const el = node as { type: unknown; props: { children?: unknown; id: string; onFocus: (id: string) => void } };
+    if (el.type === JointButton) buttons.push(el);
+    walk(el.props.children);
+  };
+  walk(row);
+  assert.deepEqual(buttons.map((b) => b.props.id), ["d2", "d1"]);
+  for (const b of buttons) (JointButton(b.props as never) as unknown as { props: { onClick: () => void } }).props.onClick();
+  assert.deepEqual(focused, ["d2", "d1"]);
 });
 
 test("a run that lost nothing says so; one from before the records lists its sentences", () => {

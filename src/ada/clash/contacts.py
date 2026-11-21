@@ -187,6 +187,8 @@ def found_for(run: ContactRun, record: ContactRecord, binding: MemberBinding):
             "normal": record.normal,
             "penetration_depth": record.distance,
             "contact_area": record.contact_area,
+            # The patch decides which member's end is at the contact, where it can (`pick_incoming`).
+            "patches": record.patches,
         },
         float(run.options.get("security_margin", 0.0)),
     )
@@ -274,7 +276,9 @@ def roles_from_meshes(record: ContactRecord, vertices: Mapping[int, Any]) -> dic
     i, j = record.members
     if i not in vertices or j not in vertices:
         return None
-    picked = pick_incoming(mesh_anchors(vertices[i]), mesh_anchors(vertices[j]), record.near_points[0])
+    picked = pick_incoming(
+        mesh_anchors(vertices[i]), mesh_anchors(vertices[j]), record.near_points[0], patches=record.patches
+    )
     if picked is None:
         return None
     incoming = i if picked[0] == 0 else j

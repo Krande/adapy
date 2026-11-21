@@ -264,6 +264,8 @@ export interface WireDetailModel {
     readonly not_built?: number;
     /** Seams of built joints that are not in the model. */
     readonly weld_failures?: number;
+    /** Welds dropped because another joint's weld lies on the same seam (the seam is welded once). */
+    readonly duplicate_welds?: number;
   } | null;
   /** Which specs built how many joints (a spec can fall through to a sibling). */
   readonly built_by?: Readonly<Record<string, number>> | null;

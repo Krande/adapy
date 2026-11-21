@@ -1,8 +1,8 @@
 # The inputs src/ada/visit/rendering/resources/index.zip was built from, and its own hash. Do not edit.
 # Refresh with `pixi run wbuild` (rebuilds the bundle and rewrites this), then commit both.
 # Checked by `pixi run check-bundle-inputs` and by CI. See scripts/packaging/bundle_inputs.py.
-inputs-sha256 a045828a5edd557f1bb1a3999e489431ea7205b950dcf49de76e121633ecb298
-bundle-sha256 b60a36b89a913099e2a09def60031f1e031b5a63f1d3e91b14b0fe3620ad0f53
+inputs-sha256 8d259790c9e1b10160d58c61013f841f7425454f572f318088621869613dea59
+bundle-sha256 064c5e8e7ae7f0d40be5ce00eede3d58cbbc5141cc22bd4ff21acffe7d5b1e25
 pin:ADACPP_BASE_IMAGE ghcr.io/krande/adacpp-wasm-base:0.44.0
 pin:ADACPP_RENDER_REF c1a7b3ab434a916e08170c634c23b9dc1974d32f
 src/frontend/clean.cjs 548054390de442a02ca36bd4de94f25095f10ae9
@@ -285,13 +285,13 @@ src/frontend/src/components/info_box_scene/SectionPlanesPanel.tsx e13fe1c9dc58c2
 src/frontend/src/components/info_box_scene/SourceSection.tsx 06cebd667712f110b90a070b6cd5dd7eb323d50d
 src/frontend/src/components/info_box_scene/StatsSection.tsx 6f757c3e9f18fc31579c07dc8633e81bef202423
 src/frontend/src/components/info_box_scene/UtilitiesSection.tsx 4bb66af894876b8a4400e814203d8f10d8dc553a
-src/frontend/src/components/info_box_scene/joints/DetailModels.tsx c6e93e298252a5ecb86536fef5dac954452c5a35
+src/frontend/src/components/info_box_scene/joints/DetailModels.tsx 8215bb8c1d062d80fc56e029144b9b8bf8c49144
 src/frontend/src/components/info_box_scene/joints/FocusedJoints.tsx 90b52d9fa30fb2a4a65a017fecafedab5ed02c20
 src/frontend/src/components/info_box_scene/joints/IdentifiedJoints.tsx 6b64194479826012c22ae143d9cef6307f745663
 src/frontend/src/components/info_box_scene/joints/IsolationControls.tsx c71444d7ddee7db25d415cf710251d3f15feb13f
 src/frontend/src/components/info_box_scene/joints/JointDetail.tsx c20d29918825875b63b1e01c13f05a7640522729
 src/frontend/src/components/info_box_scene/joints/JointOverlayToggles.tsx a5494b80105d67d5bff4eb3d26ec0e4cb7c54ef3
-src/frontend/src/components/info_box_scene/joints/NotBuiltReport.tsx 5041b8d39a9ba86fdc1c74921877c3bd99226c89
+src/frontend/src/components/info_box_scene/joints/NotBuiltReport.tsx 4a1c83b2fccadaf309bf8a94632168b60899b446
 src/frontend/src/components/info_box_scene/joints/PassControls.tsx d30c7e3078ccbadc4d9a588f5c5b0adf79e902df
 src/frontend/src/components/info_box_scene/joints/rows.ts 46438ee418e98da63fbb0ee8b53d15aaa4b75bdb
 src/frontend/src/components/info_box_scene/sceneTabs.ts ec80a6edb4d4559dad2493cbe64e91b729befcd4
@@ -733,7 +733,7 @@ src/frontend/src/services/api/assetSchedules.ts 2032a3651fdf160c0d06be3ae01e10c5
 src/frontend/src/services/api/assets.ts b4b2b7d9980440faf2d5fece7d20d1ad135ac903
 src/frontend/src/services/api/attributeSearch.ts d14be7a7c6bdbe11510b22ed150dc4cb0a8f7710
 src/frontend/src/services/api/auth.ts 827f2e920c030fdae5c4db55f502368fa1d12bd8
-src/frontend/src/services/api/clashCheck.ts ac36fbe90e8795e9496f715d1e429b531bf2c8cd
+src/frontend/src/services/api/clashCheck.ts 88b21182e6656111dda4419070cc819071d07dc3
 src/frontend/src/services/api/client.ts 12955067cb3c41cc4e3c964d1a93d94d1b4b7c97
 src/frontend/src/services/api/components.ts e3776b5b1d463e9cd1e3bb790be3978ee9456528
 src/frontend/src/services/api/conversion.ts 52c083c3080d8006af02a149f12a0c5309211979
@@ -882,7 +882,7 @@ src/frontend/src/state/cellbuilder/types.ts 0c4a6151f5b2e21e5a6a7bee2af5c8b8a52d
 src/frontend/src/state/cellbuilder/viewStateSlice.ts 6a04592a7736526ed03aef5ab87519360c4247de
 src/frontend/src/state/cellbuilder/xlsxImport.ts 190015a23ce4e46e94a9f9c25f7838c1c432c345
 src/frontend/src/state/clashCheck/derive.ts 5900b7a0ab11226c6001f8cb0512a7c6c418b106
-src/frontend/src/state/clashCheck/detail.ts ad2120922ce9df2bb99d31cc491ce9ac0ef3d2fc
+src/frontend/src/state/clashCheck/detail.ts a82ac0b3e9b41f64cc40b92bc8c93cad74262a91
 src/frontend/src/state/clashCheck/detailContext.ts cde9e051e002275349888169b2e76bf252dad5bc
 src/frontend/src/state/clashCheck/engine.ts e6e148ec3d534813eac87c1d85fdf1460237871b
 src/frontend/src/state/clashCheck/flows.ts 92c851bc076afd15613dcbbd961c0a4d7e58f5b2
@@ -891,7 +891,7 @@ src/frontend/src/state/clashCheck/markers.ts f44f2b811800b2b0139188704cad2997af1
 src/frontend/src/state/clashCheck/realDeps.ts 86e850a50361a40304142ded806801fe5d4bf6e1
 src/frontend/src/state/clashCheck/result.ts af3646dd230ece78ed5d8beb5bca0a28365b2895
 src/frontend/src/state/clashCheck/state.ts e1df8c6f84523f9dfeb8fc5f923ee4763a623d8a
-src/frontend/src/state/clashCheckStore.ts 11e35f3088c60b533b065c697c937061871e8d6f
+src/frontend/src/state/clashCheckStore.ts 37d2e043f594471c6a215df9ec8b6b1075a1e263
 src/frontend/src/state/clashContactPickStore.ts 218407c8acc989aa05eb3fb715cbef26e82b822e
 src/frontend/src/state/clashGeometryDeps.ts bf82368852f3f43921c9b436f8415e835322d710
 src/frontend/src/state/colorByStore.ts b373540b3de20e36a091dbc2461ed7e8c20aeb18
@@ -910,7 +910,7 @@ src/frontend/src/state/consoleLogStore.ts 9c1746bc0c2fb3418ace51e05fd06c844f724f
 src/frontend/src/state/controlsProfileStore.ts 512eb9252179aaa5ec70bfcd2a8b062dcd951e91
 src/frontend/src/state/conversionStore.ts 2f593d851a621d7b21661d6880b3e10b41536fa1
 src/frontend/src/state/convertPageStore.ts fc7de655281da8bc57c047b7c9ce248431fd8afb
-src/frontend/src/state/detailModelsStore.ts 8cc47f342bcc9c196cce5f9012dcf47b858d0d07
+src/frontend/src/state/detailModelsStore.ts a0367026f08d07f70add07b00fc7783073c917d3
 src/frontend/src/state/engineCatalogStore.ts eebb54764358a3432bd1f445e8a37905cc3454da
 src/frontend/src/state/equipmentCatalogStore.ts 865ea617381a45f1fab17b8d922e1a895196728b
 src/frontend/src/state/experimentalStore.ts 3415274358b9fb42a0255eae3e7a86e38517e0c0

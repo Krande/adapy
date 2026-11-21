@@ -255,7 +255,15 @@ def test_a_take_off_summarises_as_joints_welds_and_plates():
     }
     # A take-off from before the structured records: its skipped lines are its joints not built.
     assert clash_details.summary_from_stats(stats) == {
-        "counts": {"joints": 2, "welds": 5, "plates": 1, "skipped": 1, "not_built": 1, "weld_failures": 0},
+        "counts": {
+            "joints": 2,
+            "welds": 5,
+            "plates": 1,
+            "skipped": 1,
+            "not_built": 1,
+            "weld_failures": 0,
+            "duplicate_welds": 0,
+        },
         "built_by": {"a": 2},
     }
     stats["not_built"] = [{"joint_id": "j9", "kind": "failed", "reason": "refused", "declined": []}]

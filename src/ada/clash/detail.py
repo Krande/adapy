@@ -19,6 +19,7 @@ __all__ = [
     "DetailReporter",
     "build_detail",
     "connection_records",
+    "dedup_seams",
     "detail_progress",
     "found_id",
     "joints_by_id",
@@ -191,6 +192,10 @@ def build_detail(
       (:data:`ada.api.connections.spec.WELD_FAILURES_KEY`: a list of ``{"place", "weld_type",
       "reason"}``) -- and the GLB export, for a weld the connection lists whose solid produced no
       geometry (``reason`` ``"no geometry: ..."``).
+    - ``duplicate_welds``: ``{"joint_id", "connection", "weld", "weld_type", "kept_joint_id",
+      "kept_connection", "kept_weld", "reason"}`` per weld taken out because another joint's weld is on
+      the same seam (:func:`dedup_seams`, which also says which one stays). The seam is in the model,
+      once; the joint's take-off counts the welds it kept.
 
     WHAT WAS BUILT, per connection, in ``stats["connections"]`` (:func:`connection_records`): the
     joint id it was built for, its name, spec, member roles and centre, its plates, and each weld with
@@ -261,6 +266,11 @@ def build_detail(
             f"{spec_name} detailed none of the {len(joint_ids)} joint(s) handed to it: " + "; ".join(skipped[:5])
         )
 
+    # One weld per seam: where two joints welded the same physical seam (two members ending side by side
+    # on one landing, a foot edge flush with the end of the member beside it), the second is taken out
+    # of the model and said so (`duplicate_welds`), before anything is built or meshed.
+    duplicate_welds = dedup_seams(built, by_id)
+
     if on_stage is None:
         on_stage = getattr(on_progress, "stage", None)
 
@@ -297,8 +307,183 @@ def build_detail(
         stats["skipped"] = skipped
     stats["not_built"] = not_built
     stats["weld_failures"] = weld_failures
+    stats["duplicate_welds"] = duplicate_welds
     stats["connections"] = connection_records(built)
     return glb_bytes, stats
+
+
+# ── one weld per seam ─────────────────────────────────────────────────────────────────────────
+
+#: How far a point of one weld's line may be from another's and still be on the same seam [m]. Two
+#: joints welding one edge put their lines on that edge; two seams of a real joint lie a wall or a
+#: plate's thickness apart (a fillet each side of a web), well over this.
+SEAM_TOL_M = 0.002
+
+#: The share of a weld's line that must lie on a kept weld's line for the weld to be the same seam.
+SEAM_COVER = 0.8
+
+#: Points sampled along a weld's line to compare it with another.
+_SEAM_SAMPLES = 11
+
+
+def _weld_line(weld) -> Any:
+    """A weld's line as an ``(n, 3)`` array: ``p1`` to ``p2``, or its sweep curve's points. None when
+    the weld says neither -- such a weld is never compared, so never dropped."""
+    import numpy as np
+
+    p1, p2 = _point(getattr(weld, "p1", None)), _point(getattr(weld, "p2", None))
+    if p1 is not None and p2 is not None:
+        pts = [p1, p2]
+    else:
+        curve = getattr(weld, "sweep_curve", None)
+        pts = []
+        for attr in ("points3d", "points"):
+            pts = [q for q in (_point(p) for p in (getattr(curve, attr, None) or ())) if q is not None]
+            if len(pts) >= 2:
+                break
+    if len(pts) < 2:
+        return None
+    arr = np.asarray(pts, dtype=float)
+    return arr if float(np.linalg.norm(np.diff(arr, axis=0), axis=1).sum()) > 0.0 else None
+
+
+def _sample_line(line, n: int = _SEAM_SAMPLES):
+    """``n`` points evenly spaced along the polyline ``line`` (ends included)."""
+    import numpy as np
+
+    seg = np.linalg.norm(np.diff(line, axis=0), axis=1)
+    cum = np.concatenate([[0.0], np.cumsum(seg)])
+    at = np.linspace(0.0, cum[-1], n)
+    idx = np.clip(np.searchsorted(cum, at, side="right") - 1, 0, len(seg) - 1)
+    frac = np.where(seg[idx] > 0, (at - cum[idx]) / np.where(seg[idx] > 0, seg[idx], 1.0), 0.0)
+    return line[idx] + (line[idx + 1] - line[idx]) * frac[:, None]
+
+
+def _distance_to_line(points, line):
+    """Each of ``points``' distance to the polyline ``line``."""
+    import numpy as np
+
+    a, b = line[:-1], line[1:]
+    ab = b - a
+    denom = np.einsum("ij,ij->i", ab, ab)
+    rel = points[:, None, :] - a[None, :, :]
+    t = np.clip(np.einsum("pij,ij->pi", rel, ab) / np.where(denom > 0, denom, 1.0), 0.0, 1.0)
+    nearest = a[None, :, :] + t[..., None] * ab[None, :, :]
+    return np.linalg.norm(points[:, None, :] - nearest, axis=2).min(axis=1)
+
+
+def _patch_outlines(found) -> list[Any]:
+    """The outlines of the joint's contact patches with area (``contact.extras["patches"]``), each closed
+    -- what tells whether a seam is on the contact this joint was found for."""
+    import numpy as np
+
+    extras = getattr(getattr(found, "contact", None), "extras", None) or {}
+    out = []
+    for patch in extras.get("patches") or ():
+        if not isinstance(patch, Mapping):
+            continue
+        pts = [q for q in (_point(p) for p in (patch.get("points_incoming") or ())) if q is not None]
+        if len(pts) >= 3:
+            arr = np.asarray(pts, dtype=float)
+            out.append(np.vstack([arr, arr[:1]]))
+    return out
+
+
+def dedup_seams(built: list[tuple[str, Any]], by_id: Mapping[str, Any] | None = None) -> list[dict[str, Any]]:
+    """Take out of the model every weld that lies on a seam another joint's weld already covers, and
+    return a record of each: ``{"joint_id", "connection", "weld", "weld_type", "kept_joint_id",
+    "kept_connection", "kept_weld", "reason"}`` -- the take-off's ``duplicate_welds``.
+
+    Two joints can weld one seam: two members ending side by side on one landing both weld the line
+    between their footprints; a post's foot edge flush with the end of the member beside it is the end
+    edge of each. Each builder sees only its own pair, so each welds the seam, typed against its own
+    members. Seams are compared by their LINES -- every weld's sampled line within :data:`SEAM_TOL_M`
+    of the other's over :data:`SEAM_COVER` of its length -- never by their profiles, which differ.
+    The welds of one joint are never compared with each other.
+
+    WHICH WELD STAYS, deterministically: the welds are visited in the order (1) a weld whose line lies on
+    its own joint's contact patch outline (``by_id[jid].contact.extras["patches"]``) before one that
+    does not -- the joint found AT that seam -- (2) the longer weld first, so a seam stays covered
+    end to end, (3) the joint id, (4) the weld's place in its connection. A weld is kept unless a weld
+    kept before it, of another joint, covers it; it is then removed from its connection (and from the
+    connection's ``weld_names``) and recorded. A weld that partly overlaps a kept one is kept whole."""
+    import numpy as np
+
+    by_id = by_id or {}
+    outlines = {jid: _patch_outlines(by_id.get(jid)) for jid in {j for j, _ in built}}
+    entries = []
+    for order, (jid, conn) in enumerate(built):
+        for k, weld in enumerate(_welds_of(conn)):
+            line = _weld_line(weld)
+            if line is None:
+                continue
+            samples = _sample_line(line)
+            on_patch = any(bool(np.all(_distance_to_line(samples, outline) <= SEAM_TOL_M)) for outline in outlines[jid])
+            length = float(np.linalg.norm(np.diff(line, axis=0), axis=1).sum())
+            entries.append(((not on_patch, -round(length, 4), jid, order, k), jid, conn, weld, line, samples))
+    entries.sort(key=lambda e: e[0])
+
+    cell = SEAM_TOL_M * 50  # a 0.1 m grid: a kept weld is looked up only where its line passes
+    grid: dict[tuple[int, int, int], list[int]] = {}
+    kept: list[tuple[str, Any, Any, Any]] = []
+    dropped: list[dict[str, Any]] = []
+    offsets = [(dx, dy, dz) for dx in (-1, 0, 1) for dy in (-1, 0, 1) for dz in (-1, 0, 1)]
+    for _, jid, conn, weld, line, samples in entries:
+        near: set[int] = set()
+        for p in samples:
+            cx, cy, cz = (int(c) for c in np.floor(p / cell))
+            for dx, dy, dz in offsets:
+                near.update(grid.get((cx + dx, cy + dy, cz + dz), ()))
+        cover = None
+        for idx in sorted(near):
+            kjid, kconn, kweld, kline = kept[idx]
+            if kjid == jid:
+                continue
+            if float(np.mean(_distance_to_line(samples, kline) <= SEAM_TOL_M)) >= SEAM_COVER:
+                cover = kept[idx]
+                break
+        if cover is None:
+            kept.append((jid, conn, weld, line))
+            length = float(np.linalg.norm(np.diff(line, axis=0), axis=1).sum())
+            for p in _sample_line(line, max(2, int(np.ceil(2 * length / cell)) + 1)):
+                key = tuple(int(c) for c in np.floor(p / cell))
+                if not grid.get(key) or grid[key][-1] != len(kept) - 1:
+                    grid.setdefault(key, []).append(len(kept) - 1)
+            continue
+        kjid, kconn, kweld, _ = cover
+        _remove_weld(conn, weld)
+        weld_type = getattr(getattr(weld, "type", None), "value", None) or getattr(weld, "type", None)
+        dropped.append(
+            {
+                "joint_id": jid,
+                "connection": str(getattr(conn, "name", "") or ""),
+                "weld": str(getattr(weld, "name", "") or ""),
+                "weld_type": str(weld_type or ""),
+                "kept_joint_id": kjid,
+                "kept_connection": str(getattr(kconn, "name", "") or ""),
+                "kept_weld": str(getattr(kweld, "name", "") or ""),
+                "reason": f"the same seam as {getattr(kweld, 'name', '')} of {getattr(kconn, 'name', '')}, kept",
+            }
+        )
+    return dropped
+
+
+def _remove_weld(conn, weld) -> None:
+    """``weld`` out of the part that holds it (``conn`` or a sub-part of it) and out of ``conn``'s
+    ``connection_info["weld_names"]``, so the take-off and the GLB both leave it out."""
+    holder = getattr(weld, "parent", None)
+    for part in (holder, conn):
+        welds = getattr(part, "_welds", None)
+        if isinstance(welds, list) and any(w is weld for w in welds):
+            welds[:] = [w for w in welds if w is not weld]
+            invalidate = getattr(part, "_invalidate_welds_for_cache", None)
+            if callable(invalidate):
+                invalidate()
+            break
+    metadata = getattr(conn, "metadata", None)
+    info = metadata.get("connection_info") if isinstance(metadata, Mapping) else None
+    if isinstance(info, dict) and isinstance(info.get("weld_names"), list):
+        info["weld_names"] = [n for n in info["weld_names"] if n != getattr(weld, "name", None)]
 
 
 def _scalar(value: Any) -> Any:
