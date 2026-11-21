@@ -2,6 +2,16 @@
 
 
 
+## v0.166.1 (2026-11-21)
+
+### Fix
+
+* fix(clash): the contact patch picks the incoming member, and a detail run welds each seam once (#588)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt;
+Co-authored-by: adapy-bundle-bot &lt;adapy-bundle-bot@users.noreply.github.com&gt; ([`ef7715f`](https://github.com/Krande/adapy/commit/ef7715f3ba4c72971d23afc3e9715bc93fd4711e))
+
+
 ## v0.166.0 (2026-11-21)
 
 ### Feature
