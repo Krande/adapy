@@ -62,6 +62,25 @@ export type {
   SimulationSubjectRef,
   StartSimulationBody,
 } from "@/services/api/simulations";
+// Robot-asset bundles (1.37.0): the provider store's robot assets exported to and imported from one
+// `.adabots` file. Admin only.
+export { robotBundlesApi, saveBundle } from "@/services/api/robotBundles";
+export type { RobotBundleDownload, RobotBundleSelection } from "@/services/api/robotBundles";
+export { ROBOT_BUNDLE_SCHEMA, ROBOT_BUNDLE_SUFFIX } from "@/assets/robotBundles";
+export type {
+  RobotAssetGrant,
+  RobotAssetList,
+  RobotAssetRow,
+  RobotAssetVersion,
+  RobotBundleLimits,
+  RobotImportChoices,
+  RobotImportPlanRow,
+  RobotImportPreview,
+  RobotImportResult,
+  RobotImportResultKind,
+  RobotImportResultRow,
+  RobotImportStatus,
+} from "@/assets/robotBundles";
 // Per-element associations (1.36.0): the contacts, connections, welds, subjects and simulation runs
 // filed under a model's elements and their ancestors, a page at a time; the hook follows a run that
 // is going.

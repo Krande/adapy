@@ -519,7 +519,20 @@ export type { SelectedObjectBox } from "@/viewport/api/viewportApi";
 //            every 5 s while a run on them is queued or running.
 //          - The Selected Object panel's Results section (core `element-links`, order 55).
 //          All additive: an older server answers 404 to the calls (a plugin asks first).
-export const PLUGIN_API_VERSION = "1.36.0";
+// 1.37.0 — Robot-asset bundles (`.adabots`, docs/architecture/robot_asset_bundles.md).
+//          - `robotBundlesApi` (@/viewer-core/app), admin only: `list()` (the provider store's robot
+//            assets, each id with its versions newest first, the scopes holding the `robots` grant,
+//            the bundle limits), `exportBundle({refs} | {all: true})` ({blob, filename}; `saveBundle`
+//            hands it to the browser), `previewImport(file, onProgress)` (validated and staged:
+//            per robot `new` / `unchanged` / `newer` / `older` / `conflict` / `invalid`, nothing
+//            written), `applyImport(uploadId, {add_older, robots: {ref: {include, add_older}}})` and
+//            `discardImport(uploadId)`. The shapes (`RobotAssetList`, `RobotImportPreview`,
+//            `RobotImportResult`, ...) and `ROBOT_BUNDLE_SUFFIX` come with it.
+//          - Admin panel: core's "Robot bundles" tab (`#robots`): multi-select, "Download selected",
+//            "Download all", "Import bundle…" with its preview and results. A plugin's own robot-asset
+//            tab can call the same API rather than draw another import.
+//          All additive: an older server answers 404 to the calls (a plugin asks first).
+export const PLUGIN_API_VERSION = "1.37.0";
 
 /** What the Simulations panel writes on a run's open-result button. */
 export function openResultButtonLabel(
