@@ -2,6 +2,19 @@
 
 
 
+## v0.169.1 (2026-11-22)
+
+### Chore
+
+* chore(docs): say what /api/settings/public.* answers without a database (#593) ([`aeb32a6`](https://github.com/Krande/adapy/commit/aeb32a6dc1c75cff395dd9887034beef21bb5f95))
+
+### Fix
+
+* fix(robot-bundles): stream bundle uploads and imports without local copies (#594)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`d39fec7`](https://github.com/Krande/adapy/commit/d39fec7e2783b8f380ef51b9b3f5547146491a95))
+
+
 ## v0.169.0 (2026-11-22)
 
 ### Feature
