@@ -94,7 +94,11 @@ test("a saved-group member is a node, with its provider's own id when the tree h
   assert.equal((nodeOfMember(stored) as { element_id?: string }).element_id, "e-1");
 });
 
-test("the plugin API is 1.36.0", () => {
-  assert.equal(PLUGIN_API_VERSION, "1.36.0");
-  assert.equal(VIEWER_CORE_API_VERSION, "1.36.0");
+test("the plugin API has the per-element associations (1.36.0 or later)", () => {
+  const atLeast = (v: string) => {
+    const [maj, min] = v.split(".").map(Number);
+    return maj > 1 || (maj === 1 && min >= 36);
+  };
+  assert.ok(atLeast(PLUGIN_API_VERSION));
+  assert.equal(VIEWER_CORE_API_VERSION, PLUGIN_API_VERSION);
 });

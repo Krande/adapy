@@ -780,7 +780,10 @@
 //          `SelectionSnapshot.nodes` / `.group_id` and the type `ElementNodeRef` on the root;
 //          `queryElementLinks`, `elementLinks`, `elementLinksApi`, `latestRun`, `useElementLinks`
 //          and their types on `/app`. See PLUGIN_API_VERSION's 1.36.0 note.
-export const VIEWER_CORE_API_VERSION = "1.36.0";
+//   1.37.0 Kept in step with PLUGIN_API_VERSION 1.37.0. Additive: robot-asset bundles --
+//          `robotBundlesApi`, `saveBundle`, `ROBOT_BUNDLE_SUFFIX` and the bundle types on `/app`.
+//          See PLUGIN_API_VERSION's 1.37.0 note.
+export const VIEWER_CORE_API_VERSION = "1.37.0";
 
 // ---------------------------------------------------------------------------
 // Plugin declaration. `registerPlugin` is how a package announces itself —
