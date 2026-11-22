@@ -112,6 +112,25 @@ for one robot, `robots-<yyyymmdd>-<n>.adabots` for more.
    validated and compared with the store **again** (it may have changed since the preview), and each robot is
    written on its own. `DELETE /api/admin/robot-assets/import/<upload_id>` drops it instead.
 
+### No local copies
+
+The API keeps no copy of a bundle, or of a file in it, on its own disk, whatever the bundle's size:
+
+* **Preview.** The request body streams straight into the staging object as a multipart upload
+  (`Storage.put_stream`: 5 MiB parts, at most two in flight). A body past `ADA_ROBOT_BUNDLE_MAX_BYTES` is refused
+  with 413 before a byte is read when its `Content-Length` says so, and the moment it passes the limit otherwise;
+  the multipart upload is then aborted and nothing is staged. The bundle is validated where it is staged, and a
+  refused one is removed again.
+* **Validation and import** read the staged object in place (`Storage.open_seekable`): a filesystem store opens
+  its own file; an object store is read by range requests through a small cache of 4 MiB blocks (three of them),
+  so the zip's central directory and the sequential reads of each file are a request per block.
+* **Writing a robot.** Each file streams from the zip into its object: one PUT up to 5 MiB, a multipart upload
+  above. zipfile checks each file's CRC as its last bytes are read, so a corrupt file fails its robot before the
+  object exists.
+
+Memory stays bounded at a few tens of MiB: the block cache (12 MiB), the parts in flight (up to 15 MiB) and a
+chunk or two being read and inflated.
+
 ### What is checked before anything is written
 
 The whole bundle is refused (400, with every problem found) when:
@@ -205,6 +224,6 @@ server checks everything.
 ## Not (yet) covered
 
 * A bundle is uploaded through the API (up to `ADA_ROBOT_BUNDLE_MAX_BYTES`, and whatever the ingress in front of
-  it allows); there is no presigned upload for bundles.
+  it allows), streamed into staging; there is no presigned upload straight from the browser to staging.
 * A download is kept by the browser as a Blob before it is saved: the server streams, the browser buffers.
 * Removing a version is not part of this.

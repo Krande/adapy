@@ -382,14 +382,14 @@ def test_a_failed_robot_leaves_nothing_behind_and_the_others_are_imported(tmp_pa
     src = tmp_path / "src"
     src.mkdir()
     p = preview(client, _bundle_of(src, [("arm-a", "1", ""), ("arm-b", "1", "")]))
-    real = Storage.put_path
+    real = Storage.put_bytes
 
-    async def flaky(self, scope, key, path, **kw):
+    async def flaky(self, scope, key, data, **kw):
         if key.startswith("assets/robots/arm-a/") and key.endswith("robot.json"):
             raise RuntimeError("store went away")
-        return await real(self, scope, key, path, **kw)
+        return await real(self, scope, key, data, **kw)
 
-    monkeypatch.setattr(Storage, "put_path", flaky)
+    monkeypatch.setattr(Storage, "put_bytes", flaky)
     r = client.post(f"{BASE}/import/{p['upload_id']}", json={}).json()
     results = by_ref(r["results"])
     assert results["arm-a@1"]["result"] == "failed" and "store went away" in results["arm-a@1"]["detail"]
@@ -591,3 +591,219 @@ def test_gzip_at_rest_does_not_change_the_content_hash(tmp_path):
         return asyncio.run(rb.stored_content(storage, store["arm-a"]["1"]))[0]
 
     assert content(a) == content(b)
+
+
+# --- streaming: no local copies ------------------------------------------------------------------------
+
+
+def _large_robot(robot_id: str, version: str, mesh_bytes: int) -> dict[str, bytes]:
+    """A robot whose one mesh is ``mesh_bytes`` of incompressible bytes: past the one-PUT size, so it
+    is written as a multipart upload, and past the range reader's block size."""
+    files = robot_files(robot_id, version)
+    big = os.urandom(mesh_bytes)
+    doc = json.loads(files["robot.json"])
+    doc["meshes"]["levels"]["coarse"]["links"]["big"] = {"path": "meshes/coarse/big.stl", "sha256": _sha(big)}
+    return {**files, "meshes/coarse/big.stl": big, "robot.json": json.dumps(doc, indent=1).encode()}
+
+
+def _bundle_bytes(robots: dict[tuple[str, str], dict[str, bytes]]) -> bytes:
+    entries = {f"robots/{rid}/{v}/{p}": b for (rid, v), files in robots.items() for p, b in files.items()}
+    manifest = {"schema": rb.BUNDLE_SCHEMA, "robots": []}
+    for (rid, v), files in robots.items():
+        manifest["robots"].append(
+            {
+                "id": rid,
+                "version": v,
+                "files": [{"path": p, "sha256": _sha(b), "bytes": len(b)} for p, b in sorted(files.items())],
+            }
+        )
+    return _zip(entries, manifest)
+
+
+@pytest.fixture
+def no_temp_files(tmp_path, monkeypatch):
+    """Any temporary file or directory made while it is active fails the test: the bundle routes must
+    keep nothing on local disk. ``tempfile.tempdir`` points at an empty directory that must stay empty."""
+    tmp = tmp_path / "tmpdir"
+    tmp.mkdir()
+
+    def refuse(*_a, **_k):
+        raise AssertionError("a temporary file was made")
+
+    def activate():
+        monkeypatch.setattr(tempfile, "tempdir", str(tmp))
+        for name in ("mkstemp", "mkdtemp", "NamedTemporaryFile", "TemporaryFile", "TemporaryDirectory"):
+            monkeypatch.setattr(tempfile, name, refuse)
+
+    yield activate
+    assert list(tmp.iterdir()) == [], "nothing may be left in the temporary directory"
+
+
+def _memory_storage(monkeypatch) -> Storage:
+    """One in-memory object store (an obstore ``MemoryStore``: no filesystem path, so it is read by
+    range requests as S3 would be) for every app made while the test runs."""
+    from obstore.store import MemoryStore
+
+    from ada.comms.rest import app as app_module
+
+    storage = Storage(MemoryStore(), prefix="")
+    monkeypatch.setattr(app_module.Storage, "from_settings", classmethod(lambda cls, settings: storage))
+    return storage
+
+
+@pytest.mark.parametrize("backend", ["local", "memory"])
+def test_a_large_bundle_previews_and_imports_without_temporary_files(tmp_path, monkeypatch, no_temp_files, backend):
+    storage = _memory_storage(monkeypatch) if backend == "memory" else Storage.from_settings(_settings(tmp_path))
+    files = _large_robot("arm-big", "1", 12 << 20)
+    data = _bundle_bytes({("arm-big", "1"): files, ("arm-a", "1"): robot_files("arm-a", "1")})
+    assert len(data) > 12 << 20
+    with TestClient(create_app(_settings(tmp_path))) as c:
+        no_temp_files()
+        p = preview(c, data)
+        assert {r["status"] for r in p["robots"]} == {"new"}
+        r = c.post(f"{BASE}/import/{p['upload_id']}", json={})
+        assert r.status_code == 200, r.text
+        assert {x["result"] for x in r.json()["results"]} == {"added"}
+
+    async def stored():
+        out = {}
+        for e in await storage.list_prefix(rb.STORE, rb.STORE_PREFIX + "/arm-big/"):
+            out[e.key] = await storage.get_bytes(rb.STORE, e.key)
+        staged = await storage.list_prefix(rb.STORE, rb.STAGING_PREFIX + "/")
+        return out, staged
+
+    out, staged = asyncio.run(stored())
+    assert {k[len(rb.asset_prefix("arm-big", "1")) :]: v for k, v in out.items()} == files
+    assert staged == [], "an imported bundle leaves staging"
+
+
+def test_a_failed_multipart_write_leaves_nothing_of_its_robot(tmp_path, client, monkeypatch):
+    data = _bundle_bytes({("arm-big", "1"): _large_robot("arm-big", "1", 7 << 20)})
+    p = preview(client, data)
+
+    async def broken(self, scope, key, chunks, **kw):
+        async for _ in chunks:
+            raise RuntimeError("store went away mid-upload")
+
+    monkeypatch.setattr(Storage, "put_stream", broken)
+    r = client.post(f"{BASE}/import/{p['upload_id']}", json={}).json()
+    assert r["results"][0]["result"] == "failed" and "mid-upload" in r["results"][0]["detail"]
+    assert not any(k.startswith("assets/robots/arm-big/") for k in stored_tree(tmp_path))
+
+
+@pytest.mark.parametrize("backend", ["local", "memory"])
+def test_a_body_past_the_limit_is_cut_off_mid_stream_and_nothing_is_staged(tmp_path, monkeypatch, backend):
+    storage = _memory_storage(monkeypatch) if backend == "memory" else Storage.from_settings(_settings(tmp_path))
+    monkeypatch.setenv("ADA_ROBOT_BUNDLE_MAX_BYTES", str(9 << 20))
+    sent = []
+
+    def body():  # no Content-Length: the limit is only found while the body streams
+        for _ in range(16):
+            sent.append(1)
+            yield b"\0" * (1 << 20)
+
+    with TestClient(create_app(_settings(tmp_path)), raise_server_exceptions=False) as c:
+        r = c.post(f"{BASE}/import/preview", content=body())
+    assert r.status_code == 413, r.text
+    assert asyncio.run(storage.list_prefix(rb.STORE, rb.STAGING_PREFIX + "/")) == []
+    if backend == "local":
+        # Not even an aborted multipart part is left on disk.
+        assert not [p for p in tmp_path.rglob("*") if p.is_file() and "_staging" in p.as_posix()]
+
+
+def test_a_refused_bundle_is_not_kept_in_staging(tmp_path, client):
+    assert "not a zip" in refused(client, b"hello")[0]
+    assert refused(client, _zip(_good_entries(), manifest=False))
+    storage = Storage.from_settings(_settings(tmp_path))
+    assert asyncio.run(storage.list_prefix(rb.STORE, rb.STAGING_PREFIX + "/")) == []
+
+
+# --- the range reader ------------------------------------------------------------------------------------
+
+
+def _reader(data: bytes, **kw):
+    from ada.comms.rest.storage import RangeReader
+
+    calls = []
+
+    def fetch(start, length):
+        calls.append((start, length))
+        return data[start : start + length]
+
+    return RangeReader(fetch, len(data), **kw), calls
+
+
+def test_the_range_reader_reads_seeks_and_tells_like_a_file():
+    data = bytes(range(256)) * 40  # 10 240 bytes
+    r, calls = _reader(data, block_size=1000, max_blocks=2)
+    ref = io.BytesIO(data)
+    assert r.readable() and r.seekable() and not r.writable()
+    assert r.size == len(data)
+    steps = [
+        ("read", 10),
+        ("read", 2000),  # across blocks
+        ("seek", (-5, 1)),
+        ("read", 5),
+        ("seek", (-22, 2)),
+        ("read", 100),  # short at the end
+        ("read", 10),  # at EOF
+        ("seek", (0, 0)),
+        ("read", 0),
+        ("seek", (20_000, 0)),  # past the end is allowed
+        ("read", 10),
+        ("seek", (999, 0)),
+        ("read", 2),  # straddles a block edge
+        ("seek", (0, 0)),
+        ("read", -1),
+    ]
+    for op, arg in steps:
+        if op == "read":
+            assert r.read(arg) == ref.read(arg), (op, arg)
+        else:
+            assert r.seek(*arg) == ref.seek(*arg), (op, arg)
+        assert r.tell() == ref.tell()
+    buf = bytearray(7)
+    r.seek(3)
+    assert r.readinto(buf) == 7 and bytes(buf) == data[3:10]
+    with pytest.raises(OSError):
+        r.seek(-1)
+    with pytest.raises(OSError):
+        r.seek(-len(data) - 1, 2)
+    with pytest.raises(ValueError):
+        r.seek(0, 3)
+    assert all(length <= 1000 and start % 1000 == 0 for start, length in calls), "aligned, bounded fetches"
+    r.close()
+    with pytest.raises(ValueError):
+        r.read(1)
+
+
+def test_the_range_reader_caches_blocks_so_small_reads_are_few_requests():
+    data = os.urandom(10_000)
+    r, calls = _reader(data, block_size=4096, max_blocks=2)
+    for i in range(0, 4096, 16):  # 256 small reads in one block
+        r.seek(i)
+        assert r.read(16) == data[i : i + 16]
+    assert len(calls) == 1
+    r.seek(9_000)
+    r.read(10)  # the last block (short)
+    r.seek(5000)
+    r.read(10)  # the middle one: the first is evicted (LRU of 2)
+    r.seek(9_500)
+    r.read(10)
+    assert len(calls) == 3
+    r.seek(0)
+    r.read(1)
+    assert len(calls) == 4 and r.requests == 4
+    empty, calls = _reader(b"")
+    assert empty.read() == b"" and calls == []
+
+
+def test_a_zip_reads_through_the_range_reader():
+    data = _zip(_good_entries())
+    r, calls = _reader(data, block_size=512, max_blocks=3)
+    assert zipfile.is_zipfile(r)
+    bundle = rb.validate_bundle(r, rb.Limits())
+    assert [x.ref for x in bundle.robots] == ["arm-x@1"] and bundle.robots[0].valid
+    short, _ = _reader(b"hello")
+    with pytest.raises(rb.BundleError):
+        rb.validate_bundle(short, rb.Limits())
