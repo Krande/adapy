@@ -2,6 +2,16 @@
 
 
 
+## v0.169.0 (2026-11-22)
+
+### Feature
+
+* feat: export and import robot assets as .adabots bundles (plugin API 1.37.0) (#592)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt;
+Co-authored-by: adapy-bundle-bot &lt;adapy-bundle-bot@users.noreply.github.com&gt; ([`68607b6`](https://github.com/Krande/adapy/commit/68607b686c859254530cc2b6f9ea386e4a9071f5))
+
+
 ## v0.168.0 (2026-11-21)
 
 ### Feature
