@@ -10,10 +10,17 @@ because a scope reads the store's files by key through its grant and never lists
 This module is the format and the store side, free of FastAPI: the listing, the streaming export, the
 validation of an uploaded bundle, the preview of what an import would do and the import itself.
 ``routes/admin_robot_assets.py`` puts it on ``/api/admin/robot-assets``.
+
+No step keeps a local copy of a bundle or of a file in it: the upload streams into the staging
+object, the validation and the import read that object in place (:func:`open_staged`), and each
+file of an imported robot streams from the zip into its own object. The local disk a bundle needs
+is none, whatever its size; memory is a few blocks and parts (``Storage.open_seekable``,
+``Storage.put_stream``).
 """
 
 from __future__ import annotations
 
+import asyncio
 import datetime as _dt
 import hashlib
 import io
@@ -22,11 +29,10 @@ import os
 import pathlib
 import re
 import stat
-import tempfile
 import zipfile
 import zlib
 from dataclasses import dataclass, field
-from typing import Any, AsyncIterator, Iterable, Optional
+from typing import IO, Any, AsyncIterator, Iterable, Optional, Union
 
 from .scope import Scope
 
@@ -99,6 +105,13 @@ _ZIP_EPOCH = (1980, 1, 1, 0, 0, 0)
 _ZIP_FILE_MODE = (stat.S_IFREG | 0o644) << 16
 _ZIP_LEVEL = 6
 _CHUNK = 1 << 20
+#: A member up to this size is written with one PUT; a larger one is streamed up as a multipart
+#: upload of parts this size (S3's smallest part but the last is 5 MiB).
+_PART = 5 << 20
+
+#: A bundle as the validation and the import read it: a local path, or an open, seekable binary
+#: file (the staged object, read in place: :func:`open_staged`).
+BundleSource = Union[pathlib.Path, str, IO[bytes]]
 
 
 class BundleError(Exception):
@@ -611,21 +624,31 @@ def _is_symlink(zi: zipfile.ZipInfo) -> bool:
     return zi.create_system == 3 and stat.S_ISLNK(zi.external_attr >> 16)
 
 
-def validate_bundle(path: pathlib.Path | str, limits: Optional[Limits] = None) -> Bundle:
-    """Everything about the bundle at ``path`` that can be checked before a byte is written: it is a
-    zip of this format, every entry is a safe relative path of an allowed type and within the
-    limits, and every file is the size and sha256 the manifest says. Raises :class:`BundleError`
-    for a bundle refused as a whole; a robot whose own files do not hold up keeps its ``problems``
-    and is not imported."""
+def _source_size(source: BundleSource) -> int:
+    if isinstance(source, (str, pathlib.Path)):
+        return pathlib.Path(source).stat().st_size
+    size = source.seek(0, io.SEEK_END)
+    source.seek(0)
+    return size
+
+
+def validate_bundle(source: BundleSource, limits: Optional[Limits] = None) -> Bundle:
+    """Everything about the bundle ``source`` (a path, or a seekable binary file such as the staged
+    object read in place) that can be checked before a byte is written: it is a zip of this format,
+    every entry is a safe relative path of an allowed type and within the limits, and every file is
+    the size and sha256 the manifest says. Raises :class:`BundleError` for a bundle refused as a
+    whole; a robot whose own files do not hold up keeps its ``problems`` and is not imported.
+
+    Blocking (and, over a :class:`~ada.comms.rest.storage.RangeReader`, network) reads: run it in a
+    worker thread."""
     limits = limits or Limits.from_env()
-    path = pathlib.Path(path)
-    size = path.stat().st_size
+    size = _source_size(source)
     if size > limits.max_bundle_bytes:
         raise BundleError(f"the bundle is {size} bytes; the limit is {limits.max_bundle_bytes}")
-    if not zipfile.is_zipfile(path):
+    if not zipfile.is_zipfile(source):
         raise BundleError(f"not a {BUNDLE_SUFFIX} bundle: the file is not a zip")
     problems: list[str] = []
-    with zipfile.ZipFile(path) as zf:
+    with zipfile.ZipFile(source) as zf:
         infos = zf.infolist()
         if len(infos) > limits.max_files + 1:
             raise BundleError(f"the bundle has {len(infos)} entries; the limit is {limits.max_files}")
@@ -969,27 +992,45 @@ class Choices:
         return self.add_older or ref in self.add_older_refs
 
 
+async def _put_member(storage, zf: zipfile.ZipFile, name: str, key: str) -> None:
+    """One file of the bundle into its object, straight from the zip: no local copy. A file up to
+    :data:`_PART` is one PUT; a larger one streams up as a multipart upload, a chunk at a time.
+    The zip reads (range requests, inflating) are blocking and run in a worker thread. zipfile
+    checks the member's CRC as its last bytes are read, so a corrupt member raises before the
+    upload completes and nothing is stored under ``key``."""
+    src = await asyncio.to_thread(zf.open, name)
+    try:
+        head = await asyncio.to_thread(src.read, _PART + 1)
+        if len(head) <= _PART:
+            await storage.put_bytes(STORE, key, head)
+            return
+
+        async def chunks() -> AsyncIterator[bytes]:
+            yield head
+            while True:
+                chunk = await asyncio.to_thread(src.read, _CHUNK)
+                if not chunk:
+                    break
+                yield chunk
+
+        await storage.put_stream(STORE, key, chunks(), chunk_size=_PART)
+    finally:
+        src.close()
+
+
 async def _write_robot(storage, zf: zipfile.ZipFile, robot: BundleRobot, existing: Optional[StoredVersion]) -> None:
     """Write one version: every file but ``robot.json`` first, ``robot.json`` last -- a version
-    without it is incomplete and nothing uses it -- so a reader sees all of it or none. Leftovers of
-    an incomplete earlier attempt at the same version are removed. On any failure what was written
-    is deleted again."""
+    without it is incomplete and nothing uses it -- so a reader sees all of it or none. Each file
+    streams from the zip into its object (:func:`_put_member`). Leftovers of an incomplete earlier
+    attempt at the same version are removed. On any failure what was written is deleted again."""
     prefix = asset_prefix(robot.robot_id, robot.version)
     base = f"{BUNDLE_ROBOTS_DIR}/{robot.robot_id}/{robot.version}/"
     written: list[str] = []
     order = sorted(p for p in robot.files if p != MANIFEST_NAME) + [MANIFEST_NAME]
     try:
-        with tempfile.TemporaryDirectory(prefix="ada-robot-import-") as tmp:
-            for p in order:
-                local = pathlib.Path(tmp) / "f"
-                with zf.open(base + p) as src, open(local, "wb") as dst:
-                    while True:
-                        chunk = src.read(_CHUNK)
-                        if not chunk:
-                            break
-                        dst.write(chunk)
-                await storage.put_path(STORE, prefix + p, local)
-                written.append(prefix + p)
+        for p in order:
+            await _put_member(storage, zf, base + p, prefix + p)
+            written.append(prefix + p)
         if existing is not None:
             stale = [prefix + p for p in existing.files if p not in robot.files]
             if stale:
@@ -1006,16 +1047,20 @@ async def _write_robot(storage, zf: zipfile.ZipFile, robot: BundleRobot, existin
 
 async def apply_import(
     storage,
-    path: pathlib.Path | str,
+    source: BundleSource,
     bundle: Bundle,
     plans: list[Plan],
     choices: Choices,
     store: dict[str, dict[str, StoredVersion]],
 ) -> list[dict]:
-    """Carry out ``plans``: each robot on its own (one failing does not stop the rest), in id and
-    version order. Returns one result row per robot of the bundle."""
+    """Carry out ``plans`` from the bundle ``source`` (a path, or the staged object read in place):
+    each robot on its own (one failing does not stop the rest), in id and version order. Returns one
+    result row per robot of the bundle."""
     results: list[dict] = []
-    with zipfile.ZipFile(path) as zf:
+    if not isinstance(source, (str, pathlib.Path)):
+        source.seek(0)
+    zf = await asyncio.to_thread(zipfile.ZipFile, source)  # reads the central directory
+    with zf:
         for plan in sorted(plans, key=lambda p: (p.robot.robot_id, version_key(p.robot.version))):
             r = plan.robot
             row = {"ref": r.ref, "id": r.robot_id, "version": r.version, "name": r.name, "planned": plan.status}
@@ -1090,6 +1135,13 @@ def staging_key(upload_id: str) -> str:
     if not UPLOAD_ID_RE.match(upload_id or ""):
         raise ValueError("not an upload id")
     return f"{STAGING_PREFIX}/{upload_id}{BUNDLE_SUFFIX}"
+
+
+async def open_staged(storage, key: str) -> IO[bytes]:
+    """The staged bundle at ``key``, opened for reading in place: the store's own file on a
+    filesystem store, else range reads over the object with a few 4 MiB blocks cached. Nothing is
+    copied to local disk. The caller closes it; read it from a worker thread."""
+    return await storage.open_seekable(STORE, key)
 
 
 async def sweep_staging(storage, now: Optional[_dt.datetime] = None) -> int:

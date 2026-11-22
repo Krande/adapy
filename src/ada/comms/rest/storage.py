@@ -26,7 +26,9 @@ stream plus a `content_encoding` hint, and lets the HTTP layer forward
 
 from __future__ import annotations
 
+import errno
 import gzip
+import io
 import logging
 import os
 import pathlib
@@ -34,10 +36,11 @@ import shutil
 import subprocess
 import time
 import zlib
-from collections.abc import Sequence
+from collections import OrderedDict
+from collections.abc import AsyncIterable, Callable, Sequence
 from dataclasses import asdict, dataclass
 from datetime import timedelta
-from typing import AsyncIterator
+from typing import AsyncIterator, BinaryIO
 
 import obstore as obs
 from obstore.exceptions import NotFoundError as _ObstoreNotFound
@@ -152,6 +155,131 @@ def _gzip_file(src: pathlib.Path, dst: pathlib.Path, *, chunk_size: int = 1 << 2
             if not block:
                 break
             fo.write(block)
+
+
+class RangeReader(io.RawIOBase):
+    """A read-only, seekable file over an object's raw bytes, read by range requests.
+
+    For a reader that needs to seek -- :class:`zipfile.ZipFile` reads the central directory at
+    the end, then each member where its local header says -- over an object that should not be
+    copied to local disk first. ``fetch(start, length)`` returns exactly those bytes; it is a
+    blocking call, so the reader is meant for a worker thread (``asyncio.to_thread``).
+
+    Reads go through a small LRU cache of aligned blocks (``block_size`` each, at most
+    ``max_blocks`` of them), so the many small reads of a zip's central directory and headers and
+    the sequential reads of a member are a request per block, not one per read. Memory is bounded
+    by ``block_size * max_blocks`` plus whatever one ``read`` asks for. ``requests`` and
+    ``bytes_fetched`` count what went to the store.
+    """
+
+    def __init__(
+        self,
+        fetch: Callable[[int, int], bytes],
+        size: int,
+        *,
+        block_size: int = 4 << 20,
+        max_blocks: int = 3,
+    ) -> None:
+        super().__init__()
+        if block_size <= 0 or max_blocks <= 0:
+            raise ValueError("block_size and max_blocks must be positive")
+        if size < 0:
+            raise ValueError("size must not be negative")
+        self._fetch = fetch
+        self._size = int(size)
+        self._block_size = int(block_size)
+        self._max_blocks = int(max_blocks)
+        self._blocks: OrderedDict[int, bytes] = OrderedDict()
+        self._pos = 0
+        self.requests = 0
+        self.bytes_fetched = 0
+
+    @property
+    def size(self) -> int:
+        return self._size
+
+    def readable(self) -> bool:
+        return True
+
+    def seekable(self) -> bool:
+        return True
+
+    def writable(self) -> bool:
+        return False
+
+    def _check_open(self) -> None:
+        if self.closed:
+            raise ValueError("I/O operation on closed file")
+
+    def tell(self) -> int:
+        self._check_open()
+        return self._pos
+
+    def seek(self, offset: int, whence: int = io.SEEK_SET) -> int:
+        self._check_open()
+        if whence == io.SEEK_SET:
+            pos = offset
+        elif whence == io.SEEK_CUR:
+            pos = self._pos + offset
+        elif whence == io.SEEK_END:
+            pos = self._size + offset
+        else:
+            raise ValueError(f"invalid whence ({whence!r})")
+        if pos < 0:
+            # OSError, as a real file raises: zipfile probes a short file with seek(-22, 2) and
+            # catches exactly that.
+            raise OSError(errno.EINVAL, "negative seek position")
+        self._pos = int(pos)  # past the end is allowed, as for a file; a read there returns b""
+        return self._pos
+
+    def _block(self, index: int) -> bytes:
+        block = self._blocks.get(index)
+        if block is not None:
+            self._blocks.move_to_end(index)
+            return block
+        start = index * self._block_size
+        length = min(self._block_size, self._size - start)
+        block = bytes(self._fetch(start, length))
+        self.requests += 1
+        self.bytes_fetched += len(block)
+        if len(block) != length:
+            raise OSError(f"short read from the store: {len(block)} of {length} bytes at {start}")
+        self._blocks[index] = block
+        while len(self._blocks) > self._max_blocks:
+            self._blocks.popitem(last=False)
+        return block
+
+    def read(self, size: int | None = -1) -> bytes:
+        self._check_open()
+        if size is None or size < 0:
+            size = self._size - self._pos
+        end = min(self._size, self._pos + size)
+        pos = self._pos
+        if end <= pos:
+            return b""
+        parts = []
+        while pos < end:
+            index = pos // self._block_size
+            block = self._block(index)
+            off = pos - index * self._block_size
+            take = min(len(block) - off, end - pos)
+            parts.append(block[off : off + take])
+            pos += take
+        self._pos = pos
+        return parts[0] if len(parts) == 1 else b"".join(parts)
+
+    def readall(self) -> bytes:
+        return self.read(-1)
+
+    def readinto(self, buffer) -> int:  # type: ignore[override]
+        data = self.read(len(buffer))
+        n = len(data)
+        memoryview(buffer).cast("B")[:n] = data
+        return n
+
+    def close(self) -> None:
+        self._blocks.clear()
+        super().close()
 
 
 @dataclass(frozen=True)
@@ -580,6 +708,63 @@ class Storage:
                 pass
         with open(path, "rb") as fh:
             await obs.put_async(self._store, full, fh)
+
+    async def put_stream(
+        self,
+        scope: Scope,
+        key: str,
+        chunks: AsyncIterable[bytes],
+        *,
+        chunk_size: int = 5 * 1024 * 1024,
+        max_concurrency: int = 2,
+    ) -> None:
+        """Store the bytes ``chunks`` yields, without holding them whole or writing them to local disk.
+
+        obstore uploads an (async) iterable as a multipart upload: it gathers ``chunk_size`` bytes
+        into a part and keeps at most ``max_concurrency`` parts in flight, so memory is bounded by
+        about ``chunk_size * (max_concurrency + 1)`` whatever the total. ``chunk_size`` is also the
+        part size, and S3 wants every part but the last to be at least 5 MiB.
+
+        Nothing is visible at ``key`` until the last chunk is in: if ``chunks`` raises (a size limit
+        passed, a client gone), obstore aborts the multipart upload and the exception propagates as
+        it was raised. The object is stored raw (no gzip)."""
+        await obs.put_async(
+            self._store,
+            self._full_key(scope, key),
+            chunks,
+            chunk_size=chunk_size,
+            max_concurrency=max_concurrency,
+        )
+
+    async def open_seekable(
+        self,
+        scope: Scope,
+        key: str,
+        *,
+        block_size: int = 4 << 20,
+        max_blocks: int = 3,
+    ) -> BinaryIO:
+        """A read-only, seekable binary file over an object's raw bytes (gzip at rest is NOT undone),
+        without a local copy. The caller closes it.
+
+        A filesystem store opens the object's own file. Any other store gets a :class:`RangeReader`
+        over blocking range requests (``block_size`` bytes each, ``max_blocks`` of them cached), to
+        be read from a worker thread. Raises FileNotFoundError when the key is missing."""
+        local = self.local_path(scope, key)
+        if local is not None:
+            try:
+                return open(local, "rb")
+            except FileNotFoundError as exc:
+                raise FileNotFoundError(f"object not found: {key}") from exc
+        meta = await self.head(scope, key)
+        if meta is None:
+            raise FileNotFoundError(f"object not found: {key}")
+        store, full = self._store, self._full_key(scope, key)
+
+        def fetch(start: int, length: int) -> bytes:
+            return bytes(obs.get_range(store, full, start=start, length=length))
+
+        return RangeReader(fetch, meta["size"], block_size=block_size, max_blocks=max_blocks)  # type: ignore[return-value]
 
     async def get_range(self, scope: Scope, key: str, start: int, length: int) -> bytes:
         """Read ``[start, start+length)`` raw bytes of an object — no gzip

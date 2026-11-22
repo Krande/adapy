@@ -22,9 +22,6 @@ changes no grant: a scope that holds the ``robots`` grant reads the imported ver
 from __future__ import annotations
 
 import asyncio
-import os
-import pathlib
-import tempfile
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -132,39 +129,68 @@ async def admin_robot_assets_export_post(
     return await _export(request, ctx, user, refs)
 
 
-async def _receive(request: Request, limits: rb.Limits) -> pathlib.Path:
-    """The raw body into a temporary file, refused (413) as soon as it passes the limit."""
+class _TooLarge(Exception):
+    """The body passed ``max_bundle_bytes`` while it streamed."""
+
+
+def _too_large(limits: rb.Limits) -> HTTPException:
+    return HTTPException(status_code=413, detail=f"the bundle is larger than {limits.max_bundle_bytes} bytes")
+
+
+async def _stage(request: Request, ctx: RestContext, key: str, limits: rb.Limits) -> int:
+    """Stream the raw body straight into the staging object ``key`` (a multipart upload: no local
+    copy, a few parts in memory). Refused with 413 before a byte is read when Content-Length says
+    it is too large, and as soon as the body passes the limit otherwise -- the upload is then
+    aborted, so nothing is left at ``key``. An empty body is a 400 and stages nothing. Returns the
+    bundle's size."""
     announced = request.headers.get("content-length")
     if announced and announced.isdigit() and int(announced) > limits.max_bundle_bytes:
-        raise HTTPException(status_code=413, detail=f"the bundle is larger than {limits.max_bundle_bytes} bytes")
-    fd, name = tempfile.mkstemp(prefix="ada-robot-bundle-", suffix=rb.BUNDLE_SUFFIX)
-    path = pathlib.Path(name)
-    n = 0
-    try:
-        with os.fdopen(fd, "wb") as fh:
-            async for chunk in request.stream():
-                n += len(chunk)
-                if n > limits.max_bundle_bytes:
-                    raise HTTPException(
-                        status_code=413, detail=f"the bundle is larger than {limits.max_bundle_bytes} bytes"
-                    )
-                fh.write(chunk)
-    except BaseException:
-        path.unlink(missing_ok=True)
-        raise
-    if n == 0:
-        path.unlink(missing_ok=True)
+        raise _too_large(limits)
+    body = request.stream().__aiter__()
+    first = b""
+    async for chunk in body:
+        if chunk:
+            first = chunk
+            break
+    if not first:
         raise HTTPException(status_code=400, detail="empty body: send the bundle file as the request body")
-    return path
+    n = 0
+
+    async def chunks():
+        nonlocal n
+        n = len(first)
+        if n > limits.max_bundle_bytes:
+            raise _TooLarge()
+        yield first
+        async for chunk in body:
+            n += len(chunk)
+            if n > limits.max_bundle_bytes:
+                raise _TooLarge()
+            if chunk:
+                yield chunk
+
+    try:
+        await ctx.storage.put_stream(rb.STORE, key, chunks())
+    except _TooLarge:
+        await _drop(ctx, key)  # the upload was aborted; this only makes sure
+        raise _too_large(limits) from None
+    return n
+
+
+async def _drop(ctx: RestContext, key: str) -> None:
+    try:
+        await ctx.storage.delete(rb.STORE, key)
+    except Exception:  # noqa: BLE001 - missing already, or swept within a day anyway
+        pass
 
 
 def _refused(exc: rb.BundleError) -> HTTPException:
     return HTTPException(status_code=400, detail={"message": str(exc), "problems": exc.problems})
 
 
-async def _plan(ctx: RestContext, path: pathlib.Path, limits: rb.Limits):
+async def _plan(ctx: RestContext, source: rb.BundleSource, limits: rb.Limits):
     try:
-        bundle = await asyncio.to_thread(rb.validate_bundle, path, limits)
+        bundle = await asyncio.to_thread(rb.validate_bundle, source, limits)
     except rb.BundleError as exc:
         raise _refused(exc) from exc
     store = await rb.list_store(ctx.storage)
@@ -180,19 +206,25 @@ async def admin_robot_assets_import_preview(
 ) -> JSONResponse:
     """Validate an uploaded bundle and say what an import would do. Nothing is written to the
     robot assets; the bundle is kept in the provider store's staging area until it is imported or
-    dropped (or for a day)."""
+    dropped (or for a day). The body streams into the staging object and is validated there, in
+    place: the API keeps no local copy of it. A refused bundle is removed from staging again."""
     limits = rb.Limits.from_env()
-    path = await _receive(request, limits)
+    upload_id = uuid.uuid4().hex
+    key = rb.staging_key(upload_id)
+    await _stage(request, ctx, key, limits)
     try:
-        bundle, _store, plans = await _plan(ctx, path, limits)
+        fh = await rb.open_staged(ctx.storage, key)
         try:
-            await rb.sweep_staging(ctx.storage)
-        except Exception as exc:  # noqa: BLE001 - an old staged file is not worth failing a preview for
-            logger.warning("robot bundles: staging sweep failed: %s", exc)
-        upload_id = uuid.uuid4().hex
-        await ctx.storage.put_path(rb.STORE, rb.staging_key(upload_id), path)
-    finally:
-        path.unlink(missing_ok=True)
+            bundle, _store, plans = await _plan(ctx, fh, limits)
+        finally:
+            fh.close()
+    except BaseException:
+        await _drop(ctx, key)
+        raise
+    try:
+        await rb.sweep_staging(ctx.storage)
+    except Exception as exc:  # noqa: BLE001 - an old staged file is not worth failing a preview for
+        logger.warning("robot bundles: staging sweep failed: %s", exc)
     logger.info("robot bundle preview by %s: %d robot(s)", user.sub, len(plans))
     return JSONResponse(
         {
@@ -220,7 +252,8 @@ async def admin_robot_assets_import(
     user: User = Depends(auth_module.current_user),
 ) -> JSONResponse:
     """Import a staged bundle. It is validated and compared with the store again (the store may have
-    changed since the preview), then each robot is written on its own."""
+    changed since the preview), then each robot is written on its own. The staged object is read in
+    place and each file streams from it into its own object: nothing goes to local disk."""
     key = _upload_key(upload_id)
     body = await request.json() if await request.body() else {}
     if not isinstance(body, dict):
@@ -232,23 +265,20 @@ async def admin_robot_assets_import(
     if not await ctx.storage.exists(rb.STORE, key):
         raise HTTPException(status_code=404, detail="no such upload: preview the bundle again")
     limits = rb.Limits.from_env()
-    fd, name = tempfile.mkstemp(prefix="ada-robot-bundle-", suffix=rb.BUNDLE_SUFFIX)
-    os.close(fd)
-    path = pathlib.Path(name)
     try:
-        await ctx.storage.stream_to_path_raw(rb.STORE, key, path)
-        bundle, store, plans = await _plan(ctx, path, limits)
-        results = await rb.apply_import(ctx.storage, path, bundle, plans, choices, store)
+        fh = await rb.open_staged(ctx.storage, key)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="no such upload: preview the bundle again") from exc
+    try:
+        bundle, store, plans = await _plan(ctx, fh, limits)
+        results = await rb.apply_import(ctx.storage, fh, bundle, plans, choices, store)
         wrote = any(r["result"] in (rb.ADDED, rb.ADDED_OLDER) for r in results)
         if wrote:
             await rb.write_index(ctx.storage)
             clear_store_cache()
     finally:
-        path.unlink(missing_ok=True)
-    try:
-        await ctx.storage.delete(rb.STORE, key)
-    except Exception:  # noqa: BLE001 - swept within a day anyway
-        pass
+        fh.close()
+    await _drop(ctx, key)
     counts: dict[str, int] = {}
     for r in results:
         counts[r["result"]] = counts.get(r["result"], 0) + 1
