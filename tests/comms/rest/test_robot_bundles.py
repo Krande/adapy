@@ -487,7 +487,7 @@ def test_unsafe_paths_and_symlinks_are_refused(client):
         problems = refused(client, _zip(entries, _manifest_for(_good_entries())))
         # zipfile on Windows reads "\\" as "/": that name is then refused as one not in the manifest.
         shown = name.replace("\\", "/") if os.sep == "\\" else name
-        assert any(shown in p for p in problems), (name, problems)
+        assert any(shown in p or repr(shown) in p for p in problems), (name, problems)
     link = zipfile.ZipInfo("robots/arm-x/1/meshes/link.stl")
     link.create_system = 3
     link.external_attr = (stat.S_IFLNK | 0o777) << 16
