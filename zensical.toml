@@ -60,6 +60,7 @@ nav = [
     "architecture/fea.md",
     "architecture/platform.md",
     "architecture/viewer_control.md",
+    "architecture/robot_asset_bundles.md",
     "architecture/frontend.md",
     "architecture/threejs_free_viewport.md",
     "architecture/docs_pipeline.md",

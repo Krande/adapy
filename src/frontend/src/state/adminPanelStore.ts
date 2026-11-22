@@ -16,6 +16,7 @@ export type AdminTab =
     | "users"
     | "tokens"
     | "providers"
+    | "robots"
     | "storage"
     | "database"
     | "workers"

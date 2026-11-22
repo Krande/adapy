@@ -485,6 +485,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     admin.include_router(admin_storage_compression_router)
     admin.include_router(admin_db_router)
     admin.include_router(admin_provider_grants_router)
+    # The provider store's robot assets as .adabots bundles (routes/admin_robot_assets.py).
+    from .routes.admin_robot_assets import router as admin_robot_assets_router
+
+    admin.include_router(admin_robot_assets_router)
     # Material overrides of the reference data (routes/reference_data.py).
     from .routes.reference_data import admin_router as admin_reference_router
 

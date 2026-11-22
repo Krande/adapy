@@ -1,8 +1,8 @@
 # The inputs src/ada/visit/rendering/resources/index.zip was built from, and its own hash. Do not edit.
 # Refresh with `pixi run wbuild` (rebuilds the bundle and rewrites this), then commit both.
 # Checked by `pixi run check-bundle-inputs` and by CI. See scripts/packaging/bundle_inputs.py.
-inputs-sha256 94350691a3bbdd7afd0d776b20c5009db3c99b036c5304a763e95536be653835
-bundle-sha256 4d760c6793c271f56a1edab4d243015465e9996fb45141e267a0e8826e713485
+inputs-sha256 3e61c8c2dc8c474173789efcfd61241b3d3c594fe5c2affc9d37a9eb3e500a4b
+bundle-sha256 17f61b273c201750ec4b9bfc9e25ca58065b90d42acb88233557f381e3af6537
 pin:ADACPP_BASE_IMAGE ghcr.io/krande/adacpp-wasm-base:0.44.0
 pin:ADACPP_RENDER_REF c1a7b3ab434a916e08170c634c23b9dc1974d32f
 src/frontend/clean.cjs 548054390de442a02ca36bd4de94f25095f10ae9
@@ -50,6 +50,7 @@ src/frontend/src/assets/providerOptions.ts b7dd716db4d088971bdca7ebeb751712dad01
 src/frontend/src/assets/providerStore.ts e7142f2ee3fa9e7255c222759d7ccef85f6a1ca6
 src/frontend/src/assets/recentSearches.ts 35ddf1bdd91174a75bd0ef092b18dd9524944b16
 src/frontend/src/assets/resolve.ts db3b0a68a1f26db55c5e43d7de24c0397b30c032
+src/frontend/src/assets/robotBundles.ts 8537ef284612906a63eb422efa17ba49877e691e
 src/frontend/src/assets/rowFacts.ts 4680c54867a15218441c9ae2c56019299939a6fd
 src/frontend/src/assets/scenePick.ts 287a42d53f39ad3953709a8e239f5e796ac409a2
 src/frontend/src/assets/searchExport.ts 9bcdf98036c800d57daaaea642ce58519c243bcc
@@ -64,7 +65,7 @@ src/frontend/src/assets/types.ts 26c74289bbaa7d40aaee361a33b8fa7c10af1dde
 src/frontend/src/components/OptionsComponent.tsx f6266bc4631a3600fc88d9fd16a427f95c0e5b05
 src/frontend/src/components/ViewerWindow.tsx a9568e397344f73ead0c6606e829783590878ce5
 src/frontend/src/components/WebsocketStatusMenu.tsx a5beec21340fa1f2f16f21cd86a8033cf1ff955b
-src/frontend/src/components/admin/AdminPanel.tsx e6c9871c982e2661c65c403cd20870583af33e84
+src/frontend/src/components/admin/AdminPanel.tsx 86a7401e837f2101c65f12863e63c2a4c1002d90
 src/frontend/src/components/admin/AdminSection.tsx f33526d69cda8bd308854695de165e864c38b734
 src/frontend/src/components/admin/AdminSubTabs.tsx 3a0cbc8e702b3a65fe61c01c2ab3eb0ec16d6ff4
 src/frontend/src/components/admin/AdminTabShell.tsx 820c1119ae88c455b42b5e7ab45234f6c5054db6
@@ -94,6 +95,7 @@ src/frontend/src/components/admin/ProviderSplitsSection.tsx 5573dcb2981c9f09cdd7
 src/frontend/src/components/admin/ProviderSweepRuns.tsx 7370c04ef00cb6f1d3a3e31398cab5489bd84309
 src/frontend/src/components/admin/ProvidersTab.tsx b18c9fd3acff57b4f195795ea4c0c31a810e2370
 src/frontend/src/components/admin/ReferenceDataSection.tsx 4d6bb4eb3d9bb2181ea0020350ade23723535a62
+src/frontend/src/components/admin/RobotBundlesTab.tsx d7e521f60ccf968bb85175ee23048bdfdce14192
 src/frontend/src/components/admin/SchedulesTab.tsx 08f5f2aa3b551a6c9bd147d58041fed63106fed2
 src/frontend/src/components/admin/SweepDefaults.tsx 616e055d6accd3c38ec5076101b83ff8e67e08c5
 src/frontend/src/components/admin/SystemAdminPanel.tsx c3d9070a1e5ab3238c4a23dba9997786c9df2f46
@@ -110,7 +112,7 @@ src/frontend/src/components/admin/adminStorage/conversionOverrides.ts 5b72c288f7
 src/frontend/src/components/admin/adminStorage/format.tsx 8569f02a509e44c073fb6f10e5155ef6dfb74a6b
 src/frontend/src/components/admin/adminStorage/useAdminStorage.ts 05d580b214e5b22f148c2057b461575c1e706c9e
 src/frontend/src/components/admin/adminStorage/useResizableColumns.ts 01af2f56e1db92ba99add46828864aeb017d5b02
-src/frontend/src/components/admin/adminTabs.ts 27e1f8747b7da1fc1d5cfa618ccc7b7166183b76
+src/frontend/src/components/admin/adminTabs.ts 6910ab8ae5c158ac8033247e149739738c3442d4
 src/frontend/src/components/admin/applyChangesItem.ts b6c3e82dd81b95370a71202ccacbd6b39a702510
 src/frontend/src/components/admin/auditLog/AuditEntryCards.tsx 2988dcdfde10fad495b6e314f7bf7073375316ce
 src/frontend/src/components/admin/auditLog/AuditLogTab.tsx dd8b1a896b12d6217d521e9ba5f5e65bf4966444
@@ -705,7 +707,7 @@ src/frontend/src/plugins/pluginUiStore.ts 964311171a9ea8c32114d52b7f901abc2c24f1
 src/frontend/src/plugins/propertyProviders.ts de118ca51a69948e9ed3fdc81be9386717b618b8
 src/frontend/src/plugins/registry.generated.css 65b0f00a8c6dd85ec7550f5e38bd7d4679f56066
 src/frontend/src/plugins/registry.generated.ts a16322ca6cc5ded5f53b9333634397e460569d5e
-src/frontend/src/plugins/registry.ts 465155c0cff9137dfb9e42abe215d77d2addff41
+src/frontend/src/plugins/registry.ts 50a2e32e0703109c156320f12eb26fff1ef73083
 src/frontend/src/plugins/registryTypes/playback.ts 47783e2224c107c0896febdfe26387f900f5327d
 src/frontend/src/plugins/registryTypes/scene.ts db69bdddee2bf54d990aea1bdd62a9f6577c61cf
 src/frontend/src/plugins/registryTypes/slots.ts 1533764688ca3536c325087826fbcc16e9abb724
@@ -756,6 +758,7 @@ src/frontend/src/services/api/procedural.ts b7756cc8b56ff5e26bf95a5860c880a03147
 src/frontend/src/services/api/proceduralCatalog.ts 08b94f3c9139455348eefbdb679813e16aae0b68
 src/frontend/src/services/api/providerGrants.ts 885a4e3b322284018422a2e40a96c7030a910a7f
 src/frontend/src/services/api/referenceData.ts fb96b0c0abb9c0d6e6e6c49f604e6e889b07b8d7
+src/frontend/src/services/api/robotBundles.ts dfbfd042a2f673dbebd2978bd2e0d2fab19ae50f
 src/frontend/src/services/api/searchExport.ts d71890bb1b227535348c879e8a01e5ec848a8588
 src/frontend/src/services/api/selectionExport.ts 8e3350e73fbdefe1136f8e61e78219f91b1cda16
 src/frontend/src/services/api/settings.ts a784b6d64a95c50d41c14b56a3eae13e38bc987f
@@ -843,7 +846,7 @@ src/frontend/src/services/viewerControl/realDeps.ts 32721377a82cf0dc98da8a371fa4
 src/frontend/src/services/viewerControl/socket.ts 6ca54ea3a71eca3244104c447f871bd9e2c9583e
 src/frontend/src/services/viewerControl/wire.ts 69a7312288214e2666e44b0fc4b63c4c54639f44
 src/frontend/src/state/AdaViewerContext.tsx 2c87bc6aeaa5990d361ab02ede7e0d80f647f77d
-src/frontend/src/state/adminPanelStore.ts bf6ee48e64e997bab512ead127224376b4cce1d3
+src/frontend/src/state/adminPanelStore.ts b4b18388e1286b694f85ce92dd97979bf95f6147
 src/frontend/src/state/animationStore.ts 79b8eb664bbcd85f59bc8fe362ec21d1f18c2e90
 src/frontend/src/state/appearanceStore.ts 7406bbc9c3723b8b2f3d1775aab9904507368c9f
 src/frontend/src/state/assetBrowserCache.ts 835b601fc6ada24d0f05ea73e2256bd78821dc6a
@@ -1395,8 +1398,8 @@ src/frontend/src/utils/weldSymbols.generated.ts b3a91e31e9f1b338b5029e167aeda679
 src/frontend/src/utils/weldSymbols.ts 5591f36077c474b3cb2fc0075b60a81f1a7c80e9
 src/frontend/src/utils/weldTypeNames.ts 44a66f31d3a44606fde7a8da308c5b2c4c3d667d
 src/frontend/src/vendor-gifenc.d.ts a1eedc5ae72023ac9cd0f251d9ab8e7cc664ffdd
-src/frontend/src/viewer-core/app.ts d1aa5e0e90c61790f755a2a89d6f49c3c70fc2e1
-src/frontend/src/viewer-core/index.ts edadfe2f5eb93be4463c1c04f5c64527f2d02e30
+src/frontend/src/viewer-core/app.ts 2fd318c2d1337668032312e61632350c49f29d7f
+src/frontend/src/viewer-core/index.ts 1c92cb7983f4f29bf63d0569440fdd9d247d7f23
 src/frontend/src/viewer-core/layout.ts c2f25228fb67e388b3a6f65098f958d858c9e19e
 src/frontend/src/viewer-core/plugins.ts ba538bd6eeeee5a6a245836f202caf20c8677530
 src/frontend/src/viewer-core/scene.ts 04edd3c64026ce95361a940ea83f9170415f6f36
