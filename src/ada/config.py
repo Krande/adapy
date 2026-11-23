@@ -3,7 +3,17 @@ import logging
 import os
 import pathlib
 import tempfile
-from typing import Any, Dict, List, NamedTuple, Optional, Type, Union
+from typing import (
+    Any,
+    Dict,
+    List,
+    NamedTuple,
+    Optional,
+    Type,
+    Union,
+    get_args,
+    get_origin,
+)
 
 _filename = "ada_config.toml"
 _env_prefix = "ADA_"
@@ -75,6 +85,15 @@ class ConfigEntry(NamedTuple):
                 value = strtobool(str(value))
             except ValueError as e:
                 raise ConfigError(f"{self.name}: {e}")
+        elif self.cast is list or get_origin(self.cast) is list:
+            # A scalar is one item, not a string to iterate: list("/data") would give
+            # ['/', 'd', 'a', 't', 'a']. Apply the element type where the cast names one
+            # (list[pathlib.Path]), leave the values alone otherwise.
+            if isinstance(value, str):
+                value = [value]
+            args = get_args(self.cast)
+            elem = args[0] if args and args[0] is not str else None
+            return [elem(v) if elem is not None else v for v in value]
 
         return self.cast(value)
 
