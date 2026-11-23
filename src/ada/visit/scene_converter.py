@@ -378,6 +378,17 @@ class SceneConverter:
             extras.update(extras_updates)
             asset["extras"] = extras
 
+        # Visual effects into the scene extras, beside the object hierarchy they target.
+        # Emissive targets given as objects (their guids) become the ids the hierarchy names them by.
+        if self.params.effects is not None and not self.params.effects.is_empty():
+            by_guid = self.graph.hash_map or {}
+
+            def node_id(target: str) -> str | None:
+                node = by_guid.get(target)
+                return str(node.node_id) if node is not None else None
+
+            self.params.effects.write_to_gltf_tree(tree, resolve=node_id)
+
         # The caller's own postprocessor, displaced in build_scene (see there).
         # Runs last, after the extras above, so it can inspect or override what
         # this converter produced -- consistent with gltf_asset_extras_dict

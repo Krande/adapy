@@ -39,6 +39,46 @@ export interface LoadGlbOptions {
     /** Read the file's node animations: a node that moves stays an instance of its own, placed by
      *  `setAnimationTime`. A file without animations loads as without the option. */
     animations?: boolean;
+    /** Add the file's visual effects (its scene extras' "ada_effects": point lights, particle
+     *  emitters, emissive ramps on its objects); `LoadedGlb.effects` names them. A module without
+     *  effects ignores it. */
+    effects?: boolean;
+    /** With `effects`: also take the file's own post-processing and environment settings, over the
+     *  viewer's. */
+    effectsLook?: boolean;
+}
+
+/** What `loadGlb({effects})` or `applyEffects` added: `removeEffects(set)` takes it off again. */
+export interface LoadedEffects {
+    set: number;
+    lights: number[];
+    emitters: number[];
+    ramps: number[];
+    /** Emissive targets that named no object of the model. */
+    unresolved: string[];
+    hasPost: boolean;
+    hasEnvironment: boolean;
+}
+
+/** `setPost`'s settings (adacpp effects.h PostSettings); what is left out is off / the default. */
+export interface PostSettings {
+    hdr?: boolean;
+    toneMapping?: "none" | "neutral" | "aces";
+    exposure?: number;
+    bloom?: boolean;
+    bloomThreshold?: number;
+    bloomKnee?: number;
+    bloomStrength?: number;
+    bloomRadius?: number;
+}
+
+/** Image-based lighting (adacpp effects.h EnvironmentDesc). */
+export interface EnvironmentSettings {
+    enabled?: boolean;
+    intensity?: number;
+    /** Radians about `up`. */
+    rotation?: number;
+    up?: [number, number, number];
 }
 
 /** One geometry loadGlb added, with its instance. */
@@ -77,6 +117,10 @@ export interface LoadedGlb {
     animations?: {name: string; duration: number}[];
     /** The nodes that are placed by the animations. */
     animatedNodes?: Int32Array;
+    /** With `effects`: what the file's effects added (absent from a module without effects). */
+    effects?: LoadedEffects;
+    /** With `effects`: why the file's effects could not be read, when they could not. */
+    effectsError?: string;
 }
 
 /** The objects of a loaded GLB as parallel tables, `count` long. */
@@ -248,6 +292,35 @@ export interface WebRendererApi {
     pick(x: number, y: number, width: number, height: number, callback: (r: RawPick) => void): void;
     stats(): AdacppStats;
     readCullStats(callback: (s: AdacppStats) => void): void;
+    // Visual effects (adacpp docs/render_effects.md). Absent from a module older than them: check
+    // before calling. The object arguments take the keys of the "ada_effects" schema.
+    /** HDR target, tone mapping, exposure, bloom. `{}` is everything off: the renderer as before. */
+    setPost?(settings: PostSettings): void;
+    /** Image-based lighting from the environment (a procedural studio unless an image is given). */
+    setEnvironment?(settings: EnvironmentSettings): void;
+    /** A Radiance .hdr file (heap pointer, length) as the environment; false when it cannot be read. */
+    setEnvironmentHdr?(bytes: number, length: number): boolean;
+    resetEnvironmentMap?(): void;
+    /** The clock of every effect: flicker, emissive ramps, particles (seconds of the timeline). */
+    setTime?(seconds: number): void;
+    /** Whether a frame drawn a moment later, at a later setTime, would differ. */
+    animating?(): boolean;
+    /** Adds a whole "ada_effects" description (JSON text); `applyLook` also takes its post and environment. */
+    applyEffects?(json: string, applyLook: boolean): LoadedEffects;
+    removeEffects?(set: number): void;
+    addPointLight?(): number;
+    setPointLight?(light: number, desc: Record<string, unknown>): void;
+    removePointLight?(light: number): void;
+    addEmissiveRamp?(): number;
+    setEmissiveRamp?(ramp: number, desc: Record<string, unknown>): void;
+    removeEmissiveRamp?(ramp: number): void;
+    /** The instance's own glow (linear rgb x strength) and ramp (-1 none); the rest of setInstance kept. */
+    setInstanceEmissive?(instance: number, r: number, g: number, b: number, ramp: number): void;
+    /** `count` segment indices (u32, heap pointer) glow with `ramp` (-1: as their instance does). */
+    setSegmentEmissive?(instance: number, segments: number, count: number, ramp: number): void;
+    addEmitter?(): number;
+    setEmitter?(emitter: number, desc: Record<string, unknown>): void;
+    removeEmitter?(emitter: number): void;
     delete(): void;
 }
 
