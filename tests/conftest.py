@@ -118,19 +118,28 @@ _BACKEND_PARAMS = (
 )
 
 
+def _require_or_skip_backend(name: str) -> None:
+    """Skip a test whose backend is absent — unless ADAPY_REQUIRE_BOTH_KERNELS is set, where a
+    missing kernel FAILS instead: capability deselection is off in that mode, so a skip would
+    let the cross-kernel leg go green without running anything."""
+    if backend_available(CadBackendName(name)):
+        return
+    if os.environ.get("ADAPY_REQUIRE_BOTH_KERNELS"):
+        pytest.fail(f"ADAPY_REQUIRE_BOTH_KERNELS is set but the {name} backend is not installed")
+    pytest.skip(f"{name} backend not installed")
+
+
 @pytest.fixture(params=_BACKEND_PARAMS)
 def backend(request):
     """One installed backend, pinned by name — never the ``select_backend`` default."""
-    if not backend_available(CadBackendName(request.param)):
-        pytest.skip(f"{request.param} backend not installed")
+    _require_or_skip_backend(request.param)
     return select_backend(prefer=request.param)
 
 
 @pytest.fixture
 def occ_backend():
     """The pythonocc backend, for tests whose subject IS that kernel; a skip where it's absent."""
-    if not backend_available(CadBackendName.OCC):
-        pytest.skip("occ backend not installed")
+    _require_or_skip_backend("occ")
     return select_backend(prefer="occ")
 
 
