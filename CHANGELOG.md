@@ -2,6 +2,16 @@
 
 
 
+## v0.170.0 (2026-11-23)
+
+### Feature
+
+* feat(viewer): visual effects as plain data (EffectSpec), drawn by the native viewport, with tone mapping, bloom, environment lighting and appearance presets (plugin API 1.38.0) (#597)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt;
+Co-authored-by: adapy-bundle-bot &lt;adapy-bundle-bot@users.noreply.github.com&gt; ([`21f5460`](https://github.com/Krande/adapy/commit/21f54609abda2e6f6af173854246468e6de5bd9d))
+
+
 ## v0.169.3 (2026-11-23)
 
 ### Fix
