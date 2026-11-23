@@ -97,8 +97,21 @@ ALLOWED_SUFFIXES = frozenset(
         ".ktx2",
         ".txt",
         ".md",
+        # source CAD files (STEP) a version carries beside its meshes, listed in its ``sources``
+        ".stp",
+        ".step",
     }
 )
+
+#: File types a bundle carries only as a version's listed source (``robot.json``'s ``sources``): a
+#: source archive, stored and moved as it is. Never a mesh or anything else, and never opened: an
+#: archive inside the bundle is not extracted or inspected. It counts against the size limits as
+#: any file does.
+SOURCE_ONLY_SUFFIXES = frozenset({".zip"})
+
+#: The top-level keys of a robot.json whose ``{path, sha256}`` objects are not files of the version:
+#: ``provenance`` says where the asset was made from (a file of another repository, say).
+_NOT_FILES = frozenset({"provenance"})
 
 #: Fixed zip metadata, so the same assets give the same bytes.
 _ZIP_EPOCH = (1980, 1, 1, 0, 0, 0)
@@ -236,23 +249,60 @@ def parse_ref(ref: str) -> tuple[str, Optional[str]]:
     return robot_id, (version if sep else None)
 
 
-def suffix_allowed(path: str) -> bool:
-    return pathlib.PurePosixPath(path).suffix.lower() in ALLOWED_SUFFIXES
+def _suffix(path: str) -> str:
+    return pathlib.PurePosixPath(path).suffix.lower()
 
 
-def _pins(doc: Any) -> list[tuple[str, str]]:
-    """Every ``{"path": ..., "sha256": ...}`` a robot.json names, anywhere in it."""
+def suffix_allowed(path: str, sources: Iterable[str] = ()) -> bool:
+    """Whether a bundle may carry ``path``: one of the allowed file types, or a source archive that
+    the version's robot.json lists in its ``sources``."""
+    suffix = _suffix(path)
+    if suffix in ALLOWED_SUFFIXES:
+        return True
+    return suffix in SOURCE_ONLY_SUFFIXES and path in set(sources)
+
+
+def source_only(path: str) -> bool:
+    """Whether ``path`` is of a type a bundle carries only as a listed source (a source archive)."""
+    return _suffix(path) in SOURCE_ONLY_SUFFIXES
+
+
+def source_paths(doc: Any) -> set[str]:
+    """The paths a robot.json lists as the version's source files (``sources: [{path, ...}]``):
+    source CAD files (STEP) and source archives."""
+    sources = doc.get("sources") if isinstance(doc, dict) else None
+    if not isinstance(sources, list):
+        return set()
+    return {s["path"] for s in sources if isinstance(s, dict) and isinstance(s.get("path"), str)}
+
+
+def archive_sources(doc: Any) -> set[str]:
+    """The listed sources a source archive may be: those not also named as a mesh."""
+    meshes = doc.get("meshes") if isinstance(doc, dict) else None
+    return source_paths(doc) - {p for p, _ in _all_pins(meshes)}
+
+
+def _all_pins(doc: Any) -> list[tuple[str, str]]:
     out: list[tuple[str, str]] = []
     if isinstance(doc, dict):
         p, s = doc.get("path"), doc.get("sha256")
         if isinstance(p, str) and isinstance(s, str):
             out.append((p, s))
         for v in doc.values():
-            out.extend(_pins(v))
+            out.extend(_all_pins(v))
     elif isinstance(doc, list):
         for v in doc:
-            out.extend(_pins(v))
+            out.extend(_all_pins(v))
     return out
+
+
+def _pins(doc: Any) -> list[tuple[str, str]]:
+    """The files of the version a robot.json names as ``{"path": ..., "sha256": ...}``: its meshes (every
+    level), its ``sources`` and wherever else it names one, but not under ``provenance``, whose
+    ``{path, sha256}`` say what the asset was made from and are not files of the version."""
+    if not isinstance(doc, dict):
+        return _all_pins(doc)
+    return [pin for key, value in doc.items() if key not in _NOT_FILES for pin in _all_pins(value)]
 
 
 def robot_metadata(doc: dict) -> dict:
@@ -520,8 +570,9 @@ async def export_stream(
         latest = latest_version(complete_versions(store, sv.robot_id))
         files = []
         skipped = []
+        sources = archive_sources(sv.manifest or {})
         for path in sorted(sv.files):
-            if not PATH_RE.match(path) or not suffix_allowed(path):
+            if not PATH_RE.match(path) or not suffix_allowed(path, sources):
                 skipped.append(path)
                 continue
             h = hashlib.sha256()
@@ -703,13 +754,20 @@ def validate_bundle(source: BundleSource, limits: Optional[Limits] = None) -> Bu
                 continue
             seen_refs.add(robot.ref)
             base = f"{BUNDLE_ROBOTS_DIR}/{robot.robot_id}/{robot.version}/"
+            # A source archive is allowed only where the version's robot.json lists it as a source.
+            sources = (
+                _bundled_sources(zf, names.get(base + MANIFEST_NAME), limits)
+                if any(source_only(p) for p in robot.files)
+                else set()
+            )
             for p in robot.files:
                 full = base + p
                 claimed.add(full)
                 if not PATH_RE.match(p):
                     problems.append(f"{robot.ref}: {p!r} is not a valid file path")
-                elif not suffix_allowed(p):
-                    problems.append(f"{robot.ref}: {p!r} is not an allowed file type")
+                elif not suffix_allowed(p, sources):
+                    why = " (a source archive only as a source its robot.json lists)" if source_only(p) else ""
+                    problems.append(f"{robot.ref}: {p!r} is not an allowed file type{why}")
                 elif full not in names:
                     robot.problems.append(f"{p} is named in the manifest and not in the bundle")
             if MANIFEST_NAME not in robot.files:
@@ -724,6 +782,17 @@ def validate_bundle(source: BundleSource, limits: Optional[Limits] = None) -> Bu
         for robot in robots:
             _verify_robot(zf, names, robot, limits)
     return Bundle(manifest=manifest, robots=robots)
+
+
+def _bundled_sources(zf: zipfile.ZipFile, zi: Optional[zipfile.ZipInfo], limits: Limits) -> set[str]:
+    """The source paths a bundled robot.json lists; none when it is missing or unreadable (which is
+    a problem of the robot's own, said where the robot.json is checked)."""
+    if zi is None:
+        return set()
+    try:
+        return archive_sources(json.loads(_read_capped(zf, zi, limits.max_manifest_bytes)))
+    except (ValueError, UnicodeDecodeError, BundleError, zipfile.BadZipFile, zlib.error, EOFError):
+        return set()
 
 
 def _read_bundle_manifest(zf: zipfile.ZipFile, zi: zipfile.ZipInfo, limits: Limits) -> dict:
