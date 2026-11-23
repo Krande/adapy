@@ -7,6 +7,9 @@ a job writes there (``_derived/clash/...``, ``_derived/plugin_jobs/...``)::
     _simulations/<run_id>/artefacts/<name>  what the provider stored
     _simulations/<run_id>/cancel            present once a cancel was asked for
     _simulations/_batches/<batch>/<run_id>  the run belongs to that batch (``ada.simulation.batches``)
+    _simulations/_deleted/<run_id>          the run was deleted while it was still going: it is not
+                                            listed, and what its worker writes until it stops is
+                                            removed too (``ada.comms.rest.simulation_admin``)
 
 The record is a JSON manifest beside the artefacts, the way a clash run is kept as a document in
 storage: it needs no database, so it exists the same on a single-node viewer and in a cluster,
@@ -34,6 +37,7 @@ logger = logging.getLogger(__name__)
 
 __all__ = [
     "ACTIVE_STATUSES",
+    "DELETED_PREFIX",
     "RUN_SCHEMA",
     "RUNS_PREFIX",
     "STATUS_CANCELLED",
@@ -45,6 +49,7 @@ __all__ = [
     "RunRecordError",
     "artefact_key",
     "cancel_key",
+    "deleted_key",
     "dump_run_record",
     "finite_json",
     "new_run_id",
@@ -58,6 +63,8 @@ __all__ = [
 ]
 
 RUNS_PREFIX = "_simulations/"
+#: A run deleted while it was going, until what its worker wrote after the delete is gone too.
+DELETED_PREFIX = f"{RUNS_PREFIX}_deleted/"
 RUN_SCHEMA = "ada.simulation/run@1"
 
 # Spelled as the job queue spells them, so a run's status and its job's read the same.
@@ -106,6 +113,11 @@ def run_record_key(run_id: str) -> str:
 
 def cancel_key(run_id: str) -> str:
     return f"{run_prefix(run_id)}cancel"
+
+
+def deleted_key(run_id: str) -> str:
+    """The marker that says the run was deleted while it was going (``DELETED_PREFIX``)."""
+    return f"{DELETED_PREFIX}{_checked(run_id)}"
 
 
 def run_id_of_key(key: str) -> str | None:

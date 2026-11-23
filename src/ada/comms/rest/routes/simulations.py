@@ -12,6 +12,11 @@ interface (``ada.simulation``). These routes:
 * ``GET /scopes/{scope}/simulations`` / ``GET .../simulations/{run_id}`` -- the scope's runs,
   with status, progress and artefacts. A run outlives its job: it is read from its record.
 * ``POST .../simulations/{run_id}/cancel`` -- ask a run to stop.
+* ``POST`` / ``DELETE .../simulations/batches/{batch_id}/runs`` -- move runs into a batch (made
+  when it is new), or take them out of it, after they were started.
+* ``DELETE .../simulations/{run_id}``, ``POST .../simulations/delete`` -- delete one run, or many;
+  ``DELETE .../simulations/batches/{batch_id}`` deletes a batch, with ``?runs=true`` its runs too
+  (``simulation_admin`` says what a run is and who may).
 
 An artefact is listed with its storage ``key`` in the scope, and fetched through the blob route
 like every other derived file.
@@ -34,6 +39,7 @@ from ada.simulation.runs import (
     TERMINAL_STATUSES,
     RunRecordError,
     cancel_key,
+    deleted_key,
     finite_json,
     new_run_id,
     new_run_record,
@@ -45,10 +51,19 @@ from ada.simulation.subjects import SUBJECT_KINDS
 
 from .. import auth as auth_module
 from .. import pending_uploads
-from ..assoc_links import sim_run_link
+from ..assoc_links import drop_sim_run_links, sim_run_link
 from ..auth import User
 from ..job_transport import JobRequest
 from ..scope import Scope
+from ..simulation_admin import (
+    RunOps,
+    delete_batch,
+    delete_runs,
+    move_runs,
+    purge_deleted,
+    remove_runs,
+    run_ids_from,
+)
 from ..simulation_relay import SimulationRelay, merge_providers, relay_of
 from ..simulation_runs import (
     batch_index,
@@ -404,6 +419,7 @@ async def api_simulation_list(
     limit = max(1, min(int(limit), 200))
     _require_domain(domain)
     statuses = _statuses_from(status)
+    await purge_deleted(ctx.storage, scope_obj, ctx.jobs)
     if batch is None:
         ids = await list_run_ids(ctx.storage, scope_obj)
     elif batch == "none":
@@ -455,6 +471,7 @@ async def api_simulation_batches(
     The counts are the stored records' statuses: a run's job is not asked, so a run whose job was
     lost is counted as its record left it until that run is looked at (``GET .../{run_id}``)."""
     _require_domain(domain)
+    await purge_deleted(ctx.storage, scope_obj, ctx.jobs)
     index = await batch_index(ctx.storage, scope_obj)
     batches = await batch_summaries(ctx.storage, scope_obj, index)
     if provider is not None:
@@ -504,7 +521,8 @@ async def _require_run(ctx: RestContext, scope_obj: Scope, run_id: str) -> dict:
         record = await read_run(ctx.storage, scope_obj, run_id)
     except RunRecordError as exc:
         raise HTTPException(status_code=502, detail=f"unreadable simulation run {run_id}: {exc}") from exc
-    if record is None:
+    if record is None or await ctx.storage.exists(scope_obj, deleted_key(run_id)):
+        # A run deleted while it was going is gone, whatever its worker wrote since.
         raise HTTPException(status_code=404, detail=f"no simulation run {run_id!r} in this scope")
     return record
 
@@ -542,16 +560,22 @@ async def api_simulation_cancel(
     ``cancel_requested`` until the provider stops at its next check and the run ends as
     ``cancelled``. ``cancelled`` is false for a run that had already ended."""
     record = await _require_run(ctx, scope_obj, run_id)
+    return FiniteJSONResponse(await cancel_run(ctx, request, user, scope_obj, record))
+
+
+async def cancel_run(ctx: RestContext, request: Request, user: User, scope_obj: Scope, record: dict) -> dict:
+    """``POST .../cancel``'s whole work on a run's record, audit row included: ``{"run", "cancelled"}``."""
+    run_id = record["run_id"]
     if record.get("remote"):
         relay = relay_of(request)
         if relay is None:
             await _view(ctx, request, scope_obj, record, strict=True)  # raises the 502 that says why
         assert relay is not None
         await ctx.audit(request, user, scope_obj, "simulation_cancel", key=run_record_key(run_id), target_format=KIND)
-        return FiniteJSONResponse(await relay.cancel(ctx.storage, scope_obj, record))
+        return await relay.cancel(ctx.storage, scope_obj, record)
     view = await run_view(ctx.storage, scope_obj, ctx.jobs, record)
     if view["status"] in TERMINAL_STATUSES:
-        return FiniteJSONResponse({"run": view, "cancelled": False})
+        return {"run": view, "cancelled": False}
 
     # The marker first: it is what a worker in another process reads.
     await ctx.storage.put_bytes(scope_obj, cancel_key(run_id), user.sub.encode("utf-8"))
@@ -568,4 +592,192 @@ async def api_simulation_cancel(
     else:
         view = {**view, "cancel_requested": True}
     await ctx.audit(request, user, scope_obj, "simulation_cancel", key=run_record_key(run_id), target_format=KIND)
-    return FiniteJSONResponse({"run": view, "cancelled": True})
+    return {"run": view, "cancelled": True}
+
+
+# ── managing runs: moving them between batches, deleting them ────────────────────────────────────
+
+
+def _ops(ctx: RestContext, request: Request, user: User, scope_obj: Scope) -> RunOps:
+    async def view(record: dict) -> dict:
+        return await _view(ctx, request, scope_obj, record, strict=False)
+
+    async def cancel(record: dict) -> dict:
+        return await cancel_run(ctx, request, user, scope_obj, record)
+
+    async def unlink(record: dict) -> None:
+        await drop_sim_run_links(ctx.storage, scope_obj, record, pool=optional_pool(request))
+
+    return RunOps(
+        storage=ctx.storage, scope=scope_obj, user=user, jobs=ctx.jobs, view=view, cancel=cancel, unlink=unlink
+    )
+
+
+def _run_ids_of(body) -> list[str]:
+    try:
+        return run_ids_from((body or {}).get("run_ids") if isinstance(body, dict) else None)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+async def _audit_results(
+    ctx: RestContext, request: Request, user: User, scope_obj: Scope, action: str, results: list[dict], done: str
+) -> None:
+    """One audit row per run that was changed, as the other run routes write one per run."""
+    for r in results:
+        if r.get("dry") or r.get("already") or r["status"] not in (done, "failed"):
+            continue
+        await ctx.audit(
+            request,
+            user,
+            scope_obj,
+            action,
+            key=run_record_key(r["run_id"]),
+            target_format=KIND,
+            status="ok" if r["status"] == done else "error",
+            error=r.get("reason") if r["status"] == "failed" else None,
+        )
+
+
+@router.post("/scopes/{scope}/simulations/batches/{batch_id}/runs")
+async def api_simulation_batch_add(
+    batch_id: str,
+    body: dict,
+    request: Request,
+    scope_obj: Scope = Depends(scope_from_path),
+    ctx: RestContext = Depends(rest_context),
+    user: User = Depends(auth_module.current_user),
+) -> JSONResponse:
+    """Move runs into a batch. Body ``{run_ids: [...], label?: str, replace?: bool}``: the batch is
+    made, called ``label``, when the scope has no runs of it yet (an existing one keeps its label).
+    Answers ``{"batch": {id, label, source}, "results": [...], "counts": {...}}``, a result per run:
+    ``moved`` (with ``from`` when it left another batch), ``unchanged``, or ``refused`` with a
+    ``code`` and a ``reason`` -- ``forbidden`` (in the shared scope only whoever started a run, or an
+    admin, may move it), ``missing``, ``running`` (its worker would write its old batch back; a queued
+    run is moved), ``other_batch`` (it is in another batch and ``replace`` was not given)."""
+    batch_id = _batch_id_from(batch_id)
+    run_ids = _run_ids_of(body)
+    label = body.get("label")
+    if label is not None and (not isinstance(label, str) or not label.strip()):
+        raise HTTPException(status_code=400, detail="'label' must be a non-empty string")
+    try:
+        check_batch({"id": batch_id, "label": label})
+    except BatchError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    out = await move_runs(
+        _ops(ctx, request, user, scope_obj), batch_id, run_ids, label=label, replace=bool(body.get("replace"))
+    )
+    await _audit_results(ctx, request, user, scope_obj, "simulation_batch_move", out["results"], "moved")
+    return FiniteJSONResponse(out)
+
+
+@router.delete("/scopes/{scope}/simulations/batches/{batch_id}/runs")
+async def api_simulation_batch_remove(
+    batch_id: str,
+    body: dict,
+    request: Request,
+    scope_obj: Scope = Depends(scope_from_path),
+    ctx: RestContext = Depends(rest_context),
+    user: User = Depends(auth_module.current_user),
+) -> JSONResponse:
+    """Take runs out of a batch, back to the runs of no batch. Body ``{run_ids: [...]}``. A result
+    per run: ``removed``, ``unchanged`` (it was not in it) or ``refused`` (``forbidden``, ``missing``,
+    ``running``), as ``POST`` says."""
+    batch_id = _batch_id_from(batch_id)
+    out = await remove_runs(_ops(ctx, request, user, scope_obj), batch_id, _run_ids_of(body))
+    await _audit_results(ctx, request, user, scope_obj, "simulation_batch_remove", out["results"], "removed")
+    return FiniteJSONResponse(out)
+
+
+@router.delete("/scopes/{scope}/simulations/batches/{batch_id}")
+async def api_simulation_batch_delete(
+    batch_id: str,
+    request: Request,
+    runs: bool = False,
+    dry: bool = False,
+    scope_obj: Scope = Depends(scope_from_path),
+    ctx: RestContext = Depends(rest_context),
+    user: User = Depends(auth_module.current_user),
+) -> JSONResponse:
+    """Delete a batch. Its runs go back to the runs of no batch, or with ``?runs=true`` are deleted
+    too, each as ``DELETE .../simulations/{run_id}`` deletes one. ``?dry=true`` changes nothing and
+    says what would go (each run's ``bytes`` with ``runs``). Answers ``{"batch": {id, deleted, runs},
+    "results": [...], "counts": {...}, "bytes": n}``; ``deleted`` is false while a run of it was
+    refused (still running, or one the caller may not move). A batch the scope has no runs of is
+    already deleted: ``deleted`` true, no results."""
+    batch_id = _batch_id_from(batch_id)
+    ops = _ops(ctx, request, user, scope_obj)
+    out = await delete_batch(ops, batch_id, runs=runs, dry=dry)
+    if not dry:
+        if runs:
+            await _audit_results(ctx, request, user, scope_obj, "simulation_delete", out["results"], "deleted")
+        else:
+            await _audit_results(ctx, request, user, scope_obj, "simulation_batch_remove", out["results"], "removed")
+        await ctx.audit(
+            request,
+            user,
+            scope_obj,
+            "simulation_batch_delete",
+            key=batch_prefix(batch_id),
+            target_format=KIND,
+            status="ok" if out["batch"]["deleted"] else "error",
+            error=None if out["batch"]["deleted"] else "some of its runs were refused",
+        )
+    return FiniteJSONResponse(out)
+
+
+@router.post("/scopes/{scope}/simulations/delete")
+async def api_simulation_delete_many(
+    body: dict,
+    request: Request,
+    scope_obj: Scope = Depends(scope_from_path),
+    ctx: RestContext = Depends(rest_context),
+    user: User = Depends(auth_module.current_user),
+) -> JSONResponse:
+    """Delete runs. Body ``{run_ids: [...], dry?: bool}``. Each run as ``DELETE .../{run_id}``
+    deletes one; answers ``{"results": [...], "counts": {...}, "bytes": n}``, a result per run:
+    ``deleted`` (``bytes`` freed; ``already`` when there was nothing left; ``pending`` when its
+    worker was still stopping) or ``failed`` with a ``code`` (``forbidden``, ``cancel``,
+    ``storage``) and a ``reason``. One run that fails does not stop the others, and asking again is
+    harmless. ``dry`` deletes nothing and says what would go."""
+    run_ids = _run_ids_of(body)
+    dry = bool(body.get("dry"))
+    out = await delete_runs(_ops(ctx, request, user, scope_obj), run_ids, dry=dry)
+    if not dry:
+        await _audit_results(ctx, request, user, scope_obj, "simulation_delete", out["results"], "deleted")
+        await purge_deleted(ctx.storage, scope_obj, ctx.jobs)
+    return FiniteJSONResponse(out)
+
+
+@router.delete("/scopes/{scope}/simulations/{run_id}")
+async def api_simulation_delete(
+    run_id: str,
+    request: Request,
+    scope_obj: Scope = Depends(scope_from_path),
+    ctx: RestContext = Depends(rest_context),
+    user: User = Depends(auth_module.current_user),
+) -> JSONResponse:
+    """Delete a run: ``{"run_id", "status": "deleted", "bytes", ...}``.
+
+    A run that is queued or running is cancelled first (``POST .../cancel``). Then its record goes,
+    with everything it stored under ``_simulations/<run_id>/`` (artefacts, log, cancel marker),
+    what was derived from those (``_derived/_simulations/<run_id>/``), its batch index entries and
+    its element links. Its inputs and subject are the scope's files and stay. A run a worker is
+    still running keeps its cancel marker until the worker has stopped (``pending``); it is not
+    listed meanwhile, and what the worker writes until then is removed after. Deleting a run that
+    is gone answers ``already: true``.
+
+    403 when the caller may not (in the shared scope, only whoever started it or an admin); 502 when
+    it could not be cancelled or its files could not all be deleted, which asking again retries."""
+    try:
+        run_record_key(run_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=f"no simulation run {run_id!r} in this scope") from exc
+    out = await delete_runs(_ops(ctx, request, user, scope_obj), [run_id])
+    (result,) = out["results"]
+    if result["status"] != "deleted":
+        await _audit_results(ctx, request, user, scope_obj, "simulation_delete", out["results"], "deleted")
+        raise HTTPException(status_code=403 if result.get("code") == "forbidden" else 502, detail=result["reason"])
+    await _audit_results(ctx, request, user, scope_obj, "simulation_delete", out["results"], "deleted")
+    await purge_deleted(ctx.storage, scope_obj, ctx.jobs)
+    return FiniteJSONResponse(result)

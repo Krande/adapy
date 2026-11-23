@@ -21,6 +21,9 @@ import { create, type StoreApi, type UseBoundStore } from "zustand";
 import {
   isActiveRun,
   simulationsApi,
+  type DeleteBatchResponse,
+  type MoveRunsResponse,
+  type RunAdminResponse,
   type SimulationBatch,
   type SimulationDomain,
   type SimulationProviderInfo,
@@ -45,7 +48,12 @@ export type SimulationStoreApi = Pick<
   typeof simulationsApi,
   "listProviders" | "listRuns" | "getRun" | "startRun" | "cancelRun"
 > &
-  Partial<Pick<typeof simulationsApi, "listBatches" | "listRunsPage">>;
+  Partial<
+    Pick<
+      typeof simulationsApi,
+      "listBatches" | "listRunsPage" | "moveRunsToBatch" | "removeRunsFromBatch" | "deleteRuns" | "deleteBatch"
+    >
+  >;
 
 /** `setTimeout`, as a function that returns its own cancel. */
 export type Schedule = (fn: () => void, ms: number) => () => void;
@@ -98,6 +106,19 @@ export interface SimulationState {
   /** Start a run in `scope`; resolves to it, or null when the server refused (see `startError`). */
   startRun: (scope: ScopeUrl, body: StartSimulationBody) => Promise<SimulationRun | null>;
   cancelRun: (scope: ScopeUrl, runId: string) => Promise<void>;
+  /** Move runs into a batch (made, called `label`, when new); then the lists are read again. */
+  moveRuns: (
+    scope: ScopeUrl,
+    batchId: string,
+    runIds: readonly string[],
+    opts?: { label?: string; replace?: boolean },
+  ) => Promise<MoveRunsResponse>;
+  /** Take runs out of a batch, back to the runs of no batch; then the lists are read again. */
+  removeFromBatch: (scope: ScopeUrl, batchId: string, runIds: readonly string[]) => Promise<RunAdminResponse>;
+  /** Delete runs (`dry`: only say what would go, nothing changes). */
+  deleteRuns: (scope: ScopeUrl, runIds: readonly string[], opts?: { dry?: boolean }) => Promise<RunAdminResponse>;
+  /** Delete a batch, with `runs` its runs too (else they go back to no batch). */
+  deleteBatch: (scope: ScopeUrl, batchId: string, opts?: { runs?: boolean; dry?: boolean }) => Promise<DeleteBatchResponse>;
   /** One polling round: refresh every unfinished run. Resolves to whether any is still going. */
   pollOnce: () => Promise<boolean>;
   /** Stop following runs (the timer); the list stays. */
@@ -190,6 +211,41 @@ export function createSimulationStore(
       set({ batches: listed.batches, batchesSupported: true });
       return true;
     };
+
+    const needs = <K extends keyof SimulationStoreApi>(name: K): NonNullable<SimulationStoreApi[K]> => {
+      const fn = api[name];
+      if (!fn) throw new Error("this server cannot manage runs");
+      return (fn as (...args: unknown[]) => unknown).bind(api) as NonNullable<SimulationStoreApi[K]>;
+    };
+
+    /** After runs were moved or deleted: the runs that are gone leave every list, the pages of the
+     *  batches that changed are read again, a deleted batch's page is dropped, and the batches and
+     *  the runs of no batch are listed again -- so every count on screen is the server's. */
+    const settle = async (scope: ScopeUrl, opts: { gone?: readonly string[]; moved?: readonly string[]; touched?: readonly string[]; dropped?: string }) => {
+      if (get().runsScope !== scope) return;
+      const gone = new Set(opts.gone ?? []);
+      const moved = new Set(opts.moved ?? []);
+      const touched = new Set(opts.touched ?? []);
+      const pages: Record<string, BatchRunsState> = { ...get().batchRuns };
+      const reopen: Array<[string, boolean]> = [];
+      for (const [id, page] of Object.entries(pages)) {
+        if (id === opts.dropped) {
+          delete pages[id];
+        } else if (touched.has(id) || page.runs.some((r) => moved.has(r.run_id))) {
+          reopen.push([id, page.cancelled]);
+          delete pages[id];
+        } else if (gone.size > 0) {
+          pages[id] = { ...page, runs: page.runs.filter((r) => !gone.has(r.run_id)) };
+        }
+      }
+      set({ runs: get().runs.filter((r) => !gone.has(r.run_id) && !moved.has(r.run_id)), batchRuns: pages });
+      batchesStale = true;
+      await get().loadRuns(scope);
+      await Promise.all(reopen.map(([id, cancelled]) => get().loadBatchRuns(scope, id, { cancelled })));
+    };
+
+    const idsWith = (res: RunAdminResponse, status: string) =>
+      res.results.filter((r) => r.status === status && !r.dry).map((r) => r.run_id);
 
     return {
       panelOpen: false,
@@ -319,6 +375,37 @@ export function createSimulationStore(
         } catch (err) {
           set({ runsError: message(err) });
         }
+      },
+
+      moveRuns: async (scope, batchId, runIds, opts = {}) => {
+        const res = await needs("moveRunsToBatch")(scope, batchId, runIds, opts);
+        const moved = idsWith(res, "moved");
+        const from = res.results.flatMap((r) => (r.status === "moved" && r.from ? [r.from] : []));
+        await settle(scope, { moved, touched: [batchId, ...from] });
+        return res;
+      },
+
+      removeFromBatch: async (scope, batchId, runIds) => {
+        const res = await needs("removeRunsFromBatch")(scope, batchId, runIds);
+        await settle(scope, { moved: idsWith(res, "removed"), touched: [batchId] });
+        return res;
+      },
+
+      deleteRuns: async (scope, runIds, opts = {}) => {
+        const res = await needs("deleteRuns")(scope, runIds, opts);
+        if (!opts.dry) await settle(scope, { gone: idsWith(res, "deleted") });
+        return res;
+      },
+
+      deleteBatch: async (scope, batchId, opts = {}) => {
+        const res = await needs("deleteBatch")(scope, batchId, opts);
+        if (!opts.dry) {
+          await settle(scope, {
+            gone: idsWith(res, "deleted"),
+            ...(res.batch.deleted ? { dropped: batchId } : { touched: [batchId] }),
+          });
+        }
+        return res;
       },
 
       pollOnce: async () => {
