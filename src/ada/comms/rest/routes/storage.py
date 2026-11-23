@@ -14,6 +14,8 @@ Extracted from ``create_app``; see ``routes/__init__`` for the pattern.
 
 from __future__ import annotations
 
+import posixpath
+
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 
@@ -22,6 +24,7 @@ from ada.config import logger
 from .. import auth as auth_module
 from .. import pending_uploads
 from ..auth import User
+from ..presign import PresignOverridesUnavailable
 from ..scope import Scope
 from ..storage import Storage
 from ..storage_ops import (
@@ -959,8 +962,20 @@ async def api_scope_download_url(
     if meta is None:
         raise HTTPException(status_code=404, detail=f"object not found at {key}")
     ttl = 15 * 60
+    response_headers: dict[str, str] | None = None
+    disposition: str | None = None
+    if body.get("attachment") or body.get("filename"):
+        response_headers, disposition = await _attachment_overrides(
+            storage, read_scope, key, meta, body.get("filename"), attachment=bool(body.get("attachment"))
+        )
     try:
-        url = await storage.presigned_get_url(read_scope, key, expires_in_seconds=ttl)
+        url = await storage.presigned_get_url(
+            read_scope, key, expires_in_seconds=ttl, response_headers=response_headers
+        )
+    except PresignOverridesUnavailable as exc:
+        # The browser cannot be given the right name (or encoding) on a direct URL; 503 so it
+        # streams through GET /blobs instead, as on a store without presigned URLs.
+        raise HTTPException(status_code=503, detail=f"presigned attachment unavailable: {exc}") from exc
     except Exception as exc:
         logger.exception("presign GET failed for %s", key)
         raise HTTPException(status_code=500, detail=f"presign failed: {exc}") from exc
@@ -976,5 +991,44 @@ async def api_scope_download_url(
             "method": "GET",
             "expires_in_seconds": ttl,
             "size": meta["size"],
+            # The Content-Disposition the store will answer with, or None. A client asking for
+            # an attachment checks this before navigating: a server that ignored the request
+            # (an older one) returns None, and the page would otherwise open the file in place.
+            "content_disposition": disposition,
         }
     )
+
+
+async def _attachment_overrides(
+    storage, scope_obj: Scope, key: str, meta: dict, filename, *, attachment: bool
+) -> tuple[dict[str, str], str]:
+    """Response-header overrides for a presigned GET the browser saves as a file.
+
+    * ``Content-Disposition``: the sanitised ``filename`` (default: the key's basename), as
+      ``attachment`` when asked for, ``inline`` otherwise. A cross-origin anchor's ``download``
+      attribute is ignored, so this is the only way the saved file gets its name.
+    * ``Content-Type: application/octet-stream``: the saved bytes are what matters, not a type
+      the browser might act on; and a gzip-like type (``application/gzip``) next to
+      ``Content-Encoding: gzip`` is the one case browsers keep the compressed bytes.
+    * ``Content-Encoding: gzip`` when the stored bytes are gzip (put with
+      ``content_encoding="gzip"``). The store answers with the encoding it recorded, if it
+      recorded one; the override makes it unconditional, as ``GET /blobs`` does by sniffing the
+      same magic, so the browser decodes and saves the original bytes either way.
+    """
+    from ..presign import content_disposition, sanitize_download_filename
+
+    name = sanitize_download_filename(filename if isinstance(filename, str) else None, posixpath.basename(key))
+    disposition = content_disposition(name, attachment=attachment)
+    overrides = {"Content-Disposition": disposition}
+    if attachment:
+        overrides["Content-Type"] = "application/octet-stream"
+    if int(meta.get("size") or 0) >= 2:
+        try:
+            head2 = await storage.get_range(scope_obj, key, 0, 2)
+        except Exception as exc:
+            # Unknown encoding: a wrong guess either way corrupts the saved file, so stream
+            # this one through the API, which sniffs as it serves.
+            raise HTTPException(status_code=503, detail=f"could not read the object's encoding: {exc}") from exc
+        if head2[:2] == b"\x1f\x8b":
+            overrides["Content-Encoding"] = "gzip"
+    return overrides, disposition

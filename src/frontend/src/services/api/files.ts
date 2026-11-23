@@ -24,6 +24,20 @@ import type {
   MovedKeyEntry,
 } from "./types/common";
 
+/** Click a hidden `<a href download>`: saves a blob: URL under `name`, or
+ * hands a presigned attachment URL to the browser's download manager (where
+ * `download=` is ignored cross-origin and the signed Content-Disposition names
+ * the file). No `target`, so no new tab and nothing for a popup blocker. */
+function clickDownloadAnchor(href: string, name: string): void {
+  const a = document.createElement("a");
+  a.href = href;
+  a.download = name;
+  a.style.display = "none";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+}
+
 export const filesApi = {
   /** Direct URL for the addressable blob endpoint. Includes scope.
    * Only safe to use as `<a href download>` when auth is disabled —
@@ -88,12 +102,48 @@ export const filesApi = {
     return body.files;
   },
 
-  /** Trigger a browser download of a stored blob. Fetches with auth,
-   * materialises a blob: URL, clicks a hidden anchor, then revokes
-   * the URL to release memory. Works in both auth-on and auth-off
-   * modes — the only cost over `<a href>` is one extra round-trip
-   * the browser would have made anyway. */
+  /** Trigger a browser download of a stored blob, saved as `suggestedName`.
+   *
+   * Where the server offers presigned URLs, the browser is sent straight to
+   * the object store with a URL that carries the attachment name (and, for a
+   * gzip-at-rest object, the encoding) in its signed response headers. The
+   * browser's own download manager starts at once, shows progress, can resume,
+   * and nothing passes through JS memory. A hidden anchor with no target does
+   * the navigation: an attachment response leaves the page where it is, and no
+   * popup blocker is involved.
+   *
+   * Otherwise (a local store, a server that cannot sign the name, a failed
+   * /download-url), the bytes stream through the API with the bearer token,
+   * become a blob: URL and are saved from there, as before. */
   async downloadBlob(
+    scope: ScopeUrl,
+    key: string,
+    suggestedName: string,
+  ): Promise<void> {
+    if (runtime.presignedUrls()) {
+      let presigned: { url: string; content_disposition?: string | null } | null = null;
+      try {
+        presigned = await this.requestDownloadUrl(scope, key, {
+          filename: suggestedName,
+          attachment: true,
+        });
+      } catch (e) {
+        // A 4xx (missing object, no access) is the answer either path would
+        // give; anything else (503 no presign, 500, network) falls back.
+        if (e instanceof ApiError && e.status >= 400 && e.status < 500) throw e;
+      }
+      // No disposition echoed: an older server ignored the request, and its URL
+      // would open the file in this tab instead of saving it.
+      if (presigned?.url && presigned.content_disposition) {
+        clickDownloadAnchor(presigned.url, suggestedName);
+        return;
+      }
+    }
+    await this.downloadBlobViaApi(scope, key, suggestedName);
+  },
+
+  /** The API-tunnelled download: fetch with auth, save from a blob: URL. */
+  async downloadBlobViaApi(
     scope: ScopeUrl,
     key: string,
     suggestedName: string,
@@ -105,13 +155,7 @@ export const filesApi = {
     const blob = await r.blob();
     const url = URL.createObjectURL(blob);
     try {
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = suggestedName;
-      a.style.display = "none";
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
+      clickDownloadAnchor(url, suggestedName);
     } finally {
       URL.revokeObjectURL(url);
     }
@@ -412,12 +456,18 @@ export const filesApi = {
   async requestDownloadUrl(
     scope: ScopeUrl,
     key: string,
+    /** For a URL the browser saves as a file: `attachment` signs
+     * `Content-Disposition: attachment` (with `filename`, default the key's
+     * basename) into the URL, since a cross-origin anchor ignores `download=`. */
+    opts?: { filename?: string; attachment?: boolean },
   ): Promise<{
     url: string;
     key: string;
     method: string;
     expires_in_seconds: number;
     size: number;
+    /** The Content-Disposition the store will answer with; null without `opts`. */
+    content_disposition?: string | null;
   }> {
     // A local store mints none (config.js says so): fail as the server would, without asking it.
     if (!runtime.presignedUrls()) {
@@ -428,7 +478,7 @@ export const filesApi = {
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ key }),
+        body: JSON.stringify({ key, ...(opts ?? {}) }),
       },
     );
     return jsonOrThrow(r, `requestDownloadUrl(${key})`);

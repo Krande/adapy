@@ -47,9 +47,15 @@ from obstore.exceptions import NotFoundError as _ObstoreNotFound
 from obstore.store import LocalStore, S3Store
 
 from .config import LocalConfig, S3Config, Settings
+from .presign import PresignOverridesUnavailable, resign_with_params
 from .scope import Scope
 
 logger = logging.getLogger(__name__)
+
+# The response headers S3's GetObject lets a (signed) request override.
+_RESPONSE_OVERRIDES = frozenset(
+    {"content-disposition", "content-type", "content-encoding", "content-language", "cache-control", "expires"}
+)
 
 # gzip RFC 1952: every member starts with 0x1F 0x8B. Used as a portable
 # encoding marker that doesn't depend on backend metadata support.
@@ -313,7 +319,7 @@ class StreamResult:
 
 
 class Storage:
-    def __init__(self, store, prefix: str, presign_store=None) -> None:
+    def __init__(self, store, prefix: str, presign_store=None, *, presign_secret: str | None = None) -> None:
         # `store` is whichever obstore backend implementation we built.
         # LocalStore and S3Store don't share a public Protocol but expose
         # the same get_async / list / stream surface.
@@ -327,6 +333,10 @@ class Storage:
         # different endpoint — signatures stay valid because object_store
         # signs against the host header derived from the endpoint URL.
         self._presign_store = presign_store if presign_store is not None else store
+        # The secret the stores sign with, kept so a presigned GET can be re-signed with
+        # response-header overrides (``presign.resign_with_params``) that obstore cannot add.
+        # None (credentials from the environment, or a test double): no overrides.
+        self._presign_secret = presign_secret
         # Trim trailing slashes so callers can treat it as a directory.
         self._prefix = prefix.strip("/")
         # How this store was configured, when it was (``from_settings``): what a job process
@@ -412,7 +422,7 @@ class Storage:
                     presign_kwargs.pop("allow_http", None)
                 presign_store = S3Store(cfg.bucket, **presign_kwargs)
 
-            return cls(store, prefix=cfg.prefix, presign_store=presign_store)
+            return cls(store, prefix=cfg.prefix, presign_store=presign_store, presign_secret=cfg.secret_access_key)
 
         assert local is not None
         return cls(LocalStore(local.path), prefix=local.prefix)
@@ -886,7 +896,13 @@ class Storage:
         )
 
     async def presigned_get_url(
-        self, scope: Scope, key: str, expires_in_seconds: int = 900, *, internal: bool = False
+        self,
+        scope: Scope,
+        key: str,
+        expires_in_seconds: int = 900,
+        *,
+        internal: bool = False,
+        response_headers: dict[str, str] | None = None,
     ) -> str:
         """Mint a presigned GET URL for direct download from the object
         store. Mirrors ``presigned_put_url`` — same gating, same signing.
@@ -900,15 +916,33 @@ class Storage:
         ``internal=True`` signs against the in-cluster store endpoint instead
         of the public one — for URLs the worker itself consumes (the SIN
         range-stream read), where the public ingress would be a hairpin.
+
+        ``response_headers`` overrides headers of the object store's response, as S3's
+        ``response-*`` GetObject parameters: ``{"Content-Disposition": ..., "Content-Type": ...,
+        "Content-Encoding": ...}`` (also Cache-Control, Content-Language, Expires). They are
+        signed into the URL, which obstore's ``sign`` cannot do, so the URL is re-signed here
+        (``presign.resign_with_params``). Raises ``PresignOverridesUnavailable`` when the
+        store's secret is not known to this process.
         """
         if not self.supports_presigned_uploads:
             raise NotImplementedError("presigned downloads require an HTTP object store; LocalStore is not supported")
-        return await obs.sign_async(
+        url = await obs.sign_async(
             self._store if internal else self._presign_store,
             "GET",
             self._full_key(scope, key),
             timedelta(seconds=expires_in_seconds),
         )
+        if not response_headers:
+            return url
+        if not self._presign_secret:
+            raise PresignOverridesUnavailable("no signing secret configured for response-header overrides")
+        params: dict[str, str] = {}
+        for header, value in response_headers.items():
+            name = header.strip().lower()
+            if name not in _RESPONSE_OVERRIDES:
+                raise ValueError(f"not an S3 response-header override: {header!r}")
+            params[f"response-{name}"] = value
+        return resign_with_params(url, self._presign_secret, params)
 
     async def head(self, scope: Scope, key: str) -> dict | None:
         """Return ``{size, last_modified, e_tag}`` for a key, or None if
