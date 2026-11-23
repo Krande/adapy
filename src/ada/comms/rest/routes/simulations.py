@@ -34,6 +34,7 @@ from ada.simulation.runs import (
     TERMINAL_STATUSES,
     RunRecordError,
     cancel_key,
+    finite_json,
     new_run_id,
     new_run_record,
     run_record_key,
@@ -79,6 +80,21 @@ _MAX_INPUTS = 64
 #: The most records one filtered listing reads; ``next`` says where to go on from.
 _MAX_SCAN = 2000
 _RUN_STATUSES = frozenset(ACTIVE_STATUSES | TERMINAL_STATUSES)
+
+
+class FiniteJSONResponse(JSONResponse):
+    """A JSONResponse that answers a non-finite float (``inf``, ``nan``) as null instead of failing.
+
+    These routes echo what providers put in run records -- summaries, parameters, a remote studio's
+    views -- and one ``inf`` there must not turn a whole scope's listing into a 500. The strict
+    encoding is tried first, so a body without one costs nothing more; only one that has one is
+    walked (``ada.simulation.runs.finite_json``)."""
+
+    def render(self, content) -> bytes:
+        try:
+            return super().render(content)
+        except ValueError:
+            return super().render(finite_json(content)[0])
 
 
 def _batch_from(raw, parameters: dict) -> dict | None:
@@ -144,7 +160,7 @@ async def api_simulation_providers(
     if relay is not None:
         _, error = await relay.providers()
         body["remote"] = {"url": relay.url, "error": error}
-    return JSONResponse(body)
+    return FiniteJSONResponse(body)
 
 
 def _inputs_from(raw) -> list[str]:
@@ -201,7 +217,7 @@ async def api_simulation_start(
     (409), parameters that do not fit the provider's schema (400, naming each problem), a
     subject of an unknown kind or one the provider does not accept (400), an input or subject
     that is missing (404) or still uploading (409)."""
-    return JSONResponse({"run": await start_run(ctx, request, user, scope_obj, body)})
+    return FiniteJSONResponse({"run": await start_run(ctx, request, user, scope_obj, body)})
 
 
 async def start_run(ctx: RestContext, request: Request, user: User, scope_obj: Scope, body: dict) -> dict:
@@ -420,7 +436,7 @@ async def api_simulation_list(
         next_id = runs[-1]["run_id"]
     else:
         next_id = last  # the scan stopped before the end: go on from the last record read
-    return JSONResponse({"runs": runs, "next": next_id})
+    return FiniteJSONResponse({"runs": runs, "next": next_id})
 
 
 @router.get("/scopes/{scope}/simulations/batches")
@@ -447,7 +463,7 @@ async def api_simulation_batches(
         batches = [b for b in batches if any(p["domain"] == domain for p in b["providers"])]
     batched = {i for members in index.values() for i in members}
     unbatched = sum(1 for i in await list_run_ids(ctx.storage, scope_obj) if i not in batched)
-    return JSONResponse({"batches": batches, "unbatched": unbatched})
+    return FiniteJSONResponse({"batches": batches, "unbatched": unbatched})
 
 
 @router.get("/scopes/{scope}/simulations/batches/{batch_id}")
@@ -462,7 +478,7 @@ async def api_simulation_batch(
     summaries = await batch_summaries(ctx.storage, scope_obj, {batch_id: run_ids} if run_ids else {})
     if not summaries:
         raise HTTPException(status_code=404, detail=f"no batch {batch_id!r} in this scope")
-    return JSONResponse({"batch": summaries[0]})
+    return FiniteJSONResponse({"batch": summaries[0]})
 
 
 async def _view(ctx: RestContext, request: Request, scope_obj: Scope, record: dict, *, strict: bool) -> dict:
@@ -507,7 +523,7 @@ async def api_simulation_read(
     list are the job's, so an artefact with ``partial: true`` can be fetched before the end;
     its ``revision`` goes up each time it is stored again."""
     record = await _require_run(ctx, scope_obj, run_id)
-    return JSONResponse({"run": await _view(ctx, request, scope_obj, record, strict=True)})
+    return FiniteJSONResponse({"run": await _view(ctx, request, scope_obj, record, strict=True)})
 
 
 @router.post("/scopes/{scope}/simulations/{run_id}/cancel")
@@ -532,10 +548,10 @@ async def api_simulation_cancel(
             await _view(ctx, request, scope_obj, record, strict=True)  # raises the 502 that says why
         assert relay is not None
         await ctx.audit(request, user, scope_obj, "simulation_cancel", key=run_record_key(run_id), target_format=KIND)
-        return JSONResponse(await relay.cancel(ctx.storage, scope_obj, record))
+        return FiniteJSONResponse(await relay.cancel(ctx.storage, scope_obj, record))
     view = await run_view(ctx.storage, scope_obj, ctx.jobs, record)
     if view["status"] in TERMINAL_STATUSES:
-        return JSONResponse({"run": view, "cancelled": False})
+        return FiniteJSONResponse({"run": view, "cancelled": False})
 
     # The marker first: it is what a worker in another process reads.
     await ctx.storage.put_bytes(scope_obj, cancel_key(run_id), user.sub.encode("utf-8"))
@@ -552,4 +568,4 @@ async def api_simulation_cancel(
     else:
         view = {**view, "cancel_requested": True}
     await ctx.audit(request, user, scope_obj, "simulation_cancel", key=run_record_key(run_id), target_format=KIND)
-    return JSONResponse({"run": view, "cancelled": True})
+    return FiniteJSONResponse({"run": view, "cancelled": True})

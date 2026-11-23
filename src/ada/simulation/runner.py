@@ -43,6 +43,7 @@ from .runs import (
     artefact_key,
     cancel_key,
     dump_run_record,
+    finite_json,
     run_record_key,
     utc_now,
 )
@@ -266,9 +267,16 @@ class _RunContext(SimulationContext):
                 f"a finished {self._domain} run needs a final artefact for each of the roles "
                 f"{', '.join(missing)}, and this one stored none"
             )
-        summary = dict(result.summary or {})
+        summary, non_finite = finite_json(dict(result.summary or {}), "summary")
+        if non_finite:
+            # Not the run's failure: JSON has no inf/nan, so the record keeps them as null.
+            logger.warning(
+                "ada.simulation: run %s reported non-finite numbers in its summary, stored as null: %s",
+                self._case.run_id,
+                ", ".join(non_finite),
+            )
         try:
-            encoded = json.dumps(summary)
+            encoded = json.dumps(summary, allow_nan=False)
         except (TypeError, ValueError) as exc:
             raise ValueError(f"the result's summary is not JSON-serialisable: {exc}") from exc
         if len(encoded) > _MAX_SUMMARY_BYTES:
