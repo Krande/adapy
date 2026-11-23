@@ -2,6 +2,16 @@
 
 
 
+## v0.172.0 (2026-11-23)
+
+### Feature
+
+* feat(viewer): visual effects at runtime for plugins (ctx.effects, plugin API 1.40.0) (#601)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt;
+Co-authored-by: adapy-bundle-bot &lt;adapy-bundle-bot@users.noreply.github.com&gt; ([`ec58f24`](https://github.com/Krande/adapy/commit/ec58f242cb0ee86214c3dee1dfd2bec1dc2ba0a5))
+
+
 ## v0.171.0 (2026-11-23)
 
 ### Feature
