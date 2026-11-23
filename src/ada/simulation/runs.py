@@ -22,11 +22,15 @@ Stdlib only: the API reads and writes records without the worker's stack.
 from __future__ import annotations
 
 import json
+import logging
+import math
 import re
 import time
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Mapping
+
+logger = logging.getLogger(__name__)
 
 __all__ = [
     "ACTIVE_STATUSES",
@@ -42,6 +46,7 @@ __all__ = [
     "artefact_key",
     "cancel_key",
     "dump_run_record",
+    "finite_json",
     "new_run_id",
     "new_run_record",
     "parse_run_record",
@@ -174,16 +179,54 @@ def new_run_record(
     }
 
 
+def finite_json(value: Any, path: str = "") -> tuple[Any, list[str]]:
+    """``value`` with every non-finite float (``inf``, ``-inf``, ``nan``) replaced by None, and the
+    dotted paths of what was replaced (``summary.weld.rms_m``, ``summary.steps[3]``).
+
+    JSON has no spelling for those numbers: Python writes them as ``Infinity`` / ``NaN``, which
+    strict encoders (the API's responses) refuse and other readers cannot parse. Dicts, lists and
+    tuples are copied; everything else is returned as is."""
+    found: list[str] = []
+
+    def walk(v: Any, at: str) -> Any:
+        if isinstance(v, float):
+            if math.isfinite(v):
+                return v
+            found.append(at or "<root>")
+            return None
+        if isinstance(v, Mapping):
+            return {k: walk(x, f"{at}.{k}" if at else str(k)) for k, x in v.items()}
+        if isinstance(v, (list, tuple)):
+            return [walk(x, f"{at}[{i}]") for i, x in enumerate(v)]
+        return v
+
+    return walk(value, path), found
+
+
 def dump_run_record(record: Mapping[str, Any]) -> bytes:
-    return json.dumps(record, sort_keys=True).encode("utf-8")
+    """The record as stored: strict JSON, so a non-finite number a provider reported (a summary's
+    ``inf``) is written as null, with a warning naming the run and the fields, rather than as an
+    ``Infinity`` no reader of the record can serve."""
+    clean, paths = finite_json(record)
+    if paths:
+        logger.warning(
+            "ada.simulation: run %s has non-finite numbers, stored as null: %s",
+            record.get("run_id"),
+            ", ".join(paths),
+        )
+        record = clean
+    return json.dumps(record, sort_keys=True, allow_nan=False).encode("utf-8")
 
 
 def parse_run_record(raw: bytes | str) -> dict[str, Any]:
-    """A stored record, checked just far enough to be read safely."""
+    """A stored record, checked just far enough to be read safely. A non-finite number in one
+    written before records were kept strict (``Infinity``, ``NaN``) reads as None."""
     try:
         record = json.loads(raw)
     except (ValueError, TypeError) as exc:
         raise RunRecordError(f"not JSON: {exc}") from exc
+    if isinstance(record, dict):
+        record = dict(finite_json(record)[0])
     if not isinstance(record, dict) or record.get("schema") != RUN_SCHEMA:
         raise RunRecordError(f"not a {RUN_SCHEMA} document")
     if not isinstance(record.get("run_id"), str) or not _RUN_ID.match(record["run_id"]):
