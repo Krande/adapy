@@ -222,7 +222,9 @@ const ScrubBar: React.FC<ScrubBarProps> = ({ time, duration, view, markers, onSe
   const pct = (t: number) => `${(Math.max(0, Math.min(1, timeToFraction(t, view))) * 100).toFixed(3)}%`;
 
   return (
-    <div className="flex min-w-0 flex-1 flex-col" data-playback-scrub-wrap="true">
+    // On a phone the bar takes a row of its own (`order` and `basis-full`) and the buttons wrap
+    // under it; from `sm` up it shares the one row with them.
+    <div className="order-first flex min-w-0 flex-1 basis-full flex-col sm:order-none sm:min-w-[120px] sm:basis-0" data-playback-scrub-wrap="true">
       <div
         className="relative h-2 cursor-crosshair touch-none rounded-sm hover:bg-white/10"
         title="Drag along here to zoom into a range"
@@ -242,14 +244,7 @@ const ScrubBar: React.FC<ScrubBarProps> = ({ time, duration, view, markers, onSe
       </div>
       <div
         ref={barRef}
-        role="slider"
-        tabIndex={0}
-        aria-label="Time"
-        aria-valuemin={0}
-        aria-valuemax={duration}
-        aria-valuenow={Math.min(time, duration)}
-        aria-valuetext={preciseClockText(time)}
-        className="relative h-8 cursor-pointer touch-none select-none sm:h-5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300 rounded-sm"
+        className="relative h-8 cursor-pointer touch-none select-none rounded-sm sm:h-5 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-blue-300"
         data-playback-scrub="true"
         data-scrub-scale={scale}
         onPointerDown={onPointerDown}
@@ -260,6 +255,20 @@ const ScrubBar: React.FC<ScrubBarProps> = ({ time, duration, view, markers, onSe
           endDrag();
         }}
       >
+        {/* The bar to the keyboard, a screen reader and automation: a plain range over the window
+            shown, which the pointer passes through (the bar's own handlers scrub). Its arrow keys
+            are the transport's steps (./playbackKeys.ts). */}
+        <input
+          type="range"
+          className="pointer-events-none absolute inset-0 h-full w-full opacity-0"
+          aria-label="Time"
+          aria-valuetext={preciseClockText(time)}
+          min={view.start}
+          max={view.end || 1}
+          step="any"
+          value={Math.max(view.start, Math.min(time, view.end))}
+          onChange={(e) => onSeek(Number(e.target.value))}
+        />
         <div className="absolute inset-x-0 top-1/2 h-1.5 -translate-y-1/2 rounded-full bg-white/25" />
         <div className="absolute left-0 top-1/2 h-1.5 -translate-y-1/2 rounded-full bg-blue-400" style={{ width: `${(fraction * 100).toFixed(3)}%` }} />
         {selection && (

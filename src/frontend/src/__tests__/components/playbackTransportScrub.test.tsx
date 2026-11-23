@@ -101,9 +101,9 @@ test("the transport draws the step controls, the precise time, the markers and t
     assert.match(html, /aria-label="Step forward"/);
     assert.match(html, /aria-label="Step size"/);
     assert.match(html, /<option value="frame" selected="">1 frame<\/option>/);
-    assert.match(html, /01:01\.250 \/ 01:23\.500/);
+    assert.match(html, /title="01:01\.250 of 01:23\.500\. Click to type a time to go to"[^>]*>01:01\.250</);
     assert.match(html, /aria-label="Capture frame"/);
-    assert.match(html, /role="slider"[^>]*aria-label="Time"/);
+    assert.match(html, /type="range"[^>]*aria-label="Time"/, "a plain range, for the keyboard, a screen reader and automation");
     assert.doesNotMatch(html, /aria-label="Next marker"/, "no markers: no marker buttons");
     assert.doesNotMatch(html, /aria-label="Reset zoom"/, "not zoomed: nothing to reset");
     playbackClock.setMarkers("run", [{ t: 10, label: "Weld pass 1", kind: "stage" }, { t: 70, label: "Contact", kind: "error" }]);

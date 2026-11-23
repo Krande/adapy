@@ -95,11 +95,11 @@ const TimeReadout: React.FC<{ time: number; duration: number }> = ({ time, durat
     <button
       type="button"
       className="shrink-0 rounded-sm px-1 font-mono tabular-nums hover:bg-white/10"
-      title="Click to type a time to go to"
+      title={`${preciseClockText(time)} of ${preciseClockText(duration)}. Click to type a time to go to`}
       data-playback-time="true"
       onClick={() => setEditing(preciseClockText(time))}
     >
-      {preciseClockText(time)} / {preciseClockText(duration)}
+      {preciseClockText(time)}
     </button>
   );
 };
@@ -179,9 +179,10 @@ const PlaybackTransport: React.FC = () => {
     playbackClock.step(direction, view.stepSize, { shift: e.shiftKey, alt: e.altKey });
   return (
     <div
-      // The scrub bar has a row of its own and the buttons wrap under it, so none of them is
-      // squeezed off the bar.
-      className="absolute bottom-3 left-1/2 z-10 flex w-[min(96%,780px)] -translate-x-1/2 flex-wrap items-center gap-x-2 gap-y-1 rounded-md bg-gray-900/80 px-2 py-1 text-xs text-white"
+      // One row where it fits, no taller than before so it hides no more of the view. On a phone
+      // the scrub bar takes a row of its own (./ScrubBar.tsx) and the buttons wrap under it, so
+      // none of them is squeezed off the bar.
+      className="absolute bottom-3 left-1/2 z-10 flex w-[min(96%,780px)] -translate-x-1/2 flex-wrap items-center gap-x-1.5 gap-y-1 rounded-md bg-gray-900/80 px-2 py-1 text-xs text-white"
       data-playback-transport="true"
       data-playing={state.playing ? "true" : "false"}
       // A press on the transport is not a press on the model under it.
@@ -190,33 +191,6 @@ const PlaybackTransport: React.FC = () => {
       onDoubleClick={(e) => e.stopPropagation()}
       onWheel={(e) => e.stopPropagation()}
     >
-      <div className="flex w-full basis-full items-center gap-2">
-        <ScrubBar
-          time={state.time}
-          duration={state.duration}
-          view={shown}
-          markers={markers}
-          onSeek={(t) => playbackClock.seek(t)}
-          onZoom={(w) => timelineView.setZoom(w, state.duration)}
-        />
-        {zoomed && (
-          <span className="shrink-0 font-mono text-[10px] tabular-nums text-gray-300" data-playback-zoom-window="true">
-            {preciseClockText(shown.start)}–{preciseClockText(shown.end)}
-          </span>
-        )}
-        {zoomed && (
-          <button
-            type="button"
-            className={button()}
-            title="Show the whole timeline again"
-            aria-label="Reset zoom"
-            data-playback-zoom-reset="true"
-            onClick={() => timelineView.resetZoom()}
-          >
-            ⤢
-          </button>
-        )}
-      </div>
       <button
         type="button"
         className={button()}
@@ -247,6 +221,28 @@ const PlaybackTransport: React.FC = () => {
         ▶|
       </button>
       {actions.filter((a) => a.spec.beside === "play").map(actionButton)}
+      <ScrubBar
+        time={state.time}
+        duration={state.duration}
+        view={shown}
+        markers={markers}
+        onSeek={(t) => playbackClock.seek(t)}
+        onZoom={(w) => timelineView.setZoom(w, state.duration)}
+      />
+      {zoomed && (
+        <button
+          type="button"
+          className={button()}
+          title={`Zoomed into ${preciseClockText(shown.start)}–${preciseClockText(shown.end)}: show the whole timeline again`}
+          aria-label="Reset zoom"
+          data-playback-zoom-reset="true"
+          data-playback-zoom-window={`${preciseClockText(shown.start)}–${preciseClockText(shown.end)}`}
+          onClick={() => timelineView.resetZoom()}
+        >
+          ⤢
+        </button>
+      )}
+      <TimeReadout time={state.time} duration={state.duration} />
       <select
         className={SELECT}
         aria-label="Step size"
@@ -261,7 +257,6 @@ const PlaybackTransport: React.FC = () => {
           </option>
         ))}
       </select>
-      <TimeReadout time={state.time} duration={state.duration} />
       {markers.length > 0 && (
         <>
           <button
