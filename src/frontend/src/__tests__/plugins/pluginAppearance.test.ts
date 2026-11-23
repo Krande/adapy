@@ -23,8 +23,9 @@ beforeEach(() => {
     memory.clear();
 });
 
-test("the plugin API is at 1.38.0", () => {
-    assert.equal(PLUGIN_API_VERSION, "1.38.0");
+test("the plugin API has ctx.appearance from 1.38.0", () => {
+    const [major, minor] = PLUGIN_API_VERSION.split(".").map(Number);
+    assert.ok(major > 1 || (major === 1 && minor >= 38), PLUGIN_API_VERSION);
 });
 
 test("realistic writes the look; default puts back the user's own settings, not the defaults", () => {
