@@ -2,6 +2,15 @@
 
 
 
+## v0.172.1 (2026-11-23)
+
+### Fix
+
+* fix: six small fixes (fem .odb suffix, config env parsing, CLI exit codes, OpenCourant exe lookup, kernel fixture contract) (#602)
+
+Co-authored-by: Mistral Vibe &lt;vibe@mistral.ai&gt; ([`eacbbe3`](https://github.com/Krande/adapy/commit/eacbbe329d3e32a7bd505fbd3ae14c00c025dbdb))
+
+
 ## v0.172.0 (2026-11-23)
 
 ### Feature
