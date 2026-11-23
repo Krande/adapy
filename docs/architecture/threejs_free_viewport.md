@@ -540,6 +540,27 @@ A plugin can offer the look without settings of its own. `ctx.appearance` (plugi
 The settings stay the one source of truth and persist per user, so a plugin's "Realistic lighting"
 switch and the Options panel always agree.
 
+**Effects at runtime.** A plugin can also show effects without writing them into a model's file and loading
+it again. `ctx.effects` (plugin API 1.40.0, `plugins/pluginEffects.ts`) takes the same description:
+
+- `apply(sourceId, spec, {model})` shows lights, emitters and ramps in place of what was shown under that
+  id. `clear(sourceId)` takes them away.
+- Times are seconds on the playback clock, so the effects play, pause and scrub with everything on it.
+- Positions are in the scene's coordinates, as a plugin's layers are.
+- Ramps target object ids of `model` (a source name). The effects are drawn while that model is on
+  screen.
+- `drawn()` and `subscribe()` say whether the viewport on screen draws effects, so a plugin can tell the
+  user where to see them.
+
+What is applied is kept per plugin and source id and handed to each viewport that comes on screen
+(`ViewportApi.applyEffects`). The native scene holds it across loads:
+
+- a replacing load empties the renderer, and a model loaded again has other instances, so the effects
+  are put on again after every load (`NativeScene.applyEffects`);
+- lights and emitters go into one effect set, moved into the renderer's world;
+- ramps are put on the segments of the targets and of everything below them (`setSegmentEmissive`),
+  because the browser's `applyEffects` has no model to resolve targets against.
+
 ![A generic effects scene on the timeline at 2.5 s: a torch travels along a strip it lays, with flicker, sparks and smoke](../screenshots/ada-studio/native-effects-t2.5.png)
 ![The same at 6 s: each piece glows from the moment it is laid and cools down](../screenshots/ada-studio/native-effects-t6.png)
 ![At 6 s with ACES tone mapping, bloom and environment lighting](../screenshots/ada-studio/native-effects-look.png)

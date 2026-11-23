@@ -9,6 +9,7 @@ import type { UiShellSpec } from "../uiShells";
 import type { ModeBehaviour, ModeGroupId, ModeId } from "@/layout/modes";
 import type { PluginModes } from "../pluginModes";
 import type { PluginAppearance } from "../pluginAppearance";
+import type { PluginEffects } from "../pluginEffects";
 import type { SimulationProviderInfo, SimulationRun } from "@/services/api/simulations";
 import type { SceneColorFieldResult, SceneHandle, SidecarFetcher } from "./scene";
 import type { PluginLayers, PluginPlayback, PluginSimulations } from "./playback";
@@ -185,6 +186,13 @@ export interface AdaPluginContext {
    * so a plugin asks first (`ctx.appearance?.applyPreset(...)`).
    */
   appearance?: PluginAppearance;
+  /**
+   * Visual effects at runtime (1.40.0): `apply(sourceId, spec, {model})` / `clear(sourceId)` -- point
+   * lights, particle emitters and emissive ramps in the shape of a GLB's "ada_effects", on the playback
+   * clock, kept across viewport switches and reloads of `model` -- and `drawn()` / `subscribe` (whether
+   * the viewport on screen draws them). Absent on an older core, so a plugin asks first.
+   */
+  effects?: PluginEffects;
   scope: () => string;
   /** Active theme tokens (mirrors of the `--ada-*` CSS vars) so plugin panels
    * match core's chrome in light + dark without hardcoding colours. */
