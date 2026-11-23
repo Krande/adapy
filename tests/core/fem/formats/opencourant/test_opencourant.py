@@ -286,3 +286,32 @@ def test_read_time_history():
     np.testing.assert_allclose(g.series(3), [101_725.0, 101_500.0])
     with pytest.raises(THFormatError):
         read_th_bytes(_rec(struct.pack(">i", 7)))
+
+
+def test_run_raises_solver_not_installed_when_the_exe_is_missing(tmp_path, monkeypatch):
+    """A configured exe path with nothing at it made get_exe_path return None and _env(None)
+    crash with TypeError; an exe known nowhere raised FileNotFoundError. Both are a missing
+    solver and raise FEASolverNotInstalled like the other executors."""
+    from ada.fem.exceptions import FEASolverNotInstalled
+    from ada.fem.formats.opencourant import execute as oc_execute
+
+    def configured_but_empty(name, aliases=()):
+        return None
+
+    def nowhere(name, aliases=()):
+        raise FileNotFoundError(f'No Path to Executable "{name}" is found')
+
+    for fake in (configured_but_empty, nowhere):
+        monkeypatch.setattr(oc_execute, "get_exe_path", fake)
+        with pytest.raises(FEASolverNotInstalled):
+            oc_execute.OpenCourantExecute(tmp_path / "run_0000.rad").run()
+
+
+def test_run_without_auto_execute_never_looks_for_the_exe(tmp_path, monkeypatch):
+    from ada.fem.formats.opencourant import execute as oc_execute
+
+    def boom(name, aliases=()):
+        raise AssertionError("the exe lookup must not run when auto_execute is False")
+
+    monkeypatch.setattr(oc_execute, "get_exe_path", boom)
+    assert oc_execute.OpenCourantExecute(tmp_path / "run_0000.rad", auto_execute=False).run() is None
