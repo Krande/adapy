@@ -2,6 +2,16 @@
 
 
 
+## v0.171.0 (2026-11-23)
+
+### Feature
+
+* feat: precise timeline scrubbing; move runs between batches and delete runs or batches; robot bundles carry source files (#598)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt;
+Co-authored-by: adapy-bundle-bot &lt;adapy-bundle-bot@users.noreply.github.com&gt; ([`a92d3e8`](https://github.com/Krande/adapy/commit/a92d3e8ef7a3e8b93e64a53ba18135931d8ec446))
+
+
 ## v0.170.0 (2026-11-23)
 
 ### Feature
