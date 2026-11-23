@@ -3,7 +3,17 @@ import logging
 import os
 import pathlib
 import tempfile
-from typing import Any, Dict, List, NamedTuple, Optional, Type, Union
+from typing import (
+    Any,
+    Dict,
+    List,
+    NamedTuple,
+    Optional,
+    Type,
+    Union,
+    get_args,
+    get_origin,
+)
 
 _filename = "ada_config.toml"
 _env_prefix = "ADA_"
@@ -75,6 +85,15 @@ class ConfigEntry(NamedTuple):
                 value = strtobool(str(value))
             except ValueError as e:
                 raise ConfigError(f"{self.name}: {e}")
+        elif self.cast is list or get_origin(self.cast) is list:
+            # A scalar is one item, not a string to iterate: list("/data") would give
+            # ['/', 'd', 'a', 't', 'a']. Apply the element type where the cast names one
+            # (list[pathlib.Path]), leave the values alone otherwise.
+            if isinstance(value, str):
+                value = [value]
+            args = get_args(self.cast)
+            elem = args[0] if args and args[0] is not str else None
+            return [elem(v) if elem is not None else v for v in value]
 
         return self.cast(value)
 
@@ -495,7 +514,10 @@ class Config:
             elif "[" in value:
                 if "'" in value:
                     value = value.replace("'", '"')
-                corrected_value = json.loads(value)
+                try:
+                    corrected_value = json.loads(value)
+                except json.JSONDecodeError as e:
+                    raise ConfigError(f"{var}: not a valid JSON list: {e}") from e
             elif "," in value and "[" not in value:
                 corrected_value = value.split(",")
 
@@ -517,7 +539,6 @@ class Config:
         # get QUETZ environment variables.
         quetz_var = {key: value for key, value in os.environ.items() if key.startswith(_env_prefix)}
         for var, value in quetz_var.items():
-            value = self._correct_environ_config_list_value(value, var)
             splitted_key = var.split("_")
             config_key = splitted_key[1].lower()
             idx = 2
@@ -532,12 +553,14 @@ class Config:
                 config_key += f"_{splitted_key[idx].lower()}"
                 idx += 1
 
-            # no first_level found, the variable is useless.
+            # no first_level found, the variable is useless. It is ignored before its value
+            # is corrected, so an unrelated ADA_* variable holding '[::1]' or a '{' does not
+            # crash the lookup with a JSON error.
             if not first_level:
                 continue
             # the first level is an entry, add it to the config.
             if isinstance(first_level, ConfigEntry):
-                config[first_level.name] = value
+                config[first_level.name] = self._correct_environ_config_list_value(value, var)
             # the first level is a section.
             elif isinstance(first_level, ConfigSection):
                 entry = "_".join(splitted_key[idx:]).lower()
@@ -547,7 +570,7 @@ class Config:
                 # add the entry to the config.
                 if first_level.name not in config:
                     config[first_level.name]: Dict[str, Any] = {}
-                config[first_level.name]["_".join(splitted_key[idx:]).lower()] = value
+                config[first_level.name][entry] = self._correct_environ_config_list_value(value, var)
 
         return config
 

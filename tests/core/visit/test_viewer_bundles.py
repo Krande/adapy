@@ -85,7 +85,7 @@ def test_show_opens_the_selected_bundles_single_file_build(installed, tmp_path, 
     assert renderer.local_html_path.read_text() == "<html>single file</html>"
 
 
-def test_cli_viewer_selects_the_bundle_and_a_typo_fails_before_anything_starts(installed, monkeypatch):
+def test_cli_viewer_selects_the_bundle_and_a_typo_fails_before_anything_starts(installed, monkeypatch, capsys):
     # --viewer sets ADA_VIEWER_BUNDLE for the rest of the process. Set through monkeypatch first, so
     # it is put back after this test and does not follow later tests into their viewers.
     monkeypatch.setenv(ENV_BUNDLE, "builtin")
@@ -96,8 +96,9 @@ def test_cli_viewer_selects_the_bundle_and_a_typo_fails_before_anything_starts(i
     monkeypatch.setitem(sys.modules, "ada.comms.rest.__main__", server)
     assert ada_cli.main.main(["serve", "api", "--viewer", "company"]) == 0
     assert started == ["company"]
-    with pytest.raises(ValueError, match="no viewer bundle"):
-        ada_cli.main.main(["serve", "api", "--viewer", "compnay"])
+    # A typo is a usage mistake: exit 2 with the reason on stderr, and the server never starts.
+    assert ada_cli.main.main(["serve", "api", "--viewer", "compnay"]) == 2
+    assert 'no viewer bundle "compnay"' in capsys.readouterr().err
     assert started == ["company"]
 
 

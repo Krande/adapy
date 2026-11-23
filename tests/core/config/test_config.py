@@ -89,3 +89,58 @@ def test_a_deleted_working_directory_is_not_fatal(monkeypatch):
 
     monkeypatch.setattr(pathlib.Path, "cwd", gone)
     assert config._working_dir() == pathlib.Path(tempfile.gettempdir())
+
+
+def _bare_env(monkeypatch, tmp_path):
+    """An environment with nothing but the ADA_* variables the test sets, in an empty working
+    directory, so no file or inherited variable interferes."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("ADA_CONFIG_FILE", raising=False)
+    return mock.patch.dict(os.environ, clear=True)
+
+
+def test_list_entry_keeps_a_scalar_env_value_whole(monkeypatch, tmp_path):
+    """A single env value without ',' or '[' is one list item, not a string to iterate:
+    list("/data") would give ['/', 'd', 'a', 't', 'a'], and list[pathlib.Path] never
+    converted its items to Path."""
+    import pathlib
+
+    from ada.config import Config
+
+    with _bare_env(monkeypatch, tmp_path):
+        monkeypatch.setenv("ADA_GENERAL_VALID_UNITS", "mm")
+        monkeypatch.setenv("ADA_WEBSOCKETS_EXTERNAL_FILES_DIRS", "/data")
+        config = Config()
+        assert config.general_valid_units == ["mm"]
+        assert config.websockets_external_files_dirs == [pathlib.Path("/data")]
+
+
+def test_list_entry_splits_a_comma_separated_env_value(monkeypatch, tmp_path):
+    from ada.config import Config
+
+    with _bare_env(monkeypatch, tmp_path):
+        monkeypatch.setenv("ADA_GENERAL_VALID_UNITS", "mm,cm")
+        assert Config().general_valid_units == ["mm", "cm"]
+
+
+def test_unknown_ada_variables_are_ignored_even_with_json_like_values(monkeypatch, tmp_path):
+    """A variable naming no section or entry is ignored whole. It used to be JSON-corrected
+    before the lookup, so ADA_VIEWER_HOST=[::1] raised a raw JSONDecodeError and a '{' value
+    raised ConfigError even though the variable maps to nothing."""
+    from ada.config import Config
+
+    with _bare_env(monkeypatch, tmp_path):
+        monkeypatch.setenv("ADA_VIEWER_HOST", "[::1]")
+        monkeypatch.setenv("ADA_SOME_UNKNOWN_TABLE", "{not json")
+        monkeypatch.setenv("ADA_GENERAL_UNKNOWN_ENTRY", "[1,2")
+        config = Config()
+        assert config.general_point_tol == 1e-4
+
+
+def test_known_list_entry_with_malformed_json_raises_config_error(monkeypatch, tmp_path):
+    from ada.config import Config, ConfigError
+
+    with _bare_env(monkeypatch, tmp_path):
+        monkeypatch.setenv("ADA_GENERAL_VALID_UNITS", "[1,2")
+        with pytest.raises(ConfigError, match="not a valid JSON list"):
+            Config()

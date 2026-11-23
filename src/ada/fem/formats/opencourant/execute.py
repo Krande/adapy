@@ -67,11 +67,24 @@ class OpenCourantExecute(LocalExecute):
         return env
 
     def run(self, exit_on_complete=True):
-        starter = get_exe_path(STARTER_EXE)
-        engine = get_exe_path(ENGINE_EXE)
         name = self.run_name
         if self.auto_execute is False:
             return None
+
+        from ada.fem.exceptions import FEASolverNotInstalled
+
+        try:
+            starter = get_exe_path(STARTER_EXE)
+            engine = get_exe_path(ENGINE_EXE)
+        except FileNotFoundError as e:
+            raise FEASolverNotInstalled(str(e)) from None
+        # get_exe_path gives None for a configured path with nothing at it; that is a
+        # missing solver, not a TypeError from pathlib.Path(None) further down.
+        missing = [exe_name for exe_name, exe in ((STARTER_EXE, starter), (ENGINE_EXE, engine)) if exe is None]
+        if missing:
+            raise FEASolverNotInstalled(
+                f"OpenCourant executable(s) not found at the configured path: {', '.join(missing)}"
+            )
 
         cwd = self.analysis_dir
         env = self._env(starter)
