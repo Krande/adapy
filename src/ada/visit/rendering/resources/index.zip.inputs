@@ -1,10 +1,10 @@
 # The inputs src/ada/visit/rendering/resources/index.zip was built from, and its own hash. Do not edit.
 # Refresh with `pixi run wbuild` (rebuilds the bundle and rewrites this), then commit both.
 # Checked by `pixi run check-bundle-inputs` and by CI. See scripts/packaging/bundle_inputs.py.
-inputs-sha256 d823e9f7dc010197548cd85915646817d2057034ef04e964b57600d3916f0fc2
-bundle-sha256 beca267e5a15c81f99cab5b0f4c2246e2cdb3a4f4b74d7f90b20a8f75a682423
-pin:ADACPP_BASE_IMAGE ghcr.io/krande/adacpp-wasm-base:0.44.0
-pin:ADACPP_RENDER_REF c1a7b3ab434a916e08170c634c23b9dc1974d32f
+inputs-sha256 e0ebafaa095d1ade9d3beba52553ffc5e0c8b05b2beba67af2c8450d8f3592ba
+bundle-sha256 01f6eadaa7b27d93ba619635e60b0c14eb6f49644944ee9715daf1d496c0d106
+pin:ADACPP_BASE_IMAGE ghcr.io/krande/adacpp-wasm-base:0.45.0
+pin:ADACPP_RENDER_REF fc135684251247c31b26800476305f2338cae68d
 src/frontend/clean.cjs 548054390de442a02ca36bd4de94f25095f10ae9
 src/frontend/embed-script.cjs 1685f9c36e13c27adc7576ed6c84970dad32cdfb
 src/frontend/package-lock.json fed97212904b916072f4e2f1963cae017e62ec58
@@ -325,7 +325,7 @@ src/frontend/src/components/info_box_selected_object/cellBuilderSelection/fields
 src/frontend/src/components/layers/LayersPanel.tsx 96e59808d181e66eca5527b1ff59bbc9293f2a98
 src/frontend/src/components/navButton.ts 4a595cdc4b7bb861b574641f645ba4c57242575a
 src/frontend/src/components/options/ActionButtons.tsx a5c1d88124bbee7acc39c4efc2c373816080f132
-src/frontend/src/components/options/AppearanceOptions.tsx 89666e87aff14931f66801dab4bc3ef840f9b3ad
+src/frontend/src/components/options/AppearanceOptions.tsx 86d604e710ae2a1c7216849a5407b0c1b96171ac
 src/frontend/src/components/options/CameraControlsOptions.tsx 7759f365ea805b9ffa8dab87e1b7ac4b544f61d7
 src/frontend/src/components/options/ComputeOptions.tsx 8d64e8756ea22bca73f1e90aee4b1e9eb639a7e7
 src/frontend/src/components/options/ControlsProfileOptions.tsx 16bedb5bba32620b004ff64a4059898eb7637738
@@ -641,7 +641,7 @@ src/frontend/src/layout/markingMenuState.ts f9b0937230ffe716a196f8aa5b65ebfaed3a
 src/frontend/src/layout/measureActions.ts 54fdd419b53fa4d27e5034110c9aa17a9263c9e2
 src/frontend/src/layout/modeRequirements.ts dd3d65fc3176ae6f1b0e1f38dbd46836b64a7bc4
 src/frontend/src/layout/modes.ts 9902ae1d149c89d97d696fa8d1a5ffda9d4ec864
-src/frontend/src/layout/optionCommands.ts 16f42710a80f121eebfb53966975eb3890c9c94e
+src/frontend/src/layout/optionCommands.ts 5ad1d4ca8cfb496f655688011ac794abfd9331a7
 src/frontend/src/layout/panel.ts 10d4a5bd410ec4ba26bd275355de9f192717902b
 src/frontend/src/layout/panelActions.ts 2e121b00e28e5c1e5a0061aa8723e2a881e5b40f
 src/frontend/src/layout/panelStates.ts 0784b5edc483e5ff3d5fefb78b43a431a5c1a255
@@ -848,7 +848,7 @@ src/frontend/src/services/viewerControl/wire.ts 69a7312288214e2666e44b0fc4b63c4c
 src/frontend/src/state/AdaViewerContext.tsx 2c87bc6aeaa5990d361ab02ede7e0d80f647f77d
 src/frontend/src/state/adminPanelStore.ts b4b18388e1286b694f85ce92dd97979bf95f6147
 src/frontend/src/state/animationStore.ts 79b8eb664bbcd85f59bc8fe362ec21d1f18c2e90
-src/frontend/src/state/appearanceStore.ts 7406bbc9c3723b8b2f3d1775aab9904507368c9f
+src/frontend/src/state/appearanceStore.ts 7bddd187429b48c680eaac191e958dc01c9a6f2e
 src/frontend/src/state/assetBrowserCache.ts 835b601fc6ada24d0f05ea73e2256bd78821dc6a
 src/frontend/src/state/assetBrowserLoader.ts ba3fccc83a820ec8d09834c373fa26e27552bced
 src/frontend/src/state/assetBrowserStore.ts f7a2ab3faaa52c294bd13a54901296c29dd3e095
@@ -1407,7 +1407,7 @@ src/frontend/src/viewer-core/theme.ts ea22faadc2520371ef6149b97437359f63a109b5
 src/frontend/src/viewport/adacpp/adacppViewport.ts 8fdacdef15c82334c6da6a048f6bc8697d2c55ef
 src/frontend/src/viewport/adacpp/rendererModule.ts 020e4cf8dac6c39ddcc6262420a69c920e1f661a
 src/frontend/src/viewport/adacpp/sceneSync.ts cd63c4557d6b59c99047a0e978cc951530345892
-src/frontend/src/viewport/adacpp/types.ts 141c25a4427a073d712757db32f9a69939f27b9d
+src/frontend/src/viewport/adacpp/types.ts 2671c492c8b8c2581a5ed0fbea52ab771f16dcf7
 src/frontend/src/viewport/api/beforeDraw.ts 2142637dd2476e16ad78cba20673b0cb6b5d7bf5
 src/frontend/src/viewport/api/billboards.ts 2bc524634b48f951aeb35381394cc885a41d4387
 src/frontend/src/viewport/api/boxSelection.ts b78aa020c083b5a603b5a32653c56e6a0ae037ef
@@ -1448,7 +1448,7 @@ src/frontend/src/viewport/native/nativeImages.ts 56dd94125cf9034aa41504da4cdcc84
 src/frontend/src/viewport/native/nativeModel.ts c2a7901fe446fa9d15d0f8787c1a65586e2aefcb
 src/frontend/src/viewport/native/nativeOverlays.ts c38f5b7af3772753b50ebf48c8b94f12f6796083
 src/frontend/src/viewport/native/nativeResultLayer.ts f7dc7a0c7afcc3b01f403c7322be7cdefa82f3c1
-src/frontend/src/viewport/native/nativeScene.ts 2cb2d7245911e448f49cd2ffc8a8fd496bf69816
+src/frontend/src/viewport/native/nativeScene.ts a0892adb30191928d989a2342b1198926f6c64c0
 src/frontend/src/viewport/native/nativeViewportApi.ts 8ef65f8fc4e331e81c6c24d559fa250606b027f6
 src/frontend/src/viewport/native/nativeViewportHistory.ts 8e0ad3ea441759375dd87b8e7cc5754138a32d50
 src/frontend/src/viewport/native/nodePlacement.ts c41034464a0fd19af49620b4317e8274b730210c
