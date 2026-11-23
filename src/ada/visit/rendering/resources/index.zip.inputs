@@ -1,8 +1,8 @@
 # The inputs src/ada/visit/rendering/resources/index.zip was built from, and its own hash. Do not edit.
 # Refresh with `pixi run wbuild` (rebuilds the bundle and rewrites this), then commit both.
 # Checked by `pixi run check-bundle-inputs` and by CI. See scripts/packaging/bundle_inputs.py.
-inputs-sha256 e0ebafaa095d1ade9d3beba52553ffc5e0c8b05b2beba67af2c8450d8f3592ba
-bundle-sha256 01f6eadaa7b27d93ba619635e60b0c14eb6f49644944ee9715daf1d496c0d106
+inputs-sha256 b122ce91ccaf5864c25902eb8e337d55b3c87e455a82d3a8a31f3671ebcc3263
+bundle-sha256 3bb19083eeba9842957651a42226eab8702b0d23a396bbd07a501804af9df7dc
 pin:ADACPP_BASE_IMAGE ghcr.io/krande/adacpp-wasm-base:0.45.0
 pin:ADACPP_RENDER_REF fc135684251247c31b26800476305f2338cae68d
 src/frontend/clean.cjs 548054390de442a02ca36bd4de94f25095f10ae9
@@ -696,21 +696,22 @@ src/frontend/src/plugins/PluginSlots.tsx 518e0e08ef2be1bf3e387d40729360b91bb16f0
 src/frontend/src/plugins/UiShellHost.tsx 1be4213699aeb574741bdf396a5c0b96b27afbac
 src/frontend/src/plugins/UiShellSwitcher.tsx ec7edae19d8fab084e85de362f24bc769059b01b
 src/frontend/src/plugins/builderRefs.ts a1d15e3edd9b8f46681241723988aa3c275ba85c
-src/frontend/src/plugins/context.ts 45a9cef4413349ce19272b4f8c498bbbae47f7ac
+src/frontend/src/plugins/context.ts 09aa83ca5fd9cff2367ef864ec1cbb28d5f78e0b
 src/frontend/src/plugins/coreUiShell.ts 93f37aeabfb9476f55c277813ffdf5dc41337080
 src/frontend/src/plugins/dialogs.ts 48de39f699ddd09595ca8b286976b9f8a7fc8da7
 src/frontend/src/plugins/index.ts 1ac7ef430a237d2c8cc0067feccd52a3641782be
 src/frontend/src/plugins/loadClaims.ts b9c26679fa6faf15367737e9876a799b3e8a2045
+src/frontend/src/plugins/pluginAppearance.ts a988ae37ee80a7a58b3df1af9da5303d8a64cc52
 src/frontend/src/plugins/pluginModes.ts 4a81368ed190073f938d8d0ac51cb3a4debb711d
 src/frontend/src/plugins/pluginSimulations.ts 6864fa7fe3d17ac5a981588261bfa41b869bfe88
 src/frontend/src/plugins/pluginUiStore.ts 964311171a9ea8c32114d52b7f901abc2c24f16b
 src/frontend/src/plugins/propertyProviders.ts de118ca51a69948e9ed3fdc81be9386717b618b8
 src/frontend/src/plugins/registry.generated.css 65b0f00a8c6dd85ec7550f5e38bd7d4679f56066
 src/frontend/src/plugins/registry.generated.ts a16322ca6cc5ded5f53b9333634397e460569d5e
-src/frontend/src/plugins/registry.ts 50a2e32e0703109c156320f12eb26fff1ef73083
+src/frontend/src/plugins/registry.ts bd059d68725d3ee17d156bb2521dfd2bb9613816
 src/frontend/src/plugins/registryTypes/playback.ts 47783e2224c107c0896febdfe26387f900f5327d
 src/frontend/src/plugins/registryTypes/scene.ts db69bdddee2bf54d990aea1bdd62a9f6577c61cf
-src/frontend/src/plugins/registryTypes/slots.ts 1533764688ca3536c325087826fbcc16e9abb724
+src/frontend/src/plugins/registryTypes/slots.ts fb6884775867c0d1aca3afa3200f17b5e89f01df
 src/frontend/src/plugins/renderableFiles.ts cc69b3f11da291a34aefd02c33eaaf8f964fad44
 src/frontend/src/plugins/sceneBox.ts 11e69ba46c7974c19a18b3f22aecf987c523118c
 src/frontend/src/plugins/sceneCamera.ts 1898f639023f275df4f53ca80c3e66e6d6095d79
@@ -848,7 +849,7 @@ src/frontend/src/services/viewerControl/wire.ts 69a7312288214e2666e44b0fc4b63c4c
 src/frontend/src/state/AdaViewerContext.tsx 2c87bc6aeaa5990d361ab02ede7e0d80f647f77d
 src/frontend/src/state/adminPanelStore.ts b4b18388e1286b694f85ce92dd97979bf95f6147
 src/frontend/src/state/animationStore.ts 79b8eb664bbcd85f59bc8fe362ec21d1f18c2e90
-src/frontend/src/state/appearanceStore.ts 7bddd187429b48c680eaac191e958dc01c9a6f2e
+src/frontend/src/state/appearanceStore.ts 65eb9e4acaa53fca889a765ee8345fde72518770
 src/frontend/src/state/assetBrowserCache.ts 835b601fc6ada24d0f05ea73e2256bd78821dc6a
 src/frontend/src/state/assetBrowserLoader.ts ba3fccc83a820ec8d09834c373fa26e27552bced
 src/frontend/src/state/assetBrowserStore.ts f7a2ab3faaa52c294bd13a54901296c29dd3e095
@@ -1399,7 +1400,7 @@ src/frontend/src/utils/weldSymbols.ts 5591f36077c474b3cb2fc0075b60a81f1a7c80e9
 src/frontend/src/utils/weldTypeNames.ts 44a66f31d3a44606fde7a8da308c5b2c4c3d667d
 src/frontend/src/vendor-gifenc.d.ts a1eedc5ae72023ac9cd0f251d9ab8e7cc664ffdd
 src/frontend/src/viewer-core/app.ts 2fd318c2d1337668032312e61632350c49f29d7f
-src/frontend/src/viewer-core/index.ts 1c92cb7983f4f29bf63d0569440fdd9d247d7f23
+src/frontend/src/viewer-core/index.ts abac3741994f80ef085173cc5e755f88d2a4c32a
 src/frontend/src/viewer-core/layout.ts c2f25228fb67e388b3a6f65098f958d858c9e19e
 src/frontend/src/viewer-core/plugins.ts ba538bd6eeeee5a6a245836f202caf20c8677530
 src/frontend/src/viewer-core/scene.ts 04edd3c64026ce95361a940ea83f9170415f6f36
