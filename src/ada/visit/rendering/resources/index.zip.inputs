@@ -1,8 +1,8 @@
 # The inputs src/ada/visit/rendering/resources/index.zip was built from, and its own hash. Do not edit.
 # Refresh with `pixi run wbuild` (rebuilds the bundle and rewrites this), then commit both.
 # Checked by `pixi run check-bundle-inputs` and by CI. See scripts/packaging/bundle_inputs.py.
-inputs-sha256 3e61c8c2dc8c474173789efcfd61241b3d3c594fe5c2affc9d37a9eb3e500a4b
-bundle-sha256 17f61b273c201750ec4b9bfc9e25ca58065b90d42acb88233557f381e3af6537
+inputs-sha256 d823e9f7dc010197548cd85915646817d2057034ef04e964b57600d3916f0fc2
+bundle-sha256 beca267e5a15c81f99cab5b0f4c2246e2cdb3a4f4b74d7f90b20a8f75a682423
 pin:ADACPP_BASE_IMAGE ghcr.io/krande/adacpp-wasm-base:0.44.0
 pin:ADACPP_RENDER_REF c1a7b3ab434a916e08170c634c23b9dc1974d32f
 src/frontend/clean.cjs 548054390de442a02ca36bd4de94f25095f10ae9
@@ -746,7 +746,7 @@ src/frontend/src/services/api/devConnections.ts a3b6f477f85cd6e8bf8a26b2ced17aa1
 src/frontend/src/services/api/elementLinks.ts 169e91397557f618ecfd3edbedd9f3b23ad85980
 src/frontend/src/services/api/equipmentTypes.ts 1d043d8b3a1f97853c3ddd95f7195030ae2cd8b4
 src/frontend/src/services/api/fea.ts 76eace4bd4def090cf8279c2cc263131d7a83162
-src/frontend/src/services/api/files.ts 48dbb700e597673359960ca92260231b81780ff4
+src/frontend/src/services/api/files.ts 49c9fa6426c8783ac71374b36f3dccb7d7a4b9bc
 src/frontend/src/services/api/geometryCompare.ts 130336a08b2439cafc55e46b70e1c7e4fba24f84
 src/frontend/src/services/api/localJobs.ts 380c7c76c7dc160ce2b7abdb9ac4d64285e7d052
 src/frontend/src/services/api/metrics.ts 21a548edc37fdeb46d89df8c05084ec1c9954cba

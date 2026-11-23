@@ -66,7 +66,7 @@ const EXPECTED_METHODS = [
   "copyEquipmentCadFromScope", "createEquipmentType", "createProceduralEngine",
   "createProceduralModel", "createSystemTemplate", "deleteBlob", "deleteEquipmentType",
   "deleteProceduralEngine", "deleteProceduralModel", "deleteSystemTemplate", "downloadBlob",
-  "downloadStatsExport", "exportProceduralModel", "exportProceduralModelXlsx",
+  "downloadBlobViaApi",  "downloadStatsExport", "exportProceduralModel", "exportProceduralModelXlsx",
   "feaArtefactBlobUrl", "feaArtefactUploadTarget", "feaCase", "feaManifest", "fetchModelStats",
   "fetchProceduralImportResult", "fetchProceduralRelocations", "getBlob", "getBlobRange",
   "getEquipmentType", "getProceduralEngine", "getProceduralModel", "getPublicSetting",
