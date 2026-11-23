@@ -22,6 +22,8 @@ export { type SceneColorFieldResult, type SceneColor, type SceneOverlay, type Sc
 export { type PluginPlaybackTrack, type PluginPlaybackTrackHandle, type PluginPlaybackState, type PluginPlayback, type PluginLayerState, type PluginLayers, type PluginSimulationSubject, type PluginSimulationSubjectHandle, type PluginSimulations } from "./registryTypes/playback";
 export type { ScenePick, ScenePickOptions, ScenePickSession } from "./scenePicks";
 export type { PluginModes, PluginModeActivateOptions } from "./pluginModes";
+export type { PluginAppearance, PluginAppearanceSnapshot } from "./pluginAppearance";
+export type { AppearancePresetId } from "@/state/appearanceStore";
 export type { SceneHighlight, SceneHighlightOptions, SceneHighlightRef } from "./sceneHighlights";
 export type {
   SceneContact,
@@ -532,7 +534,19 @@ export type { SelectedObjectBox } from "@/viewport/api/viewportApi";
 //            "Download all", "Import bundle…" with its preview and results. A plugin's own robot-asset
 //            tab can call the same API rather than draw another import.
 //          All additive: an older server answers 404 to the calls (a plugin asks first).
-export const PLUGIN_API_VERSION = "1.37.0";
+// 1.38.0 — Appearance presets and visual effects.
+//          - `ctx.appearance` (`PluginAppearance`): `applyPreset("realistic" | "default")`, `current()`
+//            ({preset, toneMapping, exposure, bloom, environment, environmentIntensity, brightness}) and
+//            `subscribe(cb)`. A preset only writes the user's Appearance settings, which stay the one
+//            source of truth and persist per user: "realistic" is the native viewport's HDR look (neutral
+//            tone mapping, a moderate bloom, the studio environment, the viewer's lights turned down) and
+//            remembers what it replaced; "default" puts that back, not the factory defaults. For a
+//            "Realistic lighting" switch in a plugin's own panel.
+//          - A model's visual effects (its GLB scene extras' "ada_effects": point lights with flicker,
+//            particle emitters, emissive ramps; `ada.visit.gltf.effects.EffectSpec` writes them) are drawn
+//            by the native viewport and follow the playback clock.
+//          All additive: an older core has no `ctx.appearance` (a plugin asks first).
+export const PLUGIN_API_VERSION = "1.38.0";
 
 /** What the Simulations panel writes on a run's open-result button. */
 export function openResultButtonLabel(

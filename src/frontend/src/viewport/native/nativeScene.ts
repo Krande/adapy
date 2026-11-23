@@ -20,7 +20,7 @@ import {linearColor} from "@/utils/scene/sceneColor";
 import {useOptionsStore} from "@/state/optionsStore";
 import {useGroundGridStore} from "@/state/groundGridStore";
 import {usePerfStore} from "@/state/perfStore";
-import {defaultColorLinear, hexChannels, lightIntensities, useAppearanceStore} from "@/state/appearanceStore";
+import {LOOK_SETTINGS, defaultColorLinear, hexChannels, lightIntensities, nativeLook, useAppearanceStore} from "@/state/appearanceStore";
 import {glbUncoloured, UNCOLOURED_BLACK} from "@/utils/glb/glbUncoloured";
 import type {ObjectColorState} from "@/viewport/api/objectColors";
 import {FADE_COLOR} from "@/viewport/api/objectFade";
@@ -153,6 +153,8 @@ interface LoadedModel {
     /** While it is drawn moved from where it was placed (`shiftSource`): each instance's matrix
      *  as placed, in the order of `instances`. */
     unshifted?: Float32Array[];
+    /** The renderer's effect set holding the file's visual effects ("ada_effects"), when it has any. */
+    effects?: number;
 }
 
 let canvasSerial = 0;
@@ -205,6 +207,12 @@ export class NativeScene {
     private readonly where = new Map<string, {model: LoadedModel; index: number}>();
     private bounds: Bounds | null = null;
     private lastFrame = 0;
+    // Visual effects (flicker, ramps, particles) read one clock, the renderer's `setTime`. While a
+    // model's animations are shown, it is their time (`showAnimationTime`), so scrubbing the timeline
+    // scrubs the effects too; otherwise it is the seconds since the last model with effects was
+    // loaded, and the loop keeps drawing for as long as the renderer says something still moves.
+    private effectsSince = 0;
+    private timelineTime: number | null = null;
     private objectList: NativeObject[] = [];
     private readonly selected = new Set<string>();
     private readonly hidden = new TrackedSet();
@@ -296,11 +304,21 @@ export class NativeScene {
             const {ambient, headlight} = lightIntensities();
             renderer.setLighting(ambient, headlight);
         };
+        // The look of the native viewport alone (for now): tone mapping, bloom, image-based lighting.
+        // At the defaults both calls switch everything off, which is how the renderer draws anyway.
+        const look = () => {
+            if (typeof renderer.setPost !== "function" || typeof renderer.setEnvironment !== "function") return;
+            const {post, environment} = nativeLook();
+            renderer.setPost(post);
+            renderer.setEnvironment(environment);
+        };
         background();
         lights();
+        look();
         this.defaultSegmentColor = packSegmentColor(...defaultColorLinear());
         this.cleanups.push(useAppearanceStore.subscribe((now, before) => {
             if (now.background !== before.background) background();
+            if (LOOK_SETTINGS.some((k) => now[k] !== before[k])) look();
             const lightsChanged = now.brightness !== before.brightness || now.ambientShare !== before.ambientShare;
             if (lightsChanged) lights();
             // A shaded result's colour is scaled by the lights (its exposure) as well.
@@ -407,7 +425,10 @@ export class NativeScene {
             // renderer then places by time. Asked for only when the file names animations, so every
             // other model is read exactly as before.
             const animations = this.playsAnimations && (posable !== null || glbNamesAnimations(bytes));
-            loaded = this.renderer.loadGlb(p, file.byteLength, {featureEdgeAngleDeg: FEATURE_EDGE_ANGLE_DEG, lineColor: EDGE_COLOR, sectionCaps: true, offset, animations});
+            // The file's visual effects ("ada_effects" in its scene extras), where the module draws
+            // them. Their look (tone mapping, bloom, environment) stays the viewer's setting.
+            const effects = this.drawsEffects;
+            loaded = this.renderer.loadGlb(p, file.byteLength, {featureEdgeAngleDeg: FEATURE_EDGE_ANGLE_DEG, lineColor: EDGE_COLOR, sectionCaps: true, offset, animations, effects});
         } finally {
             this.module._free(p);
         }
@@ -448,6 +469,15 @@ export class NativeScene {
                 }
                 model.animations.several = {rest, instances, placed: new Float32Array(rest.length)};
             }
+        }
+        if (loaded.effectsError) console.warn("[adacpp-native] the model's effects could not be read:", loaded.effectsError);
+        const fx = loaded.effects;
+        if (fx && (fx.lights.length || fx.emitters.length || fx.ramps.length)) {
+            model.effects = fx.set;
+            this.effectsSince = performance.now();
+            if (fx.unresolved.length) console.warn("[adacpp-native] effects name objects the model does not have:", fx.unresolved);
+        } else if (fx) {
+            this.renderer.removeEffects?.(fx.set);
         }
         this.models.set(modelKey, model);
         this.sceneExtras = loaded.extras;
@@ -550,6 +580,13 @@ export class NativeScene {
             this.segments.delete(instance);
         }
         for (const geometry of model.geometries) this.renderer.removeGeometry(geometry);
+        if (model.effects !== undefined) {
+            try {
+                this.renderer.removeEffects?.(model.effects);
+            } catch (err) {
+                console.warn("[adacpp-native] releasing a model's effects:", err);
+            }
+        }
         const set = model.animations?.set ?? model.pose?.set;
         if (set !== undefined) {
             try {
@@ -572,6 +609,30 @@ export class NativeScene {
     // one animation is one renderer call per frame and allocates nothing; one with several reads
     // the renderer's node matrices back once per animation and frame.
 
+    /** Whether the renderer module draws visual effects (adacpp's effects: an older module does not). */
+    get drawsEffects(): boolean {
+        return typeof this.renderer.setTime === "function" && typeof this.renderer.removeEffects === "function";
+    }
+
+    /** Whether any model on screen carries visual effects. */
+    get hasEffects(): boolean {
+        for (const model of this.models.values()) if (model.effects !== undefined) return true;
+        return false;
+    }
+
+    /** The effects' clock for the frame drawn at `now` (see `effectsSince`); true while they still move
+     *  on the wall clock, which keeps the loop drawing. On the timeline the timeline's own playback
+     *  asks for the frames, and a paused timeline shows its moment, still. */
+    private advanceEffects(now: number): boolean {
+        if (!this.drawsEffects || !this.hasEffects) return false;
+        if (this.timelineTime !== null) {
+            this.renderer.setTime!(this.timelineTime);
+            return false;
+        }
+        this.renderer.setTime!((now - this.effectsSince) / 1000);
+        return this.renderer.animating?.() ?? false;
+    }
+
     /** Whether the renderer module places nodes by time at all (an older one does not). */
     get playsAnimations(): boolean {
         return typeof this.renderer.setAnimationTime === "function";
@@ -588,6 +649,7 @@ export class NativeScene {
 
     private readonly showAnimationTime = (t: number): void => {
         if (this.disposed) return;
+        this.timelineTime = t;
         const models = this.animated;
         for (let m = 0; m < models.length; m++) {
             const {set, durations, several} = models[m].animations!;
@@ -702,6 +764,7 @@ export class NativeScene {
             animated.push(model);
             for (const d of model.animations.durations) duration = Math.max(duration, d);
         }
+        if (!animated.length) this.timelineTime = null; // the effects' clock is the wall clock again
         if (!animated.length && !this.animated.length) return;
         this.animated = animated;
         this.animation = animated.length ? {duration, showTime: this.showAnimationTime} : null;
@@ -1786,12 +1849,13 @@ export class NativeScene {
             const dirty = this.dirty;
             for (const listener of this.onBeforeDraw) listener();
             this.dirty = dirty;
+            const effectsMoving = this.advanceEffects(now);
             this.renderer.render();
             this.frameCounters.drawn++;
             this.lingerUntil = now + LINGER_MS;
             if (this.measureFrames) this.timeFrame(now);
             for (const listener of this.onFrame) listener();
-            if (moving || playing) this.invalidate();
+            if (moving || playing || effectsMoving) this.invalidate();
             else if (this.keepAlive()) this.raf = requestAnimationFrame((t) => this.tick(t));
             else this.lastFrame = 0;
         } catch (err) {
