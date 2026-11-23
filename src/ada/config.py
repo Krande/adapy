@@ -514,7 +514,10 @@ class Config:
             elif "[" in value:
                 if "'" in value:
                     value = value.replace("'", '"')
-                corrected_value = json.loads(value)
+                try:
+                    corrected_value = json.loads(value)
+                except json.JSONDecodeError as e:
+                    raise ConfigError(f"{var}: not a valid JSON list: {e}") from e
             elif "," in value and "[" not in value:
                 corrected_value = value.split(",")
 
@@ -536,7 +539,6 @@ class Config:
         # get QUETZ environment variables.
         quetz_var = {key: value for key, value in os.environ.items() if key.startswith(_env_prefix)}
         for var, value in quetz_var.items():
-            value = self._correct_environ_config_list_value(value, var)
             splitted_key = var.split("_")
             config_key = splitted_key[1].lower()
             idx = 2
@@ -551,12 +553,14 @@ class Config:
                 config_key += f"_{splitted_key[idx].lower()}"
                 idx += 1
 
-            # no first_level found, the variable is useless.
+            # no first_level found, the variable is useless. It is ignored before its value
+            # is corrected, so an unrelated ADA_* variable holding '[::1]' or a '{' does not
+            # crash the lookup with a JSON error.
             if not first_level:
                 continue
             # the first level is an entry, add it to the config.
             if isinstance(first_level, ConfigEntry):
-                config[first_level.name] = value
+                config[first_level.name] = self._correct_environ_config_list_value(value, var)
             # the first level is a section.
             elif isinstance(first_level, ConfigSection):
                 entry = "_".join(splitted_key[idx:]).lower()
@@ -566,7 +570,7 @@ class Config:
                 # add the entry to the config.
                 if first_level.name not in config:
                     config[first_level.name]: Dict[str, Any] = {}
-                config[first_level.name]["_".join(splitted_key[idx:]).lower()] = value
+                config[first_level.name][entry] = self._correct_environ_config_list_value(value, var)
 
         return config
 
