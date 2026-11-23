@@ -101,7 +101,7 @@ beforeEach(() => {
 
 test("the look settings are off by default and sanitised", () => {
     const look = nativeLook(APPEARANCE_DEFAULTS);
-    assert.deepEqual(look.post, {hdr: false, toneMapping: "none", exposure: 1, bloom: false});
+    assert.deepEqual(look.post, {hdr: false, toneMapping: "none", exposure: 1, bloom: false, bloomStrength: 0.4});
     assert.deepEqual(look.environment, {enabled: false, intensity: 1});
     const s = sanitizeAppearance({toneMapping: "filmic", exposure: 99, bloom: "yes", environment: true, environmentIntensity: -2});
     assert.equal(s.toneMapping, "off");
@@ -110,18 +110,18 @@ test("the look settings are off by default and sanitised", () => {
     assert.equal(s.environment, true);
     assert.equal(s.environmentIntensity, 0);
     // Bloom alone draws in HDR, without a tone mapping of its own.
-    assert.deepEqual(nativeLook({...APPEARANCE_DEFAULTS, bloom: true, exposure: 2}).post, {hdr: true, toneMapping: "none", exposure: 2, bloom: true});
+    assert.deepEqual(nativeLook({...APPEARANCE_DEFAULTS, bloom: true, exposure: 2}).post, {hdr: true, toneMapping: "none", exposure: 2, bloom: true, bloomStrength: 0.4});
 });
 
 test("the native scene hands the look to the renderer, and again when it changes", () => {
     const {fake} = makeScene(null);
-    assert.deepEqual(fake.calls.setPost.at(-1), {hdr: false, toneMapping: "none", exposure: 1, bloom: false});
+    assert.deepEqual(fake.calls.setPost.at(-1), {hdr: false, toneMapping: "none", exposure: 1, bloom: false, bloomStrength: 0.4});
     assert.deepEqual(fake.calls.setEnvironment.at(-1), {enabled: false, intensity: 1});
     const posts = fake.calls.setPost.length;
     useAppearanceStore.getState().setToneMapping("aces");
     useAppearanceStore.getState().setEnvironment(true);
     assert.ok(fake.calls.setPost.length > posts);
-    assert.deepEqual(fake.calls.setPost.at(-1), {hdr: true, toneMapping: "aces", exposure: 1, bloom: false});
+    assert.deepEqual(fake.calls.setPost.at(-1), {hdr: true, toneMapping: "aces", exposure: 1, bloom: false, bloomStrength: 0.4});
     assert.deepEqual(fake.calls.setEnvironment.at(-1), {enabled: true, intensity: 1});
     // A change elsewhere does not touch it.
     const before = fake.calls.setPost.length;

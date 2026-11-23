@@ -50,10 +50,40 @@ export interface AppearanceSettings {
     environment: boolean;
     /** How strongly the environment lights the model. */
     environmentIntensity: number;
+    /** What the "realistic" preset replaced (`applyPreset`), for "default" to put back; null while no
+     *  preset is on. No control of its own. */
+    presetRestore: PresetLook | null;
 }
 
 export type ToneMappingSetting = "off" | "neutral" | "aces";
 export const TONE_MAPPINGS: readonly ToneMappingSetting[] = ["off", "neutral", "aces"];
+
+/** The settings an appearance preset writes. */
+export const PRESET_SETTINGS = ["toneMapping", "exposure", "bloom", "environment", "environmentIntensity", "brightness"] as const;
+export type PresetLook = Pick<AppearanceSettings, (typeof PRESET_SETTINGS)[number]>;
+export type AppearancePresetId = "realistic" | "default";
+export const APPEARANCE_PRESETS: readonly AppearancePresetId[] = ["realistic", "default"];
+
+/** "realistic": the native viewport's HDR look. Neutral tone mapping keeps colours as they are and rolls
+ *  off only what is brighter than white; a moderate bloom on what glows (`nativeLook`); the studio
+ *  environment for reflections, with the viewer's own lights turned down since it lights the model too. */
+export const REALISTIC_LOOK: Readonly<PresetLook> = {
+    toneMapping: "neutral",
+    exposure: 1,
+    bloom: true,
+    environment: true,
+    environmentIntensity: 1,
+    brightness: 0.35,
+};
+
+function pickLook(s: PresetLook): PresetLook {
+    return Object.fromEntries(PRESET_SETTINGS.map((k) => [k, s[k]])) as unknown as PresetLook;
+}
+
+/** Whether the look settings are the realistic preset's. */
+export function isRealisticLook(s: PresetLook = useAppearanceStore.getState()): boolean {
+    return PRESET_SETTINGS.every((k) => s[k] === REALISTIC_LOOK[k]);
+}
 
 export const APPEARANCE_DEFAULTS: Readonly<AppearanceSettings> = {
     defaultColor: "#e7e7e7",
@@ -68,6 +98,7 @@ export const APPEARANCE_DEFAULTS: Readonly<AppearanceSettings> = {
     bloom: false,
     environment: false,
     environmentIntensity: 1,
+    presetRestore: null,
 };
 
 /** The defaults of version 1 of the stored settings, which a version-1 value equal to is taken as
@@ -95,6 +126,9 @@ export interface AppearanceState extends AppearanceSettings {
     setBloom: (on: boolean) => void;
     setEnvironment: (on: boolean) => void;
     setEnvironmentIntensity: (value: number) => void;
+    /** "realistic" writes `REALISTIC_LOOK` over the settings, remembering what it replaced; "default" puts
+     *  that back: the user's own settings, or the defaults when no preset replaced any. */
+    applyPreset: (id: AppearancePresetId) => void;
     /** Back to the defaults. */
     reset: () => void;
     /** The element-edge settings back to their defaults, the rest as they are. */
@@ -127,7 +161,14 @@ export function sanitizeAppearance(stored: unknown): AppearanceSettings {
             ENVIRONMENT_INTENSITY_RANGE.max,
             APPEARANCE_DEFAULTS.environmentIntensity,
         ),
+        presetRestore: sanitizeRestore(s.presetRestore),
     };
+}
+
+function sanitizeRestore(stored: unknown): PresetLook | null {
+    if (!stored || typeof stored !== "object") return null;
+    // The look settings alone, each made valid as the settings themselves are.
+    return pickLook(sanitizeAppearance({...(stored as object), presetRestore: null}));
 }
 
 /**
@@ -174,6 +215,20 @@ export const useAppearanceStore = create<AppearanceState>()(
                 set((s) => ({
                     environmentIntensity: clamp(value, ENVIRONMENT_INTENSITY_RANGE.min, ENVIRONMENT_INTENSITY_RANGE.max, s.environmentIntensity),
                 })),
+            applyPreset: (id) =>
+                set((s) => {
+                    if (id === "realistic") {
+                        // Remembered once: applying it again keeps what the user had before the first time.
+                        const restore = s.presetRestore ?? (isRealisticLook(s) ? null : pickLook(s));
+                        return {...REALISTIC_LOOK, presetRestore: restore};
+                    }
+                    if (id === "default") {
+                        if (s.presetRestore) return {...s.presetRestore, presetRestore: null};
+                        // Nothing replaced: the user's own look stays, unless it is the realistic one.
+                        return isRealisticLook(s) ? pickLook(APPEARANCE_DEFAULTS) : {};
+                    }
+                    return {};
+                }),
             reset: () => set({...APPEARANCE_DEFAULTS}),
             resetEdges: () => set({edgeColor: APPEARANCE_DEFAULTS.edgeColor, edgeBrightness: APPEARANCE_DEFAULTS.edgeBrightness}),
         }),
@@ -242,14 +297,19 @@ export function defaultColorLinear(s: Pick<AppearanceSettings, "defaultColor"> =
 /** The look settings the native (adacpp WebGPU) viewport hands its renderer: setPost and
  *  setEnvironment (adacpp docs/render_effects.md). At the defaults both are off and the renderer draws
  *  as it always has. Bloom needs the HDR target, so it switches it on with no tone mapping of its own. */
+/** A moderate bloom: glowing parts and sparks halo, highlights barely. */
+export const BLOOM_STRENGTH = 0.4;
 export const LOOK_SETTINGS = ["toneMapping", "exposure", "bloom", "environment", "environmentIntensity"] as const satisfies readonly (keyof AppearanceSettings)[];
 
 export function nativeLook(
     s: Pick<AppearanceSettings, (typeof LOOK_SETTINGS)[number]> = useAppearanceStore.getState(),
-): {post: {hdr: boolean; toneMapping: "none" | "neutral" | "aces"; exposure: number; bloom: boolean}; environment: {enabled: boolean; intensity: number}} {
+): {
+    post: {hdr: boolean; toneMapping: "none" | "neutral" | "aces"; exposure: number; bloom: boolean; bloomStrength: number};
+    environment: {enabled: boolean; intensity: number};
+} {
     const hdr = s.toneMapping !== "off" || s.bloom;
     return {
-        post: {hdr, toneMapping: s.toneMapping === "off" ? "none" : s.toneMapping, exposure: hdr ? s.exposure : 1, bloom: s.bloom},
+        post: {hdr, toneMapping: s.toneMapping === "off" ? "none" : s.toneMapping, exposure: hdr ? s.exposure : 1, bloom: s.bloom, bloomStrength: BLOOM_STRENGTH},
         environment: {enabled: s.environment, intensity: s.environmentIntensity},
     };
 }

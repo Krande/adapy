@@ -529,6 +529,17 @@ The viewport uses them in two ways.
     is seconds since the load, and the loop keeps drawing only while `animating()` says something
     still moves.
 
+A plugin can offer the look without settings of its own. `ctx.appearance` (plugin API 1.38.0) has
+`applyPreset("realistic" | "default")`, `current()` and `subscribe()`:
+
+- **"realistic"** writes the Appearance settings: neutral tone mapping, a moderate bloom, and the studio
+  environment, with the viewer's own lights turned down. It also remembers what it replaced.
+- **"default"** puts back what "realistic" replaced. That is the user's own settings, not the factory
+  defaults.
+
+The settings stay the one source of truth and persist per user, so a plugin's "Realistic lighting"
+switch and the Options panel always agree.
+
 ![A generic effects scene on the timeline at 2.5 s: a torch travels along a strip it lays, with flicker, sparks and smoke](../screenshots/ada-studio/native-effects-t2.5.png)
 ![The same at 6 s: each piece glows from the moment it is laid and cools down](../screenshots/ada-studio/native-effects-t6.png)
 ![At 6 s with ACES tone mapping, bloom and environment lighting](../screenshots/ada-studio/native-effects-look.png)
