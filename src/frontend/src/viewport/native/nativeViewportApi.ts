@@ -83,9 +83,9 @@ export function createNativeViewportApi(scene: NativeScene): ViewportApi {
         unloadSource: (sourceName) => scene.unloadSource(sourceName),
         clearModels: () => scene.clearModels(),
         modelBounds: () => scene.modelBounds,
-        saveScreenshot: () => {
+        saveScreenshot: (fileName = "screenshot.png") => {
             const picture = scene.capture(SCREENSHOT_WIDTH, SCREENSHOT_HEIGHT);
-            if (picture) downloadCanvas(picture, "screenshot.png");
+            if (picture) downloadCanvas(picture, fileName);
         },
         hideSelected: () => scene.hideSelected(),
         hideOthers: () => scene.hideOthers(),

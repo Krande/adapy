@@ -14,6 +14,7 @@
 //
 // No three.js in this module or in anything it imports.
 
+import {captureFrame} from "@/components/playback/frameCapture";
 import {joinLayer, listLayers, setLayerOpacity, setLayerVisible, subscribeLayers} from "@/state/layerRegistry";
 import {playbackClock} from "@/state/playbackClock";
 import {useSceneFrameStore} from "@/state/sceneFrameStore";
@@ -431,13 +432,51 @@ export function imageUnavailable(width: number, height: number): string | null {
 
 // ----- the playback clock and the Layers panel, as one plugin sees them ---------------------
 
+/** The release of each plugin marker source (`owner:sourceId`) that has markers on the timeline. */
+const markerReleases = new Map<string, () => void>();
+
 export function makePluginPlayback(owner: string): PluginPlayback {
+    const sourceOf = (sourceId: string) => `${owner}:${sourceId}`;
     return {
         addTrack: (track) => {
-            const handle = playbackClock.addTrack({id: `${owner}:${track.id}`, duration: track.duration, show: track.show, label: track.label});
+            const handle = playbackClock.addTrack({
+                id: `${owner}:${track.id}`,
+                duration: track.duration,
+                show: track.show,
+                label: track.label,
+                samples: track.samples,
+                stepSample: track.stepSample,
+            });
             const remove = own(owner, handle.remove);
-            return {setDuration: handle.setDuration, remove};
+            return {setDuration: handle.setDuration, setSamples: handle.setSamples, remove};
         },
+        setMarkers: (sourceId, markers) => {
+            const source = sourceOf(sourceId);
+            playbackClock.setMarkers(source, markers ?? []);
+            const has = playbackClock.markers().some((m) => m.source === source);
+            if (has && !markerReleases.has(source)) {
+                markerReleases.set(
+                    source,
+                    own(owner, () => {
+                        markerReleases.delete(source);
+                        playbackClock.clearMarkers(source);
+                    }),
+                );
+            } else if (!has) {
+                markerReleases.get(source)?.();
+            }
+        },
+        clearMarkers: (sourceId) => {
+            const source = sourceOf(sourceId);
+            const release = markerReleases.get(source);
+            if (release) release();
+            else playbackClock.clearMarkers(source);
+        },
+        markers: () => playbackClock.markers(),
+        seekMarker: (direction) => playbackClock.seekMarker(direction),
+        step: (direction, size, mods) => playbackClock.step(direction, size, mods),
+        nextSample: (t, direction) => playbackClock.nextSample(t, direction),
+        captureFrame: (options) => captureFrame(options),
         state: () => playbackClock.state(),
         time: () => playbackClock.time(),
         subscribe: playbackClock.subscribe,

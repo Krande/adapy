@@ -26,6 +26,7 @@ from ada.simulation.batches import (
 )
 from ada.simulation.interfaces import SIMULATION_DOMAINS
 from ada.simulation.runs import (
+    DELETED_PREFIX,
     RUNS_PREFIX,
     STATUS_CANCELLED,
     STATUS_ERROR,
@@ -51,6 +52,7 @@ __all__ = [
     "batch_run_ids",
     "batch_summaries",
     "delete_batch_member",
+    "deleted_run_ids",
     "domain_listing",
     "list_providers",
     "list_run_ids",
@@ -199,10 +201,25 @@ async def read_run(storage, scope: Scope, run_id: str) -> dict | None:
         return None
 
 
+async def deleted_run_ids(storage, scope: Scope) -> set[str]:
+    """The runs deleted while they were going whose worker may still write (``DELETED_PREFIX``)."""
+    out = set()
+    for entry in await storage.list_prefix(scope, DELETED_PREFIX):
+        run_id = entry.key[len(DELETED_PREFIX) :] if entry.key.startswith(DELETED_PREFIX) else ""
+        if len(run_id) == 32 and "/" not in run_id:
+            out.add(run_id)
+    return out
+
+
 async def list_run_ids(storage, scope: Scope) -> list[str]:
-    """The scope's run ids, newest first. One delimited listing: run ids sort by creation time."""
+    """The scope's run ids, newest first. One delimited listing: run ids sort by creation time. A
+    run deleted while it was going is not one, whatever its worker wrote since."""
     names = await storage.list_child_names(scope, RUNS_PREFIX)
-    return sorted((n for n in names if len(n) == 32), reverse=True)
+    ids = [n for n in names if len(n) == 32]
+    if ids:
+        deleted = await deleted_run_ids(storage, scope)
+        ids = [i for i in ids if i not in deleted]
+    return sorted(ids, reverse=True)
 
 
 # ── batches ──────────────────────────────────────────────────────────────────────────────────────

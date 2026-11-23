@@ -43,6 +43,7 @@ const PANELS = "Panels";
 const GALLERY = "Gallery walk";
 const BUILDER = "Procedural cellbuilder";
 const TYPED = "Procedural cellbuilder: typed values";
+const PLAYBACK = "Playback";
 
 /** The digit keys `from` to `to`, as a `range`. */
 const digits = (from: number, to: number): ShortcutKeys[] => Array.from({ length: to - from + 1 }, (_, i) => String(from + i));
@@ -57,6 +58,12 @@ export const CORE_SHORTCUT_GROUPS: ReadonlyArray<{ group: string; when: string }
   {
     group: TYPED,
     when: "While a value is being typed in the cell builder: an extrude (E), a loft resize (S), a placement (digits in add mode), an equipment insert or an opening (O)",
+  },
+  {
+    group: PLAYBACK,
+    when:
+      "While the playback transport is on screen (a replay or an animation). A tree or list with focus keeps its arrows, a gallery walk its plain ← / →. " +
+      "On the scrub bar: Shift-drag or pull the pointer off the bar to scrub at 1/10 and 1/100 (a long press on touch); the wheel or a pinch zooms, a drag along the strip above it zooms into a range",
   },
 ];
 
@@ -281,4 +288,13 @@ export const CORE_SHORTCUTS: readonly CoreShortcutDef[] = [
   { id: "core:typed-backspace", keys: "Backspace", label: "Delete the last character typed", group: TYPED, local: true },
   { id: "core:typed-enter", keys: "Enter", label: "Commit (an opening: the next stage, then commit)", group: TYPED, local: true },
   { id: "core:typed-escape", keys: "Escape", label: "Cancel the entry", group: TYPED, local: true },
+  // Playback -- local (components/playback/playbackKeys.ts): taken while the transport is on screen.
+  { id: "core:playback-step-back", keys: "ArrowLeft", label: "Step back by the step size (1 frame: the previous recorded sample)", group: PLAYBACK, local: true },
+  { id: "core:playback-step-forward", keys: "ArrowRight", label: "Step forward by the step size (1 frame: the next recorded sample)", group: PLAYBACK, local: true },
+  { id: "core:playback-step-back-coarse", keys: "Shift+ArrowLeft", label: "Step back ten times the step size", group: PLAYBACK, local: true },
+  { id: "core:playback-step-forward-coarse", keys: "Shift+ArrowRight", label: "Step forward ten times the step size", group: PLAYBACK, local: true },
+  { id: "core:playback-step-back-fine", keys: "Alt+ArrowLeft", label: "Step back a tenth of the step size", group: PLAYBACK, local: true },
+  { id: "core:playback-step-forward-fine", keys: "Alt+ArrowRight", label: "Step forward a tenth of the step size", group: PLAYBACK, local: true },
+  { id: "core:playback-prev-marker", keys: "[", label: "Go to the previous marker on the timeline", group: PLAYBACK, local: true, reserves: true },
+  { id: "core:playback-next-marker", keys: "]", label: "Go to the next marker on the timeline", group: PLAYBACK, local: true, reserves: true },
 ];

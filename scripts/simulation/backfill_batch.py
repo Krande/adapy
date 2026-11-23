@@ -3,8 +3,9 @@
 Reads the scope's run records straight from the viewer's storage (configured the way the API is,
 by its ``ADA_VIEWER_*`` environment), picks the runs of one provider whose label starts with a
 prefix, and writes the batch on each record and into the batch index
-(``ada.comms.rest.simulation_backfill``). The API refuses writes under ``_simulations/``, so this
-is the way to do it after the fact.
+(``ada.comms.rest.simulation_backfill``). The blob routes refuse writes under ``_simulations/``;
+runs whose ids are known are moved through ``POST /api/scopes/{scope}/simulations/batches/{id}/runs``
+(as their owner), and this is for picking them by label and date as an operator.
 
     python scripts/simulation/backfill_batch.py --scope users/<sub> --provider robot \\
         --label-prefix "frame " --exclude-label-prefix "frame v2 " \\

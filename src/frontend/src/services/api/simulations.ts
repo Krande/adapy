@@ -240,6 +240,39 @@ export function isActiveRun(run: Pick<SimulationRun, "status">): boolean {
   return run.status === "queued" || run.status === "running";
 }
 
+/** One run's outcome in a bulk move / remove / delete (`simulation_admin`). */
+export interface RunAdminResult {
+  readonly run_id: string;
+  /** moved / unchanged / refused (move); removed / unchanged / refused (remove); deleted / failed (delete). */
+  readonly status: string;
+  /** Why it was refused or failed: forbidden, missing, running, other_batch, cancel, storage. */
+  readonly code?: string;
+  readonly reason?: string;
+  readonly bytes?: number;
+  /** Nothing was left to delete. */
+  readonly already?: boolean;
+  /** Its worker was still stopping when it was deleted. */
+  readonly pending?: boolean;
+  readonly dry?: boolean;
+  /** The batch it left (move). */
+  readonly from?: string;
+}
+
+export interface RunAdminResponse {
+  readonly results: readonly RunAdminResult[];
+  readonly counts: Readonly<Record<string, number>>;
+  /** Bytes freed (or, dry, that would be). */
+  readonly bytes: number;
+}
+
+export interface MoveRunsResponse extends RunAdminResponse {
+  readonly batch: { readonly id: string; readonly label: string; readonly source: SimulationBatchRef["source"] };
+}
+
+export interface DeleteBatchResponse extends RunAdminResponse {
+  readonly batch: { readonly id: string; readonly deleted: boolean; readonly runs: number };
+}
+
 const scoped = (scope: ScopeUrl) => `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/simulations`;
 
 export const simulationsApi = {
@@ -299,6 +332,64 @@ export const simulationsApi = {
   async cancelRun(scope: ScopeUrl, runId: string): Promise<{ run: SimulationRun; cancelled: boolean }> {
     const r = await authedFetch(`${scoped(scope)}/${encodeURIComponent(runId)}/cancel`, { method: "POST" });
     return jsonOrThrow<{ run: SimulationRun; cancelled: boolean }>(r, "cancelSimulation");
+  },
+
+  /** Move runs into a batch, made (called `label`) when the scope has no runs of it yet. A run in
+   *  another batch is refused unless `replace`; a running one is refused. */
+  async moveRunsToBatch(
+    scope: ScopeUrl,
+    batchId: string,
+    runIds: readonly string[],
+    opts: { label?: string; replace?: boolean } = {},
+  ): Promise<MoveRunsResponse> {
+    const r = await authedFetch(`${scoped(scope)}/batches/${encodeURIComponent(batchId)}/runs`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ run_ids: runIds, ...opts }),
+    });
+    return jsonOrThrow<MoveRunsResponse>(r, "moveSimulationRuns");
+  },
+
+  /** Take runs out of a batch, back to the runs of no batch. */
+  async removeRunsFromBatch(scope: ScopeUrl, batchId: string, runIds: readonly string[]): Promise<RunAdminResponse> {
+    const r = await authedFetch(`${scoped(scope)}/batches/${encodeURIComponent(batchId)}/runs`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ run_ids: runIds }),
+    });
+    return jsonOrThrow<RunAdminResponse>(r, "removeSimulationRuns");
+  },
+
+  /** Delete runs (cancelled first while going). `dry` deletes nothing and says what would go. */
+  async deleteRuns(scope: ScopeUrl, runIds: readonly string[], opts: { dry?: boolean } = {}): Promise<RunAdminResponse> {
+    const r = await authedFetch(`${scoped(scope)}/delete`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ run_ids: runIds, ...(opts.dry ? { dry: true } : {}) }),
+    });
+    return jsonOrThrow<RunAdminResponse>(r, "deleteSimulationRuns");
+  },
+
+  /** Delete one run. */
+  async deleteRun(scope: ScopeUrl, runId: string): Promise<RunAdminResult> {
+    const r = await authedFetch(`${scoped(scope)}/${encodeURIComponent(runId)}`, { method: "DELETE" });
+    return jsonOrThrow<RunAdminResult>(r, "deleteSimulation");
+  },
+
+  /** Delete a batch: its runs go back to no batch, or with `runs` are deleted too. */
+  async deleteBatch(
+    scope: ScopeUrl,
+    batchId: string,
+    opts: { runs?: boolean; dry?: boolean } = {},
+  ): Promise<DeleteBatchResponse> {
+    const params = new URLSearchParams();
+    if (opts.runs) params.set("runs", "true");
+    if (opts.dry) params.set("dry", "true");
+    const query = params.toString();
+    const r = await authedFetch(`${scoped(scope)}/batches/${encodeURIComponent(batchId)}${query ? `?${query}` : ""}`, {
+      method: "DELETE",
+    });
+    return jsonOrThrow<DeleteBatchResponse>(r, "deleteSimulationBatch");
   },
 
   /**

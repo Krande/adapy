@@ -25,8 +25,13 @@ assets/robots/index.json                         the complete versions, for read
 * `<id>`: lower-case letters, digits, `-` and `_` (never `__`). `<version>`: letters, digits, `.`, `_`, `-`.
 * A version is complete once its `robot.json` is there; one without it is not used by anything.
 * `robot.json` must say the `id` and `version` it is stored under. Wherever it names a file as
-  `{"path": ..., "sha256": ...}` that file must be in the version with that sha256. Nothing else about its
-  schema is core's business: the plugin that uses the assets defines it.
+  `{"path": ..., "sha256": ...}` (its `meshes` at every level, its `sources`, anywhere else) that file must be
+  in the version with that sha256, except under the top-level `provenance`, whose pins say what the asset
+  was made from and are not files of the version. Nothing else about its schema is core's business: the
+  plugin that uses the assets defines it.
+* `sources: [{path, name, format, sha256, bytes, contents?}]` lists the version's source files beside its
+  meshes: source CAD files (STEP, `format: "step"`) and source archives (`.zip`, e.g.
+  `format: "process-simulate"`).
 * Files may be gzipped at rest; every hash is of the file's own bytes.
 
 ### Versions, and which is the latest
@@ -139,7 +144,10 @@ The whole bundle is refused (400, with every problem found) when:
 * an entry's path is absolute (`/x`, `C:/x`), has a `..`, `.` or empty segment, or a backslash;
 * an entry is a symbolic link, is encrypted, or is in the zip twice;
 * an entry is not one the manifest names, or a file the manifest names is not of an allowed type:
-  `.json .stl .dae .glb .gltf .bin .obj .mtl .urdf .xacro .xml .yaml .yml .png .jpg .jpeg .webp .ktx2 .txt .md`;
+  `.json .stl .dae .glb .gltf .bin .obj .mtl .urdf .xacro .xml .yaml .yml .png .jpg .jpeg .webp .ktx2 .txt .md`,
+  source CAD files `.stp .step`, and a source archive `.zip` only where the version's `robot.json` lists it
+  in `sources` (and not as a mesh). An archive is stored as it is: never extracted or inspected, and it
+  counts against the size limits as any file does;
 * it passes a limit (environment variables, defaults in brackets): the upload `ADA_ROBOT_BUNDLE_MAX_BYTES`
   (1 GiB; a body past it is cut off with 413), all files unpacked `ADA_ROBOT_BUNDLE_MAX_TOTAL_BYTES` (4 GiB),
   one file `ADA_ROBOT_BUNDLE_MAX_FILE_BYTES` (512 MiB), entries `ADA_ROBOT_BUNDLE_MAX_FILES` (10 000), robots

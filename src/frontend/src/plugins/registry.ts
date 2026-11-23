@@ -19,7 +19,7 @@ import type { AdaPluginContext, PanelSlot, PluginModeSpec, PluginRegion, PluginS
 
 export { type PluginRegion, type PluginDockId, type PluginModeId, type PluginModeSpec, type PluginLogLevel, type PluginApiClient, type PluginTheme, type AdaPluginContext, type ActivationPredicate, type TopBarButtonSpec, type PanelSlot, type SceneColorFieldProvider, type ResultSidecarLoader, type RenderableFileProvider, type SimulationParameterFormArgs, type SimulationFormSubject, type SimulationOpenResultArgs, type SimulationProviderUi, type UrlParamHandler, type PluginSpec, type RegisteredPlugin, type StorageAssetTypeArgs, type StorageAssetUpload, type StorageAssetType } from "./registryTypes/slots";
 export { type SceneColorFieldResult, type SceneColor, type SceneOverlay, type SceneLines, type SceneElementOutline, type SceneLabel, type SceneLabelOptions, type SceneElementPaint, type SceneLayerRef, type SceneLayerLook, type SceneLineLayerSpec, type SceneLineLayer, type ScenePointLayerSpec, type ScenePointLayer, type SceneImageRect, type SceneImageSpec, type SceneImage, type SceneModelSource, type SceneModelPose, type SidecarFetcher, type SceneHandle, type SceneCleared, type SceneGroupLoad, type SceneGroupLoadOptions, type SceneBox, type SceneFace, type SceneObjectMatch } from "./registryTypes/scene";
-export { type PluginPlaybackTrack, type PluginPlaybackTrackHandle, type PluginPlaybackState, type PluginPlayback, type PluginLayerState, type PluginLayers, type PluginSimulationSubject, type PluginSimulationSubjectHandle, type PluginSimulations } from "./registryTypes/playback";
+export { type PluginPlaybackTrack, type PluginPlaybackTrackHandle, type PluginPlaybackState, type PluginPlayback, type PluginPlaybackMarker, type PluginPlaybackMarkerEntry, type PluginPlaybackMarkerKind, type PluginPlaybackStepSize, type PluginLayerState, type PluginLayers, type PluginSimulationSubject, type PluginSimulationSubjectHandle, type PluginSimulations } from "./registryTypes/playback";
 export type { ScenePick, ScenePickOptions, ScenePickSession } from "./scenePicks";
 export type { PluginModes, PluginModeActivateOptions } from "./pluginModes";
 export type { PluginAppearance, PluginAppearanceSnapshot } from "./pluginAppearance";
@@ -546,7 +546,30 @@ export type { SelectedObjectBox } from "@/viewport/api/viewportApi";
 //            particle emitters, emissive ramps; `ada.visit.gltf.effects.EffectSpec` writes them) are drawn
 //            by the native viewport and follow the playback clock.
 //          All additive: an older core has no `ctx.appearance` (a plugin asks first).
-export const PLUGIN_API_VERSION = "1.38.0";
+// 1.39.0 — Precise timeline scrubbing: markers, steps and frame capture on `ctx.playback`.
+//          - `setMarkers(sourceId, [{t, label, kind?, color?}])` / `clearMarkers(sourceId)`: labelled
+//            ticks on the scrub bar (`kind` "stage" | "event" | "warning" | "error"), a tooltip each,
+//            a click seeks there; `[` / `]` and the transport's buttons go to the previous / next.
+//            `markers()` lists every source's, `seekMarker(direction)` goes to one. A plugin's go with
+//            `ctx.scene.remove(pluginId)`.
+//          - `PluginPlaybackTrack.samples` (sorted or not) / `stepSample(t, direction)`, and the
+//            handle's `setSamples(times)`: a track's recorded sample times, which the transport's
+//            "1 frame" step goes between (a display frame where no track has any);
+//            `nextSample(t, direction)` reads them, `step(direction, size?, {shift, alt}?)` takes a
+//            step as ← / → do ("frame" or seconds; Shift ×10, Alt ÷10).
+//          - `captureFrame({time?, prefix?})`: pause, go to the moment, let a frame be drawn and save
+//            the view as "<prefix>_t<mm>m<ss.mmm>s.png", on either viewport.
+//          - `PlaybackActionSpec.icon: "camera"`.
+//          Not an API change, but seen by every track: the transport has step buttons and a step
+//          size, a fine drag (Shift, or the pointer pulled off the bar: 1/10, 1/100; a long press on
+//          touch), wheel / pinch / drag-range zoom of the bar, the time as mm:ss.mmm (click to type
+//          one) and a capture-frame button. All additive: an older core has none of the verbs, so a
+//          plugin asks first.
+//          Also additive, for simulation runs: the Simulations panel moves runs between batches and
+//          deletes runs or whole batches, and `simulationsApi` (@/viewer-core/app) has the calls:
+//          `moveRunsToBatch`, `removeRunsFromBatch`, `deleteRuns` (with `{dry}`), `deleteRun`,
+//          `deleteBatch`. An older server answers 404 to them (a plugin asks first).
+export const PLUGIN_API_VERSION = "1.39.0";
 
 /** What the Simulations panel writes on a run's open-result button. */
 export function openResultButtonLabel(

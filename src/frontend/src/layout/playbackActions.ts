@@ -14,8 +14,9 @@ export interface PlaybackActionSpec {
     /** What it does, for the tooltip and for a screen reader. Default: the label. */
     title?: string;
     /** One of the transport's own glyphs, drawn in place of the label (which is still its name
-     *  to a screen reader): `"stop"`, the square the simulation controls stop with. */
-    icon?: "stop";
+     *  to a screen reader): `"stop"`, the square the simulation controls stop with; `"camera"`
+     *  (1.39.0), the transport's capture-frame camera. */
+    icon?: "stop" | "camera";
     /** `"play"`: drawn beside the play button, before the scrub bar -- for what ends or restarts
      *  what plays. Default: after the transport's own buttons. */
     beside?: "play";

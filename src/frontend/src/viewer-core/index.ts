@@ -785,7 +785,11 @@
 //          See PLUGIN_API_VERSION's 1.37.0 note.
 //   1.38.0 Kept in step with PLUGIN_API_VERSION 1.38.0. Additive: `ctx.appearance` (appearance presets)
 //          on the plugin context; nothing new on these entry points. See PLUGIN_API_VERSION's 1.38.0 note.
-export const VIEWER_CORE_API_VERSION = "1.38.0";
+//   1.39.0 Kept in step with PLUGIN_API_VERSION 1.39.0. Additive: timeline markers, steps and frame
+//          capture on `PluginPlayback`, the types `PluginPlaybackMarker`, `PluginPlaybackMarkerEntry`,
+//          `PluginPlaybackMarkerKind`, `PluginPlaybackStepSize`, and `PlaybackActionSpec.icon:
+//          "camera"`. See PLUGIN_API_VERSION's 1.39.0 note.
+export const VIEWER_CORE_API_VERSION = "1.39.0";
 
 // ---------------------------------------------------------------------------
 // Plugin declaration. `registerPlugin` is how a package announces itself —
@@ -822,7 +826,11 @@ export type {
   PluginSimulationSubjectHandle,
   PluginLayerState,
   PluginPlayback,
+  PluginPlaybackMarker,
+  PluginPlaybackMarkerEntry,
+  PluginPlaybackMarkerKind,
   PluginPlaybackState,
+  PluginPlaybackStepSize,
   PluginPlaybackTrack,
   PluginPlaybackTrackHandle,
   PluginModeId,

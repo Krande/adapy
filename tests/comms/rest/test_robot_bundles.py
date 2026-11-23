@@ -265,6 +265,84 @@ def test_round_trip_into_an_empty_store_gives_identical_assets(tmp_path, monkeyp
     assert index["assets"][0]["roles"] == ["picker"] and index["assets"][0]["levels"] == ["coarse"]
 
 
+def robot_with_sources(robot_id: str, version: str) -> dict[str, bytes]:
+    """A robot asset that also carries its source CAD file (STEP) and a source archive, listed in
+    its robot.json's ``sources``, and says in ``provenance`` what it was made from (a file of another
+    repository, which is not a file of the version)."""
+    files = robot_files(robot_id, version)
+    step = b"ISO-10303-21;\nHEADER;\nENDSEC;\nDATA;\nENDSEC;\nEND-ISO-10303-21;\n" * 40
+    archive_buf = io.BytesIO()
+    with zipfile.ZipFile(archive_buf, "w") as inner:
+        inner.writestr("package/arm.cojt", b"not opened by the bundle")
+    archive = archive_buf.getvalue()
+    doc = json.loads(files["robot.json"])
+    doc["sources"] = [
+        {"path": "source/arm.stp", "name": "arm", "format": "step", "sha256": _sha(step), "bytes": len(step)},
+        {
+            "path": "source/arm-package.zip",
+            "name": "arm package",
+            "format": "process-simulate",
+            "sha256": _sha(archive),
+            "bytes": len(archive),
+        },
+    ]
+    doc["provenance"] = {"config": {"path": "configs/robots/arm.yaml", "sha256": "1" * 64}}
+    return {
+        **files,
+        "source/arm.stp": step,
+        "source/arm-package.zip": archive,
+        "robot.json": json.dumps(doc, indent=1).encode(),
+    }
+
+
+def test_source_files_round_trip_and_provenance_is_not_a_file_of_the_version(tmp_path, monkeypatch):
+    monkeypatch.setenv("SOURCE_DATE_EPOCH", "1767225600")
+    src_dir, dst_dir = tmp_path / "src", tmp_path / "dst"
+    src_dir.mkdir()
+    dst_dir.mkdir()
+    store_robot(src_dir, "arm-s", "1", files=robot_with_sources("arm-s", "1"))
+    with TestClient(create_app(_settings(src_dir))) as src:
+        bundle = export(src)
+    m = json.loads(zipfile.ZipFile(io.BytesIO(bundle)).read("manifest.json"))
+    (row,) = m["robots"]
+    paths = {f["path"] for f in row["files"]}
+    assert {"source/arm.stp", "source/arm-package.zip"} <= paths, paths
+    assert "skipped_files" not in row
+    with TestClient(create_app(_settings(dst_dir))) as dst:
+        p = preview(dst, bundle)
+        assert [(r["status"], r.get("problems") or []) for r in p["robots"]] == [("new", [])], p["robots"]
+        r = dst.post(f"{BASE}/import/{p['upload_id']}", json={})
+        assert r.status_code == 200, r.text
+        assert [x["result"] for x in r.json()["results"]] == ["added"]
+    assert stored_tree(dst_dir) == stored_tree(src_dir)
+
+
+def test_a_source_archive_is_allowed_only_as_a_listed_source(client):
+    entries = {f"robots/arm-x/1/{p}": b for p, b in robot_with_sources("arm-x", "1").items()}
+    assert preview(client, _zip(entries))["robots"][0]["status"] == "new"
+    # The same archive, not listed in sources: refused.
+    doc = json.loads(entries["robots/arm-x/1/robot.json"])
+    archive = doc["sources"].pop()
+    entries["robots/arm-x/1/robot.json"] = json.dumps(doc).encode()
+    assert any("source archive" in p for p in refused(client, _zip(entries)))
+    # Listed as a mesh, even if also listed as a source: refused.
+    doc["sources"].append(archive)
+    doc["meshes"]["levels"]["coarse"]["links"]["packed"] = {"path": archive["path"], "sha256": archive["sha256"]}
+    entries["robots/arm-x/1/robot.json"] = json.dumps(doc).encode()
+    assert any("not an allowed file type" in p for p in refused(client, _zip(entries)))
+
+
+def test_a_robot_json_with_a_provenance_pin_imports(client):
+    entries = _good_entries()
+    doc = json.loads(entries["robots/arm-x/1/robot.json"])
+    doc["provenance"] = {"config": {"path": "configs/robots/arm.yaml", "sha256": "2" * 64}, "tool": "generator"}
+    entries["robots/arm-x/1/robot.json"] = json.dumps(doc).encode()
+    (row,) = preview(client, _zip(entries))["robots"]
+    assert row["status"] == "new", row
+    assert rb.suffix_allowed("source/a.step") and rb.suffix_allowed("source/a.STP")
+    assert not rb.suffix_allowed("meshes/a.zip") and rb.suffix_allowed("source/a.zip", {"source/a.zip"})
+
+
 def test_reimporting_an_export_into_the_same_store_is_all_unchanged(tmp_path, client):
     store_robot(tmp_path, "arm-a", "1", gz=True)
     store_robot(tmp_path, "arm-b", "1")

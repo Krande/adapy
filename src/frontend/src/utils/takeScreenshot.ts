@@ -6,11 +6,11 @@ import {downloadCanvas} from "@/utils/downloadCanvas";
 const SCREENSHOT_WIDTH = 1920;
 const SCREENSHOT_HEIGHT = 1080;
 
-const download = (canvas: HTMLCanvasElement): void => downloadCanvas(canvas, 'screenshot.png');
+const DEFAULT_NAME = 'screenshot.png';
 
 /** The screenshot taken from the adacpp WebGPU image, when that renderer is on screen and captures are
  *  handed over to it. False: three.js takes it. */
-function takeAdacppScreenshot(scene: THREE.Scene, camera: THREE.Camera): boolean {
+function takeAdacppScreenshot(scene: THREE.Scene, camera: THREE.Camera, fileName: string): boolean {
     const viewport = captureViewport();
     if (!viewport) return false;
     const canvas = document.createElement('canvas');
@@ -21,11 +21,12 @@ function takeAdacppScreenshot(scene: THREE.Scene, camera: THREE.Camera): boolean
     getViewerRuntime().updateLight.current?.();
     const cam = cameraForAspect(camera, SCREENSHOT_WIDTH / SCREENSHOT_HEIGHT);
     if (!viewport.captureInto(ctx, scene, cam, SCREENSHOT_WIDTH, SCREENSHOT_HEIGHT)) return false;
-    download(canvas);
+    downloadCanvas(canvas, fileName);
     return true;
 }
 
-export async function takeScreenshot() {
+/** Save the view as a PNG, as `fileName`. */
+export async function takeScreenshot(fileName = DEFAULT_NAME) {
     let renderer = getViewerRuntime().renderer.current;
     if (!renderer) {
         console.error("Renderer not found");
@@ -42,8 +43,8 @@ export async function takeScreenshot() {
         return;
     }
 
-    if (takeAdacppScreenshot(scene, camera)) return;
-    await takeHighResScreenshot(renderer, scene, camera, false);
+    if (takeAdacppScreenshot(scene, camera, fileName)) return;
+    await takeHighResScreenshot(renderer, scene, camera, false, fileName);
 }
 
 
@@ -51,7 +52,8 @@ export async function takeHighResScreenshot(
     renderer: THREE.WebGLRenderer,
     scene: THREE.Scene,
     camera: THREE.Camera,
-    transparentBackground = false // <-- optional flag
+    transparentBackground = false, // <-- optional flag
+    fileName = DEFAULT_NAME,
 ) {
     const width = SCREENSHOT_WIDTH;
     const height = SCREENSHOT_HEIGHT;
@@ -114,7 +116,7 @@ export async function takeHighResScreenshot(
 
     ctx.putImageData(imageData, 0, 0);
 
-    download(tempCanvas);
+    downloadCanvas(tempCanvas, fileName);
 
     renderer.setRenderTarget(originalRenderTarget);
     renderer.setSize(originalSize.x, originalSize.y);

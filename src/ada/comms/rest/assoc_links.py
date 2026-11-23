@@ -33,6 +33,7 @@ from ada.assoc.store import (
 from ada.config import logger
 
 __all__ = [
+    "drop_sim_run_links",
     "link_store",
     "members_of_ck",
     "pinned_detail_ids",
@@ -239,6 +240,18 @@ async def sim_run_link(storage, scope, record: Mapping[str, Any], *, pool=None, 
     if status in ACTIVE_SIM_STATUSES:
         ACTIVE_SCOPES.add(scope.prefix())
     return True
+
+
+async def drop_sim_run_links(storage, scope, record: Mapping[str, Any], *, pool=None) -> None:
+    """Drop a deleted run's ``sim_run`` rows (an empty sheet in their place). Nothing for a run on no
+    subject, which never had any."""
+    from ada.simulation.runs import run_record_key
+
+    run_id = str(record.get("run_id") or "")
+    if not (record.get("subject") or {}).get("key") or not run_id:
+        return
+    _FILED_STATUS.pop((scope.prefix(), run_id), None)
+    await link_store(storage, scope, pool).put_sheet(run_record_key(run_id), ("sim_run",), [])
 
 
 #: The scopes this process filed a queued or running run in: what the sweeper visits without Postgres.

@@ -72,6 +72,24 @@ import {
 } from "@/state/simulationSubjects";
 import { usePluginTheme } from "@/state/themeStore";
 
+import {
+  clickRun,
+  EMPTY_SELECTION,
+  selectAllInView,
+  toggleRun as togglePicked,
+  type RunSelection,
+} from "@/services/simulations/runSelection";
+
+import {
+  confirmAndDeleteRuns,
+  DeleteBatchDialog,
+  MoveToBatchDialog,
+  RunSelectContext,
+  SelectionBar,
+  useLongPress,
+  useRunSelect,
+  type RunSelectApi,
+} from "./RunAdmin";
 import { SchemaForm } from "./SchemaForm";
 import { SimulationsFrame } from "./SimulationsFrame";
 
@@ -152,6 +170,10 @@ const RunRow: React.FC<{
   onToggle: () => void;
 }> = ({ scope, run, provider, expanded, onToggle }) => {
   const cancelRun = useSimulationStore((s) => s.cancelRun);
+  const select = useRunSelect();
+  const pressHandlers = useLongPress(() => select.longPress(run.run_id));
+  const [deleting, setDeleting] = useState(false);
+  const picked = select.isSelected(run.run_id);
   const contextFor = usePluginContextFor();
   const [openError, setOpenError] = useState<string | null>(null);
   const baseCtx = contextFor("");
@@ -184,15 +206,43 @@ const RunRow: React.FC<{
   };
 
   return (
-    <li className={`flex flex-col rounded-sm ${expanded ? "bg-[color-mix(in_srgb,var(--ada-panel-text)_20%,transparent)]" : "bg-[var(--ada-panel-surface)]"}`} data-run-id={run.run_id}>
+    <li
+      className={`flex flex-col rounded-sm ${
+        picked
+          ? "bg-[color-mix(in_srgb,var(--ada-accent)_25%,transparent)]"
+          : expanded
+            ? "bg-[color-mix(in_srgb,var(--ada-panel-text)_20%,transparent)]"
+            : "bg-[var(--ada-panel-surface)]"
+      }`}
+      data-run-id={run.run_id}
+      data-selected={picked || undefined}
+    >
       <div className="flex items-center gap-1.5 px-1 py-0.5 min-w-0">
-        {/* The line itself opens and closes the rest; the buttons beside it are their own. */}
+        {select.selecting && (
+          <input
+            type="checkbox"
+            className="h-4 w-4 shrink-0"
+            checked={picked}
+            aria-label={`Select ${label}`}
+            data-run-select
+            // The click, not the change: a change event carries no shift key.
+            onClick={(e) => {
+              e.stopPropagation();
+              select.click(run.run_id, e.shiftKey);
+            }}
+            onChange={() => {}}
+          />
+        )}
+        {/* The line itself opens and closes the rest (picks it, while picking); a long press starts
+            picking. The buttons beside it are their own. */}
         <button
           type="button"
-          className="flex items-center gap-1.5 min-w-0 flex-1 text-left hover:text-[var(--ada-panel-text)]"
-          aria-expanded={expanded}
+          className="flex items-center gap-1.5 min-w-0 flex-1 text-left hover:text-[var(--ada-panel-text)] select-none"
+          aria-expanded={select.selecting ? undefined : expanded}
+          aria-pressed={select.selecting ? picked : undefined}
           title={`${label}: ${status}`}
-          onClick={onToggle}
+          {...pressHandlers}
+          onClick={(e) => (select.selecting ? select.click(run.run_id, e.shiftKey) : onToggle())}
         >
           <span className={`h-2 w-2 rounded-full shrink-0 ${STATUS_DOT[tone] ?? "bg-gray-400"}`} aria-hidden />
           <span className="font-medium truncate">{label}</span>
@@ -253,6 +303,20 @@ const RunRow: React.FC<{
           </div>
           {run.error && <div className="text-[var(--ada-fail)] break-words">{run.error}</div>}
           <ArtefactList scope={scope} artefacts={run.artefacts} />
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              className={`${BUTTON} text-[var(--ada-fail)]`}
+              disabled={deleting}
+              data-run-delete
+              onClick={() => {
+                setDeleting(true);
+                void confirmAndDeleteRuns(scope, [run], select.report).finally(() => setDeleting(false));
+              }}
+            >
+              {deleting ? "Deleting…" : "Delete run"}
+            </button>
+          </div>
         </div>
       )}
     </li>
@@ -368,8 +432,11 @@ export const BatchRow: React.FC<{
   providers: readonly SimulationProviderInfo[];
   expandedRun: string | null;
   onToggleRun: (runId: string) => void;
-}> = ({ scope, batch, providers, expandedRun, onToggleRun }) => {
+  /** Called when the line is opened or closed (which runs are in view changed). */
+  onOpenChange?: () => void;
+}> = ({ scope, batch, providers, expandedRun, onToggleRun, onOpenChange }) => {
   const [open, setOpen] = useState(() => isBatchOpen(scope, batch.id));
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const page = useSimulationStore((s) => s.batchRuns[batch.id]);
   const loadBatchRuns = useSimulationStore((s) => s.loadBatchRuns);
   // Read when opened -- also when it was left open and the panel comes back -- and not before.
@@ -380,6 +447,7 @@ export const BatchRow: React.FC<{
   const toggle = () => {
     setBatchOpen(scope, batch.id, !open);
     setOpen(!open);
+    onOpenChange?.();
   };
   const provider = providers.find((p) => p.id === batch.provider.id) ?? null;
   const providerTitle = batch.providers.length > 1 ? `${batch.providers.length} providers` : provider?.title ?? batch.provider.id;
@@ -421,8 +489,21 @@ export const BatchRow: React.FC<{
           <div className="h-full bg-blue-400" style={{ width: `${percent}%` }} />
         </div>
       )}
+      {deleteOpen && <DeleteBatchDialog scope={scope} batch={batch} onClose={() => setDeleteOpen(false)} />}
       {open && (
         <div className="flex flex-col gap-0.5 ml-3 pl-1.5 pb-1 border-l border-[var(--ada-panel-border)]" data-batch-runs>
+          <div className="flex items-center gap-1.5">
+            <span className="flex-1" />
+            <button
+              type="button"
+              className={`${BUTTON} text-[var(--ada-fail)]`}
+              title="Delete this batch: keep its runs, or delete them too"
+              data-batch-delete
+              onClick={() => setDeleteOpen(true)}
+            >
+              Delete batch…
+            </button>
+          </div>
           {cancelledCount > 0 && (
             <label className="flex items-center gap-1.5 text-[var(--ada-panel-text-muted)]">
               <input
@@ -540,6 +621,50 @@ export const SimulationsBody: React.FC<{ initialRunsOpen?: boolean }> = ({ initi
   const runCount = listedRunCount(shownRuns, shownBatches);
   const toggleRun = (runId: string) => setExpandedRun(runId === expandedRun ? null : runId);
   const selected = providers.find((p) => p.id === selectedId) ?? null;
+
+  // ── picking many runs ──
+  const batchRuns = useSimulationStore((s) => s.batchRuns);
+  const [selecting, setSelecting] = useState(false);
+  const [picked, setPicked] = useState<RunSelection>(EMPTY_SELECTION);
+  const [moveOpen, setMoveOpen] = useState(false);
+  const [notice, setNotice] = useState<{ text: string; failed: boolean } | null>(null);
+  // Bumped when a batch's line is opened or closed: which runs are in view changed.
+  const [, setOpenTick] = useState(0);
+  // The runs the list shows, in its order: those of no batch, and those of the open batches.
+  const viewOrder = items.flatMap((item) =>
+    item.kind === "run"
+      ? [item.run.run_id]
+      : isBatchOpen(scope, item.batch.id)
+        ? (batchRuns[item.batch.id]?.runs ?? []).map((r) => r.run_id)
+        : [],
+  );
+  const known = new Map<string, SimulationRun>();
+  for (const r of runs) known.set(r.run_id, r);
+  for (const page of Object.values(batchRuns)) for (const r of page.runs) known.set(r.run_id, r);
+  const pickedRuns = [...picked.ids].flatMap((id) => (known.has(id) ? [known.get(id)!] : []));
+  const allInView = viewOrder.length > 0 && viewOrder.every((id) => picked.ids.has(id));
+  const stopSelecting = () => {
+    setSelecting(false);
+    setPicked(EMPTY_SELECTION);
+  };
+  // A scope of its own starts with nothing picked.
+  useEffect(() => {
+    setSelecting(false);
+    setPicked(EMPTY_SELECTION);
+    setNotice(null);
+  }, [scope]);
+  const selectApi: RunSelectApi = {
+    selecting,
+    isSelected: (id) => picked.ids.has(id),
+    click: (id, shift) => setPicked((s) => clickRun(s, viewOrder, id, shift)),
+    longPress: (id) => {
+      setSelecting(true);
+      setPicked((s) => (s.ids.has(id) ? s : togglePicked(s, id)));
+    },
+    report: (text, failed = false) => setNotice({ text, failed }),
+  };
+  // After an action nothing stays picked: what was acted on moved or is gone.
+  const afterAction = () => setPicked(EMPTY_SELECTION);
 
   return (
     <div className="flex flex-col gap-2 text-xs text-[var(--ada-panel-text)] min-w-0">
@@ -666,6 +791,22 @@ export const SimulationsBody: React.FC<{ initialRunsOpen?: boolean }> = ({ initi
             Runs{runCount > 0 ? ` (${runCount})` : ""}
           </span>
         </button>
+        <button
+          type="button"
+          className={BUTTON}
+          aria-pressed={selecting}
+          title={selecting ? "Stop picking runs" : "Pick runs to move or delete (or press and hold a run)"}
+          data-runs-select
+          onClick={() => {
+            if (selecting) stopSelecting();
+            else {
+              setSelecting(true);
+              setRunsOpen(true);
+            }
+          }}
+        >
+          {selecting ? "Done" : "Select"}
+        </button>
         {/* The store follows the runs it knows are unfinished; a run somebody else started since the
             panel was opened (another tab, the API, a schedule) is only found by asking again. */}
         <button
@@ -681,6 +822,28 @@ export const SimulationsBody: React.FC<{ initialRunsOpen?: boolean }> = ({ initi
         </button>
       </div>
       {runsError && <div className="text-[var(--ada-fail)] break-words">{runsError}</div>}
+      {notice && (
+        <div
+          className={`flex items-start gap-1.5 break-words ${notice.failed ? "text-[var(--ada-warn)]" : "text-[var(--ada-panel-text-muted)]"}`}
+          role="status"
+          data-runs-notice
+        >
+          <span className="flex-1 min-w-0">{notice.text}</span>
+          <button type="button" className="shrink-0 px-1" aria-label="Dismiss" onClick={() => setNotice(null)}>
+            ×
+          </button>
+        </div>
+      )}
+      <RunSelectContext.Provider value={selectApi}>
+      {moveOpen && (
+        <MoveToBatchDialog
+          scope={scope}
+          runs={pickedRuns}
+          batches={batches}
+          onClose={() => setMoveOpen(false)}
+          onMoved={afterAction}
+        />
+      )}
       {!runsOpen ? null : items.length === 0 ? (
         <div className="text-[var(--ada-panel-text-muted)]">No runs in this scope yet.</div>
       ) : (
@@ -697,6 +860,7 @@ export const SimulationsBody: React.FC<{ initialRunsOpen?: boolean }> = ({ initi
                 providers={providers}
                 expandedRun={expandedRun}
                 onToggleRun={toggleRun}
+                onOpenChange={() => setOpenTick((n) => n + 1)}
               />
             ) : (
               <RunRow
@@ -711,6 +875,20 @@ export const SimulationsBody: React.FC<{ initialRunsOpen?: boolean }> = ({ initi
           )}
         </ul>
       )}
+      {selecting && runsOpen && (
+        <SelectionBar
+          scope={scope}
+          selected={pickedRuns}
+          count={picked.ids.size}
+          viewCount={viewOrder.length}
+          allInView={allInView}
+          onSelectAll={() => setPicked((s) => selectAllInView(s, viewOrder))}
+          onDone={stopSelecting}
+          onMove={() => setMoveOpen(true)}
+          onActed={afterAction}
+        />
+      )}
+      </RunSelectContext.Provider>
     </div>
   );
 };
