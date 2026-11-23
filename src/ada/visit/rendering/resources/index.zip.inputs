@@ -1,8 +1,8 @@
 # The inputs src/ada/visit/rendering/resources/index.zip was built from, and its own hash. Do not edit.
 # Refresh with `pixi run wbuild` (rebuilds the bundle and rewrites this), then commit both.
 # Checked by `pixi run check-bundle-inputs` and by CI. See scripts/packaging/bundle_inputs.py.
-inputs-sha256 962c491162d049efb5aa5574240830a73714fe331f5612e0e2ce9bc09735d636
-bundle-sha256 ffd6389ef79ec71460c2e2404766bc4eddb1b21e5ba8ad8b89e367d08cd226a7
+inputs-sha256 7b09621355736d7eb54800bd30ec359828690e88a1d9e56486f22fb0d097a5c2
+bundle-sha256 f275a535bc9ef5db88900eab1b8b513df258a6fab912b633cce3dce555e8fae2
 pin:ADACPP_BASE_IMAGE ghcr.io/krande/adacpp-wasm-base:0.44.0
 pin:ADACPP_RENDER_REF c1a7b3ab434a916e08170c634c23b9dc1974d32f
 src/frontend/clean.cjs 548054390de442a02ca36bd4de94f25095f10ae9
@@ -345,8 +345,8 @@ src/frontend/src/components/options/ThemeOptions.tsx 8618a055be1703f11b016d67f15
 src/frontend/src/components/options/ToolbarButtonsOptions.tsx 415f7d22ca43b96f9171e400f124cf5e0af329a9
 src/frontend/src/components/options/localJobs.ts 1c42ee43514a4093f54652fe18618718e73adb0e
 src/frontend/src/components/options/useLocalJobs.ts a1ac1da32cdee0bd04062794a9214614d700f0f8
-src/frontend/src/components/playback/PlaybackTransport.tsx 63dd42a25fd39f5661ba3808fa3a45128153ea0d
-src/frontend/src/components/playback/ScrubBar.tsx ec46b26c2d601d32c3be0937eecb11e5bcd7710b
+src/frontend/src/components/playback/PlaybackTransport.tsx cf13e1b29f3fd575b831d3fe4ac34ac09cea6793
+src/frontend/src/components/playback/ScrubBar.tsx aefb2fc551a6d47cd7f8ac63faecc4f1de495667
 src/frontend/src/components/playback/clockText.ts a4e2d1e2a3702e69b88e9f6ca65ba18efa796970
 src/frontend/src/components/playback/frameCapture.ts 391838240f4079038b4f7db6bade8ac03ce5b83e
 src/frontend/src/components/playback/playbackKeys.ts d34b21ac3952625e7e7c5296c82e1fe3d0b962e1
