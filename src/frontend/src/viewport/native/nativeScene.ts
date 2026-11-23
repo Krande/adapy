@@ -8,6 +8,7 @@ import {NativeResultLayer} from "./nativeResultLayer";
 import {glbNamesAnimations} from "@/utils/glb/glbBufferView";
 import {makeGlbPosable, type PosableGlb} from "@/utils/glb/glbPosable";
 import type {ModelNodePoser} from "@/viewport/api/modelPose";
+import type {ApplyEffectsOptions, EffectData, EffectsClock, EffectsDescription, ViewportEffects} from "@/viewport/api/viewportEffects";
 import {placeInstance, planNodePlacement} from "./nodePlacement";
 import {notifyModelAnimationChange, type ModelAnimation} from "@/viewport/api/viewportApi";
 import {growObjectBounds, indexResultSegments, resultSegments} from "./resultObjects";
@@ -155,6 +156,37 @@ interface LoadedModel {
     unshifted?: Float32Array[];
     /** The renderer's effect set holding the file's visual effects ("ada_effects"), when it has any. */
     effects?: number;
+    /** Per object (its index in `table`), the indices of the objects right below it: made the first
+     *  time an effect from outside names its objects. */
+    children?: number[][];
+}
+
+/** Effects applied from outside the model's file (`NativeScene.applyEffects`), and what of them the
+ *  renderer holds now (null: nothing, as while their model is not on screen). */
+interface ExternalEffects {
+    spec: EffectsDescription;
+    model: string | null;
+    clock: EffectsClock | null;
+    held: HeldEffects | null;
+    unresolved: string[];
+    off: (() => void) | null;
+}
+
+/** What the renderer holds of one `ExternalEffects`: its lights' and emitters' set, its ramps and the
+ *  segments they glow on, in the scene of `epoch` (a replacing load empties the renderer). */
+interface HeldEffects {
+    epoch: number;
+    model: LoadedModel | null;
+    set: number | null;
+    ramps: number[];
+    glowing: {instance: number; segments: Uint32Array}[];
+}
+
+/** Per object, the objects whose parent it is. */
+function childrenOf(parents: Int32Array): number[][] {
+    const out: number[][] = Array.from({length: parents.length}, () => []);
+    for (let i = 0; i < parents.length; i++) if (parents[i] >= 0 && parents[i] < parents.length) out[parents[i]].push(i);
+    return out;
 }
 
 let canvasSerial = 0;
@@ -519,6 +551,8 @@ export class NativeScene {
     /** Tell everyone that draws beside the models that what is on screen changed. One of them
      *  failing must not keep it from the rest: each draws its own things again after a load. */
     private tellLoaded(): void {
+        // First the effects held from outside: on the models as they are now.
+        this.reholdExternal();
         for (const listener of this.onLoaded) {
             try {
                 listener();
@@ -614,23 +648,173 @@ export class NativeScene {
         return typeof this.renderer.setTime === "function" && typeof this.renderer.removeEffects === "function";
     }
 
-    /** Whether any model on screen carries visual effects. */
+    /** Whether any model on screen carries visual effects, or effects are held from outside (`applyEffects`). */
     get hasEffects(): boolean {
         for (const model of this.models.values()) if (model.effects !== undefined) return true;
+        for (const entry of this.external) if (entry.held) return true;
         return false;
     }
 
     /** The effects' clock for the frame drawn at `now` (see `effectsSince`); true while they still move
      *  on the wall clock, which keeps the loop drawing. On the timeline the timeline's own playback
-     *  asks for the frames, and a paused timeline shows its moment, still. */
+     *  asks for the frames, and a paused timeline shows its moment, still. Effects held from outside
+     *  with a clock of their own (the playback clock) are drawn at its time. */
     private advanceEffects(now: number): boolean {
         if (!this.drawsEffects || !this.hasEffects) return false;
+        const clock = this.externalClock();
+        if (clock) {
+            this.renderer.setTime!(clock.time());
+            return false;
+        }
         if (this.timelineTime !== null) {
             this.renderer.setTime!(this.timelineTime);
             return false;
         }
         this.renderer.setTime!((now - this.effectsSince) / 1000);
         return this.renderer.animating?.() ?? false;
+    }
+
+    // ----- effects from outside a model's file (`applyEffects`, viewport/api/viewportEffects.ts) -----
+    // Held by the scene: put on again after every load (a replacing load empties the renderer, and a
+    // model loaded again has other instances), and drawn only while the model they are applied with is
+    // on screen.
+
+    private readonly external = new Set<ExternalEffects>();
+
+    /** Hold `spec`'s lights, emitters and ramps until removed; null on a renderer module without them. */
+    applyEffects(spec: EffectsDescription, options: ApplyEffectsOptions = {}): ViewportEffects | null {
+        if (!this.drawsEffects || typeof this.renderer.applyEffects !== "function") return null;
+        const entry: ExternalEffects = {spec, model: options.model ?? null, clock: options.clock ?? null, held: null, unresolved: [], off: null};
+        // A paused clock that is moved (a seek) draws the moment it was moved to.
+        entry.off = entry.clock?.subscribe(() => this.invalidate()) ?? null;
+        this.external.add(entry);
+        this.holdExternal(entry);
+        return {
+            update: (next) => {
+                if (!this.external.has(entry)) return;
+                entry.spec = next;
+                this.holdExternal(entry);
+            },
+            remove: () => {
+                if (!this.external.delete(entry)) return;
+                this.releaseExternal(entry);
+                entry.off?.();
+                this.invalidate();
+            },
+            unresolved: () => entry.unresolved,
+        };
+    }
+
+    /** The clock of the first effects held from outside that have one. */
+    private externalClock(): EffectsClock | null {
+        for (const entry of this.external) if (entry.held && entry.clock) return entry.clock;
+        return null;
+    }
+
+    /** Put `entry`'s effects in the renderer (again), in place of what it held. */
+    private holdExternal(entry: ExternalEffects): void {
+        this.releaseExternal(entry);
+        entry.unresolved = [];
+        const model = entry.model === null ? null : [...this.models.values()].find((m) => m.sourceName === entry.model) ?? null;
+        // Applied with a model that is not on screen (yet): nothing is drawn until it is.
+        if (entry.model !== null && !model) return this.invalidate();
+        const [ox, oy, oz] = this.offset;
+        const shifted = (p: unknown): unknown =>
+            Array.isArray(p) && p.length === 3 ? [Number(p[0]) + ox, Number(p[1]) + oy, Number(p[2]) + oz] : p;
+        // Lights and emitters in one set, moved from the scene's coordinates to the renderer's world.
+        const lights = (entry.spec.lights ?? []).map((l) => ({...l, position: shifted(l.position ?? [0, 0, 0])}));
+        const emitters = (entry.spec.emitters ?? []).map((e) => ({...e, origin: shifted(e.origin ?? [0, 0, 0])}));
+        const held: HeldEffects = {epoch: this.sceneEpoch, model, set: null, ramps: [], glowing: []};
+        entry.held = held;
+        try {
+            if (lights.length || emitters.length) {
+                const json = {version: 1, ...(lights.length ? {lights} : {}), ...(emitters.length ? {emitters} : {})};
+                held.set = this.renderer.applyEffects!(JSON.stringify(json), false).set;
+            }
+            for (const ramp of entry.spec.emissive ?? []) this.holdRamp(held, ramp, model, entry.unresolved);
+        } catch (err) {
+            console.warn("[adacpp-native] effects applied from outside could not be shown:", err);
+        }
+        this.effectsSince ||= performance.now();
+        this.invalidate();
+    }
+
+    /** One emissive ramp on the segments of its targets in `model` (and of everything below them). */
+    private holdRamp(held: HeldEffects, ramp: EffectData & {targets?: readonly unknown[]}, model: LoadedModel | null, unresolved: string[]): void {
+        const {targets = [], ...desc} = ramp;
+        const ids = targets.map(String);
+        const r = this.renderer;
+        if (!model || typeof r.addEmissiveRamp !== "function" || typeof r.setEmissiveRamp !== "function" || typeof r.setSegmentEmissive !== "function") {
+            unresolved.push(...ids);
+            return;
+        }
+        const table = model.table;
+        const index = (model.idIndex ??= new Map(table.ids.map((id, i) => [id, i])));
+        const children = (model.children ??= childrenOf(table.parents));
+        const stack: number[] = [];
+        for (const id of ids) {
+            const at = index.get(id);
+            if (at === undefined) unresolved.push(id);
+            else stack.push(at);
+        }
+        const perInstance = new Map<number, number[]>();
+        const seen = new Set<number>();
+        while (stack.length) {
+            const o = stack.pop()!;
+            if (seen.has(o)) continue;
+            seen.add(o);
+            for (let k = table.segmentOffsets[o]; k < table.segmentOffsets[o + 1]; k++) {
+                const instance = table.segments[2 * k];
+                const list = perInstance.get(instance);
+                if (list) list.push(table.segments[2 * k + 1]);
+                else perInstance.set(instance, [table.segments[2 * k + 1]]);
+            }
+            stack.push(...(children[o] ?? []));
+        }
+        if (!perInstance.size) return;
+        const id = r.addEmissiveRamp();
+        r.setEmissiveRamp(id, desc);
+        held.ramps.push(id);
+        for (const [instance, segments] of perInstance) {
+            const list = Uint32Array.from(segments);
+            this.segmentEmissive(instance, list, id);
+            held.glowing.push({instance, segments: list});
+        }
+    }
+
+    /** `segments` of `instance` glow with ramp `ramp` (-1: as their instance does). */
+    private segmentEmissive(instance: number, segments: Uint32Array, ramp: number): void {
+        const p = this.module._malloc(segments.byteLength);
+        try {
+            // The view is taken now: the heap may have grown.
+            new Uint32Array(this.module.HEAPU8.buffer, p, segments.length).set(segments);
+            this.renderer.setSegmentEmissive!(instance, p, segments.length, ramp);
+        } finally {
+            this.module._free(p);
+        }
+    }
+
+    /** Take what `entry` holds out of the renderer. */
+    private releaseExternal(entry: ExternalEffects): void {
+        const held = entry.held;
+        entry.held = null;
+        // A replacing load emptied the renderer since: what it held went with it, and its ids may be
+        // another's now. Nothing to take out, and nothing may be.
+        if (!held || held.epoch !== this.sceneEpoch || this.disposed) return;
+        const r = this.renderer;
+        try {
+            if (held.set !== null) r.removeEffects?.(held.set);
+            const onScreen = held.model !== null && this.models.get(held.model.key) === held.model;
+            if (onScreen) for (const {instance, segments} of held.glowing) this.segmentEmissive(instance, segments, -1);
+            for (const ramp of held.ramps) r.removeEmissiveRamp?.(ramp);
+        } catch (err) {
+            console.warn("[adacpp-native] releasing effects applied from outside:", err);
+        }
+    }
+
+    /** The models on screen changed: every effect held from outside is put on them again. */
+    private reholdExternal(): void {
+        for (const entry of this.external) this.holdExternal(entry);
     }
 
     /** Whether the renderer module places nodes by time at all (an older one does not). */

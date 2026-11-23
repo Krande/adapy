@@ -16,6 +16,7 @@ import type {ViewportUndoState} from "./viewportState";
 import type {ViewportObjectColors} from "./objectColors";
 import type {ViewportObjectFade} from "./objectFade";
 import type {ModelNodePoser} from "./modelPose";
+import type {ApplyEffectsOptions, EffectsDescription, ViewportEffects} from "./viewportEffects";
 
 export type ViewportKind = "three" | "native";
 
@@ -193,6 +194,11 @@ export interface ViewportApi {
      *  itself (./modelPose.ts); null when no such model is on screen, or this viewport cannot place
      *  its nodes. Callers hold a `ModelPose`, which asks again when the model or the viewport changes. */
     modelNodes(sourceName: string, names: readonly string[]): ModelNodePoser | null;
+    /** Whether this viewport draws visual effects (./viewportEffects.ts). Absent: it draws none. */
+    drawsEffects?(): boolean;
+    /** Hold `spec`'s effects until removed (./viewportEffects.ts); null when this viewport draws none.
+     *  Callers hold them through `ctx.effects`, which applies them again on a viewport that comes on screen. */
+    applyEffects?(spec: EffectsDescription, options?: ApplyEffectsOptions): ViewportEffects | null;
     /** Orbit about `point` from now on (what a double-click on the model does). */
     setOrbitPivot(point: Point3): void;
     /** Frame the camera on a box in the world (min xyz, max xyz), keeping the direction it looks

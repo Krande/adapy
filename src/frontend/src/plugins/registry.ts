@@ -23,6 +23,7 @@ export { type PluginPlaybackTrack, type PluginPlaybackTrackHandle, type PluginPl
 export type { ScenePick, ScenePickOptions, ScenePickSession } from "./scenePicks";
 export type { PluginModes, PluginModeActivateOptions } from "./pluginModes";
 export type { PluginAppearance, PluginAppearanceSnapshot } from "./pluginAppearance";
+export type { PluginEffects, EffectsDescription } from "./pluginEffects";
 export type { AppearancePresetId } from "@/state/appearanceStore";
 export type { SceneHighlight, SceneHighlightOptions, SceneHighlightRef } from "./sceneHighlights";
 export type {
@@ -569,7 +570,18 @@ export type { SelectedObjectBox } from "@/viewport/api/viewportApi";
 //          deletes runs or whole batches, and `simulationsApi` (@/viewer-core/app) has the calls:
 //          `moveRunsToBatch`, `removeRunsFromBatch`, `deleteRuns` (with `{dry}`), `deleteRun`,
 //          `deleteBatch`. An older server answers 404 to them (a plugin asks first).
-export const PLUGIN_API_VERSION = "1.39.0";
+// 1.40.0 — Visual effects at runtime.
+//          - `ctx.effects` (`PluginEffects`): `apply(sourceId, spec, {model?})` shows point lights, particle
+//            emitters and emissive ramps -- an "ada_effects" description as plain data -- in place of what
+//            was shown under that id; `clear(sourceId)` takes them away. Times are seconds on the playback
+//            clock, positions in the scene's coordinates; ramps target object ids of `model` (a source
+//            name), and the effects are drawn while that model is on screen, put on again when it is
+//            loaded again. No reload of a model is needed to change them.
+//          - `drawn()` / `subscribe(cb)`: whether the viewport on screen draws effects (the native one
+//            does; the three.js one does not yet), so a plugin can say where they are seen.
+//          - `ViewportApi.drawsEffects` / `applyEffects` (optional) behind it.
+//          All additive: an older core has no `ctx.effects` (a plugin asks first).
+export const PLUGIN_API_VERSION = "1.40.0";
 
 /** What the Simulations panel writes on a run's open-result button. */
 export function openResultButtonLabel(
