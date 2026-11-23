@@ -529,6 +529,10 @@ The viewport uses them in two ways.
     is seconds since the load, and the loop keeps drawing only while `animating()` says something
     still moves.
 
+![A generic effects scene on the timeline at 2.5 s: a torch travels along a strip it lays, with flicker, sparks and smoke](../screenshots/ada-studio/native-effects-t2.5.png)
+![The same at 6 s: each piece glows from the moment it is laid and cools down](../screenshots/ada-studio/native-effects-t6.png)
+![At 6 s with ACES tone mapping, bloom and environment lighting](../screenshots/ada-studio/native-effects-look.png)
+
 The three.js viewport draws none of this yet: it ignores the settings and the extras. A basic
 three.js counterpart is follow-up work. It would map tone mapping and exposure onto the renderer,
 use `RoomEnvironment` through PMREM, `PointLight`s with the same flicker noise, `emissive` with the
