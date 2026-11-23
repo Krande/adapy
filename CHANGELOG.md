@@ -2,6 +2,16 @@
 
 
 
+## v0.169.3 (2026-11-23)
+
+### Fix
+
+* fix(storage): downloads start at once from a presigned URL instead of through the API (#596)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt;
+Co-authored-by: adapy-bundle-bot &lt;adapy-bundle-bot@users.noreply.github.com&gt; ([`eb0399a`](https://github.com/Krande/adapy/commit/eb0399a241376dd06ce173a655679edc52354b02))
+
+
 ## v0.169.2 (2026-11-23)
 
 ### Fix
