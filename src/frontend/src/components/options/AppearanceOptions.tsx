@@ -4,6 +4,10 @@ import {
     APPEARANCE_DEFAULTS,
     BRIGHTNESS_RANGE,
     EDGE_BRIGHTNESS_RANGE,
+    ENVIRONMENT_INTENSITY_RANGE,
+    EXPOSURE_RANGE,
+    TONE_MAPPINGS,
+    type ToneMappingSetting,
     appearanceIsDefault,
     edgeLookIsDefault,
     useAppearanceStore,
@@ -24,6 +28,7 @@ const swatch = "h-6 w-10 cursor-pointer rounded-sm border border-gray-600 bg-tra
 const AppearanceOptions: React.FC = () => {
     const s = useAppearanceStore();
     const {setDefaultColor, setBrightness, setAmbientShare, setBackground, setShadeResults, setEdgeColor, setEdgeBrightness, reset, resetEdges} = s;
+    const {setToneMapping, setExposure, setBloom, setEnvironment, setEnvironmentIntensity} = s;
     const percent = Math.round(s.ambientShare * 100);
     return (
         <div className="space-y-2">
@@ -97,8 +102,60 @@ const AppearanceOptions: React.FC = () => {
                     Default edges
                 </button>
             </div>
+            <div className="pt-1 text-xs text-gray-400">Native viewport only, for now:</div>
+            <Row
+                label="Tone mapping"
+                title="Off: drawn as always. Neutral keeps colours and rolls off what is brighter than white; ACES is filmic. Either draws in HDR, so glowing parts and highlights keep their brightness."
+            >
+                <select
+                    data-option="tone-mapping"
+                    value={s.toneMapping}
+                    onChange={(e) => setToneMapping(e.target.value as ToneMappingSetting)}
+                    className="rounded-sm border border-gray-600 bg-transparent px-1 no-drag"
+                >
+                    {TONE_MAPPINGS.map((m) => (
+                        <option key={m} value={m} className="bg-gray-800">
+                            {m === "off" ? "Off" : m === "aces" ? "ACES" : "Neutral"}
+                        </option>
+                    ))}
+                </select>
+            </Row>
+            <Row label={`Exposure ${s.exposure.toFixed(2)}`} title="Multiplies the image before tone mapping (with a tone mapping or bloom)">
+                <input
+                    type="range"
+                    data-option="exposure"
+                    min={EXPOSURE_RANGE.min}
+                    max={EXPOSURE_RANGE.max}
+                    step={EXPOSURE_RANGE.step}
+                    value={s.exposure}
+                    disabled={s.toneMapping === "off" && !s.bloom}
+                    onChange={(e) => setExposure(Number(e.target.value))}
+                    className="w-28 cursor-pointer no-drag disabled:opacity-50"
+                />
+            </Row>
+            <label className="flex items-center space-x-2" title="A glow around what is brighter than white: emissive parts, sparks, bright highlights">
+                <input type="checkbox" className="no-drag" data-option="bloom" checked={s.bloom} onChange={() => setBloom(!s.bloom)}/>
+                <span>Bloom</span>
+            </label>
+            <label className="flex items-center space-x-2" title="Light the model by a studio environment as well: reflections that make metal look like metal">
+                <input type="checkbox" className="no-drag" data-option="environment" checked={s.environment} onChange={() => setEnvironment(!s.environment)}/>
+                <span>Environment lighting</span>
+            </label>
+            <Row label={`Environment ${s.environmentIntensity.toFixed(2)}`} title="How strongly the environment lights the model">
+                <input
+                    type="range"
+                    data-option="environment-intensity"
+                    min={ENVIRONMENT_INTENSITY_RANGE.min}
+                    max={ENVIRONMENT_INTENSITY_RANGE.max}
+                    step={ENVIRONMENT_INTENSITY_RANGE.step}
+                    value={s.environmentIntensity}
+                    disabled={!s.environment}
+                    onChange={(e) => setEnvironmentIntensity(Number(e.target.value))}
+                    className="w-28 cursor-pointer no-drag disabled:opacity-50"
+                />
+            </Row>
             <div className="flex items-center justify-between gap-2">
-                <span className="text-xs text-gray-400">The same on every renderer.</span>
+                <span className="text-xs text-gray-400">The rest is the same on every renderer.</span>
                 <button
                     type="button"
                     data-option="appearance-reset"

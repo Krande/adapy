@@ -19,9 +19,11 @@ import type { AdaPluginContext, PanelSlot, PluginModeSpec, PluginRegion, PluginS
 
 export { type PluginRegion, type PluginDockId, type PluginModeId, type PluginModeSpec, type PluginLogLevel, type PluginApiClient, type PluginTheme, type AdaPluginContext, type ActivationPredicate, type TopBarButtonSpec, type PanelSlot, type SceneColorFieldProvider, type ResultSidecarLoader, type RenderableFileProvider, type SimulationParameterFormArgs, type SimulationFormSubject, type SimulationOpenResultArgs, type SimulationProviderUi, type UrlParamHandler, type PluginSpec, type RegisteredPlugin, type StorageAssetTypeArgs, type StorageAssetUpload, type StorageAssetType } from "./registryTypes/slots";
 export { type SceneColorFieldResult, type SceneColor, type SceneOverlay, type SceneLines, type SceneElementOutline, type SceneLabel, type SceneLabelOptions, type SceneElementPaint, type SceneLayerRef, type SceneLayerLook, type SceneLineLayerSpec, type SceneLineLayer, type ScenePointLayerSpec, type ScenePointLayer, type SceneImageRect, type SceneImageSpec, type SceneImage, type SceneModelSource, type SceneModelPose, type SidecarFetcher, type SceneHandle, type SceneCleared, type SceneGroupLoad, type SceneGroupLoadOptions, type SceneBox, type SceneFace, type SceneObjectMatch } from "./registryTypes/scene";
-export { type PluginPlaybackTrack, type PluginPlaybackTrackHandle, type PluginPlaybackState, type PluginPlayback, type PluginPlaybackMarker, type PluginPlaybackMarkerEntry, type PluginPlaybackMarkerKind, type PluginPlaybackStepSize,type PluginLayerState, type PluginLayers, type PluginSimulationSubject, type PluginSimulationSubjectHandle, type PluginSimulations } from "./registryTypes/playback";
+export { type PluginPlaybackTrack, type PluginPlaybackTrackHandle, type PluginPlaybackState, type PluginPlayback, type PluginPlaybackMarker, type PluginPlaybackMarkerEntry, type PluginPlaybackMarkerKind, type PluginPlaybackStepSize, type PluginLayerState, type PluginLayers, type PluginSimulationSubject, type PluginSimulationSubjectHandle, type PluginSimulations } from "./registryTypes/playback";
 export type { ScenePick, ScenePickOptions, ScenePickSession } from "./scenePicks";
 export type { PluginModes, PluginModeActivateOptions } from "./pluginModes";
+export type { PluginAppearance, PluginAppearanceSnapshot } from "./pluginAppearance";
+export type { AppearancePresetId } from "@/state/appearanceStore";
 export type { SceneHighlight, SceneHighlightOptions, SceneHighlightRef } from "./sceneHighlights";
 export type {
   SceneContact,
@@ -532,7 +534,19 @@ export type { SelectedObjectBox } from "@/viewport/api/viewportApi";
 //            "Download all", "Import bundle…" with its preview and results. A plugin's own robot-asset
 //            tab can call the same API rather than draw another import.
 //          All additive: an older server answers 404 to the calls (a plugin asks first).
-// 1.38.0 — Precise timeline scrubbing: markers, steps and frame capture on `ctx.playback`.
+// 1.38.0 — Appearance presets and visual effects.
+//          - `ctx.appearance` (`PluginAppearance`): `applyPreset("realistic" | "default")`, `current()`
+//            ({preset, toneMapping, exposure, bloom, environment, environmentIntensity, brightness}) and
+//            `subscribe(cb)`. A preset only writes the user's Appearance settings, which stay the one
+//            source of truth and persist per user: "realistic" is the native viewport's HDR look (neutral
+//            tone mapping, a moderate bloom, the studio environment, the viewer's lights turned down) and
+//            remembers what it replaced; "default" puts that back, not the factory defaults. For a
+//            "Realistic lighting" switch in a plugin's own panel.
+//          - A model's visual effects (its GLB scene extras' "ada_effects": point lights with flicker,
+//            particle emitters, emissive ramps; `ada.visit.gltf.effects.EffectSpec` writes them) are drawn
+//            by the native viewport and follow the playback clock.
+//          All additive: an older core has no `ctx.appearance` (a plugin asks first).
+// 1.39.0 — Precise timeline scrubbing: markers, steps and frame capture on `ctx.playback`.
 //          - `setMarkers(sourceId, [{t, label, kind?, color?}])` / `clearMarkers(sourceId)`: labelled
 //            ticks on the scrub bar (`kind` "stage" | "event" | "warning" | "error"), a tooltip each,
 //            a click seeks there; `[` / `]` and the transport's buttons go to the previous / next.
@@ -551,7 +565,10 @@ export type { SelectedObjectBox } from "@/viewport/api/viewportApi";
 //          touch), wheel / pinch / drag-range zoom of the bar, the time as mm:ss.mmm (click to type
 //          one) and a capture-frame button. All additive: an older core has none of the verbs, so a
 //          plugin asks first.
-export const PLUGIN_API_VERSION = "1.38.0";
+//          Not an API change either, but seen by a simulation provider's user: the Simulations panel
+//          moves runs between batches and deletes runs or whole batches (`simulationsApi` on `/app`
+//          gains the calls; see that module).
+export const PLUGIN_API_VERSION = "1.39.0";
 
 /** What the Simulations panel writes on a run's open-result button. */
 export function openResultButtonLabel(

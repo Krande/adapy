@@ -1,10 +1,10 @@
 # The inputs src/ada/visit/rendering/resources/index.zip was built from, and its own hash. Do not edit.
 # Refresh with `pixi run wbuild` (rebuilds the bundle and rewrites this), then commit both.
 # Checked by `pixi run check-bundle-inputs` and by CI. See scripts/packaging/bundle_inputs.py.
-inputs-sha256 7b09621355736d7eb54800bd30ec359828690e88a1d9e56486f22fb0d097a5c2
-bundle-sha256 f275a535bc9ef5db88900eab1b8b513df258a6fab912b633cce3dce555e8fae2
-pin:ADACPP_BASE_IMAGE ghcr.io/krande/adacpp-wasm-base:0.44.0
-pin:ADACPP_RENDER_REF c1a7b3ab434a916e08170c634c23b9dc1974d32f
+inputs-sha256 b122ce91ccaf5864c25902eb8e337d55b3c87e455a82d3a8a31f3671ebcc3263
+bundle-sha256 3bb19083eeba9842957651a42226eab8702b0d23a396bbd07a501804af9df7dc
+pin:ADACPP_BASE_IMAGE ghcr.io/krande/adacpp-wasm-base:0.45.0
+pin:ADACPP_RENDER_REF fc135684251247c31b26800476305f2338cae68d
 src/frontend/clean.cjs 548054390de442a02ca36bd4de94f25095f10ae9
 src/frontend/embed-script.cjs 1685f9c36e13c27adc7576ed6c84970dad32cdfb
 src/frontend/package-lock.json fed97212904b916072f4e2f1963cae017e62ec58
@@ -231,7 +231,6 @@ src/frontend/src/components/convert/WorkerStatusBadge.tsx 1b5385edd529d443f296ea
 src/frontend/src/components/export/ExportDialog.tsx 028ede513a7fcfebb0cd566013005d0dd84da15b
 src/frontend/src/components/icons/AnimationControlToggle.tsx e6274a5250defe010a86ea8e82aa5a94481e21c7
 src/frontend/src/components/icons/AttributeSearchIcon.tsx e2d869145029cedede427a6a5072e298d10a4472
-src/frontend/src/components/icons/CameraIcon.tsx 26f4c21a0160b5af880ce945646fd19d3b8f72a2
 src/frontend/src/components/icons/CellBuilderIcon.tsx 15b8a739c3ba671d0c6395771b127068556c211b
 src/frontend/src/components/icons/ChevronRightIcon.tsx 9f0a74a7ae08632776879971691a9f9dfe3edace
 src/frontend/src/components/icons/ComponentIcon.tsx acbc107d7f86920f903b227e97143e3c4b7be318
@@ -326,7 +325,7 @@ src/frontend/src/components/info_box_selected_object/cellBuilderSelection/fields
 src/frontend/src/components/layers/LayersPanel.tsx 96e59808d181e66eca5527b1ff59bbc9293f2a98
 src/frontend/src/components/navButton.ts 4a595cdc4b7bb861b574641f645ba4c57242575a
 src/frontend/src/components/options/ActionButtons.tsx a5c1d88124bbee7acc39c4efc2c373816080f132
-src/frontend/src/components/options/AppearanceOptions.tsx 89666e87aff14931f66801dab4bc3ef840f9b3ad
+src/frontend/src/components/options/AppearanceOptions.tsx 86d604e710ae2a1c7216849a5407b0c1b96171ac
 src/frontend/src/components/options/CameraControlsOptions.tsx 7759f365ea805b9ffa8dab87e1b7ac4b544f61d7
 src/frontend/src/components/options/ComputeOptions.tsx 8d64e8756ea22bca73f1e90aee4b1e9eb639a7e7
 src/frontend/src/components/options/ControlsProfileOptions.tsx 16bedb5bba32620b004ff64a4059898eb7637738
@@ -345,12 +344,8 @@ src/frontend/src/components/options/ThemeOptions.tsx 8618a055be1703f11b016d67f15
 src/frontend/src/components/options/ToolbarButtonsOptions.tsx 415f7d22ca43b96f9171e400f124cf5e0af329a9
 src/frontend/src/components/options/localJobs.ts 1c42ee43514a4093f54652fe18618718e73adb0e
 src/frontend/src/components/options/useLocalJobs.ts a1ac1da32cdee0bd04062794a9214614d700f0f8
-src/frontend/src/components/playback/PlaybackTransport.tsx cf13e1b29f3fd575b831d3fe4ac34ac09cea6793
-src/frontend/src/components/playback/ScrubBar.tsx aefb2fc551a6d47cd7f8ac63faecc4f1de495667
+src/frontend/src/components/playback/PlaybackTransport.tsx 97d47404c23903a72767696c48c9eaa9d753fea9
 src/frontend/src/components/playback/clockText.ts a4e2d1e2a3702e69b88e9f6ca65ba18efa796970
-src/frontend/src/components/playback/frameCapture.ts 391838240f4079038b4f7db6bade8ac03ce5b83e
-src/frontend/src/components/playback/playbackKeys.ts d34b21ac3952625e7e7c5296c82e1fe3d0b962e1
-src/frontend/src/components/playback/timelineView.ts d23f1ad42b9a376a0c0e64c368377cf0c21fd020
 src/frontend/src/components/rest_mode/RestModeUI.tsx 2134175f7ebdd20b09ddb71a79c54cd86620cd85
 src/frontend/src/components/server_info/ServerInfoBox.tsx f5eb18aae4fb7811253a60e1847f2c9dd50c3a4f
 src/frontend/src/components/settings/BuildLine.tsx cc849baf8fe693fc6c8e5ea7c7a8e0b96c594a63
@@ -629,7 +624,7 @@ src/frontend/src/layout/coreCommands.ts 65f631cb447319e4283270247121c41c76a1d987
 src/frontend/src/layout/coreDialogs.ts a16ab64efdd5353bc5063164c5d3c69c3ed59327
 src/frontend/src/layout/corePanelIds.ts 59f244df434543492ef0cfd8722359f7bb50a2f5
 src/frontend/src/layout/corePanels.ts 05833a4b04c7a8db25554f1759e8562fe90293e8
-src/frontend/src/layout/coreShortcutTable.ts e9813142d42754e78c67d7d90bed8ca3e1c58bc6
+src/frontend/src/layout/coreShortcutTable.ts 44009e6f536a20e9e5dedbec9ae96454201a1b54
 src/frontend/src/layout/customisable.ts 7252d406eddf475b3a2c3e95d5cfc18eb933ab40
 src/frontend/src/layout/desktop/DesktopHeader.tsx 6b72ac9f600a37b1865bafac65643295afa7e72d
 src/frontend/src/layout/desktop/DesktopPageHeader.tsx b574ba66a222b228510cd61a67346503031e7326
@@ -646,12 +641,12 @@ src/frontend/src/layout/markingMenuState.ts f9b0937230ffe716a196f8aa5b65ebfaed3a
 src/frontend/src/layout/measureActions.ts 54fdd419b53fa4d27e5034110c9aa17a9263c9e2
 src/frontend/src/layout/modeRequirements.ts dd3d65fc3176ae6f1b0e1f38dbd46836b64a7bc4
 src/frontend/src/layout/modes.ts 9902ae1d149c89d97d696fa8d1a5ffda9d4ec864
-src/frontend/src/layout/optionCommands.ts 16f42710a80f121eebfb53966975eb3890c9c94e
+src/frontend/src/layout/optionCommands.ts 5ad1d4ca8cfb496f655688011ac794abfd9331a7
 src/frontend/src/layout/panel.ts 10d4a5bd410ec4ba26bd275355de9f192717902b
 src/frontend/src/layout/panelActions.ts 2e121b00e28e5c1e5a0061aa8723e2a881e5b40f
 src/frontend/src/layout/panelStates.ts 0784b5edc483e5ff3d5fefb78b43a431a5c1a255
 src/frontend/src/layout/placedElsewhere.ts d08317f5a5457309141e5c83df7530ff2a0d0db0
-src/frontend/src/layout/playbackActions.ts 9046c3c9ed32f3f152e8f89e78b98de1a56d1a0a
+src/frontend/src/layout/playbackActions.ts 6e7818678c46fbe8486ccfa3cf10f690fdae8f69
 src/frontend/src/layout/pluginPanels.ts 780245ea58f86a1c42d7707c77467bf6f9c3b423
 src/frontend/src/layout/popout.ts 4c16398d3cabfbaecf7a68f8469aed87e82c7405
 src/frontend/src/layout/presets/classic.tsx bc6feef27c316b7954a6a4be19c2344905717533
@@ -701,21 +696,22 @@ src/frontend/src/plugins/PluginSlots.tsx 518e0e08ef2be1bf3e387d40729360b91bb16f0
 src/frontend/src/plugins/UiShellHost.tsx 1be4213699aeb574741bdf396a5c0b96b27afbac
 src/frontend/src/plugins/UiShellSwitcher.tsx ec7edae19d8fab084e85de362f24bc769059b01b
 src/frontend/src/plugins/builderRefs.ts a1d15e3edd9b8f46681241723988aa3c275ba85c
-src/frontend/src/plugins/context.ts 45a9cef4413349ce19272b4f8c498bbbae47f7ac
+src/frontend/src/plugins/context.ts 09aa83ca5fd9cff2367ef864ec1cbb28d5f78e0b
 src/frontend/src/plugins/coreUiShell.ts 93f37aeabfb9476f55c277813ffdf5dc41337080
 src/frontend/src/plugins/dialogs.ts 48de39f699ddd09595ca8b286976b9f8a7fc8da7
 src/frontend/src/plugins/index.ts 1ac7ef430a237d2c8cc0067feccd52a3641782be
 src/frontend/src/plugins/loadClaims.ts b9c26679fa6faf15367737e9876a799b3e8a2045
+src/frontend/src/plugins/pluginAppearance.ts a988ae37ee80a7a58b3df1af9da5303d8a64cc52
 src/frontend/src/plugins/pluginModes.ts 4a81368ed190073f938d8d0ac51cb3a4debb711d
 src/frontend/src/plugins/pluginSimulations.ts 6864fa7fe3d17ac5a981588261bfa41b869bfe88
 src/frontend/src/plugins/pluginUiStore.ts 964311171a9ea8c32114d52b7f901abc2c24f16b
 src/frontend/src/plugins/propertyProviders.ts de118ca51a69948e9ed3fdc81be9386717b618b8
 src/frontend/src/plugins/registry.generated.css 65b0f00a8c6dd85ec7550f5e38bd7d4679f56066
 src/frontend/src/plugins/registry.generated.ts a16322ca6cc5ded5f53b9333634397e460569d5e
-src/frontend/src/plugins/registry.ts 40716f7277bb973a6b7a495591d2437a4e880ad0
-src/frontend/src/plugins/registryTypes/playback.ts ebeb75134ad427f36d71f36597e9c8d6a1c42668
+src/frontend/src/plugins/registry.ts bd059d68725d3ee17d156bb2521dfd2bb9613816
+src/frontend/src/plugins/registryTypes/playback.ts 47783e2224c107c0896febdfe26387f900f5327d
 src/frontend/src/plugins/registryTypes/scene.ts db69bdddee2bf54d990aea1bdd62a9f6577c61cf
-src/frontend/src/plugins/registryTypes/slots.ts 1533764688ca3536c325087826fbcc16e9abb724
+src/frontend/src/plugins/registryTypes/slots.ts fb6884775867c0d1aca3afa3200f17b5e89f01df
 src/frontend/src/plugins/renderableFiles.ts cc69b3f11da291a34aefd02c33eaaf8f964fad44
 src/frontend/src/plugins/sceneBox.ts 11e69ba46c7974c19a18b3f22aecf987c523118c
 src/frontend/src/plugins/sceneCamera.ts 1898f639023f275df4f53ca80c3e66e6d6095d79
@@ -723,7 +719,7 @@ src/frontend/src/plugins/sceneCleared.ts 8081436e6c713c583444228bd54cbafc0297018
 src/frontend/src/plugins/sceneContact.ts 3348f74d69005703711ef0b94792bec135784d8f
 src/frontend/src/plugins/sceneGroupLoad.ts 250e1fe5a150fad41f3b3bf745280ceb955dcfca
 src/frontend/src/plugins/sceneHighlights.ts efc4a4c86dfd3c30eb5902e8c92f6c0974134e6f
-src/frontend/src/plugins/sceneLayers.ts 4b6cb3f5815b31c4cb9c5e4f46109c6b875d1793
+src/frontend/src/plugins/sceneLayers.ts 7ec61e138902906c9cfd343c2bb45a159e4c50cd
 src/frontend/src/plugins/sceneOverlays.ts 6db6e9db16a32389ac6dd907da67594cfb1af903
 src/frontend/src/plugins/scenePicks.ts 970da8fe4e0e4495f65fc87275ef48d757c17fc1
 src/frontend/src/plugins/sceneTreeRoots.ts 19959197f5dea7a4f29b3f17e2ef0c227afa88aa
@@ -853,7 +849,7 @@ src/frontend/src/services/viewerControl/wire.ts 69a7312288214e2666e44b0fc4b63c4c
 src/frontend/src/state/AdaViewerContext.tsx 2c87bc6aeaa5990d361ab02ede7e0d80f647f77d
 src/frontend/src/state/adminPanelStore.ts b4b18388e1286b694f85ce92dd97979bf95f6147
 src/frontend/src/state/animationStore.ts 79b8eb664bbcd85f59bc8fe362ec21d1f18c2e90
-src/frontend/src/state/appearanceStore.ts 7406bbc9c3723b8b2f3d1775aab9904507368c9f
+src/frontend/src/state/appearanceStore.ts 65eb9e4acaa53fca889a765ee8345fde72518770
 src/frontend/src/state/assetBrowserCache.ts 835b601fc6ada24d0f05ea73e2256bd78821dc6a
 src/frontend/src/state/assetBrowserLoader.ts ba3fccc83a820ec8d09834c373fa26e27552bced
 src/frontend/src/state/assetBrowserStore.ts f7a2ab3faaa52c294bd13a54901296c29dd3e095
@@ -960,8 +956,7 @@ src/frontend/src/state/objectInfoStore.ts f5c9f4eb3eb082e5bbdcc4ce1d3bdff018579f
 src/frontend/src/state/optionsStore.ts f71efd7f24aaf3d65fdf045230119523c56f93ca
 src/frontend/src/state/overlayStore.ts 605a079ef3a83dc1efda165bfb1dfa22b85a0a99
 src/frontend/src/state/perfStore.ts 7d7480618bfeb8ef33daaae80c3e66b6b87d8e5b
-src/frontend/src/state/playbackClock.ts 3823ab80d068237a134f0b8a8ac3383a3eee0796
-src/frontend/src/state/playbackTimeline.ts 26a69203dab6a47b69541c6bf8a7e0cb73bd452a
+src/frontend/src/state/playbackClock.ts 1966626278d81e8720caef4cddb7112b74390673
 src/frontend/src/state/pluginColorScaleStore.ts 86f884dc7448dfd7ea75bca4cda376a660e0a06e
 src/frontend/src/state/projectionStore.ts fe395edb3898fbc3c9cee0589b23c77de8d9508d
 src/frontend/src/state/providerNamesStore.ts 6a5aab774794d4ad4c3b653639334dbdb8d47184
@@ -1370,7 +1365,7 @@ src/frontend/src/utils/storage/fileTree.ts e396aaf43ed5b8c4c5443cede44844a7be2d3
 src/frontend/src/utils/storage/modelSource.ts 394cdcd290e845dccf5572de3f872b6382cf95ac
 src/frontend/src/utils/systems/relatedActions.ts e424573bb242f853e147069c6c57267694cd6eee
 src/frontend/src/utils/systems/systems.ts 9f31a8a2461bf15587f98a4a4ac6b5c40dc2749e
-src/frontend/src/utils/takeScreenshot.ts 4514238e204c929d658303979d314e5e187b78f6
+src/frontend/src/utils/takeScreenshot.ts 39c9aff7ec398fd401040cce59e6e93d7cdc0e0a
 src/frontend/src/utils/time.ts d909e485c2e6ac78b11cc7232a279e083dce2229
 src/frontend/src/utils/tree_view/handleClickedNode.ts ae13237686bd962aab580c3c4547766f5b06334a
 src/frontend/src/utils/tree_view/modelSource.ts f3ced12682f81180b5712694210545ba56935f49
@@ -1405,7 +1400,7 @@ src/frontend/src/utils/weldSymbols.ts 5591f36077c474b3cb2fc0075b60a81f1a7c80e9
 src/frontend/src/utils/weldTypeNames.ts 44a66f31d3a44606fde7a8da308c5b2c4c3d667d
 src/frontend/src/vendor-gifenc.d.ts a1eedc5ae72023ac9cd0f251d9ab8e7cc664ffdd
 src/frontend/src/viewer-core/app.ts 2fd318c2d1337668032312e61632350c49f29d7f
-src/frontend/src/viewer-core/index.ts 53d80a66c4a28d24561a54d034041583333d0e57
+src/frontend/src/viewer-core/index.ts abac3741994f80ef085173cc5e755f88d2a4c32a
 src/frontend/src/viewer-core/layout.ts c2f25228fb67e388b3a6f65098f958d858c9e19e
 src/frontend/src/viewer-core/plugins.ts ba538bd6eeeee5a6a245836f202caf20c8677530
 src/frontend/src/viewer-core/scene.ts 04edd3c64026ce95361a940ea83f9170415f6f36
@@ -1413,7 +1408,7 @@ src/frontend/src/viewer-core/theme.ts ea22faadc2520371ef6149b97437359f63a109b5
 src/frontend/src/viewport/adacpp/adacppViewport.ts 8fdacdef15c82334c6da6a048f6bc8697d2c55ef
 src/frontend/src/viewport/adacpp/rendererModule.ts 020e4cf8dac6c39ddcc6262420a69c920e1f661a
 src/frontend/src/viewport/adacpp/sceneSync.ts cd63c4557d6b59c99047a0e978cc951530345892
-src/frontend/src/viewport/adacpp/types.ts 141c25a4427a073d712757db32f9a69939f27b9d
+src/frontend/src/viewport/adacpp/types.ts 2671c492c8b8c2581a5ed0fbea52ab771f16dcf7
 src/frontend/src/viewport/api/beforeDraw.ts 2142637dd2476e16ad78cba20673b0cb6b5d7bf5
 src/frontend/src/viewport/api/billboards.ts 2bc524634b48f951aeb35381394cc885a41d4387
 src/frontend/src/viewport/api/boxSelection.ts b78aa020c083b5a603b5a32653c56e6a0ae037ef
@@ -1436,9 +1431,9 @@ src/frontend/src/viewport/api/threeBillboards.ts ab065ae376bd97556190b0cd2b79bda
 src/frontend/src/viewport/api/threeImages.ts acb56a870d9a60c6594aef3f4207ce18b23927b8
 src/frontend/src/viewport/api/threeModelPose.ts c08ec143022b25b6f40a31ce2b20d03664cf726a
 src/frontend/src/viewport/api/threeOverlays.ts c0895d9c2e100235f9a675fb53be3529e0c77693
-src/frontend/src/viewport/api/threeViewport.ts cfef4225c11a69bc9efa802bbb204da9a5634b9d
+src/frontend/src/viewport/api/threeViewport.ts 977c482ff389573e7003192be7cc26e93a7ce996
 src/frontend/src/viewport/api/useViewportSelection.ts ecbaae7600fd2c09960278146491bf372643275a
-src/frontend/src/viewport/api/viewportApi.ts e53f2057629aa02fba7b0f7e7d24fe3505dca1c6
+src/frontend/src/viewport/api/viewportApi.ts 14a5175d3640a8787f57aac642901776f498d545
 src/frontend/src/viewport/api/viewportShortcuts.ts b8a5aed6113cbc0b2269f4a3943034d2113d7940
 src/frontend/src/viewport/api/viewportState.ts 1ae1fbda94e77d1cd6519d455ad8c43d8b9279ee
 src/frontend/src/viewport/capture.ts e443e39e747878282820a85c5ea125086eca31cf
@@ -1454,8 +1449,8 @@ src/frontend/src/viewport/native/nativeImages.ts 56dd94125cf9034aa41504da4cdcc84
 src/frontend/src/viewport/native/nativeModel.ts c2a7901fe446fa9d15d0f8787c1a65586e2aefcb
 src/frontend/src/viewport/native/nativeOverlays.ts c38f5b7af3772753b50ebf48c8b94f12f6796083
 src/frontend/src/viewport/native/nativeResultLayer.ts f7dc7a0c7afcc3b01f403c7322be7cdefa82f3c1
-src/frontend/src/viewport/native/nativeScene.ts 2cb2d7245911e448f49cd2ffc8a8fd496bf69816
-src/frontend/src/viewport/native/nativeViewportApi.ts 4ae1ba69e2f2ba000cdc5032311bc02561dd1241
+src/frontend/src/viewport/native/nativeScene.ts a0892adb30191928d989a2342b1198926f6c64c0
+src/frontend/src/viewport/native/nativeViewportApi.ts 8ef65f8fc4e331e81c6c24d559fa250606b027f6
 src/frontend/src/viewport/native/nativeViewportHistory.ts 8e0ad3ea441759375dd87b8e7cc5754138a32d50
 src/frontend/src/viewport/native/nodePlacement.ts c41034464a0fd19af49620b4317e8274b730210c
 src/frontend/src/viewport/native/orientationGizmo.ts b4de3350f4d4c3de540c559ac2143f910676487b

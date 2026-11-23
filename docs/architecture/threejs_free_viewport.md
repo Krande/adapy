@@ -502,6 +502,53 @@ no alpha of its own.
 Recolouring 10,000 objects, measured in the unit tests on stand-ins for the GPU: 1.8 ms on the
 three.js mesh, 2.2 ms on the three.js-free scene, one upload each, nothing made per object.
 
+### Visual effects (native viewport only, for now)
+
+The adacpp renderer can do more than flat CAD shading (adacpp `docs/render_effects.md`):
+
+- an HDR target with tone mapping and bloom;
+- image-based lighting, so metals look like metal;
+- point lights that can flicker;
+- emissive ramps, a part glowing and cooling down;
+- particle emitters for sparks and smoke.
+
+The viewport uses them in two ways.
+
+- **The look is the viewer's.** Tone mapping, exposure, bloom and environment lighting are
+  appearance settings (`toneMapping`, `exposure`, `bloom`, `environment`, `environmentIntensity`).
+  `nativeLook()` turns them into the renderer's `setPost` / `setEnvironment`. At their defaults
+  everything is off, and the renderer draws exactly as before and runs the same shaders.
+- **The effects are the scene's.** A model carries them as plain data in its GLB's scene extras,
+  under `ada_effects` (`ada.visit.gltf.effects.EffectSpec`, set with `RenderParams.effects`).
+  - The viewport asks the renderer to read them at load (`loadGlb({effects: true})`). Emissive
+    targets are object ids, resolved to the segments that draw them, so one object of a batched
+    mesh can glow.
+  - They are released with the model (`removeEffects`).
+  - Every effect is a pure function of one clock, `setTime`. While the model's animations are on
+    the timeline, that clock is the timeline's time, so scrubbing scrubs the effects. Otherwise it
+    is seconds since the load, and the loop keeps drawing only while `animating()` says something
+    still moves.
+
+A plugin can offer the look without settings of its own. `ctx.appearance` (plugin API 1.38.0) has
+`applyPreset("realistic" | "default")`, `current()` and `subscribe()`:
+
+- **"realistic"** writes the Appearance settings: neutral tone mapping, a moderate bloom, and the studio
+  environment, with the viewer's own lights turned down. It also remembers what it replaced.
+- **"default"** puts back what "realistic" replaced. That is the user's own settings, not the factory
+  defaults.
+
+The settings stay the one source of truth and persist per user, so a plugin's "Realistic lighting"
+switch and the Options panel always agree.
+
+![A generic effects scene on the timeline at 2.5 s: a torch travels along a strip it lays, with flicker, sparks and smoke](../screenshots/ada-studio/native-effects-t2.5.png)
+![The same at 6 s: each piece glows from the moment it is laid and cools down](../screenshots/ada-studio/native-effects-t6.png)
+![At 6 s with ACES tone mapping, bloom and environment lighting](../screenshots/ada-studio/native-effects-look.png)
+
+The three.js viewport draws none of this yet: it ignores the settings and the extras. A basic
+three.js counterpart is follow-up work. It would map tone mapping and exposure onto the renderer,
+use `RoomEnvironment` through PMREM, `PointLight`s with the same flicker noise, `emissive` with the
+ramp, `UnrealBloomPass` and a `Points` emitter.
+
 ## What the next slices have to settle
 
 These are open design points, ordered by how much of the viewer depends on them.

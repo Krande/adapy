@@ -8,6 +8,7 @@ import type { AdaViewerStores } from "@/state/AdaViewerContext";
 import type { UiShellSpec } from "../uiShells";
 import type { ModeBehaviour, ModeGroupId, ModeId } from "@/layout/modes";
 import type { PluginModes } from "../pluginModes";
+import type { PluginAppearance } from "../pluginAppearance";
 import type { SimulationProviderInfo, SimulationRun } from "@/services/api/simulations";
 import type { SceneColorFieldResult, SceneHandle, SidecarFetcher } from "./scene";
 import type { PluginLayers, PluginPlayback, PluginSimulations } from "./playback";
@@ -178,6 +179,12 @@ export interface AdaPluginContext {
    * false. Absent on an older core, so a plugin asks first (`ctx.modes?.activate(...)`).
    */
   modes?: PluginModes;
+  /**
+   * Appearance presets (1.38.0): `applyPreset("realistic" | "default")`, `current()` and `subscribe`,
+   * over the user's Appearance settings, which stay the one source of truth. Absent on an older core,
+   * so a plugin asks first (`ctx.appearance?.applyPreset(...)`).
+   */
+  appearance?: PluginAppearance;
   scope: () => string;
   /** Active theme tokens (mirrors of the `--ada-*` CSS vars) so plugin panels
    * match core's chrome in light + dark without hardcoding colours. */

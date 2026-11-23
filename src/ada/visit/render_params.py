@@ -11,6 +11,8 @@ from ada.comms.fb.fb_scene_gen import SceneDC, SceneOperationsDC
 if TYPE_CHECKING:
     import trimesh
 
+    from ada.visit.gltf.effects import EffectSpec
+
 
 @dataclass
 class FEARenderParams:
@@ -74,6 +76,10 @@ class RenderParams:
     # for raw-bytes consumers that don't need the panel.
     embed_model_stats: bool = True
     force_y_is_up: bool = False
+    # Visual effects (point lights with flicker, particle emitters, emissive ramps, and the look that
+    # goes with them) carried in the GLB's scene extras under "ada_effects": see
+    # ada.visit.gltf.effects.EffectSpec. ADA Studio's native viewport draws them.
+    effects: Optional[EffectSpec] = None
 
     def __post_init__(self):
         # ensure that if unique_id is set, it is a 32-bit integer

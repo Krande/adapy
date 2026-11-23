@@ -12,11 +12,11 @@ export interface PluginPlaybackTrack {
   // Show the moment `t` (seconds, 0..duration). Runs in the frame loop: it must not allocate.
   show: (t: number) => void;
   label?: string;
-  // (1.38.0) The times (seconds) the track has recorded samples at, e.g. a replay's frame times: the
+  // (1.39.0) The times (seconds) the track has recorded samples at, e.g. a replay's frame times: the
   // transport's frame step (←/→ with "1 frame") goes from one to the next, so a quick moment is not
   // stepped over. Left out (and no `stepSample`): a frame step is one display frame.
   samples?: ArrayLike<number>;
-  // (1.38.0) For a track that cannot list its samples: the sample after (direction 1) or before (-1)
+  // (1.39.0) For a track that cannot list its samples: the sample after (direction 1) or before (-1)
   // `t`, or null for none that way.
   stepSample?: (t: number, direction: 1 | -1) => number | null;
 }
@@ -24,15 +24,15 @@ export interface PluginPlaybackTrack {
 export interface PluginPlaybackTrackHandle {
   // The recording grew: the clock's duration is its longest track's.
   setDuration: (seconds: number) => void;
-  // (1.38.0) The sample times changed (a recording still being written); null: none.
+  // (1.39.0) The sample times changed (a recording still being written); null: none.
   setSamples: (times: ArrayLike<number> | null) => void;
   remove: () => void;
 }
 
-/** (1.38.0) What a marker stands for; the scrub bar draws its tick in the kind's colour. */
+/** (1.39.0) What a marker stands for; the scrub bar draws its tick in the kind's colour. */
 export type PluginPlaybackMarkerKind = "stage" | "event" | "warning" | "error";
 
-/** (1.38.0) A labelled moment on the scrub bar: a tick with `label` as its tooltip, a click on
+/** (1.39.0) A labelled moment on the scrub bar: a tick with `label` as its tooltip, a click on
  *  which seeks to `t`. */
 export interface PluginPlaybackMarker {
   t: number; // seconds on the clock
@@ -41,14 +41,14 @@ export interface PluginPlaybackMarker {
   color?: string; // a CSS colour, over the kind's
 }
 
-/** (1.38.0) A marker as `markers()` lists it: `source` is `<pluginId>:<sourceId>` (core's own
+/** (1.39.0) A marker as `markers()` lists it: `source` is `<pluginId>:<sourceId>` (core's own
  *  start with `core:`), `kind` always set. */
 export interface PluginPlaybackMarkerEntry extends PluginPlaybackMarker {
   source: string;
   kind: PluginPlaybackMarkerKind;
 }
 
-/** (1.38.0) A step of the transport: `"frame"` is one recorded sample (a display frame where no
+/** (1.39.0) A step of the transport: `"frame"` is one recorded sample (a display frame where no
  *  track has samples); a number is seconds. */
 export type PluginPlaybackStepSize = "frame" | number;
 
@@ -80,8 +80,8 @@ export interface PluginPlayback {
   // Turning it on goes to the end; `seek` and `pause` let go.
   followEnd: (follow: boolean) => void;
 
-  // ── 1.38.0: markers, steps, frame capture. An older core has none of these: ask first
-  //    (`typeof ctx.playback.setMarkers === "function"`, or PLUGIN_API_VERSION >= 1.38.0).
+  // ── 1.39.0: markers, steps, frame capture. An older core has none of these: ask first
+  //    (`typeof ctx.playback.setMarkers === "function"`, or PLUGIN_API_VERSION >= 1.39.0).
 
   // Put `markers` on the scrub bar for `sourceId` (unique within the plugin), in place of what
   // that source had there; an empty list clears it. They go with `ctx.scene.remove(pluginId)`.

@@ -261,15 +261,15 @@ test("the results", () => {
   assert.match(html, /data-result-ref="arm-c@1"/);
 });
 
-test("the tab has a deep link, and the API is on the plugin surface since 1.37.0", () => {
+test("the tab has a deep link, and the API is on the plugin surface from 1.37.0", () => {
   assert.deepEqual(parseTabId("robots", new Set()), { tab: "robots" });
   const atLeast = (v: string, min: string) => {
     const [a, b] = [v, min].map((s) => s.split(".").map(Number));
     for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i] > b[i];
     return true;
   };
-  assert.ok(atLeast(PLUGIN_API_VERSION, "1.37.0"), PLUGIN_API_VERSION);
-  assert.ok(atLeast(VIEWER_CORE_API_VERSION, "1.37.0"), VIEWER_CORE_API_VERSION);
+  assert.ok(atLeast(PLUGIN_API_VERSION, "1.37.0"));
+  assert.equal(VIEWER_CORE_API_VERSION, PLUGIN_API_VERSION);
   assert.match(appSource, /export \{ robotBundlesApi, saveBundle \} from "@\/services\/api\/robotBundles"/);
   assert.match(appSource, /export \{ ROBOT_BUNDLE_SCHEMA, ROBOT_BUNDLE_SUFFIX \}/);
 });
