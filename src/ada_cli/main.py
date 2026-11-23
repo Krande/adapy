@@ -128,8 +128,14 @@ def _use_viewer_bundle(name: str | None) -> None:
     if name is None:
         return
     from ada.comms.viewer_bundles import ENV_BUNDLE, resolve_viewer_bundle
+    from ada_cli import CliUsageError
 
-    resolve_viewer_bundle(name)
+    try:
+        resolve_viewer_bundle(name)
+    except ValueError as exc:
+        # An unknown bundle is a command-line mistake, so it exits 2 like any
+        # other bad flag rather than surfacing as a traceback.
+        raise CliUsageError(str(exc)) from None
     os.environ[ENV_BUNDLE] = name
 
 
@@ -758,6 +764,8 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--log-level",
+        type=str.upper,
+        choices=("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"),
         default="INFO",
         help="Logging level for commands that initialise the ada package (default INFO).",
     )

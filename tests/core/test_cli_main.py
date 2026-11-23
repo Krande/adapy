@@ -519,3 +519,30 @@ def test_superelement_is_accepted_and_typed():
 
     with pytest.raises(SystemExit):
         parse(["convert", "in.inp", "o.FEM", "--superelement", "not-a-number"])
+
+
+# ── --log-level and --viewer are validated as command-line mistakes ───────
+
+
+def test_bad_log_level_is_an_argparse_error(capsys):
+    """``choices=`` refuses the level at parse time: exit 2 with usage on stderr, not a
+    ValueError traceback from ``logger.setLevel`` once the run has started."""
+    with pytest.raises(SystemExit) as exc:
+        ada_cli.main.main(["--log-level", "chatty", "viewers"])
+
+    assert exc.value.code == 2
+    assert "invalid choice: 'CHATTY'" in capsys.readouterr().err
+
+
+def test_log_level_is_case_insensitive():
+    parse = ada_cli.main._build_parser().parse_args
+    assert parse(["--log-level", "debug", "viewers"]).log_level == "DEBUG"
+
+
+def test_unknown_viewer_bundle_exits_2(capsys):
+    """An unknown ``--viewer`` name is a command-line mistake: ``CliUsageError`` rendered in
+    argparse's own shape, exit 2 — not ``resolve_viewer_bundle``'s ValueError as a traceback."""
+    rc = ada_cli.main.main(["view", "model.step", "--viewer", "no-such-bundle"])
+
+    assert rc == 2
+    assert 'no viewer bundle "no-such-bundle"' in capsys.readouterr().err
