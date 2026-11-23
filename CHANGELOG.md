@@ -2,6 +2,15 @@
 
 
 
+## v0.169.2 (2026-11-23)
+
+### Fix
+
+* fix(simulations): non-finite floats in run records no longer 500 the run routes (#595)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`9c095a9`](https://github.com/Krande/adapy/commit/9c095a997962afbbe04ba0c24568bd2392258f25))
+
+
 ## v0.169.1 (2026-11-22)
 
 ### Chore
