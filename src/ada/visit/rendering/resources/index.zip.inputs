@@ -1,8 +1,8 @@
 # The inputs src/ada/visit/rendering/resources/index.zip was built from, and its own hash. Do not edit.
 # Refresh with `pixi run wbuild` (rebuilds the bundle and rewrites this), then commit both.
 # Checked by `pixi run check-bundle-inputs` and by CI. See scripts/packaging/bundle_inputs.py.
-inputs-sha256 d823e9f7dc010197548cd85915646817d2057034ef04e964b57600d3916f0fc2
-bundle-sha256 beca267e5a15c81f99cab5b0f4c2246e2cdb3a4f4b74d7f90b20a8f75a682423
+inputs-sha256 a87d06ac776902a8e648affe8f5042a822194cb5c156b1671d996c358d5376ff
+bundle-sha256 fc87a8a5dc364cb80a451cccaa55123e3dac4e25f1f65930a5f32289e1df38e5
 pin:ADACPP_BASE_IMAGE ghcr.io/krande/adacpp-wasm-base:0.44.0
 pin:ADACPP_RENDER_REF c1a7b3ab434a916e08170c634c23b9dc1974d32f
 src/frontend/clean.cjs 548054390de442a02ca36bd4de94f25095f10ae9
@@ -367,10 +367,11 @@ src/frontend/src/components/simulation/simulationControls/tabs.tsx d74d060abb684
 src/frontend/src/components/simulation/simulationControls/types.ts c08a5664bdda60ca12f24bcd9910117f8a8406af
 src/frontend/src/components/simulation/simulationControls/useFeaFieldView.ts 97ec5ecd80029ef994dc276d187d4201c4f2109e
 src/frontend/src/components/simulation/simulationControls/useSimulationTabs.ts 2d5fa3c00e0939c4a11a5ca2129564575269d03e
+src/frontend/src/components/simulations/RunAdmin.tsx 5883991379dc4230f9d9bda2d03e30431f0f8fd6
 src/frontend/src/components/simulations/RunConsole.tsx 9398d0654d142f9d63a7bdd210ef788cab065db7
 src/frontend/src/components/simulations/SchemaForm.tsx ef720cb46d1226d2a281efaf340b56f6c8b870bd
 src/frontend/src/components/simulations/SimulationsFrame.tsx 1e58fc53e96bfe379c343f01e3ca0631ae6c685c
-src/frontend/src/components/simulations/SimulationsPanel.tsx 9d95938672e02afd408e4732b35775e95b08b24b
+src/frontend/src/components/simulations/SimulationsPanel.tsx 49f4bee53e2f6023c174ad6763a274d7d671a3ab
 src/frontend/src/components/storage/FieldPickerModal.tsx 06b690cb446b535a55395cd1130bf6aecb5d3a6e
 src/frontend/src/components/storage/GitHistoryPanel.tsx 5dd173dd9870939b23b2707d41c40c873857979a
 src/frontend/src/components/storage/StorageBrowser.tsx b1bb022105c5361e766a175648cd2a6f16ce506c
@@ -762,7 +763,7 @@ src/frontend/src/services/api/robotBundles.ts dfbfd042a2f673dbebd2978bd2e0d2fab1
 src/frontend/src/services/api/searchExport.ts d71890bb1b227535348c879e8a01e5ec848a8588
 src/frontend/src/services/api/selectionExport.ts 8e3350e73fbdefe1136f8e61e78219f91b1cda16
 src/frontend/src/services/api/settings.ts a784b6d64a95c50d41c14b56a3eae13e38bc987f
-src/frontend/src/services/api/simulations.ts 7d74ae1df3b027ee365796584f99efb068b71398
+src/frontend/src/services/api/simulations.ts af2056c4ee66a28ad0410d3fa93acc2869e7dd47
 src/frontend/src/services/api/sourceNodes.ts e5c9d27a62da0fef8a8e79fe40d75e1f8fd79c4f
 src/frontend/src/services/api/systemTemplates.ts 06cd38e1c67e01d67b8811d6a127381ae4f15be1
 src/frontend/src/services/api/types/audit.ts 73ead3fcabb19707060a2654fee17b00be0dfdc4
@@ -833,6 +834,7 @@ src/frontend/src/services/simulations/activityFeed.ts a744288f87881747c3b87a27af
 src/frontend/src/services/simulations/batchRows.ts 18c105107f4ca88e4970a804894258cea39f0c7b
 src/frontend/src/services/simulations/modeScope.ts 42993152b762a44b42c65b8bd706421ddfa2800a
 src/frontend/src/services/simulations/runRow.ts 659c4cb41a845518f24705be2322b83df597e6ab
+src/frontend/src/services/simulations/runSelection.ts bcc5b5ad6cf9400b5d1f461b15f36e58dc7e871b
 src/frontend/src/services/simulations/schemaForm.ts a6dfb0fbe08e0034e688ed717660c4287dce17ff
 src/frontend/src/services/sweepTracking.ts a46c50184a2822613bb0e3fa718893de3520adea
 src/frontend/src/services/transport.ts 3073a48c1dc02347859f8a3bccdcb184697e799f
@@ -975,7 +977,7 @@ src/frontend/src/state/searchWindowStore.ts e308f1dc3819c402526e3efab310ffd9aead
 src/frontend/src/state/sectionStore.ts d08deebd3fd2912429a9fc7c9ca51eb0e0b2adae
 src/frontend/src/state/serverInfoStore.ts 80a22fd44f6fb428df4281d580dacd2daa836d5c
 src/frontend/src/state/simPanelStore.ts e08fd30f009d50dcf0797a88ff45553854bcf066
-src/frontend/src/state/simulationStore.ts 9f7d81ea1943e79c8b3823d4674fd8070eeaed19
+src/frontend/src/state/simulationStore.ts 14ee7dd6346e5b68560f8036f368bccce3365807
 src/frontend/src/state/simulationSubjects.ts 29bd13a3c942787d9748f043357b3463d9c38730
 src/frontend/src/state/sourceExtensions.ts 82d75b490e9e162d0af0ef449eef25e4081a3489
 src/frontend/src/state/spaceMouseStore.ts 9aeeab2799a648e88188ca09bf71fae71f11b41c
