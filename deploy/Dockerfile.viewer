@@ -51,7 +51,7 @@
 # and the package in the conda envs are the same adacpp release. They drifted
 # once already (this said 0.25.3 while pixi.toml had moved to 0.29), which is
 # survivable only until the browser needs a verb the older base lacks.
-ARG ADACPP_BASE_IMAGE=ghcr.io/krande/adacpp-wasm-base:0.44.0
+ARG ADACPP_BASE_IMAGE=ghcr.io/krande/adacpp-wasm-base:0.45.0
 FROM ${ADACPP_BASE_IMAGE} AS adacpp-wheel
 
 # Stage 0b: build the pure-python adapy wheel for pyodide. The browser
@@ -72,7 +72,7 @@ RUN python scripts/packaging/build_pyodide_adapy_wheel.py /out
 # here from adacpp source at a pinned commit (about a minute: no OCCT, no pyodide). The viewer loads
 # /wasm/adacpp_render.js only when the renderer is selected and falls back to three.js without it.
 FROM emscripten/emsdk:6.0.11 AS adacpp-render
-ARG ADACPP_RENDER_REF=c1a7b3ab434a916e08170c634c23b9dc1974d32f
+ARG ADACPP_RENDER_REF=fc135684251247c31b26800476305f2338cae68d
 ARG ADACPP_GIT_URL=https://github.com/Krande/adacpp.git
 RUN git init -q /src && cd /src && \
     git remote add origin "$ADACPP_GIT_URL" && \
