@@ -130,6 +130,9 @@ export function createNativeViewportApi(scene: NativeScene): ViewportApi {
         modelAnimation: () => scene.modelAnimation,
         // A node is the instances that draw it and what hangs on it (NativeScene.modelNodes).
         modelNodes: (sourceName, names) => scene.modelNodes(sourceName, names),
+        // Lights, emitters and emissive ramps applied from outside a model's file (NativeScene.applyEffects).
+        drawsEffects: () => scene.drawsEffects,
+        applyEffects: (spec, options) => scene.applyEffects(spec, options),
         setOrbitPivot: (point) => scene.setOrbitPivot(point),
         fitBox: (min, max) => scene.fitBox([min[0], min[1], min[2], max[0], max[1], max[2]]),
         // Box selection, decided on each object's box (./nativeBoxSelection.ts says where that is coarser).
