@@ -154,8 +154,9 @@ export interface ViewportApi {
      *  the loaded models and any result mesh, with their selection and hidden state. The scene's
      *  bookkeeping (tree, loaded sources, FEA session) is `clearScene`'s, which calls this. */
     clearModels(): void;
-    /** Save a picture of the view as it is now (a PNG download). */
-    saveScreenshot(): void;
+    /** Save a picture of the view as it is now (a PNG download), as `fileName` (default
+     *  "screenshot.png"). */
+    saveScreenshot(fileName?: string): void;
 
     // The camera.
     /** Where the camera is and what it looks at, for input that moves it directly (a 3D mouse).

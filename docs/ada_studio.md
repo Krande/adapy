@@ -185,6 +185,37 @@ Right-click a tool to remove it. The button at the foot of the rail (also **Wind
 tool rail…**) adds any command, reorders the tools, adds separators and resets the rail to
 the default. Your rail is saved with your layout.
 
+## Playback timeline
+
+A replay or an animation shows a transport at the foot of the view, with play, a scrub bar and
+the time. It is built for stopping at a precise moment, such as the instant of an impact:
+
+- **Steps.** The **|◀** and **▶|** buttons beside play, and **←** / **→**, step back and forward by
+  the size chosen next to them: **1 frame**, 10 ms, 100 ms, 1 s or 10 s. A frame is the next
+  sample the replay recorded, so a quick event between two display frames is not skipped. A
+  source with no recorded samples steps by one display frame. **Shift** makes a step ten times
+  longer and **Alt** makes it ten times shorter. A step pauses playback.
+- **Fine scrubbing.** Hold **Shift** while you drag the handle, or pull the pointer up or down off
+  the bar, and the drag slows to 1/10. Pull further, or do both, and it slows to 1/100. On a
+  touch screen, press and hold before you drag. The speed shows above the handle.
+- **Zoom.** Scroll or pinch over the bar to zoom in around the pointer. You can also drag along
+  the thin strip above the bar to zoom into that range. The handle then covers the zoomed range
+  at full resolution, and the window moves along as playback leaves it. **⤢** shows the whole
+  timeline again.
+- **Time.** The time reads `mm:ss.mmm`. Click it to type a time to go to, for example `1:23.456`,
+  `83.456`, `1500ms`, or `+0.1` / `-250ms` relative to now.
+- **Markers.** A replay can put labelled markers on the bar, such as mission stages, weld passes,
+  warnings or errors. Hover over a tick to see its label, and click it to go there. **[** and
+  **]** (and the ◆ buttons) go to the previous and next marker.
+- **Capture frame.** The camera button pauses and saves the view at the exact time on screen as
+  `frame_t<mm>m<ss.mmm>s.png`, from either viewport.
+
+![The playback transport: step buttons, step size, the time to the millisecond, markers on the bar, and the same timeline zoomed into 2.5 s](screenshots/ada-studio/playback-transport-precise.png)
+
+The keys work while the transport is on screen. A text field, tree or list with focus keeps its
+own arrow keys, and a gallery walk keeps its plain ← / →. While the transport is shown, **Shift+←** / **→** step through the timeline. At other times they
+select the tree's siblings. The shortcuts dialog lists all of these keys under **Playback**.
+
 ## What else is in it
 
 - **Assets and sources:** project trees that providers publish into a scope, with a

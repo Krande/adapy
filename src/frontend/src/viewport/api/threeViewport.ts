@@ -275,7 +275,7 @@ export function createThreeViewport(h: ThreeViewportHandles): ViewportApi {
         // Loaded on use: the teardown frees GPU buffers through the mesh picker, whose worker this
         // module must not pull in at import.
         clearModels: () => void import("@/utils/scene/clearThreeSceneModels").then((m) => m.clearThreeSceneModels()),
-        saveScreenshot: () => void import("@/utils/takeScreenshot").then((m) => m.takeScreenshot()),
+        saveScreenshot: (fileName) => void import("@/utils/takeScreenshot").then((m) => m.takeScreenshot(fileName)),
         modelBounds: () => {
             const box = useModelState.getState().boundingBox;
             return box && !box.isEmpty() ? [box.min.x, box.min.y, box.min.z, box.max.x, box.max.y, box.max.z] : null;
