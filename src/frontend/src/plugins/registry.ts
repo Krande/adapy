@@ -565,9 +565,10 @@ export type { SelectedObjectBox } from "@/viewport/api/viewportApi";
 //          touch), wheel / pinch / drag-range zoom of the bar, the time as mm:ss.mmm (click to type
 //          one) and a capture-frame button. All additive: an older core has none of the verbs, so a
 //          plugin asks first.
-//          Not an API change either, but seen by a simulation provider's user: the Simulations panel
-//          moves runs between batches and deletes runs or whole batches (`simulationsApi` on `/app`
-//          gains the calls; see that module).
+//          Also additive, for simulation runs: the Simulations panel moves runs between batches and
+//          deletes runs or whole batches, and `simulationsApi` (@/viewer-core/app) has the calls:
+//          `moveRunsToBatch`, `removeRunsFromBatch`, `deleteRuns` (with `{dry}`), `deleteRun`,
+//          `deleteBatch`. An older server answers 404 to them (a plugin asks first).
 export const PLUGIN_API_VERSION = "1.39.0";
 
 /** What the Simulations panel writes on a run's open-result button. */
