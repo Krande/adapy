@@ -43,11 +43,13 @@ from .interfaces import (
     simulation_domain,
 )
 from .registry import (
+    declare_storage_read_prefixes,
     get_simulation_provider,
     register_simulation_provider,
     reset_simulation_providers,
     simulation_provider_specs,
     simulation_providers,
+    storage_read_prefixes,
     unregister_simulation_provider,
 )
 from .schema import ParameterError, validate_parameters
@@ -73,8 +75,10 @@ __all__ = [
     "SimulationContext",
     "SimulationProvider",
     "SimulationResult",
+    "declare_storage_read_prefixes",
     "get_simulation_provider",
     "provider_capability",
+    "storage_read_prefixes",
     "register_simulation_provider",
     "reset_simulation_providers",
     "simulation_provider_specs",

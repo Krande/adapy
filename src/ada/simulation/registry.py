@@ -24,11 +24,13 @@ from .interfaces import (
 logger = logging.getLogger(__name__)
 
 __all__ = [
+    "declare_storage_read_prefixes",
     "get_simulation_provider",
     "register_simulation_provider",
     "reset_simulation_providers",
     "simulation_provider_specs",
     "simulation_providers",
+    "storage_read_prefixes",
     "unregister_simulation_provider",
 ]
 
@@ -114,7 +116,45 @@ def simulation_provider_specs() -> list[dict[str, Any]]:
     return out
 
 
+#: provider id -> storage key prefixes its runs read beside their own inputs (declared in code).
+_READ_PREFIXES: dict[str, tuple[str, ...]] = {}
+
+
+def declare_storage_read_prefixes(provider_id: str, prefixes) -> None:
+    """Say which storage prefixes of a run's scope a provider's runs read beside the run's own
+    inputs (shared assets such as ``assets/robots/``).
+
+    It matters to a remote worker that holds no storage keys: its job grant lets it read the run's
+    record, inputs and cancel marker, and these prefixes, nothing else (``ada.comms.rest.job_grants``).
+    The API computes that, so the declaration has to be made in the API process too: in the
+    provider's module (which the API imports when the plugin is installed there), or in a small
+    module of its own the API preloads. A deployment can add prefixes without code
+    (``ADA_VIEWER_WORKER_GRANT_READ_PREFIXES``). A provider object may instead carry a
+    ``storage_read_prefixes`` attribute; both are read. Replaces an earlier declaration."""
+    if not isinstance(provider_id, str) or not PROVIDER_ID_PATTERN.match(provider_id):
+        raise ValueError(f"not a simulation provider id: {provider_id!r}")
+    if isinstance(prefixes, str):
+        prefixes = [prefixes]
+    cleaned = tuple(str(p) for p in prefixes if isinstance(p, str) and p.strip())
+    with _LOCK:
+        _READ_PREFIXES[provider_id] = cleaned
+
+
+def storage_read_prefixes(provider_id: str) -> tuple[str, ...]:
+    """The read prefixes declared for ``provider_id`` (``declare_storage_read_prefixes``), and those
+    of a registered provider's ``storage_read_prefixes`` attribute. Unchecked: the caller that
+    grants by them checks each."""
+    with _LOCK:
+        declared = _READ_PREFIXES.get(provider_id, ())
+        provider = _PROVIDERS.get(provider_id)
+    own = getattr(provider, "storage_read_prefixes", ()) if provider is not None else ()
+    if isinstance(own, str):
+        own = (own,)
+    return tuple(dict.fromkeys([*declared, *(p for p in (own or ()) if isinstance(p, str))]))
+
+
 def reset_simulation_providers() -> None:
     """Clear the registry -- for tests only."""
     with _LOCK:
         _PROVIDERS.clear()
+        _READ_PREFIXES.clear()

@@ -448,6 +448,9 @@ class JobQueue:
             ctx = ssl.create_default_context()
             ctx.load_verify_locations(cafile=cfg.tls_ca)
             opts["tls"] = ctx
+        if cfg.inbox_prefix:
+            # A remote worker's private reply inboxes (QueueConfig.inbox_prefix).
+            opts["inbox_prefix"] = cfg.inbox_prefix
         return opts
 
     async def connect(self, manage: bool = True, name: str | None = None) -> None:
@@ -738,6 +741,42 @@ class JobQueue:
             self._js = None
             self._kv = None
             self._registry_kv = None
+
+    # --- plain request/reply (job grants) -----------------------------
+
+    async def request(self, subject: str, payload: bytes, timeout: float = 10.0) -> bytes:
+        """One NATS request on this connection; the reply's body. A remote worker asks for its job
+        grant this way (``ada.comms.rest.remote_worker``); the reply comes back on the connection's
+        inbox prefix (``QueueConfig.inbox_prefix``). Raises nats-py's errors as they are
+        (``NoRespondersError``, ``TimeoutError``) so a caller can tell them apart."""
+        if self._nc is None:
+            raise QueueDisabled("not connected")
+        msg = await self._nc.request(subject, payload, timeout=timeout)
+        return msg.data
+
+    async def subscribe(self, subject: str, *, queue: str, cb):
+        """A core-NATS subscription in a queue group (the API's grant responder). Returns it, for
+        ``unsubscribe()``."""
+        if self._nc is None:
+            raise QueueDisabled("not connected")
+        return await self._nc.subscribe(subject, queue=queue, cb=cb)
+
+    async def ensure_bucket(self, bucket: str, *, ttl_s: float | None = None):
+        """A KV bucket the API owns, created when missing (``manage=True`` connections only). The
+        job-grant bindings live in one, apart from the jobs bucket every worker may write."""
+        if self._js is None:
+            raise QueueDisabled("not connected")
+        try:
+            return await self._js.key_value(bucket)
+        except (BucketNotFoundError, NotFoundError):
+            pass
+        kwargs = {"bucket": bucket, "history": 1}
+        if ttl_s:
+            kwargs["ttl"] = ttl_s
+        try:
+            return await self._js.create_key_value(**kwargs)
+        except BadRequestError:
+            return await self._js.key_value(bucket)
 
     async def purge_jobs(self, job_ids) -> int:
         """Delete still-queued work-queue messages whose body (a job_id) is in

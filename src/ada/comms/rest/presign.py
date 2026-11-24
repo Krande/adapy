@@ -12,6 +12,10 @@ obstore minted (AWS Signature Version 4, query form) with the extra parameters a
 except the signature is taken from obstore's URL: host, path encoding, credential scope, date,
 expiry and any session token; only the secret key is needed on top. Re-signing obstore's URL
 with no extra parameters reproduces obstore's signature exactly, which the tests pin.
+
+The same re-signing, with another HTTP method, makes S3's multipart-upload calls
+(``uploads``, ``uploadId``, ``partNumber``): a job grant's upload of a large file goes to the
+store a part at a time without the worker ever holding a storage key (``ada.comms.rest.multipart``).
 """
 
 from __future__ import annotations
@@ -89,12 +93,30 @@ def _hmac(key: bytes, msg: str) -> bytes:
     return hmac.new(key, msg.encode("utf-8"), hashlib.sha256).digest()
 
 
-def resign_with_params(url: str, secret_access_key: str, params: Mapping[str, str]) -> str:
+#: The query parameters of S3's multipart-upload calls. ``uploads`` (CreateMultipartUpload) has
+#: no value; ``uploadId`` names the upload (UploadPart, ListParts, CompleteMultipartUpload,
+#: AbortMultipartUpload) and ``partNumber`` the part (UploadPart).
+MULTIPART_PARAMS = frozenset({"uploads", "uploadId", "partNumber", "max-parts", "part-number-marker"})
+
+_METHODS = frozenset({"GET", "PUT", "POST", "DELETE", "HEAD"})
+
+
+def resign_with_params(url: str, secret_access_key: str, params: Mapping[str, str], *, method: str = "GET") -> str:
     """Re-sign an obstore-presigned S3 URL with ``params`` added to its query string.
 
     The URL must be one obstore's ``sign`` returned for this store (SigV4 query
     authentication, ``host`` the only signed header, unsigned payload). Its existing
-    ``X-Amz-*`` parameters are kept as they are; ``X-Amz-Signature`` is recomputed."""
+    ``X-Amz-*`` parameters are kept as they are; ``X-Amz-Signature`` is recomputed.
+
+    ``method`` is the HTTP method the URL is signed for, which is part of what SigV4 signs. It
+    lets one obstore URL become any request on the same object: a ``PUT`` with ``uploadId`` and
+    ``partNumber`` is S3's UploadPart, a ``POST`` with ``uploads`` (empty) its
+    CreateMultipartUpload -- the multipart calls obstore's ``sign`` cannot make, as it takes no
+    query parameters (``MULTIPART_PARAMS``). Whatever the method, the payload stays unsigned
+    (``UNSIGNED-PAYLOAD``), so a part's bytes or a completion body need no hash in the URL."""
+    method = method.upper()
+    if method not in _METHODS:
+        raise ValueError(f"not an HTTP method S3 signs here: {method!r}")
     parts = urlsplit(url)
     query = [(k, v) for k, v in parse_qsl(parts.query, keep_blank_values=True) if k != "X-Amz-Signature"]
     fields = dict(query)
@@ -110,7 +132,7 @@ def resign_with_params(url: str, secret_access_key: str, params: Mapping[str, st
     canonical_query = "&".join(f"{_uri_encode(k)}={_uri_encode(v)}" for k, v in sorted(query))
     canonical_request = "\n".join(
         [
-            "GET",
+            method,
             parts.path or "/",
             canonical_query,
             f"host:{parts.netloc}",

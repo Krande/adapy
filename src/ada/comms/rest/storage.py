@@ -383,6 +383,13 @@ class Storage:
 
     @classmethod
     def _build(cls, storage_kind: str, s3: S3Config | None, local: LocalConfig | None) -> "Storage":
+        if storage_kind == "grants":
+            # A worker with no storage keys reads and writes per job, through the API
+            # (ada.comms.rest.remote_worker); there is no store for this process to open.
+            raise ValueError(
+                "ADA_VIEWER_STORAGE_KIND=grants is a remote worker's storage kind: it holds no store of its own. "
+                "The API needs 's3' or 'local'."
+            )
         if storage_kind == "s3":
             assert s3 is not None
             cfg = s3
@@ -943,6 +950,49 @@ class Storage:
                 raise ValueError(f"not an S3 response-header override: {header!r}")
             params[f"response-{name}"] = value
         return resign_with_params(url, self._presign_secret, params)
+
+    @property
+    def can_sign_requests(self) -> bool:
+        """Whether :meth:`sign_request` works: an HTTP object store whose secret this process
+        holds (a store with credentials from the environment can presign plain GETs and PUTs,
+        but not re-sign with query parameters)."""
+        return self.supports_presigned_uploads and bool(self._presign_secret)
+
+    async def sign_request(
+        self,
+        scope: Scope,
+        key: str,
+        method: str,
+        params: dict[str, str],
+        *,
+        expires_in_seconds: int = 900,
+        internal: bool = False,
+    ) -> str:
+        """A presigned URL for any S3 request on ``key``: ``method`` with ``params`` in its query
+        (``presign.resign_with_params``). The multipart calls obstore cannot sign: UploadPart
+        (``PUT``, ``partNumber`` + ``uploadId``), CreateMultipartUpload (``POST``, ``uploads``),
+        ListParts, CompleteMultipartUpload and AbortMultipartUpload. ``internal=True`` signs for
+        the endpoint this process reaches the store on, for calls the API makes itself; the
+        default is the public one, for a URL handed to someone else."""
+        if not self.can_sign_requests:
+            raise PresignOverridesUnavailable("this store cannot sign requests with query parameters")
+        url = await obs.sign_async(
+            self._store if internal else self._presign_store,
+            "GET",
+            self._full_key(scope, key),
+            timedelta(seconds=expires_in_seconds),
+        )
+        return resign_with_params(url, self._presign_secret, params, method=method)
+
+    async def iter_raw(self, scope: Scope, key: str) -> AsyncIterator[bytes]:
+        """The object's stored bytes, chunk by chunk, gzip at rest NOT undone. FileNotFoundError
+        when it is missing."""
+        try:
+            result = await self._store.get_async(self._full_key(scope, key))
+        except _ObstoreNotFound as exc:
+            raise FileNotFoundError(f"object not found: {key}") from exc
+        async for chunk in result.stream():
+            yield bytes(chunk)
 
     async def head(self, scope: Scope, key: str) -> dict | None:
         """Return ``{size, last_modified, e_tag}`` for a key, or None if

@@ -76,6 +76,23 @@ async def _run_simulation(
     job_id = job.job_id
     opts = job.conversion_options or {}
     provider_id, run_id = opts.get("provider_id"), opts.get("run_id")
+    loop = asyncio.get_running_loop()
+    # A worker with no storage keys (ADA_VIEWER_STORAGE_KIND=grants) reads and writes this run
+    # through a job grant (ada.comms.rest.remote_worker); every other worker through its Storage.
+    grant = None
+
+    async def read_record() -> bytes:
+        if grant is not None:
+            return await loop.run_in_executor(None, grant.storage.get_bytes, job.derived_key)
+        return await storage.get_bytes(scope, job.derived_key)
+
+    async def write_record(data: bytes) -> None:
+        if grant is not None:
+            await loop.run_in_executor(
+                None, lambda: grant.storage.put_bytes(job.derived_key, data, content_encoding="gzip")
+            )
+            return
+        await storage.put_bytes(scope, job.derived_key, data, content_encoding="gzip")
 
     async def fail(message: str, record: dict | None = None) -> None:
         # The record is what outlives the job, so a failure is written there too when there is
@@ -84,7 +101,7 @@ async def _run_simulation(
             try:
                 failed = {**record, "status": STATUS_ERROR, "stage": "error", "error": message}
                 failed["finished_at"] = utc_now()
-                await storage.put_bytes(scope, job.derived_key, dump_run_record(failed), content_encoding="gzip")
+                await write_record(dump_run_record(failed))
             except Exception:
                 logger.exception("worker: could not record the failure of simulation run %s", run_id)
         await queue.update(job_id, status=JOB_STATUS_ERROR, stage="simulation", error=message)
@@ -94,8 +111,85 @@ async def _run_simulation(
         await fail("conversion_options.provider_id and run_id are required for a simulation_run")
         return
 
+    if _is_grant_mode(storage):
+        from ada.simulation.interfaces import provider_capability
+
+        from ..queue import capability_token
+        from ..remote_worker import GrantRefusedError, GrantUnavailableError
+
+        deadline = time.monotonic() + storage.claim_wait_s
+        while grant is None:
+            try:
+                grant = await storage.open_job(
+                    queue.request,
+                    job_id=job_id,
+                    capability=capability_token(provider_capability(str(provider_id))),
+                    loop=loop,
+                    run_id=str(run_id),
+                )
+            except GrantRefusedError as exc:
+                if exc.code == "job_finished":
+                    logger.info("worker: simulation run %s has ended; not run again", run_id)
+                    return
+                if exc.code == "claimed_by_another_worker":
+                    # A redelivery while another worker holds the run. If that worker stopped, its
+                    # binding lapses one grant lifetime after it last asked and this worker takes the
+                    # run over; if it is alive, the run ends there and this answers job_finished.
+                    if time.monotonic() < deadline:
+                        await asyncio.sleep(storage.claim_poll_s)
+                        continue
+                    logger.info("worker: simulation run %s is held by another worker; left to it", run_id)
+                    return
+                await fail(f"simulation run {run_id}: {exc}")
+                return
+            except GrantUnavailableError as exc:
+                await fail(f"simulation run {run_id}: no job grant: {exc}")
+                return
     try:
-        record = parse_run_record(await storage.get_bytes(scope, job.derived_key))
+        await _run_granted(
+            job=job,
+            scope=scope,
+            storage=storage,
+            queue=queue,
+            db_pool=db_pool,
+            started_at=started_at,
+            loop=loop,
+            provider_id=str(provider_id),
+            run_id=str(run_id),
+            sync_storage=grant.storage if grant is not None else _SyncStorageFacade(storage, scope, loop),
+            read_record=read_record,
+            fail=fail,
+        )
+    finally:
+        if grant is not None:
+            grant.close()
+
+
+def _is_grant_mode(storage) -> bool:
+    from ..remote_worker import GrantModeStorage
+
+    return isinstance(storage, GrantModeStorage)
+
+
+async def _run_granted(
+    *,
+    job: Job,
+    scope,
+    storage,
+    queue: "JobQueue",
+    db_pool,
+    started_at: float,
+    loop,
+    provider_id: str,
+    run_id: str,
+    sync_storage,
+    read_record,
+    fail,
+) -> None:
+    """The run itself, through ``sync_storage`` (the worker's Storage facade, or a job grant's)."""
+    job_id = job.job_id
+    try:
+        record = parse_run_record(await read_record())
     except (FileNotFoundError, KeyError):
         await fail(f"simulation run {run_id} has no run record at {job.derived_key}")
         return
@@ -117,8 +211,6 @@ async def _run_simulation(
         return
 
     record["job_id"] = job_id
-    loop = asyncio.get_running_loop()
-    sync_storage = _SyncStorageFacade(storage, scope, loop)
     # Every status write of this job goes through one lock: ``queue.update`` reads the job, sets
     # fields and writes it back, so a progress tick and an artefact update running interleaved
     # would each write the other's field back to its old value.

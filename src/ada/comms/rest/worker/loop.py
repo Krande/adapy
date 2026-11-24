@@ -150,9 +150,18 @@ async def _run() -> None:
     configure_logger()  # attach the stdout StreamHandler (no-op if already attached)
     logger.setLevel(os.environ.get("ADA_WORKER_LOG_LEVEL", "INFO").upper())
 
-    settings = load_settings()
+    settings = load_settings(role="worker")
     if settings.queue.url is None:
         raise SystemExit("ADA_VIEWER_NATS_URL not set; nothing for the worker to do")
+    if settings.storage_kind == "grants" and not settings.queue.inbox_prefix:
+        # A worker without storage keys asks for job grants, and the reply must land on an inbox
+        # only its key may read (QueueConfig.inbox_prefix); its nats.conf entry allows this one.
+        import dataclasses
+
+        settings = dataclasses.replace(
+            settings,
+            queue=dataclasses.replace(settings.queue, inbox_prefix=f"_INBOX_{settings.grant_storage.worker_name}"),
+        )
 
     # The capabilities are said in full ONCE, here, and summarised: one pool per
     # collection makes this list long, and the registered/subscribing lines below
@@ -160,7 +169,18 @@ async def _run() -> None:
     requested = [c.strip() for c in os.environ.get("ADA_WORKER_CAPABILITIES", "base").split(",") if c.strip()]
     logger.info("worker: booting, capabilities %s", summarise_names(requested))
     logger.debug("worker: requested capabilities %s", requested)
-    storage = Storage.from_settings(settings)
+    if settings.storage_kind == "grants":
+        from ..remote_worker import GrantModeStorage
+
+        storage = GrantModeStorage(settings.grant_storage)
+        logger.info(
+            "worker: no storage keys; job storage by grant from %s as worker %s (inbox %s)",
+            settings.grant_storage.api_url,
+            settings.grant_storage.worker_name,
+            settings.queue.inbox_prefix,
+        )
+    else:
+        storage = Storage.from_settings(settings)
     state._WORKER_STORAGE = storage
     queue = JobQueue(settings.queue)
     logger.info("worker: connecting to NATS subject=%s", settings.queue.subject)
