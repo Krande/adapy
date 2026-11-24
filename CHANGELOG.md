@@ -2,6 +2,15 @@
 
 
 
+## v0.173.0 (2026-11-24)
+
+### Feature
+
+* feat(workers): job grants: remote workers get per-job storage access over NATS instead of storage keys (#603)
+
+Co-authored-by: Claude Opus 5.5 &lt;noreply@anthropic.com&gt; ([`06b5c0d`](https://github.com/Krande/adapy/commit/06b5c0d78ef31362a443e1336a932a22777906a8))
+
+
 ## v0.172.1 (2026-11-23)
 
 ### Fix
