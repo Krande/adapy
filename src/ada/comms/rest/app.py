@@ -14,6 +14,7 @@ from . import background_tasks
 from . import db as db_module
 from . import local_shutdown
 from .config import Settings, load_settings
+from .job_grants import GrantService, KvGrantBindings, MemoryGrantBindings
 from .job_transport import build_transport
 from .plugin_registry import load_local_plugins
 from .queue import JobQueue
@@ -54,6 +55,7 @@ from .routes.element_links import router as element_links_router
 from .routes.equipment_types import router as equipment_types_router
 from .routes.export_selection import router as export_selection_router
 from .routes.fea import router as fea_router
+from .routes.job_storage import router as job_storage_router
 from .routes.local_jobs import apply_launch_limits
 from .routes.local_jobs import router as local_jobs_router
 from .routes.plugin_jobs import router as plugin_jobs_router
@@ -72,7 +74,12 @@ from .routes.storage import router as storage_router
 from .routes.system_templates import router as system_templates_router
 from .routes.viewer_control import router as viewer_control_router
 from .routes.viewer_control import ws_router as viewer_control_ws_router
+from .routes.worker_bootstrap import router as worker_bootstrap_router
 from .storage import Storage
+
+#: How long a job -> worker binding is kept. Longer than any job runs; a binding outliving its job
+#: holds nothing (a finished job gets no grant), it only keeps the audit trail's answer.
+_GRANT_BINDING_TTL_S = 7 * 86400
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -117,6 +124,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 await queue.start_mirrors()
             except Exception as exc:
                 logger.warning("queue connect failed (%s); convert endpoints will return 503", exc)
+        # Job grants for remote workers (job_grants.py): the responder joins a queue group on this
+        # connection and the bindings get a bucket of their own. Only with a secret AND a queue --
+        # a remote worker reaches the API's grants through the bus or not at all.
+        app.state.job_grants = None
+        if settings.worker_grants.enabled:
+            if not queue.enabled:
+                logger.warning("job grants: ADA_VIEWER_WORKER_GRANT_SECRET is set but there is no queue; not answering")
+            else:
+                try:
+                    kv = await queue.ensure_bucket(settings.worker_grants.kv_bucket, ttl_s=_GRANT_BINDING_TTL_S)
+                    grant_service.bindings = KvGrantBindings(kv)
+                    await grant_service.start(queue)
+                    app.state.job_grants = grant_service
+                except Exception:
+                    logger.exception("job grants: could not start the responder; remote workers get no grants")
         # Postgres pool — ``None`` when DATABASE_URL is empty. We don't
         # let DB connect failures abort startup: the API can still
         # serve the shared bucket, and a failed pool surfaces as 503s
@@ -271,6 +293,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     # other exception we want to see in the logs but
                     # not block the rest of teardown.
                     logger.debug("background task %s cancelled", attr)
+        if app.state.job_grants is not None:
+            await app.state.job_grants.stop()
         if queue.enabled:
             try:
                 await queue.close()
@@ -337,6 +361,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         compression_state=compression_state,
     )
     app.state.rest = rest_ctx
+    # Built here, started in the lifespan once the queue is up (it needs the bus for its bindings).
+    grant_service = GrantService(
+        settings.worker_grants,
+        storage,
+        queue.get,
+        MemoryGrantBindings(),
+        pool=lambda: getattr(app.state, "db_pool", None),
+    )
+    app.state.job_grants = None
 
     @app.get("/healthz")
     async def healthz() -> Response:
@@ -356,6 +389,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # websocket handshake carries no bearer header: a ticket from the authenticated
     # POST /api/viewer/ws-ticket is its credential.
     app.include_router(viewer_control_ws_router)
+    # GET /api/workers/bootstrap (routes/worker_bootstrap.py): public, non-secret settings a remote
+    # worker joins with.
+    app.include_router(worker_bootstrap_router)
+    # /api/jobs/{job_id}/storage/... (routes/job_storage.py): a remote worker's job-scoped storage.
+    # On the app itself, NOT under the user-auth router: its only credential is a job grant, and
+    # a user's token is refused there as firmly as a grant is refused everywhere else.
+    app.include_router(job_storage_router)
 
     # Every /api/* below this line requires a verified user. The dep is
     # attached to the router so individual routes don't have to repeat

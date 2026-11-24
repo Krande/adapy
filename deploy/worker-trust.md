@@ -405,6 +405,10 @@ Each step is independently shippable and backwards compatible.
 5. **Admission list** (§3), default-allow until an operator opts in, with the
    Admit button in the admin panel.
 6. **Only then** issue an external worker its credentials and admit it.
+7. **Job grants** ✅ **Landed** for simulation runs ([`remote-workers.md`](remote-workers.md)):
+   the external worker gets per-job storage access over NATS and holds no
+   storage keys. Opt-in (`ADA_VIEWER_WORKER_GRANT_SECRET` on the API); workers with
+   storage settings are unchanged.
 
 Steps 1, 4 and 5 are worth doing even if the external worker never ships.
 
@@ -452,12 +456,28 @@ Two details worth knowing before step 3:
   (not read its blobs). Accepted for now. The clean fix is to move status
   writes behind the API — worker → HTTPS with its own bearer — which is a
   larger change and worth revisiting if the external fleet grows.
-* **Object store credentials on unmanaged machines.** Mint per-worker keys
-  scoped to the bucket, and to the one key prefix that worker writes where the
-  store supports prefix policies. The stronger answer is a REST-mediated storage kind
-  so an external worker holds a viewer bearer token instead of bucket keys —
-  the API already mints long-lived CLI tokens (`AuthConfig.cli_token_secret`),
-  so the identity infrastructure exists; the storage facade does not.
+* **Object store credentials on unmanaged machines.** ✅ **Answered by job
+  grants** ([`remote-workers.md`](remote-workers.md)), for simulation runs. A
+  remote worker holds no storage keys and no long-lived bearer either: when it
+  picks up a job it asks the API for a grant over NATS
+  (`ada.viewer.grants.<capability>.<worker name>`, replies on a private
+  `_INBOX_<worker name>` inbox), and the API checks the job exists and has not
+  ended, computes its capability from the job rather than the registry, and binds
+  it to that worker. The grant is a 15-minute HS256 token for that one job and
+  worker; every call to `/api/jobs/{job_id}/storage/...` recomputes what it may
+  read and write from the job and its run record, and large files move through
+  presigned URLs (including multipart) the API hands out per call. Removing the
+  key from `nats.conf` revokes access within one grant lifetime.
+
+  The earlier proposal — a REST storage kind behind a long-lived viewer bearer —
+  was not built: a bearer good for every scope its user can see is a wider
+  credential than bucket keys scoped to a prefix, not a narrower one. Two parts
+  remain open. **Plugin jobs** get no grant until a plugin's capability can be
+  trusted (the registry split with keys pinned to their own rows, or an admission
+  allowlist, §3): granting by a registry row any worker can write would hand one
+  pool's key another plugin's jobs. And a worker that **does** hold storage keys
+  (every in-cluster pool) is unchanged — per-worker, prefix-scoped keys remain the
+  advice there.
 * **A worker is still trusted with the data of the jobs it legitimately
   receives.** Admission bounds *which* jobs those are; it cannot make the
   content safe. Deciding which scopes an external host may see work from is a
