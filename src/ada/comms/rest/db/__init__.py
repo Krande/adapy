@@ -219,6 +219,12 @@ from .metrics import (
 )
 from .migrations import _MIGRATION_LOCK_ID as _MIGRATION_LOCK_ID  # noqa: F401
 from .migrations import _apply_migrations as _apply_migrations  # noqa: F401
+from .plugin_access import (
+    clear_plugin_access,
+    list_plugin_access,
+    plugin_access_rows_for,
+    set_plugin_access,
+)
 from .plugin_jobs import (  # noqa: F401
     _PLUGIN_JOB_SCHEDULE_COLS as _PLUGIN_JOB_SCHEDULE_COLS,
 )
@@ -234,12 +240,6 @@ from .plugin_jobs import (
     plugin_job_in_flight_jobs,
     set_plugin_job_schedule_skip_reason,
     update_plugin_job_schedule,
-)
-from .plugin_access import (
-    clear_plugin_access,
-    list_plugin_access,
-    plugin_access_rows_for,
-    set_plugin_access,
 )
 from .pool import close_pool, init_pool
 from .procedural_models import _engine_row_summary as _engine_row_summary  # noqa: F401

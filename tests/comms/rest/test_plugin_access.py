@@ -22,9 +22,17 @@ from ada import plugins  # noqa: E402
 from ada.comms.rest import db as dbm  # noqa: E402
 from ada.comms.rest import plugin_access as pa  # noqa: E402
 from ada.comms.rest.app import create_app  # noqa: E402
-from ada.comms.rest.config import AuthConfig, LocalConfig, QueueConfig, Settings  # noqa: E402
+from ada.comms.rest.config import (  # noqa: E402
+    AuthConfig,
+    LocalConfig,
+    QueueConfig,
+    Settings,
+)
 from ada.comms.rest.routes import plugin_access as routes  # noqa: E402
-from ada.simulation import register_simulation_provider, simulation_provider_specs  # noqa: E402
+from ada.simulation import (  # noqa: E402
+    register_simulation_provider,
+    simulation_provider_specs,
+)
 from ada.simulation.testing import FakeSimulationProvider  # noqa: E402
 
 POSTGRES_URL = os.environ.get("ADA_TEST_POSTGRES_URL", "").strip()

@@ -26,6 +26,7 @@ from .. import db as db_module
 from .. import pending_uploads
 from ..auth import User
 from ..job_transport import JobRequest, SubmittedJob
+from ..plugin_access import gates_for, read_bindings, require_plugin_access
 from ..plugin_registry import locally_registered_spec
 from ..queue import capability_token
 from ..scope import Scope
@@ -39,7 +40,6 @@ from .deps import (
     rest_context,
     scope_from_path,
 )
-from ..plugin_access import gates_for, read_bindings, require_plugin_access
 from .plugins import plugin_ids_gated_by_config
 from .provider_store import (
     PROVIDER_STORE,
