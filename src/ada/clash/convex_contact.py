@@ -36,10 +36,15 @@ from typing import Any, Iterable, Mapping, Sequence
 import numpy as np
 
 from ada.clash.builtin_names import CONVEX_CONTACT_CHECKER, CONVEX_CONTACT_PASS
+from ada.clash.contact_criteria import (
+    DEFAULT_MIN_CONTACT_AREA,
+    DEFAULT_MIN_CONTACT_WIDTH_RATIO,
+)
 from ada.config import logger
 
 __all__ = [
     "DEFAULT_MIN_CONTACT_AREA",
+    "DEFAULT_MIN_CONTACT_WIDTH_RATIO",
     "DEFAULT_SECURITY_MARGIN",
     "available",
     "convex_contact_pass",
@@ -49,7 +54,8 @@ __all__ = [
 ]
 
 DEFAULT_SECURITY_MARGIN = 0.01
-DEFAULT_MIN_CONTACT_AREA = 1e-6
+# DEFAULT_MIN_CONTACT_AREA (200 mm²) and DEFAULT_MIN_CONTACT_WIDTH_RATIO (half the thinner wall): what
+# counts as a contact, from ``ada.clash.contact_criteria``.
 
 
 def available() -> bool:
@@ -296,8 +302,20 @@ def register() -> bool:
                     "type": "number",
                     "default": DEFAULT_MIN_CONTACT_AREA,
                     "min": 0,
-                    "unit": "mÂ²",
-                    "help": "Contacts with a smaller patch than this (a corner grazing a face) are dropped.",
+                    "unit": "m²",
+                    "help": "Contacts with a smaller patch than this (a corner or a short edge grazing a face) "
+                    "are dropped. 2e-4 m² is 200 mm².",
+                },
+                {
+                    "key": "min_contact_width_ratio",
+                    "label": "Min contact width",
+                    "type": "number",
+                    "default": DEFAULT_MIN_CONTACT_WIDTH_RATIO,
+                    "min": 0,
+                    "unit": "× thickness",
+                    "help": "Contacts whose patch (area over its longest chord) is narrower than this fraction of "
+                    "the thinner member's wall or plate thickness -- an edge grazing a face -- are dropped, "
+                    "unless one member runs into the other. Applied when the run's specs are resolved; 0 keeps them.",
                 },
             ),
             uses_core_options=False,

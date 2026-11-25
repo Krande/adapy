@@ -54,10 +54,22 @@ export const BROWSER_CONTACT_CHECKER: WireClashChecker = {
       key: "min_contact_area",
       label: "Min contact area",
       type: "number",
-      default: 1e-6,
+      default: 2e-4,
       min: 0,
       unit: "m²",
-      help: "Contacts with a smaller patch than this (a corner grazing a face) are dropped.",
+      help: "Contacts with a smaller patch than this (a corner or a short edge grazing a face) are dropped. 2e-4 m² is 200 mm².",
+    },
+    {
+      key: "min_contact_width_ratio",
+      label: "Min contact width",
+      type: "number",
+      default: 0.5,
+      min: 0,
+      unit: "× thickness",
+      help:
+        "Contacts whose patch (area over its longest chord) is narrower than this fraction of the thinner member's wall " +
+        "or plate thickness -- an edge grazing a face -- are dropped, unless one member runs into the other. Applied when " +
+        "the run's specs are resolved; 0 keeps them.",
     },
   ],
   uses_core_options: false,

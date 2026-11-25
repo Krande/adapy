@@ -77,7 +77,9 @@ export interface ContactRunDoc {
   target: ContactTarget;
   /** A group run's `key` is `group:<group id>`, its `sha256` `groupGeometrySha256(parts)`. */
   geometry: { key: string; sha256: string; up_axis: "z" | "y"; parts?: ContactRunPart[] };
-  options: { security_margin: number; min_contact_area: number; line_contact_thickness: number };
+  /** `min_contact_width_ratio` is not the engine's: the worker applies it when it annotates the run
+   *  (`ada.clash.contact_criteria`). Absent on a run made before it existed. */
+  options: { security_margin: number; min_contact_area: number; min_contact_width_ratio?: number; line_contact_thickness: number };
   members: ContactRunMember[];
   contacts: ContactRecordDoc[];
   provenance: Record<string, unknown>;

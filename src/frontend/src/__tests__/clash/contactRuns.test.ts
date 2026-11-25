@@ -139,9 +139,11 @@ test("targets and GLB keys", () => {
   });
   assert.equal(contactTargetFor(null, { kind: "group" }), null, "a group with no saved id has nothing to be filed under");
   assert.deepEqual(contactTargetFor(null, { kind: "group", id: "g1" }), { kind: "group", group_id: "g1" }, "the id alone");
-  assert.deepEqual(contactRunOptions(undefined), OPTIONS);
+  // The checker's defaults (`ada.clash.convex_contact.register`): 200 mm², half the thinner wall wide.
+  assert.deepEqual(contactRunOptions(undefined), { ...OPTIONS, min_contact_area: 2e-4, min_contact_width_ratio: 0.5 });
   assert.equal(contactRunOptions({ security_margin: "0.005", min_contact_area: -1 }).security_margin, 0.005);
-  assert.equal(contactRunOptions({ min_contact_area: -1 }).min_contact_area, 1e-6, "a negative is not an option");
+  assert.equal(contactRunOptions({ min_contact_area: -1 }).min_contact_area, 2e-4, "a negative is not an option");
+  assert.equal(contactRunOptions({ min_contact_width_ratio: 0 }).min_contact_width_ratio, 0, "0 keeps every contact");
 });
 
 function fakeDeps(over: Record<string, unknown> = {}) {

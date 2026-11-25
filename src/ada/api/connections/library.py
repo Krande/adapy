@@ -345,9 +345,10 @@ def _joint_members(conn) -> list:
 
 
 # Whether a weld touches its members is asked of solids that are meant to meet exactly. The check's
-# defaults (a 10 mm margin, patches under 1 mm² dropped) are for a model's clashes, and drop the thin
-# patch where a corner fillet meets a rounded hollow section: those welds then read "not joined".
-_JOINT_CONTACT_OPTIONS = {"security_margin": 0.002, "min_contact_area": 0.0}
+# defaults (a 10 mm margin, patches under 200 mm² or narrower than half the thinner wall dropped) are
+# for a model's clashes, and drop the thin patch where a corner fillet meets a rounded hollow section:
+# those welds then read "not joined".
+_JOINT_CONTACT_OPTIONS = {"security_margin": 0.002, "min_contact_area": 0.0, "min_contact_width_ratio": 0.0}
 
 
 def _measure_joint(

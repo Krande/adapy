@@ -100,7 +100,8 @@ test("convex contact is offered where this viewer runs it, even when the deploym
     BROWSER_CONTACT_CHECKER.options?.map((o) => [o.key, o.default]),
     [
       ["security_margin", 0.01],
-      ["min_contact_area", 1e-6],
+      ["min_contact_area", 2e-4],
+      ["min_contact_width_ratio", 0.5],
     ],
   );
 });
