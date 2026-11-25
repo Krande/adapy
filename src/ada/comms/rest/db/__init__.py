@@ -235,6 +235,12 @@ from .plugin_jobs import (
     set_plugin_job_schedule_skip_reason,
     update_plugin_job_schedule,
 )
+from .plugin_access import (
+    clear_plugin_access,
+    list_plugin_access,
+    plugin_access_rows_for,
+    set_plugin_access,
+)
 from .pool import close_pool, init_pool
 from .procedural_models import _engine_row_summary as _engine_row_summary  # noqa: F401
 from .procedural_models import (  # noqa: F401
@@ -381,6 +387,10 @@ __all__ = [
     "revoke_provider_grant",
     "set_collection_grants",
     "upsert_provider_grant",
+    "clear_plugin_access",
+    "list_plugin_access",
+    "plugin_access_rows_for",
+    "set_plugin_access",
     "merge_asset_sweep_run_summary",
     "claim_asset_sweep_item",
     "acquire_asset_worker_slot",

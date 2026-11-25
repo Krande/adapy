@@ -103,16 +103,20 @@ def simulation_provider_specs() -> list[dict[str, Any]]:
         except Exception:
             logger.exception("ada.simulation: describe() of provider %s failed (not advertised)", provider.id)
             continue
-        out.append(
-            {
-                "slug": provider.id,
-                "id": provider.id,
-                "domain": provider.domain,
-                "engine": provider.engine,
-                "capability": provider_capability(provider.id),
-                **description,
-            }
-        )
+        spec = {
+            "slug": provider.id,
+            "id": provider.id,
+            "domain": provider.domain,
+            "engine": provider.engine,
+            "capability": provider_capability(provider.id),
+            **description,
+        }
+        gate = getattr(provider, "access_gate", None)
+        if isinstance(gate, str) and gate.strip():
+            # The scope-gated plugin the provider belongs to: its runs are refused wherever an admin
+            # has not turned that plugin on (``ada.comms.rest.plugin_access``).
+            spec["access_gate"] = gate.strip().lower()
+        out.append(spec)
     return out
 
 

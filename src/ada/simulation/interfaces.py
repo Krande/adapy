@@ -344,6 +344,11 @@ class SimulationProvider(Protocol):
     simulation, one of :data:`SIMULATION_DOMAINS` (``"fea"``, ``"robotics"``, ``"cfd"``); the
     viewer groups providers by it and opens results by its artefact roles. ``engine`` is free
     text: the simulator's or solver's name.
+
+    Optional, not one of the protocol's required members: ``access_gate``, a string naming the
+    scope-gated plugin the provider belongs to (the id its viewer plugin registers with
+    ``access: "scope"``). Its runs are then refused (403 ``plugin_access_off``) in every scope where
+    an admin has not turned that plugin on, for the scope or for the user starting the run.
     """
 
     id: str

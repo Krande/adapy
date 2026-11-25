@@ -150,6 +150,16 @@ def register_plugin_backend(
         source can only ever tighten. Declare it here so the intent travels with
         the plugin, and set the setting so the deployment does not depend on
         every worker being current.
+
+    ``access_gate: str``
+        Names the scope-gated plugin this backend belongs to (the id its
+        frontend registers with ``access: "scope"``, or the shared gate id of
+        ``access: {gate: ...}``). Its jobs are then refused (403,
+        ``plugin_access_off``) wherever an admin has not turned that plugin on
+        -- for the scope the job runs in, or for the user (Admin > Plugins,
+        ``ada.comms.rest.plugin_access``). Like ``requires_admin`` it is OR-ed
+        with an admin-only setting (``admin.plugin_access.bindings``), so a
+        worker that does not advertise it cannot open the gate.
     """
     if not plugin_id or not isinstance(plugin_id, str):
         raise ValueError("plugin_id must be a non-empty string")

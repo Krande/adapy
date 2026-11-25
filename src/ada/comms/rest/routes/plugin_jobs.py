@@ -39,6 +39,7 @@ from .deps import (
     rest_context,
     scope_from_path,
 )
+from ..plugin_access import gates_for, read_bindings, require_plugin_access
 from .plugins import plugin_ids_gated_by_config
 from .provider_store import (
     PROVIDER_STORE,
@@ -590,6 +591,17 @@ async def api_plugin_job(
                 status_code=403,
                 detail=f"plugin job {plugin_id!r} is restricted to administrators",
             )
+
+    # A job of a scope-gated plugin runs only where an admin turned that plugin on, for the scope the
+    # job runs in or for this user -- admins included (403 ``plugin_access_off``). The gate is what
+    # the advertised spec, this process's own spec or the deployment's bindings say, OR-ed.
+    pool = getattr(request.app.state, "db_pool", None)
+    if pool is not None:
+        bindings = await read_bindings(pool)
+        gates = gates_for(plugin_spec, plugin_id, "plugin_jobs", bindings) | gates_for(
+            locally_registered_spec(plugin_id), plugin_id, "plugin_jobs", bindings
+        )
+        await require_plugin_access(pool, user, scope_obj, gates)
 
     # Everything from here is shared with the plugin-job scheduler -- see
     # enqueue_plugin_job. The checks above (scope access, the admin gate) are

@@ -23,6 +23,8 @@ from ada.assets.provider_labels import (
 from .. import auth as auth_module
 from .. import db as db_module
 from ..auth import User
+from ..plugin_access import BINDINGS_SETTING as PLUGIN_ACCESS_BINDINGS_SETTING
+from ..plugin_access import BindingsError, normalise_bindings
 from ..provider_grant_migration import SCOPE_COLLECTIONS_SETTING
 from .deps import (
     CAPABILITY_REQUIREMENTS_SETTING,
@@ -76,6 +78,13 @@ async def admin_set_setting(
         try:
             value = normalise_provider_aliases(value)
         except ProviderLabelError as exc:
+            raise HTTPException(status_code=400, detail=f"{key}: {exc}") from exc
+    if key == PLUGIN_ACCESS_BINDINGS_SETTING:
+        # Checked here, the one place it is written: an unreadable value would refuse every gated
+        # start (the gate fails closed), so a typo is a 400 now rather than an outage later.
+        try:
+            value = normalise_bindings(value)
+        except BindingsError as exc:
             raise HTTPException(status_code=400, detail=f"{key}: {exc}") from exc
     await db_module.set_setting(pool, key, value, updated_by=user.sub)
     if key == CAPABILITY_REQUIREMENTS_SETTING:

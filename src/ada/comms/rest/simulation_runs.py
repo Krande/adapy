@@ -76,6 +76,8 @@ _PROVIDER_FIELDS = (
     "kinds",
     "parameters_schema",
     "accepts",
+    # The scope-gated plugin the provider belongs to (``ada.comms.rest.plugin_access``), or None.
+    "access_gate",
 )
 
 #: How long a record may sit without a job id before it is read as never submitted: the API

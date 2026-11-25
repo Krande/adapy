@@ -420,6 +420,11 @@ async def api_simulation_batch_start(
     described = provider_by_id(await _providers(ctx, request), provider)
     if described is None:
         raise HTTPException(status_code=404, detail=f"unknown simulation provider {provider!r}")
+    # Refused as a whole, before any intent is taken, where the provider's plugin is not turned on
+    # (403 ``plugin_access_off``); each run's own start checks it again.
+    from ..plugin_access import require_provider_access
+
+    await require_provider_access(optional_pool(request), user, scope_obj, described)
     try:
         # As the run's record will hold them (defaults filled in): what "the same parameters" compares.
         parameters = validate_parameters(described["parameters_schema"], body.get("parameters"))
