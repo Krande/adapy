@@ -12,14 +12,14 @@ Mounted only when ``ADA_DEV_CONNECTIONS`` names a library (see :mod:`..dev_conne
 * ``POST /dev/connections/reload`` — reload now (the watcher does this on every change)
 * ``POST /dev/connections/restart`` — a fresh library host, re-reading ``ada_connections.toml``
 * ``GET  /dev/connections/events``  — server-sent ``state`` events, one per status change
+
+The answers are made in :mod:`..dev_connections` (shared with the standard-library server
+``ada dev connections`` runs, :mod:`..dev_connections_server`); this module adds the storage.
 """
 
 from __future__ import annotations
 
 import asyncio
-import hashlib
-import json
-import time
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -29,15 +29,22 @@ from ada.config import logger
 
 from .. import auth as auth_module
 from ..auth import User
-from ..dev_connections import DevConnections, HostError, HostUnavailable
+from ..dev_connections import (
+    BUILD_SCOPE,
+    SSE_HEARTBEAT_S,
+    DevConnections,
+    DevReply,
+    DevRequestError,
+    build_reply,
+    sse,
+    subject_reply,
+)
 from ..scope import Scope
 from .deps import RestContext, rest_context
 
 router = APIRouter()
 
-#: The scope a build lands in, as the studio names it.
-BUILD_SCOPE = "user:me"
-_HEARTBEAT_S = 15.0
+__all__ = ["BUILD_SCOPE", "router"]
 
 
 def _dev(request: Request) -> DevConnections:
@@ -47,11 +54,26 @@ def _dev(request: Request) -> DevConnections:
     return dev
 
 
-def _digest(report: dict) -> str:
-    """What names a build's blob: the library generation and the merged inputs."""
-    return hashlib.sha256(
-        json.dumps({"g": report.get("generation"), "i": report.get("inputs")}, sort_keys=True).encode()
-    ).hexdigest()[:16]
+async def _answer(reply: DevReply, ctx: RestContext, user: User) -> JSONResponse:
+    """Store what the reply carries in the caller's scope, drop what it replaces, answer."""
+    scope = Scope.user(user.sub)
+    if reply.store is not None:
+        key, data, encoding = reply.store
+        await ctx.storage.put_bytes(scope, key, data, content_encoding=encoding)
+    for stale in reply.delete:
+        try:
+            await ctx.storage.delete(scope, stale)
+        except Exception:  # noqa: BLE001 - a stale file left behind is harmless
+            logger.debug("dev-connections: could not delete %s", stale)
+    return JSONResponse(status_code=reply.status, content=reply.body)
+
+
+async def _reply(fn, dev: DevConnections, request: Request) -> DevReply:
+    body = await request.json()
+    try:
+        return await run_in_threadpool(fn, dev, body)
+    except DevRequestError as e:
+        raise HTTPException(status_code=e.status, detail=e.detail) from None
 
 
 @router.get("/dev/connections")
@@ -65,61 +87,7 @@ async def api_dev_connections_build(
     ctx: RestContext = Depends(rest_context),
     user: User = Depends(auth_module.current_user),
 ) -> JSONResponse:
-    dev = _dev(request)
-    body = await request.json()
-    spec_name = body.get("spec_name")
-    if not isinstance(spec_name, str) or not spec_name:
-        raise HTTPException(status_code=400, detail="spec_name (str) is required")
-    inputs = body.get("inputs") or {}
-    if not isinstance(inputs, dict):
-        raise HTTPException(status_code=400, detail="inputs must be an object")
-
-    t0 = time.perf_counter()
-    try:
-        glb, report = await run_in_threadpool(dev.build, spec_name, inputs)
-    except HostUnavailable as e:
-        raise HTTPException(status_code=503, detail=str(e))
-    except HostError as e:
-        return JSONResponse(
-            status_code=422,
-            content={
-                "spec_name": spec_name,
-                "error": e.error,
-                "traceback": e.traceback,
-                # The builder raised NotApplicable: it refused these members (not a crash).
-                "declined": bool(e.extra.get("declined")),
-                "generation": dev.generation,
-            },
-        )
-    build_ms = round((time.perf_counter() - t0) * 1000)
-
-    key = f"_dev/connections/{spec_name}/{_digest(report)}.glb"
-    scope = Scope.user(user.sub)
-    await ctx.storage.put_bytes(scope, key, glb)
-    previous = dev.remember_key(spec_name, key)
-    if previous:
-        try:
-            await ctx.storage.delete(scope, previous)
-        except Exception:  # noqa: BLE001 - a stale preview left behind is harmless
-            logger.debug("dev-connections: could not delete %s", previous)
-
-    return JSONResponse(
-        {
-            "spec_name": spec_name,
-            "scope": BUILD_SCOPE,
-            "key": key,
-            "inputs": report.get("inputs"),
-            "log": report.get("log") or [],
-            "counts": report.get("counts") or {},
-            "properties": report.get("properties") or {"members": [], "welds": []},
-            # The joint's measured contact as a convex-contact run over THIS GLB (its member ids are
-            # the GLB's element ids); null where it could not be measured, `clash_note` saying why.
-            "clash_run": report.get("clash_run"),
-            "clash_note": report.get("clash_note"),
-            "generation": dev.generation,
-            "build_ms": build_ms,
-        }
-    )
+    return await _answer(await _reply(build_reply, _dev(request), request), ctx, user)
 
 
 @router.post("/dev/connections/subject")
@@ -128,61 +96,8 @@ async def api_dev_connections_subject(
     ctx: RestContext = Depends(rest_context),
     user: User = Depends(auth_module.current_user),
 ) -> JSONResponse:
-    """Offer the detail as a simulation subject: a weld assembly stored in the caller's scope.
-
-    ``{spec_name, inputs}`` as for a build → ``{scope, key, kind, welds, label}``. 409 when the
-    detail has no welds; 422 (as a build) when the builder raises. Unlike the preview GLB the file
-    is kept past the next build (a run may still be using it): the newest ``SUBJECTS_KEPT`` per spec.
-    """
-    from ada.simulation.subjects import WELD_ASSEMBLY_KIND
-
-    dev = _dev(request)
-    body = await request.json()
-    spec_name = body.get("spec_name")
-    if not isinstance(spec_name, str) or not spec_name:
-        raise HTTPException(status_code=400, detail="spec_name (str) is required")
-    inputs = body.get("inputs") or {}
-    if not isinstance(inputs, dict):
-        raise HTTPException(status_code=400, detail="inputs must be an object")
-
-    try:
-        data, report = await run_in_threadpool(dev.subject, spec_name, inputs)
-    except HostUnavailable as e:
-        raise HTTPException(status_code=503, detail=str(e))
-    except HostError as e:
-        if "the detail has no welds" in e.error:
-            raise HTTPException(status_code=409, detail="the detail has no welds")
-        return JSONResponse(
-            status_code=422,
-            content={
-                "spec_name": spec_name,
-                "error": e.error,
-                "traceback": e.traceback,
-                "declined": bool(e.extra.get("declined")),
-                "generation": dev.generation,
-            },
-        )
-
-    digest = _digest(report)
-    key = f"_dev/connections/{spec_name}/{digest}.weld-assembly.json"
-    scope = Scope.user(user.sub)
-    await ctx.storage.put_bytes(scope, key, data, content_encoding="gzip")  # gzip at rest, as the run records
-    for stale in dev.remember_subject(spec_name, key):
-        try:
-            await ctx.storage.delete(scope, stale)
-        except Exception:  # noqa: BLE001 - an old subject left behind is harmless
-            logger.debug("dev-connections: could not delete %s", stale)
-    welds = int(report.get("welds") or 0)
-    return JSONResponse(
-        {
-            "scope": BUILD_SCOPE,
-            "key": key,
-            "kind": WELD_ASSEMBLY_KIND,
-            "welds": welds,
-            "label": f"{spec_name} ({welds} weld{'s' if welds != 1 else ''})",
-            "generation": dev.generation,
-        }
-    )
+    """Offer the detail as a simulation subject: a weld assembly stored in the caller's scope."""
+    return await _answer(await _reply(subject_reply, _dev(request), request), ctx, user)
 
 
 @router.post("/dev/connections/reload")
@@ -206,16 +121,16 @@ async def api_dev_connections_events(request: Request) -> StreamingResponse:
     async def stream():
         q = dev.subscribe()
         try:
-            yield _sse({"type": "state", "reason": "subscribe", **dev.snapshot()})
+            yield sse({"type": "state", "reason": "subscribe", **dev.snapshot()})
             while True:
                 if await request.is_disconnected():
                     break
                 try:
-                    event = await asyncio.wait_for(q.get(), timeout=_HEARTBEAT_S)
+                    event = await asyncio.wait_for(q.get(), timeout=SSE_HEARTBEAT_S)
                 except asyncio.TimeoutError:
                     yield ": keep-alive\n\n"
                     continue
-                yield _sse(event)
+                yield sse(event)
         finally:
             dev.unsubscribe(q)
 
@@ -224,7 +139,3 @@ async def api_dev_connections_events(request: Request) -> StreamingResponse:
         media_type="text/event-stream",
         headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
     )
-
-
-def _sse(event: dict) -> str:
-    return f"data: {json.dumps(event, default=str)}\n\n"

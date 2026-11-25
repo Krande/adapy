@@ -648,7 +648,10 @@ Develop against the studio, with what you edit reloaded live.
     section, a plate's thickness and extent, the angle between them. The joint
     is rebuilt on every change, and again on every saved edit to the library's
     files. A builder that raises, or a module that does not import, shows its
-    traceback in the builder until the next save fixes it.
+    traceback in the builder until the next save fixes it. It runs on a plain
+    ada-py install: the viewer is served by a small standard-library server
+    that answers the connection builder alone (the full viewer API, and its
+    packages, are only needed for `--sim-remote` and `--dev`).
 
 `ada dev joints`
 :   The same as `ada dev connections`.
@@ -676,7 +679,8 @@ plate stands on the landing member's top face. A spec's `defaults` fill the
 form; fields the spec leaves out take a representative value.
 
 Options: `--port N` (default: your `ada desktop` port + 1000, so the two run
-side by side), `--data DIR`, `--static DIR` / `--zip FILE` / `--viewer NAME`
+side by side), `--data DIR` (with `--sim-remote`; otherwise the previews are
+kept in memory), `--static DIR` / `--zip FILE` / `--viewer NAME`
 (the viewer build to serve, as for `ada desktop`), `--browser` (open the
 default browser rather than the `ada-desktop` window, which is also the
 fallback when the shell is not installed), `--no-window`, `--binary PATH`,
@@ -688,7 +692,9 @@ button offers it as a *weld assembly* subject and opens the Simulations panel,
 where the providers that accept one can run on it. The studio has no simulation
 workers of its own, so point it at an Ada Studio that has them with
 `--sim-remote URL` (and `--sim-token TOKEN`, or `ADA_SIMULATION_REMOTE_TOKEN`;
-`--sim-scope SCOPE` for the remote scope the run lives in, default `user:me`):
+`--sim-scope SCOPE` for the remote scope the run lives in, default `user:me`).
+That starts the full viewer API instead of the standard-library server, so it
+needs the viewer API's packages (uvicorn, FastAPI, obstore and the rest):
 the remote's providers are listed beside the local ones, and a run on one
 uploads its files to the remote, starts there, and is followed from here (the
 replay, live view and console read it through this studio).
