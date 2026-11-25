@@ -49,6 +49,7 @@ export const VALID_TABS: ReadonlySet<string> = new Set([
     "users",
     "tokens",
     "providers",
+    "plugins",
     "robots",
     "storage",
     "database",

@@ -15,6 +15,7 @@ import { registerUiShell } from "./uiShells";
 import { panelSpecFromSlot } from "@/layout/pluginPanels";
 import { registerPanel, removePanelsOwnedBy } from "@/layout/registry";
 import { isPlacedElsewhere } from "@/layout/placedElsewhere";
+import { accessGateOf, isGateOpen, noteGatedRegistration } from "./pluginAccess";
 import type { AdaPluginContext, PanelSlot, PluginModeSpec, PluginRegion, PluginSpec, RegisteredPlugin, RenderableFileProvider, ResultSidecarLoader, SceneColorFieldProvider, SimulationProviderUi, StorageAssetType, StorageAssetTypeArgs, UrlParamHandler } from "./registryTypes/slots";
 
 export { type PluginRegion, type PluginDockId, type PluginModeId, type PluginModeSpec, type PluginLogLevel, type PluginApiClient, type PluginTheme, type AdaPluginContext, type ActivationPredicate, type TopBarButtonSpec, type PanelSlot, type SceneColorFieldProvider, type ResultSidecarLoader, type RenderableFileProvider, type SimulationParameterFormArgs, type SimulationFormSubject, type SimulationOpenResultArgs, type SimulationProviderUi, type UrlParamHandler, type PluginSpec, type RegisteredPlugin, type StorageAssetTypeArgs, type StorageAssetUpload, type StorageAssetType } from "./registryTypes/slots";
@@ -24,6 +25,8 @@ export type { ScenePick, ScenePickOptions, ScenePickSession } from "./scenePicks
 export type { PluginModes, PluginModeActivateOptions } from "./pluginModes";
 export type { PluginAppearance, PluginAppearanceSnapshot } from "./pluginAppearance";
 export type { PluginEffects, EffectsDescription } from "./pluginEffects";
+export type { PluginAccess, PluginAccessSpec, PluginAccessAnswer } from "./pluginAccess";
+export { isGateOpen as isPluginGateOpen, subscribePluginAccess } from "./pluginAccess";
 export type { AppearancePresetId } from "@/state/appearanceStore";
 export type { SceneHighlight, SceneHighlightOptions, SceneHighlightRef } from "./sceneHighlights";
 export type {
@@ -581,7 +584,22 @@ export type { SelectedObjectBox } from "@/viewport/api/viewportApi";
 //            does; the three.js one does not yet), so a plugin can say where they are seen.
 //          - `ViewportApi.drawsEffects` / `applyEffects` (optional) behind it.
 //          All additive: an older core has no `ctx.effects` (a plugin asks first).
-export const PLUGIN_API_VERSION = "1.40.0";
+// 1.41.0 — Scope-gated plugins: an admin turns a plugin on per scope or per user.
+//          - `PluginSpec.access`: `"scope"` (gated under the plugin's id) or `{gate: "<id>"}` (a gate id
+//            several registrations share). Such a plugin is OFF until an admin turns it on (Admin >
+//            Plugins) for the open scope or for the signed-in user; a user's own "off" wins over the
+//            scope's "on". While it is off core hides EVERY slot of the registration, as if its
+//            activation predicate were false: top-bar buttons, panels and tabs, colour fields, sidecar
+//            loaders, renderable files, URL handlers, simulation UIs, storage asset types and modes. The
+//            answer is asked again on every scope switch (`GET /scopes/{scope}/plugin-access`).
+//          - `PropertyProvider.access` and `CommandSpec.access` (a gate id): a Selected Object section
+//            or a command registered outside `registerPlugin` is hidden by the same switch.
+//          - `ctx.access` (`PluginAccess`): `gate`, `enabled()`, `loaded()`, `subscribe(cb)`, `refresh()`.
+//          - The server refuses a simulation run on a provider whose `access_gate` names a gate that is
+//            off, and a plugin job whose backend spec does (403, detail `{code: "plugin_access_off"}`).
+//          All additive: a plugin that declares nothing behaves as before, and an older core ignores
+//          `access` (so a plugin that must stay hidden there checks `PLUGIN_API_VERSION` >= 1.41.0).
+export const PLUGIN_API_VERSION = "1.41.0";
 
 /** What the Simulations panel writes on a run's open-result button. */
 export function openResultButtonLabel(
@@ -699,6 +717,8 @@ export function registerPlugin(spec: PluginSpec): void {
     registerUiShell(shell, id);
     if (shell?.id) uiShellIds.push(shell.id);
   }
+  const accessGate = accessGateOf(id, spec.access);
+  if (accessGate) noteGatedRegistration();
 
   _registry.set(id, {
     id,
@@ -720,6 +740,7 @@ export function registerPlugin(spec: PluginSpec): void {
     // first-writer-wins as everywhere else in this registry.
     modes: spec.modes ?? [],
     uiShellIds,
+    accessGate,
   });
 
   // The same panels, in the panel registry's terms (see @/layout/pluginPanels).
@@ -728,7 +749,7 @@ export function registerPlugin(spec: PluginSpec): void {
   // false (when the bootstrap gave a context to ask it with).
   const isUnavailable = () => {
     const p = _registry.get(id);
-    if (!p || p.disabled) return true;
+    if (!p || p.disabled || !isGateOpen(p.accessGate)) return true;
     if (!p.activationPredicate || !_contextFactory) return false;
     return !isActive(p, _contextFactory(id));
   };
@@ -792,6 +813,9 @@ export function disablePlugin(id: string, reason: string): void {
 
 function isActive(p: RegisteredPlugin, ctx: AdaPluginContext): boolean {
   if (p.disabled) return false;
+  // A scope-gated plugin that is not turned on where the user is (1.41.0): every slot of it is hidden,
+  // whatever its own predicate says. Core enforces it so a plugin cannot forget.
+  if (!isGateOpen(p.accessGate)) return false;
   if (!p.activationPredicate) return true;
   try {
     return !!p.activationPredicate({ ...ctx, pluginId: p.id });
@@ -818,7 +842,7 @@ function isActive(p: RegisteredPlugin, ctx: AdaPluginContext): boolean {
 export function getPluginModes(): Array<{ pluginId: string; mode: PluginModeSpec }> {
   const out: Array<{ pluginId: string; mode: PluginModeSpec; order: number }> = [];
   for (const p of _registry.values()) {
-    if (p.disabled) continue;
+    if (p.disabled || !isGateOpen(p.accessGate)) continue;
     for (const mode of p.modes) {
       if (!mode?.id) continue;
       out.push({ pluginId: p.id, mode, order: mode.order ?? 0 });
@@ -891,6 +915,7 @@ export function getSimulationTabs(ctx: AdaPluginContext): SimulationTabEntry[] {
  * that id at all. */
 export function findSimulationTabById(panelId: string): SimulationTabEntry | null {
   for (const p of _registry.values()) {
+    if (!isGateOpen(p.accessGate)) continue;
     for (const panel of p.panels) {
       if (panel.region === "fem-sidebar" && panel.asTab && panel.id === panelId) {
         return { pluginId: p.id, panel, asTab: panel.asTab };
@@ -959,7 +984,8 @@ export function getJointReviewSections(ctx: AdaPluginContext): JointReviewSectio
  * connections panel is offered where the builder is, and wherever a plugin has a tab for it. */
 export function hasConnectionBuilderTabs(): boolean {
   for (const p of _registry.values()) {
-    if (!p.disabled && p.panels.some((panel) => panel.region === "connection-builder")) return true;
+    if (p.disabled || !isGateOpen(p.accessGate)) continue;
+    if (p.panels.some((panel) => panel.region === "connection-builder")) return true;
   }
   return false;
 }
@@ -1045,7 +1071,7 @@ export function getResultSidecarLoaders(
  */
 export function isRenderableByPlugin(key: string): boolean {
   for (const p of _registry.values()) {
-    if (p.disabled) continue;
+    if (p.disabled || !isGateOpen(p.accessGate)) continue;
     for (const provider of p.renderableFileProviders) {
       try {
         if (provider.claims(key)) return true;

@@ -10,6 +10,7 @@ import type { ModeBehaviour, ModeGroupId, ModeId } from "@/layout/modes";
 import type { PluginModes } from "../pluginModes";
 import type { PluginAppearance } from "../pluginAppearance";
 import type { PluginEffects } from "../pluginEffects";
+import type { PluginAccess, PluginAccessSpec } from "../pluginAccess";
 import type { SimulationProviderInfo, SimulationRun } from "@/services/api/simulations";
 import type { SceneColorFieldResult, SceneHandle, SidecarFetcher } from "./scene";
 import type { PluginLayers, PluginPlayback, PluginSimulations } from "./playback";
@@ -193,6 +194,13 @@ export interface AdaPluginContext {
    * the viewport on screen draws them). Absent on an older core, so a plugin asks first.
    */
   effects?: PluginEffects;
+  /**
+   * Whether this plugin is turned on where the user is (1.41.0): `gate`, `enabled()`, `loaded()`,
+   * `subscribe(cb)` and `refresh()`. Always on for a plugin that does not opt in (`PluginSpec.access`).
+   * Core already hides a gated plugin's slots while it is off; this is for what a plugin draws or
+   * starts by itself. Absent on an older core, so a plugin asks first (`ctx.access?.enabled()`).
+   */
+  access?: PluginAccess;
   scope: () => string;
   /** Active theme tokens (mirrors of the `--ada-*` CSS vars) so plugin panels
    * match core's chrome in light + dark without hardcoding colours. */
@@ -581,6 +589,18 @@ export interface PluginSpec {
   // that core mounts INSTEAD of its own shell (see `./uiShells`). Orthogonal to
   // the slots above — a plugin can do either, both, or neither.
   uiShells?: UiShellSpec[];
+  /**
+   * Scope-gated (1.41.0): `"scope"` keeps the plugin off until an admin turns it on for the open scope
+   * or for the user (Admin > Plugins); `{gate: "<id>"}` does the same under a gate id several
+   * registrations share (one switch for a plugin's panels, its depth camera, its timeline...). While
+   * it is off, core hides every slot of the registration -- top-bar buttons, panels, admin tabs,
+   * Simulation and Scene tabs, colour fields, sidecar loaders, renderable files, URL handlers,
+   * simulation UIs, storage asset types and modes -- as if its activation predicate were false.
+   * `ctx.access` reads the same state. The server refuses the plugin's simulation runs and jobs where
+   * it is off when they declare the same gate (`access_gate` on the provider / backend spec). Leave it
+   * out and nothing changes. A UI shell is not gated.
+   */
+  access?: PluginAccessSpec;
 }
 
 export interface RegisteredPlugin {
@@ -601,6 +621,8 @@ export interface RegisteredPlugin {
   // Ids of the UI shells this plugin contributed (the shells themselves live in
   // the shell registry); kept for introspection / audit.
   uiShellIds: string[];
+  // The gate this registration is under (`PluginSpec.access`), or null when it does not opt in.
+  accessGate?: string | null;
   // Set when a slot callback threw during the session; a disabled plugin
   // contributes no slots until reload (failure isolation).
   disabled?: string;

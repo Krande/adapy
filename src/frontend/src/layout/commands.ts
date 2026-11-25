@@ -12,6 +12,7 @@ import { listPanels } from "./registry";
 import { activeShellMode, listShellModes, setShellMode } from "./shellModes";
 import { modeAvailable } from "./modeRequirements";
 import { isPanelOpen, toggle as togglePanel } from "./reveal";
+import { isGateOpen, noteGatedRegistration, subscribePluginAccess } from "@/plugins/pluginAccess";
 import { coreShortcutKeys, registerShortcut, registerShortcutSource, shortcutOverrides, unregisterShortcut, type ShortcutKeys } from "./shortcuts";
 
 export interface CommandSpec {
@@ -50,7 +51,16 @@ export interface CommandSpec {
    * last render.
    */
   watch?(onChange: () => void): () => void;
+  /**
+   * The scope-gated plugin this command belongs to (plugin API 1.41.0): a gate id, as
+   * `PluginSpec.access` names it. The command is neither listed nor run, and its keys do nothing,
+   * wherever an admin has not turned that plugin on for the open scope or for the user.
+   */
+  access?: string;
 }
+
+/** Whether a command's plugin is turned on where the user is (always, for an ungated command). */
+const gateOpen = (c: Pick<CommandSpec, "access">): boolean => !c.access || isGateOpen(c.access);
 
 export interface RegisteredCommand extends CommandSpec {
   owner: string;
@@ -63,6 +73,8 @@ const changed = () => {
   version++;
   for (const l of listeners) l();
 };
+// A gated command comes and goes with its plugin's switch: menus and the palette list again.
+subscribePluginAccess(changed);
 
 export function registerCommand(spec: CommandSpec, owner: string): void {
   if (!spec.id) {
@@ -71,10 +83,12 @@ export function registerCommand(spec: CommandSpec, owner: string): void {
   }
   const had = _commands.get(spec.id);
   if (had?.keys) unregisterShortcut(`cmd:${spec.id}`);
+  if (spec.access) noteGatedRegistration();
   _commands.set(spec.id, { ...spec, owner });
   if (spec.keys) {
+    const when = spec.access ? () => gateOpen(spec) && (!spec.when || spec.when()) : spec.when;
     registerShortcut(
-      { id: `cmd:${spec.id}`, keys: spec.keys, label: spec.label, group: spec.group, run: () => void runCommand(spec.id), when: spec.when },
+      { id: `cmd:${spec.id}`, keys: spec.keys, label: spec.label, group: spec.group, run: () => void runCommand(spec.id), when },
       owner,
     );
   }
@@ -126,6 +140,7 @@ function coreCommands(toggle?: (id: PanelId) => void, isOpen?: (id: PanelId) => 
  */
 export function listCommands(opts: { toggle?: (id: PanelId) => void; isOpen?: (id: PanelId) => boolean } = {}): RegisteredCommand[] {
   const own = [..._commands.values()].filter((c) => {
+    if (!gateOpen(c)) return false;
     try {
       return !c.when || c.when();
     } catch {
@@ -147,7 +162,7 @@ export function commandsOwnedBy(owner: string): RegisteredCommand[] {
 /** Run a registered command when it is offered and runnable. False otherwise (or when it threw). */
 export function runCommand(id: string): boolean {
   const c = _commands.get(id);
-  if (!c) return false;
+  if (!c || !gateOpen(c)) return false;
   try {
     if (c.when && !c.when()) return false;
     if (c.disabledReason?.()) return false;

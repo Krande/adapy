@@ -13,6 +13,7 @@ import {auditHash, parseAdminHash, parseTabId} from "./adminTabs";
 import type {AuditSubTab, PerformanceSubTab, ProceduralSubTab} from "./adminTabs";
 import ConversionSettingsTab from "./ConversionSettingsTab";
 import IssueTargetTab from "./IssueTargetTab";
+import PluginAccessTab from "./PluginAccessTab";
 import ProjectsTab from "./ProjectsTab";
 import ProvidersTab from "./ProvidersTab";
 import RobotBundlesTab from "./RobotBundlesTab";
@@ -184,6 +185,9 @@ const AdminPanel: React.FC<AdminPanelProps> = ({embedded = false, initialTab}) =
                     <TabButton active={tab === "providers"} onClick={() => setTab("providers")}>
                         Providers
                     </TabButton>
+                    <TabButton active={tab === "plugins"} onClick={() => setTab("plugins")}>
+                        Plugins
+                    </TabButton>
                     <TabButton active={tab === "robots"} onClick={() => setTab("robots")}>
                         Robot bundles
                     </TabButton>
@@ -234,6 +238,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({embedded = false, initialTab}) =
                 {tab === "users" && <UsersTab onOpenAudit={openAuditForUser}/>}
                 {tab === "tokens" && <CliTokensTab/>}
                 {tab === "providers" && <ProvidersTab/>}
+                {tab === "plugins" && <PluginAccessTab/>}
                 {tab === "robots" && <RobotBundlesTab/>}
                 {tab === "storage" && <StorageTab/>}
                 {tab === "database" && <DatabaseTab/>}

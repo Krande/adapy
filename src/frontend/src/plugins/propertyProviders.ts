@@ -7,6 +7,8 @@
 
 import type React from "react";
 
+import { isGateOpen, noteGatedRegistration, subscribePluginAccess } from "./pluginAccess";
+
 /** A node element links are asked for (`queryElementLinks`): an element key (`node:...`,
  *  `file:...#p:...`), a published node, or a member of a loaded model as a saved group keeps it
  *  (`{target, element, path}`). */
@@ -77,6 +79,12 @@ export interface PropertyProvider {
   render(sel: SelectionSnapshot): React.ReactNode;
   /** Names the provider in the error boundary's message. */
   owner?: string;
+  /**
+   * The scope-gated plugin this section belongs to (1.41.0): a gate id, as `PluginSpec.access` names
+   * it (the plugin id for `"scope"`). The section is left out wherever an admin has not turned that
+   * plugin on, for the open scope or for the user, whatever `match` says.
+   */
+  access?: string;
 }
 
 const providers = new Map<string, { spec: PropertyProvider; seq: number }>();
@@ -89,6 +97,9 @@ function changed(): void {
   for (const l of [...listeners]) l();
 }
 
+// A gated section comes and goes with its plugin's switch: the panel asks again when that changes.
+subscribePluginAccess(changed);
+
 /** Registers `spec`; returns a function that removes it. */
 export function registerPropertyProvider(spec: PropertyProvider): () => void {
   if (!spec.id) {
@@ -96,6 +107,7 @@ export function registerPropertyProvider(spec: PropertyProvider): () => void {
     return () => {};
   }
   const entry = { spec, seq: seq++ };
+  if (spec.access) noteGatedRegistration();
   providers.set(spec.id, entry);
   changed();
   return () => {
@@ -131,6 +143,7 @@ export function providersFor(
   all.sort((a, b) => (a.p.order ?? 0) - (b.p.order ?? 0) || a.k - b.k || a.i - b.i);
   const out: PropertyProvider[] = [];
   for (const { p } of all) {
+    if (p.access && !isGateOpen(p.access)) continue;
     try {
       if (p.match(sel)) out.push(p);
     } catch (err) {
