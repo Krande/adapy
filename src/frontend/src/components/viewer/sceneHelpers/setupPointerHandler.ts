@@ -228,7 +228,8 @@ export function setupPointerHandler(
         const clashRect = renderer.domElement.getBoundingClientRect();
         const jointId = clashView ? clashPickAt(clashView, e.clientX - clashRect.left, e.clientY - clashRect.top) : null;
         if (jointId) {
-            await focusJoint(jointId, {revealPanel: true});
+            // Selected like any clicked object: no panel is opened or switched (see `fromView`).
+            await focusJoint(jointId, {fromView: true});
             return;
         }
         // Anything else clicked is what the Selected Object panel describes now, not the contact.

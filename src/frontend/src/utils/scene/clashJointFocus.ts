@@ -17,22 +17,28 @@ import { useClashContactPickStore } from "@/state/clashContactPickStore";
 import { selectInOtherModel } from "@/utils/scene/crossModelSelect";
 
 export interface FocusOptions {
-  /** Bring the joints review up (the Connections panel's Review tab). True for a click in the 3D view (the panel may be closed, or on
-   *  another tab, and a cursor nobody can see is not a selection); false when the click came FROM
-   *  a panel, which is already the one on screen. */
+  /** Bring the joints review up (the Connections panel's Review tab) and the Selected Object panel
+   *  with it: for a deliberate "show it in Connections" (a viewer-control command). False when the
+   *  focus came FROM a panel, which is already the one on screen. */
   revealPanel?: boolean;
+  /** The joint was clicked in the 3D view (a marker or a contact patch). It is selected like any
+   *  clicked object: its members are selected and the Selected Object panel describes the contact,
+   *  if that panel is open. No panel is opened, and the Connections panel keeps its tab: when it is
+   *  open, the tab on screen scrolls to the joint and highlights it (the store's cursor). */
+  fromView?: boolean;
 }
 
 /** Focus `jointId`: store cursor, group opened, members selected, panel revealed if asked. */
 export async function focusJoint(jointId: string, opts: FocusOptions = {}): Promise<void> {
   const store = useClashCheckStore.getState();
+  // The cursor: whichever Connections tab lists the joint (Clashes, Review) opens its group,
+  // scrolls to it and highlights it. Nothing on screen changes when no such tab is.
   store.focusJoint(jointId);
 
-  // The joints review is the Connections panel's tab. A contact pointed at in the 3D view is also
-  // described in the Selected Object panel (its Contact section, `ClashContactSection`), which is
-  // brought up with it; the list opens at the contact, its detail open (`clashContactPickStore`).
+  // A contact pointed at in the 3D view is described in the Selected Object panel (its Contact
+  // section, `ClashContactSection`), opened at the contact with its detail open (`clashContactPickStore`).
+  if (opts.revealPanel || opts.fromView) useClashContactPickStore.getState().pick(jointId);
   if (opts.revealPanel) {
-    useClashContactPickStore.getState().pick(jointId);
     openConnectionsTab(JOINTS_REVIEW_TAB);
     reveal(CORE_PANEL_IDS.objectInfo);
   }

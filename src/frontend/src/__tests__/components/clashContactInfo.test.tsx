@@ -1,8 +1,10 @@
 // A clash contact clicked in the 3D view (its marker or patch) is described in the Selected Object
 // panel -- its joint type, the members in contact, where it is, the specs that claim it -- with a
-// link that opens it in Connections > Review; the click itself opens Review and the Selected Object
-// panel, and marks the contact as the one the list opens at (`clashContactPickStore`), so the list
-// opens its detail even when it was the cursor already. An ordinary pick of the model ends it.
+// link that opens it in Connections > Review. The click itself opens no panel and switches no tab:
+// it selects the contact like any clicked object, and marks it as the one the lists open at
+// (`clashContactPickStore`), so a Connections tab already on screen scrolls to it and opens its
+// detail even when it was the cursor already. An ordinary pick of the model ends it. Only a
+// deliberate "show it in Connections" (`revealPanel`) opens Review and the Selected Object panel.
 
 import assert from "node:assert/strict";
 import { beforeEach, test } from "node:test";
@@ -20,6 +22,22 @@ const { default: ClashContactSection, showContactInConnections } = await import(
 );
 const { CORE_PROPERTY_PROVIDERS } = await import("@/components/info_box_selected_object/ObjectInfoBoxComponent");
 const { focusJoint } = await import("@/utils/scene/clashJointFocus");
+const { setPanelController } = await import("@/layout/reveal");
+const { CORE_PANEL_IDS } = await import("@/layout/panelActions");
+
+/** A layout whose open panels are `open`; records every reveal. Restored after each test. */
+function fakeLayout(open: readonly string[]): string[] {
+  const revealed: string[] = [];
+  setPanelController({
+    isOpen: (id) => open.includes(id),
+    reveal: (id) => {
+      revealed.push(id);
+      return true;
+    },
+    hide: () => true,
+  });
+  return revealed;
+}
 
 const TYPE = "2|BEAM:I:GIRDER+BEAM:I:COLUMN|perpendicular";
 const RESULT = parseClashResult({
@@ -51,7 +69,8 @@ const render = () => {
 };
 
 beforeEach(() => {
-  useClashCheckStore.setState({ result: RESULT, selectedJoint: null });
+  setPanelController(null);
+  useClashCheckStore.setState({ result: RESULT, selectedJoint: null, selectedGroup: null });
   useClashContactPickStore.getState().clear();
   useConnectionBuilderTabStore.getState().select(CLASHES_TAB);
 });
@@ -73,15 +92,17 @@ test("a picked contact shows its type, members, position and specs, with a link 
   assert.match(html, /Open in Connections/);
 });
 
-test("the link opens Review at the contact; a click in 3D picks it, and each request is a new one", async () => {
+test("the link opens Review at the contact; a deliberate reveal does too, and each request is a new one", async () => {
   showContactInConnections("j1abcdef99");
   assert.equal(useConnectionBuilderTabStore.getState().tab, JOINTS_REVIEW_TAB);
   assert.equal(useClashCheckStore.getState().selectedJoint, "j1abcdef99");
   const seq = useClashContactPickStore.getState().seq;
 
+  const revealed = fakeLayout([]);
   useConnectionBuilderTabStore.getState().select(CLASHES_TAB);
   await focusJoint("j1abcdef99", { revealPanel: true });
   assert.equal(useConnectionBuilderTabStore.getState().tab, JOINTS_REVIEW_TAB);
+  assert.deepEqual(revealed, [CORE_PANEL_IDS.componentControls, CORE_PANEL_IDS.objectInfo]);
   assert.equal(useClashContactPickStore.getState().jointId, "j1abcdef99");
   assert.ok(useClashContactPickStore.getState().seq > seq, "the same contact again is a new request");
 
@@ -89,6 +110,38 @@ test("the link opens Review at the contact; a click in 3D picks it, and each req
   useClashContactPickStore.getState().clear();
   await focusJoint("j1abcdef99");
   assert.equal(useClashContactPickStore.getState().jointId, null);
+});
+
+test("a click in 3D with the Connections panel closed selects the contact and opens no panel", async () => {
+  const revealed = fakeLayout([]);
+  await focusJoint("j1abcdef99", { fromView: true });
+  assert.deepEqual(revealed, [], "neither Connections nor the Selected Object panel is opened");
+  assert.equal(useConnectionBuilderTabStore.getState().tab, CLASHES_TAB, "the Connections tab is not switched");
+  // What the Selected Object panel (when the user has it open) describes: the clicked contact.
+  assert.equal(useClashContactPickStore.getState().jointId, "j1abcdef99");
+  assert.match(render(), /Girder→Column/);
+});
+
+test("a click in 3D with the Connections panel open highlights the contact in the tab on screen", async () => {
+  const revealed = fakeLayout([CORE_PANEL_IDS.componentControls]);
+  const seq = useClashContactPickStore.getState().seq;
+  await focusJoint("j1abcdef99", { fromView: true });
+  assert.deepEqual(revealed, [], "nothing is revealed: the panel is already up");
+  assert.equal(useConnectionBuilderTabStore.getState().tab, CLASHES_TAB, "the tab on screen stays");
+  // The cursor the tab's list scrolls to and highlights, with its group opened ...
+  assert.equal(useClashCheckStore.getState().selectedJoint, "j1abcdef99");
+  assert.equal(useClashCheckStore.getState().selectedGroup, TYPE);
+  // ... and a new pick, which the Review list opens at with the detail open.
+  assert.ok(useClashContactPickStore.getState().seq > seq);
+});
+
+test("the 3D click paths ask for no panel", async () => {
+  const { readFile } = await import("node:fs/promises");
+  for (const rel of ["../../components/viewer/sceneHelpers/setupPointerHandler.ts", "../../utils/scene/clashJointMarkers.ts"]) {
+    const src = await readFile(new URL(rel, import.meta.url), "utf8");
+    assert.match(src, /focusJoint\(\w+, ?\{ ?fromView: true ?\}\)/, rel);
+    assert.doesNotMatch(src, /revealPanel: true/, rel);
+  }
 });
 
 test("the list opens at a picked contact, its detail open, and an ordinary pick ends it", async () => {
