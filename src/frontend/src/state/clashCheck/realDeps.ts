@@ -84,7 +84,8 @@ export async function detailOnce(
   return runClashDetailFlow(realFlowDeps(scope, onJobStage), scope, state.derivedKey as string, ids, spec);
 }
 
-/** The convex-contact checker's settings from the form, with its defaults. */
+/** The convex-contact checker's settings from the form, with its defaults (as
+ *  `ada.clash.convex_contact.register`: 200 mm², and half the thinner member's wall wide). */
 export function contactRunOptions(checkerOptions: Readonly<Record<string, unknown>> | undefined): ContactRunDoc["options"] {
   const num = (k: string, d: number) => {
     const v = checkerOptions?.[k];
@@ -93,7 +94,8 @@ export function contactRunOptions(checkerOptions: Readonly<Record<string, unknow
   };
   return {
     security_margin: num("security_margin", 0.01),
-    min_contact_area: num("min_contact_area", 1e-6),
+    min_contact_area: num("min_contact_area", 2e-4),
+    min_contact_width_ratio: num("min_contact_width_ratio", 0.5),
     line_contact_thickness: num("line_contact_thickness", 1e-3),
   };
 }

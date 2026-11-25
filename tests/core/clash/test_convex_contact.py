@@ -52,7 +52,9 @@ def test_registered_as_a_checker_of_its_own():
     assert CONVEX_CONTACT_PASS not in {q.name for q in selected_passes(None)}
     entry = {c["name"]: c for c in list_checkers()}[CONVEX_CONTACT_CHECKER]
     assert entry["capability"] is None
-    assert {o["key"] for o in entry["options"]} == {"security_margin", "min_contact_area"}
+    options = {o["key"]: o["default"] for o in entry["options"]}
+    # 200 mm², and half the thinner member's wall wide (ada.clash.contact_criteria).
+    assert options == {"security_margin": 0.01, "min_contact_area": 2e-4, "min_contact_width_ratio": 0.5}
 
 
 def test_a_default_check_does_not_run_it():

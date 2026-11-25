@@ -136,8 +136,9 @@ function publishPicks(): void {
       triangles: contactPicks.triangles,
       triangleIds: contactPicks.ids,
     },
-    // Imported on use: focusing reaches the panels and the scene.
-    (id) => void import("@/utils/scene/clashJointFocus").then((m) => m.focusJoint(id, { revealPanel: true })),
+    // Imported on use: focusing reaches the panels and the scene. A click in the view: no panel is
+    // opened or switched (`fromView`).
+    (id) => void import("@/utils/scene/clashJointFocus").then((m) => m.focusJoint(id, { fromView: true })),
   );
 }
 

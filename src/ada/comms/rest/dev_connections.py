@@ -4,6 +4,9 @@ Set ``ADA_DEV_CONNECTIONS`` to a library's ``ada_connections.toml`` (or its fold
 holds that library in a child process (:mod:`ada.api.connections.devhost`), watches its files, and
 reloads it on every change. The routes in :mod:`.routes.dev_connections` list its specs, build one
 from the studio's inputs, and stream the reload events the studio rebuilds on.
+:mod:`.dev_connections_server` answers the same routes with the standard library alone, so
+``ada dev connections`` runs on a plain ada-py install; the logic both share is here, and this
+module imports neither FastAPI nor pydantic.
 
 Local development only: the launcher (``ada dev connections``) sets the variable on a loopback,
 auth-less viewer. The library's code runs with the viewer user's rights, as any script would.
@@ -22,7 +25,8 @@ import sys
 import tempfile
 import threading
 import time
-from typing import Any
+from dataclasses import dataclass, field
+from typing import Any, Callable
 
 from ada.config import logger
 
@@ -163,7 +167,8 @@ class DevConnections:
         self._host = LibraryHost(str(self.config.path), python=python)
         self._lock = threading.RLock()
         self._stop = threading.Event()
-        self._subscribers: set[tuple[asyncio.AbstractEventLoop, asyncio.Queue]] = set()
+        #: Each subscriber's queue and how an event reaches it (from any thread).
+        self._subscribers: dict[Any, Callable[[dict[str, Any]], None]] = {}
         self._sub_lock = threading.Lock()
         self._last_keys: dict[str, str] = {}
         self._subjects: dict[str, list[str]] = {}
@@ -387,33 +392,203 @@ class DevConnections:
         self._publish({"type": "state", "reason": reason, **self.snapshot()})
 
     def subscribe(self) -> asyncio.Queue:
-        q: asyncio.Queue = asyncio.Queue(maxsize=64)
+        """An asyncio queue of the state events, for a subscriber on the running event loop."""
+        q: asyncio.Queue = asyncio.Queue(maxsize=_QUEUE_SIZE)
+        loop = asyncio.get_running_loop()
+
+        def deliver(event: dict[str, Any]) -> None:
+            loop.call_soon_threadsafe(_offer, q, event)  # RuntimeError once the loop closed
+
         with self._sub_lock:
-            self._subscribers.add((asyncio.get_running_loop(), q))
+            self._subscribers[q] = deliver
         return q
 
-    def unsubscribe(self, q: asyncio.Queue) -> None:
+    def subscribe_thread(self) -> queue_mod.Queue:
+        """A thread-safe queue of the state events, for a subscriber on a plain thread (the
+        standard-library server, :mod:`.dev_connections_server`)."""
+        q: queue_mod.Queue = queue_mod.Queue(maxsize=_QUEUE_SIZE)
+
+        def deliver(event: dict[str, Any]) -> None:
+            _offer(q, event)
+
         with self._sub_lock:
-            self._subscribers = {s for s in self._subscribers if s[1] is not q}
+            self._subscribers[q] = deliver
+        return q
+
+    def unsubscribe(self, q: asyncio.Queue | queue_mod.Queue) -> None:
+        with self._sub_lock:
+            self._subscribers.pop(q, None)
 
     def _publish(self, event: dict[str, Any]) -> None:
         with self._sub_lock:
-            subscribers = list(self._subscribers)
-        for loop, q in subscribers:
+            subscribers = list(self._subscribers.items())
+        for q, deliver in subscribers:
             try:
-                loop.call_soon_threadsafe(_offer, q, event)
+                deliver(event)
             except RuntimeError:  # the loop closed
                 self.unsubscribe(q)
 
 
-def _offer(q: asyncio.Queue, event: dict[str, Any]) -> None:
+_QUEUE_SIZE = 64
+
+
+def _offer(q: asyncio.Queue | queue_mod.Queue, event: dict[str, Any]) -> None:
     """Queue ``event``; a subscriber that fell behind loses its oldest state (the newest wins)."""
-    if q.full():
+    while True:
         try:
-            q.get_nowait()
-        except asyncio.QueueEmpty:
-            pass
-    q.put_nowait(event)
+            q.put_nowait(event)
+            return
+        except (asyncio.QueueFull, queue_mod.Full):
+            try:
+                q.get_nowait()
+            except (asyncio.QueueEmpty, queue_mod.Empty):
+                pass
+
+
+# -- the routes' logic, shared by both servers ----------------------------------------------------
+#
+# The FastAPI routes (:mod:`.routes.dev_connections`) and the standard-library server
+# (:mod:`.dev_connections_server`) answer the same requests the same way. What differs is only
+# where a built file is stored, so a reply names what to store and what to delete and each server
+# does that with its own storage.
+
+#: The scope a build lands in, as the studio names it.
+BUILD_SCOPE = "user:me"
+
+
+class DevRequestError(Exception):
+    """A request answered with ``status`` and ``{"detail": detail}`` (as FastAPI's HTTPException)."""
+
+    def __init__(self, status: int, detail: str):
+        super().__init__(detail)
+        self.status = status
+        self.detail = detail
+
+
+@dataclass
+class DevReply:
+    """What a route answers: ``status`` and ``body`` (JSON), after storing ``store`` (``key, data,
+    content_encoding``) in the caller's scope and deleting ``delete`` from it (best effort)."""
+
+    status: int
+    body: dict[str, Any]
+    store: tuple[str, bytes, str | None] | None = None
+    delete: list[str] = field(default_factory=list)
+
+
+def parse_build_request(body: Any) -> tuple[str, dict[str, Any]]:
+    """``{spec_name, inputs}`` from a build or subject request; :class:`DevRequestError` (400) if bad."""
+    if not isinstance(body, dict):
+        raise DevRequestError(400, "the request body must be a JSON object")
+    spec_name = body.get("spec_name")
+    if not isinstance(spec_name, str) or not spec_name:
+        raise DevRequestError(400, "spec_name (str) is required")
+    inputs = body.get("inputs") or {}
+    if not isinstance(inputs, dict):
+        raise DevRequestError(400, "inputs must be an object")
+    return spec_name, inputs
+
+
+def report_digest(report: dict) -> str:
+    """What names a build's blob: the library generation and the merged inputs."""
+    return hashlib.sha256(
+        json.dumps({"g": report.get("generation"), "i": report.get("inputs")}, sort_keys=True).encode()
+    ).hexdigest()[:16]
+
+
+def _builder_failed(dev: DevConnections, spec_name: str, e: HostError) -> DevReply:
+    return DevReply(
+        422,
+        {
+            "spec_name": spec_name,
+            "error": e.error,
+            "traceback": e.traceback,
+            # The builder raised NotApplicable: it refused these members (not a crash).
+            "declined": bool(e.extra.get("declined")),
+            "generation": dev.generation,
+        },
+    )
+
+
+def build_reply(dev: DevConnections, body: Any) -> DevReply:
+    """``POST /dev/connections/build``. Blocks while the library builds (run it off the event loop)."""
+    spec_name, inputs = parse_build_request(body)
+    t0 = time.perf_counter()
+    try:
+        glb, report = dev.build(spec_name, inputs)
+    except HostUnavailable as e:
+        raise DevRequestError(503, str(e)) from None
+    except HostError as e:
+        return _builder_failed(dev, spec_name, e)
+    build_ms = round((time.perf_counter() - t0) * 1000)
+
+    key = f"_dev/connections/{spec_name}/{report_digest(report)}.glb"
+    previous = dev.remember_key(spec_name, key)
+    return DevReply(
+        200,
+        {
+            "spec_name": spec_name,
+            "scope": BUILD_SCOPE,
+            "key": key,
+            "inputs": report.get("inputs"),
+            "log": report.get("log") or [],
+            "counts": report.get("counts") or {},
+            "properties": report.get("properties") or {"members": [], "welds": []},
+            # The joint's measured contact as a convex-contact run over THIS GLB (its member ids are
+            # the GLB's element ids); null where it could not be measured, `clash_note` saying why.
+            "clash_run": report.get("clash_run"),
+            "clash_note": report.get("clash_note"),
+            "generation": dev.generation,
+            "build_ms": build_ms,
+        },
+        store=(key, glb, None),
+        delete=[previous] if previous else [],
+    )
+
+
+def subject_reply(dev: DevConnections, body: Any) -> DevReply:
+    """``POST /dev/connections/subject``: the detail as a simulation subject (a weld assembly).
+
+    409 when the detail has no welds; 422 (as a build) when the builder raises. Unlike the preview
+    GLB the file is kept past the next build (a run may still be using it): the newest
+    ``SUBJECTS_KEPT`` per spec. Blocks while the library builds."""
+    from ada.simulation.subjects import WELD_ASSEMBLY_KIND
+
+    spec_name, inputs = parse_build_request(body)
+    try:
+        data, report = dev.subject(spec_name, inputs)
+    except HostUnavailable as e:
+        raise DevRequestError(503, str(e)) from None
+    except HostError as e:
+        if "the detail has no welds" in e.error:
+            raise DevRequestError(409, "the detail has no welds") from None
+        return _builder_failed(dev, spec_name, e)
+
+    key = f"_dev/connections/{spec_name}/{report_digest(report)}.weld-assembly.json"
+    stale = dev.remember_subject(spec_name, key)
+    welds = int(report.get("welds") or 0)
+    return DevReply(
+        200,
+        {
+            "scope": BUILD_SCOPE,
+            "key": key,
+            "kind": WELD_ASSEMBLY_KIND,
+            "welds": welds,
+            "label": f"{spec_name} ({welds} weld{'s' if welds != 1 else ''})",
+            "generation": dev.generation,
+        },
+        store=(key, data, "gzip"),  # gzip at rest, as the run records
+        delete=stale,
+    )
+
+
+def sse(event: dict) -> str:
+    """One server-sent event carrying ``event`` as JSON."""
+    return f"data: {json.dumps(event, default=str)}\n\n"
+
+
+#: How often an idle event stream sends a comment, so proxies and the browser keep it open.
+SSE_HEARTBEAT_S = 15.0
 
 
 def _relative(path: str, root: pathlib.Path) -> str:

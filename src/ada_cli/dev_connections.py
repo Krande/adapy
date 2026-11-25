@@ -2,8 +2,11 @@
 
 1. Read the library's ``ada_connections.toml`` (``--dir``, default the current folder; see
    :mod:`ada.api.connections.library` for the format) so a bad one fails here, with its own message.
-2. Start the local viewer (as ``ada desktop`` does: local storage, no login, no queue) with
-   ``ADA_DEV_CONNECTIONS`` naming the library. The viewer holds the library in a child process,
+2. Start the local viewer (no login, no queue) with ``ADA_DEV_CONNECTIONS`` naming the library:
+   a small standard-library server (:mod:`ada.comms.rest.dev_connections_server`) that serves the
+   bundled viewer and the connection builder's routes, so a plain ada-py install runs it. With
+   ``--sim-remote`` it is the full REST app (``python -m ada.comms.rest``, as ``ada desktop`` runs),
+   which relays simulation runs and needs the viewer API's packages. The viewer holds the library in a child process,
    watches its files and reloads it on every change; the studio's connection builder lists the
    library's specs and rebuilds the selected one, with the members' sections and plate
    thicknesses editable per joint.
@@ -57,7 +60,8 @@ def add_arguments(p: argparse.ArgumentParser) -> None:
         "--data",
         default=None,
         metavar="DIR",
-        help=f"Local storage for the built previews (default: {desktop.data_root()}).",
+        help=f"Local storage for the built previews with --sim-remote (default: {desktop.data_root()}); "
+        "otherwise they are held in memory.",
     )
     src = p.add_mutually_exclusive_group()
     src.add_argument("--static", default=None, metavar="DIR", help="Serve this built viewer directory.")
@@ -104,16 +108,16 @@ def _load_library(path: str):
         raise CliUsageError(str(e)) from None
 
 
-def _set_remote(args: argparse.Namespace) -> None:
+def _set_remote(args: argparse.Namespace) -> bool:
     """Pass the remote Ada Studio (flags win over the environment) to the API process, which reads it
-    from ``ADA_SIMULATION_REMOTE_*``. Without one the run is unchanged."""
+    from ``ADA_SIMULATION_REMOTE_*``. Returns whether there is one; without one the run is unchanged."""
     from ada_cli import CliUsageError
 
     url = (args.sim_remote or os.environ.get(ENV_SIM_REMOTE, "")).strip().rstrip("/")
     if not url:
         if args.sim_token or args.sim_scope:
             raise CliUsageError("--sim-token and --sim-scope need --sim-remote URL")
-        return
+        return False
     if not url.startswith(("http://", "https://")):
         raise CliUsageError(f"--sim-remote {url!r}: expected an http(s) URL")
     os.environ[ENV_SIM_REMOTE] = url
@@ -122,6 +126,28 @@ def _set_remote(args: argparse.Namespace) -> None:
     if args.sim_scope:
         os.environ[ENV_SIM_SCOPE] = args.sim_scope
     _print(f"  simulation runs on the providers of {url} are handed off to it")
+    return True
+
+
+#: The full viewer API's packages (pixi's ``viewer-api`` feature); a plain ada-py has none of them.
+FULL_SERVER_MODULES = ("uvicorn", "fastapi", "obstore", "nats", "aiohttp", "httpx")
+
+
+def server_command(full: bool) -> list[str]:
+    """The viewer process: the standard-library server that answers the connection builder alone
+    (:mod:`ada.comms.rest.dev_connections_server`, runs on a plain ada-py), or with ``full`` the
+    whole REST app (``python -m ada.comms.rest``), which relays simulation runs to a remote studio."""
+    if not full:
+        return [sys.executable, "-m", "ada.comms.rest.dev_connections_server"]
+    import importlib.util
+
+    missing = [m for m in FULL_SERVER_MODULES if importlib.util.find_spec(m) is None]
+    if missing:
+        raise desktop.DesktopError(
+            f"--sim-remote needs the full viewer API, whose packages are not installed here "
+            f"(missing: {', '.join(missing)}); install them, or run without --sim-remote"
+        )
+    return [sys.executable, "-m", "ada.comms.rest"]
 
 
 def _port(cli_port: int | None) -> int:
@@ -139,11 +165,12 @@ def run(args: argparse.Namespace) -> int:
     what = ", ".join([*cfg.packages, *([cfg.loader] if cfg.loader else [])])
     _print(f"  loads {what}; watches {', '.join(str(w) for w in cfg.watch)}")
     os.environ[ENV_CONFIG] = str(cfg.path)
-    _set_remote(args)
+    remote = _set_remote(args)
 
     if args.dev:
         return desktop.run_dev(_desktop_dev_args(args))
 
+    command = server_command(full=remote)
     port = _port(args.port)
     base = f"http://{desktop.LOCAL_HOST}:{port}/"
     static = desktop.resolve_static(args, os.environ)
@@ -174,7 +201,7 @@ def run(args: argparse.Namespace) -> int:
             _print("ada dev connections: no ada-desktop window shell installed; opening the default browser")
 
     job = desktop._Job()
-    server = subprocess.Popen([sys.executable, "-m", "ada.comms.rest"], env=env)
+    server = subprocess.Popen(command, env=env)
     job.assign(server)
     rc = 0
     try:

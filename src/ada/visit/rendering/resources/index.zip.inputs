@@ -1,8 +1,8 @@
 # The inputs src/ada/visit/rendering/resources/index.zip was built from, and its own hash. Do not edit.
 # Refresh with `pixi run wbuild` (rebuilds the bundle and rewrites this), then commit both.
 # Checked by `pixi run check-bundle-inputs` and by CI. See scripts/packaging/bundle_inputs.py.
-inputs-sha256 99367846555e0fe9a5c77131d29b722c182ffbba542d7e53d917cacb295e31fd
-bundle-sha256 757c53e0e1b1339a63d2165932fac0f409115dfb3df4430a49517e9d923d082a
+inputs-sha256 e465e5e1afc9003a6cb423ed061c51b0f706a0144ad919365980764d1846a046
+bundle-sha256 e7a324010c9aa3182ed715fed425cd5ff4b43c479f679f2e17e5742d94ac59e2
 pin:ADACPP_BASE_IMAGE ghcr.io/krande/adacpp-wasm-base:0.45.0
 pin:ADACPP_RENDER_REF fc135684251247c31b26800476305f2338cae68d
 src/frontend/clean.cjs 548054390de442a02ca36bd4de94f25095f10ae9
@@ -519,7 +519,7 @@ src/frontend/src/components/viewer/sceneHelpers/setupControls.ts 04311ed9c9746a1
 src/frontend/src/components/viewer/sceneHelpers/setupGizmo.ts c0f6126f6834fd9fc16315985421e0437741d675
 src/frontend/src/components/viewer/sceneHelpers/setupLights.ts 29fc2bd6a166eec4dacbfb45ae93fb0a827d35d0
 src/frontend/src/components/viewer/sceneHelpers/setupModelLoader.ts 9cfd0c12cc48b24087d52ba2bb18b67dc600c5c8
-src/frontend/src/components/viewer/sceneHelpers/setupPointerHandler.ts edaa57106f15203de5dc73f42ed2828f2de3e990
+src/frontend/src/components/viewer/sceneHelpers/setupPointerHandler.ts c30d2c726a606cef32416386e4c2749378503a15
 src/frontend/src/components/viewer/sceneHelpers/setupResizeHandler.ts 2e2aee1d8777585006878d5d71830497bd058e36
 src/frontend/src/components/viewer/sceneHelpers/setupStats.ts e3a145601b0a9ec44b9151b4013171ebb4f63d06
 src/frontend/src/components/viewer/sceneHelpers/spaceMousePoseDriver.ts a7e3bb4a0f2728c3c2cf0c1c9fb0d7b56ecffebf
@@ -792,7 +792,7 @@ src/frontend/src/services/capabilities/rest_capabilities.ts aa466eedab66cbf23ae3
 src/frontend/src/services/capabilities/types.ts 7fbae911f16f3341e0236685ae5715a38737ae01
 src/frontend/src/services/capabilities/ws_capabilities.ts adcf10a4eb04793b51e120b44cc87b0f63e0877f
 src/frontend/src/services/clash/browserClashCheck.ts b7f83bf44c716eb7f9e671e7d1778bb896ccd99e
-src/frontend/src/services/clash/contactRuns.ts 112403a786bd9d5f0b647b7568d3436b431ac873
+src/frontend/src/services/clash/contactRuns.ts 656c65edc308bdecbf861b924745bdf4f5930fa9
 src/frontend/src/services/clashSpecProviders.ts 7b03e19f9fec35fcd8e8b2929969fff72400cb3c
 src/frontend/src/services/collectionSplits.ts 6ee7423dd5152e03590786a0332d705239793289
 src/frontend/src/services/components/componentBuildPipeline.ts 2472d8f2e213aa55242222ee04b158757652497a
@@ -907,11 +907,11 @@ src/frontend/src/state/cellbuilder/xlsxImport.ts 190015a23ce4e46e94a9f9c25f7838c
 src/frontend/src/state/clashCheck/derive.ts 5900b7a0ab11226c6001f8cb0512a7c6c418b106
 src/frontend/src/state/clashCheck/detail.ts a82ac0b3e9b41f64cc40b92bc8c93cad74262a91
 src/frontend/src/state/clashCheck/detailContext.ts cde9e051e002275349888169b2e76bf252dad5bc
-src/frontend/src/state/clashCheck/engine.ts e6e148ec3d534813eac87c1d85fdf1460237871b
+src/frontend/src/state/clashCheck/engine.ts e24c8e4615918a3eb5898ac4d8d4982ed99fae3d
 src/frontend/src/state/clashCheck/flows.ts 92c851bc076afd15613dcbbd961c0a4d7e58f5b2
 src/frontend/src/state/clashCheck/geometry.ts 6ae3b4880f2612ffe4db5bfb73255be95b4c1b47
 src/frontend/src/state/clashCheck/markers.ts f44f2b811800b2b0139188704cad2997af1407f1
-src/frontend/src/state/clashCheck/realDeps.ts 86e850a50361a40304142ded806801fe5d4bf6e1
+src/frontend/src/state/clashCheck/realDeps.ts d74e16492b0e520c501296e3b1a3c0bebf1cac94
 src/frontend/src/state/clashCheck/result.ts af3646dd230ece78ed5d8beb5bca0a28365b2895
 src/frontend/src/state/clashCheck/state.ts e1df8c6f84523f9dfeb8fc5f923ee4763a623d8a
 src/frontend/src/state/clashCheckStore.ts 37d2e043f594471c6a215df9ec8b6b1075a1e263
@@ -1171,8 +1171,8 @@ src/frontend/src/utils/scene/centerViewOnSelection.ts 408238791bc361f31851762603
 src/frontend/src/utils/scene/clashContactOverlay.ts 66e2530b5d26af61ded785708956f2e46a1fc0e5
 src/frontend/src/utils/scene/clashContactPlan.ts 51e73ac9f77b9d2db9d989e5721080dec37de7f0
 src/frontend/src/utils/scene/clashIsolation.ts daa8fc5deba80ed3d79f158813ddd883a0dd2215
-src/frontend/src/utils/scene/clashJointFocus.ts 61413a94e41d63ed8fa46c34d55c1d8d82733d10
-src/frontend/src/utils/scene/clashJointMarkers.ts a141536d9add79fe72c46d9128cd45ce985306cb
+src/frontend/src/utils/scene/clashJointFocus.ts a7d5b8d51ba66766daa9269e948626a6983f2ea6
+src/frontend/src/utils/scene/clashJointMarkers.ts a9f91b3d8c55eef97afe9e9ed2932e4bb4e7c140
 src/frontend/src/utils/scene/clashOverlayPicks.ts 6bef198311411c07dd775ad6fe5b01324d3a3d04
 src/frontend/src/utils/scene/clearThreeSceneModels.ts f9095e6748c5c3dd82486d1d0e61e7655b85784a
 src/frontend/src/utils/scene/colorBy.ts 37a5ec0f9e19541d39ff9f98d78bbde829c6739d
