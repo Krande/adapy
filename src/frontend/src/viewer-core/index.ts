@@ -791,7 +791,11 @@
 //          "camera"`. See PLUGIN_API_VERSION's 1.39.0 note.
 //   1.40.0 Kept in step with PLUGIN_API_VERSION 1.40.0. Additive: `ctx.effects` (visual effects at
 //          runtime) on the plugin context; nothing new on these entry points. See PLUGIN_API_VERSION's 1.40.0 note.
-export const VIEWER_CORE_API_VERSION = "1.40.0";
+//   1.41.0 Kept in step with PLUGIN_API_VERSION 1.41.0. Additive: scope-gated plugins --
+//          `PluginSpec.access`, `PropertyProvider.access`, `CommandSpec.access`, `ctx.access`, and on
+//          this entry `isPluginGateOpen(gate)`, `subscribePluginAccess(cb)` and the types `PluginAccess`,
+//          `PluginAccessSpec`, `PluginAccessAnswer`. See PLUGIN_API_VERSION's 1.41.0 note.
+export const VIEWER_CORE_API_VERSION = "1.41.0";
 
 // ---------------------------------------------------------------------------
 // Plugin declaration. `registerPlugin` is how a package announces itself —
@@ -803,13 +807,18 @@ export {
   getPlugin,
   getPluginModes,
   getRegisteredPlugins,
+  isPluginGateOpen,
   notifyPluginActivationChanged,
   PLUGIN_API_VERSION,
   registerPlugin,
+  subscribePluginAccess,
 } from "@/plugins/registry";
 export type {
   ActivationPredicate,
   AdaPluginContext,
+  PluginAccess,
+  PluginAccessAnswer,
+  PluginAccessSpec,
   PanelSlot,
   BoxFace,
   PlaceBoxOptions,

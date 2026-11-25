@@ -219,6 +219,12 @@ from .metrics import (
 )
 from .migrations import _MIGRATION_LOCK_ID as _MIGRATION_LOCK_ID  # noqa: F401
 from .migrations import _apply_migrations as _apply_migrations  # noqa: F401
+from .plugin_access import (
+    clear_plugin_access,
+    list_plugin_access,
+    plugin_access_rows_for,
+    set_plugin_access,
+)
 from .plugin_jobs import (  # noqa: F401
     _PLUGIN_JOB_SCHEDULE_COLS as _PLUGIN_JOB_SCHEDULE_COLS,
 )
@@ -381,6 +387,10 @@ __all__ = [
     "revoke_provider_grant",
     "set_collection_grants",
     "upsert_provider_grant",
+    "clear_plugin_access",
+    "list_plugin_access",
+    "plugin_access_rows_for",
+    "set_plugin_access",
     "merge_asset_sweep_run_summary",
     "claim_asset_sweep_item",
     "acquire_asset_worker_slot",

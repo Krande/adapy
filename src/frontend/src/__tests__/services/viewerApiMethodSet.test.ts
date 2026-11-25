@@ -104,6 +104,8 @@ const EXPECTED_METHODS = [
   // Provider grants (providerGrants): which scopes read which of the provider store's datasets.
   "adminProviderGrants", "adminRevokeProviderGrant", "adminSetProviderGrant", "adminSetProviderGrantCollections",
   "scopeProviderGrants",
+  // Scope-gated plugins (pluginAccess): what is on for the caller in a scope, and the admin's switches.
+  "scopePluginAccess", "adminPluginAccess", "adminSetPluginAccess", "adminClearPluginAccess",
   // Apply changes: reset a collection's cursor (assetSchedules).
   "adminResetAssetApplyCursor",
   // A provider's shared worker budget across its runs (assetSchedules).

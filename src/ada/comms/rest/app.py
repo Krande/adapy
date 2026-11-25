@@ -462,6 +462,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     from .routes.provider_grants import router as provider_grants_router
 
     api.include_router(provider_grants_router)
+    # Which scope-gated plugins are on for the caller in a scope (routes/plugin_access.py). Fixed path.
+    from .routes.plugin_access import router as plugin_access_router
+
+    api.include_router(plugin_access_router)
 
     # Core asset store (routes/assets.py). Every path is
     # ``/scopes/{scope}/assets/...`` with a fixed first segment after
@@ -525,6 +529,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     admin.include_router(admin_storage_compression_router)
     admin.include_router(admin_db_router)
     admin.include_router(admin_provider_grants_router)
+    # Scope-gated plugins turned on per scope or per user (routes/plugin_access.py, Admin > Plugins).
+    from .routes.plugin_access import admin_router as admin_plugin_access_router
+
+    admin.include_router(admin_plugin_access_router)
     # The provider store's robot assets as .adabots bundles (routes/admin_robot_assets.py).
     from .routes.admin_robot_assets import router as admin_robot_assets_router
 

@@ -270,6 +270,31 @@ first of them, so the next job for that pool goes to the worker that is already 
 reorders the pools a worker serves, and the streak limit still makes a busy preferred pool give
 the others a turn.
 
+#### Scope-gated plugins
+
+A plugin can be turned on per scope (`shared`, `projects/<uuid>`, `users/<sub>`) or per user by an
+admin, instead of being on for everyone. It opts in, and stays OFF everywhere until an admin turns it
+on under Admin > Plugins (`/api/admin/plugin-access`, table `plugin_access`, migration 056). A plugin
+that does not opt in is never looked up.
+
+| Where | Declaration |
+|---|---|
+| Frontend registration | `registerPlugin({..., access: "scope"})`, or `access: {gate: "<id>"}` to share one switch between registrations; `PropertyProvider.access` / `CommandSpec.access` (a gate id) for what is registered outside `registerPlugin` |
+| Simulation provider | an `access_gate = "<id>"` attribute on the provider object (advertised as `access_gate` on its spec) |
+| Backend plugin (jobs) | `register_plugin_backend(..., access_gate="<id>")` |
+| Deployment (optional) | the admin-only setting `admin.plugin_access.bindings`: `{"simulation_providers": {"<provider>": "<gate>"}, "plugin_jobs": {"<plugin>": "<gate>"}}`, OR-ed with what workers advertise, so an older worker cannot open a gate |
+
+The rule for a user working in a scope: the user's own switch decides when there is one (On, or Off,
+which wins over the scope's On); else the scope's switch; else off. It applies to admins too. The
+viewer reads `GET /api/scopes/{scope}/plugin-access` on every scope switch and core hides the gated
+plugin's slots while it is off. The server refuses a simulation run (and a connections batch start)
+on a gated provider, and a gated plugin's job, with 403 and the detail
+`{"code": "plugin_access_off", "plugin", "scope", "message"}`; switches that cannot be read refuse with
+503 `plugin_access_unavailable`. Without a database nothing is gated: there is nowhere to keep the
+switches and no admin panel.
+
+#### Worker pools
+
 An idle worker does not walk its pools one blocking fetch at a time. Each round it asks the
 stream which pools hold messages (one `STREAM.INFO` request with a subject filter, no lease),
 fetches from those, then waits about a second on one pool. It still holds at most one leased
@@ -491,6 +516,7 @@ how the two viewports draw it is in [A viewer without three.js](threejs_free_vie
 | `panels: [{id, region: "joint-review", title?, order?, activationPredicate?, render}]` (1.29.0, on `registerPlugin`) | A plugin's section of the Connections panel's Review tab, after core's own sections (the produced joints, then the identified ones): headed by the panel's `title` (else its id), ordered by `order` (then id), and mounted in the plugin's context inside the boundary that disables the plugin when it throws. Only the active ones are shown (activation as for any region). The Review tab is there while any such section is active, whether or not core has joints to show; with none it is what it was. For what a plugin knows about the same joints that core does not. `getJointReviewSections(ctx)` on `@/viewer-core/plugins` lists them for a shell that draws the tab itself. An older core mounts the region nowhere. |
 | `openConnectionsTab(tab)` (1.29.0, on `@/viewer-core/app`) | Opens the Connections panel on `tab`: one of core's tabs, or a plugin's `connection-builder` panel by its namespaced id (`<pluginId>:<id>`). The tab is picked even where the panel cannot be revealed, for when it is opened; answers whether it was revealed. For a section or a button that sends the user to a plugin's tab. An older core has no `openConnectionsTab`: ask for it first. |
 | `weldSymbolSvg(type, {size?, stroke?, strokeWidth?, referenceLine?, side?})` (1.29.0, on `@/viewer-core`) | A weld type's basic symbol (ISO 2553:2019, system A) as a square SVG icon on its reference line, as markup: inline it (it is stroked in `currentColor`, so it takes the text colour, unless `stroke` names a colour) or use it as an image's `data:` URL. `type` is an `ada` `WeldType` value in any case, with or without a `WELD_TYPE_` prefix; `NONE`, an unknown type or none gives null. `size` is in pixels (24), `strokeWidth` in symbol units (0.07, the symbol is 1 wide). `side`: `"arrow"` (the default) above the line, `"other"` below it (mirrored), `"both"` for a weld on both sides (a double fillet, a double V); spot and seam sit on the line whatever the side. No identification (dashed) line is drawn. The geometry is generated from `ada.api.weld_symbols` (`scripts/codegen/gen_weld_symbols.py`) and drawn in the browser, with no request: the same markup as `WeldSymbol.to_svg`, so the server's `symbol_svg` and this one are one picture. `weldTypeName(type)` (also 1.29.0, on `@/viewer-core`) is the type's short name ("fillet", "single V butt"). An older core has neither: ask for them first (look the name up on the module), and draw the label alone without. |
+| `access: "scope" \| {gate}` (1.41.0, on `registerPlugin`), `ctx.access` | A scope-gated plugin: OFF until an admin turns it on (Admin > Plugins) for the open scope or for the user. While it is off, core hides every slot of the registration -- top-bar buttons, panels and tabs, colour fields, sidecar loaders, renderable files, URL handlers, simulation UIs, storage asset types and modes -- as if its activation predicate were false. `{gate: "<id>"}` puts several registrations under one switch. `PropertyProvider.access` and `CommandSpec.access` (a gate id) do the same for a Selected Object section or a command registered outside `registerPlugin`. `ctx.access` has `gate`, `enabled()`, `loaded()`, `subscribe(cb)` and `refresh()`. The answer is asked again on every scope switch. See "Scope-gated plugins" above. |
 | `playback` | The viewer's one clock: `addTrack({id, duration, show(t), label?})` gives `{setDuration, remove}`; `play`, `pause`, `seek`, `setSpeed`, `setLoop`, `followEnd(on)` for a recording that is still growing; `state()`, `time()`, `subscribe`. The clock's duration is its longest track's, and a shorter track (the model's animation under a longer recording) holds its last moment. |
 | `layers` | The plugin's rows in the Layers panel (`core:layers`): `list`, `setVisible`, `setOpacity`, `subscribe`. A row exists while something drawn with that `layer: {id, label, group?, visible?, opacity?}` does. |
 

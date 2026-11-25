@@ -112,6 +112,9 @@ export function detailText(body: string): string {
       }
       return parts.join("; ");
     }
+    // A refusal with a code (`{"code": "plugin_access_off", "message": "..."}`): its sentence.
+    const message = d && typeof d === "object" ? (d as { message?: unknown }).message : undefined;
+    if (typeof message === "string") return message;
     return "";
   } catch {
     // Not JSON: plain text is worth showing when short; an HTML error page is not.

@@ -11,6 +11,7 @@ import { registerDesktopUiShell } from "@/layout/desktop/desktopShell";
 import { setPluginPanelVisibility } from "@/layout/pluginPanels";
 import { makePluginContextStandalone } from "./context";
 import { setPluginContextFactory } from "./registry";
+import { startPluginAccessSync } from "./pluginAccessSync";
 
 let _loaded = false;
 
@@ -34,6 +35,14 @@ export function loadPlugins(): void {
   setPluginPanelVisibility(usePluginUiStore);
   // ...and a plugin context, so a dormant plugin's panels count as unavailable.
   setPluginContextFactory(makePluginContextStandalone);
+  // Scope-gated plugins (`PluginSpec.access`): hidden until the server says they are on where the
+  // user is. Asks nothing until something gated registers.
+  try {
+    startPluginAccessSync();
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error("[plugins] startPluginAccessSync failed", err);
+  }
   try {
     registerCorePanels();
   } catch (err) {

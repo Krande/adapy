@@ -48,6 +48,8 @@ import { makePluginSimulations } from "./pluginSimulations";
 import { makePluginModes } from "./pluginModes";
 import { makePluginAppearance } from "./pluginAppearance";
 import { makePluginEffects } from "./pluginEffects";
+import { makePluginAccess } from "./pluginAccess";
+import { getPlugin } from "./registry";
 import { onSceneCleared } from "./sceneCleared";
 import { liveGroupLoadEnv, loadSavedGroupFor } from "./sceneGroupLoad";
 import { endScenePicks, pickObjects } from "./scenePicks";
@@ -265,6 +267,10 @@ export function makePluginContext(
     modes: makePluginModes((msg) => log("info", msg)),
     appearance: makePluginAppearance((msg) => log("warn", msg)),
     effects: makePluginEffects(pluginId, (msg) => log("warn", msg)),
+    access: makePluginAccess(
+      () => getPlugin(pluginId)?.accessGate ?? null,
+      () => scopeUrlPart(useScopeStore.getState().current),
+    ),
     scope: () => scopeUrlPart(useScopeStore.getState().current),
     // A React caller passes the SUBSCRIBED theme (`usePluginTheme`), which is
     // what makes a plugin panel repaint on a theme switch. The fallback is a

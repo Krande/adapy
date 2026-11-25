@@ -54,6 +54,7 @@ from .. import pending_uploads
 from ..assoc_links import drop_sim_run_links, sim_run_link
 from ..auth import User
 from ..job_transport import JobRequest
+from ..plugin_access import require_provider_access
 from ..scope import Scope
 from ..simulation_admin import (
     RunOps,
@@ -231,7 +232,9 @@ async def api_simulation_start(
     Refused before anything is queued: an unknown provider (404), one no live worker serves
     (409), parameters that do not fit the provider's schema (400, naming each problem), a
     subject of an unknown kind or one the provider does not accept (400), an input or subject
-    that is missing (404) or still uploading (409)."""
+    that is missing (404) or still uploading (409), and a provider of a scope-gated plugin that is
+    not turned on for this scope or this user (403, detail ``{"code": "plugin_access_off", ...}``;
+    ``ada.comms.rest.plugin_access``)."""
     return FiniteJSONResponse({"run": await start_run(ctx, request, user, scope_obj, body)})
 
 
@@ -247,6 +250,9 @@ async def start_run(ctx: RestContext, request: Request, user: User, scope_obj: S
     provider = provider_by_id(await _providers(ctx, request), provider_id)
     if provider is None:
         raise HTTPException(status_code=404, detail=f"unknown simulation provider {provider_id!r}")
+    # A provider of a scope-gated plugin runs only where an admin turned that plugin on, for this
+    # scope or for this user -- admins included (403 ``plugin_access_off``).
+    await require_provider_access(optional_pool(request), user, scope_obj, provider)
     if not provider["online"]:
         reason = provider.get("unavailable_reason")
         raise HTTPException(

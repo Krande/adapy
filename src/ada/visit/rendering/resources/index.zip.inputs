@@ -1,8 +1,8 @@
 # The inputs src/ada/visit/rendering/resources/index.zip was built from, and its own hash. Do not edit.
 # Refresh with `pixi run wbuild` (rebuilds the bundle and rewrites this), then commit both.
 # Checked by `pixi run check-bundle-inputs` and by CI. See scripts/packaging/bundle_inputs.py.
-inputs-sha256 31c265caae1674258a29f40e0ad6247b5ca1c3f1baa31ec8031e888668bdb5c4
-bundle-sha256 94ab9904151157ddc51ec19607ebf857eb7e4aa0b392bad31345a29dacf75c9d
+inputs-sha256 99367846555e0fe9a5c77131d29b722c182ffbba542d7e53d917cacb295e31fd
+bundle-sha256 757c53e0e1b1339a63d2165932fac0f409115dfb3df4430a49517e9d923d082a
 pin:ADACPP_BASE_IMAGE ghcr.io/krande/adacpp-wasm-base:0.45.0
 pin:ADACPP_RENDER_REF fc135684251247c31b26800476305f2338cae68d
 src/frontend/clean.cjs 548054390de442a02ca36bd4de94f25095f10ae9
@@ -65,7 +65,7 @@ src/frontend/src/assets/types.ts 26c74289bbaa7d40aaee361a33b8fa7c10af1dde
 src/frontend/src/components/OptionsComponent.tsx f6266bc4631a3600fc88d9fd16a427f95c0e5b05
 src/frontend/src/components/ViewerWindow.tsx a9568e397344f73ead0c6606e829783590878ce5
 src/frontend/src/components/WebsocketStatusMenu.tsx a5beec21340fa1f2f16f21cd86a8033cf1ff955b
-src/frontend/src/components/admin/AdminPanel.tsx 86a7401e837f2101c65f12863e63c2a4c1002d90
+src/frontend/src/components/admin/AdminPanel.tsx a77b73e022d5bcda28f282b9732443e50036a27a
 src/frontend/src/components/admin/AdminSection.tsx f33526d69cda8bd308854695de165e864c38b734
 src/frontend/src/components/admin/AdminSubTabs.tsx 3a0cbc8e702b3a65fe61c01c2ab3eb0ec16d6ff4
 src/frontend/src/components/admin/AdminTabShell.tsx 820c1119ae88c455b42b5e7ab45234f6c5054db6
@@ -84,6 +84,7 @@ src/frontend/src/components/admin/FrontendLoadsTab.tsx 8e1cf5e460276a15c08879059
 src/frontend/src/components/admin/GeometryCompareGallery.tsx 97b6fa5a181b114b126720d0ec5536eafab3e443
 src/frontend/src/components/admin/IssueTargetTab.tsx 1faeb0a62682ffd14756664c9c88a50fa9c83ad9
 src/frontend/src/components/admin/PerformanceTab.tsx c1eabffedb806f09303295fc7df7dc2576c0ac04
+src/frontend/src/components/admin/PluginAccessTab.tsx 7d2d150939acef19828ff6d5ccb5ff5416038bdb
 src/frontend/src/components/admin/PluginOptionsForm.tsx 7360c8c4104c2d5594a2aa0f33dceaf31aeaed20
 src/frontend/src/components/admin/ProceduralEngineAdminPanel.tsx c36999129583456889d4bbb2fa1f97d2cbc82929
 src/frontend/src/components/admin/ProceduralTab.tsx 4cfcf42d9d4bf0ac9f314367e6da476ba785c2eb
@@ -112,7 +113,7 @@ src/frontend/src/components/admin/adminStorage/conversionOverrides.ts 5b72c288f7
 src/frontend/src/components/admin/adminStorage/format.tsx 8569f02a509e44c073fb6f10e5155ef6dfb74a6b
 src/frontend/src/components/admin/adminStorage/useAdminStorage.ts 05d580b214e5b22f148c2057b461575c1e706c9e
 src/frontend/src/components/admin/adminStorage/useResizableColumns.ts 01af2f56e1db92ba99add46828864aeb017d5b02
-src/frontend/src/components/admin/adminTabs.ts 6910ab8ae5c158ac8033247e149739738c3442d4
+src/frontend/src/components/admin/adminTabs.ts 167bfa66cf14522d9f74350a24134ce541c3a787
 src/frontend/src/components/admin/applyChangesItem.ts b6c3e82dd81b95370a71202ccacbd6b39a702510
 src/frontend/src/components/admin/auditLog/AuditEntryCards.tsx 2988dcdfde10fad495b6e314f7bf7073375316ce
 src/frontend/src/components/admin/auditLog/AuditLogTab.tsx dd8b1a896b12d6217d521e9ba5f5e65bf4966444
@@ -150,6 +151,7 @@ src/frontend/src/components/admin/database/TableRowsView.tsx cc4055c6403c19540cc
 src/frontend/src/components/admin/database/dbRows.ts 334b074301abcd82cdcb8e1a4451744886c287b4
 src/frontend/src/components/admin/database/dbStorage.ts 31ca7b6405ae02ac7ca90a2ba5a586f8cf321710
 src/frontend/src/components/admin/geometryCompareView.ts efa3cc7ded22eb73e088d61477f6df23be08a91e
+src/frontend/src/components/admin/pluginAccessModel.ts 45e4d40cc32bebf0b32e68d49d6d3b2cb89c9c5e
 src/frontend/src/components/admin/pluginOptionFields.ts 76934c02d42dd026fbba976595aaf0a744b68886
 src/frontend/src/components/admin/runBudget.ts d4f325818b54188e2b13c33424db5ff6e80c5e37
 src/frontend/src/components/admin/scheduleFormat.ts 5d5d3cd011cb46f2230f9cdefa1ec3ec71943050
@@ -622,7 +624,7 @@ src/frontend/src/layout/bodyPalette.ts ecf7aab328f9e7e56f5a9048445094f59fde2276
 src/frontend/src/layout/breakpoints.ts 417d9f694c9e606c3f50552e3686d3ca418e7860
 src/frontend/src/layout/classicBodies.ts fcc039af38e9f7a58305197359eafa1b14c887b6
 src/frontend/src/layout/commandIcons.tsx f312cd28574430d130aa7e55b836d068edfdb094
-src/frontend/src/layout/commands.ts 3f0fdaa9efa7ec67db5978eb49a78ca457f03160
+src/frontend/src/layout/commands.ts 1043309e329d181990ea9f6d97a85d1356716069
 src/frontend/src/layout/connectionsTabActions.ts 275800809774b2f370d8bfc7d1f049830e71c2df
 src/frontend/src/layout/controller.ts da65d4e9659b02307f8d4e40b87b4c2709042861
 src/frontend/src/layout/coreCommandIds.ts 68d824612d86aedb2fe3bdbda883f903444ca091
@@ -702,23 +704,25 @@ src/frontend/src/plugins/PluginSlots.tsx 518e0e08ef2be1bf3e387d40729360b91bb16f0
 src/frontend/src/plugins/UiShellHost.tsx 1be4213699aeb574741bdf396a5c0b96b27afbac
 src/frontend/src/plugins/UiShellSwitcher.tsx ec7edae19d8fab084e85de362f24bc769059b01b
 src/frontend/src/plugins/builderRefs.ts a1d15e3edd9b8f46681241723988aa3c275ba85c
-src/frontend/src/plugins/context.ts e9dc3d6234a615fa6ea9007490b939ab846b3ff6
+src/frontend/src/plugins/context.ts 3bb57f9be5ead840c84401e8a8cbc5ab6f5a5517
 src/frontend/src/plugins/coreUiShell.ts 93f37aeabfb9476f55c277813ffdf5dc41337080
 src/frontend/src/plugins/dialogs.ts 48de39f699ddd09595ca8b286976b9f8a7fc8da7
-src/frontend/src/plugins/index.ts 1ac7ef430a237d2c8cc0067feccd52a3641782be
+src/frontend/src/plugins/index.ts 2047c873a62d580c3f4efa0853381aff53a28357
 src/frontend/src/plugins/loadClaims.ts b9c26679fa6faf15367737e9876a799b3e8a2045
+src/frontend/src/plugins/pluginAccess.ts 2db5a745159f22fa67864773585f84e6b7777982
+src/frontend/src/plugins/pluginAccessSync.ts 9935cf7f1bdd6555d19d8a5bdd6d18453c8a6c4a
 src/frontend/src/plugins/pluginAppearance.ts a988ae37ee80a7a58b3df1af9da5303d8a64cc52
 src/frontend/src/plugins/pluginEffects.ts fc3f0f352d05a6a377c8dbd69baf2cef1d0499b1
 src/frontend/src/plugins/pluginModes.ts 4a81368ed190073f938d8d0ac51cb3a4debb711d
 src/frontend/src/plugins/pluginSimulations.ts 6864fa7fe3d17ac5a981588261bfa41b869bfe88
 src/frontend/src/plugins/pluginUiStore.ts 964311171a9ea8c32114d52b7f901abc2c24f16b
-src/frontend/src/plugins/propertyProviders.ts de118ca51a69948e9ed3fdc81be9386717b618b8
+src/frontend/src/plugins/propertyProviders.ts 669050299ea791dc357c8bae10489f892fd07f3f
 src/frontend/src/plugins/registry.generated.css 65b0f00a8c6dd85ec7550f5e38bd7d4679f56066
 src/frontend/src/plugins/registry.generated.ts a16322ca6cc5ded5f53b9333634397e460569d5e
-src/frontend/src/plugins/registry.ts f669b372d66562bcd56a7bc0779b513ec3d4455c
+src/frontend/src/plugins/registry.ts 00922867672486ef708a8b01fa859663e65357af
 src/frontend/src/plugins/registryTypes/playback.ts 3971fca8b3a69ab0b9d4e0b5055d0240a2fff3c0
 src/frontend/src/plugins/registryTypes/scene.ts db69bdddee2bf54d990aea1bdd62a9f6577c61cf
-src/frontend/src/plugins/registryTypes/slots.ts d9d6c57c026e0bb29e2f84ddec0718d66046ab9b
+src/frontend/src/plugins/registryTypes/slots.ts 3909b923cf0212291de554b78bac8dcf6b74c7ac
 src/frontend/src/plugins/renderableFiles.ts cc69b3f11da291a34aefd02c33eaaf8f964fad44
 src/frontend/src/plugins/sceneBox.ts 11e69ba46c7974c19a18b3f22aecf987c523118c
 src/frontend/src/plugins/sceneCamera.ts 1898f639023f275df4f53ca80c3e66e6d6095d79
@@ -747,7 +751,7 @@ src/frontend/src/services/api/assets.ts b4b2b7d9980440faf2d5fece7d20d1ad135ac903
 src/frontend/src/services/api/attributeSearch.ts d14be7a7c6bdbe11510b22ed150dc4cb0a8f7710
 src/frontend/src/services/api/auth.ts 827f2e920c030fdae5c4db55f502368fa1d12bd8
 src/frontend/src/services/api/clashCheck.ts 88b21182e6656111dda4419070cc819071d07dc3
-src/frontend/src/services/api/client.ts 12955067cb3c41cc4e3c964d1a93d94d1b4b7c97
+src/frontend/src/services/api/client.ts e6084a92e558f5dc68288c894133e8cca7ea5e7d
 src/frontend/src/services/api/components.ts e3776b5b1d463e9cd1e3bb790be3978ee9456528
 src/frontend/src/services/api/conversion.ts 52c083c3080d8006af02a149f12a0c5309211979
 src/frontend/src/services/api/devConnections.ts a3b6f477f85cd6e8bf8a26b2ced17aa126d880c3
@@ -760,6 +764,7 @@ src/frontend/src/services/api/localJobs.ts 380c7c76c7dc160ce2b7abdb9ac4d64285e7d
 src/frontend/src/services/api/metrics.ts 21a548edc37fdeb46d89df8c05084ec1c9954cba
 src/frontend/src/services/api/nodeBounds.ts 3502a1696a3e7f6d71036cd76fb0c1bf415aac07
 src/frontend/src/services/api/nodeRelations.ts dd4b4d1505f1192b150410e429b1e9ffde7f8c6e
+src/frontend/src/services/api/pluginAccess.ts b210166704684d6a0c38e2f7fa4fe044d83c91ee
 src/frontend/src/services/api/plugins.ts 2d055798f8e495bcfa88f98cb26a51e42f2f232c
 src/frontend/src/services/api/preferences.ts 9ebaeb668d5d1681b54b483c2ae8fc58f4099597
 src/frontend/src/services/api/procedural.ts b7756cc8b56ff5e26bf95a5860c880a031472801
@@ -846,7 +851,7 @@ src/frontend/src/services/simulations/schemaForm.ts a6dfb0fbe08e0034e688ed717660
 src/frontend/src/services/sweepTracking.ts a46c50184a2822613bb0e3fa718893de3520adea
 src/frontend/src/services/transport.ts 3073a48c1dc02347859f8a3bccdcb184697e799f
 src/frontend/src/services/treeSets.ts 80efd31f057f07b6b76f00d5fff099da545bc69c
-src/frontend/src/services/viewerApi.ts c77af0e1f49bfef93cc90036acaa6a02adcc674a
+src/frontend/src/services/viewerApi.ts ec88f19957825f1d784e3f3f18e2baf6ec4facb6
 src/frontend/src/services/viewerControl/answer.ts cfa797841f7f57a0ab21a9a764b14cc545c9f1b7
 src/frontend/src/services/viewerControl/commands.ts 4c72ce5e05ad9e408ededea2e8a044f2cf09c62d
 src/frontend/src/services/viewerControl/desktop.ts f4157bbbfbae6f699d5df1b6fd8eb79201a82919
@@ -1409,7 +1414,7 @@ src/frontend/src/utils/weldSymbols.ts 5591f36077c474b3cb2fc0075b60a81f1a7c80e9
 src/frontend/src/utils/weldTypeNames.ts 44a66f31d3a44606fde7a8da308c5b2c4c3d667d
 src/frontend/src/vendor-gifenc.d.ts a1eedc5ae72023ac9cd0f251d9ab8e7cc664ffdd
 src/frontend/src/viewer-core/app.ts 2fd318c2d1337668032312e61632350c49f29d7f
-src/frontend/src/viewer-core/index.ts e3f293cae8c8efc640666020e99fbd984bc07d66
+src/frontend/src/viewer-core/index.ts 0cb22a29e56e16a8c3bf98f44b3c587cbd5cd55c
 src/frontend/src/viewer-core/layout.ts c2f25228fb67e388b3a6f65098f958d858c9e19e
 src/frontend/src/viewer-core/plugins.ts ba538bd6eeeee5a6a245836f202caf20c8677530
 src/frontend/src/viewer-core/scene.ts 04edd3c64026ce95361a940ea83f9170415f6f36
