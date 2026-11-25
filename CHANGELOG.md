@@ -2,6 +2,15 @@
 
 
 
+## v0.174.0 (2026-11-25)
+
+### Feature
+
+* feat: scope-gated plugins, turned on per scope or per user (plugin API 1.41.0) (#604)
+
+Co-authored-by: adapy-bundle-bot &lt;adapy-bundle-bot@users.noreply.github.com&gt; ([`e035676`](https://github.com/Krande/adapy/commit/e0356769cd9ea973cd5f79875caa077c4851e449))
+
+
 ## v0.173.0 (2026-11-24)
 
 ### Feature
