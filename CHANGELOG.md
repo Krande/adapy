@@ -2,6 +2,15 @@
 
 
 
+## v0.174.1 (2026-11-25)
+
+### Fix
+
+* fix: ada dev connections on plain ada-py, clash clicks open no panel, sharper contact criteria (#605)
+
+Co-authored-by: adapy-bundle-bot &lt;adapy-bundle-bot@users.noreply.github.com&gt; ([`e438f68`](https://github.com/Krande/adapy/commit/e438f68de56ecfd2a825798be9b9592ee720ef49))
+
+
 ## v0.174.0 (2026-11-25)
 
 ### Feature
