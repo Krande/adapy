@@ -2,6 +2,15 @@
 
 
 
+## v0.176.0 (2026-11-26)
+
+### Feature
+
+* feat(viewer): per-structure origin in the cell builder (#600)
+
+Co-authored-by: Claude Opus 5.5 (1M context) &lt;noreply@anthropic.com&gt; ([`b44b16f`](https://github.com/Krande/adapy/commit/b44b16f0267ca50bc36ffbbecab1da2c1733f7d1))
+
+
 ## v0.175.0 (2026-11-26)
 
 ### Feature
