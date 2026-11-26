@@ -255,6 +255,28 @@ def test_a_completed_job_writes_its_summary_to_derived_key(tmp_path):
     assert json.loads(blob) == {"echoed": 7, "ok": True}
 
 
+# --------------------------------------------------------------------------
+# A user-scope job answers a WIRE scope, not a storage key
+# --------------------------------------------------------------------------
+
+
+def test_a_user_scope_job_answers_the_wire_scope_not_a_storage_key(tmp_path):
+    """Reproduces the server-route bug: with auth disabled the caller is
+    ``sub="local-dev"`` (see ``auth.User``'s default), and a ``?scope=user:me``
+    job used to answer ``"scope": "users/local-dev"`` -- a STORAGE key
+    (``Scope.user(...).prefix()``, from ``wire_of``'s silent fallback when
+    ``Scope.wire()`` refuses a personal scope), not the wire string the plugin
+    can use back. The plugin reads ``res.scope ?? asked``, so the storage-key
+    answer replaced ``asked`` and every follow-up request (e.g. the blob GET
+    that reads the describe job's own result) was built from it and 404'd."""
+    register_plugin_backend("adapy-test-echo-user", job_entrypoint=f"{__name__}:_entrypoint")
+    app = create_app(_settings(tmp_path))
+    with TestClient(app) as client:
+        r = client.post("/api/plugins/adapy-test-echo-user/jobs?scope=user:me", json={"options": {"n": 1}})
+        assert r.status_code == 200, r.text
+        assert r.json()["scope"] == "user:me"
+
+
 def _slow_entrypoint(options, *, storage, scope, on_progress, derived_prefix, cancel_event, **_kw):
     _slow_entrypoint.started.set()
     _slow_entrypoint.release.wait(30)

@@ -255,6 +255,8 @@ export const createLoftSlice: CellBuilderSlice<LoftSlice> = (set) => {
           dirty: true,
           selection: bay0 ? { kind: "cell", cellId: bay0.id } : s.selection,
           selectedCellIds: bay0 ? [bay0.id] : s.selectedCellIds,
+          // The new bay becomes the sole selection; nothing found keeps today's set as is.
+          selectedRefIds: bay0 ? [] : s.selectedRefIds,
         };
       }),
     extendLoftStack: (memberName, spacing) =>
@@ -285,6 +287,7 @@ export const createLoftSlice: CellBuilderSlice<LoftSlice> = (set) => {
             ? { kind: "cell", cellId: topBay.id }
             : s.selection,
           selectedCellIds: topBay ? [topBay.id] : s.selectedCellIds,
+          selectedRefIds: topBay ? [] : s.selectedRefIds,
         };
       }),
     resizeLoftStation: (memberName, stationIndex, primary) =>

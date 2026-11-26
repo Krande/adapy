@@ -12,9 +12,11 @@ await import("../fixtures/panelRealm");
 
 const { useCellBuilderStore } = await import("@/state/cellBuilderStore");
 const { registerBuilderRefs } = await import("@/plugins/builderRefs");
-const { onPointerDown, onPointerMove, onPointerUp, setPointer, startFaceDrag } = await import("@/components/viewer/cellbuilder/pointerTools");
+const { setShellMode, setShellModes } = await import("@/layout/shellModes");
+const { onPointerDown, onPointerMove, onPointerUp, pickBuilderMesh, pickRefMesh, setPointer, startFaceDrag } = await import("@/components/viewer/cellbuilder/pointerTools");
 const { installCellGizmo } = await import("@/components/viewer/cellbuilder/cellGizmo");
-const { rebuildRefs } = await import("@/components/viewer/cellbuilder/refsOverlay");
+const { rebuildRefs, refreshRefStyles } = await import("@/components/viewer/cellbuilder/refsOverlay");
+const { REF_OPACITY, REF_SELECTED_OPACITY } = await import("@/components/viewer/cellbuilder/sceneConstants");
 const { boxTarget } = await import("@/components/viewer/cellbuilder/gizmoBox");
 const { movedOrigin, quantize } = await import("@/utils/cellbuilder/snap");
 const { setFreeMove } = await import("@/utils/gizmo/freeMove");
@@ -57,6 +59,9 @@ function makeCtx(): Ctx & { fire: (type: string, e?: object) => void } {
     raycaster: new THREE.Raycaster(),
     pointer: new THREE.Vector2(),
     container: new THREE.Group(),
+    // The structure frames (cellbuilder/structureFrames.ts): no structure has an origin here.
+    editFrame: new THREE.Group(),
+    placeFrame: new THREE.Group(),
     cellsGroup: new THREE.Group(),
     meshById: new Map(),
     refsGroup,
@@ -135,6 +140,69 @@ test("a click on a ref picks it", () => {
   });
 });
 
+test("a Ctrl/Cmd/Shift click on a ref toggles it into the multi-select set instead of replacing", () => {
+  withRef((ctx) => {
+    const additive = (x: number) =>
+      ({ button: 0, clientX: x, clientY: 50, pointerId: 1, pointerType: "mouse", ctrlKey: true, stopPropagation() {}, preventDefault() {} }) as unknown as PointerEvent;
+    onPointerDown(ctx, additive(50));
+    onPointerUp(ctx, additive(50));
+    assert.deepEqual(st().selectedRefIds, [REF], "an additive click toggles it IN");
+    assert.deepEqual(st().selection, { kind: "ref", refId: REF });
+    onPointerDown(ctx, additive(50));
+    onPointerUp(ctx, additive(50));
+    assert.deepEqual(st().selectedRefIds, [], "a second additive click toggles it back OUT");
+    assert.equal(st().selection, null, "emptying the set clears the selection");
+  });
+});
+
+test("a mode that draws the builder only to COMPARE does not pick it: the press falls through, unclaimed", () => {
+  withRef((ctx) => {
+    setShellModes([{ id: "output", label: "Output", order: 0, behaviour: { builder: "compare" } }], "output");
+    try {
+      let stopped = false;
+      const down = { button: 0, clientX: 50, clientY: 50, pointerId: 1, pointerType: "mouse", stopPropagation: () => void (stopped = true), preventDefault() {} } as unknown as PointerEvent;
+      onPointerDown(ctx, down);
+      onPointerUp(ctx, ev(50));
+      assert.equal(st().selection, null, "the ref is not picked while comparing");
+      assert.equal(stopped, false, "not claimed: the scene's own click handler still sees it");
+    } finally {
+      setShellModes([], null);
+    }
+  });
+});
+
+test("'edit' presence (no modes, or a mode that declares it) still picks the ref as before", () => {
+  withRef((ctx) => {
+    setShellModes([{ id: "input", label: "Input", order: 0, behaviour: { builder: "edit" } }], "input");
+    try {
+      onPointerDown(ctx, ev(50));
+      onPointerUp(ctx, ev(50));
+      assert.deepEqual(st().selection, { kind: "ref", refId: REF });
+    } finally {
+      setShellModes([], null);
+    }
+  });
+});
+
+// The compare-mode click-through used to be press-select's own guard; it is now inside
+// pickBuilderMesh/pickRefMesh themselves, so every caller gets it at once -- the hover cursor,
+// the long-press/right-click menus and the gizmo's "over empty space" check (pointerTools.ts),
+// not only a plain press. Pinning it here, on the two functions directly, covers all of them.
+test("pickBuilderMesh and pickRefMesh themselves return null while comparing, whatever the caller", () => {
+  withRef((ctx) => {
+    setPointer(ctx, ev(50));
+    setShellModes([{ id: "output", label: "Output", order: 0, behaviour: { builder: "compare" } }], "output");
+    try {
+      assert.equal(pickRefMesh(ctx), null, "comparing: no ref hit even directly");
+      assert.equal(pickBuilderMesh(ctx), null, "comparing: no cell hit either");
+      setShellModes([{ id: "input", label: "Input", order: 0, behaviour: { builder: "edit" } }], "input");
+      assert.ok(pickRefMesh(ctx), "edit presence: picks again");
+    } finally {
+      setShellModes([], null);
+    }
+  });
+});
+
 test("the move gizmo moves a ref along the dragged axis only, snapped to the grid, as one undo step", () => {
   withRef((ctx) => {
     installCellGizmo(ctx);
@@ -208,6 +276,69 @@ test("a ref its plugin does not let move or resize takes no gizmo drag", () => {
     const box = boxTarget(st(), "fixed:f", true)!;
     setPointer(ctx, ev(50));
     assert.equal(startFaceDrag(ctx, box, 0, ev(50), true), false);
+  } finally {
+    off();
+    st().close();
+  }
+});
+
+test("a look:\"none\" ref makes no mesh, but stays in the store and is still pickable through it", () => {
+  st().open("m", "Model", 1, doc);
+  const off = registerBuilderRefs({
+    owner: "none-test",
+    project: () => [
+      { key: "shown", name: "shown", kindLabel: "Box", origin: [0, 0, 0], size: [1, 1, 1] },
+      { key: "hidden", name: "hidden", kindLabel: "Box", origin: [5, 5, 5], size: [1, 1, 1], look: "none" },
+    ],
+  });
+  try {
+    const ctx = makeCtx();
+    rebuildRefs(ctx);
+    // No mesh for the "none" ref -- it is not drawn, so it can not be picked or framed in the
+    // scene -- but the normal-look ref beside it is drawn as before.
+    assert.equal(ctx.refMeshById.size, 1, "only the drawn ref gets a mesh");
+    assert.equal(ctx.refMeshById.has("none-test:hidden"), false);
+    assert.equal(ctx.refMeshById.has("none-test:shown"), true);
+    // Still in the store -- the model tree and Properties read refs from here, not from the
+    // scene -- so it can be picked from there (a click in the 3D view has nothing to hit).
+    const hidden = st().refs["none-test:hidden"];
+    assert.ok(hidden, "the none ref is still projected");
+    assert.equal(hidden.look, "none");
+    st().setSelection({ kind: "ref", refId: "none-test:hidden" });
+    assert.deepEqual(st().selection, { kind: "ref", refId: "none-test:hidden" });
+    // Re-styling and rebuilding tolerate the missing mesh (refreshRefStyles only visits what's
+    // in refMeshById; a selected-but-undrawn ref throws nothing).
+    assert.doesNotThrow(() => rebuildRefs(ctx));
+  } finally {
+    off();
+    st().close();
+  }
+});
+
+// Every ref in a multi-selection lights up in 3D, not only the primary.
+test("refreshRefStyles highlights every ref in selectedRefIds, not only the primary selection", () => {
+  st().open("m", "Model", 1, doc);
+  const off = registerBuilderRefs({
+    owner: "multi-test",
+    project: () => [
+      { key: "a", name: "a", kindLabel: "Box", origin: [0, 0, 0], size: [1, 1, 1] },
+      { key: "b", name: "b", kindLabel: "Box", origin: [5, 5, 5], size: [1, 1, 1] },
+    ],
+  });
+  try {
+    const ctx = makeCtx();
+    rebuildRefs(ctx);
+    const opacityOf = (id: string) => (ctx.refMeshById.get(id)!.material as THREE.MeshBasicMaterial[])[0].opacity;
+    // Nothing selected: both at the plain opacity.
+    assert.equal(opacityOf("multi-test:a"), REF_OPACITY);
+    assert.equal(opacityOf("multi-test:b"), REF_OPACITY);
+    // "a" is the primary (selection), "b" only in selectedRefIds (Ctrl-clicked alongside it, or a
+    // box select): both must read as selected, not only the primary.
+    st().setSelection({ kind: "ref", refId: "multi-test:a" });
+    useCellBuilderStore.setState({ selectedRefIds: ["multi-test:a", "multi-test:b"] });
+    refreshRefStyles(ctx);
+    assert.equal(opacityOf("multi-test:a"), REF_SELECTED_OPACITY, "the primary");
+    assert.equal(opacityOf("multi-test:b"), REF_SELECTED_OPACITY, "selected but not primary");
   } finally {
     off();
     st().close();

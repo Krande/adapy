@@ -41,7 +41,7 @@ export interface BuilderRef {
   name: string;
   /** What kind of row it is, in words ("Support", "Modification"). */
   kindLabel: string;
-  /** The box, in the model frame the cells use. */
+  /** The box, relative to its structure's origin as a cell's is (none, or "*": to [0, 0, 0]). */
   origin: Vec3;
   size: Vec3;
   /** The structure (group) it belongs to, or "*" for every structure. */
@@ -50,8 +50,10 @@ export interface BuilderRef {
   space?: string;
   /** Whether the build takes it (drawn faint when not). */
   include: boolean;
-  /** How it is drawn: a box, a face (the provider gives a thin box) or a space-like volume. */
-  look: "box" | "face" | "space";
+  /** How it is drawn: a box, a face (the provider gives a thin box), a space-like volume, or
+   *  "none" -- kept in the model tree and Properties, drawn as nothing (no mesh, so it is not
+   *  picked in the scene or framed by "Go to object"; an older core draws it as a box instead). */
+  look: "box" | "face" | "space" | "none";
   edit: BuilderRefEdit;
   /** A CSS colour; the builder's ref colour when absent. */
   color?: string;
@@ -80,6 +82,14 @@ export interface BuilderRefProvider {
   remove?(ref: BuilderRef): void;
   /** The ref's new box, from a move or a resize; false when the provider refuses it. */
   write?(ref: BuilderRef, box: {origin: Vec3; size: Vec3}): boolean;
+  /** Copy these refs (all this provider's own -- duplicateSlice.ts groups by owner, one call
+   *  each), returning the COPIES' keys (not ids): `duplicateSelection` builds their ids as
+   *  `${owner}:${key}` and calls `refreshRefs()` itself once every owner has run. A provider
+   *  with no verb here is simply skipped -- Shift+D copies nothing of its rows, same as an
+   *  older core talking to a provider that predates this. Called inside the duplicate's own
+   *  transaction: a provider writes its own doc key(s) (`setDocExtra`) and must not change the
+   *  selection itself. */
+  duplicate?(refs: BuilderRef[]): string[];
   /** A space cell is being renamed from `from` to `to`: the doc keys of the provider's own rows
    *  that name it, rewritten (`{key: value}`), or null when none does. Applied in the rename's own
    *  undo step (cellsSlice `renameCell`), so one undo takes back both. Keys the builder owns are
@@ -224,8 +234,21 @@ export const createRefsSlice: CellBuilderSlice<RefsSlice> = (set, get) => {
       const refs = projectBuilderRefs(s.docExtras, s.cells);
       const sel = s.selection;
       const selGone = sel?.kind === "ref" && !refs[sel.refId];
-      if (refs === s.refs && !selGone) return;
-      set({refs, ...(selGone ? {selection: null, gizmoMode: "none" as const, gizmoAxisLock: null} : {})});
+      // A ref that left `refs` (deleted, re-projected under a different id) drops out of
+      // `hiddenRefIds` and `selectedRefIds` too — otherwise a stale id sits there forever (it can
+      // never unhide/deselect itself) and, worse, could coincide with the id of some later,
+      // unrelated ref.
+      const hiddenRefIds = s.hiddenRefIds.filter((id) => refs[id]);
+      const hiddenChanged = hiddenRefIds.length !== s.hiddenRefIds.length;
+      const selectedRefIds = s.selectedRefIds.filter((id) => refs[id]);
+      const selectedChanged = selectedRefIds.length !== s.selectedRefIds.length;
+      if (refs === s.refs && !selGone && !hiddenChanged && !selectedChanged) return;
+      set({
+        refs,
+        ...(hiddenChanged ? {hiddenRefIds} : {}),
+        ...(selectedChanged ? {selectedRefIds} : {}),
+        ...(selGone ? {selection: null, gizmoMode: "none" as const, gizmoAxisLock: null} : {}),
+      });
     },
     setRefIncluded: (refId, on) =>
       withProvider(refId, (ref, p) => {

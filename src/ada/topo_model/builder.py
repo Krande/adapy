@@ -65,6 +65,12 @@ from .engines import (
     EngineBinding,
     honours_entity_include,
 )
+from .structures import (
+    group_blueprints_from_doc,
+    groups_from_structures,
+    structure_of,
+    structures_from_doc,
+)
 
 __all__ = ["ProceduralBuilder"]
 
@@ -94,17 +100,18 @@ def _without_excluded(doc: dict) -> dict:
     """The doc without what the build leaves out: entities with ``INCLUDE: false`` (a doc of schema 1.1
     or later, :func:`~ada.topo_model.engines.honours_entity_include`), and the spaces of a group with
     ``include: false`` (the viewer's Model panel, a structure row unticked) plus the equipment and
-    openings in the spaces left out (by ``STRUCTURE_NAME`` or ``SPACE_NAME``)."""
+    openings in the spaces left out (by ``STRUCTURE_NAME`` or ``SPACE_NAME``). A structure excluded
+    through the LEGACY ``structures[]`` shape (``INCLUDE: false``) is honoured the same way, via
+    :func:`~ada.topo_model.structures.structures_from_doc`'s merge of the two shapes."""
     flags = honours_entity_include(doc.get("schema_version"))
 
     def own(d) -> bool:
         return _included(d) if flags else True
 
-    # A group without a name names no structure: left out, it must not read as "the spaces of no
-    # structure" (STRUCTURE_NAME None), which would take every unassigned space with it.
-    out_groups = {
-        g.get("name") for g in doc.get("groups") or [] if isinstance(g, dict) and g.get("include") is False
-    } - {None, ""}
+    # A group/structure without a usable name names no structure: left out, it must not read as
+    # "the spaces of no structure" (STRUCTURE_NAME None), which would take every unassigned space
+    # with it.
+    out_groups = {s.NAME for s in structures_from_doc(doc) if not s.INCLUDE} - {None, ""}
     spaces = [s for s in doc.get("spaces", []) if own(s) and s.get("STRUCTURE_NAME") not in out_groups]
     # A dropped space with no NAME must not read as "every free-placed item" (SPACE_NAME None).
     dropped = ({s.get("NAME") for s in doc.get("spaces", [])} - {s.get("NAME") for s in spaces}) - {None}
@@ -149,10 +156,20 @@ class ProceduralBuilder:
     openings: list[TopoOpening] = field(default_factory=list)
     # Optional multi-structure grouping: 1..N topology models placed at their
     # origins. Empty = a single implicit structure (spaces build as-is, today's
-    # behaviour). When present, spaces/openings are grouped by STRUCTURE_NAME and
-    # each structure is built + placed; equipment and systems stay a SINGLE shared
-    # layer (not duplicated per structure).
+    # behaviour). When present, spaces/openings are grouped by STRUCTURE_NAME (or,
+    # lacking one, their SPACE_NAME's host space — see
+    # ``ada.topo_model.structures.structure_of``) and each structure is built +
+    # placed; equipment and systems stay a SINGLE shared layer (not duplicated per
+    # structure), placed in WORLD coordinates (structure origin + the existing
+    # space/cell offset).
     structures: list[TopoStructure] = field(default_factory=list)
+    # Per-structure blueprint_name override, keyed by structure NAME — sourced
+    # from the wire doc's ``groups[].blueprint`` (see
+    # ``ada.topo_model.structures.group_blueprints_from_doc``); the legacy
+    # ``structures[]`` shape carries no such setting. A name absent here, or
+    # whose value is not a valid :data:`BlueprintName`, falls back to
+    # ``blueprint_name``.
+    group_blueprints: dict[str, str] = field(default_factory=dict)
     # Optional swept ("lofted") members: each is an ordered stack of section
     # profiles that decomposes into inter-station BAND cells + renders as plates.
     # Additive to ``spaces`` — a model may carry boxes, loft members, or both.
@@ -262,7 +279,8 @@ class ProceduralBuilder:
             equipments=[TopoEquipment(**_strip_none(e)) for e in doc.get("equipments", [])],
             systems=[TopoSystem(**_strip_none(s)) for s in doc.get("systems", [])],
             openings=[TopoOpening(**_strip_none(o)) for o in doc.get("openings", [])],
-            structures=[TopoStructure(**_strip_none(s)) for s in doc.get("structures", [])],
+            structures=structures_from_doc(doc),
+            group_blueprints=group_blueprints_from_doc(doc),
             loft_members=[TopoLoftMember(**_strip_none(m)) for m in doc.get("loft_members", [])],
             name=name,
             # engine + schema_version are persisted in the doc (routing header).
@@ -352,7 +370,10 @@ class ProceduralBuilder:
             "systems": [s.model_dump(mode="json", exclude_none=True) for s in self.systems],
         }
         if self.structures:
-            doc["structures"] = [s.model_dump(mode="json") for s in self.structures]
+            # The ONE wire shape is ``groups[]`` (see ada.topo_model.structures):
+            # a committed document always round-trips through groups, never the
+            # legacy ``structures[]`` shape, even when it was read in that way.
+            doc["groups"] = groups_from_structures(self.structures, self.group_blueprints)
         # Only stamp loft_members when present, so box-only docs are byte-identical.
         if self.loft_members:
             doc["loft_members"] = [m.model_dump(mode="json", exclude_none=True) for m in self.loft_members]
@@ -426,55 +447,103 @@ class ProceduralBuilder:
         wrapped in a ``Spaces`` part and no topology is built.
 
         With no :attr:`structures` this builds a single model (the common case,
-        unchanged). With structures present it builds one topology model per
-        structure — spaces/openings grouped by ``STRUCTURE_NAME`` — and places
-        each at its origin in a combined assembly. Equipment and systems are added
-        once (a single shared layer) over the primary (first) structure."""
+        unchanged). With structures present it builds one wrapper ``Part`` per
+        structure, placed at its origin in a combined assembly — including a
+        structure with no spaces of its own (e.g. one that only carries loft
+        members, see :meth:`build_lofts`). Spaces/openings are scoped to a
+        structure via :func:`~ada.topo_model.structures.structure_of` (its own
+        ``STRUCTURE_NAME``, else its ``SPACE_NAME`` host's), each structure uses
+        its own blueprint when :attr:`group_blueprints` names one, and equipment
+        and systems are added once (a single shared layer, in WORLD coordinates —
+        see :meth:`build_equipment`/:meth:`build_systems`) over the primary
+        (first built) structure's topology. A space/opening naming NO known
+        structure (unassigned: no ``STRUCTURE_NAME`` of its own and no
+        ``SPACE_NAME`` host with one either) is not dropped: it builds into an
+        implicit, unwrapped root group at the origin, using :attr:`blueprint_name`,
+        the same as it would with no :attr:`structures` at all. One naming a
+        known but excluded (``include: false``) structure is still dropped with
+        it, unchanged."""
         # Loft-only model: there is no box structure to build; open an empty
         # assembly for :meth:`build_lofts` to add the swept plates into.
-        if not self.spaces:
+        if not self.spaces and not self.structures:
             self.assembly = ada.Assembly(self.name)
             return
         if not self.structures:
-            self.assembly, topo, bp = self._build_structure_group(self.spaces, self.openings, self.name)
+            self.assembly, topo, bp = self._build_structure_group(
+                self.spaces, self.openings, self.name, self.blueprint_name
+            )
             self.topology, self.blueprint = topo, bp
             if topo is not None:
                 self.topologies[self.name] = topo
             return
 
+        spaces_by_name = {s.NAME: s for s in self.spaces}
+        # Every structure NAME this doc declares, included or not: a space naming
+        # one of these (directly, or through its SPACE_NAME host) is deliberately
+        # scoped there, so an excluded structure's content still drops with it
+        # (unchanged) rather than being promoted to the root group below — only a
+        # space naming NO known structure counts as unassigned.
+        known_names = {st.NAME for st in self.structures}
         self.assembly = ada.Assembly(self.name)
         for st in self.structures:
             if not st.INCLUDE:
                 continue
-            st_spaces = [s for s in self.spaces if (s.STRUCTURE_NAME or None) == st.NAME]
-            if not st_spaces:
-                logger.warning("procedural: structure %r has no spaces; skipping", st.NAME)
-                continue
-            st_openings = [o for o in self.openings if (o.STRUCTURE_NAME or None) == st.NAME]
-            sub, topo, bp = self._build_structure_group(st_spaces, st_openings, st.NAME)
-            if topo is not None:
-                self.topologies[st.NAME] = topo
-                if self.topology is None:  # primary = first built structure
-                    self.topology, self.blueprint = topo, bp
-            # Place the structure's built parts at its origin.
+            st_spaces = [s for s in self.spaces if structure_of(s, spaces_by_name) == st.NAME]
+            st_openings = [o for o in self.openings if structure_of(o, spaces_by_name) == st.NAME]
+            bp_name = self.group_blueprints.get(st.NAME)
+            if bp_name not in ("steel_stru", "none"):
+                bp_name = self.blueprint_name
+            # Place the structure's built parts (and, later, its lofts — see
+            # build_lofts) at its origin, even with no spaces of its own: an
+            # empty wrapper still gives a loft-only structure somewhere to live.
             origin = st.origin()
             wrapper = (
                 ada.Part(st.NAME)
                 if origin == (0.0, 0.0, 0.0)
                 else ada.Part(st.NAME, placement=ada.Placement(origin=ada.Point(*origin)))
             )
-            for part in list(sub.parts.values()):
-                wrapper.add_part(part)
+            if st_spaces:
+                sub, topo, bp = self._build_structure_group(st_spaces, st_openings, st.NAME, bp_name)
+                if topo is not None:
+                    self.topologies[st.NAME] = topo
+                    if self.topology is None:  # primary = first built structure
+                        self.topology, self.blueprint = topo, bp
+                for part in list(sub.parts.values()):
+                    wrapper.add_part(part)
             self.assembly.add_part(wrapper)
 
+        # A space/opening whose structure_of(...) names NO known structure (no
+        # STRUCTURE_NAME of its own, and no SPACE_NAME host that has one either)
+        # still builds instead of silently vanishing from the compiled model: it
+        # goes into an implicit root group, at the origin, exactly as it would
+        # have built with no structures at all (no wrapper Part — equipment's
+        # WORLD offset and the loft/system placement already treat an unmatched
+        # item as origin (0,0,0), see _world_offset/build_lofts/_world_placed_spaces).
+        free_spaces = [s for s in self.spaces if structure_of(s, spaces_by_name) not in known_names]
+        free_openings = [o for o in self.openings if structure_of(o, spaces_by_name) not in known_names]
+        if free_spaces:
+            sub, topo, bp = self._build_structure_group(free_spaces, free_openings, self.name, self.blueprint_name)
+            if topo is not None:
+                self.topologies[self.name] = topo
+                if self.topology is None:  # primary = first built structure
+                    self.topology, self.blueprint = topo, bp
+            for part in list(sub.parts.values()):
+                self.assembly.add_part(part)
+
     def _build_structure_group(
-        self, spaces: list[TopoSpace], openings: list[TopoOpening], name: str
+        self,
+        spaces: list[TopoSpace],
+        openings: list[TopoOpening],
+        name: str,
+        blueprint_name: str | None = None,
     ) -> tuple[ada.Assembly, TopologyBuilder | None, SteelStru | None]:
         """Build one structure's topology + blueprint (+ openings + joints) from
         ``spaces``/``openings`` and return ``(assembly, topology, blueprint)``.
-        ``blueprint_name='none'`` renders the raw boxes (topology/blueprint None)."""
+        ``blueprint_name`` (the structure's own, else :attr:`blueprint_name`)
+        ``'none'`` renders the raw boxes (topology/blueprint None)."""
+        bp_name = blueprint_name if blueprint_name is not None else self.blueprint_name
         boxes = [_space_to_box(s) for s in spaces]
-        if self.blueprint_name != "steel_stru":
+        if bp_name != "steel_stru":
             return ada.Assembly(name) / (ada.Part("Spaces") / boxes), None, None
 
         bp = SteelStru(**self.blueprint_options)
@@ -531,23 +600,51 @@ class ProceduralBuilder:
           ``EXCLUDE_FACES`` drops addressed plates.
 
         Both views share the same profiles, so the band cells sit inside the
-        emitted geometry."""
+        emitted geometry.
+
+        With :attr:`structures` present, each member's ``Lofts`` part is grouped
+        under its own structure's wrapper ``Part`` (scoped the same way as spaces
+        — see :func:`~ada.topo_model.structures.structure_of`), so it inherits
+        that structure's placement; a member naming no structure (or naming one
+        :meth:`build_structure` did not place) goes straight on the assembly,
+        unchanged from before structures existed. The picking topology
+        (:attr:`loft_cell_graph`) stays ONE graph over the whole member set — the
+        grouping only affects where the built geometry is parented."""
         members = [m for m in self.loft_members if m.INCLUDE]
         if not members:
             return
 
-        from ada.topology.io import from_section_loft, loft_member_to_part
+        from ada.topology.io import from_section_loft
 
         # (a) lossless cell decomposition (Sum(stations-1) band cells) over the WHOLE
         # member set — the selection/face-picking topology. Each band-cell face also
         # carries a loft-native ``loft_face_id`` (Phase 3b) for per-face addressing.
         self.loft_cell_graph = from_section_loft([m.to_loft_member() for m in members])
 
-        # (b) route each member by how it should be built. A SURFACE_ONLY member (or
-        # blueprint 'none') is a plate SKIN; otherwise its REPRESENTATION selects the
-        # blueprint run over the member's loft cell graph — FRAME -> SteelStru (decked
-        # framework), JACKET -> JacketStru (open tubular truss). Both blueprints go
-        # through TopologyBuilder, same pipeline as box spaces.
+        if self.assembly is None:
+            self.assembly = ada.Assembly(self.name)
+
+        spaces_by_name = {s.NAME: s for s in self.spaces}
+        grouped: dict[str | None, list] = {}
+        for m in members:
+            grouped.setdefault(structure_of(m, spaces_by_name), []).append(m)
+
+        for structure_name, group_members in grouped.items():
+            lofts_part = self._build_lofts_part(group_members)
+            wrapper = self.assembly.parts.get(structure_name) if structure_name else None
+            (wrapper if wrapper is not None else self.assembly).add_part(lofts_part)
+
+    def _build_lofts_part(self, members: list[TopoLoftMember]) -> ada.Part:
+        """Build the ``Lofts`` part for one group of loft members (route each by
+        how it should be built — see :meth:`build_lofts`'s docstring); factored
+        out so :meth:`build_lofts` can call it once per structure."""
+        from ada.topology.io import from_section_loft, loft_member_to_part
+
+        # Route each member: a SURFACE_ONLY member (or blueprint 'none') is a plate
+        # SKIN; otherwise its REPRESENTATION selects the blueprint run over the
+        # member's loft cell graph — FRAME -> SteelStru (decked framework),
+        # JACKET -> JacketStru (open tubular truss). Both blueprints go through
+        # TopologyBuilder, same pipeline as box spaces.
         if self.blueprint_name == "none":
             skinned, framed, jacketed = members, [], []
         else:
@@ -580,10 +677,7 @@ class ProceduralBuilder:
             lofts_part.add_part(
                 loft_member_to_part(m.NAME, m.world_profiles(), thickness=m.THICKNESS, exclude_faces=m.EXCLUDE_FACES)
             )
-
-        if self.assembly is None:
-            self.assembly = ada.Assembly(self.name)
-        self.assembly.add_part(lofts_part)
+        return lofts_part
 
     def build_equipment(self) -> None:
         """Place each equipment entity into the assembly under an ``Equipment``
@@ -592,7 +686,16 @@ class ProceduralBuilder:
 
         An equipment whose catalog slug resolves to a linked CAD asset (and
         ``equipment_cad`` is on) is built without its placeholder box body; the
-        real CAD mesh is recorded for splicing in :meth:`to_glb`."""
+        real CAD mesh is recorded for splicing in :meth:`to_glb`.
+
+        Unlike spaces/lofts, the ``Equipment`` part is NOT nested under a
+        structure's wrapper ``Part`` (it stays the single shared layer the class
+        docstring describes) — so with :attr:`structures` present, each
+        equipment's placement OFFSET additionally carries its structure's origin
+        (resolved via :func:`~ada.topo_model.structures.structure_of`), on top of
+        the existing cell offset (:func:`~ada.topo_model.compile.equipment_space_offset`).
+        This also applies to a ``GLOBAL_COORDS`` equipment: "global" means global
+        to its own structure's frame, not the world, when structures are placed."""
         if not self.equipments:
             return
 
@@ -604,19 +707,27 @@ class ProceduralBuilder:
         # matching the entity's own get_origin() and the sibling engine. Keyed by
         # (STRUCTURE_NAME, NAME) with a bare-NAME fallback for single-structure docs.
         space_lookup: dict = {}
+        spaces_by_name: dict = {}
         for s in self.spaces:
             space_lookup[(getattr(s, "STRUCTURE_NAME", None), s.NAME)] = s
             space_lookup.setdefault(s.NAME, s)
+            spaces_by_name.setdefault(s.NAME, s)
+
+        origin_by_structure = {st.NAME: st.origin() for st in self.structures if st.INCLUDE}
 
         def _space_for(e):
-            return space_lookup.get((getattr(e, "STRUCTURE_NAME", None), e.SPACE_NAME)) or space_lookup.get(
-                e.SPACE_NAME
-            )
+            st_name = structure_of(e, spaces_by_name)
+            return space_lookup.get((st_name, e.SPACE_NAME)) or space_lookup.get(e.SPACE_NAME)
+
+        def _world_offset(e, space) -> tuple[float, float, float]:
+            ox, oy, oz = equipment_space_offset(e, space)
+            sx, sy, sz = origin_by_structure.get(structure_of(e, spaces_by_name), (0.0, 0.0, 0.0))
+            return (ox + sx, oy + sy, oz + sz)
 
         use_cad = self.equipment_cad and self.cad_scene_resolver is not None
         objects: list = []
         for e in self.equipments:
-            offset = equipment_space_offset(e, _space_for(e))
+            offset = _world_offset(e, _space_for(e))
             slug = (e.DESCRIPTION or "").strip()
             cad_mesh = self.cad_scene_resolver(slug) if (use_cad and slug) else None
             if cad_mesh is not None:
@@ -650,6 +761,38 @@ class ProceduralBuilder:
                 self.equipment_map[obj.name] = obj
         self.assembly.add_part(ada.Part("Equipment") / objects)
 
+    def _world_placed_spaces(self) -> list[TopoSpace]:
+        """:attr:`spaces` with each one's coordinates shifted by its structure's
+        origin — what the routing grid needs, since :attr:`equipment_map` is
+        already WORLD-placed (see :meth:`build_equipment`) but ``spaces`` itself
+        stays structure-LOCAL (so box-building, which relies on the structure's
+        wrapper ``Part`` placement, is unaffected). A no-op (returns ``spaces``
+        itself) with no structures, so a single-structure doc pays nothing.
+
+        KNOWN LIMITATION: the penetration/no-go-wall detection
+        (:meth:`build_systems` -> ``cell_graph``) only sees the PRIMARY
+        structure's topology, so a run crossing a wall of a non-primary
+        structure gets no cutout/detail. Cross-structure routing in general is
+        not attempted here; each system still routes over one shared (now
+        world-placed) grid, but a run between two structures has no wall
+        geometry from the other structure to avoid or penetrate correctly."""
+        if not self.structures:
+            return self.spaces
+        origin_by_structure = {st.NAME: st.origin() for st in self.structures if st.INCLUDE}
+        spaces_by_name = {s.NAME: s for s in self.spaces}
+        out: list[TopoSpace] = []
+        for s in self.spaces:
+            sx, sy, sz = origin_by_structure.get(structure_of(s, spaces_by_name), (0.0, 0.0, 0.0))
+            if (sx, sy, sz) == (0.0, 0.0, 0.0):
+                out.append(s)
+            else:
+                out.append(
+                    s.model_copy(
+                        update={"X": float(s.X or 0.0) + sx, "Y": float(s.Y or 0.0) + sy, "Z": float(s.Z or 0.0) + sz}
+                    )
+                )
+        return out
+
     def build_systems(self) -> None:
         """Wire each system's ports, route the runs over the model grid and model
         the penetrations where a run crosses a built wall/deck; add the resulting
@@ -658,7 +801,13 @@ class ProceduralBuilder:
         IFC writer's ``write_ifc_systems`` reads that list to name/group the
         ``IfcDistributionSystem`` and connect its endpoint ports — without it the
         systems the compiler routed are geometry only, invisible to IFC export).
-        No-op when there are no systems."""
+        No-op when there are no systems.
+
+        With :attr:`structures` present, routes over WORLD-placed space copies
+        (:meth:`_world_placed_spaces`) — equipment is already world-placed (see
+        :meth:`build_equipment`), and the grid needs both in the same frame. See
+        that method's docstring for the cross-structure routing limitation this
+        does NOT solve."""
         spec_doc = {
             "systems": [s.model_dump() for s in self.systems],
             "no_go_walls": self.no_go_walls,
@@ -667,7 +816,7 @@ class ProceduralBuilder:
         self.systems_parts = _build_systems(
             spec_doc,
             self.equipment_map,
-            self.spaces,
+            self._world_placed_spaces(),
             self.cell_graph,
             self.design_rules,
             built_systems_out=built_systems,

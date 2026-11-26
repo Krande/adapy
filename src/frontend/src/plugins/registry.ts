@@ -19,7 +19,7 @@ import { accessGateOf, isGateOpen, noteGatedRegistration } from "./pluginAccess"
 import type { AdaPluginContext, PanelSlot, PluginModeSpec, PluginRegion, PluginSpec, RegisteredPlugin, RenderableFileProvider, ResultSidecarLoader, SceneColorFieldProvider, SimulationProviderUi, StorageAssetType, StorageAssetTypeArgs, UrlParamHandler } from "./registryTypes/slots";
 
 export { type PluginRegion, type PluginDockId, type PluginModeId, type PluginModeSpec, type PluginLogLevel, type PluginApiClient, type PluginTheme, type AdaPluginContext, type ActivationPredicate, type TopBarButtonSpec, type PanelSlot, type SceneColorFieldProvider, type ResultSidecarLoader, type RenderableFileProvider, type SimulationParameterFormArgs, type SimulationFormSubject, type SimulationOpenResultArgs, type SimulationProviderUi, type UrlParamHandler, type PluginSpec, type RegisteredPlugin, type StorageAssetTypeArgs, type StorageAssetUpload, type StorageAssetType } from "./registryTypes/slots";
-export { type SceneColorFieldResult, type SceneColor, type SceneOverlay, type SceneLines, type SceneElementOutline, type SceneLabel, type SceneLabelOptions, type SceneElementPaint, type SceneLayerRef, type SceneLayerLook, type SceneLineLayerSpec, type SceneLineLayer, type ScenePointLayerSpec, type ScenePointLayer, type SceneImageRect, type SceneImageSpec, type SceneImage, type SceneModelSource, type SceneModelPose, type SidecarFetcher, type SceneHandle, type SceneCleared, type SceneGroupLoad, type SceneGroupLoadOptions, type SceneBox, type SceneFace, type SceneObjectMatch } from "./registryTypes/scene";
+export { type SceneColorFieldResult, type SceneColor, type SceneOverlay, type SceneLines, type SceneElementOutline, type SceneLabel, type SceneLabelOptions, type SceneOverlayFrame, type SceneElementPaint, type SceneLayerRef, type SceneLayerLook, type SceneLineLayerSpec, type SceneLineLayer, type ScenePointLayerSpec, type ScenePointLayer, type SceneImageRect, type SceneImageSpec, type SceneImage, type SceneModelSource, type SceneModelPose, type SidecarFetcher, type SceneHandle, type SceneCleared, type SceneGroupLoad, type SceneGroupLoadOptions, type SceneBox, type SceneFace, type SceneObjectMatch } from "./registryTypes/scene";
 export { type PluginPlaybackTrack, type PluginPlaybackTrackHandle, type PluginPlaybackState, type PluginPlayback, type PluginPlaybackMarker, type PluginPlaybackMarkerEntry, type PluginPlaybackMarkerKind, type PluginPlaybackStepSize, type PluginLayerState, type PluginLayers, type PluginSimulationSubject, type PluginSimulationSubjectHandle, type PluginSimulations } from "./registryTypes/playback";
 export type { ScenePick, ScenePickOptions, ScenePickSession } from "./scenePicks";
 export type { PluginModes, PluginModeActivateOptions } from "./pluginModes";
@@ -599,7 +599,54 @@ export type { SelectedObjectBox } from "@/viewport/api/viewportApi";
 //            off, and a plugin job whose backend spec does (403, detail `{code: "plugin_access_off"}`).
 //          All additive: a plugin that declares nothing behaves as before, and an older core ignores
 //          `access` (so a plugin that must stay hidden there checks `PLUGIN_API_VERSION` >= 1.41.0).
-export const PLUGIN_API_VERSION = "1.41.0";
+// 1.42.0 — No silent fallback to Classic.
+//          - `setActiveUiShell(id, {reason})`: `reason` ("switcher" | "palette" | "options",
+//            `UiShellSwitchReason`) carries WHY a switch happened through to a toast.
+//            `onUiShellSwitchNotice(cb)`: subscribes to it (`UiShellSwitchNotice`: `toId`,
+//            `toLabel`, `fromId`, `reason`); no notice for a switch away from core, nor for one
+//            with no `reason` (e.g. a plain `?ui=` boot).
+//          - `UiShellSwitcher` takes an opt-in `confirm` prop: a menu button or an explicit pick
+//            switches; arrow keys and typing while the select has focus do not.
+//          - `skippedPluginReason(id)`: why a plugin's registration was skipped (most often an
+//            out-of-range core), read for a boot toast when the shell it would have provided was
+//            never installed.
+//          - All additive: an older core has none of this, so a plugin checks
+//            `PLUGIN_API_VERSION` >= 1.42.0 (or `typeof x === "function"`) first.
+//          Per-structure grouping as a core feature: the built-in engine now advertises
+//          `supports_grouping: true` (python only -- `ProceduralEngineSummary.supports_grouping`
+//          already existed as a field, a plugin reads it the same way). `ProceduralDoc.groups[].origin`
+//          is now a declared field (it already round-tripped through `extra="allow"`; the wire
+//          shape is unchanged).
+//          `core:show-complement` (Alt+Q in the GeniE profile, and in the default profile too,
+//          where it was free): inverts the hidden set on either viewport and the builder at once,
+//          one undo step, disabled with "Nothing is hidden". Alt+Minus then Alt+Plus now restores
+//          what the first hide just cleared, instead of the second step being a no-op.
+//          A plugin's ref (a load/support/modification box) on a structure the build leaves out
+//          now dims/hides with it, in 3D and the tree, like a cell: `refIncludeState(ref, groups)`
+//          reads the same three states `itemIncludeState` already does for a cell (`"included"` |
+//          `"excluded"` | `"excluded-by-structure"`).
+//          The Selected Object panel's providers gain a static layout a shell sets without a
+//          selection-dependent rule: `PropertyProviderLayout` (`show?`, `hide?`, `order?`) and
+//          `applyProviderLayout(list, layout)`; a shell passes it as `ObjectInfoBodyProps.providers`
+//          through `PanelOverride.options` for `core:object-info` (`ObjectInfoBodyProps.sections`
+//          still covers a selection-dependent rule, and runs after this). Registering a provider
+//          id a DIFFERENT owner already holds is now refused (warned once, its unregister a
+//          no-op) instead of silently replacing it; a plugin provider using one of core's own ids
+//          is dropped unless it is itself owner `"core"` (reserved). No known plugin re-registers
+//          another's id or a core id; this only guards against it happening by accident.
+//          Also documented here, added earlier in this feature but never given a version note:
+//          `BuilderRef.look: "none"` (kept in the tree/Properties, drawn as nothing -- an older
+//          core draws it as a box instead); a provider's optional `duplicate(refs)` (Shift+D
+//          copies its rows too, a provider with no verb here is simply skipped);
+//          `PanelOverride.titleFor(mode)` (a dock tab's title as a function of the active mode,
+//          beside the static `title` fallback an older core still shows); `SceneHandle.overlayFrames`
+//          and `SceneLines.frame` / `SceneLabelOptions.frame` (`SceneOverlayFrame`: "fea" | "world"
+//          -- which frame `addLines`/`addLabels`/`addPointLayer` read positions in; default "fea");
+//          `SelectionSnapshot.selectionSource` and `ObjectInfoBodyProps.selectionSource` ("builder"
+//          | "scene" | "any": which kind of pick a panel shows); `fieldLabel`/`useFieldLabel` (the
+//          engine catalog's `<list>.labels` sibling entry, alongside `fieldHelp`/`useFieldHelp`).
+//          All additive.
+export const PLUGIN_API_VERSION = "1.42.0";
 
 /** What the Simulations panel writes on a run's open-result button. */
 export function openResultButtonLabel(
@@ -655,6 +702,19 @@ function versionSatisfies(version: string, range?: string): boolean {
   return true;
 }
 
+// Why a plugin's registration was skipped, by id -- read by `UiShellHost`'s boot toast
+// (via `skippedPluginReason`) when the shell `?ui=`/stored/default asked for was never registered
+// because ITS plugin was skipped here (an out-of-range core, most often), so the toast can say
+// WHY instead of only "not available". Keyed by plugin id, not shell id: a shell names its
+// `pluginId` (`uiShells.ts`), the same id this registry is keyed by.
+const _skippedPlugins = new Map<string, string>();
+
+/** Why plugin `id`'s registration was skipped, or null if it registered fine (or was never
+ * offered at all -- this only remembers an attempt `registerPlugin` saw and rejected). */
+export function skippedPluginReason(id: string): string | null {
+  return _skippedPlugins.get(id) ?? null;
+}
+
 /** Register (or reject a duplicate of) a plugin. Idempotent-by-id: a second
  * registration of the same id is ignored with a warning (mirrors the backend's
  * last/first-writer-wins registries). An out-of-`coreApiRange` plugin is skipped
@@ -670,10 +730,9 @@ export function registerPlugin(spec: PluginSpec): void {
     return;
   }
   if (!versionSatisfies(PLUGIN_API_VERSION, spec.coreApiRange)) {
-    console.warn(
-      `[plugins] plugin "${id}" requires core API ${spec.coreApiRange}; ` +
-        `this core is ${PLUGIN_API_VERSION} — skipped`,
-    );
+    const reason = `requires core API ${spec.coreApiRange}; this core is ${PLUGIN_API_VERSION}`;
+    _skippedPlugins.set(id, reason);
+    console.warn(`[plugins] plugin "${id}" ${reason} — skipped`);
     return;
   }
 

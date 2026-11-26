@@ -13,11 +13,13 @@
  *     (`memberToBands`), so a loft band that exists is always included.
  *
  * A component is BUILT only when it is included itself AND its structure is.
+ * The same structure reading (`itemStructure`) says where a component's
+ * coordinates are measured from (`itemOrigin`: its structure's origin).
  * Pure functions over the builder's cells and groups -- no store, no scene.
  */
 
 import type {BuilderCell} from "@/state/cellbuilder/types";
-import {containingCell, isGroupIncluded, type CellGroup} from "./groups";
+import {containingCell, hasStructureOrigins, isGroupIncluded, structureNameToGroup, structureOrigin, type CellGroup} from "./groups";
 
 /** The INCLUDE key as the workbook and the doc spell it. */
 export const INCLUDE_KEY = "INCLUDE";
@@ -63,16 +65,53 @@ export function itemStructure(
 }
 
 /** The space a component is placed in: the one its `SPACE_NAME` names when it
- * exists, else the space under it (the cell it is in, or stands on). Null for a
- * space itself, a loft band, and a component in no space. */
+ * exists IN ITS OWN STRUCTURE (a named seat is scoped the same way `containingCell`'s
+ * geometry fallback already is -- a structure's origin must not let another
+ * structure's cell with the same name, or at the same local coordinates, resolve
+ * instead), else the space under it (the cell it is in, or stands on; among its
+ * own structure's when it names one, see `containingCell`). Null for a space
+ * itself, a loft band, and a component in no space. */
 export function itemCell(item: BuilderCell, cells: Record<string, BuilderCell>): BuilderCell | null {
   if (item.kind === "cell" || item.kind === "loft") return null;
   const named = item.params?.SPACE_NAME;
   if (typeof named === "string" && named) {
-    const hit = Object.values(cells).find((c) => c.kind === "cell" && c.name === named);
+    const structure = structureNameToGroup(item.params ?? {});
+    const hit = Object.values(cells).find(
+      (c) => c.kind === "cell" && c.name === named && (structure === undefined || c.group === structure),
+    );
     if (hit) return hit;
   }
   return containingCell(item, Object.values(cells)) ?? null;
+}
+
+/** Where a component's coordinates are measured from: its structure's origin
+ * (`structureOrigin`), [0, 0, 0] for one in no structure. Its stored box plus
+ * this is where it is in the model. */
+export function itemOrigin(
+  item: BuilderCell,
+  cells: Record<string, BuilderCell>,
+  groups: readonly CellGroup[],
+  loftMembers: readonly {NAME: string; STRUCTURE_NAME?: string}[] = [],
+): readonly [number, number, number] {
+  if (!hasStructureOrigins(groups)) return [0, 0, 0];
+  return structureOrigin(groups, itemStructure(item, cells, groups, loftMembers));
+}
+
+/** The components with their boxes moved to where they are in the model (each
+ * stored box plus its structure's origin), by id: what model-wide measures read
+ * (extents, framing, recentring). The same map when no structure has an origin. */
+export function placedCells(
+  cells: Record<string, BuilderCell>,
+  groups: readonly CellGroup[],
+  loftMembers: readonly {NAME: string; STRUCTURE_NAME?: string}[] = [],
+): Record<string, BuilderCell> {
+  if (!hasStructureOrigins(groups)) return cells;
+  const out: Record<string, BuilderCell> = {};
+  for (const [id, c] of Object.entries(cells)) {
+    const o = itemOrigin(c, cells, groups, loftMembers);
+    out[id] = {...c, origin: [c.origin[0] + o[0], c.origin[1] + o[1], c.origin[2] + o[2]]};
+  }
+  return out;
 }
 
 /** How a component stands in the build. */

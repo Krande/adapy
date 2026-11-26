@@ -91,9 +91,12 @@ export interface ProceduralDoc {
    * structure). Each space's `STRUCTURE_NAME` names the group it belongs to;
    * ungrouped spaces omit it. Absent/empty = single model-level blueprint
    * (backward compatible). Honoured only by engines advertising
-   * `supports_grouping`; the built-in engine ignores it. `include: false` leaves
-   * that group's structure out of the build; omitted while it is built. */
-  groups?: { name: string; blueprint: string; include?: boolean }[];
+   * `supports_grouping` (driven off that flag, never a hardcoded engine slug);
+   * an engine without it builds everything as one model-level structure.
+   * `include: false` leaves that group's structure out of the build; omitted
+   * while it is built. `origin: [x, y, z]` is where the structure sits: its
+   * spaces, equipment, openings and loft members are given relative to it. */
+  groups?: { name: string; blueprint: string; include?: boolean; origin?: [number, number, number] }[];
 }
 
 export interface ProceduralCompileResponse {

@@ -6,16 +6,17 @@
 //      (SelectionSection); a plugin's ref gets a minimal one (its kind, name, box where it may
 //      move or resize) unless its provider draws its own (`BuilderRefEdit.form`);
 //   74 a structure on its own -- picked, or the active one with nothing else picked: its name,
-//      blueprint, include and colour.
+//      position (its origin: everything in it is placed relative to it), blueprint, include
+//      and colour.
 
 import React from "react";
 import { useCellBuilderStore } from "@/state/cellBuilderStore";
 import type { BuilderRef } from "@/state/cellbuilder/refsSlice";
 import { selectedRef, selectionPlace } from "@/utils/cellbuilder/boxTarget";
-import { isGroupIncluded } from "@/utils/cellbuilder/groups";
+import { isGroupIncluded, type CellGroup } from "@/utils/cellbuilder/groups";
 import { GroupBlueprintSelect, GroupColourInput, renameStructure } from "@/components/viewer/cellbuilder/panel/GroupsSection";
 import { SelectionSection, useItemParents } from "./SelectionSection";
-import { Field, FieldCheck, PropertyItemLayout } from "./PropertyItemLayout";
+import { Field, FieldCheck, PropertyItemLayout, propertyInputCls } from "./PropertyItemLayout";
 
 /** The structure and the space of the builder's pick (`selectionPlace`); with nothing picked,
  *  the active structure. */
@@ -79,6 +80,34 @@ export const BuilderItemSection: React.FC = () => {
   );
 };
 
+/** A structure's position (`CellGroup.origin`), X / Y / Z. Moving it moves everything in the
+ *  structure: their coordinates are relative to it. */
+const StructurePosition: React.FC<{ group: CellGroup }> = ({ group }) => {
+  const setGroupOrigin = useCellBuilderStore((s) => s.setGroupOrigin);
+  const origin = group.origin ?? [0, 0, 0];
+  return (
+    <Field label="Position" inline help="Where the structure sits. Its spaces, equipment and openings are placed relative to it, so changing it moves them all.">
+      {origin.map((v, i) => (
+        <input
+          key={i}
+          type="number"
+          step={0.1}
+          className={`${propertyInputCls} w-16`}
+          value={Number(v.toFixed(3))}
+          aria-label={`Structure ${group.name} position ${"XYZ"[i]}`}
+          onChange={(e) => {
+            const n = Number(e.target.value);
+            if (e.target.value === "" || !Number.isFinite(n)) return;
+            const next: [number, number, number] = [origin[0], origin[1], origin[2]];
+            next[i] = n;
+            setGroupOrigin(group.name, next);
+          }}
+        />
+      ))}
+    </Field>
+  );
+};
+
 /** Order 74: a structure on its own -- the active one, with nothing picked. With an item picked
  *  its structure is in the item's parents line instead. */
 export const BuilderStructureSection: React.FC = () => {
@@ -97,6 +126,7 @@ export const BuilderStructureSection: React.FC = () => {
         name={group.name}
         onRename={(v) => renameStructure(group.name, v)}
         groups={[
+          { title: "Placement", fields: <StructurePosition group={group} /> },
           {
             title: "Build",
             fields: (

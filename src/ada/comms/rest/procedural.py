@@ -490,7 +490,7 @@ def _doc_model():
     # on the first commit/compile, not at API boot.
     from typing import Optional
 
-    from pydantic import BaseModel, ConfigDict, Field
+    from pydantic import BaseModel, ConfigDict, Field, field_validator
 
     from ada.topo_model.engines import DEFAULT_ENGINE_SLUG, PROCEDURAL_SCHEMA_VERSION
 
@@ -509,14 +509,47 @@ def _doc_model():
     class CellGroup(BaseModel):
         """One cell GROUP — a named structure with its own blueprint. A space
         names its group via ``STRUCTURE_NAME``; ungrouped spaces omit it. Only an
-        engine advertising ``supports_grouping`` acts on these."""
+        engine advertising ``supports_grouping`` acts on these (adapy-default
+        now does — see ``ada.topo_model.structures``, which maps these to
+        ``TopoStructure`` objects at build time)."""
 
         # extra="allow" for the same reason as ProceduralDoc below: a grouping
         # engine may hang its own per-group settings here and we must not eat them.
+        # It is also how the sibling tool's MODEL_INPUT/BLUEPRINT/CONDITION_NAME
+        # columns round-trip (see ``ada.topo_model.structures.groups_from_structures``):
+        # declared on neither model, they pass straight through.
         model_config = ConfigDict(extra="allow")
 
         name: str
         blueprint: Optional[str] = None
+        # Whether this group's spaces/equipment/openings/lofts are built at all —
+        # the viewer's Model panel structure-row checkbox (a doc edit, not the
+        # view-only eye). Missing/None means included, matching every doc written
+        # before this field existed.
+        include: Optional[bool] = None
+        # World placement of this group's wrapper Part, honoured by an engine that
+        # advertises ``supports_grouping``. Absent means the origin — again,
+        # matching every doc written before structures had a placement.
+        origin: Optional[tuple[float, float, float]] = None
+
+        @field_validator("origin", mode="before")
+        @classmethod
+        def _drop_malformed_origin(cls, v):
+            # Reject loudly here would turn one stray group into a 400 for the
+            # whole commit; dropping it is the same tolerance ``exclude_none``
+            # already gives an ABSENT origin, just reached from a malformed one.
+            # A bare string is rejected explicitly: a 3-character one (e.g.
+            # "123") would otherwise unpack as three single-character values
+            # below, each of which happens to parse as a float.
+            if v is None:
+                return None
+            if isinstance(v, str):
+                return None
+            try:
+                x, y, z = v
+                return (float(x), float(y), float(z))
+            except (TypeError, ValueError):
+                return None
 
     class ProceduralDoc(BaseModel):
         # A procedural document is not adapy's private struct — it is authored by
@@ -602,11 +635,12 @@ def _doc_model():
         # the grouping: two docs that differed only in a group's blueprint hashed
         # the SAME, so the preview served the other group's cached GLB.
         groups: Optional[list[CellGroup]] = None
-        # Multi-structure models: one topology model per entry, each placed at its
-        # own origin (see ProceduralMultiBuilder). ProceduralBuilder.to_doc emits
-        # these and from_dict reads them back, so an xlsx import of a workbook with
-        # a ``Structures`` sheet went through validate_doc and came out single-
-        # structure.
+        # Legacy multi-structure list: one topology model per entry, each placed at
+        # its own origin. ``groups`` (with ``origin``) is the wire shape the builder
+        # writes; ``ada.topo_model.structures.structures_from_doc`` merges this list
+        # into it by name, and ``ProceduralBuilder.build_structure`` places each
+        # structure. Kept so an xlsx import of a workbook with a ``Structures``
+        # sheet still validates as multi-structure.
         structures: Optional[list[TopoStructure]] = None
         # Block INTERIOR walls from in-plane routing as well as exterior ones
         # (read by ada.topo_model.compile._build_systems, written by

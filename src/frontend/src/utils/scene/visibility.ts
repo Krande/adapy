@@ -108,6 +108,40 @@ export function unhideAllRanges(): void {
     recordViewerAction("show-all", unhideAllRangesUnrecorded);
 }
 
+/** Swap what is shown for what is hidden, across every loaded mesh (GeniE's "Show complement",
+ * Alt+Q / `core:show-complement`). A double call is the identity: each mesh's new hidden set is
+ * exactly its OLD hidden set's complement within what it draws (`isolateDrawRanges` already keeps
+ * only the ids it is given and hides the rest, so handing it the ids that were hidden a moment ago
+ * both shows them and hides everything that was shown). The selection is cleared, as a hide does —
+ * its highlight would otherwise keep drawing ranges that just went hidden. */
+export function showComplementRanges(): void {
+    recordViewerAction("show-complement", showComplementRangesNow);
+}
+
+function showComplementRangesNow(): void {
+    const scene = getViewerRuntime().scene.current;
+    if (!scene) return;
+    scene.traverse((obj) => {
+        if (obj instanceof CustomBatchedMesh) obj.isolateDrawRanges(new Set(obj.getHiddenRanges()));
+    });
+    useSelectedObjectStore.getState().clearSelectedObjects();
+    useObjectInfoStore.getState().setName(null);
+    requestRender();
+}
+
+/** Whether a scene (anything with `traverse`) holds a hidden range -- the "Nothing is hidden"
+ * disabled reason for `core:show-complement`. Duck-typed, like `anyShownRange`
+ * (`utils/mesh_select/selectionSets.ts`), so a command's availability is asked without loading the
+ * mesh class. */
+export function anyHiddenRange(scene: {traverse(cb: (o: unknown) => void): void} | null | undefined): boolean {
+    let found = false;
+    scene?.traverse((obj) => {
+        if (found) return;
+        if (obj instanceof CustomBatchedMesh && obj.getHiddenRanges().size > 0) found = true;
+    });
+    return found;
+}
+
 /** ``unhideAllRanges`` without an undo entry -- for modes that drive visibility themselves (the
  * gallery walk resets the scene before every step) rather than a user hiding and showing. */
 export function unhideAllRangesUnrecorded(): void {

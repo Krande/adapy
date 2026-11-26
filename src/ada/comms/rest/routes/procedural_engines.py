@@ -41,9 +41,10 @@ _BUILTIN_ENGINE = {
     "description": "Built-in adapy procedural engine (runs server-side and in-browser via WASM).",
     "revision": 0,
     "origin": "builtin",
-    # Built-ins compile a single model-level blueprint; cell grouping is a
-    # capability engine feature, advertised via the worker heartbeat.
-    "supports_grouping": False,
+    # adapy-default maps a doc's groups/STRUCTURE_NAME to per-structure topology
+    # models, each placed at its origin (see ada.topo_model.structures); a doc
+    # with no groups still compiles the single model it always did.
+    "supports_grouping": True,
     "doc": {"kind": "builtin", "entrypoint": "ada.topo_model.wasm_compile:compile_doc", "supports_excel": True},
 }
 # A second built-in: the diagnostic ``echo`` engine (renders the document's

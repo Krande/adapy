@@ -26,8 +26,8 @@ test("loadModelFromUrl goes through loadModel, with the caller's headers, on eit
 test("the loader hands a URL's headers to whichever viewport it loads into", () => {
   const loader = read("components/viewer/sceneHelpers/loadModel.ts");
   assert.match(loader, /\{from: "url"; url: string; headers\?: Record<string, string>\}/);
-  assert.match(loader, /loadFrom\(source, bytes\.url, bytes\.headers, metrics\)/);
+  assert.match(loader, /loadFrom\(source, bytes\.url, bytes\.headers, metrics, treatAsReplace, ticket\)/);
   // One function serves both: the three.js-free viewport first, else the three.js loaders.
   const loadFrom = loader.slice(loader.indexOf("async function loadFrom("), loader.indexOf("/** Stream a stored blob in"));
-  assert.match(loadFrom, /isNativeViewportActive\(\)[\s\S]*showInNativeViewport\(url, requestHeaders,[\s\S]*setupModelLoaderAsync\(\{[\s\S]*requestHeaders,/);
+  assert.match(loadFrom, /isNativeViewportActive\(\)[\s\S]*showInNativeViewport\(\s*url,\s*requestHeaders,[\s\S]*setupModelLoaderAsync\(\{[\s\S]*requestHeaders,/);
 });

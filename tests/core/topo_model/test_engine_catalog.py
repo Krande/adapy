@@ -1,11 +1,11 @@
-"""Per-engine capability registry (``supports_grouping``) + the adapy-default
-engine's tolerate-and-ignore of a grouped doc.
+"""Per-engine capability registry (``supports_grouping``) + adapy-default's
+handling of a grouped doc.
 
 The capability flag is advertised per engine and rides in the worker heartbeat
-(``procedural_engine_specs``); the built-ins report ``supports_grouping=False``,
-a capability engine registers ``True``. adapy-default ignores any
-``groups``/``STRUCTURE_NAME`` a doc carries — it compiles a single blueprint —
-but must not choke on them."""
+(``procedural_engine_specs``); adapy-default reports ``supports_grouping=True``
+(it maps ``groups``/``STRUCTURE_NAME`` to per-structure topology models, see
+``ada.topo_model.structures``), ``echo`` stays ``False`` (raw boxes, no
+structure), and a capability engine registers its own flag."""
 
 from __future__ import annotations
 
@@ -33,17 +33,17 @@ def _is_glb(data: bytes) -> bool:
 # ── capability registry / advertising ────────────────────────────────
 
 
-def test_builtin_engines_do_not_support_grouping():
-    for slug, spec in BUILTIN_ENGINES.items():
-        assert spec.get("supports_grouping") is False, slug
+def test_builtin_engines_grouping_flags():
+    assert BUILTIN_ENGINES["adapy-default"]["supports_grouping"] is True
+    assert BUILTIN_ENGINES["echo"]["supports_grouping"] is False
 
 
-def test_specs_advertise_builtins_as_non_grouping():
+def test_specs_advertise_builtins_grouping_flags():
     specs = {s["slug"]: s for s in procedural_engine_specs()}
-    # Every built-in engine is advertised, all non-grouping.
+    # Every built-in engine is advertised, each with its own flag.
     assert set(BUILTIN_ENGINES) <= set(specs)
-    for slug in BUILTIN_ENGINES:
-        assert specs[slug]["supports_grouping"] is False
+    assert specs["adapy-default"]["supports_grouping"] is True
+    assert specs["echo"]["supports_grouping"] is False
 
 
 def test_register_capabilities_is_idempotent_and_flags_grouping():
@@ -52,30 +52,38 @@ def test_register_capabilities_is_idempotent_and_flags_grouping():
     matches = [s for s in procedural_engine_specs() if s["slug"] == "cap-engine"]
     assert len(matches) == 1
     assert matches[0] == {"slug": "cap-engine", "supports_grouping": True}
-    # A built-in is unaffected and stays non-grouping.
-    assert {"slug", "supports_grouping"} <= set(matches[0])
+    # A built-in is unaffected by a registration under a different slug.
     default = next(s for s in procedural_engine_specs() if s["slug"] == "adapy-default")
-    assert default["supports_grouping"] is False
+    assert default["supports_grouping"] is True
 
 
-# ── adapy-default tolerates but ignores a grouped doc ────────────────
+# ── adapy-default acts on a grouped doc (per-structure placement) ────
 
 
-def test_adapy_default_ignores_groups_and_structure_name():
+def test_adapy_default_places_groups_as_structures():
     grouped = {
         "spaces": [
             {**_DOC["spaces"][0], "STRUCTURE_NAME": "Group A"},
             {**_DOC["spaces"][1], "STRUCTURE_NAME": "Group B"},
         ],
         "groups": [
-            {"name": "Group A", "blueprint": "steel_stru"},
-            {"name": "Group B", "blueprint": "none"},
+            {"name": "Group A", "blueprint": "steel_stru", "origin": (0, 0, 0)},
+            {"name": "Group B", "blueprint": "none", "origin": (50, 0, 0)},
         ],
     }
     glb = compile_procedural_doc(grouped)
     assert _is_glb(glb)
-    # Grouping is ignored: identical geometry to the same doc without groups.
-    assert len(glb) == len(compile_procedural_doc(_DOC))
+    # Grouping is now ACTED ON: Group B compiles under blueprint_name="none" (raw
+    # box, no topology) while Group A gets the full steel_stru blueprint, so the
+    # geometry differs from the same doc compiled with no groups at all.
+    assert len(glb) != len(compile_procedural_doc(_DOC))
+
+
+def test_adapy_default_without_groups_is_unchanged():
+    """A doc that never used groups compiles exactly as it always did —
+    ``supports_grouping=True`` is additive, not a behaviour change for the
+    common (ungrouped) case."""
+    assert _is_glb(compile_procedural_doc(_DOC))
 
 
 # ── Excel format, declared by the registration ───────────────────────

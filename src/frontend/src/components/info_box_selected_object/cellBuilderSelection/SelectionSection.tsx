@@ -6,14 +6,14 @@
 import React from "react";
 import { useCellBuilderStore, type BuilderCell, type BuilderSelection } from "@/state/cellBuilderStore";
 import { OPENING_SIDES } from "@/state/cellbuilder/docCodec";
-import { BOX_FACE_SIDES } from "@/utils/cellbuilder/snap";
 import { equipmentCadFitted, resizeRefusal } from "@/utils/cellbuilder/cellResize";
 import { asMetaObject } from "@/utils/cellbuilder/metadata";
 import { LoftInfo } from "./LoftInfo";
-import { ParamCheck, ParamNumber, ParamNumbersInline, ParamSelect, ParamText, btn } from "./fields";
+import { ParamNumber, ParamSelect, ParamText } from "./fields";
 import { EquipmentSystems } from "./EquipmentSystems";
 import { MetadataFields } from "./MetadataFields";
-import { Field, FieldCheck, PropertyItemLayout, propertyInputCls, type PropertyItemGroup, type PropertyItemParents } from "./PropertyItemLayout";
+import { Field, PropertyItemLayout, propertyInputCls, type PropertyItemGroup, type PropertyItemParents } from "./PropertyItemLayout";
+import { useSpaceGroups } from "./spaceGroups";
 
 // "Show as CAD": swap this equipment's placeholder box for its type's linked
 // CAD model in the main viewer. Only shown when the resolved equipment type has
@@ -86,182 +86,44 @@ export function useItemParents(place: { structure?: string; space?: string }, se
   };
 }
 
-/** A space's groups: its grid and beams, enclosure, sides, and where it is filed. */
-function useSpaceGroups(cell: BuilderCell, selection: BuilderSelection): PropertyItemGroup[] {
-  const setCellEnclosed = useCellBuilderStore((s) => s.setCellEnclosed);
-  const applyFaceExtension = useCellBuilderStore((s) => s.applyFaceExtension);
-  const insertOpeningOnFace = useCellBuilderStore((s) => s.insertOpeningOnFace);
-  const groups = useCellBuilderStore((s) => s.groups);
-  const setCellGroup = useCellBuilderStore((s) => s.setCellGroup);
-  const engines = useCellBuilderStore((s) => s.engines);
-  const selectedEngine = useCellBuilderStore((s) => s.selectedEngine);
-  const supportsGrouping = Boolean(engines.find((e) => e.slug === selectedEngine)?.supports_grouping);
-  // Select the stable blueprintOptions reference and derive the enclosed-cells
-  // list in a memo. Returning ``... ?? []`` straight from the selector produced a
-  // FRESH array every render when enclosed_cells is absent, which useSyncExternal-
-  // Store reads as a changed snapshot → infinite re-render ("Maximum update depth
-  // exceeded"), crashing the whole viewer when a cell is selected on a model with
-  // no enclosed cells (e.g. an imported workbook).
-  const blueprintOptions = useCellBuilderStore((s) => s.blueprintOptions);
-  const enclosedCells = React.useMemo(() => (blueprintOptions as { enclosed_cells?: string[] }).enclosed_cells ?? [], [blueprintOptions]);
-  const [extendBy, setExtendBy] = React.useState(0.5);
-  const side = selection.kind === "face" && selection.faceIndex !== undefined ? BOX_FACE_SIDES[selection.faceIndex] : null;
-
-  const out: PropertyItemGroup[] = [
-    {
-      title: "Grid",
-      fields: (
-        <Field label="Create" inline help={{ list: "spaces", column: "GRID_X_CREATE" }}>
-          <ParamCheck cell={cell} column="GRID_X_CREATE" label="X" />
-          <ParamCheck cell={cell} column="GRID_Y_CREATE" label="Y" />
-          <ParamCheck cell={cell} column="GRID_Z_CREATE" label="Z" />
-        </Field>
-      ),
-    },
-    {
-      title: "Beams",
-      fields: (
-        <>
-          <Field label="Switch" inline help={{ list: "spaces", column: "SWITCH_BM_DIR_VERTICAL" }}>
-            <ParamCheck cell={cell} column="SWITCH_BM_DIR_VERTICAL" label="vert." />
-            <ParamCheck cell={cell} column="SWITCH_BM_DIR_HORIZONTAL" label="horiz." />
-          </Field>
-          <Field label="Floor" inline help={{ list: "spaces", column: "FLIP_FLOOR" }}>
-            <ParamCheck cell={cell} column="FLIP_FLOOR" label="flip" />
-          </Field>
-        </>
-      ),
-    },
-    {
-      title: "Enclosed",
-      fields: (
-        <>
-          <Field label="Room" help="Plate every bounding face of this space (walls and floor / roof decks, stiffeners facing inward) so the room is fully enclosed">
-            <FieldCheck label="plated walls" checked={enclosedCells.includes(cell.name)} onChange={(v) => setCellEnclosed(cell.name, v)} />
-          </Field>
-          {/* The six sides on one row; the picked face's side is the one marked. */}
-          <Field label="Exclude" inline help={{ list: "spaces", column: "SE0" }}>
-            {[0, 1, 2, 3, 4, 5].map((se) => (
-              <span key={se} className={side?.se === se ? "rounded-sm bg-blue-900/60 px-0.5" : ""}>
-                <ParamCheck cell={cell} column={`SE${se}`} label={`SE${se}`} />
-              </span>
-            ))}
-          </Field>
-        </>
-      ),
-    },
-    {
-      title: "General",
-      fields: (
-        <>
-          {supportsGrouping && (
-            <Field label="Group" help={{ list: "spaces", column: "STRUCTURE_NAME" }}>
-              <select
-                className={`${propertyInputCls} w-full`}
-                aria-label="Group (STRUCTURE_NAME)"
-                value={cell.group ?? ""}
-                onChange={(e) => setCellGroup(cell.id, e.target.value || null)}
-              >
-                <option value="">— none —</option>
-                {groups.map((g) => (
-                  <option key={g.name} value={g.name}>
-                    {g.name}
-                  </option>
-                ))}
-              </select>
-            </Field>
-          )}
-          <ParamText cell={cell} column="AREA" label="Area" />
-          <ParamNumber cell={cell} column="PRIORITY" label="Priority" step={1} />
-        </>
-      ),
-    },
-  ];
-  // A face picked: what can be done from it.
-  if (side && selection.kind === "face") {
-    out.unshift({
-      title: `Face ${side.label}`,
-      fields: (
-        <>
-          <Field label="Extend by" help="Extend (negative contracts) this face outward">
-            <input type="number" step={0.1} className={`${propertyInputCls} w-20`} value={extendBy} aria-label="Extend by" onChange={(e) => setExtendBy(Number(e.target.value))} />
-            <button className={btn} onClick={() => applyFaceExtension(cell.id, selection.faceIndex!, extendBy)}>
-              Apply
-            </button>
-          </Field>
-          <Field label="Opening" inline>
-            <button
-              className={btn}
-              onClick={() => insertOpeningOnFace(cell.id, selection.faceIndex!, "door")}
-              title="Add a door opening straddling this face (0.9 × 2.1 m, at the floor)"
-            >
-              + Door
-            </button>
-            <button
-              className={btn}
-              onClick={() => insertOpeningOnFace(cell.id, selection.faceIndex!, "window")}
-              title="Add a window opening straddling this face (1.2 × 1.0 m, 1.0 m sill)"
-            >
-              + Window
-            </button>
-          </Field>
-        </>
-      ),
-    });
-  }
-  return out;
-}
-
-/** An equipment's groups: placement, mass and centre of gravity, systems, CAD. */
+/** An equipment's groups: placement (location, reinforcement section), mass, systems, CAD.
+ *  Rotation and COG moved into the shared Geometry grid below: one X/Y/Z block, not a
+ *  separate inline row + style each. */
 function useEquipmentGroups(cell: BuilderCell): PropertyItemGroup[] {
-  const setCellRotation = useCellBuilderStore((s) => s.setCellRotation);
+  const setEquipmentLocation = useCellBuilderStore((s) => s.setEquipmentLocation);
   const hasCad = useHasCad(cell);
-  const rotation = cell.rotation ?? [0, 0, 0];
   const out: PropertyItemGroup[] = [
     {
       title: "Placement",
       fields: (
         <>
-          <ParamSelect cell={cell} column="SPACE_LOC" label="Location" options={["FLOOR", "ROOF"]} />
-          <Field label="Rotation°" inline help={{ list: "equipments", column: "ROT_Z" }}>
-            {(["X", "Y", "Z"] as const).map((a, i) => (
-              <label key={a} className="inline-flex min-w-0 flex-1 items-center gap-0.5">
-                <span className="text-gray-500">{a}</span>
-                <input
-                  type="number"
-                  step={15}
-                  className={`${propertyInputCls} w-full`}
-                  aria-label={`Rotation ${a} (ROT_${a})`}
-                  value={rotation[i]}
-                  onChange={(e) => {
-                    const n = Number(e.target.value);
-                    if (!Number.isFinite(n)) return;
-                    const next = [...rotation] as [number, number, number];
-                    next[i] = n;
-                    setCellRotation(cell.id, next);
-                  }}
-                />
-              </label>
-            ))}
+          <Field label="Location" help={{ list: "equipments", column: "SPACE_LOC" }}>
+            <select
+              className={`${propertyInputCls} w-full`}
+              aria-label="Location (SPACE_LOC)"
+              value={(cell.params.SPACE_LOC as string) ?? "FLOOR"}
+              onChange={(e) => setEquipmentLocation(cell.id, e.target.value as "FLOOR" | "ROOF")}
+            >
+              {["FLOOR", "ROOF"].map((o) => (
+                <option key={o} value={o}>
+                  {o}
+                </option>
+              ))}
+            </select>
           </Field>
+          {/* The equipment's REINFORCEMENT_SECTION (the section that reinforces the structure it
+             is seated in), as a plain text field, round-tripping through params like any other
+             engine column (fields.tsx's ParamText), with the engine's own column help. */}
+          <ParamText cell={cell} column="REINFORCEMENT_SECTION" label="Reinforcement section" />
         </>
       ),
     },
     {
-      title: "Mass & COG",
+      title: "Mass",
       fields: (
         <>
           <ParamNumber cell={cell} column="massDry" label="Dry [kg]" step={100} />
           <ParamNumber cell={cell} column="massCont" label="Content [kg]" step={100} />
-          <ParamNumbersInline
-            cell={cell}
-            label="COG"
-            columns={[
-              { column: "COGx", label: "x" },
-              { column: "COGy", label: "y" },
-              { column: "COGz", label: "z" },
-            ]}
-          />
         </>
       ),
     },
@@ -315,6 +177,9 @@ export const SelectionSection: React.FC<{ selection: BuilderSelection; place: { 
   const renameCell = useCellBuilderStore((s) => s.renameCell);
   const updateCell = useCellBuilderStore((s) => s.updateCell);
   const setCellParam = useCellBuilderStore((s) => s.setCellParam);
+  const setCellRotation = useCellBuilderStore((s) => s.setCellRotation);
+  const beginTransaction = useCellBuilderStore((s) => s.beginTransaction);
+  const endTransaction = useCellBuilderStore((s) => s.endTransaction);
   // Whether an equipment's box follows its CAD model (no resize then).
   const equipmentCad = useCellBuilderStore((s) => s.equipmentCad);
   const equipmentTypes = useCellBuilderStore((s) => s.equipmentTypes);
@@ -349,6 +214,9 @@ export const SelectionSection: React.FC<{ selection: BuilderSelection; place: { 
   }
   const own = cell.kind === "cell" ? spaceGroups : cell.kind === "equipment" ? equipmentGroups : openingGroups;
   const canResize = resizeRefusal(cell.kind, { cadFitted: equipmentCadFitted(cell, { equipmentCad, equipmentTypes }) }) === null;
+  // One X/Y/Z block for everything a box carries -- Position, Size, and (equipment only)
+  // Rotation° and COG as rows in the SAME grid, instead of their own inline style each.
+  const isEquipment = cell.kind === "equipment";
   return (
     <PropertyItemLayout
       badge={cellBadge(cell)}
@@ -358,8 +226,37 @@ export const SelectionSection: React.FC<{ selection: BuilderSelection; place: { 
       geometry={{
         origin: cell.origin,
         size: cell.size,
-        onChange: ({ origin, size }) => updateCell(cell.id, { origin: [...origin], size: [...size] }),
+        ...(isEquipment ? { rotation: cell.rotation ?? [0, 0, 0] } : {}),
+        onChange: ({ origin, size, rotation }) => {
+          // Rotation and origin/size go through different store actions (setCellRotation vs
+          // updateCell); GeometryGrid's write() always hands back the whole set unchanged except
+          // the one edited field, so both run on every call -- harmless (setCellRotation already
+          // no-ops when its value is unchanged) -- wrapped in one transaction so editing either
+          // is still one undo step.
+          beginTransaction();
+          updateCell(cell.id, { origin: [...origin], size: [...size] });
+          if (isEquipment && rotation) setCellRotation(cell.id, [...rotation] as [number, number, number]);
+          endTransaction();
+        },
         editable: { size: canResize },
+        ...(isEquipment
+          ? {
+              extraRows: [
+                {
+                  key: "cog",
+                  label: "COG",
+                  value: [Number(cell.params.COGx) || 0, Number(cell.params.COGy) || 0, Number(cell.params.COGz) || 0],
+                  onChange: ([x, y, z]) => {
+                    beginTransaction();
+                    setCellParam(cell.id, "COGx", x);
+                    setCellParam(cell.id, "COGy", y);
+                    setCellParam(cell.id, "COGz", z);
+                    endTransaction();
+                  },
+                },
+              ],
+            }
+          : {}),
       }}
       groups={[...own, ...metadata]}
       dataAttrs={{ "data-builder-item": cell.kind }}

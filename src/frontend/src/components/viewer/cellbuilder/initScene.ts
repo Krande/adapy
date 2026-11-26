@@ -20,9 +20,10 @@ import {createCellBuilderScene, syncOffset} from "./sceneContext";
 import {disposeBuilderGrid, syncBuilderGrid} from "./builderGrid";
 import {disposeMesh, refreshEdgeOverlays, refreshFaceStyles} from "./overlays";
 import {applyCellVisibility, rebuild, rebuildCompanions} from "./meshRebuild";
-import {disposeRefs, rebuildRefs, refreshRefStyles} from "./refsOverlay";
+import {applyRefVisibility, disposeRefs, rebuildRefs, refreshRefStyles} from "./refsOverlay";
 import {rebuildCadPreviews} from "./cadPreview";
 import {clearPorts, rebuildPorts} from "./portsOverlay";
+import {clearCog, rebuildCog} from "./cogOverlay";
 import {installCellGizmo} from "./cellGizmo";
 import {installPortGizmo, syncPortGizmo} from "./portGizmo";
 import {disposeResizeHandles, keepHandlesScreenSized, syncGizmo, translationSnapFor} from "./resizeHandles";
@@ -31,6 +32,7 @@ import {keepScreenSized} from "@/utils/gizmo/screenSize";
 import {disposeCellDimensions, disposeMoveMeasure} from "./cellDimensions";
 import {clearLongPress, onContextMenu, onPointerCancel, onPointerDown, onPointerMove, onPointerUp} from "./pointerTools";
 import {itemIncludeState} from "@/utils/cellbuilder/include";
+import {refIncludeState} from "@/utils/cellbuilder/refInclude";
 
 type BuilderState = ReturnType<typeof useCellBuilderStore.getState>;
 
@@ -39,13 +41,22 @@ const includeStates = (s: BuilderState): string =>
     Object.values(s.cells)
         .map((c) => `${c.id}:${itemIncludeState(c, s.cells, s.groups, s.loftMembers)}`)
         .join("\n");
+
+/** Every REF's include state, as one string: the ref analogue of `includeStates` -- a
+ *  structure's INCLUDE (its group) hiding or dimming a ref is what `s.groups` changing may alter
+ *  in the drawing. */
+const refIncludeStates = (s: BuilderState): string =>
+    Object.values(s.refs)
+        .map((r) => `${r.id}:${refIncludeState(r, s.groups)}`)
+        .join("\n");
 import {endPlaceEntry} from "./numericEntry";
 import {endEquipEntry, endOpenEntry} from "./insertTools";
-import {onKeyDown} from "./keyboard";
+import {clearsRotateScaleHint, onKeyDown} from "./keyboard";
 import {openedModelFramer} from "./frameOpened";
 import {shownInScene} from "./cellBoxSelect";
 import {setBuilderVisibilityHost} from "@/state/cellbuilder/builderVisibility";
 import {disposeInfoLabel, syncInfoLabel} from "./infoLabel";
+import {syncStructureFrames} from "./structureFrames";
 
 export function initCellBuilderScene(host: BuilderViewHost): () => void {
     const ctx = createCellBuilderScene(host);
@@ -74,12 +85,28 @@ export function initCellBuilderScene(host: BuilderViewHost): () => void {
         cellsShown: () => useCellBuilderStore.getState().active !== null && shown(),
         selected: () => {
             const st = useCellBuilderStore.getState();
-            return st.selectedCellIds.length ? [...st.selectedCellIds] : st.selection?.cellId ? [st.selection.cellId] : [];
+            // A4: the multi-select set can hold cells and refs together.
+            const ids = [...st.selectedCellIds, ...st.selectedRefIds];
+            if (ids.length) return ids;
+            if (st.selection?.cellId) return [st.selection.cellId];
+            // A lone ref pick with no multi-select set populated (toggleRefSelection empties it on
+            // the last removal, same as toggleCellSelection): the hide/show commands must still
+            // reach the one ref that is actually picked.
+            if (st.selection?.kind === "ref") return [st.selection.refId];
+            return [];
         },
-        all: () => Object.keys(useCellBuilderStore.getState().cells),
+        all: () => {
+            const st = useCellBuilderStore.getState();
+            return [...Object.keys(st.cells), ...Object.keys(st.refs)];
+        },
         hide: (ids) => useCellBuilderStore.getState().hideCells([...ids]),
         unhide: (ids) => useCellBuilderStore.getState().unhideCells([...ids]),
         unhideAll: () => useCellBuilderStore.getState().unhideAllCells(),
+        showComplement: () => useCellBuilderStore.getState().showComplementCells(),
+        anyHidden: () => {
+            const st = useCellBuilderStore.getState();
+            return st.hiddenCellIds.length > 0 || st.hiddenRefIds.length > 0;
+        },
     });
     const busy = () =>
         ctx.drag !== null || ctx.modalMove !== null || ctx.numEntry !== null || ctx.placeEntry !== null || ctx.equipEntry !== null || ctx.openEntry !== null;
@@ -114,10 +141,12 @@ export function initCellBuilderScene(host: BuilderViewHost): () => void {
     const framer = openedModelFramer(ctx.cellsGroup, () => useCellBuilderStore.getState().active?.modelId ?? null);
     framer.check();
     rebuildPorts(ctx);
+    rebuildCog(ctx);
     syncBuilderGrid(ctx);
     syncGizmo(ctx);
     syncPortGizmo(ctx);
     syncInfoLabel(ctx);
+    syncStructureFrames(ctx);
     rebuildCompanions(ctx);
     // Its own subscription, so a companion change never re-runs the editable
     // rebuild (which clears hover, selection and the mesh index).
@@ -126,6 +155,10 @@ export function initCellBuilderScene(host: BuilderViewHost): () => void {
     });
 
     const unsub = useCellBuilderStore.subscribe((s, prev) => {
+        // The structure frames follow the origins, the pick (the edit frame) and the add mode (the
+        // placement frame): a position write each, so a structure moved (setGroupOrigin) is drawn
+        // where it now is with no rebuild (./structureFrames.ts).
+        syncStructureFrames(ctx);
         // Leaving an add mode drops any in-progress numeric placement.
         if (
             ctx.placeEntry &&
@@ -153,9 +186,19 @@ export function initCellBuilderScene(host: BuilderViewHost): () => void {
             rebuild(ctx);
         } else if (s.selection !== prev.selection || s.selectedCellIds !== prev.selectedCellIds)
             refreshFaceStyles(ctx);
-        // The plugins' refs: drawn again when they or the model change, restyled on a new pick.
-        if (s.refs !== prev.refs || s.active !== prev.active) rebuildRefs(ctx);
-        else if (s.selection !== prev.selection) refreshRefStyles(ctx);
+        // The plugins' refs: drawn again when they or the model change, restyled on a new pick --
+        // the primary (`selection`) and the rest of a multi-selection (`selectedRefIds`). Also
+        // when a structure's INCLUDE changes a ref's effective include state (a ref whose
+        // structure is left out of the build must dim/hide with it) -- gated by `refIncludeStates`
+        // the same way the cells' rebuild is gated by `includeStates`, since `groups` is replaced
+        // on every blueprint edit too and a rebuild remakes every mesh.
+        if (
+            s.refs !== prev.refs ||
+            s.active !== prev.active ||
+            (s.groups !== prev.groups && refIncludeStates(s) !== refIncludeStates(prev))
+        )
+            rebuildRefs(ctx);
+        else if (s.selection !== prev.selection || s.selectedRefIds !== prev.selectedRefIds) refreshRefStyles(ctx);
         // "Show as CAD" toggles + any cell/type change re-seat the CAD previews
         // (after rebuild() has re-made the boxes so applyCellVisibility hides the
         // right ones).
@@ -188,6 +231,19 @@ export function initCellBuilderScene(host: BuilderViewHost): () => void {
         ) {
             rebuildPorts(ctx);
         }
+        // COG marker: follows the selection, its edits and moves (its structure's too,
+        // and a rotation), and goes with the cells flag or a per-equipment hide.
+        if (
+            s.selection !== prev.selection ||
+            s.selectedCellIds !== prev.selectedCellIds ||
+            s.cells !== prev.cells ||
+            s.groups !== prev.groups ||
+            s.active !== prev.active ||
+            s.cellsVisible !== prev.cellsVisible ||
+            s.hiddenCellIds !== prev.hiddenCellIds
+        ) {
+            rebuildCog(ctx);
+        }
         if (
             s.selection !== prev.selection ||
             s.gizmoMode !== prev.gizmoMode ||
@@ -195,6 +251,9 @@ export function initCellBuilderScene(host: BuilderViewHost): () => void {
             s.gizmoVertexSnap !== prev.gizmoVertexSnap ||
             s.cells !== prev.cells ||
             s.refs !== prev.refs ||
+            // A picked structure's gizmo: re-seated when it moved or another is picked.
+            s.groups !== prev.groups ||
+            s.activeGroup !== prev.activeGroup ||
             s.active !== prev.active ||
             s.gridStep !== prev.gridStep ||
             s.cellsVisible !== prev.cellsVisible
@@ -213,12 +272,20 @@ export function initCellBuilderScene(host: BuilderViewHost): () => void {
             syncPortGizmo(ctx);
         }
         if (s.active !== prev.active || s.gridStep !== prev.gridStep) syncBuilderGrid(ctx);
-        // The info label follows the pick, its edits and moves, and goes with the flag or the cells.
+        // N-A6: the "Rotate/scale one item at a time" hint (keyboard.ts) is a plain set-and-forget
+        // -- nothing else ever clears it. Drop it on the next selection or gizmo-mode change, so it
+        // does not linger once the user has moved on (e.g. deselected, or re-armed the gizmo).
+        if (clearsRotateScaleHint(s.toolHint, s.selection !== prev.selection, s.gizmoMode !== prev.gizmoMode)) {
+            useCellBuilderStore.getState().setToolHint(null);
+        }
+        // The info label follows the pick, its edits and moves (its structure's too), and goes with
+        // the flag or the cells.
         if (
             s.infoLabel !== prev.infoLabel ||
             s.selection !== prev.selection ||
             s.cells !== prev.cells ||
             s.refs !== prev.refs ||
+            s.groups !== prev.groups ||
             s.active !== prev.active ||
             s.cellsVisible !== prev.cellsVisible
         )
@@ -232,6 +299,10 @@ export function initCellBuilderScene(host: BuilderViewHost): () => void {
         }
         if (s.hiddenCellIds !== prev.hiddenCellIds) {
             applyCellVisibility(ctx);
+            requestRender();
+        }
+        if (s.hiddenRefIds !== prev.hiddenRefIds) {
+            applyRefVisibility(ctx);
             requestRender();
         }
         // The cell colours follow the groups: a blueprint change recolours its structure,
@@ -303,7 +374,7 @@ export function initCellBuilderScene(host: BuilderViewHost): () => void {
         ctx.scene.remove(ctx.portGizmoHelper);
         ctx.guideLine.geometry.dispose();
         (ctx.guideLine.material as THREE.Material).dispose();
-        ctx.container.remove(ctx.guideLine);
+        ctx.guideLine.removeFromParent();
         ctx.snapTex.dispose();
         (ctx.snapMarker.material as THREE.Material).dispose();
         ctx.scene.remove(ctx.snapMarker);
@@ -312,20 +383,21 @@ export function initCellBuilderScene(host: BuilderViewHost): () => void {
         ctx.scene.remove(ctx.readout);
         ctx.ringPreview.geometry.dispose();
         (ctx.ringPreview.material as THREE.Material).dispose();
-        ctx.container.remove(ctx.ringPreview);
+        ctx.ringPreview.removeFromParent();
         ctx.faceOverlay.geometry.dispose();
         (ctx.faceOverlay.material as THREE.Material).dispose();
-        ctx.container.remove(ctx.faceOverlay);
+        ctx.faceOverlay.removeFromParent();
         disposeResizeHandles(ctx);
         disposeRefs(ctx);
         disposeCellDimensions(ctx);
-        ctx.container.remove(ctx.dimensionGroup);
+        ctx.dimensionGroup.removeFromParent();
         disposeInfoLabel(ctx);
         disposeMoveMeasure(ctx);
-        ctx.container.remove(ctx.moveMeasureGroup);
+        ctx.moveMeasureGroup.removeFromParent();
         ctx.host.setGroundGridHidden(false);
         disposeBuilderGrid(ctx);
         clearPorts(ctx);
+        clearCog(ctx);
         // Free the CAD-preview cache prototypes (the scene clones share their
         // resources, so this is the single owner that disposes them).
         for (const proto of ctx.cadPreviewCache.values()) {

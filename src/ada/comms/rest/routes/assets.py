@@ -1053,6 +1053,13 @@ async def submit_node_build(
         "overrides": overrides,
     }
     if scope_obj != requested_scope:
+        # Audited against the plugin_jobs.py scope-wire bug (a user scope's
+        # wire() raises, and wire_of()'s fallback to prefix() answers a storage
+        # key, not a usable ?scope=): safe here, because ``_read_scope`` (via
+        # ``resolve_dataset``/``resolve_collection``) only ever redirects to
+        # ``PROVIDER_STORE`` -- never to a user scope -- so scope_obj can only
+        # differ from requested_scope by being the (singleton, raise-free)
+        # provider store.
         answer["scope"] = wire_of(scope_obj)
         # The store's build is every granted scope's: only an admin rebuilds over a cached one.
         force = force and bool(getattr(user, "is_admin", False))

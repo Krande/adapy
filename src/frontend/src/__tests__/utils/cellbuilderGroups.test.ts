@@ -116,6 +116,27 @@ test("groupFromWire: only an explicit false excludes", () => {
   assert.equal(isGroupIncluded(undefined), true);
 });
 
+// A grouping engine can carry its own per-group settings on a `groups[]` entry that this viewer
+// does not act on (python's TopoStructure extras: MODEL_INPUT, BLUEPRINT, CONDITION_NAME, ...).
+// The viewer must not eat them on the next commit just because it has no use for them itself.
+test("groupFromWire/groupToWire round-trip an unknown key untouched", () => {
+  const raw = { name: "A", blueprint: "F", MODEL_INPUT: "run-42", CONDITION_NAME: "Design" };
+  const group = groupFromWire(raw);
+  assert.deepEqual(group, { name: "A", blueprint: "F", MODEL_INPUT: "run-42", CONDITION_NAME: "Design" });
+  assert.deepEqual(groupToWire(group), raw);
+});
+
+test("an extra key survives include/origin being set alongside it", () => {
+  const group = groupFromWire({ name: "A", blueprint: "F", include: false, origin: [1, 2, 3], MODEL_INPUT: "x" });
+  assert.deepEqual(group, { name: "A", blueprint: "F", include: false, origin: [1, 2, 3], MODEL_INPUT: "x" });
+  assert.deepEqual(groupToWire(group), { name: "A", blueprint: "F", include: false, origin: [1, 2, 3], MODEL_INPUT: "x" });
+});
+
+test("normalizeGroups keeps a group's extra keys (it spreads the raw group through groupToWire)", () => {
+  const out = normalizeGroups([groupFromWire({ name: "A", blueprint: "F", MODEL_INPUT: "x" })]);
+  assert.deepEqual(out, [{ name: "A", blueprint: "F", MODEL_INPUT: "x" }]);
+});
+
 test("groups round-trip doc -> store -> doc keeps include", () => {
   // What a doc carries (two structures, the second excluded),
   // read the way groupsFromDoc does, written the way toDoc does.

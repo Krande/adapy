@@ -9,7 +9,7 @@ import { CustomBatchedMesh } from "@/utils/mesh_select/CustomBatchedMesh";
 import { recordViewerAction, redoViewerAction, undoViewerAction } from "@/utils/scene/viewerHistory";
 import { createThreeViewport } from "@/viewport/api/threeViewport";
 import { setActiveViewport } from "@/viewport/api/viewportApi";
-import { hideSelectedRanges, unhideAllRanges } from "@/utils/scene/visibility";
+import { anyHiddenRange, hideSelectedRanges, showComplementRanges, unhideAllRanges } from "@/utils/scene/visibility";
 
 // Viewer operations against a real (headless) scene: each action is one history entry, and undo /
 // redo restore both the hidden ranges and the selection.
@@ -76,6 +76,28 @@ test("undo of show all hides again only what was hidden", () => {
   assert.deepEqual(hidden(), ["a", "c"]);
   undoViewerAction();
   assert.deepEqual(hidden(), ["c"], "the range hidden outside the history stays hidden");
+});
+
+test("show complement swaps hidden ranges for shown, a double call is the identity, and anyHiddenRange tracks it", () => {
+  assert.equal(anyHiddenRange(runtime.scene.current), false);
+  select(["b"]);
+  m.hideBatchDrawRange(["a", "c"]);
+  assert.equal(anyHiddenRange(runtime.scene.current), true);
+
+  showComplementRanges();
+  assert.deepEqual(hidden(), ["b", "d"]);
+  assert.deepEqual(selected(), [], "show complement clears the selection, as a hide does");
+  assert.equal(anyHiddenRange(runtime.scene.current), true);
+
+  showComplementRanges();
+  assert.deepEqual(hidden(), ["a", "c"], "a second swap is the identity");
+  assert.equal(hist().past.at(-1)?.label, "show-complement");
+
+  undoViewerAction();
+  assert.deepEqual(hidden(), ["b", "d"]);
+  undoViewerAction();
+  assert.deepEqual(hidden(), ["a", "c"]);
+  assert.deepEqual(selected(), ["b"], "the select before the two swaps was not itself undone");
 });
 
 test("an action that changes nothing records nothing", () => {

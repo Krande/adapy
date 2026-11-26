@@ -19,6 +19,7 @@ import {requestRender} from "@/state/perfStore";
 import type {CellBox, Vec3} from "@/utils/cellbuilder/snap";
 import {formatLength} from "./cellDimensions";
 import type {CellBuilderScene} from "./sceneContext";
+import {boxOrigin} from "./structureFrames";
 
 const AXES = ["X", "Y", "Z"] as const;
 
@@ -183,7 +184,11 @@ export function syncInfoLabel(ctx: CellBuilderScene): void {
         sprite.userData.text = key;
         sprite.scale.set(canvas.width * SCALE_PER_PX, canvas.height * SCALE_PER_PX, 1);
     }
-    sprite.position.set(...anchorOf(box));
+    // The box is in its structure's frame; the label in the container: moved by that origin.
+    const sel = st.selection;
+    const o = boxOrigin(st, sel?.kind === "ref" ? {ref: st.refs[sel.refId]} : {cell: sel ? st.cells[sel.cellId] : null});
+    const [ax, ay, az] = anchorOf(box);
+    sprite.position.set(ax + o[0], ay + o[1], az + o[2]);
     sprite.visible = true;
     // One label on screen, the current pick's: another builder scene's (a viewer mounted again, a
     // second viewport) goes when this one shows.

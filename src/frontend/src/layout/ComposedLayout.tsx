@@ -317,6 +317,28 @@ function useModeEffects(shellId: string | null): void {
 /** The status bar loads when a shell composes one (`UiShellChrome.statusItems`). */
 const StatusBar = React.lazy(() => import("./StatusBar"));
 
+/** A composed chrome slot (Header / Footer / Rail / StatusBar) that throws degrades to an
+ * empty slot instead of taking the whole shell down with it (the `UiShellHost` boundary one level
+ * up would otherwise fall back to Classic for a crash in one strip). Only wraps a NON-core shell's
+ * slots (`ComposedLayout` below renders this only while `spec` is set): core's own UI has no
+ * shell-supplied chrome to protect here, and swallowing one of ITS render errors would hide a real
+ * core bug instead of surfacing it (Classic stays exactly as it behaves today). */
+class ChromeSlotBoundary extends React.Component<{slot: string; children: React.ReactNode}, {crashed: boolean}> {
+  state = {crashed: false};
+
+  static getDerivedStateFromError(): {crashed: boolean} {
+    return {crashed: true};
+  }
+
+  componentDidCatch(error: Error): void {
+    console.error(`[plugins] the "${this.props.slot}" chrome slot crashed; showing nothing there`, error);
+  }
+
+  render(): React.ReactNode {
+    return this.state.crashed ? null : this.props.children;
+  }
+}
+
 /**
  * Core's layout dressed as shell `spec`, or as core's own UI for null. An
  * in-place switch hands in another `spec` (`UiShellHost`, `CoreShellRoot`):
@@ -337,27 +359,50 @@ export default function ComposedLayout({spec, children}: {spec: UiShellSpec | nu
   const railSlot = spec?.chrome?.rail;
   const Rail = React.useMemo(() => lazyOf(typeof railSlot === "function" ? railSlot : undefined), [railSlot]);
   const tools = React.useMemo(() => railConfig(railSlot), [railSlot]);
-  const slot = (C: React.ComponentType | null) =>
-    C && (
+  // Wrapped in its own ErrorBoundary ONLY for a composed (non-core) shell -- see ChromeSlotBoundary.
+  const slot = (name: string, C: React.ComponentType | null) => {
+    if (!C) return null;
+    const suspended = (
       <Suspense fallback={null}>
         <C />
       </Suspense>
     );
+    // `key={spec.id}`: without it, switching IN PLACE from one non-core shell to another keeps
+    // the same ChromeSlotBoundary instance (same position in the tree, same slot name), so a
+    // boundary that had already crashed for the shell just left stayed crashed -- rendering
+    // nothing for the new shell's own Header/Footer/Rail even though it never threw.
+    return spec ? (
+      <ChromeSlotBoundary key={spec.id} slot={name}>
+        {suspended}
+      </ChromeSlotBoundary>
+    ) : (
+      suspended
+    );
+  };
   // Every child keeps its position whatever the shell draws (a missing slot is
   // a hole, not a shift), so React keeps the layout's element across a switch.
   return (
     <div className="flex h-full w-full flex-col">
-      {slot(Header)}
+      {slot("Header", Header)}
       <div className="flex min-h-0 w-full flex-1 flex-row">
-        {(Rail || tools) && <div className="relative h-full shrink-0">{tools ? <ToolRail shell={spec!.id} config={tools} /> : slot(Rail)}</div>}
+        {(Rail || tools) && (
+          <div className="relative h-full shrink-0">{tools ? <ToolRail shell={spec!.id} config={tools} /> : slot("Rail", Rail)}</div>
+        )}
         <div className="relative h-full min-w-0 flex-1">{children ?? <LayoutRoot />}</div>
       </div>
-      {slot(Footer)}
-      {statusItems && (
-        <Suspense fallback={null}>
-          <StatusBar items={statusItems} />
-        </Suspense>
-      )}
+      {slot("Footer", Footer)}
+      {statusItems &&
+        (spec ? (
+          <ChromeSlotBoundary key={spec.id} slot="StatusBar">
+            <Suspense fallback={null}>
+              <StatusBar items={statusItems} />
+            </Suspense>
+          </ChromeSlotBoundary>
+        ) : (
+          <Suspense fallback={null}>
+            <StatusBar items={statusItems} />
+          </Suspense>
+        ))}
       {/* The marking menu over the 3D view, where the served UI has it on (nothing otherwise). */}
       <MarkingMenuHost />
       {/* Which loaded models the active mode draws, where its UI declared it (`behaviour.scene`); nothing otherwise. */}

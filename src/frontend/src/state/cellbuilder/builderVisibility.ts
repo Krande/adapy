@@ -13,16 +13,36 @@ export interface BuilderVisibilityHost {
     hide(ids: readonly string[]): void;
     unhide(ids: readonly string[]): void;
     unhideAll(): void;
+    /** Swap what is shown for what is hidden ("Show complement", Alt+Q): hide `all() −
+     *  hidden`, unhide `hidden` (including hidden refs), clear the selection. A double call is
+     *  the identity. */
+    showComplement(): void;
+    /** Whether anything (a cell or a ref) is hidden now -- the "Nothing is hidden" disabled
+     *  reason for `core:show-complement`. */
+    anyHidden(): boolean;
 }
 
 let host: BuilderVisibilityHost | null = null;
+const hostListeners = new Set<() => void>();
 
 /** The builder lends its cells. Returns the undo. */
 export function setBuilderVisibilityHost(h: BuilderVisibilityHost): () => void {
     host = h;
+    hostListeners.forEach((l) => l());
     return () => {
-        if (host === h) host = null;
+        if (host !== h) return;
+        host = null;
+        hostListeners.forEach((l) => l());
     };
+}
+
+/** Called whenever the builder visibility host is lent or withdrawn (a procedural model opened,
+ *  closed, or its scene remounted) -- what a caller that remembers something about "the builder's
+ *  cells" (a `lastHidden` memory of the last hide) clears itself on, since a new host owns a
+ *  fresh set of cells. Returns the unsubscribe function. */
+export function onBuilderVisibilityHostChange(listener: () => void): () => void {
+    hostListeners.add(listener);
+    return () => void hostListeners.delete(listener);
 }
 
 /** The builder, while its cells are drawn; null otherwise. */

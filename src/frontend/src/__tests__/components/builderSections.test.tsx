@@ -83,9 +83,9 @@ test("a picked equipment: where it is first (its space and structure), then its 
     const order = [
       "data-property-parents",
       "data-property-header",
-      'data-property-group="Geometry"',
-      'data-property-group="Placement"',
-      'data-property-group="Mass &amp; COG"',
+      'data-property-group="Geometry"', // Position, Size, Rotation° and COG, one grid
+      'data-property-group="Placement"', // Location only now
+      'data-property-group="Mass"',
       'data-property-group="Systems"',
     ];
     const where = order.map((m) => at(html, m));
@@ -93,6 +93,9 @@ test("a picked equipment: where it is first (its space and structure), then its 
     assert.match(html, /data-property-parents="">.*title="Select space room">room<\/button>.*title="Select structure Upper">Upper<\/button>.*\[plate\]/);
     assert.match(html, /aria-label="Name of [^"]* pump"/, "renamed in place");
     assert.match(html, /aria-label="Position X"/);
+    // Rotation° and COG now share the Geometry grid, not their own inline row/style.
+    assert.match(html, /data-property-group="Geometry">[\s\S]*?Rotation°[\s\S]*?aria-label="Rotation° Z"[\s\S]*?COG[\s\S]*?aria-label="COG Z"/);
+    assert.doesNotMatch(html, /aria-label="Rotation Z \(ROT_Z\)"/, "the old separate Rotation row is gone");
     // What the Model panel and the toolbar do is not repeated here.
     assert.doesNotMatch(html, />(Move|Rotate|Resize)<\/button>/, "no gizmo buttons");
     assert.doesNotMatch(html, /Include in build/, "no include toggle");
@@ -105,7 +108,18 @@ test("a picked equipment: where it is first (its space and structure), then its 
     assert.match(own, /title="Select structure Upper"/);
     for (const g of ["Grid", "Beams", "Enclosed", "General"]) assert.match(own, new RegExp(`data-property-group="${g}"`), g);
     assert.match(own, /data-field="Create">[\s\S]*?aria-label="X \(GRID_X_CREATE\)"[\s\S]*?aria-label="Z \(GRID_Z_CREATE\)"/, "Grid X / Y / Z on one row");
-    assert.match(own, /data-field="Exclude">[\s\S]*?SE0[\s\S]*?SE5/, "SE0..SE5 on one row");
+    // Named views, in the viewer's own Alt+1..6 order (Top/Bottom/Front/Back/Left/Right).
+    assert.match(
+      own,
+      /data-field="Exclude side">[\s\S]*?Exclude Top \(SE1\)[\s\S]*?Exclude Bottom \(SE0\)[\s\S]*?Exclude Front \(SE2\)[\s\S]*?Exclude Back \(SE3\)[\s\S]*?Exclude Left \(SE4\)[\s\S]*?Exclude Right \(SE5\)/,
+      "Top Bottom Front Back Left Right, in that order",
+    );
+    // FUNCTION, GIRDER_AS_PLATE and DESCRIPTION, missing from the form before.
+    assert.match(own, /data-field="Function">[\s\S]*?aria-label="Function \(FUNCTION\)"/);
+    assert.match(own, /data-field="Girder as plate">[\s\S]*?aria-label="Girder as plate \(GIRDER_AS_PLATE\)"/);
+    assert.match(own, /data-field="Description">[\s\S]*?aria-label="Description \(DESCRIPTION\)"/);
+    // The built-in engine: Room / plated walls still offered.
+    assert.match(own, /data-field="Room">/);
     assert.equal(at(own, 'data-builder-section="structure"'), -1);
     // Nothing picked: the active structure has its own view.
     st().setSelection(null);
@@ -121,7 +135,7 @@ test("a picked equipment: where it is first (its space and structure), then its 
   }
 });
 
-test("a field's label carries the engine's help for its column as a tooltip", () => {
+test("a field's label carries the engine's help for its column as a tooltip, the column named first", () => {
   st().open("m", "Model", 1, doc);
   const engines = st().engines;
   useCellBuilderStore.setState({
@@ -131,8 +145,8 @@ test("a field's label carries the engine's help for its column as a tooltip", ()
     const room = Object.values(st().cells).find((c) => c.name === "room")!;
     st().setSelection({ kind: "cell", cellId: room.id });
     const html = inViewer(React.createElement(ObjectInfoBody));
-    assert.match(html, /data-field="Create"><span class="[^"]*cursor-help[^"]*" title="Use in building X grid">Create<\/span>/);
-    assert.match(html, /<label class="inline-flex items-center gap-0.5" title="Use in building X grid"><input type="checkbox"[^>]*aria-label="X \(GRID_X_CREATE\)"/);
+    assert.match(html, /data-field="Create"><span class="[^"]*cursor-help[^"]*" title="GRID_X_CREATE — Use in building X grid">Create<\/span>/);
+    assert.match(html, /<label class="inline-flex items-center gap-0.5" title="GRID_X_CREATE — Use in building X grid"><input type="checkbox"[^>]*aria-label="X \(GRID_X_CREATE\)"/);
   } finally {
     useCellBuilderStore.setState({ engines });
     st().close();
@@ -262,7 +276,16 @@ test("whether a builder pick is the panel's is the active mode's declared builde
   const M = await import("@/layout/shellModes");
   st().open("m", "Model", 1, doc);
   let shown = false;
-  const release = setBuilderVisibilityHost({ cellsShown: () => shown, selected: () => [], all: () => [], hide: () => {}, unhide: () => {}, unhideAll: () => {} });
+  const release = setBuilderVisibilityHost({
+    cellsShown: () => shown,
+    selected: () => [],
+    all: () => [],
+    hide: () => {},
+    unhide: () => {},
+    unhideAll: () => {},
+    showComplement: () => {},
+    anyHidden: () => false,
+  });
   const panel = () => inViewer(React.createElement(ObjectInfoBody));
   const isPick = (html: string) => /data-builder-section="item"/.test(html);
   try {

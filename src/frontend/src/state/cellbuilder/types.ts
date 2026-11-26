@@ -42,8 +42,8 @@ export interface BuilderCell extends CellBox {
   rotation?: [number, number, number];
   /** Group this cell belongs to (a group is one structure compiled with its own
    * blueprint). Serializes as the space's `STRUCTURE_NAME`; undefined/blank means
-   * ungrouped. Meaningful only for grouping-capable engines; the
-   * built-in engine ignores it. Cells only. */
+   * ungrouped. Meaningful only for engines that advertise `supports_grouping`
+   * (driven off that flag, never a hardcoded engine slug). Cells only. */
   group?: string;
   /** Extra pydantic entity fields (TopoSpace/TopoEquipment) beyond the
    * geometry: SE0..SE5 face exclusions, FLIP_FLOOR, SPACE_LOC, masses, ...

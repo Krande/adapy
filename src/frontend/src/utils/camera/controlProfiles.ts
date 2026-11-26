@@ -30,9 +30,11 @@ export const GENIE_PROFILE_ID = "genie";
  * here, because a browser does not hand the key to the page, the viewer keeps it, or the viewer has no
  * such command: View from X (F6 moves the focus between the viewer's areas; the right view keeps Alt + 6),
  * Isometric View (F5 reloads the page), Camera Back / Forward (Alt + arrows go back and forward in the
- * browser's history), Rotate / Zoom / Pan as tools (F2 / F3 / F4: the right button does all three), Spin
- * Model (F10) and Show complement (Alt + Q). Add selection (Alt + Plus) is the viewer's Show selected. Undo (Ctrl + Z) and Redo
- * (Ctrl + Y) are the viewer's keys already.
+ * browser's history), Rotate / Zoom / Pan as tools (F2 / F3 / F4: the right button does all three) and
+ * Spin Model (F10). Add selection (Alt + Plus) is the viewer's Show selected, and Show complement
+ * (Alt + Q, `core:show-complement`) is listed explicitly below even though it is also every profile's
+ * BASE default (`coreShortcutTable.ts`) -- GeniE never had a key free for it before. Undo (Ctrl + Z) and
+ * Redo (Ctrl + Y) are the viewer's keys already.
  */
 export const GENIE_KEYS: Readonly<KeyOverrides> = {
     "core:fit-all": "F9",
@@ -43,6 +45,7 @@ export const GENIE_KEYS: Readonly<KeyOverrides> = {
     "core:hide-others": "Alt+S",
     "core:show-all": "Alt+A",
     "core:show-selected": "Alt+Plus",
+    "core:show-complement": "Alt+Q",
 };
 
 export const BUILT_IN_PROFILES: readonly ControlsProfile[] = [

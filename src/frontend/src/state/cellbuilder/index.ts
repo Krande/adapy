@@ -17,7 +17,7 @@
 
 export {useCellBuilderStore} from "./store";
 export {hasEmbeddedDoc} from "./documentSlice";
-export {cellsFromDoc} from "./docCodec";
+export {cellsFromDoc, placedCellsFromDoc} from "./docCodec";
 
 // Re-exported so callers can keep importing the preview-compile gate from the
 // store facade; the implementation lives in a store-free util for testability.

@@ -60,9 +60,14 @@ async function replaceModelNow(options: ReplaceModelOptions) {
         metrics,
         autoFitOverride,
     } = options;
+    // clearScene always wipes the cached translation (clear_scene.ts), so a `translate: true`
+    // caller (a compile/recompile result, reusing the current offset) would otherwise find
+    // nothing to reuse: capture it first and put it back once the teardown is done.
+    const keepTranslation = translate ? useModelState.getState().translation?.clone() ?? null : null;
     // The scene's one teardown, as every clear takes it (./clear_scene): this is a replace, so what
     // the load below sets itself is left to it, and the queue and an open procedural model stay.
     await clearScene({reason: "replace", replacing: true, keepQueuedLoads: true, keepProcedural: true});
+    if (keepTranslation) useModelState.getState().setTranslation(keepTranslation);
 
     const three_scene = getViewerRuntime().scene.current;
     if (!three_scene) {

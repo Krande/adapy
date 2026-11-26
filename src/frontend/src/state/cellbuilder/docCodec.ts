@@ -16,6 +16,7 @@ import {
   structureNameToGroup,
   type CellGroup,
 } from "@/utils/cellbuilder/groups";
+import {placedCells} from "@/utils/cellbuilder/include";
 import {bandBounds, memberToBands, type LoftMemberDoc} from "@/utils/cellbuilder/loft";
 import type {BuilderCell, BuilderSystem, SystemType} from "./types";
 import {nextId} from "./shared";
@@ -49,9 +50,13 @@ const OPENING_OWN_KEYS = new Set([
   "DZ",
 ]);
 
-/** The doc's top-level keys the builder writes (toDoc), each whenever it has one: everything else in a
- * loaded doc is someone else's -- an engine's own lists (pm's `modifications`), `engine`, `structures`
- * -- and goes back as it came (`docExtras`). Writing only these dropped the rest on every commit. */
+/** The doc's top-level keys the builder writes (toDoc), each whenever it has one: everything else
+ * in a loaded doc is someone else's -- a run tool's own lists, `engine` -- and goes back as it
+ * came (`docExtras`). Writing only these dropped the rest on every commit.
+ *
+ * `structures` is listed here even though `toDoc` never writes it: a legacy doc's `structures`
+ * list is read once, into `groups` (`groupsFromDoc`'s fallback), and from then on this is a
+ * builder-owned key like any other -- a committed doc carries `groups` only, never both shapes. */
 export const BUILDER_DOC_KEYS: ReadonlySet<string> = new Set([
   "schema_version",
   "grid",
@@ -66,6 +71,7 @@ export const BUILDER_DOC_KEYS: ReadonlySet<string> = new Set([
   "openings",
   "loft_members",
   "groups",
+  "structures",
 ]);
 
 /** The loaded doc's keys the builder does not write, to write back untouched. */
@@ -189,10 +195,46 @@ function equipmentSpaceOffset(
 }
 
 /** The doc's cell groups (name + per-group blueprint + `include: false` when
- * left out of the build), normalized (blank/dup names dropped). Empty for an
- * ungrouped doc. */
+ * left out of the build + `origin` where it has one), normalized (blank/dup
+ * names dropped). Empty for an ungrouped doc.
+ *
+ * `groups` wins when present. A doc with none, but with a legacy top-level
+ * `structures` list (`{NAME, X?, Y?, Z?, INCLUDE?}` -- an engine's own structure
+ * records, predating `groups[]`), reads those into the SAME shape instead: each
+ * becomes a group named after the structure, at its origin, built unless its
+ * INCLUDE is explicitly false, with the model's own blueprint (no per-structure
+ * blueprint exists on that legacy shape). This runs once, on load: `structures`
+ * is a builder-owned key from here on (BUILDER_DOC_KEYS), so the next commit
+ * writes `groups` only -- a doc never carries both shapes after that. */
 export function groupsFromDoc(doc: ProceduralDoc): CellGroup[] {
-  return normalizeGroups((doc.groups ?? []).map(groupFromWire));
+  const own = (doc.groups ?? []).map(groupFromWire);
+  if (own.length) return normalizeGroups(own);
+  const legacy = (doc as unknown as Record<string, unknown>).structures;
+  if (!Array.isArray(legacy) || !legacy.length) return [];
+  const modelBlueprint = typeof doc.blueprint_name === "string" ? doc.blueprint_name : "";
+  return normalizeGroups(
+    legacy.map((raw: Record<string, unknown>) => {
+      const x = Number(raw?.X ?? 0);
+      const y = Number(raw?.Y ?? 0);
+      const z = Number(raw?.Z ?? 0);
+      const origin: [number, number, number] | undefined = x || y || z ? [x, y, z] : undefined;
+      // A legacy structure can carry its own extra columns too (another tool's per-structure
+      // settings, e.g. an engine's own MODEL_INPUT/CONDITION_NAME), just as a `groups[]` entry
+      // can -- copy them across the same way, as python does when it folds structures into
+      // groups, rather than dropping them the moment this legacy shape becomes `groups[]`.
+      const extra: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(raw ?? {})) {
+        if (k !== "NAME" && k !== "X" && k !== "Y" && k !== "Z" && k !== "INCLUDE" && v !== undefined) extra[k] = v;
+      }
+      return groupFromWire({
+        ...extra,
+        name: raw?.NAME,
+        blueprint: modelBlueprint,
+        include: raw?.INCLUDE !== false,
+        origin,
+      });
+    }),
+  );
 }
 
 /** Convert a stored document into builder cells.
@@ -301,6 +343,12 @@ export function cellsFromDoc(doc: ProceduralDoc): Record<string, BuilderCell> {
   return out;
 }
 
+/** A doc's cells where they are in the model: each structure's at its origin
+ * (`placedCells`). What a read-only companion is drawn and measured from. */
+export function placedCellsFromDoc(doc: ProceduralDoc): BuilderCell[] {
+  return Object.values(placedCells(cellsFromDoc(doc), groupsFromDoc(doc), loftMembersFromDoc(doc)));
+}
+
 /** The raw authored loft members carried on a doc (empty when absent). */
 export function loftMembersFromDoc(doc: ProceduralDoc): LoftMemberDoc[] {
   const raw = (doc as { loft_members?: unknown }).loft_members;
@@ -350,17 +398,40 @@ export function systemsFromDoc(doc: ProceduralDoc): Record<string, BuilderSystem
   return out;
 }
 
+/** The space an equipment is written against (its SPACE_NAME): its own seat --
+ * `params.SPACE_NAME`, as set when it was inserted or re-seated (placementSlice,
+ * cellsSlice's rehomeEquipmentParams on a move), or loaded from a doc that already
+ * named one -- when that name still resolves to a real space cell of its own
+ * structure (as its coordinates are relative to that structure); the geometry is
+ * used only when the equipment names no seat (or that name no longer resolves --
+ * e.g. the space was deleted): the first space under it in plan, among its own
+ * structure's when it names one, else the first space of its own structure, else
+ * the first space anywhere. */
 export function containingCellName(
   cells: Record<string, BuilderCell>,
   eq: BuilderCell,
 ): string {
+  const structure = structureNameToGroup(eq.params ?? {});
+  const seatName = eq.params?.SPACE_NAME;
+  if (typeof seatName === "string" && seatName) {
+    const seat = Object.values(cells).find(
+      (c) => c.kind === "cell" && c.name === seatName && (structure === undefined || c.group === structure),
+    );
+    if (seat) return seat.name;
+  }
   const cx = eq.origin[0] + eq.size[0] / 2;
   const cy = eq.origin[1] + eq.size[1] / 2;
   for (const c of Object.values(cells)) {
     if (c.kind !== "cell") continue;
+    if (structure !== undefined && c.group !== structure) continue;
     const inX = cx >= c.origin[0] && cx <= c.origin[0] + c.size[0];
     const inY = cy >= c.origin[1] && cy <= c.origin[1] + c.size[1];
     if (inX && inY) return c.name;
+  }
+  // No plan hit: stay within its own structure before falling back to any space at all.
+  if (structure !== undefined) {
+    const ownFirst = Object.values(cells).find((c) => c.kind === "cell" && c.group === structure);
+    if (ownFirst) return ownFirst.name;
   }
   const first = Object.values(cells).find((c) => c.kind === "cell");
   return first ? first.name : "NoSpace";

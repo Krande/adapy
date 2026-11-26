@@ -76,7 +76,8 @@ export const portGeom = (
 // named for the cell (see collectCadVerts / _cad_transform).
 export const nearestPortSnapToPointer = (ctx: CellBuilderScene, cell: BuilderCell): Vec3 | null => {
     const cam = builderCamera(ctx);
-    const off = offsetVec(ctx);
+    // The port's equipment is in the port frame (its structure's, ./structureFrames.ts).
+    const off = offsetVec(ctx, ctx.portFrame.position);
     const rect = ctx.host.rect();
     const sx0 = (ctx.pointer.x * 0.5 + 0.5) * rect.width;
     const sy0 = (-ctx.pointer.y * 0.5 + 0.5) * rect.height;
@@ -189,7 +190,7 @@ export function installPortGizmo(ctx: CellBuilderScene): void {
             );
             if (invQuat) local.applyQuaternion(invQuat);
             st.updateEquipmentPort(pg.cellId, pg.portName, {position: [local.x, local.y, local.z]});
-            showSnapMarker(ctx, target);
+            showSnapMarker(ctx, target, ctx.portFrame.position);
         } else {
             // Rotate about the anchor: apply the proxy's accumulated rotation to
             // the start direction, then back out the equipment spin to store the

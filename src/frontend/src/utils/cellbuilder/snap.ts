@@ -451,3 +451,111 @@ export function openingBoxOnFace(
     size[axis] = 2 * d;
     return {origin, size};
 }
+
+/**
+ * The face (a candidate space + a {@link FaceSide}) a GLOBAL opening's box now straddles, after
+ * it has been moved: the nearest face plane to the opening's centre on that face's own axis
+ * (within `slack` of half the opening's own thickness along it -- by construction an opening
+ * freshly cut from a face has its centre exactly on the face's plane; a drag only needs to move
+ * it a little), among the faces whose rectangle actually contains that centre on the other two
+ * axes. Null when the opening has moved off every candidate.
+ *
+ * `candidates` is cell-shaped (a space): anything with `name`, `origin` and `size`.
+ */
+export function nearestFaceStraddled<C extends {name: string; origin: Vec3; size: Vec3}>(
+    opening: CellBox,
+    candidates: Iterable<C>,
+    slack = 0.1,
+): {cell: C; side: FaceSide} | null {
+    const centre: Vec3 = [
+        opening.origin[0] + opening.size[0] / 2,
+        opening.origin[1] + opening.size[1] / 2,
+        opening.origin[2] + opening.size[2] / 2,
+    ];
+    let best: {cell: C; side: FaceSide; dist: number} | null = null;
+    for (const cell of candidates) {
+        for (const side of BOX_FACE_SIDES) {
+            const facePos = side.positive ? cell.origin[side.axis] + cell.size[side.axis] : cell.origin[side.axis];
+            const dist = Math.abs(centre[side.axis] - facePos);
+            const tolerance = opening.size[side.axis] / 2 + slack;
+            if (dist > tolerance) continue;
+            const inOtherAxes = ([0, 1, 2] as const).every(
+                (a) =>
+                    a === side.axis ||
+                    (centre[a] >= cell.origin[a] - 1e-6 && centre[a] <= cell.origin[a] + cell.size[a] + 1e-6),
+            );
+            if (!inOtherAxes) continue;
+            if (!best || dist < best.dist) best = {cell, side, dist};
+        }
+    }
+    return best ? {cell: best.cell, side: best.side} : null;
+}
+
+// ── Space side-exclude: SE0..SE5 + the SE list column ───────────────────────────────────────
+
+/** Whether side `se` (BOX_FACE_SIDES' index, 0..5) is excluded on a space: SE{se} === true, OR
+ *  the SE list column (a row can exclude several sides as one comma-separated column) names it.
+ *  A side's own checkbox used to read SE{se} only, so a row excluded only through the list showed
+ *  every checkbox unchecked -- and every face drawn -- despite the side actually being cut from
+ *  the build.
+ *
+ *  The list itself: a FRESH doc's own SE column is adapy's comma-separated string ("0,2"),
+ *  not an array -- `nextSpaceExcludeParams` only starts writing a number array once the user
+ *  first unchecks a box through the UI. Before that first edit, a row excluded only through the
+ *  list read as nothing excluded. Also accepted: an array of string items ("0"), in case a
+ *  server round-trip keeps them as strings rather than numbers. */
+export function spaceSideExcluded(cell: {params?: Readonly<Record<string, unknown>>}, se: number): boolean {
+    const params = cell.params;
+    if (!params) return false; // a cell built without params (a minimal test fixture): nothing excluded
+    if (params[`SE${se}`] === true) return true;
+    const list = params.SE;
+    if (Array.isArray(list)) return list.some((v) => Number(v) === se);
+    if (typeof list === "string") {
+        return list
+            .split(",")
+            .map((v) => v.trim())
+            .filter((v) => v !== "")
+            .some((v) => Number(v) === se);
+    }
+    return false;
+}
+
+/** The next `params` for toggling side `se`'s exclude checkbox: checking writes SE{se}=true (the
+ *  simple, existing path); unchecking clears SE{se} AND, if the SE list holds this side too,
+ *  rewrites the list without it -- in the one object the caller writes back with a single
+ *  `updateCell`, so a reload never leaves the side half excluded through the list while its own
+ *  checkbox reads unchecked. */
+export function nextSpaceExcludeParams(params: Readonly<Record<string, unknown>>, se: number, checked: boolean): Record<string, unknown> {
+    const next: Record<string, unknown> = {...params};
+    const column = `SE${se}`;
+    if (checked) {
+        next[column] = true;
+        return next;
+    }
+    delete next[column];
+    // Parse the list the same way spaceSideExcluded does -- adapy's own comma string ("0,2") or
+    // an array of string items ("0"), not only an array of numbers -- so unchecking a side
+    // excluded ONLY through one of those forms actually clears it, instead of leaving it checked
+    // through the list while its own checkbox now reads unchecked.
+    const list = next.SE;
+    const rawItems: unknown[] = Array.isArray(list)
+        ? list
+        : typeof list === "string"
+          ? list
+                .split(",")
+                .map((v) => v.trim())
+                .filter((v) => v !== "")
+          : [];
+    // A non-numeric item (a stray entry, a blank string that slipped through, ...) must not
+    // round-trip as NaN -- written back into the doc, JSON has no NaN, so it serializes as a
+    // null -- it is simply dropped from the rewritten list.
+    const items: number[] = rawItems.map((v) => Number(v)).filter((n) => Number.isFinite(n));
+    if (items.includes(se)) {
+        // Always written back as a plain number array: whatever form the list arrived in, a
+        // user-driven edit from here on normalizes it.
+        const rest = items.filter((x) => x !== se);
+        if (rest.length) next.SE = rest;
+        else delete next.SE;
+    }
+    return next;
+}

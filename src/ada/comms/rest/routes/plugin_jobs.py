@@ -133,10 +133,13 @@ async def enqueue_plugin_job(
     # the job runs in the provider store whatever it was handed.
     forced = job_scope(provider_spec_of(plugin_id, plugin_spec), scope_obj)
     if forced != scope_obj:
+        # A log line, not an answer on the wire: the storage prefix (never
+        # ``wire_of``'s silent fallback to it -- see the note at the response
+        # below) is the right thing for a human reading logs to see.
         logger.warning(
             "plugin job %s: asset-provider job asked for scope %s; running it in the provider store",
             plugin_id,
-            wire_of(scope_obj),
+            scope_obj.prefix(),
         )
         scope_obj = forced
 
@@ -620,4 +623,16 @@ async def api_plugin_job(
         derived_key=derived_key,
         plugin_spec=plugin_spec,
     )
-    return JSONResponse({"job_id": job_id, "derived_key": derived_key, "scope": wire_of(scope_obj)})
+    # The scope the job ran in -- the one its ``derived_key`` (and any staging it
+    # reports) is read from. Usually the one asked for; an asset-provider job
+    # instead runs in the provider store (forced above), whatever ``?scope=``
+    # said. Answered as a WIRE string the caller can use back: ``wire_of``
+    # works for every kind except the caller's OWN personal scope, which
+    # ``Scope.wire()`` deliberately refuses to produce (see its docstring) --
+    # so a personal-scope answer is the ``?scope=`` string the caller already
+    # sent ("user:me"), never ``wire_of``'s silent fallback to ``prefix()``
+    # (a STORAGE key like "users/<sub>", not a scope the API accepts back:
+    # a plugin that reads it straight into its next request's ``?scope=`` gets
+    # a 404, not its own data).
+    answer_scope = scope if scope_obj.kind == "user" else wire_of(scope_obj)
+    return JSONResponse({"job_id": job_id, "derived_key": derived_key, "scope": answer_scope})

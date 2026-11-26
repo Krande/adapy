@@ -300,6 +300,19 @@ export function createThreeViewport(h: ThreeViewportHandles): ViewportApi {
         hideSelected: () => void visibility().then((m) => m.hideSelectedRanges()),
         hideOthers: () => void visibility().then((m) => m.hideUnselectedRanges()),
         showAll: () => void visibility().then((m) => m.unhideAllRanges()),
+        showComplement: () => void visibility().then((m) => m.showComplementRanges()),
+        // Read-only and asked for on every menu/palette render (the "Nothing is hidden" disabled
+        // reason), so this does NOT go through the lazily-loaded `visibility` module (unlike the
+        // actions above): `isBatched` is already an eager import here for the same reason.
+        hasHidden: () => {
+            const scene = getViewerRuntime().scene.current;
+            if (!scene) return false;
+            let found = false;
+            scene.traverse((obj) => {
+                if (!found && isBatched(obj) && obj.getHiddenRanges().size > 0) found = true;
+            });
+            return found;
+        },
         fitAll: () =>
             void cameraHandlers().then((m) => {
                 m.fitAllView(h.scene, h.camera, h.controls);

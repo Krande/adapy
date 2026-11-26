@@ -59,6 +59,10 @@ export interface SelectionSnapshot {
   cellBuilderActive: boolean;
   /** The composed shell's active mode (`activeShellMode`); absent in a shell without modes. */
   shellMode?: string;
+  /** The panel's own `selectionSource` option, carried onto the snapshot so a provider's
+   *  `match` can tell a builder-only panel from one that also (or only) shows a scene pick.
+   *  "builder" / "scene" narrow the panel; "any" (the default) is today's mixed behaviour. */
+  selectionSource?: "builder" | "scene" | "any";
   /** The selection as the nodes it is -- each a member of a model loaded from storage, folded up to
    *  whole levels as a saved group folds it -- for the element links (`queryElementLinks`, the
    *  `useElementLinks` hook): what has been found, built and simulated under them. Absent when
@@ -69,7 +73,8 @@ export interface SelectionSnapshot {
 }
 
 export interface PropertyProvider {
-  /** Unique; re-registering an id replaces the provider. */
+  /** Unique per OWNER (`owner ?? ""`): re-registering an id under the SAME owner replaces it,
+   *  as before; a DIFFERENT owner is refused (see `registerPropertyProvider`). */
   id: string;
   /** Ascending; ties keep core's sections first, then registration order. */
   order?: number;
@@ -77,7 +82,9 @@ export interface PropertyProvider {
   match(sel: SelectionSnapshot): boolean;
   /** Its section. Rendered inside its own error boundary. */
   render(sel: SelectionSnapshot): React.ReactNode;
-  /** Names the provider in the error boundary's message. */
+  /** Names the provider in the error boundary's message, and is this provider's key for the id
+   *  ownership rule above (`registerPropertyProvider`, `providersFor`). `"core"` is reserved for
+   *  core's own sections (`CORE_PROPERTY_PROVIDERS`), which are never registered through here. */
   owner?: string;
   /**
    * The scope-gated plugin this section belongs to (1.41.0): a gate id, as `PluginSpec.access` names
@@ -85,6 +92,46 @@ export interface PropertyProvider {
    * plugin on, for the open scope or for the user, whatever `match` says.
    */
   access?: string;
+}
+
+/**
+ * A shell's say over which of the matching providers a `core:object-info` panel draws, and in what
+ * order (`ObjectInfoBodyProps.providers`, `applyProviderLayout`). Static: it cannot express a
+ * selection-dependent rule the way `ObjectInfoBodyProps.sections` can (and `sections` still runs
+ * after it, so passing both is safe).
+ */
+export interface PropertyProviderLayout {
+  /** Keep only these ids (whitelist), applied before `hide`. Absent: keep every match. */
+  show?: readonly string[];
+  /** Drop these ids, applied after `show`. */
+  hide?: readonly string[];
+  /** Override specific ids' order among the ones left; an id not listed keeps its provider's own
+   *  `order` (default 0), so a shell only has to name the ones it wants to move. */
+  order?: Readonly<Record<string, number>>;
+}
+
+/** `list`, filtered by `layout.show`/`layout.hide` and re-sorted by `layout.order`, stably. An id
+ *  `show`/`hide`/`order` names that is not in `list` has no effect. Absent `layout`: `list`
+ *  unchanged (a fresh array, as every other list here). */
+export function applyProviderLayout(list: readonly PropertyProvider[], layout?: PropertyProviderLayout): PropertyProvider[] {
+  if (!layout) return [...list];
+  let out = [...list];
+  if (layout.show) {
+    const show = new Set(layout.show);
+    out = out.filter((p) => show.has(p.id));
+  }
+  if (layout.hide) {
+    const hide = new Set(layout.hide);
+    out = out.filter((p) => !hide.has(p.id));
+  }
+  if (layout.order) {
+    const order = layout.order;
+    out = out
+      .map((p, i) => ({ p, i }))
+      .sort((a, b) => (order[a.p.id] ?? a.p.order ?? 0) - (order[b.p.id] ?? b.p.order ?? 0) || a.i - b.i)
+      .map(({ p }) => p);
+  }
+  return out;
 }
 
 const providers = new Map<string, { spec: PropertyProvider; seq: number }>();
@@ -100,10 +147,24 @@ function changed(): void {
 // A gated section comes and goes with its plugin's switch: the panel asks again when that changes.
 subscribePluginAccess(changed);
 
-/** Registers `spec`; returns a function that removes it. */
+/** Registers `spec`; returns a function that removes it (a no-op once a different owner has
+ *  already taken the id).
+ *
+ *  Ownership (`spec.owner ?? ""`): re-registering an id under the SAME owner replaces it, as
+ *  before. A DIFFERENT owner is refused -- warned once and left as it was -- rather than silently
+ *  overwriting the first owner's section (the previous, undocumented behaviour: ANY re-registration
+ *  replaced, owner or not). No known plugin re-registers another's id; this only guards against one
+ *  doing so by accident. */
 export function registerPropertyProvider(spec: PropertyProvider): () => void {
   if (!spec.id) {
     console.warn("[properties] provider registered without an id -- ignored");
+    return () => {};
+  }
+  const existing = providers.get(spec.id);
+  if (existing && (existing.spec.owner ?? "") !== (spec.owner ?? "")) {
+    console.warn(
+      `[properties] "${spec.id}" is already registered by ${existing.spec.owner || "(no owner)"} -- ignored for ${spec.owner || "(no owner)"}`,
+    );
     return () => {};
   }
   const entry = { spec, seq: seq++ };
@@ -132,14 +193,29 @@ export function subscribePropertyProviders(onChange: () => void): () => void {
   return () => void listeners.delete(onChange);
 }
 
+// Warned about once each, never repeated on every selection change / re-render.
+const warnedCoreIdConflicts = new Set<string>();
+
 /** `core` merged with `plugins` by order (core first on a tie), keeping those that match. A
- *  throwing `match` drops its provider for this pass. */
+ *  throwing `match` drops its provider for this pass. A plugin provider using a core id (and not
+ *  itself owned by `"core"`) is dropped too -- core's own section draws there instead -- with a
+ *  one-time `console.warn` per id, so a plugin registering a core id does not silently draw it
+ *  twice. */
 export function providersFor(
   sel: SelectionSnapshot,
   core: readonly PropertyProvider[],
   plugins: readonly PropertyProvider[] = listPropertyProviders(),
 ): PropertyProvider[] {
-  const all = [...core.map((p, i) => ({ p, k: 0, i })), ...plugins.map((p, i) => ({ p, k: 1, i }))];
+  const coreIds = new Set(core.map((p) => p.id));
+  const ownPlugins = plugins.filter((p) => {
+    if (!coreIds.has(p.id) || p.owner === "core") return true;
+    if (!warnedCoreIdConflicts.has(p.id)) {
+      warnedCoreIdConflicts.add(p.id);
+      console.warn(`[properties] "${p.id}" is a core section id; a plugin provider using it is dropped`);
+    }
+    return false;
+  });
+  const all = [...core.map((p, i) => ({ p, k: 0, i })), ...ownPlugins.map((p, i) => ({ p, k: 1, i }))];
   all.sort((a, b) => (a.p.order ?? 0) - (b.p.order ?? 0) || a.k - b.k || a.i - b.i);
   const out: PropertyProvider[] = [];
   for (const { p } of all) {

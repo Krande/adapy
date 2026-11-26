@@ -114,6 +114,14 @@ export interface ViewportApi {
     /** Hide everything that is not selected. */
     hideOthers(): void;
     showAll(): void;
+    /** Swap what is shown for what is hidden (GeniE's "Show complement", Alt+Q): a double call is
+     *  the identity. Clears the selection, as hiding does. Optional: a viewport that does not
+     *  implement it simply has no command for it (`core:show-complement` is then not offered). */
+    showComplement?(): void;
+    /** Whether anything in this viewport is hidden now -- the "Nothing is hidden" disabled reason
+     *  for `core:show-complement`. Paired with `showComplement`; absent on a viewport that does
+     *  not implement it. */
+    hasHidden?(): boolean;
     /** Hide `refs` (one undo step where the viewport has undo); the selection is cleared, as its
      *  highlight would keep drawing what was hidden. */
     hide(refs: Iterable<ObjectRef>): void;

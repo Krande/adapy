@@ -17,6 +17,7 @@ from ada.topology.entities import (
     TopoEquipment,
     TopoOpening,
     TopoSpace,
+    entity_field_help,
     from_ada_meta,
     from_ada_obj,
 )
@@ -138,3 +139,64 @@ def test_cellgraph_carries_topospace_metadata():
     # PRIORITY drives internal-wall ownership (read via metadata.get on TopoSpace).
     assert len(cg.get_internal_walls()) == 1
     _ = be  # backend used to build the solids
+
+
+# ── UI labels ────────────────────────────────────────────────────────────────────────────
+
+
+def test_ui_labels_keys_are_fields():
+    # Every UI_LABELS key must still be a field of its class -- a label for a renamed or removed
+    # column would otherwise sit there doing nothing (entity_field_help filters it out silently,
+    # which is the right runtime behaviour, but a stale key here is a mistake worth catching).
+    for cls in (TopoSpace, TopoEquipment, TopoOpening):
+        unknown = sorted(set(cls.UI_LABELS) - set(cls.model_fields))
+        assert unknown == [], f"{cls.__name__}.UI_LABELS names fields it does not have: {unknown}"
+
+
+def test_ui_labels_non_empty_for_the_generic_label_classes():
+    # TopoSpace, TopoOpening and TopoEquipment are adapy's own entities that carry generic
+    # (cryptic, abbreviated) column names needing a human-readable label. A class with no
+    # UI_LABELS is still valid (every column just shows its own name), but these three are
+    # expected to have at least one.
+    for cls in (TopoSpace, TopoEquipment, TopoOpening):
+        assert cls.UI_LABELS, f"{cls.__name__} has no UI_LABELS"
+
+
+def test_entity_field_help_emits_a_labels_sibling_per_list():
+    help_ = entity_field_help()
+    # Every list that has a UI_LABELS-bearing entity gets a "<list>.labels" sibling, same shape
+    # as the help text itself ({str: {str: str}}), so an installed server's clean_field_help (which
+    # only keeps values of exactly that shape) passes it through untouched.
+    assert "spaces.labels" in help_
+    assert "equipments.labels" in help_
+    assert "openings.labels" in help_
+    for list_key, labels in (
+        ("spaces", help_["spaces.labels"]),
+        ("equipments", help_["equipments.labels"]),
+        ("openings", help_["openings.labels"]),
+    ):
+        assert all(isinstance(k, str) and isinstance(v, str) for k, v in labels.items()), list_key
+        assert labels, list_key
+    # A couple of the actual values, pinned against Space's own SE0..SE5 side-exclude labels.
+    assert help_["spaces.labels"]["SE4"] == "Exclude -X"
+    assert help_["spaces.labels"]["SE5"] == "Exclude X"
+    assert help_["spaces.labels"]["GIRDER_AS_PLATE"] == "Girder as plate"
+
+
+def test_entity_field_help_drops_a_stale_label_key():
+    # A UI_LABELS entry naming a column the class no longer has must not reach the viewer as a
+    # label for a field that does not exist.
+    class _StaleLabels(TopoSpace):
+        UI_LABELS = {**TopoSpace.UI_LABELS, "NO_SUCH_COLUMN": "Ghost"}
+
+    from ada.topology import entities as entities_mod
+
+    saved = dict(entities_mod._FIELD_HELP_ENTITIES)
+    try:
+        entities_mod._FIELD_HELP_ENTITIES["spaces"] = _StaleLabels
+        labels = entity_field_help()["spaces.labels"]
+        assert "NO_SUCH_COLUMN" not in labels
+        assert labels["SE0"] == "Exclude -Z"
+    finally:
+        entities_mod._FIELD_HELP_ENTITIES.clear()
+        entities_mod._FIELD_HELP_ENTITIES.update(saved)

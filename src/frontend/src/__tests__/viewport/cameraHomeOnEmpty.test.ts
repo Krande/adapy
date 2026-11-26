@@ -62,3 +62,32 @@ test("a replace load keeps the camera: the scene is empty only on its way to the
     useModelState.getState().clearLoadedSources();
   }
 });
+
+test("a replace through loadModel keeps the camera: the new source is registered before the replace ends", async () => {
+  // The real load path, not a hand-written replace: loadModel's replace tears the scene down and
+  // registers the new source only after the loader returns. With no mounted viewer the three.js
+  // loader returns right after the teardown, which is enough to see the order.
+  await import("../fixtures/panelRealm");
+  const { loadModel } = await import("@/components/viewer/sceneHelpers/loadModel");
+  let resets = 0;
+  const release = setActiveViewport({ kind: "three", resetCamera: () => void resets++ } as unknown as Api);
+  useModelState.getState().clearLoadedSources();
+  useModelState.getState().registerLoadedSourceName("other.glb");
+  useModelState.getState().registerLoadedSourceName("procedural:frame");
+  const stop = watchCameraHomeOnEmpty();
+  try {
+    // A compile showing its result: a replace, no fit, the current translation reused.
+    await loadModel({
+      sourceName: "procedural:frame",
+      bytes: { from: "url", url: "blob:test" },
+      autoFitOverride: false,
+      translate: true,
+    });
+    assert.ok(useModelState.getState().loadedSourceNames.has("procedural:frame"), "the result is loaded");
+    assert.equal(resets, 0, "the scene was empty only inside the replace: the camera stays");
+  } finally {
+    stop();
+    release();
+    useModelState.getState().clearLoadedSources();
+  }
+});

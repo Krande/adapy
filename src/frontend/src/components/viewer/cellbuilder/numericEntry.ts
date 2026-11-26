@@ -16,6 +16,7 @@ import {GHOST_COLOR, OPENING_COLOR, addModeSize} from "./sceneConstants";
 import type {PlaceEntry} from "./sceneTypes";
 import {offsetVec, type CellBuilderScene} from "./sceneContext";
 import {setLoftActive} from "./insertTools";
+import {placedCells} from "@/utils/cellbuilder/include";
 
 // --- Keyboard interactive extrude + numeric entry -------------------------
 // A live preview (the reused green `ghost` mesh + an on-canvas readout)
@@ -44,7 +45,8 @@ export const drawReadout = (ctx: CellBuilderScene, text: string) => {
 };
 export const showReadout = (ctx: CellBuilderScene, text: string, modelPos: Vec3) => {
     drawReadout(ctx, text);
-    const off = offsetVec(ctx);
+    // The readout is for the ghost's box, in the placement frame.
+    const off = offsetVec(ctx, ctx.placeFrame.position);
     ctx.readout.position.set(modelPos[0] + off.x, modelPos[1] + off.y, modelPos[2] + off.z);
     ctx.readout.visible = true;
 };
@@ -196,8 +198,11 @@ export const endNumEntry = (ctx: CellBuilderScene, _cancel: boolean) => {
 // default to 0 / the model ground (z). Lazily created on the first digit
 // while in an add mode; the pointer ghost is suspended while it's live.
 export const placeOrigin = (ctx: CellBuilderScene, pe: PlaceEntry): Vec3 => {
-    const cells = Object.values(useCellBuilderStore.getState().cells);
-    const groundZ = cells.length ? Math.min(...cells.map((c) => c.origin[2])) : 0;
+    // The lowest floor as the ghost's frame (the placement frame) sees it.
+    const st = useCellBuilderStore.getState();
+    const at = ctx.placeFrame.position;
+    const cells = Object.values(placedCells(st.cells, st.groups, st.loftMembers));
+    const groundZ = cells.length ? Math.min(...cells.map((c) => c.origin[2])) - at.z : 0;
     const def: Vec3 = [0, 0, groundZ];
     const val = (a: 0 | 1 | 2): number => {
         if (pe.vals[a] != null) return pe.vals[a] as number;

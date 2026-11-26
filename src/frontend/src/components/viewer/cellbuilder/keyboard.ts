@@ -10,6 +10,7 @@
 import * as THREE from "three";
 import {useCellBuilderStore} from "@/state/cellBuilderStore";
 import {requestRender} from "@/state/perfStore";
+import {builderPresence} from "@/layout/shellModes";
 import {builderCamera} from "./viewHost";
 import {bandFaceIds} from "@/utils/cellbuilder/loft";
 import {BOX_FACE_SIDES, faceCenter, neighbourFaceInDirection, type Vec3} from "@/utils/cellbuilder/snap";
@@ -17,9 +18,23 @@ import {gizmoAxisOfKey, gizmoModeOfKey, isTextEntry, toggledAxisLock} from "@/ut
 import type {CellBuilderScene} from "./sceneContext";
 import {endModalMove} from "./cellGizmo";
 import {resizable} from "./resizeHandles";
+import {pickedStructure} from "./structureFrames";
+import {multiMoveActive} from "./multiMove";
 import {GIZMO_DELTA_FIELD_ATTR} from "./sceneConstants";
 import {commitNumEntry, commitPlaceEntry, endNumEntry, endPlaceEntry, loftMemberByName, parseTyped, refreshNumEntry, refreshPlaceEntry} from "./numericEntry";
 import {commitOpenEntry, cycleEquipHost, endEquipEntry, endOpenEntry, refreshEquipEntry, refreshOpenEntry, setLoftActive, startCellExtrude, startEquipInsert, startLoftExtend, startLoftResize, startOpeningOnFace} from "./insertTools";
+
+/** Shown by the R/S branch below for a multi-selection; cleared by initScene.ts's store
+ *  subscription on the next selection or gizmo-mode change, so it does not linger once the user
+ *  has moved on. Exported so that subscription clears exactly this hint, not some other one. */
+export const ROTATE_SCALE_HINT = "Rotate/scale one item at a time";
+
+/** N-A6: whether a selection or gizmo-mode change should drop `toolHint` -- only when it is still
+ *  showing exactly the rotate/scale hint, so an unrelated one (an extrude/loft numeric entry, "N
+ *  items not moved") is left alone; those already clear themselves at the end of their own flow. */
+export function clearsRotateScaleHint(toolHint: string | null, selectionChanged: boolean, gizmoModeChanged: boolean): boolean {
+    return (selectionChanged || gizmoModeChanged) && toolHint === ROTATE_SCALE_HINT;
+}
 
 export const onKeyDown = (ctx: CellBuilderScene, ev: KeyboardEvent) => {
     const st = useCellBuilderStore.getState();
@@ -341,32 +356,30 @@ export const onKeyDown = (ctx: CellBuilderScene, ev: KeyboardEvent) => {
         return;
     }
 
-    // Delete / Backspace removes the selected cell(s)/equipment — the keyboard
-    // equivalent of the context-menu Delete. Multi-selection deletes all in one
-    // undo step. A loft bay: shrink the member by one station, or remove the
-    // whole member when it's down to its last bay (2 stations) — so Del peels
-    // bays and finally deletes the loft.
+    // Delete / Backspace removes the selected cell(s)/equipment AND any selected refs — the
+    // keyboard equivalent of the context-menu Delete. Mixed cells + refs delete all in one undo
+    // step. A loft bay: shrink the member by one station, or remove the whole member when it's
+    // down to its last bay (2 stations) — so Del peels bays and finally deletes the loft.
     if (!inField && bare && (ev.key === "Delete" || ev.key === "Backspace")) {
-        // A selected ref is removed by its plugin, when it allows it.
-        if (st.selection?.kind === "ref") {
-            const ref = st.refs[st.selection.refId];
-            if (!ref?.edit.remove) return;
-            ev.preventDefault();
-            ev.stopPropagation();
-            st.removeRef(ref.id);
-            requestRender();
-            return;
-        }
-        const ids = st.selectedCellIds.length
+        const cellIds = st.selectedCellIds.length
             ? st.selectedCellIds
-            : st.selection
+            : st.selection?.cellId
               ? [st.selection.cellId]
               : [];
-        if (!ids.length) return;
+        const refIds = st.selectedRefIds.length
+            ? st.selectedRefIds
+            : st.selection?.kind === "ref"
+              ? [st.selection.refId]
+              : [];
+        // A ref's own plugin can refuse removal (edit.remove false): those are left out rather
+        // than counted towards "something to delete", so a selection of only such refs leaves
+        // the key unclaimed (preventDefault/stopPropagation below never run), as it always did.
+        const removableRefIds = refIds.filter((id) => st.refs[id]?.edit.remove);
+        if (!cellIds.length && !removableRefIds.length) return;
         ev.preventDefault();
         ev.stopPropagation();
         st.beginTransaction();
-        for (const id of ids) {
+        for (const id of cellIds) {
             const cur = useCellBuilderStore.getState();
             const cell = cur.cells[id];
             if (!cell) continue;
@@ -385,6 +398,15 @@ export const onKeyDown = (ctx: CellBuilderScene, ev: KeyboardEvent) => {
             } else {
                 cur.removeCell(id);
             }
+        }
+        // Reverse selection order: a provider whose ref ids are keyed by row position (not a
+        // stable id) re-projects its refs after each removal, which can shift the remaining
+        // positions -- removing from the end first keeps the earlier ones' positions valid for as
+        // long as core can help from here. Core has no way to know a provider's key scheme (that
+        // is the row menu's job, inside the plugin itself); a provider keyed by name/id is
+        // unaffected by the order either way.
+        for (let i = removableRefIds.length - 1; i >= 0; i--) {
+            useCellBuilderStore.getState().removeRef(removableRefIds[i]);
         }
         st.endTransaction();
         requestRender();
@@ -422,17 +444,36 @@ export const onKeyDown = (ctx: CellBuilderScene, ev: KeyboardEvent) => {
             ev.stopPropagation();
             return;
         }
-        // Shift+H hides the selected builder cells (mirrors the Hide buttons).
+        // Shift+H hides the selected builder cells and refs (mirrors the Hide buttons).
         // With a builder selection this wins over the global mesh-range hide;
         // with nothing selected it falls through so result meshes still hide.
-        if (ev.shiftKey && k === "h") {
-            const ids = st.selectedCellIds.length
-                ? st.selectedCellIds
+        // S8: a mode that draws the builder only to COMPARE (Output, Fabrication) skips this --
+        // a lingering Input pick must not hide a builder item while looking at the scene pick.
+        if (ev.shiftKey && k === "h" && builderPresence() !== "compare") {
+            // A4: the multi-select set can hold cells and refs together.
+            const multi = [...st.selectedCellIds, ...st.selectedRefIds];
+            const ids = multi.length
+                ? multi
                 : cell
                   ? [cell.id]
-                  : [];
+                  // A lone ref pick with no multi-select set populated.
+                  : st.selection?.kind === "ref"
+                    ? [st.selection.refId]
+                    : [];
             if (ids.length) {
                 st.hideCells(ids);
+                ev.preventDefault();
+                ev.stopPropagation();
+            }
+            return;
+        }
+        // Shift+D duplicates the current selection in place -- cells, loft members (whole, however
+        // many bays are selected) and a plugin's refs together -- selects the copies and arms the
+        // move gizmo on them, so a drag places them. Bare D keeps its own meaning
+        // (previous face/edge, F's partner): this is a NEW chord, not a move of that one.
+        if (ev.shiftKey && k === "d" && builderPresence() !== "compare") {
+            const ids = st.duplicateSelection();
+            if (ids) {
                 ev.preventDefault();
                 ev.stopPropagation();
             }
@@ -468,6 +509,23 @@ export const onKeyDown = (ctx: CellBuilderScene, ev: KeyboardEvent) => {
             }
             return;
         }
+        // G on 2+ selected items (cells, refs, loft members -- collapsed to one per
+        // member) moves them all together; R/S stay single-item, so they do nothing here but show
+        // a hint. Checked before the single-item branches below, which a multi-selection's own
+        // PRIMARY pick would otherwise still satisfy on its own. `multiMoveActive`, not a
+        // plain `movableCount(set) >= 2`: 2+ SELECTED items with only one actually movable (a
+        // space plus its own equipment, or plus a support that cannot move) still belongs here.
+        if (!ev.shiftKey && (k === "g" || k === "r" || k === "s")) {
+            if (multiMoveActive(st)) {
+                // S-A4: G ARMS the multi gizmo -- it does not toggle it off (a bare G right after
+                // Shift+D would otherwise disarm the just-armed placing gizmo). Esc disarms.
+                if (k === "g") st.setGizmoMode("translate");
+                else st.setToolHint(ROTATE_SCALE_HINT);
+                ev.preventDefault();
+                ev.stopPropagation();
+                return;
+            }
+        }
         // Loft members: G moves the whole member (existing translate gizmo),
         // S starts a numeric section resize of the active station.
         if (!ev.shiftKey && cell && cell.kind === "loft") {
@@ -484,6 +542,14 @@ export const onKeyDown = (ctx: CellBuilderScene, ev: KeyboardEvent) => {
                 }
                 return;
             }
+        }
+        // G on a structure picked on its own (nothing selected, a structure active): move the whole
+        // structure with the translate gizmo (./structureFrames.ts); G again puts it away.
+        if (!ev.shiftKey && k === "g" && pickedStructure(st) !== undefined) {
+            st.setGizmoMode(st.gizmoMode === "translate" ? "none" : "translate");
+            ev.preventDefault();
+            ev.stopPropagation();
+            return;
         }
         // G / S on a ref: move or resize it, as its plugin allows. A ref never turns.
         const ref = st.selection?.kind === "ref" ? st.refs[st.selection.refId] : undefined;

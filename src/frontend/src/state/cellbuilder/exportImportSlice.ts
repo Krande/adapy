@@ -13,6 +13,13 @@ import type {CellBuilderSlice} from "./state";
 import {currentScopePart, setProceduralToast} from "./shared";
 import {makeRunImport} from "./xlsxImport";
 
+/** The download's file extension for an export format: "gxml" is Genie XML, a plain XML
+ *  document -- its REST format id/capability type stays "gxml", only the downloaded file's
+ *  own name says ".xml", matching the other route's own job result. */
+export function downloadExtensionFor(format: "ifc" | "gxml" | "gnx"): string {
+  return format === "gxml" ? "xml" : format;
+}
+
 export interface ExportImportSlice {
   // ── Excel round-trip ──────────────────────────────────────────────
   /** True while an Excel export or import job is in flight (disables the
@@ -176,7 +183,7 @@ export const createExportImportSlice: CellBuilderSlice<ExportImportSlice> = (set
           await capabilities.procedural.downloadArtifact(
             scope,
             derivedKey,
-            `${active.name || "procedural-model"}.${format}`,
+            `${active.name || "procedural-model"}.${downloadExtensionFor(format)}`,
           );
           setProceduralToast(label, {
             status: "done",

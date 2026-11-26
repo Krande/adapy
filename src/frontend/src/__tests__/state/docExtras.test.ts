@@ -1,6 +1,9 @@
 // A commit writes back what the builder does not own. It wrote only its own keys, so the first edit
-// committed from the viewer dropped an engine's own lists from the model (pm's `modifications` and
-// `framework_modifications`, its `engine`), and the next Save to the workbook read them as removed.
+// committed from the viewer dropped an engine's own lists from the model (a run tool's
+// `modifications` and `framework_modifications`, its `engine`), and the next Save read them as
+// removed. `structures` is the one exception: it is a legacy, builder-owned shape (groupsFromDoc's
+// fallback converts it to `groups` on load), so -- unlike a genuine engine extra -- it is NOT
+// carried back unchanged; a commit writes `groups` instead and drops it.
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -38,7 +41,8 @@ test("what the builder does not own goes back as it came, through an edit", () =
   assert.deepEqual(out.modifications, modifications);
   assert.deepEqual(out.framework_modifications, []);
   assert.equal(out.engine, "pm-engine");
-  assert.deepEqual(out.structures, [{ NAME: "Mini", X: 10 }]);
+  assert.equal("structures" in out, false, "the legacy shape is dropped; groups is written instead");
+  assert.deepEqual(out.groups, [{ name: "Mini", blueprint: "Stiffened plate" }]);
   assert.equal((out.spaces as { NAME: string }[])[0].NAME, "deck_2", "the builder's own keys are its own");
 });
 
@@ -47,8 +51,9 @@ test("a key the builder owns is never resurrected from the loaded doc", () => {
   st().removeGroup("Mini");
   const out = st().toDoc() as unknown as Record<string, unknown>;
   assert.equal("groups" in out, false, "no groups left: none written, not the loaded ones");
-  assert.deepEqual(Object.keys(docExtras(doc)).sort(), ["engine", "framework_modifications", "modifications", "structures"]);
-  for (const k of ["groups", "loft_members", "detailing", "spaces"]) assert.ok(BUILDER_DOC_KEYS.has(k), k);
+  assert.equal("structures" in out, false, "nor the legacy structures it predates");
+  assert.deepEqual(Object.keys(docExtras(doc)).sort(), ["engine", "framework_modifications", "modifications"]);
+  for (const k of ["groups", "loft_members", "detailing", "spaces", "structures"]) assert.ok(BUILDER_DOC_KEYS.has(k), k);
 });
 
 test("closing forgets them; another doc brings its own", () => {

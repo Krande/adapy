@@ -4,6 +4,7 @@ import {OrbitControls} from "three/examples/jsm/controls/OrbitControls";
 import CameraControls from "camera-controls";
 
 import {useCellBuilderStore} from "@/state/cellBuilderStore";
+import {placedCells} from "@/utils/cellbuilder/include";
 import {useModelState} from "@/state/modelState";
 import {center_on_bounding_box} from "./centerViewOnSelection";
 
@@ -13,12 +14,23 @@ import {center_on_bounding_box} from "./centerViewOnSelection";
 // nothing for a cell selection. Here we build the box straight from the cells'
 // model-space origin/size and lift it into world space by the model translation
 // the builder container carries (same offset that aligns cells with loaded GLBs).
+// A cell is stored relative to its structure, so each is moved by its
+// structure's origin first (placedCells), as the builder draws it.
 export function frameCells(
     cellIds: string[] | "all",
     controls: OrbitControls | CameraControls,
     camera: Camera,
 ): boolean {
-    const cells = useCellBuilderStore.getState().cells;
+    const box = cellsWorldBox(cellIds);
+    if (!box) return false;
+    center_on_bounding_box(box, camera, 1, controls);
+    return true;
+}
+
+/** The world box of the cells `cellIds` (or all) as the builder draws them; null for none. */
+export function cellsWorldBox(cellIds: string[] | "all"): THREE.Box3 | null {
+    const st = useCellBuilderStore.getState();
+    const cells = placedCells(st.cells, st.groups, st.loftMembers);
     const ids = cellIds === "all" ? Object.keys(cells) : cellIds;
     const box = new THREE.Box3();
     let any = false;
@@ -35,9 +47,8 @@ export function frameCells(
         );
         any = true;
     }
-    if (!any) return false;
+    if (!any) return null;
     const t = useModelState.getState().translation;
     if (t) box.translate(t);
-    center_on_bounding_box(box, camera, 1, controls);
-    return true;
+    return box;
 }

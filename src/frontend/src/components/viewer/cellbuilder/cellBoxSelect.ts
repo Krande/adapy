@@ -50,14 +50,15 @@ export function builderLayerEditing(scene: THREE.Object3D): THREE.Object3D | nul
     return layer && shownInScene(layer) ? layer : null;
 }
 
-/** The world box of each cell drawn under `layer`, by cell id, as [minX, minY, minZ, maxX, maxY, maxZ].
- *  A cell hidden on its own (the per-cell eye, the include view's "included only") is not drawn. */
-export function drawnCellBounds(layer: THREE.Object3D): Map<string, number[]> {
+/** The world box of every object drawn under `layer` tagged `key` (`__cellId` or `__refId`), by that
+ *  tag's value, as [minX, minY, minZ, maxX, maxY, maxZ]. An object hidden on its own (the per-cell/
+ *  per-ref eye, the include view's "included only") is not drawn, so it is left out. */
+function drawnBoundsByKey(layer: THREE.Object3D, key: "__cellId" | "__refId"): Map<string, number[]> {
     layer.updateWorldMatrix(true, true);
     const out = new Map<string, number[]>();
     const box = new THREE.Box3();
     layer.traverse((o) => {
-        const id = o.userData.__cellId;
+        const id = o.userData[key];
         if (typeof id !== "string" || !(o as THREE.Mesh).isMesh || !shownInScene(o)) return;
         box.setFromObject(o);
         if (box.isEmpty()) return;
@@ -76,8 +77,20 @@ export function drawnCellBounds(layer: THREE.Object3D): Map<string, number[]> {
     return out;
 }
 
-/** The cells a rectangle on the screen takes, from their world boxes. `viewProj` is the camera's
- *  projection x view matrix (column-major). A cell is a box, so its world box decides it. */
+/** The world box of each cell drawn under `layer`, by cell id, as [minX, minY, minZ, maxX, maxY, maxZ].
+ *  A cell hidden on its own (the per-cell eye, the include view's "included only") is not drawn. */
+export function drawnCellBounds(layer: THREE.Object3D): Map<string, number[]> {
+    return drawnBoundsByKey(layer, "__cellId");
+}
+
+/** The ref analogue of `drawnCellBounds`: every drawn (visible, un-hidden) plugin ref's world box,
+ *  by ref id. A ref drawn `look: "none"` has no mesh at all, so it is never a candidate here. */
+export function drawnRefBounds(layer: THREE.Object3D): Map<string, number[]> {
+    return drawnBoundsByKey(layer, "__refId");
+}
+
+/** The ids a rectangle on the screen takes, from their world boxes (cells or refs alike -- both are
+ *  boxes). `viewProj` is the camera's projection x view matrix (column-major). */
 export function cellsInScreenRect(
     bounds: ReadonlyMap<string, ArrayLike<number>>,
     viewProj: ArrayLike<number>,
@@ -89,16 +102,22 @@ export function cellsInScreenRect(
     return out;
 }
 
-/** The cells the rectangle takes, added to the builder's selection (the first one selected stays the
- *  primary) or, with `add` false, in place of it. Returns how many it took. */
+/** The cells AND refs the rectangle takes, added to the builder's selection or, with `add` false, in
+ *  place of it (`selectItems`): the primary becomes the most recently taken item, cells and refs
+ *  alike, matching every other multi-select entry point (a toggle click, the Model panel). Returns
+ *  how many it took in total. */
 export function selectCellsInScreenRect(layer: THREE.Object3D, camera: THREE.Camera, rect: NdcRect, mode: ScreenBoxMode, add = true): number {
     camera.updateMatrixWorld();
     const viewProj = new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse).elements;
-    const taken = cellsInScreenRect(drawnCellBounds(layer), viewProj, rect, mode);
-    if (taken.length || !add) {
-        const st = useCellBuilderStore.getState();
-        st.selectCells(add ? [...st.selectedCellIds, ...taken] : taken);
+    const takenCells = cellsInScreenRect(drawnCellBounds(layer), viewProj, rect, mode);
+    const takenRefs = cellsInScreenRect(drawnRefBounds(layer), viewProj, rect, mode);
+    const taken = takenCells.length + takenRefs.length;
+    if (taken || !add) {
+        // "add" already joins the existing selectedCellIds/selectedRefIds internally (selectItems),
+        // so only the newly taken ids are passed -- concatenating the existing ones too would just
+        // make them the (deduplicated-away) start of the list and change nothing but readability.
+        useCellBuilderStore.getState().selectItems([...takenCells, ...takenRefs], add ? "add" : "only");
         requestRender();
     }
-    return taken.length;
+    return taken;
 }

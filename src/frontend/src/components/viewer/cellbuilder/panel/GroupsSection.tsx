@@ -4,7 +4,7 @@
  * Owns: per-group blueprints, and per-group BUILD inclusion and DISPLAY. A group
  * is one structure compiled with its own blueprint; only meaningful for engines
  * that advertise `supports_grouping` (driven off the flag, never a hardcoded
- * slug -- an engine without it, e.g. adapy-default, gets none of these controls).
+ * slug -- an engine without it gets none of these controls).
  *
  * The ACTIVE group (the radio before each name) is the structure a new space goes
  * into; picking any of a structure's items makes it the active one too.
@@ -99,7 +99,7 @@ export const GroupsSection: React.FC = () => {
       {!supportsGrouping ? (
         <div className="text-gray-400 text-xs">
           {eng?.name ?? s.selectedEngine} compiles a single blueprint;
-          grouping is available with a capability engine.
+          grouping is available when the selected engine supports it.
         </div>
       ) : (
         <>

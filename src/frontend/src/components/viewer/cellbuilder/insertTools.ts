@@ -164,7 +164,8 @@ export const commitOpenEntry = (ctx: CellBuilderScene) => {
         if (box.size[0] > 0 && box.size[1] > 0 && box.size[2] > 0) {
             // addCell uses the current selectedOpeningType's subtype and
             // round-trips as a USE_GLOBAL_COORDS negative box (one undo step).
-            st.addCell("opening", box.origin, box.size);
+            // In the cell's frame, so in its structure (not the active one's).
+            st.addCell("opening", box.origin, box.size, cell.group ?? null);
         }
     }
     endOpenEntry(ctx);

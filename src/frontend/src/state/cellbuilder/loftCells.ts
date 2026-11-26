@@ -78,6 +78,7 @@ export function remapLoftSelection(
     return {
       selection: { kind: "cell", cellId: target.id },
       selectedCellIds: [target.id],
+      selectedRefIds: [],
     };
-  return { selection: null, selectedCellIds: [], gizmoMode: "none" };
+  return { selection: null, selectedCellIds: [], selectedRefIds: [], gizmoMode: "none" };
 }

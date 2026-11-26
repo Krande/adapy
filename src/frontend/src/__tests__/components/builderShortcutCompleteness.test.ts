@@ -67,6 +67,7 @@ function stubState(selection: unknown, extra: Record<string, unknown> = {}) {
     refs,
     selection,
     selectedCellIds: sel?.cellId ? [sel.cellId] : [],
+    selectedRefIds: [],
     mode: "idle",
     gizmoMode: "none",
     gizmoAxisLock: null,
@@ -79,6 +80,8 @@ function stubState(selection: unknown, extra: Record<string, unknown> = {}) {
     portMenu: null,
     portGizmo: null,
     contextMenu: null,
+    groups: [],
+    activeGroup: null,
     ...Object.fromEntries(
       [
         "setMode", "cycleEquipmentType", "undo", "redo", "bumpSelectedFloor", "removeRef", "beginTransaction", "endTransaction",
@@ -86,6 +89,7 @@ function stubState(selection: unknown, extra: Record<string, unknown> = {}) {
         "setGizmoMode", "setGizmoAxisLock", "addLoftMember", "cycleSelectMode", "selectAdjacentCell", "setSelection",
         "cycleSelectionElement", "setLoftStationType", "cycleCellType", "setSelectedCellType", "closePortMenu", "stopPortGizmo",
         "closeContextMenu", "insertEquipmentAtLocal", "setToolHint", "setSelectedEquipmentType", "addCell", "setInfoLabel",
+        "duplicateSelection",
       ].map((n) => [n, noop]),
     ),
     ...extra,
@@ -105,6 +109,7 @@ function stubCtx(): Record<string, unknown> {
 
 const STATES: Record<string, () => ReturnType<typeof stubState>> = {
   none: () => stubState(null),
+  "structure picked": () => stubState(null, { groups: [{ name: "G1", blueprint: "bp" }], activeGroup: "G1" }),
   space: () => stubState({ kind: "cell", cellId: "s1" }),
   "space, move gizmo": () => stubState({ kind: "cell", cellId: "s1" }, { gizmoMode: "translate" }),
   face: () => stubState({ kind: "face", cellId: "s1", faceIndex: 0 }),

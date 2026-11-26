@@ -21,6 +21,8 @@ import type {CellBuilderScene} from "./sceneContext";
 import {ringsEdgesGeometry, sweptBandGeometry, sweptBandGroupedGeometry} from "./geometryHelpers";
 import {baseColourFor, disposeMesh, refreshFaceStyles} from "./overlays";
 import {displayBoxForCell} from "./cadPreview";
+import {boxStructure, structureFrame} from "./structureFrames";
+import {clipWithModel} from "@/utils/scene/section_clipping";
 
 /** Draw every companion showing topology as plain, non-interactive boxes.
  *
@@ -69,6 +71,7 @@ export const rebuildCompanions = (ctx: CellBuilderScene) => {
         }
         ctx.companionsGroup.add(modelGroup);
     }
+    clipWithModel(ctx.companionsGroup);
     requestRender();
 };
 
@@ -92,6 +95,8 @@ export const rebuild = (ctx: CellBuilderScene) => {
         const allCells = Object.values(st.cells);
         for (const cell of allCells) {
             const look = includeLook(itemIncludeState(cell, st.cells, st.groups, st.loftMembers), view);
+            // Drawn at its stored (structure-relative) box, in its structure's frame (./structureFrames.ts).
+            const frame = structureFrame(ctx.cellsGroup, boxStructure(st, {cell}), st.groups);
             // Loft band: a read-only swept proxy drawn from its two profile
             // rings, with the two station rings as the edge overlay. Same
             // meshById/__cellId plumbing as a box, so click-select + hide +
@@ -131,7 +136,7 @@ export const rebuild = (ctx: CellBuilderScene) => {
                 mesh.userData.__includeLook = look;
                 const ringEdges = edgeLines(ringsEdgesGeometry(lo, hi), LOFT_COLOR, look.dimmed);
                 mesh.add(ringEdges);
-                ctx.cellsGroup.add(mesh);
+                frame.add(mesh);
                 ctx.meshById.set(cell.id, mesh);
                 continue;
             }
@@ -143,7 +148,12 @@ export const rebuild = (ctx: CellBuilderScene) => {
             // A space draws in its structure's blueprint colour (or the group tint); see overlays.ts.
             const color = baseColourFor(cell, allCells, st.groups);
             // One material per BoxGeometry group (+X,-X,+Y,-Y,+Z,-Z) so a
-            // single face can highlight on hover/selection.
+            // single face can highlight on hover/selection. DoubleSide (as the loft bands above
+            // already are): with a side excluded (its material set invisible,
+            // overlays.ts), the default FrontSide culled the OTHER faces' back faces, so looking
+            // in through the hole showed nothing. pickBuilderMesh already raycasts with the
+            // material's own side and skips invisible materials, so a click through the removed
+            // side hits the inner far face, as intended.
             const mats = BOX_FACE_SIDES.map(
                 () =>
                     new THREE.MeshBasicMaterial({
@@ -151,6 +161,7 @@ export const rebuild = (ctx: CellBuilderScene) => {
                         transparent: true,
                         opacity: BASE_OPACITY,
                         depthWrite: false,
+                        side: THREE.DoubleSide,
                     }),
             );
             const mesh = new THREE.Mesh(geo, mats);
@@ -185,7 +196,7 @@ export const rebuild = (ctx: CellBuilderScene) => {
             mesh.userData.__includeLook = look;
             const edges = edgeLines(new THREE.EdgesGeometry(geo), color, look.dimmed);
             mesh.add(edges);
-            ctx.cellsGroup.add(mesh);
+            frame.add(mesh);
             ctx.meshById.set(cell.id, mesh);
         }
     }
@@ -194,6 +205,10 @@ export const rebuild = (ctx: CellBuilderScene) => {
     ctx.ghost.visible = false;
     ctx.ghostBox = null;
     refreshFaceStyles(ctx);
+    // Section planes: materials are re-created above on every rebuild, so they must be
+    // re-tagged and re-clipped every time too, not just when a plane is added/moved. `refreshFaceStyles`
+    // only mutates colour/opacity on these same material instances, so it needs no clipping of its own.
+    clipWithModel(ctx.cellsGroup);
 };
 
 /** A box's or a loft band's edges: solid, or dashed for a component the build leaves out. */

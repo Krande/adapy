@@ -252,6 +252,10 @@ const win: Record<string, unknown> = {
   getComputedStyle: () => new MiniStyle(),
   requestAnimationFrame: (cb: (t: number) => void) => setTimeout(() => cb(Date.now()), 0),
   cancelAnimationFrame: (id: ReturnType<typeof setTimeout>) => clearTimeout(id),
+  // Real Node timers: a component that dismisses itself via `window.setTimeout`/`clearTimeout`
+  // (a toast, a banner) needs these on the `window` object itself, not just as bare globals.
+  setTimeout: (...args: Parameters<typeof setTimeout>) => setTimeout(...args),
+  clearTimeout: (...args: Parameters<typeof clearTimeout>) => clearTimeout(...args),
   HTMLIFrameElement: class {},
   HTMLElement: MiniElement,
   Element: MiniElement,

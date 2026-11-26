@@ -10,7 +10,7 @@
 // is text, or a doc list and column read from the engine catalog's field help (`fieldHelp`).
 
 import React from "react";
-import { useFieldHelp } from "@/state/cellbuilder/fieldHelp";
+import { useFieldHelp, useFieldLabel } from "@/state/cellbuilder/fieldHelp";
 
 type Vec3 = readonly [number, number, number];
 
@@ -22,6 +22,19 @@ export interface PropertyItemParents {
   structure?: { name: string; blueprint?: string; onSelect?: () => void };
 }
 
+/** An extra row sharing the geometry grid's X/Y/Z layout, writing through its own `onChange`
+ *  rather than `PropertyItemGeometry.onChange` -- e.g. an equipment's COG, which goes
+ *  through `setCellParam`, not `updateCell`/`setCellRotation`. Always editable. */
+export interface GeometryExtraRow {
+  /** Unique among a geometry's extra rows. */
+  key: string;
+  label: string;
+  value: Vec3;
+  /** Input step; default 0.1. */
+  step?: number;
+  onChange: (next: Vec3) => void;
+}
+
 /** An item's box. Editable where `onChange` is given, row by row as `editable` allows (default: all). */
 export interface PropertyItemGeometry {
   origin: Vec3;
@@ -29,6 +42,8 @@ export interface PropertyItemGeometry {
   rotation?: Vec3;
   onChange?: (next: { origin: Vec3; size: Vec3; rotation?: Vec3 }) => void;
   editable?: { origin?: boolean; size?: boolean; rotation?: boolean };
+  /** Extra rows in the same grid, below Position / Size / Rotation° (e.g. an equipment's COG). */
+  extraRows?: readonly GeometryExtraRow[];
 }
 
 export interface PropertyItemGroup {
@@ -110,13 +125,10 @@ const NameInPlace: React.FC<{ name: string; onRename?: (name: string) => void; b
 
 const fmt = (v: number) => Number(v.toFixed(3));
 
-/** Position and size (and rotation) in one compact grid: a row each, a column per axis. */
+/** Position and size (and rotation, and an item's extra rows) in one compact grid: a
+ *  row each, a column per axis, one input style throughout. */
 const GeometryGrid: React.FC<{ geometry: PropertyItemGeometry }> = ({ geometry: g }) => {
-  const rows: { key: "origin" | "size" | "rotation"; label: string; value: Vec3; min?: number; step: number }[] = [
-    { key: "origin", label: "Position", value: g.origin, step: 0.1 },
-    { key: "size", label: "Size", value: g.size, min: 0, step: 0.1 },
-    ...(g.rotation ? [{ key: "rotation" as const, label: "Rotation°", value: g.rotation, step: 15 }] : []),
-  ];
+  type Row = { key: string; label: string; value: Vec3; min?: number; step: number; editable: boolean; write: (axis: number, v: number) => void };
   const write = (key: "origin" | "size" | "rotation", axis: number, v: number) => {
     const next = { origin: g.origin, size: g.size, rotation: g.rotation };
     const vec = [...(next[key] ?? [0, 0, 0])] as [number, number, number];
@@ -124,6 +136,26 @@ const GeometryGrid: React.FC<{ geometry: PropertyItemGeometry }> = ({ geometry: 
     next[key] = vec;
     g.onChange?.(next);
   };
+  const builtIn: Row[] = [
+    { key: "origin", label: "Position", value: g.origin, step: 0.1, editable: !!g.onChange && (g.editable?.origin ?? true), write: (axis, v) => write("origin", axis, v) },
+    { key: "size", label: "Size", value: g.size, min: 0, step: 0.1, editable: !!g.onChange && (g.editable?.size ?? true), write: (axis, v) => write("size", axis, v) },
+    ...(g.rotation
+      ? [{ key: "rotation", label: "Rotation°", value: g.rotation, step: 15, editable: !!g.onChange && (g.editable?.rotation ?? true), write: (axis, v) => write("rotation", axis, v) } as Row]
+      : []),
+  ];
+  const extra: Row[] = (g.extraRows ?? []).map((r) => ({
+    key: r.key,
+    label: r.label,
+    value: r.value,
+    step: r.step ?? 0.1,
+    editable: true,
+    write: (axis, v) => {
+      const vec = [...r.value] as [number, number, number];
+      vec[axis] = v;
+      r.onChange(vec);
+    },
+  }));
+  const rows = [...builtIn, ...extra];
   return (
     <div className="grid grid-cols-[auto_1fr_1fr_1fr] items-center gap-x-1 gap-y-0.5" data-property-geometry="">
       <span />
@@ -132,36 +164,33 @@ const GeometryGrid: React.FC<{ geometry: PropertyItemGeometry }> = ({ geometry: 
           {a}
         </span>
       ))}
-      {rows.map((r) => {
-        const editable = !!g.onChange && (g.editable?.[r.key] ?? true);
-        return (
-          <React.Fragment key={r.key}>
-            <span className="pr-1 text-gray-300">{r.label}</span>
-            {r.value.map((v, i) =>
-              editable ? (
-                <input
-                  key={i}
-                  type="number"
-                  step={r.step}
-                  min={r.min}
-                  className={`${propertyInputCls} w-full`}
-                  value={fmt(v)}
-                  aria-label={`${r.label} ${"XYZ"[i]}`}
-                  onChange={(e) => {
-                    const n = Number(e.target.value);
-                    if (e.target.value === "" || !Number.isFinite(n) || (r.min !== undefined && n <= r.min)) return;
-                    write(r.key, i, n);
-                  }}
-                />
-              ) : (
-                <span key={i} className="truncate text-right text-gray-400" aria-label={`${r.label} ${"XYZ"[i]}`}>
-                  {fmt(v)}
-                </span>
-              ),
-            )}
-          </React.Fragment>
-        );
-      })}
+      {rows.map((r) => (
+        <React.Fragment key={r.key}>
+          <span className="pr-1 text-gray-300">{r.label}</span>
+          {r.value.map((v, i) =>
+            r.editable ? (
+              <input
+                key={i}
+                type="number"
+                step={r.step}
+                min={r.min}
+                className={`${propertyInputCls} w-full`}
+                value={fmt(v)}
+                aria-label={`${r.label} ${"XYZ"[i]}`}
+                onChange={(e) => {
+                  const n = Number(e.target.value);
+                  if (e.target.value === "" || !Number.isFinite(n) || (r.min !== undefined && n <= r.min)) return;
+                  r.write(i, n);
+                }}
+              />
+            ) : (
+              <span key={i} className="truncate text-right text-gray-400" aria-label={`${r.label} ${"XYZ"[i]}`}>
+                {fmt(v)}
+              </span>
+            ),
+          )}
+        </React.Fragment>
+      ))}
     </div>
   );
 };
@@ -204,41 +233,83 @@ export function useHelpText(help: FieldHelpSource | undefined): string | undefin
   return typeof help === "string" ? help : ref ? looked : undefined;
 }
 
+/**
+ * The label to show for a field and its tooltip: `help` as a plain string behaves exactly
+ * as before -- the caller's own `label`, the string as the tooltip. `{list, column}` also looks up
+ * the engine's UI label for that column (`useFieldLabel`), but it replaces the caller's `label`
+ * only when the caller opts in with `useEngineLabel`: a single-column editor's own label is
+ * almost always the column's name, so showing the engine's label there is correct, but a row that
+ * borrows one column's help for several small inputs ("Create" borrowing GRID_X_CREATE, for X / Y
+ * / Z; "Exclude" borrowing one of SE0..SE5, for six side checks) is not that column, and swapping
+ * in the column's label there replaced "Create" with a full sentence and turned "X" into one too.
+ * Without `useEngineLabel` the caller's own `label` is shown, with the engine's label (when there
+ * is one) named in the tooltip instead, so the Excel column stays discoverable either way.
+ *
+ * The tooltip of a `{list, column}` help always names the column first -- "COLUMN — help
+ * text", or just "COLUMN" without help text -- whether or not an engine label is shown as the
+ * label: a row borrowing another column's help (e.g. "-X"'s SE4) needs its own column named too,
+ * not only a field whose label happens to have been swapped for the engine's.
+ */
+function useFieldLabelAndTooltip(
+  help: FieldHelpSource | undefined,
+  fallbackLabel: string,
+  useEngineLabel = false,
+): { label: string; tooltip: string | undefined } {
+  const ref = typeof help === "object" ? help : null;
+  const helpText = useFieldHelp(ref?.list ?? "", ref?.column ?? "");
+  const engineLabel = useFieldLabel(ref?.list ?? "", ref?.column ?? "");
+  if (typeof help === "string") return { label: fallbackLabel, tooltip: help };
+  if (!ref) return { label: fallbackLabel, tooltip: undefined };
+  const label = useEngineLabel && engineLabel ? engineLabel : fallbackLabel;
+  const tooltip = helpText ? `${ref.column} — ${helpText}` : ref.column;
+  return { label, tooltip };
+}
+
 export interface FieldProps {
   label: string;
   /** Shown as the label's tooltip. */
   help?: FieldHelpSource;
   /** Several small inputs share the row (Grid X / Y / Z, SE0..SE5). */
   inline?: boolean;
+  /** Show the engine's UI label for `help`'s column instead of `label`, when it has one. Only
+   *  for a single-column editor whose own label already names that one column (`ParamNumber` /
+   *  `ParamText` / `ParamSelect`); a row that borrows the column's help for several inputs leaves
+   *  this unset and keeps its own label. */
+  useEngineLabel?: boolean;
   children?: React.ReactNode;
 }
 
 /** A compact label / value row of a group. */
-export const Field: React.FC<FieldProps> = ({ label, help, inline, children }) => {
-  const text = useHelpText(help);
+export const Field: React.FC<FieldProps> = ({ label, help, inline, useEngineLabel, children }) => {
+  const { label: shown, tooltip } = useFieldLabelAndTooltip(help, label, useEngineLabel);
   return (
+    // data-field keeps the CALLER's own label (not the engine's override), so a host that finds
+    // a field by it (a test, a plugin) is unaffected by whether an engine label is active.
     <div className="grid grid-cols-[minmax(4.5rem,auto)_1fr] items-center gap-x-2" data-field={label}>
-      <span className={text ? "truncate cursor-help text-gray-300 underline decoration-dotted decoration-gray-500" : "truncate text-gray-300"} title={text}>
-        {label}
+      <span className={tooltip ? "truncate cursor-help text-gray-300 underline decoration-dotted decoration-gray-500" : "truncate text-gray-300"} title={tooltip}>
+        {shown}
       </span>
       <div className={inline ? "flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5" : "flex min-w-0 items-center gap-1"}>{children}</div>
     </div>
   );
 };
 
-/** A small labelled checkbox for an inline field, its help on hover. */
-export const FieldCheck: React.FC<{ label: string; checked: boolean; onChange: (v: boolean) => void; help?: FieldHelpSource; ariaLabel?: string }> = ({
+/** A small labelled checkbox for an inline field, its help on hover. `useEngineLabel` is the same
+ *  opt-in as `Field`'s; every current caller (`ParamCheck`, `SpaceExcludeCheck`) is an inline
+ *  check sharing a row's borrowed column help, so none sets it and all keep their own label. */
+export const FieldCheck: React.FC<{ label: string; checked: boolean; onChange: (v: boolean) => void; help?: FieldHelpSource; ariaLabel?: string; useEngineLabel?: boolean }> = ({
   label,
   checked,
   onChange,
   help,
   ariaLabel,
+  useEngineLabel,
 }) => {
-  const text = useHelpText(help);
+  const { label: shown, tooltip } = useFieldLabelAndTooltip(help, label, useEngineLabel);
   return (
-    <label className="inline-flex items-center gap-0.5" title={text}>
+    <label className="inline-flex items-center gap-0.5" title={tooltip}>
       <input type="checkbox" checked={checked} aria-label={ariaLabel ?? label} onChange={(e) => onChange(e.target.checked)} />
-      {label}
+      {shown}
     </label>
   );
 };

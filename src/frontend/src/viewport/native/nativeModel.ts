@@ -16,6 +16,10 @@ export interface NativeModel {
     posable?: boolean;
     /** Leave the camera where it is instead of framing the model (auto-fit). */
     keepCamera?: boolean;
+    /** Reuse the scene's current placement offset rather than deriving a fresh one from this
+     *  model's own box. Takes over from `keepCamera` for that decision when given (see
+     *  `nativeScene.load`'s `reuseOffset`); `keepCamera` is still the auto-fit decision. */
+    translate?: boolean;
     /** Bumped per load, so the same file loaded again is still a change. */
     seq: number;
 }
@@ -54,7 +58,12 @@ export function isNativeViewportActive(): boolean {
 let seq = 0;
 
 /** Fetch a model and hand it to the native viewport. The fetch finishes before this returns: a caller
- *  may revoke the URL right after. */
+ *  may revoke the URL right after.
+ *
+ * `isAbandoned`, when given, is checked again right after the fetch, before the model is swapped
+ * in: a caller whose own load window (loadModel.ts's LOAD_WINDOW_MS) timed out while this fetch
+ * was still running must not swap a stale model in once it finally resolves. This viewport has no
+ * scene graph to remove a late group from afterwards -- the swap itself IS the point this guards. */
 export async function showInNativeViewport(
     url: string,
     requestHeaders: Record<string, string> | undefined,
@@ -63,9 +72,12 @@ export async function showInNativeViewport(
     displayName?: string,
     posable?: boolean,
     keepCamera?: boolean,
+    translate?: boolean,
+    isAbandoned?: () => boolean,
 ): Promise<void> {
     const response = await fetch(url, requestHeaders ? {headers: requestHeaders} : undefined);
     if (!response.ok) throw new Error(`loading the model failed: ${response.status} ${response.statusText}`);
     const bytes = new Uint8Array(await response.arrayBuffer());
-    useNativeViewport.setState({model: {bytes, sourceName, displayName, placement, posable, keepCamera, seq: ++seq}});
+    if (isAbandoned?.()) return;
+    useNativeViewport.setState({model: {bytes, sourceName, displayName, placement, posable, keepCamera, translate, seq: ++seq}});
 }

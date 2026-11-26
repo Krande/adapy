@@ -12,14 +12,17 @@ import * as THREE from "three";
 import {useCellBuilderStore, type BuilderCell} from "@/state/cellBuilderStore";
 import {boxMoves, boxTarget, selectedBox, writeBox, type GizmoBox} from "./gizmoBox";
 import {requestRender} from "@/state/perfStore";
-import {axesOfHandle, boxCorners, movedOrigin, type CellBox, type Vec3} from "@/utils/cellbuilder/snap";
+import {axesOfHandle, boxCorners, movedOrigin, quantize, type CellBox, type Vec3} from "@/utils/cellbuilder/snap";
 import {gizmoMoveStep} from "@/utils/gizmo/transformKeys";
 import {freeMove, snapStep} from "@/utils/gizmo/freeMove";
 import {HANDLE_AXIS_COLOR, SNAP_PX} from "./sceneConstants";
-import {offsetVec, type CellBuilderScene} from "./sceneContext";
+import {offsetVec, type CellBuilderScene, type FrameAt} from "./sceneContext";
+import {boxOrigin, boxStructure, movedStructureOrigin, moveStructureFrames, pickedStructure} from "./structureFrames";
+import {structureOrigin} from "@/utils/cellbuilder/groups";
 import {builderCamera} from "./viewHost";
 import {boxFrameMatrix} from "@/utils/cellbuilder/cellResize";
 import {syncMoveMeasure} from "./cellDimensions";
+import {movableSet, movableWorldCentre, multiMoveActive} from "./multiMove";
 
 // --- Move measure ----------------------------------------------------------
 // While a cell (or a plugin's ref) is moved (a gizmo drag or the axis-locked modal
@@ -87,13 +90,20 @@ export const cellCenterModel = (ctx: CellBuilderScene, cell: CellBox): Vec3 => [
 // Equipment cells whose CENTRE sits inside `cell`'s box (all 3 axes, so the
 // two floors of a stacked model don't grab each other's units) — these ride
 // along when the space cell is translated. Captured once at drag start.
+// Only its own structure's: another structure's numbers are in another frame.
 export const equipContainedIn = (ctx: CellBuilderScene, cell: BuilderCell): string[] => {
-    if (cell.kind !== "cell" || !useCellBuilderStore.getState().moveEquipWithCell) return [];
+    const st = useCellBuilderStore.getState();
+    if (cell.kind !== "cell" || !st.moveEquipWithCell) return [];
     const [ox, oy, oz] = cell.origin;
     const [dx, dy, dz] = cell.size;
+    // A duplicate (Shift+D) lands exactly on top of its original, so the original's own
+    // equipment also tests as "centre inside" the copy's box. While `placingCopyIds` names the
+    // just-placed copies, only equipment that is ITSELF one of them may ride along.
+    const placing = st.placingCopyIds;
     const ids: string[] = [];
-    for (const c of Object.values(useCellBuilderStore.getState().cells)) {
-        if (c.kind !== "equipment") continue;
+    for (const c of Object.values(st.cells)) {
+        if (c.kind !== "equipment" || boxStructure(st, {cell: c}) !== cell.group) continue;
+        if (placing && !placing.includes(c.id)) continue;
         const cx = c.origin[0] + c.size[0] / 2;
         const cy = c.origin[1] + c.size[1] / 2;
         const cz = c.origin[2] + c.size[2] / 2;
@@ -115,8 +125,9 @@ export const applyCellTranslate = (ctx: CellBuilderScene, cell: BuilderCell, ori
 // (always faces the camera) with constant on-screen size (sizeAttenuation
 // off), depth-test off so it shows through geometry. Lives in world space
 // (not the container) — position is the snapped corner + the model offset.
-// Show the marker at a snapped neighbour vertex (model-space), or hide it.
-export const showSnapMarker = (ctx: CellBuilderScene, targetModel: Vec3 | null) => {
+// Show the marker at a snapped neighbour vertex (in the frame `at`, by default
+// the edit frame: the moved item's), or hide it.
+export const showSnapMarker = (ctx: CellBuilderScene, targetModel: Vec3 | null, at?: FrameAt) => {
     if (!targetModel) {
         if (ctx.snapMarker.visible) {
             ctx.snapMarker.visible = false;
@@ -124,27 +135,32 @@ export const showSnapMarker = (ctx: CellBuilderScene, targetModel: Vec3 | null) 
         }
         return;
     }
-    const off = offsetVec(ctx);
+    const off = offsetVec(ctx, at);
     ctx.snapMarker.position.set(targetModel[0] + off.x, targetModel[1] + off.y, targetModel[2] + off.z);
     ctx.snapMarker.visible = true;
     requestRender();
 };
 
 
-// The neighbour-cell corner (model space) nearest the pointer on screen,
-// within SNAP_PX, or null. This is the snap TARGET — the vertex under the
-// cursor — so the marker lands exactly where the user is pointing.
+// The neighbour-cell corner nearest the pointer on screen, within SNAP_PX, or
+// null. This is the snap TARGET — the vertex under the cursor — so the marker
+// lands exactly where the user is pointing. Each cell is where it is drawn (in
+// its structure's frame); the target is given in the edit frame, the moved
+// item's, so a box snaps onto another structure's corner as it is seen.
 export const nearestCornerToPointer = (ctx: CellBuilderScene, excludeCellId: string): Vec3 | null => {
     const cam = builderCamera(ctx);
-    const off = offsetVec(ctx);
+    const st = useCellBuilderStore.getState();
+    const here = ctx.editFrame.position;
     const rect = ctx.host.rect();
     const px =(ctx.pointer.x * 0.5 + 0.5) * rect.width;
     const py = (-ctx.pointer.y * 0.5 + 0.5) * rect.height;
     const v = new THREE.Vector3();
     let best: Vec3 | null = null;
     let bestD = SNAP_PX;
-    for (const c of Object.values(useCellBuilderStore.getState().cells)) {
+    for (const c of Object.values(st.cells)) {
         if (c.id === excludeCellId) continue;
+        const o = boxOrigin(st, {cell: c});
+        const off = offsetVec(ctx, o);
         for (const corner of boxCorners({origin: c.origin, size: c.size})) {
             v.set(corner[0] + off.x, corner[1] + off.y, corner[2] + off.z).project(cam);
             if (v.z < -1 || v.z > 1) continue; // behind camera / clipped
@@ -153,7 +169,7 @@ export const nearestCornerToPointer = (ctx: CellBuilderScene, excludeCellId: str
             const d = Math.hypot(sx - px, sy - py);
             if (d <= bestD) {
                 bestD = d;
-                best = corner;
+                best = [corner[0] + o[0] - here.x, corner[1] + o[1] - here.y, corner[2] + o[2] - here.z];
             }
         }
     }
@@ -255,7 +271,12 @@ export const reconcileModalMove = (ctx: CellBuilderScene) => {
         cell &&
         cell.cell?.kind !== "loft" &&
         boxMoves(cell) &&
-        st.cellsVisible
+        st.cellsVisible &&
+        // A multi-item drag still has a PRIMARY pick (`cell` above), but it moves
+        // through the ordinary gizmo (resizeHandles.ts's multiOn), never this single-item modal
+        // move -- which would otherwise disable the widget out from under the other items.
+        // `multiMoveActive`, not a plain `movableCount(...) < 2`: see multiMove.ts for why.
+        !multiMoveActive(st)
     );
     if (on && cell) {
         const axis = st.gizmoAxisLock as 0 | 1 | 2;
@@ -283,14 +304,69 @@ export function installCellGizmo(ctx: CellBuilderScene): void {
             // Seed the loft member-move baseline at the proxy's current (box-
             // centre) position; cleared when the drag ends.
             ctx.loftDragLast = ctx.gizmoProxy.position.clone();
-            // Capture the equipment sitting in the cell so they ride along.
-            const box = selectedBox(st);
-            ctx.translateEquip = box?.cell && st.gizmoMode === "translate" ? equipContainedIn(ctx, box.cell) : [];
-            if (box && st.gizmoMode === "translate") beginMoveMeasure(ctx, box);
+            // 2+ selected items win outright -- checked first, and NOT gated on "no
+            // primary selection" (`box` below), since a multi-selection still has one (the most
+            // recently picked item drives the detail editors; selectedBox/box reads it, same as a
+            // single pick). The proxy is already at the movable set's world centre (syncGizmo
+            // seeded it there).
+            const multiSet = st.gizmoMode === "translate" ? movableSet(st) : null;
+            // `multiMoveActive`, not a plain `movableCount(multiSet) >= 2`: see
+            // multiMove.ts for why.
+            if (multiSet && multiMoveActive(st)) {
+                const p = ctx.gizmoProxy.position;
+                // Write spaces first, then equipment, then openings, then refs -- never
+                // plain selection order. A global opening re-homes against its space on every
+                // `updateCell` (cellsSlice.ts); writing the space AFTER its opening in the same
+                // tick would re-home the opening against the space's PREVIOUS-tick position.
+                const openingKindRank = (item: {kind: "cell" | "ref"; id: string}): number => {
+                    if (item.kind === "ref") return 3;
+                    const k = st.cells[item.id]?.kind;
+                    return k === "cell" ? 0 : k === "opening" ? 2 : 1; // equipment (or anything else): 1
+                };
+                const entries: {kind: "cell" | "ref"; id: string; start: Vec3}[] = [];
+                for (const item of [...multiSet.entries, ...multiSet.riderIds.map((id) => ({kind: "cell" as const, id}))].sort(
+                    (a, b) => openingKindRank(a) - openingKindRank(b),
+                )) {
+                    const start = item.kind === "cell" ? st.cells[item.id]?.origin : st.refs[item.id]?.origin;
+                    if (start) entries.push({kind: item.kind, id: item.id, start: [...start] as Vec3});
+                }
+                ctx.multiMove = {
+                    startCentre: [p.x, p.y, p.z],
+                    entries,
+                    loftApplied: new Map(multiSet.loftMembers.map((m) => [m, [0, 0, 0] as Vec3])),
+                };
+                if (multiSet.blockedRefIds.length)
+                    st.setToolHint(`${multiSet.blockedRefIds.length} item${multiSet.blockedRefIds.length > 1 ? "s" : ""} not moved`);
+                ctx.translateEquip = [];
+            } else {
+                // Capture the equipment sitting in the cell so they ride along.
+                const box = selectedBox(st);
+                ctx.translateEquip = box?.cell && st.gizmoMode === "translate" ? equipContainedIn(ctx, box.cell) : [];
+                if (box && st.gizmoMode === "translate") beginMoveMeasure(ctx, box);
+                // A structure picked on its own: the drag moves the whole structure.
+                const structure = !box && st.gizmoMode === "translate" ? pickedStructure(st) : undefined;
+                if (structure !== undefined) {
+                    const start = [...structureOrigin(st.groups, structure)] as Vec3;
+                    const p = ctx.gizmoProxy.position;
+                    ctx.structureDrag = {name: structure, start, startCentre: [p.x, p.y, p.z], origin: [...start] as Vec3};
+                }
+            }
         } else {
+            // The structure's new place goes to the store once, at the release: one undo step.
+            const sd = ctx.structureDrag;
+            ctx.structureDrag = null;
+            if (sd && sd.origin.some((v, i) => v !== sd.start[i])) st.setGroupOrigin(sd.name, sd.origin);
+            if (ctx.multiMove) {
+                ctx.multiMove = null;
+                st.setToolHint(null);
+            }
             st.endTransaction();
             ctx.loftDragLast = null;
             ctx.translateEquip = [];
+            // The copy this drag was placing has now been placed -- the next drag (even one
+            // that picks the original space back up) must not have its equipment riders narrowed
+            // to the copy's ids again.
+            if (st.placingCopyIds) st.setPlacingCopyIds(null);
             showSnapMarker(ctx, null); // drag ended — clear the snap indicator
             endMoveMeasure(ctx);
         }
@@ -298,7 +374,60 @@ export function installCellGizmo(ctx: CellBuilderScene): void {
     });
     ctx.gizmo.addEventListener("objectChange", () => {
         const st = useCellBuilderStore.getState();
+        // The multi-item drag, checked first and NOT gated on "no primary selection"
+        // (a multi-selection still has one; see the dragging-changed handler's own comment).
+        // Every entry's new ABSOLUTE origin is the same math a picked structure's own drag already
+        // uses (movedStructureOrigin): its own start, this group's start/current centre, the axes
+        // actually dragged. A loft member moves incrementally (moveLoftMember takes a delta): the
+        // group's quantized delta so far, minus what was already applied to it.
+        const mm = ctx.multiMove;
+        if (mm) {
+            const handle = (ctx.gizmo as unknown as {axis: string | null}).axis;
+            const axes = st.gizmoAxisLock !== null ? [st.gizmoAxisLock as 0 | 1 | 2] : axesOfHandle(handle);
+            const p = ctx.gizmoProxy.position;
+            const centre: Vec3 = [p.x, p.y, p.z];
+            const step = snapStep(gizmoMoveStep(st.gridStep));
+            // The SHARED delta is quantized once here -- not each item's own absolute
+            // start+delta (movedStructureOrigin's single-item rule), which would round items that
+            // are off the grid (refs especially) by different amounts and spread an otherwise rigid
+            // group apart. Every entry then gets the identical delta on the dragged axes, its other
+            // axes untouched.
+            const groupDelta: Vec3 = [0, 0, 0];
+            for (const a of axes) groupDelta[a] = step > 0 ? quantize(centre[a] - mm.startCentre[a], step) : centre[a] - mm.startCentre[a];
+            for (const entry of mm.entries) {
+                const origin: Vec3 = [...entry.start];
+                for (const a of axes) origin[a] = entry.start[a] + groupDelta[a];
+                if (entry.kind === "ref") {
+                    const ref = st.refs[entry.id];
+                    if (ref) writeBox({id: entry.id, ref}, {origin, size: ref.size});
+                } else {
+                    const cell = st.cells[entry.id];
+                    if (cell) st.updateCell(entry.id, {origin});
+                }
+            }
+            for (const [member, applied] of mm.loftApplied) {
+                const tick: Vec3 = [groupDelta[0] - applied[0], groupDelta[1] - applied[1], groupDelta[2] - applied[2]];
+                if (tick[0] || tick[1] || tick[2]) {
+                    st.moveLoftMember(member, tick);
+                    mm.loftApplied.set(member, [...groupDelta] as Vec3);
+                }
+            }
+            requestRender();
+            return;
+        }
         const box = selectedBox(st);
+        // A picked structure: its frames follow the gizmo live, the origin on the grid along the
+        // dragged axes only (free with the left Shift key held); the store is written on release.
+        const sd = ctx.structureDrag;
+        if (!box && sd) {
+            const handle = (ctx.gizmo as unknown as {axis: string | null}).axis;
+            const axes = st.gizmoAxisLock !== null ? [st.gizmoAxisLock as 0 | 1 | 2] : axesOfHandle(handle);
+            const p = ctx.gizmoProxy.position;
+            sd.origin = movedStructureOrigin(sd.start, sd.startCentre, [p.x, p.y, p.z], axes, snapStep(gizmoMoveStep(st.gridStep)));
+            moveStructureFrames(ctx, sd.name, sd.origin);
+            requestRender();
+            return;
+        }
         if (!box) return;
         // A ref moves through its plugin, snapped as a cell is (only the dragged axes); it never turns.
         if (box.ref) {

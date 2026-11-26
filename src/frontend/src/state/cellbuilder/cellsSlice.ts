@@ -11,14 +11,51 @@
 
 import {Vector3} from "three";
 import {useModelState} from "@/state/modelState";
-import {isItemIncluded, withInclude} from "@/utils/cellbuilder/include";
+import {structureNameToGroup} from "@/utils/cellbuilder/groups";
+import {isItemIncluded, itemStructure, placedCells, withInclude} from "@/utils/cellbuilder/include";
+import {rehomeEquipmentParams} from "@/utils/cellbuilder/equipmentHost";
 import {PORT_OVERRIDES_KEY, readPortOverrides, withPortOverride} from "@/utils/cellbuilder/ports";
-import {BOX_FACE_SIDES, applyFaceOffset, quantize, quantizeVec, withAxisLength, type Vec3} from "@/utils/cellbuilder/snap";
+import {BOX_FACE_SIDES, applyFaceOffset, nearestFaceStraddled, quantize, quantizeVec, withAxisLength, type Vec3} from "@/utils/cellbuilder/snap";
 import type {BuilderCell} from "./types";
 import type {CellBuilderSlice} from "./state";
 import {makeWithHistory} from "./historySlice";
 import {extrasForSpaceRename} from "./refsSlice";
 import {BUILDER_DOC_KEYS} from "./docCodec";
+
+/**
+ * A GLOBAL opening's SPACE_NAME/SPACE_SIDE are metadata the tree files it by, not read for its
+ * compiled geometry (it stays USE_GLOBAL_COORDS) -- but once set at creation they go stale on a
+ * move unless kept in sync. Re-homes `opening` (already at its new origin/size) to whichever
+ * space's face it now straddles -- within its own structure, if it names one -- or clears both
+ * keys when it has moved off every candidate. A "local" opening (placed on a side of its space by
+ * the workbook's own columns) is untouched: its SPACE_NAME is load-bearing there, kept in sync by
+ * `renameCell` instead. */
+function rehomeGlobalOpeningParams(
+  cells: Record<string, BuilderCell>,
+  opening: BuilderCell,
+): Record<string, unknown> {
+  const structure = structureNameToGroup(opening.params ?? {});
+  const candidates = Object.values(cells).filter(
+    (c): c is BuilderCell & {kind: "cell"} =>
+      c.kind === "cell" && (structure === undefined || c.group === structure),
+  );
+  const hit = nearestFaceStraddled(opening, candidates);
+  const next = { ...opening.params };
+  if (hit) {
+    next.SPACE_NAME = hit.cell.name;
+    next.SPACE_SIDE = hit.side.label.replace("+", "");
+  } else {
+    delete next.SPACE_NAME;
+    delete next.SPACE_SIDE;
+  }
+  return next;
+}
+
+/** Whether `cell` is a GLOBAL opening (rehomeGlobalOpeningParams applies; a "local" one, placed
+ *  by the workbook's own side/position columns, does not). */
+function isGlobalOpening(cell: BuilderCell): boolean {
+  return cell.kind === "opening" && cell.openingFrame !== "local";
+}
 
 export interface CellsSlice {
   cells: Record<string, BuilderCell>;
@@ -97,10 +134,17 @@ export const createCellsSlice: CellBuilderSlice<CellsSlice> = (set, get) => {
         // Only `axis` moves (and lands on the grid); the other two keep their values exactly.
         const origin: Vec3 = [...cur.origin];
         origin[axis] = quantize(origin[axis] + delta, s.gridStep);
+        let next: BuilderCell = { ...cur, origin };
+        // A global opening's SPACE_NAME/SPACE_SIDE follow it to wherever it lands, and an
+        // equipment's SPACE_NAME follows it to whichever space it now sits over -- both are
+        // metadata the tree files the item by, kept in sync here rather than re-derived wrong
+        // later from a stale name that still happens to resolve to SOME space.
+        if (isGlobalOpening(next)) next = { ...next, params: rehomeGlobalOpeningParams(s.cells, next) };
+        else if (next.kind === "equipment") next = { ...next, params: rehomeEquipmentParams(s.cells, next, s.groups, s.loftMembers) };
         return {
           cells: {
             ...s.cells,
-            [id]: { ...cur, origin },
+            [id]: next,
           },
           dirty: true,
         };
@@ -118,7 +162,9 @@ export const createCellsSlice: CellBuilderSlice<CellsSlice> = (set, get) => {
         };
       }),
     recenterModel: () => {
-      const cells = Object.values(get().cells);
+      // Where the boxes are in the model: each structure's at its origin.
+      const s0 = get();
+      const cells = Object.values(placedCells(s0.cells, s0.groups, s0.loftMembers));
       if (!cells.length) {
         // Empty model — reset to the origin so it doesn't inherit a prior
         // model's offset (which would skew fit-all / cell placement).
@@ -191,8 +237,14 @@ export const createCellsSlice: CellBuilderSlice<CellsSlice> = (set, get) => {
       withHistory((s) => {
         const cur = s.cells[id];
         if (!cur) return {};
+        let next: BuilderCell = { ...cur, ...patch };
+        // Every move/resize of a global opening (drag, resize, modal move, a bulk relocation)
+        // keeps SPACE_NAME/SPACE_SIDE pointed at the face it actually straddles now; every move of
+        // an equipment keeps its SPACE_NAME pointed at the space it actually sits over now.
+        if (patch.origin && isGlobalOpening(next)) next = { ...next, params: rehomeGlobalOpeningParams(s.cells, next) };
+        else if (patch.origin && next.kind === "equipment") next = { ...next, params: rehomeEquipmentParams(s.cells, next, s.groups, s.loftMembers) };
         return {
-          cells: { ...s.cells, [id]: { ...cur, ...patch } },
+          cells: { ...s.cells, [id]: next },
           dirty: true,
         };
       }),
@@ -246,14 +298,11 @@ export const createCellsSlice: CellBuilderSlice<CellsSlice> = (set, get) => {
         // floors itself, so it doesn't bump.
         if (!cell || (cell.kind !== "equipment" && cell.kind !== "opening"))
           return {};
-        // Floor levels = the distinct base-Z of the space cells, ascending.
-        const floors = Array.from(
-          new Set(
-            Object.values(s.cells)
-              .filter((c) => c.kind === "cell")
-              .map((c) => c.origin[2]),
-          ),
-        ).sort((a, b) => a - b);
+        // Floor levels = the distinct base-Z of the space cells, ascending: those
+        // of its own structure, whose frame its coordinates are in.
+        const structure = itemStructure(cell, s.cells, s.groups, s.loftMembers);
+        const own = Object.values(s.cells).filter((c) => c.kind === "cell" && c.group === structure);
+        const floors = Array.from(new Set(own.map((c) => c.origin[2]))).sort((a, b) => a - b);
         if (floors.length < 2) return {};
         const z = cell.origin[2];
         let ci = 0;
@@ -269,7 +318,7 @@ export const createCellsSlice: CellBuilderSlice<CellsSlice> = (set, get) => {
         ];
         // Re-home SPACE_NAME to a space cell on the new floor whose XY footprint
         // holds the moved object (best-effort; geometry keys on X/Y/Z, not name).
-        const host = Object.values(s.cells).find(
+        const host = own.find(
           (c) =>
             c.kind === "cell" &&
             Math.abs(c.origin[2] - floors[ti]) < 1e-6 &&
@@ -298,11 +347,13 @@ export const createCellsSlice: CellBuilderSlice<CellsSlice> = (set, get) => {
         )
           return {};
         const cells = { ...s.cells, [id]: { ...cur, name: trimmed } };
-        // A workbook opening is placed on a side of its space BY NAME (SPACE_NAME): it follows
-        // the renamed space, or it would be written back against a space that is no longer there.
+        // An opening names its space BY NAME (SPACE_NAME): a workbook opening (local) is placed
+        // on a side of it, so a stale name would be written back against a space that is no
+        // longer there; a global opening's SPACE_NAME is metadata only, but it still follows the
+        // rename -- a stale name is as wrong as a missing one for filing it.
         if (cur.kind === "cell") {
           for (const c of Object.values(s.cells)) {
-            if (c.kind === "opening" && c.openingFrame === "local" && c.params?.SPACE_NAME === cur.name)
+            if (c.kind === "opening" && c.params?.SPACE_NAME === cur.name)
               cells[c.id] = { ...c, params: { ...c.params, SPACE_NAME: trimmed } };
           }
         }
